@@ -14872,3 +14872,65 @@ Two things I found while doing it, both of which would have bitten: a page
 served on your own domain would have talked to the *wrong site's* data, and one
 site's pages could have been photographed into another site's. Both closed, both
 with tests.
+
+### The builder tells you why a build failed (2026-08-09)
+
+You built a CRM, the pages didn't compile, and all you were told was "the pages
+didn't compile". You then spent fifteen minutes in developer tools hunting for
+the reason — on a build that cost about 20 credits.
+
+The reason was already in the response. The platform works out exactly what went
+wrong: which stage failed, the compiler's own error, and the specific lines of
+code it pointed at. It sent all of that to your browser and drew none of it.
+
+It's now printed under the plain-English sentence, in a small monospace block.
+Two things that were equally invisible are in there as well, and they show up
+even on builds that SUCCEED: anything the safety check refused (a page that
+would fail for visitors) and any database function that didn't get created. A
+site can publish looking perfectly fine and be quietly broken in one of those
+ways — you'd only have found out when a customer hit it.
+
+Also fixed while in there: when there were several short notes (a photograph
+made, a link that couldn't be read), they ran into each other as one sentence.
+They're on separate lines now.
+
+### Customer sites get their own domain — gofarther.app (2026-08-09)
+
+You bought `gofarther.app` and said customer sites should live there:
+`sharp-fade.gofarther.app` instead of `gofarther.dev/s/sharp-fade/`, unless the
+owner brings their own domain. That's built.
+
+**It is not switched on yet, on purpose.** The zone has to be in your Cloudflare
+account first, and turning it on before that would fail every deploy — that
+exact thing happened on 7 August with the other domain and cost three merges,
+with an error naming a feature that had nothing to do with it. So there is one
+switch, and both halves of it are held together by a test: you cannot turn on
+half and ship it.
+
+**What you need to do, in this order:**
+
+1. Cloudflare dashboard → Add a domain → `gofarther.app`, then change the
+   nameservers at the registrar to the two Cloudflare gives you. Wait for the
+   zone to read **Active**.
+2. Run the **site zone setup** workflow (Actions tab). Leave "apply" off the
+   first time and read what it says; then run it again with apply on. It creates
+   the two DNS records and refuses to touch anything you put there yourself.
+3. Tell me, and I flip the switch — one line in each of two files, one commit.
+
+**Two things worth knowing about the decision.** Subdomains of a domain we own
+are covered by Cloudflare's free certificate, so these cost nothing and don't
+eat into the 100 custom domains — those stay for customers who bring their own.
+And putting customer sites on a *different* domain from the app is a real
+security gain: the pages are written by a model, and now nothing they do can
+reach a signed-in session on gofarther.dev.
+
+`gofarther.app` on its own — no subdomain — sends people to gofarther.dev. And
+every existing `/s/<slug>/` link keeps working; nothing you have handed out
+breaks.
+
+**One thing I fixed while in there, because it made the new address untestable.**
+The page picker above the preview was still addressing pages the old way (with a
+`#`), left over from Tuesday's routing change. Picking "Press" changed the label
+and left the preview on the home page — which looks exactly like the build only
+having made one page. The address you copy out of that bar had the same fault,
+so anything you sent someone would have opened the home page instead. Both fixed.

@@ -28,8 +28,67 @@
  * Matched as a SUFFIX with a dot, not with `endsWith` alone: `endsWith(".dev")`
  * is not the question, and `notgofarther.dev` must remain claimable by whoever
  * actually owns it.
+ *
+ * `gofarther.app` IS IN HERE FOR A SECOND REASON, and it is the one that bites.
+ * Every published site has an automatic address at `<slug>.gofarther.app`, so
+ * leaving that zone claimable lets somebody register `sharp-fade.gofarther.app`
+ * as their "custom domain" pointing at THEIR slug — two rows answering for one
+ * hostname, and whichever the lookup finds first wins. The subdomain space is
+ * ours to hand out, never a customer's to claim.
  */
-export const OWN_ZONES = ["gofarther.dev"];
+export const OWN_ZONES = ["gofarther.dev", "gofarther.app"];
+
+/**
+ * The two zones do DIFFERENT JOBS, and `isOwnHostname` can no longer tell them
+ * apart — which is the trap in this change rather than a detail of it.
+ *
+ * `APP_ZONE` serves the workspace: the builder, sign-in, every `/api/` route.
+ * `SITE_ZONE` serves customers' published sites, one subdomain each, and
+ * NOTHING of the app. Before this there was one zone and `isOwnHostname` meant
+ * both things at once; anything that asked it "is this the app?" now has to ask
+ * `isAppHostname` instead, or a site on the `.app` zone gets served as though
+ * it were mounted under `/s/<slug>/` on the workspace.
+ *
+ * Keeping customer content on a separate REGISTRABLE domain is worth having on
+ * its own: model-written page code runs on `gofarther.app`, so a stored XSS on
+ * somebody's published site is same-origin with nothing that matters — the
+ * owner's session lives on `gofarther.dev` and cookies do not cross a
+ * registrable boundary.
+ */
+export const APP_ZONE = "gofarther.dev";
+export const SITE_ZONE = "gofarther.app";
+
+/**
+ * IS THE SITE ZONE ACTUALLY SERVING? One switch, and everything reads it.
+ *
+ * The zone has to be added to Cloudflare, its nameservers moved and a wildcard
+ * record created before a single `<slug>.gofarther.app` resolves. Until then a
+ * pretty URL is a link that does not load, so `siteHostFor` answers null and
+ * every caller falls back to the `/s/<slug>/` address that has always worked.
+ *
+ * It pairs with the commented-out Worker route in `wrangler.jsonc`: a route for
+ * a zone that is not in the account FAILS THE WHOLE DEPLOY at the routes PUT —
+ * measured on 2026-08-07 with the bare wildcard route, which took three merges
+ * down. The two must flip together, and `test/site-zone.test.mjs` asserts they agree in both
+ * directions so neither can be turned on alone.
+ */
+export const SITE_ZONE_LIVE = false;
+
+/**
+ * Labels under the site zone that are never a customer's site.
+ *
+ * Some are already taken by DNS the platform needs (`www`, `_domainconnect`);
+ * the rest are the names anything we build later would reach for first. A slug
+ * is claimed first-come and cannot be renamed, so a customer holding `api` is
+ * a name we can never use again — cheaper to reserve now than to negotiate.
+ */
+const RESERVED_SUBS = new Set([
+  "www", "api", "app", "admin", "mail", "email", "smtp", "ns", "ns1", "ns2",
+  "cdn", "static", "assets", "files", "img", "images", "media", "upload",
+  "saas", "status", "docs", "help", "support", "blog", "dev", "staging",
+  "test", "demo", "preview", "dashboard", "account", "billing", "auth",
+  "login", "signup", "go", "s", "u", "_domainconnect", "_dck1", "_dck2",
+]);
 
 /** RFC 1035 lengths. A label is 63, a name is 253. */
 const MAX_LABEL = 63, MAX_NAME = 253;
@@ -99,10 +158,98 @@ export function normalizeHostname(raw) {
   return s;
 }
 
-/** Is this one of ours, or under one of ours? */
+/** Is this one of ours, or under one of ours? Either zone. */
 export function isOwnHostname(host) {
   const h = String(host || "").toLowerCase();
   return OWN_ZONES.some((z) => h === z || h.endsWith("." + z));
+}
+
+/**
+ * Is this the WORKSPACE, as opposed to a published site?
+ *
+ * The narrow question `isOwnHostname` used to answer by accident, split out
+ * when the site zone arrived. Everything that serves the app, and everything
+ * that decides whether a bundle is mounted at `/s/<slug>/` or at `/`, asks this
+ * one — asking the wide one gives the site zone the app's answer.
+ */
+export function isAppHostname(host) {
+  const h = String(host || "").toLowerCase();
+  return h === APP_ZONE || h.endsWith("." + APP_ZONE);
+}
+
+/**
+ * A slug that may be a DNS label.
+ *
+ * A build slug is already `[a-z0-9-]` capped at 60 (`worker.js`), so this is
+ * nearly always true — but that filter permits `-shop` and `shop-`, which are
+ * not legal labels, and a name that cannot exist in DNS must not be offered as
+ * an address. Such a site keeps the `/s/<slug>/` one and loses nothing.
+ */
+function labelOk(slug) {
+  const s = String(slug || "").toLowerCase();
+  return s.length > 0 && s.length <= MAX_LABEL && /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(s);
+}
+
+/**
+ * `<slug>.gofarther.app` → the slug, or null.
+ *
+ * ONE LABEL, DELIBERATELY. Cloudflare's Universal SSL covers `gofarther.app`
+ * and `*.gofarther.app` and nothing deeper, so `a.b.gofarther.app` has no
+ * certificate and cannot be served over HTTPS at all — matching it here would
+ * be routing a request to a site the browser will refuse to load, which reads
+ * to the visitor as the site being broken rather than the name being wrong.
+ *
+ * The apex and `www` answer null too. They are the zone itself, not a site;
+ * `worker.js` sends them to the workspace rather than serving whichever
+ * customer happened to pick that word.
+ */
+export function siteHostSlug(host) {
+  const h = String(host || "").toLowerCase().replace(/\.$/, "");
+  const suffix = "." + SITE_ZONE;
+  if (!h.endsWith(suffix)) return null;
+  const label = h.slice(0, -suffix.length);
+  if (RESERVED_SUBS.has(label)) return null;
+  // `labelOk` IS THE WHOLE SECOND-LABEL CHECK. There was an explicit
+  // `label.includes(".")` here and a mutation proved it could never fire: the
+  // label pattern permits no dot, so `a.b` fails it anyway. Removed rather than
+  // left as protection that reads real and is not — the same call, for the same
+  // reason, that `normalizeHostname` records two lines above its own LDH test.
+  return labelOk(label) ? label : null;
+}
+
+/**
+ * The other direction: a slug → the address to SHOW somebody, or null.
+ *
+ * Null while the zone is dark, and null for a slug that cannot be a label —
+ * both mean "this site has no pretty address", which every caller already
+ * handles by falling back to `/s/<slug>/`.
+ *
+ * The inverse of `siteHostSlug` and asserted to be: two functions that disagree
+ * about which hostname belongs to which site is a link the panel prints and the
+ * router does not recognise.
+ */
+export function siteLabelFor(slug) {
+  const s = String(slug || "").toLowerCase();
+  if (RESERVED_SUBS.has(s) || !labelOk(s)) return null;
+  return s + "." + SITE_ZONE;
+}
+
+export function siteHostFor(slug) {
+  // TWO QUESTIONS, KEPT APART, and a mutation is why. Folded together, every
+  // assertion about which slugs can be a hostname passed VACUOUSLY while the
+  // zone was dark — the flag returned null first, so deleting the label rules
+  // entirely changed nothing any test could see, and they would have come back
+  // to life untested on the day the flag flipped. `siteLabelFor` answers "can
+  // this slug be a hostname" and is testable today; this one answers "should we
+  // show it yet".
+  return SITE_ZONE_LIVE ? siteLabelFor(slug) : null;
+}
+
+/** The full public URL of a published site, pretty when there is one. */
+export function siteUrlFor(slug, origin) {
+  const host = siteHostFor(slug);
+  if (host) return "https://" + host + "/";
+  return String(origin || "") + "/s/" + String(slug || "") + "/";
 }
 
 /**

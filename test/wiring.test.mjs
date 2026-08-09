@@ -366,7 +366,11 @@ test("the photograph sentence reaches the chat", () => {
   assert.match(worker, /imagesNote: imageNote\(pages\.images\)/);
   assert.match(clientJs, /d\.imagesNote === 'string'/,
     "public/chat.js must actually read it");
-  assert.match(clientJs, /siteFinishBuild\(origin, .*, build, note\)/,
+  // `[,)]` rather than a closing paren: the call grew a fifth argument (the
+  // build's own failure diagnosis) and this pinned the ARITY while meaning to
+  // pin the note. A guard that breaks on an added argument gets loosened by
+  // whoever hits it, which is worse than one that never fired.
+  assert.match(clientJs, /siteFinishBuild\(origin, .*, build, note[,)]/,
     "and pass it through as the note");
 });
 
@@ -611,4 +615,92 @@ test("every build output is wiped before the next build starts", () => {
   // after a container start is the one every later site gets snapshotted as.
   assert.match(src, /entry-server\.js"\)\)\.href \+ "\?v=" \+ Date\.now\(\)/,
     "the SSR bundle is imported without a cache buster — every build would reuse the first one");
+});
+
+// ── THE PLATFORM MUST SAY WHY A BUILD FAILED ────────────────────────────────
+//
+// It diagnosed this completely and threw the diagnosis away at the last layer.
+// `stage`, `error` and `cited` (the exact source lines the compiler pointed at)
+// came back on every failed build; `problems` (the lint's findings) and
+// `functionErrors` (model-written SQL that failed to create) came back even on a
+// SUCCESSFUL one — and the client rendered none of the five. The owner saw "the
+// pages didn't compile" and had to open devtools to learn anything more.
+// Measured 2026-08-09 on a real ~20-credit build: fifteen minutes hunting for an
+// answer the response already carried.
+//
+// THE CHAIN IS ASSERTED LINK BY LINK, because "computed, returned, rendered by
+// nothing" is the exact shape being fixed and it is this repo's signature
+// failure. Four of five links working is what every previous instance looked
+// like.
+test("a failed build's own diagnosis reaches the screen", () => {
+  const client = fs.readFileSync(path.join(ROOT, "public/chat.js"), "utf8");
+  const css = fs.readFileSync(path.join(ROOT, "public/styles.css"), "utf8");
+
+  // 1. the server still sends all five
+  for (const field of ["stage", "error", "cited", "problems", "functionErrors"]) {
+    assert.ok(new RegExp(`\\b${field}:`).test(worker),
+      `the build response stopped carrying ${field} — there is nothing left to render`);
+  }
+
+  // 2. the client reads each of them
+  const i = client.indexOf("function buildWhy(");
+  assert.ok(i > 0, "buildWhy is gone — the diagnosis is discarded again");
+  const body = client.slice(i, client.indexOf("\n}", client.indexOf("return out.join", i)));
+  // ANCHORED ON THE CONDITION, not on the name appearing. A mutation to
+  // `if (false && Array.isArray(d.problems))` leaves `d.problems` right there in
+  // the source and survived a first sweep — the same trap this repo records
+  // against message strings, one field over.
+  for (const field of ["cited", "problems", "functionErrors"]) {
+    assert.ok(new RegExp(`if \\(Array\\.isArray\\(d\\.${field}\\)\\)`).test(body)
+      || new RegExp(`if \\(Array\\.isArray\\(d\\.${field}\\)\\s*&&`).test(body),
+      `buildWhy no longer guards on d.${field} being an array — it is either ignored or unguarded`);
+  }
+  for (const field of ["stage", "error"]) {
+    assert.ok(new RegExp(`typeof d\\.${field} === 'string'`).test(body), `buildWhy ignores ${field}`);
+  }
+  // The lint's findings and a failed function are NOT gated on the placeholder:
+  // a site can publish while carrying either, and those are the failures nobody
+  // would otherwise notice, because the site looks fine until a visitor hits the
+  // broken part.
+  // Extracted by brace matching rather than by regex: `problems` and
+  // `functionErrors` must sit OUTSIDE the placeholder branch, because a site can
+  // publish while carrying either — a page the lint refused, or a confirmation
+  // function that never got created — and those are the failures nobody would
+  // otherwise notice, since the site looks fine until a visitor hits the broken
+  // part.
+  const ph = body.indexOf("if (d.page === 'placeholder') {");
+  assert.ok(ph > 0, "the placeholder branch is gone");
+  let depth = 0, close = ph;
+  for (let k = ph; k < body.length; k++) {
+    if (body[k] === "{") depth++;
+    else if (body[k] === "}" && --depth === 0) { close = k; break; }
+  }
+  const inside = body.slice(ph, close);
+  for (const field of ["problems", "functionErrors"]) {
+    assert.ok(!inside.includes("d." + field),
+      `${field} is trapped inside the placeholder branch — a site that PUBLISHED never reports it`);
+  }
+
+  // 3. IT IS CALLED. A helper that is defined and never invoked is the same bug
+  //    wearing a fix — asserted apart from its definition, the Bookmarks lesson.
+  assert.match(client, /siteFinishBuild\(origin, \(built \? '✅ ' : '⚠️ '\)[^;]*, build, note, buildWhy\(d\)\)/,
+    "buildWhy is defined and never called on the build path");
+
+  // 4. IT IS STORED, so it survives a reload — the thread is rebuilt from
+  //    localStorage, and a diagnosis that vanishes on refresh is half a fix.
+  assert.match(client, /s\.msgs\.push\(\{ r: 'a', t: reply, note: note \|\| undefined, why: why \|\| undefined/,
+    "the diagnosis is not stored on the message");
+
+  // 5. IT IS RENDERED.
+  assert.match(client, /m\.why \? '<div class="st-why">' \+ esc\(m\.why\) \+ '<\/div>' : ''/,
+    "nothing paints the diagnosis");
+
+  // 6. AND IT IS READABLE. This carries file:line references and real source
+  //    lines; without preserved newlines four errors become one unreadable
+  //    sentence. `.st-note` had exactly that bug — it was split out of `.st-msg`
+  //    to fix collapsing newlines and then never given a white-space of its own,
+  //    so the notes it joins with "\n" ran together anyway.
+  assert.match(css, /\.st-why \{[^}]*white-space: pre-wrap/, ".st-why collapses its newlines");
+  assert.match(css, /\.st-why \{[^}]*monospace/, ".st-why is not monospace — source lines lose their shape");
+  assert.match(css, /\.st-note \{[^}]*white-space: pre-line/, ".st-note runs its separate notes together again");
 });

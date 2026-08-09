@@ -9957,19 +9957,33 @@ function bindSiteNav() {
 // current page visible until the new one commits, so the swap is seamless
 // (Lovable-style). Only the picker label, the URL chip, and the iframe content
 // update. In Code/More views there's no live iframe, so fall back to a render.
+// A SECOND COPY OF TWO CONSTANTS, kept honest by test/site-zone.test.mjs.
+//
+// The client cannot import a Worker module, and the repo's usual answer is to
+// compose the string on the server — right for prose, wrong here: a per-site
+// address computed at build time is stale for every site built before the zone
+// went live, so every existing customer would keep seeing the old link until
+// they happened to make a change. Two constants read at render time make every
+// chip correct the moment the flag flips. The test reads site-domains.mjs and
+// fails if either drifts.
+const SITE_ZONE = 'gofarther.app';
+const SITE_ZONE_LIVE = false;
+
 // The address shown above the preview — and the one people copy out of it.
 //
-// IT HAS TO BE A URL THAT WORKS. It read "gofarther.dev/s/hey/press" for a React
-// site, which is not where that page lives: the app routes on the hash, so the
-// server would look for `sites/hey/press.html` and 404. The trailing slash
-// matters for the same reason the Worker now redirects to it — the bundle is
-// referenced relatively, and without it nothing loads.
+// IT HAS TO BE A URL THAT WORKS, which it twice was not. It read
+// "gofarther.dev/s/hey/press" when the app was hash-routed and that page lived
+// at `#/press`; the fragment was added, and then the router moved to browser
+// history on 2026-08-09 and the fragment became wrong in the other direction —
+// `/s/hey/#/press` loads the home page and the customer sends that to somebody.
+// Pages have real addresses now, so the path is just the path.
 function siteChipUrl(site, path) {
   if (!site || !site.slug) return 'Draft preview — publish to get a live link';
-  const base = 'gofarther.dev/s/' + site.slug + '/';
-  const p = path && path !== '/' ? path : '';
-  if (!p) return base;
-  return base + (site.react ? '#' + p : p.replace(/^\//, ''));
+  const base = SITE_ZONE_LIVE
+    ? site.slug + '.' + SITE_ZONE + '/'
+    : 'gofarther.dev/s/' + site.slug + '/';
+  const p = path && path !== '/' ? String(path).replace(/^\//, '') : '';
+  return base + p;
 }
 function switchSitePage(path) {
   const s = siteById(siteOpenId); if (!s) return;
@@ -9988,9 +10002,18 @@ function switchSitePage(path) {
   if (f && target.html) loadSitePreview(f, target.html, s.slug);
   // A REACT PAGE HAS NO `html` TO LOAD, so the branch above skipped it entirely
   // and the frame kept showing whatever it already had while the label changed.
-  // Only the hash differs, so the browser treats this as an in-document
-  // navigation — no reload, which is the seamless swap this function exists for.
-  else if (f && s.react && s.url) f.src = s.url + '?v=' + (s.previewV || 1) + (path !== '/' ? '#' + path : '');
+  // A REAL PATH, not a fragment. This said `+ '#' + path` and worked for exactly
+  // as long as the app was hash-routed; since the router moved to browser
+  // history the fragment is inert, so picking "Press" changed the label and left
+  // the frame on the home page — indistinguishable from the build having made
+  // one page. The Worker answers an extensionless path with that route's
+  // prerendered HTML, so this is a real navigation and it reloads.
+  //
+  // THE PREVIEW STAYS ON `/s/<slug>/`, not the `.gofarther.app` address, and
+  // that is deliberate: the frame is our own view of the site, same-origin with
+  // the builder, and pointing it at the public host would make every preview a
+  // cross-origin load for no gain. The public address is what the chip shows.
+  else if (f && s.react && s.url) f.src = s.url + (path !== '/' ? String(path).replace(/^\//, '') : '') + '?v=' + (s.previewV || 1);
   if (typeof paintPreviewErrBadge === 'function') paintPreviewErrBadge();
 }
 function renderSites() {
@@ -10625,7 +10648,7 @@ function renderSiteWorkspace(view, site) {
     const linkify = (s) => esc(s).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
     thread.innerHTML = (site.msgs || []).map((m) => m.r === 'u'
       ? '<div class="st-msg u">' + esc(m.t) + '</div>'
-      : '<div class="st-msg a">' + (m.note ? '<div class="st-note">' + esc(m.note) + '</div>' : '') + linkify(m.t) + (m.build ? reactStepsHTML(m.build) : '') + siteAskHTML(m, site) + '<span class="st-acts"><button type="button" class="st-act" data-copy="1" title="Copy">⧉</button></span></div>'
+      : '<div class="st-msg a">' + (m.note ? '<div class="st-note">' + esc(m.note) + '</div>' : '') + linkify(m.t) + (m.why ? '<div class="st-why">' + esc(m.why) + '</div>' : '') + (m.build ? reactStepsHTML(m.build) : '') + siteAskHTML(m, site) + '<span class="st-acts"><button type="button" class="st-act" data-copy="1" title="Copy">⧉</button></span></div>'
     ).join('') + (siteBusy
       ? (siteBuild
           ? (siteBuild.react
@@ -10658,13 +10681,15 @@ function renderSiteWorkspace(view, site) {
     // React sites are served compiled at /s/<slug>/ — point the iframe straight
     // there (cache-busted per revise) instead of the draft-preview HTML path.
     //
-    // THE PICKED PAGE RIDES IN THE HASH, because the generated app is built on
-    // `createHashHistory()` (main.tsx) — which is right for a static host, since
-    // a real path would need the server to answer /s/<slug>/press with
-    // index.html and it answers 404. Without this the picker changed the label
-    // and the frame kept showing the home page.
+    // THE PICKED PAGE IS A REAL PATH. It rode in the hash while the generated
+    // app was built on `createHashHistory()`, and the comment here used to give
+    // the reason: a real path needed the server to answer `/s/<slug>/press`
+    // with something, and it answered 404. It answers that now — with the
+    // route's prerendered HTML, or the app shell — so the fragment stopped
+    // being the mechanism and became the bug, leaving the frame on the home
+    // page whatever the picker said. Same fix as `switchSitePage`.
     const at = (active && active.path) || '/';
-    fr.src = site.url + '?v=' + (site.previewV || 1) + (at !== '/' ? '#' + at : '');
+    fr.src = site.url + (at !== '/' ? String(at).replace(/^\//, '') : '') + '?v=' + (site.previewV || 1);
   } else if (fr && curHtml) {
     sitePreviewErrs[site.id + '|' + (site.active || '/')] = []; // fresh page load → clear stale errors
     loadSitePreview(fr, curHtml, site.slug);
@@ -10942,7 +10967,46 @@ async function readReactStream(r, origin) {
 }
 // Finish a React build/revise: stop the live log, append the assistant message
 // WITH its step data (so the collapsed rows persist in the thread), re-render.
-function siteFinishBuild(origin, reply, build, note) {
+// WHY A BUILD CAME BACK AS THE DATA MODEL — or shipped with something wrong.
+//
+// The platform diagnoses this completely and threw the diagnosis away at the
+// last layer: `stage`, `error` and `cited` (the exact source lines the compiler
+// pointed at) came back on every failed build, `problems` (the lint's findings)
+// and `functionErrors` (model-written SQL that failed to create) came back even
+// on a SUCCESSFUL one — and `public/chat.js` rendered none of the five. The
+// owner was told "the pages didn't compile" and had to open devtools to learn
+// anything more. Measured 2026-08-09: fifteen minutes hunting for an answer the
+// response already carried, on a build that cost ~20 credits.
+//
+// BOUNDED, because tsc echoes one mistake through the whole tree: the first few
+// lines are the causes and the tail is the echo. `cited` is the useful half and
+// is already capped at four server-side.
+function buildWhy(d) {
+  if (!d) return '';
+  const out = [];
+  const line = (x, n) => String(x == null ? '' : x).replace(/\s+/g, ' ').trim().slice(0, n || 220);
+  if (d.page === 'placeholder') {
+    if (typeof d.stage === 'string' && d.stage) out.push('stage: ' + line(d.stage, 40));
+    if (typeof d.error === 'string' && d.error.trim()) {
+      const first = d.error.split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 4);
+      for (const l of first) out.push(line(l, 300));
+    }
+  }
+  if (Array.isArray(d.cited)) for (const c of d.cited.slice(0, 4)) out.push(line(c));
+  // These two are NOT gated on the placeholder: a site can publish with a page
+  // the lint refused, or with a confirmation function that never got created —
+  // and those are exactly the failures nobody would otherwise notice, because
+  // the site looks fine until a visitor hits the broken part.
+  if (Array.isArray(d.problems)) for (const p of d.problems.slice(0, 4)) out.push('lint: ' + line(p));
+  if (Array.isArray(d.functionErrors)) {
+    for (const f of d.functionErrors.slice(0, 3)) {
+      out.push('function ' + line(f && f.name, 40) + ': ' + line(f && f.error, 160));
+    }
+  }
+  return out.join('\n');
+}
+
+function siteFinishBuild(origin, reply, build, note, why) {
   siteBusy = false; siteBuildMsg = ''; siteBuildStop();
   const s = siteById(origin); if (!s) return;
   // `note` is its OWN field rather than being prepended to `t` with a blank
@@ -10952,7 +11016,7 @@ function siteFinishBuild(origin, reply, build, note) {
   // ("couldn't read your link"). Caught by looking at a render; every test
   // passed. Stored on the message so it survives a reload, since the thread is
   // rebuilt from localStorage.
-  s.msgs.push({ r: 'a', t: reply, note: note || undefined, build: build });
+  s.msgs.push({ r: 'a', t: reply, note: note || undefined, why: why || undefined, build: build });
   s.updatedAt = Date.now(); sitesSave();
   if (siteOpenId === origin) renderSites();
 }
@@ -11179,7 +11243,7 @@ function reactSend(site, t, origin, mode, imgs, finish, qa) {
       const built = !d || d.page !== 'placeholder';
       const canned = mode === 'revise' ? 'Updated — the preview’s refreshed.'
         : 'Built ' + (name ? '“' + name + '”' : 'your site') + '. Tell me what to change.';
-      siteFinishBuild(origin, (built ? '✅ ' : '⚠️ ') + (said || canned), build, note);
+      siteFinishBuild(origin, (built ? '✅ ' : '⚠️ ') + (said || canned), build, note, buildWhy(d));
     } else if (r.status === 402 || (d && d.need === 'credits')) {
       finish('⚡ You don’t have enough credits to build this right now. Tap your ✦ balance up top to get more.');
     } else if (d && d.need === 'rebuild') {

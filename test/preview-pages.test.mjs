@@ -17,16 +17,30 @@ import fs from "node:fs";
 
 const chat = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
 
-const lift = (name) => {
+// The module-level constants `siteChipUrl` closes over, LIFTED FROM THE SAME
+// SOURCE rather than restated here. A hand-written copy in a test is a third
+// place the zone name lives, and the one nobody would think to update — which
+// is how a test goes on passing against a function that has moved on.
+const zoneConst = (chat.match(/^const SITE_ZONE = '[^']+';$/m) || [])[0];
+const liveConst = (chat.match(/^const SITE_ZONE_LIVE = (?:true|false);$/m) || [])[0];
+assert.ok(zoneConst && liveConst, "the site-zone constants are gone from chat.js; the chip tests check nothing");
+
+/** Lift a function, optionally forcing the site zone on so both states are covered. */
+const lift = (name, { live = null } = {}) => {
   const i = chat.indexOf("function " + name + "(");
   assert.ok(i > 0, name + " is gone; this file checks nothing");
   const end = chat.indexOf("\nfunction ", i + 10);
   assert.ok(end > i, "could not find the end of " + name);
+  const consts = zoneConst + "\n"
+    + (live === null ? liveConst : "const SITE_ZONE_LIVE = " + String(live) + ";") + "\n";
   // eslint-disable-next-line no-eval
-  return eval(chat.slice(i, end) + "\n" + name);   // newline: the slice can end on a comment
+  return eval(consts + chat.slice(i, end) + "\n" + name);   // newline: the slice can end on a comment
 };
 const reactRoutePages = lift("reactRoutePages");
 const siteChipUrl = lift("siteChipUrl");
+// The address as it will read once the zone is live, driven now so the flip is
+// a one-line change and not a discovery.
+const siteChipUrlLive = lift("siteChipUrl", { live: true });
 const names = (files) => reactRoutePages(files).map((p) => p.name + " " + p.path);
 
 test("every route file becomes a page, with home first", () => {
@@ -69,22 +83,35 @@ test("names are readable, and nesting is kept", () => {
 });
 
 test("the address chip shows a URL that would actually work", () => {
-  // IT DID NOT. For a React site it read "gofarther.dev/s/hey/press", and that
-  // page does not live there: the app routes on the hash, so the server looks
-  // for `sites/hey/press.html` and 404s. This is the string people copy out of
-  // the preview to send to somebody.
+  // IT HAS BEEN WRONG TWICE, in opposite directions, and this is the string
+  // people copy out of the preview and send to a customer. First it read
+  // "gofarther.dev/s/hey/press" while the app was hash-routed and that page
+  // lived at `#/press`; the fragment was added, and then the router moved to
+  // browser history on 2026-08-09 and the fragment became the bug — `/s/hey/#/
+  // press` loads the home page. Pages have real addresses, so does the chip.
   const react = { slug: "hey", react: true };
-  assert.equal(siteChipUrl(react, "/press"), "gofarther.dev/s/hey/#/press");
+  assert.equal(siteChipUrl(react, "/press"), "gofarther.dev/s/hey/press");
   assert.equal(siteChipUrl(react, "/"), "gofarther.dev/s/hey/");
   assert.equal(siteChipUrl(react, null), "gofarther.dev/s/hey/");
   // THE TRAILING SLASH IS NOT COSMETIC — the bundle is referenced relatively, so
   // without it the browser resolves /s/assets/... and the page renders blank.
   assert.ok(siteChipUrl(react, "/").endsWith("/"), "the chip drops the trailing slash");
-  // A static site has real paths and no hash.
+  // React or static, the address is the same shape now.
   assert.equal(siteChipUrl({ slug: "hey" }, "/press"), "gofarther.dev/s/hey/press");
   // No slug yet: say so rather than showing a broken link.
   assert.match(siteChipUrl({}, "/"), /Draft preview/);
   assert.match(siteChipUrl(null, "/"), /Draft preview/);
+});
+
+test("once the site zone is live the chip is the subdomain", () => {
+  // Driven with the flag forced on, so turning it on for real is a one-line
+  // change rather than a discovery. The slash rule survives the move: a bundle
+  // referenced relatively needs it on either host.
+  const react = { slug: "hey", react: true };
+  assert.equal(siteChipUrlLive(react, "/"), "hey.gofarther.app/");
+  assert.equal(siteChipUrlLive(react, "/press"), "hey.gofarther.app/press");
+  assert.ok(siteChipUrlLive(react, "/").endsWith("/"));
+  assert.match(siteChipUrlLive(null, "/"), /Draft preview/);
 });
 
 test("the preview follows the picked page", () => {
@@ -95,15 +122,33 @@ test("the preview follows the picked page", () => {
   assert.ok(block.length > 300, "switchSitePage moved; this guard checks nothing");
   assert.match(block, /else if \(f && s\.react && s\.url\) f\.src =/,
     "picking a page on a React site changes the label and not the preview");
-  // The path goes in the HASH. A real path would need the server to answer
-  // /s/<slug>/press with index.html, and it answers 404.
-  assert.match(block, /\(path !== '\/' \? '#' \+ path : ''\)/, "the page is not addressed by hash");
+  // A REAL PATH, not a fragment. The hash was right while the app was
+  // hash-routed and a real path 404'd; the Worker answers an extensionless path
+  // with that route's prerendered HTML now, so the fragment stopped being the
+  // mechanism and became the reason the frame stayed on the home page.
+  assert.match(block, /\(path !== '\/' \? String\(path\)\.replace\(\/\^\\\/\/, ''\) : ''\)/,
+    "the picked page is not addressed by path");
+  // THE ABSENCE CHECK IS ON THE ASSIGNMENT LINE, not the block. The comment
+  // above that line explains what the fragment used to do and so contains the
+  // literal — scanned over the whole block this assertion is defeated by prose,
+  // which is the comment-vs-code failure this repo has recorded more than once.
+  const srcLine = (block.match(/^.*f\.src = s\.url.*$/m) || [""])[0];
+  assert.ok(srcLine, "the preview src assignment is gone");
+  assert.doesNotMatch(srcLine, /'#'/, "a fragment is inert under browser history");
 
   // And the first render agrees with it, or opening a site lands somewhere the
   // picker then disagrees about.
   const j = chat.indexOf("if (fr && isReact) {");
-  const first = chat.slice(j, j + 900);
-  assert.match(first, /\(at !== '\/' \? '#' \+ at : ''\)/, "the initial preview ignores the active page");
+  assert.ok(j > 0, "the first-render branch is gone");
+  // TO A LANDMARK, not a byte count: a window sized in characters stops
+  // covering what it was written for the moment a comment is added above the
+  // line, which is this repo's recurring source-guard bug.
+  const first = chat.slice(j, chat.indexOf("} else if (fr && curHtml) {", j));
+  assert.match(first, /\(at !== '\/' \? String\(at\)\.replace\(\/\^\\\/\/, ''\) : ''\)/,
+    "the initial preview ignores the active page");
+  const firstLine = (first.match(/^.*fr\.src = site\.url.*$/m) || [""])[0];
+  assert.ok(firstLine, "the first-render src assignment is gone");
+  assert.doesNotMatch(firstLine, /'#'/, "a fragment is inert under browser history");
 });
 
 test("a revise that reports no files keeps the pages it had", () => {

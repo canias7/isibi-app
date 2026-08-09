@@ -1605,7 +1605,21 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    matters most is the one saying a link was NOT read. Muted and ruled rather
    than coloured: the platform is monochrome, and a caveat that depends on hue
    says nothing in greyscale. */
-.st-note { font-size: .8rem; color: var(--muted); line-height: 1.45; margin: 0 0 .45rem; padding-left: .6rem; border-left: 2px solid var(--line); }
+/* `white-space: pre-line` because the note is SEVERAL notes joined with "\n" —
+   a link that could not be read, a token change, a photograph budget. Without
+   it they collapse into one run-on line, which is the exact failure this
+   element was split out of `.st-msg` to fix: it was fixed one level up and left
+   in place one level down. `pre-line` and not `pre-wrap`, so the newlines
+   survive while incidental indentation does not. */
+.st-note { font-size: .8rem; color: var(--muted); line-height: 1.45; margin: 0 0 .45rem; padding-left: .6rem; border-left: 2px solid var(--line); white-space: pre-line; }
+/* WHY A BUILD FAILED, in the compiler's own words.
+   Monospace and `pre-wrap`: this carries file:line references and real source
+   lines, where a collapsed newline turns four separate errors into one
+   unreadable sentence and a lost indent changes what the line says. Scrolls on
+   its own rather than widening the thread — a tsc line is longer than the
+   column. Muted and small: it sits under the plain-English sentence, for the
+   person who wants the detail, never instead of it. */
+.st-why { font-size: .72rem; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--muted); line-height: 1.5; margin: .45rem 0 0; padding: .5rem .6rem; border-left: 2px solid var(--line); background: var(--sunk, rgba(0,0,0,.03)); border-radius: 0 6px 6px 0; white-space: pre-wrap; overflow-x: auto; }
 /* The answers to a question the builder asked before building (owner's pick,
    2026-08-08: the numbered treatment).
 
