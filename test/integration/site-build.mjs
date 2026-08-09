@@ -17,6 +17,9 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { validatePages } from "../../builder/page-gen.mjs";
+// The REAL stub, not a copy of it. A hand-written imitation here would prove that
+// some file compiles and say nothing about the one the salvage actually writes.
+import { stubPage } from "../../builder/publish-pages.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const TEMPLATE = path.join(ROOT, "builder", "lovable", "template");
@@ -720,6 +723,58 @@ function Home() { return <main><h1>${brand}</h1></main>; }`;
     ok("and an undeclared column is still a union, not `any`",
       loose.ok === false && loose.stage === "typecheck",
       `${loose.stage || "ok"}: ${String(loose.error || "").slice(0, 240)}`);
+  }
+
+  // ── the salvage stub ────────────────────────────────────────────────────────
+  //
+  // A page that does not compile is replaced by `stubPage` and the container runs
+  // again, so one bad file costs one page instead of the whole site. Two things
+  // have to hold and only a real build can say so.
+  //
+  // THE SECOND IS THE ONE THE DESIGN EXISTS FOR. Every other page's `<Link
+  // to="/menu">` is typed against the generated route tree, so DELETING the
+  // failing page turns one broken file into a compile error on every page that
+  // links to it — which is why the stub keeps the route rather than dropping it.
+  // `INDEX` links to /menu, so posting it beside a stubbed menu drives exactly
+  // that. Asserted against the real tree, because `tsr generate` is the only
+  // thing that knows what a route id has to spell.
+  {
+    const broken = await post({
+      // A REAL type error, not a suspicious-looking one. The first draft added an
+      // unused member to the interface, which is perfectly legal — it compiled,
+      // and the "before" assertion failed while claiming the salvage was untested.
+      files: {
+        "index.tsx": INDEX,
+        "menu.tsx": MENU.replace(
+          'const drinks = useRows<Drink>("drinks", { order: "name", dir: "asc" });',
+          'const drinks: number = useRows<Drink>("drinks", { order: "name", dir: "asc" });',
+        ),
+      },
+      slug: "salvage-before", title: "Salvage",
+    });
+    ok("a site with one bad page fails outright before the stub",
+      broken.ok === false && broken.stage === "typecheck",
+      `${broken.stage || "ok"}: ${String(broken.error || "").slice(0, 240)}`);
+    ok("and the failure names the page, which is what salvagePlan reads",
+      /menu\.tsx\(\d+,\d+\)/.test(String(broken.error || "")),
+      String(broken.error || "").slice(0, 240));
+
+    const salvaged = await post({
+      files: { "index.tsx": INDEX, "menu.tsx": stubPage("menu.tsx") },
+      slug: "salvage-after", title: "Salvage",
+    });
+    ok("the stub compiles and the site publishes with the good pages intact",
+      salvaged.ok === true, `${salvaged.stage || "ok"}: ${String(salvaged.error || "").slice(0, 400)}`);
+    ok("…and index.tsx's link to the stubbed route still typechecks",
+      salvaged.ok === true && !/menu/.test(String(salvaged.error || "")),
+      String(salvaged.error || "").slice(0, 240));
+    if (salvaged.ok) {
+      const html = Object.entries(salvaged.files || {})
+        .filter(([n]) => n.endsWith(".html")).map(([, v]) => String(v.t || "")).join("\n");
+      ok("and the stub says so on the page rather than rendering blank",
+        /isn't finished yet|isn&#x27;t finished yet|isn&apos;t finished yet/.test(html),
+        html.slice(0, 300));
+    }
   }
 
 } catch (e) {

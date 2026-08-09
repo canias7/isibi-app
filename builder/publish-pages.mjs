@@ -277,6 +277,120 @@ export function citedLines(error, pages, max = 4) {
 }
 
 /**
+ * The route id a file path declares, so a stub can stand in for a real page.
+ *
+ * It has to agree with `tsr generate`'s own convention EXACTLY, because the
+ * generated route tree is what the rest of the site's `<Link to="…">` calls
+ * typecheck against — a stub declaring `/memberships` where the tree expects
+ * `/membership` is a second compile error rather than a repair.
+ */
+export function routeIdFor(path) {
+  const bare = String(path || "").replace(/^(?:src\/)?routes\//, "").replace(/\.tsx$/i, "");
+  const parts = bare.split("/").filter(Boolean);
+  // `index` names its PARENT — `index.tsx` is "/", `blog/index.tsx` is "/blog".
+  if (parts[parts.length - 1] === "index") parts.pop();
+  return "/" + parts.join("/");
+}
+
+/**
+ * A valid route file that says, in plain words, that this one page is unfinished.
+ *
+ * STANDING IN FOR THE PAGE RATHER THAN DELETING IT is the whole design, and it is
+ * forced by the route tree: every other page's `<Link to="/memberships">` is typed
+ * against the generated tree, so removing the file turns ONE broken page into a
+ * compile error on every page that links to it. Replacing it keeps the route, so
+ * nothing else in the site has to change.
+ *
+ * `validateSearch` is permissive for the same reason. A price row navigating with
+ * `search: { service: r.name }` is typed against the DESTINATION's validator, so a
+ * stub with none makes that call a type error — the cascade again, one prop over.
+ *
+ * The link home is a `<Link>`, never `<a href="/">`. A published site is mounted
+ * under a basepath on the preview origin, where a plain anchor leaves the site.
+ */
+export function stubPage(path) {
+  const id = routeIdFor(path);
+  return `import { createFileRoute, Link } from "@tanstack/react-router";
+
+export const Route = createFileRoute("${id}")({
+  component: Unfinished,
+  validateSearch: (search: Record<string, unknown>) => search,
+});
+
+function Unfinished() {
+  return (
+    <main className="mx-auto flex min-h-[70vh] max-w-xl flex-col items-center justify-center gap-4 px-6 text-center">
+      <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+        Still being written
+      </p>
+      <h1 className="text-3xl font-semibold tracking-tight text-balance">
+        This page isn't finished yet
+      </h1>
+      <p className="text-muted-foreground">
+        The rest of the site is live. Ask for this page again and it'll be written properly.
+      </p>
+      <Link
+        to="/"
+        className="mt-2 rounded-md border border-border px-5 py-2.5 text-sm font-medium"
+      >
+        Back to the home page
+      </Link>
+    </main>
+  );
+}
+`;
+}
+
+/**
+ * What to stub after a typecheck failure — or why nothing can be.
+ *
+ * A ONE-PAGE MISTAKE COST THE WHOLE SITE, and that was the commonest outcome
+ * there is: the eval measures ~40% of generations failing to compile, usually on
+ * one file, and the customer got a bare data-model placeholder instead of the
+ * five pages that were fine. Measured live 2026-08-09 — a gym site died on one
+ * bad import in `memberships.tsx` and published nothing else.
+ *
+ * NOT THE REPAIR PASS THAT WAS REMOVED. That one re-ran the MODEL — ~80% of what
+ * a build costs — to guess again at every page. This re-runs the container on
+ * source we already have, with one file replaced by a constant. No model call, no
+ * tokens, ~15-40s.
+ *
+ * Three refusals, each of which would otherwise buy a wasted container run:
+ *
+ *   - THE HOME PAGE MUST SURVIVE. Stubbing it leaves the one address a customer
+ *     shares rendering an apology, and the header that navigates to everything
+ *     else lives inside the page source we just threw away — so the visitor lands
+ *     on a dead end. Same rule the `home` stage already enforces on a build with
+ *     no index at all, applied to the page being unusable rather than absent.
+ *   - A FILE WE DID NOT WRITE means the error is in the template or the kit, and
+ *     no amount of stubbing pages will fix it.
+ *   - NOTHING NAMED means the compiler failed somewhere with no file citation,
+ *     which is not a page problem either.
+ *
+ * `foreign` is returned rather than folded into `reason`, because the eval reads
+ * it: a kit file turning up in these is us shipping something broken, and it
+ * should be findable without re-running a build.
+ */
+export function salvagePlan(error, pages) {
+  const known = new Set((pages || []).map((p) => p.path));
+  const stub = new Set();
+  const foreign = new Set();
+  for (const m of String(error || "").matchAll(/((?:[\w.$-]+\/)*[\w.$-]+\.tsx?)\((\d+),(\d+)\)/g)) {
+    const cited = m[1];
+    const bare = cited.replace(/^(?:src\/)?routes\//, "");
+    // A path is OURS only when stripping the routes prefix lands on a page this
+    // build actually wrote. `src/components/ui/faq.tsx` never will, which is what
+    // separates a page mistake from a kit one.
+    if (known.has(bare)) stub.add(bare);
+    else foreign.add(cited);
+  }
+  if (foreign.size) return { stub: [], foreign: [...foreign], reason: "the error is in a file the build didn't write" };
+  if (!stub.size) return { stub: [], foreign: [], reason: "the error names no page" };
+  if (stub.has("index.tsx")) return { stub: [], foreign: [], reason: "the home page is the one that failed" };
+  return { stub: [...stub].sort(), foreign: [], reason: "" };
+}
+
+/**
  * brief + schema → route files → compile → published dist.
  *
  * Best-effort by design: it runs AFTER the database has been provisioned and the
@@ -598,7 +712,59 @@ export async function publishPages(deps, { spec, slug, priorUsage } = {}) {
     }
   }
 
-  const built = await compileWithRetry(pages);
+  let built = await compileWithRetry(pages);
+
+  /**
+   * ONE PAGE THAT DOES NOT COMPILE USED TO COST THE WHOLE SITE.
+   *
+   * `tsc --noEmit` runs over the app, so a single `TS2305` in `memberships.tsx`
+   * failed the build and the customer got the data-model placeholder — no home
+   * page, no price list, no booking form, none of the five files that were
+   * perfectly fine. With ~40% of generations failing to compile (measured over
+   * eight eval runs), that is the ordinary outcome and not an edge case.
+   *
+   * So the failing pages are replaced with a stub that says so, and the container
+   * runs once more. What the customer gets is their site with one page reading
+   * "this page isn't finished yet", instead of nothing.
+   *
+   * WHY THIS IS NOT THE REPAIR PASS: `salvagePlan`'s comment carries the argument
+   * — no model call, no tokens, one container run on source that already exists.
+   * The removal was about paying for a second GENERATION; this pays for a second
+   * COMPILE, which is the cheap half.
+   *
+   * The stage stays `typecheck` on a salvaged build and the charge is unchanged:
+   * the pages were written and the model was paid for either way, and a customer
+   * whose site publishes has been served better than one whose site did not.
+   */
+  if (!built.ok && built.stage === "typecheck") {
+    const plan = salvagePlan(built.error, pages);
+    out.salvage = { stubbed: plan.stub, foreign: plan.foreign, reason: plan.reason };
+    if (plan.stub.length) {
+      // THE FIRST FAILURE IS WHAT GETS DIAGNOSED, not the second. A salvaged build
+      // returns `ok`, so without keeping these the error that actually happened is
+      // gone — and it is the only record of what the generator got wrong. `stage`
+      // is deliberately NOT set here: it names an OUTCOME, and a build that went on
+      // to publish did not end at the typecheck.
+      out.error = String(built.error || "").slice(0, 400);
+      out.cited = citedLines(built.error, pages);
+      const bad = new Set(plan.stub);
+      const patched = pages.map((p) => (bad.has(p.path) ? { ...p, source: stubPage(p.path) } : p));
+      const second = await compile(patched);
+      out.builds = (out.builds || 0) + 1;
+      if (second.ok) {
+        built = second;
+        // THE STUB IS WHAT GETS STORED, and a revise therefore edits the stub
+        // rather than the source that would not compile. Handing the model back
+        // its own broken file invites it to keep the broken line — and the stub
+        // reads unmistakably as unfinished, which is the instruction.
+        pages = patched;
+        out.salvaged = plan.stub;
+      } else {
+        out.salvage.secondStage = second.stage;
+        out.salvage.secondError = String(second.error || "").slice(0, 200);
+      }
+    }
+  }
 
   // THERE IS NO REPAIR PASS. Removed 2026-08-04, owner's call, on the first real
   // measurement of what a build costs: output is 80% of it, and a repair is a
@@ -669,6 +835,17 @@ export async function publishPages(deps, { spec, slug, priorUsage } = {}) {
   await deps.publish(built.files, pages);
   out.publishMs = Date.now() - tPub;
   out.page = "app";
+  // SAY WHICH PAGE DID NOT MAKE IT, on the site's own reply. A visitor finding the
+  // stub by clicking the header would otherwise be the first anybody hears of it,
+  // and the owner is the one who can ask for it again. Appended to the model's own
+  // summary rather than replacing it — the rest of the site really was built.
+  if (out.salvaged && out.salvaged.length) {
+    const names = out.salvaged.map((p) => p.replace(/\.tsx$/, "")).join(", ");
+    out.notes = [out.notes, "One thing: " + names +
+      (out.salvaged.length > 1 ? " didn't compile, so those pages are" : " didn't compile, so that page is") +
+      " showing a short placeholder. Ask for " + (out.salvaged.length > 1 ? "them" : "it") +
+      " again and I'll write " + (out.salvaged.length > 1 ? "them" : "it") + " properly."].filter(Boolean).join(" ");
+  }
   // STILL BILLED AFTER `publish`, AND THAT ORDERING IS NOW LOAD-BEARING FOR A
   // SECOND REASON. It was "a publish that throws leaves them with no site"; it is
   // also the whole implementation of `publish` being an our-fault stage. There is

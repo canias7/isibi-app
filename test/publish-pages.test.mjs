@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { publishPages, pageCredits, pageCost, citedLines, totalCost, RATES, MODEL_RATES,
   DEFAULT_RATE_MODEL, ratesFor, SEARCH_USD, MIN_CREDITS,
-  ourFault, CHARGED_STAGES, schemaSettlement } from "../builder/publish-pages.mjs";
+  ourFault, CHARGED_STAGES, schemaSettlement, salvagePlan, stubPage, routeIdFor } from "../builder/publish-pages.mjs";
 import { BUILD_MODELS } from "../builder/build-models.mjs";
 
 const SPEC = {
@@ -60,7 +60,7 @@ const gen = (pages, extra = {}) => ({ input: { pages, notes: "" }, usage: { ...U
 // Recording wraps the override rather than being one of the defaults, so a test
 // that supplies its own `generate` still gets counted.
 function harness(over = {}) {
-  const calls = { generate: [], compile: [], publish: [], charges: [] };
+  const calls = { generate: [], compile: [], publish: [], stored: [], charges: [] };
   // The default dist is stamped with the attempt number, so a test can tell WHICH
   // attempt's build was published — otherwise "kept the first attempt" and "kept
   // the retry" produce identical, indistinguishable output.
@@ -84,7 +84,12 @@ function harness(over = {}) {
     // a fake less faithful than the real thing, which is how setTotp hid a bug.
     generate: (...a) => { calls.generate.push(a[0] || null); return pick("generate")(...a); },
     compile: (pages) => { calls.compile.push(pages); return pick("compile")(pages); },
-    publish: (dist) => { calls.publish.push(dist); return pick("publish")(dist); },
+    // BOTH ARGUMENTS, because the real dep takes both. Written `(dist) => …(dist)`
+    // the second one — the SOURCE stored for a later revise — was dropped on the
+    // floor, so nothing could assert what a revise would be handed back. That is
+    // how the salvage could have stored a file that does not compile with every
+    // test green: a fake less faithful than the real thing, the setTotp lesson.
+    publish: (...a) => { calls.publish.push(a[0]); calls.stored.push(a[1]); return pick("publish")(...a); },
     readCredits: () => pick("readCredits")(),
     useCredits: (n) => { calls.charges.push(n); return pick("useCredits")(n); },
   };
@@ -1253,4 +1258,168 @@ test("a refusal AFTER the design call refunds the schema charge", () => {
   const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   const refunds = (src.match(/await refundCredits\(env, bu\.id, Math\.max\(0, schemaCost\)\)/g) || []).length;
   assert.ok(refunds >= 4, `only ${refunds} post-design refusals refund the schema charge — expected the 409, the 503, the no-tables 400 and the provisioning conflict`);
+});
+
+/* --------------------------------------------------- salvaging a failed compile */
+
+test("salvagePlan stubs the page the compiler named", () => {
+  const pages = [good(), good("menu.tsx")];
+  const p = salvagePlan('src/routes/menu.tsx(9,10): error TS2305: no exported member', pages);
+  assert.deepEqual(p.stub, ["menu.tsx"]);
+  assert.equal(p.reason, "");
+});
+
+test("salvagePlan refuses when the HOME page is the one that failed", () => {
+  // Stubbing index leaves the one address a customer shares rendering an apology,
+  // and the header that reaches every other page went with the source. The `home`
+  // stage already refuses a build with no index; this is the same rule for a
+  // build whose index is unusable.
+  const pages = [good(), good("menu.tsx")];
+  const p = salvagePlan('src/routes/index.tsx(4,1): error TS2322: x', pages);
+  assert.deepEqual(p.stub, []);
+  assert.match(p.reason, /home page/);
+});
+
+test("salvagePlan refuses when the home page failed ALONGSIDE another", () => {
+  // The dangerous shape: a set containing index passes any "is there something to
+  // stub" check, and stubbing the rest publishes a site whose front door apologises.
+  const pages = [good(), good("menu.tsx")];
+  const p = salvagePlan('src/routes/menu.tsx(3,1): error TS1005: x\nsrc/routes/index.tsx(4,1): error TS2322: y', pages);
+  assert.deepEqual(p.stub, []);
+  assert.match(p.reason, /home page/);
+});
+
+test("salvagePlan refuses an error in a file the build did not write", () => {
+  // A kit or template error is not fixable by stubbing pages, and trying costs a
+  // whole container run. `foreign` is kept rather than folded into the reason
+  // because it names a file WE shipped broken.
+  const pages = [good(), good("menu.tsx")];
+  const p = salvagePlan('src/components/ui/faq.tsx(3,1): error TS1005: x', pages);
+  assert.deepEqual(p.stub, []);
+  assert.deepEqual(p.foreign, ["src/components/ui/faq.tsx"]);
+});
+
+test("salvagePlan refuses a failure that names no file at all", () => {
+  const p = salvagePlan("vite build was killed by SIGTERM", [good()]);
+  assert.deepEqual(p.stub, []);
+  assert.match(p.reason, /names no page/);
+});
+
+test("routeIdFor agrees with tsr generate's own convention", () => {
+  // The generated route tree is what every other page's <Link to="…"> is typed
+  // against, so a stub declaring the wrong id is a second compile error rather
+  // than a repair.
+  assert.equal(routeIdFor("index.tsx"), "/");
+  assert.equal(routeIdFor("book.tsx"), "/book");
+  assert.equal(routeIdFor("src/routes/memberships.tsx"), "/memberships");
+  assert.equal(routeIdFor("blog/index.tsx"), "/blog");
+  assert.equal(routeIdFor("blog/$slug.tsx"), "/blog/$slug");
+});
+
+test("stubPage keeps the route and stays permissive about search params", () => {
+  const s = stubPage("book.tsx");
+  assert.match(s, /createFileRoute\("\/book"\)/);
+  // A price row navigating with `search: { service }` is typed against the
+  // DESTINATION's validator, so a stub with none makes that call a type error —
+  // the same cascade the stub exists to avoid, one prop over.
+  assert.match(s, /validateSearch:/);
+  // Never a plain anchor: a published site is mounted under a basepath on the
+  // preview origin, where <a href="/"> leaves the site entirely.
+  assert.match(s, /<Link\s+to="\/"/);
+  assert.doesNotMatch(s, /<a\s+href=/);
+});
+
+test("one bad page costs one page, not the whole site", async () => {
+  const { deps, calls } = harness({
+    generate: async () => gen([good(), good("menu.tsx")]),
+    compile: async (pages) =>
+      pages.some((p) => p.path === "menu.tsx" && p.source.includes("useRows"))
+        ? { ok: false, stage: "typecheck", error: "src/routes/menu.tsx(4,1): error TS2322: x" }
+        : { ok: true, files: { "index.html": { t: "<ok>" } } },
+  });
+  const out = await publishPages(deps, { spec: SPEC, slug: "x" });
+  assert.equal(out.page, "app", "the site published instead of falling back");
+  assert.deepEqual(out.salvaged, ["menu.tsx"]);
+  assert.equal(calls.publish.length, 1);
+  assert.equal(calls.compile.length, 2, "one extra CONTAINER run, and no extra model call");
+  assert.equal(calls.generate.length, 1, "this is not the repair pass — the model is called once");
+  // The stub is what gets STORED, so a revise edits the stub rather than being
+  // handed back a file that would not compile. Asserted at the PUBLISH boundary,
+  // not only at the compile one: those are two different arguments and only the
+  // second is what a later revise reads.
+  assert.match(calls.compile[1].find((p) => p.path === "menu.tsx").source, /isn't finished yet/);
+  assert.match(calls.stored[0].find((p) => p.path === "menu.tsx").source, /isn't finished yet/,
+    "a revise would be handed back the source that would not compile");
+  // The first failure survives on the response — it is the only record of what
+  // the generator got wrong, and a salvaged build returns ok.
+  assert.match(out.error, /TS2322/);
+  assert.match(out.notes, /menu/);
+  // `stage` names an OUTCOME, and this build did not end at the typecheck.
+  assert.equal(out.stage, undefined);
+});
+
+test("a salvage that still fails falls back exactly as before", async () => {
+  const { deps, calls } = harness({
+    generate: async () => gen([good(), good("menu.tsx")]),
+    compile: async () => ({ ok: false, stage: "typecheck", error: "src/routes/menu.tsx(4,1): error TS2322: x" }),
+  });
+  const out = await publishPages(deps, { spec: SPEC, slug: "x" });
+  assert.equal(out.page, "placeholder");
+  assert.equal(out.stage, "typecheck");
+  assert.equal(calls.publish.length, 0);
+  assert.equal(out.salvaged, undefined);
+  assert.equal(out.salvage.secondStage, "typecheck");
+});
+
+test("the home page failing is still a placeholder, not a stubbed front door", async () => {
+  const { deps, calls } = harness({
+    generate: async () => gen([good(), good("menu.tsx")]),
+    compile: async () => ({ ok: false, stage: "typecheck", error: "src/routes/index.tsx(4,1): error TS2322: x" }),
+  });
+  const out = await publishPages(deps, { spec: SPEC, slug: "x" });
+  assert.equal(out.page, "placeholder");
+  assert.equal(calls.compile.length, 1, "a refused salvage must not buy a container run");
+  assert.equal(calls.publish.length, 0);
+});
+
+test("a bundler failure is never salvaged — it is not a page problem", async () => {
+  // `build` is the our-fault stage. Stubbing a page cannot fix a drained
+  // container, and doing it would charge a customer for our own rollout.
+  const { deps, calls } = harness({
+    generate: async () => gen([good(), good("menu.tsx")]),
+    compile: async () => ({ ok: false, stage: "build", error: "src/routes/menu.tsx(4,1): killed" }),
+  });
+  const out = await publishPages(deps, { spec: SPEC, slug: "x" });
+  assert.equal(out.page, "placeholder");
+  assert.equal(out.salvage, undefined, "the salvage must not even be planned");
+  assert.equal(calls.compile.length, 2, "the existing build-stage retry, and nothing more");
+  assert.equal(out.charged, false, "our fault stays our cost");
+});
+
+test("a salvaged build charges once, after the publish", async () => {
+  const { deps, calls } = harness({
+    generate: async () => gen([good(), good("menu.tsx")]),
+    compile: async (pages) =>
+      pages.some((p) => p.path === "menu.tsx" && p.source.includes("useRows"))
+        ? { ok: false, stage: "typecheck", error: "src/routes/menu.tsx(4,1): error TS2322: x" }
+        : { ok: true, files: { "index.html": { t: "<ok>" } } },
+  });
+  const out = await publishPages(deps, { spec: SPEC, slug: "x" });
+  assert.equal(calls.charges.length, 1, "two charge sites is how a build eventually bills twice");
+  assert.equal(out.charged, true);
+});
+
+test("a build that compiled first time carries no salvage record at all", async () => {
+  // Found by mutation: widening the branch to `built.ok` too is ALMOST inert —
+  // there is no error text, so nothing gets stubbed — but every successful build
+  // then reports `salvage: { reason: "the error names no page" }`, which reads in
+  // the response and in the eval as a build that nearly failed. The absence is
+  // the assertion.
+  const { deps, calls } = harness({ generate: async () => gen([good(), good("menu.tsx")]) });
+  const out = await publishPages(deps, { spec: SPEC, slug: "x" });
+  assert.equal(out.page, "app");
+  assert.equal(out.salvage, undefined, "a clean build must not describe a salvage it never attempted");
+  assert.equal(out.salvaged, undefined);
+  assert.equal(out.error, undefined);
+  assert.equal(calls.compile.length, 1);
 });
