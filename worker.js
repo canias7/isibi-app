@@ -8153,6 +8153,13 @@ async function handleRequest(request, env, ctx) {
           firstBuild: rb.firstBuild === true,
           brief: rb.brief,
           qa: rb.qa,
+          // THE MESSAGE IS AN ANSWER TO OUR OWN QUESTION — a clicked option, or
+          // a typed reply while one is live. It closes "ask" off as an outcome,
+          // because answering somebody's third button press with "tell me about
+          // your business" is a dead end, and it shipped as one. Strictly
+          // `=== true`, like `firstBuild` beside it: nothing merely truthy off a
+          // public body changes how a paid call is read.
+          answering: rb.answering === true,
         },
       );
       let rCost = 0;

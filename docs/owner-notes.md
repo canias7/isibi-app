@@ -14964,3 +14964,30 @@ reload the page. Not broken, not ideal, and a separate job. And the 322 example
 pages are checked by nothing — I verified my own edits to them by hand, but
 there is no standing check, which is worth fixing properly rather than pretending
 the hand-check was one.
+
+### The builder answered your own answer with "tell me about your business" (2026-08-09)
+
+You asked for "Book classes", answered two questions with the buttons, and the
+third press got you a shrug: *"I'm not sure what you'd like me to build."*
+Nothing was built, and the question you had just answered was still sitting
+there.
+
+Two separate things went wrong. The one that mattered: when you press one of
+those buttons, your answer goes back to be classified, and it was allowed to
+come back as "this is a question, let me answer it in words". A button press is
+never a question — it is an answer to something we asked. It can now only lead
+to another question or to the build.
+
+The second is the one you could see: the question was chopped mid-word
+("hardcore and inte"). It was being cut to a fixed length with no regard for
+where words end — while the code that trims the *buttons* had been written
+carefully to stop at a word boundary. Same rule applies to the question now, and
+the AI is told not to list the options in the sentence, since the buttons right
+underneath already show them.
+
+Worth knowing: your brief was never actually lost. It was being carried through
+correctly the whole time — the AI just misjudged what your answer was.
+
+One thing I can't claim: I haven't reproduced this live, because doing so costs
+a real build. The logic is tested end to end and every deliberate break of it is
+caught, but your screenshot is the only record of the original.

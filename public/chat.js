@@ -11032,7 +11032,7 @@ function siteFinishBuild(origin, reply, build, note, why) {
 // reason it does not run — the same asymmetry the server-side reader takes, for
 // the same reason. Getting it wrong toward "build" costs a build they can see;
 // getting it wrong toward "ask" silently does not build what they asked for.
-function siteRoute(site, t, origin, isBuild, imgs, finish) {
+function siteRoute(site, t, origin, isBuild, imgs, finish, answering) {
   // THE BRIEF THE BUILD RUNS ON, not the message that was just typed. After a
   // clarify round `t` is "Book a time slot" and the real brief — "a barber shop
   // in Leeds" — is three messages back. Losing it here would build a site about
@@ -11066,7 +11066,7 @@ function siteRoute(site, t, origin, isBuild, imgs, finish) {
     // `firstBuild` is what opens the question path at all, and it is `isBuild` —
     // the same flag that decides build-vs-revise — so a revise can never be
     // interviewed. The server re-derives the budget from `qa` regardless.
-    body: JSON.stringify({ message: t, site: digest, firstBuild: !!isBuild, brief: brief, qa: qa }),
+    body: JSON.stringify({ message: t, site: digest, firstBuild: !!isBuild, brief: brief, qa: qa, answering: !!answering }),
   }).then(async (r) => {
     const d = await r.json().catch(() => null);
     if (!r.ok || !d) return go();
@@ -11440,7 +11440,12 @@ function siteAnswer(label, skip) {
     reactSend(site, round.brief, origin, 'build', imgs, finish, round.qa);
     return;
   }
-  siteRoute(site, said, origin, true, imgs, finish);
+  // ANSWERING, and the server is told so. Without it the router may classify a
+  // button press as a question and answer it — which is what happened live on
+  // 2026-08-09: three answers in, "Sleek and modern" came back as "I'm not sure
+  // what you'd like me to build", nothing was built, and the round was left on
+  // an already-answered question.
+  siteRoute(site, said, origin, true, imgs, finish, true);
 }
 
 function siteSend(text) {

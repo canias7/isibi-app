@@ -69,6 +69,8 @@ export const MAX_CLARIFY = 3;
 /** Two to four. One option is not a choice; five is a form. */
 export const MIN_OPTIONS = 2;
 export const MAX_OPTIONS = 4;
+/** Two short sentences. A hard bound, since a cap the model is told about is not one. */
+export const MAX_QUESTION_CHARS = 240;
 
 /** Long enough to be a real answer, short enough to sit on a button. */
 export const MAX_OPTION_CHARS = 48;
@@ -117,7 +119,10 @@ export const ASK_TOOL = {
               "TWO SHORT SENTENCES, and the first one is why this reads as a conversation rather than a form: pick up what " +
               "they just told you in a few words, then ask. \"A barber shop in Leeds, nice one. What do you want people to " +
               "be able to do on it?\" — not \"What do you want visitors to your site to do?\", which is a form field with a " +
-              "question mark on it. Plain, warm, no apology and no preamble about why you are asking.",
+              "question mark on it. Plain, warm, no apology and no preamble about why you are asking.\n" +
+              "DO NOT LIST THE OPTIONS IN THE SENTENCE. They are rendered as buttons directly underneath it, so " +
+              "\"Sleek and modern, welcoming, or hardcore?\" says everything twice and spends the length on the half " +
+              "nobody reads. Ask the question; let the buttons be the answers.",
           },
           options: {
             type: "array",
@@ -244,7 +249,7 @@ export function askRequest({ message, site, canClarify = false, brief = "", qa =
  * pipeline that already works, and it must never be the reason a build does not
  * happen.
  */
-export function readRouting(reply, { canClarify = false } = {}) {
+export function readRouting(reply, { canClarify = false, answering = false } = {}) {
   const blocks = reply && Array.isArray(reply.content) ? reply.content : [];
   const use = blocks.find((b) => b && b.type === "tool_use");
   const input = (use && use.input) || {};
@@ -269,6 +274,25 @@ export function readRouting(reply, { canClarify = false } = {}) {
   // then wrote no reply, so honouring it would show the customer an empty message
   // and do nothing — the one outcome worse than an unnecessary build.
   if (intent === "ask" && !answer) return { intent: "build", answer: "" };
+  // AN "ask" IN REPLY TO OUR OWN QUESTION IS A DEAD END, and it shipped as one.
+  //
+  // Measured live 2026-08-09: brief "Book classes", two questions answered, and
+  // the third press of a button came back *"I'm not sure what you'd like me to
+  // build. Tell me about your business."* — to somebody who had just told us,
+  // three times, using buttons we wrote. Nothing was built and nothing cleared
+  // the round, so the interface sat on an answered question.
+  //
+  // `answering` means the message IS an answer: a clicked option, or a typed
+  // reply while a question is live. The only honest outcomes there are another
+  // question or the build. This is the same asymmetry the rest of this file is
+  // built on — a wrong "build" costs a build they can see and undo, a wrong
+  // "ask" is indistinguishable from the product being broken — applied to the
+  // one path that was missing it.
+  //
+  // The cost, stated: somebody who interrupts mid-round with a real question
+  // ("wait, can you read a URL?") gets a site instead of an answer. That is the
+  // cheaper mistake, and they still have the site.
+  if (intent === "ask" && answering) return { intent: "build", answer: "" };
   return { intent, answer: intent === "ask" ? answer : "" };
 }
 
@@ -308,10 +332,36 @@ export function clipOption(raw) {
   return (sp >= MAX_OPTION_CHARS * 0.5 ? cut.slice(0, sp) : cut).trim();
 }
 
+/**
+ * The question text, bounded WITHOUT being mutilated.
+ *
+ * It was `.slice(0, 240)`, and a live round on 2026-08-09 shipped the customer
+ * *"…welcoming and community-focused, or hardcore and inte"* — cut mid-word, on
+ * screen, in the one message whose whole job is to read like a person talking.
+ *
+ * `clipOption` two functions down had already solved this properly for the
+ * buttons; the text was written with a bare slice and nobody noticed the
+ * asymmetry. Same rule here: fall back to the last word boundary, and only
+ * honour it if it leaves most of the allowance used, so a long unbroken run is
+ * not thrown away entirely.
+ *
+ * The ellipsis is deliberate — a sentence that simply stops reads as a bug,
+ * where one that trails off reads as brevity. Nothing is actually lost when it
+ * fires: the model's habit is to list the options in prose and the buttons
+ * below already carry them.
+ */
+export function clipQuestion(raw) {
+  const s = String(raw == null ? "" : raw).trim().replace(/\s+/g, " ");
+  if (s.length <= MAX_QUESTION_CHARS) return s;
+  const cut = s.slice(0, MAX_QUESTION_CHARS - 1);
+  const sp = cut.lastIndexOf(" ");
+  return ((sp >= MAX_QUESTION_CHARS * 0.6 ? cut.slice(0, sp) : cut).trim() + "…");
+}
+
 export function readQuestion(raw) {
   const q = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : null;
   if (!q) return null;
-  const text = String(q.text || "").trim().slice(0, 240);
+  const text = clipQuestion(q.text);
   if (!text) return null;
   const seen = new Set();
   const options = [];
@@ -391,7 +441,7 @@ export function askUsage(reply) {
  * that path running. `usage` comes back null on that route, so nothing is billed
  * for a call that failed — the same our-fault rule the build path follows.
  */
-export async function routeMessage(deps, { message, site, firstBuild = false, brief = "", qa = [] } = {}) {
+export async function routeMessage(deps, { message, site, firstBuild = false, brief = "", qa = [], answering = false } = {}) {
   const text = String(message || "").trim();
   // AN EMPTY MESSAGE NEVER REACHES THE MODEL. The composer will not send one, but
   // this is a paid call behind a public route and "the client wouldn't do that"
@@ -409,6 +459,6 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
   } catch {
     return { intent: "build", answer: "", usage: null, failed: true };
   }
-  const routed = readRouting(reply, { canClarify });
+  const routed = readRouting(reply, { canClarify, answering: !!answering });
   return { ...routed, usage: askUsage(reply) };
 }

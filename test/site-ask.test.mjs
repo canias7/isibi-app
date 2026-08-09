@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
   ASK_TOOL, ASK_MODEL, ASK_MAX_TOKENS, MAX_MESSAGE,
-  MAX_CLARIFY, MIN_OPTIONS, MAX_OPTIONS, MAX_OPTION_CHARS,
+  MAX_CLARIFY, MIN_OPTIONS, MAX_OPTIONS, MAX_OPTION_CHARS, MAX_QUESTION_CHARS,
   askRequest, readRouting, readQuestion, clipOption, clarifiedBrief, askUsage, routeMessage, siteDigest,
 } from "../builder/site-ask.mjs";
 
@@ -850,4 +850,97 @@ test("the options must be the CUSTOMER's answers, not the assistant's next line"
   assert.match(ans, /thank-you gets/i, "a thank-you and a greeting are still one case");
   assert.ok(!/Hey\. What are we building\?/.test(ans),
     "the stock line is back in the description and will be parroted verbatim");
+});
+
+// ── the two bugs a live round shipped on 2026-08-09 ─────────────────────────
+
+test("a question is never cut mid-word", () => {
+  // WHAT THE CUSTOMER SAW: "…welcoming and community-focused, or hardcore and
+  // inte". A bare `.slice(0, 240)` on the one message whose whole job is to
+  // read like a person talking.
+  const long = "So visitors can book without signing in, but members can log in to see their bookings and "
+    + "history. Got it — one last thing before we build it. What's the vibe you want? Sleek and modern, "
+    + "welcoming and community-focused, or hardcore and intense for the serious lifters.";
+  const q = readQuestion({ text: long, options: ["Sleek", "Welcoming", "Hardcore"] });
+  assert.ok(q, "a long question must still be a question");
+  assert.ok(q.text.length <= MAX_QUESTION_CHARS + 1, q.text.length);
+  assert.ok(q.text.endsWith("…"), "a clipped sentence must trail off, not simply stop: " + q.text.slice(-24));
+  // The property that failed: the last word is whole.
+  const words = q.text.replace(/…$/, "").trim().split(" ");
+  assert.ok(long.includes(words[words.length - 1] + " ") || long.endsWith(words[words.length - 1]),
+    "the question was cut mid-word: ends " + JSON.stringify(words[words.length - 1]));
+  // A short one is untouched, or every question would gain an ellipsis.
+  assert.equal(readQuestion({ text: "Who books?", options: ["A", "B"] }).text, "Who books?");
+});
+
+test("an answer to our own question is never answered with prose", () => {
+  // MEASURED LIVE: two questions answered, third button press, and the reply was
+  // "I'm not sure what you'd like me to build. Tell me about your business." —
+  // to somebody who had just told us three times, using our own buttons.
+  const askReply = { content: [{ type: "tool_use", input: { intent: "ask", answer: "I'm not sure what you'd like me to build." } }] };
+  assert.equal(readRouting(askReply, { answering: true }).intent, "build",
+    "an ask in reply to our own question is a dead end");
+  assert.equal(readRouting(askReply, { answering: true }).answer, "",
+    "the prose must not be shown as though it were a reply");
+  // …and OUTSIDE a round it is still a perfectly good answer, or this fix would
+  // have removed the feature rather than bounded it.
+  assert.equal(readRouting(askReply, { answering: false }).intent, "ask");
+  assert.equal(readRouting(askReply, {}).intent, "ask");
+});
+
+test("answering does not close off another question", () => {
+  // The round must still be able to continue — `answering` bounds `ask`, not
+  // `clarify`. Collapsing the two would make every answer start the build and
+  // silently cap the interview at one question.
+  const q = { text: "What's the vibe?", options: ["Sleek", "Warm"] };
+  const clarifyReply = { content: [{ type: "tool_use", input: { intent: "clarify", question: q } }] };
+  assert.equal(readRouting(clarifyReply, { canClarify: true, answering: true }).intent, "clarify");
+});
+
+test("routeMessage passes `answering` through to the reader", () => {
+  // The flag is read in `readRouting`, so a `routeMessage` that forgets to hand
+  // it over leaves the bug exactly where it was with every unit test green.
+  const reply = { content: [{ type: "tool_use", input: { intent: "ask", answer: "hmm" } }] };
+  return routeMessage({ send: async () => reply },
+    { message: "Sleek and modern", site: {}, firstBuild: true, brief: "Book classes", answering: true, qa: [] })
+    .then((r) => assert.equal(r.intent, "build", "`answering` did not reach readRouting"));
+});
+
+test("the route hands `answering` to the router, strictly", () => {
+  // WHERE THE FIX CAN DIE SILENTLY. `readRouting` is unit-tested and correct;
+  // worker.js cannot be imported, so nothing else notices if the flag simply
+  // never arrives. That is the shape this repo has recorded six times — every
+  // layer right but one, and the one is quiet.
+  const w = worker();
+  const i = w.indexOf("await routeMessage(");
+  assert.ok(i > 0, "the routing call is gone");
+  // TO A LANDMARK, not a byte count — a window sized in characters stops
+  // covering what it was written for the moment a comment is added above the
+  // line, which is this repo's recurring source-guard bug. The call ends at the
+  // `);` that closes it.
+  const end = w.indexOf("\n      );", i);
+  assert.ok(end > i, "could not find the end of the routing call");
+  const call = w.slice(i, end);
+  assert.match(call, /qa: rb\.qa/, "this is not the call it was written for");
+  assert.match(call, /answering:\s*rb\.answering === true/,
+    "the answer flag never reaches routeMessage, so a button press can still be answered with prose");
+});
+
+test("the composer says a button press is an answer", () => {
+  // The other half. `siteAnswer` is the ONLY caller that may set it — a plain
+  // message must still be routable as a question, which is the whole feature.
+  const c = chat();
+  const i = c.indexOf("function siteAnswer(");
+  assert.ok(i > 0, "siteAnswer is gone");
+  const body = c.slice(i, c.indexOf("\nfunction ", i + 10));
+  assert.match(body, /siteRoute\(site, said, origin, true, imgs, finish, true\)/,
+    "the composer no longer tells the server this is an answer");
+  // …and it is actually put on the wire.
+  assert.match(c, /answering:\s*!!answering/, "siteRoute drops the flag before sending it");
+  // A plain first message must NOT claim to be an answer, or the ask feature is
+  // gone: `siteSend` routes with no such argument.
+  const j = c.indexOf("function siteSend(");
+  const send = c.slice(j, c.indexOf("\nfunction ", j + 10));
+  assert.doesNotMatch(send, /siteRoute\([^)]*,\s*true\s*\)\s*;/,
+    "an ordinary message is being sent as though it answered a question");
 });
