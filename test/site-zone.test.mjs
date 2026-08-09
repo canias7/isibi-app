@@ -14,7 +14,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   OWN_ZONES, APP_ZONE, SITE_ZONE, SITE_ZONE_LIVE,
-  isOwnHostname, isAppHostname, siteHostSlug, siteHostFor, siteLabelFor, siteUrlFor, claimRefusal, servedAtRoot } from "../site-domains.mjs";
+  isOwnHostname, isAppHostname, siteHostSlug, siteHostFor, siteLabelFor, siteUrlFor, claimRefusal, servedAtRoot, siteOrigin } from "../site-domains.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => fs.readFileSync(path.join(ROOT, p), "utf8");
@@ -344,4 +344,50 @@ test("the client prints one address, from one function", () => {
   // …and the one function is still there and still consulted by them.
   assert.ok((c.match(/siteChipUrl\(/g) || []).length >= 4,
     "the panels no longer go through the one function");
+});
+
+/* --------------------------- everything a VISITOR touches is on the site zone */
+
+test("siteOrigin is the ORIGIN, which siteUrlFor is not", () => {
+  // The difference is the whole reason this exists. `siteUrlFor` answers "where
+  // is this site's home page" and falls back to a PATH — `gofarther.dev/s/x/` —
+  // so appending an upload to it gives `/s/x/u/x/photo.jpg`, which is exactly
+  // the shape that 404'd every image on the platform. Uploads hang off the
+  // origin.
+  const appOrigin = "https://" + APP_ZONE;
+  if (SITE_ZONE_LIVE) {
+    assert.equal(siteOrigin("sharp-fade", appOrigin), "https://sharp-fade." + SITE_ZONE);
+    // No trailing slash, so a caller can append a root path without doubling it.
+    assert.equal(siteOrigin("sharp-fade", appOrigin).endsWith("/"), false);
+  }
+  // A slug DNS cannot carry falls back to the platform, which really is where
+  // such a site is served from.
+  assert.equal(siteOrigin("-shop", appOrigin), appOrigin);
+  assert.equal(siteOrigin("sharp-fade", ""), SITE_ZONE_LIVE ? "https://sharp-fade." + SITE_ZONE : "");
+});
+
+test("a shared link's preview image is on the SITE's domain, not the platform's", () => {
+  // The picture WhatsApp and Slack show when a customer shares the shop. It was
+  // hardcoded to `https://gofarther.dev/u/…`, which is the tool the business
+  // happened to be built with appearing in the most visible place there is.
+  const w = read("worker.js");
+  assert.doesNotMatch(w, /ogImage = "https:\/\/gofarther\.dev\/u\/"/,
+    "the preview image still points at the platform domain");
+  assert.match(w, /ogImage = siteOrigin\(slug, "https:\/\/" \+ APP_ZONE\) \+ "\/u\/"/,
+    "the preview image is not built from the site's own origin");
+});
+
+test("a paying customer is returned to the site, not to a 404", () => {
+  // `${origin}/s/<slug>/` is right on the platform and wrong everywhere else: on
+  // the site zone and on a custom domain the site IS the root, so that built
+  // `<slug>.gofarther.app/s/<slug>/`, which the hostname rewrite prefixes AGAIN
+  // and 404s. Somebody would have paid and landed on a not-found page.
+  const w = read("worker.js");
+  assert.doesNotMatch(w, /const base = `\$\{origin\}\/s\/\$\{encodeURIComponent\(slug\)\}\/`/,
+    "the checkout return URL is back to assuming the platform mount");
+  const at = w.indexOf("const base = isAppHostname(new URL(origin).hostname)");
+  assert.ok(at > 0, "the checkout return URL no longer asks where the site is mounted");
+  const block = w.slice(at, at + 200);
+  assert.match(block, /siteUrlFor\(slug, origin\)/, "the platform case must resolve to the site's real address");
+  assert.match(block, /origin\.replace\(/, "a custom domain must return to ITSELF, not to ours");
 });

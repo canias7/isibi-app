@@ -14,7 +14,7 @@ import { handleInbound, MAX_BODY as INBOUND_MAX_BODY, MAX_PER_MINUTE as INBOUND_
 // every Cloudflare custom-hostname call the platform made threw before it could
 // reach the API. Invisible until the line ran, which is the whole class of bug
 // `test/worker-imports.test.mjs` now covers.
-import { OWN_ZONES, APP_ZONE, SITE_ZONE, normalizeHostname, isOwnHostname, isAppHostname, servedAtRoot, siteHostSlug, siteHostFor, siteUrlFor, claimRefusal, dnsInstructions, readStatus } from "./site-domains.mjs";
+import { OWN_ZONES, APP_ZONE, SITE_ZONE, normalizeHostname, isOwnHostname, isAppHostname, servedAtRoot, siteHostSlug, siteHostFor, siteUrlFor, siteOrigin, claimRefusal, dnsInstructions, readStatus } from "./site-domains.mjs";
 import { checkDns, dnsSentence } from "./site-dns.mjs";
 import { detectProvider, providerSentence } from "./site-registrar.mjs";
 import { offerFor as dcOfferFor, applyUrl as dcApplyUrl, signQuery as dcSign, rsaSigner as dcSigner } from "./site-domain-connect.mjs";
@@ -4087,7 +4087,20 @@ async function handleCheckout({ env, conn, slug, body, origin, schema }) {
   // the body. A caller-supplied success_url is an open redirect on our domain,
   // and the obvious use of one is a payment page that returns the customer to
   // somewhere that looks like the shop and asks for the card again.
-  const base = `${origin}/s/${encodeURIComponent(slug)}/`;
+  //
+  // WHERE THE SITE IS MOUNTED ON THE ORIGIN THE CUSTOMER CAME FROM, which is not
+  // always `/s/<slug>/`. On the site zone and on a custom domain the site IS the
+  // root, so the old line built `<slug>.gofarther.app/s/<slug>/` — a path that is
+  // then prefixed again by the hostname rewrite and 404s. Somebody would have
+  // paid and been returned to a not-found page, which is the worst place on the
+  // platform for this bug to be.
+  //
+  // A CUSTOM DOMAIN RETURNS TO ITSELF. An owner who paid for their own domain
+  // must not have a paying customer bounced onto ours at the one moment they are
+  // deciding whether the shop is real.
+  const base = isAppHostname(new URL(origin).hostname)
+    ? siteUrlFor(slug, origin)
+    : origin.replace(/\/+$/, "") + "/";
   const args = checkoutSessionArgs({
     slug, table: table.name, orderId,
     lines: priced.lines, currency: priced.currency,
@@ -8720,7 +8733,13 @@ async function handleRequest(request, env, ctx) {
             if (env.SITES_BUCKET) {
               const objs = await siteUploadList(env, slug);
               const first = objs.find((o) => o && !o.visitor) || objs[0];
-              if (first) ogImage = "https://gofarther.dev/u/" + slug + "/" + first.key.split("/").pop();
+              // ON THE SITE'S OWN DOMAIN, not the platform's. This is the picture
+              // WhatsApp and Slack show when a customer shares the shop's link, so
+              // pointing it at the tool a business happens to have been built with
+              // is the one place that leak is most visible. `siteOrigin`, not
+              // `siteUrlFor` — uploads hang off the origin, and appending them to a
+              // site's home-page URL is the shape that 404'd every image already.
+              if (first) ogImage = siteOrigin(slug, "https://" + APP_ZONE) + "/u/" + slug + "/" + first.key.split("/").pop();
             }
           } catch (e) { console.error("og image lookup failed:", slug, e && e.message); }
           tr.at("og");

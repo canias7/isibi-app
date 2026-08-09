@@ -178,6 +178,25 @@ export function isAppHostname(host) {
 }
 
 /**
+ * The ORIGIN a site's root-served paths live on — its uploads, its API.
+ *
+ * Distinct from `siteUrlFor`, and the difference is the trap. That one answers
+ * "where is this site's home page", which is `gofarther.dev/s/<slug>/` when there
+ * is no pretty host — a PATH. Appending `/u/<slug>/<file>` to it gives
+ * `gofarther.dev/s/<slug>/u/<slug>/<file>`, which is precisely the shape that
+ * 404'd every image on the platform. Uploads hang off the ORIGIN, never off the
+ * site's home page.
+ *
+ * The platform's own domain is the fallback because that is where a site with no
+ * pretty host really is served from — the tool's domain, standing in for the
+ * customer's, which is exactly the case this is for.
+ */
+export function siteOrigin(slug, appOrigin) {
+  const host = siteHostFor(slug);
+  return host ? "https://" + host : String(appOrigin || "");
+}
+
+/**
  * Paths the Worker answers at the ROOT, so a pretty-hostname rewrite must leave
  * them alone.
  *
