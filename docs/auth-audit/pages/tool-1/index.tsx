@@ -43,15 +43,12 @@ function Door() {
   const submit = (action: typeof login, values: Credentials) => {
     setFormError(null);
     action.mutate(values, {
-      onSuccess: (data) => {
-        if (data && typeof data === "object" && "pending" in data) {
-          toast.message("Check your authenticator app to finish signing in.");
-          return;
-        }
+      onSuccess: () => {
         form.reset();
       },
-      onError: (e: Error) => {
-        setFormError(e.message || "That email and password didn't match.");
+      onError: (e) => {
+        setFormError(e.message);
+        toast.error(e.message);
       },
     });
   };
@@ -66,12 +63,18 @@ function Door() {
 
   if (member.data) {
     return (
-      <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-10 text-center">
-        <h1 className="text-2xl font-semibold tracking-tight">You're signed in</h1>
-        <p className="text-muted-foreground">Head to the pipeline to see what the team is working.</p>
-        <Button asChild>
-          <Link to="/records">Go to records</Link>
-        </Button>
+      <main className="flex min-h-screen items-center justify-center p-10">
+        <Card className="w-full max-w-sm motion-enter">
+          <CardHeader>
+            <CardTitle>Welcome back, {member.data.name}</CardTitle>
+            <CardDescription>You're already signed in.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild className="w-full">
+              <Link to="/records">Go to the deals</Link>
+            </Button>
+          </CardContent>
+        </Card>
       </main>
     );
   }
@@ -82,35 +85,35 @@ function Door() {
         <p className="text-lg font-semibold tracking-tight">Halyard</p>
         <div className="max-w-md py-12">
           <h1 className="text-3xl font-semibold tracking-tight text-balance">
-            Halyard — the deals your team is working, and the accounts behind them, in one place
+            Every deal your team is working, in one shared table
           </h1>
           <p className="mt-4 text-muted-foreground">
-            No spreadsheet, no separate inbox. Every deal your team is chasing sits in one shared table,
-            every account you've ever talked to is a search away, and every change leaves a trail.
+            Halyard is where a small sales team keeps its pipeline: deals your
+            whole team can see and edit, a shared list of accounts, and the
+            activity trail on every record so nothing gets asked twice.
           </p>
-          <div className="mt-8">
-            <FeatureGrid
-              columns={2}
-              items={[
-                { title: "One pipeline", description: "Every deal the team is working, not just your own" },
-                { title: "Shared accounts", description: "One record per company, written by whoever spoke to them" },
-                { title: "Full activity trail", description: "Every change on a record, who made it and when" },
-                { title: "The playbook", description: "How we sell, kept current by the sales lead" },
-              ]}
-            />
-          </div>
+          <FeatureGrid
+            className="mt-8"
+            columns={2}
+            items={[
+              { title: "Shared deals", description: "The team reads and edits the same pipeline" },
+              { title: "Shared accounts", description: "One list, built by everyone who signs in" },
+              { title: "Activity trail", description: "Every record keeps its own history" },
+              { title: "Playbook", description: "The plays your manager wants followed" },
+            ]}
+          />
           <ul className="mt-8 space-y-3 text-sm">
             <li className="flex items-start gap-3">
               <StatusBadge state="success">live</StatusBadge>
-              <span>Records, filters and bulk actions over the whole team's deals</span>
+              <span>Sign in and see the deals your team is already working</span>
             </li>
             <li className="flex items-start gap-3">
               <StatusBadge state="success">live</StatusBadge>
-              <span>Open any record for its fields and its full activity trail</span>
+              <span>Add a deal, and everyone on the team sees it immediately</span>
             </li>
           </ul>
         </div>
-        <p className="text-xs text-muted-foreground">Built for sales teams of five to fifty. Sign in with your work email.</p>
+        <p className="text-xs text-muted-foreground">Built for the sales team — sign in with your work email.</p>
       </section>
 
       <section className="flex items-center justify-center p-10">
@@ -129,7 +132,7 @@ function Door() {
                     <FormItem>
                       <FormLabel>Work email</FormLabel>
                       <FormControl>
-                        <Input type="email" autoComplete="email" placeholder="you@yourteam.com" {...field} />
+                        <Input type="email" autoComplete="email" placeholder="you@company.com" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -150,16 +153,17 @@ function Door() {
                 />
                 {formError && <p className="text-sm text-destructive">{formError}</p>}
                 <div className="flex gap-3">
-                  <Button type="submit" className="motion-press" disabled={login.isPending}>
+                  <Button type="submit" className="motion-press flex-1" disabled={login.isPending}>
                     {login.isPending ? "Signing in…" : "Sign in"}
                   </Button>
                   <Button
                     type="button"
                     variant="outline"
+                    className="flex-1"
                     disabled={signup.isPending}
                     onClick={form.handleSubmit((v) => submit(signup, v))}
                   >
-                    Create an account
+                    {signup.isPending ? "Creating…" : "Create account"}
                   </Button>
                 </div>
               </form>
