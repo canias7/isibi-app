@@ -6,16 +6,19 @@ import { z } from "zod";
 import { toast } from "sonner";
 
 import { useMember, useRows, useCreateRow, type Row } from "@/lib/rows";
-import { SideNav } from "@/components/ui/side-nav";
 import { DataTable } from "@/components/ui/data-table";
 import { TableSearch } from "@/components/ui/table-search";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { BulkActions } from "@/components/ui/bulk-actions";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { SideNav } from "@/components/ui/side-nav";
 import { ResultCount } from "@/components/ui/result-count";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Empty } from "@/components/ui/empty";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { LoginForm } from "@/components/ui/login-form";
 import {
   Dialog,
   DialogContent,
@@ -31,7 +34,6 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -39,56 +41,59 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
+import { useLogin } from "@/lib/rows";
 
 export const Route = createFileRoute("/records")({ component: Records });
 
 type Deal = Row & { title: string; value: string | null; stage: string | null };
 type Account = Row & { name: string; website: string | null; notes: string | null };
-type PlaybookRow = Row & { title: string; body: string | null };
 
-const STAGES = ["New", "Qualifying", "Proposal", "Negotiation", "Won", "Lost"];
+const STAGES = ["lead", "qualified", "proposal", "negotiation", "won", "lost"];
 
 const dealSchema = z.object({
-  title: z.string().min(2, "Give the deal a name"),
-  value: z.string().optional(),
+  title: z.string().min(2, "Give it a name"),
+  value: z.string().min(1, "Add a value"),
   stage: z.string().min(1, "Pick a stage"),
 });
 type DealForm = z.infer<typeof dealSchema>;
 
 const accountSchema = z.object({
-  name: z.string().min(2, "Give the account a name"),
+  name: z.string().min(2, "Name it"),
   website: z.string().optional(),
   notes: z.string().optional(),
 });
 type AccountForm = z.infer<typeof accountSchema>;
 
 function stageState(stage: string | null): "success" | "warning" | "danger" | "neutral" {
-  if (stage === "Won") return "success";
-  if (stage === "Lost") return "danger";
-  if (stage === "Negotiation" || stage === "Proposal") return "warning";
+  if (stage === "won") return "success";
+  if (stage === "lost") return "danger";
+  if (stage === "negotiation" || stage === "proposal") return "warning";
   return "neutral";
 }
 
 function Records() {
   const member = useMember();
+  const login = useLogin();
   const navigate = useNavigate();
-  const [tab, setTab] = useState<"deals" | "accounts" | "playbook">("deals");
+  const [view, setView] = useState<"deals" | "accounts" | "playbook">("deals");
   const [query, setQuery] = useState("");
   const [stageFilter, setStageFilter] = useState<string | null>(null);
   const [selected, setSelected] = useState<number[]>([]);
-  const [newDealOpen, setNewDealOpen] = useState(false);
-  const [newAccountOpen, setNewAccountOpen] = useState(false);
+  const [dealOpen, setDealOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
 
   const deals = useRows<Deal>("deals", { order: "id", dir: "desc" });
   const accounts = useRows<Account>("accounts", { order: "id", dir: "desc" });
-  const playbook = useRows<PlaybookRow>("playbook", { order: "id", dir: "desc" });
+  const playbook = useRows<Row & { title: string; body: string | null }>("playbook", {
+    order: "id",
+    dir: "desc",
+  });
   const createDeal = useCreateRow<Deal>("deals");
   const createAccount = useCreateRow<Account>("accounts");
 
   const dealForm = useForm<DealForm>({
     resolver: zodResolver(dealSchema),
-    defaultValues: { title: "", value: "", stage: "New" },
+    defaultValues: { title: "", value: "", stage: "lead" },
   });
   const accountForm = useForm<AccountForm>({
     resolver: zodResolver(accountSchema),
@@ -105,89 +110,107 @@ function Records() {
     return rows;
   }, [deals.data, stageFilter, query]);
 
-  const onCreateDeal = (values: DealForm) => {
-    createDeal.mutate(values, {
-      onSuccess: () => {
-        toast.success("Deal added");
-        dealForm.reset();
-        setNewDealOpen(false);
-      },
-      onError: (e) => toast.error(e.message),
-    });
-  };
-
-  const onCreateAccount = (values: AccountForm) => {
-    createAccount.mutate(values, {
-      onSuccess: () => {
-        toast.success("Account added");
-        accountForm.reset();
-        setNewAccountOpen(false);
-      },
-      onError: (e) => toast.error(e.message),
-    });
-  };
-
-  if (!member.isPending && !member.data) {
+  if (member.isPending) {
     return (
-      <main className="flex min-h-screen items-center justify-center p-10">
-        <div className="max-w-sm text-center">
-          <h1 className="text-2xl font-semibold tracking-tight">Halyard</h1>
-          <p className="mt-3 text-muted-foreground">
-            Sign in to see the team's deals, accounts and playbook.
-          </p>
-          <Button asChild className="mt-6">
-            <Link to="/">Sign in</Link>
-          </Button>
-        </div>
+      <main className="mx-auto max-w-md px-6 py-24">
+        <Skeleton className="h-40 rounded-xl" />
       </main>
     );
   }
 
-  if (member.isPending) {
+  if (!member.data) {
     return (
-      <main className="p-10">
-        <Skeleton className="h-8 w-40" />
-        <Skeleton className="mt-6 h-64 w-full" />
+      <main className="flex min-h-screen items-center justify-center p-10">
+        <div className="w-full max-w-sm">
+          <h1 className="mb-6 text-2xl font-semibold tracking-tight">Sign in to Halyard</h1>
+          <LoginForm
+            busy={login.isPending}
+            error={login.error?.message ?? null}
+            onSubmit={(v) =>
+              login.mutate(v, {
+                onError: (e: Error) => toast.error(e.message),
+              })
+            }
+          />
+        </div>
       </main>
     );
   }
 
   return (
     <div className="flex min-h-screen">
-      <aside className="w-64 shrink-0 border-r border-border bg-muted/30 p-6">
-        <p className="text-lg font-semibold tracking-tight">Halyard</p>
-        <SideNav
-          className="mt-8"
-          active={tab}
-          sections={[
-            {
-              items: [
-                { label: "Our deals", href: "#deals" },
-                { label: "Accounts", href: "#accounts" },
-                { label: "Playbook", href: "#playbook" },
-              ],
-            },
-          ]}
-        />
-        <div className="mt-8 flex flex-col gap-2">
-          <Button variant={tab === "deals" ? "default" : "outline"} onClick={() => setTab("deals")}>
-            Deals
-          </Button>
-          <Button variant={tab === "accounts" ? "default" : "outline"} onClick={() => setTab("accounts")}>
-            Accounts
-          </Button>
-          <Button variant={tab === "playbook" ? "default" : "outline"} onClick={() => setTab("playbook")}>
-            Playbook
-          </Button>
+      <aside className="w-64 shrink-0 border-r border-border bg-muted/30 p-4">
+        <p className="px-2 text-lg font-semibold tracking-tight">Halyard</p>
+        <div className="mt-6">
+          <SideNav
+            active={view}
+            sections={[
+              {
+                title: "Views",
+                items: [
+                  { label: "Deals", href: "#deals" },
+                  { label: "Accounts", href: "#accounts" },
+                  { label: "Playbook", href: "#playbook" },
+                ],
+              },
+            ]}
+          />
         </div>
+        <div className="mt-4 flex flex-col gap-1 px-2">
+          <button
+            className={`rounded-md px-2 py-1.5 text-left text-sm ${view === "deals" ? "bg-accent font-medium" : "text-muted-foreground"}`}
+            onClick={() => setView("deals")}
+          >
+            Deals
+          </button>
+          <button
+            className={`rounded-md px-2 py-1.5 text-left text-sm ${view === "accounts" ? "bg-accent font-medium" : "text-muted-foreground"}`}
+            onClick={() => setView("accounts")}
+          >
+            Accounts
+          </button>
+          <button
+            className={`rounded-md px-2 py-1.5 text-left text-sm ${view === "playbook" ? "bg-accent font-medium" : "text-muted-foreground"}`}
+            onClick={() => setView("playbook")}
+          >
+            Playbook
+          </button>
+        </div>
+        {view === "deals" && (
+          <div className="mt-6 border-t border-border pt-4">
+            <p className="px-2 text-xs font-medium uppercase text-muted-foreground">Stage</p>
+            <div className="mt-2 flex flex-col gap-1 px-2">
+              <button
+                className={`rounded-md px-2 py-1 text-left text-sm ${!stageFilter ? "font-medium" : "text-muted-foreground"}`}
+                onClick={() => setStageFilter(null)}
+              >
+                All stages
+              </button>
+              {STAGES.map((s) => (
+                <button
+                  key={s}
+                  className={`rounded-md px-2 py-1 text-left text-sm capitalize ${stageFilter === s ? "font-medium" : "text-muted-foreground"}`}
+                  onClick={() => setStageFilter(s)}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </aside>
 
-      <main className="flex-1 p-8">
-        {tab === "deals" && (
+      <main className="flex-1 overflow-x-hidden p-8">
+        {view === "deals" && (
           <>
-            <div className="flex items-center justify-between">
-              <h1 className="text-2xl font-semibold tracking-tight">Our deals</h1>
-              <Dialog open={newDealOpen} onOpenChange={setNewDealOpen}>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <h1 className="text-2xl font-semibold tracking-tight">Our deals</h1>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Everything the team is working, shared across everyone signed in.
+                </p>
+              </div>
+              <Dialog open={dealOpen} onOpenChange={setDealOpen}>
                 <DialogTrigger asChild>
                   <Button>New record</Button>
                 </DialogTrigger>
@@ -196,7 +219,19 @@ function Records() {
                     <DialogTitle>New deal</DialogTitle>
                   </DialogHeader>
                   <Form {...dealForm}>
-                    <form onSubmit={dealForm.handleSubmit(onCreateDeal)} className="grid gap-4">
+                    <form
+                      className="grid gap-4"
+                      onSubmit={dealForm.handleSubmit((v) =>
+                        createDeal.mutate(v, {
+                          onSuccess: () => {
+                            toast.success("Deal added");
+                            dealForm.reset();
+                            setDealOpen(false);
+                          },
+                          onError: (e: Error) => toast.error(e.message),
+                        }),
+                      )}
+                    >
                       <FormField
                         control={dealForm.control}
                         name="title"
@@ -217,7 +252,7 @@ function Records() {
                           <FormItem>
                             <FormLabel>Value</FormLabel>
                             <FormControl>
-                              <Input placeholder="£4,500" {...field} />
+                              <Input placeholder="£12,000" {...field} />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
@@ -232,12 +267,12 @@ function Records() {
                             <Select onValueChange={field.onChange} value={field.value}>
                               <FormControl>
                                 <SelectTrigger>
-                                  <SelectValue placeholder="Choose a stage" />
+                                  <SelectValue placeholder="Pick a stage" />
                                 </SelectTrigger>
                               </FormControl>
                               <SelectContent>
                                 {STAGES.map((s) => (
-                                  <SelectItem key={s} value={s}>
+                                  <SelectItem key={s} value={s} className="capitalize">
                                     {s}
                                   </SelectItem>
                                 ))}
@@ -247,7 +282,7 @@ function Records() {
                           </FormItem>
                         )}
                       />
-                      <Button type="submit" className="motion-press" disabled={createDeal.isPending}>
+                      <Button type="submit" disabled={createDeal.isPending} className="motion-press">
                         {createDeal.isPending ? "Adding…" : "Add deal"}
                       </Button>
                     </form>
@@ -260,78 +295,81 @@ function Records() {
               <TableSearch
                 value={query}
                 onChange={setQuery}
-                placeholder="Search deals"
                 count={filteredDeals.length}
                 total={deals.data?.length ?? 0}
               />
-              <FilterBar
-                filters={stageFilter ? [{ key: "stage", label: stageFilter }] : []}
-                onRemove={() => setStageFilter(null)}
-                onClear={() => setStageFilter(null)}
-              >
-                <Select onValueChange={(v) => setStageFilter(v === "all" ? null : v)} value={stageFilter ?? "all"}>
-                  <SelectTrigger className="w-40">
-                    <SelectValue placeholder="Stage" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All stages</SelectItem>
-                    {STAGES.map((s) => (
-                      <SelectItem key={s} value={s}>
-                        {s}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </FilterBar>
+              {stageFilter && (
+                <FilterBar
+                  filters={[{ key: "stage", label: `Stage: ${stageFilter}` }]}
+                  onRemove={() => setStageFilter(null)}
+                  onClear={() => setStageFilter(null)}
+                />
+              )}
             </div>
 
-            <ResultCount className="mt-3" total={filteredDeals.length} noun="deal" filtered={!!stageFilter || !!query} />
-
             {selected.length > 0 && (
-              <BulkActions
-                count={selected.length}
-                onClear={() => setSelected([])}
-                actions={[
-                  {
-                    label: "Clear selection",
-                    onSelect: () => setSelected([]),
-                  },
-                ]}
-              />
+              <div className="mt-4">
+                <BulkActions
+                  count={selected.length}
+                  onClear={() => setSelected([])}
+                  actions={[
+                    {
+                      label: "Mark won",
+                      onSelect: () => {
+                        toast.message("Bulk stage change isn't wired to a bulk endpoint yet — open each record to update it.");
+                        setSelected([]);
+                      },
+                    },
+                  ]}
+                />
+              </div>
             )}
 
-            {deals.isPending && <Skeleton className="mt-4 h-64 w-full" />}
-            {deals.isError && (
-              <p className="mt-4 text-sm text-destructive">Couldn't load the team's deals. Refresh and try again.</p>
-            )}
-            {!deals.isPending && !deals.isError && deals.data?.length === 0 && (
-              <Empty className="mt-4" title="No deals yet" description="Add the team's first deal to get the pipeline started." />
-            )}
-            {!deals.isPending && !deals.isError && !!deals.data?.length && (
-              <DataTable
-                className="mt-4"
-                rowKey={(row) => row.id}
-                rows={filteredDeals}
-                onRowClick={(row) => navigate({ to: "/record", search: { id: String(row.id) } })}
-                columns={[
-                  { key: "title", header: "Title", cell: (r) => r.title },
-                  { key: "value", header: "Value", cell: (r) => r.value ?? "—" },
-                  {
-                    key: "stage",
-                    header: "Stage",
-                    cell: (r) => <StatusBadge state={stageState(r.stage)}>{r.stage ?? "New"}</StatusBadge>,
-                  },
-                ]}
-              />
-            )}
+            <div className="mt-4">
+              <ResultCount total={filteredDeals.length} noun="deal" filtered={!!stageFilter || !!query} />
+            </div>
+
+            <div className="mt-3">
+              {deals.isPending && <Skeleton className="h-64 rounded-xl" />}
+              {deals.isError && (
+                <p className="text-sm text-destructive">Couldn't load the deals. Refresh and try again.</p>
+              )}
+              {deals.data?.length === 0 && (
+                <Empty
+                  title="No deals yet"
+                  description="Add the team's first deal to get the pipeline going."
+                />
+              )}
+              {!deals.isPending && !deals.isError && (deals.data?.length ?? 0) > 0 && (
+                <DataTable<Deal>
+                  rows={filteredDeals}
+                  rowKey={(r) => r.id}
+                  onRowClick={(r) => navigate({ to: "/record", search: { id: String(r.id) } })}
+                  columns={[
+                    { key: "title", header: "Title", cell: (r) => r.title },
+                    { key: "value", header: "Value", cell: (r) => r.value ?? "—" },
+                    {
+                      key: "stage",
+                      header: "Stage",
+                      cell: (r) => <StatusBadge state={stageState(r.stage)}>{r.stage ?? "lead"}</StatusBadge>,
+                    },
+                  ]}
+                />
+              )}
+            </div>
           </>
         )}
 
-        {tab === "accounts" && (
+        {view === "accounts" && (
           <>
-            <div className="flex items-center justify-between">
-              <h1 className="text-2xl font-semibold tracking-tight">Accounts</h1>
-              <Dialog open={newAccountOpen} onOpenChange={setNewAccountOpen}>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <h1 className="text-2xl font-semibold tracking-tight">Accounts</h1>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Shared across the team — anyone signed in can read and add one.
+                </p>
+              </div>
+              <Dialog open={accountOpen} onOpenChange={setAccountOpen}>
                 <DialogTrigger asChild>
                   <Button>New record</Button>
                 </DialogTrigger>
@@ -340,7 +378,19 @@ function Records() {
                     <DialogTitle>New account</DialogTitle>
                   </DialogHeader>
                   <Form {...accountForm}>
-                    <form onSubmit={accountForm.handleSubmit(onCreateAccount)} className="grid gap-4">
+                    <form
+                      className="grid gap-4"
+                      onSubmit={accountForm.handleSubmit((v) =>
+                        createAccount.mutate(v, {
+                          onSuccess: () => {
+                            toast.success("Account added");
+                            accountForm.reset();
+                            setAccountOpen(false);
+                          },
+                          onError: (e: Error) => toast.error(e.message),
+                        }),
+                      )}
+                    >
                       <FormField
                         control={accountForm.control}
                         name="name"
@@ -361,7 +411,7 @@ function Records() {
                           <FormItem>
                             <FormLabel>Website</FormLabel>
                             <FormControl>
-                              <Input placeholder="https://" {...field} />
+                              <Input placeholder="https://…" {...field} />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
@@ -380,7 +430,7 @@ function Records() {
                           </FormItem>
                         )}
                       />
-                      <Button type="submit" className="motion-press" disabled={createAccount.isPending}>
+                      <Button type="submit" disabled={createAccount.isPending} className="motion-press">
                         {createAccount.isPending ? "Adding…" : "Add account"}
                       </Button>
                     </form>
@@ -389,50 +439,52 @@ function Records() {
               </Dialog>
             </div>
 
-            {accounts.isPending && <Skeleton className="mt-4 h-64 w-full" />}
-            {accounts.isError && (
-              <p className="mt-4 text-sm text-destructive">Couldn't load accounts. Refresh and try again.</p>
-            )}
-            {!accounts.isPending && !accounts.isError && accounts.data?.length === 0 && (
-              <Empty className="mt-4" title="No accounts yet" description="Add the first account the team is talking to." />
-            )}
-            {!accounts.isPending && !accounts.isError && !!accounts.data?.length && (
-              <DataTable
-                className="mt-4"
-                rowKey={(row) => row.id}
-                rows={accounts.data}
-                columns={[
-                  { key: "name", header: "Name", cell: (r) => r.name },
-                  { key: "website", header: "Website", cell: (r) => r.website ?? "—" },
-                  { key: "notes", header: "Notes", cell: (r) => r.notes ?? "—" },
-                ]}
-              />
-            )}
+            <div className="mt-6">
+              {accounts.isPending && <Skeleton className="h-64 rounded-xl" />}
+              {accounts.isError && (
+                <p className="text-sm text-destructive">Couldn't load accounts. Refresh and try again.</p>
+              )}
+              {accounts.data?.length === 0 && (
+                <Empty title="No accounts yet" description="Add the first account the team is working with." />
+              )}
+              {!accounts.isPending && !accounts.isError && (accounts.data?.length ?? 0) > 0 && (
+                <DataTable<Account>
+                  rows={accounts.data ?? []}
+                  rowKey={(r) => r.id}
+                  columns={[
+                    { key: "name", header: "Account", cell: (r) => r.name },
+                    { key: "website", header: "Website", cell: (r) => r.website ?? "—" },
+                    { key: "notes", header: "Notes", cell: (r) => r.notes ?? "—" },
+                  ]}
+                />
+              )}
+            </div>
           </>
         )}
 
-        {tab === "playbook" && (
+        {view === "playbook" && (
           <>
             <h1 className="text-2xl font-semibold tracking-tight">Playbook</h1>
-            <p className="mt-1 text-sm text-muted-foreground">Maintained by the team lead — read only here.</p>
-
-            {playbook.isPending && <Skeleton className="mt-4 h-64 w-full" />}
-            {playbook.isError && (
-              <p className="mt-4 text-sm text-destructive">Couldn't load the playbook. Refresh and try again.</p>
-            )}
-            {!playbook.isPending && !playbook.isError && playbook.data?.length === 0 && (
-              <Empty className="mt-4" title="No playbook entries yet" description="Nothing has been added by the team lead yet." />
-            )}
-            {!!playbook.data?.length && (
-              <ul className="mt-6 space-y-4 motion-stagger">
-                {playbook.data.map((p) => (
-                  <li key={p.id} className="rounded-lg border border-border p-4">
+            <p className="mt-1 text-sm text-muted-foreground">
+              Maintained by the business — read here, not edited.
+            </p>
+            <div className="mt-6">
+              {playbook.isPending && <Skeleton className="h-64 rounded-xl" />}
+              {playbook.isError && (
+                <p className="text-sm text-destructive">Couldn't load the playbook. Refresh and try again.</p>
+              )}
+              {playbook.data?.length === 0 && (
+                <Empty title="Nothing here yet" description="The team hasn't published a playbook entry yet." />
+              )}
+              <div className="grid gap-4 sm:grid-cols-2">
+                {playbook.data?.map((p) => (
+                  <div key={p.id} className="rounded-lg border border-border bg-card p-4">
                     <h2 className="font-medium">{p.title}</h2>
                     <p className="mt-2 text-sm text-muted-foreground">{p.body}</p>
-                  </li>
+                  </div>
                 ))}
-              </ul>
-            )}
+              </div>
+            </div>
           </>
         )}
       </main>

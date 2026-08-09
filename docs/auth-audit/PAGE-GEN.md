@@ -15,8 +15,8 @@ A single failure is variance; a column of the same error is a mismatch worth fix
 
 ## What it cost
 
-- output 9,235 tok/sample · fresh in 4,070 · cache read 33,145 · write 16,573
-- $0.2228 a sample at list price · comments are 0.0% of the source written
+- output 10,087 tok/sample · fresh in 4,070 · cache read 33,459 · write 16,729
+- $0.2363 a sample at list price · comments are 0.0% of the source written
 
 ## Samples
 

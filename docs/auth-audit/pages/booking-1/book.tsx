@@ -33,14 +33,14 @@ export const Route = createFileRoute("/book")({
   }),
 });
 
-type Appointment = Row;
+type Booking = Row;
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "A quiet studio for a proper practice.",
+  tagline: "A calm room, a good floor, teachers who remember your name.",
   links: [
     { label: "Home", href: "/" },
-    { label: "Book", href: "/book" },
+    { label: "Classes", href: "/#prices" },
     { label: "The work", href: "/work" },
     { label: "Account", href: "/account" },
   ],
@@ -49,9 +49,10 @@ const CHROME = {
 
 const CLASSES = [
   "Morning Flow",
-  "Slow & Steady",
   "Restorative",
-  "Beginners' Six-Week Course",
+  "Strong Vinyasa",
+  "Beginners",
+  "Yin",
 ];
 
 const SLOTS = ["07:00", "08:00", "09:15", "12:00", "17:30", "18:30", "19:30"];
@@ -64,14 +65,14 @@ const booking = z.object({
   slot_time: z.string().min(1, "Pick a time"),
 });
 
-type Booking = z.infer<typeof booking>;
+type BookingForm = z.infer<typeof booking>;
 
 function Book() {
   const { service: preselected } = Route.useSearch();
-  const create = useCreateRow<Appointment>("bookings");
+  const create = useCreateRow<Booking>("bookings");
   const [booked, setBooked] = useState(false);
 
-  const form = useForm<Booking>({
+  const form = useForm<BookingForm>({
     resolver: zodResolver(booking),
     defaultValues: {
       class_name: preselected ?? "",
@@ -88,7 +89,7 @@ function Book() {
     slot_date ? { slot_date } : undefined,
   );
 
-  const onSubmit = (values: Booking) => {
+  const onSubmit = (values: BookingForm) => {
     create.mutate(values, {
       onSuccess: () => {
         toast.success("Booked — see you on the mat.");
@@ -105,10 +106,10 @@ function Book() {
         <div className="mx-auto max-w-lg px-6 py-20 text-center motion-enter">
           <h1 className="text-3xl font-semibold tracking-tight">You're booked</h1>
           <p className="mt-3 text-muted-foreground">
-            We've saved your spot. Need to change it? Give us a ring, or use the manage link if you have it.
+            We've saved your spot. Need to change it? Get in touch and we'll sort it.
           </p>
           <Button asChild variant="outline" className="mt-6">
-            <Link to="/">Back to the studio</Link>
+            <Link to="/">Back to Aurora Yoga</Link>
           </Button>
         </div>
       </SiteChrome>
@@ -118,8 +119,8 @@ function Book() {
   return (
     <SiteChrome {...CHROME}>
       <div className="mx-auto max-w-2xl px-6 py-14">
-        <h1 className="text-3xl font-semibold tracking-tight">Check availability</h1>
-        <p className="mt-2 text-muted-foreground">Pick a class, a date and a time, and we'll hold your spot.</p>
+        <h1 className="text-3xl font-semibold tracking-tight">Book a class</h1>
+        <p className="mt-2 text-muted-foreground">We'll confirm by email.</p>
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="mt-8 grid gap-4 sm:grid-cols-2">
@@ -211,7 +212,7 @@ function Book() {
 
             <div className="sm:col-span-2">
               <Button type="submit" className="motion-press" disabled={create.isPending}>
-                {create.isPending ? "Booking…" : "Book now"}
+                {create.isPending ? "Booking…" : "Request booking"}
               </Button>
             </div>
           </form>

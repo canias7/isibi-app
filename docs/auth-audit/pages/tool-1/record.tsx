@@ -1,5 +1,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import { toast } from "sonner";
 
 import { useMember, useRows, useUpdateRow, type Row } from "@/lib/rows";
@@ -8,8 +11,17 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { ActivityFeed } from "@/components/ui/activity-feed";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { LoginForm } from "@/components/ui/login-form";
+import { useLogin } from "@/lib/rows";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
 import {
   Select,
   SelectContent,
@@ -27,44 +39,57 @@ export const Route = createFileRoute("/record")({
 
 type Deal = Row & { title: string; value: string | null; stage: string | null };
 
-const STAGES = ["New", "Qualifying", "Proposal", "Negotiation", "Won", "Lost"];
+const STAGES = ["lead", "qualified", "proposal", "negotiation", "won", "lost"];
+
+const editSchema = z.object({
+  title: z.string().min(2, "Give it a name"),
+  value: z.string().min(1, "Add a value"),
+  stage: z.string().min(1, "Pick a stage"),
+});
+type EditForm = z.infer<typeof editSchema>;
 
 function stageState(stage: string | null): "success" | "warning" | "danger" | "neutral" {
-  if (stage === "Won") return "success";
-  if (stage === "Lost") return "danger";
-  if (stage === "Negotiation" || stage === "Proposal") return "warning";
+  if (stage === "won") return "success";
+  if (stage === "lost") return "danger";
+  if (stage === "negotiation" || stage === "proposal") return "warning";
   return "neutral";
 }
 
 function RecordPage() {
   const { id } = Route.useSearch();
   const member = useMember();
+  const login = useLogin();
   const deals = useRows<Deal>("deals");
   const update = useUpdateRow<Deal>("deals");
+  const [editing, setEditing] = useState(false);
 
-  const record = deals.data?.find((d) => String(d.id) === id);
+  const deal = deals.data?.find((d) => String(d.id) === id);
 
-  const [title, setTitle] = useState("");
-  const [value, setValue] = useState("");
-  const [stage, setStage] = useState("New");
+  const form = useForm<EditForm>({
+    resolver: zodResolver(editSchema),
+    values: deal
+      ? { title: deal.title, value: deal.value ?? "", stage: deal.stage ?? "lead" }
+      : { title: "", value: "", stage: "lead" },
+  });
 
-  useEffect(() => {
-    if (record) {
-      setTitle(record.title);
-      setValue(record.value ?? "");
-      setStage(record.stage ?? "New");
-    }
-  }, [record]);
+  if (member.isPending) {
+    return (
+      <main className="mx-auto max-w-2xl px-6 py-16">
+        <Skeleton className="h-40 rounded-xl" />
+      </main>
+    );
+  }
 
-  if (!member.isPending && !member.data) {
+  if (!member.data) {
     return (
       <main className="flex min-h-screen items-center justify-center p-10">
-        <div className="max-w-sm text-center">
-          <h1 className="text-2xl font-semibold tracking-tight">Halyard</h1>
-          <p className="mt-3 text-muted-foreground">Sign in to open this record.</p>
-          <Button asChild className="mt-6">
-            <Link to="/">Sign in</Link>
-          </Button>
+        <div className="w-full max-w-sm">
+          <h1 className="mb-6 text-2xl font-semibold tracking-tight">Sign in to Halyard</h1>
+          <LoginForm
+            busy={login.isPending}
+            error={login.error?.message ?? null}
+            onSubmit={(v) => login.mutate(v, { onError: (e: Error) => toast.error(e.message) })}
+          />
         </div>
       </main>
     );
@@ -72,109 +97,165 @@ function RecordPage() {
 
   if (!id) {
     return (
-      <main className="p-10">
+      <main className="mx-auto max-w-2xl px-6 py-16">
         <p className="text-muted-foreground">
           No record chosen.{" "}
           <Link to="/records" className="underline">
-            Back to the list
+            Back to records
           </Link>
           .
         </p>
       </main>
     );
   }
-
-  if (member.isPending || deals.isPending) {
-    return (
-      <main className="p-10">
-        <Skeleton className="h-8 w-64" />
-        <Skeleton className="mt-6 h-48 w-full" />
-      </main>
-    );
-  }
-
-  if (deals.isError) {
-    return (
-      <main className="p-10">
-        <p className="text-sm text-destructive">Couldn't load this record. Refresh and try again.</p>
-      </main>
-    );
-  }
-
-  if (!record) {
-    return (
-      <main className="p-10">
-        <p className="text-muted-foreground">
-          We couldn't find that deal. It may have been removed.{" "}
-          <Link to="/records" className="underline">
-            Back to the list
-          </Link>
-          .
-        </p>
-      </main>
-    );
-  }
-
-  const save = () => {
-    update.mutate(
-      { id: record.id, title, value, stage },
-      {
-        onSuccess: () => toast.success("Saved"),
-        onError: (e) => toast.error(e.message),
-      },
-    );
-  };
 
   return (
-    <main className="mx-auto max-w-3xl p-8">
+    <main className="mx-auto max-w-2xl px-6 py-12">
       <Link to="/records" className="text-sm text-muted-foreground underline">
-        Back to our deals
+        ← Back to records
       </Link>
 
-      <RecordHeader
-        className="mt-4"
-        title={record.title}
-        subtitle={`Added ${new Date(record.created_at as string).toLocaleDateString()}`}
-        status={<StatusBadge state={stageState(record.stage)}>{record.stage ?? "New"}</StatusBadge>}
-        actions={<Button onClick={save} disabled={update.isPending}>{update.isPending ? "Saving…" : "Save changes"}</Button>}
-      />
+      {deals.isPending && <Skeleton className="mt-6 h-64 rounded-xl" />}
 
-      <div className="mt-8 grid gap-4 sm:grid-cols-2">
-        <div className="grid gap-1.5">
-          <Label htmlFor="title">Title</Label>
-          <Input id="title" value={title} onChange={(e) => setTitle(e.target.value)} />
-        </div>
-        <div className="grid gap-1.5">
-          <Label htmlFor="value">Value</Label>
-          <Input id="value" value={value} onChange={(e) => setValue(e.target.value)} />
-        </div>
-        <div className="grid gap-1.5 sm:col-span-2">
-          <Label htmlFor="stage">Stage</Label>
-          <Select value={stage} onValueChange={setStage}>
-            <SelectTrigger id="stage">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {STAGES.map((s) => (
-                <SelectItem key={s} value={s}>
-                  {s}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
+      {deals.isError && (
+        <p className="mt-6 text-sm text-destructive">Couldn't load this record. Refresh and try again.</p>
+      )}
 
-      <div className="mt-10">
-        <h2 className="text-lg font-semibold tracking-tight">Activity</h2>
-        <ActivityFeed
-          className="mt-4"
-          empty="No activity recorded yet."
-          items={[
-            { who: "Team", what: `added this deal at stage "${record.stage ?? "New"}"`, at: record.created_at as string },
-          ]}
-        />
-      </div>
+      {!deals.isPending && !deals.isError && !deal && (
+        <p className="mt-6 text-muted-foreground">
+          We couldn't find that deal. It may not be yours or your team's, or it's been removed.
+        </p>
+      )}
+
+      {deal && (
+        <div className="mt-6">
+          <RecordHeader
+            title={deal.title}
+            subtitle="A deal the team is working"
+            status={<StatusBadge state={stageState(deal.stage)}>{deal.stage ?? "lead"}</StatusBadge>}
+            actions={
+              !editing ? (
+                <Button variant="outline" onClick={() => setEditing(true)}>
+                  Edit
+                </Button>
+              ) : undefined
+            }
+          />
+
+          {!editing && (
+            <div className="mt-6 grid gap-4 rounded-lg border border-border bg-card p-6 sm:grid-cols-2">
+              <div>
+                <p className="text-xs uppercase text-muted-foreground">Value</p>
+                <p className="mt-1 text-sm">{deal.value ?? "—"}</p>
+              </div>
+              <div>
+                <p className="text-xs uppercase text-muted-foreground">Stage</p>
+                <p className="mt-1 text-sm capitalize">{deal.stage ?? "lead"}</p>
+              </div>
+            </div>
+          )}
+
+          {editing && (
+            <Form {...form}>
+              <form
+                className="mt-6 grid gap-4 rounded-lg border border-border bg-card p-6"
+                onSubmit={form.handleSubmit((v) =>
+                  update.mutate(
+                    { id: deal.id, ...v },
+                    {
+                      onSuccess: () => {
+                        toast.success("Deal updated");
+                        setEditing(false);
+                      },
+                      onError: (e: Error) => toast.error(e.message),
+                    },
+                  ),
+                )}
+              >
+                <FormField
+                  control={form.control}
+                  name="title"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Title</FormLabel>
+                      <FormControl>
+                        <Input {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="value"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Value</FormLabel>
+                      <FormControl>
+                        <Input {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="stage"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Stage</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Pick a stage" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {STAGES.map((s) => (
+                            <SelectItem key={s} value={s} className="capitalize">
+                              {s}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <div className="flex gap-3">
+                  <Button type="submit" disabled={update.isPending} className="motion-press">
+                    {update.isPending ? "Saving…" : "Save changes"}
+                  </Button>
+                  <Button type="button" variant="ghost" onClick={() => setEditing(false)}>
+                    Cancel
+                  </Button>
+                </div>
+              </form>
+            </Form>
+          )}
+
+          <div className="mt-8">
+            <h2 className="text-sm font-medium">Activity</h2>
+            <div className="mt-3">
+              <ActivityFeed
+                items={[
+                  {
+                    who: "System",
+                    what: `Record created${deal.value ? ` at ${deal.value}` : ""}`,
+                    at: deal.created_at,
+                  },
+                  {
+                    who: "System",
+                    what: `Currently at stage "${deal.stage ?? "lead"}"`,
+                    at: deal.updated_at ?? deal.created_at,
+                  },
+                ]}
+                empty="No activity yet"
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
