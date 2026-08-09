@@ -38,9 +38,13 @@ const lift = (name, { live = null } = {}) => {
 };
 const reactRoutePages = lift("reactRoutePages");
 const siteChipUrl = lift("siteChipUrl");
-// The address as it will read once the zone is live, driven now so the flip is
-// a one-line change and not a discovery.
+// BOTH STATES, DRIVEN EXPLICITLY, rather than whichever the flag happens to be.
+// Pinned to one, half the behaviour goes uncovered the moment somebody flips
+// the switch — and the flip is a one-line change, so it will happen without
+// anybody thinking about this file. `siteChipUrl` above still reads the real
+// flag, and one assertion below checks it agrees with one of these two.
 const siteChipUrlLive = lift("siteChipUrl", { live: true });
+const siteChipUrlDark = lift("siteChipUrl", { live: false });
 const names = (files) => reactRoutePages(files).map((p) => p.name + " " + p.path);
 
 test("every route file becomes a page, with home first", () => {
@@ -90,17 +94,28 @@ test("the address chip shows a URL that would actually work", () => {
   // browser history on 2026-08-09 and the fragment became the bug — `/s/hey/#/
   // press` loads the home page. Pages have real addresses, so does the chip.
   const react = { slug: "hey", react: true };
-  assert.equal(siteChipUrl(react, "/press"), "gofarther.dev/s/hey/press");
-  assert.equal(siteChipUrl(react, "/"), "gofarther.dev/s/hey/");
-  assert.equal(siteChipUrl(react, null), "gofarther.dev/s/hey/");
+  assert.equal(siteChipUrlDark(react, "/press"), "gofarther.dev/s/hey/press");
+  assert.equal(siteChipUrlDark(react, "/"), "gofarther.dev/s/hey/");
+  assert.equal(siteChipUrlDark(react, null), "gofarther.dev/s/hey/");
   // THE TRAILING SLASH IS NOT COSMETIC — the bundle is referenced relatively, so
   // without it the browser resolves /s/assets/... and the page renders blank.
-  assert.ok(siteChipUrl(react, "/").endsWith("/"), "the chip drops the trailing slash");
+  assert.ok(siteChipUrlDark(react, "/").endsWith("/"), "the chip drops the trailing slash");
   // React or static, the address is the same shape now.
-  assert.equal(siteChipUrl({ slug: "hey" }, "/press"), "gofarther.dev/s/hey/press");
+  assert.equal(siteChipUrlDark({ slug: "hey" }, "/press"), "gofarther.dev/s/hey/press");
   // No slug yet: say so rather than showing a broken link.
-  assert.match(siteChipUrl({}, "/"), /Draft preview/);
-  assert.match(siteChipUrl(null, "/"), /Draft preview/);
+  assert.match(siteChipUrlDark({}, "/"), /Draft preview/);
+  assert.match(siteChipUrlDark(null, "/"), /Draft preview/);
+});
+
+test("the live chip is whichever of the two the flag selects", () => {
+  // The two tests around this one force the flag, so on their own they would
+  // both pass against a `siteChipUrl` that had stopped reading it at all.
+  const react = { slug: "hey", react: true };
+  const real = siteChipUrl(react, "/press");
+  assert.ok(
+    real === siteChipUrlLive(react, "/press") || real === siteChipUrlDark(react, "/press"),
+    "the chip is neither the live form nor the dark one: " + real,
+  );
 });
 
 test("once the site zone is live the chip is the subdomain", () => {

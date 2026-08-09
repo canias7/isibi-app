@@ -9967,7 +9967,7 @@ function bindSiteNav() {
 // chip correct the moment the flag flips. The test reads site-domains.mjs and
 // fails if either drifts.
 const SITE_ZONE = 'gofarther.app';
-const SITE_ZONE_LIVE = false;
+const SITE_ZONE_LIVE = true;
 
 // The address shown above the preview — and the one people copy out of it.
 //

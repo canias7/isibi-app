@@ -33,35 +33,30 @@
     // script: wrangler publishes routes with a PUT that DELETES any it was not
     // told about, so an out-of-band route survives exactly until the next
     // deploy.
-    { "pattern": "*/*", "zone_name": "gofarther.dev" }
+    { "pattern": "*/*", "zone_name": "gofarther.dev" },
 
-    // ── THE SITE ZONE, `gofarther.app` ────────────────────────────────────────
+    // ── THE SITE ZONE, `gofarther.app` — LIVE 2026-08-09 ──────────────────────
     //
     // Every published site has an automatic address at `<slug>.gofarther.app`.
-    // The Worker already routes it (`siteHostSlug` in site-domains.mjs rewrites
-    // the Host to `/s/<slug>/`), so the ONLY thing missing is the route that
-    // brings those requests to this script:
+    // `siteHostSlug` in site-domains.mjs rewrites that Host to `/s/<slug>/`;
+    // this route is what brings those requests to the script at all.
     //
-    //     ,
-    //     { "pattern": "*/*", "zone_name": "gofarther.app" }
+    // IT MUST FLIP TOGETHER WITH `SITE_ZONE_LIVE` in site-domains.mjs, and
+    // `test/site-zone.test.mjs` fails if either moves alone: a live route with
+    // the flag off is a zone serving sites nobody is given the address of, and
+    // the flag on with no route is every customer handed a link that times out.
     //
-    // COMMENTED OUT UNTIL THE ZONE IS IN THE ACCOUNT, for the reason the block
-    // above records at first hand: wrangler publishes routes with one PUT, and
-    // a route naming a zone this account does not hold fails that call — which
-    // fails the WHOLE deploy, with an error naming a feature the change had
-    // nothing to do with. That cost three merges on 2026-08-07.
-    //
-    // The order to turn it on, and each step needs the one before it:
-    //   1. Add `gofarther.app` to the same Cloudflare account and move its
-    //      nameservers. Wait for the zone to read Active.
-    //   2. Run `.github/workflows/site-zone-setup.yml` (dry run first, then
-    //      `--apply`). It creates the wildcard `*` → `AAAA 100::` proxied and
-    //      verifies Universal SSL covers `*.gofarther.app`.
-    //   3. Uncomment the route above AND set `SITE_ZONE_LIVE = true` in
-    //      site-domains.mjs, in ONE commit. `test/site-zone.test.mjs` fails if
-    //      either moves without the other — a live route with the flag off is a
-    //      zone serving sites nobody is given the address of, and the flag on
-    //      with no route is every customer handed a link that times out.
+    // ENABLED ONLY AFTER THE ZONE AND ITS DNS, in that order, because the block
+    // above records at first hand what happens otherwise — a route naming a
+    // zone this account does not hold fails the routes PUT, which fails the
+    // WHOLE deploy with an error naming a feature the change never touched.
+    // That cost three merges on 2026-08-07. Verified before this line was
+    // added: the zone reads Active in the same account (the deploy's read-only
+    // report found it), `*` and `@` are both `AAAA 100::` PROXIED, and a real
+    // HTTPS request to a subdomain answered with `ssl_verify_result=0` — so the
+    // Universal SSL certificate was issued and covers the wildcard. The 522
+    // underneath it was Cloudflare finding no origin, which is precisely what
+    // this line fixes.
     //
     // NO CLOUDFLARE FOR SAAS AND NO CERTIFICATE PER SITE. These are subdomains
     // of a zone we own, so Universal SSL covers them free — `*.gofarther.app`
@@ -69,6 +64,7 @@
     // and exactly why `siteHostSlug` refuses a second label. Custom domains
     // keep using Cloudflare for SaaS and its 100-hostname allowance; these
     // consume none of it.
+    { "pattern": "*/*", "zone_name": "gofarther.app" }
   ],
   // Published Website-Builder sites are stored here (one HTML object per page)
   // and served from the Worker at gofarther.dev/s/<slug>/… (and later custom domains).

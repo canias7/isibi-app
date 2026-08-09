@@ -66,13 +66,13 @@ export const SITE_ZONE = "gofarther.app";
  * pretty URL is a link that does not load, so `siteHostFor` answers null and
  * every caller falls back to the `/s/<slug>/` address that has always worked.
  *
- * It pairs with the commented-out Worker route in `wrangler.jsonc`: a route for
+ * It pairs with the Worker route in `wrangler.jsonc`: a route for
  * a zone that is not in the account FAILS THE WHOLE DEPLOY at the routes PUT —
  * measured on 2026-08-07 with the bare wildcard route, which took three merges
  * down. The two must flip together, and `test/site-zone.test.mjs` asserts they agree in both
  * directions so neither can be turned on alone.
  */
-export const SITE_ZONE_LIVE = false;
+export const SITE_ZONE_LIVE = true;
 
 /**
  * Labels under the site zone that are never a customer's site.
