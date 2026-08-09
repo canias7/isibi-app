@@ -40,6 +40,11 @@ jobs:
     # Read off the DEPLOY's head commit, because that is the commit this run
     # would be testing. `workflow_dispatch` ignores it — asking for a run by
     # hand is not something a commit message should be able to veto.
+    #
+    # SO THE MARKER MUST BE ON THE COMMIT THAT LANDS AS MAIN'S HEAD. On a
+    # fast-forward that is the branch commit; ON A MERGE IT IS THE MERGE COMMIT,
+    # and putting it on the branch commit alone does nothing. Learned by doing
+    # exactly that on 2026-08-09 and spending two builds on a test-only change.
     if: >-
       (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
       && !contains(github.event.workflow_run.head_commit.message, '[skip smoke]')

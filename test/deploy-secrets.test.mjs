@@ -185,6 +185,13 @@ test("a deploy can skip the smoke builds, and not by suppressing the deploy", ()
   // And a hand-triggered run must not be vetoable by a commit message.
   assert.match(gate, /workflow_dispatch/, "workflow_dispatch lost its exemption");
 
+  // WHERE THE MARKER HAS TO GO, stated in the workflow because getting it wrong
+  // is silent: the gate reads the DEPLOY's head commit, so on a merge that is
+  // the MERGE commit and not the branch commit it came from. Put it on the
+  // branch commit alone and the run happens anyway, at two real builds.
+  assert.match(y, /ON A MERGE IT IS THE MERGE COMMIT/,
+    "the note about where the marker must go is gone — it is the part that is easy to get wrong");
+
   // THE MARKER IS OURS. Every spelling GitHub itself recognises would take the
   // deploy down with the smoke run, which is the opposite of what this is for.
   for (const github of ["[skip ci]", "[ci skip]", "[no ci]", "[skip actions]", "[actions skip]"]) {
