@@ -28,19 +28,20 @@ import { Textarea } from "@/components/ui/textarea";
 import { SiteChrome } from "@/components/ui/site-chrome";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Empty } from "@/components/ui/empty";
-import { ActivityFeed } from "@/components/ui/activity-feed";
+import { activityFeedPlaceholder } from "@/components/ui/activity-feed";
 
 export const Route = createFileRoute("/account")({ component: Account });
 
 type Note = Row & { title: string | null; body: string | null };
-type Announcement = Row & { title: string; body: string };
+type Announcement = Row & { title: string; body: string | null };
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "A quiet studio for a steady practice.",
+  tagline: "A quiet studio, six mats to a class.",
   links: [
     { label: "Home", href: "#/" },
     { label: "Book", href: "#/book" },
+    { label: "The work", href: "#/work" },
     { label: "Account", href: "#/account" },
   ],
   action: { label: "Book now", href: "#/book" },
@@ -95,7 +96,7 @@ function Account() {
           <>
             <h1 className="text-3xl font-semibold tracking-tight">Your account</h1>
             <p className="mt-2 text-muted-foreground">
-              Sign in to keep your own class notes, or make an account below.
+              Sign in to keep your own practice notes between classes.
             </p>
 
             <Form {...form}>
@@ -164,7 +165,7 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
   const onSubmit = (values: NoteForm) => {
     create.mutate(values, {
       onSuccess: () => {
-        toast.success("Note saved");
+        toast.success("Note saved.");
         form.reset();
       },
       onError: (e: Error) => toast.error(e.message),
@@ -185,44 +186,44 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
           <CardTitle className="text-base">Studio announcements</CardTitle>
         </CardHeader>
         <CardContent>
-          {announcements.isPending && <Skeleton className="h-24 rounded-xl" />}
+          {announcements.isPending && <Skeleton className="h-16 rounded-lg" />}
           {announcements.isError && (
-            <p className="text-sm text-destructive">Couldn't load announcements.</p>
+            <p className="text-sm text-destructive">Couldn't load announcements right now.</p>
           )}
           {announcements.data?.length === 0 && (
-            <Empty title="Nothing posted yet" description="Studio news will show up here." />
+            <p className="text-sm text-muted-foreground">Nothing posted yet.</p>
           )}
           {!!announcements.data?.length && (
-            <ActivityFeed
-              items={announcements.data.map((a) => ({ who: a.title, what: a.body, at: a.created_at }))}
-            />
+            <ul className="grid gap-3 motion-stagger">
+              {announcements.data.map((a) => (
+                <li key={a.id} className="rounded-md border border-border p-3">
+                  <p className="text-sm font-medium">{a.title}</p>
+                  {a.body && <p className="mt-1 text-sm text-muted-foreground">{a.body}</p>}
+                </li>
+              ))}
+            </ul>
           )}
         </CardContent>
       </Card>
 
       <Card className="mt-6">
         <CardHeader>
-          <CardTitle className="text-base">Your notes</CardTitle>
+          <CardTitle className="text-base">Your practice notes</CardTitle>
         </CardHeader>
         <CardContent>
-          {notes.isPending && (
-            <div className="grid gap-2">
-              <Skeleton className="h-16 rounded-lg" />
-              <Skeleton className="h-16 rounded-lg" />
-            </div>
-          )}
+          {notes.isPending && <Skeleton className="h-24 rounded-lg" />}
           {notes.isError && (
-            <p className="text-sm text-destructive">Couldn't load your notes.</p>
+            <p className="text-sm text-destructive">Couldn't load your notes. Refresh and try again.</p>
           )}
           {notes.data?.length === 0 && (
-            <Empty title="No notes yet" description="Jot down what worked in a class, or a pose to remember." />
+            <Empty title="No notes yet" description="Jot down what worked in a class, or what to try next time." />
           )}
           {!!notes.data?.length && (
             <ul className="grid gap-3 motion-stagger">
               {notes.data.map((n) => (
-                <li key={n.id} className="rounded-lg border border-border p-3">
-                  <p className="font-medium">{n.title}</p>
-                  <p className="mt-1 text-sm text-muted-foreground">{n.body}</p>
+                <li key={n.id} className="rounded-md border border-border p-3">
+                  <p className="text-sm font-medium">{n.title}</p>
+                  {n.body && <p className="mt-1 text-sm text-muted-foreground">{n.body}</p>}
                 </li>
               ))}
             </ul>
@@ -250,7 +251,7 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
                   <FormItem>
                     <FormLabel>Note</FormLabel>
                     <FormControl>
-                      <Textarea rows={3} {...field} />
+                      <Textarea rows={4} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
