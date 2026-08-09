@@ -14769,3 +14769,21 @@ walked when you found those bugs.
 
 Two builds a deploy, about $0.20 more than one. `SMOKE_SKIP_JOURNEY` in
 `.github/workflows/build-smoke.yml` turns it off again if that ever matters.
+
+### Version history and text editing were switched off (2026-08-09)
+
+Both features shipped last night and **neither could be reached at all** — every
+request to them got "not found", including from you, the owner. Nothing was
+broken about the features themselves; they were sitting behind a door with no
+handle on it. Fixed, and the deploy check now opens both doors on every deploy
+so it can't happen again quietly.
+
+Worth saying plainly because it's the second time in one feature: this was
+invisible to every test on the machine — all 1,794 of them passed while both
+features were dead — and only showed up when the deploy check drove the real
+site the way you would. That's the argument for it running a whole session
+rather than one build.
+
+**Editing text is proven live now**, end to end: it lists the words on a page,
+changes one, rebuilds and republishes the site, refuses the same edit sent twice
+(so nothing gets applied to a page that's moved on), and charges nothing.

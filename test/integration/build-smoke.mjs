@@ -710,9 +710,51 @@ try {
       return (await fetch(u)).text();
     };
     const fontsOf = (css) => [...css.matchAll(/--font-(?:sans|heading):\s*([^;]+)/g)].map((m) => m[1].trim()).join(" | ");
+    // The entry bundle's name. Vite content-hashes it, and a route chunk's hash
+    // is part of the entry's own bytes, so a change ANYWHERE in the source moves
+    // this string — which makes it the cheap, deterministic proof that a
+    // republish really happened rather than a stored file merely being written.
+    const bundleOf = async () => {
+      const html = await (await fetch(`${BASE}/s/${slug}/`, { cache: "no-store" })).text();
+      return (html.match(/<script[^>]+src="([^"]+)"/) || [])[1] || "";
+    };
     const beforeCss = await cssOf();
     const beforeFonts = fontsOf(beforeCss);
     ok("the published stylesheet is readable before the revise", beforeCss.length > 1000, String(beforeCss.length));
+
+    // ── FUNDING THE SECOND TURN ───────────────────────────────────────────
+    //
+    // A new account is granted 20 credits, and the first build above spends all
+    // of them — measured on this run: 9 for the schema and 20 for the pages, of
+    // which the ledger could only hand over what was there. So the revise
+    // answered 402 `not enough credits` and everything below it was skipped,
+    // reporting four failures that were about money and not about the code.
+    //
+    // Topped up HERE rather than at sign-up, on two counts. The first build then
+    // runs on exactly the grant a real new account has, which is what "caller
+    // was charged for the build" asserts above and what a real first build is.
+    // And it keeps that build UNABLE TO AFFORD PHOTOGRAPHS — one image is ~19
+    // credits of real fal spend, and `imagesAffordable` buys out of whatever the
+    // model calls left behind. A revise buys none, so funding this one cannot
+    // start that.
+    //
+    // A direct ledger write, not `add_credits`: that RPC is mint-key gated (a
+    // secret this workflow does not carry) and writes a `purchases` row, which
+    // would make the throwaway account read as having paid and quietly change
+    // what is under test — watermarks, storage tier, `is_paid()`.
+    const TOPUP = 60;
+    const tu = await fetch(`${SUPABASE_URL}/rest/v1/credits?on_conflict=user_id`, {
+      method: "POST",
+      headers: svc({ Prefer: "resolution=merge-duplicates,return=representation" }),
+      body: JSON.stringify([{ user_id: userId, balance: TOPUP }]),
+    });
+    const tj = await tu.json().catch(() => ({}));
+    // Asserted rather than fired and forgotten: a top-up that silently did
+    // nothing looks exactly like the 402 it is here to prevent, and the next
+    // person reads four red lines and goes looking in the wrong file.
+    ok(`topped the account up to ${TOPUP} credits for the revise`,
+      tu.ok && Array.isArray(tj) && Number(tj[0] && tj[0].balance) === TOPUP,
+      tu.status + " " + JSON.stringify(tj).slice(0, 200));
 
     // ── THE PUBLISH GAP ──────────────────────────────────────────────────
     //
@@ -844,6 +886,89 @@ try {
       body: JSON.stringify({ id: "../../sites/somebody-else" }),
     });
     ok("restoring an id we did not mint is 404, not a path", badRestore.status === 404, String(badRestore.status));
+
+    // ── FIXING A TYPO IS FREE, AND THE ROUTE SHIPPED DEAD ────────────────────
+    //
+    // `/api/site/<slug>/text` was in the matchers, in the dispatch condition and
+    // in the `ownerSlug` list — and missing from the outer
+    // `startsWith("/api/site/") && includes(…)` gate wrapped around all three,
+    // so every request fell through to the router's 404. The same gate killed
+    // `/versions`. Both are reachable now because that gate is a bare prefix,
+    // and this is the half of the fix nothing else in this run would prove.
+    //
+    // It costs this run NO CREDITS — no model is asked anything, which is the
+    // whole point of the feature. It does cost a container build.
+    //
+    // Run BEFORE the restore below, deliberately: the edit republishes, and
+    // doing it after would put the revised pages back over the version we had
+    // just rolled the site back to.
+    ok("editing the words needs a session",
+      (await fetch(`${BASE}/api/site/${slug}/text`)).status === 401);
+
+    const tl = await fetch(`${BASE}/api/site/${slug}/text`, { headers: { Authorization: `Bearer ${jwt}` } });
+    const td = await tl.json().catch(() => ({}));
+    ok("the editable words list answers 200", tl.status === 200, tl.status + " " + JSON.stringify(td).slice(0, 200));
+
+    const home = (Array.isArray(td.pages) ? td.pages : []).find((p) => /(^|\/)index\.tsx$/.test(p.path));
+    const words = (home && home.items) || [];
+    ok("the home page offers words to edit", words.length > 0,
+      JSON.stringify((td.pages || []).map((p) => p.path)));
+
+    // AN IDENTIFIER IS NOT A WORD. `useRows("bookings", {order: "created_at",
+    // dir: "desc"})` offered all three as editable prose in an early draft, and
+    // renaming a column that way produces a page that compiles and then reads a
+    // column that does not exist. Checked against this site's own table names
+    // rather than a guess, so it means something on whatever the designer chose.
+    const identifiers = new Set(["created_at", "desc", "asc", "id", ...(d.tables || [])]);
+    const codeish = words.map((w) => w.text).filter((t) => identifiers.has(t));
+    ok("and it offers no bare identifiers", codeish.length === 0, codeish.join(", "));
+
+    const pick = words.slice().sort((a, b) => b.text.length - a.text.length)[0];
+    if (pick) {
+      const bundleBefore = await bundleOf();
+      const NEWWORDS = "Smoke edited these words " + stamp;
+      const editBody = JSON.stringify({
+        edits: [{ path: home.path, at: pick.at, from: pick.text, to: NEWWORDS }],
+      });
+      const te = await fetch(`${BASE}/api/site/${slug}/text`, {
+        method: "POST",
+        headers: { "content-type": "application/json", Authorization: `Bearer ${jwt}` },
+        body: editBody,
+      });
+      const ted = await te.json().catch(() => ({}));
+      ok("a text edit is applied and republished",
+        te.status === 200 && ted.ok === true && ted.applied === 1,
+        te.status + " " + JSON.stringify(ted).slice(0, 250));
+      ok("and it cost the customer nothing", ted.cost === 0, JSON.stringify(ted.cost));
+
+      // THE LIVE SITE REALLY CHANGED — not just the stored source. The entry
+      // bundle is content-hashed and a route chunk's hash is inside it, so this
+      // name cannot survive a real edit.
+      const bundleAfter = await bundleOf();
+      ok("the published bundle is a new one", !!bundleAfter && bundleAfter !== bundleBefore,
+        `${bundleBefore} -> ${bundleAfter}`);
+      ok("and the site still serves its home page",
+        (await fetch(`${BASE}/s/${slug}/`)).status === 200);
+
+      // The stored source moved with it: the new words are offered now and the
+      // old ones are not.
+      const tl2 = await fetch(`${BASE}/api/site/${slug}/text`, { headers: { Authorization: `Bearer ${jwt}` } });
+      const td2 = await tl2.json().catch(() => ({}));
+      const after = (((Array.isArray(td2.pages) ? td2.pages : []).find((p) => p.path === home.path) || {}).items || [])
+        .map((w) => w.text);
+      ok("the new words are what the site now says", after.includes(NEWWORDS), after.slice(0, 6).join(" | "));
+      ok("and the old ones are gone", !after.includes(pick.text), pick.text.slice(0, 80));
+
+      // A STALE OFFSET IS REFUSED, NEVER APPLIED. Sending the same edit again
+      // now finds different text at that offset — applying it anyway is how a
+      // typo fix becomes a page that does not compile.
+      const again = await fetch(`${BASE}/api/site/${slug}/text`, {
+        method: "POST",
+        headers: { "content-type": "application/json", Authorization: `Bearer ${jwt}` },
+        body: editBody,
+      });
+      ok("re-sending a stale edit is refused", again.status === 400, String(again.status));
+    }
 
     if (versions.length >= 2) {
       const oldest = versions[versions.length - 1];
