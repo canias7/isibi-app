@@ -13,7 +13,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { publishPages, pageCredits, pageCost, citedLines, totalCost, RATES, MODEL_RATES,
   DEFAULT_RATE_MODEL, ratesFor, SEARCH_USD, MIN_CREDITS,
-  ourFault, CHARGED_STAGES, schemaSettlement, salvagePlan, stubPage, routeIdFor, salvageNote } from "../builder/publish-pages.mjs";
+  ourFault, CHARGED_STAGES, schemaSettlement, salvagePlan, stubPage, routeIdFor, salvageNote, wasKilled } from "../builder/publish-pages.mjs";
+import { exitReason } from "../builder/exit-reason.mjs";
 import { BUILD_MODELS } from "../builder/build-models.mjs";
 
 const SPEC = {
@@ -1456,4 +1457,74 @@ test("the salvage note reaches the response and the note block, not just the mod
   const block = c.slice(at, c.indexOf("].filter(Boolean).join('\\n');", at));
   assert.ok(block.length > 100 && block.length < 1400, "the note block moved — window is " + block.length);
   assert.match(block, /salvageNote/, "it landed somewhere other than the note block");
+});
+
+/* ------------------------------------------- a killed step is ours, not theirs */
+
+test("wasKilled agrees with the function that writes the sentence", () => {
+  // DRIVEN THROUGH THE REAL `exitReason`, never a hand-copied string. Two
+  // spellings of one fact is how this drifts, and the direction it drifts in is
+  // a customer billed for our container being stopped.
+  for (const step of ["tsc", "vite build", "tsr generate"]) {
+    for (const signal of ["SIGTERM", "SIGKILL"]) {
+      assert.ok(wasKilled(exitReason(step, { signal, code: null, out: "", err: "" })),
+        `${step} killed by ${signal} did not read as killed`);
+    }
+  }
+  // A step that PRINTED a real diagnosis is the code's problem, and exitReason
+  // returns that text in preference — so the two shapes cannot both match.
+  assert.equal(wasKilled(exitReason("tsc", { signal: "SIGTERM", code: null, out: "index.tsx(4,1): error TS2322: x", err: "" })), false);
+  assert.equal(wasKilled(exitReason("vite build", { signal: null, code: 1, out: "", err: "" })), false);
+  assert.equal(wasKilled(""), false);
+  assert.equal(wasKilled(undefined), false);
+});
+
+test("a typecheck killed by a signal is OUR fault, retried and free", async () => {
+  // Measured live 2026-08-09 in `build smoke`: a revise came back
+  // `stage: "typecheck"` with `tsc was killed by SIGTERM (no output)` — the
+  // container drained under a running build, arriving in the one stage that is
+  // charged and never retried, purely because tsc happened to be the step
+  // running rather than vite.
+  let n = 0;
+  const { deps, calls } = harness({
+    compile: async () => (++n === 1
+      ? { ok: false, stage: "typecheck", error: "tsc was killed by SIGTERM (no output)" }
+      : { ok: true, files: { "index.html": { t: "<ok>" } } }),
+  });
+  const out = await publishPages(deps, { spec: SPEC, slug: "x" });
+  assert.equal(calls.compile.length, 2, "a killed step must get the retry a drained container already had");
+  assert.equal(out.page, "app", "the retry succeeded, so the site publishes");
+  assert.equal(out.killedAt, "typecheck", "which step was killed is still reported");
+});
+
+test("a killed typecheck that stays killed is free, not charged", async () => {
+  const { deps } = harness({
+    compile: async () => ({ ok: false, stage: "typecheck", error: "tsc was killed by SIGTERM (no output)" }),
+  });
+  const out = await publishPages(deps, { spec: SPEC, slug: "x" });
+  assert.equal(out.page, "placeholder");
+  assert.equal(out.stage, "build", "a signal kill is the bundler-stage failure wearing another step's name");
+  assert.equal(out.charged, false, "our own rollout must not be billed to the customer");
+  assert.equal(out.salvage, undefined, "and it is not a page problem, so nothing is stubbed");
+});
+
+test("a REAL typecheck error is still theirs — the reclassification is narrow", async () => {
+  // The guard that stops this becoming "every compile failure is free". A page
+  // with a type error in it is a result, not an outage.
+  const { deps } = harness({
+    compile: async () => ({ ok: false, stage: "typecheck", error: "src/routes/index.tsx(4,1): error TS2322: x" }),
+  });
+  const out = await publishPages(deps, { spec: SPEC, slug: "x" });
+  assert.equal(out.stage, "typecheck");
+  assert.equal(out.charged, true);
+});
+
+test("a SUCCESSFUL compile is never reclassified, whatever it says in error", () => {
+  // The `!bd.ok` half of the guard. Inert today — a successful build carries no
+  // error — and asserted because the failure it prevents is the one already hit
+  // once in this change: a clean build gaining a field that reads as a near-miss.
+  // Same reasoning as the salvage record, so the same assertion.
+  const src = fs.readFileSync(new URL("../builder/publish-pages.mjs", import.meta.url), "utf8");
+  assert.match(src, /if \(!bd\.ok && wasKilled\(bd\.error\)\)/,
+    "reclassification must be gated on the build having FAILED");
 });

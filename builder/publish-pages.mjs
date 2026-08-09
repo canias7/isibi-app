@@ -391,6 +391,25 @@ export function salvagePlan(error, pages) {
 }
 
 /**
+ * Was this step KILLED rather than having failed?
+ *
+ * The container reports it through `exitReason`, whose whole job is to say why a
+ * step that wrote nothing exited — so this matches the shape that function
+ * produces and a test drives the real `exitReason` to prove the two agree rather
+ * than restating its wording by hand. A hand-copied regex here is a second
+ * spelling of one fact, and the direction it drifts in is a customer charged for
+ * our container being stopped.
+ *
+ * Deliberately narrow: it is the SIGNAL that makes this unambiguous. A step that
+ * exited non-zero having printed a real diagnosis is the code's problem whatever
+ * the signal fields say, and `exitReason` returns that text in preference to
+ * this shape — so the two cannot both match.
+ */
+export function wasKilled(error) {
+  return /\bwas killed by SIG[A-Z]+\b/.test(String(error || ""));
+}
+
+/**
  * Which pages came back as stubs, as one sentence for the customer.
  *
  * Empty string when nothing was stubbed, so the ordinary build carries no field
@@ -511,7 +530,26 @@ export async function publishPages(deps, { spec, slug, priorUsage } = {}) {
     // out so a caller can compare it against its own checkout instead of
     // diagnosing a bug that was already fixed.
     if (bd && typeof bd.templateId === "string") out.templateId = bd.templateId;
-    return bd || { ok: false, stage: "build", error: "the build service returned nothing" };
+    if (!bd) return { ok: false, stage: "build", error: "the build service returned nothing" };
+    // A KILLED STEP IS OURS, WHICHEVER STEP IT WAS KILLED IN.
+    //
+    // Measured live 2026-08-09: a revise came back `stage: "typecheck"` with
+    // `tsc was killed by SIGTERM (no output)`. That is the container being
+    // drained under a running build — the documented `stage: "build"` failure —
+    // and it arrived wearing the one stage that is CHARGED and never RETRIED,
+    // because the drain happened while `tsc` was the step running rather than
+    // `vite`. So our own rollout lost the customer's revise and billed them for
+    // it, and which of those two happens comes down to timing.
+    //
+    // `build` was described as "the judgement call... nothing in the error text
+    // separates them", and that is true of a genuine bundler error. A SIGNAL is
+    // not that: the process never got to judge the code at all, so there is
+    // nothing ambiguous to weigh. Reclassifying it at the boundary means the
+    // existing retry and the existing `ourFault` both do the right thing with no
+    // second rule to keep in step — and `salvagePlan` stops being offered a
+    // "typecheck failure" naming no page.
+    if (!bd.ok && wasKilled(bd.error)) { out.killedAt = bd.stage; bd = { ...bd, stage: "build" }; }
+    return bd;
   };
 
   /**

@@ -215,6 +215,24 @@ Every generation is metered in credits (1 credit = $0.008 fal cost). Postgres RP
 - **The last recurring shape is NOT fixed**, and it is not ours in the same way: an object assigned into a row field (`Type '{ stage: string; }' is not assignable to 'string | number | boolean | null | undefined'` — the `Row` index signature, three runs) and invented export names (`activityFeedPlaceholder`, `activityFeedFallback`). Both need thought rather than a field.
 - **The eval is what made this answerable at all.** One sample a run, errors committed per sample under `docs/auth-audit/pages/*/_errors.txt`, so eight runs of history turned "why did my build fail" from a shrug into a ranked list. 1843 tests, 3/3 mutations caught.
 
+## A killed step was billed to the customer (2026-08-09)
+
+**Found in a real `build smoke` log, not by reading.** A revise came back `stage: "typecheck"` with `tsc was killed by SIGTERM (no output)` — the container being drained under a running build, which is the documented `stage: "build"` failure — and it arrived wearing the ONE stage that is **charged and never retried**. So our own rollout lost the customer's revise and billed them for it, and which of those two outcomes happens comes down to *which step was running when the instance went away*.
+
+- **A SIGNAL IS NOT THE JUDGEMENT CALL `build` WAS DESCRIBED AS.** That entry says "nothing in the error text reliably separates them" — true of a genuine bundler error, where a drained container and a real vite failure look alike. A kill is not that: the process never got to judge the code, so there is nothing ambiguous to weigh. `wasKilled` is therefore deliberately NARROW — `exitReason` returns a step's real diagnosis in PREFERENCE to the killed sentence, so the two shapes cannot both match, and a page with a type error in it stays charged.
+- **Reclassified at the boundary, in `compile`, rather than as a second rule.** One line turns it into `stage: "build"` and the existing retry, the existing `ourFault` exemption and the new salvage all do the right thing with nothing further to keep in step. `killedAt` preserves which step was actually killed, or the reclassification would hide the diagnosis it exists to correct.
+- **The matcher is driven through the REAL `exitReason` in its test**, across three steps and both signals, rather than restating its wording. Two spellings of one fact is how this drifts, and the direction it drifts in is a customer charged for our container being stopped.
+- **THE OTHER HALF OF THE SAME LOG IS THE GOOD NEWS**: the first build was 82/83 — real site, seeded rows, a real browser submitting the form, the row landing in Postgres, the owner reading it back, the site deleted and the files gone.
+
+## The click assertion passed locally and raced in CI (2026-08-09)
+
+**`site build` went red on three consecutive commits, on the nav-click check added the day before.** The failure text was the HOME page's words at the `/book` address, at the `/` mount, while `/s/<slug>/` passed **in the same run** — the signature of a race, not a routing bug.
+
+- **`waitForLoadState("networkidle")` IS NOT A RENDER, and it is not even a fetch.** Routes are code-split one chunk per page, so clicking a nav link fires a dynamic import — a request that has not STARTED when the click returns, so that state is already satisfied and the read below it raced. All three assertions ran within **3ms** of each other in the failing run.
+- **REPRODUCED BEFORE FIXING, and CPU throttling was the wrong instrument.** 8x slower CPU changed nothing; **400ms of network latency** reproduced the CI text exactly, on both mounts. The thing being waited for is a fetch.
+- **The latency STAYS in the test**, which is the durable half. Against a local server the chunk lands in under a millisecond, so a read-immediately assertion passes here and loses on a loaded runner — a test that can only pass by accident. Verified to DISCRIMINATE rather than assumed: wait removed → 2 failures, wait restored → 21/21, under identical conditions. Costs ~8s.
+- **The wait swallows its timeout on purpose.** A genuinely inert nav must be reported by the assertion, with the page text that explains it, rather than as a Playwright error saying only "timed out" — and against the restored `#/book` bug it waits its five seconds and then goes red, which is the behaviour that matters.
+
 ## One bad page cost the whole site (2026-08-09)
 
 **`tsc --noEmit` runs over the app, so one `TS2305` in `memberships.tsx` failed the build and the customer got the data-model placeholder — no home page, no price list, no booking form, none of the five files that were fine.** With **~40% of generations failing to compile** that is the ordinary outcome, not an edge case. Measured live the same day on `pulse-fitness.gofarther.app`, which was still serving the placeholder hours later.

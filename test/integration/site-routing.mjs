@@ -121,6 +121,25 @@ for (const [label, prefix, port] of [["served at /s/<slug>/ (our domain)", "/s/d
   const browser = await chromium.launch({ executablePath: findChromium() || undefined });
   try {
     const page = await browser.newPage();
+    // LATENCY ON PURPOSE, and it is what makes the click assertions honest.
+    //
+    // Routes are code-split one chunk per page, so clicking a nav link fires a
+    // dynamic import — a real request that has not STARTED yet when the click
+    // returns. Against a local server it lands in under a millisecond, so a
+    // read-immediately assertion passed here and lost the race on a loaded CI
+    // runner: measured 2026-08-09, red on this exact check with the HOME page's
+    // text at the /book address, red at `/` and green at `/s/<slug>/` in the same
+    // run, which is the signature of a race and not of a routing bug.
+    //
+    // 400ms makes that gap wider than any accidental win, so the check below can
+    // only pass by actually waiting. Verified to DISCRIMINATE rather than assumed:
+    // with the wait removed, both mounts fail here and reproduce the CI text
+    // exactly; with it, 21/21. CPU throttling alone did not reproduce it — the
+    // thing being waited for is a fetch, not a render.
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Network.enable");
+    await cdp.send("Network.emulateNetworkConditions",
+      { offline: false, latency: 400, downloadThroughput: 4_000_000, uploadThroughput: 4_000_000 });
     const missing = [];
     page.on("response", (r) => { if (r.status() >= 400 && /\.(js|css|svg|woff2?)(\?|$)/.test(r.url())) missing.push(r.status() + " " + r.url().split("/").pop()); });
     const threw = [];
@@ -149,6 +168,21 @@ for (const [label, prefix, port] of [["served at /s/<slug>/ (our domain)", "/s/d
       // the HOME page too and the assertion passed while the click did nothing.
       // Caught by mutation: two of these three went red against the restored
       // bug and this one did not.
+      //
+      // AND IT IS WAITED FOR, because `networkidle` is not a render. A
+      // client-side navigation issues no request, so that state is already
+      // satisfied the instant the click returns and the read below raced React —
+      // measured in CI 2026-08-09, where all three of these ran within 3ms and
+      // the last one saw the HOME page's text at the /book address. It failed at
+      // the `/` mount and passed at `/s/<slug>/` in the same run, which is the
+      // signature of a race rather than a routing bug.
+      //
+      // The wait SWALLOWS its timeout on purpose: a genuinely inert nav must be
+      // reported by the assertion below — with the page text that explains it —
+      // rather than as an unhandled Playwright error that says only "timed out".
+      // Against the restored `#/book` bug the text never arrives, so this waits
+      // its five seconds and then goes red, which is the behaviour that matters.
+      await page.getByText(/Anything else\?/i).first().waitFor({ timeout: 5000 }).catch(() => {});
       const clicked = await page.locator("#root").innerText();
       ok("…and the BOOK route rendered", /Anything else\?/i.test(clicked),
         clicked.slice(0, 140).replace(/\s+/g, " "));
