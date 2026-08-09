@@ -1,11 +1,11 @@
 # Page generator — compile rate
 
-**3/3 compiled**, 3 with no lint problems.
+**2/3 compiled**, 2 with no lint problems.
 
 Three site shapes, each with its own schema, family and layout directive — a booking site, a
 menu-only site with no form at all, and an internal tool where every page needs a signed-in member.
 
-- booking (salon): 1/1 compiled, 1 clean
+- booking (salon): 0/1 compiled
 - menu (restaurant): 1/1 compiled, 1 clean
 - tool (crm): 1/1 compiled, 1 clean
 
@@ -15,11 +15,11 @@ A single failure is variance; a column of the same error is a mismatch worth fix
 
 ## What it cost
 
-- output 10,087 tok/sample · fresh in 4,070 · cache read 33,459 · write 16,729
-- $0.2363 a sample at list price · comments are 0.0% of the source written
+- output 6,400 tok/sample · fresh in 4,070 · cache read 33,459 · write 16,729
+- $0.1810 a sample at list price · comments are 0.0% of the source written
 
 ## Samples
 
-- **booking 1. ok** — index.tsx, book.tsx, manage.tsx, work.tsx, account.tsx
+- **booking 1. no-pages** — (no files)
 - **menu 1. ok** — index.tsx
 - **tool 1. ok** — index.tsx, records.tsx, record.tsx
