@@ -35,7 +35,7 @@ export function ShortlistBar({ items, max = 3, onRemove, onClear, onCompare, cla
       role="region"
       aria-label="Shortlist"
       style={{ bottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
-      className={cn("fixed inset-x-3 z-40 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-background p-2 shadow-lg sm:left-1/2 sm:w-[min(44rem,calc(100vw-1.5rem))] sm:-translate-x-1/2", className)}
+      className={cn("fixed inset-x-3 z-40 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-popover p-2 shadow-lg sm:left-1/2 sm:w-[min(44rem,calc(100vw-1.5rem))] sm:-translate-x-1/2", className)}
     >
       <Scale aria-hidden className="ml-1 size-4 shrink-0 text-muted-foreground" />
       <ul className="flex min-w-0 flex-1 flex-wrap gap-1.5">

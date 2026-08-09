@@ -50,7 +50,7 @@ export function FloatingToolbar({ anchor, open, children, gap = 8, className }: 
       style={{ top: pos.top, left: pos.left }}
       // Never focus this: it would destroy the selection it acts on.
       onMouseDown={(e) => e.preventDefault()}
-      className={cn("fixed z-50 flex items-center gap-0.5 rounded-lg border border-border bg-background p-1 shadow-lg", className)}
+      className={cn("fixed z-50 flex items-center gap-0.5 rounded-lg border border-border bg-popover p-1 shadow-lg", className)}
     >
       {children}
     </div>

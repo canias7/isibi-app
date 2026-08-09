@@ -38,7 +38,7 @@ export function MediaQueryNote({ active, className }: { active: boolean; classNa
   if (!active) return null;
   return (
     <div aria-hidden className={cn(
-      "fixed bottom-3 right-3 z-50 flex flex-col gap-0.5 rounded-md border border-foreground bg-background px-2.5 py-1.5 font-mono text-[11px] shadow-sm",
+      "fixed bottom-3 right-3 z-50 flex flex-col gap-0.5 rounded-md border border-foreground bg-popover px-2.5 py-1.5 font-mono text-[11px] shadow-sm",
       className)}>
       <span className="text-muted-foreground">environment · build tool</span>
       {QUERIES.map(([name]) => (

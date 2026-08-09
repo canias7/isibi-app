@@ -30,8 +30,21 @@ const SheetOverlay = React.forwardRef<
 ));
 SheetOverlay.displayName = SheetPrimitive.Overlay.displayName;
 
+// `bg-popover`, NOT `bg-background`, and that is not a cosmetic preference.
+//
+// A theme with a decorative backdrop re-emits `--background` at 35% alpha on
+// purpose (`openRootCss` in site-theme.mjs): every generated page's root div
+// carries `bg-background`, and an opaque token would hide the wash the theme
+// paints on the body. Correct for the page ROOT — and this panel is not the
+// root. Measured live on a published site: the mobile menu rendered
+// see-through, with the page's own headings legible straight through it.
+//
+// `--popover` is the token for a FLOATING surface and is handled correctly by
+// both paths: opaque under a backdrop theme, translucent WITH backdrop-blur
+// under a glass one, which is readable by design. Upstream shadcn says
+// `bg-background` here, so a component refresh will try to put it back.
 const sheetVariants = cva(
-  "fixed z-50 gap-4 bg-background p-6 shadow-lg transition ease-standard data-[state=closed]:duration-(--dur-3) data-[state=open]:duration-(--dur-4) data-[state=open]:animate-in data-[state=closed]:animate-out",
+  "fixed z-50 gap-4 bg-popover p-6 shadow-lg transition ease-standard data-[state=closed]:duration-(--dur-3) data-[state=open]:duration-(--dur-4) data-[state=open]:animate-in data-[state=closed]:animate-out",
   {
     variants: {
       side: {

@@ -24,7 +24,7 @@ export function FocusMode({ children, label = "Focus mode", className }: {
     return () => { document.body.style.overflow = prev; document.removeEventListener("keydown", onKey); };
   }, [on]);
   return (
-    <div className={cn(on && "fixed inset-0 z-50 overflow-y-auto bg-background p-6 sm:p-12", className)}>
+    <div className={cn(on && "fixed inset-0 z-50 overflow-y-auto bg-popover p-6 sm:p-12", className)}>
       <div className={cn(on && "mx-auto max-w-3xl")}>
         <div className="mb-3 flex justify-end">
           <Button type="button" size="sm" variant="ghost" onClick={() => setOn((v) => !v)}>

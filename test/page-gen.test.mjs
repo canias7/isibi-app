@@ -2216,3 +2216,38 @@ test("the rules are numbered 1..N with no gaps and no duplicates", () => {
   assert.deepEqual(nums, nums.map((_, i) => i + 1),
     "the rules are numbered " + nums.join(",") + " — expected 1.." + nums.length);
 });
+
+test("no FLOATING panel paints itself with the page-root token", () => {
+  // A theme with a decorative backdrop re-emits `--background` at 35% alpha on
+  // purpose — every generated page's root div carries `bg-background`, and an
+  // opaque token would hide the wash the theme paints on the body. Correct for
+  // the ROOT, and wrong for anything floating over it: measured live on a
+  // published site, the mobile menu rendered see-through with the page's own
+  // headings legible through the panel.
+  //
+  // DERIVED, not a list of the four known today: a fifth overlay added later
+  // would inherit the same bug, and upstream shadcn says `bg-background` on all
+  // of them, so a component refresh is the likely way it comes back.
+  const kit = path.join(import.meta.dirname, "..", "builder", "lovable", "template", "src", "components", "ui");
+  const offenders = [];
+  for (const f of fs.readdirSync(kit).filter((n) => n.endsWith(".tsx"))) {
+    const src = fs.readFileSync(path.join(kit, f), "utf8");
+    // Strip comments, or the paragraph explaining this rule counts as a hit.
+    const code = src.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " ")).replace(/^\s*\/\/.*$/gm, "");
+    for (const line of code.split("\n")) {
+      if (!/bg-background/.test(line)) continue;
+      // A floating surface is the one that is `fixed` AND stacked above the page.
+      if (/\bfixed\b/.test(line) && /\bz-\d/.test(line)) offenders.push(f + ": " + line.trim().slice(0, 90));
+    }
+  }
+  assert.deepEqual(offenders, [],
+    "these float over the page and would be translucent on a backdrop theme:\n  " + offenders.join("\n  "));
+});
+
+test("…and the check can actually see a violation", () => {
+  // The scan above returning [] is only worth something if it would find one.
+  // Same shape as the sheet's own class string, which is what it must catch.
+  const line = '  "fixed z-50 gap-4 bg-background p-6 shadow-lg transition"';
+  assert.ok(/bg-background/.test(line) && /\bfixed\b/.test(line) && /\bz-\d/.test(line),
+    "the predicate no longer matches the exact string this bug was made of");
+});

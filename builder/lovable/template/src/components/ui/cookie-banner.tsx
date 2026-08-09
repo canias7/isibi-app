@@ -26,7 +26,7 @@ export function CookieBanner({
   };
   return (
     <div role="dialog" aria-label="Cookies"
-      className={cn("motion-enter fixed inset-x-0 bottom-0 z-50 border-t bg-background p-4", className)}>
+      className={cn("motion-enter fixed inset-x-0 bottom-0 z-50 border-t bg-popover p-4", className)}>
       <div className="mx-auto flex max-w-4xl flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
           {message}{policyHref && <> <a href={policyHref} className="underline underline-offset-4">Read more</a>.</>}

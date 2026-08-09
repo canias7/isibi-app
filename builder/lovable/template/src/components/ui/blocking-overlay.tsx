@@ -56,7 +56,7 @@ export function BlockingOverlay({ show, message, detail, onCancel, cancelAfter =
       aria-live="assertive"
       aria-busy="true"
       tabIndex={-1}
-      className={cn("fixed inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-background/90 p-6 text-center outline-none", className)}
+      className={cn("fixed inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-popover/90 p-6 text-center outline-none", className)}
     >
       <Loader aria-hidden className="size-5 motion-safe:animate-spin" />
       <p className="text-sm font-medium">{message}</p>
