@@ -2085,3 +2085,54 @@ test("the source that produced a build is stored, and read back on a revise", ()
   // not something to hand to its visitors.
   assert.match(worker, /const SOURCE_KEY = \(slug\) => "source\//);
 });
+
+test("an item type drawn through SafeImage carries fallbackSeed", () => {
+  // THE MOST COMMON COMPILE ERROR THE GENERATOR MAKES, measured across the
+  // page-gen eval: `'fallbackSeed' does not exist in type 'Shot'`, usually three
+  // at a time in one file, and each one costs the customer the whole site — the
+  // page is refused, the placeholder publishes, and they are charged.
+  //
+  // The model was RIGHT. `fallbackSeed` is a real `SafeImage` prop, it is in the
+  // prompt, and every one of these items is drawn BY a `SafeImage`. The type
+  // just did not carry it. Derived over the kit rather than listing the three
+  // components known today, so a fourth picture type cannot reintroduce it.
+  const dir = path.join(TEMPLATE, "src/components/ui");
+  const missing = [];
+  for (const f of fs.readdirSync(dir).filter((x) => x.endsWith(".tsx"))) {
+    const src = fs.readFileSync(path.join(dir, f), "utf8");
+    if (!src.includes("<SafeImage")) continue;
+    // The exported item type this component maps over, if it declares one.
+    for (const m of src.matchAll(/export type ([A-Z][A-Za-z]*) = \{([^}]*)\}/g)) {
+      const [, name, body] = m;
+      // Only types that actually hold a picture — a `Column` or a `SortOption`
+      // rendered nearby is not one of these.
+      if (!/\b(src|image|photo|cover|thumbnail)\??\s*:/.test(body)) continue;
+      if (!/fallbackSeed/.test(body)) missing.push(f + " → " + name);
+    }
+  }
+  assert.deepEqual(missing, [],
+    "these picture types are drawn through SafeImage but cannot be given a fallbackSeed, " +
+    "so the generator passing one — which it does — refuses to compile");
+});
+
+test("the guard above is looking at the right thing", () => {
+  // It passes vacuously if the scan finds no picture types at all, which is what
+  // a broken regex would do. Three are known today.
+  const dir = path.join(TEMPLATE, "src/components/ui");
+  let found = 0;
+  for (const f of fs.readdirSync(dir).filter((x) => x.endsWith(".tsx"))) {
+    const src = fs.readFileSync(path.join(dir, f), "utf8");
+    if (!src.includes("<SafeImage")) continue;
+    for (const m of src.matchAll(/export type ([A-Z][A-Za-z]*) = \{([^}]*)\}/g)) {
+      if (/\b(src|image|photo|cover|thumbnail)\??\s*:/.test(m[2])) found++;
+    }
+  }
+  assert.ok(found >= 3, "the picture-type scan found only " + found + " — it has stopped matching");
+});
+
+test("the prompt tells the model the field exists", () => {
+  // Carrying it on the type is half. If the resolved shape in the prompt still
+  // says otherwise the model has no reason to use it, and the fix is invisible.
+  assert.match(PAGE_RULES, /Shot = \{[^}]*fallbackSeed/,
+    "the generator is still shown a Shot without fallbackSeed");
+});

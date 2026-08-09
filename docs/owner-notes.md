@@ -15022,3 +15022,29 @@ pages when a real site published.
 Worth saying plainly: neither of these caused the failed build. They're about
 being told the truth about it. The build itself failed because the pages didn't
 typecheck, and that's the thing the retry has to fix.
+
+### Why your build failed — and it was our fault (2026-08-09)
+
+You asked why the Pulse Fitness pages didn't compile. I stopped guessing and
+looked at the evaluation runs, which build sample sites and record every error.
+
+**About 4 in 10 generations don't compile.** Fourteen of the last twenty-four
+samples. That's the baseline, not bad luck — and because there's no second
+attempt, every one of those costs the customer a real site and charges them.
+
+**The single most common error was ours, not the AI's.** It kept passing a
+setting called `fallbackSeed` to the photo gallery, and the gallery refused it —
+so the page was rejected and the whole site fell back to the data model. But the
+AI was right: that setting is real, it's documented, and the gallery draws every
+photo using the exact component that accepts it. The type just didn't pass it
+along. Six components had that gap.
+
+It wasn't only a technical mismatch. That setting is what makes each empty photo
+placeholder look different from the next — so on a brand-new site with nothing
+uploaded, a gallery of six was painting six identical panels, and so were the
+product cards. Fixed in the same change.
+
+Two other errors show up repeatedly and I have NOT fixed them: the AI sometimes
+puts a whole object where only a single value fits, and sometimes invents the
+name of a helper it expects to exist. Both need more thought than a one-line
+change. But the top one is gone, and that should move the 60% up.

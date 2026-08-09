@@ -25,7 +25,8 @@ import { cn } from "@/lib/utils";
  * its selection entirely in greyscale, and this component's content is
  * pictures — the one place a tint blends in worst.
  */
-export type Starter = { id: string; name: string; purpose?: string; image?: string; tag?: string };
+/** See `Shot` in gallery.tsx — every picture type drawn through SafeImage carries this. */
+export type Starter = { id: string; name: string; purpose?: string; image?: string; tag?: string; fallbackSeed?: string };
 
 export function StarterGallery({ starters, value, onChange, className }: {
   starters: Starter[];
@@ -43,7 +44,11 @@ export function StarterGallery({ starters, value, onChange, className }: {
               className={cn("w-full overflow-hidden rounded-lg border text-left",
                 on ? "border-foreground ring-2 ring-foreground ring-offset-2 ring-offset-background" : "border-border")}>
               <span className="relative block">
-                <SafeImage src={s.image} alt="" className="aspect-4/3 w-full object-cover" />
+                {/* SEEDED ON THE NAME. The alt is deliberately empty (the name is read out
+            just below, so announcing it twice is noise) and the seed falls back to
+            the alt — so with neither, every starter painted an IDENTICAL panel.
+            Exactly the case SafeImage's own comment warns about. */}
+          <SafeImage src={s.image} alt="" fallbackSeed={s.name} className="aspect-4/3 w-full object-cover" />
                 {on && (
                   <span className="absolute right-1.5 top-1.5 rounded bg-foreground px-1.5 py-0.5 text-xs font-medium text-background">
                     Chosen

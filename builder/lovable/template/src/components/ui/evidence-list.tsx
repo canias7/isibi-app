@@ -24,6 +24,8 @@ export type Evidence = {
   id: string;
   name: string;
   thumbnail?: string;
+  /** See `Shot` in gallery.tsx — every picture type drawn through SafeImage carries this. */
+  fallbackSeed?: string;
   /** ISO date-time the photo was taken. */
   takenAt?: string;
   /** ISO date-time it reached us. */
@@ -50,7 +52,9 @@ export function EvidenceList({ items, emptyNote = "Nothing attached", className 
         const gap = taken && up && Math.abs(up.getTime() - taken.getTime()) > 86_400_000;
         return (
           <li key={e.id} className="flex items-start gap-3 px-3 py-2 text-sm">
-            <SafeImage src={e.thumbnail} alt="" className="size-10 shrink-0 rounded object-cover" />
+            {/* Seeded on the name: the alt is empty by design (the name is beside it),
+              and with neither the seed nor an alt every row paints the same panel. */}
+            <SafeImage src={e.thumbnail} alt="" fallbackSeed={e.fallbackSeed ?? e.name} className="size-10 shrink-0 rounded object-cover" />
             <span className="min-w-0 flex-1">
               <span className="block truncate">{e.name}</span>
               <span className="block text-xs text-muted-foreground">

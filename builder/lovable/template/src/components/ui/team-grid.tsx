@@ -1,7 +1,8 @@
 import { SafeImage } from "@/components/ui/safe-image";
 import { cn } from "@/lib/utils";
 
-export type Member = { name: string; role?: string | null; photo?: string | null };
+/** `fallbackSeed` for the reason `Shot` carries it — see gallery.tsx. */
+export type Member = { name: string; role?: string | null; photo?: string | null; fallbackSeed?: string };
 
 /**
  * The people. Photos are owner-supplied and therefore guarded.
@@ -31,7 +32,7 @@ export function TeamGrid({ items, columns = 4, className }: {
     <div className={cn("grid gap-6", cols, className)}>
       {items.map((m, i) => (
         <div key={m.name || i} className="flex min-w-0 flex-col gap-3">
-          <SafeImage src={m.photo} alt={m.name} ratio="1/1" className="rounded-xl" />
+          <SafeImage src={m.photo} alt={m.name} ratio="1/1" className="rounded-xl" fallbackSeed={m.fallbackSeed ?? m.name} />
           <div>
             <div className="font-medium">{m.name}</div>
             {m.role && <div className="text-sm text-muted-foreground">{m.role}</div>}
