@@ -391,6 +391,22 @@ export function salvagePlan(error, pages) {
 }
 
 /**
+ * Which pages came back as stubs, as one sentence for the customer.
+ *
+ * Empty string when nothing was stubbed, so the ordinary build carries no field
+ * and the client's note block is unchanged — the same shape `imageNote` uses, and
+ * the reason a site that published cleanly does not gain a line about salvage.
+ */
+export function salvageNote(stubbed) {
+  const names = (stubbed || []).map((p) => String(p).replace(/\.tsx$/i, ""));
+  if (!names.length) return "";
+  const many = names.length > 1;
+  return "The " + names.join(", ") + (many ? " pages didn't compile, so they're" : " page didn't compile, so it's") +
+    " showing a short placeholder for now. The rest of the site is live — ask for " +
+    (many ? "those pages" : "that page") + " again and I'll write " + (many ? "them" : "it") + " properly.";
+}
+
+/**
  * brief + schema → route files → compile → published dist.
  *
  * Best-effort by design: it runs AFTER the database has been provisioned and the
@@ -835,17 +851,20 @@ export async function publishPages(deps, { spec, slug, priorUsage } = {}) {
   await deps.publish(built.files, pages);
   out.publishMs = Date.now() - tPub;
   out.page = "app";
-  // SAY WHICH PAGE DID NOT MAKE IT, on the site's own reply. A visitor finding the
-  // stub by clicking the header would otherwise be the first anybody hears of it,
-  // and the owner is the one who can ask for it again. Appended to the model's own
-  // summary rather than replacing it — the rest of the site really was built.
-  if (out.salvaged && out.salvaged.length) {
-    const names = out.salvaged.map((p) => p.replace(/\.tsx$/, "")).join(", ");
-    out.notes = [out.notes, "One thing: " + names +
-      (out.salvaged.length > 1 ? " didn't compile, so those pages are" : " didn't compile, so that page is") +
-      " showing a short placeholder. Ask for " + (out.salvaged.length > 1 ? "them" : "it") +
-      " again and I'll write " + (out.salvaged.length > 1 ? "them" : "it") + " properly."].filter(Boolean).join(" ");
-  }
+  // SAY WHICH PAGE DID NOT MAKE IT. A visitor finding the stub by clicking the
+  // header would otherwise be the first anybody hears of it, and the owner is the
+  // one who can ask for it again.
+  //
+  // ITS OWN FIELD, NOT APPENDED TO `notes`, and that is the whole point of the
+  // shape. `notes` is the model's summary and renders as one paragraph in
+  // `.st-msg`, so a caveat glued onto the end of it is buried mid-sentence —
+  // exactly the failure recorded for `contextNote`, where "couldn't read your
+  // link" ended up in the middle of a run-on. This joins `contextNote`,
+  // `imagesNote` and `tokensNote` in the separate note element, and is composed
+  // HERE for the reason all three are: the client is a plain script that cannot
+  // import this module, and a second copy there drifts toward naming a page that
+  // published perfectly well.
+  out.salvageNote = salvageNote(out.salvaged);
   // STILL BILLED AFTER `publish`, AND THAT ORDERING IS NOW LOAD-BEARING FOR A
   // SECOND REASON. It was "a publish that throws leaves them with no site"; it is
   // also the whole implementation of `publish` being an our-fault stage. There is

@@ -11261,6 +11261,11 @@ function reactSend(site, t, origin, mode, imgs, finish, qa) {
         (d && typeof d.contextNote === 'string') ? d.contextNote.trim() : '',
         (d && typeof d.tokensNote === 'string') ? d.tokensNote.trim() : '',
         (d && typeof d.imagesNote === 'string') ? d.imagesNote.trim() : '',
+        // WHICH PAGE CAME BACK AS A STUB. There is now a middle outcome — the
+        // site publishes with one page showing a placeholder — and this is the
+        // only thing that names it. In the note block rather than glued to
+        // `notes`, or it reads mid-paragraph the way contextNote once did.
+        (d && typeof d.salvageNote === 'string') ? d.salvageNote.trim() : '',
       ].filter(Boolean).join('\n');
       // THE MODEL'S OWN SUMMARY, which the builder has always written and always
       // discarded — `notes` came back on every response and nothing rendered it,

@@ -8847,6 +8847,13 @@ async function handleRequest(request, env, ctx) {
         // the background" on a revise that only touched the text is worse than
         // saying nothing.
         tokensNote: tokenNote(tokenAsk.tokens, tokenAsk.dropped) || undefined,
+        // WHICH PAGE CAME BACK AS A STUB. One bad file no longer costs the whole
+        // site — it is replaced by a placeholder page and the rest publishes — so
+        // there is now an outcome between "your site" and "the data model", and
+        // this is the only thing that names it. Composed in the module for the
+        // same reason as the three above.
+        salvageNote: pages.salvageNote || undefined,
+        salvaged: (pages.salvaged && pages.salvaged.length) ? pages.salvaged : undefined,
         // WHY it fell back, when it did. publish-pages.mjs has returned these
         // since it was extracted and nothing passed them on, so a build that
         // published the placeholder said only "placeholder" — the caller (and

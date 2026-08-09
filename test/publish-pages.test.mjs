@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { publishPages, pageCredits, pageCost, citedLines, totalCost, RATES, MODEL_RATES,
   DEFAULT_RATE_MODEL, ratesFor, SEARCH_USD, MIN_CREDITS,
-  ourFault, CHARGED_STAGES, schemaSettlement, salvagePlan, stubPage, routeIdFor } from "../builder/publish-pages.mjs";
+  ourFault, CHARGED_STAGES, schemaSettlement, salvagePlan, stubPage, routeIdFor, salvageNote } from "../builder/publish-pages.mjs";
 import { BUILD_MODELS } from "../builder/build-models.mjs";
 
 const SPEC = {
@@ -1353,7 +1353,11 @@ test("one bad page costs one page, not the whole site", async () => {
   // The first failure survives on the response — it is the only record of what
   // the generator got wrong, and a salvaged build returns ok.
   assert.match(out.error, /TS2322/);
-  assert.match(out.notes, /menu/);
+  // ITS OWN FIELD. Glued onto `notes` it renders mid-paragraph in `.st-msg`,
+  // which is exactly how "couldn't read your link" got buried once already.
+  assert.match(out.salvageNote, /menu/);
+  assert.doesNotMatch(out.notes || "", /placeholder/,
+    "the caveat belongs in the note block, not buried in the model's summary");
   // `stage` names an OUTCOME, and this build did not end at the typecheck.
   assert.equal(out.stage, undefined);
 });
@@ -1420,6 +1424,36 @@ test("a build that compiled first time carries no salvage record at all", async 
   assert.equal(out.page, "app");
   assert.equal(out.salvage, undefined, "a clean build must not describe a salvage it never attempted");
   assert.equal(out.salvaged, undefined);
+  // Empty rather than a sentence, so the client's note block is byte-identical
+  // on every build that did not need this.
+  assert.equal(out.salvageNote, "");
   assert.equal(out.error, undefined);
   assert.equal(calls.compile.length, 1);
+});
+
+test("salvageNote names the pages and says nothing when there are none", () => {
+  assert.equal(salvageNote([]), "");
+  assert.equal(salvageNote(undefined), "");
+  assert.match(salvageNote(["memberships.tsx"]), /^The memberships page didn't compile/);
+  const two = salvageNote(["classes.tsx", "memberships.tsx"]);
+  assert.match(two, /classes, memberships pages didn't compile/);
+  // Plural throughout, or it reads as one page wearing two names.
+  assert.match(two, /they're/); assert.match(two, /those pages/); assert.match(two, /them/);
+});
+
+test("the salvage note reaches the response and the note block, not just the module", () => {
+  // The layer below the break, for the tenth recorded time: a field composed
+  // correctly and passed on by nothing is a feature that does not exist. Both
+  // ends asserted, because either alone passes while the wire is cut.
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(w, /salvageNote: pages\.salvageNote \|\| undefined/,
+    "the route never returns the note the module composed");
+  const c = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+  assert.match(c, /typeof d\.salvageNote === 'string'/,
+    "the client never renders the note the route returned");
+  // In the NOTE block beside the other three, not appended to the model's summary.
+  const at = c.indexOf("const note = [");
+  const block = c.slice(at, c.indexOf("].filter(Boolean).join('\\n');", at));
+  assert.ok(block.length > 100 && block.length < 1400, "the note block moved — window is " + block.length);
+  assert.match(block, /salvageNote/, "it landed somewhere other than the note block");
 });
