@@ -4238,7 +4238,10 @@ async function proxySiteService(env, request, url, slug, path, which, ctx) {
           let row = null;
           try { const j = JSON.parse(body); row = Array.isArray(j) ? j[0] : j; } catch { /* not json */ }
           if (!row) { try { row = JSON.parse(sent || "null"); } catch { row = null; } }
-          notifyOwnerOfSubmission(env, ctx, { slug, table, access: def.access, method: "POST", row: row || {} });
+          // `db` travels with it now: the notification goes out on the SITE'S own
+          // mail key, read from the site's own vault, so it needs the same
+          // connection the confirmation one line below already takes.
+          notifyOwnerOfSubmission(env, ctx, { slug, db, table, access: def.access, method: "POST", row: row || {} });
           // And the other direction: confirm to the PERSON WHO SUBMITTED, on the
           // owner's own provider key. Same hook, one branch over — the Worker is
           // already on this path, which is why this can fire on the booking
@@ -4951,21 +4954,9 @@ function confirmSubmitter(env, ctx, { slug, db, def, row }) {
   const p = (async () => {
     const out = await sendConfirmation({
       // From the SITE'S OWN Neon vault, the same door the checkout key comes
-      // through. Only the four names that matter are decrypted; the rest of the
-      // vault is never touched.
-      loadSecrets: async () => {
-        const get = async (_s, name) => {
-          const rows = await sqlQuery(db, "SELECT cipher FROM _secrets WHERE name=?", [name]);
-          return (rows && rows[0] && rows[0].cipher) || null;
-        };
-        const map = {};
-        for (const name of ["RESEND_KEY", "SENDGRID_KEY", "POSTMARK_KEY", "EMAIL_FROM"]) {
-          // A key that will not decrypt is skipped rather than thrown on: one
-          // unreadable row must not stop the others being found.
-          try { const v = await readSecret({ get }, env, { slug, name }); if (v) map[name] = v; } catch { /* skip */ }
-        }
-        return map;
-      },
+      // through — and the SAME reader the owner notification uses, so the two
+      // cannot disagree about which key is live.
+      loadSecrets: siteMailSecrets(env, db, slug),
       send: ({ provider, key, from, to, subject, html }) => postProviderEmail(provider, key, from, to, subject, html),
       recentlySent: async (s2, to) => {
         const k = s2 + "|" + to, now = Date.now();
@@ -5061,13 +5052,66 @@ function smsSubmitter(env, ctx, { slug, db, def, row }) {
   })();
   if (ctx && ctx.waitUntil) ctx.waitUntil(p); else p.catch(() => {});
 }
+// THE SITE'S OWN MAIL PROVIDER, OUT OF THE SITE'S OWN VAULT.
+//
+// ONE copy, shared by the owner notification and the visitor confirmation. Two
+// readers of one vault written out twice are two things that can disagree about
+// which key is live, which is this codebase's most repeated failure.
+//
+// Only the four names that matter are decrypted; the rest of the vault is never
+// touched. A key that will not decrypt is skipped rather than thrown on — one
+// unreadable row must not stop the others being found.
+function siteMailSecrets(env, db, slug) {
+  return async () => {
+    const get = async (_s, name) => {
+      const rows = await sqlQuery(db, "SELECT cipher FROM _secrets WHERE name=?", [name]);
+      return (rows && rows[0] && rows[0].cipher) || null;
+    };
+    const map = {};
+    for (const name of ["RESEND_KEY", "SENDGRID_KEY", "POSTMARK_KEY", "EMAIL_FROM"]) {
+      try { const v = await readSecret({ get }, env, { slug, name }); if (v) map[name] = v; } catch { /* skip */ }
+    }
+    return map;
+  };
+}
+
+// Tell the site's owner a submission arrived — ON THE OWNER'S OWN KEY.
+//
+// THE BOUNDARY, AND IT HAS NO EXCEPTION (owner's call 2026-08-09): our
+// Cloudflare sender is for Supabase login and nothing else. Everything a
+// published site sends — the confirmation to the visitor, the SMS, and this
+// notification to the owner — goes out on the key that site's owner pasted into
+// Secrets, on their own domain.
+//
+// It used to send on `env.EMAIL`, so every booking on every published site spent
+// our own 200/day quota — the quota the login code depends on. One busy site
+// could have stopped people signing in to the platform. That is gone: the only
+// thing on our sender now is the login code, so the cap is a platform concern
+// with a platform-sized denominator instead of one that scales with customers.
+//
+// A site with no mail key configured therefore gets no notification. That is the
+// same condition the visitor confirmation one branch over already lives under,
+// which is the point — one rule, not two — and the owner still sees every
+// submission in the Data panel.
 function notifyOwnerOfSubmission(env, ctx, payload) {
-  if (!env.EMAIL || !env.SUPABASE_SERVICE_KEY) return;
+  if (!env.SUPABASE_SERVICE_KEY || !payload || !payload.db) return;
   const p = (async () => {
     const out = await notifyOwner({
       claim: (s2) => claimNotify(env, s2),
+      // Supabase, because this is looking up WHO to write to — our own record of
+      // our own customer's address. It says nothing about which sender is used.
       emailOf: (uid) => ownerEmail(env, uid),
-      send: ({ to, subject, html }) => sendMail(env, { to, subject, html }),
+      send: async ({ to, subject, html }) => {
+        const secrets = await siteMailSecrets(env, payload.db, payload.slug)();
+        const picked = pickProvider(secrets);
+        const from = String(secrets.EMAIL_FROM || "").trim();
+        // NAMED, NOT SWALLOWED. `notifyOwner` turns a throw into a reason and the
+        // caller logs it, so an owner who has pasted no key can be told which
+        // half is missing instead of wondering why nothing arrives.
+        if (!picked) throw new Error("no mail provider key in this site's Secrets");
+        if (!from) throw new Error("no EMAIL_FROM in this site's Secrets");
+        return postProviderEmail(picked.provider, picked.key, from, to, subject, html);
+      },
     }, payload);
     // It runs detached, so nothing else would ever see why it did not send.
     if (!out.sent && out.error) console.error("submission notify:", payload.slug, out.reason, out.error);

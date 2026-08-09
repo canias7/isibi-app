@@ -14811,3 +14811,26 @@ that older sites don't have.
 Also fixed: the deploy check's own cost report was printing the whole bill under
 the page-writing step and nothing under the data-model step, so the two numbers
 it exists to tell apart were the same number twice.
+
+### Booking emails moved off our sender (2026-08-09)
+
+Your rule, applied properly: **our Cloudflare email is for signing in to Go
+Farther and nothing else.** A published site emails through the key its owner
+pastes into that site's Secrets — the confirmation to the customer, the text
+message, and now the "you have a new booking" notice to the owner too.
+
+That last one was still on our sender, firing on every form submission on every
+published site. It was spending the same daily allowance the login code needs,
+so a busy booking form could have stopped people signing in to the platform.
+That coupling is gone, and there's now a test that finds every use of our sender
+and fails if anything reachable from a published site turns up in the list — so
+it can't drift back.
+
+**What this costs:** a site whose owner hasn't added a mail key gets no
+notification email. That's already true of the customer confirmation, so it's
+one rule instead of two, and every submission is still in the Data panel.
+
+One thing left on our sender besides the login code: the one-off "your domain is
+live" notice when a custom domain's certificate is issued. That goes to you
+about your own account rather than to a site's visitors, so I've left it — say
+if you want it moved too.

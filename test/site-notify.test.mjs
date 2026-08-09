@@ -222,8 +222,74 @@ test("the Worker sends through the EMAIL binding, with no API token anywhere", a
   // Guarded, or an unprovisioned binding is a TypeError rather than a refusal.
   assert.match(worker, /if \(!env\.EMAIL\) throw new Error\("mail not configured/,
     "sendMail must say so when the binding is absent");
-  assert.match(worker, /if \(!env\.EMAIL \|\| !env\.SUPABASE_SERVICE_KEY\) return;/,
-    "the notify path must no-op before the binding exists, not throw");
+});
+
+// ------------------------------------------- OUR SENDER IS NOT A SITE FEATURE
+//
+// THE RULE (owner's call, 2026-08-09): `env.EMAIL` is for platform mail to our
+// own account holders. NOTHING THE BUILDER MAKES MAY TOUCH IT. A published site
+// emails through the key its owner pasted into that site's Secrets — the
+// confirmation to the visitor, the SMS, and the notification to the owner alike.
+//
+// It was not that way. `notifyOwnerOfSubmission` sent on `env.EMAIL` and fires
+// on every `collect` insert on every published site, so customer sites spent our
+// own 200/day allowance — THE SAME ALLOWANCE THE LOGIN CODE DEPENDS ON. One busy
+// booking form could have stopped people signing in to the platform.
+//
+// Derived, not a list: every caller of our sender is found and checked against
+// the one place allowed to have it, so a new one added later fails here rather
+// than silently reintroducing the coupling.
+test("nothing on a published site's path can reach OUR sender", async () => {
+  const fs = await import("node:fs");
+  const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+
+  // Which function each `sendMail(env` call sits in — the nearest `function` or
+  // `const x = ` declaration above it.
+  //
+  // `(?<!function )` matters: `async function sendMail(env, …)` is the
+  // DECLARATION, and counting it reports `sendMail`'s own neighbour as a caller.
+  // The first draft did exactly that and named an innocent function.
+  const callers = [];
+  for (const m of worker.matchAll(/(?<!function )\bsendMail\(env\b/g)) {
+    const before = worker.slice(0, m.index);
+    const fn = [...before.matchAll(/\n(?:async )?function ([A-Za-z_]\w*)\s*\(/g)].pop();
+    callers.push(fn ? fn[1] : "(top level)");
+  }
+  assert.ok(callers.length, "no sendMail call found at all — this test stopped checking anything");
+  assert.ok(!callers.includes("sendMail"), "the declaration is being counted as a call");
+
+  // `mailDomainLive` is a PLATFORM notice to a Go Farther account holder about
+  // their own account — the certificate for their domain is issued — and fires
+  // once per domain, ever. It is the login code's neighbour, not a site feature.
+  assert.deepEqual([...new Set(callers)].sort(), ["mailDomainLive"],
+    "something other than the platform notice sends on our own EMAIL binding — " +
+    "if it is reachable from a published site it must use that site's own key");
+
+  // And the notification specifically: it goes out on the SITE's provider.
+  const i = worker.indexOf("function notifyOwnerOfSubmission(");
+  assert.ok(i > 0, "notifyOwnerOfSubmission moved — rescope this");
+  const body = worker.slice(i, worker.indexOf("\n}", worker.indexOf("waitUntil(p)", i)));
+  assert.ok(!/env\.EMAIL|sendMail\(/.test(body),
+    "the owner notification is back on our sender — every booking on every site " +
+    "would spend the quota the login code needs");
+  assert.match(body, /pickProvider\(/, "it must choose the site owner's own provider");
+  assert.match(body, /postProviderEmail\(/, "…and post through it");
+
+  // AND IT MUST SAY WHICH HALF IS MISSING. Without these, a site with no key
+  // still fails — on `picked.provider` — but the reason logged is "Cannot read
+  // properties of null", so an owner who pasted a key and forgot EMAIL_FROM
+  // cannot be told which one. Anchored on the CONDITION, not the message: a
+  // mutation to `if (false)` leaves every one of those strings in place, which
+  // is how it survived the first sweep.
+  assert.match(body, /if \(!picked\) throw/, "a missing provider key must be named, not hit as a null read");
+  assert.match(body, /if \(!from\) throw/, "a missing EMAIL_FROM must be named too — it is the commoner mistake");
+  // The vault is read through ONE function, shared with the visitor confirmation:
+  // two readers of one vault are two things that can disagree about which key is
+  // live, which is this codebase's most repeated failure.
+  assert.match(body, /siteMailSecrets\(/, "it must read the site's vault through the shared reader");
+  const conf = worker.slice(worker.indexOf("function confirmSubmitter("), worker.indexOf("function confirmSubmitter(") + 1200);
+  assert.match(conf, /loadSecrets: siteMailSecrets\(/,
+    "the confirmation stopped using the shared vault reader — now there are two");
 });
 
 test("wrangler declares the binding the Worker calls", async () => {
