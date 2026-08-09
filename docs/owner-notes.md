@@ -15000,3 +15000,25 @@ completely different sites. It is now told that if your brief does not say what
 the business IS, that is the first question and nothing else is close. So that
 round would have opened with "what kind of classes do you run?", which is
 obviously the question you were waiting to be asked.
+
+### The steps said it compiled when it hadn't (2026-08-09)
+
+Your Pulse Fitness build showed a green tick beside "Compiled React" and another
+beside "Published", immediately under a sentence saying the pages hadn't
+compiled and the site was showing its data model. Both things could not be true.
+
+The step list was never checking anything — it drew four ticks every time,
+whatever happened. It now says **✕ Could not compile** when that's what
+occurred, and "Published the data model" instead of plain "Published", because
+what went live really was the fallback and not your site. A build that worked
+looks exactly as it did before.
+
+The same lie was in the page count: the header said "6 pages" and the picker
+offered five, because it was listing the pages the AI *wrote* rather than the
+ones actually live. On that build only one page existed — the data model — so
+picking any of the others just showed you the same thing. It now only records
+pages when a real site published.
+
+Worth saying plainly: neither of these caused the failed build. They're about
+being told the truth about it. The build itself failed because the pages didn't
+typecheck, and that's the thing the retry has to fix.

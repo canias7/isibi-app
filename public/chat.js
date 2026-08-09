@@ -10855,7 +10855,13 @@ function siteBuildStop() { siteBuild = null; if (siteTicker) { clearInterval(sit
 // ---- React builder: Claude-Code-style "what it did" step rows (live + finished) ----
 function stHlCode(t) { return esc(t).replace(/\b(import|from|export|default|function|return|const|let|className)\b/g, '<span class="kw">$1</span>').replace(/(&quot;[^&]*?&quot;)/g, '<span class="str">$1</span>'); }
 function stStepRow(o) { // {label, meta, state:'run'|'done'|'wait', body, open}
-  const mark = o.state === 'run' ? '<span class="st-step-run"></span>' : o.state === 'done' ? '<span class="st-step-tick">✓</span>' : '<span class="st-step-wait"></span>';
+  const mark = o.state === 'run' ? '<span class="st-step-run"></span>'
+    : o.state === 'done' ? '<span class="st-step-tick">✓</span>'
+    // A STEP THAT FAILED. There were three states and none of them could say
+    // "this did not work", which is why the compile step reported a tick on a
+    // build that had just failed to compile.
+    : o.state === 'fail' ? '<span class="st-step-fail">✕</span>'
+    : '<span class="st-step-wait"></span>';
   return '<div class="st-step' + (o.open ? ' open' : '') + (o.body ? '' : ' st-step-nobody') + '">' +
     '<div class="st-step-h"' + (o.body ? ' data-steptog' : '') + '><span class="st-step-chev">' + (o.body ? '▶' : '') + '</span>' + mark +
     '<span class="st-step-lbl">' + esc(o.label) + '</span>' + (o.meta ? '<span class="st-step-meta">' + esc(o.meta) + '</span>' : '') + '</div>' +
@@ -10880,8 +10886,18 @@ function reactStepsHTML(b) {
   const rows = [];
   rows.push(stStepRow({ label: 'Wrote the code', meta: (b.files && b.files.length ? b.files.length + ' files' : ''), state: 'done', body: stFilesBody(b.files) }));
   if (b.images && b.images.length) rows.push(stStepRow({ label: 'Generated images', meta: b.images.length + (b.images.length === 1 ? ' photo' : ' photos'), state: 'done', body: stImgsBody(b.images) }));
-  rows.push(stStepRow({ label: 'Compiled React', meta: (b.buildMs ? (b.buildMs / 1000).toFixed(1) + 's' : ''), state: 'done' }));
-  rows.push(stStepRow({ label: b.revised ? 'Rebuilt & published' : 'Published', meta: b.slug || '', state: 'done' }));
+  // THE OUTCOME, NOT A DECORATION. Both of these were `state: 'done'` no matter
+  // what happened, so a build whose pages did not compile showed a green tick
+  // beside "Compiled React" and another beside "Published" — directly under our
+  // own sentence explaining that the pages had failed and the site was showing
+  // its data model. Two contradictory claims, and the tick is the one people
+  // believe. `page` is 'app' when a real site published and 'placeholder' when
+  // the fallback did.
+  const ok = b.page !== 'placeholder';
+  rows.push(stStepRow({ label: ok ? 'Compiled React' : 'Could not compile', meta: (b.buildMs ? (b.buildMs / 1000).toFixed(1) + 's' : ''), state: ok ? 'done' : 'fail' }));
+  // Something IS published either way — a placeholder is a real page at a real
+  // address — so this stays a tick and says which of the two it is instead.
+  rows.push(stStepRow({ label: ok ? (b.revised ? 'Rebuilt & published' : 'Published') : 'Published the data model', meta: b.slug || '', state: 'done' }));
   if (b.backend) rows.push(stStepRow({ label: 'Set up the database', meta: 'live', state: 'done' }));
   return '<div class="st-steps">' + rows.join('') + '</div>';
 }
@@ -11201,14 +11217,30 @@ function reactSend(site, t, origin, mode, imgs, finish, qa) {
         // A revise that reported no files must not wipe the pages the last build
         // established — falling back to one entry is what made every React site
         // look like a single-page site in the first place.
-        if (routed.length) s.pages = routed;
+        //
+        // AND ONLY WHEN A REAL APP PUBLISHED. `routed` is what the model WROTE,
+        // which on a placeholder build is a set of pages that failed to compile
+        // and are therefore not at those addresses — the header read "6 pages"
+        // and the picker offered five routes that all served the data-model
+        // fallback. Seen live 2026-08-09.
+        //
+        // Skipping it is right for both failures, for different reasons: a
+        // failed REVISE leaves the already-published site untouched, so the
+        // pages it already had are still the true ones; a failed FIRST build
+        // published one placeholder, which the fallback below records as a
+        // single Home entry.
+        if (d.page !== 'placeholder' && routed.length) s.pages = routed;
         else if (!Array.isArray(s.pages) || !s.pages.length) s.pages = [{ path: '/', name: 'Home', html: '' }];
         s.active = '/'; delete s.html;
         s.previewV = (s.previewV || 0) + 1; // cache-bust the preview iframe on revise
         siteSnap(s, t);
       }
       siteErr = null;
-      const build = { files: (siteBuild && siteBuild.filesSeen && siteBuild.filesSeen.length) ? siteBuild.filesSeen.slice() : (d.files || []), images: (siteBuild && siteBuild.images) ? siteBuild.images.slice() : [], buildMs: d.buildMs, cost: d.cost, slug: d.slug, revised: mode === 'revise', backend: !!d.backend };
+      // `built` is what the steps below have to key off. Without it every step
+      // rendered a tick unconditionally, so a build whose pages failed to
+      // compile showed "Compiled React ✓" directly above our own sentence
+      // saying they had not compiled. Seen live 2026-08-09.
+      const build = { files: (siteBuild && siteBuild.filesSeen && siteBuild.filesSeen.length) ? siteBuild.filesSeen.slice() : (d.files || []), images: (siteBuild && siteBuild.images) ? siteBuild.images.slice() : [], buildMs: d.buildMs, cost: d.cost, slug: d.slug, revised: mode === 'revise', backend: !!d.backend, page: d.page || '' };
       const name = (siteById(origin) || {}).name;
       // What was READ for this build — a linked page, a web lookup, or a link
       // we could not reach. Composed server-side (see contextSentence) because

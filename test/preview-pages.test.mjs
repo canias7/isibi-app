@@ -172,8 +172,13 @@ test("a revise that reports no files keeps the pages it had", () => {
   // back to a single dead "Homepage" label.
   const i = chat.indexOf("const routed = reactRoutePages(wrote);");
   assert.ok(i > 0, "the route files are no longer turned into pages");
-  const block = chat.slice(i, i + 500);
-  assert.match(block, /if \(routed\.length\) s\.pages = routed;/);
+  // TO A LANDMARK, and on the PROPERTY rather than the spelling. This matched
+  // `if (routed.length) s.pages = routed;` exactly, so it went red when the
+  // condition gained the placeholder check — a correct change failing a test
+  // about word order. What matters is that adopting pages is conditional on
+  // there being some, and that the fallback only fires when there are none.
+  const block = chat.slice(i, chat.indexOf("s.active = '/'", i));
+  assert.match(block, /routed\.length\) s\.pages = routed;/);
   assert.match(block, /else if \(!Array\.isArray\(s\.pages\) \|\| !s\.pages\.length\)/,
     "an empty file list overwrites the pages a previous build established");
 });
@@ -333,4 +338,91 @@ test("a page-menu row is never given on-accent text", () => {
   // to do — an empty list would pass the check above for the wrong reason.
   assert.match(sweep[0], /\.st-msg\.u/);
   assert.match(sweep[0], /\.st-vtab\.on/);
+});
+
+// ── what the steps CLAIM happened ───────────────────────────────────────────
+
+// `reactStepsHTML` is not self-contained — it closes over the row renderer, the
+// two body renderers and `esc`. Lifted TOGETHER so the real implementation runs,
+// rather than stubbing them and testing a shape nobody ships.
+const liftAll = (names, want) => {
+  const src = names.map((n) => {
+    const i = chat.indexOf("function " + n + "(");
+    assert.ok(i > 0, n + " is gone; this file checks nothing");
+    return chat.slice(i, chat.indexOf("\nfunction ", i + 10));
+  }).join("\n");
+  // eslint-disable-next-line no-eval
+  return eval(src + "\n" + want);
+};
+const STEP_FNS = ["stStepRow", "stFilesBody", "stImgsBody", "esc", "reactStepsHTML"];
+const reactStepsHTML = liftAll(STEP_FNS, "reactStepsHTML");
+const stStepRow = liftAll(STEP_FNS, "stStepRow");
+
+test("a build that did not compile does not show a tick beside 'Compiled React'", () => {
+  // SEEN LIVE 2026-08-09: "✓ Compiled React 17.3s" rendered directly above our
+  // own sentence saying the pages had not compiled and the site was showing its
+  // data model. Two contradictory claims in one message, and the tick is the
+  // one people believe. Every step was `state: 'done'` unconditionally.
+  const failed = reactStepsHTML({ files: ["src/routes/index.tsx"], buildMs: 17300, slug: "pulse-fitness", backend: true, page: "placeholder" });
+  assert.match(failed, /Could not compile/, "the compile step still claims success");
+  assert.match(failed, /st-step-fail/, "there is no failure mark on the failed step");
+  // SCOPED TO THE MARKER, which is the only place this can be checked honestly.
+  // Against the whole block the assertion passed for the wrong reason — "Wrote
+  // the code ✓" is a real tick earlier in the same HTML — and a regex from
+  // `<div class="st-step` matched the outer wrapper and swallowed that row with
+  // it. The marker sits between the row header and the label, so read exactly
+  // that.
+  const at = failed.indexOf("Could not compile");
+  const mark = failed.slice(failed.lastIndexOf('<div class="st-step-h"', at), at);
+  assert.ok(mark, "could not isolate the failed step");
+  assert.doesNotMatch(mark, /st-step-tick/, "a tick is rendered beside the failed step");
+  assert.match(mark, /st-step-fail/, "the failed step carries no failure marker");
+  // What DID happen is still reported honestly: a placeholder is a real page at
+  // a real address, so publishing is not a failure — it just was not the site.
+  assert.match(failed, /Published the data model/);
+});
+
+test("a build that worked still ticks every step", () => {
+  // The other direction, or the fix could have made every build look broken.
+  const ok = reactStepsHTML({ files: ["src/routes/index.tsx"], buildMs: 17300, slug: "pulse-fitness", backend: true, page: "app" });
+  assert.match(ok, /Compiled React/);
+  assert.doesNotMatch(ok, /Could not compile/);
+  assert.doesNotMatch(ok, /st-step-fail/, "a working build must not show a failure mark");
+  assert.match(ok, /st-step-tick/);
+  // A build from before `page` was recorded has none, and must not read as
+  // broken — every stored build in every browser predates this change.
+  const legacy = reactStepsHTML({ files: [], slug: "x" });
+  assert.doesNotMatch(legacy, /st-step-fail/, "an older stored build now renders as a failure");
+});
+
+test("the failure mark is a SHAPE, not just a colour", () => {
+  // Colour alone does not survive greyscale, print, or anyone who cannot tell
+  // the two hues apart — the same rule the component kit follows for status.
+  const row = stStepRow({ label: "Could not compile", state: "fail" });
+  assert.match(row, /✕/, "the failed step is distinguished by colour alone");
+  assert.doesNotMatch(row, /✓/);
+});
+
+test("pages are recorded only when a real app published", () => {
+  // The picker read "6 pages" and offered five routes that all served the
+  // data-model fallback, because it listed what the model WROTE rather than
+  // what is actually at those addresses.
+  const src = chat.slice(chat.indexOf("const routed = reactRoutePages(wrote);"));
+  const line = (src.match(/^.*if \(.*routed\.length\) s\.pages = routed;.*$/m) || [""])[0];
+  assert.ok(line, "the page-adoption line is gone");
+  assert.match(line, /d\.page !== 'placeholder'/,
+    "a build whose pages never compiled still fills the page picker with them");
+});
+
+test("the stored build carries the outcome the steps read", () => {
+  // THE WIRING, which is where this fix can die quietly. `reactStepsHTML` is
+  // driven directly above and is correct; if the object it renders never gets
+  // `page`, then `b.page !== 'placeholder'` is true for everything and every
+  // failed build ticks again — with all of those tests still green. A mutation
+  // deleting the field survived the whole suite until this existed.
+  const i = chat.indexOf("const build = { files:");
+  assert.ok(i > 0, "the build object is gone");
+  const line = chat.slice(i, chat.indexOf("\n", i));
+  assert.match(line, /page:\s*d\.page/,
+    "the steps cannot tell a failed build from a working one");
 });
