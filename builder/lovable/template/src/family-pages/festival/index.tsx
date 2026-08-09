@@ -1,6 +1,6 @@
 // festival — FULL-BLEED-HERO: dates, place and the headline names, and nothing
 // above the lineup. Tickets and travel are what the grid funnels into.
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { SiteChrome } from "@/components/ui/site-chrome";
 import { Countdown } from "@/components/ui/countdown";
 import { CtaBand } from "@/components/ui/cta-band";
@@ -12,9 +12,10 @@ import { SectionHeader } from "@/components/ui/section-header";
 import { StatsBand } from "@/components/ui/stats-band";
 export const Route = createFileRoute("/")({ component: P });
 function P() {
+  const navigate = useNavigate();
   return (
     <SiteChrome name="Loxley Weekender" tagline="Three days in a valley, first weekend of September."
-      links={[{ label: "Lineup", href: "#/lineup" }, { label: "Getting there", href: "#/info" }, { label: "Tickets", href: "#tickets" }]}
+      links={[{ label: "Lineup", href: "/lineup" }, { label: "Getting there", href: "/info" }, { label: "Tickets", href: "#tickets" }]}
       action={{ label: "Buy tickets", href: "#tickets" }}>
 
       <section className="border-b border-border bg-muted/40">
@@ -31,7 +32,7 @@ function P() {
               <p className="mt-2 text-2xl font-semibold tracking-tight">Elsie Marrow · Attercliffe Sound · The Wire</p>
               <div className="mt-7 flex flex-wrap items-center gap-4">
                 <a className="rounded-md bg-primary px-6 py-3 text-base font-semibold text-primary-foreground" href="#tickets">Tickets from £68</a>
-                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#/lineup">The full lineup</a>
+                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="/lineup">The full lineup</a>
               </div>
               <div className="mt-8">
                 <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Gates open in</p>
@@ -67,7 +68,7 @@ function P() {
               { name: "Weekend, no camping", description: "For the ones walking home to Malin Bridge", price: 54, meta: "plenty" },
               { name: "Saturday only", description: "Gates 11am, off site by midnight", price: 32, meta: "180 left" },
               { name: "Under 12", description: "With an adult — no ticket needed, just turn up", price: 0, meta: "free" },
-            ]} action={{ label: "Buy", onSelect: () => { location.hash = "#/info"; } }} />
+            ]} action={{ label: "Buy", onSelect: () => { navigate({ to: "/info" }); } }} />
             <p className="mt-4 text-sm text-muted-foreground">
               Tickets are non-refundable but fully transferable — name changes are free up to the Thursday.
             </p>
@@ -89,7 +90,7 @@ function P() {
         <div className="mx-auto max-w-6xl px-6 py-16">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <SectionHeader eyebrow="Last year" title="What it actually looks like" />
-            <a className="text-sm font-medium underline underline-offset-4" href="#/info">Travel, camping and access →</a>
+            <a className="text-sm font-medium underline underline-offset-4" href="/info">Travel, camping and access →</a>
           </div>
           <Gallery className="mt-8" columns={4} items={[
             { alt: "Main stage, Saturday night", caption: "Saturday, about nine" },

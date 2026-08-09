@@ -104,7 +104,7 @@ function P() {
   const [lang, setLang] = useState("ts");
   return (
     <SiteChrome name="Ferrule" tagline="Outbound webhooks with retries, signatures and a replay button."
-      links={[{ label: "Pricing", href: "#/pricing" }, { label: "Support", href: "#/support" }]}
+      links={[{ label: "Pricing", href: "/pricing" }, { label: "Support", href: "/support" }]}
       action={{ label: "Get a key", href: "#install" }}>
 
       {/* THE DOCS NAV IS PART OF THE PAGE, not a link to a separate site. A

@@ -24,13 +24,23 @@ import { cn } from "@/lib/utils";
  * one page — every keyboard user starts each page by tabbing through the whole
  * header, two lines fix it, and no generated page has ever written them.
  *
- * LINKS ARE `#/...` HREFS, and that is not a compromise: the app uses hash
- * history, so a hash anchor is real client-side navigation. Measured — no page
- * load, window state survives, the router renders the new route. (`href="/"` is
- * NOT: that is a full reload to the server root, which on a published site is
- * the platform rather than the site.) Inside a page's own body prefer
- * `<Link to="/book">`, which is typed against the routes that exist and fails
- * the build if the page was never written.
+ * LINKS ARE ORDINARY PATHS — `{ label: "Book", href: "/book" }`. They go
+ * through `SiteLink`, which routes an internal path with `<Link>` and leaves an
+ * external address as a plain anchor, so the same value is correct at every
+ * mount the bundle is served from: `/s/<slug>/` here, `/` on the site's own
+ * subdomain, `/` again on the owner's domain.
+ *
+ * THEY WERE `#/...` UNTIL 2026-08-09 and this comment argued for it — a hash
+ * WAS real client-side navigation while the app ran on `createHashHistory()`.
+ * The router moved to browser history and the argument silently inverted: every
+ * nav link on every generated site became a no-op that changed the fragment and
+ * rendered nothing. It compiled, bundled and published, and could only be found
+ * by clicking. A rule that is true because of something one layer down is a rule
+ * that expires when that layer moves.
+ *
+ * Inside a page's own body prefer `<Link to="/book">` directly, which is typed
+ * against the routes that exist and fails the build if the page was never
+ * written.
  */
 export function SiteChrome({
   name,
@@ -44,7 +54,7 @@ export function SiteChrome({
   name: string;
   /** One line under the name in the footer — what the business is. */
   tagline?: string;
-  /** `{ label, href }`, with hash hrefs: `{ label: "Book", href: "#/book" }`. */
+  /** `{ label, href }` with ordinary paths: `{ label: "Book", href: "/book" }`. */
   links?: NavLink[];
   /** The one thing you want them to do, as a button in the header. */
   action?: { label: string; href?: string; onClick?: () => void };

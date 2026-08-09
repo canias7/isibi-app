@@ -25,7 +25,7 @@ const HOURS: DayHours[] = [
 function P() {
   return (
     <SiteChrome name="Six Weirs" tagline="A brewery and taproom under the arches at Kelham."
-      links={[{ label: "The range", href: "#/range" }, { label: "Taproom", href: "#/visit" }, { label: "Find us", href: "#find-us" }]}
+      links={[{ label: "The range", href: "/range" }, { label: "Taproom", href: "/visit" }, { label: "Find us", href: "#find-us" }]}
       action={{ label: "What's pouring", href: "#pouring" }}>
 
       <section className="border-b border-border bg-muted/40">
@@ -39,8 +39,8 @@ function P() {
                 brewery — you drink about four metres from the tanks.
               </p>
               <div className="mt-7 flex flex-wrap gap-3">
-                <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#/visit">Taproom hours</a>
-                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#/range">The whole range</a>
+                <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="/visit">Taproom hours</a>
+                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="/range">The whole range</a>
               </div>
               <div className="mt-10 grid grid-cols-2 gap-4">
                 <SafeImage src={null} alt="The tanks, from the bar" ratio="1/1" />
@@ -126,7 +126,7 @@ function P() {
       <section className="mx-auto max-w-6xl px-6 py-16">
         <CtaBand title="It changes every Thursday"
           description="The tap list above is the live one. If you want a particular beer, ring first — ten barrels a week goes quickly."
-          action={{ label: "See the whole range", href: "#/range" }} />
+          action={{ label: "See the whole range", href: "/range" }} />
       </section>
     </SiteChrome>
   );

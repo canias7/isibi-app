@@ -29,11 +29,11 @@ function P() {
       name="Rivelin Renewables"
       tagline="Solar, batteries and heat pumps across South Yorkshire. MCS certified."
       links={[
-        { label: "How it works", href: "#/how-it-works" },
-        { label: "Book a survey", href: "#/survey" },
+        { label: "How it works", href: "/how-it-works" },
+        { label: "Book a survey", href: "/survey" },
         { label: "Questions", href: "#questions" },
       ]}
-      action={{ label: "Book a survey", href: "#/survey" }}
+      action={{ label: "Book a survey", href: "/survey" }}
     >
       <section className="border-b border-border">
         <div className="mx-auto max-w-6xl px-6 py-16">
@@ -144,10 +144,10 @@ function P() {
             rather say so than sell one on a spreadsheet.
           </p>
           <div className="mt-7 flex flex-wrap gap-3">
-            <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#/survey">
+            <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="/survey">
               Book a free survey
             </a>
-            <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#/how-it-works">
+            <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="/how-it-works">
               What the install involves
             </a>
           </div>

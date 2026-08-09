@@ -15,8 +15,8 @@ export const Route = createFileRoute("/")({ component: P });
 function P() {
   return (
     <SiteChrome name="St Chad's, Walkley" tagline="A parish church on South Road since 1868."
-      links={[{ label: "First visit", href: "#/visit" }, { label: "In the week", href: "#/groups" }, { label: "Find us", href: "#find-us" }]}
-      action={{ label: "Plan a visit", href: "#/visit" }}>
+      links={[{ label: "First visit", href: "/visit" }, { label: "In the week", href: "/groups" }, { label: "Find us", href: "#find-us" }]}
+      action={{ label: "Plan a visit", href: "/visit" }}>
 
       <section className="border-b border-border bg-muted/40">
         <div className="mx-auto max-w-6xl px-6 py-16">
@@ -29,7 +29,7 @@ function P() {
                 will ask you to stand up and introduce yourself.
               </p>
               <div className="mt-7 flex flex-wrap gap-3">
-                <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#/visit">If it's your first time</a>
+                <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="/visit">If it's your first time</a>
                 <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#find-us">Find us</a>
               </div>
             </div>
@@ -62,7 +62,7 @@ function P() {
                 Children are not expected to be quiet. There is coffee afterwards and you may leave before it.
               </p>
             </div>
-            <a className="mt-6 inline-block text-sm font-medium underline underline-offset-4" href="#/visit">The first visit, in more detail →</a>
+            <a className="mt-6 inline-block text-sm font-medium underline underline-offset-4" href="/visit">The first visit, in more detail →</a>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <SafeImage src={null} alt="The nave on an ordinary Sunday" ratio="3/4" />
@@ -76,7 +76,7 @@ function P() {
           <div className="flex flex-wrap items-end justify-between gap-3">
             <SectionHeader eyebrow="In the week" title="Not just Sundays"
               description="Most of these have nothing to do with believing anything." />
-            <a className="text-sm font-medium underline underline-offset-4" href="#/groups">Everything that runs →</a>
+            <a className="text-sm font-medium underline underline-offset-4" href="/groups">Everything that runs →</a>
           </div>
           <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <EventCard title="Warm space & soup" start="2026-08-04T11:00:00" venue="Parish hall — free, no questions" />
@@ -117,7 +117,7 @@ function P() {
       <section className="mx-auto max-w-6xl px-6 py-16">
         <CtaBand title="Come to anything, or come to nothing"
           description="The warm space and the toddler group ask nothing of you at all. Sunday is there if you want it."
-          action={{ label: "What a first visit is like", href: "#/visit" }} />
+          action={{ label: "What a first visit is like", href: "/visit" }} />
       </section>
     </SiteChrome>
   );

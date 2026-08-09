@@ -36,9 +36,9 @@ function P() {
       name="Bolsterstone Primary"
       tagline="Thirty places a year. The criteria, and the distance that got in."
       links={[
-        { label: "Home", href: "#/" },
-        { label: "Term dates", href: "#/term-dates" },
-        { label: "News", href: "#/news" },
+        { label: "Home", href: "/" },
+        { label: "Term dates", href: "/term-dates" },
+        { label: "News", href: "/news" },
       ]}
       action={{ label: "Book a visit", href: "#visit" }}
     >
@@ -161,9 +161,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">The parent page</a>
+            <a className="underline underline-offset-4" href="/">The parent page</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/term-dates">Term dates</a>
+            <a className="underline underline-offset-4" href="/term-dates">Term dates</a>
           </p>
         </section>
       </div>

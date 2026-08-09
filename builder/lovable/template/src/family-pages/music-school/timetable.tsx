@@ -47,11 +47,11 @@ function P() {
       name="The Rivelin Music School"
       tagline="The week by teacher. The gaps are what is free."
       links={[
-        { label: "Instruments", href: "#/" },
-        { label: "Lessons", href: "#/lessons" },
-        { label: "Fees", href: "#/fees" },
+        { label: "Instruments", href: "/" },
+        { label: "Lessons", href: "/lessons" },
+        { label: "Fees", href: "/fees" },
       ]}
-      action={{ label: "Fees per term", href: "#/fees" }}
+      action={{ label: "Fees per term", href: "/fees" }}
     >
       <div className="mx-auto max-w-6xl px-6 py-14">
         <h1 className="text-4xl font-semibold tracking-tight text-balance">The timetable</h1>
@@ -143,11 +143,11 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">Instruments</a>
+            <a className="underline underline-offset-4" href="/">Instruments</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/lessons">Lessons and ensembles</a>
+            <a className="underline underline-offset-4" href="/lessons">Lessons and ensembles</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/fees">Fees</a>
+            <a className="underline underline-offset-4" href="/fees">Fees</a>
           </p>
         </section>
       </div>

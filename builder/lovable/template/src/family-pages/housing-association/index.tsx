@@ -36,11 +36,11 @@ function P() {
       name="Loxley Valley Housing"
       tagline="1,840 homes across north-west Sheffield. A charitable community benefit society."
       links={[
-        { label: "Repairs", href: "#/repairs" },
-        { label: "Rent and tenancy", href: "#/tenancy" },
+        { label: "Repairs", href: "/repairs" },
+        { label: "Rent and tenancy", href: "/tenancy" },
         { label: "Questions", href: "#questions" },
       ]}
-      action={{ label: "Report a repair", href: "#/repairs" }}
+      action={{ label: "Report a repair", href: "/repairs" }}
     >
       <section className="border-b border-border">
         <div className="mx-auto max-w-6xl px-6 py-12">
@@ -62,7 +62,7 @@ function P() {
                     <Tile
                       title="Report a repair"
                       body="Online any hour, or 0114 288 6100 in office hours. Emergencies are attended within 4 hours, everything else within 20 working days — and both of those are promises we publish performance against."
-                      href="#/repairs"
+                      href="/repairs"
                       cta="Report or track a repair"
                     />
                   ),
@@ -72,7 +72,7 @@ function P() {
                     <Tile
                       title="Pay rent"
                       body="Direct debit, card, or at any PayPoint. Behind? Ring before it grows — nobody has ever been evicted by this association for arrears where an arrangement was being kept to."
-                      href="#/tenancy"
+                      href="/tenancy"
                       cta="Ways to pay, and help with arrears"
                     />
                   ),
@@ -93,7 +93,7 @@ function P() {
                     <Tile
                       title="Complain"
                       body="Two stages, ten working days each, then the Housing Ombudsman — free, independent, and you can go to them directly at any point. We publish every complaint outcome in the annual report, including the ones we lost."
-                      href="#/tenancy"
+                      href="/tenancy"
                       cta="How to complain properly"
                     />
                   ),
@@ -103,7 +103,7 @@ function P() {
                     <Tile
                       title="Something else"
                       body="Ending a tenancy, a mutual exchange, permission for a pet or a shed, adding somebody to a tenancy. All of it starts with the same phone number."
-                      href="#/tenancy"
+                      href="/tenancy"
                       cta="Tenancy matters"
                     />
                   ),

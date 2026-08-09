@@ -42,7 +42,7 @@ function P() {
   const nearestWith = BRANCHES.find((b) => b.stock > 0);
   return (
     <SiteChrome name="Foundry Coffee" tagline="Four shops in Sheffield. Beans roasted on Alma Street since 2012."
-      links={[{ label: "One shop", href: "#/location" }, { label: "Subscriptions", href: "#/memberships" }]}
+      links={[{ label: "One shop", href: "/location" }, { label: "Subscriptions", href: "/memberships" }]}
       action={{ label: "Ring 0114 272 8800", href: "tel:01142728800" }}>
 
       <div className="mx-auto grid max-w-6xl gap-10 px-6 py-10 md:grid-cols-[1.15fr_1fr]">

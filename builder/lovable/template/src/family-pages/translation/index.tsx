@@ -36,11 +36,11 @@ function P() {
       name="Attercliffe Language Services"
       tagline="Nine pairs. Sheffield. Certified for the Home Office, courts and the NHS."
       links={[
-        { label: "Rates", href: "#/rates" },
-        { label: "Send a document", href: "#/quote" },
+        { label: "Rates", href: "/rates" },
+        { label: "Send a document", href: "/quote" },
         { label: "Questions", href: "#questions" },
       ]}
-      action={{ label: "Get a quote", href: "#/quote" }}
+      action={{ label: "Get a quote", href: "/quote" }}
     >
       <section className="border-b border-border">
         <div className="mx-auto max-w-4xl px-6 py-14">

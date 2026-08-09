@@ -34,11 +34,11 @@ function P() {
       name="Loxley Drive"
       tagline="One instructor, one car, Sheffield north and west. Learning since 2009."
       links={[
-        { label: "Lessons and prices", href: "#/lessons" },
-        { label: "Book a first lesson", href: "#/book" },
+        { label: "Lessons and prices", href: "/lessons" },
+        { label: "Book a first lesson", href: "/book" },
         { label: "Questions", href: "#questions" },
       ]}
-      action={{ label: "Book a first lesson", href: "#/book" }}
+      action={{ label: "Book a first lesson", href: "/book" }}
     >
       <section className="border-b border-border">
         <div className="mx-auto max-w-5xl px-6 py-16">
@@ -76,10 +76,10 @@ function P() {
           </p>
 
           <div className="mt-8 flex flex-wrap gap-3">
-            <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#/book">
+            <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="/book">
               Book a first lesson
             </a>
-            <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#/lessons">
+            <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="/lessons">
               Prices and blocks
             </a>
           </div>

@@ -13,7 +13,7 @@ export const Route = createFileRoute("/plan")({ component: P });
 function P() {
   return (
     <SiteChrome name="Hartley & Vane" tagline="An independent funeral director in Walkley, Sheffield, since 1954."
-      links={[{ label: "Home", href: "#/" }, { label: "What it costs", href: "#/costs" }]}
+      links={[{ label: "Home", href: "/" }, { label: "What it costs", href: "/costs" }]}
       action={{ label: "Call 0114 234 1954", href: "tel:01142341954" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">

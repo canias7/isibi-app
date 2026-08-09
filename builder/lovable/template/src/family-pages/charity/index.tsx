@@ -14,8 +14,8 @@ export const Route = createFileRoute("/")({ component: P });
 function P() {
   return (
     <SiteChrome name="The Loxley Larder" tagline="A food bank and community kitchen in Walkley."
-      links={[{ label: "Where it goes", href: "#/impact" }, { label: "Give", href: "#/donate" }, { label: "Volunteer", href: "#volunteer" }]}
-      action={{ label: "Donate", href: "#/donate" }}>
+      links={[{ label: "Where it goes", href: "/impact" }, { label: "Give", href: "/donate" }, { label: "Volunteer", href: "#volunteer" }]}
+      action={{ label: "Donate", href: "/donate" }}>
 
       <section className="border-b border-border bg-muted/40">
         <div className="mx-auto max-w-6xl px-6 py-16">
@@ -66,7 +66,7 @@ function P() {
           { value: "1 in 4", meaning: "Households using us have someone in full-time work.", period: "2025", source: "Anonymous survey, n=214" },
           { value: "41", meaning: "Volunteers, of whom eleven first came as visitors.", period: "2025", source: "Rota" },
         ]} />
-        <a className="mt-10 inline-block text-sm font-medium underline underline-offset-4" href="#/impact">The whole picture, including what went wrong →</a>
+        <a className="mt-10 inline-block text-sm font-medium underline underline-offset-4" href="/impact">The whole picture, including what went wrong →</a>
       </section>
 
       <section className="border-y border-border bg-muted/40">
@@ -120,7 +120,7 @@ function P() {
       <section className="mx-auto max-w-6xl px-6 pb-20">
         <CtaBand title="£12 a month, and a household eats every week"
           description="Standing orders are what let us plan. One-off gifts are what get us through a bad January. Both help."
-          action={{ label: "Set up a monthly gift", href: "#/donate" }} />
+          action={{ label: "Set up a monthly gift", href: "/donate" }} />
       </section>
     </SiteChrome>
   );

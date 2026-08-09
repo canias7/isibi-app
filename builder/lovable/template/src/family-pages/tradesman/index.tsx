@@ -16,7 +16,7 @@ export const Route = createFileRoute("/")({ component: P });
 function P() {
   return (
     <SiteChrome name="Barlow & Son" tagline="Plumbing and heating, Sheffield S6 and S10."
-      links={[{ label: "The work", href: "#/work" }, { label: "Areas", href: "#areas" }, { label: "Quote", href: "#/quote" }]}
+      links={[{ label: "The work", href: "/work" }, { label: "Areas", href: "#areas" }, { label: "Quote", href: "/quote" }]}
       action={{ label: "0114 266 1180", href: "tel:+441142661180" }}>
 
       {/* The number, before anything. A form is the fallback for people who
@@ -33,7 +33,7 @@ function P() {
               </p>
               <div className="mt-7 flex flex-wrap items-center gap-3">
                 <a className="rounded-md bg-primary px-6 py-3 text-base font-semibold text-primary-foreground" href="tel:+441142661180">Ring 0114 266 1180</a>
-                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#/quote">Send photos instead</a>
+                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="/quote">Send photos instead</a>
               </div>
               <p className="mt-3 text-sm text-muted-foreground">Answered 7am–8pm. Out of hours goes to Dave's mobile.</p>
             </div>
@@ -69,7 +69,7 @@ function P() {
           <div className="flex flex-wrap items-end justify-between gap-3">
             <SectionHeader eyebrow="The work" title="Before, and after"
               description="Every one of these is ours, in a house within four miles of here." />
-            <a className="text-sm font-medium underline underline-offset-4" href="#/work">Every job →</a>
+            <a className="text-sm font-medium underline underline-offset-4" href="/work">Every job →</a>
           </div>
           <div className="mt-8 grid gap-8 lg:grid-cols-2">
             <BeforeAfter beforeLabel="The old bathroom at Crookes" afterLabel="The same bathroom, finished" />
@@ -113,7 +113,7 @@ function P() {
       <section className="mx-auto max-w-6xl px-6 py-16">
         <CtaBand title="Ring, or send us a photograph"
           description="A picture of the problem gets you a real number instead of a range. Either way you speak to one of us."
-          action={{ label: "Send the job", href: "#/quote" }} />
+          action={{ label: "Send the job", href: "/quote" }} />
       </section>
     </SiteChrome>
   );

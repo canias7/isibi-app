@@ -14,7 +14,7 @@ export const Route = createFileRoute("/")({ component: P });
 function P() {
   return (
     <SiteChrome name="Hartley & Vane" tagline="An independent funeral director in Walkley, Sheffield, since 1954."
-      links={[{ label: "What it costs", href: "#/costs" }, { label: "Planning ahead", href: "#/plan" }, { label: "Find us", href: "#find-us" }]}
+      links={[{ label: "What it costs", href: "/costs" }, { label: "Planning ahead", href: "/plan" }, { label: "Find us", href: "#find-us" }]}
       action={{ label: "Call 0114 234 1954", href: "tel:01142341954" }}>
 
       {/* The number is the first thing and it is a real link. Somebody reading
@@ -57,7 +57,7 @@ function P() {
                 more usefully, removes every decision your family would otherwise be making in the
                 worst week of their lives.
               </p>
-              <a className="mt-5 inline-block rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#/plan">
+              <a className="mt-5 inline-block rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="/plan">
                 How planning ahead works
               </a>
             </div>
@@ -130,7 +130,7 @@ function P() {
                   government payment some families qualify for and we will help with the form.
                 </p>
               </div>
-              <a className="mt-6 inline-block text-sm font-medium underline underline-offset-4" href="#/costs">Every price, itemised →</a>
+              <a className="mt-6 inline-block text-sm font-medium underline underline-offset-4" href="/costs">Every price, itemised →</a>
             </div>
             <div className="space-y-4 self-start">
               <Testimonial item={{ quote: "They told us on the phone, before we had met them, that we did not have to have cars and that most families here do not. Nobody else did that.", name: "Ruth", role: "Walkley" }} />

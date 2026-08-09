@@ -31,10 +31,10 @@ function P() {
       name="Neepsend Cycles"
       tagline="What is in, in which size, and who each size fits."
       links={[
-        { label: "Home", href: "#/" },
-        { label: "The workshop", href: "#/workshop" },
+        { label: "Home", href: "/" },
+        { label: "The workshop", href: "/workshop" },
       ]}
-      action={{ label: "Book a service", href: "#/workshop" }}
+      action={{ label: "Book a service", href: "/workshop" }}
     >
       <div className="mx-auto max-w-6xl px-6 py-14">
         <h1 className="text-4xl font-semibold tracking-tight text-balance">Bikes in stock</h1>
@@ -134,9 +134,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">Stock and the workshop wait</a>
+            <a className="underline underline-offset-4" href="/">Stock and the workshop wait</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/workshop">Book a service</a>
+            <a className="underline underline-offset-4" href="/workshop">Book a service</a>
           </p>
         </section>
       </div>

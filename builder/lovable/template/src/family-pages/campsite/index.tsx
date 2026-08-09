@@ -50,8 +50,8 @@ export const RULES = [
 function P() {
   return (
     <SiteChrome name="Ewden Beck Camping" tagline="Forty-eight pitches on the river, four miles above Stocksbridge."
-      links={[{ label: "Book a pitch", href: "#/book" }, { label: "The site", href: "#/site" }, { label: "Find us", href: "#find-us" }]}
-      action={{ label: "Book a pitch", href: "#/book" }}>
+      links={[{ label: "Book a pitch", href: "/book" }, { label: "The site", href: "/site" }, { label: "Find us", href: "#find-us" }]}
+      action={{ label: "Book a pitch", href: "/book" }}>
 
       <section className="border-b border-border">
         <div className="mx-auto max-w-6xl px-6 py-14">
@@ -72,8 +72,8 @@ function P() {
                 <div><dt className="text-muted-foreground">Gate locked</dt><dd className="mt-1 text-lg font-semibold tabular-nums">22:00</dd></div>
               </dl>
               <div className="mt-7 flex flex-wrap gap-3">
-                <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#/book">Check free nights</a>
-                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#/site">See the facilities</a>
+                <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="/book">Check free nights</a>
+                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="/site">See the facilities</a>
               </div>
             </div>
             {/* THE MEASUREMENTS, above everything. Nobody has ever booked a

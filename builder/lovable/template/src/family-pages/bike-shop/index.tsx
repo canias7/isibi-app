@@ -42,11 +42,11 @@ function P() {
       name="Neepsend Cycles"
       tagline="A shop and a workshop on Rutland Road. Sixteen years."
       links={[
-        { label: "Bikes in stock", href: "#/bikes" },
-        { label: "The workshop", href: "#/workshop" },
+        { label: "Bikes in stock", href: "/bikes" },
+        { label: "The workshop", href: "/workshop" },
         { label: "Questions", href: "#questions" },
       ]}
-      action={{ label: "Book a service", href: "#/workshop" }}
+      action={{ label: "Book a service", href: "/workshop" }}
     >
       {/* A BIKE SHOP WITH NO PICTURE OF A BIKE, WHICH IS MOST OF THEM. The
           two questions in the doorway are "what sort of shop is this" and "can
@@ -102,13 +102,13 @@ function P() {
 
           <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {IN_STOCK.map((b) => (
-              <ProductCard key={b.name} product={b} href="#/bikes" />
+              <ProductCard key={b.name} product={b} href="/bikes" />
             ))}
           </div>
           <p className="mt-6 max-w-2xl text-sm leading-relaxed text-muted-foreground">
             Sold-out cards stay up for a fortnight so you know what we stock rather than what we
             happen to have on a Tuesday.{" "}
-            <a className="underline underline-offset-4" href="#/bikes">Everything, with sizing.</a>
+            <a className="underline underline-offset-4" href="/bikes">Everything, with sizing.</a>
           </p>
         </div>
       </section>
@@ -127,7 +127,7 @@ function P() {
                 supermarket bike with a seized bottom bracket is us taking your money, and we would
                 rather sell you the £380 one that will last.
               </p>
-              <a className="mt-6 inline-block rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#/workshop">
+              <a className="mt-6 inline-block rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="/workshop">
                 Book a slot
               </a>
             </div>

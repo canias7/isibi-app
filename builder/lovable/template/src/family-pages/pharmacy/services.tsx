@@ -44,10 +44,10 @@ function P() {
       name="Walkley Pharmacy"
       tagline="Seven conditions treated here without a GP, and everything else we do."
       links={[
-        { label: "Home", href: "#/" },
-        { label: "Repeat prescriptions", href: "#/repeat" },
+        { label: "Home", href: "/" },
+        { label: "Repeat prescriptions", href: "/repeat" },
       ]}
-      action={{ label: "Order a repeat", href: "#/repeat" }}
+      action={{ label: "Order a repeat", href: "/repeat" }}
     >
       <div className="mx-auto max-w-5xl px-6 py-14">
         <h1 className="text-4xl font-semibold tracking-tight text-balance">Services</h1>
@@ -138,9 +138,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">The four doors</a>
+            <a className="underline underline-offset-4" href="/">The four doors</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/repeat">Repeat prescriptions</a>
+            <a className="underline underline-offset-4" href="/repeat">Repeat prescriptions</a>
           </p>
         </section>
       </div>

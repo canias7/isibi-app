@@ -14,8 +14,8 @@ import { SuccessPanel } from "@/components/ui/success-panel";
 export const Route = createFileRoute("/enroll")({ component: P });
 const CHROME = {
   name: "The Proving Room", tagline: "Sourdough, taught slowly, online.",
-  links: [{ label: "The course", href: "#/" }, { label: "This week", href: "#/lesson" }, { label: "Enroll", href: "#/enroll" }],
-  action: { label: "Enroll — £79", href: "#/enroll" },
+  links: [{ label: "The course", href: "/" }, { label: "This week", href: "/lesson" }, { label: "Enroll", href: "/enroll" }],
+  action: { label: "Enroll — £79", href: "/enroll" },
 };
 function P() {
   const [cohort, setCohort] = useState("sep");
@@ -36,7 +36,7 @@ function P() {
           ]} />
         </section>
         {done ? (
-          <SuccessPanel className="mt-8" title="You're in — September cohort" description="Week one lands in your inbox on the 7th. Until then: buy nothing, the flour list is in the welcome email and it's shorter than you fear." action={{ label: "Peek at a lesson now", href: "#/lesson" }} />
+          <SuccessPanel className="mt-8" title="You're in — September cohort" description="Week one lands in your inbox on the 7th. Until then: buy nothing, the flour list is in the welcome email and it's shorter than you fear." action={{ label: "Peek at a lesson now", href: "/lesson" }} />
         ) : (
           <div className="mt-8 grid gap-4">
             <h2 className="text-sm font-medium text-muted-foreground">Pick your start</h2>

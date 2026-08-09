@@ -23,8 +23,8 @@ const TIMELINE = [
 function P() {
   return (
     <SiteChrome name="Bole Hills Nursery" tagline="A 42-place nursery and pre-school in Walkley, Sheffield."
-      links={[{ label: "Home", href: "#/" }, { label: "Come and look", href: "#/visit" }]}
-      action={{ label: "Book a visit", href: "#/visit" }}>
+      links={[{ label: "Home", href: "/" }, { label: "Come and look", href: "/visit" }]}
+      action={{ label: "Book a visit", href: "/visit" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">
         <SectionHeader eyebrow="A day here" title="Eight till six, hour by hour"

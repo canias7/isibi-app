@@ -11,8 +11,8 @@ import { ProfileCard } from "@/components/ui/profile-card";
 export const Route = createFileRoute("/contact")({ component: P });
 const CHROME = {
   name: "Hartley & Voss", tagline: "Chartered accountants, est. 1987.",
-  links: [{ label: "Home", href: "#/" }, { label: "What we do", href: "#/services" }, { label: "Contact", href: "#/contact" }],
-  action: { label: "Free consultation", href: "#/contact" },
+  links: [{ label: "Home", href: "/" }, { label: "What we do", href: "/services" }, { label: "Contact", href: "/contact" }],
+  action: { label: "Free consultation", href: "/contact" },
 };
 const HOURS: DayHours[] = [
   { day: 1, label: "Monday", open: "09:00", close: "17:00" },

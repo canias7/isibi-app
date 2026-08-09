@@ -12,7 +12,7 @@ function P() {
       <main className="mx-auto max-w-xl px-6 py-16">
         <p className="text-center text-xs uppercase tracking-widest text-muted-foreground">12 September 2026 · Wortley Hall</p>
         <h1 className="mt-3 text-center text-4xl font-semibold tracking-tight">Getting there</h1>
-        <p className="mt-3 text-center text-sm text-muted-foreground"><a className="underline underline-offset-4" href="#/">← Back to the main page (and your RSVP)</a></p>
+        <p className="mt-3 text-center text-sm text-muted-foreground"><a className="underline underline-offset-4" href="/">← Back to the main page (and your RSVP)</a></p>
         <section className="mt-10">
           <h2 className="text-lg font-medium">The day, roughly</h2>
           <Timeline className="mt-4" items={[

@@ -16,8 +16,8 @@ const STORIES = [
 function P() {
   return (
     <SiteChrome name="The Sheffield Wire" tagline="Local reporting, four journalists, no owner in London."
-      links={[{ label: "Home", href: "#/" }, { label: "Housing", href: "#/section" }, { label: "Sport", href: "#/section" }]}
-      action={{ label: "Subscribe — £6/month", href: "#/" }}>
+      links={[{ label: "Home", href: "/" }, { label: "Housing", href: "/section" }, { label: "Sport", href: "/section" }]}
+      action={{ label: "Subscribe — £6/month", href: "/" }}>
       <div className="mx-auto max-w-6xl px-6 py-12">
         <SectionHeader eyebrow="Section" title="Council"
           description="Everything we have filed about the town hall. Updated most weekdays." />
@@ -26,7 +26,7 @@ function P() {
         </div>
         <div className="mt-10 border-t border-border pt-10">
           <StoryLead
-            kicker="Council · the big one" href="#/story"
+            kicker="Council · the big one" href="/story"
             headline="Budget consultation opens with a £41m gap to close"
             standfirst="Four options, none of them painless, and six weeks to say something about them."
             byline="Ada Mensah" when="6 hours ago"
@@ -35,7 +35,7 @@ function P() {
         <ul className="mt-12 divide-y divide-border border-y border-border">
           {STORIES.slice(1).map(([head, stand, by, when]) => (
             <li key={head} className="py-6">
-              <a href="#/story" className="group block">
+              <a href="/story" className="group block">
                 <h2 className="text-xl font-semibold tracking-tight text-balance group-hover:underline">{head}</h2>
                 <p className="mt-2 max-w-2xl text-base leading-relaxed text-muted-foreground">{stand}</p>
               </a>

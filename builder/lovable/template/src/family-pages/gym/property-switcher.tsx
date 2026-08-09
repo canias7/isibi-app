@@ -89,8 +89,8 @@ function P() {
   const h = HOUSES.find((x) => x.key === key) ?? HOUSES[0];
   return (
     <SiteChrome name="Four Houses" tagline="Four hotels in Yorkshire. One booking, one card, four completely different places."
-      links={[{ label: "One house", href: "#/location" }, { label: "Rates", href: "#/memberships" }]}
-      action={{ label: "Book direct", href: "#/memberships" }}>
+      links={[{ label: "One house", href: "/location" }, { label: "Rates", href: "/memberships" }]}
+      action={{ label: "Book direct", href: "/memberships" }}>
 
       <div className="mx-auto grid max-w-6xl gap-10 px-6 py-10 md:grid-cols-[340px_1fr]">
         {/* THE SWITCHER, PINNED. The base family pins a locator because

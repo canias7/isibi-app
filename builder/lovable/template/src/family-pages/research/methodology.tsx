@@ -10,7 +10,7 @@ import { Steps } from "@/components/ui/steps";
 export const Route = createFileRoute("/methodology")({ component: P });
 const CHROME = {
   name: "Wire the North", tagline: "Every broadband deal in S postcodes, priced honestly.",
-  links: [{ label: "The numbers", href: "#/" }, { label: "How we count", href: "#/methodology" }],
+  links: [{ label: "The numbers", href: "/" }, { label: "How we count", href: "/methodology" }],
 };
 function P() {
   return (

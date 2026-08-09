@@ -14,8 +14,8 @@ export const Route = createFileRoute("/yard")({ component: P });
 function P() {
   return (
     <SiteChrome name="Hollin Busk Livery" tagline="Twenty-two stables, forty acres, and an arena that drains. Above Deepcar."
-      links={[{ label: "Home", href: "#/" }, { label: "Lessons", href: "#/lessons" }]}
-      action={{ label: "Is there a space?", href: "#/#livery" }}>
+      links={[{ label: "Home", href: "/" }, { label: "Lessons", href: "/lessons" }]}
+      action={{ label: "Is there a space?", href: "/#livery" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">
         <SectionHeader eyebrow="The yard" title="The arena, the fields, and the eleven rules"

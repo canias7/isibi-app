@@ -13,7 +13,7 @@ export const Route = createFileRoute("/reserve")({ component: P });
 function P() {
   return (
     <SiteChrome name="Neepsend Self Store" tagline="Self-storage in a former steel works, five minutes from Sheffield city centre."
-      links={[{ label: "Home", href: "#/" }, { label: "Size guide", href: "#/sizes" }]}
+      links={[{ label: "Home", href: "/" }, { label: "Size guide", href: "/sizes" }]}
       action={{ label: "Reserve a unit", href: "#form" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">

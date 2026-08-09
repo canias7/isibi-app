@@ -85,10 +85,10 @@ function P() {
       name="Whirlow & Vane"
       tagline="Four menus, named after what they are."
       links={[
-        { label: "Prices", href: "#/" },
-        { label: "Get a quote", href: "#/quote" },
+        { label: "Prices", href: "/" },
+        { label: "Get a quote", href: "/quote" },
       ]}
-      action={{ label: "Get a quote", href: "#/quote" }}
+      action={{ label: "Get a quote", href: "/quote" }}
     >
       <div className="mx-auto max-w-5xl px-6 py-16">
         <h1 className="text-5xl font-semibold tracking-tight text-balance">The menus</h1>
@@ -180,9 +180,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">Prices by headcount</a>
+            <a className="underline underline-offset-4" href="/">Prices by headcount</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/quote">Send an enquiry</a>
+            <a className="underline underline-offset-4" href="/quote">Send an enquiry</a>
           </p>
         </section>
       </div>

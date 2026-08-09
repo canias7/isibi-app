@@ -30,10 +30,10 @@ function P() {
       name="Damflask Outdoor"
       tagline="Six activities, with the age, weight and ability limits printed."
       links={[
-        { label: "Today", href: "#/" },
-        { label: "Visiting", href: "#/visit" },
+        { label: "Today", href: "/" },
+        { label: "Visiting", href: "/visit" },
       ]}
-      action={{ label: "Today's conditions", href: "#/" }}
+      action={{ label: "Today's conditions", href: "/" }}
     >
       <div className="mx-auto max-w-5xl px-6 py-14">
         <h1 className="text-4xl font-semibold tracking-tight text-balance">Activities</h1>
@@ -181,9 +181,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">Today's conditions</a>
+            <a className="underline underline-offset-4" href="/">Today's conditions</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/visit">Getting here</a>
+            <a className="underline underline-offset-4" href="/visit">Getting here</a>
           </p>
         </section>
       </div>

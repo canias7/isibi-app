@@ -27,7 +27,7 @@ function P() {
   const chips = [...beds.map((b) => ({ key: `b${b}`, label: `${b} bed` })), ...area.map((a) => ({ key: `a${a}`, label: a }))];
   return (
     <SiteChrome name="Sharrow Vale Lettings" tagline="Letting and managing 340 homes across south-west Sheffield since 2008."
-      links={[{ label: "Landlords", href: "#/landlords" }, { label: "Compliance", href: "#/compliance" }, { label: "Find us", href: "#find-us" }]}
+      links={[{ label: "Landlords", href: "/landlords" }, { label: "Compliance", href: "/compliance" }, { label: "Find us", href: "#find-us" }]}
       action={{ label: "Ring 0114 266 1180", href: "tel:01142661180" }}>
 
       <section className="border-b border-border">
@@ -45,7 +45,7 @@ function P() {
               </p>
               <div className="mt-7 flex flex-wrap gap-3">
                 <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#available">See what is available</a>
-                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#/landlords">I am a landlord</a>
+                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="/landlords">I am a landlord</a>
               </div>
             </div>
             {/* THE UP-FRONT TOTAL, COMPUTED, above the properties. */}
@@ -89,7 +89,7 @@ function P() {
             <FilterBar filters={chips} onRemove={(k) => { setBeds((s) => s.filter((b) => `b${b}` !== k)); setArea((s) => s.filter((a) => `a${a}` !== k)); }}
               onClear={() => { setBeds([]); setArea([]); }} />
             <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-              {LETS.map((l) => <PropertyCard key={l.address} {...l} href="#/" />)}
+              {LETS.map((l) => <PropertyCard key={l.address} {...l} href="/" />)}
             </div>
           </div>
         </div>

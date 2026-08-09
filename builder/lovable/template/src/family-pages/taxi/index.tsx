@@ -25,7 +25,7 @@ function P() {
   const [fare, setFare] = React.useState<number | null>(null);
   return (
     <SiteChrome name="Hallam Cars" tagline="Private hire in Sheffield, 24 hours, licensed by the council."
-      links={[{ label: "Fixed fares", href: "#/fares" }, { label: "Accounts", href: "#/account" }]}
+      links={[{ label: "Fixed fares", href: "/fares" }, { label: "Accounts", href: "/account" }]}
       action={{ label: "0114 266 2626", href: "tel:01142662626" }}>
 
       <section className="border-b border-border">
@@ -68,7 +68,7 @@ function P() {
         <div className="flex flex-wrap items-end justify-between gap-3">
           <SectionHeader eyebrow="Fixed fares" title="The places everybody goes"
             description="Quoted, agreed and written down. An airport run is where people get caught worst, so it is the one we publish first." />
-          <a className="text-sm font-medium underline underline-offset-4" href="#/fares">Every fixed fare →</a>
+          <a className="text-sm font-medium underline underline-offset-4" href="/fares">Every fixed fare →</a>
         </div>
         <div className="mt-8 max-w-3xl">
           <PriceList items={AIRPORTS} />

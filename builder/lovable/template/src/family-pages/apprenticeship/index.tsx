@@ -60,8 +60,8 @@ function P() {
       name="Attercliffe Skills"
       tagline="Apprenticeships and adult training across South Yorkshire. Ofsted Good."
       links={[
-        { label: "All courses", href: "#/courses" },
-        { label: "Apply", href: "#/apply" },
+        { label: "All courses", href: "/courses" },
+        { label: "Apply", href: "/apply" },
         { label: "Questions", href: "#questions" },
       ]}
       action={{ label: "Check eligibility", href: "#check" }}
@@ -149,7 +149,7 @@ function P() {
               </article>
             ))}
           </div>
-          <a className="mt-6 inline-block text-sm underline underline-offset-4" href="#/courses">
+          <a className="mt-6 inline-block text-sm underline underline-offset-4" href="/courses">
             Every course, with the full entry requirements
           </a>
         </div>

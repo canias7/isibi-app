@@ -30,10 +30,10 @@ function P() {
       name="Attercliffe Security"
       tagline="The receiving centre, the police response, and how a system loses it."
       links={[
-        { label: "Response", href: "#/" },
-        { label: "Systems", href: "#/systems" },
+        { label: "Response", href: "/" },
+        { label: "Systems", href: "/systems" },
       ]}
-      action={{ label: "Book a survey", href: "#/" }}
+      action={{ label: "Book a survey", href: "/" }}
     >
       <div className="mx-auto max-w-5xl px-6 py-14">
         <h1 className="text-4xl font-semibold tracking-tight text-balance">Monitoring</h1>
@@ -163,9 +163,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">The response time</a>
+            <a className="underline underline-offset-4" href="/">The response time</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/systems">What each system does</a>
+            <a className="underline underline-offset-4" href="/systems">What each system does</a>
           </p>
         </section>
       </div>

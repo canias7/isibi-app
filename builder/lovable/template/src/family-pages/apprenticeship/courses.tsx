@@ -21,10 +21,10 @@ function P() {
       name="Attercliffe Skills"
       tagline="Every course, with what must be held on entry and what can be achieved alongside."
       links={[
-        { label: "Eligibility", href: "#/" },
-        { label: "Apply", href: "#/apply" },
+        { label: "Eligibility", href: "/" },
+        { label: "Apply", href: "/apply" },
       ]}
-      action={{ label: "Apply", href: "#/apply" }}
+      action={{ label: "Apply", href: "/apply" }}
     >
       <div className="mx-auto max-w-4xl px-6 py-14">
         <h1 className="text-4xl font-semibold tracking-tight text-balance">Courses</h1>
@@ -108,7 +108,7 @@ function P() {
               <div className="mt-4">
                 <ChecklistDot done={3} total={5} />
               </div>
-              <a className="mt-5 inline-block text-sm underline underline-offset-4" href="#/apply">
+              <a className="mt-5 inline-block text-sm underline underline-offset-4" href="/apply">
                 How applying works
               </a>
             </div>
@@ -143,9 +143,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">Eligibility</a>
+            <a className="underline underline-offset-4" href="/">Eligibility</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/apply">Applying</a>
+            <a className="underline underline-offset-4" href="/apply">Applying</a>
           </p>
         </section>
       </div>

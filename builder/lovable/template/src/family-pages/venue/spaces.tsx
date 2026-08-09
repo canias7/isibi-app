@@ -69,8 +69,8 @@ const ROOMS = [
 function P() {
   return (
     <SiteChrome name="Thrybergh Barn" tagline="A stone threshing barn for hire, ten minutes from Rotherham."
-      links={[{ label: "Home", href: "#/" }, { label: "Enquire", href: "#/enquire" }]}
-      action={{ label: "Check a date", href: "#/enquire" }}>
+      links={[{ label: "Home", href: "/" }, { label: "Enquire", href: "/enquire" }]}
+      action={{ label: "Check a date", href: "/enquire" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">
         <SectionHeader eyebrow="The spaces" title="Four rooms, and what each will really take"
@@ -107,7 +107,7 @@ function P() {
         <section className="mt-14">
           <CtaBand title="Come and stand in it"
             description="Viewings on most weekday evenings and any Sunday nothing is booked. It takes about forty minutes and nobody will follow it up with a phone call."
-            action={{ label: "Check your date", href: "#/enquire" }} />
+            action={{ label: "Check your date", href: "/enquire" }} />
         </section>
       </div>
     </SiteChrome>

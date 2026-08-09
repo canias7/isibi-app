@@ -26,8 +26,8 @@ function P() {
       name="Hollin Busk Allotments"
       tagline="112 plots above Stocksbridge, held on a lease from the parish council since 1919."
       links={[
-        { label: "The plots", href: "#/plots" },
-        { label: "The rules", href: "#/rules" },
+        { label: "The plots", href: "/plots" },
+        { label: "The rules", href: "/rules" },
         { label: "Questions", href: "#questions" },
       ]}
       action={{ label: "Join the waiting list", href: "#list" }}

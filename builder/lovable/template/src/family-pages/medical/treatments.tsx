@@ -12,8 +12,8 @@ export const Route = createFileRoute("/treatments")({ component: P });
 function P() {
   return (
     <SiteChrome name="Rivelin Valley Medical Centre" tagline="An NHS GP practice on Walkley Lane, Sheffield."
-      links={[{ label: "Home", href: "#/" }, { label: "The team", href: "#/team" }]}
-      action={{ label: "Register", href: "#/" }}>
+      links={[{ label: "Home", href: "/" }, { label: "The team", href: "/team" }]}
+      action={{ label: "Register", href: "/" }}>
 
       <TriageBanner levels={[
         { when: "Chest pain, stroke signs, severe bleeding, or they will not wake up", action: "Call 999 now", tel: "999" },

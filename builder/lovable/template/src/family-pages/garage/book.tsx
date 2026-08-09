@@ -14,7 +14,7 @@ function P() {
   const [slot, setSlot] = useState<string | null>(null);
   return (
     <SiteChrome name="Hillfoot Motors" tagline="MOT, servicing and repairs on Little London Road."
-      links={[{ label: "Home", href: "#/" }, { label: "Prices", href: "#/services" }]}
+      links={[{ label: "Home", href: "/" }, { label: "Prices", href: "/services" }]}
       action={{ label: "0114 255 8890", href: "tel:+441142558890" }}>
       <div className="mx-auto max-w-5xl px-6 py-14">
         <SectionHeader eyebrow="Booking" title="Which car, which job, which day"

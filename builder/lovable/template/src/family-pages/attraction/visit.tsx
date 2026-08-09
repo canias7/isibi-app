@@ -14,8 +14,8 @@ export const Route = createFileRoute("/visit")({ component: P });
 function P() {
   return (
     <SiteChrome name="Wharncliffe Farm & Wildlife Park" tagline="Ninety acres, a steam railway and forty species, north of Sheffield."
-      links={[{ label: "Home", href: "#/" }, { label: "What's on", href: "#/whats-on" }]}
-      action={{ label: "Book tickets", href: "#/#prices" }}>
+      links={[{ label: "Home", href: "/" }, { label: "What's on", href: "/whats-on" }]}
+      action={{ label: "Book tickets", href: "/#prices" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">
         <SectionHeader eyebrow="Plan your visit" title="The things that ruin a day out"

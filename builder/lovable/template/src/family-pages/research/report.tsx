@@ -11,7 +11,7 @@ import { StatsBand } from "@/components/ui/stats-band";
 export const Route = createFileRoute("/report")({ component: P });
 const CHROME = {
   name: "Wire the North", tagline: "Every broadband deal in S postcodes, priced honestly.",
-  links: [{ label: "The numbers", href: "#/" }, { label: "How we count", href: "#/methodology" }, { label: "The report", href: "#/report" }],
+  links: [{ label: "The numbers", href: "/" }, { label: "How we count", href: "/methodology" }, { label: "The report", href: "/report" }],
 };
 function P() {
   const [got, setGot] = useState(false);
@@ -35,14 +35,14 @@ function P() {
           {got ? (
             <div className="grid gap-3">
               <p className="text-sm font-medium">It's yours — and it's in your inbox too.</p>
-              <DownloadCard name="wire-the-north-2026.pdf" description="34 pages, every table, street-level maps" size={6_400_000} href="#/report" />
+              <DownloadCard name="wire-the-north-2026.pdf" description="34 pages, every table, street-level maps" size={6_400_000} href="/report" />
             </div>
           ) : (
             <EmailCapture title="Get the full report" blurb="Free. The email is the price — one a quarter, no passing it on."
               cta="Send me the PDF" note="Unsubscribe in one click; the download works either way." onSubmit={() => setGot(true)} />
           )}
         </section>
-        <p className="mt-8 text-sm text-muted-foreground">Every number in it is computed by <a className="font-medium underline underline-offset-4" href="#/methodology">the public method</a> — disagree with a figure and you can re-derive it.</p>
+        <p className="mt-8 text-sm text-muted-foreground">Every number in it is computed by <a className="font-medium underline underline-offset-4" href="/methodology">the public method</a> — disagree with a figure and you can re-derive it.</p>
       </div>
     </SiteChrome>
   );

@@ -3,7 +3,7 @@
 // today's chairs up top, then prices, the work, the people, kind words, and
 // find-us — the booking action re-earned after every section.
 import { useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { SiteChrome } from "@/components/ui/site-chrome";
 import { AvailabilityGrid } from "@/components/ui/availability-grid";
 import { CtaBand } from "@/components/ui/cta-band";
@@ -29,11 +29,12 @@ const HOURS: DayHours[] = [
   { day: 0, label: "Sunday", open: null, close: null },
 ];
 function P() {
+  const navigate = useNavigate();
   const [slot, setSlot] = useState<string | null>(null);
   return (
     <SiteChrome name="Tenfold Nails" tagline="Ten chairs on Ecclesall Road."
-      links={[{ label: "Prices", href: "#prices" }, { label: "The work", href: "#/work" }, { label: "The team", href: "#team" }, { label: "Find us", href: "#find-us" }]}
-      action={{ label: "Book now", href: "#/book" }}>
+      links={[{ label: "Prices", href: "#prices" }, { label: "The work", href: "/work" }, { label: "The team", href: "#team" }, { label: "Find us", href: "#find-us" }]}
+      action={{ label: "Book now", href: "/book" }}>
 
       {/* Hero: the promise, the live answer, the two ways in — and the WORK,
           which for a nail studio is the entire sales pitch. The first version
@@ -49,8 +50,8 @@ function P() {
                 BIAB, gel and proper hand-painted art. Walk-ins most weekdays; Saturdays book out by Thursday.
               </p>
               <div className="mt-7 flex flex-wrap items-center gap-3">
-                <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#/book">Book a chair</a>
-                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#/work">See the work</a>
+                <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="/book">Book a chair</a>
+                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="/work">See the work</a>
                 <OpenNow hours={HOURS.filter((h) => h.open).map((h) => ({ day: h.day, open: h.open!, close: h.close! }))} />
               </div>
             </div>
@@ -90,7 +91,7 @@ function P() {
                 slots={["10:00", "10:45", "11:30", "12:15", "14:00", "14:45", "15:30", "16:15"]}
                 taken={["10:45", "14:00"]} value={slot} onSelect={setSlot} />
               <p className="mt-4 text-sm text-muted-foreground">{slot ? `Holding ${slot} — finish up on the booking page.` : "Tap a time to hold it."}</p>
-              {slot && <a className="mt-2 inline-block text-sm font-medium underline underline-offset-4" href="#/book">Continue to book {slot} →</a>}
+              {slot && <a className="mt-2 inline-block text-sm font-medium underline underline-offset-4" href="/book">Continue to book {slot} →</a>}
             </div>
             <SafeImage src={null} alt="The row of chairs, Saturday morning" ratio="4/3" />
           </div>
@@ -105,14 +106,14 @@ function P() {
           { name: "BIAB overlay", description: "Strength under the colour — our most-booked", price: 38, meta: "60 min" },
           { name: "Hand-painted art", description: "From simple lines to the full Matisse", price: 12, meta: "on top" },
           { name: "Removal and tidy", description: "Whatever's on, off properly", price: 14, meta: "25 min" },
-        ]} action={{ label: "Book", onSelect: () => { location.hash = "#/book"; } }} />
+        ]} action={{ label: "Book", onSelect: () => { navigate({ to: "/book" }); } }} />
       </section>
 
       <section className="border-y border-border bg-muted/40">
         <div className="mx-auto max-w-6xl px-6 py-16">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <SectionHeader eyebrow="The work" title="Recent sets" />
-            <a className="text-sm font-medium underline underline-offset-4" href="#/work">The whole gallery →</a>
+            <a className="text-sm font-medium underline underline-offset-4" href="/work">The whole gallery →</a>
           </div>
           <Gallery className="mt-8" columns={3} items={[
             { alt: "BIAB, milky pink — Mei", caption: "BIAB, milky pink — Mei" },
@@ -154,7 +155,7 @@ function P() {
       </section>
 
       <section className="mx-auto max-w-6xl px-6 pb-20">
-        <CtaBand title="A chair is usually free today" description="Book in thirty seconds — we confirm by text." action={{ label: "Book now", href: "#/book" }} />
+        <CtaBand title="A chair is usually free today" description="Book in thirty seconds — we confirm by text." action={{ label: "Book now", href: "/book" }} />
       </section>
     </SiteChrome>
   );

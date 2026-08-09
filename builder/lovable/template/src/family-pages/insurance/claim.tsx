@@ -39,8 +39,8 @@ function P() {
       name="Rivelin Pet Cover"
       tagline="Claiming — including the part where it waits on paperwork."
       links={[
-        { label: "Compare levels", href: "#/" },
-        { label: "Cover in full", href: "#/cover" },
+        { label: "Compare levels", href: "/" },
+        { label: "Cover in full", href: "/cover" },
       ]}
       action={{ label: "Start a claim", href: "#start" }}
     >
@@ -150,9 +150,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">Compare the levels</a>
+            <a className="underline underline-offset-4" href="/">Compare the levels</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/cover">Cover in full</a>
+            <a className="underline underline-offset-4" href="/cover">Cover in full</a>
           </p>
         </section>
       </div>

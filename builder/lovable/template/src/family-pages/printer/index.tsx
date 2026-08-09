@@ -21,14 +21,14 @@ import { Faq } from "@/components/ui/faq";
 export const Route = createFileRoute("/")({ component: P });
 
 const RAIL = [
-  { name: "Business cards", note: "400gsm, matt or soft-touch", href: "#/products" },
-  { name: "Flyers and leaflets", note: "A6 to A4, folded or flat", href: "#/products" },
-  { name: "Posters", note: "A3 to A0, indoor and weatherproof", href: "#/products" },
-  { name: "Roller banners", note: "800 or 1000mm, cassette included", href: "#/products" },
-  { name: "Correx site boards", note: "4mm, eyelets, 8ft × 4ft down to A2", href: "#/products" },
-  { name: "Vinyl lettering", note: "Windows, vans and shop fronts", href: "#/products" },
-  { name: "Stickers and labels", note: "Kiss-cut on rolls or sheets", href: "#/products" },
-  { name: "T-shirts and workwear", note: "Screen print over 25, DTF under", href: "#/products" },
+  { name: "Business cards", note: "400gsm, matt or soft-touch", href: "/products" },
+  { name: "Flyers and leaflets", note: "A6 to A4, folded or flat", href: "/products" },
+  { name: "Posters", note: "A3 to A0, indoor and weatherproof", href: "/products" },
+  { name: "Roller banners", note: "800 or 1000mm, cassette included", href: "/products" },
+  { name: "Correx site boards", note: "4mm, eyelets, 8ft × 4ft down to A2", href: "/products" },
+  { name: "Vinyl lettering", note: "Windows, vans and shop fronts", href: "/products" },
+  { name: "Stickers and labels", note: "Kiss-cut on rolls or sheets", href: "/products" },
+  { name: "T-shirts and workwear", note: "Screen print over 25, DTF under", href: "/products" },
 ];
 
 // The two products that carry the point. Real breaks from a real trade.
@@ -56,11 +56,11 @@ function P() {
       name="Neepsend Print & Sign"
       tagline="Litho, digital and wide format on Rutland Road since 1994. Trade and public, same prices."
       links={[
-        { label: "Products", href: "#/products" },
-        { label: "Send artwork", href: "#/quote" },
+        { label: "Products", href: "/products" },
+        { label: "Send artwork", href: "/quote" },
         { label: "Questions", href: "#questions" },
       ]}
-      action={{ label: "Send artwork", href: "#/quote" }}
+      action={{ label: "Send artwork", href: "/quote" }}
     >
       <div className="mx-auto grid max-w-6xl gap-10 px-6 py-12 lg:grid-cols-[15rem_1fr]">
         {/* THE PERSISTENT RAIL. Sticky, so it survives a long price table. */}
@@ -234,9 +234,9 @@ function P() {
               />
             </div>
             <p className="mt-8 text-sm text-muted-foreground">
-              <a className="underline underline-offset-4" href="#/products">Every product, stock and finish</a>
+              <a className="underline underline-offset-4" href="/products">Every product, stock and finish</a>
               {" · "}
-              <a className="underline underline-offset-4" href="#/quote">Send artwork</a>
+              <a className="underline underline-offset-4" href="/quote">Send artwork</a>
             </p>
           </section>
         </div>

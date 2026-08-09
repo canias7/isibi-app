@@ -26,8 +26,8 @@ function P() {
       name="Vane & Marrow"
       tagline="A-441 — George III mahogany bureau, c.1790."
       links={[
-        { label: "All stock", href: "#/" },
-        { label: "Selling something", href: "#/selling" },
+        { label: "All stock", href: "/" },
+        { label: "Selling something", href: "/selling" },
       ]}
       action={{ label: "Enquire about this", href: "#enquire" }}
     >
@@ -131,7 +131,7 @@ function P() {
             <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="tel:01142551180">
               Ring 0114 255 1180
             </a>
-            <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#/">
+            <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="/">
               Back to the stock
             </a>
           </div>
@@ -166,9 +166,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">All available stock</a>
+            <a className="underline underline-offset-4" href="/">All available stock</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/selling">Selling something of your own</a>
+            <a className="underline underline-offset-4" href="/selling">Selling something of your own</a>
           </p>
         </section>
       </div>

@@ -27,8 +27,8 @@ function P() {
       name="Walkley Pharmacy"
       tagline="Ordering a repeat, and what happens when something is out of stock."
       links={[
-        { label: "Home", href: "#/" },
-        { label: "Services", href: "#/services" },
+        { label: "Home", href: "/" },
+        { label: "Services", href: "/services" },
       ]}
       action={{ label: "Ring 0114 234 1180", href: "tel:01142341180" }}
     >
@@ -153,9 +153,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">The four doors</a>
+            <a className="underline underline-offset-4" href="/">The four doors</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/services">Everything we do</a>
+            <a className="underline underline-offset-4" href="/services">Everything we do</a>
           </p>
         </section>
       </div>

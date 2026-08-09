@@ -62,8 +62,8 @@ const SERVICES = [
 function P() {
   return (
     <SiteChrome name="Loxley Home Care" tagline="Care at home in west Sheffield. Employed carers, CQC Good."
-      links={[{ label: "Home", href: "#/" }, { label: "Arrange", href: "#/arrange" }]}
-      action={{ label: "Arrange an assessment", href: "#/arrange" }}>
+      links={[{ label: "Home", href: "/" }, { label: "Arrange", href: "/arrange" }]}
+      action={{ label: "Arrange an assessment", href: "/arrange" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">
         <SectionHeader eyebrow="What we do" title="Eight kinds of care, described properly"

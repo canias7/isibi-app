@@ -17,10 +17,10 @@ function P() {
       name="Neepsend Coffee Club"
       tagline="Four plans and the price per cup, which is the only fair comparison."
       links={[
-        { label: "Home", href: "#/" },
-        { label: "Skip or cancel", href: "#/manage" },
+        { label: "Home", href: "/" },
+        { label: "Skip or cancel", href: "/manage" },
       ]}
-      action={{ label: "Start a box", href: "#/" }}
+      action={{ label: "Start a box", href: "/" }}
     >
       <div className="mx-auto max-w-5xl px-6 py-14">
         <h1 className="text-4xl font-semibold tracking-tight text-balance">Plans</h1>
@@ -36,26 +36,26 @@ function P() {
               name="250g — about 16 cups"
               price="£9.00"
               period="delivery"
-              action={{ label: "Start with this", href: "#/" }}
+              action={{ label: "Start with this", href: "/" }}
             />
             <PlanCard
               name="500g — about 33 cups"
               price="£16.00"
               period="delivery"
               current
-              action={{ label: "Start with this", href: "#/" }}
+              action={{ label: "Start with this", href: "/" }}
             />
             <PlanCard
               name="1kg — about 66 cups"
               price="£29.00"
               period="delivery"
-              action={{ label: "Start with this", href: "#/" }}
+              action={{ label: "Start with this", href: "/" }}
             />
             <PlanCard
               name="Office — 2kg, ground"
               price="£54.00"
               period="delivery"
-              action={{ label: "Start with this", href: "#/" }}
+              action={{ label: "Start with this", href: "/" }}
             />
           </div>
           <div className="mt-6 overflow-x-auto">
@@ -140,9 +140,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">Back to the start</a>
+            <a className="underline underline-offset-4" href="/">Back to the start</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/manage">Skipping and cancelling</a>
+            <a className="underline underline-offset-4" href="/manage">Skipping and cancelling</a>
           </p>
         </section>
       </div>

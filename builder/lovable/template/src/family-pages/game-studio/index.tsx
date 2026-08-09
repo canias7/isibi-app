@@ -38,8 +38,8 @@ function P() {
       name="Six Weirs"
       tagline="A game about walking a river valley. From a two-person studio in Sheffield."
       links={[
-        { label: "About the game", href: "#/about" },
-        { label: "Press kit", href: "#/press" },
+        { label: "About the game", href: "/about" },
+        { label: "Press kit", href: "/press" },
         { label: "Questions", href: "#questions" },
       ]}
       action={{ label: "Wishlist on Steam", href: "#platforms" }}
@@ -68,7 +68,7 @@ function P() {
 
           <div className="mt-8 flex flex-wrap items-center gap-4">
             <WishlistButton saved={false} onToggle={() => {}} label="Wishlist on Steam" />
-            <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#/about">
+            <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="/about">
               What it actually is
             </a>
           </div>
@@ -128,7 +128,7 @@ function P() {
             <PressQuote quote="Eight hours of almost nothing happening, and I will play it again." source="Eurogamer" />
           </div>
           <p className="mt-6 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/press">The full kit — screenshots, logos and the fact sheet.</a>
+            <a className="underline underline-offset-4" href="/press">The full kit — screenshots, logos and the fact sheet.</a>
           </p>
         </div>
       </section>

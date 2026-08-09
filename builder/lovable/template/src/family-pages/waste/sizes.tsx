@@ -41,10 +41,10 @@ function P() {
       name="Loxley Skips"
       tagline="Every size against something you can picture, and the job each one suits."
       links={[
-        { label: "Home", href: "#/" },
-        { label: "Book", href: "#/book" },
+        { label: "Home", href: "/" },
+        { label: "Book", href: "/book" },
       ]}
-      action={{ label: "Book a skip", href: "#/book" }}
+      action={{ label: "Book a skip", href: "/book" }}
     >
       <div className="mx-auto max-w-5xl px-6 py-14">
         <h1 className="text-4xl font-semibold tracking-tight text-balance">Sizes</h1>
@@ -138,9 +138,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">What cannot go in</a>
+            <a className="underline underline-offset-4" href="/">What cannot go in</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/book">Book one</a>
+            <a className="underline underline-offset-4" href="/book">Book one</a>
           </p>
         </section>
       </div>

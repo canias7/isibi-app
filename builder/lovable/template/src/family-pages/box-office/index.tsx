@@ -18,17 +18,17 @@ import { ViewerCount } from "@/components/ui/viewer-count";
 import { SafeImage } from "@/components/ui/safe-image";
 export const Route = createFileRoute("/")({ component: P });
 const BOARD = [
-  { show: "AN INSPECTOR CALLS — PRESS NIGHT", when: "FRI 19 SEP 19:30", state: "49 SEATS", hot: true, href: "#/event" },
-  { show: "AN INSPECTOR CALLS", when: "20 SEP – 11 OCT", state: "SELLING", href: "#/event" },
-  { show: "THE WINTER'S TALE", when: "24 OCT – 15 NOV", state: "SELLING", href: "#/season" },
-  { show: "A CHRISTMAS CAROL", when: "5 DEC – 4 JAN", state: "WEEKENDS LOW", hot: true, href: "#/season" },
-  { show: "NEW YEAR'S EVE GALA", when: "31 DEC 21:00", state: "RETURNS ONLY", href: "#/season" },
-  { show: "SPRING SEASON", when: "ON SALE 1 OCT 10:00", state: "HOLD", href: "#/season" },
+  { show: "AN INSPECTOR CALLS — PRESS NIGHT", when: "FRI 19 SEP 19:30", state: "49 SEATS", hot: true, href: "/event" },
+  { show: "AN INSPECTOR CALLS", when: "20 SEP – 11 OCT", state: "SELLING", href: "/event" },
+  { show: "THE WINTER'S TALE", when: "24 OCT – 15 NOV", state: "SELLING", href: "/season" },
+  { show: "A CHRISTMAS CAROL", when: "5 DEC – 4 JAN", state: "WEEKENDS LOW", hot: true, href: "/season" },
+  { show: "NEW YEAR'S EVE GALA", when: "31 DEC 21:00", state: "RETURNS ONLY", href: "/season" },
+  { show: "SPRING SEASON", when: "ON SALE 1 OCT 10:00", state: "HOLD", href: "/season" },
 ];
 function P() {
   return (
     <SiteChrome name="The Playhouse" tagline="Box office, but honest about the clock."
-      links={[{ label: "Whole season", href: "#/season" }, { label: "Press night", href: "#/event" }]}>
+      links={[{ label: "Whole season", href: "/season" }, { label: "Press night", href: "/event" }]}>
       <div className="mx-auto max-w-4xl px-6 py-10 font-mono">
         <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-border pb-3">
           <h1 className="text-sm font-medium uppercase tracking-widest">On-sale board — winter season</h1>
@@ -69,7 +69,7 @@ function P() {
           <span>6 of 14 shows nearly full</span>
         </div>
 
-        <p className="py-5 text-sm">→ <a className="font-medium underline underline-offset-4" href="#/event">Press night: pick seats now</a> · <a className="underline underline-offset-4" href="#/season">full season board</a></p>
+        <p className="py-5 text-sm">→ <a className="font-medium underline underline-offset-4" href="/event">Press night: pick seats now</a> · <a className="underline underline-offset-4" href="/season">full season board</a></p>
 
         {/* Production stills, BELOW the board and outside the mono treatment.
             The board is this family's whole discipline and stays exactly as it

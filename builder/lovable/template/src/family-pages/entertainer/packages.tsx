@@ -13,8 +13,8 @@ export const Route = createFileRoute("/packages")({ component: P });
 function P() {
   return (
     <SiteChrome name="The Larkin Set" tagline="Six-piece function band. Sheffield, Leeds, Manchester and anywhere within two hours."
-      links={[{ label: "Home", href: "#/" }, { label: "Check a date", href: "#/book" }]}
-      action={{ label: "Check my date", href: "#/book" }}>
+      links={[{ label: "Home", href: "/" }, { label: "Check a date", href: "/book" }]}
+      action={{ label: "Check my date", href: "/book" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">
         <SectionHeader eyebrow="Packages" title="Six of them, and the extras are named"

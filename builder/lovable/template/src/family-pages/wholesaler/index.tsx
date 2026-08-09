@@ -20,8 +20,8 @@ export const TERMS = {
 function P() {
   return (
     <SiteChrome name="Attercliffe Catering Supplies" tagline="Dry goods, chilled and disposables to independent kitchens across South Yorkshire."
-      links={[{ label: "The range", href: "#/range" }, { label: "Open an account", href: "#/account" }, { label: "Terms", href: "#terms" }]}
-      action={{ label: "Open an account", href: "#/account" }}>
+      links={[{ label: "The range", href: "/range" }, { label: "Open an account", href: "/account" }, { label: "Terms", href: "#terms" }]}
+      action={{ label: "Open an account", href: "/account" }}>
 
       <section className="border-b border-border">
         <div className="mx-auto max-w-6xl px-6 py-14">
@@ -37,8 +37,8 @@ function P() {
                 are two other suppliers in the city we will name.
               </p>
               <div className="mt-7 flex flex-wrap gap-3">
-                <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#/account">Open an account</a>
-                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#/range">See the range and prices</a>
+                <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="/account">Open an account</a>
+                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="/range">See the range and prices</a>
               </div>
               <div className="mt-8">
                 <LeadTime cutoffHour={15} now={new Date(2026, 7, 3, 11, 20)}
@@ -75,15 +75,15 @@ function P() {
               description="All downloadable rather than requested by email and sent when somebody gets round to it." />
             <div className="mt-6 space-y-3">
               <DownloadCard name="Price list — August 2026.pdf" size={1_840_000}
-                description="Full range, trade prices, case and pallet breaks" href="#/range" />
+                description="Full range, trade prices, case and pallet breaks" href="/range" />
               <DownloadCard name="Account application.pdf" size={210_000}
-                description="Two pages. Trade references and a VAT number" href="#/account" />
+                description="Two pages. Trade references and a VAT number" href="/account" />
               <DownloadCard name="Allergen and specification pack.zip" size={6_200_000}
-                description="Spec sheets for every own-label line" href="#/range" />
+                description="Spec sheets for every own-label line" href="/range" />
               <DownloadCard name="Food hygiene certificate.pdf" size={140_000}
-                description="Rated 5, inspected March 2026" href="#/account" />
+                description="Rated 5, inspected March 2026" href="/account" />
               <DownloadCard name="Public and product liability.pdf" size={95_000}
-                description="£10m and £5m, renewed January" href="#/account" />
+                description="£10m and £5m, renewed January" href="/account" />
             </div>
             <p className="mt-5 text-sm leading-relaxed text-muted-foreground">
               If your own auditor wants something not on this list, email and it comes back the same

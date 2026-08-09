@@ -46,10 +46,10 @@ function P() {
       name="Neepsend Coffee Club"
       tagline="Skip, pause, change or stop. All four on one page."
       links={[
-        { label: "Home", href: "#/" },
-        { label: "Plans", href: "#/plans" },
+        { label: "Home", href: "/" },
+        { label: "Plans", href: "/plans" },
       ]}
-      action={{ label: "Plans", href: "#/plans" }}
+      action={{ label: "Plans", href: "/plans" }}
     >
       <div className="mx-auto max-w-5xl px-6 py-14">
         <h1 className="text-4xl font-semibold tracking-tight text-balance">
@@ -129,9 +129,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">Back to the start</a>
+            <a className="underline underline-offset-4" href="/">Back to the start</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/plans">Every plan</a>
+            <a className="underline underline-offset-4" href="/plans">Every plan</a>
           </p>
         </section>
       </div>

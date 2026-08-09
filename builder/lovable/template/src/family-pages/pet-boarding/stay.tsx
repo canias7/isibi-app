@@ -26,8 +26,8 @@ const DAY = [
 function P() {
   return (
     <SiteChrome name="Ewden Lane Kennels & Cattery" tagline="Licensed boarding for 24 dogs and 18 cats, in the Don valley."
-      links={[{ label: "Home", href: "#/" }, { label: "Book", href: "#/book" }]}
-      action={{ label: "Check dates", href: "#/book" }}>
+      links={[{ label: "Home", href: "/" }, { label: "Book", href: "/book" }]}
+      action={{ label: "Check dates", href: "/book" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">
         <SectionHeader eyebrow="Where they stay" title="The day, hour by hour"

@@ -24,7 +24,7 @@ function P() {
   const [sent, setSent] = React.useState(false);
   return (
     <SiteChrome name="Fettle Mobile Servicing" tagline="Van-based bike and e-bike servicing. Nine territories, four still free."
-      links={[{ label: "Home", href: "#/" }, { label: "Territories", href: "#/territories" }]}
+      links={[{ label: "Home", href: "/" }, { label: "Territories", href: "/territories" }]}
       action={{ label: "Ring 0114 400 2210", href: "tel:01144002210" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">
@@ -67,11 +67,11 @@ function P() {
 
             <div className="mt-8 space-y-3">
               <DownloadCard name="Franchise prospectus.pdf" size={2_400_000}
-                description="The whole thing, including the figures on this site" href="#/" />
+                description="The whole thing, including the figures on this site" href="/" />
               <DownloadCard name="Sample franchise agreement.pdf" size={480_000}
-                description="The real one. Read it before the second meeting, not at signing" href="#/" />
+                description="The real one. Read it before the second meeting, not at signing" href="/" />
               <DownloadCard name="Five-year network accounts.xlsx" size={92_000}
-                description="Every van, every year, unaveraged" href="#/" />
+                description="Every van, every year, unaveraged" href="/" />
             </div>
           </div>
         </section>

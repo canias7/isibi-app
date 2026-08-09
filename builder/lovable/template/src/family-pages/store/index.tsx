@@ -3,7 +3,7 @@
 // range as a filterable grid with price and stock on every card, why-buy-here,
 // kind words, and the closing band. Checkout is one page away at all times.
 import { useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { SiteChrome } from "@/components/ui/site-chrome";
 import { CartBadge } from "@/components/ui/cart-badge";
 import { CategoryNav } from "@/components/ui/category-nav";
@@ -27,12 +27,13 @@ const RANGE: (Product & { category: string })[] = [
 ];
 
 function P() {
+  const navigate = useNavigate();
   const [cat, setCat] = useState<string | null>(null);
   const shown = cat ? RANGE.filter((p) => p.category === cat) : RANGE;
   return (
     <SiteChrome name="Slipware" tagline="Small-batch stoneware, thrown in Leith."
-      links={[{ label: "The range", href: "#range" }, { label: "Why ours", href: "#why" }, { label: "Basket", href: "#/checkout" }]}
-      action={{ label: "Checkout", href: "#/checkout" }}>
+      links={[{ label: "The range", href: "#range" }, { label: "Why ours", href: "#why" }, { label: "Basket", href: "/checkout" }]}
+      action={{ label: "Checkout", href: "/checkout" }}>
 
       {/* Hero: a real product beside the promise — never a slogan without goods. */}
       <section className="border-b border-border bg-muted/40">
@@ -43,8 +44,8 @@ function P() {
             <p className="mt-4 max-w-md text-lg text-muted-foreground">Eight shapes, four glazes, fired forty at a time. When a batch is gone it's gone until the kiln says otherwise.</p>
             <div className="mt-6 flex flex-wrap items-center gap-3">
               <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#range">Shop the range</a>
-              <a className="rounded-md border px-5 py-2.5 text-sm font-medium" href="#/product">This month's piece</a>
-              <CartBadge count={2} href="#/checkout" />
+              <a className="rounded-md border px-5 py-2.5 text-sm font-medium" href="/product">This month's piece</a>
+              <CartBadge count={2} href="/checkout" />
             </div>
           </div>
           <SafeImage src={null} alt="The dimpled mug in oat glaze" ratio="4/3" />
@@ -72,7 +73,7 @@ function P() {
           </div>
           <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
             {shown.map((p) => (
-              <ProductCard key={p.name} product={p} href="#/product" onAdd={p.soldOut ? undefined : () => { location.hash = "#/checkout"; }} />
+              <ProductCard key={p.name} product={p} href="/product" onAdd={p.soldOut ? undefined : () => { navigate({ to: "/checkout" }); }} />
             ))}
           </div>
         </div>
@@ -87,7 +88,7 @@ function P() {
       </section>
 
       <section className="mx-auto max-w-5xl px-6 pb-20">
-        <CtaBand title="Two things in your basket" description="The spring firing sells through — checkout holds your pieces for an hour." action={{ label: "Go to checkout", href: "#/checkout" }} />
+        <CtaBand title="Two things in your basket" description="The spring firing sells through — checkout holds your pieces for an hour." action={{ label: "Go to checkout", href: "/checkout" }} />
       </section>
     </SiteChrome>
   );

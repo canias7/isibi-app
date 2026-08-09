@@ -18,10 +18,10 @@ function P() {
       name="Loxley Community Energy"
       tagline="Every tariff, open and closed, with the exit fee in the row."
       links={[
-        { label: "Home", href: "#/" },
-        { label: "Send a reading", href: "#/meter" },
+        { label: "Home", href: "/" },
+        { label: "Send a reading", href: "/meter" },
       ]}
-      action={{ label: "Send a reading", href: "#/meter" }}
+      action={{ label: "Send a reading", href: "/meter" }}
     >
       <section className="border-b border-border">
         <div className="mx-auto max-w-5xl px-6 py-14">
@@ -174,9 +174,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">Back to the comparison</a>
+            <a className="underline underline-offset-4" href="/">Back to the comparison</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/meter">Send a meter reading</a>
+            <a className="underline underline-offset-4" href="/meter">Send a meter reading</a>
           </p>
         </div>
       </section>

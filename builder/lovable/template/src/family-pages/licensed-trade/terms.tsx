@@ -10,7 +10,7 @@ import { TermsBlock } from "@/components/ui/terms-block";
 export const Route = createFileRoute("/terms")({ component: P });
 const CHROME = {
   name: "The Dram Room", tagline: "Independent whisky, Abbeydale Road.",
-  links: [{ label: "The shelf", href: "#/" }, { label: "Terms", href: "#/terms" }],
+  links: [{ label: "The shelf", href: "/" }, { label: "Terms", href: "/terms" }],
 };
 function P() {
   return (

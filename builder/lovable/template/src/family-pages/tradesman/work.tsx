@@ -16,7 +16,7 @@ const JOBS = [
 function P() {
   return (
     <SiteChrome name="Barlow & Son" tagline="Plumbing and heating, Sheffield S6 and S10."
-      links={[{ label: "Home", href: "#/" }, { label: "Quote", href: "#/quote" }]}
+      links={[{ label: "Home", href: "/" }, { label: "Quote", href: "/quote" }]}
       action={{ label: "0114 266 1180", href: "tel:+441142661180" }}>
       <div className="mx-auto max-w-6xl px-6 py-14">
         <SectionHeader eyebrow="The work" title="Every job, before and after"

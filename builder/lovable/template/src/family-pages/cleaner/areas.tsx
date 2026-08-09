@@ -20,8 +20,8 @@ const PATCHES = [
 function P() {
   return (
     <SiteChrome name="Rivelin Home Clean" tagline="Domestic cleaning in west Sheffield. Eleven cleaners, all employed."
-      links={[{ label: "Home", href: "#/" }, { label: "Book", href: "#/book" }]}
-      action={{ label: "Book a clean", href: "#/book" }}>
+      links={[{ label: "Home", href: "/" }, { label: "Book", href: "/book" }]}
+      action={{ label: "Book a clean", href: "/book" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">
         <SectionHeader eyebrow="Where we go" title="Six patches, and an honest edge"
@@ -86,7 +86,7 @@ function P() {
         <section className="mt-14">
           <CtaBand title="Inside the patch?"
             description="Prices are on the page and the first visit is preceded by a free ten minutes so you can meet whoever would be coming."
-            action={{ label: "See the prices", href: "#/book" }} />
+            action={{ label: "See the prices", href: "/book" }} />
         </section>
       </div>
     </SiteChrome>

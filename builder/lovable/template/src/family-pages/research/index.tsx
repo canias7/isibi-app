@@ -15,7 +15,7 @@ function P() {
   const need = v.people * 15 + v.streams * 25;
   return (
     <SiteChrome name="Wire the North" tagline="Every broadband deal in S postcodes, priced honestly."
-      links={[{ label: "How we count", href: "#/methodology" }, { label: "The report", href: "#/report" }]}>
+      links={[{ label: "How we count", href: "/methodology" }, { label: "The report", href: "/report" }]}>
 
       <div className="mx-auto max-w-6xl px-6 py-10">
         <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">41 deals · repriced every Friday · S1–S36</p>
@@ -39,7 +39,7 @@ function P() {
                 { feature: "Speed (measured)", values: ["150 Mb", "74 Mb", "500 Mb"] },
                 { feature: "Mid-contract rise", values: [false, true, false] },
                 { feature: "18-month total", values: ["£423", "£601", "£486"] }]} />
-              <p className="mt-auto pt-3 text-xs text-muted-foreground">Every figure re-derivable from <a className="font-medium underline underline-offset-4" href="#/methodology">the public method</a>.</p>
+              <p className="mt-auto pt-3 text-xs text-muted-foreground">Every figure re-derivable from <a className="font-medium underline underline-offset-4" href="/methodology">the public method</a>.</p>
             </div>
           ) },
           { tall: true, content: (
@@ -56,7 +56,7 @@ function P() {
           { span: 2, content: (
             <div className="flex h-full items-center justify-between gap-4">
               <div><p className="font-medium">The 2026 report is out</p><p className="mt-1 text-sm text-muted-foreground">A year of weekly repricing in 34 pages — headline findings free.</p></div>
-              <a className="shrink-0 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground" href="#/report">Read the findings</a>
+              <a className="shrink-0 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground" href="/report">Read the findings</a>
             </div>
           ) },
         ]} />

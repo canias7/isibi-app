@@ -14,8 +14,8 @@ const NOW = new Date(2026, 7, 2);
 function P() {
   return (
     <SiteChrome name="The Grinding Shop" tagline="A contemporary art gallery in a former cutlery works, Kelham Island, Sheffield."
-      links={[{ label: "Home", href: "#/" }, { label: "Visit", href: "#/visit" }]}
-      action={{ label: "Plan your visit", href: "#/visit" }}>
+      links={[{ label: "Home", href: "/" }, { label: "Visit", href: "/visit" }]}
+      action={{ label: "Plan your visit", href: "/visit" }}>
 
       <section>
         <SafeImage src={null} alt="Installation view, Ways of Making Do, The Long Room" ratio="21/9" />

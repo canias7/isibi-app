@@ -24,8 +24,8 @@ function P() {
   const shown = RESULTS.filter((r) => !q.trim() || (r.name + r.what).toLowerCase().includes(q.trim().toLowerCase()));
   return (
     <SiteChrome name="Sheffield Index" tagline="Every business, club and service in Sheffield. Free to list, free to search."
-      links={[{ label: "Home", href: "#/" }, { label: "A listing", href: "#/listing" }]}
-      action={{ label: "Add a listing", href: "#/listing" }}>
+      links={[{ label: "Home", href: "/" }, { label: "A listing", href: "/listing" }]}
+      action={{ label: "Add a listing", href: "/listing" }}>
 
       <div className="mx-auto max-w-4xl px-6 py-14">
         <div className="max-w-xl">
@@ -39,7 +39,7 @@ function P() {
           <ul className="mt-6 divide-y divide-border border-y border-border">
             {shown.map((r) => (
               <li key={r.name} className="py-5">
-                <a href="#/listing" className="group block">
+                <a href="/listing" className="group block">
                   <h2 className="text-lg font-medium underline-offset-4 group-hover:underline">{r.name}</h2>
                   <p className="mt-0.5 text-sm text-muted-foreground">{r.what} · {r.where}</p>
                   <p className="mt-1 flex flex-wrap items-baseline gap-x-3 text-sm">
@@ -64,7 +64,7 @@ function P() {
               <li className="border-b border-border pb-2">Try a postcode on its own — "S6" returns everything in Walkley and Hillsborough</li>
               <li className="border-b border-border pb-2">Browse a category above; there are 1,806 listings and eight ways in</li>
               <li className="border-b border-border pb-2">
-                Know somebody who should be here? <a className="underline underline-offset-4" href="#/listing">Add them, free</a> — most of the index arrived that way
+                Know somebody who should be here? <a className="underline underline-offset-4" href="/listing">Add them, free</a> — most of the index arrived that way
               </li>
             </ul>
           </div>

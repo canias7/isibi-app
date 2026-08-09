@@ -27,7 +27,7 @@ function P() {
   const [done, setDone] = useState(false);
   return (
     <SiteChrome name="The Sheffield Wire" tagline="Local reporting, four journalists, no owner in London."
-      links={[{ label: "Council", href: "#/section" }, { label: "Housing", href: "#/section" }, { label: "Sport", href: "#/section" }, { label: "About", href: "#about" }]}
+      links={[{ label: "Council", href: "/section" }, { label: "Housing", href: "/section" }, { label: "Sport", href: "/section" }, { label: "About", href: "#about" }]}
       action={{ label: "Subscribe — £6/month", href: "#subscribe" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-10">
@@ -38,7 +38,7 @@ function P() {
         <div className="mx-auto max-w-6xl px-6 py-12">
           <div className="grid gap-12 lg:grid-cols-[1.6fr_1fr]">
             <StoryLead
-              kicker="Planning" href="#/story"
+              kicker="Planning" href="/story"
               headline="Council approves the Attercliffe scheme after four years of objections"
               standfirst="Nine hundred homes, a school and a tram extension — and the eleven conditions that got it over the line."
               byline="Sam Okonkwo" when="2 hours ago"
@@ -48,7 +48,7 @@ function P() {
                 <article key={s.headline} className="border-t border-border pt-5 first:border-t-0 first:pt-0">
                   <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">{s.kicker}</p>
                   <h2 className="mt-1.5 text-xl font-semibold tracking-tight text-balance">
-                    <a className="hover:underline" href="#/story">{s.headline}</a>
+                    <a className="hover:underline" href="/story">{s.headline}</a>
                   </h2>
                   <p className="mt-2 text-sm text-muted-foreground">
                     <span className="font-medium text-foreground">{s.byline}</span> · {s.when}
@@ -67,7 +67,7 @@ function P() {
             <ul className="mt-6 divide-y divide-border border-y border-border">
               {LATEST.map(([sec, head, when]) => (
                 <li key={head}>
-                  <a href="#/story" className="group flex flex-wrap items-baseline gap-x-4 gap-y-1 py-4">
+                  <a href="/story" className="group flex flex-wrap items-baseline gap-x-4 gap-y-1 py-4">
                     {/* min-w-fit: a fixed 96px column keeps the headlines aligned, and
                         "ENVIRONMENT" at this tracking needs 103 — it painted seven
                         pixels of itself into the headline beside it. Now short
@@ -79,7 +79,7 @@ function P() {
                 </li>
               ))}
             </ul>
-            <a className="mt-6 inline-block text-sm font-medium underline underline-offset-4" href="#/section">Everything filed under Council →</a>
+            <a className="mt-6 inline-block text-sm font-medium underline underline-offset-4" href="/section">Everything filed under Council →</a>
           </div>
           <aside className="space-y-8">
             <div id="subscribe">
@@ -95,7 +95,7 @@ function P() {
                   "Where the potholes are, mapped"].map((t, i) => (
                   <li key={t} className="flex gap-3 border-t border-border pt-3 first:border-t-0 first:pt-0">
                     <span className="text-sm tabular-nums text-muted-foreground">{i + 1}</span>
-                    <a className="text-sm font-medium hover:underline" href="#/story">{t}</a>
+                    <a className="text-sm font-medium hover:underline" href="/story">{t}</a>
                   </li>
                 ))}
               </ol>

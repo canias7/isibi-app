@@ -10,8 +10,8 @@ import { VerifiedBadge } from "@/components/ui/verified-badge";
 export const Route = createFileRoute("/services")({ component: P });
 const CHROME = {
   name: "Hartley & Voss", tagline: "Chartered accountants, est. 1987.",
-  links: [{ label: "Home", href: "#/" }, { label: "What we do", href: "#/services" }, { label: "Contact", href: "#/contact" }],
-  action: { label: "Free consultation", href: "#/contact" },
+  links: [{ label: "Home", href: "/" }, { label: "What we do", href: "/services" }, { label: "Contact", href: "/contact" }],
+  action: { label: "Free consultation", href: "/contact" },
 };
 const AREAS = [
   { title: "Year-end accounts & tax", body: "Statutory accounts, CT600, and a January that doesn't hurt. We file everything and explain what it means once a year, in person.", who: "Eleanor Hartley FCA" },
@@ -46,7 +46,7 @@ function P() {
           ]} />
           <p className="mt-3 text-xs text-muted-foreground">"Start" means most clients of that shape pay this. If yours will cost more, you'll know at the first meeting, not on an invoice.</p>
         </section>
-        <CtaBand className="mt-10" title="The first hour is free" description="Bring your numbers. You leave with plain answers either way." action={{ label: "Book the hour", href: "#/contact" }} />
+        <CtaBand className="mt-10" title="The first hour is free" description="Bring your numbers. You leave with plain answers either way." action={{ label: "Book the hour", href: "/contact" }} />
       </div>
     </SiteChrome>
   );

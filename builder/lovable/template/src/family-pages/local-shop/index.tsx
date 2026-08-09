@@ -39,7 +39,7 @@ export const SERVICES = [
 function P() {
   return (
     <SiteChrome name="Bolsterstone Stores" tagline="The village shop and Post Office. Open at six, seven days."
-      links={[{ label: "What we stock", href: "#/shop" }, { label: "Find us", href: "#find-us" }]}
+      links={[{ label: "What we stock", href: "/shop" }, { label: "Find us", href: "#find-us" }]}
       action={{ label: "Ring 0114 288 3012", href: "tel:01142883012" }}>
 
       <AnnouncementBar>
@@ -62,7 +62,7 @@ function P() {
               </p>
               <div className="mt-7 flex flex-wrap gap-3">
                 <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="tel:01142883012">Ring and ask</a>
-                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#/shop">What we stock</a>
+                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="/shop">What we stock</a>
               </div>
               <p className="mt-8 max-w-lg text-sm leading-relaxed text-muted-foreground">
                 We do not sell anything online and we are not going to. What this page is for is

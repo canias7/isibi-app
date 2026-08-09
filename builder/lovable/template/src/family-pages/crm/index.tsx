@@ -2,7 +2,7 @@
 // ONE screen: what the tool is, the proof it works, and the sign-in itself.
 // No marketing site attached — the product is behind the door, and the door
 // opens straight onto the records.
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,7 @@ import { SafeImage } from "@/components/ui/safe-image";
 export const Route = createFileRoute("/")({ component: P });
 
 function P() {
+  const navigate = useNavigate();
   return (
     <main className="grid min-h-screen md:grid-cols-2">
       {/* The pitch half — three sentences and the product, not a site. */}
@@ -51,8 +52,8 @@ function P() {
               <Label htmlFor="ws-pass">Password</Label>
               <Input id="ws-pass" type="password" autoComplete="current-password" />
             </div>
-            <Button onClick={() => { location.hash = "#/records"; }}>Sign in</Button>
-            <p className="text-center text-xs text-muted-foreground">One error message for the whole form, on purpose — <a className="underline underline-offset-4" href="#/records">or just look around the demo</a>.</p>
+            <Button onClick={() => { navigate({ to: "/records" }); }}>Sign in</Button>
+            <p className="text-center text-xs text-muted-foreground">One error message for the whole form, on purpose — <a className="underline underline-offset-4" href="/records">or just look around the demo</a>.</p>
           </CardContent>
         </Card>
       </section>

@@ -10,7 +10,7 @@ import { TagList } from "@/components/ui/tag-list";
 export const Route = createFileRoute("/archive")({ component: P });
 const CHROME = {
   name: "Made in Sheffield", tagline: "A podcast about this city, fortnightly.",
-  links: [{ label: "Latest", href: "#/" }, { label: "All episodes", href: "#/archive" }],
+  links: [{ label: "Latest", href: "/" }, { label: "All episodes", href: "/archive" }],
 };
 const EPS = [
   { number: 41, title: "The last crucible steelworks", seconds: 2860, publishedAt: "2026-07-28", tag: "Steel" },
@@ -35,12 +35,12 @@ function P() {
           <ResultCount total={shown.length} noun="episode" filtered={!!tag} />
         </div>
         <div className="mt-4 flex flex-col divide-y divide-border">
-          {shown.map((e) => <EpisodeRow key={e.number} number={e.number} title={e.title} seconds={e.seconds} publishedAt={e.publishedAt} href="#/episode" />)}
+          {shown.map((e) => <EpisodeRow key={e.number} number={e.number} title={e.title} seconds={e.seconds} publishedAt={e.publishedAt} href="/episode" />)}
         </div>
         {shown.length === 0 && <p className="mt-8 text-sm text-muted-foreground">Nothing under that tag yet — it's a young archive.</p>}
         <nav className="mt-8 flex justify-between border-t pt-5 text-sm text-muted-foreground">
           <span>Episodes 34–41</span>
-          <a className="underline underline-offset-4" href="#/archive">Older →</a>
+          <a className="underline underline-offset-4" href="/archive">Older →</a>
         </nav>
       </div>
     </SiteChrome>

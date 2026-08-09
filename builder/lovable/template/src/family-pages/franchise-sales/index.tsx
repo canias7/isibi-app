@@ -47,8 +47,8 @@ export const QUOTES = [
 function P() {
   return (
     <SiteChrome name="Fettle Mobile Servicing" tagline="Van-based bike and e-bike servicing. Nine territories, four still free."
-      links={[{ label: "Territories", href: "#/territories" }, { label: "The process", href: "#/process" }, { label: "The numbers", href: "#numbers" }]}
-      action={{ label: "Which areas are free?", href: "#/territories" }}>
+      links={[{ label: "Territories", href: "/territories" }, { label: "The process", href: "/process" }, { label: "The numbers", href: "#numbers" }]}
+      action={{ label: "Which areas are free?", href: "/territories" }}>
 
       <section className="border-b border-border">
         <div className="mx-auto max-w-6xl px-6 py-14">
@@ -64,8 +64,8 @@ function P() {
                 and it is added up beside this rather than arrived at in the third meeting.
               </p>
               <div className="mt-7 flex flex-wrap gap-3">
-                <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#/territories">See which areas are free</a>
-                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#/process">How it works</a>
+                <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="/territories">See which areas are free</a>
+                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="/process">How it works</a>
               </div>
               <div className="mt-10">
                 <SafeImage src={null} alt="A franchisee's van in Rotherham" ratio="16/9" />

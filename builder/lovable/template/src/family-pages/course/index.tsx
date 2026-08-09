@@ -15,8 +15,8 @@ export const Route = createFileRoute("/")({ component: P });
 function P() {
   return (
     <SiteChrome name="The Proving Room" tagline="Sourdough, taught slowly, online."
-      links={[{ label: "This week's lesson", href: "#/lesson" }, { label: "Enroll", href: "#/enroll" }]}
-      action={{ label: "Enroll — £79", href: "#/enroll" }}>
+      links={[{ label: "This week's lesson", href: "/lesson" }, { label: "Enroll", href: "/enroll" }]}
+      action={{ label: "Enroll — £79", href: "/enroll" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-10">
         <SidebarLayout width="17rem" aside={
@@ -32,7 +32,7 @@ function P() {
               { key: "shape", title: "Wk 4 — Shaping without fear", state: "todo" },
               { key: "bake", title: "Wk 5 — Heat and steam", state: "locked" },
               { key: "beyond", title: "Wk 6 — Rye and what's next", state: "locked" }]} />
-            <a className="mt-4 block rounded-md bg-primary px-4 py-2 text-center text-sm font-medium text-primary-foreground" href="#/lesson">Continue week 3</a>
+            <a className="mt-4 block rounded-md bg-primary px-4 py-2 text-center text-sm font-medium text-primary-foreground" href="/lesson">Continue week 3</a>
           </div>
         }>
           <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Online · six weeks · £79 once</p>
@@ -65,7 +65,7 @@ function P() {
             { question: "What if my starter dies?", answer: "It won't — week one exists to make it unkillable. If it somehow does, we post you ours and the refund is automatic." },
             { question: "How much time per week?", answer: "About three hours, folded around real life. Bread waits better than people think." }]} />
 
-          <p className="mt-8 rounded-lg border bg-muted/40 p-4 text-sm">September cohort is filling — <a className="font-medium underline underline-offset-4" href="#/enroll">what the £79 buys, and the one form →</a></p>
+          <p className="mt-8 rounded-lg border bg-muted/40 p-4 text-sm">September cohort is filling — <a className="font-medium underline underline-offset-4" href="/enroll">what the £79 buys, and the one form →</a></p>
         </SidebarLayout>
       </div>
     </SiteChrome>

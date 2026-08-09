@@ -31,10 +31,10 @@ function P() {
       name="Rivelin Kitchen"
       tagline="Six plans, priced per serving so they can be compared."
       links={[
-        { label: "This week", href: "#/" },
-        { label: "Full menu", href: "#/menu" },
+        { label: "This week", href: "/" },
+        { label: "Full menu", href: "/menu" },
       ]}
-      action={{ label: "See this week", href: "#/" }}
+      action={{ label: "See this week", href: "/" }}
     >
       <div className="mx-auto max-w-5xl px-6 py-14">
         <h1 className="text-4xl font-semibold tracking-tight text-balance">Plans</h1>
@@ -78,10 +78,10 @@ function P() {
         <section className="mt-14">
           <SectionHeader eyebrow="The common four" title="What most people take" />
           <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <PlanCard name="3 for 2" price="£32.50" period="week" action={{ label: "Choose", href: "#/" }} />
-            <PlanCard name="4 for 2" price="£40.00" period="week" current action={{ label: "Choose", href: "#/" }} />
-            <PlanCard name="3 for 4" price="£56.00" period="week" action={{ label: "Choose", href: "#/" }} />
-            <PlanCard name="5 for 4" price="£88.00" period="week" action={{ label: "Choose", href: "#/" }} />
+            <PlanCard name="3 for 2" price="£32.50" period="week" action={{ label: "Choose", href: "/" }} />
+            <PlanCard name="4 for 2" price="£40.00" period="week" current action={{ label: "Choose", href: "/" }} />
+            <PlanCard name="3 for 4" price="£56.00" period="week" action={{ label: "Choose", href: "/" }} />
+            <PlanCard name="5 for 4" price="£88.00" period="week" action={{ label: "Choose", href: "/" }} />
           </div>
         </section>
 
@@ -147,9 +147,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">This week's dishes</a>
+            <a className="underline underline-offset-4" href="/">This week's dishes</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/menu">Next week and the allergens</a>
+            <a className="underline underline-offset-4" href="/menu">Next week and the allergens</a>
           </p>
         </section>
       </div>

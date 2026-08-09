@@ -76,8 +76,8 @@ function P() {
   }));
   return (
     <SiteChrome name="Wharf Studio" tagline="Pilates, reformer and yoga in a converted grain store. Ipswich waterfront."
-      links={[{ label: "Book a class", href: "#/book" }, { label: "Your classes", href: "#/manage" }, { label: "What a class is like", href: "#/work" }]}
-      action={{ label: "Book a class", href: "#/book" }}>
+      links={[{ label: "Book a class", href: "/book" }, { label: "Your classes", href: "/manage" }, { label: "What a class is like", href: "/work" }]}
+      action={{ label: "Book a class", href: "/book" }}>
 
       {/* THE WHOLE WEEK, AT ONCE. A slot picker answers "when is Tuesday
           free"; the question somebody joining actually has is "is there a 6:30
@@ -144,7 +144,7 @@ function P() {
                   </div>
                   <div className="flex items-center gap-4">
                     <SlotCapacity left={c.left} total={c.cap} unit="mats" />
-                    <a className="rounded-md border border-border px-4 py-2 text-sm font-medium" href="#/book">
+                    <a className="rounded-md border border-border px-4 py-2 text-sm font-medium" href="/book">
                       {c.left === 0 ? "Waiting list" : "Book"}
                     </a>
                   </div>

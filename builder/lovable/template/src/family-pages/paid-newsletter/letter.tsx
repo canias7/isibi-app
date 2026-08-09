@@ -9,7 +9,7 @@ import { PrevNext } from "@/components/ui/prev-next";
 export const Route = createFileRoute("/letter")({ component: P });
 const CHROME = {
   name: "The Crucible Letter", tagline: "Sheffield theatre, reviewed weekly.",
-  links: [{ label: "This week", href: "#/letters" }, { label: "Your membership", href: "#/account" }],
+  links: [{ label: "This week", href: "/letters" }, { label: "Your membership", href: "/account" }],
 };
 function P() {
   return (
@@ -27,7 +27,7 @@ function P() {
           <p>Book the Tuesday. The house is thinner, the heat reads better, and you will want the quiet train home.</p>
         </div>
         <p className="mt-8 rounded-lg border bg-muted/40 p-4 text-sm text-muted-foreground">★★★★ — until 11 October. Members' comments open below every letter; be the person you'd sit next to.</p>
-        <PrevNext className="mt-10" prev={{ label: "Standing at the Lyceum", href: "#/letters" }} next={{ label: "Back to this week", href: "#/letters" }} />
+        <PrevNext className="mt-10" prev={{ label: "Standing at the Lyceum", href: "/letters" }} next={{ label: "Back to this week", href: "/letters" }} />
       </article>
     </SiteChrome>
   );

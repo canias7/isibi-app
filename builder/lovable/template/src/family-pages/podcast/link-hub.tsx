@@ -22,21 +22,21 @@ export const LINKS = [
   {
     title: "This week's order form — closes Wednesday 9pm",
     description: "Sourdough, focaccia and the Friday cinnamon buns. 41 of 60 loaves gone.",
-    href: "#/episode", lead: true,
+    href: "/episode", lead: true,
   },
-  { title: "Where I will be this week", description: "Thursday market, Friday doorstep round, Saturday at the pub yard.", href: "#/archive" },
-  { title: "Saturday bread class — two places left", description: "Four hours, six people, you go home with two loaves and a starter.", href: "#/archive" },
-  { title: "The Wednesday letter", description: "One recipe, what went wrong that week, and the order form before anyone else.", href: "#/archive" },
-  { title: "Starter, free, collect any Thursday", description: "It is forty years old and it came from a woman in Dinas Powys. Just ask.", href: "#/archive" },
-  { title: "Wholesale — three cafés, room for one more", description: "Standing order, delivered by bike before seven.", href: "#/about" },
-  { title: "Everything I have ever posted", description: "Six years of it, searchable, including the failures.", href: "#/archive" },
-  { title: "Who I am and why the bike", description: "The short version: no van, no unit, and a very specific hill.", href: "#/about" },
+  { title: "Where I will be this week", description: "Thursday market, Friday doorstep round, Saturday at the pub yard.", href: "/archive" },
+  { title: "Saturday bread class — two places left", description: "Four hours, six people, you go home with two loaves and a starter.", href: "/archive" },
+  { title: "The Wednesday letter", description: "One recipe, what went wrong that week, and the order form before anyone else.", href: "/archive" },
+  { title: "Starter, free, collect any Thursday", description: "It is forty years old and it came from a woman in Dinas Powys. Just ask.", href: "/archive" },
+  { title: "Wholesale — three cafés, room for one more", description: "Standing order, delivered by bike before seven.", href: "/about" },
+  { title: "Everything I have ever posted", description: "Six years of it, searchable, including the failures.", href: "/archive" },
+  { title: "Who I am and why the bike", description: "The short version: no van, no unit, and a very specific hill.", href: "/about" },
 ];
 function P() {
   return (
     <SiteChrome name="Bread by Bike" tagline="Sourdough out of a back kitchen in Splott. Delivered on two wheels."
-      links={[{ label: "Order", href: "#/episode" }, { label: "Everything", href: "#/archive" }, { label: "About", href: "#/about" }]}
-      action={{ label: "Order", href: "#/episode" }}>
+      links={[{ label: "Order", href: "/episode" }, { label: "Everything", href: "/archive" }, { label: "About", href: "/about" }]}
+      action={{ label: "Order", href: "/episode" }}>
 
       {/* ONE NARROW COLUMN. Wide, these eight become a grid and the reader has
           to choose between them — which is exactly what the format exists to
@@ -54,7 +54,7 @@ function P() {
             <SocialLinks links={[
               { network: "Instagram", href: "#" },
               { network: "Email", href: "#" },
-              { network: "Website", href: "#/about" },
+              { network: "Website", href: "/about" },
             ]} />
           </div>
         </div>
@@ -64,7 +64,7 @@ function P() {
             menu; the owner's actual job is to say what matters this week. */}
         <div className="mt-9 rounded-lg border-2 border-foreground p-5">
           <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Open now · closes Wednesday 9pm</p>
-          <a href="#/episode" className="mt-2 block text-lg font-semibold leading-snug hover:underline">
+          <a href="/episode" className="mt-2 block text-lg font-semibold leading-snug hover:underline">
             This week's order form
           </a>
           <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
@@ -74,7 +74,7 @@ function P() {
           <div className="mt-3">
             <SlotCapacity left={19} total={60} warnAt={20} unit="loaves" />
           </div>
-          <a href="#/episode" className="mt-4 block rounded-md bg-primary px-4 py-3 text-center text-base font-medium text-primary-foreground">
+          <a href="/episode" className="mt-4 block rounded-md bg-primary px-4 py-3 text-center text-base font-medium text-primary-foreground">
             Order for this week
           </a>
         </div>

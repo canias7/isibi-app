@@ -30,8 +30,8 @@ function P() {
     (!grades.length || grades.includes(e.grade)));
   return (
     <SiteChrome name="Chartered Institute of Building Services" tagline="14,200 members. The register, the grades, and what each one actually asks of you."
-      links={[{ label: "Home", href: "#/" }, { label: "Apply", href: "#/apply" }]}
-      action={{ label: "Which grade am I?", href: "#/#grades" }}>
+      links={[{ label: "Home", href: "/" }, { label: "Apply", href: "/apply" }]}
+      action={{ label: "Which grade am I?", href: "/#grades" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">
         <SectionHeader eyebrow="The register" title="Check somebody, in one search"

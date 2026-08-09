@@ -54,8 +54,8 @@ function P() {
       name="Hillsborough Eyecare"
       tagline="An independent optician on Middlewood Road since 1988."
       links={[
-        { label: "The eye test", href: "#/eye-test" },
-        { label: "Frames and lenses", href: "#/frames" },
+        { label: "The eye test", href: "/eye-test" },
+        { label: "Frames and lenses", href: "/frames" },
         { label: "Questions", href: "#questions" },
       ]}
       action={{ label: "Book an eye test", href: "#book" }}
@@ -132,7 +132,7 @@ function P() {
                 </p>
               </div>
 
-              <a className="mt-7 inline-block rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#/eye-test">
+              <a className="mt-7 inline-block rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="/eye-test">
                 What happens in the thirty minutes
               </a>
             </div>
@@ -155,7 +155,7 @@ function P() {
               <p className="mt-4 max-w-lg text-sm leading-relaxed text-muted-foreground">
                 Lenses are priced separately as options rather than as a range, so a total can
                 actually be worked out before you commit to anything.{" "}
-                <a className="underline underline-offset-4" href="#/frames">The lens options are here.</a>
+                <a className="underline underline-offset-4" href="/frames">The lens options are here.</a>
               </p>
               <div className="mt-8">
                 <OpeningHours days={HOURS} />

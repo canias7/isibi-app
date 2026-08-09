@@ -19,7 +19,7 @@ export const AREAS = ["S1", "S2", "S3", "S6", "S7", "S8", "S10", "S11", "S17", "
 function P() {
   return (
     <SiteChrome name="Barlow & Son" tagline="Plumbing and heating, Sheffield. Somebody answers at three in the morning."
-      links={[{ label: "The work", href: "#/work" }, { label: "Quote", href: "#/quote" }, { label: "Areas", href: "#areas" }]}
+      links={[{ label: "The work", href: "/work" }, { label: "Quote", href: "/quote" }, { label: "Areas", href: "#areas" }]}
       action={{ label: "24hr: 07700 900 411", href: "tel:+447700900411" }}>
 
       {/* THE OUT-OF-HOURS NUMBER IS THE HERO. The ordinary version of this
@@ -43,7 +43,7 @@ function P() {
                 <span className="text-muted-foreground">
                   Office, 07:00–18:00: <a className="font-medium text-foreground underline underline-offset-4" href="tel:+441142661180">0114 266 1180</a>
                 </span>
-                <a className="underline underline-offset-4" href="#/quote">Not urgent? Send photographs instead</a>
+                <a className="underline underline-offset-4" href="/quote">Not urgent? Send photographs instead</a>
               </div>
               <p className="mt-5 max-w-xl text-base leading-relaxed text-muted-foreground">
                 Two of us, one van each, no call centre and no agency. Out of hours you get Dave, who

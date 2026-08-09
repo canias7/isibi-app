@@ -34,7 +34,7 @@ export const HOURS = [
 function P() {
   return (
     <SiteChrome name="Marsh Lane Veterinary" tagline="Independent, RCVS accredited, and owned by the two vets who work here. Louth, Lincolnshire."
-      links={[{ label: "What we do and what it costs", href: "#/services" }, { label: "Book or ring", href: "#/contact" }, { label: "The practice", href: "#/about" }]}
+      links={[{ label: "What we do and what it costs", href: "/services" }, { label: "Book or ring", href: "/contact" }, { label: "The practice", href: "/about" }]}
       action={{ label: "Book an appointment", href: "#book" }}>
 
       {/* THE ONE THING THAT JUMPS THE QUEUE. Somebody whose dog has eaten
@@ -102,14 +102,14 @@ function P() {
           <div className="mt-8 grid gap-6 lg:grid-cols-2">
             <PractitionerCard
               name="Prisha Nandra" role="Veterinary surgeon and co-owner" letters="BVetMed MRCVS"
-              register="RCVS" registerNumber="7041882" registerUrl="#/about"
+              register="RCVS" registerNumber="7041882" registerUrl="/about"
               treats={["Dogs", "Cats", "Rabbits", "Small furries"]}
               languages={["English", "Hindi"]}
               note="Here since 2011, an owner since 2016. Certificate in small animal medicine. Runs the diabetic and thyroid clinics."
               accepting />
             <PractitionerCard
               name="Callum Tait" role="Veterinary surgeon and co-owner" letters="BVMS MRCVS"
-              register="RCVS" registerNumber="7118440" registerUrl="#/about"
+              register="RCVS" registerNumber="7118440" registerUrl="/about"
               treats={["Dogs", "Cats", "Sheep", "Cattle"]}
               languages={["English"]}
               note="Here since 2016, an owner since 2019. Does the farm work, which is why Tuesdays and Thursdays are mornings only."
@@ -139,7 +139,7 @@ function P() {
                 who work.
               </p>
               <div className="mt-6 flex flex-wrap gap-3">
-                <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#/contact">Book the time you picked</a>
+                <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="/contact">Book the time you picked</a>
                 <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium tabular-nums" href="tel:01507602118">Or ring 01507 602 118</a>
               </div>
             </div>

@@ -33,8 +33,8 @@ function P() {
   const [qty, setQty] = React.useState(14);
   return (
     <SiteChrome name="Attercliffe Catering Supplies" tagline="Dry goods, chilled and disposables to independent kitchens across South Yorkshire."
-      links={[{ label: "Home", href: "#/" }, { label: "Open an account", href: "#/account" }]}
-      action={{ label: "Open an account", href: "#/account" }}>
+      links={[{ label: "Home", href: "/" }, { label: "Open an account", href: "/account" }]}
+      action={{ label: "Open an account", href: "/account" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">
         <SectionHeader eyebrow="The range" title="2,400 lines, and the arithmetic on all of them"

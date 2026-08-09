@@ -22,8 +22,8 @@ export const FLEET = [
 function P() {
   return (
     <SiteChrome name="Rivelin Vehicle Hire" tagline="Vans, Lutons and trailers, hired by the day in Sheffield."
-      links={[{ label: "One van in full", href: "#/item" }, { label: "Reserve", href: "#/book" }, { label: "Find us", href: "#find-us" }]}
-      action={{ label: "Check availability", href: "#/book" }}>
+      links={[{ label: "One van in full", href: "/item" }, { label: "Reserve", href: "/book" }, { label: "Find us", href: "#find-us" }]}
+      action={{ label: "Check availability", href: "/book" }}>
 
       <section className="border-b border-border">
         <div className="mx-auto max-w-6xl px-6 py-14">
@@ -48,11 +48,11 @@ function P() {
         <div className="flex flex-wrap items-end justify-between gap-3">
           <SectionHeader eyebrow="The fleet" title="Six vehicles, all on the road today"
             description="Day rates below. Every one of them is priced by longer periods too, which is almost always the cheaper answer." />
-          <a className="text-sm font-medium underline underline-offset-4" href="#/item">One in full →</a>
+          <a className="text-sm font-medium underline underline-offset-4" href="/item">One in full →</a>
         </div>
         <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {FLEET.map((v) => (
-            <a key={v.name} href="#/item" className="group block">
+            <a key={v.name} href="/item" className="group block">
               <SafeImage src={null} alt={v.alt} ratio="4/3" fallbackSeed={v.name} />
               <h3 className="mt-3 text-lg font-medium underline-offset-4 group-hover:underline">{v.name}</h3>
               <p className="mt-0.5 text-sm text-muted-foreground">{v.spec}</p>

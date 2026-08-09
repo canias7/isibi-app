@@ -15,7 +15,7 @@ export const Route = createFileRoute("/arrange")({ component: P });
 function P() {
   return (
     <SiteChrome name="Loxley Home Care" tagline="Care at home in west Sheffield. Employed carers, CQC Good."
-      links={[{ label: "Home", href: "#/" }, { label: "What we do", href: "#/services" }]}
+      links={[{ label: "Home", href: "/" }, { label: "What we do", href: "/services" }]}
       action={{ label: "Ring 0114 234 5511", href: "tel:01142345511" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">

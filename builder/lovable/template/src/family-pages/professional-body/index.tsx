@@ -45,7 +45,7 @@ export const GRADES = [
 function P() {
   return (
     <SiteChrome name="Chartered Institute of Building Services" tagline="14,200 members. The register, the grades, and what each one actually asks of you."
-      links={[{ label: "Find a member", href: "#/register" }, { label: "Apply", href: "#/apply" }, { label: "CPD", href: "#cpd" }]}
+      links={[{ label: "Find a member", href: "/register" }, { label: "Apply", href: "/apply" }, { label: "CPD", href: "#cpd" }]}
       action={{ label: "Which grade am I?", href: "#grades" }}>
 
       <section className="border-b border-border">
@@ -66,8 +66,8 @@ function P() {
                 assume they are not eligible are looking at the first column and stopping.
               </p>
               <div className="mt-7 flex flex-wrap gap-3">
-                <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#/apply">Start an application</a>
-                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#/register">Find a member</a>
+                <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="/apply">Start an application</a>
+                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="/register">Find a member</a>
               </div>
             </aside>
             <div id="grades">
@@ -107,9 +107,9 @@ function P() {
             anything. The card is right and the column was wrong. */}
         <div className="mt-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <DownloadCard name="The nine competences.pdf" size={340_000}
-            description="What Member is actually assessed against" href="#/apply" />
+            description="What Member is actually assessed against" href="/apply" />
           <DownloadCard name="Sample competence statement.pdf" size={210_000}
-            description="A real one, anonymised, that passed" href="#/apply" />
+            description="A real one, anonymised, that passed" href="/apply" />
           <DownloadCard name="CPD record template.xlsx" size={48_000}
             description="What assessors expect to see. Not compulsory" href="#cpd" />
         </div>

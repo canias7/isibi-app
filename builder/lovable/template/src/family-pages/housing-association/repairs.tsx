@@ -41,8 +41,8 @@ function P() {
       name="Loxley Valley Housing"
       tagline="What counts as what, and how long each actually takes."
       links={[
-        { label: "Home", href: "#/" },
-        { label: "Rent and tenancy", href: "#/tenancy" },
+        { label: "Home", href: "/" },
+        { label: "Rent and tenancy", href: "/tenancy" },
       ]}
       action={{ label: "Out of hours: 0114 288 6199", href: "tel:01142886199" }}
     >
@@ -212,9 +212,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">The four doors</a>
+            <a className="underline underline-offset-4" href="/">The four doors</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/tenancy">Rent and tenancy</a>
+            <a className="underline underline-offset-4" href="/tenancy">Rent and tenancy</a>
           </p>
         </section>
       </div>

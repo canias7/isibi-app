@@ -7,20 +7,20 @@ import { PrevNext } from "@/components/ui/prev-next";
 import { SideNav } from "@/components/ui/side-nav";
 export const Route = createFileRoute("/changelog")({ component: P });
 const NAV = [
-  { title: "Start", items: [{ label: "Install", href: "#/" }, { label: "Guide", href: "#/guide" }] },
-  { title: "Reference", items: [{ label: "API", href: "#/api" }, { label: "Examples", href: "#/examples" }, { label: "Changelog", href: "#/changelog" }] },
+  { title: "Start", items: [{ label: "Install", href: "/" }, { label: "Guide", href: "/guide" }] },
+  { title: "Reference", items: [{ label: "API", href: "/api" }, { label: "Examples", href: "/examples" }, { label: "Changelog", href: "/changelog" }] },
 ];
 function P() {
   return (
     <div className="min-h-svh bg-background text-foreground">
       <header>
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
-          <a href="#/" className="font-semibold tracking-tight">littletable</a>
-          <div className="flex items-center gap-2 text-sm text-muted-foreground"><span>v3.2</span><span>·</span><a href="#/api" className="hover:text-foreground">API</a></div>
+          <a href="/" className="font-semibold tracking-tight">littletable</a>
+          <div className="flex items-center gap-2 text-sm text-muted-foreground"><span>v3.2</span><span>·</span><a href="/api" className="hover:text-foreground">API</a></div>
         </div>
       </header>
       <div className="mx-auto grid max-w-6xl gap-10 px-6 py-10 md:grid-cols-[210px_1fr]">
-        <SideNav active="#/changelog" sections={NAV} />
+        <SideNav active="/changelog" sections={NAV} />
         <main className="min-w-0 max-w-prose">
           <h1 className="text-3xl font-semibold tracking-tight">Changelog</h1>
           <p className="mt-2 text-muted-foreground">Every release, newest first. Breaking changes get a migration line, always.</p>
@@ -38,7 +38,7 @@ function P() {
               <code>cols</code> renamed to <code>columns</code>. A codemod ships in the package: <code>npx littletable-migrate v3</code>. That is the whole breaking change.
             </ChangelogEntry>
           </div>
-          <PrevNext className="mt-12" prev={{ label: "Cookbook", href: "#/examples" }} />
+          <PrevNext className="mt-12" prev={{ label: "Cookbook", href: "/examples" }} />
         </main>
       </div>
     </div>

@@ -1,6 +1,6 @@
 // garage /services — every job priced. The list a garage usually keeps behind a
 // phone call, published, which is the whole opening.
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { SiteChrome } from "@/components/ui/site-chrome";
 import { Faq } from "@/components/ui/faq";
 import { PriceList } from "@/components/ui/price-list";
@@ -8,10 +8,11 @@ import { SectionHeader } from "@/components/ui/section-header";
 import { TrustStrip } from "@/components/ui/trust-strip";
 export const Route = createFileRoute("/services")({ component: P });
 function P() {
+  const navigate = useNavigate();
   return (
     <SiteChrome name="Hillfoot Motors" tagline="MOT, servicing and repairs on Little London Road."
-      links={[{ label: "Home", href: "#/" }, { label: "Book", href: "#/book" }]}
-      action={{ label: "Book a slot", href: "#/book" }}>
+      links={[{ label: "Home", href: "/" }, { label: "Book", href: "/book" }]}
+      action={{ label: "Book a slot", href: "/book" }}>
       <div className="mx-auto max-w-5xl px-6 py-14">
         <SectionHeader eyebrow="Prices" title="Everything, with a number on it"
           description="Labour is £62 an hour and parts are quoted before we start. Nothing here is an estimate that grows." />
@@ -24,7 +25,7 @@ function P() {
               { name: "Interim service", description: "Oil, filter, 32 checks", price: 129, meta: "2 hrs" },
               { name: "Full service", description: "Plugs, air and cabin filters on top", price: 229, meta: "half a day" },
               { name: "Cambelt", description: "Belt, tensioner and water pump — the sensible way to do it", price: 495, meta: "full day" },
-            ]} action={{ label: "Book", onSelect: () => { location.hash = "#/book"; } }} />
+            ]} action={{ label: "Book", onSelect: () => { navigate({ to: "/book" }); } }} />
           </section>
           <section>
             <h2 className="text-xl font-semibold tracking-tight">Repairs</h2>
@@ -35,7 +36,7 @@ function P() {
               { name: "Exhaust — back box", price: 185, meta: "1 hr" },
               { name: "Diagnostic", description: "Refunded against the repair if we do it", price: 45, meta: "1 hr" },
               { name: "Air-con regas", price: 89, meta: "1 hr" },
-            ]} action={{ label: "Book", onSelect: () => { location.hash = "#/book"; } }} />
+            ]} action={{ label: "Book", onSelect: () => { navigate({ to: "/book" }); } }} />
           </section>
           <section>
             <h2 className="text-xl font-semibold tracking-tight">Tyres and the rest</h2>

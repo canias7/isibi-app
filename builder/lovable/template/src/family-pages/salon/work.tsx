@@ -9,8 +9,8 @@ import { TagList } from "@/components/ui/tag-list";
 export const Route = createFileRoute("/work")({ component: P });
 const CHROME = {
   name: "Tenfold Nails", tagline: "Ten chairs on Ecclesall Road.",
-  links: [{ label: "Home", href: "#/" }, { label: "The work", href: "#/work" }, { label: "Book", href: "#/book" }],
-  action: { label: "Book now", href: "#/book" },
+  links: [{ label: "Home", href: "/" }, { label: "The work", href: "/work" }, { label: "Book", href: "/book" }],
+  action: { label: "Book now", href: "/book" },
 };
 const SETS = [
   { tag: "BIAB", items: [
@@ -42,7 +42,7 @@ function P() {
         </div>
         <p className="mt-10 rounded-xl border bg-muted/40 p-5 text-center text-sm">
           Art is priced by time on the day — the florals above were £12 on top of a gel set.{" "}
-          <a className="font-medium underline underline-offset-4" href="#/book">Book the chair, bring the idea →</a>
+          <a className="font-medium underline underline-offset-4" href="/book">Book the chair, bring the idea →</a>
         </p>
       </div>
     </SiteChrome>

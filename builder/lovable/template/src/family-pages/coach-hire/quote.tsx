@@ -30,10 +30,10 @@ function P() {
       name="Hallam Coaches"
       tagline="Send the route with times. Everything that changes the price is listed first."
       links={[
-        { label: "Home", href: "#/" },
-        { label: "The fleet", href: "#/fleet" },
+        { label: "Home", href: "/" },
+        { label: "The fleet", href: "/fleet" },
       ]}
-      action={{ label: "The fleet", href: "#/fleet" }}
+      action={{ label: "The fleet", href: "/fleet" }}
     >
       <div className="mx-auto max-w-5xl px-6 py-14">
         <h1 className="text-4xl font-semibold tracking-tight text-balance">Get a quote</h1>
@@ -169,9 +169,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">Back to prices</a>
+            <a className="underline underline-offset-4" href="/">Back to prices</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/fleet">The fleet</a>
+            <a className="underline underline-offset-4" href="/fleet">The fleet</a>
           </p>
         </section>
       </div>

@@ -84,10 +84,10 @@ function P() {
       name="Rivelin Kitchen"
       tagline="Two weeks of menus, and every allergen per dish."
       links={[
-        { label: "This week", href: "#/" },
-        { label: "Plans", href: "#/plans" },
+        { label: "This week", href: "/" },
+        { label: "Plans", href: "/plans" },
       ]}
-      action={{ label: "Choose a plan", href: "#/plans" }}
+      action={{ label: "Choose a plan", href: "/plans" }}
     >
       <section className="border-b border-border">
         <div className="mx-auto max-w-6xl px-6 pt-10">
@@ -159,9 +159,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">This week's ten</a>
+            <a className="underline underline-offset-4" href="/">This week's ten</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/plans">Plans and prices</a>
+            <a className="underline underline-offset-4" href="/plans">Plans and prices</a>
           </p>
         </div>
       </section>

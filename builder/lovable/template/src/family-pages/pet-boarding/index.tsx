@@ -71,8 +71,8 @@ export const RULES = [
 function P() {
   return (
     <SiteChrome name="Ewden Lane Kennels & Cattery" tagline="Licensed boarding for 24 dogs and 18 cats, in the Don valley."
-      links={[{ label: "Where they stay", href: "#/stay" }, { label: "Book", href: "#/book" }, { label: "Find us", href: "#find-us" }]}
-      action={{ label: "Check dates", href: "#/book" }}>
+      links={[{ label: "Where they stay", href: "/stay" }, { label: "Book", href: "/book" }, { label: "Find us", href: "#find-us" }]}
+      action={{ label: "Check dates", href: "/book" }}>
 
       <section className="border-b border-border">
         <div className="mx-auto max-w-6xl px-6 py-14">
@@ -93,8 +93,8 @@ function P() {
                 <div><dt className="text-muted-foreground">Cats</dt><dd className="mt-1 text-lg font-semibold tabular-nums">£15</dd></div>
               </dl>
               <div className="mt-7 flex flex-wrap gap-3">
-                <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#/book">Check my dates</a>
-                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#/stay">See where they stay</a>
+                <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="/book">Check my dates</a>
+                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="/stay">See where they stay</a>
               </div>
             </div>
             {/* THE DEADLINE IN THE FIRST SCREEN. Every kennel puts this behind a

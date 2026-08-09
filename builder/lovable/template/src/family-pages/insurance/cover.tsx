@@ -20,10 +20,10 @@ function P() {
       name="Rivelin Pet Cover"
       tagline="Complete, in full. Every limit and every sub-limit."
       links={[
-        { label: "Compare levels", href: "#/" },
-        { label: "Claiming", href: "#/claim" },
+        { label: "Compare levels", href: "/" },
+        { label: "Claiming", href: "/claim" },
       ]}
-      action={{ label: "Compare levels", href: "#/" }}
+      action={{ label: "Compare levels", href: "/" }}
     >
       <div className="mx-auto max-w-4xl px-6 py-14">
         <h1 className="text-4xl font-semibold tracking-tight text-balance">Complete, in full</h1>
@@ -140,9 +140,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">Compare the two levels</a>
+            <a className="underline underline-offset-4" href="/">Compare the two levels</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/claim">How claiming works</a>
+            <a className="underline underline-offset-4" href="/claim">How claiming works</a>
           </p>
         </section>
       </div>

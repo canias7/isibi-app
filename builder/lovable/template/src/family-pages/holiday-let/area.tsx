@@ -38,7 +38,7 @@ const EATING = [
 function P() {
   return (
     <SiteChrome name="Wren Cottage" tagline="A two-bedroom stone cottage above Hathersage, in the Peak District."
-      links={[{ label: "Home", href: "#/" }, { label: "The rooms", href: "#/rooms" }]}
+      links={[{ label: "Home", href: "/" }, { label: "The rooms", href: "/rooms" }]}
       action={{ label: "Check availability", href: "#dates" }}>
 
       <section className="relative">

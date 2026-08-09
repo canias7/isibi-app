@@ -32,8 +32,8 @@ export const GROWN = [
 function P() {
   return (
     <SiteChrome name="Hollin Busk Farm Shop" tagline="A working farm and shop above Stocksbridge, growing on eleven acres."
-      links={[{ label: "The year", href: "#/season" }, { label: "Order a box", href: "#/order" }, { label: "Find us", href: "#find-us" }]}
-      action={{ label: "Order a box", href: "#/order" }}>
+      links={[{ label: "The year", href: "/season" }, { label: "Order a box", href: "/order" }, { label: "Find us", href: "#find-us" }]}
+      action={{ label: "Order a box", href: "/order" }}>
 
       <section className="border-b border-border">
         <div className="mx-auto max-w-6xl px-6 py-14">
@@ -103,7 +103,7 @@ function P() {
             description="This is the single most useful thing on the site. Everything filled is picked here that month; everything outlined is ours but out of the barn rather than off the plant." />
           <ProduceCalendar className="mt-8" items={GROWN} now={new Date(2026, 7, 2)}
             caption="What we grow, and when" />
-          <a className="mt-6 inline-block text-sm font-medium underline underline-offset-4" href="#/season">The year month by month, with what to cook →</a>
+          <a className="mt-6 inline-block text-sm font-medium underline underline-offset-4" href="/season">The year month by month, with what to cook →</a>
         </div>
       </section>
 

@@ -11,15 +11,15 @@ import { TimeUntil } from "@/components/ui/time-until";
 export const Route = createFileRoute("/season")({ component: P });
 const CHROME = {
   name: "The Playhouse", tagline: "Box office, but honest about the clock.",
-  links: [{ label: "On-sale board", href: "#/" }, { label: "Whole season", href: "#/season" }],
+  links: [{ label: "On-sale board", href: "/" }, { label: "Whole season", href: "/season" }],
 };
 const SHOWS = [
-  { title: "An Inspector Calls — press night", when: "Fri 19 Sep, 7:30", state: "low", left: "49 seats", href: "#/event" },
-  { title: "An Inspector Calls", when: "20 Sep – 11 Oct", state: "selling", left: "Good availability", href: "#/event" },
-  { title: "The Winter's Tale", when: "24 Oct – 15 Nov", state: "selling", left: "Good availability", href: "#/event" },
-  { title: "A Christmas Carol", when: "5 Dec – 4 Jan", state: "low", left: "Weekends nearly gone", href: "#/event" },
-  { title: "New Year's Eve gala", when: "31 Dec, 9:00", state: "soldout", left: "Returns only", href: "#/event" },
-  { title: "Spring season announcement", when: "On sale 1 Oct, 10:00", state: "soon", left: null, href: "#/event" },
+  { title: "An Inspector Calls — press night", when: "Fri 19 Sep, 7:30", state: "low", left: "49 seats", href: "/event" },
+  { title: "An Inspector Calls", when: "20 Sep – 11 Oct", state: "selling", left: "Good availability", href: "/event" },
+  { title: "The Winter's Tale", when: "24 Oct – 15 Nov", state: "selling", left: "Good availability", href: "/event" },
+  { title: "A Christmas Carol", when: "5 Dec – 4 Jan", state: "low", left: "Weekends nearly gone", href: "/event" },
+  { title: "New Year's Eve gala", when: "31 Dec, 9:00", state: "soldout", left: "Returns only", href: "/event" },
+  { title: "Spring season announcement", when: "On sale 1 Oct, 10:00", state: "soon", left: null, href: "/event" },
 ];
 function P() {
   return (

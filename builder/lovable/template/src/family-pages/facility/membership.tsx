@@ -11,7 +11,7 @@ export const Route = createFileRoute("/membership")({ component: P });
 function P() {
   return (
     <SiteChrome name="Hillsborough Leisure" tagline="Pool, courts, gym and a climbing wall, on Penistone Road."
-      links={[{ label: "Home", href: "#/" }, { label: "Book a slot", href: "#/book" }]}
+      links={[{ label: "Home", href: "/" }, { label: "Book a slot", href: "/book" }]}
       action={{ label: "Ring 0114 273 4444", href: "tel:01142734444" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">
@@ -61,19 +61,19 @@ function P() {
               name: "Pay as you go", price: "£0", period: "a month",
               description: "No membership at all. Turn up, pay, leave.",
               features: ["Every activity at the standard price", "Book courts 14 days ahead", "No commitment of any kind"],
-              action: { label: "Just turn up", href: "#/book" },
+              action: { label: "Just turn up", href: "/book" },
             },
             {
               name: "Off-peak", price: "£24", period: "a month", featured: true,
               description: "Weekdays before 4pm and all day Sunday. The one most people should be on.",
               features: ["Unlimited swim, gym and climbing off-peak", "Courts at member rates", "Book 28 days ahead", "Bring a guest twice a month at half price"],
-              action: { label: "Join off-peak", href: "#/book" },
+              action: { label: "Join off-peak", href: "/book" },
             },
             {
               name: "Full", price: "£38", period: "a month",
               description: "Any activity at any hour we are open.",
               features: ["Unlimited everything, any time", "Courts at member rates", "Book 28 days ahead", "Bring a guest twice a month at half price", "Free induction and a programme review twice a year"],
-              action: { label: "Join full", href: "#/book" },
+              action: { label: "Join full", href: "/book" },
             },
           ]} />
         </section>

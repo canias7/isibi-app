@@ -37,10 +37,10 @@ function P() {
       name="Upper Don Community Transport"
       tagline="Fares, and the five ways people travel free without knowing it."
       links={[
-        { label: "Next departures", href: "#/" },
-        { label: "Timetable", href: "#/timetable" },
+        { label: "Next departures", href: "/" },
+        { label: "Timetable", href: "/timetable" },
       ]}
-      action={{ label: "Next departures", href: "#/" }}
+      action={{ label: "Next departures", href: "/" }}
     >
       <div className="mx-auto max-w-4xl px-6 py-12">
         <h1 className="text-4xl font-semibold tracking-tight">Fares</h1>
@@ -150,9 +150,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">Live departures</a>
+            <a className="underline underline-offset-4" href="/">Live departures</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/timetable">The full timetable</a>
+            <a className="underline underline-offset-4" href="/timetable">The full timetable</a>
           </p>
         </section>
       </div>

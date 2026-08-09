@@ -10,7 +10,7 @@ import { TagList } from "@/components/ui/tag-list";
 export const Route = createFileRoute("/episode")({ component: P });
 const CHROME = {
   name: "Made in Sheffield", tagline: "A podcast about this city, fortnightly.",
-  links: [{ label: "Latest", href: "#/" }, { label: "All episodes", href: "#/archive" }],
+  links: [{ label: "Latest", href: "/" }, { label: "All episodes", href: "/archive" }],
 };
 function P() {
   return (
@@ -40,7 +40,7 @@ function P() {
         </section>
         <TagList className="mt-8" items={["Steel", "Work", "East End"]} active={null} onSelect={() => {}} />
         <nav className="mt-10 flex items-center justify-between border-t pt-6 text-sm">
-          <a className="underline underline-offset-4" href="#/archive">← Ep 40: Park Hill, flat by flat</a>
+          <a className="underline underline-offset-4" href="/archive">← Ep 40: Park Hill, flat by flat</a>
           <span className="text-muted-foreground">Newest episode</span>
         </nav>
       </div>

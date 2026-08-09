@@ -58,9 +58,16 @@ test("every page is a route module at its own path", () => {
 
 test("multi-page apps link between their own pages", () => {
   // A page set that never cross-links is N separate sites sharing a folder.
-  // Hash history is the published-site reality, so the links are "#/book"
-  // style; every non-index page must be reachable from somewhere in the app,
-  // and every non-index page must offer a way back.
+  // Every non-index page must be reachable from somewhere in the app, and every
+  // non-index page must offer a way back.
+  //
+  // THE SPELLING CHANGED ON 2026-08-09 AND THE INVARIANT DID NOT. This read
+  // `"#/book"`, and its comment said hash history was "the published-site
+  // reality" — true until the router moved to browser history so pages could
+  // have real addresses, at which point every one of those links navigated
+  // nowhere. A test written against the convention rather than the property is
+  // one that keeps passing while the thing it names stops working; this one
+  // went red, correctly, the moment the exemplars were corrected.
   for (const name of READY_FAMILIES) {
     const pages = src[name];
     const all = Object.values(pages).join("\n");
@@ -73,8 +80,21 @@ test("multi-page apps link between their own pages", () => {
       // and rendered like every other page, which is what the anti-orphan rule
       // is actually protecting. The assertion that it exists is below.
       if (p.alt) continue;
-      assert.ok(all.includes(`"#/${p.file}"`), `${name}: nothing links to #/${p.file}`);
-      assert.ok(pages[p.file].includes('"#/'), `${name}/${p.file}.tsx has no way back into the app`);
+      // Quote-delimited on BOTH sides, or `/record` matches `/records` — and two
+      // families really do have such a pair (`crm`, `paid-newsletter`). A
+      // mutation dropping the closing quote SURVIVES today, because in both of
+      // those families each page is linked anyway, so the corpus cannot tell
+      // the loose check from the tight one. Kept tight regardless: the next page
+      // set to collide is the one that would be silently unguarded.
+      assert.ok(all.includes(`"/${p.file}"`), `${name}: nothing links to /${p.file}`);
+      // A way back is an internal link of either shape — `href="/x"` in markup
+      // or `href: "/x"` in a chrome links array. Anchored on `href` rather than
+      // on a bare `"/`, which would also accept an aspect ratio like `"4/3"`.
+      // The slash may be the WHOLE path: a link home is `href="/"`, and that is
+      // the commonest way back there is — requiring a letter after it failed
+      // estate-agent/listing, whose only route out is the results page.
+      assert.match(pages[p.file], /href[:=] ?"\//,
+        `${name}/${p.file}.tsx has no way back into the app`);
     }
   }
 });

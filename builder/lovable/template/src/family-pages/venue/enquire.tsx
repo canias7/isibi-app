@@ -19,7 +19,7 @@ function P() {
   };
   return (
     <SiteChrome name="Thrybergh Barn" tagline="A stone threshing barn for hire, ten minutes from Rotherham."
-      links={[{ label: "Home", href: "#/" }, { label: "The spaces", href: "#/spaces" }]}
+      links={[{ label: "Home", href: "/" }, { label: "The spaces", href: "/spaces" }]}
       action={{ label: "Check a date", href: "#top" }}>
 
       <div id="top" className="mx-auto max-w-5xl px-6 py-14">

@@ -11,8 +11,8 @@ import { SuccessPanel } from "@/components/ui/success-panel";
 export const Route = createFileRoute("/manage")({ component: P });
 const CHROME = {
   name: "Tenfold Nails", tagline: "Ten chairs on Ecclesall Road.",
-  links: [{ label: "Home", href: "#/" }, { label: "Book", href: "#/book" }],
-  action: { label: "Book now", href: "#/book" },
+  links: [{ label: "Home", href: "/" }, { label: "Book", href: "/book" }],
+  action: { label: "Book now", href: "/book" },
 };
 function P() {
   const [cancelled, setCancelled] = useState(false);
@@ -21,7 +21,7 @@ function P() {
     return (
       <SiteChrome {...CHROME}>
         <div className="mx-auto max-w-md px-6 py-20">
-          <SuccessPanel title="Appointment cancelled" description="The chair is released. Book again whenever suits — no fee either way." action={{ label: "Book another time", href: "#/book" }} />
+          <SuccessPanel title="Appointment cancelled" description="The chair is released. Book again whenever suits — no fee either way." action={{ label: "Book another time", href: "/book" }} />
         </div>
       </SiteChrome>
     );
@@ -41,7 +41,7 @@ function P() {
             { label: "Where", value: "312 Ecclesall Road" },
           ]} />
         <div className="mt-6 grid gap-2">
-          <Button variant="outline" asChild><a href="#/book">Move to another time</a></Button>
+          <Button variant="outline" asChild><a href="/book">Move to another time</a></Button>
           {asking ? (
             <div className="rounded-lg border p-3 text-sm">
               <p>Cancel Thursday's appointment? The slot goes back up straight away.</p>

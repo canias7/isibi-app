@@ -25,11 +25,11 @@ function P() {
       name="Loxley Community Energy"
       tagline="A supply co-op for the Loxley and Rivelin valleys. No shareholders."
       links={[
-        { label: "All tariffs", href: "#/tariffs" },
-        { label: "Send a reading", href: "#/meter" },
+        { label: "All tariffs", href: "/tariffs" },
+        { label: "Send a reading", href: "/meter" },
         { label: "Questions", href: "#questions" },
       ]}
-      action={{ label: "Send a reading", href: "#/meter" }}
+      action={{ label: "Send a reading", href: "/meter" }}
     >
       <AnnouncementBar>
         Price cap change on 1 October. Everyone on Valley Variable moves with it — we will write
@@ -57,10 +57,10 @@ function P() {
                 figure. Yours is on your last bill; use that instead if you have it.
               </p>
               <div className="mt-7 flex flex-wrap gap-3">
-                <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#/tariffs">
+                <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="/tariffs">
                   Compare every tariff
                 </a>
-                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#/meter">
+                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="/meter">
                   Send a meter reading
                 </a>
               </div>

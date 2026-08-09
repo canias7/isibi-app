@@ -8,7 +8,7 @@ import { Faq } from "@/components/ui/faq";
 export const Route = createFileRoute("/events")({ component: P });
 const CHROME = {
   name: "Walkley Library", tagline: "Volunteer-run since 2014. Everyone welcome, no card needed to sit.",
-  links: [{ label: "Hours & papers", href: "#/" }, { label: "What's on", href: "#/events" }],
+  links: [{ label: "Hours & papers", href: "/" }, { label: "What's on", href: "/events" }],
 };
 function P() {
   return (
@@ -36,7 +36,7 @@ function P() {
             { question: "Do events run when the library is closed?", answer: "Evening events do — the door opens fifteen minutes before. The Wednesday closure is staffing, not the building." },
           ]} />
         </section>
-        <p className="mt-8 border-t pt-6 text-sm text-muted-foreground">Hours, the address and the papers live on <a className="font-medium underline underline-offset-4" href="#/">the front page</a>.</p>
+        <p className="mt-8 border-t pt-6 text-sm text-muted-foreground">Hours, the address and the papers live on <a className="font-medium underline underline-offset-4" href="/">the front page</a>.</p>
       </div>
     </SiteChrome>
   );

@@ -12,7 +12,7 @@ export const Route = createFileRoute("/territories")({ component: P });
 function P() {
   return (
     <SiteChrome name="Fettle Mobile Servicing" tagline="Van-based bike and e-bike servicing. Nine territories, four still free."
-      links={[{ label: "Home", href: "#/" }, { label: "The process", href: "#/process" }]}
+      links={[{ label: "Home", href: "/" }, { label: "The process", href: "/process" }]}
       action={{ label: "Ring 0114 400 2210", href: "tel:01144002210" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">

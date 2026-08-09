@@ -10,8 +10,8 @@ import { CtaBand } from "@/components/ui/cta-band";
 export const Route = createFileRoute("/project")({ component: P });
 const CHROME = {
   name: "Hale & Frost", tagline: "Weddings photographed like they felt.",
-  links: [{ label: "The work", href: "#/" }, { label: "Enquire", href: "#/contact" }],
-  action: { label: "Start a project", href: "#/contact" },
+  links: [{ label: "The work", href: "/" }, { label: "Enquire", href: "/contact" }],
+  action: { label: "Start a project", href: "/contact" },
 };
 function P() {
   return (
@@ -38,7 +38,7 @@ function P() {
         }} />
         <CtaBand className="mt-12" title="Your day, told like this"
           description="We take twenty weddings a year and never two in one weekend."
-          action={{ label: "Ask about your date", href: "#/contact" }} />
+          action={{ label: "Ask about your date", href: "/contact" }} />
       </div>
     </SiteChrome>
   );

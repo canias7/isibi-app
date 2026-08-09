@@ -14934,3 +14934,33 @@ The page picker above the preview was still addressing pages the old way (with a
 and left the preview on the home page — which looks exactly like the build only
 having made one page. The address you copy out of that bar had the same fault,
 so anything you sent someone would have opened the home page instead. Both fixed.
+
+### Site navigation was broken, and it was my fault (2026-08-09)
+
+When I moved sites onto real page addresses yesterday, I changed how the router
+works and did not change the header and footer to match. The result: on every
+site built after that change, clicking "Book" — or any nav link, or the business
+name — did nothing. The address bar twitched and the page stayed put.
+
+Nothing in the pipeline could catch it. It compiles, it bundles, it publishes,
+and it looks completely fine. The only way to find it is to click, and the test
+that was supposed to cover this typed the address in by hand instead of pressing
+the button. It clicks now, on both kinds of address, and I checked the new test
+actually fails against the old bug before trusting it.
+
+**The fix was mostly not the fix.** Two components were wrong; 322 example pages
+were also wrong, and those are what the AI copies when it writes a site. Fixing
+the components alone would have been undone by the examples on the very next
+build. Along with those, eight buttons that navigated by a different mechanism
+that had broken the same way.
+
+There is now also a rule that refuses the old form outright, because the AI has
+seen millions of pages written the old way and will reach for it again.
+
+Two things I did NOT do, so they are not a surprise later. Ninety-seven kit
+components accept a link and draw it as a plain link rather than a routed one —
+on the new `.gofarther.app` addresses those work, on the older `/s/…` ones they
+reload the page. Not broken, not ideal, and a separate job. And the 322 example
+pages are checked by nothing — I verified my own edits to them by hand, but
+there is no standing check, which is worth fixing properly rather than pretending
+the hand-check was one.

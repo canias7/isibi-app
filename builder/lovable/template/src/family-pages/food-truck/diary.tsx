@@ -39,10 +39,10 @@ function P() {
       name="Ewden Smokehouse"
       tagline="Every pitch for the next month, and the weeks we are not out."
       links={[
-        { label: "Today", href: "#/" },
-        { label: "Hire the van", href: "#/hire" },
+        { label: "Today", href: "/" },
+        { label: "Hire the van", href: "/hire" },
       ]}
-      action={{ label: "Where we are today", href: "#/" }}
+      action={{ label: "Where we are today", href: "/" }}
     >
       <div className="mx-auto max-w-5xl px-6 py-14">
         <h1 className="text-4xl font-semibold tracking-tight text-balance">The diary</h1>
@@ -143,9 +143,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">Where we are today</a>
+            <a className="underline underline-offset-4" href="/">Where we are today</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/hire">Hiring the van</a>
+            <a className="underline underline-offset-4" href="/hire">Hiring the van</a>
           </p>
         </section>
       </div>

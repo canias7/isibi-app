@@ -35,8 +35,8 @@ const AUGUST: Night[] = Array.from({ length: 31 }, (_, i) => {
 function P() {
   return (
     <SiteChrome name="Rivelin Vehicle Hire" tagline="Vans, Lutons and trailers, hired by the day in Sheffield."
-      links={[{ label: "Home", href: "#/" }, { label: "Reserve", href: "#/book" }]}
-      action={{ label: "Check availability", href: "#/book" }}>
+      links={[{ label: "Home", href: "/" }, { label: "Reserve", href: "/book" }]}
+      action={{ label: "Check availability", href: "/book" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">
         <div className="grid gap-12 lg:grid-cols-[1.1fr_1fr]">

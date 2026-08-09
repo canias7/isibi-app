@@ -12,7 +12,7 @@ import { WaitlistForm } from "@/components/ui/waitlist-form";
 export const Route = createFileRoute("/tastings")({ component: P });
 const CHROME = {
   name: "The Dram Room", tagline: "Independent whisky, Abbeydale Road.",
-  links: [{ label: "The shelf", href: "#/" }, { label: "Tastings", href: "#/tastings" }, { label: "Terms", href: "#/terms" }],
+  links: [{ label: "The shelf", href: "/" }, { label: "Tastings", href: "/tastings" }, { label: "Terms", href: "/terms" }],
 };
 function P() {
   const [joined, setJoined] = useState(false);

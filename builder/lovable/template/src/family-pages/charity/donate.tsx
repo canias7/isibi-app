@@ -10,7 +10,7 @@ export const Route = createFileRoute("/donate")({ component: P });
 function P() {
   return (
     <SiteChrome name="The Loxley Larder" tagline="A food bank and community kitchen in Walkley."
-      links={[{ label: "Home", href: "#/" }, { label: "Where it goes", href: "#/impact" }]}
+      links={[{ label: "Home", href: "/" }, { label: "Where it goes", href: "/impact" }]}
       action={{ label: "Donate", href: "#give" }}>
       <div className="mx-auto max-w-4xl px-6 py-14">
         <SectionHeader eyebrow="Give" title="Pick an amount"

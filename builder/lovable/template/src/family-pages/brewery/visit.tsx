@@ -21,8 +21,8 @@ const HOURS: DayHours[] = [
 function P() {
   return (
     <SiteChrome name="Six Weirs" tagline="A brewery and taproom under the arches at Kelham."
-      links={[{ label: "Home", href: "#/" }, { label: "The range", href: "#/range" }]}
-      action={{ label: "What's pouring", href: "#/" }}>
+      links={[{ label: "Home", href: "/" }, { label: "The range", href: "/range" }]}
+      action={{ label: "What's pouring", href: "/" }}>
       <div className="mx-auto max-w-5xl px-6 py-14">
         <SectionHeader eyebrow="The taproom" title="Coming to the arch"
           description="Wednesday to Sunday. Closed Monday and Tuesday because somebody has to brew." />

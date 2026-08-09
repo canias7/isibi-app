@@ -9,8 +9,8 @@ export const Route = createFileRoute("/range")({ component: P });
 function P() {
   return (
     <SiteChrome name="Six Weirs" tagline="A brewery and taproom under the arches at Kelham."
-      links={[{ label: "Home", href: "#/" }, { label: "Taproom", href: "#/visit" }]}
-      action={{ label: "What's pouring", href: "#/" }}>
+      links={[{ label: "Home", href: "/" }, { label: "Taproom", href: "/visit" }]}
+      action={{ label: "What's pouring", href: "/" }}>
       <div className="mx-auto max-w-5xl px-6 py-14">
         <SectionHeader eyebrow="The range" title="Everything we make"
           description="Four permanent, and whatever the tanks are doing. Strength is on all of them because it changes how you get home." />

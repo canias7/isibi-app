@@ -15,8 +15,8 @@ import { Textarea } from "@/components/ui/textarea";
 export const Route = createFileRoute("/support")({ component: P });
 const CHROME = {
   name: "Snicket", tagline: "Walking routes that prefer the alleys.",
-  links: [{ label: "The app", href: "#/" }, { label: "Pricing", href: "#/pricing" }, { label: "Support", href: "#/support" }],
-  action: { label: "Download", href: "#/" },
+  links: [{ label: "The app", href: "/" }, { label: "Pricing", href: "/pricing" }, { label: "Support", href: "/support" }],
+  action: { label: "Download", href: "/" },
 };
 function P() {
   const [q, setQ] = useState("");
@@ -41,7 +41,7 @@ function P() {
         <section className="mt-10 rounded-xl border bg-muted/40 p-6">
           <h2 className="text-lg font-medium">Still stuck?</h2>
           {sent ? (
-            <SuccessPanel className="mt-4" title="Ticket in" description="A person replies within one working day — include your phone model if it's a maps or battery thing." action={{ label: "Back to the app", href: "#/" }} />
+            <SuccessPanel className="mt-4" title="Ticket in" description="A person replies within one working day — include your phone model if it's a maps or battery thing." action={{ label: "Back to the app", href: "/" }} />
           ) : (
             <div className="mt-4 grid gap-4">
               <FormRow label="Email" htmlFor="sp-em" required>

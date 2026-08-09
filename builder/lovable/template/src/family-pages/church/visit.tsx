@@ -19,7 +19,7 @@ const STEPS = [
 function P() {
   return (
     <SiteChrome name="St Chad's, Walkley" tagline="A parish church on South Road since 1868."
-      links={[{ label: "Home", href: "#/" }, { label: "In the week", href: "#/groups" }]}
+      links={[{ label: "Home", href: "/" }, { label: "In the week", href: "/groups" }]}
       action={{ label: "Service times", href: "#times" }}>
       <div className="mx-auto max-w-5xl px-6 py-14">
         <SectionHeader eyebrow="First visit" title="What happens, step by step"

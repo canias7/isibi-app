@@ -17,7 +17,7 @@ function P() {
   const [consent, setConsent] = useState(false);
   return (
     <SiteChrome name="The Dram Room" tagline="Independent whisky, Abbeydale Road."
-      links={[{ label: "The shelf", href: "#/" }, { label: "Tastings", href: "#/tastings" }, { label: "Terms of sale", href: "#/terms" }]}>
+      links={[{ label: "The shelf", href: "/" }, { label: "Tastings", href: "/tastings" }, { label: "Terms of sale", href: "/terms" }]}>
 
       {/* Widened from 2xl and given the shelf itself, 2026-08-02. The
           disclosure discipline of this family is about what you may SAY before
@@ -63,14 +63,14 @@ function P() {
           <div className="mt-8 rounded-xl border bg-muted/40 p-5">
             <Testimonial item={{ quote: "They talked me OUT of the expensive bottle and into the right one. That's a shop.", name: "Google review", role: "4.9, two hundred of them" }} />
           </div>
-          <p className="mt-6 text-sm"><a className="font-medium underline underline-offset-4" href="#/tastings">Tastings — six seats, twice a month →</a></p>
+          <p className="mt-6 text-sm"><a className="font-medium underline underline-offset-4" href="/tastings">Tastings — six seats, twice a month →</a></p>
         </AgeGate>
 
         <TermsBlock className="mt-12" title="The legal bit, in full view" clauses={[
           "We sell alcohol only to persons aged 18 or over. Challenge 25 applies at collection.",
           "Licence 22/03412, Sheffield City Council. Licensee: The Dram Room Ltd.",
           "Drinkaware: for advice about alcohol, visit drinkaware.co.uk."]} />
-        <p className="mt-4 text-sm"><a className="font-medium underline underline-offset-4" href="#/terms">The full terms of sale — refunds, ID, licensing →</a></p>
+        <p className="mt-4 text-sm"><a className="font-medium underline underline-offset-4" href="/terms">The full terms of sale — refunds, ID, licensing →</a></p>
       </div>
     </SiteChrome>
   );

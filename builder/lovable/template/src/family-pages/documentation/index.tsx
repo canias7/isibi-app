@@ -10,8 +10,8 @@ import { PrevNext } from "@/components/ui/prev-next";
 import { StatsBand } from "@/components/ui/stats-band";
 export const Route = createFileRoute("/")({ component: P });
 const NAV = [
-  { title: "Start", items: [{ label: "Install", href: "#install" }, { label: "Guide", href: "#/guide" }] },
-  { title: "Reference", items: [{ label: "API", href: "#/api" }, { label: "Examples", href: "#/examples" }, { label: "Changelog", href: "#/changelog" }] },
+  { title: "Start", items: [{ label: "Install", href: "#install" }, { label: "Guide", href: "/guide" }] },
+  { title: "Reference", items: [{ label: "API", href: "/api" }, { label: "Examples", href: "/examples" }, { label: "Changelog", href: "/changelog" }] },
 ];
 function P() {
   return (
@@ -21,8 +21,8 @@ function P() {
           <span className="font-semibold tracking-tight">littletable</span>
           <div className="flex items-center gap-3 text-sm text-muted-foreground">
             <span>v3.2</span><span aria-hidden="true">·</span>
-            <a href="#/changelog" className="hover:text-foreground">Changelog</a>
-            <a href="#/guide" className="rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground">Get started</a>
+            <a href="/changelog" className="hover:text-foreground">Changelog</a>
+            <a href="/guide" className="rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground">Get started</a>
           </div>
         </div>
       </header>
@@ -46,12 +46,12 @@ function P() {
 
           <h2 className="mt-10 text-xl font-medium">Where next</h2>
           <div className="mt-4 grid gap-3 sm:grid-cols-3">
-            <LinkCard title="The guide" description="Install to first sorted table, in order." href="#/guide" />
-            <LinkCard title="API reference" description="Every prop, its type, its default." href="#/api" />
-            <LinkCard title="Cookbook" description="Whole recipes for the jobs you arrived with." href="#/examples" />
+            <LinkCard title="The guide" description="Install to first sorted table, in order." href="/guide" />
+            <LinkCard title="API reference" description="Every prop, its type, its default." href="/api" />
+            <LinkCard title="Cookbook" description="Whole recipes for the jobs you arrived with." href="/examples" />
           </div>
 
-          <PrevNext className="mt-12" next={{ label: "Guide — first table to sorted", href: "#/guide" }} />
+          <PrevNext className="mt-12" next={{ label: "Guide — first table to sorted", href: "/guide" }} />
         </main>
       </div>
     </div>

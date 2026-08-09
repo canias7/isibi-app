@@ -14,7 +14,7 @@ export const Route = createFileRoute("/shop")({ component: P });
 function P() {
   return (
     <SiteChrome name="Bolsterstone Stores" tagline="The village shop and Post Office. Open at six, seven days."
-      links={[{ label: "Home", href: "#/" }, { label: "What we do", href: "#/#find-us" }]}
+      links={[{ label: "Home", href: "/" }, { label: "What we do", href: "/#find-us" }]}
       action={{ label: "Ring 0114 288 3012", href: "tel:01142883012" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">

@@ -14,7 +14,7 @@ function P() {
   const [fare, setFare] = React.useState<number | null>(null);
   return (
     <SiteChrome name="Hallam Cars" tagline="Private hire in Sheffield, 24 hours, licensed by the council."
-      links={[{ label: "Home", href: "#/" }, { label: "Accounts", href: "#/account" }]}
+      links={[{ label: "Home", href: "/" }, { label: "Accounts", href: "/account" }]}
       action={{ label: "0114 266 2626", href: "tel:01142662626" }}>
 
       <div className="mx-auto max-w-5xl px-6 py-14">

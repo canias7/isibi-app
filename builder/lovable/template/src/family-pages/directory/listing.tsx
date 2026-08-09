@@ -12,12 +12,12 @@ export const Route = createFileRoute("/listing")({ component: P });
 function P() {
   return (
     <SiteChrome name="Sheffield Index" tagline="Every business, club and service in Sheffield. Free to list, free to search."
-      links={[{ label: "Home", href: "#/" }, { label: "Search results", href: "#/results" }]}
+      links={[{ label: "Home", href: "/" }, { label: "Search results", href: "/results" }]}
       action={{ label: "Add a listing", href: "#add" }}>
 
       <div className="mx-auto max-w-4xl px-6 py-14">
         <p className="text-sm text-muted-foreground">
-          <a href="#/results" className="underline underline-offset-4">Trades</a> · Plumbers · Walkley
+          <a href="/results" className="underline underline-offset-4">Trades</a> · Plumbers · Walkley
         </p>
         <h1 className="mt-3 text-4xl font-semibold tracking-tight text-balance">Hallam Plumbing &amp; Heating</h1>
         <p className="mt-2 text-lg text-muted-foreground">Plumber and heating engineer · Gas Safe 512844</p>
@@ -92,7 +92,7 @@ function P() {
             <div>
               <SectionHeader eyebrow="Not here yet?" title="Add a business, free"
                 description="Any Sheffield business, club or service. There is no paid tier, so adding it is the only thing there is to do." />
-              <a className="mt-6 inline-block rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#/results">Add a listing</a>
+              <a className="mt-6 inline-block rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="/results">Add a listing</a>
             </div>
           </div>
         </section>

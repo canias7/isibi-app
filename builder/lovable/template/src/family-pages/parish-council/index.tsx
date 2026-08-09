@@ -21,19 +21,19 @@ export const MEETINGS = [
   { date: "2026-08-05", kind: "Allotments working group", time: "18:30", where: "The site hut",
     note: "Agenda held up by the water bill query. It will be up on Monday and the meeting will run late rather than not at all" },
   { date: "2026-08-11", kind: "Full council", time: "19:30", where: "Village hall, main room",
-    agendaHref: "#/papers" },
+    agendaHref: "/papers" },
   { date: "2026-07-14", kind: "Full council", time: "19:30", where: "Village hall, main room",
-    agendaHref: "#/papers", minutesHref: "#/papers", minutesDraft: true },
+    agendaHref: "/papers", minutesHref: "/papers", minutesDraft: true },
   { date: "2026-06-09", kind: "Full council", time: "19:30", where: "Village hall, main room",
-    agendaHref: "#/papers", minutesHref: "#/papers" },
+    agendaHref: "/papers", minutesHref: "/papers" },
   { date: "2026-05-12", kind: "Annual parish meeting", time: "19:00", where: "Village hall, main room",
-    agendaHref: "#/papers", minutesHref: "#/papers",
+    agendaHref: "/papers", minutesHref: "/papers",
     note: "The one meeting of the year that belongs to residents rather than to the council" },
 ];
 function P() {
   return (
     <SiteChrome name="Bolsterstone Parish Council" tagline="Eleven councillors, one clerk, and a precept of £34,000 a year."
-      links={[{ label: "Papers", href: "#/papers" }, { label: "The council", href: "#/council" }, { label: "Speaking", href: "#speaking" }]}
+      links={[{ label: "Papers", href: "/papers" }, { label: "The council", href: "/council" }, { label: "Speaking", href: "#speaking" }]}
       action={{ label: "Next meeting", href: "#next" }}>
 
       <AnnouncementBar>
@@ -61,7 +61,7 @@ function P() {
                 <div><dt className="text-muted-foreground">Vacancies</dt><dd className="mt-1 text-lg font-semibold tabular-nums">2</dd></div>
               </dl>
               <div className="mt-7 flex flex-wrap gap-3">
-                <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#/papers">Read the agenda</a>
+                <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="/papers">Read the agenda</a>
                 <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#speaking">How to speak</a>
               </div>
               <div className="mt-10">

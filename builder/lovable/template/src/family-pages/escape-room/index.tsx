@@ -37,8 +37,8 @@ function P() {
       name="Neepsend Lock-In"
       tagline="Four rooms in a Victorian cutlery works. Sheffield."
       links={[
-        { label: "The rooms", href: "#/rooms" },
-        { label: "Book", href: "#/book" },
+        { label: "The rooms", href: "/rooms" },
+        { label: "Book", href: "/book" },
         { label: "Questions", href: "#questions" },
       ]}
       action={{ label: "Book a slot", href: "#tonight" }}

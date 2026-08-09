@@ -39,7 +39,7 @@ function P() {
   const [qty, setQty] = React.useState(1);
   return (
     <SiteChrome name="Effingham No. 26" tagline="One carbon steel pan, made in Sheffield."
-      links={[{ label: "The pan", href: "#/product" }, { label: "Basket", href: "#/checkout" }]}
+      links={[{ label: "The pan", href: "/product" }, { label: "Basket", href: "/checkout" }]}
       action={{ label: "Buy — £84", href: "#buy" }}>
 
       {/* NO GRID AND NO CATEGORY NAV. Both are in the base family's component

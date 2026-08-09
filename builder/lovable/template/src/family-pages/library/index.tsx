@@ -27,7 +27,7 @@ function P() {
     <div className="min-h-svh bg-background text-foreground">
       <AnnouncementBar href="#docs">Boiler works 11–15 August — we're open, but wear a jumper.</AnnouncementBar>
       <SiteChrome name="Walkley Library" tagline="Volunteer-run since 2014. Everyone welcome, no card needed to sit."
-        links={[{ label: "Hours", href: "#hours" }, { label: "What's on", href: "#/events" }, { label: "Join", href: "#/join" }, { label: "Papers", href: "#docs" }]}>
+        links={[{ label: "Hours", href: "#hours" }, { label: "What's on", href: "/events" }, { label: "Join", href: "/join" }, { label: "Papers", href: "#docs" }]}>
 
         {/* Widened and given the building, 2026-08-02. A volunteer library is
             asking strangers to walk in, and the single most persuasive thing it
@@ -44,8 +44,8 @@ function P() {
                   volunteers since the council couldn't.
                 </p>
                 <div className="mt-6 flex flex-wrap items-center gap-3">
-                  <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#/join">Volunteer</a>
-                  <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#/events">What's on</a>
+                  <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="/join">Volunteer</a>
+                  <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="/events">What's on</a>
                   <OpenNow hours={HOURS.filter((h) => h.open).map((h) => ({ day: h.day, open: h.open!, close: h.close! }))} />
                 </div>
               </div>
@@ -71,7 +71,7 @@ function P() {
           <div className="mx-auto max-w-5xl px-6 py-12">
             <div className="flex flex-wrap items-end justify-between gap-3">
               <SectionHeader eyebrow="This week" title="On at the library" />
-              <a className="text-sm font-medium underline underline-offset-4" href="#/events">The whole month →</a>
+              <a className="text-sm font-medium underline underline-offset-4" href="/events">The whole month →</a>
             </div>
             <div className="mt-6 grid gap-4 sm:grid-cols-2">
               <EventCard title="Rhyme time (under-5s)" start="2026-08-04T10:30:00" venue="Children's corner" />
@@ -94,7 +94,7 @@ function P() {
           <div className="mx-auto max-w-5xl px-6 py-12 text-center">
             <h2 className="text-2xl font-semibold tracking-tight">A card takes five minutes</h2>
             <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">Free, any age, no S6 requirement — and you don't need one just to sit and be warm.</p>
-            <a className="mt-5 inline-block rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#/join">Get a card</a>
+            <a className="mt-5 inline-block rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="/join">Get a card</a>
           </div>
         </section>
       </SiteChrome>

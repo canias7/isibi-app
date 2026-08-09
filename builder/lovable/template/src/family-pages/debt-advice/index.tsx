@@ -39,7 +39,7 @@ function P() {
       name="Sheffield Money Advice"
       tagline="Free, confidential and independent. We are not a debt company and we do not sell anything."
       links={[
-        { label: "What can be arranged", href: "#/options" },
+        { label: "What can be arranged", href: "/options" },
         { label: "What to bring", href: "#bring" },
       ]}
       action={{ label: "Ring 0114 276 0500", href: "tel:01142760500" }}
@@ -61,7 +61,7 @@ function P() {
             <a className="rounded-md bg-primary px-6 py-3 text-base font-medium text-primary-foreground" href="tel:01142760500">
               Ring 0114 276 0500
             </a>
-            <a className="rounded-md border border-border px-6 py-3 text-base font-medium" href="#/options">
+            <a className="rounded-md border border-border px-6 py-3 text-base font-medium" href="/options">
               What can actually be arranged
             </a>
           </div>
@@ -112,7 +112,7 @@ function P() {
           <p className="mt-8 max-w-2xl text-sm leading-relaxed text-muted-foreground">
             If there is nothing left after the first list, that is a real answer and not a failure.
             There are arrangements for exactly that situation and none of them cost you anything —
-            they are on the <a className="underline underline-offset-4" href="#/options">options page</a>.
+            they are on the <a className="underline underline-offset-4" href="/options">options page</a>.
           </p>
         </div>
       </section>

@@ -29,10 +29,10 @@ function P() {
         <section className="mt-12 border-t pt-8">
           <p className="mb-2 text-center text-xs uppercase tracking-widest text-muted-foreground">And a wrong link lands here</p>
           <div className="rounded-lg border">
-            <NotFound homeHref="#/" body="The link may be from an old letter — renewals moved here in June." />
+            <NotFound homeHref="/" body="The link may be from an old letter — renewals moved here in June." />
           </div>
         </section>
-        <p className="py-8 text-center text-sm text-muted-foreground"><a className="font-medium underline underline-offset-4" href="#/">Back to the renewal form</a></p>
+        <p className="py-8 text-center text-sm text-muted-foreground"><a className="font-medium underline underline-offset-4" href="/">Back to the renewal form</a></p>
       </main>
     </div>
   );

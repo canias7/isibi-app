@@ -25,7 +25,7 @@ function P() {
   const [sent, setSent] = React.useState(false);
   return (
     <SiteChrome name="The Larkin Set" tagline="Six-piece function band. Sheffield, Leeds, Manchester and anywhere within two hours."
-      links={[{ label: "Home", href: "#/" }, { label: "Packages", href: "#/packages" }]}
+      links={[{ label: "Home", href: "/" }, { label: "Packages", href: "/packages" }]}
       action={{ label: "Ring 07700 900 118", href: "tel:07700900118" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">

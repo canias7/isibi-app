@@ -24,7 +24,7 @@ const AUGUST: Night[] = Array.from({ length: 31 }, (_, i) => {
 function P() {
   return (
     <SiteChrome name="Rivelin Vehicle Hire" tagline="Vans, Lutons and trailers, hired by the day in Sheffield."
-      links={[{ label: "Home", href: "#/" }, { label: "One van in full", href: "#/item" }]}
+      links={[{ label: "Home", href: "/" }, { label: "One van in full", href: "/item" }]}
       action={{ label: "Ring 0114 272 8810", href: "tel:01142728810" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">

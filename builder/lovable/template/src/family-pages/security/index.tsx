@@ -36,8 +36,8 @@ function P() {
       name="Attercliffe Security"
       tagline="Alarms, cameras and keyholding across South Yorkshire. SSAIB approved, NSI Gold."
       links={[
-        { label: "Systems", href: "#/systems" },
-        { label: "Monitoring", href: "#/monitoring" },
+        { label: "Systems", href: "/systems" },
+        { label: "Monitoring", href: "/monitoring" },
         { label: "Questions", href: "#questions" },
       ]}
       action={{ label: "Book a survey", href: "#survey" }}
@@ -105,7 +105,7 @@ function P() {
             <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#survey">
               Book a free survey
             </a>
-            <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#/monitoring">
+            <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="/monitoring">
               What monitoring actually means
             </a>
           </div>

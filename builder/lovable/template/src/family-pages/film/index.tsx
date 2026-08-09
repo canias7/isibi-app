@@ -16,12 +16,12 @@ import { Faq } from "@/components/ui/faq";
 export const Route = createFileRoute("/")({ component: P });
 
 const NEXT = [
-  { key: "1", date: "2026-08-14", city: "Sheffield", venue: "Showroom Cinema · Q&A with the director", status: "few" as const, href: "#/screenings" },
-  { key: "2", date: "2026-08-15", city: "Sheffield", venue: "Showroom Cinema", status: "onsale" as const, href: "#/screenings" },
+  { key: "1", date: "2026-08-14", city: "Sheffield", venue: "Showroom Cinema · Q&A with the director", status: "few" as const, href: "/screenings" },
+  { key: "2", date: "2026-08-15", city: "Sheffield", venue: "Showroom Cinema", status: "onsale" as const, href: "/screenings" },
   { key: "3", date: "2026-08-21", city: "Leeds", venue: "Hyde Park Picture House · Q&A", status: "soldout" as const },
-  { key: "4", date: "2026-08-28", city: "Manchester", venue: "HOME", status: "onsale" as const, href: "#/screenings" },
-  { key: "5", date: "2026-09-04", city: "Nottingham", venue: "Broadway", status: "onsale" as const, href: "#/screenings" },
-  { key: "6", date: "2026-09-11", city: "Hebden Bridge", venue: "Picture House · Q&A", status: "few" as const, href: "#/screenings" },
+  { key: "4", date: "2026-08-28", city: "Manchester", venue: "HOME", status: "onsale" as const, href: "/screenings" },
+  { key: "5", date: "2026-09-04", city: "Nottingham", venue: "Broadway", status: "onsale" as const, href: "/screenings" },
+  { key: "6", date: "2026-09-11", city: "Hebden Bridge", venue: "Picture House · Q&A", status: "few" as const, href: "/screenings" },
 ];
 
 function P() {
@@ -30,8 +30,8 @@ function P() {
       name="Ninety Works"
       tagline="A documentary about the water-powered valleys of Sheffield. 78 minutes."
       links={[
-        { label: "Screenings", href: "#/screenings" },
-        { label: "About the film", href: "#/about" },
+        { label: "Screenings", href: "/screenings" },
+        { label: "About the film", href: "/about" },
         { label: "Questions", href: "#questions" },
       ]}
       action={{ label: "Find a screening", href: "#screenings" }}
@@ -74,7 +74,7 @@ function P() {
             Leeds sold out in four days and the Picture House has added nothing further — we asked.
             More dates are added most weeks and every one is on the screenings page, including the
             ones that have already happened.{" "}
-            <a className="underline underline-offset-4" href="#/screenings">Every date, and how to request one.</a>
+            <a className="underline underline-offset-4" href="/screenings">Every date, and how to request one.</a>
           </p>
         </div>
       </section>
@@ -93,7 +93,7 @@ function P() {
                 last grinding hull until 1986, and eight people who walk the valleys. No
                 voice-over and no reconstruction.
               </p>
-              <a className="mt-6 inline-block text-sm underline underline-offset-4" href="#/about">
+              <a className="mt-6 inline-block text-sm underline underline-offset-4" href="/about">
                 The runtime, the certificate and who made it
               </a>
             </div>

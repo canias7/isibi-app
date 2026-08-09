@@ -33,8 +33,8 @@ function P() {
       name="Attercliffe Language Services"
       tagline="Send a document. Five questions, and the first one is the important one."
       links={[
-        { label: "Pairs", href: "#/" },
-        { label: "Rates", href: "#/rates" },
+        { label: "Pairs", href: "/" },
+        { label: "Rates", href: "/rates" },
       ]}
       action={{ label: "Ring 0114 244 8810", href: "tel:01142448810" }}
     >
@@ -158,9 +158,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">The pairs</a>
+            <a className="underline underline-offset-4" href="/">The pairs</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/rates">Every rate</a>
+            <a className="underline underline-offset-4" href="/rates">Every rate</a>
           </p>
         </section>
       </div>

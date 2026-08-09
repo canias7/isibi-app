@@ -34,10 +34,10 @@ function P() {
       name="The Long Room"
       tagline="Two records, and the set as it is played this autumn."
       links={[
-        { label: "Home", href: "#/" },
-        { label: "Tour", href: "#/tour" },
+        { label: "Home", href: "/" },
+        { label: "Tour", href: "/tour" },
       ]}
-      action={{ label: "Get tickets", href: "#/tour" }}
+      action={{ label: "Get tickets", href: "/tour" }}
     >
       <div className="mx-auto max-w-5xl px-6 py-14">
         <h1 className="text-4xl font-semibold tracking-tight text-balance">Listen</h1>
@@ -156,9 +156,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">The next date</a>
+            <a className="underline underline-offset-4" href="/">The next date</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/tour">Every date</a>
+            <a className="underline underline-offset-4" href="/tour">Every date</a>
           </p>
         </section>
       </div>

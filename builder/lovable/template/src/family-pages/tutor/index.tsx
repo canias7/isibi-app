@@ -36,8 +36,8 @@ export const SUBJECTS = [
 function P() {
   return (
     <SiteChrome name="Cathy Bramwell" tagline="Maths and physics tutor, Sheffield. Fourteen years, eleven of them teaching."
-      links={[{ label: "Book a trial", href: "#/book" }, { label: "About me", href: "#/about" }, { label: "Rates", href: "#rates" }]}
-      action={{ label: "Free trial lesson", href: "#/book" }}>
+      links={[{ label: "Book a trial", href: "/book" }, { label: "About me", href: "/about" }, { label: "Rates", href: "#rates" }]}
+      action={{ label: "Free trial lesson", href: "/book" }}>
 
       <section className="border-b border-border">
         <div className="mx-auto max-w-6xl px-6 py-14">
@@ -51,7 +51,7 @@ function P() {
                 paper and what is not worth your Tuesday evening.
               </p>
               <div className="mt-7 flex flex-wrap gap-3">
-                <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#/book">Free trial lesson</a>
+                <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="/book">Free trial lesson</a>
                 <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#rates">Rates by level</a>
               </div>
               <dl className="mt-8 grid grid-cols-2 gap-x-8 gap-y-4 text-sm sm:grid-cols-4">

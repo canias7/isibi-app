@@ -70,8 +70,8 @@ function P() {
       name="Sheffield Money Advice"
       tagline="Five arrangements, and what each one costs you afterwards."
       links={[
-        { label: "Start here", href: "#/" },
-        { label: "What to bring", href: "#/" },
+        { label: "Start here", href: "/" },
+        { label: "What to bring", href: "/" },
       ]}
       action={{ label: "Ring 0114 276 0500", href: "tel:01142760500" }}
     >
@@ -128,7 +128,7 @@ function P() {
                 <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="tel:01142760500">
                   Ring 0114 276 0500
                 </a>
-                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#/">
+                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="/">
                   Back to the priority order
                 </a>
               </div>

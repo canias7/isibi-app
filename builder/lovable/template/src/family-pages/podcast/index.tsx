@@ -28,7 +28,7 @@ function P() {
   const [done, setDone] = useState(false);
   return (
     <SiteChrome name="Made in Sheffield" tagline="A podcast about this city, fortnightly."
-      links={[{ label: "All 41", href: "#/archive" }, { label: "About", href: "#/about" }]}>
+      links={[{ label: "All 41", href: "/archive" }, { label: "About", href: "/about" }]}>
       {/* The show, at the size a show is sold at. A podcast is bought on its
           COVER before a word of a description is read, and the first version of
           this page had no artwork anywhere — 2xl of list rows and nothing else,
@@ -48,8 +48,8 @@ function P() {
                 Stories that only happened here, told by people who were there.
               </p>
               <div className="mt-6 flex flex-wrap items-center gap-3">
-                <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#/episode">Play the latest</a>
-                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#/about">Who makes it</a>
+                <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="/episode">Play the latest</a>
+                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="/about">Who makes it</a>
               </div>
               <div className="mt-6"><TagList items={["Steel", "Housing", "Music", "Football", "Food"]} active={null} onSelect={() => {}} /></div>
             </div>
@@ -63,7 +63,7 @@ function P() {
             <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Latest</p>
             <div className="mt-2 flex flex-col divide-y divide-border border-y border-border">
               {EPS.slice(0, 2).map((e) => (
-                <EpisodeRow key={e.number} {...e} href="#/episode" playing={playing === e.number}
+                <EpisodeRow key={e.number} {...e} href="/episode" playing={playing === e.number}
                   onPlay={() => setPlaying(playing === e.number ? null : e.number)} />
               ))}
             </div>
@@ -71,11 +71,11 @@ function P() {
             <p className="mt-10 text-xs font-medium uppercase tracking-widest text-muted-foreground">Earlier</p>
             <div className="mt-2 flex flex-col divide-y divide-border border-y border-border">
               {EPS.slice(2).map((e) => (
-                <EpisodeRow key={e.number} {...e} href="#/episode" playing={playing === e.number}
+                <EpisodeRow key={e.number} {...e} href="/episode" playing={playing === e.number}
                   onPlay={() => setPlaying(playing === e.number ? null : e.number)} />
               ))}
             </div>
-            <p className="mt-6 text-sm"><a className="font-medium underline underline-offset-4" href="#/archive">All forty-one episodes, filterable →</a></p>
+            <p className="mt-6 text-sm"><a className="font-medium underline underline-offset-4" href="/archive">All forty-one episodes, filterable →</a></p>
           </div>
 
           <aside className="flex flex-col gap-8">

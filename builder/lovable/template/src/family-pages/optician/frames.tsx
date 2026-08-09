@@ -32,10 +32,10 @@ function P() {
       name="Hillsborough Eyecare"
       tagline="Frames, and lenses priced so you can add them up."
       links={[
-        { label: "Home", href: "#/" },
-        { label: "The eye test", href: "#/eye-test" },
+        { label: "Home", href: "/" },
+        { label: "The eye test", href: "/eye-test" },
       ]}
-      action={{ label: "Book an eye test", href: "#/eye-test" }}
+      action={{ label: "Book an eye test", href: "/eye-test" }}
     >
       <div className="mx-auto max-w-5xl px-6 py-14">
         <h1 className="text-4xl font-semibold tracking-tight text-balance">Frames and lenses</h1>
@@ -168,9 +168,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">Booking and hours</a>
+            <a className="underline underline-offset-4" href="/">Booking and hours</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/eye-test">What a test involves</a>
+            <a className="underline underline-offset-4" href="/eye-test">What a test involves</a>
           </p>
         </section>
       </div>

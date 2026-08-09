@@ -27,9 +27,9 @@ function P() {
       <header className="flex flex-wrap items-center justify-between gap-4 border-b border-border pb-4">
         <div className="flex items-baseline gap-3">
           <p className="text-lg font-semibold tracking-tight">Brindle</p>
-          <a className="text-sm text-muted-foreground hover:text-foreground" href="#/records">← All records</a>
+          <a className="text-sm text-muted-foreground hover:text-foreground" href="/records">← All records</a>
         </div>
-        <a className="text-sm text-muted-foreground hover:text-foreground" href="#/">Sign out</a>
+        <a className="text-sm text-muted-foreground hover:text-foreground" href="/">Sign out</a>
       </header>
 
       <div className="mt-6">

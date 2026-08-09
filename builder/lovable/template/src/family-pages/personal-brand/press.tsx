@@ -11,8 +11,8 @@ import { PressQuote } from "@/components/ui/press-quote";
 export const Route = createFileRoute("/press")({ component: P });
 const CHROME = {
   name: "Elsie Marrow", tagline: "Songs about rivers and shift work.",
-  links: [{ label: "Home", href: "#/" }, { label: "Press kit", href: "#/press" }],
-  action: { label: "Book me", href: "#/" },
+  links: [{ label: "Home", href: "/" }, { label: "Press kit", href: "/press" }],
+  action: { label: "Book me", href: "/" },
 };
 const SHORT = "Elsie Marrow writes folk songs about the Don valley — five strings, one loop pedal, true stories only. Debut album \"Marrow\" is out in October.";
 const MEDIUM = SHORT + " First played on Radio 6 in 2024, she has sold out the Greystones four times and tours the north this autumn.";
@@ -51,15 +51,15 @@ function P() {
             { src: null, alt: "Portrait, black and white" },
           ]} />
           <div className="mt-4 grid gap-2">
-            <DownloadCard name="elsie-marrow-photos.zip" description="All three, print resolution" size={48234496} href="#/press" />
-            <DownloadCard name="marrow-album-art.png" description="3000×3000, for listings" size={8912896} href="#/press" />
+            <DownloadCard name="elsie-marrow-photos.zip" description="All three, print resolution" size={48234496} href="/press" />
+            <DownloadCard name="marrow-album-art.png" description="3000×3000, for listings" size={8912896} href="/press" />
           </div>
         </section>
         <section className="mt-10 grid gap-6">
           <PressQuote quote="The best songwriter this city has produced since the arena was a car park." source="Now Then Magazine" />
           <PressQuote quote="Shift-work ballads that land like standards." source="The Guardian, ones to watch" />
         </section>
-        <p className="mt-10 border-t pt-6 text-sm text-muted-foreground">Bookings and anything not covered here: <a className="font-medium underline underline-offset-4" href="#/">management, via the home page</a>.</p>
+        <p className="mt-10 border-t pt-6 text-sm text-muted-foreground">Bookings and anything not covered here: <a className="font-medium underline underline-offset-4" href="/">management, via the home page</a>.</p>
       </div>
     </SiteChrome>
   );

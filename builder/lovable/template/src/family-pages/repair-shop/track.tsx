@@ -47,7 +47,7 @@ function P() {
   };
   return (
     <SiteChrome name="Neepsend Repair Co." tagline="Phone, tablet, laptop and console repairs in Kelham Island, Sheffield."
-      links={[{ label: "Home", href: "#/" }, { label: "All prices", href: "#/prices" }]}
+      links={[{ label: "Home", href: "/" }, { label: "All prices", href: "/prices" }]}
       action={{ label: "Find us", href: "#find-us" }}>
 
       <div className="mx-auto max-w-5xl px-6 py-14">

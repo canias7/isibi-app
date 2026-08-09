@@ -20,10 +20,10 @@ function P() {
       name="Hallam Coaches"
       tagline="Six vehicles, by seats — and what each one cannot get to."
       links={[
-        { label: "Home", href: "#/" },
-        { label: "Get a quote", href: "#/quote" },
+        { label: "Home", href: "/" },
+        { label: "Get a quote", href: "/quote" },
       ]}
-      action={{ label: "Get a quote", href: "#/quote" }}
+      action={{ label: "Get a quote", href: "/quote" }}
     >
       <div className="mx-auto max-w-6xl px-6 py-14">
         <h1 className="text-4xl font-semibold tracking-tight text-balance">The fleet</h1>
@@ -176,9 +176,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">Back to prices</a>
+            <a className="underline underline-offset-4" href="/">Back to prices</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/quote">Get a quote</a>
+            <a className="underline underline-offset-4" href="/quote">Get a quote</a>
           </p>
         </section>
       </div>

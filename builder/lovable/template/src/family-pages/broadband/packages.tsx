@@ -16,10 +16,10 @@ function P() {
       name="Ewden Fibre"
       tagline="Every package, and the price after the offer runs out."
       links={[
-        { label: "Check an address", href: "#/" },
-        { label: "Switching", href: "#/switching" },
+        { label: "Check an address", href: "/" },
+        { label: "Switching", href: "/switching" },
       ]}
-      action={{ label: "Check my address", href: "#/" }}
+      action={{ label: "Check my address", href: "/" }}
     >
       <section className="border-b border-border">
         <div className="mx-auto max-w-5xl px-6 py-14">
@@ -77,13 +77,13 @@ function P() {
               name="Business fibre"
               price="From £79"
               period="month"
-              action={{ label: "Ask for a survey", href: "#/switching" }}
+              action={{ label: "Ask for a survey", href: "/switching" }}
             />
             <PlanCard
               name="Leased line, 1 Gb symmetric"
               price="From £340"
               period="month"
-              action={{ label: "Ask for a survey", href: "#/switching" }}
+              action={{ label: "Ask for a survey", href: "/switching" }}
             />
           </div>
           <p className="mt-6 max-w-2xl text-sm leading-relaxed text-muted-foreground">
@@ -145,9 +145,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">Check what your address can have</a>
+            <a className="underline underline-offset-4" href="/">Check what your address can have</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/switching">Switching from another provider</a>
+            <a className="underline underline-offset-4" href="/switching">Switching from another provider</a>
           </p>
         </div>
       </section>

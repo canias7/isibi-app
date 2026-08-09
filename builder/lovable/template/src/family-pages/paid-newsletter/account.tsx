@@ -12,7 +12,7 @@ import { SuccessPanel } from "@/components/ui/success-panel";
 export const Route = createFileRoute("/account")({ component: P });
 const CHROME = {
   name: "The Crucible Letter", tagline: "Sheffield theatre, reviewed weekly.",
-  links: [{ label: "This week", href: "#/letters" }, { label: "Your membership", href: "#/account" }],
+  links: [{ label: "This week", href: "/letters" }, { label: "Your membership", href: "/account" }],
 };
 function P() {
   const [asking, setAsking] = useState(false);
@@ -23,13 +23,13 @@ function P() {
         <h1 className="text-2xl font-semibold tracking-tight">Your membership</h1>
         <MembershipCard className="mt-6" name="Priya Shah" tier="Annual" number="CL-01427" since="2025-10-04" expires="2026-10-04" />
         {cancelled ? (
-          <SuccessPanel className="mt-6" title="Auto-renew is off" description="You keep every letter until 4 October 2026. Nothing is charged after that, and rejoining later picks the archive back up." action={{ label: "Back to this week's letter", href: "#/letters" }} />
+          <SuccessPanel className="mt-6" title="Auto-renew is off" description="You keep every letter until 4 October 2026. Nothing is charged after that, and rejoining later picks the archive back up." action={{ label: "Back to this week's letter", href: "/letters" }} />
         ) : (
           <>
             <PlanCard className="mt-6" name="Annual" price="£36" period="year" renewsOn="4 October 2026" current
               action={{ label: "Switch to monthly", onClick: () => {} }} />
             <div className="mt-6 grid gap-2">
-              <Button variant="outline" asChild><a href="#/letters">Back to the letters</a></Button>
+              <Button variant="outline" asChild><a href="/letters">Back to the letters</a></Button>
               {asking ? (
                 <div className="rounded-lg border p-3 text-sm">
                   <p>Turn off auto-renew? You keep access until 4 October 2026 — nothing disappears today.</p>

@@ -49,8 +49,8 @@ function P() {
       name="Rivelin Kitchen"
       tagline="Ten dishes a week, boxed in Sheffield on Wednesday, delivered Thursday and Friday."
       links={[
-        { label: "Full menu", href: "#/menu" },
-        { label: "Plans", href: "#/plans" },
+        { label: "Full menu", href: "/menu" },
+        { label: "Plans", href: "/plans" },
         { label: "Questions", href: "#questions" },
       ]}
       action={{ label: "See this week", href: "#week" }}
@@ -87,7 +87,7 @@ function P() {
           <p className="mt-6 max-w-2xl text-sm leading-relaxed text-muted-foreground">
             Two more turn up on the full menu each Friday for the following week, so there are
             always twelve to pick from by the weekend.{" "}
-            <a className="underline underline-offset-4" href="#/menu">Next week is already published.</a>
+            <a className="underline underline-offset-4" href="/menu">Next week is already published.</a>
           </p>
         </div>
       </section>
@@ -120,14 +120,14 @@ function P() {
             description="Priced per serving, which is the comparison worth making — a three-meal box for two and a four-meal box for four are not otherwise comparable."
           />
           <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <PlanCard name="3 meals for 2" price="£32.50" period="week" action={{ label: "Choose", href: "#/plans" }} />
-            <PlanCard name="4 meals for 2" price="£40.00" period="week" current action={{ label: "Choose", href: "#/plans" }} />
-            <PlanCard name="3 meals for 4" price="£56.00" period="week" action={{ label: "Choose", href: "#/plans" }} />
-            <PlanCard name="5 meals for 4" price="£88.00" period="week" action={{ label: "Choose", href: "#/plans" }} />
+            <PlanCard name="3 meals for 2" price="£32.50" period="week" action={{ label: "Choose", href: "/plans" }} />
+            <PlanCard name="4 meals for 2" price="£40.00" period="week" current action={{ label: "Choose", href: "/plans" }} />
+            <PlanCard name="3 meals for 4" price="£56.00" period="week" action={{ label: "Choose", href: "/plans" }} />
+            <PlanCard name="5 meals for 4" price="£88.00" period="week" action={{ label: "Choose", href: "/plans" }} />
           </div>
           <p className="mt-5 text-sm text-muted-foreground">
             That is £5.42, £5.00, £4.67 and £4.40 a serving.{" "}
-            <a className="underline underline-offset-4" href="#/plans">The full table is on the plans page.</a>
+            <a className="underline underline-offset-4" href="/plans">The full table is on the plans page.</a>
           </p>
         </div>
       </section>

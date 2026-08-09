@@ -16,8 +16,8 @@ function P() {
         title="Fell & Water"
         subtitle="Nine rooms above a Lakeland ghyll. Nothing else for six miles."
         src={null} poster={null} overlay={60}
-        primary={{ label: "Explore the rooms", href: "#/rooms" }}
-        secondary={{ label: "The table", href: "#/dining" }} />
+        primary={{ label: "Explore the rooms", href: "/rooms" }}
+        secondary={{ label: "The table", href: "/dining" }} />
       <Marquee className="border-y border-border py-3 text-sm text-muted-foreground"
         items={["Ghyll water in the taps", "Peat fires from October", "No televisions", "Dogs before people", "One sitting at eight"]} />
 
@@ -34,7 +34,7 @@ function P() {
         <section className="mx-auto max-w-xl px-6 py-16 text-center">
           <p className="text-sm uppercase tracking-widest text-muted-foreground">The rooms</p>
           <p className="mt-4 text-lg leading-relaxed">Nine, no two alike, none with a number on the door. You'll know yours by the sound of its water.</p>
-          <a href="#/rooms" className="mt-6 inline-block border-b border-foreground pb-0.5 text-sm font-medium">One by one</a>
+          <a href="/rooms" className="mt-6 inline-block border-b border-foreground pb-0.5 text-sm font-medium">One by one</a>
         </section>
       </Reveal>
 
@@ -45,7 +45,7 @@ function P() {
         <section className="mx-auto max-w-xl px-6 py-16 text-center">
           <p className="text-sm uppercase tracking-widest text-muted-foreground">The table</p>
           <p className="mt-4 text-lg leading-relaxed">Dinner is at eight, once, for everyone — five courses decided that morning by what the valley had.</p>
-          <a href="#/dining" className="mt-6 inline-block border-b border-foreground pb-0.5 text-sm font-medium">One sitting</a>
+          <a href="/dining" className="mt-6 inline-block border-b border-foreground pb-0.5 text-sm font-medium">One sitting</a>
         </section>
       </Reveal>
 
@@ -55,7 +55,7 @@ function P() {
       <footer className="border-t border-border py-16 text-center">
         <p className="text-lg">Six miles from the nearest anything.</p>
         <p className="mt-1 text-sm text-muted-foreground">Deliberately.</p>
-        <a href="#/rooms" className="mt-5 inline-block border-b border-foreground pb-0.5 text-sm font-medium">Begin with the rooms</a>
+        <a href="/rooms" className="mt-5 inline-block border-b border-foreground pb-0.5 text-sm font-medium">Begin with the rooms</a>
       </footer>
     </div>
   );

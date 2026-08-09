@@ -11,7 +11,7 @@ export const Route = createFileRoute("/landlords")({ component: P });
 function P() {
   return (
     <SiteChrome name="Sharrow Vale Lettings" tagline="Letting and managing 340 homes across south-west Sheffield since 2008."
-      links={[{ label: "Home", href: "#/" }, { label: "Compliance", href: "#/compliance" }]}
+      links={[{ label: "Home", href: "/" }, { label: "Compliance", href: "/compliance" }]}
       action={{ label: "Ring 0114 266 1180", href: "tel:01142661180" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">

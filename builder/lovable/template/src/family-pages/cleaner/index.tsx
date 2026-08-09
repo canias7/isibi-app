@@ -22,8 +22,8 @@ export const OPTIONS = [
 function P() {
   return (
     <SiteChrome name="Rivelin Home Clean" tagline="Domestic cleaning in west Sheffield. Eleven cleaners, all employed."
-      links={[{ label: "Book", href: "#/book" }, { label: "Where we go", href: "#/areas" }, { label: "Prices", href: "#prices" }]}
-      action={{ label: "Book a clean", href: "#/book" }}>
+      links={[{ label: "Book", href: "/book" }, { label: "Where we go", href: "/areas" }, { label: "Prices", href: "#prices" }]}
+      action={{ label: "Book a clean", href: "/book" }}>
 
       <section className="border-b border-border">
         <div className="mx-auto max-w-6xl px-6 py-14">
@@ -98,7 +98,7 @@ function P() {
             <ServiceArea className="mt-6" placeholder="Your postcode"
               areas={["S6", "S10", "S11", "S3", "S35"]}
               note="Just outside? Ring anyway — if it is on the way to somebody we already visit, the answer is usually yes." />
-            <a className="mt-6 inline-block text-sm font-medium underline underline-offset-4" href="#/areas">The streets we actually cover →</a>
+            <a className="mt-6 inline-block text-sm font-medium underline underline-offset-4" href="/areas">The streets we actually cover →</a>
           </div>
         </div>
       </section>

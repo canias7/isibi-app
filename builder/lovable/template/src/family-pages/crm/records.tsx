@@ -3,7 +3,7 @@
 // below is the SAME records through the stage lens — the family's `board`
 // variant, not a second dataset.
 import { useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { BulkActions } from "@/components/ui/bulk-actions";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DataTable, type Column } from "@/components/ui/data-table";
@@ -32,6 +32,7 @@ const DEALS: Deal[] = [
 const STAGE_BADGE = { enquiry: "neutral", quoted: "warning", won: "success" } as const;
 
 function P() {
+  const navigate = useNavigate();
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [cards, setCards] = useState(DEALS.map((d) => ({ ...d })));
@@ -63,9 +64,9 @@ function P() {
           <span className="text-sm text-muted-foreground">Pipeline</span>
         </div>
         <nav className="flex items-center gap-4 text-sm">
-          <a className="font-medium" href="#/records" aria-current="page">Records</a>
-          <a className="text-muted-foreground hover:text-foreground" href="#/record">Latest record</a>
-          <a className="text-muted-foreground hover:text-foreground" href="#/">Sign out</a>
+          <a className="font-medium" href="/records" aria-current="page">Records</a>
+          <a className="text-muted-foreground hover:text-foreground" href="/record">Latest record</a>
+          <a className="text-muted-foreground hover:text-foreground" href="/">Sign out</a>
         </nav>
       </header>
 
@@ -87,7 +88,7 @@ function P() {
 
       <div className="mt-4">
         <DataTable columns={columns} rows={shown} rowKey={(d) => d.id}
-          onRowClick={() => { location.hash = "#/record"; }}
+          onRowClick={() => { navigate({ to: "/record" }); }}
           empty="No deals match — clear the search." />
       </div>
 
@@ -100,7 +101,7 @@ function P() {
             columns={[{ key: "enquiry", label: "Enquiry" }, { key: "quoted", label: "Quoted" }, { key: "won", label: "Won" }]}
             onMove={(id, column) => setCards(cards.map((c) => (c.id === id ? { ...c, column } : c)))}
             renderCard={(c) => (
-              <a href="#/record" className="block">
+              <a href="/record" className="block">
                 <p className="text-sm font-medium">{c.deal}</p>
                 <p className="mt-0.5 text-xs text-muted-foreground">{c.company} · <Money amount={c.value} /></p>
               </a>

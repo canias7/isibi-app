@@ -1,3 +1,4 @@
+import { SiteLink, type NavLink } from "@/components/ui/site-header";
 import { cn } from "@/lib/utils";
 
 /** The bottom of every page: a line about the business, some links, the year. */
@@ -6,7 +7,7 @@ export function SiteFooter({
 }: {
   brand: string;
   tagline?: string;
-  links?: { label: string; href: string }[];
+  links?: NavLink[];
   className?: string;
 }) {
   return (
@@ -19,7 +20,7 @@ export function SiteFooter({
         {links.length > 0 && (
           <nav className="flex flex-wrap gap-x-6 gap-y-2">
             {links.map((l) => (
-              <a key={l.href} href={l.href} className="text-sm text-muted-foreground hover:text-foreground">{l.label}</a>
+              <SiteLink key={l.href} href={l.href} className="text-sm text-muted-foreground hover:text-foreground">{l.label}</SiteLink>
             ))}
           </nav>
         )}

@@ -34,11 +34,11 @@ function P() {
       name="Hollin Busk Nursery"
       tagline="Plants grown a mile up the road, not shipped from Holland."
       links={[
-        { label: "What is in", href: "#/plants" },
-        { label: "Visiting", href: "#/visit" },
+        { label: "What is in", href: "/plants" },
+        { label: "Visiting", href: "/visit" },
         { label: "Questions", href: "#questions" },
       ]}
-      action={{ label: "Plan a visit", href: "#/visit" }}
+      action={{ label: "Plan a visit", href: "/visit" }}
     >
       {/* WHAT IS GOOD NOW, PHOTOGRAPHED NOW. This is the one trade where a
           stock photograph is actively dishonest: a picture of a full bench of
@@ -138,7 +138,7 @@ function P() {
             </div>
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
               {NOW.map((p) => (
-                <ProductCard key={p.name} product={p} href="#/plants" />
+                <ProductCard key={p.name} product={p} href="/plants" />
               ))}
             </div>
           </div>
@@ -146,7 +146,7 @@ function P() {
             The winter bedding card says sold out because it is not here yet rather than because it
             has gone — three weeks. We would rather show you it exists than have you buy pansies
             somewhere else in a month.{" "}
-            <a className="underline underline-offset-4" href="#/plants">Everything, by season.</a>
+            <a className="underline underline-offset-4" href="/plants">Everything, by season.</a>
           </p>
         </div>
       </section>

@@ -38,8 +38,8 @@ function P() {
     : [];
   return (
     <SiteChrome name="Sheffield Index" tagline="Every business, club and service in Sheffield. Free to list, free to search."
-      links={[{ label: "Browse", href: "#/results" }, { label: "A listing", href: "#/listing" }]}
-      action={{ label: "Add a listing", href: "#/listing" }}>
+      links={[{ label: "Browse", href: "/results" }, { label: "A listing", href: "/listing" }]}
+      action={{ label: "Add a listing", href: "/listing" }}>
 
       {/* NOTHING ABOVE THE SEARCH AND NOTHING BESIDE IT. The centred column and
           the empty space are the design: a directory homepage carrying six

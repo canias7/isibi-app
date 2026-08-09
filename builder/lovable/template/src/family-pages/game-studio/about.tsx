@@ -36,10 +36,10 @@ function P() {
       name="Six Weirs"
       tagline="What the game is, and the six things it is not."
       links={[
-        { label: "Home", href: "#/" },
-        { label: "Press kit", href: "#/press" },
+        { label: "Home", href: "/" },
+        { label: "Press kit", href: "/press" },
       ]}
-      action={{ label: "Wishlist on Steam", href: "#/" }}
+      action={{ label: "Wishlist on Steam", href: "/" }}
     >
       <div className="mx-auto max-w-5xl px-6 py-14">
         <h1 className="text-4xl font-semibold tracking-tight text-balance">About the game</h1>
@@ -159,9 +159,9 @@ function P() {
             </div>
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">The trailer and platforms</a>
+            <a className="underline underline-offset-4" href="/">The trailer and platforms</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/press">Press kit</a>
+            <a className="underline underline-offset-4" href="/press">Press kit</a>
           </p>
         </section>
       </div>

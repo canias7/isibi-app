@@ -37,8 +37,8 @@ export const RATES = [
 function P() {
   return (
     <SiteChrome name="Loxley Home Care" tagline="Care at home in west Sheffield. Employed carers, CQC Good."
-      links={[{ label: "What we do", href: "#/services" }, { label: "Arrange", href: "#/arrange" }, { label: "Rates", href: "#rates" }]}
-      action={{ label: "Arrange an assessment", href: "#/arrange" }}>
+      links={[{ label: "What we do", href: "/services" }, { label: "Arrange", href: "/arrange" }, { label: "Rates", href: "#rates" }]}
+      action={{ label: "Arrange an assessment", href: "/arrange" }}>
 
       <section className="border-b border-border">
         <div className="mx-auto max-w-6xl px-6 py-14">
@@ -91,7 +91,7 @@ function P() {
               </div>
             ))}
           </div>
-          <a className="mt-8 inline-block text-sm font-medium underline underline-offset-4" href="#/services">Every kind of care, in full →</a>
+          <a className="mt-8 inline-block text-sm font-medium underline underline-offset-4" href="/services">Every kind of care, in full →</a>
         </div>
       </section>
 

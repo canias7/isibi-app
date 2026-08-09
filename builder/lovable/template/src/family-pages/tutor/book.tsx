@@ -13,7 +13,7 @@ export const Route = createFileRoute("/book")({ component: P });
 function P() {
   return (
     <SiteChrome name="Cathy Bramwell" tagline="Maths and physics tutor, Sheffield. Fourteen years, eleven of them teaching."
-      links={[{ label: "Home", href: "#/" }, { label: "About me", href: "#/about" }]}
+      links={[{ label: "Home", href: "/" }, { label: "About me", href: "/about" }]}
       action={{ label: "Free trial lesson", href: "#form" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">

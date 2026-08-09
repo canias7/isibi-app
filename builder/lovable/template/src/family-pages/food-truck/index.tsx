@@ -63,8 +63,8 @@ function P() {
       name="Ewden Smokehouse"
       tagline="A converted horsebox and a barbecue. Sheffield, most days."
       links={[
-        { label: "The diary", href: "#/diary" },
-        { label: "Hire the van", href: "#/hire" },
+        { label: "The diary", href: "/diary" },
+        { label: "Hire the van", href: "/hire" },
         { label: "Questions", href: "#questions" },
       ]}
       action={{ label: "Where we are today", href: "#today" }}
@@ -86,7 +86,7 @@ function P() {
           </p>
           <div className="mt-8 flex flex-wrap items-center gap-4">
             <OpenNow hours={HOURS} />
-            <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#/diary">
+            <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="/diary">
               The rest of the month
             </a>
           </div>
@@ -154,7 +154,7 @@ function P() {
                 covers, we bring our own power, and we need to know about the ground before we
                 agree to anything.
               </p>
-              <a className="mt-6 inline-block rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#/hire">
+              <a className="mt-6 inline-block rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="/hire">
                 What it costs
               </a>
             </div>

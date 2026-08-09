@@ -11,7 +11,7 @@ import { Timeline } from "@/components/ui/timeline";
 export const Route = createFileRoute("/life")({ component: P });
 const CHROME = {
   name: "Kelham Works", tagline: "A 14-person product studio by the river.",
-  links: [{ label: "Open roles", href: "#/" }, { label: "The role", href: "#/role" }, { label: "Working here", href: "#/life" }],
+  links: [{ label: "Open roles", href: "/" }, { label: "The role", href: "/role" }, { label: "Working here", href: "/life" }],
 };
 function P() {
   return (
@@ -50,7 +50,7 @@ function P() {
           ]} />
         </section>
         <Testimonial className="mt-10" item={{ quote: "I took the pay cut to come here and un-took it within a year. The 32-hour summer is real — my allotment can confirm.", name: "Priya Chandra", role: "Engineer, year two" }} />
-        <p className="mt-10 rounded-xl border bg-muted/40 p-4 text-sm">Sound like yours? <a className="font-medium underline underline-offset-4" href="#/">Three chairs are open</a> — the senior design one is <a className="font-medium underline underline-offset-4" href="#/role">described in full here</a>.</p>
+        <p className="mt-10 rounded-xl border bg-muted/40 p-4 text-sm">Sound like yours? <a className="font-medium underline underline-offset-4" href="/">Three chairs are open</a> — the senior design one is <a className="font-medium underline underline-offset-4" href="/role">described in full here</a>.</p>
       </div>
     </SiteChrome>
   );

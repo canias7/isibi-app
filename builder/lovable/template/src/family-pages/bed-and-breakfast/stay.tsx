@@ -42,7 +42,7 @@ function P() {
   const [sent, setSent] = React.useState(false);
   return (
     <SiteChrome name="Thurgoland House" tagline="Four rooms above the Don valley. Breakfast until nine, and later if you ask."
-      links={[{ label: "Home", href: "#/" }, { label: "The rooms", href: "#/rooms" }]}
+      links={[{ label: "Home", href: "/" }, { label: "The rooms", href: "/rooms" }]}
       action={{ label: "Ring 01226 763 118", href: "tel:01226763118" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">

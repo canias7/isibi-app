@@ -27,8 +27,8 @@ function P() {
   };
   return (
     <SiteChrome name="Thrybergh Barn" tagline="A stone threshing barn for hire, ten minutes from Rotherham."
-      links={[{ label: "The spaces", href: "#/spaces" }, { label: "Enquire", href: "#/enquire" }, { label: "Find us", href: "#find-us" }]}
-      action={{ label: "Check a date", href: "#/enquire" }}>
+      links={[{ label: "The spaces", href: "/spaces" }, { label: "Enquire", href: "/enquire" }, { label: "Find us", href: "#find-us" }]}
+      action={{ label: "Check a date", href: "/enquire" }}>
 
       <section className="border-b border-border">
         {/* minmax(0,…) on BOTH tracks. A bare `1fr` is `minmax(auto, 1fr)`, so
@@ -67,7 +67,7 @@ function P() {
         <div className="flex flex-wrap items-end justify-between gap-3">
           <SectionHeader eyebrow="The spaces" title="What each room holds, and in what shape"
             description="A single capacity figure is right for one arrangement and wrong for the other five. These are the real numbers, checked against the fire certificate." />
-          <a className="text-sm font-medium underline underline-offset-4" href="#/spaces">Each room in full →</a>
+          <a className="text-sm font-medium underline underline-offset-4" href="/spaces">Each room in full →</a>
         </div>
         <CapacityTable className="mt-8" caption="Maximum in each layout" rooms={[
           {

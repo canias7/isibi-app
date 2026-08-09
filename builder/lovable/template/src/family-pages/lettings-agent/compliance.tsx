@@ -12,7 +12,7 @@ export const Route = createFileRoute("/compliance")({ component: P });
 function P() {
   return (
     <SiteChrome name="Sharrow Vale Lettings" tagline="Letting and managing 340 homes across south-west Sheffield since 2008."
-      links={[{ label: "Home", href: "#/" }, { label: "Landlords", href: "#/landlords" }]}
+      links={[{ label: "Home", href: "/" }, { label: "Landlords", href: "/landlords" }]}
       action={{ label: "Ring 0114 266 1180", href: "tel:01142661180" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">
@@ -100,19 +100,19 @@ function P() {
                 name: "Let only", price: "Yours", period: "all of it",
                 description: "We check the certificates exist before we advertise and will not market a property without them. After that it is your calendar.",
                 features: ["We refuse to advertise without gas, EICR and EPC", "Copies filed and given to the tenant", "No reminders after the tenancy starts"],
-                action: { label: "See the fees", href: "#/landlords" },
+                action: { label: "See the fees", href: "/landlords" },
               },
               {
                 name: "Rent collection", price: "Shared", period: "we remind, you book",
                 description: "You get a reminder eight weeks before anything expires, with the number of somebody who can do it.",
                 features: ["Eight-week expiry reminders", "How to Rent reissued on renewal", "Deposit registered and evidenced by us"],
-                action: { label: "See the fees", href: "#/landlords" },
+                action: { label: "See the fees", href: "/landlords" },
               },
               {
                 name: "Full management", price: "Ours", period: "booked and tracked", featured: true,
                 description: "We book it, let the tenant in, pay the invoice from the rent and file the certificate. You see it on the statement.",
                 features: ["Everything booked before expiry, never after", "Contractors we use every week, at trade rates with no mark-up", "C1 and C2 remedials quoted and done inside 28 days", "A compliance sheet per property, sent every January"],
-                action: { label: "See the fees", href: "#/landlords" },
+                action: { label: "See the fees", href: "/landlords" },
               },
             ]} />
           </div>

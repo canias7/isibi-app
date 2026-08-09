@@ -53,7 +53,7 @@ function P() {
           {rsvp === "yes" && <p className="mt-3 text-sm text-muted-foreground">Wonderful. Dietary things and the day's shape are on the travel page.</p>}
         </section>
 
-        <p className="mt-8 text-center text-sm"><a className="font-medium underline underline-offset-4" href="#/travel">Getting there, staying over →</a> · <a className="font-medium underline underline-offset-4" href="#/registry">gifts, if you must →</a></p>
+        <p className="mt-8 text-center text-sm"><a className="font-medium underline underline-offset-4" href="/travel">Getting there, staying over →</a> · <a className="font-medium underline underline-offset-4" href="/registry">gifts, if you must →</a></p>
 
         <section className="mt-12">
           <h2 className="text-lg font-medium">A few of us</h2>

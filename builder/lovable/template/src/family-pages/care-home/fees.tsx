@@ -13,8 +13,8 @@ export const Route = createFileRoute("/fees")({ component: P });
 function P() {
   return (
     <SiteChrome name="Rivelin Lodge" tagline="A 34-bed residential and dementia care home in Walkley, Sheffield."
-      links={[{ label: "Home", href: "#/" }, { label: "The rooms", href: "#/rooms" }]}
-      action={{ label: "Arrange a visit", href: "#/" }}>
+      links={[{ label: "Home", href: "/" }, { label: "The rooms", href: "/rooms" }]}
+      action={{ label: "Arrange a visit", href: "/" }}>
 
       <div className="mx-auto max-w-5xl px-6 py-14">
         <SectionHeader eyebrow="Fees" title="What it costs, and what happens when the money runs down"

@@ -129,6 +129,32 @@ for (const [label, prefix, port] of [["served at /s/<slug>/ (our domain)", "/s/d
     await page.goto(base + "/", { waitUntil: "networkidle", timeout: 30000 });
     ok("the home page renders", (await page.locator("#root *").count()) > 0);
 
+    // CLICKING THE NAV, which is a different assertion from navigating to the
+    // address — and the only one that would have caught the bug that arrived
+    // with browser history. Every nav link in the chrome was `href="#/book"`,
+    // correct under hash history and inert under this one: the fragment
+    // changes, no route matches, the page stays where it is. Every check below
+    // passed throughout, because each one types the URL in rather than pressing
+    // the thing a visitor presses.
+    {
+      const before = page.url();
+      await page.getByRole("link", { name: "Book a chair" }).first().click();
+      await page.waitForLoadState("networkidle");
+      ok("clicking the header CTA actually navigates", page.url() !== before,
+        "still at " + page.url());
+      ok("…and lands on the book page, not a fragment of the home page",
+        !page.url().includes("#") && /\/book$/.test(page.url()), page.url());
+      // ANCHORED ON TEXT ONLY THE BOOK PAGE HAS. The obvious string is "Book a
+      // chair" — and that is the label of the button just clicked, so it is on
+      // the HOME page too and the assertion passed while the click did nothing.
+      // Caught by mutation: two of these three went red against the restored
+      // bug and this one did not.
+      const clicked = await page.locator("#root").innerText();
+      ok("…and the BOOK route rendered", /Anything else\?/i.test(clicked),
+        clicked.slice(0, 140).replace(/\s+/g, " "));
+      await page.goBack({ waitUntil: "networkidle" });
+    }
+
     await page.goto(base + "/book", { waitUntil: "networkidle", timeout: 30000 });
     ok("a deep link renders instead of 404ing", (await page.locator("#root *").count()) > 0);
     ok("and its address carries no #", !page.url().includes("#"), page.url());

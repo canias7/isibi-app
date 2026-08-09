@@ -46,10 +46,10 @@ function P() {
       name="Hollin Busk Nursery"
       tagline="What is in now, what is coming, and when each thing should go in."
       links={[
-        { label: "This month", href: "#/" },
-        { label: "Visiting", href: "#/visit" },
+        { label: "This month", href: "/" },
+        { label: "Visiting", href: "/visit" },
       ]}
-      action={{ label: "Plan a visit", href: "#/visit" }}
+      action={{ label: "Plan a visit", href: "/visit" }}
     >
       <div className="mx-auto max-w-6xl px-6 py-16">
         <h1 className="text-5xl font-semibold tracking-tight text-balance">What is in</h1>
@@ -155,9 +155,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">This month's advice</a>
+            <a className="underline underline-offset-4" href="/">This month's advice</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/visit">Getting here</a>
+            <a className="underline underline-offset-4" href="/visit">Getting here</a>
           </p>
         </section>
       </div>

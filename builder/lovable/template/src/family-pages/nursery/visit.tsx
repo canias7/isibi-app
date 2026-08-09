@@ -14,7 +14,7 @@ export const Route = createFileRoute("/visit")({ component: P });
 function P() {
   return (
     <SiteChrome name="Bole Hills Nursery" tagline="A 42-place nursery and pre-school in Walkley, Sheffield."
-      links={[{ label: "Home", href: "#/" }, { label: "A day here", href: "#/day" }]}
+      links={[{ label: "Home", href: "/" }, { label: "A day here", href: "/day" }]}
       action={{ label: "Book a visit", href: "#book" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">

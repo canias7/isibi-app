@@ -23,8 +23,8 @@ export const NOW = [
 function P() {
   return (
     <SiteChrome name="Hillsborough Leisure" tagline="Pool, courts, gym and a climbing wall, on Penistone Road."
-      links={[{ label: "Book a slot", href: "#/book" }, { label: "Membership", href: "#/membership" }, { label: "Find us", href: "#find-us" }]}
-      action={{ label: "Book a slot", href: "#/book" }}>
+      links={[{ label: "Book a slot", href: "/book" }, { label: "Membership", href: "/membership" }, { label: "Find us", href: "#find-us" }]}
+      action={{ label: "Book a slot", href: "/book" }}>
 
       <section className="border-b border-border">
         <div className="mx-auto max-w-6xl px-6 py-14">
@@ -40,8 +40,8 @@ function P() {
                 membership.
               </p>
               <div className="mt-7 flex flex-wrap gap-3">
-                <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#/book">Book a slot</a>
-                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#/membership">Is joining worth it?</a>
+                <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="/book">Book a slot</a>
+                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="/membership">Is joining worth it?</a>
               </div>
             </div>
             {/* THE WHOLE FAMILY, in one component and above everything else. */}
@@ -68,7 +68,7 @@ function P() {
         <p className="mt-6 max-w-2xl text-sm text-muted-foreground">
           There is no joining fee and no contract on any of this. If you come more than about eight
           times a month, membership is cheaper — the arithmetic is on{" "}
-          <a className="underline underline-offset-4" href="#/membership">the membership page</a>{" "}
+          <a className="underline underline-offset-4" href="/membership">the membership page</a>{" "}
           and it will tell you honestly when it is not.
         </p>
       </section>

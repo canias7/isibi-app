@@ -21,8 +21,8 @@ const HOURS = [
 function P() {
   return (
     <SiteChrome name="Forge Gyms" tagline="Four gyms, one membership, no contracts."
-      links={[{ label: "Kelham", href: "#/location" }, { label: "Memberships", href: "#/memberships" }]}
-      action={{ label: "Join — £24.99", href: "#/memberships" }}>
+      links={[{ label: "Kelham", href: "/location" }, { label: "Memberships", href: "/memberships" }]}
+      action={{ label: "Join — £24.99", href: "/memberships" }}>
 
       <div className="mx-auto grid max-w-6xl gap-10 px-6 py-10 md:grid-cols-2">
         {/* LEFT — pinned: the question this site exists to answer. */}
@@ -38,7 +38,7 @@ function P() {
               { id: 3, name: "Forge Hillsborough", address: "Langsett Road, S6 2LW", distance: "2.3 mi", open: false, hoursNote: "Opens 6am · pool" },
               { id: 4, name: "Forge Crystal Peaks", address: "Ochre Dike Lane, S20 7HB", distance: "6.1 mi", open: true, phone: "0114 399 0400" }]} />
           </div>
-          <p className="mt-3 text-sm text-muted-foreground">One membership works at all four — every plan, every hour. <a className="font-medium underline underline-offset-4" href="#/location">Kelham's own page →</a></p>
+          <p className="mt-3 text-sm text-muted-foreground">One membership works at all four — every plan, every hour. <a className="font-medium underline underline-offset-4" href="/location">Kelham's own page →</a></p>
         </div>
 
         {/* RIGHT — everything else, scrolling past the pinned answer. */}
@@ -67,9 +67,9 @@ function P() {
           <div>
             <h2 className="text-lg font-medium">The two plans</h2>
             <PricingTable className="mt-4" tiers={[
-              { name: "Off-peak", price: "£17.99", period: "month", features: ["Weekdays 9–4 + weekends", "All four gyms"], action: { label: "Join off-peak", href: "#/memberships" } },
-              { name: "Anytime", price: "£24.99", period: "month", featured: true, features: ["Every hour we're open", "Guests on Sundays"], action: { label: "Join anytime", href: "#/memberships" } }]} />
-            <p className="mt-3 text-sm"><a className="font-medium underline underline-offset-4" href="#/memberships">The fine print, as a table →</a></p>
+              { name: "Off-peak", price: "£17.99", period: "month", features: ["Weekdays 9–4 + weekends", "All four gyms"], action: { label: "Join off-peak", href: "/memberships" } },
+              { name: "Anytime", price: "£24.99", period: "month", featured: true, features: ["Every hour we're open", "Guests on Sundays"], action: { label: "Join anytime", href: "/memberships" } }]} />
+            <p className="mt-3 text-sm"><a className="font-medium underline underline-offset-4" href="/memberships">The fine print, as a table →</a></p>
           </div>
           <div>
             <h2 className="text-lg font-medium">Inside the four</h2>

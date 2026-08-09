@@ -23,7 +23,7 @@ function P() {
   const [sent, setSent] = React.useState(false);
   return (
     <SiteChrome name="Attercliffe Catering Supplies" tagline="Dry goods, chilled and disposables to independent kitchens across South Yorkshire."
-      links={[{ label: "Home", href: "#/" }, { label: "The range", href: "#/range" }]}
+      links={[{ label: "Home", href: "/" }, { label: "The range", href: "/range" }]}
       action={{ label: "Ring 0114 244 8810", href: "tel:01142448810" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">
@@ -76,9 +76,9 @@ function P() {
 
             <div className="mt-8 space-y-3">
               <DownloadCard name="Account application.pdf" size={210_000}
-                description="If you would rather do it on paper — post or bring it" href="#/account" />
+                description="If you would rather do it on paper — post or bring it" href="/account" />
               <DownloadCard name="Terms and conditions of sale.pdf" size={180_000}
-                description="Four pages, and there is nothing clever in them" href="#/account" />
+                description="Four pages, and there is nothing clever in them" href="/account" />
             </div>
           </div>
 

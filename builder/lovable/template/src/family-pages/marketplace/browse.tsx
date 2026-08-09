@@ -32,8 +32,8 @@ function P() {
   const shown = THINGS.filter((t) => !q.trim() || (t.name + t.maker).toLowerCase().includes(q.toLowerCase()));
   return (
     <SiteChrome name="Made Round Here" tagline="A marketplace for things made within fifty miles of Sheffield."
-      links={[{ label: "Home", href: "#/" }, { label: "Sell with us", href: "#/sell" }]}
-      action={{ label: "Sell with us", href: "#/sell" }}>
+      links={[{ label: "Home", href: "/" }, { label: "Sell with us", href: "/sell" }]}
+      action={{ label: "Sell with us", href: "/sell" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">
         <SectionHeader eyebrow="Browse" title="Nine thousand things, made by four hundred people"
@@ -63,7 +63,7 @@ function P() {
         {!shown.length && (
           <p className="mt-10 text-base text-muted-foreground">
             Nothing matches that. Try a material rather than a product — "oak", "willow", "linen" —
-            or <a className="underline underline-offset-4" href="#/browse">clear the search</a>.
+            or <a className="underline underline-offset-4" href="/browse">clear the search</a>.
           </p>
         )}
 
@@ -71,7 +71,7 @@ function P() {
           <SectionHeader eyebrow="Or by maker" title="Start with the person instead"
             description="Plenty of people find a maker they like and buy everything from them. That is the point." />
           <div className="mt-8 grid gap-x-10 gap-y-8 md:grid-cols-2 lg:grid-cols-3">
-            {MAKERS.map((m) => <SellerCard key={m.name} {...m} href="#/browse" />)}
+            {MAKERS.map((m) => <SellerCard key={m.name} {...m} href="/browse" />)}
           </div>
         </section>
       </div>

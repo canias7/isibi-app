@@ -15,7 +15,7 @@ export const Route = createFileRoute("/")({ component: P });
 function P() {
   return (
     <SiteChrome name="Snicket" tagline="Walking routes that prefer the alleys."
-      links={[{ label: "Pricing", href: "#/pricing" }, { label: "Support", href: "#/support" }]}
+      links={[{ label: "Pricing", href: "/pricing" }, { label: "Support", href: "/support" }]}
       action={{ label: "Download", href: "#get" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-10">
@@ -49,7 +49,7 @@ function P() {
           { span: 2, content: (
             <div className="flex h-full items-center justify-between gap-4">
               <div><p className="font-medium">Wanderer — £2.50 a month</p><p className="mt-1 text-sm text-muted-foreground">Unlimited routes, everywhere offline, quiet-first routing.</p></div>
-              <a className="shrink-0 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground" href="#/pricing">Compare plans</a>
+              <a className="shrink-0 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground" href="/pricing">Compare plans</a>
             </div>
           ) },
         ]} />
@@ -66,7 +66,7 @@ function P() {
         <PricingTable className="mt-8" tiers={[
           { name: "Free", price: "£0", features: ["Three saved routes", "One city offline", "Quiet scores everywhere"], action: { label: "Get the app", href: "#get" } },
           { name: "Wanderer", price: "£2.50", period: "month", featured: true, features: ["Unlimited routes", "Everywhere offline", "Quiet-first routing", "Route history"], action: { label: "Start free month", href: "#get" } }]} />
-        <p className="mt-4 text-center text-sm"><a className="underline underline-offset-4" href="#/pricing">Every difference, feature by feature →</a></p>
+        <p className="mt-4 text-center text-sm"><a className="underline underline-offset-4" href="/pricing">Every difference, feature by feature →</a></p>
       </section>
 
       <section className="mx-auto max-w-2xl px-6 pb-14">

@@ -40,8 +40,8 @@ function P() {
       name="Six Weirs"
       tagline="Press kit — everything downloadable, nothing behind an email."
       links={[
-        { label: "Home", href: "#/" },
-        { label: "About the game", href: "#/about" },
+        { label: "Home", href: "/" },
+        { label: "About the game", href: "/about" },
       ]}
       action={{ label: "Ask for a key", href: "#contact" }}
     >
@@ -169,9 +169,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">The trailer</a>
+            <a className="underline underline-offset-4" href="/">The trailer</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/about">What the game is</a>
+            <a className="underline underline-offset-4" href="/about">What the game is</a>
           </p>
         </section>
       </div>

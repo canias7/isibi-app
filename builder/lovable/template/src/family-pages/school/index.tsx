@@ -19,10 +19,10 @@ export const Route = createFileRoute("/")({ component: P });
 
 const RAIL = [
   { href: "#absence", label: "Report an absence", note: "Before 09:15, every morning" },
-  { href: "#/term-dates", label: "Term dates", note: "Including every INSET day" },
-  { href: "#/news", label: "Newsletter and letters", note: "Every letter home, kept" },
+  { href: "/term-dates", label: "Term dates", note: "Including every INSET day" },
+  { href: "/news", label: "Newsletter and letters", note: "Every letter home, kept" },
   { href: "#week", label: "This week", note: "What each year group needs" },
-  { href: "#/admissions", label: "Admissions", note: "For families joining us" },
+  { href: "/admissions", label: "Admissions", note: "For families joining us" },
 ];
 
 const WEEK = [
@@ -39,13 +39,13 @@ function P() {
       name="Bolsterstone Primary"
       tagline="A one-form entry village school for 4 to 11 year olds."
       links={[
-        { label: "Term dates", href: "#/term-dates" },
-        { label: "News", href: "#/news" },
-        { label: "Admissions", href: "#/admissions" },
+        { label: "Term dates", href: "/term-dates" },
+        { label: "News", href: "/news" },
+        { label: "Admissions", href: "/admissions" },
       ]}
       action={{ label: "Report an absence", href: "tel:01142883014" }}
     >
-      <AnnouncementBar href="#/term-dates">
+      <AnnouncementBar href="/term-dates">
         Friday 5 September is an INSET day — school is closed to pupils. It is the only closure
         this half term and it is on the term dates page with the rest of the year.
       </AnnouncementBar>
@@ -168,7 +168,7 @@ function P() {
                 ]}
               />
             </div>
-            <a className="mt-5 inline-block text-sm underline underline-offset-4" href="#/term-dates">
+            <a className="mt-5 inline-block text-sm underline underline-offset-4" href="/term-dates">
               Next year's dates as well
             </a>
           </section>

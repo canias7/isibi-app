@@ -48,8 +48,8 @@ const SIDES = [
 function P() {
   return (
     <SiteChrome name="Walkley Wanderers" tagline="Four teams, one pitch, Sheffield & Hallamshire League."
-      links={[{ label: "Home", href: "#/" }, { label: "Join", href: "#/join" }]}
-      action={{ label: "Join the club", href: "#/join" }}>
+      links={[{ label: "Home", href: "/" }, { label: "Join", href: "/join" }]}
+      action={{ label: "Join the club", href: "/join" }}>
       <div className="mx-auto max-w-6xl px-6 py-14">
         <SectionHeader eyebrow="The teams" title="Four sides, one pitch"
           description="Everybody trains at Rowel Bridge and everybody gets the same kit. That is a decision, not an accident." />

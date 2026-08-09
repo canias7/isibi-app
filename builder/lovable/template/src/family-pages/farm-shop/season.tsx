@@ -25,8 +25,8 @@ const MONTHS = [
 function P() {
   return (
     <SiteChrome name="Hollin Busk Farm Shop" tagline="A working farm and shop above Stocksbridge, growing on eleven acres."
-      links={[{ label: "Home", href: "#/" }, { label: "Order a box", href: "#/order" }]}
-      action={{ label: "Order a box", href: "#/order" }}>
+      links={[{ label: "Home", href: "/" }, { label: "Order a box", href: "/order" }]}
+      action={{ label: "Order a box", href: "/order" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">
         <SectionHeader eyebrow="The year" title="Twelve months, and what is really there"

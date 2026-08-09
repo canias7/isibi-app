@@ -38,10 +38,10 @@ function P() {
       name="Neepsend Print & Sign"
       tagline="Every stock, every finish, and what each size actually looks like."
       links={[
-        { label: "Prices", href: "#/" },
-        { label: "Send artwork", href: "#/quote" },
+        { label: "Prices", href: "/" },
+        { label: "Send artwork", href: "/quote" },
       ]}
-      action={{ label: "Send artwork", href: "#/quote" }}
+      action={{ label: "Send artwork", href: "/quote" }}
     >
       <div className="mx-auto grid max-w-6xl gap-10 px-6 py-12 lg:grid-cols-[15rem_1fr]">
         <aside className="lg:sticky lg:top-24 lg:self-start">
@@ -58,7 +58,7 @@ function P() {
           <div className="mt-6">
             <TurnaroundNote from={3} to={5} busyNote="Correx at 7–8 days until mid-September" />
           </div>
-          <a className="mt-5 inline-block rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground" href="#/quote">
+          <a className="mt-5 inline-block rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground" href="/quote">
             Send artwork
           </a>
         </aside>
@@ -289,9 +289,9 @@ function P() {
               />
             </div>
             <p className="mt-8 text-sm text-muted-foreground">
-              <a className="underline underline-offset-4" href="#/">Quantity breaks and prices</a>
+              <a className="underline underline-offset-4" href="/">Quantity breaks and prices</a>
               {" · "}
-              <a className="underline underline-offset-4" href="#/quote">Send artwork</a>
+              <a className="underline underline-offset-4" href="/quote">Send artwork</a>
             </p>
           </section>
         </div>

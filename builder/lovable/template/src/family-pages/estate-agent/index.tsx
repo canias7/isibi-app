@@ -27,8 +27,8 @@ function P() {
   const [sort, setSort] = useState("newest");
   return (
     <SiteChrome name="Loxley Lets" tagline="Rentals across the west of the city."
-      links={[{ label: "Tenants", href: "#results" }, { label: "Landlords", href: "#/landlords" }]}
-      action={{ label: "Value my property", href: "#/landlords" }}>
+      links={[{ label: "Tenants", href: "#results" }, { label: "Landlords", href: "/landlords" }]}
+      action={{ label: "Value my property", href: "/landlords" }}>
 
       {/* The search strip is the whole header story — results start at once. */}
       <div className="border-b border-border bg-muted/40">
@@ -47,13 +47,13 @@ function P() {
 
       <div id="results" className="mx-auto max-w-6xl px-6 py-8">
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {HOMES.map((h) => <PropertyCard key={h.address} {...h} href="#/listing" image={null} />)}
+          {HOMES.map((h) => <PropertyCard key={h.address} {...h} href="/listing" image={null} />)}
         </div>
         <div className="mt-8 flex items-center justify-between border-t border-border pt-5 text-sm text-muted-foreground">
           <span>Showing 9 of 34 — new homes most weekday mornings</span>
           <a className="font-medium text-foreground underline underline-offset-4" href="#results">Next page →</a>
         </div>
-        <p className="mt-10 rounded-lg border bg-muted/40 p-4 text-sm">Own a property round here? We manage 240 homes within three miles — <a className="font-medium underline underline-offset-4" href="#/landlords">see what yours would let for →</a></p>
+        <p className="mt-10 rounded-lg border bg-muted/40 p-4 text-sm">Own a property round here? We manage 240 homes within three miles — <a className="font-medium underline underline-offset-4" href="/landlords">see what yours would let for →</a></p>
       </div>
     </SiteChrome>
   );

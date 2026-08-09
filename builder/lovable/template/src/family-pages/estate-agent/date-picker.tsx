@@ -54,7 +54,7 @@ function P() {
   ];
   return (
     <SiteChrome name="Dales Lets" tagline="Twenty-two cottages, barns and huts in Upper Wharfedale. Booked direct."
-      links={[{ label: "One cottage", href: "#/listing" }, { label: "Owners", href: "#/landlords" }]}
+      links={[{ label: "One cottage", href: "/listing" }, { label: "Owners", href: "/landlords" }]}
       action={{ label: "Ring 01756 760 210", href: "tel:01756760210" }}>
 
       {/* DATES BEFORE ANY RESULT. A property with no dates has no price and may
@@ -154,7 +154,7 @@ function P() {
                     {/* THE PRICE IS FOR THE DATES, not a nightly rate the
                         reader has to multiply. That is the whole reason dates
                         come first — "from £132" answers nothing. */}
-                    <PropertyCard href="#/listing" image={null}
+                    <PropertyCard href="/listing" image={null}
                       price={`£${l.perNight * nights} for ${nights} nights`}
                       address={`${l.name}, ${l.where}`}
                       beds={l.beds} baths={l.baths}

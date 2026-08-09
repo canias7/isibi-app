@@ -28,8 +28,8 @@ function P() {
   const buying = side === "buy";
   return (
     <SiteChrome name="Made Round Here" tagline="A marketplace for things made within fifty miles of Sheffield."
-      links={[{ label: "Browse", href: "#/browse" }, { label: "Sell with us", href: "#/sell" }]}
-      action={{ label: buying ? "Browse everything" : "Start selling", href: buying ? "#/browse" : "#/sell" }}>
+      links={[{ label: "Browse", href: "/browse" }, { label: "Sell with us", href: "/sell" }]}
+      action={{ label: buying ? "Browse everything" : "Start selling", href: buying ? "/browse" : "/sell" }}>
 
       <section className="border-b border-border">
         <div className="mx-auto max-w-6xl px-6 py-14">
@@ -53,12 +53,12 @@ function P() {
               {buying ? (
                 <div className="mt-7 max-w-md">
                   <SearchInput value={q} onChange={setQ} placeholder="Pottery, oak, aprons, Bakewell…" />
-                  <p className="mt-2 text-sm text-muted-foreground">Or <a className="underline underline-offset-4" href="#/browse">browse everything</a>.</p>
+                  <p className="mt-2 text-sm text-muted-foreground">Or <a className="underline underline-offset-4" href="/browse">browse everything</a>.</p>
                 </div>
               ) : (
                 <div className="mt-7 flex flex-wrap gap-3">
-                  <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#/sell">Start selling</a>
-                  <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#/sell">See the fees in full</a>
+                  <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="/sell">Start selling</a>
+                  <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="/sell">See the fees in full</a>
                 </div>
               )}
               <StatsBand className="mt-8" items={buying ? [
@@ -100,10 +100,10 @@ function P() {
           <div className="flex flex-wrap items-end justify-between gap-3">
             <SectionHeader eyebrow="The makers" title="People, not stock"
               description="A rating always carries the number of sales it came from. 4.9 from three sales and 4.9 from four hundred are different facts." />
-            <a className="text-sm font-medium underline underline-offset-4" href="#/browse">All 412 makers →</a>
+            <a className="text-sm font-medium underline underline-offset-4" href="/browse">All 412 makers →</a>
           </div>
           <div className="mt-8 grid gap-x-10 gap-y-8 md:grid-cols-2 lg:grid-cols-3">
-            {MAKERS.map((m) => <SellerCard key={m.name} {...m} href="#/browse" />)}
+            {MAKERS.map((m) => <SellerCard key={m.name} {...m} href="/browse" />)}
           </div>
         </div>
       </section>

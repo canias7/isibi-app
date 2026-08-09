@@ -20,9 +20,9 @@ import { Faq } from "@/components/ui/faq";
 export const Route = createFileRoute("/")({ component: P });
 
 const NAV = [
-  { href: "#/borrow", label: "Borrowing", note: "Loans from £500 to £15,000" },
-  { href: "#/save", label: "Saving", note: "Four accounts, all instant access or better" },
-  { href: "#/join", label: "Joining", note: "Who can, and what to bring" },
+  { href: "/borrow", label: "Borrowing", note: "Loans from £500 to £15,000" },
+  { href: "/save", label: "Saving", note: "Four accounts, all instant access or better" },
+  { href: "/join", label: "Joining", note: "Who can, and what to bring" },
 ];
 
 function P() {
@@ -31,11 +31,11 @@ function P() {
       name="Sheffield Steel Credit Union"
       tagline="A member-owned lender for anyone who lives or works in S1–S36."
       links={[
-        { label: "Borrow", href: "#/borrow" },
-        { label: "Save", href: "#/save" },
-        { label: "Join", href: "#/join" },
+        { label: "Borrow", href: "/borrow" },
+        { label: "Save", href: "/save" },
+        { label: "Join", href: "/join" },
       ]}
-      action={{ label: "Apply to join", href: "#/join" }}
+      action={{ label: "Apply to join", href: "/join" }}
     >
       <div className="mx-auto grid max-w-6xl gap-10 px-6 py-14 lg:grid-cols-[minmax(0,15rem)_1fr]">
         {/* The rail IS the rate navigation — borrow and save are two halves of
@@ -106,7 +106,7 @@ function P() {
                 caption="Missing a payment does not incur a charge. It does affect what you can borrow next, and we will ring you rather than write."
               />
             </div>
-            <a className="mt-5 inline-block text-sm underline underline-offset-4" href="#/borrow">
+            <a className="mt-5 inline-block text-sm underline underline-offset-4" href="/borrow">
               Every loan, with a repayment preview
             </a>
           </section>
@@ -136,7 +136,7 @@ function P() {
                 ]}
               />
             </div>
-            <a className="mt-5 inline-block text-sm underline underline-offset-4" href="#/save">
+            <a className="mt-5 inline-block text-sm underline underline-offset-4" href="/save">
               All four savings accounts
             </a>
           </section>
@@ -156,7 +156,7 @@ function P() {
                 applyNote="Joining takes about ten minutes at the counter and there is no credit check to become a member."
               />
             </div>
-            <a className="mt-5 inline-block text-sm underline underline-offset-4" href="#/join">
+            <a className="mt-5 inline-block text-sm underline underline-offset-4" href="/join">
               What to bring
             </a>
           </section>

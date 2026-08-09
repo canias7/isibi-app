@@ -69,7 +69,7 @@ const CHROME = {
     { label: "Find us", href: "#find-us" },
     { label: "0114 270 0000", href: "tel:+441142700000" },
   ],
-  action: { label: "Book a chair", href: "#/book" },
+  action: { label: "Book a chair", href: "/book" },
 };
 
 // The shop's own facts. Anything the owner will never edit from a form belongs
@@ -93,7 +93,7 @@ function Home() {
       <Hero
         title="Barbering on Cutler Row since 2014"
         subtitle="Six barbers, no appointment needed on weekdays. Walk in before eleven, or book a chair."
-        primary={{ label: "Book a chair", href: "#/book" }}
+        primary={{ label: "Book a chair", href: "/book" }}
         secondary={{ label: "Call 0114 270 0000", href: "tel:+441142700000" }}
       />
 
@@ -242,7 +242,7 @@ function Home() {
         <CtaBand
           title="A chair is usually free the same day"
           description="Book in thirty seconds. We'll call to confirm."
-          action={{ label: "Book a chair", href: "#/book" }}
+          action={{ label: "Book a chair", href: "/book" }}
         />
       </section>
     </SiteChrome>

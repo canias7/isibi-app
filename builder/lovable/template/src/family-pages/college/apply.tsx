@@ -14,8 +14,8 @@ import { SuccessPanel } from "@/components/ui/success-panel";
 export const Route = createFileRoute("/apply")({ component: P });
 const CHROME = {
   name: "Rivelin College", tagline: "A sixth-form college in the Rivelin valley.",
-  links: [{ label: "Home", href: "#/" }, { label: "Visit us", href: "#/visit" }],
-  action: { label: "Apply", href: "#/apply" },
+  links: [{ label: "Home", href: "/" }, { label: "Visit us", href: "/visit" }],
+  action: { label: "Apply", href: "/apply" },
 };
 function P() {
   const [name, setName] = useState("");
@@ -38,7 +38,7 @@ function P() {
         <section className="mt-10">
           <h2 className="text-lg font-medium">Start the application</h2>
           {sent ? (
-            <SuccessPanel className="mt-4" title="Application started" description="We've emailed you a link to finish it — save the email; the link is your application." action={{ label: "Book an open evening too", href: "#/visit" }} />
+            <SuccessPanel className="mt-4" title="Application started" description="We've emailed you a link to finish it — save the email; the link is your application." action={{ label: "Book an open evening too", href: "/visit" }} />
           ) : (
             <div className="mt-4 grid gap-4">
               <div className="grid gap-4 sm:grid-cols-2">

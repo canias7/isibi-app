@@ -29,7 +29,7 @@ function P() {
             { title: "Next July", description: "The renewal letter goes out four weeks before expiry." },
           ]} />
         </section>
-        <p className="mt-8 text-sm text-muted-foreground">Check on it any time at <a className="font-medium underline underline-offset-4" href="#/status">application status</a>.</p>
+        <p className="mt-8 text-sm text-muted-foreground">Check on it any time at <a className="font-medium underline underline-offset-4" href="/status">application status</a>.</p>
       </main>
     </div>
   );

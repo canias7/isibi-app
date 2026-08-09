@@ -26,10 +26,10 @@ function P() {
       name="Hollin Busk Allotments"
       tagline="Three sizes, and the honest hours each one takes."
       links={[
-        { label: "The wait", href: "#/" },
-        { label: "The rules", href: "#/rules" },
+        { label: "The wait", href: "/" },
+        { label: "The rules", href: "/rules" },
       ]}
-      action={{ label: "Join the waiting list", href: "#/" }}
+      action={{ label: "Join the waiting list", href: "/" }}
     >
       <div className="mx-auto max-w-4xl px-6 py-14">
         <h1 className="text-4xl font-semibold tracking-tight text-balance">The plots</h1>
@@ -177,9 +177,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">The wait, and joining the list</a>
+            <a className="underline underline-offset-4" href="/">The wait, and joining the list</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/rules">The tenancy in plain words</a>
+            <a className="underline underline-offset-4" href="/rules">The tenancy in plain words</a>
           </p>
         </section>
       </div>

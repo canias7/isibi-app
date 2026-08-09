@@ -62,10 +62,10 @@ function P() {
       name="Attercliffe Security"
       tagline="What each thing does, and what it does not."
       links={[
-        { label: "Response", href: "#/" },
-        { label: "Monitoring", href: "#/monitoring" },
+        { label: "Response", href: "/" },
+        { label: "Monitoring", href: "/monitoring" },
       ]}
-      action={{ label: "Book a survey", href: "#/" }}
+      action={{ label: "Book a survey", href: "/" }}
     >
       <div className="mx-auto max-w-5xl px-6 py-14">
         <h1 className="text-4xl font-semibold tracking-tight text-balance">Systems</h1>
@@ -166,9 +166,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">The response time</a>
+            <a className="underline underline-offset-4" href="/">The response time</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/monitoring">Monitoring and false alarms</a>
+            <a className="underline underline-offset-4" href="/monitoring">Monitoring and false alarms</a>
           </p>
         </section>
       </div>

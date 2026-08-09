@@ -37,10 +37,10 @@ function P() {
       name="Neepsend Cycles"
       tagline="What a service actually includes, and how long the wait is."
       links={[
-        { label: "Home", href: "#/" },
-        { label: "Bikes in stock", href: "#/bikes" },
+        { label: "Home", href: "/" },
+        { label: "Bikes in stock", href: "/bikes" },
       ]}
-      action={{ label: "Bikes in stock", href: "#/bikes" }}
+      action={{ label: "Bikes in stock", href: "/bikes" }}
     >
       <div className="mx-auto max-w-5xl px-6 py-14">
         <h1 className="text-4xl font-semibold tracking-tight text-balance">The workshop</h1>
@@ -153,9 +153,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">Stock and the wait</a>
+            <a className="underline underline-offset-4" href="/">Stock and the wait</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/bikes">Bikes and sizing</a>
+            <a className="underline underline-offset-4" href="/bikes">Bikes and sizing</a>
           </p>
         </section>
       </div>

@@ -12,7 +12,7 @@ import { SuccessPanel } from "@/components/ui/success-panel";
 export const Route = createFileRoute("/join")({ component: P });
 const CHROME = {
   name: "Walkley Library", tagline: "Volunteer-run since 2014. Everyone welcome, no card needed to sit.",
-  links: [{ label: "Hours & papers", href: "#/" }, { label: "What's on", href: "#/events" }, { label: "Join", href: "#/join" }],
+  links: [{ label: "Hours & papers", href: "/" }, { label: "What's on", href: "/events" }, { label: "Join", href: "/join" }],
 };
 function P() {
   const [name, setName] = useState("");
@@ -34,7 +34,7 @@ function P() {
         <section className="mt-8 rounded-xl border bg-muted/40 p-5">
           <h2 className="text-lg font-medium">Start it here, finish at the desk</h2>
           {sent ? (
-            <SuccessPanel className="mt-4" title="You're nearly a member" description="Show anything with your address at the desk and the card is printed while you wait. It works the same minute." action={{ label: "See what's on this month", href: "#/events" }} />
+            <SuccessPanel className="mt-4" title="You're nearly a member" description="Show anything with your address at the desk and the card is printed while you wait. It works the same minute." action={{ label: "See what's on this month", href: "/events" }} />
           ) : (
             <div className="mt-4 grid gap-4">
               <div className="grid gap-4 sm:grid-cols-2">
@@ -46,7 +46,7 @@ function P() {
                 </FormRow>
               </div>
               <BusyButton className="w-fit" disabled={!name || !postcode} onClick={() => setSent(true)}>Start my card</BusyButton>
-              <p className="text-xs text-muted-foreground">Rather do the whole thing in person? Just come in — <a className="font-medium underline underline-offset-4" href="#/">the hours are on the front page</a>.</p>
+              <p className="text-xs text-muted-foreground">Rather do the whole thing in person? Just come in — <a className="font-medium underline underline-offset-4" href="/">the hours are on the front page</a>.</p>
             </div>
           )}
         </section>

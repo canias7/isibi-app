@@ -48,8 +48,8 @@ const ROOMS = [
 function P() {
   return (
     <SiteChrome name="Wren Cottage" tagline="A two-bedroom stone cottage above Hathersage, in the Peak District."
-      links={[{ label: "Home", href: "#/" }, { label: "Round about", href: "#/area" }]}
-      action={{ label: "Check availability", href: "#/" }}>
+      links={[{ label: "Home", href: "/" }, { label: "Round about", href: "/area" }]}
+      action={{ label: "Check availability", href: "/" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">
         <SectionHeader eyebrow="The rooms" title="Six rooms, described honestly"
@@ -93,7 +93,7 @@ function P() {
         <section className="mt-14">
           <CtaBand title="Still sounds right?"
             description="The calendar has every night and every price on it, so you can work the week out yourself."
-            action={{ label: "See what is free", href: "#/" }} />
+            action={{ label: "See what is free", href: "/" }} />
         </section>
       </div>
     </SiteChrome>

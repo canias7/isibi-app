@@ -1079,7 +1079,7 @@ const CHROME = {
     { label: "Find us", href: "#find-us" },
     { label: "0114 270 0000", href: "tel:+441142700000" },
   ],
-  action: { label: "Book a chair", href: "#/book" },
+  action: { label: "Book a chair", href: "/book" },
 };
 
 // The shop's own facts. Anything the owner will never edit from a form belongs
@@ -1103,7 +1103,7 @@ function Home() {
       <Hero
         title="Barbering on Cutler Row since 2014"
         subtitle="Six barbers, no appointment needed on weekdays. Walk in before eleven, or book a chair."
-        primary={{ label: "Book a chair", href: "#/book" }}
+        primary={{ label: "Book a chair", href: "/book" }}
         secondary={{ label: "Call 0114 270 0000", href: "tel:+441142700000" }}
       />
 
@@ -1252,7 +1252,7 @@ function Home() {
         <CtaBand
           title="A chair is usually free the same day"
           description="Book in thirty seconds. We'll call to confirm."
-          action={{ label: "Book a chair", href: "#/book" }}
+          action={{ label: "Book a chair", href: "/book" }}
         />
       </section>
     </SiteChrome>
@@ -1328,11 +1328,11 @@ const CHROME = {
   name: "Cutler Row",
   tagline: "Six chairs on Cutler Row. Walk in, or book one.",
   links: [
-    { label: "Home", href: "#/" },
-    { label: "Book", href: "#/book" },
-    { label: "Account", href: "#/account" },
+    { label: "Home", href: "/" },
+    { label: "Book", href: "/book" },
+    { label: "Account", href: "/account" },
   ],
-  action: { label: "Book a chair", href: "#/book" },
+  action: { label: "Book a chair", href: "/book" },
 };
 
 const SLOTS = [
@@ -1610,11 +1610,11 @@ const CHROME = {
   name: "Cutler Row",
   tagline: "Six chairs on Cutler Row. Walk in, or book one.",
   links: [
-    { label: "Home", href: "#/" },
-    { label: "Book", href: "#/book" },
-    { label: "Account", href: "#/account" },
+    { label: "Home", href: "/" },
+    { label: "Book", href: "/book" },
+    { label: "Account", href: "/account" },
   ],
-  action: { label: "Book a chair", href: "#/book" },
+  action: { label: "Book a chair", href: "/book" },
 };
 
 function Manage() {
@@ -1751,11 +1751,11 @@ const CHROME = {
   name: "Cutler Row",
   tagline: "Six chairs on Cutler Row. Walk in, or book one.",
   links: [
-    { label: "Home", href: "#/" },
-    { label: "Book", href: "#/book" },
-    { label: "Account", href: "#/account" },
+    { label: "Home", href: "/" },
+    { label: "Book", href: "/book" },
+    { label: "Account", href: "/account" },
   ],
-  action: { label: "Book a chair", href: "#/book" },
+  action: { label: "Book a chair", href: "/book" },
 };
 
 const credentials = z.object({
@@ -2146,6 +2146,14 @@ File-based, TanStack Router. Each page is one file under src/routes/ exporting
   index.tsx → "/"      about.tsx → "/about"      menu/index.tsx → "/menu"
 \`index.tsx\` is required. Link between pages with \`<Link to="/menu">\` from "@tanstack/react-router".
 Never write routeTree.gen.ts, __root.tsx, src/pages/ or app/layout.tsx.
+
+NEVER address a page as \`#/menu\`. The app uses browser history, so a \`#/\` link sets the URL
+fragment and navigates nowhere — the page looks right and the link is dead. Use the plain path:
+\`<Link to="/menu">\` in the body, and \`href: "/menu"\` in a \`SiteChrome\`/\`SiteHeader\` \`links\`
+array (those go through \`SiteLink\`, so they route correctly whichever address the site is served
+on). Same for navigating in code: \`const navigate = useNavigate()\` then \`navigate({ to: "/menu" })\`,
+never \`location.hash = ...\`. An in-page anchor to a section on the SAME page — \`href="#prices"\`
+with \`id="prices"\` — is a different thing and is fine.
 
 ## Styling
 
@@ -2741,6 +2749,39 @@ export function lintPages(pages, spec) {
     }
     if (/@tanstack\/react-form/.test(code)) {
       say(path, "imports @tanstack/react-form. shadcn's Form components only speak to react-hook-form; use useForm from react-hook-form with zodResolver.");
+    }
+    // A ROUTE ADDRESSED AS A FRAGMENT — the same class again, and this one was
+    // live for a day on every site built after the router moved.
+    //
+    // `#/book` was CORRECT while the app ran on `createHashHistory()`: the
+    // fragment was where the route lived, and a hash anchor was real client-side
+    // navigation. On 2026-08-09 the router moved to browser history so pages
+    // could have real addresses, and every one of those links silently became a
+    // no-op — it sets `location.hash`, matches no route, and renders nothing.
+    // The customer clicks "Book" in the header and stays where they are.
+    //
+    // Nothing else can see it. `tsc` is happy (it is a string), vite bundles it,
+    // the lint's other rules do not care, and the site publishes. It is visible
+    // only by clicking, which is why it needs a rule rather than a fixed
+    // template — the chrome and all 318 exemplars were corrected, and the model
+    // still has the old shape in its training data.
+    //
+    // `#section` IS LEFT ALONE, deliberately: a fragment naming an id on the
+    // same page is an ordinary in-page anchor and still works. Only `#/` — a
+    // fragment that was standing in for a path — is ever wrong.
+    if (/["'`]#\//.test(code)) {
+      say(path, "addresses a page as `#/...`. The app uses browser history, so a `#/` link sets the " +
+        "fragment and navigates nowhere — the page looks fine and the link does nothing. Use the " +
+        "ordinary path (`/book`), or `<Link to=\"/book\">` inside the page body. An in-page anchor " +
+        "like `#prices` is fine and is not this.");
+    }
+    // The same navigation written imperatively. `location.hash = "#/book"` is
+    // one assignment away from the rule above and fails identically, so a rule
+    // that only reads hrefs teaches the model to reach for this instead.
+    if (/location\s*\.\s*hash\s*=/.test(code)) {
+      say(path, "navigates by assigning location.hash. That moved the router under hash history and " +
+        "does nothing now. Use `const navigate = useNavigate()` from @tanstack/react-router and " +
+        "`navigate({ to: \"/book\" })`.");
     }
     // EDITING IS CHECKED PER TABLE, like every other hook here. It used to be a
     // BOOLEAN over the whole file — `/useUpdateRow|useDeleteRow/.test(code)` —

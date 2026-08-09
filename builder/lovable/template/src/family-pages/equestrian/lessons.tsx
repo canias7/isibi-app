@@ -14,7 +14,7 @@ export const Route = createFileRoute("/lessons")({ component: P });
 function P() {
   return (
     <SiteChrome name="Hollin Busk Livery" tagline="Twenty-two stables, forty acres, and an arena that drains. Above Deepcar."
-      links={[{ label: "Home", href: "#/" }, { label: "The yard", href: "#/yard" }]}
+      links={[{ label: "Home", href: "/" }, { label: "The yard", href: "/yard" }]}
       action={{ label: "Ring 0114 288 9940", href: "tel:01142889940" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">

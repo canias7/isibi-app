@@ -18,8 +18,8 @@ const RUNS = [
 function P() {
   return (
     <SiteChrome name="St Chad's, Walkley" tagline="A parish church on South Road since 1868."
-      links={[{ label: "Home", href: "#/" }, { label: "First visit", href: "#/visit" }]}
-      action={{ label: "Plan a visit", href: "#/visit" }}>
+      links={[{ label: "Home", href: "/" }, { label: "First visit", href: "/visit" }]}
+      action={{ label: "Plan a visit", href: "/visit" }}>
       <div className="mx-auto max-w-6xl px-6 py-14">
         <SectionHeader eyebrow="In the week" title="What runs, and who it is for"
           description="Most of this is not a church service. You do not have to believe anything to sit down." />

@@ -88,8 +88,8 @@ function P() {
   const shown = device ? ALL.filter((a) => a.make === device.make) : ALL;
   return (
     <SiteChrome name="Neepsend Repair Co." tagline="Phone, tablet, laptop and console repairs in Kelham Island, Sheffield."
-      links={[{ label: "Home", href: "#/" }, { label: "Track a repair", href: "#/track" }]}
-      action={{ label: "Track a repair", href: "#/track" }}>
+      links={[{ label: "Home", href: "/" }, { label: "Track a repair", href: "/track" }]}
+      action={{ label: "Track a repair", href: "/track" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">
         <SectionHeader eyebrow="Prices" title="Every repair we do, fitted, VAT in"

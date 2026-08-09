@@ -9,8 +9,8 @@ import { LocationCard } from "@/components/ui/location-card";
 export const Route = createFileRoute("/visit")({ component: P });
 const CHROME = {
   name: "Rivelin College", tagline: "A sixth-form college in the Rivelin valley.",
-  links: [{ label: "Home", href: "#/" }, { label: "Apply", href: "#/apply" }],
-  action: { label: "Apply", href: "#/apply" },
+  links: [{ label: "Home", href: "/" }, { label: "Apply", href: "/apply" }],
+  action: { label: "Apply", href: "/apply" },
 };
 function P() {
   return (

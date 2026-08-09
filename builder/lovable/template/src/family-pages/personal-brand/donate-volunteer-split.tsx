@@ -30,7 +30,7 @@ function P() {
     setTaken((s) => (s.includes(k) ? s.filter((x) => x !== k) : [...s, k]));
   return (
     <SiteChrome name="Save Cotton Mill Baths" tagline="A community bid for the 1904 baths on Bury New Road. Closed 2019. Not demolished yet."
-      links={[{ label: "The press kit", href: "#/press" }, { label: "Where the money goes", href: "#/music" }]}
+      links={[{ label: "The press kit", href: "/press" }, { label: "Where the money goes", href: "/music" }]}
       action={{ label: "Give", href: "#give" }}>
 
       <section className="border-b border-border">
@@ -189,11 +189,11 @@ function P() {
             <SectionHeader eyebrow="Said about it" title="By people who are not us" />
             <div className="mt-6 space-y-4">
               <PressQuote quote="The most detailed community bid the authority has received, and the only one to publish a survey it had paid for and did not like."
-                source="Manchester Evening News, 4 June 2026" href="#/press" />
+                source="Manchester Evening News, 4 June 2026" href="/press" />
               <PressQuote quote="Cotton Mill is the last surviving Edwardian baths in the borough with its original tank intact. Nothing else comes close."
-                source="Victorian Society, North West" href="#/press" />
+                source="Victorian Society, North West" href="/press" />
               <PressQuote quote="I learned to swim there and so did my mum. Four hundred of us is not a hard number to find round here."
-                source="Ayesha Kalim, Sedgley ward councillor" href="#/press" />
+                source="Ayesha Kalim, Sedgley ward councillor" href="/press" />
             </div>
             <div className="mt-8 rounded-lg border border-border p-5">
               <p className="text-base font-medium">Follow it rather than give</p>

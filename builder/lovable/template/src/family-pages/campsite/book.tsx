@@ -43,7 +43,7 @@ function P() {
   const [sent, setSent] = React.useState(false);
   return (
     <SiteChrome name="Ewden Beck Camping" tagline="Forty-eight pitches on the river, four miles above Stocksbridge."
-      links={[{ label: "Home", href: "#/" }, { label: "The site", href: "#/site" }]}
+      links={[{ label: "Home", href: "/" }, { label: "The site", href: "/site" }]}
       action={{ label: "Ring 0114 288 4471", href: "tel:01142884471" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">

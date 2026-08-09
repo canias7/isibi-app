@@ -12,7 +12,7 @@ export const Route = createFileRoute("/quote")({ component: P });
 function P() {
   return (
     <SiteChrome name="Bramall & Sons Removals" tagline="A family removals firm in Sheffield since 1978."
-      links={[{ label: "Home", href: "#/" }, { label: "Moving day", href: "#/moving-day" }]}
+      links={[{ label: "Home", href: "/" }, { label: "Moving day", href: "/moving-day" }]}
       action={{ label: "Get a price", href: "#top" }}>
 
       <div id="top" className="mx-auto max-w-6xl px-6 py-14">

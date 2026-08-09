@@ -53,8 +53,8 @@ function P() {
       name="Ewden Fibre"
       tagline="Full fibre built in the Don and Ewden valleys. Owned by the people who live here."
       links={[
-        { label: "Packages", href: "#/packages" },
-        { label: "Switching", href: "#/switching" },
+        { label: "Packages", href: "/packages" },
+        { label: "Switching", href: "/switching" },
         { label: "Questions", href: "#questions" },
       ]}
       action={{ label: "Check my address", href: "#check" }}
@@ -144,10 +144,10 @@ function P() {
             tell you and that is the end of it.
           </p>
           <div className="mt-7 flex flex-wrap gap-3">
-            <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#/packages">
+            <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="/packages">
               All packages in full
             </a>
-            <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#/switching">
+            <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="/switching">
               I am switching or moving
             </a>
           </div>

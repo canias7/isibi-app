@@ -13,7 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 export const Route = createFileRoute("/role")({ component: P });
 const CHROME = {
   name: "Kelham Works", tagline: "A 14-person product studio by the river.",
-  links: [{ label: "All roles", href: "#/" }, { label: "How we hire", href: "#/" }],
+  links: [{ label: "All roles", href: "/" }, { label: "How we hire", href: "/" }],
 };
 function P() {
   const [name, setName] = useState("");
@@ -23,7 +23,7 @@ function P() {
   return (
     <SiteChrome {...CHROME}>
       <div className="mx-auto max-w-2xl px-6 py-12">
-        <a className="text-sm text-muted-foreground underline underline-offset-4" href="#/">← All three roles</a>
+        <a className="text-sm text-muted-foreground underline underline-offset-4" href="/">← All three roles</a>
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <h1 className="text-3xl font-semibold tracking-tight">Senior product designer</h1>
           <Badge variant="secondary">£55–65k</Badge>
@@ -38,7 +38,7 @@ function P() {
         <section className="mt-10 rounded-xl border bg-muted/40 p-6">
           <h2 className="text-lg font-medium">Apply — ten minutes, no portal</h2>
           {sent ? (
-            <SuccessPanel className="mt-4" title="Application in" description="Theo reads every one and replies inside a week, including the noes — that's a studio rule." action={{ label: "Back to the studio", href: "#/" }} />
+            <SuccessPanel className="mt-4" title="Application in" description="Theo reads every one and replies inside a week, including the noes — that's a studio rule." action={{ label: "Back to the studio", href: "/" }} />
           ) : (
             <div className="mt-4 grid gap-4">
               <div className="grid gap-4 sm:grid-cols-2">

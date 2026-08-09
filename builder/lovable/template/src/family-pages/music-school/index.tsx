@@ -25,8 +25,8 @@ const RAIL = [
   { href: "#keys", label: "Keyboard", note: "Piano, organ, harpsichord" },
   { href: "#wind", label: "Wind and brass", note: "Flute, clarinet, sax, trumpet, trombone" },
   { href: "#voice", label: "Voice and guitar", note: "Singing, classical and electric guitar" },
-  { href: "#/timetable", label: "The timetable", note: "What is free this term" },
-  { href: "#/fees", label: "Fees and bursaries", note: "Per term, with the loan scheme" },
+  { href: "/timetable", label: "The timetable", note: "What is free this term" },
+  { href: "/fees", label: "Fees and bursaries", note: "Per term, with the loan scheme" },
 ];
 
 const SUBJECTS = [
@@ -73,11 +73,11 @@ function P() {
       name="The Rivelin Music School"
       tagline="Eleven instruments, forty teachers, a converted chapel on Walkley Lane."
       links={[
-        { label: "Lessons", href: "#/lessons" },
-        { label: "Timetable", href: "#/timetable" },
-        { label: "Fees", href: "#/fees" },
+        { label: "Lessons", href: "/lessons" },
+        { label: "Timetable", href: "/timetable" },
+        { label: "Fees", href: "/fees" },
       ]}
-      action={{ label: "Book a taster", href: "#/lessons" }}
+      action={{ label: "Book a taster", href: "/lessons" }}
     >
       <div className="mx-auto grid max-w-6xl gap-10 px-6 py-14 lg:grid-cols-[minmax(0,15rem)_1fr]">
         <aside className="lg:sticky lg:top-20 lg:self-start">
@@ -143,7 +143,7 @@ function P() {
             <p className="mt-6 max-w-2xl text-sm leading-relaxed text-muted-foreground">
               Guitar, flute, clarinet, saxophone, trumpet, trombone, percussion and organ are all
               taught on the same scale.{" "}
-              <a className="underline underline-offset-4" href="#/lessons">The full list is on the lessons page.</a>
+              <a className="underline underline-offset-4" href="/lessons">The full list is on the lessons page.</a>
             </p>
           </section>
 
@@ -201,7 +201,7 @@ function P() {
             </div>
             <p className="mt-5 text-sm text-muted-foreground">
               Two of the forty are full this term.{" "}
-              <a className="underline underline-offset-4" href="#/timetable">The timetable shows who has space.</a>
+              <a className="underline underline-offset-4" href="/timetable">The timetable shows who has space.</a>
             </p>
           </section>
 

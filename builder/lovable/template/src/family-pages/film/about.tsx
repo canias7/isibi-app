@@ -43,10 +43,10 @@ function P() {
       name="Ninety Works"
       tagline="78 minutes, PG, and exactly what is in it."
       links={[
-        { label: "Home", href: "#/" },
-        { label: "Screenings", href: "#/screenings" },
+        { label: "Home", href: "/" },
+        { label: "Screenings", href: "/screenings" },
       ]}
-      action={{ label: "Find a screening", href: "#/screenings" }}
+      action={{ label: "Find a screening", href: "/screenings" }}
     >
       <div className="mx-auto max-w-5xl px-6 py-14">
         <h1 className="text-4xl font-semibold tracking-tight text-balance">About the film</h1>
@@ -175,9 +175,9 @@ function P() {
             </div>
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">The trailer</a>
+            <a className="underline underline-offset-4" href="/">The trailer</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/screenings">Where it is showing</a>
+            <a className="underline underline-offset-4" href="/screenings">Where it is showing</a>
           </p>
         </section>
       </div>

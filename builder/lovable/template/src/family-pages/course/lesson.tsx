@@ -12,7 +12,7 @@ import { VideoEmbed } from "@/components/ui/video-embed";
 export const Route = createFileRoute("/lesson")({ component: P });
 const CHROME = {
   name: "The Proving Room", tagline: "Sourdough, taught slowly, online.",
-  links: [{ label: "The course", href: "#/" }, { label: "This week", href: "#/lesson" }],
+  links: [{ label: "The course", href: "/" }, { label: "This week", href: "/lesson" }],
 };
 function P() {
   const [done, setDone] = useState(false);
@@ -41,7 +41,7 @@ function P() {
           <Button onClick={() => setDone(true)} disabled={done}>{done ? "Marked done ✓" : "Mark lesson done"}</Button>
           {done && <span className="text-sm text-muted-foreground">Week 3 is now 2 of 6 — the path updates on the course page.</span>}
         </div>
-        <PrevNext className="mt-12" prev={{ label: "Folding and time — the theory", href: "#/lesson" }} next={{ label: "Reading a proof by eye", href: "#/lesson" }} />
+        <PrevNext className="mt-12" prev={{ label: "Folding and time — the theory", href: "/lesson" }} next={{ label: "Reading a proof by eye", href: "/lesson" }} />
       </div>
     </SiteChrome>
   );

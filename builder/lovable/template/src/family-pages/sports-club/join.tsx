@@ -13,7 +13,7 @@ function P() {
   const [sent, setSent] = useState(false);
   return (
     <SiteChrome name="Walkley Wanderers" tagline="Four teams, one pitch, Sheffield & Hallamshire League."
-      links={[{ label: "Home", href: "#/" }, { label: "Teams", href: "#/teams" }]}
+      links={[{ label: "Home", href: "/" }, { label: "Teams", href: "/teams" }]}
       action={{ label: "Trials — Tuesdays 7pm", href: "#trials" }}>
       <div className="mx-auto max-w-5xl px-6 py-14">
         <SectionHeader eyebrow="Joining" title="Turn up in boots"

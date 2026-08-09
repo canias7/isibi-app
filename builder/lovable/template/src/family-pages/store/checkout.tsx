@@ -34,15 +34,15 @@ function P() {
 
   return (
     <SiteChrome name="Slipware" tagline="Small-batch stoneware, thrown in Leith."
-      links={[{ label: "The range", href: "#/" }, { label: "This month's piece", href: "#/product" }]}
-      action={{ label: "Keep shopping", href: "#/" }}>
+      links={[{ label: "The range", href: "/" }, { label: "This month's piece", href: "/product" }]}
+      action={{ label: "Keep shopping", href: "/" }}>
 
       {placed ? (
         <section className="mx-auto max-w-2xl px-6 py-24 text-center">
           <StatusBadge state="success">Order placed</StatusBadge>
           <h1 className="mt-4 text-3xl font-semibold tracking-tight">Thanks — it's ours to pack now</h1>
           <p className="mt-3 text-muted-foreground">Order SLP-2184. A confirmation is on its way to your inbox; the pieces are wrapped tomorrow morning and posted tracked. Change of heart? Reply to the email within the hour and we'll hold it.</p>
-          <a className="mt-8 inline-block rounded-md border px-5 py-2.5 text-sm font-medium" href="#/">Back to the range</a>
+          <a className="mt-8 inline-block rounded-md border px-5 py-2.5 text-sm font-medium" href="/">Back to the range</a>
         </section>
       ) : (
         <section className="mx-auto max-w-5xl px-6 py-12">
@@ -55,7 +55,7 @@ function P() {
                     onQuantity={(n) => setLines(lines.map((x, j) => (j === i ? { ...x, quantity: n } : x)))}
                     onRemove={() => setLines(lines.filter((_, j) => j !== i))} />
                 ))}
-                {lines.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">Nothing in the basket — <a className="underline underline-offset-4" href="#/">the range is this way</a>.</p>}
+                {lines.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">Nothing in the basket — <a className="underline underline-offset-4" href="/">the range is this way</a>.</p>}
               </div>
 
               <div className="mt-8">

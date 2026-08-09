@@ -24,11 +24,11 @@ function P() {
   const [added, setAdded] = useState(false);
   return (
     <SiteChrome name="Slipware" tagline="Small-batch stoneware, thrown in Leith."
-      links={[{ label: "The range", href: "#/" }, { label: "Basket", href: "#/checkout" }]}
-      action={{ label: "Checkout", href: "#/checkout" }}>
+      links={[{ label: "The range", href: "/" }, { label: "Basket", href: "/checkout" }]}
+      action={{ label: "Checkout", href: "/checkout" }}>
 
       <section className="mx-auto max-w-5xl px-6 py-12">
-        <a className="text-sm text-muted-foreground underline-offset-4 hover:underline" href="#/">← Back to the range</a>
+        <a className="text-sm text-muted-foreground underline-offset-4 hover:underline" href="/">← Back to the range</a>
         <div className="mt-6 grid gap-10 md:grid-cols-[3fr_2fr]">
           <Gallery columns={2} items={[
             { src: null, alt: "Dimpled mug, oat glaze, in the morning light" },
@@ -61,10 +61,10 @@ function P() {
               {added && (
                 <p className="mt-3 text-sm">
                   In the basket — {qty} × {glaze.toLowerCase()}.{" "}
-                  <a className="font-medium underline underline-offset-4" href="#/checkout">Checkout →</a>
+                  <a className="font-medium underline underline-offset-4" href="/checkout">Checkout →</a>
                 </p>
               )}
-              <div className="mt-4"><CartBadge count={added ? 2 + qty : 2} href="#/checkout" /></div>
+              <div className="mt-4"><CartBadge count={added ? 2 + qty : 2} href="/checkout" /></div>
             </div>
 
             <Accordion type="single" collapsible className="mt-8">
@@ -89,9 +89,9 @@ function P() {
         <div className="mx-auto max-w-5xl px-6 py-16">
           <SectionHeader eyebrow="Goes with" title="From the same firing" />
           <div className="mt-8 grid gap-5 sm:grid-cols-3">
-            <ProductCard product={{ name: "Espresso cup", price: 22, was: 26, note: "Seconds — glaze runs" }} href="#/product" />
-            <ProductCard product={{ name: "Side plate, 21cm", price: 26, note: "Toast-sized" }} href="#/product" />
-            <ProductCard product={{ name: "Breakfast bowl", price: 34, note: "Wide enough for the weekend" }} href="#/product" />
+            <ProductCard product={{ name: "Espresso cup", price: 22, was: 26, note: "Seconds — glaze runs" }} href="/product" />
+            <ProductCard product={{ name: "Side plate, 21cm", price: 26, note: "Toast-sized" }} href="/product" />
+            <ProductCard product={{ name: "Breakfast bowl", price: 34, note: "Wide enough for the weekend" }} href="/product" />
           </div>
         </div>
       </section>

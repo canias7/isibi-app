@@ -15,8 +15,8 @@ export const Route = createFileRoute("/site")({ component: P });
 function P() {
   return (
     <SiteChrome name="Ewden Beck Camping" tagline="Forty-eight pitches on the river, four miles above Stocksbridge."
-      links={[{ label: "Home", href: "#/" }, { label: "Book a pitch", href: "#/book" }]}
-      action={{ label: "Book a pitch", href: "#/book" }}>
+      links={[{ label: "Home", href: "/" }, { label: "Book a pitch", href: "/book" }]}
+      action={{ label: "Book a pitch", href: "/book" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">
         <SectionHeader eyebrow="The site" title="What is here, and how far from your tent"

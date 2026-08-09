@@ -53,11 +53,11 @@ const CHROME = {
   name: "Cutler Row",
   tagline: "Six chairs on Cutler Row. Walk in, or book one.",
   links: [
-    { label: "Home", href: "#/" },
-    { label: "Book", href: "#/book" },
-    { label: "Account", href: "#/account" },
+    { label: "Home", href: "/" },
+    { label: "Book", href: "/book" },
+    { label: "Account", href: "/account" },
   ],
-  action: { label: "Book a chair", href: "#/book" },
+  action: { label: "Book a chair", href: "/book" },
 };
 
 const credentials = z.object({

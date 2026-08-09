@@ -31,11 +31,11 @@ function P() {
       name="The Rivelin Music School"
       tagline="Per term, which is how you will be billed."
       links={[
-        { label: "Instruments", href: "#/" },
-        { label: "Lessons", href: "#/lessons" },
-        { label: "Timetable", href: "#/timetable" },
+        { label: "Instruments", href: "/" },
+        { label: "Lessons", href: "/lessons" },
+        { label: "Timetable", href: "/timetable" },
       ]}
-      action={{ label: "Book a taster", href: "#/lessons" }}
+      action={{ label: "Book a taster", href: "/lessons" }}
     >
       <div className="mx-auto max-w-5xl px-6 py-14">
         <h1 className="text-4xl font-semibold tracking-tight text-balance">Fees</h1>
@@ -154,11 +154,11 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">Instruments</a>
+            <a className="underline underline-offset-4" href="/">Instruments</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/lessons">Lessons</a>
+            <a className="underline underline-offset-4" href="/lessons">Lessons</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/timetable">The timetable</a>
+            <a className="underline underline-offset-4" href="/timetable">The timetable</a>
           </p>
         </section>
       </div>

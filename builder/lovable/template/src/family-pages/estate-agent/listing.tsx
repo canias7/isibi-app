@@ -14,8 +14,8 @@ import { SuccessPanel } from "@/components/ui/success-panel";
 export const Route = createFileRoute("/listing")({ component: P });
 const CHROME = {
   name: "Loxley Lets", tagline: "Rentals across the west of the city.",
-  links: [{ label: "All homes", href: "#/" }],
-  action: { label: "Value my property", href: "#/" },
+  links: [{ label: "All homes", href: "/" }],
+  action: { label: "Value my property", href: "/" },
 };
 function P() {
   const [name, setName] = useState("");
@@ -24,7 +24,7 @@ function P() {
   return (
     <SiteChrome {...CHROME}>
       <div className="mx-auto max-w-4xl px-6 py-10">
-        <a className="text-sm text-muted-foreground underline underline-offset-4" href="#/">← Back to results</a>
+        <a className="text-sm text-muted-foreground underline underline-offset-4" href="/">← Back to results</a>
         <div className="mt-4 flex flex-wrap items-baseline justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Flat 2, 14 Commonside, Walkley</h1>
@@ -62,7 +62,7 @@ function P() {
           <section>
             <h2 className="text-lg font-medium">Book a viewing</h2>
             {sent ? (
-              <SuccessPanel className="mt-3" title="Enquiry sent" description="Rosie handles Walkley — she'll ring you today with times." action={{ label: "Back to all homes", href: "#/" }} />
+              <SuccessPanel className="mt-3" title="Enquiry sent" description="Rosie handles Walkley — she'll ring you today with times." action={{ label: "Back to all homes", href: "/" }} />
             ) : (
               <div className="mt-3 grid gap-4">
                 <FormRow label="Your name" htmlFor="lv-name" required>

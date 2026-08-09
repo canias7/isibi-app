@@ -13,8 +13,8 @@ export const Route = createFileRoute("/about")({ component: P });
 function P() {
   return (
     <SiteChrome name="Cathy Bramwell" tagline="Maths and physics tutor, Sheffield. Fourteen years, eleven of them teaching."
-      links={[{ label: "Home", href: "#/" }, { label: "Book a trial", href: "#/book" }]}
-      action={{ label: "Free trial lesson", href: "#/book" }}>
+      links={[{ label: "Home", href: "/" }, { label: "Book a trial", href: "/book" }]}
+      action={{ label: "Free trial lesson", href: "/book" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">
         <div className="grid gap-12 lg:grid-cols-[1.2fr_1fr]">
@@ -109,7 +109,7 @@ function P() {
         <section className="mt-14">
           <CtaBand title="The first lesson is free and it is a real lesson"
             description="Forty-five minutes of actual work, and an honest answer at the end about whether I can help."
-            action={{ label: "Ask for a slot", href: "#/book" }} />
+            action={{ label: "Ask for a slot", href: "/book" }} />
         </section>
       </div>
     </SiteChrome>

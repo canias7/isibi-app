@@ -13,8 +13,8 @@ export const Route = createFileRoute("/")({ component: P });
 function P() {
   return (
     <SiteChrome name="Attercliffe Fastenings" tagline="Cold-forged fasteners since 1953. BS EN ISO 898-1."
-      links={[{ label: "The 12.9 line", href: "#/product" }, { label: "Stockists", href: "#/stockists" }]}
-      action={{ label: "Request quote", href: "#/quote" }}>
+      links={[{ label: "The 12.9 line", href: "/product" }, { label: "Stockists", href: "/stockists" }]}
+      action={{ label: "Request quote", href: "/quote" }}>
 
       <div className="mx-auto grid max-w-6xl gap-10 px-6 py-10 md:grid-cols-[2fr_3fr]">
         {/* LEFT — pinned: the claim, the action, the phone. */}
@@ -23,8 +23,8 @@ function P() {
           <h1 className="mt-2 text-4xl font-semibold tracking-tight">M6–M24, grade 8.8 to 12.9, from stock</h1>
           <p className="mt-3 text-lg text-muted-foreground">Two million pieces on the shelf. Same-day collection, next-day nationwide, certs with every batch.</p>
           <div className="mt-6 grid gap-2">
-            <a className="rounded-md bg-primary px-5 py-2.5 text-center text-sm font-medium text-primary-foreground" href="#/quote">Request a quote — priced by lunchtime</a>
-            <a className="rounded-md border px-5 py-2.5 text-center text-sm font-medium" href="#/stockists">Buy by the box near you</a>
+            <a className="rounded-md bg-primary px-5 py-2.5 text-center text-sm font-medium text-primary-foreground" href="/quote">Request a quote — priced by lunchtime</a>
+            <a className="rounded-md border px-5 py-2.5 text-center text-sm font-medium" href="/stockists">Buy by the box near you</a>
           </div>
           <div className="mt-6 rounded-lg border bg-muted/40 p-4 text-sm">
             <p className="font-medium">Trade counter, 7:30–4:30</p>
@@ -47,7 +47,7 @@ function P() {
             <h2 className="text-lg font-medium">What we forge</h2>
             <div className="mt-3 rounded-xl border bg-card">
               <SpecRow label="Thread range" value="M6 – M24" note="Metric coarse; fine to order" />
-              <SpecRow label="Property classes" value={<a className="underline underline-offset-4" href="#/product">8.8 · 10.9 · 12.9 — full datasheet</a>} highlight />
+              <SpecRow label="Property classes" value={<a className="underline underline-offset-4" href="/product">8.8 · 10.9 · 12.9 — full datasheet</a>} highlight />
               <SpecRow label="Tensile, class 12.9" value="1220" unit="MPa min" />
               <SpecRow label="Finish" value="Plain · zinc · hot-dip galv" />
               <SpecRow label="Head marking" value="AF · class · cast code" note="Every piece, stamped" />

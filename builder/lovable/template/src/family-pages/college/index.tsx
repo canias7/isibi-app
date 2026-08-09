@@ -19,10 +19,10 @@ import { SafeImage } from "@/components/ui/safe-image";
 export const Route = createFileRoute("/")({ component: P });
 const TASKS: Record<string, { title: string; items: { label: string; note: string; href: string }[] }> = {
   prospective: { title: "Thinking of joining us", items: [
-    { label: "Find your course", note: "38 A-levels and BTECs, honest entry lines", href: "#/courses" },
-    { label: "Book an open evening", note: "Drop-in — no booking needed, next one 17 Sept", href: "#/visit" },
-    { label: "How to apply", note: "Fifteen minutes online; closes 16 Jan", href: "#/apply" },
-    { label: "Fees and support", note: "Free for 16–18; bursaries explained plainly", href: "#/apply" }] },
+    { label: "Find your course", note: "38 A-levels and BTECs, honest entry lines", href: "/courses" },
+    { label: "Book an open evening", note: "Drop-in — no booking needed, next one 17 Sept", href: "/visit" },
+    { label: "How to apply", note: "Fifteen minutes online; closes 16 Jan", href: "/apply" },
+    { label: "Fees and support", note: "Free for 16–18; bursaries explained plainly", href: "/apply" }] },
   current: { title: "You're here already", items: [
     { label: "Timetables", note: "This term's, by course code", href: "#events" },
     { label: "Pay for trips", note: "The October ones are up", href: "#events" },
@@ -41,8 +41,8 @@ function P() {
     <div className="min-h-svh bg-background text-foreground">
       <AnnouncementBar href="#events">Results day: Thursday 13 August, doors 8:30 — walk-in advice all morning.</AnnouncementBar>
       <SiteChrome name="Rivelin College" tagline="A sixth-form college in the Rivelin valley."
-        links={[{ label: "Courses", href: "#/courses" }, { label: "Visit us", href: "#/visit" }, { label: "Term dates", href: "#events" }]}
-        action={{ label: "Apply", href: "#/apply" }}>
+        links={[{ label: "Courses", href: "/courses" }, { label: "Visit us", href: "/visit" }, { label: "Term dates", href: "#events" }]}
+        action={{ label: "Apply", href: "/apply" }}>
         {/* The campus, then the register. Added 2026-08-02: a sixteen-year-old
             choosing a sixth form is choosing a PLACE, and this page had no
             photograph of it — the audience switch and the task list are the

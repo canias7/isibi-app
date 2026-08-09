@@ -13,8 +13,8 @@ export const Route = createFileRoute("/whats-on")({ component: P });
 function P() {
   return (
     <SiteChrome name="Wharncliffe Farm & Wildlife Park" tagline="Ninety acres, a steam railway and forty species, north of Sheffield."
-      links={[{ label: "Home", href: "#/" }, { label: "Plan your visit", href: "#/visit" }]}
-      action={{ label: "Book tickets", href: "#/#prices" }}>
+      links={[{ label: "Home", href: "/" }, { label: "Plan your visit", href: "/visit" }]}
+      action={{ label: "Book tickets", href: "/#prices" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">
         <SectionHeader eyebrow="What's on" title="Most of it happens every day"
@@ -63,17 +63,17 @@ function P() {
             description="Included in normal admission unless the card says otherwise. Nothing here needs a separate ticket except the two evening events." />
           <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             <EventCard title="Lambing fortnight" start="2026-03-28T10:00:00" venue="The barn" price="Included"
-              image={null} href="#/visit" />
+              image={null} href="/visit" />
             <EventCard title="Shearing day" start="2026-06-06T11:00:00" venue="Paddock" price="Included"
-              image={null} href="#/visit" />
+              image={null} href="/visit" />
             <EventCard title="Summer late openings" start="2026-07-24T10:00:00" venue="Whole park" price="Included"
-              image={null} href="#/visit" />
+              image={null} href="/visit" />
             <EventCard title="Owl evening" start="2026-09-12T19:00:00" venue="Raptor lawn" price="£14, over-8s"
-              image={null} href="#/visit" />
+              image={null} href="/visit" />
             <EventCard title="Halloween trail" start="2026-10-24T10:00:00" venue="The wood" price="Included"
-              image={null} href="#/visit" />
+              image={null} href="/visit" />
             <EventCard title="Christmas by lamplight" start="2026-12-05T16:30:00" venue="Whole park" price="£18, booking only"
-              soldOut image={null} href="#/visit" />
+              soldOut image={null} href="/visit" />
           </div>
           <p className="mt-6 max-w-2xl text-sm leading-relaxed text-muted-foreground">
             Christmas by lamplight sells out in about a week every November and we do not release

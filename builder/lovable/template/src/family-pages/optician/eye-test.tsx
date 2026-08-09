@@ -30,8 +30,8 @@ function P() {
       name="Hillsborough Eyecare"
       tagline="Thirty minutes, six parts, and what each one is actually for."
       links={[
-        { label: "Home", href: "#/" },
-        { label: "Frames and lenses", href: "#/frames" },
+        { label: "Home", href: "/" },
+        { label: "Frames and lenses", href: "/frames" },
       ]}
       action={{ label: "Book a test", href: "#book" }}
     >
@@ -160,9 +160,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">Back to booking and frames</a>
+            <a className="underline underline-offset-4" href="/">Back to booking and frames</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/frames">Frames and lenses</a>
+            <a className="underline underline-offset-4" href="/frames">Frames and lenses</a>
           </p>
         </section>
       </div>

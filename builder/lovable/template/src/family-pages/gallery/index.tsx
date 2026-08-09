@@ -14,8 +14,8 @@ const NOW = new Date(2026, 7, 2);
 function P() {
   return (
     <SiteChrome name="The Grinding Shop" tagline="A contemporary art gallery in a former cutlery works, Kelham Island, Sheffield."
-      links={[{ label: "What's on", href: "#whats-on" }, { label: "Visit", href: "#/visit" }, { label: "This show", href: "#/exhibition" }]}
-      action={{ label: "Plan your visit", href: "#/visit" }}>
+      links={[{ label: "What's on", href: "#whats-on" }, { label: "Visit", href: "/visit" }, { label: "This show", href: "/exhibition" }]}
+      action={{ label: "Plan your visit", href: "/visit" }}>
 
       <section>
         <SafeImage src={null} alt="Installation view, Ways of Making Do" ratio="21/9" />
@@ -37,8 +37,8 @@ function P() {
                 was bought new, which turns out to be a position rather than a constraint.
               </p>
               <div className="mt-7 flex flex-wrap gap-3">
-                <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#/exhibition">The show in full</a>
-                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#/visit">Plan a visit</a>
+                <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="/exhibition">The show in full</a>
+                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="/visit">Plan a visit</a>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -53,27 +53,27 @@ function P() {
         <SectionHeader eyebrow="What's on" title="Now, next, and what has been"
           description="A show that has closed stays on the page. An empty gallery site between hangs tells you nothing about the gallery, and the archive is half of what anybody is here for." />
         <div className="mt-10 grid gap-x-10 gap-y-14 md:grid-cols-2 lg:grid-cols-3">
-          <ExhibitionCard now={NOW} href="#/exhibition"
+          <ExhibitionCard now={NOW} href="/exhibition"
             title="Ways of Making Do" artist="Mbanefo, Fenn, Ise"
             from="2026-06-06" to="2026-08-30" room="The Long Room" admission="Free"
             blurb="Three artists working only with what was already to hand." />
-          <ExhibitionCard now={NOW} href="#/exhibition"
+          <ExhibitionCard now={NOW} href="/exhibition"
             title="Bessemer, After" artist="Kit Aspinall"
             from="2026-07-18" to="2026-08-09" room="Gallery 2" admission="Free"
             blurb="Large-format photographs of the last four working forges in the city." />
-          <ExhibitionCard now={NOW} href="#/exhibition"
+          <ExhibitionCard now={NOW} href="/exhibition"
             title="Hand, Held" artist="Sheffield Hallam graduates"
             from="2026-09-12" to="2026-11-01" room="The Long Room" admission="Free"
             blurb="Fourteen makers from this year's cohort, selected by Adaeze Mbanefo." />
-          <ExhibitionCard now={NOW} href="#/exhibition"
+          <ExhibitionCard now={NOW} href="/exhibition"
             title="A Quiet Trade" artist="Norah Whitlock (1911–1998)"
             from="2026-11-14" to="2027-02-07" room="Gallery 2" admission="£6 / £4"
             blurb="The first retrospective of a buffer girl who drew every day for sixty years." />
-          <ExhibitionCard now={NOW} href="#/exhibition"
+          <ExhibitionCard now={NOW} href="/exhibition"
             title="Groundwater" artist="Priya Sandhu"
             from="2026-03-07" to="2026-05-24" room="The Long Room" admission="Free"
             blurb="Cyanotypes made with water taken from every borehole in the Don catchment." />
-          <ExhibitionCard now={NOW} href="#/exhibition"
+          <ExhibitionCard now={NOW} href="/exhibition"
             title="Cut, Fold, Rivet" artist="Group show"
             from="2025-11-08" to="2026-02-15" room="Gallery 2" admission="Free"
             blurb="Sixteen makers on what the city's steel trades left behind in the way people work." />
@@ -113,7 +113,7 @@ function P() {
                 Large-print and braille guides for every show, at the desk, without asking.
               </p>
             </div>
-            <a className="mt-6 inline-block text-sm font-medium underline underline-offset-4" href="#/visit">Everything about visiting →</a>
+            <a className="mt-6 inline-block text-sm font-medium underline underline-offset-4" href="/visit">Everything about visiting →</a>
           </div>
           <OpeningHours days={[
             { day: 0, label: "Sunday", open: "11:00", close: "16:00" },

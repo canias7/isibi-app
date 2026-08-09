@@ -23,7 +23,7 @@ function P() {
   const [sent, setSent] = useState(false);
   return (
     <SiteChrome name="Hartley & Voss" tagline="Chartered accountants, est. 1987."
-      links={[{ label: "What we do", href: "#/services" }, { label: "The firm", href: "#/about" }, { label: "Contact", href: "#/contact" }]}
+      links={[{ label: "What we do", href: "/services" }, { label: "The firm", href: "/about" }, { label: "Contact", href: "/contact" }]}
       action={{ label: "Free consultation", href: "#consult" }}>
       {/* Widened from 2xl and given faces, 2026-08-02. The family is called
           trust-first and the page was a 672px column of grey text — the two
@@ -37,7 +37,7 @@ function P() {
             <p className="mt-5 text-lg leading-relaxed text-muted-foreground">Two partners, no juniors on your file, and a fixed monthly fee agreed in writing before any work starts. The first hour is free and always has been.</p>
             <div className="mt-7 flex flex-wrap gap-3">
               <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#consult">Book the free hour</a>
-              <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#/services">What we do</a>
+              <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="/services">What we do</a>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
@@ -69,7 +69,7 @@ function P() {
             { name: "Sole trader", description: "Accounts and self-assessment", price: 55, meta: "per month" },
             { name: "Limited company", description: "Accounts, CT600, director payroll", price: 125, meta: "per month" },
             { name: "Company + payroll", description: "Up to ten staff, pensions included", price: 175, meta: "per month" }]} />
-          <p className="mt-3 text-sm"><a className="font-medium underline underline-offset-4" href="#/services">Every service, priced →</a></p>
+          <p className="mt-3 text-sm"><a className="font-medium underline underline-offset-4" href="/services">Every service, priced →</a></p>
         </section>
 
         <div className="mt-10 border-t border-border pt-8">

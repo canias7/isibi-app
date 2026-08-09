@@ -36,8 +36,8 @@ const DAYS = [
 function P() {
   return (
     <SiteChrome name="Loxley Weekender" tagline="Three days in a valley, first weekend of September."
-      links={[{ label: "Home", href: "#/" }, { label: "Getting there", href: "#/info" }]}
-      action={{ label: "Buy tickets", href: "#/" }}>
+      links={[{ label: "Home", href: "/" }, { label: "Getting there", href: "/info" }]}
+      action={{ label: "Buy tickets", href: "/" }}>
       <div className="mx-auto max-w-6xl px-6 py-14">
         <SectionHeader eyebrow="The lineup" title="Forty-one acts, three stages"
           description="Clashes are marked. You cannot see everything and pretending otherwise helps nobody." />

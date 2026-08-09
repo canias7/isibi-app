@@ -31,7 +31,7 @@ export const AREAS = [
 function P() {
   return (
     <SiteChrome name="Hair at Home" tagline="Wendy Frayne. Cutting in kitchens across the East Riding since 2004."
-      links={[{ label: "Or use the form", href: "#/book" }, { label: "Your appointment", href: "#/manage" }, { label: "What I can do at home", href: "#/work" }]}
+      links={[{ label: "Or use the form", href: "/book" }, { label: "Your appointment", href: "/manage" }, { label: "What I can do at home", href: "/work" }]}
       action={{ label: "Ring 07700 900 812", href: "tel:07700900812" }}>
 
       {/* THE PHONE IS THE BOOKING SURFACE. Not a link in a header above a
@@ -59,7 +59,7 @@ function P() {
               fields on a form nobody finishes.
             </p>
             <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
-              Would rather not ring? <a className="font-medium text-foreground underline underline-offset-4" href="#/book">The form asks the same things</a> and
+              Would rather not ring? <a className="font-medium text-foreground underline underline-offset-4" href="/book">The form asks the same things</a> and
               I reply by text within a few hours. It is a fallback and I mean that kindly — the
               phone is genuinely faster for both of us.
             </p>
@@ -191,7 +191,7 @@ function P() {
               </div>
               <div className="flex flex-wrap gap-3">
                 <a className="rounded-md bg-primary px-6 py-3 text-base font-semibold tabular-nums text-primary-foreground" href="tel:07700900812">07700 900 812</a>
-                <a className="rounded-md border border-border px-6 py-3 text-base font-medium" href="#/book">Use the form instead</a>
+                <a className="rounded-md border border-border px-6 py-3 text-base font-medium" href="/book">Use the form instead</a>
               </div>
             </div>
           </div>

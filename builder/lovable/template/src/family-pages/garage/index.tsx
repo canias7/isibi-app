@@ -2,7 +2,7 @@
 // and every slot after it depends on which car turned up. A garage is chosen on
 // trust and turnaround, so both are stated before any marketing.
 import { useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { SiteChrome } from "@/components/ui/site-chrome";
 import { CtaBand } from "@/components/ui/cta-band";
 import { LocationCard } from "@/components/ui/location-card";
@@ -25,11 +25,12 @@ const HOURS: DayHours[] = [
   { day: 0, label: "Sunday", open: null, close: null },
 ];
 function P() {
+  const navigate = useNavigate();
   const [state, setState] = useState<"idle" | "looking" | "found" | "unknown">("idle");
   return (
     <SiteChrome name="Hillfoot Motors" tagline="MOT, servicing and repairs on Little London Road."
-      links={[{ label: "Prices", href: "#/services" }, { label: "Book", href: "#/book" }, { label: "Find us", href: "#find-us" }]}
-      action={{ label: "Book an MOT", href: "#/book" }}>
+      links={[{ label: "Prices", href: "/services" }, { label: "Book", href: "/book" }, { label: "Find us", href: "#find-us" }]}
+      action={{ label: "Book an MOT", href: "/book" }}>
 
       <section className="border-b border-border bg-muted/40">
         <div className="mx-auto max-w-6xl px-6 py-16">
@@ -43,11 +44,11 @@ function P() {
               </p>
               <div className="mt-8 max-w-md rounded-xl border border-border bg-background p-5 shadow-sm">
                 <VehicleLookup
-                  state={state} manualHref="#/book"
+                  state={state} manualHref="/book"
                   onLookup={() => setState("found")} onReset={() => setState("idle")}
                   vehicle={{ make: "Ford", model: "Focus 1.0 EcoBoost", year: 2019, fuel: "Petrol", mot: "14 March" }} />
                 {state === "found" && (
-                  <a className="mt-4 inline-block rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#/book">
+                  <a className="mt-4 inline-block rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="/book">
                     Book its MOT — £54.85
                   </a>
                 )}
@@ -84,7 +85,7 @@ function P() {
           <div className="flex flex-wrap items-end justify-between gap-3">
             <SectionHeader eyebrow="Prices" title="What the common jobs cost"
               description="Parts on top, quoted before we start. These are what most cars pay." />
-            <a className="text-sm font-medium underline underline-offset-4" href="#/services">Every job priced →</a>
+            <a className="text-sm font-medium underline underline-offset-4" href="/services">Every job priced →</a>
           </div>
           <div className="mt-8 grid gap-8 lg:grid-cols-[1.4fr_1fr]">
             <PriceList items={[
@@ -93,7 +94,7 @@ function P() {
               { name: "Full service", description: "Everything on the interim, plus plugs, air and cabin filters", price: 229, meta: "half a day" },
               { name: "Brake pads, front", description: "Fitted, per axle", price: 145, meta: "1.5 hrs" },
               { name: "Diagnostic", description: "Plugged in and read, refunded if we do the repair", price: 45, meta: "1 hr" },
-            ]} action={{ label: "Book", onSelect: () => { location.hash = "#/book"; } }} />
+            ]} action={{ label: "Book", onSelect: () => { navigate({ to: "/book" }); } }} />
             <div className="space-y-6">
               <SafeImage src={null} alt="The diagnostic reader on a bench" ratio="4/3" />
               <div className="rounded-lg border border-border p-5 text-sm leading-relaxed text-muted-foreground">
@@ -136,7 +137,7 @@ function P() {
 
       <section className="mx-auto max-w-6xl px-6 py-16">
         <CtaBand title="Book it in" description="Tell us the registration and what it's doing. We'll tell you the price and the day."
-          action={{ label: "Book a slot", href: "#/book" }} />
+          action={{ label: "Book a slot", href: "/book" }} />
       </section>
     </SiteChrome>
   );

@@ -9,8 +9,8 @@ import { TrustStrip } from "@/components/ui/trust-strip";
 export const Route = createFileRoute("/about")({ component: P });
 const CHROME = {
   name: "Hartley & Voss", tagline: "Chartered accountants, est. 1987.",
-  links: [{ label: "Home", href: "#/" }, { label: "What we do", href: "#/services" }, { label: "The firm", href: "#/about" }, { label: "Contact", href: "#/contact" }],
-  action: { label: "Free consultation", href: "#/contact" },
+  links: [{ label: "Home", href: "/" }, { label: "What we do", href: "/services" }, { label: "The firm", href: "/about" }, { label: "Contact", href: "/contact" }],
+  action: { label: "Free consultation", href: "/contact" },
 };
 function P() {
   return (
@@ -44,7 +44,7 @@ function P() {
         </section>
         <section className="mt-8 rounded-xl border bg-muted/40 p-5 text-sm">
           <h2 className="font-medium">How we charge, in one paragraph</h2>
-          <p className="mt-2 text-muted-foreground">A fixed monthly fee, agreed in writing before any work starts, reviewed once a year at the annual meeting. Phone calls and emails are included — billing for questions teaches clients not to ask them, which is how expensive mistakes incubate. <a className="font-medium underline underline-offset-4" href="#/services">The starting figures are public.</a></p>
+          <p className="mt-2 text-muted-foreground">A fixed monthly fee, agreed in writing before any work starts, reviewed once a year at the annual meeting. Phone calls and emails are included — billing for questions teaches clients not to ask them, which is how expensive mistakes incubate. <a className="font-medium underline underline-offset-4" href="/services">The starting figures are public.</a></p>
         </section>
       </div>
     </SiteChrome>

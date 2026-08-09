@@ -31,7 +31,7 @@ const AUGUST: Night[] = Array.from({ length: 31 }, (_, i) => {
 function P() {
   return (
     <SiteChrome name="Wren Cottage" tagline="A two-bedroom stone cottage above Hathersage, in the Peak District."
-      links={[{ label: "The rooms", href: "#/rooms" }, { label: "Round about", href: "#/area" }, { label: "Book", href: "#calendar" }]}
+      links={[{ label: "The rooms", href: "/rooms" }, { label: "Round about", href: "/area" }, { label: "Book", href: "#calendar" }]}
       action={{ label: "Check availability", href: "#calendar" }}>
 
       <section className="relative">
@@ -59,7 +59,7 @@ function P() {
               </div>
               <div className="mt-7 flex flex-wrap gap-3">
                 <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#calendar">See the calendar</a>
-                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#/rooms">Look round it</a>
+                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="/rooms">Look round it</a>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">

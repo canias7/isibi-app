@@ -74,8 +74,8 @@ function P() {
   const list = device ? PRICES[device.make] : null;
   return (
     <SiteChrome name="Neepsend Repair Co." tagline="Phone, tablet, laptop and console repairs in Kelham Island, Sheffield."
-      links={[{ label: "All prices", href: "#/prices" }, { label: "Track a repair", href: "#/track" }, { label: "Find us", href: "#find-us" }]}
-      action={{ label: "Track a repair", href: "#/track" }}>
+      links={[{ label: "All prices", href: "/prices" }, { label: "Track a repair", href: "/track" }, { label: "Find us", href: "#find-us" }]}
+      action={{ label: "Track a repair", href: "/track" }}>
 
       <section className="border-b border-border">
         <div className="mx-auto max-w-6xl px-6 py-14">
@@ -102,13 +102,13 @@ function P() {
             <div className="mt-8 max-w-3xl">
               <PriceList items={list} />
             </div>
-            <a className="mt-6 inline-block text-sm font-medium underline underline-offset-4" href="#/prices">Every repair we do, for every device →</a>
+            <a className="mt-6 inline-block text-sm font-medium underline underline-offset-4" href="/prices">Every repair we do, for every device →</a>
           </>
         ) : (
           <div className="max-w-2xl">
             <SectionHeader eyebrow="Prices" title="Pick a device above"
               description="Every price on this site depends on what it is, so there is no useful list until you have said. If yours is not up there, ring — we do more than we can fit on a page." />
-            <a className="mt-6 inline-block text-sm font-medium underline underline-offset-4" href="#/prices">Or see everything at once →</a>
+            <a className="mt-6 inline-block text-sm font-medium underline underline-offset-4" href="/prices">Or see everything at once →</a>
           </div>
         )}
       </section>
@@ -134,7 +134,7 @@ function P() {
             <div>
               <SectionHeader eyebrow="Track it" title="Do not ring to ask if it is ready"
                 description="Every repair gets a ticket number on the slip and in a text. Type it into the tracker and it tells you exactly where it is, including when it is waiting on a part." />
-              <a className="mt-6 inline-block rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#/track">Track a repair</a>
+              <a className="mt-6 inline-block rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="/track">Track a repair</a>
               <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
                 We text when it is ready as well. The tracker is for the day after you dropped it
                 off, when nothing has happened yet and it is quietly bothering you.

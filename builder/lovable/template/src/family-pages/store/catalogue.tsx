@@ -72,8 +72,8 @@ function P() {
   ];
   return (
     <SiteChrome name="Ellery Ironmongery" tagline="Period door and window furniture. 2,140 lines, 1,880 of them on the shelf."
-      links={[{ label: "One product", href: "#/product" }, { label: "Basket", href: "#/checkout" }]}
-      action={{ label: "Checkout", href: "#/checkout" }}>
+      links={[{ label: "One product", href: "/product" }, { label: "Basket", href: "/checkout" }]}
+      action={{ label: "Checkout", href: "/checkout" }}>
 
       {/* THE SEARCH IS THE HERO. With eight products a grid is browsable and a
           hero sells the range; with 2,140 nobody browses — they look for a
@@ -89,7 +89,7 @@ function P() {
                 in 2019 and tell you what replaced it.
               </p>
             </div>
-            <CartBadge count={2} href="#/checkout" />
+            <CartBadge count={2} href="/checkout" />
           </div>
           <SearchInput className="mt-6" value={s.q} onChange={s.setQ} placeholder="Rim lock, SH-2040, brass butt hinge…" />
         </div>
@@ -146,7 +146,7 @@ function P() {
               <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {s.shown.map((p) => (
                   <div key={p.code} className="flex flex-col">
-                    <ProductCard product={p} href="#/product" />
+                    <ProductCard product={p} href="/product" />
                     {/* INVENTORY, NOT MERCHANDISING. Code, count and lead time
                         on every card — a trade buyer orders by code and plans
                         by lead time, and neither is a marketing decision. */}

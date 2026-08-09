@@ -39,8 +39,8 @@ function P() {
       name="Vane & Marrow"
       tagline="Selling something — including when the answer is that it is worth very little."
       links={[
-        { label: "All stock", href: "#/" },
-        { label: "A piece in full", href: "#/piece" },
+        { label: "All stock", href: "/" },
+        { label: "A piece in full", href: "/piece" },
       ]}
       action={{ label: "Ring 0114 255 1180", href: "tel:01142551180" }}
     >
@@ -172,9 +172,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">The current stock</a>
+            <a className="underline underline-offset-4" href="/">The current stock</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/piece">How we describe a piece</a>
+            <a className="underline underline-offset-4" href="/piece">How we describe a piece</a>
           </p>
         </section>
       </div>

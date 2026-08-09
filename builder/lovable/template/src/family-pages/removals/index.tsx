@@ -15,7 +15,7 @@ export const Route = createFileRoute("/")({ component: P });
 function P() {
   return (
     <SiteChrome name="Bramall & Sons Removals" tagline="A family removals firm in Sheffield since 1978."
-      links={[{ label: "Full quote", href: "#/quote" }, { label: "Moving day", href: "#/moving-day" }, { label: "Areas", href: "#areas" }]}
+      links={[{ label: "Full quote", href: "/quote" }, { label: "Moving day", href: "/moving-day" }, { label: "Areas", href: "#areas" }]}
       action={{ label: "Get a price", href: "#calculator" }}>
 
       <section className="border-b border-border">

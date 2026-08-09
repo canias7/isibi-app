@@ -43,8 +43,8 @@ function P() {
       name="Ewden Smokehouse"
       tagline="Hiring the van — what it needs, and what it costs."
       links={[
-        { label: "Today", href: "#/" },
-        { label: "The diary", href: "#/diary" },
+        { label: "Today", href: "/" },
+        { label: "The diary", href: "/diary" },
       ]}
       action={{ label: "Check a date", href: "#date" }}
     >
@@ -123,7 +123,7 @@ function P() {
                 us at a pitch first — Thursday or Friday evening at Peddler is the easiest — and
                 say you are thinking about a booking.
               </p>
-              <a className="mt-6 inline-block text-sm underline underline-offset-4" href="#/diary">
+              <a className="mt-6 inline-block text-sm underline underline-offset-4" href="/diary">
                 Where we will be
               </a>
             </div>
@@ -163,9 +163,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">Where we are today</a>
+            <a className="underline underline-offset-4" href="/">Where we are today</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/diary">The full diary</a>
+            <a className="underline underline-offset-4" href="/diary">The full diary</a>
           </p>
         </section>
       </div>

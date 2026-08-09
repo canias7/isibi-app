@@ -24,8 +24,8 @@ function P() {
   const [sent, setSent] = React.useState(false);
   return (
     <SiteChrome name="Chartered Institute of Building Services" tagline="14,200 members. The register, the grades, and what each one actually asks of you."
-      links={[{ label: "Home", href: "#/" }, { label: "Find a member", href: "#/register" }]}
-      action={{ label: "Which grade am I?", href: "#/#grades" }}>
+      links={[{ label: "Home", href: "/" }, { label: "Find a member", href: "/register" }]}
+      action={{ label: "Which grade am I?", href: "/#grades" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">
         <SectionHeader eyebrow="Applying" title="Seven months, not sixteen weeks"
@@ -88,13 +88,13 @@ function P() {
 
             <div className="mt-8 space-y-3">
               <DownloadCard name="The nine competences.pdf" size={340_000}
-                description="What the submission is marked against, in full" href="#/apply" />
+                description="What the submission is marked against, in full" href="/apply" />
               <DownloadCard name="Sample competence statement.pdf" size={210_000}
-                description="A real one that passed, anonymised with permission" href="#/apply" />
+                description="A real one that passed, anonymised with permission" href="/apply" />
               <DownloadCard name="Assessor guidance.pdf" size={180_000}
-                description="What the two assessors are told to look for — published on purpose" href="#/apply" />
+                description="What the two assessors are told to look for — published on purpose" href="/apply" />
               <DownloadCard name="Experienced practitioner route.pdf" size={160_000}
-                description="Ten years, no degree. How the submission differs" href="#/apply" />
+                description="Ten years, no degree. How the submission differs" href="/apply" />
             </div>
           </div>
         </section>

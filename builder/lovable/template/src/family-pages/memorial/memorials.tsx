@@ -42,8 +42,8 @@ function P() {
       name="Hartley & Vane Memorials"
       tagline="The work, the stone, and what each one asks of you afterwards."
       links={[
-        { label: "Start here", href: "#/" },
-        { label: "Guidance", href: "#/guidance" },
+        { label: "Start here", href: "/" },
+        { label: "Guidance", href: "/guidance" },
       ]}
       action={{ label: "Talk to us", href: "tel:01142551104" }}
     >
@@ -162,9 +162,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">The regulations and the timescale</a>
+            <a className="underline underline-offset-4" href="/">The regulations and the timescale</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/guidance">Inscriptions and adding later</a>
+            <a className="underline underline-offset-4" href="/guidance">Inscriptions and adding later</a>
           </p>
         </section>
       </div>

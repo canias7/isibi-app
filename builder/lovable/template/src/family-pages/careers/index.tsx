@@ -13,7 +13,7 @@ export const Route = createFileRoute("/")({ component: P });
 function P() {
   return (
     <SiteChrome name="Kelham Works" tagline="A 14-person product studio by the river."
-      links={[{ label: "Working here", href: "#/life" }, { label: "The role", href: "#/role" }]}>
+      links={[{ label: "Working here", href: "/life" }, { label: "The role", href: "/role" }]}>
 
       <div className="mx-auto max-w-6xl px-6 py-10">
         <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Kelham Island · 14 people · hiring 3</p>
@@ -26,9 +26,9 @@ function P() {
                 <p className="font-medium">Open now</p>
                 <FilterBar filters={[{ key: "loc", label: "Sheffield or remote" }]} onRemove={() => {}} />
               </div>
-              <JobCard title="Senior product designer" team="Design" location="Kelham Island · hybrid" type="Full time" salary="£55–65k" postedAt="2026-07-24" href="#/role" tags={["Figma", "Design systems"]} />
-              <JobCard title="TypeScript engineer" team="Build" location="Remote UK" type="Full time" salary="£60–72k" postedAt="2026-07-28" href="#/role" tags={["React", "Node"]} />
-              <JobCard title="Studio coordinator" team="Ops" location="Kelham Island" type="4 days" salary="£28–32k pro rata" postedAt="2026-07-30" href="#/role" />
+              <JobCard title="Senior product designer" team="Design" location="Kelham Island · hybrid" type="Full time" salary="£55–65k" postedAt="2026-07-24" href="/role" tags={["Figma", "Design systems"]} />
+              <JobCard title="TypeScript engineer" team="Build" location="Remote UK" type="Full time" salary="£60–72k" postedAt="2026-07-28" href="/role" tags={["React", "Node"]} />
+              <JobCard title="Studio coordinator" team="Ops" location="Kelham Island" type="4 days" salary="£28–32k pro rata" postedAt="2026-07-30" href="/role" />
               <p className="mt-auto text-xs text-muted-foreground">Answer inside a week, including the noes — studio rule.</p>
             </div>
           ) },
@@ -37,7 +37,7 @@ function P() {
           { tall: true, content: (
             <div className="flex h-full flex-col">
               <SafeImage src={null} alt="The long bench, morning" ratio="4/5" />
-              <p className="mt-3 text-sm text-muted-foreground">The room — one bench, no booths. <a className="font-medium underline underline-offset-4" href="#/life">See a real week →</a></p>
+              <p className="mt-3 text-sm text-muted-foreground">The room — one bench, no booths. <a className="font-medium underline underline-offset-4" href="/life">See a real week →</a></p>
             </div>
           ) },
           { content: <div><p className="font-medium">Bands on the wiki</p><p className="mt-1 text-sm text-muted-foreground">Every salary band public internally. Where you land is set by the paid task, not negotiation stamina.</p></div> },
@@ -61,7 +61,7 @@ function P() {
           ) },
         ]} />
 
-        <p className="mt-8 rounded-lg border bg-muted/40 p-4 text-sm">The senior design chair is the urgent one — <a className="font-medium underline underline-offset-4" href="#/role">the full description and the ten-minute apply form →</a></p>
+        <p className="mt-8 rounded-lg border bg-muted/40 p-4 text-sm">The senior design chair is the urgent one — <a className="font-medium underline underline-offset-4" href="/role">the full description and the ten-minute apply form →</a></p>
       </div>
     </SiteChrome>
   );

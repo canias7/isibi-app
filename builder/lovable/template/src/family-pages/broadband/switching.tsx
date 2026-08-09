@@ -47,10 +47,10 @@ function P() {
       name="Ewden Fibre"
       tagline="Switching, or moving house. Both come down to dates."
       links={[
-        { label: "Check an address", href: "#/" },
-        { label: "Packages", href: "#/packages" },
+        { label: "Check an address", href: "/" },
+        { label: "Packages", href: "/packages" },
       ]}
-      action={{ label: "Check my address", href: "#/" }}
+      action={{ label: "Check my address", href: "/" }}
     >
       <section className="border-b border-border">
         <div className="mx-auto max-w-5xl px-6 py-14">
@@ -174,9 +174,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">Check your address</a>
+            <a className="underline underline-offset-4" href="/">Check your address</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/packages">See every package</a>
+            <a className="underline underline-offset-4" href="/packages">See every package</a>
           </p>
         </div>
       </section>

@@ -14,7 +14,7 @@ export const Route = createFileRoute("/account")({ component: P });
 function P() {
   return (
     <SiteChrome name="Hallam Cars" tagline="Private hire in Sheffield, 24 hours, licensed by the council."
-      links={[{ label: "Home", href: "#/" }, { label: "Fixed fares", href: "#/fares" }]}
+      links={[{ label: "Home", href: "/" }, { label: "Fixed fares", href: "/fares" }]}
       action={{ label: "0114 266 2626", href: "tel:01142662626" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">

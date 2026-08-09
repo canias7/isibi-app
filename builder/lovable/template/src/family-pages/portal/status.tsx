@@ -14,7 +14,7 @@ function P() {
   const [found, setFound] = useState(false);
   return (
     <div className="min-h-svh bg-background text-foreground">
-      <header><div className="mx-auto flex max-w-xl items-center justify-between px-6 py-3 text-sm"><span className="font-medium">Resident parking — application status</span><a className="text-muted-foreground underline underline-offset-4" href="#/">Renew instead</a></div></header>
+      <header><div className="mx-auto flex max-w-xl items-center justify-between px-6 py-3 text-sm"><span className="font-medium">Resident parking — application status</span><a className="text-muted-foreground underline underline-offset-4" href="/">Renew instead</a></div></header>
       <main className="mx-auto max-w-xl px-6 py-10">
         {found ? (
           <div>
@@ -27,7 +27,7 @@ function P() {
               <p className="font-medium">What "checks" means</p>
               <p className="mt-1 text-muted-foreground">We confirm the vehicle is registered at the address. It takes two working days; most of that is the DVLA's.</p>
             </div>
-            <p className="mt-6 text-sm text-muted-foreground">Wrong registration on the application? <a className="font-medium underline underline-offset-4" href="#/">Start a fresh renewal</a> — it replaces this one automatically.</p>
+            <p className="mt-6 text-sm text-muted-foreground">Wrong registration on the application? <a className="font-medium underline underline-offset-4" href="/">Start a fresh renewal</a> — it replaces this one automatically.</p>
             <Button variant="ghost" className="mt-6 text-muted-foreground" onClick={() => setFound(false)}>Check a different reference</Button>
           </div>
         ) : (

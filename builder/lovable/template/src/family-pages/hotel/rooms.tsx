@@ -15,8 +15,8 @@ function P() {
   return (
     <div className="min-h-svh bg-background text-foreground">
       <header className="absolute inset-x-0 top-0 z-10 flex items-center justify-between px-6 py-4 text-sm">
-        <a href="#/" className="font-semibold tracking-tight">Fell &amp; Water</a>
-        <a href="#/dining" className="underline-offset-4 hover:underline">Dining</a> <a href="#/" className="underline underline-offset-4">Back</a>
+        <a href="/" className="font-semibold tracking-tight">Fell &amp; Water</a>
+        <a href="/dining" className="underline-offset-4 hover:underline">Dining</a> <a href="/" className="underline underline-offset-4">Back</a>
       </header>
       <div className="relative">
         <SafeImage src={null} alt="The nine windows at night, lit from inside" ratio="21/9" />
@@ -42,7 +42,7 @@ function P() {
       ))}
       <footer className="border-t border-border py-16 text-center">
         <p className="text-lg">Six other rooms prefer to be met in person.</p>
-        <a href="#/" className="mt-4 inline-block border-b border-foreground pb-0.5 text-sm font-medium">Enquire from the front page</a>
+        <a href="/" className="mt-4 inline-block border-b border-foreground pb-0.5 text-sm font-medium">Enquire from the front page</a>
       </footer>
     </div>
   );

@@ -11,8 +11,8 @@ import { SearchInput } from "@/components/ui/search-input";
 export const Route = createFileRoute("/courses")({ component: P });
 const CHROME = {
   name: "Rivelin College", tagline: "A sixth-form college in the Rivelin valley.",
-  links: [{ label: "Home", href: "#/" }, { label: "Courses", href: "#/courses" }, { label: "Visit us", href: "#/visit" }],
-  action: { label: "Apply", href: "#/apply" },
+  links: [{ label: "Home", href: "/" }, { label: "Courses", href: "/courses" }, { label: "Visit us", href: "/visit" }],
+  action: { label: "Apply", href: "/apply" },
 };
 const COURSES = [
   { name: "Mathematics", area: "sciences", level: "A-level", entry: "Grade 7 in GCSE Maths", note: "Further Maths runs alongside" },
@@ -53,7 +53,7 @@ function P() {
             { key: "entry", header: "You'll need" },
             { key: "note", header: "Worth knowing" },
           ]} rows={shown} />
-        <p className="mt-8 rounded-xl border bg-muted/40 p-5 text-sm">Pick three or four, then <a className="font-medium underline underline-offset-4" href="#/apply">start the application</a> — you change subjects at enrolment more easily than people expect, and <a className="font-medium underline underline-offset-4" href="#/visit">an open evening</a> is the fastest way to be sure.</p>
+        <p className="mt-8 rounded-xl border bg-muted/40 p-5 text-sm">Pick three or four, then <a className="font-medium underline underline-offset-4" href="/apply">start the application</a> — you change subjects at enrolment more easily than people expect, and <a className="font-medium underline underline-offset-4" href="/visit">an open evening</a> is the fastest way to be sure.</p>
       </div>
     </SiteChrome>
   );

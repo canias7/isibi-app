@@ -29,8 +29,8 @@ function P() {
       name="Attercliffe Skills"
       tagline="Six steps, six weeks, and what happens in each of them."
       links={[
-        { label: "Eligibility", href: "#/" },
-        { label: "All courses", href: "#/courses" },
+        { label: "Eligibility", href: "/" },
+        { label: "All courses", href: "/courses" },
       ]}
       action={{ label: "Ring 0114 244 1180", href: "tel:01142441180" }}
     >
@@ -152,9 +152,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">Eligibility and courses</a>
+            <a className="underline underline-offset-4" href="/">Eligibility and courses</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/courses">Entry requirements in full</a>
+            <a className="underline underline-offset-4" href="/courses">Entry requirements in full</a>
           </p>
         </section>
       </div>

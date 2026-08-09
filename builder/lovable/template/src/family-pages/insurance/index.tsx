@@ -42,11 +42,11 @@ function P() {
       name="Rivelin Pet Cover"
       tagline="Lifetime pet insurance from Sheffield. The exclusions are on the front page."
       links={[
-        { label: "Cover in full", href: "#/cover" },
-        { label: "Claiming", href: "#/claim" },
+        { label: "Cover in full", href: "/cover" },
+        { label: "Claiming", href: "/claim" },
         { label: "Questions", href: "#questions" },
       ]}
-      action={{ label: "Get a quote", href: "#/cover" }}
+      action={{ label: "Get a quote", href: "/cover" }}
     >
       <section className="border-b border-border">
         <div className="mx-auto max-w-6xl px-6 py-14">
@@ -210,10 +210,10 @@ function P() {
             rather than at renewal.
           </p>
           <div className="mt-7 flex flex-wrap gap-3">
-            <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#/cover">
+            <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="/cover">
               Cover in full
             </a>
-            <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#/claim">
+            <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="/claim">
               How claiming works
             </a>
           </div>

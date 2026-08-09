@@ -10,7 +10,7 @@ import { StatsBand } from "@/components/ui/stats-band";
 export const Route = createFileRoute("/about")({ component: P });
 const CHROME = {
   name: "Made in Sheffield", tagline: "A podcast about this city, fortnightly.",
-  links: [{ label: "Latest", href: "#/" }, { label: "All episodes", href: "#/archive" }, { label: "About", href: "#/about" }],
+  links: [{ label: "Latest", href: "/" }, { label: "All episodes", href: "/archive" }, { label: "About", href: "/about" }],
 };
 function P() {
   return (

@@ -23,10 +23,10 @@ function P() {
       name="Wharncliffe Crags Golf Club"
       tagline="Seven categories, with the waiting list and the vote stated."
       links={[
-        { label: "Home", href: "#/" },
-        { label: "Visitors", href: "#/visitors" },
+        { label: "Home", href: "/" },
+        { label: "Visitors", href: "/visitors" },
       ]}
-      action={{ label: "Book a tee time", href: "#/" }}
+      action={{ label: "Book a tee time", href: "/" }}
     >
       <div className="mx-auto max-w-4xl px-6 py-14">
         <h1 className="text-4xl font-semibold tracking-tight text-balance">Membership</h1>
@@ -165,9 +165,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">Tee times and the course</a>
+            <a className="underline underline-offset-4" href="/">Tee times and the course</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/visitors">Playing as a visitor</a>
+            <a className="underline underline-offset-4" href="/visitors">Playing as a visitor</a>
           </p>
         </section>
       </div>

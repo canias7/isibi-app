@@ -41,8 +41,8 @@ function P() {
       name="Ninety Works"
       tagline="Every screening, and how to put one on yourself."
       links={[
-        { label: "Home", href: "#/" },
-        { label: "About the film", href: "#/about" },
+        { label: "Home", href: "/" },
+        { label: "About the film", href: "/about" },
       ]}
       action={{ label: "Request a screening", href: "#request" }}
     >
@@ -164,9 +164,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">The trailer</a>
+            <a className="underline underline-offset-4" href="/">The trailer</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/about">About the film</a>
+            <a className="underline underline-offset-4" href="/about">About the film</a>
           </p>
         </section>
       </div>

@@ -21,11 +21,11 @@ import { Faq } from "@/components/ui/faq";
 export const Route = createFileRoute("/")({ component: P });
 
 const DATES = [
-  { key: "1", date: "2026-09-12", city: "Sheffield", venue: "The Leadmill", status: "few" as const, href: "#/tour" },
+  { key: "1", date: "2026-09-12", city: "Sheffield", venue: "The Leadmill", status: "few" as const, href: "/tour" },
   { key: "2", date: "2026-09-13", city: "Manchester", venue: "Band on the Wall", status: "soldout" as const },
-  { key: "3", date: "2026-09-19", city: "Leeds", venue: "Brudenell Social Club", status: "onsale" as const, href: "#/tour" },
-  { key: "4", date: "2026-09-20", city: "Newcastle", venue: "The Cluny", status: "onsale" as const, href: "#/tour" },
-  { key: "5", date: "2026-09-26", city: "Glasgow", venue: "King Tut's", status: "few" as const, href: "#/tour" },
+  { key: "3", date: "2026-09-19", city: "Leeds", venue: "Brudenell Social Club", status: "onsale" as const, href: "/tour" },
+  { key: "4", date: "2026-09-20", city: "Newcastle", venue: "The Cluny", status: "onsale" as const, href: "/tour" },
+  { key: "5", date: "2026-09-26", city: "Glasgow", venue: "King Tut's", status: "few" as const, href: "/tour" },
   { key: "6", date: "2026-10-03", city: "Bristol", venue: "The Louisiana", status: "cancelled" as const },
 ];
 
@@ -35,11 +35,11 @@ function P() {
       name="The Long Room"
       tagline="Four people from Sheffield. Second record out in September."
       links={[
-        { label: "Tour", href: "#/tour" },
-        { label: "Listen", href: "#/listen" },
+        { label: "Tour", href: "/tour" },
+        { label: "Listen", href: "/listen" },
         { label: "Questions", href: "#questions" },
       ]}
-      action={{ label: "Get tickets", href: "#/tour" }}
+      action={{ label: "Get tickets", href: "/tour" }}
     >
       {/* THE HERO IS THE NEXT DATE, over the photograph rather than beneath it. */}
       <section className="border-b border-border bg-muted/30">
@@ -55,10 +55,10 @@ function P() {
             and it will go — the last two Sheffield shows both sold out on the day.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
-            <a className="rounded-md bg-primary px-6 py-3 text-base font-medium text-primary-foreground" href="#/tour">
+            <a className="rounded-md bg-primary px-6 py-3 text-base font-medium text-primary-foreground" href="/tour">
               Tickets, £14
             </a>
-            <a className="rounded-md border border-border px-6 py-3 text-base font-medium" href="#/listen">
+            <a className="rounded-md border border-border px-6 py-3 text-base font-medium" href="/listen">
               Hear something first
             </a>
           </div>
@@ -99,7 +99,7 @@ function P() {
             Bristol was cancelled by the venue rather than by us and everybody who bought has been
             refunded automatically — no form, no email to send. We are trying to find another room
             in the city for October.{" "}
-            <a className="underline underline-offset-4" href="#/tour">Every date, with on-sale times.</a>
+            <a className="underline underline-offset-4" href="/tour">Every date, with on-sale times.</a>
           </p>
         </div>
       </section>

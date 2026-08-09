@@ -37,8 +37,8 @@ function P() {
       name="Loxley Skips"
       tagline="Access, the permit, and when it arrives."
       links={[
-        { label: "Home", href: "#/" },
-        { label: "Sizes", href: "#/sizes" },
+        { label: "Home", href: "/" },
+        { label: "Sizes", href: "/sizes" },
       ]}
       action={{ label: "Ring 0114 288 5510", href: "tel:01142885510" }}
     >
@@ -152,9 +152,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">Prohibited items</a>
+            <a className="underline underline-offset-4" href="/">Prohibited items</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/sizes">Sizes and prices</a>
+            <a className="underline underline-offset-4" href="/sizes">Sizes and prices</a>
           </p>
         </section>
       </div>

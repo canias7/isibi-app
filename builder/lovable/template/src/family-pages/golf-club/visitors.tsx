@@ -31,8 +31,8 @@ function P() {
       name="Wharncliffe Crags Golf Club"
       tagline="Green fees, when you can play, and exactly what to wear."
       links={[
-        { label: "Home", href: "#/" },
-        { label: "Membership", href: "#/membership" },
+        { label: "Home", href: "/" },
+        { label: "Membership", href: "/membership" },
       ]}
       action={{ label: "Book a tee time", href: "#book" }}
     >
@@ -160,9 +160,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">Tee times and the course</a>
+            <a className="underline underline-offset-4" href="/">Tee times and the course</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/membership">Joining</a>
+            <a className="underline underline-offset-4" href="/membership">Joining</a>
           </p>
         </section>
       </div>

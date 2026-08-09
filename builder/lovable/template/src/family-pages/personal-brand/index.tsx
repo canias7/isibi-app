@@ -13,7 +13,7 @@ export const Route = createFileRoute("/")({ component: P });
 function P() {
   return (
     <SiteChrome name="Elsie Marrow" tagline="Songs about rivers and shift work."
-      links={[{ label: "Music", href: "#/music" }, { label: "Press kit", href: "#/press" }]}
+      links={[{ label: "Music", href: "/music" }, { label: "Press kit", href: "/press" }]}
       action={{ label: "Book me", href: "#dates" }}>
 
       <div className="mx-auto max-w-6xl px-6">
@@ -42,7 +42,7 @@ function P() {
               { title: "\"Five Weirs\" EP", when: "2022", description: "Recorded in a canal-side lockup in three days. The tape hiss stays." },
               { title: "Radio 6 first play", when: "2024", description: "\"Where has she been\" — on air, mid-song." },
               { title: "\"Marrow\", the album", when: "2026", description: "The tour below is it." }]} />
-            <p className="mt-5 text-sm"><a className="font-medium underline underline-offset-4" href="#/music">Hear both records →</a></p>
+            <p className="mt-5 text-sm"><a className="font-medium underline underline-offset-4" href="/music">Hear both records →</a></p>
           </div>
         </div>
 
@@ -51,7 +51,7 @@ function P() {
             <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">On soon</p>
             <h2 className="mt-2 text-3xl font-semibold tracking-tight">The Marrow tour</h2>
             <p className="mt-3 text-sm leading-relaxed text-muted-foreground">Four rooms picked for their sound, not their size. Promoters: the press kit has everything.</p>
-            <a className="mt-4 inline-block rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#/press">The press kit</a>
+            <a className="mt-4 inline-block rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="/press">The press kit</a>
           </div>
           <div className="md:col-span-7 md:col-start-6">
             <TourDates dates={[

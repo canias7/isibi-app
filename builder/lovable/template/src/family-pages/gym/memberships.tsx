@@ -9,7 +9,7 @@ import { PricingTable } from "@/components/ui/pricing-table";
 export const Route = createFileRoute("/memberships")({ component: P });
 const CHROME = {
   name: "Forge Gyms", tagline: "Four gyms, one membership, no contracts.",
-  links: [{ label: "Find a gym", href: "#/" }, { label: "Kelham", href: "#/location" }, { label: "Memberships", href: "#/memberships" }],
+  links: [{ label: "Find a gym", href: "/" }, { label: "Kelham", href: "/location" }, { label: "Memberships", href: "/memberships" }],
   action: { label: "Join — £24.99", href: "#join" },
 };
 function P() {
@@ -20,9 +20,9 @@ function P() {
         <p className="mt-2 max-w-xl text-muted-foreground">Every plan works at every Forge, every day it's open. The off-peak plan exists because 10am has room to sell cheaper — that's the whole trick.</p>
         <div id="join" className="mt-8">
           <PricingTable tiers={[
-            { name: "Off-peak", price: "£17.99", period: "month", description: "Weekdays 9–4, all weekend.", features: ["All four gyms", "All classes in the window", "Cancel any month"], action: { label: "Join off-peak", href: "#/" } },
-            { name: "Anytime", price: "£24.99", period: "month", featured: true, description: "Every hour we're open.", features: ["All four gyms", "All classes", "Bring a guest on Sundays", "Cancel any month"], action: { label: "Join anytime", href: "#/" } },
-            { name: "Day pass", price: "£8", description: "Visiting, or just checking us out.", features: ["Any one gym, one day", "Counts off your first month if you join"], action: { label: "Get a pass", href: "#/" } },
+            { name: "Off-peak", price: "£17.99", period: "month", description: "Weekdays 9–4, all weekend.", features: ["All four gyms", "All classes in the window", "Cancel any month"], action: { label: "Join off-peak", href: "/" } },
+            { name: "Anytime", price: "£24.99", period: "month", featured: true, description: "Every hour we're open.", features: ["All four gyms", "All classes", "Bring a guest on Sundays", "Cancel any month"], action: { label: "Join anytime", href: "/" } },
+            { name: "Day pass", price: "£8", description: "Visiting, or just checking us out.", features: ["Any one gym, one day", "Counts off your first month if you join"], action: { label: "Get a pass", href: "/" } },
           ]} />
         </div>
         <section className="mt-12">

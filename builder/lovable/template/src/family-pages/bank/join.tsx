@@ -28,11 +28,11 @@ function P() {
       name="Sheffield Steel Credit Union"
       tagline="Whether you can join, and what to bring. Ten minutes at the counter."
       links={[
-        { label: "Rates", href: "#/" },
-        { label: "Borrow", href: "#/borrow" },
-        { label: "Save", href: "#/save" },
+        { label: "Rates", href: "/" },
+        { label: "Borrow", href: "/borrow" },
+        { label: "Save", href: "/save" },
       ]}
-      action={{ label: "Rates", href: "#/" }}
+      action={{ label: "Rates", href: "/" }}
     >
       <div className="mx-auto max-w-5xl px-6 py-14">
         <h1 className="text-4xl font-semibold tracking-tight text-balance">Joining</h1>
@@ -135,11 +135,11 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">All rates</a>
+            <a className="underline underline-offset-4" href="/">All rates</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/save">Savings accounts</a>
+            <a className="underline underline-offset-4" href="/save">Savings accounts</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/borrow">Borrowing</a>
+            <a className="underline underline-offset-4" href="/borrow">Borrowing</a>
           </p>
         </section>
       </div>

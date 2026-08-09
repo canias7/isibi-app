@@ -13,8 +13,8 @@ const NOW = new Date(2026, 7, 2);
 function P() {
   return (
     <SiteChrome name="The Grinding Shop" tagline="A contemporary art gallery in a former cutlery works, Kelham Island, Sheffield."
-      links={[{ label: "Home", href: "#/" }, { label: "This show", href: "#/exhibition" }]}
-      action={{ label: "What's on", href: "#/" }}>
+      links={[{ label: "Home", href: "/" }, { label: "This show", href: "/exhibition" }]}
+      action={{ label: "What's on", href: "/" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">
         <SectionHeader eyebrow="Visit" title="Free, five days a week, and you can just turn up"
@@ -113,10 +113,10 @@ function P() {
             <div>
               <h2 className="text-sm font-medium uppercase tracking-widest text-muted-foreground">On while you are here</h2>
               <div className="mt-6 space-y-12">
-                <ExhibitionCard now={NOW} href="#/exhibition"
+                <ExhibitionCard now={NOW} href="/exhibition"
                   title="Ways of Making Do" artist="Mbanefo, Fenn, Ise"
                   from="2026-06-06" to="2026-08-30" room="The Long Room" admission="Free" />
-                <ExhibitionCard now={NOW} href="#/exhibition"
+                <ExhibitionCard now={NOW} href="/exhibition"
                   title="Bessemer, After" artist="Kit Aspinall"
                   from="2026-07-18" to="2026-08-09" room="Gallery 2" admission="Free" />
               </div>

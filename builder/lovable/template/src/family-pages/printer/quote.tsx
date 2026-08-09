@@ -71,10 +71,10 @@ function P() {
       name="Neepsend Print & Sign"
       tagline="Send the file. We will tell you within the hour whether it will print."
       links={[
-        { label: "Prices", href: "#/" },
-        { label: "Products", href: "#/products" },
+        { label: "Prices", href: "/" },
+        { label: "Products", href: "/products" },
       ]}
-      action={{ label: "Prices", href: "#/" }}
+      action={{ label: "Prices", href: "/" }}
     >
       <div className="mx-auto grid max-w-6xl gap-10 px-6 py-12 lg:grid-cols-[15rem_1fr]">
         <aside className="lg:sticky lg:top-24 lg:self-start">
@@ -277,9 +277,9 @@ function P() {
               />
             </div>
             <p className="mt-8 text-sm text-muted-foreground">
-              <a className="underline underline-offset-4" href="#/">Quantity breaks and prices</a>
+              <a className="underline underline-offset-4" href="/">Quantity breaks and prices</a>
               {" · "}
-              <a className="underline underline-offset-4" href="#/products">Stocks, finishes and sizes</a>
+              <a className="underline underline-offset-4" href="/products">Stocks, finishes and sizes</a>
             </p>
           </section>
         </div>

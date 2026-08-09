@@ -13,7 +13,7 @@ import { ViewerCount } from "@/components/ui/viewer-count";
 export const Route = createFileRoute("/event")({ component: P });
 const CHROME = {
   name: "The Playhouse", tagline: "Box office, but honest about the clock.",
-  links: [{ label: "On-sale board", href: "#/" }, { label: "This show", href: "#/event" }],
+  links: [{ label: "On-sale board", href: "/" }, { label: "This show", href: "/event" }],
 };
 const SEATS: Seat[] = Array.from({ length: 40 }, (_, i) => {
   const row = Math.floor(i / 10), col = i % 10;
@@ -25,7 +25,7 @@ function P() {
   return (
     <SiteChrome {...CHROME}>
       <div className="mx-auto max-w-3xl px-6 py-12">
-        <a className="text-sm text-muted-foreground underline underline-offset-4" href="#/">← Everything on sale</a>
+        <a className="text-sm text-muted-foreground underline underline-offset-4" href="/">← Everything on sale</a>
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-3xl font-semibold tracking-tight">An Inspector Calls — press night</h1>
           <LiveBadge label="Selling fast" />

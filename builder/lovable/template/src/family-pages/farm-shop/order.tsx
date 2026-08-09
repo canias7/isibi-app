@@ -20,7 +20,7 @@ const DROPS = [
 function P() {
   return (
     <SiteChrome name="Hollin Busk Farm Shop" tagline="A working farm and shop above Stocksbridge, growing on eleven acres."
-      links={[{ label: "Home", href: "#/" }, { label: "The year", href: "#/season" }]}
+      links={[{ label: "Home", href: "/" }, { label: "The year", href: "/season" }]}
       action={{ label: "Order a box", href: "#form" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">

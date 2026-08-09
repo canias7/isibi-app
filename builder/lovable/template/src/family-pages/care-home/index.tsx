@@ -30,7 +30,7 @@ export const RATING = {
 function P() {
   return (
     <SiteChrome name="Rivelin Lodge" tagline="A 34-bed residential and dementia care home in Walkley, Sheffield."
-      links={[{ label: "The rooms", href: "#/rooms" }, { label: "Fees", href: "#/fees" }, { label: "Visit", href: "#visit" }]}
+      links={[{ label: "The rooms", href: "/rooms" }, { label: "Fees", href: "/fees" }, { label: "Visit", href: "#visit" }]}
       action={{ label: "Arrange a visit", href: "#visit" }}>
 
       <section>
@@ -60,11 +60,11 @@ function P() {
                   chiropody and the newspaper — and those are £8, £22 and £4.50, which are also on
                   the fees page rather than in a letter later.
                 </p>
-                <a className="mt-4 inline-block text-sm font-medium underline underline-offset-4" href="#/fees">Every fee, in full →</a>
+                <a className="mt-4 inline-block text-sm font-medium underline underline-offset-4" href="/fees">Every fee, in full →</a>
               </div>
               <div className="mt-7 flex flex-wrap gap-3">
                 <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#visit">Come and look round</a>
-                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#/rooms">See the rooms</a>
+                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="/rooms">See the rooms</a>
               </div>
             </div>
             <InspectionRating {...RATING} />

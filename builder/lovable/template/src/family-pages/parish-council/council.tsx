@@ -20,8 +20,8 @@ const RATIOS: [string, number][] = [
 function P() {
   return (
     <SiteChrome name="Bolsterstone Parish Council" tagline="Eleven councillors, one clerk, and a precept of £34,000 a year."
-      links={[{ label: "Home", href: "#/" }, { label: "Papers", href: "#/papers" }]}
-      action={{ label: "Next meeting", href: "#/#next" }}>
+      links={[{ label: "Home", href: "/" }, { label: "Papers", href: "/papers" }]}
+      action={{ label: "Next meeting", href: "/#next" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">
         <SectionHeader eyebrow="The council" title="Nine councillors, two vacancies, one clerk"
@@ -86,11 +86,11 @@ function P() {
             ]} />
             <div className="mt-6 space-y-3">
               <DownloadCard name="Budget 2026-27.pdf" size={140_000}
-                description="Set in January, in public, line by line" href="#/papers" />
+                description="Set in January, in public, line by line" href="/papers" />
               <DownloadCard name="Annual governance and accountability return.pdf" size={310_000}
-                description="Last year's, with the external auditor's certificate" href="#/papers" />
+                description="Last year's, with the external auditor's certificate" href="/papers" />
               <DownloadCard name="Register of members' interests.pdf" size={88_000}
-                description="All nine councillors. Required, and published in full" href="#/council" />
+                description="All nine councillors. Required, and published in full" href="/council" />
             </div>
           </div>
         </section>

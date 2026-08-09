@@ -32,8 +32,8 @@ function P() {
       name="Damflask Outdoor"
       tagline="Water and rock at the reservoir, above Bradfield. AALA licensed."
       links={[
-        { label: "Activities", href: "#/activities" },
-        { label: "Visiting", href: "#/visit" },
+        { label: "Activities", href: "/activities" },
+        { label: "Visiting", href: "/visit" },
         { label: "Questions", href: "#questions" },
       ]}
       action={{ label: "Today's conditions", href: "#today" }}
@@ -134,7 +134,7 @@ function P() {
                 Closed from mid-December to the end of February. The water is about 4°C and the
                 wind at that reservoir in January is not something anybody should pay for.
               </p>
-              <a className="mt-6 inline-block rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#/activities">
+              <a className="mt-6 inline-block rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="/activities">
                 Every activity and its limits
               </a>
             </div>

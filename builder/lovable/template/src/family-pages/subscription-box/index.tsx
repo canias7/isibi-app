@@ -25,8 +25,8 @@ function P() {
       name="Neepsend Coffee Club"
       tagline="Roasted on Tuesday in Sheffield, posted the same afternoon."
       links={[
-        { label: "Plans", href: "#/plans" },
-        { label: "Skip or cancel", href: "#/manage" },
+        { label: "Plans", href: "/plans" },
+        { label: "Skip or cancel", href: "/manage" },
         { label: "Questions", href: "#questions" },
       ]}
       action={{ label: "Start a box", href: "#choose" }}
@@ -62,10 +62,10 @@ function P() {
               </div>
 
               <div className="mt-7 flex flex-wrap gap-3">
-                <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#/plans">
+                <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="/plans">
                   See every plan
                 </a>
-                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#/manage">
+                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="/manage">
                   How skipping works
                 </a>
               </div>

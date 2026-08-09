@@ -33,11 +33,11 @@ function P() {
       name="Upper Don Community Transport"
       tagline="Three routes the commercial operators dropped. A charity, run by 31 volunteer drivers."
       links={[
-        { label: "Timetable", href: "#/timetable" },
-        { label: "Fares", href: "#/fares" },
+        { label: "Timetable", href: "/timetable" },
+        { label: "Fares", href: "/fares" },
         { label: "Questions", href: "#questions" },
       ]}
-      action={{ label: "Full timetable", href: "#/timetable" }}
+      action={{ label: "Full timetable", href: "/timetable" }}
     >
       <section className="border-b border-border">
         <div className="mx-auto max-w-4xl px-6 py-12">
@@ -61,10 +61,10 @@ function P() {
           </p>
 
           <div className="mt-8 flex flex-wrap gap-3">
-            <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#/timetable">
+            <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="/timetable">
               The full timetable
             </a>
-            <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#/fares">
+            <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="/fares">
               Fares and free travel
             </a>
           </div>

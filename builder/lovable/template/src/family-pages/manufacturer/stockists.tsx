@@ -8,8 +8,8 @@ import { StoreLocator } from "@/components/ui/store-locator";
 export const Route = createFileRoute("/stockists")({ component: P });
 const CHROME = {
   name: "Attercliffe Fastenings", tagline: "Cold-forged fasteners since 1953. BS EN ISO 898-1.",
-  links: [{ label: "Home", href: "#/" }, { label: "The 12.9 line", href: "#/product" }, { label: "Stockists", href: "#/stockists" }],
-  action: { label: "Request quote", href: "#/quote" },
+  links: [{ label: "Home", href: "/" }, { label: "The 12.9 line", href: "/product" }, { label: "Stockists", href: "/stockists" }],
+  action: { label: "Request quote", href: "/quote" },
 };
 function P() {
   return (
@@ -32,7 +32,7 @@ function P() {
             { id: 4, name: "Trent Industrial Supplies", address: "Colwick Loop Road, Nottingham NG4 2JT", distance: "38 mi", open: true, hoursNote: "8.8 core sizes" },
           ]} />
         </section>
-        <p className="mt-8 rounded-xl border bg-muted/40 p-4 text-sm">A stockist out of your size will ring us and have it next day — or skip the middle leg: <a className="font-medium underline underline-offset-4" href="#/quote">a schedule over a thousand pieces is quote territory</a> and ships direct.</p>
+        <p className="mt-8 rounded-xl border bg-muted/40 p-4 text-sm">A stockist out of your size will ring us and have it next day — or skip the middle leg: <a className="font-medium underline underline-offset-4" href="/quote">a schedule over a thousand pieces is quote territory</a> and ships direct.</p>
       </div>
     </SiteChrome>
   );

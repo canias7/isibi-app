@@ -20,11 +20,11 @@ function P() {
       name="Sheffield Steel Credit Union"
       tagline="Four savings accounts. None of them steps down after a year."
       links={[
-        { label: "Rates", href: "#/" },
-        { label: "Borrow", href: "#/borrow" },
-        { label: "Join", href: "#/join" },
+        { label: "Rates", href: "/" },
+        { label: "Borrow", href: "/borrow" },
+        { label: "Join", href: "/join" },
       ]}
-      action={{ label: "Apply to join", href: "#/join" }}
+      action={{ label: "Apply to join", href: "/join" }}
     >
       <div className="mx-auto max-w-5xl px-6 py-14">
         <h1 className="text-4xl font-semibold tracking-tight text-balance">Saving</h1>
@@ -107,7 +107,7 @@ function P() {
                 <li>3. Open a Share Account with £5</li>
                 <li>4. Set up a standing order or payroll deduction</li>
               </ol>
-              <a className="mt-5 inline-block text-sm underline underline-offset-4" href="#/join">
+              <a className="mt-5 inline-block text-sm underline underline-offset-4" href="/join">
                 What counts as proof
               </a>
             </div>
@@ -143,9 +143,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">All rates</a>
+            <a className="underline underline-offset-4" href="/">All rates</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/borrow">Borrowing</a>
+            <a className="underline underline-offset-4" href="/borrow">Borrowing</a>
           </p>
         </section>
       </div>

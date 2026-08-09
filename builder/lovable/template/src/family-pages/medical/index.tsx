@@ -17,7 +17,7 @@ export const Route = createFileRoute("/")({ component: P });
 function P() {
   return (
     <SiteChrome name="Rivelin Valley Medical Centre" tagline="An NHS GP practice on Walkley Lane, Sheffield."
-      links={[{ label: "The team", href: "#/team" }, { label: "Treatments", href: "#/treatments" }, { label: "Find us", href: "#find-us" }]}
+      links={[{ label: "The team", href: "/team" }, { label: "Treatments", href: "/treatments" }, { label: "Find us", href: "#find-us" }]}
       action={{ label: "Register", href: "#register" }}>
 
       {/* FIRST IN THE DOM, before the hero. This is the whole family: a person
@@ -41,7 +41,7 @@ function P() {
               </p>
               <div className="mt-7 flex flex-wrap gap-3">
                 <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#register">Register with us</a>
-                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#/team">Who you would see</a>
+                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="/team">Who you would see</a>
               </div>
             </div>
             <OpeningHours days={[
@@ -67,7 +67,7 @@ function P() {
             { title: "Book a health check", description: "With a nurse, in the first month. Not compulsory, but it is how we find the things nobody mentions." },
           ]} />
           <div className="mt-8 flex flex-wrap gap-3">
-            <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#/treatments">Start the form</a>
+            <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="/treatments">Start the form</a>
             <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#find-us">Come in and collect one</a>
           </div>
         </div>
@@ -77,7 +77,7 @@ function P() {
         <div className="flex flex-wrap items-end justify-between gap-3">
           <SectionHeader eyebrow="The team" title="Who you would actually see"
             description="Every registration number here is on a public register and we would rather you checked." />
-          <a className="text-sm font-medium underline underline-offset-4" href="#/team">All fourteen of us →</a>
+          <a className="text-sm font-medium underline underline-offset-4" href="/team">All fourteen of us →</a>
         </div>
         <div className="mt-8 grid gap-x-10 gap-y-8 lg:grid-cols-2">
           <PractitionerCard name="Dr Amara Osei" role="GP Partner" letters="MBBS, MRCGP"

@@ -10,8 +10,8 @@ export const Route = createFileRoute("/impact")({ component: P });
 function P() {
   return (
     <SiteChrome name="The Loxley Larder" tagline="A food bank and community kitchen in Walkley."
-      links={[{ label: "Home", href: "#/" }, { label: "Give", href: "#/donate" }]}
-      action={{ label: "Donate", href: "#/donate" }}>
+      links={[{ label: "Home", href: "/" }, { label: "Give", href: "/donate" }]}
+      action={{ label: "Donate", href: "/donate" }}>
       <div className="mx-auto max-w-5xl px-6 py-14">
         <SectionHeader eyebrow="2025" title="Where the money went"
           description="Audited and filed. The full accounts are on the Charity Commission's register under 1194732." />

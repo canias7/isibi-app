@@ -14,8 +14,8 @@ export const Route = createFileRoute("/")({ component: P });
 function P() {
   return (
     <SiteChrome name="Walkley Wanderers" tagline="Four teams, one pitch, Sheffield & Hallamshire League."
-      links={[{ label: "Teams", href: "#/teams" }, { label: "Join", href: "#/join" }, { label: "The ground", href: "#ground" }]}
-      action={{ label: "Join the club", href: "#/join" }}>
+      links={[{ label: "Teams", href: "/teams" }, { label: "Join", href: "/join" }, { label: "The ground", href: "#ground" }]}
+      action={{ label: "Join the club", href: "/join" }}>
 
       <section className="border-b border-border bg-muted/40">
         <div className="mx-auto max-w-6xl px-6 py-14">
@@ -28,7 +28,7 @@ function P() {
                 Tuesday and the bar is open whether we won or not.
               </p>
               <div className="mt-7 flex flex-wrap gap-3">
-                <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#/join">Trials and subs</a>
+                <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="/join">Trials and subs</a>
                 <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#ground">Find the ground</a>
               </div>
               <div className="mt-10 grid grid-cols-2 gap-4">
@@ -64,7 +64,7 @@ function P() {
         <div className="flex flex-wrap items-end justify-between gap-3">
           <SectionHeader eyebrow="The table" title="Where we are"
             description="County Senior League, Division One. Eleven played, and it is tighter than it looks." />
-          <a className="text-sm font-medium underline underline-offset-4" href="#/teams">All four teams →</a>
+          <a className="text-sm font-medium underline underline-offset-4" href="/teams">All four teams →</a>
         </div>
         <LeagueTable className="mt-8" caption="County Senior League, Division One" rows={[
           { team: "Handsworth Parramore", played: 11, won: 8, drawn: 2, lost: 1, for: 24, against: 9 },
@@ -107,7 +107,7 @@ function P() {
       <section className="mx-auto max-w-6xl px-6 pb-20">
         <CtaBand title="Trials are open, all four teams"
           description="Tuesdays at seven, Rowel Bridge. Turn up in boots — there is nothing to fill in beforehand."
-          action={{ label: "How to join", href: "#/join" }} />
+          action={{ label: "How to join", href: "/join" }} />
       </section>
     </SiteChrome>
   );

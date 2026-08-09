@@ -23,8 +23,8 @@ const DAY = [
 function P() {
   return (
     <SiteChrome name="Bramall & Sons Removals" tagline="A family removals firm in Sheffield since 1978."
-      links={[{ label: "Home", href: "#/" }, { label: "Full quote", href: "#/quote" }]}
-      action={{ label: "Get a price", href: "#/quote" }}>
+      links={[{ label: "Home", href: "/" }, { label: "Full quote", href: "/quote" }]}
+      action={{ label: "Get a price", href: "/quote" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">
         <SectionHeader eyebrow="Moving day" title="What actually happens, hour by hour"
@@ -91,7 +91,7 @@ function P() {
         <section className="mt-14">
           <CtaBand title="Get the range now, fix the price later"
             description="The calculator takes about thirty seconds and asks for nothing about you."
-            action={{ label: "Get a price", href: "#/" }} />
+            action={{ label: "Get a price", href: "/" }} />
         </section>
       </div>
     </SiteChrome>

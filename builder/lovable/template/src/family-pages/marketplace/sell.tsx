@@ -15,7 +15,7 @@ export const Route = createFileRoute("/sell")({ component: P });
 function P() {
   return (
     <SiteChrome name="Made Round Here" tagline="A marketplace for things made within fifty miles of Sheffield."
-      links={[{ label: "Home", href: "#/" }, { label: "Browse", href: "#/browse" }]}
+      links={[{ label: "Home", href: "/" }, { label: "Browse", href: "/browse" }]}
       action={{ label: "Start selling", href: "#form" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">
@@ -82,7 +82,7 @@ function P() {
         <section className="mt-14 border-t border-border pt-10">
           <SectionHeader eyebrow="Already here" title="Some of the people you would be joining" />
           <div className="mt-8 grid gap-x-10 gap-y-8 md:grid-cols-2 lg:grid-cols-3">
-            {MAKERS.map((m) => <SellerCard key={m.name} {...m} href="#/browse" />)}
+            {MAKERS.map((m) => <SellerCard key={m.name} {...m} href="/browse" />)}
           </div>
         </section>
       </div>

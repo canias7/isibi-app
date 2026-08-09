@@ -25,7 +25,7 @@ function P() {
   const [sent, setSent] = React.useState(false);
   return (
     <SiteChrome name="Ewden Lane Kennels & Cattery" tagline="Licensed boarding for 24 dogs and 18 cats, in the Don valley."
-      links={[{ label: "Home", href: "#/" }, { label: "Where they stay", href: "#/stay" }]}
+      links={[{ label: "Home", href: "/" }, { label: "Where they stay", href: "/stay" }]}
       action={{ label: "Ring 0114 288 6120", href: "tel:01142886120" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">

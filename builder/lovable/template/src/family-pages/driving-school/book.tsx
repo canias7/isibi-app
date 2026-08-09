@@ -33,10 +33,10 @@ function P() {
       name="Loxley Drive"
       tagline="The first lesson — what happens, and what to bring."
       links={[
-        { label: "Pass rate", href: "#/" },
-        { label: "Lessons and prices", href: "#/lessons" },
+        { label: "Pass rate", href: "/" },
+        { label: "Lessons and prices", href: "/lessons" },
       ]}
-      action={{ label: "Lessons and prices", href: "#/lessons" }}
+      action={{ label: "Lessons and prices", href: "/lessons" }}
     >
       <div className="mx-auto max-w-5xl px-6 py-14">
         <h1 className="text-4xl font-semibold tracking-tight text-balance">Book a first lesson</h1>
@@ -138,9 +138,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">The pass rate</a>
+            <a className="underline underline-offset-4" href="/">The pass rate</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/lessons">Prices and blocks</a>
+            <a className="underline underline-offset-4" href="/lessons">Prices and blocks</a>
           </p>
         </section>
       </div>

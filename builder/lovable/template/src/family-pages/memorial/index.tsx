@@ -27,8 +27,8 @@ function P() {
       name="Hartley & Vane Memorials"
       tagline="Memorial masons in Sheffield since 1911. BRAMM registered."
       links={[
-        { label: "The work", href: "#/memorials" },
-        { label: "Guidance", href: "#/guidance" },
+        { label: "The work", href: "/memorials" },
+        { label: "Guidance", href: "/guidance" },
         { label: "Questions", href: "#questions" },
       ]}
       action={{ label: "Talk to us", href: "tel:01142551104" }}
@@ -51,7 +51,7 @@ function P() {
             <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="tel:01142551104">
               Ring 0114 255 1104
             </a>
-            <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#/memorials">
+            <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="/memorials">
               See the work
             </a>
           </div>

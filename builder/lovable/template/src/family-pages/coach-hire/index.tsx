@@ -31,11 +31,11 @@ function P() {
       name="Hallam Coaches"
       tagline="16 to 53 seats, from Attercliffe. Family run since 1974."
       links={[
-        { label: "The fleet", href: "#/fleet" },
-        { label: "Get a quote", href: "#/quote" },
+        { label: "The fleet", href: "/fleet" },
+        { label: "Get a quote", href: "/quote" },
         { label: "Questions", href: "#questions" },
       ]}
-      action={{ label: "Get a quote", href: "#/quote" }}
+      action={{ label: "Get a quote", href: "/quote" }}
     >
       <section className="border-b border-border">
         <div className="mx-auto max-w-6xl px-6 py-16">
@@ -56,10 +56,10 @@ function P() {
                 gratuity line, no congestion charge added afterwards.
               </p>
               <div className="mt-7 flex flex-wrap gap-3">
-                <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#/quote">
+                <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="/quote">
                   Send the three answers
                 </a>
-                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#/fleet">
+                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="/fleet">
                   The fleet by seats
                 </a>
               </div>
@@ -138,7 +138,7 @@ function P() {
               ]}
             />
           </div>
-          <a className="mt-6 inline-block text-sm underline underline-offset-4" href="#/fleet">
+          <a className="mt-6 inline-block text-sm underline underline-offset-4" href="/fleet">
             Access, luggage and what each one cannot reach
           </a>
         </div>

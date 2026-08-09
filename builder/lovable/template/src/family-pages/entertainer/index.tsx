@@ -28,8 +28,8 @@ export const QUOTES = [
 function P() {
   return (
     <SiteChrome name="The Larkin Set" tagline="Six-piece function band. Sheffield, Leeds, Manchester and anywhere within two hours."
-      links={[{ label: "Packages", href: "#/packages" }, { label: "Check a date", href: "#/book" }, { label: "Asked often", href: "#faq" }]}
-      action={{ label: "Check my date", href: "#/book" }}>
+      links={[{ label: "Packages", href: "/packages" }, { label: "Check a date", href: "/book" }, { label: "Asked often", href: "#faq" }]}
+      action={{ label: "Check my date", href: "/book" }}>
 
       <section className="border-b border-border">
         <div className="mx-auto max-w-6xl px-6 py-14">
@@ -89,7 +89,7 @@ function P() {
               <li className="py-3">Two site visits if the venue is one we have not played</li>
             </ul>
             <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
-              Extras are on <a className="underline underline-offset-4" href="#/packages">the packages page</a>{" "}
+              Extras are on <a className="underline underline-offset-4" href="/packages">the packages page</a>{" "}
               and there are four of them. There is no service charge, no admin fee and no
               per-musician surcharge — the number in the list is the number on the invoice.
             </p>

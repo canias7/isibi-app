@@ -15,8 +15,8 @@ import { WeekStrip } from "@/components/ui/week-strip";
 export const Route = createFileRoute("/book")({ component: P });
 const CHROME = {
   name: "Tenfold Nails", tagline: "Ten chairs on Ecclesall Road.",
-  links: [{ label: "Home", href: "#/" }, { label: "Book", href: "#/book" }],
-  action: { label: "Book now", href: "#/book" },
+  links: [{ label: "Home", href: "/" }, { label: "Book", href: "/book" }],
+  action: { label: "Book now", href: "/book" },
 };
 function P() {
   const [day, setDay] = useState<string | null>(null);
@@ -30,7 +30,7 @@ function P() {
     return (
       <SiteChrome {...CHROME}>
         <div className="mx-auto max-w-md px-6 py-20">
-          <SuccessPanel title="You're booked" description="Keep the link we text you — it's the way back to move or cancel this appointment." action={{ label: "See your appointment", href: "#/manage" }} />
+          <SuccessPanel title="You're booked" description="Keep the link we text you — it's the way back to move or cancel this appointment." action={{ label: "See your appointment", href: "/manage" }} />
         </div>
       </SiteChrome>
     );

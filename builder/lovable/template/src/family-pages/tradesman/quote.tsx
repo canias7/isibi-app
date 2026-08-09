@@ -11,7 +11,7 @@ function P() {
   const [sent, setSent] = useState(false);
   return (
     <SiteChrome name="Barlow & Son" tagline="Plumbing and heating, Sheffield S6 and S10."
-      links={[{ label: "Home", href: "#/" }, { label: "The work", href: "#/work" }]}
+      links={[{ label: "Home", href: "/" }, { label: "The work", href: "/work" }]}
       action={{ label: "0114 266 1180", href: "tel:+441142661180" }}>
       <div className="mx-auto max-w-5xl px-6 py-14">
         <SectionHeader eyebrow="A quote" title="Tell us what's happening"

@@ -26,8 +26,8 @@ const BY_JOB = [
 function P() {
   return (
     <SiteChrome name="Neepsend Self Store" tagline="Self-storage in a former steel works, five minutes from Sheffield city centre."
-      links={[{ label: "Home", href: "#/" }, { label: "Reserve", href: "#/reserve" }]}
-      action={{ label: "Reserve a unit", href: "#/reserve" }}>
+      links={[{ label: "Home", href: "/" }, { label: "Reserve", href: "/reserve" }]}
+      action={{ label: "Reserve a unit", href: "/reserve" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">
         <SectionHeader eyebrow="Size guide" title="How big is big enough"
@@ -92,7 +92,7 @@ function P() {
         <section className="mt-14">
           <CtaBand title="Still not sure?"
             description="Ring and describe the pile. Whoever answers has done this several thousand times and will tell you honestly if a smaller one would do."
-            action={{ label: "Reserve a unit", href: "#/reserve" }} />
+            action={{ label: "Reserve a unit", href: "/reserve" }} />
         </section>
       </div>
     </SiteChrome>

@@ -11,7 +11,7 @@ import { OpeningHours, type DayHours } from "@/components/ui/opening-hours";
 export const Route = createFileRoute("/location")({ component: P });
 const CHROME = {
   name: "Forge Gyms", tagline: "Four gyms, one membership, no contracts.",
-  links: [{ label: "All gyms", href: "#/" }, { label: "Join", href: "#join" }],
+  links: [{ label: "All gyms", href: "/" }, { label: "Join", href: "#join" }],
   action: { label: "Join — £24.99", href: "#join" },
 };
 const HOURS: DayHours[] = [
@@ -27,7 +27,7 @@ function P() {
   return (
     <SiteChrome {...CHROME}>
       <div className="mx-auto max-w-3xl px-6 py-12">
-        <a className="text-sm text-muted-foreground underline underline-offset-4" href="#/">← All four gyms</a>
+        <a className="text-sm text-muted-foreground underline underline-offset-4" href="/">← All four gyms</a>
         <div className="mt-3 flex flex-wrap items-baseline justify-between gap-3">
           <h1 className="text-3xl font-semibold tracking-tight">Forge Kelham</h1>
           <OpenNow hours={HOURS.filter((h) => h.open).map((h) => ({ day: h.day, open: h.open!, close: h.close! }))} />
@@ -51,7 +51,7 @@ function P() {
         <section id="join" className="mt-10 rounded-xl border bg-muted/40 p-6 text-center">
           <h2 className="text-xl font-semibold tracking-tight">Join at Kelham</h2>
           <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">£24.99 a month, works at all four gyms, cancel whenever. Sign up takes two minutes at the desk — bring nothing.</p>
-          <Button className="mt-4" asChild><a href="#/">Find your nearest first</a></Button>
+          <Button className="mt-4" asChild><a href="/">Find your nearest first</a></Button>
         </section>
       </div>
     </SiteChrome>

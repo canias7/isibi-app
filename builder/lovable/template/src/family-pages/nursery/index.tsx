@@ -53,8 +53,8 @@ const DAYS = [
 function P() {
   return (
     <SiteChrome name="Bole Hills Nursery" tagline="A 42-place nursery and pre-school in Walkley, Sheffield."
-      links={[{ label: "A day here", href: "#/day" }, { label: "Come and look", href: "#/visit" }, { label: "Fees", href: "#fees" }]}
-      action={{ label: "Book a visit", href: "#/visit" }}>
+      links={[{ label: "A day here", href: "/day" }, { label: "Come and look", href: "/visit" }, { label: "Fees", href: "#fees" }]}
+      action={{ label: "Book a visit", href: "/visit" }}>
 
       <section className="border-b border-border bg-muted/40">
         <div className="mx-auto max-w-6xl px-6 py-14">
@@ -74,7 +74,7 @@ function P() {
                 <div><dt className="text-muted-foreground">Ratio, under 2</dt><dd className="mt-1 text-lg font-semibold">1:3</dd></div>
               </dl>
               <div className="mt-7 flex flex-wrap gap-3">
-                <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#/visit">Book a look round</a>
+                <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="/visit">Book a look round</a>
                 <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#fees">What it costs</a>
               </div>
             </div>
@@ -145,7 +145,7 @@ function P() {
       <section className="mx-auto max-w-6xl px-6 pb-16">
         <CtaBand title="Come and see it on an ordinary day"
           description="No appointment slots at nine on a Saturday. We would rather you came at half past ten on a Tuesday when it is loud."
-          action={{ label: "Book a look round", href: "#/visit" }} />
+          action={{ label: "Book a look round", href: "/visit" }} />
       </section>
     </SiteChrome>
   );

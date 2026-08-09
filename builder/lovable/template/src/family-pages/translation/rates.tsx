@@ -36,10 +36,10 @@ function P() {
       name="Attercliffe Language Services"
       tagline="Every rate, and the minimum charge stated."
       links={[
-        { label: "Pairs", href: "#/" },
-        { label: "Send a document", href: "#/quote" },
+        { label: "Pairs", href: "/" },
+        { label: "Send a document", href: "/quote" },
       ]}
-      action={{ label: "Get a quote", href: "#/quote" }}
+      action={{ label: "Get a quote", href: "/quote" }}
     >
       <div className="mx-auto max-w-4xl px-6 py-14">
         <h1 className="text-4xl font-semibold tracking-tight">Rates</h1>
@@ -157,9 +157,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">The pairs and certifications</a>
+            <a className="underline underline-offset-4" href="/">The pairs and certifications</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/quote">Send a document</a>
+            <a className="underline underline-offset-4" href="/quote">Send a document</a>
           </p>
         </section>
       </div>

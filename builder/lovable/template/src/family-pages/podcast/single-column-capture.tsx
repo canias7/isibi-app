@@ -36,7 +36,7 @@ function P() {
   const [done, setDone] = useState(false);
   return (
     <SiteChrome name="Kerbside" tagline="A weekly letter about how British towns actually work."
-      links={[{ label: "One issue", href: "#/episode" }, { label: "All 148", href: "#/archive" }, { label: "Who writes it", href: "#/about" }]}
+      links={[{ label: "One issue", href: "/episode" }, { label: "All 148", href: "/archive" }, { label: "Who writes it", href: "/about" }]}
       action={{ label: "Subscribe", href: "#subscribe" }}>
 
       {/* THE FORM IS THE HERO. Not a bar, not a modal, not a thing that rides
@@ -95,18 +95,18 @@ function P() {
             <article key={i.no} className={n === 0 ? "" : "border-t border-border pt-8"}>
               <PostMeta date={i.date} category={i.topic} readingTime={<ReadingTime words={i.words} />} />
               <h2 className="mt-2 text-2xl font-semibold tracking-tight text-balance">
-                <a className="hover:underline" href="#/episode">
+                <a className="hover:underline" href="/episode">
                   <span className="text-muted-foreground tabular-nums">№{i.no}</span> {i.title}
                 </a>
               </h2>
               <p className="mt-3 text-base leading-relaxed text-muted-foreground">{i.excerpt}</p>
-              <a className="mt-3 inline-block text-sm font-medium underline underline-offset-4" href="#/episode">Read the whole thing</a>
+              <a className="mt-3 inline-block text-sm font-medium underline underline-offset-4" href="/episode">Read the whole thing</a>
             </article>
           ))}
         </div>
 
         <div className="mt-12 border-t border-border pt-10">
-          <a className="text-base font-medium underline underline-offset-4" href="#/archive">All 148 issues, in one list →</a>
+          <a className="text-base font-medium underline underline-offset-4" href="/archive">All 148 issues, in one list →</a>
         </div>
 
         <section className="mt-14 border-t border-border pt-10">

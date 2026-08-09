@@ -20,7 +20,7 @@ function P() {
   const [slot, setSlot] = React.useState<string | null>(null);
   return (
     <SiteChrome name="Hillsborough Leisure" tagline="Pool, courts, gym and a climbing wall, on Penistone Road."
-      links={[{ label: "Home", href: "#/" }, { label: "Membership", href: "#/membership" }]}
+      links={[{ label: "Home", href: "/" }, { label: "Membership", href: "/membership" }]}
       action={{ label: "Ring 0114 273 4444", href: "tel:01142734444" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">
@@ -50,7 +50,7 @@ function P() {
                   {Number(slot.slice(0, 2)) < 16 ? "Off-peak — £9 for the court" : "Peak — £13 for the court"},
                   up to four people. Pay at the desk when you arrive; nothing is taken now.
                 </p>
-                <a className="mt-4 inline-block rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#/">
+                <a className="mt-4 inline-block rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="/">
                   Hold this court
                 </a>
               </div>

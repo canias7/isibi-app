@@ -17,8 +17,8 @@ const SPREADS = [
 function P() {
   return (
     <SiteChrome name="Hale & Frost" tagline="Weddings photographed like they felt."
-      links={[{ label: "A recent day", href: "#/project" }, { label: "Pricing", href: "#/pricing" }]}
-      action={{ label: "Start a project", href: "#/contact" }}>
+      links={[{ label: "A recent day", href: "/project" }, { label: "Pricing", href: "/pricing" }]}
+      action={{ label: "Start a project", href: "/contact" }}>
 
       {/* The opening spread. It used to be one 21/9 band above the thesis, and
           for a PHOTOGRAPHER that was the worst version of the empty-slot
@@ -35,8 +35,8 @@ function P() {
               214 weddings told. Twenty a year, never two in one weekend, first preview inside 48 hours.
             </p>
             <div className="mt-7 flex flex-wrap gap-3">
-              <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#/contact">Start a project</a>
-              <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#/project">A recent day</a>
+              <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="/contact">Start a project</a>
+              <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="/project">A recent day</a>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4 md:col-span-6">
@@ -54,7 +54,7 @@ function P() {
         <div className="border-t border-border py-14">
           <div className="flex flex-wrap items-end justify-between gap-4">
             <h2 className="text-2xl font-semibold tracking-tight">From the last eleven weddings</h2>
-            <a className="text-sm font-medium underline underline-offset-4" href="#/project">One whole day, start to finish →</a>
+            <a className="text-sm font-medium underline underline-offset-4" href="/project">One whole day, start to finish →</a>
           </div>
           <div className="mt-8 grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-6">
             {["Getting ready, Cressbrook", "The walk up", "Rings", "Her father, waiting", "The vows", "Confetti",
@@ -92,8 +92,8 @@ function P() {
           <div className="md:col-span-4 md:col-start-9">
             <p className="text-sm leading-relaxed text-muted-foreground">Tell us the date and the place. We answer within a day — a yes, or a name we trust.</p>
             <div className="mt-4 flex gap-4">
-              <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#/contact">Start a project</a>
-              <a className="px-1 py-2.5 text-sm font-medium underline underline-offset-4" href="#/pricing">Pricing</a>
+              <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="/contact">Start a project</a>
+              <a className="px-1 py-2.5 text-sm font-medium underline underline-offset-4" href="/pricing">Pricing</a>
             </div>
           </div>
         </div>

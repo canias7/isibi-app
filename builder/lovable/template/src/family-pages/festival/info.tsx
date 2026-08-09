@@ -11,8 +11,8 @@ export const Route = createFileRoute("/info")({ component: P });
 function P() {
   return (
     <SiteChrome name="Loxley Weekender" tagline="Three days in a valley, first weekend of September."
-      links={[{ label: "Home", href: "#/" }, { label: "Lineup", href: "#/lineup" }]}
-      action={{ label: "Buy tickets", href: "#/" }}>
+      links={[{ label: "Home", href: "/" }, { label: "Lineup", href: "/lineup" }]}
+      action={{ label: "Buy tickets", href: "/" }}>
       <div className="mx-auto max-w-5xl px-6 py-14">
         <SectionHeader eyebrow="Getting there" title="Everything practical, in one place" />
         <div className="mt-10 grid gap-10 lg:grid-cols-[1fr_1fr]">

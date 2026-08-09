@@ -20,10 +20,10 @@ function P() {
       name="Neepsend Lock-In"
       tagline="Pick a time. A slot is the room for the hour, whoever is in it."
       links={[
-        { label: "Tonight", href: "#/" },
-        { label: "The rooms", href: "#/rooms" },
+        { label: "Tonight", href: "/" },
+        { label: "The rooms", href: "/rooms" },
       ]}
-      action={{ label: "The rooms", href: "#/rooms" }}
+      action={{ label: "The rooms", href: "/rooms" }}
     >
       <div className="mx-auto max-w-5xl px-6 py-14">
         <h1 className="text-4xl font-semibold tracking-tight text-balance">Booking</h1>
@@ -151,9 +151,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">Tonight</a>
+            <a className="underline underline-offset-4" href="/">Tonight</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/rooms">The four rooms</a>
+            <a className="underline underline-offset-4" href="/rooms">The four rooms</a>
           </p>
         </section>
       </div>

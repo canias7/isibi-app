@@ -23,11 +23,11 @@ function P() {
       name="Vane & Marrow"
       tagline="Furniture, metalware and Sheffield plate. Abbeydale Road, by appointment or by chance."
       links={[
-        { label: "A piece in full", href: "#/piece" },
-        { label: "Selling something", href: "#/selling" },
+        { label: "A piece in full", href: "/piece" },
+        { label: "Selling something", href: "/selling" },
         { label: "Questions", href: "#questions" },
       ]}
-      action={{ label: "Enquire", href: "#/piece" }}
+      action={{ label: "Enquire", href: "/piece" }}
     >
       <section className="border-b border-border">
         <div className="mx-auto max-w-6xl px-6 py-20">
@@ -49,7 +49,7 @@ function P() {
                 price actually comes from, and a dealer who shows you only the photograph is
                 telling you something by omission.
               </p>
-              <a className="mt-8 inline-block rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#/piece">
+              <a className="mt-8 inline-block rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="/piece">
                 A piece described properly
               </a>
             </div>

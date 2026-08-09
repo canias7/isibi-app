@@ -36,8 +36,8 @@ function P() {
       name="Loxley Valley Housing"
       tagline="Rent, arrears, tenancy changes, and how to complain."
       links={[
-        { label: "Home", href: "#/" },
-        { label: "Repairs", href: "#/repairs" },
+        { label: "Home", href: "/" },
+        { label: "Repairs", href: "/repairs" },
       ]}
       action={{ label: "Out of hours: 0114 288 6199", href: "tel:01142886199" }}
     >
@@ -157,9 +157,9 @@ function P() {
         </section>
 
         <p className="mt-12 text-sm text-muted-foreground">
-          <a className="underline underline-offset-4" href="#/">The four doors</a>
+          <a className="underline underline-offset-4" href="/">The four doors</a>
           {" · "}
-          <a className="underline underline-offset-4" href="#/repairs">Repairs</a>
+          <a className="underline underline-offset-4" href="/repairs">Repairs</a>
         </p>
       </div>
     </SiteChrome>

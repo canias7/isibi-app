@@ -51,9 +51,9 @@ function P() {
               <Label htmlFor="ws-pass">Password</Label>
               <Input id="ws-pass" type="password" autoComplete="current-password" />
             </div>
-            <Button className="w-full" asChild><a href="#/records">Sign in</a></Button>
+            <Button className="w-full" asChild><a href="/records">Sign in</a></Button>
             <p className="text-center text-sm text-muted-foreground">
-              <a className="underline underline-offset-4" href="#/records">Forgotten it?</a>
+              <a className="underline underline-offset-4" href="/records">Forgotten it?</a>
             </p>
           </CardContent>
         </Card>

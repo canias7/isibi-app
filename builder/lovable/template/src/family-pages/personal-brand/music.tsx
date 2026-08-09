@@ -10,8 +10,8 @@ import { Quote } from "@/components/ui/quote";
 export const Route = createFileRoute("/music")({ component: P });
 const CHROME = {
   name: "Elsie Marrow", tagline: "Songs about rivers and shift work.",
-  links: [{ label: "Home", href: "#/" }, { label: "Music", href: "#/music" }, { label: "Press kit", href: "#/press" }],
-  action: { label: "Book me", href: "#/" },
+  links: [{ label: "Home", href: "/" }, { label: "Music", href: "/music" }, { label: "Press kit", href: "/press" }],
+  action: { label: "Book me", href: "/" },
 };
 const RELEASES = [
   { title: "Marrow", year: "2026", kind: "Album — out October", note: "Eleven songs, recorded live in four days at Yellow Arch. The tour is this record.", tracks: [{ t: "Night Shift Says Goodnight", src: "/audio/night-shift.mp3" }, { t: "Five Weirs (reprise)", src: "/audio/five-weirs-r.mp3" }] },
@@ -49,7 +49,7 @@ function P() {
           ))}
         </div>
         <Quote className="mt-12" cite="BBC Radio 6, first play of 'Five Weirs'">Where has she been.</Quote>
-        <p className="mt-8 border-t pt-6 text-sm text-muted-foreground">Tour dates and everything else live on <a className="font-medium underline underline-offset-4" href="#/">the front page</a>; artwork and bios in the <a className="font-medium underline underline-offset-4" href="#/press">press kit</a>.</p>
+        <p className="mt-8 border-t pt-6 text-sm text-muted-foreground">Tour dates and everything else live on <a className="font-medium underline underline-offset-4" href="/">the front page</a>; artwork and bios in the <a className="font-medium underline underline-offset-4" href="/press">press kit</a>.</p>
       </div>
     </SiteChrome>
   );

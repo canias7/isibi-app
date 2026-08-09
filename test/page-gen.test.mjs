@@ -368,6 +368,83 @@ test("a page that reaches for fetch is caught", () => {
   assert.match(lintPages(page('const r = await fetch("/api/db/x");'), SPEC).join(" "), /calls fetch directly/);
 });
 
+test("a route addressed as a fragment is reported", () => {
+  // THE BUG THIS RULE EXISTS FOR, live on every site built on 2026-08-09.
+  // `#/book` was correct under hash history and became a no-op the moment the
+  // router moved to browser history: it sets the fragment, matches no route,
+  // and the page stays put. `tsc` sees a string, vite bundles it, the site
+  // publishes — nothing but a click can tell.
+  assert.match(lintPages(page('<a href="#/book">Book</a>'), SPEC).join(" "), /addresses a page as/);
+  assert.match(lintPages(page('const CHROME = { links: [{ label: "Book", href: "#/book" }] };'), SPEC).join(" "),
+    /addresses a page as/);
+  // Any prop name, not just `href` — the first sweep of the exemplars keyed on
+  // `href` and missed `manualHref`, `agendaHref` and a ternary. What identifies
+  // this is the `#/` in the string, never what the prop is called.
+  assert.match(lintPages(page('<VehicleLookup manualHref="#/book" />'), SPEC).join(" "), /addresses a page as/);
+});
+
+test("an in-page anchor is NOT reported", () => {
+  // `#prices` points at an id on the same page and works perfectly. A rule that
+  // refused it would push the model off a correct pattern onto a worse one, and
+  // the reference pages themselves use three of them.
+  assert.deepEqual(lintPages(page('<a href="#prices">Prices</a><section id="prices" />'), SPEC), []);
+  assert.deepEqual(lintPages(page('const L = [{ label: "Find us", href: "#find-us" }];'), SPEC), []);
+  // …nor a telephone or an external address.
+  assert.deepEqual(lintPages(page('<a href="tel:+441142700000">Call</a>'), SPEC), []);
+});
+
+test("the rules tell the model the path form, not just the lint", () => {
+  // A lint that refuses something the rules never mention teaches by rejection:
+  // the model writes the habit, gets told off, and the problem shows on a site
+  // that published anyway. Saying it up front costs a few tokens in a block
+  // that rides in the prompt cache.
+  assert.match(PAGE_RULES, /NEVER address a page as/);
+  assert.match(PAGE_RULES, /location\.hash/, "the imperative form is not mentioned");
+  assert.match(PAGE_RULES, /#prices/, "the rules must say an in-page anchor is still fine");
+});
+
+test("the chrome routes its links instead of anchoring them", () => {
+  // Both files render a `links` array, and a bare `<a href={l.href}>` in either
+  // is a full page load to the SERVER root — which on `/s/<slug>/` is the
+  // platform, not the site. `SiteLink` is what makes one value correct at every
+  // mount. The click test in test/integration/site-routing.mjs proves the
+  // header for real; this catches the footer too, which no click test reaches,
+  // and it runs in the unit suite where a regression shows up in seconds.
+  for (const f of ["site-header.tsx", "site-footer.tsx"]) {
+    const src = fs.readFileSync(path.join(TEMPLATE, "src/components/ui", f), "utf8");
+    assert.match(src, /<SiteLink/, f + " no longer routes its links");
+    assert.doesNotMatch(src, /<a\s[^>]*href=\{l\.href\}/,
+      f + " renders a nav link as a bare anchor, which reloads to the server root");
+  }
+  // …and the wordmark, which is its own element and was the original `#/`.
+  const hdr = fs.readFileSync(path.join(TEMPLATE, "src/components/ui/site-header.tsx"), "utf8");
+  assert.match(hdr, /<SiteLink href="\/" className="font-semibold/, "the brand link is not routed");
+});
+
+test("SiteLink refuses to route a protocol-relative address", () => {
+  // `//evil.example` STARTS WITH A SLASH and is another origin — the one shape a
+  // naive `startsWith("/")` internal check gets wrong, and the same trap
+  // `safeNext` records for OAuth returns. Read from the component's source
+  // because the alternative is mounting React to assert one boolean; the
+  // behaviour either side of it is covered by the click test in
+  // test/integration/site-routing.mjs, which drives a real browser.
+  const src = fs.readFileSync(path.join(TEMPLATE, "src/components/ui/site-header.tsx"), "utf8");
+  const i = src.indexOf("const internal =");
+  assert.ok(i > 0, "SiteLink's internal check is gone");
+  const line = src.slice(i, src.indexOf("\n", i));
+  assert.match(line, /startsWith\("\/"\)/, line);
+  assert.match(line, /!\s*href\.startsWith\("\/\/"\)/,
+    "a protocol-relative address would be routed as an internal path: " + line);
+});
+
+test("navigating by assigning location.hash is reported", () => {
+  // The same navigation written imperatively, one assignment from the rule
+  // above and failing identically. Without it the model reads the href rule and
+  // reaches for this instead.
+  assert.match(lintPages(page('onSelect={() => { location.hash = "/book"; }}'), SPEC).join(" "),
+    /assigning location\.hash/);
+});
+
 test("refetch is not fetch", () => {
   assert.deepEqual(lintPages(page("services.refetch(); void queryClient.refetchQueries();"), SPEC), []);
 });

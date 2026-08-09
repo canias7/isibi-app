@@ -10,10 +10,10 @@ function P() {
   return (
     <div className="min-h-svh bg-background text-foreground">
       <header className="absolute inset-x-0 top-0 z-10 flex items-center justify-between px-6 py-4 text-sm">
-        <a href="#/" className="font-semibold tracking-tight">Fell &amp; Water</a>
+        <a href="/" className="font-semibold tracking-tight">Fell &amp; Water</a>
         <nav className="flex gap-4">
-          <a href="#/rooms" className="underline-offset-4 hover:underline">Rooms</a>
-          <a href="#/" className="underline underline-offset-4">Back</a>
+          <a href="/rooms" className="underline-offset-4 hover:underline">Rooms</a>
+          <a href="/" className="underline underline-offset-4">Back</a>
         </nav>
       </header>
       <div className="relative">
@@ -48,7 +48,7 @@ function P() {
       </Parallax>
       <footer className="border-t border-border py-16 text-center">
         <p className="text-lg">Stay the night; the walk upstairs is the digestif.</p>
-        <a href="#/rooms" className="mt-4 inline-block border-b border-foreground pb-0.5 text-sm font-medium">The nine rooms</a>
+        <a href="/rooms" className="mt-4 inline-block border-b border-foreground pb-0.5 text-sm font-medium">The nine rooms</a>
       </footer>
     </div>
   );

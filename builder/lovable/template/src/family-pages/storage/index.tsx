@@ -15,8 +15,8 @@ export const Route = createFileRoute("/")({ component: P });
 function P() {
   return (
     <SiteChrome name="Neepsend Self Store" tagline="Self-storage in a former steel works, five minutes from Sheffield city centre."
-      links={[{ label: "Size guide", href: "#/sizes" }, { label: "Reserve", href: "#/reserve" }, { label: "Find us", href: "#find-us" }]}
-      action={{ label: "Reserve a unit", href: "#/reserve" }}>
+      links={[{ label: "Size guide", href: "/sizes" }, { label: "Reserve", href: "/reserve" }, { label: "Find us", href: "#find-us" }]}
+      action={{ label: "Reserve a unit", href: "/reserve" }}>
 
       <section className="border-b border-border">
         <div className="mx-auto max-w-6xl px-6 py-14">
@@ -41,7 +41,7 @@ function P() {
         <div className="flex flex-wrap items-end justify-between gap-3">
           <SectionHeader eyebrow="The sizes" title="Six sizes, all priced"
             description="Updated every morning from the board in the office. A size showing none free genuinely has none — we do not hold one back for a walk-in." />
-          <a className="text-sm font-medium underline underline-offset-4" href="#/sizes">Which one do I need? →</a>
+          <a className="text-sm font-medium underline underline-offset-4" href="/sizes">Which one do I need? →</a>
         </div>
         <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           <UnitCard size="Locker" dimensions="1.2m × 1.2m × 1.5m high" price={22} available={7}
@@ -83,7 +83,7 @@ function P() {
                 { name: "125 sq ft", area: 125, areaLabel: "125 sq ft", like: "A three or four-bedroom house", price: "£124 a month", alsoFits: ["everything from a family house", "including the loft and the shed"] },
                 { name: "Container", area: 155, areaLabel: "155 sq ft", like: "A single garage", price: "£165 a month", alsoFits: ["a car", "a four-bed house with room spare", "trade stock on pallets"] },
               ]} />
-              <a className="mt-6 inline-block text-sm font-medium underline underline-offset-4" href="#/sizes">The full guide, room by room →</a>
+              <a className="mt-6 inline-block text-sm font-medium underline underline-offset-4" href="/sizes">The full guide, room by room →</a>
             </div>
             <div className="space-y-4">
               <SafeImage src={null} alt="The ground-floor corridor" ratio="4/3" />

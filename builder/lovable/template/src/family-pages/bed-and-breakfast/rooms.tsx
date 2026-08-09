@@ -14,8 +14,8 @@ export const Route = createFileRoute("/rooms")({ component: P });
 function P() {
   return (
     <SiteChrome name="Thurgoland House" tagline="Four rooms above the Don valley. Breakfast until nine, and later if you ask."
-      links={[{ label: "Home", href: "#/" }, { label: "Staying", href: "#/stay" }]}
-      action={{ label: "Book direct", href: "#/stay" }}>
+      links={[{ label: "Home", href: "/" }, { label: "Staying", href: "/stay" }]}
+      action={{ label: "Book direct", href: "/stay" }}>
 
       <div className="mx-auto max-w-6xl px-6 py-14">
         <SectionHeader eyebrow="The rooms" title="Four, described properly"

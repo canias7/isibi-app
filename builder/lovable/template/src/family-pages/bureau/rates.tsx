@@ -52,10 +52,10 @@ function P() {
       name="Change Alley Currency"
       tagline="Twenty-one currencies. Twelve in the drawer, nine on two days' order."
       links={[
-        { label: "Today's board", href: "#/" },
-        { label: "Reserve", href: "#/reserve" },
+        { label: "Today's board", href: "/" },
+        { label: "Reserve", href: "/reserve" },
       ]}
-      action={{ label: "Reserve at today's rate", href: "#/reserve" }}
+      action={{ label: "Reserve at today's rate", href: "/reserve" }}
     >
       <div className="mx-auto max-w-4xl px-6 py-12">
         <p className="font-mono text-xs uppercase tracking-[0.16em] text-muted-foreground">
@@ -192,9 +192,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">Today's board</a>
+            <a className="underline underline-offset-4" href="/">Today's board</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/reserve">Reserve at today's rate</a>
+            <a className="underline underline-offset-4" href="/reserve">Reserve at today's rate</a>
           </p>
         </section>
       </div>

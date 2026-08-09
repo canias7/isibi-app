@@ -48,8 +48,8 @@ function P() {
       name="Wharncliffe Crags Golf Club"
       tagline="A moorland eighteen above Deepcar. Founded 1897, members' owned."
       links={[
-        { label: "Membership", href: "#/membership" },
-        { label: "Visitors", href: "#/visitors" },
+        { label: "Membership", href: "/membership" },
+        { label: "Visitors", href: "/visitors" },
         { label: "Questions", href: "#questions" },
       ]}
       action={{ label: "Book a tee time", href: "#tee" }}
@@ -94,7 +94,7 @@ function P() {
                     <Tile
                       title="Visitors — £34 weekday, £42 weekend"
                       body="Any day. Weekends after 11:00 because the members' competitions run in the morning. No handicap certificate needed and no member has to sign you in — that requirement was dropped in 2019 and we have never regretted it."
-                      href="#/visitors"
+                      href="/visitors"
                       cta="Green fees and how to book"
                     />
                   ),
@@ -104,7 +104,7 @@ function P() {
                     <Tile
                       title="What to wear"
                       body="No denim anywhere. Collared shirt or a golf polo. Shorts are fine with any socks you like. Trainers on the course are fine; spikes are not allowed in the lounge."
-                      href="#/visitors"
+                      href="/visitors"
                       cta="The whole dress code"
                     />
                   ),
@@ -114,7 +114,7 @@ function P() {
                     <Tile
                       title="Joining"
                       body="Seven categories from £190 for a student to £940 full. Two have a waiting list and five do not — the page says which, with the current wait in months."
-                      href="#/membership"
+                      href="/membership"
                       cta="Every category"
                     />
                   ),

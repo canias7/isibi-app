@@ -13,8 +13,8 @@ import { Textarea } from "@/components/ui/textarea";
 export const Route = createFileRoute("/contact")({ component: P });
 const CHROME = {
   name: "Hale & Frost", tagline: "Weddings photographed like they felt.",
-  links: [{ label: "The work", href: "#/" }, { label: "A recent day", href: "#/project" }],
-  action: { label: "Start a project", href: "#/contact" },
+  links: [{ label: "The work", href: "/" }, { label: "A recent day", href: "/project" }],
+  action: { label: "Start a project", href: "/contact" },
 };
 function P() {
   const [name, setName] = useState("");
@@ -28,7 +28,7 @@ function P() {
         <h1 className="text-3xl font-semibold tracking-tight">Start a project</h1>
         <p className="mt-2 text-muted-foreground">Date and place first — that answers whether we're free before anything else matters.</p>
         {sent ? (
-          <SuccessPanel className="mt-8" title="Enquiry sent" description="You'll hear from Ren within a day — usually with a yes or a name we trust for your date." action={{ label: "Back to the work", href: "#/" }} />
+          <SuccessPanel className="mt-8" title="Enquiry sent" description="You'll hear from Ren within a day — usually with a yes or a name we trust for your date." action={{ label: "Back to the work", href: "/" }} />
         ) : (
           <div className="mt-8 grid gap-4">
             <div className="grid gap-4 sm:grid-cols-2">

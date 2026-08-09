@@ -36,7 +36,7 @@ export const TIMETABLE = [
 function P() {
   return (
     <SiteChrome name="Wharncliffe Farm & Wildlife Park" tagline="Ninety acres, a steam railway and forty species, north of Sheffield."
-      links={[{ label: "Plan your visit", href: "#/visit" }, { label: "What's on", href: "#/whats-on" }, { label: "Prices", href: "#prices" }]}
+      links={[{ label: "Plan your visit", href: "/visit" }, { label: "What's on", href: "/whats-on" }, { label: "Prices", href: "#prices" }]}
       action={{ label: "Book tickets", href: "#prices" }}>
 
       <section>
@@ -64,7 +64,7 @@ function P() {
               </dl>
               <div className="mt-7 flex flex-wrap gap-3">
                 <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#prices">Book and save £2 a head</a>
-                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#/visit">Plan the day</a>
+                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="/visit">Plan the day</a>
               </div>
             </div>
             {/* WHAT HAPPENS WHEN, in the first screen. A visitor plans around

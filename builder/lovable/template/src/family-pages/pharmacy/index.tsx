@@ -57,11 +57,11 @@ function P() {
       name="Walkley Pharmacy"
       tagline="An independent pharmacy on South Road. Same family since 1961."
       links={[
-        { label: "Services", href: "#/services" },
-        { label: "Repeat prescriptions", href: "#/repeat" },
+        { label: "Services", href: "/services" },
+        { label: "Repeat prescriptions", href: "/repeat" },
         { label: "Questions", href: "#questions" },
       ]}
-      action={{ label: "Order a repeat", href: "#/repeat" }}
+      action={{ label: "Order a repeat", href: "/repeat" }}
     >
       <section className="border-b border-border">
         <div className="mx-auto max-w-6xl px-6 py-12">
@@ -82,7 +82,7 @@ function P() {
                     <Tile
                       title="Order a repeat prescription"
                       body="Online, at the counter, or ring 0114 234 1180. Allow two working days for the surgery and one for us. We will text you when it is ready rather than leave you guessing."
-                      href="#/repeat"
+                      href="/repeat"
                       cta="Order or check a repeat"
                     />
                   ),
@@ -108,7 +108,7 @@ function P() {
                     <Tile
                       title="Pharmacy First"
                       body="Seven conditions treated here, free, no appointment — earache, sore throat, sinusitis, impetigo, shingles, infected bites, and UTIs in women 16 to 64."
-                      href="#/services"
+                      href="/services"
                       cta="What we can treat"
                     />
                   ),
@@ -118,7 +118,7 @@ function P() {
                     <Tile
                       title="Vaccinations and checks"
                       body="Flu, COVID, travel courses and a free blood-pressure check for anybody over 40. The blood-pressure one takes five minutes and finds something surprisingly often."
-                      href="#/services"
+                      href="/services"
                       cta="All services"
                     />
                   ),
@@ -129,7 +129,7 @@ function P() {
                     <Tile
                       title="Bring anything back"
                       body="Unused medicines, sharps, and the whole cabinet after a bereavement. Free, always, no questions and no forms. It is the safest thing you can do with them and it is what we are here for."
-                      href="#/services"
+                      href="/services"
                       cta="Disposal and everything else"
                     />
                   ),

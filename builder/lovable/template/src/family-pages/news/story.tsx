@@ -8,8 +8,8 @@ export const Route = createFileRoute("/story")({ component: P });
 function P() {
   return (
     <SiteChrome name="The Sheffield Wire" tagline="Local reporting, four journalists, no owner in London."
-      links={[{ label: "Home", href: "#/" }, { label: "Council", href: "#/section" }]}
-      action={{ label: "Subscribe — £6/month", href: "#/" }}>
+      links={[{ label: "Home", href: "/" }, { label: "Council", href: "/section" }]}
+      action={{ label: "Subscribe — £6/month", href: "/" }}>
       <article className="mx-auto max-w-3xl px-6 py-14">
         <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">Planning</p>
         <h1 className="mt-3 text-4xl font-semibold tracking-tight text-balance sm:text-5xl">
@@ -62,7 +62,7 @@ function P() {
         <div className="mt-12 border-t border-border pt-8">
           <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Next</p>
           <h2 className="mt-2 text-2xl font-semibold tracking-tight">
-            <a className="hover:underline" href="#/section">The eleven conditions, in plain English</a>
+            <a className="hover:underline" href="/section">The eleven conditions, in plain English</a>
           </h2>
         </div>
       </article>

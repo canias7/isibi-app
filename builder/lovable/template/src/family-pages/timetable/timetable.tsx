@@ -33,10 +33,10 @@ function P() {
       name="Upper Don Community Transport"
       tagline="The full timetable, both directions, with the school-day extras in their own block."
       links={[
-        { label: "Next departures", href: "#/" },
-        { label: "Fares", href: "#/fares" },
+        { label: "Next departures", href: "/" },
+        { label: "Fares", href: "/fares" },
       ]}
-      action={{ label: "Next departures", href: "#/" }}
+      action={{ label: "Next departures", href: "/" }}
     >
       <div className="mx-auto max-w-4xl px-6 py-12">
         <h1 className="text-4xl font-semibold tracking-tight">Timetable</h1>
@@ -139,9 +139,9 @@ function P() {
             />
           </div>
           <p className="mt-8 text-sm text-muted-foreground">
-            <a className="underline underline-offset-4" href="#/">Live departures</a>
+            <a className="underline underline-offset-4" href="/">Live departures</a>
             {" · "}
-            <a className="underline underline-offset-4" href="#/fares">Fares</a>
+            <a className="underline underline-offset-4" href="/fares">Fares</a>
           </p>
         </section>
       </div>

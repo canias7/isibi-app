@@ -26,8 +26,8 @@ export const QUOTES = [
 function P() {
   return (
     <SiteChrome name="Thurgoland House" tagline="Four rooms above the Don valley. Breakfast until nine, and later if you ask."
-      links={[{ label: "The rooms", href: "#/rooms" }, { label: "Staying", href: "#/stay" }, { label: "Find us", href: "#find-us" }]}
-      action={{ label: "Book direct", href: "#/stay" }}>
+      links={[{ label: "The rooms", href: "/rooms" }, { label: "Staying", href: "/stay" }, { label: "Find us", href: "#find-us" }]}
+      action={{ label: "Book direct", href: "/stay" }}>
 
       <section className="border-b border-border">
         <div className="mx-auto max-w-6xl px-6 py-14">
@@ -43,8 +43,8 @@ function P() {
                 check rather than take our word for it.
               </p>
               <div className="mt-7 flex flex-wrap gap-3">
-                <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#/stay">Book direct</a>
-                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#/rooms">See the rooms</a>
+                <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="/stay">Book direct</a>
+                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="/rooms">See the rooms</a>
               </div>
               <div className="mt-10">
                 <SafeImage src={null} alt="The house from the lane" ratio="16/9" />

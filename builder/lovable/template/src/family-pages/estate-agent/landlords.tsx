@@ -15,7 +15,7 @@ import { Testimonial } from "@/components/ui/testimonial";
 export const Route = createFileRoute("/landlords")({ component: P });
 const CHROME = {
   name: "Loxley Lets", tagline: "Rentals across the west of the city.",
-  links: [{ label: "For tenants", href: "#/" }, { label: "For landlords", href: "#/landlords" }],
+  links: [{ label: "For tenants", href: "/" }, { label: "For landlords", href: "/landlords" }],
   action: { label: "Value my property", href: "#valuation" },
 };
 function P() {
@@ -45,7 +45,7 @@ function P() {
         <section id="valuation" className="mt-10 rounded-xl border bg-muted/40 p-6">
           <h2 className="text-lg font-medium">What would yours let for?</h2>
           {sent ? (
-            <SuccessPanel className="mt-4" title="Valuation booked" description="Rosie will ring within the day — the visit takes twenty minutes and the number is yours to keep either way." action={{ label: "See what's letting now", href: "#/" }} />
+            <SuccessPanel className="mt-4" title="Valuation booked" description="Rosie will ring within the day — the visit takes twenty minutes and the number is yours to keep either way." action={{ label: "See what's letting now", href: "/" }} />
           ) : (
             <div className="mt-4 grid gap-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
               <FormRow label="Postcode" htmlFor="ll-pc" required>

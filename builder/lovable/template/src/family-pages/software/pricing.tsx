@@ -10,8 +10,8 @@ import { PricingTable } from "@/components/ui/pricing-table";
 export const Route = createFileRoute("/pricing")({ component: P });
 const CHROME = {
   name: "Snicket", tagline: "Walking routes that prefer the alleys.",
-  links: [{ label: "The app", href: "#/" }, { label: "Pricing", href: "#/pricing" }],
-  action: { label: "Download", href: "#/" },
+  links: [{ label: "The app", href: "/" }, { label: "Pricing", href: "/pricing" }],
+  action: { label: "Download", href: "/" },
 };
 function P() {
   return (
@@ -20,8 +20,8 @@ function P() {
         <h1 className="text-3xl font-semibold tracking-tight">One price, no tiers of tiers</h1>
         <p className="mt-2 max-w-xl text-muted-foreground">Free is genuinely usable — it is the app, limited by count not by quality. Wanderer removes the counts.</p>
         <PricingTable className="mt-8" tiers={[
-          { name: "Free", price: "£0", description: "For trying a city on foot.", features: ["Three saved routes", "One city offline", "Quiet scores everywhere"], action: { label: "Get the app", href: "#/" } },
-          { name: "Wanderer", price: "£2.50", period: "month", featured: true, description: "For people who walk daily.", features: ["Unlimited saved routes", "Everywhere offline", "Quiet-first routing", "Route history and heatmap"], action: { label: "Start free month", href: "#/" } },
+          { name: "Free", price: "£0", description: "For trying a city on foot.", features: ["Three saved routes", "One city offline", "Quiet scores everywhere"], action: { label: "Get the app", href: "/" } },
+          { name: "Wanderer", price: "£2.50", period: "month", featured: true, description: "For people who walk daily.", features: ["Unlimited saved routes", "Everywhere offline", "Quiet-first routing", "Route history and heatmap"], action: { label: "Start free month", href: "/" } },
         ]} />
         <section className="mt-14">
           <h2 className="text-lg font-medium">Exactly what differs</h2>
@@ -41,7 +41,7 @@ function P() {
             { question: "Family plan?", answer: "Not yet. It's the most-asked question and it's on the board." },
           ]} />
         </section>
-        <CtaBand className="mt-14" title="Walk the quiet way" description="Free on both stores. The alleys are waiting." action={{ label: "Get Snicket", href: "#/" }} />
+        <CtaBand className="mt-14" title="Walk the quiet way" description="Free on both stores. The alleys are waiting." action={{ label: "Get Snicket", href: "/" }} />
       </div>
     </SiteChrome>
   );

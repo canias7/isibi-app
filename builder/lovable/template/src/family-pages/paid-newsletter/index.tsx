@@ -64,7 +64,7 @@ function P() {
                 <ArticleCard title="Standing at the Lyceum: the £12 seats that shouldn't work" excerpt="Row A of the gods, and why the sound beats the stalls." meta="25 July · 7 min" href="#plans" />
                 <ArticleCard title="The fight director nobody credits" excerpt="Every fall you believed this year was hers." meta="11 July · 9 min" href="#plans" />
               </div>
-              <p className="mt-3 text-xs text-muted-foreground">217 letters back to 2022 — membership opens all of them. <a className="font-medium underline underline-offset-4" href="#/letters">Peek at the signed-in side →</a></p>
+              <p className="mt-3 text-xs text-muted-foreground">217 letters back to 2022 — membership opens all of them. <a className="font-medium underline underline-offset-4" href="/letters">Peek at the signed-in side →</a></p>
             </div>
           </aside>
         </div>

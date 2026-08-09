@@ -25,11 +25,11 @@ function P() {
       name="Loxley Skips"
       tagline="Skips and grab hire across north Sheffield. Licensed carrier CBDU142208."
       links={[
-        { label: "Sizes", href: "#/sizes" },
-        { label: "Book", href: "#/book" },
+        { label: "Sizes", href: "/sizes" },
+        { label: "Book", href: "/book" },
         { label: "Questions", href: "#questions" },
       ]}
-      action={{ label: "Book a skip", href: "#/book" }}
+      action={{ label: "Book a skip", href: "/book" }}
     >
       <section className="border-b border-border">
         <div className="mx-auto max-w-5xl px-6 py-14">
