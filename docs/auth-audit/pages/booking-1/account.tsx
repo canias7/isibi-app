@@ -28,19 +28,20 @@ import { Textarea } from "@/components/ui/textarea";
 import { SiteChrome } from "@/components/ui/site-chrome";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Empty } from "@/components/ui/empty";
+import { ActivityFeed } from "@/components/ui/activity-feed";
 
 export const Route = createFileRoute("/account")({ component: Account });
 
-type Note = Row & { title: string | null; body: string | null };
-type Announcement = Row & { title: string | null; body: string | null };
+type Note = Row & { title: string; body: string };
+type Announcement = Row & { title: string; body: string };
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "Slow mornings, strong afternoons — a studio for every kind of practice.",
+  tagline: "A calm room off the high street — mats provided.",
   links: [
     { label: "Home", href: "/" },
-    { label: "The work", href: "/work" },
     { label: "Book", href: "/book" },
+    { label: "The studio", href: "/work" },
     { label: "Account", href: "/account" },
   ],
   action: { label: "Book now", href: "/book" },
@@ -58,7 +59,7 @@ const noteSchema = z.object({
   body: z.string().min(1, "Write something"),
 });
 
-type NoteForm = z.infer<typeof noteSchema>;
+type NoteInput = z.infer<typeof noteSchema>;
 
 function Account() {
   const member = useMember();
@@ -86,7 +87,7 @@ function Account() {
 
   return (
     <SiteChrome {...CHROME}>
-      <div className="mx-auto max-w-md px-6 py-16">
+      <div className="mx-auto max-w-2xl px-6 py-16">
         {member.isPending && <p className="text-muted-foreground">Checking your sign-in…</p>}
 
         {member.data && <SignedIn name={member.data.name} onSignOut={() => logout.mutate()} />}
@@ -95,7 +96,7 @@ function Account() {
           <>
             <h1 className="text-3xl font-semibold tracking-tight">Your account</h1>
             <p className="mt-2 text-muted-foreground">
-              Sign in to see your notes, or make an account to start keeping some.
+              Sign in to keep your own class notes and see studio announcements.
             </p>
 
             <Form {...form}>
@@ -156,15 +157,15 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
   const announcements = useRows<Announcement>("announcements", { order: "id", dir: "desc" });
   const create = useCreateRow<Note>("my_notes");
 
-  const form = useForm<NoteForm>({
+  const form = useForm<NoteInput>({
     resolver: zodResolver(noteSchema),
     defaultValues: { title: "", body: "" },
   });
 
-  const onSubmit = (values: NoteForm) => {
+  const onSubmit = (values: NoteInput) => {
     create.mutate(values, {
       onSuccess: () => {
-        toast.success("Note saved");
+        toast.success("Note saved.");
         form.reset();
       },
       onError: (e: Error) => toast.error(e.message),
@@ -185,38 +186,39 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
           <CardTitle className="text-base">Studio announcements</CardTitle>
         </CardHeader>
         <CardContent>
-          {announcements.isPending && <Skeleton className="h-16 rounded-md" />}
+          {announcements.isPending && <Skeleton className="h-24 rounded-xl" />}
           {announcements.isError && (
             <p className="text-sm text-destructive">Couldn't load announcements right now.</p>
           )}
           {announcements.data?.length === 0 && (
-            <Empty title="Nothing posted yet" description="The studio will share news here." />
+            <Empty title="Nothing posted yet" description="The studio will post updates here." />
           )}
           {!!announcements.data?.length && (
-            <ul className="grid gap-3 motion-stagger">
-              {announcements.data.map((a) => (
-                <li key={a.id} className="rounded-md border border-border p-3">
-                  <p className="text-sm font-medium">{a.title}</p>
-                  <p className="mt-1 text-sm text-muted-foreground">{a.body}</p>
-                </li>
-              ))}
-            </ul>
+            <ActivityFeed
+              items={announcements.data.map((a) => ({
+                who: a.title,
+                what: a.body,
+                at: a.created_at,
+              }))}
+            />
           )}
         </CardContent>
       </Card>
 
-      <Card className="mt-6">
+      <Card className="mt-8">
         <CardHeader>
-          <CardTitle className="text-base">Your practice notes</CardTitle>
+          <CardTitle className="text-base">Your notes</CardTitle>
         </CardHeader>
         <CardContent>
-          {notes.isPending && <Skeleton className="h-24 rounded-md" />}
-          {notes.isError && <p className="text-sm text-destructive">Couldn't load your notes.</p>}
+          {notes.isPending && <Skeleton className="h-24 rounded-xl" />}
+          {notes.isError && (
+            <p className="text-sm text-destructive">Couldn't load your notes.</p>
+          )}
           {notes.data?.length === 0 && (
-            <Empty title="No notes yet" description="Jot down how a class felt, or what to work on next time." />
+            <Empty title="No notes yet" description="Jot down anything you want to remember for next class." />
           )}
           {!!notes.data?.length && (
-            <ul className="grid gap-2 motion-stagger">
+            <ul className="grid gap-3 motion-stagger">
               {notes.data.map((n) => (
                 <li key={n.id} className="rounded-md border border-border p-3">
                   <p className="text-sm font-medium">{n.title}</p>
@@ -227,7 +229,7 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
           )}
 
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="mt-5 grid gap-3">
+            <form onSubmit={form.handleSubmit(onSubmit)} className="mt-6 grid gap-3">
               <FormField
                 control={form.control}
                 name="title"
@@ -254,9 +256,11 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
                   </FormItem>
                 )}
               />
-              <Button type="submit" className="motion-press" disabled={create.isPending}>
-                {create.isPending ? "Saving…" : "Save note"}
-              </Button>
+              <div>
+                <Button type="submit" className="motion-press" disabled={create.isPending}>
+                  {create.isPending ? "Saving…" : "Save note"}
+                </Button>
+              </div>
             </form>
           </Form>
         </CardContent>

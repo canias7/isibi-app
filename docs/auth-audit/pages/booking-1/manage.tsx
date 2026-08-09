@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+
 import { SiteChrome } from "@/components/ui/site-chrome";
 import { Button } from "@/components/ui/button";
 
@@ -6,11 +7,11 @@ export const Route = createFileRoute("/manage")({ component: Manage });
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "Slow mornings, strong afternoons — a studio for every kind of practice.",
+  tagline: "A calm room off the high street — mats provided.",
   links: [
     { label: "Home", href: "/" },
-    { label: "The work", href: "/work" },
     { label: "Book", href: "/book" },
+    { label: "The studio", href: "/work" },
     { label: "Account", href: "/account" },
   ],
   action: { label: "Book now", href: "/book" },
@@ -19,14 +20,15 @@ const CHROME = {
 function Manage() {
   return (
     <SiteChrome {...CHROME}>
-      <div className="mx-auto max-w-lg px-6 py-16 text-center">
-        <h1 className="text-3xl font-semibold tracking-tight">Manage a booking</h1>
+      <div className="mx-auto max-w-lg px-6 py-16">
+        <h1 className="text-3xl font-semibold tracking-tight">Manage your booking</h1>
         <p className="mt-4 text-muted-foreground">
-          We can't look up existing bookings from this page yet. If you need to move or
-          cancel a class, reply to your confirmation email and we'll sort it for you directly.
+          We email a confirmation the moment you book, and if you need to move a
+          class or cancel, reply to that email and we'll sort it out — this studio
+          doesn't yet have a self-serve link for changing a booking online.
         </p>
-        <Button asChild variant="outline" className="mt-6">
-          <Link to="/book">Book another class</Link>
+        <Button asChild className="mt-6">
+          <Link to="/book">Book a class</Link>
         </Button>
       </div>
     </SiteChrome>

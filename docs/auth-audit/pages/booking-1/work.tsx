@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+
 import { SiteChrome } from "@/components/ui/site-chrome";
 import { Gallery } from "@/components/ui/gallery";
 import { SectionHeader } from "@/components/ui/section-header";
@@ -8,11 +9,11 @@ export const Route = createFileRoute("/work")({ component: Work });
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "Slow mornings, strong afternoons — a studio for every kind of practice.",
+  tagline: "A calm room off the high street — mats provided.",
   links: [
     { label: "Home", href: "/" },
-    { label: "The work", href: "/work" },
     { label: "Book", href: "/book" },
+    { label: "The studio", href: "/work" },
     { label: "Account", href: "/account" },
   ],
   action: { label: "Book now", href: "/book" },
@@ -21,32 +22,32 @@ const CHROME = {
 function Work() {
   return (
     <SiteChrome {...CHROME}>
-      <div className="mx-auto max-w-6xl px-6 py-16 motion-reveal">
+      <section className="mx-auto max-w-6xl px-6 py-16">
         <SectionHeader
           eyebrow="The studio"
-          title="Inside Aurora"
-          description="The room, the mats, and the mornings that make this place what it is."
+          title="The room itself"
+          description="Underfloor heating, big windows, and a wall of mirrors we mostly leave uncovered."
         />
         <Gallery
           className="mt-8"
           columns={3}
           items={[
-            { alt: "Sunrise light across the studio floor", caption: "Sunrise Flow, Monday morning" },
-            { alt: "Rows of mats set for a full class", caption: "A full Strong Vinyasa" },
-            { alt: "Bolsters and blankets stacked for Restorative", caption: "Set for Restorative" },
-            { alt: "Candles lit along the studio wall", caption: "Candlelit Yin, Thursday" },
-            { alt: "A teacher adjusting a student's pose", caption: "Hands-on adjustment in Foundations" },
-            { alt: "The studio entrance from the street", caption: "The blue door on Bellhouse Lane" },
+            { src: null, alt: "", caption: "The main studio, mid-class", fallbackSeed: "studio-a" },
+            { src: null, alt: "", caption: "Morning light on the floor", fallbackSeed: "studio-b" },
+            { src: null, alt: "", caption: "Props wall — blocks, straps, bolsters", fallbackSeed: "studio-c" },
+            { src: null, alt: "", caption: "The changing room", fallbackSeed: "studio-d" },
+            { src: null, alt: "", caption: "A restorative class, blankets out", fallbackSeed: "studio-e" },
+            { src: null, alt: "", caption: "The entrance, up the side stairs", fallbackSeed: "studio-f" },
           ]}
         />
-      </div>
-      <div className="mx-auto max-w-6xl px-6 pb-20">
+      </section>
+      <section className="mx-auto max-w-6xl px-6 pb-20">
         <CtaBand
           title="Come see it for yourself"
-          description="Your first class is on us — book any slot to try the room."
+          description="Your first class is on us if you've never been."
           action={{ label: "Book now", href: "/book" }}
         />
-      </div>
+      </section>
     </SiteChrome>
   );
 }

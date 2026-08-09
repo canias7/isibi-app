@@ -1,13 +1,31 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import { toast } from "sonner";
 
-import { useMember, useRows, useUpdateRow, type Row } from "@/lib/rows";
+import { useMember, useRows, useUpdateRow, useDeleteRow, type Row } from "@/lib/rows";
 import { Button } from "@/components/ui/button";
 import { RecordHeader } from "@/components/ui/record-header";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ActivityFeed, type Activity } from "@/components/ui/activity-feed";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export const Route = createFileRoute("/record")({
@@ -19,173 +37,210 @@ export const Route = createFileRoute("/record")({
 
 type Deal = Row & { title: string; value: string | null; stage: string | null };
 
-const STAGES = ["new", "qualifying", "proposal", "negotiation", "won", "lost"];
+const STAGES = ["New", "Qualifying", "Proposal", "Negotiation", "Won", "Lost"];
 
 function stageState(stage: string | null): "success" | "warning" | "danger" | "neutral" {
-  if (stage === "won") return "success";
-  if (stage === "lost") return "danger";
-  if (stage === "negotiation" || stage === "proposal") return "warning";
+  if (stage === "Won") return "success";
+  if (stage === "Lost") return "danger";
+  if (stage === "Negotiation" || stage === "Proposal") return "warning";
   return "neutral";
 }
 
+const editForm = z.object({
+  title: z.string().min(2, "Give the deal a name"),
+  value: z.string().optional(),
+  stage: z.string().min(1, "Pick a stage"),
+});
+
+type EditForm = z.infer<typeof editForm>;
+
 function RecordPage() {
-  const member = useMember();
   const { id } = Route.useSearch();
-  const deals = useRows<Deal>("deals");
+  const member = useMember();
+  const navigate = useNavigate();
+  const deals = useRows<Deal>("deals", { order: "id", dir: "desc" });
   const update = useUpdateRow<Deal>("deals");
-  const [valueDraft, setValueDraft] = useState<string | null>(null);
+  const remove = useDeleteRow("deals");
+  const [activity, setActivity] = useState<Activity[]>([]);
+
+  const deal = deals.data?.find((d) => String(d.id) === id);
+
+  const form = useForm<EditForm>({
+    resolver: zodResolver(editForm),
+    values: deal
+      ? { title: deal.title, value: deal.value ?? "", stage: deal.stage ?? "New" }
+      : { title: "", value: "", stage: "New" },
+  });
 
   if (member.isPending) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <p className="text-muted-foreground">Checking your sign-in…</p>
-      </div>
-    );
+    return <main className="flex min-h-screen items-center justify-center text-muted-foreground">Checking your sign-in…</main>;
   }
 
   if (!member.data) {
     return (
-      <div className="flex min-h-screen items-center justify-center px-6">
-        <div className="max-w-sm text-center">
-          <h1 className="text-2xl font-semibold tracking-tight">Sign in to view this record</h1>
-          <p className="mt-2 text-muted-foreground">Deal records are private to signed-in members.</p>
-          <Button asChild className="mt-6">
-            <Link to="/">Go to sign in</Link>
-          </Button>
-        </div>
-      </div>
+      <main className="flex min-h-screen flex-col items-center justify-center gap-4 px-6 text-center">
+        <h1 className="text-2xl font-semibold tracking-tight">Halyard</h1>
+        <p className="text-muted-foreground">Sign in to view this record.</p>
+        <Button asChild>
+          <Link to="/">Sign in</Link>
+        </Button>
+      </main>
     );
   }
 
   if (!id) {
     return (
-      <div className="flex min-h-screen items-center justify-center px-6">
-        <div className="max-w-sm text-center">
-          <h1 className="text-2xl font-semibold tracking-tight">No record chosen</h1>
-          <p className="mt-2 text-muted-foreground">Open a deal from the pipeline table.</p>
-          <Button asChild className="mt-6">
-            <Link to="/records">Back to records</Link>
-          </Button>
-        </div>
-      </div>
+      <main className="mx-auto max-w-2xl px-6 py-16 text-center">
+        <p className="text-muted-foreground">
+          No record selected. Go back to{" "}
+          <Link to="/records" className="underline">
+            the records
+          </Link>
+          .
+        </p>
+      </main>
     );
   }
 
   if (deals.isPending) {
     return (
-      <div className="mx-auto max-w-3xl px-6 py-16">
-        <Skeleton className="h-48 rounded-xl" />
-      </div>
+      <main className="mx-auto max-w-3xl px-6 py-10">
+        <Skeleton className="h-40 rounded-xl" />
+      </main>
     );
   }
 
   if (deals.isError) {
     return (
-      <div className="mx-auto max-w-3xl px-6 py-16">
+      <main className="mx-auto max-w-2xl px-6 py-16 text-center">
         <p className="text-sm text-destructive">Couldn't load this record. Refresh and try again.</p>
-      </div>
+      </main>
     );
   }
-
-  const deal = deals.data?.find((d) => String(d.id) === id);
 
   if (!deal) {
     return (
-      <div className="mx-auto max-w-3xl px-6 py-16 text-center">
-        <h1 className="text-2xl font-semibold tracking-tight">We couldn't find that deal</h1>
-        <p className="mt-2 text-muted-foreground">It may have been removed.</p>
-        <Button asChild className="mt-6">
-          <Link to="/records">Back to records</Link>
-        </Button>
-      </div>
+      <main className="mx-auto max-w-2xl px-6 py-16 text-center">
+        <p className="text-muted-foreground">
+          We couldn't find that record. It may not be yours, or the team's.{" "}
+          <Link to="/records" className="underline">
+            Back to records
+          </Link>
+        </p>
+      </main>
     );
   }
 
-  const activity: Activity[] = [
-    { who: "The team", what: `Created "${deal.title}"`, at: deal.created_at },
-  ];
-  if (deal.updated_at && deal.updated_at !== deal.created_at) {
-    activity.push({ who: "The team", what: `Updated to stage "${deal.stage ?? "new"}"`, at: deal.updated_at });
-  }
-
-  const onStage = (stage: string) => {
+  const onSubmit = (values: EditForm) => {
     update.mutate(
-      { id: deal.id, stage },
-      {
-        onSuccess: () => toast.success("Stage updated"),
-        onError: (e) => toast.error(e.message),
-      },
-    );
-  };
-
-  const onValueSave = () => {
-    if (valueDraft === null) return;
-    update.mutate(
-      { id: deal.id, value: valueDraft },
+      { id: deal.id, ...values },
       {
         onSuccess: () => {
-          toast.success("Value updated");
-          setValueDraft(null);
+          toast.success("Saved");
+          setActivity((prev) => [
+            { who: member.data!.name ?? member.data!.email, what: "updated this deal", at: new Date() },
+            ...prev,
+          ]);
         },
         onError: (e) => toast.error(e.message),
       },
     );
   };
 
+  const onDelete = () => {
+    remove.mutate(deal.id, {
+      onSuccess: () => {
+        toast.success("Deleted");
+        navigate({ to: "/records" });
+      },
+      onError: (e) => toast.error(e.message),
+    });
+  };
+
   return (
-    <div className="mx-auto max-w-3xl px-6 py-10">
-      <Link to="/records" className="text-sm text-muted-foreground underline underline-offset-4">
-        ← Back to our deals
-      </Link>
+    <main className="mx-auto max-w-3xl px-6 py-10">
+      <RecordHeader
+        title={deal.title}
+        subtitle="A deal the whole team shares"
+        status={<StatusBadge state={stageState(deal.stage)}>{deal.stage ?? "New"}</StatusBadge>}
+        actions={
+          <Button variant="destructive" onClick={onDelete} disabled={remove.isPending}>
+            {remove.isPending ? "Deleting…" : "Delete"}
+          </Button>
+        }
+      />
 
-      <div className="mt-4">
-        <RecordHeader
-          title={deal.title}
-          subtitle="Shared with the team"
-          status={<StatusBadge state={stageState(deal.stage)}>{deal.stage ?? "new"}</StatusBadge>}
-        />
-      </div>
-
-      <div className="mt-8 grid gap-6 sm:grid-cols-2">
-        <div>
-          <p className="text-xs font-medium uppercase text-muted-foreground">Value</p>
-          <div className="mt-2 flex gap-2">
-            <Input
-              value={valueDraft ?? deal.value ?? ""}
-              onChange={(e) => setValueDraft(e.target.value)}
-              placeholder="£12,000"
+      <section className="mt-8 rounded-xl border border-border p-6">
+        <h2 className="text-sm font-medium text-muted-foreground">Fields</h2>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="mt-4 grid gap-4 sm:grid-cols-2">
+            <FormField
+              control={form.control}
+              name="title"
+              render={({ field }) => (
+                <FormItem className="sm:col-span-2">
+                  <FormLabel>Title</FormLabel>
+                  <FormControl>
+                    <Input {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
             />
-            <Button
-              variant="outline"
-              disabled={update.isPending || valueDraft === null}
-              onClick={onValueSave}
-            >
-              Save
-            </Button>
-          </div>
-        </div>
+            <FormField
+              control={form.control}
+              name="value"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Value</FormLabel>
+                  <FormControl>
+                    <Input {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="stage"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Stage</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Choose a stage" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {STAGES.map((s) => (
+                        <SelectItem key={s} value={s}>
+                          {s}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <div className="sm:col-span-2">
+              <Button type="submit" className="motion-press" disabled={update.isPending}>
+                {update.isPending ? "Saving…" : "Save changes"}
+              </Button>
+            </div>
+          </form>
+        </Form>
+      </section>
 
-        <div>
-          <p className="text-xs font-medium uppercase text-muted-foreground">Stage</p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {STAGES.map((s) => (
-              <button
-                key={s}
-                className={`rounded-md border px-2 py-1 text-xs capitalize motion-press ${deal.stage === s ? "border-primary bg-primary/10" : "border-border"}`}
-                disabled={update.isPending}
-                onClick={() => onStage(s)}
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-10">
-        <p className="text-xs font-medium uppercase text-muted-foreground">Activity</p>
-        <ActivityFeed className="mt-3" items={activity} empty="Nothing has happened on this deal yet." />
-      </div>
-    </div>
+      <section className="mt-8">
+        <h2 className="text-sm font-medium text-muted-foreground">Activity</h2>
+        <ActivityFeed
+          className="mt-4"
+          items={activity}
+          empty="No activity yet on this record — edits made here will show up."
+        />
+      </section>
+    </main>
   );
 }

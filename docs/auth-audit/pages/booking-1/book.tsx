@@ -6,6 +6,7 @@ import { z } from "zod";
 import { toast } from "sonner";
 
 import { useCreateRow, usePublicRows, type Row } from "@/lib/rows";
+import { SiteChrome } from "@/components/ui/site-chrome";
 import { AvailabilityGrid } from "@/components/ui/availability-grid";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,7 +18,6 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { SiteChrome } from "@/components/ui/site-chrome";
 import {
   Select,
   SelectContent,
@@ -37,25 +37,25 @@ type Appointment = Row;
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "Slow mornings, strong afternoons — a studio for every kind of practice.",
+  tagline: "A calm room off the high street — mats provided.",
   links: [
     { label: "Home", href: "/" },
-    { label: "The work", href: "/work" },
     { label: "Book", href: "/book" },
+    { label: "The studio", href: "/work" },
     { label: "Account", href: "/account" },
   ],
   action: { label: "Book now", href: "/book" },
 };
 
 const CLASSES = [
-  "Sunrise Flow",
-  "Strong Vinyasa",
+  "Morning flow",
+  "Hatha",
+  "Power vinyasa",
   "Restorative",
-  "Beginners' Foundations",
-  "Candlelit Yin",
+  "Beginners' six-week course",
 ];
 
-const SLOTS = ["07:00", "08:15", "09:30", "12:00", "17:30", "18:45", "19:30"];
+const SLOTS = ["07:00", "09:00", "12:15", "17:30", "18:30", "19:45"];
 
 const booking = z.object({
   class_name: z.string().min(1, "Pick a class"),
@@ -106,7 +106,8 @@ function Book() {
         <div className="mx-auto max-w-lg px-6 py-20 text-center motion-enter">
           <h1 className="text-3xl font-semibold tracking-tight">You're booked</h1>
           <p className="mt-3 text-muted-foreground">
-            We've saved your spot and sent a confirmation to your email. See you on the mat.
+            We've sent a confirmation to your email. Need to move it or cancel? Use the
+            link in that email to manage your booking.
           </p>
           <Button asChild variant="outline" className="mt-6">
             <Link to="/">Back to the studio</Link>
