@@ -322,6 +322,30 @@ try {
     ok("published page serves 200", page.status === 200, String(page.status));
     if (d.page === "app") {
       ok("the page is the compiled app shell", /id="root"/.test(html) && /<script[^>]+src=/.test(html), html.slice(0, 240));
+
+      // ── A DEEP LINK IS A REAL ADDRESS ────────────────────────────────────
+      //
+      // `/s/<slug>/book` used to 404, because vite emits no `book.html` — and
+      // that one 404 is why the template ran on hash routing and why every page
+      // of every published site shared ONE address: unindexable, one link
+      // preview for the whole site, and every visit logged as "/".
+      //
+      // Checked against a route the build really wrote, not a guessed name.
+      const deep = (d.files || [])
+        .map((f) => String(f).replace(/^src\/routes\//, "").replace(/\.tsx$/, ""))
+        .find((r) => r !== "index" && /^[a-z0-9-]+$/i.test(r));
+      if (deep) {
+        const dr = await fetch(`${BASE}/s/${slug}/${deep}`);
+        const dh = await dr.text();
+        ok(`a deep link (/${deep}) answers with the app, not 404`,
+          dr.status === 200 && /id="root"/.test(dh), dr.status + " " + dh.slice(0, 120));
+      }
+      // AND AN ASSET STILL 404s. If the fallback ever caught these, a missing
+      // chunk would answer HTML and the browser's error would point nowhere near
+      // the file that is actually gone.
+      const bogus = await fetch(`${BASE}/s/${slug}/assets/definitely-not-a-real-chunk.js`);
+      ok("a missing asset still 404s — the fallback is extensionless-only",
+        bogus.status === 404, String(bogus.status));
       ok("its stylesheet was published too", /<link[^>]+\.css/.test(html), html.slice(0, 240));
       // What a shared link shows. Link previews fetch the HTML once and read the
       // head — they do not run the bundle — so without these a customer sent

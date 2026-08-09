@@ -66,9 +66,26 @@ test("published assets carry a CORS header, or the preview is blank", () => {
     "published site assets have no CORS header; the sandboxed preview will render blank");
 
   // It has to sit on the SERVED response, not on the 404 or the redirect.
+  //
+  // Anchored on `"content-type": ctype` — the served response is the only one
+  // that carries it — rather than on the variable being returned. This used to
+  // name `new Response(obj.body`, and went red the moment that body became a
+  // rewritten string for HTML: a guard that breaks on a rename is a guard that
+  // gets "fixed" by loosening it.
   const hdr = siteBranch.indexOf('"access-control-allow-origin"');
-  const body = siteBranch.indexOf("new Response(obj.body");
-  assert.ok(body > 0 && hdr > body, "the header is not on the response that carries the file");
+  const served = siteBranch.indexOf('"content-type": ctype,');
+  assert.ok(served > 0, "the served-file response moved — rescope this");
+  assert.ok(hdr > served, "the header is not on the response that carries the file");
+
+  // ONE served response, and this is the property the rename was made to keep.
+  // HTML now leaves through the same construction as an asset — only the BODY
+  // differs — because a second `new Response` for the HTML path is a second
+  // header block, and two header blocks for one route is how the CORS header
+  // comes back missing on exactly one of them.
+  const responses = (siteBranch.match(/"content-type": ctype,/g) || []).length;
+  assert.equal(responses, 1,
+    "there is more than one served-file response in this branch — the headers can now " +
+    "disagree between them, which is how this bug arrived the first time");
 
   // And the security property it exists to preserve: `*` opens the FILE, which
   // was already public to anyone who asked. The alternative was opening the
@@ -80,4 +97,45 @@ test("published assets carry a CORS header, or the preview is blank", () => {
   assert.ok(frame, "the preview iframe lost its sandbox attribute entirely");
   assert.ok(!/allow-same-origin/.test(frame[1]),
     "the preview frame is same-origin with the builder — generated page code can read the owner's session");
+});
+
+// ── WHERE A PUBLISHED PAGE THINKS ITS ASSETS ARE ────────────────────────────
+//
+// vite builds with `base: "./"`, so the shell asks for `./assets/index-<hash>.js`
+// and the browser resolves that against the DIRECTORY of the current URL. That
+// is right at `/s/<slug>/book` and WRONG at `/s/<slug>/shop/item`, where it
+// becomes `/s/<slug>/shop/assets/…` and every asset 404s. `SAFE_PATH` permits
+// nested route files and the tool documents the directory form, so that is a
+// shape the generator can really produce.
+//
+// The Worker is the only layer that can fix it: the same bytes serve at
+// `/s/<slug>/` on our domain and at `/` on the owner's custom domain — the Host
+// rewrite above turns the second into the first — so nothing baked into the file
+// is correct in both.
+test("html is rewritten to the mount it is actually being served from", () => {
+  assert.match(siteBranch, /const mountRoot = isOwnHostname\(url\.hostname\) \? "\/s\/" \+ slug \+ "\/" : "\/";/,
+    "the mount root is no longer derived from the hostname — hardcode either side " +
+    "and it is wrong on every custom domain, or wrong on every site of ours");
+
+  // BOTH ARMS, named separately. A mutation collapsing the ternary to the /s/
+    // form survived a first sweep: nothing asserted the custom-domain answer, and
+  // that is the arm a customer's own address depends on.
+  const m = siteBranch.match(/const mountRoot = [^;]+;/);
+  assert.ok(m, "the mount root assignment is gone");
+  assert.match(m[0], /"\/s\/" \+ slug \+ "\/"/, "our own domain's mount is not built from the slug");
+  assert.match(m[0], /:\s*"\/"/, "a custom domain does not resolve to the site root");
+
+  // And the rewrite itself. Removing it left every test green while deep links
+  // at depth 2 lost their assets.
+  assert.match(siteBranch, /\(await obj\.text\(\)\)\.replace\(/,
+    "the relative-root rewrite is gone; a nested route's assets will 404");
+  assert.match(siteBranch, /\$1="' \+ mountRoot\)/,
+    "the rewrite no longer substitutes the mount root");
+
+  // HTML ONLY. Running it over a bundle would corrupt JavaScript that happens to
+  // contain the same characters, and it costs a full read of every asset.
+  const guard = siteBranch.indexOf('ctype.startsWith("text/html")', siteBranch.indexOf("let served"));
+  const rewrite = siteBranch.indexOf("(await obj.text()).replace(");
+  assert.ok(guard > 0 && rewrite > guard,
+    "the rewrite is not gated on html — it would run over every asset served");
 });

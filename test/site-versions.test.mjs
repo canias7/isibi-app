@@ -533,3 +533,50 @@ test("the journey proves RESTORE changed the live site, not just answered 200", 
   assert.match(after, /restoredCss/, "nothing re-reads the published stylesheet after restoring");
   assert.match(after, /!\/--background/, "the revised colour must be asserted GONE from the live site");
 });
+
+// ─────────────────────────────────────────── real addresses for published pages
+//
+// EVERY PAGE OF EVERY PUBLISHED SITE HAD THE SAME ADDRESS, and this 404 was why.
+//
+// `/s/<slug>/book` looked for `book.html`, which vite never emits, so it 404'd —
+// which is why the template ran on `createHashHistory()` and every page lived at
+// `#/book`. A fragment never reaches a server, so: search engines saw one page
+// per site (a barber shop's Services and Booking pages could not be indexed at
+// all), every shared link previewed the home page whatever you copied, and
+// `logSiteHit` recorded every view in the site's life as "/".
+//
+// The fallback is what makes real paths possible. Its restriction to
+// EXTENSIONLESS paths is the whole safety of it, and is asserted separately from
+// the fallback itself — a fallback that also caught `.js` would answer a missing
+// chunk with HTML, and the browser's error for that points nowhere near the
+// deleted file.
+test("an extensionless path falls back to the app shell, and an asset never does", () => {
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+
+  const at = w.indexOf('if (!obj && !ext && rest !== "") {');
+  assert.ok(at > 0, "the SPA fallback is gone or reshaped — deep links 404 again");
+
+  // It must sit between the first lookup and the 404, or it cannot fire.
+  const get = w.indexOf('let obj = await env.SITES_BUCKET.get(key);');
+  const miss = w.indexOf('if (!obj) return new Response("Not found", { status: 404 });', get);
+  assert.ok(get > 0 && miss > at && at > get,
+    "the fallback is not between the lookup and the 404 — it is unreachable either way round");
+
+  const block = w.slice(at, miss);
+  assert.match(block, /SITES_BUCKET\.get\("sites\/" \+ slug \+ "\/index\.html"\)/,
+    "the fallback must serve the app shell");
+  assert.match(block, /ctype = "text\/html; charset=utf-8"/,
+    "the shell must be served AS html — `book` has no extension, so the content type " +
+    "would otherwise still be whatever the missed lookup guessed");
+
+  // BOTH GUARDS, asserted apart. `!ext` keeps assets 404ing; `rest !== ""` keeps
+  // the root's own miss honest, since falling back to index.html when index.html
+  // is what missed is a loop dressed as a feature.
+  assert.match(block.slice(0, 60), /!ext/, "an asset would fall back too — a missing chunk would answer HTML");
+  assert.match(block.slice(0, 60), /rest !== ""/, "the root's own miss falls back to itself");
+
+  // And the traffic log gets the REAL path, which is the whole reason per-page
+  // analytics were impossible rather than merely unbuilt.
+  assert.match(w.slice(miss, miss + 500), /logSiteHit\(env, ctx, slug, "\/" \+ rest, request\)/,
+    "the hit log stopped recording the path it was served");
+});

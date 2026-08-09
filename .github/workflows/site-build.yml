@@ -13,6 +13,7 @@ on:
       - 'builder/**'
       - 'test/integration/site-build.mjs'
       - 'test/integration/site-runtime.mjs'
+      - 'test/integration/site-routing.mjs'
       - 'test/integration/theme-seam.mjs'
       - 'test/integration/theme-render.mjs'
       - 'test/integration/kit-typecheck.mjs'
@@ -80,6 +81,14 @@ jobs:
           name: theme-shots
           path: theme-shots
           if-no-files-found: ignore
+
+      # REAL ADDRESSES FOR PUBLISHED PAGES, both halves at once. The Worker's
+      # fallback and the template's runtime basepath are useless apart, and each
+      # looks fine on its own: hash routing hid the missing fallback for months,
+      # and a wrong basepath renders Not Found at a URL that still ends in the
+      # right word. Driven at BOTH mounts — /s/<slug>/ and / — because one
+      # bundle serves both.
+      - run: node test/integration/site-routing.mjs
 
       # Compiling is not working. This drives the reference page in a real
       # browser against a stub of the data API, so the four list states, the

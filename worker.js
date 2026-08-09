@@ -5664,10 +5664,11 @@ async function handleRequest(request, env, ctx) {
 
     // Serve a PUBLISHED Website-Builder site from R2: gofarther.dev/s/<slug>/<page>.
     // STATIC sites: each page is one HTML object (rest with no extension → .html).
-    // REACT sites: the compiled dist — root/no-extension → index.html (HashRouter
-    // handles the client routes), and a path WITH an extension (assets/x.js|css,
-    // images, fonts) serves that exact object with its real content-type. Both
-    // shapes coexist under sites/<slug>/… ; only the key/content-type differ.
+    // REACT sites: the compiled dist. A path WITH an extension (assets/x.js|css,
+    // images, fonts) serves that exact object with its real content-type; an
+    // extensionless one serves the page prerendered at that route if there is
+    // one, and otherwise falls back to the app shell, which routes on the client.
+    // Both shapes coexist under sites/<slug>/… ; only the key/content-type differ.
     {
       const sm = url.pathname.match(/^\/s\/([a-z0-9][a-z0-9-]{0,80})(?:\/(.*))?$/i);
       if (sm && env.SITES_BUCKET) {
@@ -5686,9 +5687,11 @@ async function handleRequest(request, env, ctx) {
         // owner does when they tell a customer where their site is.
         //
         // `sm[2]` is undefined for `/s/hey` and "" for `/s/hey/`, so this is the
-        // one case it fires on. The query survives; the fragment never reaches us
-        // and the browser carries it across the redirect itself, which matters
-        // because the generated app routes on the hash.
+        // one case it fires on. The query survives, and so does any fragment —
+        // the browser carries it across a redirect itself. That used to be the
+        // load-bearing part, because the app routed on the hash; it routes on
+        // real paths now and the redirect matters for a plainer reason: from
+        // `/s/hey` the shell's own relative asset URLs resolve to `/s/assets/…`.
         if (sm[2] === undefined) {
           url.pathname = "/s/" + slug + "/";
           return Response.redirect(url.toString(), 301);
@@ -5700,10 +5703,64 @@ async function handleRequest(request, env, ctx) {
         if (rest === "") { key = "sites/" + slug + "/index.html"; ctype = "text/html; charset=utf-8"; }
         else if (ext) { key = "sites/" + slug + "/" + rest.replace(/[^a-z0-9/._-]/gi, "-"); ctype = R2_MIME[ext.toLowerCase()] || "application/octet-stream"; immutable = ext.toLowerCase() !== "html"; }
         else { key = "sites/" + slug + "/" + rest.replace(/[^a-z0-9/_-]/gi, "-") + ".html"; ctype = "text/html; charset=utf-8"; }
-        const obj = await env.SITES_BUCKET.get(key);
+        let obj = await env.SITES_BUCKET.get(key);
+        // THE SPA FALLBACK, AND IT IS WHAT MAKES REAL ADDRESSES POSSIBLE AT ALL.
+        //
+        // Without it, `/s/<slug>/book` looks for `book.html`, which vite never
+        // emits, and 404s. That single 404 is why the template ran on
+        // `createHashHistory()` and why every page of every published site had
+        // the SAME address: a fragment never reaches a server, so search engines
+        // saw one page per site, every shared link previewed the home page, and
+        // `logSiteHit` recorded every view in the site's life as "/".
+        //
+        // ONLY FOR AN EXTENSIONLESS PATH, and that restriction is the whole
+        // safety of it. A missing JS chunk must keep answering 404 — hand it
+        // `index.html` instead and the browser gets HTML where it expected a
+        // module, which fails later, somewhere else, with an error nobody can
+        // read back to a deleted file. (That exact confusion is what a publish
+        // race produces, so it is a real shape, not a hypothetical one.)
+        //
+        // A site that does not exist still 404s: the fallback is the app shell,
+        // so with no shell there is nothing to fall back TO.
+        if (!obj && !ext && rest !== "") {
+          obj = await env.SITES_BUCKET.get("sites/" + slug + "/index.html");
+          if (obj) { ctype = "text/html; charset=utf-8"; immutable = false; }
+        }
         if (!obj) return new Response("Not found", { status: 404 });
+        // The REAL path, which is the point: served through the fallback this is
+        // `/book` rather than `/`, so per-page traffic becomes measurable for the
+        // first time — the analytics panel needed no change, it was being fed one
+        // value forever.
         if (request.method === "GET" && ctype.startsWith("text/html")) logSiteHit(env, ctx, slug, "/" + rest, request); // count real page views (not assets)
-        return new Response(obj.body, {
+
+        // ── WHERE THE APP'S ASSETS REALLY ARE ────────────────────────────────
+        //
+        // vite builds with `base: "./"`, so the shell asks for
+        // `./assets/index-<hash>.js`. A browser resolves that against the
+        // DIRECTORY of the current URL — which is right at `/s/<slug>/book`
+        // (`./` is `/s/<slug>/`) and WRONG at `/s/<slug>/shop/item`, where it
+        // becomes `/s/<slug>/shop/assets/…` and every asset 404s. Route paths
+        // may nest (`SAFE_PATH` allows it and the tool documents the directory
+        // form), so that is a real shape, not a hypothetical one.
+        //
+        // ONLY THE WORKER CAN FIX THIS, which is why it is here and not at
+        // publish time: the same bytes are served at `/s/<slug>/` on our domain
+        // and at `/` on the owner's custom domain — the Host rewrite above turns
+        // the second into the first — so no value baked into the file is correct
+        // in both. `isOwnHostname` is what tells them apart, and it is the only
+        // place that knows.
+        //
+        // Relative `base` is kept rather than replaced with an absolute one for
+        // exactly the same reason: an absolute `/s/<slug>/` would 404 on every
+        // custom domain.
+        // ONE response below, so the header block cannot drift between an HTML
+        // path and an asset path — only the BODY differs.
+        let served = obj.body;
+        if (ctype.startsWith("text/html")) {
+          const mountRoot = isOwnHostname(url.hostname) ? "/s/" + slug + "/" : "/";
+          served = (await obj.text()).replace(/(\s(?:src|href))="\.\//g, '$1="' + mountRoot);
+        }
+        return new Response(served, {
           headers: {
             "content-type": ctype,
             "cache-control": immutable ? "public, max-age=31536000, immutable" : "public, max-age=60",
