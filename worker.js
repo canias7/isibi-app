@@ -14,7 +14,7 @@ import { handleInbound, MAX_BODY as INBOUND_MAX_BODY, MAX_PER_MINUTE as INBOUND_
 // every Cloudflare custom-hostname call the platform made threw before it could
 // reach the API. Invisible until the line ran, which is the whole class of bug
 // `test/worker-imports.test.mjs` now covers.
-import { OWN_ZONES, normalizeHostname, isOwnHostname, claimRefusal, dnsInstructions, readStatus } from "./site-domains.mjs";
+import { OWN_ZONES, APP_ZONE, SITE_ZONE, normalizeHostname, isOwnHostname, isAppHostname, siteHostSlug, siteHostFor, siteUrlFor, claimRefusal, dnsInstructions, readStatus } from "./site-domains.mjs";
 import { checkDns, dnsSentence } from "./site-dns.mjs";
 import { detectProvider, providerSentence } from "./site-registrar.mjs";
 import { offerFor as dcOfferFor, applyUrl as dcApplyUrl, signQuery as dcSign, rsaSigner as dcSigner } from "./site-domain-connect.mjs";
@@ -5447,7 +5447,13 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
     },
     publish: async (dist, pages) => {
       const wrote = await writeSiteDistToR2(env, slug, dist, {
-        brand, description: siteDescription, url: "https://gofarther.dev/s/" + slug + "/", image: ogImage,
+        brand, description: siteDescription, image: ogImage,
+        // THE PUBLIC ADDRESS, which is what a link preview and a search result
+        // show — so it has to be the one a customer would hand out, not the one
+        // that happens to be convenient to build. `siteUrlFor` answers the
+        // `<slug>.gofarther.app` form once that zone is live and the `/s/<slug>/`
+        // one until then, from the single switch in site-domains.mjs.
+        url: siteUrlFor(slug, "https://" + APP_ZONE),
         // WHICH SITE THIS IS, so the bundle can address its own API from a custom
         // domain — where there is no `/s/<slug>/` in the path to read it from.
         slug,
@@ -5657,6 +5663,39 @@ async function handleRequest(request, env, ctx) {
     // `sharpfadebarbers.com/api/db/<slug>/data/…`; the route matchers key on
     // the pathname and never the host, so they already work. Rewriting those
     // into `/s/<slug>/api/…` would break every one of them.
+    // EVERY PUBLISHED SITE HAS AN AUTOMATIC ADDRESS: `<slug>.gofarther.app`.
+    //
+    // The same rewrite as the custom-domain branch below and deliberately the
+    // same shape, but it needs NO lookup — the slug is in the hostname, so this
+    // costs one string comparison and no I/O, where a custom domain costs a KV
+    // read or a Supabase round trip. That matters because it is the address
+    // every site gets by default and a custom domain is the exception.
+    //
+    // `/api/*` IS LEFT ALONE for the reason spelled out below: a published
+    // bundle calls its own API same-origin, so on this zone that is
+    // `<slug>.gofarther.app/api/db/<slug>/data/…`, and the route matchers key on
+    // the pathname and never the host.
+    const zoneSlug = siteHostSlug(url.hostname);
+    if (zoneSlug && !url.pathname.startsWith("/api/")) {
+      url.pathname = "/s/" + zoneSlug + (url.pathname === "/" ? "/" : url.pathname);
+      request = new Request(url.toString(), request);
+    } else if (!zoneSlug && isOwnHostname(url.hostname) && !isAppHostname(url.hostname)
+               && !url.pathname.startsWith("/api/")) {
+      // The site zone's apex and its reserved labels — `gofarther.app` itself,
+      // `www.`, `api.` and the rest. They are ours, so the branch below skips
+      // them, and serving the whole workspace here would put the builder on a
+      // second domain and split every sign-in cookie between the two.
+      //
+      // A redirect rather than a 404: somebody typing the bare domain wants the
+      // product, and this is the only thing at that address worth showing them.
+      //
+      // `/api/` is excluded from the redirect as well as from the rewrite. A 301
+      // on a POST is followed inconsistently — some clients re-send the body,
+      // some turn it into a GET — so an API call that lands here answers for
+      // itself through the ordinary router instead of being bounced.
+      return Response.redirect("https://" + APP_ZONE + url.pathname + url.search, 301);
+    }
+
     if (!isOwnHostname(url.hostname) && !url.pathname.startsWith("/api/")) {
       const mapped = await siteForHostname(env, url.hostname);
       // A hostname Cloudflare routed to us with no row is a domain that was
@@ -5774,7 +5813,13 @@ async function handleRequest(request, env, ctx) {
         // path and an asset path — only the BODY differs.
         let served = obj.body;
         if (ctype.startsWith("text/html")) {
-          const mountRoot = isOwnHostname(url.hostname) ? "/s/" + slug + "/" : "/";
+          // `isAppHostname` AND NOT `isOwnHostname`, and the difference is the
+          // whole bug this line can have. `isOwnHostname` covers both zones now,
+          // so it is true for `<slug>.gofarther.app` — which would prefix every
+          // asset with `/s/<slug>/` on a mount whose root is `/`, and every
+          // script and stylesheet on every site on the new zone would 404.
+          // Only the workspace serves a site under a path.
+          const mountRoot = isAppHostname(url.hostname) ? "/s/" + slug + "/" : "/";
           served = (await obj.text()).replace(/(\s(?:src|href))="\.\//g, '$1="' + mountRoot);
         }
         return new Response(served, {
@@ -9049,7 +9094,7 @@ async function handleRequest(request, env, ctx) {
 
             const wrote = await writeSiteDistToR2(env, ownerSlug, built.files, {
               brand: (look && look.brand) || ownerSlug,
-              url: "https://gofarther.dev/s/" + ownerSlug + "/",
+              url: siteUrlFor(ownerSlug, "https://" + APP_ZONE),
               slug: ownerSlug,
             });
             try {

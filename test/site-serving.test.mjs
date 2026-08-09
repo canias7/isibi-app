@@ -113,9 +113,18 @@ test("published assets carry a CORS header, or the preview is blank", () => {
 // rewrite above turns the second into the first — so nothing baked into the file
 // is correct in both.
 test("html is rewritten to the mount it is actually being served from", () => {
-  assert.match(siteBranch, /const mountRoot = isOwnHostname\(url\.hostname\) \? "\/s\/" \+ slug \+ "\/" : "\/";/,
+  assert.match(siteBranch, /const mountRoot = isAppHostname\(url\.hostname\) \? "\/s\/" \+ slug \+ "\/" : "\/";/,
     "the mount root is no longer derived from the hostname — hardcode either side " +
     "and it is wrong on every custom domain, or wrong on every site of ours");
+
+  // `isAppHostname` AND NOT `isOwnHostname`, which it used to be and which was
+  // correct while there was one zone. `isOwnHostname` now covers the site zone
+  // too, so it answers true for `<slug>.gofarther.app` — a mount whose root is
+  // `/` — and every script and stylesheet on the new zone would be asked for at
+  // `/s/<slug>/assets/…` and 404. Asserted as an absence as well as a presence:
+  // only one of the two predicates can be right here.
+  assert.doesNotMatch(siteBranch, /const mountRoot = isOwnHostname/,
+    "isOwnHostname covers both zones and cannot decide the mount");
 
   // BOTH ARMS, named separately. A mutation collapsing the ternary to the /s/
     // form survived a first sweep: nothing asserted the custom-domain answer, and

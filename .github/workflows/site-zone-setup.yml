@@ -1,0 +1,44 @@
+# Prepare `gofarther.app`, the zone every published site is addressed on.
+#
+# A site's automatic address is `<slug>.gofarther.app`. The Worker already
+# routes it; what is missing is the zone in this Cloudflare account, a wildcard
+# and apex DNS record, and the Worker route in wrangler.jsonc.
+#
+# This does the DNS and reports on the other two. It cannot create the route:
+# wrangler publishes routes with a PUT that deletes any it was not told about,
+# so a route made here would survive exactly until the next deploy.
+#
+# DRY RUN BY DEFAULT — it edits DNS on a live zone, so `apply` has to be asked
+# for. Run it once with apply off to read the report, then again with it on.
+#
+# It is also the diagnostic: run it whenever a `<slug>.gofarther.app` address
+# misbehaves. The preflight names the exact token permission that is missing
+# rather than leaving a 403 to be interpreted, and it refuses to overwrite any
+# record it did not create.
+name: site zone setup
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Actually make the changes (off = report only)'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: setup
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: node .github/scripts/site-zone-setup.mjs ${{ inputs.apply && '--apply' || '' }}
