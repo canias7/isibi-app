@@ -62,6 +62,30 @@ export const CHART_CATALOGUE = Object.entries(CHART_COMPONENTS)
   .map(([domain, names]) => `${domain}: ${names.join(", ")}`).join("\n");
 const CHART_DOMAIN_COUNT = Object.keys(CHART_COMPONENTS).length;
 const CHART_NAME_COUNT = Object.values(CHART_COMPONENTS).reduce((n, v) => n + v.length, 0);
+/**
+ * WHAT EACH MODULE ACTUALLY EXPORTS, component names and type names alike.
+ *
+ * The lint knew only that `@/components/ui/faq` was a real FILE, never that the
+ * thing being imported out of it was real. Measured live 2026-08-09: a build
+ * wrote `import { FaqAccordion } from "@/components/ui/faq"`, the module exports
+ * `Faq`, and it passed validate and lint, failed `tsc`, and cost the customer
+ * the whole site — `TS2305`, one of the three commonest failures there are.
+ *
+ * Derived from `COMPONENT_API`, which already carries the names (a module with
+ * several exports lists them all, separated by `·`), so this costs no new
+ * generated file and cannot drift from it.
+ */
+export const UI_EXPORTS = (() => {
+  const out = {};
+  for (const [mod, sig] of Object.entries(COMPONENT_API)) {
+    const names = new Set();
+    for (const m of String(sig).matchAll(/([A-Z][A-Za-z0-9]*)\s*\(/g)) names.add(m[1]);
+    for (const t of Object.keys(COMPONENT_TYPES[mod] || {})) names.add(t);
+    if (names.size) out[mod] = names;
+  }
+  return out;
+})();
+
 /** Every component in src/components/ui. An import of anything else does not resolve. */
 /**
  * The kit components that draw their picture THROUGH `SafeImage` — so an empty
@@ -1949,6 +1973,14 @@ or an access level — anything not in the schema below does not exist.
    layouts are made of, and the only names under that path you should use:
    ${UI_SHORTLIST.join(", ")}.
 
+   THE EXPORT NAME IS THE FILE NAME IN PascalCase, EXACTLY — no embellishment.
+   \`@/components/ui/faq\` exports \`Faq\`, not \`FaqAccordion\`; \`open-now\` exports
+   \`OpenNow\`. That holds for 2,026 of the 2,042 modules, and guessing a longer,
+   more descriptive name is a compile error that costs the whole site — measured
+   live, it is one of the three commonest failures there are. The exceptions,
+   which are the only modules where the name is not deducible:
+   ${Object.entries(UI_EXPORTS).filter(([m, n]) => !n.has(m.replace(/(^|-)([a-z0-9])/g, (_, a2, b2) => b2.toUpperCase()))).map(([m, n]) => m + " → " + [...n].join(", ")).join("; ")}.
+
    THEIR EXACT PROPS — check every call against this rather than guessing. A prop
    that does not exist, or a state value outside the union shown, is a compile error
    and the whole site falls back to its data model. Where a type is a NAME
@@ -2879,6 +2911,28 @@ export function lintPages(pages, spec) {
 
     for (const m of code.matchAll(/from\s+"@\/components\/ui\/([a-z0-9-]+)"/gi)) {
       if (!ui.has(m[1].toLowerCase())) say(path, 'imports "@/components/ui/' + m[1] + '", which does not exist. Available: ' + UI_COMPONENTS.join(", ") + ".");
+    }
+
+    // THE NAME, not just the module. `import { FaqAccordion } from ".../faq"`
+    // names a real file and a member that was never there — the module check
+    // above passes it, `tsc` refuses it, and the site publishes as the
+    // placeholder. Measured live, and one of the three commonest failures.
+    //
+    // A module we have no export list for is SKIPPED rather than guessed at: a
+    // false alarm here would teach the model away from a component that is
+    // perfectly real, which is worse than the miss.
+    for (const m of code.matchAll(/import\s+(?:type\s+)?\{([^}]*)\}\s*from\s*["'`]@\/components\/ui\/([a-z0-9-]+)["'`]/g)) {
+      const known = UI_EXPORTS[m[2].toLowerCase()];
+      if (!known) continue;
+      for (const raw of m[1].split(",")) {
+        // `type X`, `X as Y` — the imported NAME is what has to exist.
+        const name = raw.trim().replace(/^type\s+/, "").split(/\s+as\s+/)[0].trim();
+        if (!name || !/^[A-Za-z_$]/.test(name)) continue;
+        if (!known.has(name)) {
+          say(path, 'imports { ' + name + ' } from "@/components/ui/' + m[2] + '", which does not export it. ' +
+            "That module exports: " + [...known].join(", ") + ".");
+        }
+      }
     }
 
     // MOTION THAT INVENTS ITS OWN TIMING. Deliberately narrow: a raw duration or

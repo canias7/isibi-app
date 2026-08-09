@@ -2136,3 +2136,40 @@ test("the prompt tells the model the field exists", () => {
   assert.match(PAGE_RULES, /Shot = \{[^}]*fallbackSeed/,
     "the generator is still shown a Shot without fallbackSeed");
 });
+
+test("an import of a member the module does not export is refused", () => {
+  // THE EXACT BUILD THAT FAILED, 2026-08-09: `import { FaqAccordion } from
+  // "@/components/ui/faq"`. The module is real, the member never was — so the
+  // old check (does the FILE exist) passed it, tsc refused it, and the customer
+  // paid for a placeholder. TS2305 is one of the three commonest failures.
+  const p = lintPages(page('import { FaqAccordion } from "@/components/ui/faq";'), SPEC);
+  assert.match(p.join(" "), /does not export it/);
+  assert.match(p.join(" "), /Faq\b/, "the message must name what the module DOES export");
+});
+
+test("a correct import, an alias and a type import all pass", () => {
+  // The cost of getting this wrong is teaching the model away from a real
+  // component, so every legitimate shape has to survive it.
+  assert.deepEqual(lintPages(page('import { Faq } from "@/components/ui/faq";'), SPEC), []);
+  assert.deepEqual(lintPages(page('import { Gallery, type Shot } from "@/components/ui/gallery";'), SPEC), []);
+  assert.deepEqual(lintPages(page('import type { QA } from "@/components/ui/faq";'), SPEC), []);
+  assert.deepEqual(lintPages(page('import { Faq as Questions } from "@/components/ui/faq";'), SPEC), []);
+  // A module exporting several: all of them are legitimate.
+  assert.deepEqual(lintPages(page('import { PageMain, PageNav } from "@/components/ui/landmark";'), SPEC), []);
+});
+
+test("a module with no known export list is skipped, not guessed at", () => {
+  // A false alarm here is worse than a miss: it teaches the model away from a
+  // component that is perfectly real.
+  assert.deepEqual(lintPages(page('import { Whatever } from "@/components/ui/button";'), SPEC).filter((x) => /does not export it/.test(x)), []);
+});
+
+test("the naming law and its exceptions are in the prompt", () => {
+  // The lint reports; it does not block publishing, so it cannot save the build
+  // on its own. What stops the error happening is the model knowing the rule.
+  assert.match(PAGE_RULES, /THE EXPORT NAME IS THE FILE NAME IN PascalCase/);
+  assert.match(PAGE_RULES, /FaqAccordion/, "the measured case is what makes it concrete");
+  // The exceptions are DERIVED, so a new odd-named component appears here
+  // without anybody remembering to add it.
+  assert.match(PAGE_RULES, /landmark → PageMain/, "the underivable names are not listed");
+});

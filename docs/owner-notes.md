@@ -15048,3 +15048,24 @@ Two other errors show up repeatedly and I have NOT fixed them: the AI sometimes
 puts a whole object where only a single value fits, and sometimes invents the
 name of a helper it expects to exist. Both need more thought than a one-line
 change. But the top one is gone, and that should move the 60% up.
+
+**And there's the answer (2026-08-09, later).** Your retry printed the real
+error, because the diagnosis block is live now:
+
+    src/routes/memberships.tsx(9,10): error TS2305:
+    Module '@/components/ui/faq' has no exported member 'FaqAccordion'.
+
+The AI wanted an FAQ section. The component is called `Faq`. It imported
+`FaqAccordion` — it embellished the name, and TypeScript rejected the file, so
+the whole site fell back to the data model.
+
+Two things were wrong on our side. The safety check only ever confirmed the
+FILE existed, never that the thing being imported out of it did — so this sailed
+through every check we have and only died at the compiler. And nothing ever told
+the AI the naming rule, which turns out to be almost a law: the export is the
+file name in title case, exactly, for 2,026 of 2,042 components.
+
+Both fixed. The check now refuses an import of something a file doesn't export
+and tells the AI what it does export, and the rule plus its 16 real exceptions
+are now in the instructions. That was the second of the three common failures;
+one left.
