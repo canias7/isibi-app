@@ -522,15 +522,18 @@ try {
       // So: walk the routes the BUILD ITSELF reported, home first, and stop at
       // the page that has a form.
       //
-      // The router is hash history (`createHashHistory` in main.tsx), so a route
-      // is `/s/<slug>/#/book` — `/s/<slug>/book` ignores the path entirely and
-      // renders home. That mistake has already been made in this repo once, and
-      // it is invisible: the page loads, it is a real page, it is the wrong one.
-      // Hence the fingerprint assertion below rather than trusting the URL.
+      // REAL PATHS SINCE 2026-08-09. A route is `/s/<slug>/book`; it used to be
+      // `/s/<slug>/#/book`, because hash history was the only thing that worked
+      // when a deep path 404'd. This comment said the opposite for one run after
+      // the change and the walk still used `#/`, so every page loaded as HOME —
+      // and the run reported `forms: 0, controls: 0`, i.e. a site with no form
+      // anywhere. The page loads, it is a real page, it is the wrong one, which
+      // is why the fingerprint assertion below exists rather than trusting the
+      // URL.
       const routes = (d.files || [])
         .map((f) => String(f).replace(/^src\/routes\//, "").replace(/\.tsx$/, ""))
         .filter((r) => /^[a-z0-9-]+$/i.test(r) || r === "index");
-      const asHash = (r) => (r === "index" ? "#/" : "#/" + r);
+      const asPath = (r) => (r === "index" ? "" : r);
       const fingerprint = () => pg.evaluate(() => (document.body.innerText || "").trim().slice(0, 400));
 
       const homePrint = await fingerprint();
@@ -539,7 +542,7 @@ try {
       for (const r of routes) {
         if (formRoute) break;
         if (r === "index") continue;
-        await pg.goto(`${BASE}/s/${slug}/${asHash(r)}`, { waitUntil: "networkidle", timeout: 45000 }).catch(() => {});
+        await pg.goto(`${BASE}/s/${slug}/${asPath(r)}`, { waitUntil: "networkidle", timeout: 45000 }).catch(() => {});
         await pg.waitForTimeout(1200);
         // A route that renders identically to home did not navigate. Skipping it
         // is what stops a silent SPA fallback being reported as "no form here".
@@ -553,7 +556,7 @@ try {
       ok("the site rendered a form with real controls, on some page",
         !!formRoute && formUi.forms > 0 && formUi.controls > 1,
         `routes=${JSON.stringify(routes)} home=${JSON.stringify(ui)} found=${formRoute} ${JSON.stringify(formUi)}`);
-      if (formRoute) console.log(`   the form lives on ${asHash(formRoute)}`);
+      if (formRoute) console.log(`   the form lives on ${asPath(formRoute)}`);
 
       // The starter content actually reached the page. Without it a site is a
       // brochure with an empty list, and a form whose required Select reads that
@@ -567,7 +570,7 @@ try {
       // the walk above found the form on — the browser is already there.
       const form = await pg.$("form");
       ok("the site has a form a visitor can submit", !!form,
-        formRoute ? `expected one on ${asHash(formRoute)}` : "no page in the site had one");
+        formRoute ? `expected one on ${asPath(formRoute)}` : "no page in the site had one");
       if (form) {
         // Best-effort fill: the schema is designed per-brief, so the fields are
         // not known ahead of time. Every input gets something type-appropriate.
@@ -696,12 +699,12 @@ try {
       // small lie that costs a round of confusion later.
       if (formRoute && formRoute !== "index") {
         await pg.screenshot({ path: "smoke-form.png", fullPage: true }).catch(() => {});
-        await pg.goto(`${BASE}/s/${slug}/#/`, { waitUntil: "networkidle", timeout: 45000 }).catch(() => {});
+        await pg.goto(`${BASE}/s/${slug}/`, { waitUntil: "networkidle", timeout: 45000 }).catch(() => {});
         await pg.waitForTimeout(1200);
       }
       await pg.screenshot({ path: "smoke-site.png", fullPage: true });
       console.log(`   screenshot: smoke-site.png  (live at ${BASE}/s/${slug}/)`
-        + (formRoute && formRoute !== "index" ? `, plus smoke-form.png (${asHash(formRoute)})` : ""));
+        + (formRoute && formRoute !== "index" ? `, plus smoke-form.png (${asPath(formRoute)})` : ""));
       console.log("   api calls:", JSON.stringify(apiCalls));
     } catch (e) {
       failed++;
@@ -765,7 +768,12 @@ try {
       const html = await (await fetch(`${BASE}/s/${slug}/`)).text();
       const href = (html.match(/<link[^>]+href="([^"]+\.css)"/) || [])[1];
       if (!href) return "";
-      const u = href.startsWith("http") ? href : `${BASE}/s/${slug}/${href.replace(/^\.?\//, "")}`;
+      // RESOLVED, NOT CONCATENATED. The Worker rewrites `./assets/…` to the
+      // mount it is serving from, so this href is now ABSOLUTE — and stripping
+      // its leading slash and appending it to the site root produced
+      // `/s/<slug>/s/<slug>/assets/…`, a 404 that reads exactly like a
+      // half-published site. `new URL` is right for both shapes.
+      const u = new URL(href, `${BASE}/s/${slug}/`).href;
       return (await fetch(u)).text();
     };
     const fontsOf = (css) => [...css.matchAll(/--font-(?:sans|heading):\s*([^;]+)/g)].map((m) => m[1].trim()).join(" | ");
@@ -840,7 +848,11 @@ try {
             const src = (html.match(/<script[^>]+src="([^"]+)"/) || [])[1];
             if (!src) gaps.push("index.html named no bundle");
             else {
-              const u = src.startsWith("http") ? src : `${BASE}/s/${slug}/${src.replace(/^\.?\//, "")}`;
+              // Same as cssOf: the src is absolute now, so resolve it rather than
+              // gluing it onto the site root. Concatenated, this poll reported
+              // "index.html pointed at a bundle that 404s" on a site that was
+              // perfectly fine — the publish gap's own signature, from the test.
+              const u = new URL(src, `${BASE}/s/${slug}/`).href;
               const b = await fetch(u, { cache: "no-store" });
               if (b.status !== 200) gaps.push(`${src} -> ${b.status} (index.html pointed at it)`);
             }
@@ -925,7 +937,7 @@ try {
         await pg2.goto(`${BASE}/s/${slug}/`, { waitUntil: "networkidle", timeout: 45000 }).catch(() => {});
         for (const r of (rd.files || []).map((f) => String(f).replace(/^src\/routes\//, "").replace(/\.tsx$/, ""))) {
           if (r === "index" || !/^[a-z0-9-]+$/i.test(r)) continue;
-          await pg2.goto(`${BASE}/s/${slug}/#/${r}`, { waitUntil: "networkidle", timeout: 45000 }).catch(() => {});
+          await pg2.goto(`${BASE}/s/${slug}/${r}`, { waitUntil: "networkidle", timeout: 45000 }).catch(() => {});
           await pg2.waitForTimeout(600);
         }
         ok("every page of the revised site loads with nothing missing", bad.length === 0, bad.slice(0, 5).join(" ; "));

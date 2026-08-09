@@ -22,6 +22,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -105,7 +106,12 @@ fs.symlinkSync(path.join(TEMPLATE, "node_modules"), path.join(sandbox, "node_mod
     "the rewrite this harness reproduces is gone from worker.js");
 }
 
-const { chromium } = await import("playwright");
+// playwright is one of the TEMPLATE's devDependencies, not the root's. A bare
+// `import("playwright")` resolves from THIS file and throws ERR_MODULE_NOT_FOUND
+// in CI — which is exactly what it did, and theme-render.mjs already carries a
+// comment saying so. Resolved from the template's package.json like the other
+// two browser tests here.
+const { chromium } = createRequire(path.join(TEMPLATE, "package.json"))("playwright");
 
 for (const [label, prefix, port] of [["served at /s/<slug>/ (our domain)", "/s/demo", 8123], ["served at / (a custom domain)", "", 8124]]) {
   console.log("\n" + label);

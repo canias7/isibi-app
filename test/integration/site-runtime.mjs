@@ -240,8 +240,13 @@ try {
 
   browser = await chromium.launch(chromiumPath ? { executablePath: chromiumPath } : {});
   const base = `http://127.0.0.1:${SITE_PORT}/s/${SLUG}/`;
-  // Hash history, so a route is `#/book` off the same document.
-  const formUrl = `${base}#/book`;
+  // A REAL PATH SINCE 2026-08-09, not `#/book`. The stub above already falls
+  // back to index.html for anything it does not have, which is the Worker's own
+  // rule — so `/s/<slug>/book` serves the shell and the router resolves the book
+  // route from the path. Left as a hash it would render the INDEX route at a URL
+  // that still ends in "book": the page loads, it is a real page, it is the
+  // wrong one, and every assertion about the form fails with nothing saying why.
+  const formUrl = `${base}book`;
   const newPage = async () => {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
