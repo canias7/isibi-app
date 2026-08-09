@@ -10009,10 +10009,17 @@ function switchSitePage(path) {
   // one page. The Worker answers an extensionless path with that route's
   // prerendered HTML, so this is a real navigation and it reloads.
   //
-  // THE PREVIEW STAYS ON `/s/<slug>/`, not the `.gofarther.app` address, and
-  // that is deliberate: the frame is our own view of the site, same-origin with
-  // the builder, and pointing it at the public host would make every preview a
-  // cross-origin load for no gain. The public address is what the chip shows.
+  // THE PREVIEW LOADS THE PUBLIC ADDRESS, which is what `s.url` already is:
+  // it comes straight from the build response's `url`, and that is `siteUrlFor`,
+  // which returns the pretty host whenever the site has one.
+  //
+  // A comment here used to claim the opposite — that the frame deliberately
+  // stayed on `/s/<slug>/` to be "same-origin with the builder". It was wrong
+  // twice over. The value was never `/s/` for any site built since the zone went
+  // live, and the frame is sandboxed WITHOUT `allow-same-origin`, so it is an
+  // opaque origin either way and there was no same-origin to preserve. Corrected
+  // rather than deleted, because a false claim in a comment is the thing that
+  // gets read and believed the next time somebody changes this line.
   else if (f && s.react && s.url) f.src = s.url + (path !== '/' ? String(path).replace(/^\//, '') : '') + '?v=' + (s.previewV || 1);
   if (typeof paintPreviewErrBadge === 'function') paintPreviewErrBadge();
 }
@@ -10480,7 +10487,10 @@ function siteHistoryRail(site) {
 // republish/copy. Unpublish + edit-settings are visual placeholders for now.
 function sitePublishPanel(site) {
   const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
-  const url = site.liveUrl || (slug ? 'https://gofarther.dev/s/' + slug : '');
+  // ONE PUBLIC ADDRESS. `siteChipUrl` is the single place that knows what a
+  // site's address is; two copies of that answer is how the panel ends up
+  // offering a link the router redirects away from.
+  const url = site.liveUrl || (slug ? 'https://' + siteChipUrl({ slug }) : '');
   const published = !!site.published;
   let box = document.getElementById('sitePubModal'); if (box) box.remove();
   box = document.createElement('div'); box.id = 'sitePubModal'; box.className = 'si-modal';
@@ -10491,7 +10501,7 @@ function sitePublishPanel(site) {
         '<div class="sp-row"><span class="sp-k">Visitors</span><span class="sp-v">0</span></div>' +
         '<div class="sp-actions"><button type="button" class="st-publish" id="spUpdate">Republish</button><button type="button" class="st-share" id="spCopy">Copy link</button><button type="button" class="st-share sp-unpub" id="spUnpub">Unpublish</button></div>'
       : '<p class="sp-intro">Publish to put your site live on the web at a real link.</p>' +
-        (slug ? '<div class="sp-row"><span class="sp-k">Your link</span><span class="sp-v">gofarther.dev/s/' + esc(slug) + '</span></div>' : '') +
+        (slug ? '<div class="sp-row"><span class="sp-k">Your link</span><span class="sp-v">' + esc(siteChipUrl({ slug })) + '</span></div>' : '') +
         '<div class="sp-actions"><button type="button" class="st-publish" id="spUpdate">Publish now</button></div>') +
   '</div></div>';
   document.body.appendChild(box);
@@ -11968,7 +11978,7 @@ async function siteDomains(site) {
       const d = await r.json().catch(() => ({}));
       const list = Array.isArray(d.domains) ? d.domains : [];
       if (!list.length) {
-        listEl.innerHTML = '<div class="si-empty">No custom domain yet. Your site is live at <code>gofarther.dev/s/' + esc(slug) + '/</code>.</div>';
+        listEl.innerHTML = '<div class="si-empty">No custom domain yet. Your site is live at <code>' + esc(siteChipUrl({ slug })) + '</code>.</div>';
         return;
       }
       listEl.innerHTML = list.map((x) => {

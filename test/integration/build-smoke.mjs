@@ -317,9 +317,27 @@ try {
     Array.isArray(d.files) && d.files.some((f) => /index\.tsx$/.test(f)), JSON.stringify(d.files));
 
   if (slug) {
+    // ONE PUBLIC ADDRESS. `/s/<slug>/` is the internal one and must now send
+    // everybody to the pretty host, so this is checked WITHOUT following — a
+    // redirect that quietly stopped happening would otherwise look identical to
+    // one that works, because `fetch` follows it either way.
+    const noFollow = await fetch(`${BASE}/s/${slug}/`, { redirect: "manual" });
+    ok("the internal address redirects to the one public address",
+      noFollow.status === 301, String(noFollow.status));
+    ok("…and it points at this site's own hostname",
+      String(noFollow.headers.get("location") || "").startsWith(`https://${slug}.gofarther.app/`),
+      noFollow.headers.get("location"));
+
+    // EVERYTHING BELOW NOW LANDS ON THE PUBLIC HOST, by following that redirect,
+    // and that is the point rather than a side effect: every check here used to
+    // load `/s/<slug>/`, which is the one mount where uploads happened to work —
+    // so a bug that broke every image on the address customers are actually sent
+    // to passed CI completely and was found by a person opening a link.
     const page = await fetch(`${BASE}/s/${slug}/`);
     const html = await page.text().catch(() => "");
     ok("published page serves 200", page.status === 200, String(page.status));
+    ok("…on the public hostname, having followed the redirect",
+      new URL(page.url).hostname === `${slug}.gofarther.app`, page.url);
     if (d.page === "app") {
       ok("the page is the compiled app shell", /id="root"/.test(html) && /<script[^>]+src=/.test(html), html.slice(0, 240));
 

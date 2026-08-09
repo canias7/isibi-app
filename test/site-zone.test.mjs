@@ -282,3 +282,66 @@ test("BOTH pretty-hostname rewrites ask the one question", () => {
   assert.doesNotMatch(src, /if \(zoneSlug && !url\.pathname\.startsWith\("\/api\/"\)\)/);
   assert.doesNotMatch(src, /if \(!isOwnHostname\(url\.hostname\) && !url\.pathname\.startsWith\("\/api\/"\)\)/);
 });
+
+/* --------------------------------------------- one public address per site */
+
+test("/s/<slug>/ redirects to the pretty host, and cannot loop", () => {
+  // THE CORRECTNESS ARGUMENT IS THE ORDERING, so it is what gets asserted. Both
+  // rewrites REPLACE the pathname with `/s/<slug>/…`, so a request that arrived
+  // on the site zone is indistinguishable from one that arrived on the app zone
+  // by the time they are done. Deciding the redirect afterwards, or on the path
+  // alone, bounces every site-zone request back to itself forever.
+  const w = read("worker.js");
+  const redirect = w.indexOf("const sm2 = url.pathname.match(/^\\/s\\/");
+  const rewrite = w.indexOf("const zoneSlug = siteHostSlug(url.hostname);");
+  const custom = w.indexOf("const mapped = await siteForHostname(env, url.hostname);");
+  assert.ok(redirect > 0, "the one-address redirect is gone from worker.js");
+  assert.ok(rewrite > 0, "the site-zone rewrite is gone");
+  assert.ok(custom > 0, "the custom-domain rewrite is gone");
+  assert.ok(redirect < rewrite, "the redirect must be decided BEFORE the site-zone rewrite or it loops");
+  assert.ok(redirect < custom, "…and before the custom-domain rewrite for the same reason");
+
+  // GATED ON THE ORIGINAL HOSTNAME BEING THE APP ZONE. `isAppHostname` is false
+  // for the site zone (no loop) and false for a custom domain — an owner who
+  // bought sharpfadebarbers.com must never have visitors thrown onto our host.
+  const block = w.slice(redirect - 260, redirect + 700);
+  assert.match(block, /if \(isAppHostname\(url\.hostname\)\)/,
+    "the redirect is not gated on the app zone, so it can loop or hijack a custom domain");
+  // ONLY WHEN A PRETTY HOST EXISTS, and this is asserted on the CONDITION rather
+  // than on `siteHostFor` merely being mentioned. A mutation making the redirect
+  // unconditional left the call in place and survived: with no pretty host the
+  // target becomes `https://null/…`, which is every site on the platform if
+  // SITE_ZONE_LIVE is ever turned off, and any slug the build filter allows but
+  // DNS cannot carry. worker.js cannot be imported, so a source read is the only
+  // instrument — it has to anchor on the whole expression, never on a name.
+  assert.match(block, /if \(pretty\) return Response\.redirect\(/,
+    "the redirect is not conditional on a pretty host existing");
+  assert.match(block, /301\)/, "a temporary redirect consolidates nothing");
+  // And the value it is conditional on really can be absent — or the guard above
+  // is a condition that is always true wearing an if.
+  assert.equal(siteLabelFor("-shop"), null, "a slug DNS cannot carry must have no pretty host");
+  assert.equal(siteHostFor("-shop"), null);
+});
+
+test("the site zone and a custom domain are both immune to that redirect", () => {
+  // Asserted through the predicate rather than by reading the branch, because
+  // this is the property that stops the platform redirecting to itself forever.
+  assert.equal(isAppHostname("sharp-fade." + SITE_ZONE), false, "a site-zone request must not redirect");
+  assert.equal(isAppHostname(SITE_ZONE), false);
+  assert.equal(isAppHostname("sharpfadebarbers.com"), false, "a custom domain must keep its own host");
+  assert.equal(isAppHostname(APP_ZONE), true, "…and the app zone is the one that DOES redirect");
+});
+
+test("the client prints one address, from one function", () => {
+  // Three panels used to spell `gofarther.dev/s/<slug>/` by hand, so the app
+  // offered a link the router now redirects away from. `siteChipUrl` is the one
+  // place that answers what a site's address is.
+  const c = read("public/chat.js");
+  assert.doesNotMatch(c, /'gofarther\.dev\/s\/' \+ (?:esc\()?slug/,
+    "a panel still hand-writes the internal address");
+  assert.doesNotMatch(c, /'https:\/\/gofarther\.dev\/s\/' \+ slug/,
+    "the publish panel still hand-writes the internal address");
+  // …and the one function is still there and still consulted by them.
+  assert.ok((c.match(/siteChipUrl\(/g) || []).length >= 4,
+    "the panels no longer go through the one function");
+});

@@ -5675,6 +5675,47 @@ async function handleRequest(request, env, ctx) {
     // bundle calls its own API same-origin, so on this zone that is
     // `<slug>.gofarther.app/api/db/<slug>/data/…`, and the route matchers key on
     // the pathname and never the host.
+    // ONE PUBLIC ADDRESS PER SITE (owner's call 2026-08-09).
+    //
+    // `/s/<slug>/` stays as the INTERNAL address — it is what both rewrites
+    // below produce and what the R2 lookup keys on, so it cannot go away — but
+    // it is no longer an address to give anybody. A site with a pretty hostname
+    // answers there and sends everybody to it.
+    //
+    // Two addresses serving byte-identical HTML is a real cost, not a tidiness
+    // one: a search engine sees duplicate content and splits the ranking between
+    // them, and every person who copies a link has to be given the right one of
+    // two. It is also how the `/u/` bug survived — every automated check loaded
+    // sites at `/s/<slug>/`, the one mount where uploads happened to work, so
+    // nothing exercised the address customers are actually sent to.
+    //
+    // DECIDED BEFORE THE REWRITES AND KEYED ON THE ORIGINAL HOSTNAME, which is
+    // the whole correctness argument. Those rewrites REPLACE the pathname with
+    // `/s/<slug>/…`, so a request that arrived on the site zone looks identical
+    // to one that arrived here by the time they are done — redirecting on the
+    // path alone would bounce every site-zone request straight back to itself,
+    // forever. `isAppHostname` is false for both the site zone and a custom
+    // domain, so neither can reach this.
+    //
+    // A CUSTOM DOMAIN MUST NEVER LAND HERE for a second reason: an owner who
+    // paid for `sharpfadebarbers.com` would have their visitors thrown onto our
+    // hostname, which is the opposite of what they bought.
+    //
+    // Skipped when the slug has no pretty host — the zone dark, or a slug the
+    // build filter allows and DNS does not (a leading or trailing hyphen). Those
+    // sites keep `/s/<slug>/` and lose nothing, and offering an address that
+    // cannot resolve would be worse than offering none.
+    if (isAppHostname(url.hostname)) {
+      const sm2 = url.pathname.match(/^\/s\/([a-z0-9][a-z0-9-]{0,80})(\/.*)?$/i);
+      const pretty = sm2 && siteHostFor(sm2[1].toLowerCase());
+      // 301 rather than 302: the point of the change is to tell crawlers which
+      // of the two is canonical, and a temporary redirect does not consolidate
+      // anything. The blast radius of that permanence is small because the panel
+      // has shown only the pretty address since the zone went live — the callers
+      // still using `/s/` are ours.
+      if (pretty) return Response.redirect("https://" + pretty + (sm2[2] || "/") + url.search, 301);
+    }
+
     const zoneSlug = siteHostSlug(url.hostname);
     if (zoneSlug && !servedAtRoot(url.pathname)) {
       url.pathname = "/s/" + zoneSlug + (url.pathname === "/" ? "/" : url.pathname);
