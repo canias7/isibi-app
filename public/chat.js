@@ -10625,7 +10625,7 @@ function renderSiteWorkspace(view, site) {
     const linkify = (s) => esc(s).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
     thread.innerHTML = (site.msgs || []).map((m) => m.r === 'u'
       ? '<div class="st-msg u">' + esc(m.t) + '</div>'
-      : '<div class="st-msg a">' + (m.note ? '<div class="st-note">' + esc(m.note) + '</div>' : '') + linkify(m.t) + (m.build ? reactStepsHTML(m.build) : '') + siteAskHTML(m, site) + '<span class="st-acts"><button type="button" class="st-act" data-copy="1" title="Copy">⧉</button></span></div>'
+      : '<div class="st-msg a">' + (m.note ? '<div class="st-note">' + esc(m.note) + '</div>' : '') + linkify(m.t) + (m.why ? '<div class="st-why">' + esc(m.why) + '</div>' : '') + (m.build ? reactStepsHTML(m.build) : '') + siteAskHTML(m, site) + '<span class="st-acts"><button type="button" class="st-act" data-copy="1" title="Copy">⧉</button></span></div>'
     ).join('') + (siteBusy
       ? (siteBuild
           ? (siteBuild.react
@@ -10942,7 +10942,46 @@ async function readReactStream(r, origin) {
 }
 // Finish a React build/revise: stop the live log, append the assistant message
 // WITH its step data (so the collapsed rows persist in the thread), re-render.
-function siteFinishBuild(origin, reply, build, note) {
+// WHY A BUILD CAME BACK AS THE DATA MODEL — or shipped with something wrong.
+//
+// The platform diagnoses this completely and threw the diagnosis away at the
+// last layer: `stage`, `error` and `cited` (the exact source lines the compiler
+// pointed at) came back on every failed build, `problems` (the lint's findings)
+// and `functionErrors` (model-written SQL that failed to create) came back even
+// on a SUCCESSFUL one — and `public/chat.js` rendered none of the five. The
+// owner was told "the pages didn't compile" and had to open devtools to learn
+// anything more. Measured 2026-08-09: fifteen minutes hunting for an answer the
+// response already carried, on a build that cost ~20 credits.
+//
+// BOUNDED, because tsc echoes one mistake through the whole tree: the first few
+// lines are the causes and the tail is the echo. `cited` is the useful half and
+// is already capped at four server-side.
+function buildWhy(d) {
+  if (!d) return '';
+  const out = [];
+  const line = (x, n) => String(x == null ? '' : x).replace(/\s+/g, ' ').trim().slice(0, n || 220);
+  if (d.page === 'placeholder') {
+    if (typeof d.stage === 'string' && d.stage) out.push('stage: ' + line(d.stage, 40));
+    if (typeof d.error === 'string' && d.error.trim()) {
+      const first = d.error.split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 4);
+      for (const l of first) out.push(line(l, 300));
+    }
+  }
+  if (Array.isArray(d.cited)) for (const c of d.cited.slice(0, 4)) out.push(line(c));
+  // These two are NOT gated on the placeholder: a site can publish with a page
+  // the lint refused, or with a confirmation function that never got created —
+  // and those are exactly the failures nobody would otherwise notice, because
+  // the site looks fine until a visitor hits the broken part.
+  if (Array.isArray(d.problems)) for (const p of d.problems.slice(0, 4)) out.push('lint: ' + line(p));
+  if (Array.isArray(d.functionErrors)) {
+    for (const f of d.functionErrors.slice(0, 3)) {
+      out.push('function ' + line(f && f.name, 40) + ': ' + line(f && f.error, 160));
+    }
+  }
+  return out.join('\n');
+}
+
+function siteFinishBuild(origin, reply, build, note, why) {
   siteBusy = false; siteBuildMsg = ''; siteBuildStop();
   const s = siteById(origin); if (!s) return;
   // `note` is its OWN field rather than being prepended to `t` with a blank
@@ -10952,7 +10991,7 @@ function siteFinishBuild(origin, reply, build, note) {
   // ("couldn't read your link"). Caught by looking at a render; every test
   // passed. Stored on the message so it survives a reload, since the thread is
   // rebuilt from localStorage.
-  s.msgs.push({ r: 'a', t: reply, note: note || undefined, build: build });
+  s.msgs.push({ r: 'a', t: reply, note: note || undefined, why: why || undefined, build: build });
   s.updatedAt = Date.now(); sitesSave();
   if (siteOpenId === origin) renderSites();
 }
@@ -11179,7 +11218,7 @@ function reactSend(site, t, origin, mode, imgs, finish, qa) {
       const built = !d || d.page !== 'placeholder';
       const canned = mode === 'revise' ? 'Updated — the preview’s refreshed.'
         : 'Built ' + (name ? '“' + name + '”' : 'your site') + '. Tell me what to change.';
-      siteFinishBuild(origin, (built ? '✅ ' : '⚠️ ') + (said || canned), build, note);
+      siteFinishBuild(origin, (built ? '✅ ' : '⚠️ ') + (said || canned), build, note, buildWhy(d));
     } else if (r.status === 402 || (d && d.need === 'credits')) {
       finish('⚡ You don’t have enough credits to build this right now. Tap your ✦ balance up top to get more.');
     } else if (d && d.need === 'rebuild') {

@@ -14872,3 +14872,24 @@ Two things I found while doing it, both of which would have bitten: a page
 served on your own domain would have talked to the *wrong site's* data, and one
 site's pages could have been photographed into another site's. Both closed, both
 with tests.
+
+### The builder tells you why a build failed (2026-08-09)
+
+You built a CRM, the pages didn't compile, and all you were told was "the pages
+didn't compile". You then spent fifteen minutes in developer tools hunting for
+the reason — on a build that cost about 20 credits.
+
+The reason was already in the response. The platform works out exactly what went
+wrong: which stage failed, the compiler's own error, and the specific lines of
+code it pointed at. It sent all of that to your browser and drew none of it.
+
+It's now printed under the plain-English sentence, in a small monospace block.
+Two things that were equally invisible are in there as well, and they show up
+even on builds that SUCCEED: anything the safety check refused (a page that
+would fail for visitors) and any database function that didn't get created. A
+site can publish looking perfectly fine and be quietly broken in one of those
+ways — you'd only have found out when a customer hit it.
+
+Also fixed while in there: when there were several short notes (a photograph
+made, a link that couldn't be read), they ran into each other as one sentence.
+They're on separate lines now.
