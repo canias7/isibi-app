@@ -61,6 +61,15 @@ const password = `Sm0ke-${stamp}-${Math.random().toString(36).slice(2, 10)}`;
 // an authenticated call, so it has to happen in `finally` while the throwaway
 // user still exists.
 let userId = null, slug = null, projectId = null, jwt = null;
+// WHERE THE SITE ACTUALLY SERVES, derived from the redirect rather than spelled
+// out — so a zone rename cannot leave this file addressing the old one, and the
+// two halves are proved to agree by the assertion that reads the same header.
+//
+// It is not cosmetic. A published page's asset paths are ROOT-RELATIVE, so
+// resolving `/assets/index-x.js` against `gofarther.dev/s/<slug>/` lands on the
+// PLATFORM root and 404s — which is exactly what six of this file's checks did
+// the moment the public address changed.
+let SITE = "";
 
 try {
   // --- a throwaway, already-confirmed user -------------------------------
@@ -327,6 +336,11 @@ try {
     ok("…and it points at this site's own hostname",
       String(noFollow.headers.get("location") || "").startsWith(`https://${slug}.gofarther.app/`),
       noFollow.headers.get("location"));
+    // Fall back to the internal address when there is no redirect — a slug DNS
+    // cannot carry, or the zone turned off. Those sites still serve there.
+    SITE = noFollow.status === 301 && noFollow.headers.get("location")
+      ? new URL("./", noFollow.headers.get("location")).href
+      : `${BASE}/s/${slug}/`;
 
     // EVERYTHING BELOW NOW LANDS ON THE PUBLIC HOST, by following that redirect,
     // and that is the point rather than a side effect: every check here used to
@@ -353,7 +367,7 @@ try {
         .map((f) => String(f).replace(/^src\/routes\//, "").replace(/\.tsx$/, ""))
         .find((r) => r !== "index" && /^[a-z0-9-]+$/i.test(r));
       if (deep) {
-        const dr = await fetch(`${BASE}/s/${slug}/${deep}`);
+        const dr = await fetch(new URL(deep, SITE).href);
         const dh = await dr.text();
         ok(`a deep link (/${deep}) answers with the app, not 404`,
           dr.status === 200 && /id="root"/.test(dh), dr.status + " " + dh.slice(0, 120));
@@ -387,7 +401,7 @@ try {
       // AND AN ASSET STILL 404s. If the fallback ever caught these, a missing
       // chunk would answer HTML and the browser's error would point nowhere near
       // the file that is actually gone.
-      const bogus = await fetch(`${BASE}/s/${slug}/assets/definitely-not-a-real-chunk.js`);
+      const bogus = await fetch(new URL("assets/definitely-not-a-real-chunk.js", SITE).href);
       ok("a missing asset still 404s — the fallback is extensionless-only",
         bogus.status === 404, String(bogus.status));
       ok("its stylesheet was published too", /<link[^>]+\.css/.test(html), html.slice(0, 240));
@@ -408,7 +422,7 @@ try {
       // than containing them and the chunks have to be followed.
       const grab = (href) => fetch(href).then((x) => (x.ok ? x.text() : "")).catch(() => "");
       const entry = (html.match(/src="([^"]+\.js)"/) || [])[1];
-      const entryUrl = entry ? new URL(entry, `${BASE}/s/${slug}/`).href : "";
+      const entryUrl = entry ? new URL(entry, SITE).href : "";
       const head = entryUrl ? await grab(entryUrl) : "";
       // Chunks sit beside the entry and are named relative to it ("./index-X.js").
       const chunks = [...new Set([...head.matchAll(/["'](\.\/[A-Za-z0-9._-]+\.js)["']/g)].map((m) => m[1]))].slice(0, 8);
@@ -489,14 +503,34 @@ try {
         if (u.includes(`/api/db/${slug}/data/`)) apiCalls.push({ method: res.request().method(), url: u, status: res.status() });
       });
 
-      await pg.goto(`${BASE}/s/${slug}/`, { waitUntil: "networkidle", timeout: 60000 });
+      await pg.goto(SITE, { waitUntil: "networkidle", timeout: 60000 });
       // React mounting is what separates a live site from a served file.
       await pg.waitForFunction(() => !!document.querySelector("#root")?.firstElementChild, null, { timeout: 20000 }).catch(() => {});
 
       const mounted = await pg.evaluate(() => (document.querySelector("#root")?.childElementCount || 0) > 0);
       ok("the app mounted — React rendered into #root", mounted);
       ok("nothing threw during render", pageErrors.length === 0, pageErrors.join(" | "));
-      ok("no console errors", consoleErrors.length === 0, consoleErrors.join(" | "));
+      // THE SITE'S OWN ERRORS, separated from one the edge injects.
+      //
+      // Cloudflare adds its Web Analytics beacon to HTML on a proxied zone — for
+      // browser-like requests only, which is why curl does not show it — and the
+      // published site's CSP is `script-src 'self'`, so the browser refuses it and
+      // logs a violation on EVERY page view of EVERY customer site. It is not the
+      // generated page's doing and no change to this repo can stop it; the switch
+      // is a Cloudflare zone setting.
+      //
+      // Reported as its own loud line rather than folded in here, both ways round:
+      // failing the run on it permanently would train everybody to ignore a red
+      // `build smoke`, and swallowing it inside "no console errors" would let a
+      // real page error hide behind a known one.
+      const edgeInjected = consoleErrors.filter((e) => /cloudflareinsights\.com/.test(e));
+      const ownErrors = consoleErrors.filter((e) => !/cloudflareinsights\.com/.test(e));
+      ok("no console errors from the site's own code", ownErrors.length === 0, ownErrors.join(" | "));
+      if (edgeInjected.length) {
+        console.log("   WARNING: Cloudflare injects its analytics beacon on this zone and the site's CSP");
+        console.log("            refuses it — a console error on every page view, and no analytics either.");
+        console.log("            Turn off Web Analytics auto-injection for gofarther.app, or allow the host.");
+      }
 
       const text = (await pg.evaluate(() => document.body.innerText || "")).trim();
       ok("the page rendered real content, not an empty shell", text.length > 60, `${text.length} chars: ${text.slice(0, 120)}`);
@@ -560,7 +594,7 @@ try {
       for (const r of routes) {
         if (formRoute) break;
         if (r === "index") continue;
-        await pg.goto(`${BASE}/s/${slug}/${asPath(r)}`, { waitUntil: "networkidle", timeout: 45000 }).catch(() => {});
+        await pg.goto(new URL(asPath(r), SITE).href, { waitUntil: "networkidle", timeout: 45000 }).catch(() => {});
         await pg.waitForTimeout(1200);
         // A route that renders identically to home did not navigate. Skipping it
         // is what stops a silent SPA fallback being reported as "no form here".
@@ -717,11 +751,11 @@ try {
       // small lie that costs a round of confusion later.
       if (formRoute && formRoute !== "index") {
         await pg.screenshot({ path: "smoke-form.png", fullPage: true }).catch(() => {});
-        await pg.goto(`${BASE}/s/${slug}/`, { waitUntil: "networkidle", timeout: 45000 }).catch(() => {});
+        await pg.goto(SITE, { waitUntil: "networkidle", timeout: 45000 }).catch(() => {});
         await pg.waitForTimeout(1200);
       }
       await pg.screenshot({ path: "smoke-site.png", fullPage: true });
-      console.log(`   screenshot: smoke-site.png  (live at ${BASE}/s/${slug}/)`
+      console.log(`   screenshot: smoke-site.png  (live at ${SITE})`
         + (formRoute && formRoute !== "index" ? `, plus smoke-form.png (${asPath(formRoute)})` : ""));
       console.log("   api calls:", JSON.stringify(apiCalls));
     } catch (e) {
@@ -783,7 +817,7 @@ try {
     // kept it. Read off the published stylesheet rather than the response,
     // because the response is what we believe and the CSS is what ships.
     const cssOf = async () => {
-      const html = await (await fetch(`${BASE}/s/${slug}/`)).text();
+      const html = await (await fetch(SITE)).text();
       const href = (html.match(/<link[^>]+href="([^"]+\.css)"/) || [])[1];
       if (!href) return "";
       // RESOLVED, NOT CONCATENATED. The Worker rewrites `./assets/…` to the
@@ -791,7 +825,7 @@ try {
       // its leading slash and appending it to the site root produced
       // `/s/<slug>/s/<slug>/assets/…`, a 404 that reads exactly like a
       // half-published site. `new URL` is right for both shapes.
-      const u = new URL(href, `${BASE}/s/${slug}/`).href;
+      const u = new URL(href, SITE).href;
       return (await fetch(u)).text();
     };
     const fontsOf = (css) => [...css.matchAll(/--font-(?:sans|heading):\s*([^;]+)/g)].map((m) => m[1].trim()).join(" | ");
@@ -800,7 +834,7 @@ try {
     // this string — which makes it the cheap, deterministic proof that a
     // republish really happened rather than a stored file merely being written.
     const bundleOf = async () => {
-      const html = await (await fetch(`${BASE}/s/${slug}/`, { cache: "no-store" })).text();
+      const html = await (await fetch(SITE, { cache: "no-store" })).text();
       return (html.match(/<script[^>]+src="([^"]+)"/) || [])[1] || "";
     };
     const beforeCss = await cssOf();
@@ -859,7 +893,7 @@ try {
     const poll = (async () => {
       while (polling) {
         try {
-          const r = await fetch(`${BASE}/s/${slug}/`, { cache: "no-store" });
+          const r = await fetch(SITE, { cache: "no-store" });
           if (r.status !== 200) { gaps.push(`index.html -> ${r.status}`); }
           else {
             const html = await r.text();
@@ -870,7 +904,7 @@ try {
               // gluing it onto the site root. Concatenated, this poll reported
               // "index.html pointed at a bundle that 404s" on a site that was
               // perfectly fine — the publish gap's own signature, from the test.
-              const u = new URL(src, `${BASE}/s/${slug}/`).href;
+              const u = new URL(src, SITE).href;
               const b = await fetch(u, { cache: "no-store" });
               if (b.status !== 200) gaps.push(`${src} -> ${b.status} (index.html pointed at it)`);
             }
@@ -952,10 +986,10 @@ try {
         const pg2 = await jb.newPage();
         const bad = [];
         pg2.on("response", (r) => { if (r.status() >= 400) bad.push(`${r.status()} ${r.url().split("/").pop()}`); });
-        await pg2.goto(`${BASE}/s/${slug}/`, { waitUntil: "networkidle", timeout: 45000 }).catch(() => {});
+        await pg2.goto(SITE, { waitUntil: "networkidle", timeout: 45000 }).catch(() => {});
         for (const r of (rd.files || []).map((f) => String(f).replace(/^src\/routes\//, "").replace(/\.tsx$/, ""))) {
           if (r === "index" || !/^[a-z0-9-]+$/i.test(r)) continue;
-          await pg2.goto(`${BASE}/s/${slug}/${r}`, { waitUntil: "networkidle", timeout: 45000 }).catch(() => {});
+          await pg2.goto(new URL(r, SITE).href, { waitUntil: "networkidle", timeout: 45000 }).catch(() => {});
           await pg2.waitForTimeout(600);
         }
         ok("every page of the revised site loads with nothing missing", bad.length === 0, bad.slice(0, 5).join(" ; "));
@@ -1053,7 +1087,7 @@ try {
       ok("the published bundle is a new one", !!bundleAfter && bundleAfter !== bundleBefore,
         `${bundleBefore} -> ${bundleAfter}`);
       ok("and the site still serves its home page",
-        (await fetch(`${BASE}/s/${slug}/`)).status === 200);
+        (await fetch(SITE)).status === 200);
 
       // The stored source moved with it: the new words are offered now and the
       // old ones are not.
@@ -1093,7 +1127,7 @@ try {
         !/--background:\s*(#ffcc00|#fc0)/i.test(restoredCss),
         (restoredCss.match(/--background:[^;]*/g) || []).slice(-3).join(" ; "));
       ok("and the restored site still serves its home page",
-        (await fetch(`${BASE}/s/${slug}/`)).status === 200);
+        (await fetch(SITE)).status === 200);
     }
   }
 
@@ -1127,7 +1161,7 @@ try {
         del.status + " " + JSON.stringify(dd).slice(0, 200));
       if (dd.ok) console.log(`  removed the published site (${dd.removed} objects)`);
 
-      const gone = await fetch(`${BASE}/s/${slug}/`);
+      const gone = await fetch(SITE);
       ok("the published files are actually gone", gone.status === 404, `GET /s/${slug}/ -> ${gone.status}`);
     } catch (e) {
       failed++;
