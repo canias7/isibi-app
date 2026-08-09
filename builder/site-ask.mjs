@@ -111,7 +111,13 @@ export const ASK_TOOL = {
           "Only when intent is \"clarify\". ONE question — the single most useful thing you do not know — with the answers as " +
           "options they can click. Ask about what changes the SITE: whether visitors book, order, or just get in touch; whether " +
           "customers need their own accounts; what the place should feel like. Do not ask for facts that can simply be typed in " +
-          "later, like an address or opening hours, and never ask something the brief already told you.",
+          "later, like an address or opening hours, and never ask something the brief already told you.\n" +
+          "WHAT THE BUSINESS IS COMES FIRST, ahead of every other question. If the brief does not say the TRADE, that is your " +
+          "first question and nothing else is close: \"Book classes\" could be a gym, a pottery studio, a driving school or a " +
+          "yoga room, and those are four different sites — different pages, different words, different pictures. Measured live " +
+          "2026-08-09: from exactly that brief the questions asked were about logins and then about the mood, and after both " +
+          "were answered the trade was still unknown. Everything else hangs off this one, so asking it second is asking it too " +
+          "late.",
         properties: {
           text: {
             type: "string",

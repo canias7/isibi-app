@@ -944,3 +944,17 @@ test("the composer says a button press is an answer", () => {
   assert.doesNotMatch(send, /siteRoute\([^)]*,\s*true\s*\)\s*;/,
     "an ordinary message is being sent as though it answered a question");
 });
+
+test("the trade is the first question when the brief does not name it", () => {
+  // NOT ENFORCEABLE IN CODE — "does this brief say what the business is" is a
+  // judgement, so the tool description is the only lever and this is a guard on
+  // the description rather than on behaviour. Worth having anyway: the rule was
+  // added because a live round spent BOTH its questions on logins and mood and
+  // still did not know whether "Book classes" meant a gym or a pottery studio,
+  // and a rule nobody asserts is one a later edit quietly drops.
+  const d = ASK_TOOL.input_schema.properties.question.description;
+  assert.match(d, /WHAT THE BUSINESS IS COMES FIRST/);
+  assert.match(d, /trade/i, "the rule must name the thing it is about");
+  // The example is what makes it concrete rather than a slogan.
+  assert.match(d, /Book classes/, "the measured case is what stops this reading as generic advice");
+});

@@ -14991,3 +14991,12 @@ correctly the whole time — the AI just misjudged what your answer was.
 One thing I can't claim: I haven't reproduced this live, because doing so costs
 a real build. The logic is tested end to end and every deliberate break of it is
 caught, but your screenshot is the only record of the original.
+
+**Follow-up, same day:** it also asked its two questions in the wrong order,
+which is the real reason it ended up stuck. It spent them on logins and then on
+the mood, and after both were answered it still did not know whether "Book
+classes" meant a gym, a pottery studio, a driving school or a yoga room — four
+completely different sites. It is now told that if your brief does not say what
+the business IS, that is the first question and nothing else is close. So that
+round would have opened with "what kind of classes do you run?", which is
+obviously the question you were waiting to be asked.
