@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
-  normalizeHostname, isOwnHostname, claimRefusal, isApex, dnsInstructions, readStatus, OWN_ZONES,
+  normalizeHostname, isOwnHostname, claimRefusal, isApex, dnsInstructions, readStatus, OWN_ZONES, servedAtRoot,
 } from "../site-domains.mjs";
 
 // ------------------------------------------------- what a hostname reduces to
@@ -221,14 +221,25 @@ test("the hot path is free when the host is ours", () => {
   assert.ok(guard >= 0 && await_ > guard, "the lookup is inside the guard, not before it");
 });
 
-test("/api/* is left alone on a custom domain", () => {
-  // A published bundle calls its own API same-origin, so on a custom domain
-  // that is `theirdomain.com/api/db/<slug>/…`. The route matchers key on the
-  // pathname and never the host, so they already work — rewriting these into
-  // `/s/<slug>/api/…` would break every read and every form.
+test("root-served paths are left alone on a custom domain", () => {
+  // A published bundle calls its own API and loads its own uploads same-origin,
+  // so on a custom domain those are `theirdomain.com/api/db/<slug>/…` and
+  // `theirdomain.com/u/<slug>/<file>`. The route matchers key on the pathname and
+  // never the host, so both already work — rewriting either into `/s/<slug>/…`
+  // breaks it.
+  //
+  // THAT REASONING WAS ALWAYS RIGHT AND THE LIST WAS INCOMPLETE. This test named
+  // `/api/` literally, its twin in site-zone.test.mjs named it literally too, and
+  // both stayed green while `/u/` was excluded from neither — every uploaded
+  // image on every pretty hostname 404'd, measured live on
+  // forno-and-co.gofarther.app. Asserted through the shared predicate now, so
+  // there is one list and one place to add to it.
   const i = worker.indexOf("if (!isOwnHostname(url.hostname)");
-  has(/isOwnHostname\(url\.hostname\) && !url\.pathname\.startsWith\("\/api\/"\)/, "api paths are excluded from the rewrite");
+  has(/isOwnHostname\(url\.hostname\) && !servedAtRoot\(url\.pathname\)/, "root-served paths are excluded from the rewrite");
   assert.ok(i > 0);
+  assert.equal(servedAtRoot("/api/db/x/data/y"), true);
+  assert.equal(servedAtRoot("/u/x/y.jpg"), true);
+  assert.equal(servedAtRoot("/book"), false, "a real page must still be rewritten to its site");
 });
 
 test("an unmapped host is 404, never the app", () => {

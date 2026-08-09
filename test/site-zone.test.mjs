@@ -14,8 +14,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   OWN_ZONES, APP_ZONE, SITE_ZONE, SITE_ZONE_LIVE,
-  isOwnHostname, isAppHostname, siteHostSlug, siteHostFor, siteLabelFor, siteUrlFor, claimRefusal,
-} from "../site-domains.mjs";
+  isOwnHostname, isAppHostname, siteHostSlug, siteHostFor, siteLabelFor, siteUrlFor, claimRefusal, servedAtRoot } from "../site-domains.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => fs.readFileSync(path.join(ROOT, p), "utf8");
@@ -169,14 +168,23 @@ test("the mount root asks isAppHostname, never isOwnHostname", () => {
   );
 });
 
-test("the site zone is rewritten to /s/<slug>/ and /api/ is left alone", () => {
+test("the site zone is rewritten to /s/<slug>/ and root paths are left alone", () => {
+  // THE EXCLUSION IS ASSERTED THROUGH `servedAtRoot`, NOT BY ITS SPELLING. This
+  // test was pinned to the literal `!url.pathname.startsWith("/api/")` and so
+  // described one member of a list rather than the rule — it passed for the whole
+  // time `/u/` was missing from that list, which broke every uploaded image on
+  // every pretty hostname. Assert the property, not the spelling.
   const w = read("worker.js");
   const i = w.indexOf("const zoneSlug = siteHostSlug(url.hostname);");
   assert.ok(i > 0, "the site-zone rewrite is gone from worker.js");
   const block = w.slice(i, i + 900);
-  assert.match(block, /if \(zoneSlug && !url\.pathname\.startsWith\("\/api\/"\)\)/,
-    "a published bundle calls its own API same-origin; rewriting /api/ breaks every route");
+  assert.match(block, /if \(zoneSlug && !servedAtRoot\(url\.pathname\)\)/,
+    "a published bundle calls its own API and loads its own uploads same-origin; rewriting either breaks them");
   assert.match(block, /url\.pathname = "\/s\/" \+ zoneSlug \+/);
+  // And the predicate really does answer for both, so the line above is not just
+  // a well-named function that excludes nothing.
+  assert.equal(servedAtRoot("/api/db/x/data/y"), true);
+  assert.equal(servedAtRoot("/u/x/y.jpg"), true);
 });
 
 test("the site zone's rewrite is decided BEFORE the custom-domain lookup", () => {
@@ -230,4 +238,47 @@ test("the setup script exists and refuses to overwrite records it did not make",
   assert.match(s, /const APPLY = process\.argv\.includes\("--apply"\)/);
   const wf = read(".github/workflows/site-zone-setup.yml");
   assert.match(wf, /default: false/, "the workflow must default to a dry run");
+});
+
+/* ------------------------------------------ uploads are served at the ROOT */
+
+test("servedAtRoot covers the paths a pretty-hostname rewrite must not touch", () => {
+  // `/u/<slug>/<file>` carries its own slug and is matched at the root, so
+  // prefixing it with /s/<slug>/ produces a path no route matches. Measured live
+  // 2026-08-09: a real uploaded photograph 404'd on forno-and-co.gofarther.app
+  // and served 200 on gofarther.dev/s/forno-and-co/ — every image on every site
+  // broken on the only address anybody shares.
+  assert.equal(servedAtRoot("/u/forno-and-co/fbcf391f450fc6c91ed1ebf1d0cb7002.jpg"), true);
+  assert.equal(servedAtRoot("/api/db/x/data/menu_items"), true);
+  // …and NOT the site's own pages or assets, which is the whole point of the rewrite.
+  assert.equal(servedAtRoot("/"), false);
+  assert.equal(servedAtRoot("/book"), false);
+  assert.equal(servedAtRoot("/assets/index-CWtgw2v9.js"), false);
+  // ANCHORED AT THE START, and a mutation proved this needed saying. Written
+  // with `includes`, every one of these stops being rewritten to its site and
+  // 404s — and `/docs/api/reference` is an ordinary page for exactly the kind of
+  // software company this platform builds for, not a contrived string.
+  assert.equal(servedAtRoot("/uploads"), false);
+  assert.equal(servedAtRoot("/users"), false);
+  assert.equal(servedAtRoot("/apis"), false);
+  assert.equal(servedAtRoot("/docs/api/reference"), false);
+  assert.equal(servedAtRoot("/help/u/guide"), false);
+  assert.equal(servedAtRoot("/menu#api/x"), false);
+  assert.equal(servedAtRoot(""), false);
+  assert.equal(servedAtRoot(undefined), false);
+});
+
+test("BOTH pretty-hostname rewrites ask the one question", () => {
+  // The site-zone branch and the custom-domain branch had a copy of this
+  // exclusion each and only ever agreed by coincidence — which is how /u/ ended
+  // up excluded from neither. Two lists of the same paths is the failure this
+  // codebase keeps recording, so the guard is that there is only one.
+  const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const zone = /if \(zoneSlug && !servedAtRoot\(url\.pathname\)\)/.test(src);
+  const custom = /if \(!isOwnHostname\(url\.hostname\) && !servedAtRoot\(url\.pathname\)\)/.test(src);
+  assert.ok(zone, "the site-zone rewrite does not use the shared predicate");
+  assert.ok(custom, "the custom-domain rewrite does not use the shared predicate");
+  // And neither may go back to its own hand-written copy.
+  assert.doesNotMatch(src, /if \(zoneSlug && !url\.pathname\.startsWith\("\/api\/"\)\)/);
+  assert.doesNotMatch(src, /if \(!isOwnHostname\(url\.hostname\) && !url\.pathname\.startsWith\("\/api\/"\)\)/);
 });

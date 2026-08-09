@@ -215,6 +215,17 @@ Every generation is metered in credits (1 credit = $0.008 fal cost). Postgres RP
 - **The last recurring shape is NOT fixed**, and it is not ours in the same way: an object assigned into a row field (`Type '{ stage: string; }' is not assignable to 'string | number | boolean | null | undefined'` — the `Row` index signature, three runs) and invented export names (`activityFeedPlaceholder`, `activityFeedFallback`). Both need thought rather than a field.
 - **The eval is what made this answerable at all.** One sample a run, errors committed per sample under `docs/auth-audit/pages/*/_errors.txt`, so eight runs of history turned "why did my build fail" from a shrug into a ranked list. 1843 tests, 3/3 mutations caught.
 
+## Every image 404'd on the only address anybody shares (2026-08-09)
+
+**Found by LOOKING at the first real site built after the top-up** — `forno-and-co.gofarther.app`, a one-page pizzeria that is otherwise exactly right. Its single photograph rendered as the broken-image glyph with the alt text showing, and the same file served **200** from `gofarther.dev/s/forno-and-co/`.
+
+- **THE PRETTY-HOSTNAME REWRITE PREFIXES `/s/<slug>/` AND `/u/` WAS NEVER EXCLUDED.** `/u/<slug>/<file>` already carries its own slug and is matched at the ROOT, so the rewrite produced `/s/<slug>/u/<slug>/…`, which no route matches. `/api/` was excluded from the start and the same reasoning applies verbatim one path over — the route matchers key on the pathname and never the host, so both already work untouched.
+- **BOTH REWRITES HAD IT: the site zone AND custom domains.** So every uploaded picture on every published site was broken on the address a customer sends people to, and fine on the one nobody sees. Including the photographs the platform BUYS at ~19 credits each.
+- **The two guards were pinned to the literal `!url.pathname.startsWith("/api/")`** — one in `site-zone.test.mjs`, one in `site-domains.test.mjs` — so each described one member of a list rather than the rule, and both stayed green throughout. `servedAtRoot` is now the one list and both are asserted through it. **Assert the property, not the spelling**, for the second time in two days.
+- **A mutation found a second real gap**: written with `includes` instead of `startsWith`, `/docs/api/reference` — an ordinary page for the kind of software company this platform builds — stops being rewritten to its site and 404s. Anchoring is asserted with cases that can actually fire.
+- **The cost, stated:** a site can serve another site's uploads through its own hostname. Those objects are already public at `gofarther.dev/u/…`, served `inline` with SVG refused at the door, so nothing new is exposed — and checking the path's slug against the hostname's would break an owner moving a picture between two of their own sites.
+- **Nothing in CI could have caught it.** `build smoke` loads the site at `/s/<slug>/`, which is the one mount where this works.
+
 ## A killed step was billed to the customer (2026-08-09)
 
 **Found in a real `build smoke` log, not by reading.** A revise came back `stage: "typecheck"` with `tsc was killed by SIGTERM (no output)` — the container being drained under a running build, which is the documented `stage: "build"` failure — and it arrived wearing the ONE stage that is **charged and never retried**. So our own rollout lost the customer's revise and billed them for it, and which of those two outcomes happens comes down to *which step was running when the instance went away*.

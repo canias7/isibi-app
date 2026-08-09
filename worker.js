@@ -14,7 +14,7 @@ import { handleInbound, MAX_BODY as INBOUND_MAX_BODY, MAX_PER_MINUTE as INBOUND_
 // every Cloudflare custom-hostname call the platform made threw before it could
 // reach the API. Invisible until the line ran, which is the whole class of bug
 // `test/worker-imports.test.mjs` now covers.
-import { OWN_ZONES, APP_ZONE, SITE_ZONE, normalizeHostname, isOwnHostname, isAppHostname, siteHostSlug, siteHostFor, siteUrlFor, claimRefusal, dnsInstructions, readStatus } from "./site-domains.mjs";
+import { OWN_ZONES, APP_ZONE, SITE_ZONE, normalizeHostname, isOwnHostname, isAppHostname, servedAtRoot, siteHostSlug, siteHostFor, siteUrlFor, claimRefusal, dnsInstructions, readStatus } from "./site-domains.mjs";
 import { checkDns, dnsSentence } from "./site-dns.mjs";
 import { detectProvider, providerSentence } from "./site-registrar.mjs";
 import { offerFor as dcOfferFor, applyUrl as dcApplyUrl, signQuery as dcSign, rsaSigner as dcSigner } from "./site-domain-connect.mjs";
@@ -5676,7 +5676,7 @@ async function handleRequest(request, env, ctx) {
     // `<slug>.gofarther.app/api/db/<slug>/data/…`, and the route matchers key on
     // the pathname and never the host.
     const zoneSlug = siteHostSlug(url.hostname);
-    if (zoneSlug && !url.pathname.startsWith("/api/")) {
+    if (zoneSlug && !servedAtRoot(url.pathname)) {
       url.pathname = "/s/" + zoneSlug + (url.pathname === "/" ? "/" : url.pathname);
       request = new Request(url.toString(), request);
     } else if (!zoneSlug && isOwnHostname(url.hostname) && !isAppHostname(url.hostname)
@@ -5696,7 +5696,7 @@ async function handleRequest(request, env, ctx) {
       return Response.redirect("https://" + APP_ZONE + url.pathname + url.search, 301);
     }
 
-    if (!isOwnHostname(url.hostname) && !url.pathname.startsWith("/api/")) {
+    if (!isOwnHostname(url.hostname) && !servedAtRoot(url.pathname)) {
       const mapped = await siteForHostname(env, url.hostname);
       // A hostname Cloudflare routed to us with no row is a domain that was
       // removed, or one still being set up. 404 rather than falling through to

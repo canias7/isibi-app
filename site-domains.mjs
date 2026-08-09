@@ -178,6 +178,39 @@ export function isAppHostname(host) {
 }
 
 /**
+ * Paths the Worker answers at the ROOT, so a pretty-hostname rewrite must leave
+ * them alone.
+ *
+ * A published site is served by prefixing the request with `/s/<slug>/`, and
+ * `/api/` was excluded from that from the start. `/u/` was not — and it is
+ * exactly the same kind of path: `/u/<slug>/<file>` already carries its own slug
+ * and is matched at the root, so prefixing it produces `/s/<slug>/u/<slug>/…`,
+ * which no route matches.
+ *
+ * MEASURED LIVE 2026-08-09 on `forno-and-co.gofarther.app`: the home page's one
+ * photograph — a real file, really uploaded, and one the customer's build paid
+ * for — 404'd on the pretty address and served 200 on `gofarther.dev/s/<slug>/`.
+ * So every image on every site was broken on the ONLY address anybody shares,
+ * and fine on the one nobody sees.
+ *
+ * ONE LIST, used by both rewrites. The site-zone branch and the custom-domain
+ * branch had a copy each and only ever agreed by coincidence; two lists of the
+ * same paths is the failure this codebase keeps recording, most recently in the
+ * route-dispatch gates.
+ *
+ * The cost, stated: a site can serve another site's uploads through its own
+ * hostname. Those objects are already public at `gofarther.dev/u/…` and are
+ * served `inline` with SVG refused at the door, so this exposes nothing new —
+ * and the alternative, checking the path's slug against the hostname's, would
+ * break the case a site legitimately has: an owner moving a picture between two
+ * of their own sites.
+ */
+export function servedAtRoot(pathname) {
+  const p = String(pathname || "");
+  return p.startsWith("/api/") || p.startsWith("/u/");
+}
+
+/**
  * A slug that may be a DNS label.
  *
  * A build slug is already `[a-z0-9-]` capped at 60 (`worker.js`), so this is
