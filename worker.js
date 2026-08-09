@@ -8727,10 +8727,26 @@ async function handleRequest(request, env, ctx) {
     // even the person whose menu it was. `/members` is the one place `_users` is
     // named, and it names its columns so no password hash can leave.
     //
-    // Ordered BEFORE the site-delete branch below on purpose: that one matches
-    // any DELETE under /api/site/, so a row delete would otherwise be read as a
-    // request to take the entire site down.
-    if (url.pathname.startsWith("/api/site/") && (url.pathname.includes("/rows") || url.pathname.includes("/members") || url.pathname.includes("/analytics") || url.pathname.includes("/uploads") || url.pathname.includes("/export") || url.pathname.includes("/notify") || url.pathname.includes("/secrets") || url.pathname.includes("/domains"))) {
+    // THERE IS ONE LIST OF OWNER ROUTES AND IT IS THE `if (om || mm || …)`
+    // BELOW. This gate is deliberately just the prefix.
+    //
+    // It used to carry a SECOND list — `includes("/rows") || includes("/members")
+    // || …` — naming the same routes a different way, and `/versions` and `/text`
+    // were added to the matchers, to the dispatch condition and to `ownerSlug`
+    // without being added here. So both were unreachable end to end: the block
+    // their handlers sit in could not be entered at all, and every request fell
+    // through to the router's 404 at the bottom. THAT IS THE `dm2` BUG A THIRD
+    // TIME, one layer further out, and the guard written for it could not see
+    // this layer — `test/api-auth.test.mjs` checked matchers against the inner
+    // condition and never looked above it. It now asserts this gate stays a bare
+    // prefix, because two lists of the same thing is what keeps failing here.
+    //
+    // Falling through is safe: everything in the block lives inside that inner
+    // `if`, so a path matching none of the matchers does nothing and carries on
+    // to the branches below. The site-delete branch is no longer at risk from
+    // that (it once matched any DELETE under /api/site/ and now matches exactly
+    // /api/site/<slug>, no deeper), so ordering no longer decides anything.
+    if (url.pathname.startsWith("/api/site/")) {
       const om = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/rows(?:\/([a-z_][a-z0-9_]{0,40})(?:\/([0-9]{1,18}))?)?$/i);
       // A member id is a UUID now, not the sequential integer this used to match.
       const mm = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/members(?:\/([0-9a-f-]{36}))?$/i);

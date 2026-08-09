@@ -459,6 +459,44 @@ test("every owner-scoped route matcher appears in the dispatch condition", () =>
     "the dispatch condition and the ownerSlug list disagree");
 });
 
+// THE SAME BUG A THIRD TIME, ONE LAYER FURTHER OUT — and the test above could
+// not see it, which is the point of adding this one.
+//
+// The block those matchers live in sits inside an OUTER gate. That gate used to
+// carry its own list of the same routes, spelled a different way:
+//
+//   startsWith("/api/site/") && (includes("/rows") || includes("/members") || …)
+//
+// `/versions` and `/text` were added to the matchers, to the dispatch condition
+// and to `ownerSlug` — all three checked above, all three green — and not to
+// that list. So neither route could be reached at all: version history and free
+// text editing were both dead on arrival, answering the router's bottom 404 to
+// their own owner. Found by driving the deployed Worker, not by reading it,
+// because from outside an undispatched route and one `assertOwner` refuses are
+// the same 404.
+//
+// The fix is structural rather than another entry: there is now ONE list, and
+// this asserts the outer gate does not become a second one. A `&&` there is not
+// automatically wrong, but a path test there is, since that is the only thing
+// that can narrow which routes get in.
+test("the owner block's outer gate is a bare prefix, not a second route list", () => {
+  const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+
+  // Anchored on the matcher that must follow it, so this cannot drift onto some
+  // other `/api/site/` prefix test elsewhere in the router.
+  const gate = src.match(/\n\s*if \(([^\n]*startsWith\("\/api\/site\/"\)[^\n]*)\) \{\n\s*const om = url\.pathname\.match\(/);
+  assert.ok(gate, "the owner block's outer gate is gone or reshaped");
+
+  const cond = gate[1];
+  assert.equal(cond.trim(), 'url.pathname.startsWith("/api/site/")',
+    "the outer gate has grown a second condition — anything narrowing it silently " +
+    "un-dispatches routes the inner condition admits, which is how /versions and " +
+    "/text shipped unreachable");
+  assert.ok(!/includes\(/.test(cond),
+    "the outer gate names paths again — that list and the matcher list drift apart, " +
+    "and the drift is invisible from outside because both answer 404");
+});
+
 // `r` IN THE OWNER BLOCK IS A `{body, status}`, NEVER A `Response`.
 //
 // That block ends in `return Response.json(r.body, { status: r.status })`, so a
