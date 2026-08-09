@@ -1,3 +1,0 @@
-src/routes/account.tsx(31,10): error TS2305: Module '"@/components/ui/activity-feed"' has no exported member 'activityFeedPlaceholder'.
-src/routes/work.tsx(39,35): error TS2353: Object literal may only specify known properties, and 'fallbackSeed' does not exist in type 'Shot'.
-src/routes/work.tsx(40,35): error TS2353: Object literal may only specify known properties, and 'fallbackSeed' does not exist in type 'Shot'.

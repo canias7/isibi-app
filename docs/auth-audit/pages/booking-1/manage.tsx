@@ -7,14 +7,14 @@ export const Route = createFileRoute("/manage")({ component: Manage });
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "A quiet studio, six mats to a class.",
+  tagline: "A quiet studio for a proper practice.",
   links: [
-    { label: "Home", href: "#/" },
-    { label: "Book", href: "#/book" },
-    { label: "The work", href: "#/work" },
-    { label: "Account", href: "#/account" },
+    { label: "Home", href: "/" },
+    { label: "Book", href: "/book" },
+    { label: "The work", href: "/work" },
+    { label: "Account", href: "/account" },
   ],
-  action: { label: "Book now", href: "#/book" },
+  action: { label: "Book now", href: "/book" },
 };
 
 function Manage() {
@@ -23,12 +23,11 @@ function Manage() {
       <div className="mx-auto max-w-lg px-6 py-16">
         <h1 className="text-3xl font-semibold tracking-tight">Manage your booking</h1>
         <p className="mt-4 text-muted-foreground">
-          We can't look bookings up from this page yet — there's no confirmation link to open one
-          by. If you need to move or cancel a class, drop us a note by email and we'll sort it by
-          hand.
+          To change or cancel a class, give the studio a call or email us with your booking details
+          and we'll sort it out. If you'd like a fresh slot, you can always book a new one.
         </p>
-        <Button asChild variant="outline" className="mt-6">
-          <Link to="/book">Book a new mat instead</Link>
+        <Button asChild className="mt-6">
+          <Link to="/book">Book a class</Link>
         </Button>
       </div>
     </SiteChrome>

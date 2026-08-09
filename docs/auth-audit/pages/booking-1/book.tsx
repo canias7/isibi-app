@@ -28,8 +28,8 @@ import {
 
 export const Route = createFileRoute("/book")({
   component: Book,
-  validateSearch: (search: Record<string, unknown>): { time?: string } => ({
-    time: typeof search.time === "string" ? search.time : undefined,
+  validateSearch: (search: Record<string, unknown>): { service?: string } => ({
+    service: typeof search.service === "string" ? search.service : undefined,
   }),
 });
 
@@ -37,17 +37,22 @@ type Appointment = Row;
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "A quiet studio, six mats to a class.",
+  tagline: "A quiet studio for a proper practice.",
   links: [
-    { label: "Home", href: "#/" },
-    { label: "Book", href: "#/book" },
-    { label: "The work", href: "#/work" },
-    { label: "Account", href: "#/account" },
+    { label: "Home", href: "/" },
+    { label: "Book", href: "/book" },
+    { label: "The work", href: "/work" },
+    { label: "Account", href: "/account" },
   ],
-  action: { label: "Book now", href: "#/book" },
+  action: { label: "Book now", href: "/book" },
 };
 
-const CLASSES = ["Slow Flow", "Vinyasa", "Restorative", "Beginners' course"];
+const CLASSES = [
+  "Morning Flow",
+  "Slow & Steady",
+  "Restorative",
+  "Beginners' Six-Week Course",
+];
 
 const SLOTS = ["07:00", "08:00", "09:15", "12:00", "17:30", "18:30", "19:30"];
 
@@ -62,18 +67,18 @@ const booking = z.object({
 type Booking = z.infer<typeof booking>;
 
 function Book() {
-  const { time: preselected } = Route.useSearch();
+  const { service: preselected } = Route.useSearch();
   const create = useCreateRow<Appointment>("bookings");
   const [booked, setBooked] = useState(false);
 
   const form = useForm<Booking>({
     resolver: zodResolver(booking),
     defaultValues: {
-      class_name: "",
+      class_name: preselected ?? "",
       customer_name: "",
       customer_email: "",
       slot_date: "",
-      slot_time: preselected ?? "",
+      slot_time: "",
     },
   });
 
@@ -100,7 +105,7 @@ function Book() {
         <div className="mx-auto max-w-lg px-6 py-20 text-center motion-enter">
           <h1 className="text-3xl font-semibold tracking-tight">You're booked</h1>
           <p className="mt-3 text-muted-foreground">
-            We've saved your spot. Keep an eye on your email for anything you need to know before class.
+            We've saved your spot. Need to change it? Give us a ring, or use the manage link if you have it.
           </p>
           <Button asChild variant="outline" className="mt-6">
             <Link to="/">Back to the studio</Link>
@@ -113,8 +118,8 @@ function Book() {
   return (
     <SiteChrome {...CHROME}>
       <div className="mx-auto max-w-2xl px-6 py-14">
-        <h1 className="text-3xl font-semibold tracking-tight">Book a mat</h1>
-        <p className="mt-2 text-muted-foreground">Pick a class, a date, and a time — we'll hold your spot.</p>
+        <h1 className="text-3xl font-semibold tracking-tight">Check availability</h1>
+        <p className="mt-2 text-muted-foreground">Pick a class, a date and a time, and we'll hold your spot.</p>
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="mt-8 grid gap-4 sm:grid-cols-2">
@@ -206,7 +211,7 @@ function Book() {
 
             <div className="sm:col-span-2">
               <Button type="submit" className="motion-press" disabled={create.isPending}>
-                {create.isPending ? "Booking…" : "Book my mat"}
+                {create.isPending ? "Booking…" : "Book now"}
               </Button>
             </div>
           </form>
