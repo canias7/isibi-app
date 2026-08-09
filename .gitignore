@@ -2,5 +2,9 @@
 .env.local
 node_modules/
 dist/
+# The SSR bundle the prerender step builds and imports. Build output like
+# `dist`, and never published: it is deliberately kept OUT of `dist`, which is
+# collected wholesale and shipped to R2.
+dist-ssr/
 .DS_Store
 shots/
