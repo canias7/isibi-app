@@ -383,7 +383,14 @@ function outOfScopeReads(src) {
       // PER LINE rather than by blanking strings whole-file, which is the trap
       // already recorded here: one stray delimiter eats the rest of the file
       // and HIDES real code, which is the direction that costs a bug.
-      const before = hit ? lines[j].slice(0, hit.index) : "";
+      // THE DELIMITER IS PART OF THE MATCH, which is what made this miss.
+      // `(^|[^.\w$])` consumes the character before the name — and for
+      // `"menu.tsx": MENU` that character IS the opening quote, so slicing to
+      // `hit.index` left it out of the count and an object key read as an
+      // identifier. Fourth false alarm from this scan, and the first that
+      // survived to a red run: it accused a `const menu` that was used entirely
+      // inside its own block.
+      const before = hit ? lines[j].slice(0, hit.index + (hit[1] ? hit[1].length : 0)) : "";
       const inString = ((before.match(/"/g) || []).length % 2) || ((before.match(/'/g) || []).length % 2) ||
         ((before.match(/`/g) || []).length % 2);
       if (hit && !inString) {
@@ -426,4 +433,24 @@ test("the integration scope scan fires on the shape it was written for", () => {
   const found = outOfScopeReads(mutant);
   assert.equal(found.length, 1, "expected exactly the re-introduced read, got: " + found.join(" ; "));
   assert.match(found[0], /^browser declared at/);
+
+  // AND IT MUST NOT FIRE ON A QUOTED KEY. The delimiter is consumed by the
+  // match, so `"menu.tsx": MENU` read as an identifier until the count included
+  // it — and the accusation landed on a `const menu` used entirely inside its
+  // own block. Both directions, because a scan narrowed until it matches nothing
+  // passes the test above forever.
+  const quoted = [
+    "function f() {",
+    "  if (true) {",
+    "    const menu = 1;",
+    "    use(menu);",
+    "  }",
+    '  post({ files: { "index.tsx": INDEX, "menu.tsx": MENU } });',
+    "}",
+  ].join("\n");
+  assert.deepEqual(outOfScopeReads(quoted), [], "a quoted object key is being read as an identifier");
+
+  // The same shape with a REAL out-of-scope read still reports.
+  const real = quoted.replace('  post({ files: { "index.tsx": INDEX, "menu.tsx": MENU } });', "  use(menu.length);");
+  assert.equal(outOfScopeReads(real).length, 1, "narrowed so far it no longer catches the real thing");
 });

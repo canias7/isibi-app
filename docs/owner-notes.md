@@ -14840,3 +14840,35 @@ and the change ships without the deploy check building two sites (~$0.40 and a
 couple of Sonnet calls a run). Use it for anything the check can't say anything
 about. It is deliberately not GitHub's own skip marker — that one stops *every*
 workflow including the deploy, so the change wouldn't ship at all.
+
+### Every page is now its own page (2026-08-09)
+
+Until today every page of every site you built shared **one web address**. The
+booking page was `yoursite.com/#/book`, and everything after the `#` never
+reaches a server. Three things followed, and all three are fixed:
+
+**Google could only find the front page.** Services, Booking, everything else —
+invisible. For a local business that's most of the point of having a site.
+
+**Every link you shared previewed the front page.** Copy the booking page,
+paste it into WhatsApp, get the home page's picture and words. Each page now has
+its own title and its own description, taken from what that page actually says.
+
+**The traffic panel could only ever show one number**, because every visit was
+recorded as the front page. Real per-page traffic starts now, with no change to
+the panel — it was being fed one value forever.
+
+Two changes made it work. Pages have real addresses (`/book`, not `/#/book`),
+and each one is now written out as a real page at build time — so a search
+engine or a link preview sees actual words without having to run anything. It
+adds about a second and a half to a build and costs no credits.
+
+**The limit, stated:** what gets written out is the page's own words — headings,
+your description, the form, the copy. Lists that come from your data (a menu,
+your services) still fill in a moment later, as they do now. That's deliberate:
+a saved copy of your prices would be wrong the moment you changed one.
+
+Two things I found while doing it, both of which would have bitten: a page
+served on your own domain would have talked to the *wrong site's* data, and one
+site's pages could have been photographed into another site's. Both closed, both
+with tests.

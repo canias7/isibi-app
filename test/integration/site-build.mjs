@@ -257,6 +257,58 @@ try {
   ok("and they add up to less than the total it reports", built.routesMs + built.tscMs + built.viteMs <= built.ms,
     `${built.routesMs}+${built.tscMs}+${built.viteMs} > ${built.ms}`);
 
+  // ── EVERY ROUTE IS A REAL DOCUMENT ────────────────────────────────────────
+  //
+  // A published page used to be an empty `<div id="root">` plus a bundle. A link
+  // preview fetches the HTML once and reads the head — it does not run the
+  // bundle — so every page shared anywhere showed the home page's card, and a
+  // crawler saw nothing without executing JavaScript.
+  //
+  // THE ASSERTION HAS TO BE ABOUT WORDS, not about a file existing or a string
+  // being non-empty. React CATCHES a throw during a server render, silently
+  // switches that subtree to client rendering, and returns 5.6 KB of markup with
+  // no text in it and no exception anywhere — which is exactly what happened on
+  // the first run here, on every route, because `siteSlug()` read `window`.
+  console.log(`  prerender ${built.preMs}ms → ${JSON.stringify(built.prerendered)}${(built.prerenderSkipped || []).length ? " skipped " + JSON.stringify(built.prerenderSkipped) : ""}`);
+  ok("both routes were prerendered", Array.isArray(built.prerendered) && ["/", "/menu"].every((p) => built.prerendered.includes(p)),
+    JSON.stringify({ done: built.prerendered, skipped: built.prerenderSkipped }));
+  if (built.ok && built.files) {
+    const home = (built.files["index.html"] || {}).t || "";
+    const menu = (built.files["menu.html"] || {}).t || "";
+    ok("a second page exists as its own document", menu.length > 0, Object.keys(built.files).filter((n) => n.endsWith(".html")).join(", "));
+    const wordsIn = (html) => ((html.match(/<div id="root">([\s\S]*)<\/div>/) || [])[1] || "")
+      .replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    for (const [name, html] of [["index.html", home], ["menu.html", menu]]) {
+      const words = wordsIn(html);
+      console.log(`  ${name}: ${words.length} chars of readable text`);
+      // A LOW BAR ON PURPOSE, and the number is the point. The failure this
+      // guards is 5.6 KB of markup containing ZERO words — the client-render
+      // fallback — so "any words at all" is what separates a working prerender
+      // from that. Set higher it fails on a legitimately thin page, which is the
+      // next assertion's job to bound instead.
+      ok(`${name} carries words a crawler can read`, words.length > 6, JSON.stringify(words.slice(0, 120)));
+      ok(`${name} did not fall back to client rendering`, !/Switched to client rendering/.test(html));
+      // The snapshot must still load the SAME bundle as the shell, or a page is
+      // a photograph of a site that no longer exists.
+      ok(`${name} still loads the built bundle`, /<script[^>]+src="\.\/assets\//.test(html), html.slice(0, 200));
+    }
+    // WHAT A PRERENDER CAN AND CANNOT CAPTURE, pinned rather than left to be
+    // rediscovered. The home page has written copy and comes out substantial;
+    // the menu page is `<Link>Back</Link>`, an `<h1>`, and then a data list, so
+    // it prerenders to "Back Menu" and nothing else — measured, not estimated.
+    // Rows arrive from the data API at runtime, so a page that is ENTIRELY a
+    // list has almost no snapshot, and that is correct: a snapshot of somebody
+    // else's rows would go stale the moment they edited a price.
+    // Measured on this fixture: home 122 chars, menu 9. Both pages here are
+    // mostly data lists, which is why the home page is not larger — the
+    // template's own reference page, which carries real written copy, prerenders
+    // to 28 KB of HTML. The bar is set from what was measured, with headroom,
+    // rather than from what would be nice.
+    ok("a page with written copy prerenders more than a bare list", wordsIn(home).length > 60, String(wordsIn(home).length));
+    ok("and a page that is only a data list prerenders to little — the known limit",
+      wordsIn(menu).length < 40, JSON.stringify(wordsIn(menu)));
+  }
+
   if (built.ok) {
     const names = Object.keys(built.files);
     ok("it produced an index.html", !!built.files["index.html"]);

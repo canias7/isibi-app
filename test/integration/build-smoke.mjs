@@ -339,6 +339,32 @@ try {
         const dh = await dr.text();
         ok(`a deep link (/${deep}) answers with the app, not 404`,
           dr.status === 200 && /id="root"/.test(dh), dr.status + " " + dh.slice(0, 120));
+
+        // ── AND IT IS ITS OWN DOCUMENT, WITH ITS OWN CARD ──────────────────
+        //
+        // The point of prerendering: a link preview fetches the HTML once and
+        // reads the head — it never runs the bundle — so before this, every
+        // page pasted into WhatsApp showed the home page's card whatever was
+        // copied. Compared AGAINST the home page rather than merely being
+        // present, because "has a title" was true the whole time it was wrong.
+        const titleOf = (h) => (h.match(/<title>([^<]*)<\/title>/i) || [])[1] || "";
+        const descOf = (h) => (h.match(/<meta property="og:description" content="([^"]*)"/i) || [])[1] || "";
+        ok(`/${deep} carries its own title, not the home page's`,
+          !!titleOf(dh) && titleOf(dh) !== titleOf(html), `${titleOf(html)}  vs  ${titleOf(dh)}`);
+        ok(`/${deep} has words in it before any JavaScript runs`,
+          (((dh.match(/<div id="root">([\s\S]*)<\/div>/) || [])[1] || "").replace(/<[^>]+>/g, " ").trim().length) > 6,
+          dh.slice(dh.indexOf('<div id="root">'), dh.indexOf('<div id="root">') + 160));
+        // THE ONE THAT IS NOT COSMETIC. `siteSlug()` reads this tag, and on a
+        // custom domain there is no `/s/<slug>/` in the path — so a prerendered
+        // page without it sends a visitor who landed here straight at a
+        // DIFFERENT site's API.
+        ok(`/${deep} knows which site it belongs to`,
+          new RegExp(`<meta name="site-slug" content="${slug}"`).test(dh),
+          (dh.match(/<meta name="site-slug"[^>]*>/) || ["(absent)"])[0]);
+        if (descOf(dh) && descOf(html)) {
+          console.log(`   home card: ${descOf(html).slice(0, 70)}`);
+          console.log(`   ${deep} card: ${descOf(dh).slice(0, 70)}`);
+        }
       }
       // AND AN ASSET STILL 404s. If the fallback ever caught these, a missing
       // chunk would answer HTML and the browser's error would point nowhere near

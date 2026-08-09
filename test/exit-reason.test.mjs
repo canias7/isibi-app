@@ -108,8 +108,15 @@ test("every failure that reports a child process goes through it", () => {
   // and the wrapper is held to actually spawning something.
   const names = [...src.matchAll(/const (\w+) = await (?:run|timed)\(/g)].map((m) => m[1]);
   assert.ok(names.length >= 3, `only ${names.length} subprocess call sites found — the scan stopped working`);
-  assert.match(src, /const timed = async \([^)]*\) => \{[\s\S]{0,200}?await run\(/,
+  // `timed` takes an optional `fn` now, for the prerender — which runs in this
+  // process rather than as a subprocess. So it spawns CONDITIONALLY, and the
+  // assertion has to say that rather than demanding an unconditional `run(`,
+  // which is what went red. The property that matters is unchanged: the wrapper
+  // must still be capable of spawning, or naming it as a call site is a lie.
+  assert.match(src, /const timed = async \([^)]*\) => \{[\s\S]{0,320}?await run\(/,
     "timed() no longer spawns anything, so naming it as a subprocess call site is a lie");
+  assert.match(src, /const timed = async \(key, cmd, args, fn\)/,
+    "the in-process form is gone — if every step is a subprocess again, simplify this back");
 
   const stages = [...src.matchAll(/ok: false, stage: "(\w+)", error: (.+?), ms:/g)];
   assert.ok(stages.length >= 3, `only ${stages.length} failing stages found — the scan stopped working`);

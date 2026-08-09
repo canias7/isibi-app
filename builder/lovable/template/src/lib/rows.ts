@@ -136,6 +136,21 @@ export type RowQuery = {
  * -time value for local dev, where the site is served from /.
  */
 export function siteSlug(): string {
+  // NO BROWSER AT BUILD TIME. Each route is rendered to HTML once by
+  // `entry-server.tsx`, in Node, where `window` does not exist — and this
+  // function runs inside `useRows`, so it is on the path of every real page.
+  //
+  // The failure it caused is the reason for the guard rather than a try/catch
+  // somewhere upstream: React catches a throw during a server render, silently
+  // switches that subtree to client rendering, and hands back 5.6 KB of markup
+  // containing no words at all. No exception reaches the caller. Every page
+  // "prerendered" successfully and every snapshot was empty — measured on the
+  // first run, and invisible to anything checking that a string came back.
+  //
+  // "" is correct here, not a guess: nothing fetches during a prerender (no
+  // query is ever awaited), so the slug is only ever used to build a URL that
+  // is not called. In a browser this line cannot be reached.
+  if (typeof window === "undefined") return "";
   const fromPath = window.location.pathname.match(/^\/s\/([a-z0-9][a-z0-9-]*)/i);
   if (fromPath) return fromPath[1].toLowerCase();
   // ON A CUSTOM DOMAIN THERE IS NO SUCH PATH. The site is served at `/` on the

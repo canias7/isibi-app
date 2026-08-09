@@ -105,3 +105,72 @@ export function injectMeta(html, meta) {
   // No head at all — not a document we understand, so leave it exactly as it is.
   return stripped;
 }
+
+/**
+ * What THIS page should say about itself, derived from what it rendered.
+ *
+ * Every page of a published site used to share one set of tags, because every
+ * page shared one document. Now each route is prerendered to its own file, so a
+ * booking page pasted into WhatsApp can preview as the booking page instead of
+ * the home page.
+ *
+ * READ OFF THE PAGE'S OWN MARKUP, not from a second thing the model has to
+ * write. The prerendered body already contains the heading and the opening
+ * sentence the model chose; asking for them again is a field that can disagree
+ * with the page, and this codebase has that failure written down several times
+ * over.
+ *
+ * The home page is deliberately EXEMPT: its site-level description is written by
+ * the designer for exactly this purpose, and it beats a paragraph scraped from a
+ * hero. Anything this cannot work out falls back to the site-level values, so
+ * the worst case is what every page had before.
+ */
+export function pageMeta(html, base, { home = false } = {}) {
+  const meta = { ...(base || {}) };
+  if (home) return meta;
+  const src = String(html == null ? "" : html);
+
+  // The words inside a tag, with markup and entities that would read as noise
+  // removed. Anything left containing a `<` is not text we understand.
+  const textOf = (re) => {
+    const m = src.match(re);
+    if (!m) return "";
+    return m[1].replace(/<[^>]+>/g, " ").replace(/&[a-z]+;|&#\d+;/gi, " ").replace(/\s+/g, " ").trim();
+  };
+
+  const h1 = textOf(/<h1[^>]*>([\s\S]{0,400}?)<\/h1>/i);
+  // Suffixed with the brand rather than replacing it: a preview card reading
+  // "Book a chair" alone does not say whose chair.
+  if (h1 && h1.length <= 70) {
+    meta.brand = base && base.brand && !h1.toLowerCase().includes(String(base.brand).toLowerCase())
+      ? h1 + " · " + base.brand
+      : h1;
+  }
+
+  const p = textOf(/<p[^>]*>([\s\S]{0,600}?)<\/p>/i);
+  // Long enough to be a sentence and not a label. A three-word caption under a
+  // heading makes a worse preview than the site's own description.
+  if (p.length >= 40) meta.description = p.slice(0, 200);
+
+  return meta;
+}
+
+/**
+ * The document title, which is a different thing from the share tags.
+ *
+ * `injectMeta` deliberately touches nothing but its own fenced block, and it is
+ * right not to — the dist is Vite's output. But a prerendered page copies the
+ * shell's head, so without this every page of a site carries the brand as its
+ * `<title>`: one browser tab name for four pages, and one heading in a search
+ * result. Separate function, separate decision, both testable.
+ *
+ * A no-op when there is no title element or nothing to say — the same rule as
+ * the tags: a page with a plain title is a far smaller problem than a broken one.
+ */
+export function setTitle(html, title) {
+  const src = String(html == null ? "" : html);
+  const t = String(title == null ? "" : title).replace(/\s+/g, " ").trim().slice(0, 70);
+  if (!t || !/<title[^>]*>[\s\S]*?<\/title\s*>/i.test(src)) return src;
+  const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  return src.replace(/<title[^>]*>[\s\S]*?<\/title\s*>/i, "<title>" + esc(t) + "</title>");
+}

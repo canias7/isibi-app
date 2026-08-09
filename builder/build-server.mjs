@@ -21,6 +21,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { resolvePair, fontCss, fontImports } from "./site-fonts.mjs";
 import { themeCss } from "./site-theme.mjs";
 import { resolveTheme } from "./site-theme-registry.mjs";
@@ -34,6 +35,10 @@ const INDEX_BASE = path.join(APP, ".index-base.html");
 const STYLES_BASE = path.join(APP, ".styles-base.css");
 const STYLES = path.join(APP, "src", "styles.css");
 const DIST = path.join(APP, "dist");
+// The server bundle the prerender loads. Kept OUT of `dist`, which is
+// collected wholesale and published — shipping the SSR build to R2 would
+// double every site's size with code no visitor runs.
+const SSR_DIR = "dist-ssr";
 const GEN = path.join(APP, "src", "routeTree.gen.ts");
 const MAX_BODY = 4 * 1024 * 1024;
 const STEP_TIMEOUT = 150_000;
@@ -59,6 +64,13 @@ function resetRoutes() {
   }
   try { fs.rmSync(GEN, { force: true }); } catch {}
   try { fs.rmSync(DIST, { recursive: true, force: true }); } catch {}
+  // AND THE SERVER BUNDLE, for the same reason as `dist` and the route tree.
+  // This container is long-lived and serves every build on the platform; a
+  // stale `dist-ssr` left behind by a failed SSR build is one site's pages
+  // waiting to be rendered into another site's snapshots. That exact class —
+  // one build's files leaking into the next — has happened here before, and it
+  // is cheaper to delete than to reason about.
+  try { fs.rmSync(path.join(APP, SSR_DIR), { recursive: true, force: true }); } catch {}
 }
 
 // The published tab should carry the business's name, not the template's "App".
@@ -178,6 +190,81 @@ function collectDist(dir = DIST, base = "") {
     }
   }
   return out;
+}
+
+// ── A REAL DOCUMENT PER ROUTE ───────────────────────────────────────────────
+//
+// Without this a published page is an empty `<div id="root">` and a bundle. A
+// search engine runs JavaScript so it gets there eventually; A LINK PREVIEW DOES
+// NOT — WhatsApp, iMessage and Slack fetch the HTML once and read the head — so
+// every page shared anywhere showed the home page's card. This renders the first
+// frame of each route to HTML at build time, which is what both actually want.
+//
+// NEVER FAILS THE BUILD. A route it cannot render simply gets no file, and the
+// Worker's fallback then serves the app shell at that address — precisely the
+// behaviour before this existed. A snapshot is worth having and is never worth
+// losing a working site for.
+//
+// The routes are read off the files that are really there rather than a list,
+// following TanStack's own mapping: `index.tsx` → `/`, `book.tsx` → `/book`,
+// `menu/index.tsx` → `/menu`. `__root` is the layout, not a page, and anything
+// with a `$` is a dynamic segment whose values are not known here.
+function routePaths() {
+  const out = [];
+  const walk = (dir, base) => {
+    for (const name of fs.readdirSync(dir)) {
+      const full = path.join(dir, name);
+      if (fs.statSync(full).isDirectory()) { walk(full, base + name + "/"); continue; }
+      if (!name.endsWith(".tsx") || name.startsWith("__") || name.includes("$")) continue;
+      const stem = name.slice(0, -4);
+      const p = stem === "index" ? base : base + stem;
+      out.push("/" + p.replace(/\/$/, ""));
+    }
+  };
+  try { walk(ROUTES, ""); } catch { return []; }
+  return [...new Set(out)];
+}
+
+async function prerender() {
+  const done = [], skipped = [];
+  let render;
+  try {
+    const ssr = await run("npx", ["vite", "build", "--ssr", "src/entry-server.tsx", "--outDir", SSR_DIR, "--logLevel", "error"], {});
+    if (ssr.code !== 0) return { done, skipped: ["*: ssr build failed"] };
+    // Cache-busted, because the container is long-lived and serves every build
+    // on the platform — a plain import would hand build two the module build one
+    // compiled, and every site after the first would be snapshotted as the first.
+    const mod = await import(pathToFileURL(path.join(APP, SSR_DIR, "entry-server.js")).href + "?v=" + Date.now());
+    render = mod && mod.render;
+  } catch (e) { return { done, skipped: ["*: " + String((e && e.message) || e).slice(0, 200)] }; }
+  if (typeof render !== "function") return { done, skipped: ["*: entry-server exports no render"] };
+
+  let shell;
+  try { shell = fs.readFileSync(path.join(DIST, "index.html"), "utf8"); } catch { return { done, skipped: ["*: no index.html"] }; }
+  const slot = shell.indexOf('<div id="root">');
+  if (slot < 0) return { done, skipped: ["*: no root element in the shell"] };
+  const open = shell.slice(0, slot + '<div id="root">'.length);
+  const close = shell.slice(shell.indexOf("</div>", slot));
+
+  for (const p of routePaths()) {
+    try {
+      const body = await render(p);
+      // A THROW DURING A SERVER RENDER DOES NOT REACH US. React catches it,
+      // switches that subtree to client rendering and returns markup — 5.6 KB of
+      // it, containing no words — with no exception anywhere. Every route
+      // "succeeded" and every snapshot was empty, measured on the first run. So
+      // the marker React leaves behind is checked, and so is the presence of
+      // actual text: a snapshot with no words in it is not one worth publishing.
+      if (/Switched to client rendering/.test(body)) { skipped.push(p + ": render errored (client fallback)"); continue; }
+      if (!/>[^<>]*[A-Za-z]{3,}/.test(body)) { skipped.push(p + ": rendered no text"); continue; }
+      const file = p === "/" ? "index.html" : p.replace(/^\//, "") + ".html";
+      const full = path.join(DIST, file);
+      fs.mkdirSync(path.dirname(full), { recursive: true });
+      fs.writeFileSync(full, open + body + close);
+      done.push(p);
+    } catch (e) { skipped.push(p + ": " + String((e && e.message) || e).slice(0, 120)); }
+  }
+  return { done, skipped };
 }
 
 // One build at a time. Not an optimisation — a correctness requirement.
@@ -339,9 +426,12 @@ const server = http.createServer((req, res) => {
       // reachable. One number cannot tell a kit that is getting expensive from a
       // site that is getting big. Reported on the FAILURE paths too — a build
       // that died in typecheck still spent that time.
-      const timed = async (key, cmd, args) => {
+      const timed = async (key, cmd, args, fn) => {
         const t = Date.now();
-        const r = await run(cmd, args, buildEnv);
+        // `fn` for a step that is not a subprocess — the prerender runs in this
+        // process, and giving it its own timing shape would put the same clock
+        // in two places.
+        const r = fn ? await fn() : await run(cmd, args, buildEnv);
         times[key] = Date.now() - t;
         return r;
       };
@@ -363,9 +453,16 @@ const server = http.createServer((req, res) => {
         return send(res, 200, { ok: false, stage: "build", error: exitReason("vite build", build).slice(0, 4000), ms: Date.now() - t0, ...times });
       }
 
+      // Real HTML per route, so a page is a document and not an empty div.
+      // Best-effort by construction: `prerender` never throws and a route it
+      // cannot render simply gets no file, which the Worker's fallback already
+      // serves as the app shell — exactly today's behaviour. A snapshot is worth
+      // having and is never worth failing a build for.
+      const pre = await timed("preMs", null, null, () => prerender());
+
       const dist = collectDist();
       if (!dist["index.html"]) return send(res, 200, { ok: false, stage: "build", error: "build produced no index.html", ms: Date.now() - t0, ...times });
-      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, fonts: fontsUsed, theme: themeUsed, tokens: tokensUsed });
+      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, fonts: fontsUsed, theme: themeUsed, tokens: tokensUsed, prerendered: pre.done, prerenderSkipped: pre.skipped });
     } catch (e) {
       return send(res, 200, { ok: false, stage: "build", error: String((e && e.message) || e).slice(0, 2000), ms: Date.now() - t0, ...times });
     }

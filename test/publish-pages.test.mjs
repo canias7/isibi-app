@@ -634,14 +634,27 @@ test("the published index.html carries the share tags", async () => {
   assert.match(dist["index.html"].t, /name="description" content="Skin fades in Lisbon."/);
 });
 
-test("worker.js injects on index.html and nothing else", async () => {
+test("worker.js injects into every html page and nothing else", async () => {
   // A stylesheet or a JS bundle must never be rewritten — asserted on the source,
   // because passing meta to every file would corrupt the dist silently.
+  //
+  // EVERY HTML FILE, not just index.html, since each route is prerendered to its
+  // own document. That is not cosmetic: this block writes the
+  // `<meta name="site-slug">` tag `siteSlug()` reads, and ON A CUSTOM DOMAIN
+  // there is no `/s/<slug>/` in the path — so a prerendered page without it
+  // would send a visitor who landed on /book straight at a DIFFERENT site's API.
   const fs = await import("node:fs");
   const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.match(src, /if \(\/\^index\\\.html\$\/i\.test\(String\(rel\)\)/,
-    "the injection must be gated on the filename");
-  assert.match(src, /injectMeta\(v\.t, meta\)/);
+  assert.match(src, /if \(\/\\\.html\$\/i\.test\(String\(rel\)\)/,
+    "the injection must be gated on the extension — never applied to a bundle");
+  assert.ok(!/if \(\/\^index\\\.html\$\/i\.test\(String\(rel\)\).*injectMeta/s.test(src.slice(0, src.indexOf("SITES_BUCKET.put"))),
+    "injection is gated on index.html again — every other page loses its slug tag");
+  assert.match(src, /injectMeta\(v\.t, pm\)/);
+  // The home page keeps the designer's site-level description; the rest derive
+  // their own from what they rendered, and get their own <title> with it.
+  assert.match(src, /pageMeta\(v\.t, meta, \{ home \}\)/, "per-page meta is not derived");
+  assert.match(src, /if \(!home\) v\.t = setTitle\(v\.t, pm\.brand\)/,
+    "a prerendered page keeps the shell's title — one tab name for every page");
 });
 
 test("a compile failure quotes the line it points at", () => {

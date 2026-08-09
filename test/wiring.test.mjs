@@ -575,3 +575,40 @@ test("account deletion stops when the site sweep did not finish", () => {
   assert.match(block, /return;/, "it must not fall through to deleting the account");
   assert.match(block, /was NOT deleted/, "and the customer has to be told why");
 });
+
+// ── ONE BUILD MUST NOT LEAVE ANYTHING FOR THE NEXT ONE ──────────────────────
+//
+// `getContainer(env.SITE_BUILD_CONTAINER)` is called with no id, so EVERY build
+// on the platform lands in ONE long-lived container. That is why `resetRoutes`
+// exists, and why it wipes `src/routes`, the generated route tree and `dist`
+// before a build writes anything: two sites sharing a working directory is how
+// one customer's pages once got published to another customer's slug.
+//
+// `dist-ssr` is the newest member of that set — the server bundle the prerender
+// imports. Left behind by a failed SSR build it is one site's pages waiting to
+// be rendered into another site's snapshots, and the import is cache-busted per
+// build precisely because the module system would otherwise hand back the first
+// one forever.
+//
+// Asserted by NAME rather than derived, because "which constants are build
+// outputs" is a judgement no scan makes reliably — and a wrong derivation here
+// passes vacuously, which is the failure this file is full of.
+test("every build output is wiped before the next build starts", () => {
+  const src = fs.readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8");
+  const at = src.indexOf("function resetRoutes()");
+  assert.ok(at > 0, "resetRoutes moved — rescope this");
+  const body = src.slice(at, src.indexOf("\n}", at));
+
+  for (const [what, re] of [
+    ["the generated route tree", /rmSync\(GEN,/],
+    ["the client dist", /rmSync\(DIST,/],
+    ["the server bundle (dist-ssr)", /rmSync\(path\.join\(APP, SSR_DIR\)/],
+  ]) {
+    assert.match(body, re, `resetRoutes no longer clears ${what} — the previous build's output survives into this one`);
+  }
+
+  // And the import that reads it must stay cache-busted, or the FIRST site built
+  // after a container start is the one every later site gets snapshotted as.
+  assert.match(src, /entry-server\.js"\)\)\.href \+ "\?v=" \+ Date\.now\(\)/,
+    "the SSR bundle is imported without a cache buster — every build would reuse the first one");
+});

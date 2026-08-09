@@ -29,7 +29,7 @@ import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload
 import { handleOwnerExport } from "./site-export.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
 import { makeTrace } from "./builder/trace.mjs";
-import { injectMeta } from "./site-meta.mjs";
+import { injectMeta, pageMeta, setTitle } from "./site-meta.mjs";
 import { listSecrets, addSecret, deleteSecret, readSecret } from "./site-secrets.mjs";
 import { normalizePayment, parseCart, priceCart, checkoutSessionArgs, formEncode, paidFromEvent } from "./site-payments.mjs";
 import { rescopeCookie } from "./site-cookie.mjs";
@@ -5263,8 +5263,25 @@ async function writeSiteDistToR2(env, slug, dist, meta) {
     // share tags go in here. Only ever a no-op on anything unexpected — a site
     // published without a description is a far smaller problem than one
     // published broken.
-    if (/^index\.html$/i.test(String(rel)) && v && typeof v.t === "string" && meta) {
-      try { v.t = injectMeta(v.t, meta); } catch (e) { console.error("meta inject failed:", slug, e && e.message); }
+    //
+    // EVERY HTML FILE, not just index.html, and that is not cosmetic. Each route
+    // is prerendered to its own document now, and this block writes the
+    // `<meta name="site-slug">` tag that `siteSlug()` reads. On a CUSTOM DOMAIN
+    // there is no `/s/<slug>/` in the path, so that tag is the only thing telling
+    // a page which site's API to talk to — leave it off a prerendered page and a
+    // visitor landing directly on /book reads a DIFFERENT site's data, silently.
+    //
+    // Per-page title and description come from what the page itself rendered
+    // (`pageMeta`), so a booking page pasted into WhatsApp previews as the
+    // booking page. The home page keeps the site-level description, which the
+    // designer wrote for exactly this purpose.
+    if (/\.html$/i.test(String(rel)) && v && typeof v.t === "string" && meta) {
+      const home = /^index\.html$/i.test(String(rel));
+      try {
+        const pm = pageMeta(v.t, meta, { home });
+        v.t = injectMeta(v.t, pm);
+        if (!home) v.t = setTitle(v.t, pm.brand);
+      } catch (e) { console.error("meta inject failed:", slug, rel, e && e.message); }
     }
     const safeRel = String(rel).replace(/[^a-z0-9/._-]/gi, "-");
     const ext = (safeRel.match(/\.([a-z0-9]{1,8})$/i) || [])[1] || "";
