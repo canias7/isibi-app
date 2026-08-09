@@ -1,0 +1,697 @@
+<title>Platform audit — 9 August 2026</title>
+<style>
+:root{
+  --paper:#f7f6f4; --ink:#16161a; --ink-2:#4b4b55; --ink-3:#7c7c88;
+  --rule:#e0ded9; --rule-2:#c9c6bf; --card:#ffffff; --mark:#141418;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --paper:#121214; --ink:#eceae6; --ink-2:#a8a6a2; --ink-3:#76747180;
+  --ink-3:#807e7a; --rule:#2a2a2e; --rule-2:#3d3d43; --card:#1a1a1d; --mark:#f2f0ec;
+}}
+:root[data-theme="dark"]{
+  --paper:#121214; --ink:#eceae6; --ink-2:#a8a6a2; --ink-3:#807e7a;
+  --rule:#2a2a2e; --rule-2:#3d3d43; --card:#1a1a1d; --mark:#f2f0ec;
+}
+*{box-sizing:border-box}
+body{background:var(--paper);color:var(--ink);font-family:var(--sans);
+  font-size:16px;line-height:1.6;margin:0;padding:0 20px 96px;
+  -webkit-font-smoothing:antialiased}
+.wrap{max-width:860px;margin:0 auto}
+header.top{padding:56px 0 28px;border-bottom:2px solid var(--mark)}
+.eyebrow{font:600 11px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;
+  color:var(--ink-3);margin:0 0 14px}
+h1{font-size:clamp(30px,4.6vw,44px);line-height:1.08;letter-spacing:-.022em;
+  margin:0 0 14px;text-wrap:balance;font-weight:650}
+.lede{font-size:17px;color:var(--ink-2);margin:0;max-width:62ch}
+.warn{margin:26px 0 0;padding:16px 18px;border:1px solid var(--rule-2);
+  background:var(--card);border-left:3px solid var(--mark)}
+.warn p{margin:0;font-size:14.5px;color:var(--ink-2)}
+.warn p+p{margin-top:9px}
+.warn strong{color:var(--ink);font-weight:640}
+.bars{position:sticky;top:0;z-index:5;background:var(--paper);
+  padding:16px 0 12px;border-bottom:1px solid var(--rule);margin-bottom:8px}
+.chips{display:flex;flex-wrap:wrap;gap:7px}
+.chips+.chips{margin-top:8px}
+.chip{font:500 13px/1 var(--sans);color:var(--ink-2);background:transparent;
+  border:1px solid var(--rule-2);border-radius:2px;padding:6px 10px;cursor:pointer;
+  font-variant-numeric:tabular-nums}
+.chip b{color:var(--ink);font-weight:640;margin-right:5px}
+.chip.sm{font-size:12px;padding:5px 8px;color:var(--ink-3)}
+.chip:hover{border-color:var(--mark)}
+.chip[aria-pressed="true"]{background:var(--mark);border-color:var(--mark);
+  color:var(--paper)}
+.chip[aria-pressed="true"] b{color:var(--paper)}
+.f{padding:26px 0;border-bottom:1px solid var(--rule)}
+.f[hidden]{display:none}
+.fh{display:flex;gap:12px;align-items:baseline}
+h3{font-size:17.5px;line-height:1.32;letter-spacing:-.012em;margin:0;
+  font-weight:640;text-wrap:balance}
+.sev{flex:none;font:600 10.5px/1 var(--mono);letter-spacing:.1em;
+  text-transform:uppercase;color:var(--ink-2);display:inline-flex;align-items:center;
+  gap:6px;width:88px;padding-top:4px}
+.dot{width:9px;height:9px;border-radius:50%;border:1.5px solid var(--mark);
+  flex:none;display:block}
+.s-critical .dot{background:var(--mark)}
+.s-high .dot{background:linear-gradient(90deg,var(--mark) 50%,transparent 50%)}
+.s-medium .dot{background:transparent}
+.s-low .dot{background:transparent;border-style:dotted;opacity:.65}
+.s-low{opacity:.72}
+.loc{margin:9px 0 0 100px;font-size:13px}
+.loc code{font-family:var(--mono);font-size:12.5px;color:var(--ink-2);
+  background:var(--card);border:1px solid var(--rule);padding:2px 6px;
+  word-break:break-all}
+.vb{font:600 10px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;
+  border:1px solid var(--mark);padding:3px 6px;margin-left:8px;white-space:nowrap;
+  display:inline-block}
+.d{margin:12px 0 0 100px;font-size:14.5px;color:var(--ink-2);max-width:66ch}
+.fs{margin:12px 0 0 100px;font-size:14px;color:var(--ink-2);max-width:66ch;
+  border-left:2px solid var(--rule-2);padding-left:14px}
+.fsl{display:block;font:600 10.5px/1 var(--mono);letter-spacing:.1em;
+  text-transform:uppercase;color:var(--ink-3);margin-bottom:6px}
+footer{margin-top:40px;padding-top:22px;border-top:1px solid var(--rule);
+  font-size:13px;color:var(--ink-3)}
+@media(max-width:640px){
+  .fh{display:block} .sev{width:auto;padding:0 0 8px}
+  .loc,.d,.fs{margin-left:0}
+}
+</style>
+<div class="wrap">
+<header class="top">
+  <p class="eyebrow">Go Farther · deep platform audit</p>
+  <h1>64 findings, none of them verified</h1>
+  <p class="lede">Eleven parallel auditors over the builder, the platform and the client.
+  The run was killed before the adversarial verify phase ran, so every line below is an
+  auditor's claim rather than a confirmed defect.</p>
+  <div class="warn">
+    <p><strong>What this is.</strong> Ten of twelve auditors returned results and those
+    are recovered in full. The skeptic pass that normally refutes a third of them never
+    started — on the last audit it refuted one finding in fourteen and downgraded several
+    more.</p>
+    <p><strong>What was checked by hand.</strong> Four claims are marked
+    <span class="vb">confirmed by reading</span>: I traced them through the source
+    afterwards. Everything else is unread.</p>
+  </div>
+</header>
+<div class="bars">
+  <div class="chips" id="sev"><button class="chip" data-f="critical"><b>6</b> critical</button><button class="chip" data-f="high"><b>23</b> high</button><button class="chip" data-f="medium"><b>30</b> medium</button><button class="chip" data-f="low"><b>5</b> low</button></div>
+  <div class="chips" id="area"><button class="chip sm" data-a="worker"><b>22</b> worker</button><button class="chip sm" data-a="builder"><b>12</b> builder</button><button class="chip sm" data-a="client"><b>8</b> client</button><button class="chip sm" data-a="site-schema"><b>6</b> site-schema</button><button class="chip sm" data-a="template"><b>3</b> template</button><button class="chip sm" data-a="site-rls"><b>2</b> site-rls</button><button class="chip sm" data-a="site-apis"><b>1</b> site-apis</button><button class="chip sm" data-a="site-domains"><b>1</b> site-domains</button><button class="chip sm" data-a="site-meta"><b>1</b> site-meta</button><button class="chip sm" data-a="site-notify"><b>1</b> site-notify</button><button class="chip sm" data-a="site-provision"><b>1</b> site-provision</button><button class="chip sm" data-a="rate-limit"><b>1</b> rate-limit</button><button class="chip sm" data-a="site-dns"><b>1</b> site-dns</button><button class="chip sm" data-a="site-owner"><b>1</b> site-owner</button><button class="chip sm" data-a="site-payments"><b>1</b> site-payments</button><button class="chip sm" data-a="site-registrar"><b>1</b> site-registrar</button><button class="chip sm" data-a="tests"><b>1</b> tests</button></div>
+</div>
+<main id="list">
+<article class="f" data-sev="critical" data-area="template">
+  <header class="fh">
+    <span class="sev s-critical"><i class="dot"></i>critical</span>
+    <h3>Nav links and the primary CTA are dead: chrome still emits `#/` hrefs after the router left hash history</h3>
+  </header>
+  <p class="loc"><code>builder/lovable/template/src/components/ui/site-header.tsx:27</code> <span class="vb">confirmed by reading</span></p>
+  <p class="d">main.tsx:72 dropped createHashHistory() for browser history + a runtime basepath; the chrome every page sits in did not move with it. site-header.tsx:27 hardcodes the wordmark as &lt;a href=&quot;#/&quot;&gt;, its comment (l.24-26) still asserts &quot;A hash href is real client-side navigation&quot;, and site-chrome.tsx:27 documents the same rule (&quot;the app uses hash history&quot;). All four reference pages carry it (routes/index.tsx:72,96,245; book.tsx:66-70; account.tsx:56-60; manage.tsx:43-47) and are copied verbatim into page-gen.mjs REFERENCE_PAGES (l.1082,1106,1255,1331-1335,1613-1617,1754-1758), which is what the model imitates. Browser history matches on pathname only, so #/book changes the fragment and nothing else. The page-gen/template drift guard passes because both copies are equally stale, and site-routing.mjs uses page.goto and never clicks a link.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>A visitor on any newly generated site clicks &quot;Book a chair&quot; in the header, or any nav item, or the business name. The URL becomes /s/&lt;slug&gt;/#/book and the page does not change — the booking page is unreachable from the site&#x27;s own navigation. Every site built after 9416e85 ships this.</p>
+</article>
+<article class="f" data-sev="critical" data-area="site-rls">
+  <header class="fh">
+    <span class="sev s-critical"><i class="dot"></i>critical</span>
+    <h3>`retired: true` revokes nothing — a removed form keeps accepting public submissions forever</h3>
+  </header>
+  <p class="loc"><code>site-rls.mjs:288</code> <span class="vb">confirmed by reading</span></p>
+  <p class="d">`grantsFor` returns `[]` for a retired table, but the caller RUNS the statements it returns — an empty list runs nothing, and Postgres grants persist until revoked. There is no `REVOKE ... ON &lt;table&gt;` anywhere in the repo (the only REVOKE is site-rls.mjs:501, on functions). applySiteSchema never drops the table (`CREATE TABLE IF NOT EXISTS`), so the `GRANT INSERT ON bookings TO anonymous` applied when it was built survives retirement untouched. `policiesFor` is not retired-aware either and re-CREATEs `isibi_&lt;t&gt;_insert ... WITH CHECK (true)`; `publicViewSql` re-CREATEs and re-GRANTs `&lt;t&gt;_public` to anonymous. Verified by running all three. The guard is vacuous: test/site-tokens.test.mjs:642 asserts grantsFor deepEquals `[]` — true and worthless. page-gen.mjs:2316 hides retired tables from the digest, so no page links to it and the owner cannot notice.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>Owner says &quot;we don&#x27;t take enquiries any more&quot;. The revise retires the table; the page disappears and the rows stay in the Data panel, so it looks done. `POST /api/db/&lt;slug&gt;/data/enquiries` still answers 201 to anyone who kept the endpoint — exactly what grantsFor&#x27;s own comment says retirement prevents (&quot;a form nobody can see, still accepting submissions from anyone who knows the endpoint&quot;). A retired `display` table likewise stays fully readable to anonymous, and a retired booking table&#x27;s `bookings_public` view is re-granted on that same apply.</p>
+</article>
+<article class="f" data-sev="critical" data-area="site-schema">
+  <header class="fh">
+    <span class="sev s-critical"><i class="dot"></i>critical</span>
+    <h3>confirm/sms/payment never reach _meta — confirmations, texts and checkout are dead everywhere</h3>
+  </header>
+  <p class="loc"><code>site-schema.mjs:837</code> <span class="vb">confirmed by reading</span></p>
+  <p class="d">applySiteSchema&#x27;s `norm.push({...})` builds what is written to `_meta.schema`, the ONLY copy any request path reads. Checked key by key: it copies publicView, noOverlap, teamScope, webhooks, fts… and omits `confirm`, `sms` and `payment`. coerceTable (line 110) carries all three and the DDL acts on all three; the persisted object drops them. Every reader is downstream of loadSiteSchema: proxySiteService (worker.js:4233-4244) hands that `def` to confirmSubmitter/smsSubmitter, and handleCheckout gets `schema: await loadSiteSchema(cconn)` (worker.js:8009). Guarded by nothing: test/site-mail.test.mjs:178 (&quot;THE CHAIN&quot;) checks tool → normalizeSchema → call site, never persistence; test/declarable-enforced.test.mjs:72 deliberately CUTS norm.push from the source it scans, so an omission there is invisible by construction.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>A barber shop declares confirm:{to:&#x27;email&#x27;,subject:&#x27;Booked, {name}&#x27;,…} and the owner pastes a Resend key. A customer books. sendConfirmation reads def.confirm from _meta, gets undefined, returns reason &quot;no confirm declared&quot; — which is on the quiet list at worker.js:4990, so nothing is even logged. No confirmation or SMS has ever been sent by any site. Worse for money: handleCheckout (worker.js:4027) runs normalizePayment on the _meta copy, gets null, and answers 404 &quot;that isn&#x27;t something you can pay for here&quot; for every shop; the Stripe site webhook (worker.js:6902) rejects the same table as &quot;not a payable table&quot;. No card can be charged.</p>
+</article>
+<article class="f" data-sev="critical" data-area="site-schema">
+  <header class="fh">
+    <span class="sev s-critical"><i class="dot"></i>critical</span>
+    <h3>payment/confirm/sms never reach _meta: checkout 404s and confirmations never send, on every site</h3>
+  </header>
+  <p class="loc"><code>site-schema.mjs:837</code> <span class="vb">confirmed by reading</span></p>
+  <p class="d">applySiteSchema&#x27;s norm.push builds the record persisted to _meta.schema field by field. I extracted its 45 top-level keys: payment, confirm and sms are absent (columns/refs/rules/fts/publicView/noOverlap/teamScope etc. are all there). _meta.schema is the ONLY copy the request path reads. Verified by running the code: payment={from,price,name,currency} and confirm={fn} survive normalizeSchema, and normalizePayment/normalizeConfirm both return null against the shape actually stored. The guards watch the layer below: declarable-enforced.test.mjs only needs the property NAME to appear in site-schema/site-rls/site-mail (it does - the DDL at :534, grantsFor at site-rls.mjs:307), and confirm-smoke.mjs:256 states outright that it does not assert confirm survived, believing normalizeSchema is &#x27;the layer the risk lives at&#x27;.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>A shop declares orders {payment:{from:&#x27;products&#x27;}}. grantsFor correctly gives it no public INSERT, so useCreateRow 403s. A customer clicks Buy: worker.js:4027 normalizePayment(table) returns null and handleCheckout answers 404 &#x27;that isn&#x27;t something you can pay for here&#x27; - the site can never take money. Had a payment completed, worker.js:6902 does the same lookup and answers ignored:&#x27;not a payable table&#x27;, leaving the order pending forever. Separately worker.js:4249 confirmSubmitter -&gt; normalizeConfirm(def) -&gt; null -&gt; &#x27;no confirm declared&#x27;, so the visitor confirmation email is silently skipped on every booking on every site. smsSubmitter fails identically.</p>
+</article>
+<article class="f" data-sev="critical" data-area="site-schema">
+  <header class="fh">
+    <span class="sev s-critical"><i class="dot"></i>critical</span>
+    <h3>`payment` is never written to `_meta`, so the whole card-payment path is dead end to end</h3>
+  </header>
+  <p class="loc"><code>site-schema.mjs:837</code> <span class="vb">confirmed by reading</span></p>
+  <p class="d">`applySiteSchema`&#x27;s `norm.push({...})` — the only thing written to `_meta.schema` — lists 44 table properties and `payment` is not one (`grep -in payment site-schema.mjs` hits 19,102,106,109,110,425,526,534,535,849, never 837). `grantsFor` at 832 still sees the coerced table, so the no-public-INSERT half works; every request-path reader goes through `loadSiteSchema` → `_meta`, where `payment` is gone. Three silent symptoms: worker.js:4027 `normalizePayment(table)` is null → checkout 404s; worker.js:6902 the webhook misses → a real paid event is swallowed as &quot;not a payable table&quot;; site-owner.mjs:153 `paid: !!t.payment` is always false → the Payments panel never ticks step 3. `confirm` and `sms` are missing from the same literal, so confirmation mail/SMS (worker.js:4249/4253) always answer &quot;no confirm declared&quot;, which 4990 suppresses from the log.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>Owner asks the builder to sell products, pastes a live sk_live_ key and the webhook secret. A customer clicks Buy → POST /api/db/&lt;slug&gt;/checkout → 404 &quot;that isn&#x27;t something you can pay for here&quot;. The shop can never take a payment; a completed session would be ignored by the webhook; the panel still shows step 3 unticked. Nothing logs an error. test/site-payments.test.mjs:442 (&quot;link 0… otherwise the whole chain is unreachable&quot;) asserts the tool offers it and that handleCheckout calls normalizePayment, never the `_meta` round trip between them; declarable-enforced.test.mjs:72 explicitly excludes norm.push.</p>
+</article>
+<article class="f" data-sev="critical" data-area="worker">
+  <header class="fh">
+    <span class="sev s-critical"><i class="dot"></i>critical</span>
+    <h3>The builder preview iframe has an opaque origin, and /api/db/* sends no CORS header</h3>
+  </header>
+  <p class="loc"><code>worker.js:4300</code></p>
+  <p class="d">`proxySiteService`&#x27;s response (worker.js:4300-4345) sets content-type, content-range, set-auth-*, set-cookie — and no `access-control-allow-origin`. `grep -n &quot;access-control&quot; worker.js` returns exactly one hit in the file: line 5803, on the R2 static branch, whose comment is the proof of the premise: &quot;the builder&#x27;s preview frame is sandboxed WITHOUT `allow-same-origin`, so its origin is `null` and every subresource it asks for is cross-origin&quot;. chat.js:10611 renders the React preview as `sandbox=&quot;allow-scripts allow-forms allow-popups&quot;`, so every `fetch(&quot;/api/db/&lt;slug&gt;/...&quot;)` from src/lib/rows.ts is a CORS request with `Origin: null`. There is also no OPTIONS handler anywhere (`grep -n OPTIONS worker.js` → nothing), so the preflight a JSON POST triggers hits the router&#x27;s 404. The static assets were fixed for exactly this reason; the API was not.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>Owner builds a booking site and looks at the preview pane — the main surface of the builder. The shell and prerendered markup load (those assets carry `*`), then React hydrates and every `useRows` call is blocked by the browser for want of `Access-Control-Allow-Origin`, so each list drops to its error/empty state. Submitting the booking form fires an OPTIONS preflight that 404s, so the write never happens. The same site opened at gofarther.dev/s/&lt;slug&gt;/ works perfectly, so the owner concludes their site is broken with no way to tell preview from product.</p>
+</article>
+<article class="f" data-sev="high" data-area="builder">
+  <header class="fh">
+    <span class="sev s-high"><i class="dot"></i>high</span>
+    <h3>Prerender is unbounded: a page that never finishes rendering wedges every build on the platform</h3>
+  </header>
+  <p class="loc"><code>builder/build-server.mjs:461</code></p>
+  <p class="d">`run()` SIGKILLs a subprocess at STEP_TIMEOUT 150s (line 167) and `tsr generate` / `tsc` / `vite build` all go through it. The prerender does not: line 237 `await import(...)` evaluates the model&#x27;s own route modules and line 251 `await render(p)` runs their component bodies, both unbounded. `oneAtATime` (342-351) serialises every build through one promise chain, and getContainer(env.SITE_BUILD_CONTAINER) is called with no id, so one container serves the whole platform. No server timeout is set either — Node&#x27;s requestTimeout only covers RECEIVING a request and server.timeout defaults to 0. Before this step existed, model code never ran on our infrastructure at all.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>A generated booking page computes slots with a zero/NaN step (`for (let t=open; t&lt;close; t+=step)`), so renderToString never returns; or a route module top-level-awaits a promise that never settles, so import() never returns. That build never answers, `_chain` never advances, and every later /build queues behind it forever — the Worker has no timeout either (K7), and each of those customers has already paid the schema deposit. A blocking loop also stops /health answering. Only 5 minutes with no build traffic clears it (sleepAfter=&quot;5m&quot;, worker.js:77), and every arriving build resets that idle timer.</p>
+</article>
+<article class="f" data-sev="high" data-area="builder">
+  <header class="fh">
+    <span class="sev s-high"><i class="dot"></i>high</span>
+    <h3>`body += chunk` corrupts multi-byte UTF-8 split across socket reads, and the customer pays for it</h3>
+  </header>
+  <p class="loc"><code>builder/build-server.mjs:381</code></p>
+  <p class="d">No encoding is set on the request stream, so `c` is a Buffer and `body += c` decodes each chunk independently. Proven on node v22.22.2 (the image&#x27;s runtime): concatenating &quot;price: £4 — café ’&quot; split at byte 8 yields two U+FFFD in place of `£`. The Worker posts JSON.stringify({files,…}) as UTF-8 (worker.js:5411+), and page sources are full of non-ASCII — the template&#x27;s own reference routes carry 4-16 each, family-exemplars thousands (’ — £ €). Any body over one socket read is split, which is every build with 4+ pages or one carrying a fetched woff2 as base64. U+FFFD is valid JSON string content, so JSON.parse succeeds and nothing reports it. Same line: `body.length &gt; MAX_BODY` counts UTF-16 units, not bytes.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>An em dash or curly apostrophe lands on a chunk boundary. In page copy: the published site reads &quot;were&quot; forever, and no rebuild reproduces it. In code — a JSX attribute, a string used as a table name, an import specifier — `tsc` fails, the build falls back to the placeholder, and `typecheck` is in CHARGED_STAGES, so the customer pays ~20 credits for a transport bug in our own container, against an error message that does not match the source the model actually wrote.</p>
+</article>
+<article class="f" data-sev="high" data-area="builder">
+  <header class="fh">
+    <span class="sev s-high"><i class="dot"></i>high</span>
+    <h3>Prerender runs model-written code in the shared container; it can poison .routes-base for every later build</h3>
+  </header>
+  <p class="loc"><code>builder/build-server.mjs:237</code></p>
+  <p class="d">`await import(dist-ssr/entry-server.js)` evaluates every generated route module in the build server&#x27;s own process, and renderToString then runs their component bodies — no sandbox, no child process, full Node privileges. lintPages (page-gen.mjs:2689+) bans only `fetch(`, `require(` and @tanstack/react-form, and a lint problem does not block publishing. The container&#x27;s persistent state is writable: `.routes-base/__root.tsx` (lines 33, 63) is copied into src/routes of EVERY subsequent build on the platform, and `.index-base.html` / `.styles-base.css` likewise. Nothing compares them against the image after a build. Related stale prose: CLAUDE.md:164 still justifies not filtering fetched text because &quot;the blast radius is one customer&#x27;s own site&quot;.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>A route with an SSR-only branch resolves node:fs through a computed dynamic import (a literal import is refused by the client vite build; a computed specifier is not) and writes a script tag or an exfiltration snippet into /app/.routes-base/__root.tsx. Every site the platform builds afterwards inherits it until the container idles out. The model is steered by attacker-controlled text on the ordinary path — site-context.mjs fetches a URL out of the brief and folds attachments in — and that text is deliberately unfiltered on a blast-radius argument this step invalidated.</p>
+</article>
+<article class="f" data-sev="high" data-area="template">
+  <header class="fh">
+    <span class="sev s-high"><i class="dot"></i>high</span>
+    <h3>Prerendered in-body links carry no basepath, so the static HTML points at gofarther.dev&#x27;s root</h3>
+  </header>
+  <p class="loc"><code>builder/lovable/template/src/entry-server.tsx:34</code></p>
+  <p class="d">createRouter here is given memory history and no basepath (comment l.36-38: &quot;the basepath only matters in a browser&quot;). True for MATCHING, false for OUTPUT: node_modules/@tanstack/router-core/dist/esm/rewrite.js:17 rewriteBasepath installs an `output` rewrite prefixing the basepath to every URL the router builds — so &lt;Link to=&quot;/book&quot;&gt; renders href=&quot;/s/&lt;slug&gt;/book&quot; in the browser (main.tsx:73) and href=&quot;/book&quot; in the prerender. PAGE_RULES l.2147 tells the model to link pages with &lt;Link to=&quot;/menu&quot;&gt;, and the reference pages do (book.tsx:170, manage.tsx:77). worker.js&#x27;s rewrite only touches src/href values beginning &quot;./&quot;, so a root-absolute href is untouched, and wrangler.jsonc sets no not_found_handling, so gofarther.dev/book is a plain 404.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>A visitor on a slow phone loads /s/&lt;slug&gt;/book, sees the prerendered page paint, and taps &quot;Back to the shop&quot; before the bundle mounts. They land on gofarther.dev/ — the Go Farther workspace — or on gofarther.dev/menu, a 404. Any crawler reading HTML without executing JS follows the same broken links.</p>
+</article>
+<article class="f" data-sev="high" data-area="client">
+  <header class="fh">
+    <span class="sev s-high"><i class="dot"></i>high</span>
+    <h3>The owner Members surface has no caller: its Cloud card falls through to the Submissions modal</h3>
+  </header>
+  <p class="loc"><code>public/chat.js:10712</code></p>
+  <p class="d">moreCloud (10370) emits a Members card, data-cloud=&quot;members&quot;, badged Live and clickable (not in DEAD_PANELS). The dispatcher at 10701-10712 handles database/insights/backups/versions/secrets/functions/files/emails/payments/domains then `else siteInbox(site)` — no members branch. No siteMembers function exists. The header button #stMembers (10562) is read into `mb` at 10791 and never given a handler. loadSiteData hard-codes `const members = false;` (10210) behind a comment (10203) saying the route &quot;went with the auth layer on 2026-07-30&quot; — it was rebuilt on Neon Auth the same day (site-owner.mjs:353). So GET/PATCH/DELETE /api/site/&lt;slug&gt;/members is reachable from nothing. test/api-auth.test.mjs verifies matcher -&gt; dispatch condition -&gt; ownerSlug and is green: three server layers checked, zero callers.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>An owner gets an abusive signup on their published site. Cloud -&gt; Members (badged Live) opens a modal headed &quot;Form submissions&quot; listing contact-form rows. There is no other members UI in the product, so they cannot list members, suspend one (banned), remove an account, or grant a role.</p>
+</article>
+<article class="f" data-sev="high" data-area="client">
+  <header class="fh">
+    <span class="sev s-high"><i class="dot"></i>high</span>
+    <h3>The preview page picker and the copied URL still use `#/path` after the app moved to browser history</h3>
+  </header>
+  <p class="loc"><code>public/chat.js:9993</code></p>
+  <p class="d">main.tsx:71 now says &quot;No `history` — the default is browser history, so pages get real addresses&quot;, with a runtime `basepath`; worker.js:5723-5745 answers an extensionless path with the prerendered `&lt;route&gt;.html` (written by builder/build-server.mjs:260) or the SPA shell. Three places in chat.js still address a React page by fragment: `switchSitePage` (9993) sets `f.src = s.url + &#x27;?v=&#x27; + n + &#x27;#&#x27; + path`; `renderSiteWorkspace` (10667) does the same on every render; `siteChipUrl` (9972) returns `gofarther.dev/s/&lt;slug&gt;/#/press`. Under browser history the pathname is still `/s/&lt;slug&gt;/`, so the router resolves the index route and the fragment means nothing. All three comments still justify themselves with &quot;the app routes on the hash&quot; / &quot;createHashHistory()&quot;, now false. Clicking a link inside the preview does navigate correctly — only the picker, the render path and the chip are wrong.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>Owner opens a 5-page site and picks &quot;Press&quot; from the page menu: the button label and URL chip change, and the iframe keeps showing the home page — indistinguishable from the build having produced one page. They copy `gofarther.dev/s/&lt;slug&gt;/#/press` out of the chip and send it to a customer, who lands on the home page. Link previews, per-page analytics and shared deep links all resolve to home for every address handed out of the builder.</p>
+</article>
+<article class="f" data-sev="high" data-area="client">
+  <header class="fh">
+    <span class="sev s-high"><i class="dot"></i>high</span>
+    <h3>The Versions card is hard-coded dead, so publish archiving and rollback are unreachable</h3>
+  </header>
+  <p class="loc"><code>public/chat.js:10365</code></p>
+  <p class="d">`DEAD_PANELS` (chat.js:10364-10369) contains `versions: &#x27;No build history is kept yet&#x27;` with the comment &quot;/backend/rollback — nothing records builds&quot;. That is stale: site-versions.mjs archives every publish to `versions/&lt;slug&gt;/&lt;id&gt;/`, worker.js:8908&#x27;s `vr` matcher serves `GET /api/site/&lt;slug&gt;/versions` and `POST .../versions/restore`, and `siteVersions()` (chat.js:11652-11723) is a complete working panel against exactly those two routes. But `const dead = DEAD_PANELS[c[4]]` makes `clickable` false (10394), so the card renders with an &quot;Off&quot; badge, no `data-cloud` attribute and no role=button — the `else if (b.dataset.cloud === &#x27;versions&#x27;) siteVersions(site)` branch at 10705 can never fire. Nothing in test/ mentions DEAD_PANELS or siteVersions.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>An owner asks for a change, dislikes the result and wants the previous build back. The Cloud tab shows a Versions card reading &quot;Off — No build history is kept yet&quot;, which is false: up to 10 prior builds are archived in R2 and one POST would restore any of them. The card cannot be clicked, so the only recourse is another paid revise describing the old site from memory.</p>
+</article>
+<article class="f" data-sev="high" data-area="client">
+  <header class="fh">
+    <span class="sev s-high"><i class="dot"></i>high</span>
+    <h3>History-rail Restore reports success on a React site and changes nothing</h3>
+  </header>
+  <p class="loc"><code>public/chat.js:9814</code></p>
+  <p class="d">`siteSnap(s, t)` runs on every successful React build (chat.js:11144) and `sitesSave` persists `history` (9793-9796), so `siteHistoryRail` (10443) renders a Restore button for every entry after the first on every React project. The handler is `siteRestore(siteOpenId, +b.dataset.restore)` (10730) → chat.js:9814, which only rewrites localStorage: it sets `s.pages` from a snapshot whose pages carry `html: undefined` for a React site, sets `s.active`, pushes `&#x27;↩ Restored to: …&#x27;` into the thread, and returns. It never calls `/api/site/&lt;slug&gt;/versions/restore`, never touches R2, and does not bump `s.previewV`, so the iframe (pointed at the live `site.url`) is not even reloaded.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>Owner presses Restore on &quot;Change the hero copy&quot; in the history rail. The chat answers &quot;↩ Restored to: Change the hero copy.&quot; and the preview keeps rendering the current published build. They tell a customer the site is back to the old version; the live site at /s/&lt;slug&gt;/ has not changed at all, and the assistant message says otherwise.</p>
+</article>
+<article class="f" data-sev="high" data-area="site-apis">
+  <header class="fh">
+    <span class="sev s-high"><i class="dot"></i>high</span>
+    <h3>A declared third-party API may name STRIPE_SECRET_KEY and send it to any external host</h3>
+  </header>
+  <p class="loc"><code>site-apis.mjs:34</code></p>
+  <p class="d">`SECRET_RE`/`secretsNeeded` (line 72) accept ANY vault name with no deny-list; worker.js:4634 `siteApiDeps` decrypts each and `callApi` substitutes it into the URL, headers and body of a request to whatever https host the declaration names. `blockedReason` is an SSRF guard — it blocks internal addresses, not an attacker&#x27;s own server. The other two vault readers are hard allow-lists: `siteMailSecrets` (worker.js:5071) reads exactly four names, `smsSubmitter` (5020) exactly six. This path has none. `spec.apis` is model-written (design_schema tool, worker.js:2831), and builder/site-context.mjs feeds fetched page text and web-search results into that model while claiming the blast radius is bounded by `lintPages` — the lint bounds PAGES, not the schema&#x27;s `apis` block. The route (worker.js:7847) is public, and 7876 returns only status+body, so the owner sees nothing.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>A brief containing or linking to attacker-written text (site-context.mjs fetches and forwards it) steers the designer into one `apis` entry whose url or Authorization header contains `{{STRIPE_SECRET_KEY}}`. Any visitor loading the page that calls `useApi(...)` makes the Worker decrypt the owner&#x27;s live Stripe key and send it to the attacker&#x27;s server. Nothing comes back to the page, nothing is logged, and the owner&#x27;s Stripe account is then fully controllable by whoever holds the key.</p>
+</article>
+<article class="f" data-sev="high" data-area="site-domains">
+  <header class="fh">
+    <span class="sev s-high"><i class="dot"></i>high</span>
+    <h3>dnsInstructions gives the wrong record NAME for any domain under a multi-label suffix (.co.uk)</h3>
+  </header>
+  <p class="loc"><code>site-domains.mjs:153</code></p>
+  <p class="d">isApex() is labels.length === 2, so sharpfade.co.uk is classed as a subdomain and the record name becomes host.split(&quot;.&quot;).slice(0,-2).join(&quot;.&quot;) = &quot;sharpfade&quot;. Executed: dnsInstructions(&quot;sharpfade.co.uk&quot;, &quot;saas.gofarther.dev&quot;) → {kind:&quot;CNAME&quot;, name:&quot;sharpfade&quot;, value:&quot;saas.gofarther.dev&quot;, note:&quot;A plain CNAME record.&quot;}; www.sharpfade.co.uk → name &quot;www.sharpfade&quot;. public/chat.js renders that Name verbatim as a copyable field (recRow), so following it creates sharpfade.sharpfade.co.uk, and the apex ALIAS/ANAME/flattening note is suppressed as well. The comment above isApex claims the cost of the naive rule is &quot;telling a .co.uk owner to use a CNAME when they could have&quot; — stale prose that understates it: the cost is a record name that can never work.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>A UK business adds sharpfade.co.uk. The panel hands them CNAME, Name &quot;sharpfade&quot;, Value saas.gofarther.dev, with a Copy button on each. They enter it at 123-reg, creating sharpfade.sharpfade.co.uk. checkDns keeps reporting missing, the panel keeps saying &quot;No record yet&quot;, the Cloudflare certificate never validates and the domain never goes live. Identical for .org.uk, .com.au, .co.nz.</p>
+</article>
+<article class="f" data-sev="high" data-area="site-meta">
+  <header class="fh">
+    <span class="sev s-high"><i class="dot"></i>high</span>
+    <h3>og:url is the site root on every prerendered page, so per-page link previews collapse to the home page</h3>
+  </header>
+  <p class="loc"><code>site-meta.mjs:133</code></p>
+  <p class="d">pageMeta copies `base` and overrides only brand and description; `url` is never touched, and worker.js:5450 sets it once to https://gofarther.dev/s/&lt;slug&gt;/. So book.html, menu.html and index.html all emit &lt;meta property=&quot;og:url&quot; content=&quot;https://gofarther.dev/s/&lt;slug&gt;/&quot;&gt;. Facebook, LinkedIn and other og consumers treat og:url as the canonical identity of the shared object and re-scrape it, so the per-page title and description this function exists to derive are attached to an object naming the home page. test/site-meta.test.mjs only asserts the site-level url on the site-level fixture, so the per-page case is covered by nothing.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>A barber pastes gofarther.dev/s/sharp-fade/book into WhatsApp or Facebook. The crawler reads og:url, treats the home page as the canonical object, and shows the home page&#x27;s card — the exact outcome the per-route prerender was built to end, while reporting success.</p>
+</article>
+<article class="f" data-sev="high" data-area="site-notify">
+  <header class="fh">
+    <span class="sev s-high"><i class="dot"></i>high</span>
+    <h3>The owner notification reports success when the provider refuses — send&#x27;s return value is discarded</h3>
+  </header>
+  <p class="loc"><code>site-notify.mjs:104</code></p>
+  <p class="d">notifyOwner does `try { await deps.send(...) } catch {…}` then unconditionally `return {sent:true, to}`. Safe while send was sendMail(env,…), which throws. Since the move to the owner&#x27;s own key (2026-08-09) the injected send (worker.js:5113) ends `return postProviderEmail(...)`, and postProviderEmail (worker.js:2331-2341) NEVER throws — it returns {ok:false,status} on any non-2xx and {ok:false,status:0} on a network error or the 12s timeout. So a refusal resolves normally and reports as sent. The caller&#x27;s log is `if (!out.sent &amp;&amp; out.error)` (worker.js:5117), so nothing is written either. sendConfirmation gets this right one module over (site-mail.mjs:229). The harness hides it: test/site-notify.test.mjs:16 is `send: async (m) =&gt; { sent.push(m); }`, returning undefined — a fake less capable than the real dependency.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>An owner&#x27;s Resend key is revoked, or EMAIL_FROM names a domain Resend has not verified. A booking arrives: claimNotify has already PATCHed notified_at, burning the 5-minute window; Resend answers 401/403; notifyOwner returns {sent:true}; nothing is logged. The owner is never told about the booking and the platform holds no record that mail is broken.</p>
+</article>
+<article class="f" data-sev="high" data-area="site-provision">
+  <header class="fh">
+    <span class="sev s-high"><i class="dot"></i>high</span>
+    <h3>A built site can never repair its auth/data endpoints — ensureSiteBackend returns before enableAuth/enableData</h3>
+  </header>
+  <p class="loc"><code>site-provision.mjs:57</code></p>
+  <p class="d">`if (existing &amp;&amp; existing.conn) { mark(&quot;reuse&quot;); return existing.conn; }` fires on every revise of a successfully built site. enableAuth, saveAuthInfo, enableData and saveDataInfo all sit below it (128-173) and never run again. Both saves are best-effort (catch -&gt; warn only, 149/170) and _meta.auth_info/_meta.data_api are written in exactly one place each (worker.js:3819, 3850) with no other repair route. The comment above the code (105-126) claims the opposite: enabled &quot;every time&quot;, a lost endpoint &quot;can be re-fetched by a later build&quot;. site-db.mjs:305-322 added that re-fetch deliberately (&quot;a site whose first save failed could NEVER recover... Every site built before 2026-08-04 needs it&quot;) and it is unreachable. test/site-provision.test.mjs:351 passes only because the harness default is `lookupSite: async () =&gt; null` (line 21) — a mid-provision retry, not a rebuild.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>saveDataInfo throws once (transient Supabase read in lookupProject, or a cold-compute SQL timeout on the new database). The build reports success and publishes. _meta.data_api is absent, siteDataBase resolves null, and proxySiteService (worker.js:4137) answers 501 no_backend to every list, form and sign-in. Every later revise returns at line 62, so the site stays a shell; the only escape is deleting it and losing its rows and slug.</p>
+</article>
+<article class="f" data-sev="high" data-area="worker">
+  <header class="fh">
+    <span class="sev s-high"><i class="dot"></i>high</span>
+    <h3>Scheduled jobs silently no-op while stamping last_run: siteNeonProject returns a row, not a conn string</h3>
+  </header>
+  <p class="loc"><code>worker.js:2446</code></p>
+  <p class="d">runScheduledSiteJobs does `const conn = await siteNeonProject(env, row.slug)` at 2446 and 2457, then passes conn to loadSiteSchema(conn), sqlQuery(conn,…) and the _secrets read. siteNeonProject (worker.js:3753) returns the ROW {neon_project,neon_branch,neon_role,neon_conn}; every other caller uses .neon_project or connForDatabase(proj.neon_conn, row.neon_db) (worker.js:3741). I ran it: neon({...}) throws &quot;connection string … is not a valid URL&quot;. loadSiteSchema swallows that in its bare catch and returns {tables:[]}, so `declared` is false and callFn returns null. Second, independent cause: metaOut (site-schema.mjs:936-960) never carries `jobs`, which normalizeSchema produces at line 325 — so spec.jobs read back is always empty. test/site-jobs.test.mjs:234 asserts only that loadSiteSchema(conn) and `declared` appear — true while both are broken.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>A site declares jobs:[{name:&#x27;remind&#x27;,fn:&#x27;due_tomorrow&#x27;,everyMinutes:1440}]. The row registers, the cron picks it up, runJob stamps last_run FIRST (so the registry shows it running daily), callFn returns null, shapeMessages(null) gives {ok:true,sent:0,reason:&quot;returned nothing&quot;} — and the log at worker.js:2479 fires only on !out.ok || out.failed || out.overflow || out.sent, all falsy. No reminder is ever sent, forever, with no trace and a last_run that says otherwise.</p>
+</article>
+<article class="f" data-sev="high" data-area="worker">
+  <header class="fh">
+    <span class="sev s-high"><i class="dot"></i>high</span>
+    <h3>Free text editing (/api/site/&lt;slug&gt;/text) has zero callers anywhere in the client</h3>
+  </header>
+  <p class="loc"><code>worker.js:8909</code></p>
+  <p class="d">The `tx` matcher (worker.js:8909), the dispatch condition, the `ownerSlug` list and the whole GET/POST handler (worker.js:8963-9060: `extractText`, `applyEdits`, recompile with the site&#x27;s stored look/tokens, publish, `cost: 0`) are all present and guarded. `grep -rn &quot;api/site&quot; public/` returns only chat.js, and chat.js never builds a `/text` URL — no panel, no button, no `data-cloud` entry. test/api-auth.test.mjs:482-498 asserts the outer gate stays a bare prefix specifically so `/versions` and `/text` cannot ship unreachable again: a guard one layer below the break, since the route is now perfectly reachable over HTTP and reachable by nothing in the product.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>An owner spots a typo in a heading. With no path to the free route, the only option is to type the correction into the builder, which routes to a full revise: a designer call, a page-generation call, a container compile and a republish, ~21 credits — to change one word that the implemented, tested, deployed `/text` route would change for nothing.</p>
+</article>
+<article class="f" data-sev="high" data-area="worker">
+  <header class="fh">
+    <span class="sev s-high"><i class="dot"></i>high</span>
+    <h3>Every uploaded and generated photograph 404s on a custom domain — the Host rewrite prepends /s/&lt;slug&gt; to /u/</h3>
+  </header>
+  <p class="loc"><code>worker.js:5660</code> <span class="vb">confirmed by reading</span></p>
+  <p class="d">The custom-domain branch rewrites url.pathname = &quot;/s/&quot; + mapped + pathname for every request not starting with /api/. Uploads are served by a sibling route at l.5856 (/^\/u\/(slug)\/(file)$/) and referenced from page source as root-absolute URLs: site-uploads.mjs:70 uploadUrl = &quot;/u/&quot; + slug + &quot;/&quot; + name, which buySitePhotos hands to applyImages for every bought photograph and which the Data panel stores in image columns. On a custom domain /u/slug/abc.jpg becomes /s/slug/u/slug/abc.jpg, matches the /s/ branch, resolves to key sites/slug/u/slug/abc.jpg, misses, and — having an extension — is deliberately excluded from the SPA fallback, so it 404s. /api/ is the only exemption.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>An owner connects sharpfadebarbers.com. Every photograph on the site (each generated one cost ~19 credits of real fal spend) and every picture uploaded through the Data panel renders as SafeImage&#x27;s broken placeholder, while the identical page at gofarther.dev/s/&lt;slug&gt;/ is perfect.</p>
+</article>
+<article class="f" data-sev="high" data-area="worker">
+  <header class="fh">
+    <span class="sev s-high"><i class="dot"></i>high</span>
+    <h3>Every uploaded and generated image 404s on a custom domain — /u/ is rewritten into /s/&lt;slug&gt;/u/</h3>
+  </header>
+  <p class="loc"><code>worker.js:5660</code> <span class="vb">confirmed by reading</span></p>
+  <p class="d">The Host rewrite prefixes /s/&lt;slug&gt; to every path that is not /api/. Published pages carry image URLs built by uploadUrl() (site-uploads.mjs:70) as the ROOT-RELATIVE &quot;/u/&lt;slug&gt;/&lt;file&gt;&quot;: that is what the owner&#x27;s upload route returns for the Data panel, what useUploadFile returns to a visitor form, and what buySitePhotos writes into every SafeImage src for bought photographs (worker.js:2661). Simulated with the real code: https://theirdomain.com/u/slug/x.jpg becomes /s/slug/u/slug/x.jpg, the /s/ branch derives R2 key sites/slug/u/slug/x.jpg while the object lives at uploads/slug/x.jpg, and the SPA fallback is gated on !ext so a .jpg gets no fallback → 404. Everything else was made host-agnostic (vite base &quot;./&quot;, the derived router basepath in main.tsx, /api/* exempted, og:image made absolute at worker.js:8630). /u/ was missed.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>An owner points sharpfadebarbers.com at their site. The certificate issues, the pages load, and every photograph on the site — the generated ones bought at ~19 credits each and every picture the owner uploaded through the Data panel — renders as SafeImage&#x27;s empty placeholder, because /u/... 404s. The identical bundle at gofarther.dev/s/sharp-fade/ shows them all, so it reads as &quot;the custom domain broke my site&quot; with no error in any log.</p>
+</article>
+<article class="f" data-sev="high" data-area="worker">
+  <header class="fh">
+    <span class="sev s-high"><i class="dot"></i>high</span>
+    <h3>A revise drops the site&#x27;s declared functions and apis from pageSpec</h3>
+  </header>
+  <p class="loc"><code>worker.js:8518</code></p>
+  <p class="d">pageSpec = { ...spec, tables: [...byName.values()] } (8518-8526) merges only `tables` out of stored _meta; `functions` and `apis` come from ...spec, which on a revise is only what this instruction&#x27;s designer declared - usually nothing. pageSpec feeds schemaDigest (page-gen.mjs:2336 reads spec.functions, :2350 spec.apis) and lintPages (:2696-2700). applySiteSchema was changed on 2026-08-05 to merge functions into _meta for exactly this reason (site-schema.mjs:882-895: &#x27;What was lost is the generator&#x27;s KNOWLEDGE of them&#x27;). The route reads that merged list and throws it away. Same shape as F1: the merged _meta tables also lack `payment`, so on a revise the digest and the lint both see a payable table as an ordinary form.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>A booking site with claim/confirm functions is revised with &#x27;change the phone number in the header&#x27;. pageSpec.functions is undefined, so the FUNCTIONS block vanishes from the digest and rule 10 tells the model to build the manage page only when the schema declares them - &#x27;manage my booking&#x27; is dropped. If the model keeps it from the prior source, lintPages reports the false problem &#x27;calls the database function &quot;booking_by_claim&quot;, which this schema does not declare&#x27;. On a shop, the same revise makes the digest print &#x27;PAID: NO ... submit it with useCreateRow&#x27;, so the checkout page is rewritten as a form that 403s for every buyer, with no lint problem raised.</p>
+</article>
+<article class="f" data-sev="high" data-area="worker">
+  <header class="fh">
+    <span class="sev s-high"><i class="dot"></i>high</span>
+    <h3>/api/agent runs up to 6 Sonnet 5 calls per message and charges no credits at all</h3>
+  </header>
+  <p class="loc"><code>worker.js:7416</code></p>
+  <p class="d">The Media Agent brain is gated only by useQuota(request, &quot;agent&quot;, 120) at worker.js:7422, which FAILS OPEN when the quota RPC is unreachable (onError = kind !== &quot;research&quot;, worker.js:785). The handler then loops `for (let hop = 0; hop &lt; 6; hop++)` (7450) issuing a claude-sonnet-5 call each pass (7456), pushing the assistant block plus every tool_result (8,000 chars each, 7482) back into `turns` before the next hop. Nothing in the block touches readCredits/useCredits/collectCredits. Its own comment — &quot;Rate-limited; no credit charge (like the director)&quot; — is stale: /api/direct has debited orchestratorCostMicros(step,effort)/8000 at its gate since 2026-07-14 (worker.js:9610-9623). docs/media-agent.md&#x27;s Cost section covers only the Haiku auto-reply, never this route.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>A signed-in user opens Media Agent and sends a message. chat.js:8889 posts the whole accumulated agentMsgs array; the server keeps the last 20 turns at 4,000 chars each (~20k tokens) and grows them with tool results across up to 6 Sonnet 5 hops — roughly $0.3-0.6 of model spend per message, 120 messages/day/user permitted, and unbounded whenever Supabase&#x27;s use_quota is unreachable. /api/credits reads identically before and after; no usage is recorded anywhere, so the spend is invisible on the platform side too.</p>
+</article>
+<article class="f" data-sev="high" data-area="worker">
+  <header class="fh">
+    <span class="sev s-high"><i class="dot"></i>high</span>
+    <h3>The site webhook marks an order paid without checking what actually settled</h3>
+  </header>
+  <p class="loc"><code>worker.js:6908</code></p>
+  <p class="d">`paidFromEvent` (site-payments.mjs:266-274) returns `amount` and `currency` with the comment &quot;so a mismatch between what we charged and what settled is visible rather than assumed.&quot; The call site reads only `paid.slug`, `paid.table`, `paid.ref`, `paid.orderId` (6893-6912) — `paid.amount`, `paid.currency` and `paid.email` have no reader anywhere in worker.js. The UPDATE sets `payment_status=&#x27;paid&#x27;` on the id the event names, with no comparison against the `amount_total`/`currency` the checkout route wrote at 4076-4082. Declared-but-dead on the line that decides goods are sold — and the only defence against a session our checkout route did not create. A Stripe webhook endpoint receives events for the whole ACCOUNT, and `paidFromEvent` falls back to parsing `client_reference_id` (site-payments.mjs:259-262), which Stripe Payment Links let the payer set via a URL parameter.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>A shop sells a £500 item and the owner also has another session source on the same Stripe account whose payer can set client_reference_id (a Payment Link for a £1 tip). A buyer starts a real checkout creating order 42 at £500, abandons it, then pays £1 through the tip link with ?client_reference_id=&lt;slug&gt;:orders:42. The signature verifies against the site&#x27;s own secret and order 42 flips to paid. £500 of goods ship for £1, and the amount that would have exposed it was parsed out of the event and discarded.</p>
+</article>
+<article class="f" data-sev="high" data-area="worker">
+  <header class="fh">
+    <span class="sev s-high"><i class="dot"></i>high</span>
+    <h3>Turnstile is bypassed entirely by posting a JSON array (or any non-JSON body)</h3>
+  </header>
+  <p class="loc"><code>worker.js:4831</code></p>
+  <p class="d">`turnstileGate` bails with `return {}` when the parsed body is not a plain object — `if (!body || typeof body !== &quot;object&quot; || Array.isArray(body)) return {}` — and also `catch { return {}; }` when JSON.parse throws. proxySiteService refuses only on `gate.refused` (worker.js:4197), so `{}` means &quot;forward it&quot;. The verification, the secret lookup and the access-level check all sit BELOW that line and never run. Neon&#x27;s Data API is PostgREST, which treats a JSON array as a bulk insert and also accepts `Content-Type: text/csv` for inserts; the proxy forwards `content-type` verbatim (worker.js:4145). The one control on this path that can refuse a write is skipped by changing the body&#x27;s outer shape, and nothing else on a collect insert checks anything.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>An owner pastes TURNSTILE_SITE_KEY/TURNSTILE_SECRET into Secrets and believes their contact form is protected. A spammer sends the identical payload wrapped in `[ ... ]` to `POST /api/db/&lt;slug&gt;/data/enquiries`: turnstileGate returns `{}`, no verification happens, PostgREST bulk-inserts. One request can carry thousands of rows against a single rate-limit hit, and each drives the owner-notification path.</p>
+</article>
+<article class="f" data-sev="high" data-area="worker">
+  <header class="fh">
+    <span class="sev s-high"><i class="dot"></i>high</span>
+    <h3>No body-size limit on the public write path — request-limits.mjs has zero callers</h3>
+  </header>
+  <p class="loc"><code>worker.js:4182</code></p>
+  <p class="d">proxySiteService reads the body with a bare `await request.text()` and forwards it: no content-length check, no byte cap. request-limits.mjs exists for exactly this — its header records the measured bug (&quot;a 3,000,000 character field went through POST /api/db/&lt;slug&gt;/rows/&lt;table&gt; and landed in the owner&#x27;s Neon database... one anonymous caller could push roughly 180 MB a minute into a database the site owner PAYS for&quot;). That route was deleted with site-data.mjs and the replacement never adopted the limit: `readJsonBody`, `MAX_JSON_BODY`, `MAX_FIELD_CHARS` and `MAX_BODY_KEYS` appear only in the module and its own test. `tooLargeBody` is applied to six routes (5909, 6929, 7516, 7648, 9588, 10704), none under /api/db. The bug it was written to fix is back, and its tests stay green against nothing.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>An anonymous caller POSTs a multi-megabyte JSON body to any published site&#x27;s booking form. It is buffered in the isolate and written straight into the owner&#x27;s Neon database, repeatable at up to 300 requests/min per IP (DATA_PROXY_PER_MIN), on storage and compute the owner is billed for. The visitor-upload route next door caps at 2 MB; the row write beside it caps at nothing.</p>
+</article>
+<article class="f" data-sev="high" data-area="worker">
+  <header class="fh">
+    <span class="sev s-high"><i class="dot"></i>high</span>
+    <h3>A paid order never fires `confirm`, the owner notification, `sms` or `webhooks`</h3>
+  </header>
+  <p class="loc"><code>worker.js:4078</code></p>
+  <p class="d">notifyOwnerOfSubmission, confirmSubmitter, smsSubmitter and emitWebhook have exactly one call site each, all inside proxySiteService (worker.js:4244, 4249, 4253, 4294) on a successful POST to /data/&lt;table&gt;. A payable table gets NO public INSERT grant (site-rls.mjs:290), so the only way one of its rows can exist is handleCheckout, which inserts with sqlQuery on the owner connection at worker.js:4078 and calls none of them. The site Stripe webhook (worker.js:6862) only UPDATEs payment_status and calls none either. design_schema steers the model into this: `payment` says &quot;The table stays `collect`&quot; and `confirm` says to declare it on &quot;a `collect` table whose form asks for an email address, which is nearly every booking or enquiry form&quot;.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>A generated shop declares `payment: {from: &quot;products&quot;}` and `confirm: {to: &quot;customer_email&quot;, subject: &quot;Order received&quot;}` on its orders table. A customer pays by card; the row is written and marked paid, and no receipt is ever sent, the owner is never emailed that an order arrived, any declared `sms` never sends and any declared `webhooks` never fires. Nothing logs a failure because nothing was attempted — the owner&#x27;s only trace of the sale is opening the Data panel.</p>
+</article>
+<article class="f" data-sev="medium" data-area="builder">
+  <header class="fh">
+    <span class="sev s-medium"><i class="dot"></i>medium</span>
+    <h3>The container reports which routes failed to prerender and nothing reads it</h3>
+  </header>
+  <p class="loc"><code>builder/build-server.mjs:465</code></p>
+  <p class="d">prerender() is best-effort by design and its only failure signal is the returned {prerendered, prerenderSkipped}. Line 465 puts both on the build response; neither name appears anywhere in worker.js or builder/publish-pages.mjs — publish-pages.mjs:669 consumes built.files and the assembled `out` never mentions them, so they are read only by tests. Both known failure modes are silent by construction: React swallows a server-render throw and returns wordless markup (the siteSlug()/window bug), and a route that renders nothing simply gets no file, after which the Worker&#x27;s SPA fallback serves the shell so the page looks correct in a browser.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>A generated /book page throws during the server render. The build answers ok:true, the customer is told the site is live, the page works in a browser — and the booking page has no document, so it previews as nothing when shared and is invisible to non-JS crawlers. Nothing anywhere can say which route it was.</p>
+</article>
+<article class="f" data-sev="medium" data-area="builder">
+  <header class="fh">
+    <span class="sev s-medium"><i class="dot"></i>medium</span>
+    <h3>prerender() is the only build step with no timeout, and it holds the global one-build-at-a-time chain</h3>
+  </header>
+  <p class="loc"><code>builder/build-server.mjs:300</code></p>
+  <p class="d">Every other step goes through run(), which SIGKILLs at STEP_TIMEOUT (150s) — that is why model-written code could never hang the service. timed(&quot;preMs&quot;, null, null, () =&gt; prerender()) takes the `fn` branch, which has no clock. Inside it only the vite build --ssr subprocess is bounded; await import(entry-server.js) (evaluating every route module&#x27;s top-level code) and await render(p) (running every component body through renderToString) are unbounded and execute model-written source. The handler runs inside oneAtATime and _chain = done.then(...), so if `done` never settles _chain never settles and every later build on the platform queues behind it. The Worker&#x27;s container fetch has no timeout either.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>One generated page contains a non-terminating loop in a component body or at module scope. That build&#x27;s prerender never returns; the container&#x27;s build chain is permanently blocked and every subsequent build for every customer hangs until the container is recycled — a platform-wide outage caused by one site&#x27;s page.</p>
+</article>
+<article class="f" data-sev="medium" data-area="builder">
+  <header class="fh">
+    <span class="sev s-medium"><i class="dot"></i>medium</span>
+    <h3>No unhandledRejection/uncaughtException guard: one page&#x27;s async throw kills every queued build</h3>
+  </header>
+  <p class="loc"><code>builder/build-server.mjs:342</code></p>
+  <p class="d">The file installs no process-level handler (grep: no `process.on` in builder/*.mjs), and Node 22 defaults to --unhandled-rejections=throw. The try/catch at 466 only catches what the awaited chain throws into it; a rejection created by a module the prerender imported, or by a timer scheduled during renderToString, lands outside it and exits the process. That process IS the queue — `_chain` holds every pending build — and the container serves the whole platform.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>A generated route module or a kit component creates a floating rejected promise under SSR (only reachable since the prerender step began importing them). The process exits; the in-flight build&#x27;s socket dies and so does every build queued behind it, so those callers get publish-pages.mjs:368&#x27;s &quot;the build service is unreachable&quot; instead of an answer. That is stage &quot;build&quot; — ourFault, so free plus one retry — but N unrelated customers&#x27; builds fail at once for a fault in one customer&#x27;s page.</p>
+</article>
+<article class="f" data-sev="medium" data-area="template">
+  <header class="fh">
+    <span class="sev s-medium"><i class="dot"></i>medium</span>
+    <h3>Search sends PostgREST `fts` (to_tsquery), so a two-word query errors with raw Postgres text</h3>
+  </header>
+  <p class="loc"><code>builder/lovable/template/src/lib/rows.ts:256</code></p>
+  <p class="d">pgQuery emits `_fts=fts.&lt;raw user input&gt;`. PostgREST&#x27;s `fts` operator compiles to `to_tsquery`, which needs tsquery syntax — `to_tsquery(&#x27;hot towel&#x27;)` raises 42601 syntax error in tsquery. The operator for untrusted input is `plfts` (plainto_tsquery) or `wfts` (websearch_to_tsquery); the repo&#x27;s own e2e uses websearch_to_tsquery (test/integration/neon-e2e.mjs:234), so the right function is known and the wrong one ships. humanPgError (rows.ts:285) has no case for 42601, so it falls through to `b?.message` and the Postgres text reaches the customer — the exact failure that function exists to prevent. page-gen.mjs:2381 tells the model &quot;full-text search: yes — pass { q } to useRows&quot;. On a table without fts there is no `_fts` column, so `q` is a 400/42703 that empties the list, not the documented no-op.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>A visitor types &quot;hot towel&quot; into a generated barber shop&#x27;s search box. The list does not filter — it fails, showing `syntax error in tsquery: &quot;hot towel&quot;`. The same happens for any query containing a space, an apostrophe or punctuation, i.e. most real searches; only a single bare word works.</p>
+</article>
+<article class="f" data-sev="medium" data-area="builder">
+  <header class="fh">
+    <span class="sev s-medium"><i class="dot"></i>medium</span>
+    <h3>PAGE_RULES gates admin UI on member.role, which can never be anything but &quot;user&quot;</h3>
+  </header>
+  <p class="loc"><code>builder/page-gen.mjs:2215</code></p>
+  <p class="d">2215-2217: &quot;Gate admin UI on `member.role`... An `admin` table refuses a write from any other role with a 403.&quot; Rule 2 of the same prompt (1941-1945) says the opposite and is right: admin is granted SELECT and nothing else, &quot;a write is 403 for everyone... whatever role the member holds&quot;. site-access.mjs:196-201 names that exact wording as describing the data API deleted 2026-07-30 (&quot;PostgREST has never heard of writeRoles&quot;). site-rls.mjs:247/310 confirm: one read policy on app_user_id() IS NOT NULL, GRANT SELECT only, and nothing anywhere reads neon_auth.&quot;user&quot;.role for authorisation. member.role also cannot change: its only writer is handleOwnerMembers PATCH (site-owner.mjs:394), which per finding 1 has no caller. Same claim ships in the template at builder/lovable/template/src/lib/rows.ts:639-641.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>The generator wraps a staff section in `if (member.role === &quot;admin&quot;)`. No route can set a role, so it renders for nobody — an admin dashboard invisible to every member, and a plain conditional that lintPages never inspects. If it writes an admin form instead, lintPages reports it (3034) but the site still publishes and `problems` is rendered nowhere, so the owner finds out when an administrator&#x27;s save 403s.</p>
+</article>
+<article class="f" data-sev="medium" data-area="builder">
+  <header class="fh">
+    <span class="sev s-medium"><i class="dot"></i>medium</span>
+    <h3>lintPages does not skip retired tables, so retiring a feature is less safe than never declaring it</h3>
+  </header>
+  <p class="loc"><code>builder/page-gen.mjs:2702</code></p>
+  <p class="d">lintPages builds its table map with no retired filter, while schemaDigest filters them out (:2316) and grantsFor withdraws every public grant for one (site-rls.mjs:288). So a page reading or writing a retired table resolves to a table object with access &#x27;collect&#x27;/&#x27;display&#x27;, passes canWriteAccess/canReadAccess, and is reported clean. Had the table simply not been declared, the next line would have said &#x27;writes to table X, which the schema does not declare&#x27;. This is the exact class the lint exists for - typechecks, bundles, then 403s - and retiring is the operation that manufactures it.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>A revise retires `bookings` (&#x27;take the booking form off&#x27;). The digest omits the table, so the model removes book.tsx but keeps a &#x27;Recent bookings&#x27; list on index.tsx calling useRows(&#x27;bookings&#x27;). The lint says nothing, the page typechecks and publishes, and every visitor to the home page gets a 404/403 in that section. A later unrelated revise reproduces it from the stored source.</p>
+</article>
+<article class="f" data-sev="medium" data-area="builder">
+  <header class="fh">
+    <span class="sev s-medium"><i class="dot"></i>medium</span>
+    <h3>Whether a page was really prerendered never leaves the container: total failure reports success</h3>
+  </header>
+  <p class="loc"><code>builder/publish-pages.mjs:375</code></p>
+  <p class="d">The container returns preMs, `prerendered` and `prerenderSkipped` (build-server.mjs:465). publish-pages copies only routesMs/tscMs/viteMs (375) and templateId (383) out of the response; a repo-wide grep finds no reader of the three prerender fields outside the container and the tests. Prerendering never fails a build by design — a route that renders no text is skipped at build-server.mjs:254-256 and the Worker&#x27;s SPA fallback serves the shell — so degrading to zero snapshots is indistinguishable from working.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>A template or kit change makes routes hit React&#x27;s client-render fallback (siteSlug() reading `window` already did exactly that, on every route, on the first run). Every published page silently reverts to an empty &lt;div id=&quot;root&quot;&gt; — no link preview, no crawlable text — while every build still answers ok:true, page:&quot;app&quot;, with no field, log line or panel that could say otherwise. The only detector left is build smoke&#x27;s deep-link check, which is skipped by [skip smoke] (5 of the last 9 commits) and only runs when the site has a second page.</p>
+</article>
+<article class="f" data-sev="medium" data-area="builder">
+  <header class="fh">
+    <span class="sev s-medium"><i class="dot"></i>medium</span>
+    <h3>publishPages&#x27; billed-vs-collected shortfall never leaves the module</h3>
+  </header>
+  <p class="loc"><code>builder/publish-pages.mjs:485</code></p>
+  <p class="d">settle deliberately keeps two numbers — out.cost (what collectCredits actually took) and out.billed (what the work cost) — with the comment &quot;so the shortfall stays visible instead of vanishing&quot;. The build route returns `cost: schemaCost + pages.cost` (worker.js:8812) and `charged: pages.charged` (8838) and never returns `billed`. Grepping the repo, `out.billed` appears only in publish-pages.mjs and in test/publish-pages.test.mjs, where it is asserted against injected fakes. So the one field that separates &quot;billed 21, collected 21&quot; from &quot;billed 21, collected 3&quot; exists nowhere an operator, the smoke test or the client can read it — the field is written and consumed by nothing.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>A first build on the 20-credit grant bills ~21 credits for the pages call while the ledger can only give ~9. The response says cost: 9, charged: true, and nothing anywhere states that 12 credits of work went uncollected. That is precisely the blind spot that let &quot;use_credits refuses and debits zero while we report charged: true&quot; run for months; a regression in collectCredits would again be undetectable from any response.</p>
+</article>
+<article class="f" data-sev="medium" data-area="client">
+  <header class="fh">
+    <span class="sev s-medium"><i class="dot"></i>medium</span>
+    <h3>The Members surface opens the Submissions modal, and the top-bar Members button is wired to nothing</h3>
+  </header>
+  <p class="loc"><code>public/chat.js:10712</code></p>
+  <p class="d">Two breaks in one feature. (1) The Cloud card list includes `[&#x27;users&#x27;,&#x27;Members&#x27;,&#x27;Accounts that sign up in your app&#x27;, dataLive, &#x27;members&#x27;]` (chat.js:10370) and `members` is not in DEAD_PANELS, so it renders &quot;Live&quot; and clickable with `data-cloud=&quot;members&quot;`. The dispatch chain (10702-10712) has branches for database/insights/backups/versions/secrets/functions/files/emails/payments/domains then `else siteInbox(site)` — no `members` branch, so it falls through to the form-submissions modal. (2) The top bar renders `&lt;button id=&quot;stMembers&quot; title=&quot;Site members&quot;&gt;` for every published site (10562), and its only reference is `const mb = document.getElementById(&#x27;stMembers&#x27;);` at 10791; `mb` is never used again — the sole such binding in the file. `GET /api/site/&lt;slug&gt;/members` is implemented in site-owner.mjs and served by the `mm` matcher.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>Owner of a site with member accounts clicks the Members icon in the top bar: nothing happens, no modal, no toast. They then click the Cloud → Members card, badged &quot;Live&quot; and described as &quot;Accounts that sign up in your app&quot;, and get a modal titled &quot;Form submissions&quot; listing contact-form rows. There is no path in the product to the member list the server can serve.</p>
+</article>
+<article class="f" data-sev="medium" data-area="client">
+  <header class="fh">
+    <span class="sev s-medium"><i class="dot"></i>medium</span>
+    <h3>site.tables is never assigned, so the message router&#x27;s digest always reports zero tables</h3>
+  </header>
+  <p class="loc"><code>public/chat.js:10998</code></p>
+  <p class="d">`siteRoute` builds the digest sent to `POST /api/site/route` as `tables: Array.isArray(site.tables) ? site.tables.slice(0, 24) : []` (chat.js:10998), documented as the deliberate names-only view of the site. Nothing ever writes `site.tables`: the build response does carry `tables` (worker.js:8746, an array of names from `applySiteSchema`), but the success branch in `reactSend` (11126-11145) stores only `react`, `slug`, `url`, `backend`, `brand`, `pages`, `active`. Every other `.tables` hit in chat.js is a local read of a fetch response. So the guard is always false and the digest ships `[]`; builder/site-ask.mjs:162-163 only emits &quot;Its database tables are: …&quot; when `tables.length`, so the router model is never told the site holds any data.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>Owner of a live booking site types &quot;where do the bookings get stored?&quot; or &quot;do I have a customers table?&quot;. The router (~0.3 credits) is handed a digest with no tables, so it answers from page paths alone — either inventing an answer or falling through to `build`, which per the route&#x27;s own asymmetry rule turns a question into a full paid revise of the site.</p>
+</article>
+<article class="f" data-sev="medium" data-area="client">
+  <header class="fh">
+    <span class="sev s-medium"><i class="dot"></i>medium</span>
+    <h3>The site build route never streams NDJSON, so the live build UI is frozen for the whole build</h3>
+  </header>
+  <p class="loc"><code>public/chat.js:11097</code></p>
+  <p class="d">`reactSend` posts to `/api/site/react-build` / `react-revise` and branches on `ct.indexOf(&#x27;ndjson&#x27;) &gt;= 0` (chat.js:11097). Only two responses in worker.js carry `application/x-ndjson` — lines 7634 and 7761, both on `/api/game/build` and `/api/game/revise`. The site build route (worker.js:8149-8800) constructs no TransformStream (the only three in the file are 7535, 7668, 10306) and ends in a single `Response.json`. So `readReactStream` (chat.js:10916-10942) never runs, and with it the `code`, `phase`, `agent`, `agents` and `image` handlers. `siteBuildStart` deliberately disables the timer for React (&quot;React builds repaint on stream events, not on a timer&quot;, 10827), so `paintReactLive` fires once when `rphase` is set to &#x27;generating&#x27; and never again. Comments on both sides still assert the stream exists (&quot;Streams live steps&quot;, 11074).</p>
+  <p class="fs"><span class="fsl">Fails like this</span>Owner sends a brief. The panel shows &quot;Writing the code&quot; with an open, permanently empty code pane and &quot;Compiling React&quot; greyed out for the full 60-90 seconds of a real build — no phase advances, no filename appears, no agent chips — then jumps straight to the finished result. A build progressing normally looks identical to one that has hung, which is exactly what the step UI exists to distinguish.</p>
+</article>
+<article class="f" data-sev="medium" data-area="client">
+  <header class="fh">
+    <span class="sev s-medium"><i class="dot"></i>medium</span>
+    <h3>The build&#x27;s 402 discards the message naming the free fix and tells the customer to buy credits</h3>
+  </header>
+  <p class="loc"><code>public/chat.js:11183</code></p>
+  <p class="d">worker.js:8260-8272 refuses a build it cannot afford, refunds the deposit, and answers 402 with `msg` (&quot;An Opus build needs about N credits and you have M. Switch the Builder to Sonnet 5, or top up.&quot;) and `cost: floor`. reactSend&#x27;s branch `else if (r.status === 402 || (d &amp;&amp; d.need === &#x27;credits&#x27;))` ignores both and prints a fixed line: &quot;You don&#x27;t have enough credits to build this right now. Tap your ✦ balance up top to get more.&quot; buildDownMsg(d), which exists specifically to render the server&#x27;s own msg, is reachable only on 503 / code:429 (chat.js:11189). test/build-models.test.mjs:257 asserts only that the string &quot;Sonnet 5&quot; appears in the worker source, so the guard is green while the sentence reaches nobody — a guard one layer below the break.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>buildFloor(&quot;claude-opus-5&quot;) computes to 23 credits (SCHEMA_PROFILE at Opus rates = 15, plus MIN_CREDITS 8) and the signup grant is 20; buildFloor(&quot;claude-sonnet-5&quot;) is 17. A new account picks Opus in the Builder control and sends a brief. The route answers 402 with the message naming Sonnet as the way out; the customer sees only &quot;tap your ✦ balance to get more&quot; and buys a $15 top-up to do something that switching the picker would have done for free.</p>
+</article>
+<article class="f" data-sev="medium" data-area="rate-limit">
+  <header class="fh">
+    <span class="sev s-medium"><i class="dot"></i>medium</span>
+    <h3>Every declared rate limit is dead code; all writes share one 300/min bucket</h3>
+  </header>
+  <p class="loc"><code>rate-limit.mjs:29</code></p>
+  <p class="d">`limitFor` has no production caller anywhere (only test/rate-limit.test.mjs), and DEFAULT_WRITE_PER_MIN (60) is never used. The data dispatch instead calls `_dataLimiter.hit(bucketKey({... table: &quot;data&quot; ...}), DATA_PROXY_PER_MIN)` at worker.js:7826-7829 — a constant table name and one limit (300) for every method. So bucketKey&#x27;s per-table write bucket, written specifically so &quot;a table capped at 5/min must not share those 5 with the contact form&quot;, collapses to a single `w:&lt;slug&gt;:data:&lt;ip&gt;` bucket, and a table&#x27;s own `rateLimit` (parsed, stored in _meta) is read by nothing. The guard is wrong-layer: test/api-auth.test.mjs:142 asserts `/_dataLimiter|limitFor/`, satisfied by the first alternative. CLAUDE.md still says this is &quot;enforced in site-data.mjs&quot;, deleted 2026-07-30.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>A generated giveaway form declares maxRows 500 and a write `rateLimit`; the API honours neither the per-table limit nor the 60/min write default, accepting 300 writes a minute per IP across every table on the site from one shared bucket. Anyone reading rate-limit.mjs or CLAUDE.md concludes writes are throttled at 60/min and per-table limits work.</p>
+</article>
+<article class="f" data-sev="medium" data-area="site-dns">
+  <header class="fh">
+    <span class="sev s-medium"><i class="dot"></i>medium</span>
+    <h3>dnsSentence tells an apex owner to &quot;Change the A record to saas.gofarther.dev&quot;, which is not a valid A record</h3>
+  </header>
+  <p class="loc"><code>site-dns.mjs:109</code></p>
+  <p class="d">checkDns returns via:&quot;A&quot; whenever an apex resolves to addresses that are not our target&#x27;s (site-dns.mjs:97), and dnsSentence interpolates that via straight into &quot;Change the &quot; + via + &quot; record to &quot; + target. target is a hostname (saas.gofarther.dev) and an A record takes an IP address, so the instruction cannot be carried out. It also contradicts the copyable record rendered immediately below it, which correctly says CNAME at @ with the ALIAS/ANAME note — and the sentence is the prominent, warning-tinted .sd-dns-warn line the panel leads with. No test covers this: test/site-dns.test.mjs:153 exercises only {state:&quot;elsewhere&quot;, via:&quot;CNAME&quot;}, and the apex-elsewhere test at line 116 asserts state and points but never the sentence.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>The commonest real migration — a business that already has a website at example.com — adds the domain and is told &quot;That domain currently points at 203.0.113.9. Change the A record to saas.gofarther.dev.&quot; Their DNS provider rejects a hostname in an A field, so they either give up or delete the A record that is serving their existing site and add nothing that works, taking the old site down without bringing the new one up.</p>
+</article>
+<article class="f" data-sev="medium" data-area="site-owner">
+  <header class="fh">
+    <span class="sev s-medium"><i class="dot"></i>medium</span>
+    <h3>/members has never run against a real database; its four admin-plugin columns exist only in a fake</h3>
+  </header>
+  <p class="loc"><code>site-owner.mjs:311</code></p>
+  <p class="d">MEMBER_COLUMNS selects role, banned, banReason, banExpires from neon_auth.&quot;user&quot;, and PATCH writes all four (394-404). Those are Better Auth ADMIN-PLUGIN columns, not base-schema ones. Nothing here establishes they exist on Neon&#x27;s managed deployment: test/integration/member-smoke.mjs — the only live Neon Auth coverage, 353 lines — never mentions members, neon_auth, role or banned; test/integration/neon-e2e.mjs probes neon_auth.member.&quot;organizationId&quot; and nothing on &quot;user&quot;. The unit tests pass because the fake query returns a hand-written row already carrying all four (test/site-owner.test.mjs:567) — a fake more capable than the real dependency. CLAUDE.md&#x27;s measured list of the nine provisioned tables shows the jwt and organization plugins and no evidence of the admin plugin.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>If any of the four columns is absent, GET /api/site/&lt;slug&gt;/members raises 42703 (column u.role does not exist); the router catch at worker.js:9505 turns it into a 500 &quot;Something went wrong reaching your site&#x27;s data&quot;, and every owner-members operation is dead on every site. Because finding 1 leaves the route with no caller, that is indistinguishable from today and no CI job would report it.</p>
+</article>
+<article class="f" data-sev="medium" data-area="site-payments">
+  <header class="fh">
+    <span class="sev s-medium"><i class="dot"></i>medium</span>
+    <h3>failedFromEvent has no caller and only one Stripe event is subscribed — orders stick at pending</h3>
+  </header>
+  <p class="loc"><code>site-payments.mjs:281</code></p>
+  <p class="d">`failedFromEvent` says it exists because &quot;the alternative is an order stuck at `pending` forever, indistinguishable from one still being paid&quot; — and its only references in the repo are its definition and test/site-payments.test.mjs:330/333. worker.js:34 imports `paidFromEvent` and not it, so `checkout.session.expired` reaches 6893, returns null, and the route answers `{ok:true, ignored:true}`. The mirror problem: public/chat.js:12148 tells the owner to register the endpoint &quot;for the `checkout.session.completed` event&quot; — one event — while `paidFromEvent` (site-payments.mjs:248) also handles `checkout.session.async_payment_succeeded`, which the owner will therefore never be sent, making that branch unreachable in practice.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>A customer starts a checkout (order written `pending`) and closes the tab; Stripe fires checkout.session.expired, the webhook ignores it, and the owner&#x27;s Data panel shows a pending order indistinguishable from one still being paid. Separately, a customer pays by a delayed method (SEPA/Bacs/ACH): the session completes `unpaid`, the later async_payment_succeeded is never delivered because it was never subscribed, so a genuinely paid order stays `pending` while the money sits in the owner&#x27;s Stripe balance.</p>
+</article>
+<article class="f" data-sev="medium" data-area="site-registrar">
+  <header class="fh">
+    <span class="sev s-medium"><i class="dot"></i>medium</span>
+    <h3>detectProvider names the REGISTRY&#x27;s nameservers for every multi-label suffix; its test passes vacuously</h3>
+  </header>
+  <p class="loc"><code>site-registrar.mjs:141</code></p>
+  <p class="d">The loop tries take=2 first and RETURNS on the first zone that answers with any NS. For sharpfade.co.uk that zone is co.uk, which always answers (nsa.nic.uk …), so take=3 is never reached. Verified against the live resolver: detectProvider(&quot;bbc.co.uk&quot;) → {state:&quot;unrecognised&quot;, nameservers:[&quot;nsa.nic.uk&quot;,…]} and providerSentence → &quot;Your DNS is managed at nsa.nic.uk — add the record wherever you manage that.&quot; The provider is never identified, so neither the deep link nor the PARKED check can ever fire for these domains. test/site-registrar.test.mjs:110 (&quot;it walks up one more label for a multi-part suffix&quot;) passes only because its fake resolver has no co.uk row and returns an empty Answer — a fake weaker than real DNS, asserting a fallback that is unreachable in production.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>An owner adds x.co.uk. The panel tells them their DNS is managed at nsa.nic.uk, a registry nameserver they have no account at, and the &quot;Open GoDaddy →&quot; deep link — which the module&#x27;s own header calls most of the value of the feature — never appears for any UK domain.</p>
+</article>
+<article class="f" data-sev="medium" data-area="site-rls">
+  <header class="fh">
+    <span class="sev s-medium"><i class="dot"></i>medium</span>
+    <h3>`publicView` is promised to the generator from the declaration while the DDL may create no view</h3>
+  </header>
+  <p class="loc"><code>site-rls.mjs:430</code></p>
+  <p class="d">publicViewSql returns only the DROP — no view, no grant — in three cases: a declared column is not in the table&#x27;s real column list (line 430), a `where` predicate will not compile (line 435), or the name collides with a declared table (line 426). `hasPublicView` (site-access.mjs:143) answers from the declaration alone, and that is what schemaDigest prints (page-gen.mjs:2402, &quot;usePublicRows: YES — anyone may read &lt;columns&gt;&quot;) and what lintPages enforces (page-gen.mjs:2994). Most reachable trigger: colNames never contains the platform-managed columns, so `publicView: {columns: [&quot;appointment_date&quot;,&quot;created_at&quot;]}` — accepted by normalizeSchema, which refuses only `id` and `owner_id` — produces no view. Verified by calling publicViewSql: output is just the DROP. site-access.mjs claims the two askers &quot;must not disagree&quot;; the shared helper is not what the database obeys.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>The designer declares a publicView whose `where` names a `status` column it forgot to declare, or whose columns include `created_at`. No view is created. The digest still says YES, the lint passes the page, tsc compiles it, the site publishes — and the booking page&#x27;s taken-slots grid answers 404 (42P01), rendered to the customer as &quot;That isn&#x27;t available.&quot; Nothing in the unit suite, the lint, the typecheck or build smoke can see it.</p>
+</article>
+<article class="f" data-sev="medium" data-area="site-schema">
+  <header class="fh">
+    <span class="sev s-medium"><i class="dot"></i>medium</span>
+    <h3>Every revise silently deletes the site&#x27;s third-party API connections from _meta</h3>
+  </header>
+  <p class="loc"><code>site-schema.mjs:941</code></p>
+  <p class="d">metaOut merges tables (895-905), functions (953-960) and rateLimits (908) from the stored _meta, but apis is written only from THIS run: `if (Array.isArray(spec.apis) &amp;&amp; spec.apis.length) metaOut.apis = spec.apis;`. applySiteSchema(db, spec) (worker.js:8459) gets the designer&#x27;s raw output with no pre-merge, and designSiteSchema (worker.js:3320-3346) is given only `messages:[{role:&#x27;user&#x27;,content:brief}]` — it never sees the stored schema, so on a revise it cannot re-declare an apis block it does not know exists. The write still happens (mergedTables is non-empty), so the key is dropped. The inline comment defends the replace as deliberate — that reasoning needs the designer to be able to keep one, and it cannot.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>A site is built with apis:[{name:&#x27;exchange_rates&#x27;, url:&#x27;…{{RATES_KEY}}&#x27;}] and a page calls useApi(&#x27;exchange_rates&#x27;). The owner later asks for anything — &quot;make the header bigger&quot;, &quot;add a gallery&quot;. The revise rewrites _meta.schema without apis; apiFor (site-apis.mjs:216) finds nothing and /api/db/&lt;slug&gt;/api/exchange_rates answers 404 {&quot;error&quot;:&quot;no such connection&quot;} on every page load, permanently, with the owner&#x27;s key still in the vault.</p>
+</article>
+<article class="f" data-sev="medium" data-area="site-schema">
+  <header class="fh">
+    <span class="sev s-medium"><i class="dot"></i>medium</span>
+    <h3>A revise re-declaring a payable table restores public INSERT, allowing self-declared &#x27;paid&#x27; orders</h3>
+  </header>
+  <p class="loc"><code>site-schema.mjs:903</code></p>
+  <p class="d">The _meta table merge is a whole-object override — `byName.set(key, t)` — with only `retired` carried across from the previous entry (899-903). Separately, grantsFor({...t, access}) at line 832 runs over THIS run&#x27;s spec.tables, not the merged copy. On a revise the designer sees only the instruction, so it re-emits `orders` with columns and access and no payment block; t.payment is undefined, grantsFor falls to the ordinary collect branch and emits GRANT INSERT ON &quot;orders&quot; TO anonymous/authenticated. The payment columns from the first build are still on the table (the engine is additive and drops nothing) and there are no column-level grants. The same override also wipes confirm, sms, fts, webhooks, publicView and noOverlap from _meta for any re-declared table.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>A shop is built with a payable `orders` table. The owner later asks for &quot;a delivery notes field on orders&quot;. After that revise anyone who knows the slug can POST /api/db/&lt;slug&gt;/data/orders with {&quot;payment_status&quot;:&quot;paid&quot;,&quot;amount_total&quot;:0,…} and the row lands — the exact hole the missing grant closes by construction. The owner sees paid orders with no money behind them.</p>
+</article>
+<article class="f" data-sev="medium" data-area="site-schema">
+  <header class="fh">
+    <span class="sev s-medium"><i class="dot"></i>medium</span>
+    <h3>A revise that adds `payment` to an existing table never gets the payment columns</h3>
+  </header>
+  <p class="loc"><code>site-schema.mjs:534</code></p>
+  <p class="d">The payment columns are pushed only into the CREATE TABLE list (lines 534-540), and `CREATE TABLE IF NOT EXISTS` at 552 is a no-op on an existing table. Every other conditional platform column has a revise-path backfill in the block at 570-633 — owner_id, team_id, deleted_at, _version, updated_at, position, expires_at, pinned, publish_at, the approval status column, the sequence field, archived_at — and `t.payment` has none. `appAdds` (458) cannot cover them: coerceTable strips PAYMENT_COLUMNS from the declared list at 109, so they are never in it. Meanwhile grantsFor (site-rls.mjs:307) now returns `[]` for the newly-payable table, withdrawing the public INSERT it had. Both write paths close at once. Independent of finding 1 — it bites the moment finding 1 is fixed.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>A site already has a `bookings` collect table taking free enquiries. The owner says &quot;let people pay a deposit online&quot;. The designer re-declares bookings with a payment block; no columns are added. The ordinary form now 403s (grant withdrawn) and handleCheckout&#x27;s INSERT (worker.js:4078) fails with 42703 column &quot;payment_status&quot; does not exist, caught at 8015 and returned as 502 &quot;we couldn&#x27;t start that payment — please try again&quot;. The form is dead both ways and the build reported success.</p>
+</article>
+<article class="f" data-sev="medium" data-area="tests">
+  <header class="fh">
+    <span class="sev s-medium"><i class="dot"></i>medium</span>
+    <h3>build smoke&#x27;s &quot;caller was charged&quot; check passes on the 2-credit deposit alone</h3>
+  </header>
+  <p class="loc"><code>test/integration/build-smoke.mjs:720</code></p>
+  <p class="d">The only live assertion that a build moved the ledger is `typeof bd.balance === &quot;number&quot; &amp;&amp; bd.balance &lt; 20`. SITE_BUILD_FEE is 2 (worker.js:2769) and is debited before the designer call, so ANY balance below the 20-credit grant satisfies it — including a run where publishPages billed ~21 for pages and collected nothing. The run already holds d.cost (it prints it at line 155) and never compares it against 20 - bd.balance, nor against d.schemaCost. CLAUDE.md calls a green build smoke &quot;the strongest signal in the repo&quot;, and this is the only end-to-end guard the charging tier has.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>Reintroduce the CRIT-1 bug by pointing publishPages&#x27; useCredits dep back at useCredits instead of collectCredits (worker.js:5484), so a bill larger than the balance debits zero and answers -1. The smoke run still publishes a real site, the deposit still takes 2 credits, bd.balance reads 18, and &quot;caller was charged for the build&quot; passes green while the pages call collected nothing.</p>
+</article>
+<article class="f" data-sev="medium" data-area="worker">
+  <header class="fh">
+    <span class="sev s-medium"><i class="dot"></i>medium</span>
+    <h3>A paid order notifies nobody: checkout is the only insert path and calls none of the three hooks</h3>
+  </header>
+  <p class="loc"><code>worker.js:4083</code></p>
+  <p class="d">notifyOwnerOfSubmission, confirmSubmitter and smsSubmitter are called from exactly one place — the `which===&quot;data&quot; &amp;&amp; POST &amp;&amp; 2xx` branch of proxySiteService (worker.js:4244-4252); grep -c gives two occurrences each (definition + that call). A payable table gets no public INSERT grant (site-rls.mjs:307, `if (t &amp;&amp; t.payment) return [];`), so no order can arrive through that proxy. Orders are inserted by handleCheckout at worker.js:4076-4083, which then calls Stripe and returns, touching none of the three. The Stripe site webhook (worker.js:6862-6920) only UPDATEs payment_status. checkoutSessionArgs (site-payments.mjs:213) sets no receipt_email. Independent of finding 1: fixing norm.push restores confirmations for ordinary collect forms and leaves orders silent.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>A shop declares payment:{from:&#x27;products&#x27;} and confirm:{to:&#x27;email&#x27;,subject:&#x27;Your order&#x27;,…} on `orders` — a use the design_schema tool text at worker.js:3053 explicitly offers (&quot;an order receipt&quot;). A customer pays. The row is inserted, Stripe takes the money, the webhook marks it paid — and the customer gets nothing the site declared, while the owner gets no notification that an order needs shipping. They find out only by opening the Data panel.</p>
+</article>
+<article class="f" data-sev="medium" data-area="worker">
+  <header class="fh">
+    <span class="sev s-medium"><i class="dot"></i>medium</span>
+    <h3>claimNotify never returns `missed`, so suppressed submissions are never counted to the owner</h3>
+  </header>
+  <p class="loc"><code>worker.js:4424</code></p>
+  <p class="d">site-notify.mjs&#x27;s documented dep contract (line 79) is claim(slug) → {ok, owner_uid, missed}; notifyOwner reads `claim.missed || 0` (line 103) and submissionEmail renders &quot;…and N more since the last email.&quot; from it (line 61). claimNotify selects `uid,notified_at` and returns `row ? { ok: true, owner_uid: row.uid } : { ok: false }` — `missed` is neither computed nor selected, so extra is always 0 and that sentence is unreachable in production. test/site-notify.test.mjs:69 (&quot;the email says how many were missed while it was quiet&quot;) passes only because its fake returns missed: 7 — again a fake more capable than the real dependency.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>A restaurant&#x27;s booking form takes six reservations in one five-minute window. COOLDOWN_MS lets exactly one email through, showing one booking with no indication anything else arrived. The owner reads it as &quot;one booking&quot;; the other five are visible only to somebody who happens to open the Data panel — the outcome the overflow line exists to prevent.</p>
+</article>
+<article class="f" data-sev="medium" data-area="worker">
+  <header class="fh">
+    <span class="sev s-medium"><i class="dot"></i>medium</span>
+    <h3>Publishing defers only index.html, but every prerendered route page is equally a pointer to hashed assets</h3>
+  </header>
+  <p class="loc"><code>worker.js:5260</code></p>
+  <p class="d">The write-then-sweep fix rests on one rule — write the pointer last — implemented as a sort special-casing /^index\.html$/i alone. Since a746001 each route is its own document (book.html, menu.html, shop/item.html), each copied from the shell and so each naming the same content-hashed ./assets/index-&lt;hash&gt;.js. Those files sort with everything else and their position comes from collectDist&#x27;s fs.readdirSync order, which is not sorted. The same omission is in site-versions.mjs:151 (rollbackVersion&#x27;s `ordered`), where it is worse: a restore copies an OLD build&#x27;s assets over a live site whose asset names differ, so old deep-page HTML can go live before the old bundle exists.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>During a revise (~20 sequential R2 puts) a visitor requests /s/&lt;slug&gt;/book. If book.html landed before assets/index-&lt;newhash&gt;.js they get a document whose only script 404s — a blank page, the same &quot;this page didn&#x27;t load&quot; the atomic-publish change was written to eliminate, now reachable on every page except the home page.</p>
+</article>
+<article class="f" data-sev="medium" data-area="worker">
+  <header class="fh">
+    <span class="sev s-medium"><i class="dot"></i>medium</span>
+    <h3>A site on a custom domain gets the strict app CSP, not the published-site CSP</h3>
+  </header>
+  <p class="loc"><code>worker.js:2028</code></p>
+  <p class="d">harden(await handleRequest(request, env, ctx), request) passes the ORIGINAL request; handleRequest rewrites only its own local request/url, which the outer binding never sees. harden decides at l.987 with pathname.startsWith(&quot;/s/&quot;), so on sharpfadebarbers.com the pathname is / or /book and publishedSite is false. The response then carries the workspace CSP: frame-src &#x27;self&#x27; blob: instead of the published-site list naming openstreetmap.org and maps.google.com (added specifically because &quot;default-src &#x27;self&#x27; would block the map iframe on publish&quot;), plus frame-ancestors &#x27;none&#x27; and X-Frame-Options: DENY instead of SAMEORIGIN.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>A site using MapEmbed&#x27;s embedSrc renders its map at gofarther.dev/s/&lt;slug&gt;/ and shows an empty bordered box on the owner&#x27;s own domain — the address customers are actually given. That site also cannot be embedded anywhere once it moves to a custom domain.</p>
+</article>
+<article class="f" data-sev="medium" data-area="worker">
+  <header class="fh">
+    <span class="sev s-medium"><i class="dot"></i>medium</span>
+    <h3>`signing` is returned by the domains route and rendered by nothing, so a missing signing key shows as a blank</h3>
+  </header>
+  <p class="loc"><code>worker.js:9249</code></p>
+  <p class="d">The GET listing returns signing: !!dcSign1 and grep finds no reader anywhere in public/. When offer.supported is true but dcSign1 is null — DOMAIN_CONNECT_KEY unset, or set to deploy.yml&#x27;s deliberately-undecodable fallback so rsaSigner returns null — the handler sets neither item.oneClick nor item.oneClickBlocked (the asyncOnly/otherSubdomain branches are in the else arm), so siteDomains renders &#x27;&#x27; for the one-click area. That is exactly the ambiguity the comment at worker.js:9129-9131 says this field removes: &quot;a panel showing no button cannot distinguish &#x27;your DNS provider does not support this&#x27; from &#x27;this platform has no signing key&#x27;.&quot; CLAUDE.md also records that a masked *** in the deploy log no longer proves this secret has a value, so this field was the only intended observable.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>The RSA signing key is dropped, rotated wrongly, or falls back to the placeholder. Every owner whose provider does support Domain Connect sees no one-click button and no sentence — byte-identical to a provider that does not support it. Nothing in the product, the API response as rendered, or the deploy log distinguishes them, so a platform-side outage of the one-click feature stays invisible indefinitely.</p>
+</article>
+<article class="f" data-sev="medium" data-area="worker">
+  <header class="fh">
+    <span class="sev s-medium"><i class="dot"></i>medium</span>
+    <h3>A transient _meta read on a revise permanently re-rolls the theme and wipes colour overrides</h3>
+  </header>
+  <p class="loc"><code>worker.js:8545</code></p>
+  <p class="d">priorLook/priorTokens are read inside a try whose catch only logs (8547-8554). On failure both stay null, so `look` falls back to the designer&#x27;s fresh theme/family/fonts from the instruction alone - and `if (!priorLook)` at 8566 then WRITES that re-rolled look back into _meta, replacing the good one. priorTokens null also makes mergeTokens(null, designed.tokens) at 8585 discard every accumulated override, written back whenever the revise names a colour. The comment claims this &#x27;can never be worse than what it replaces&#x27;; it is worse, because the loss is persisted rather than lasting one build. Related: these reads and priorPages (8661) gate on `priorBrief` while `revise` gates on `existing`, which 8360-8371 already argues is the correct signal.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>A customer revises their site and the single SELECT against the site&#x27;s Neon _meta times out (a per-site project scaled to zero). The build succeeds and the site comes back with a different theme, different fonts and its yellow background gone - the exact re-roll site_look was added to stop - and the stored look now records the new one, so the next revise cannot recover it.</p>
+</article>
+<article class="f" data-sev="medium" data-area="worker">
+  <header class="fh">
+    <span class="sev s-medium"><i class="dot"></i>medium</span>
+    <h3>Game builder buys up to 5 fal sprites with no affordability check and discards the collect result</h3>
+  </header>
+  <p class="loc"><code>worker.js:7594</code></p>
+  <p class="d">/api/game/build gates once, on `bal0 &gt;= gbCredits(2500, GB_MAX_OUT)` = 31 credits (7527), then charges as it goes. injectGameAssets(files, env, 5) at 7592 takes no balance argument and calls genSpritePng for up to 5 tokens unconditionally — real fal spend at SPRITE_IMG_USD $0.15 each — before any ledger read. Only afterwards does 7594-7595 compute `sc = charged * 19` and `await collectCredits(auth, sc)`, DISCARDING the return, while `cost += sc` accumulates the full ask. The site builder solves exactly this by calling imagesAffordable(budget, {balance, reserve}) (builder/site-images.mjs:152) before buying anything; the game path has no equivalent, and the discarded return is the same shape collectCredits was written to fix everywhere else.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>A user with 31 credits toggles &quot;✨ AI art&quot; (chat.js:13015) and builds a game. The generation call collects ~22, leaving ~9. Five sprites are then generated — $0.75 of real fal money — and billed at 5 x 19 = 95 credits; collectCredits can take only ~9, so about 86 credits (~$0.69) of spend is never collected. The terminal {ev:&quot;done&quot;} still reports cost: ~117, a number that never left the ledger.</p>
+</article>
+<article class="f" data-sev="medium" data-area="worker">
+  <header class="fh">
+    <span class="sev s-medium"><i class="dot"></i>medium</span>
+    <h3>POST /api/stripe/site/&lt;slug&gt; buffers an unbounded body and has no rate limit</h3>
+  </header>
+  <p class="loc"><code>worker.js:6874</code></p>
+  <p class="d">`const raw = await request.text();` runs with no `tooLargeBody` guard and no `_dataLimiter.hit`. The platform&#x27;s own webhook one branch below does exactly this cap — 6929, `tooLargeBody(request, 262_144); // public+unauth endpoint — cap before buffering the body twice for HMAC` — and every other public route is rate-limited (auth 7969, checkout 7997, extapi 7855, turnstile 7940). This route is the same class: unauthenticated and publicly addressable (the URL is printed for the owner to copy at public/chat.js:12106). Per request, before the signature is checked, it does a siteBackendBySlug lookup, a `SELECT cipher FROM _secrets` against the site&#x27;s Neon compute, an AES-GCM decrypt and an HMAC over the whole buffered body — none of it gated on the caller being Stripe.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>Anyone who learns a slug POSTs large bodies to /api/stripe/site/&lt;slug&gt; in a loop. Each request buffers the body in the 128 MB isolate and HMACs it, and each wakes the site&#x27;s Neon compute for a _secrets read — keeping a scale-to-zero database awake and billing, with a large enough body able to OOM the isolate. No credential needed, nothing throttles it.</p>
+</article>
+<article class="f" data-sev="low" data-area="builder">
+  <header class="fh">
+    <span class="sev s-low"><i class="dot"></i>low</span>
+    <h3>Each build leaks its SSR module graph into the container process for as long as it lives</h3>
+  </header>
+  <p class="loc"><code>builder/build-server.mjs:237</code></p>
+  <p class="d">Cache-busting with `?v=` + Date.now() gives the entry a fresh key every build. Node&#x27;s ESM registry has no eviction, so the module record, its source text and its compiled code are retained until the process exits; its per-site chunks are content-hashed, so each build contributes new ones (the repo&#x27;s own 4-page dist-ssr is 120 KB). Deleting dist-ssr from disk (line 74) frees none of it. The cache-buster is necessary — without it every site would be snapshotted as the first — but nothing bounds the growth, and the only reclaim is the container sleeping.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>On a busy stretch, builds arrive less than 5 minutes apart, the container never sleeps (sleepAfter=&quot;5m&quot;) and the retained set grows monotonically. When it exhausts the instance the OOM kill lands on whichever build is running and is reported as `vite build was killed by SIGTERM` — the exact string already on record as a deploy-drain symptom — so the cause reads as a Cloudflare rollout and the retry lands in the same process.</p>
+</article>
+<article class="f" data-sev="low" data-area="builder">
+  <header class="fh">
+    <span class="sev s-low"><i class="dot"></i>low</span>
+    <h3>PAGE_RULES still describes the deleted Worker row API, which now 400s where it claims a fallback</h3>
+  </header>
+  <p class="loc"><code>builder/page-gen.mjs:2115</code></p>
+  <p class="d">The &quot;Reading rows&quot; rules describe the platform&#x27;s own row route, deleted 2026-07-30 when reads moved to Neon&#x27;s Data API. Line 2114: &quot;`limit` is capped at 100&quot; — nothing caps it now; pgQuery passes limit straight to PostgREST. Line 2115: &quot;`order` must be a DECLARED column or \&quot;id\&quot; — any other value silently falls back to id&quot;, and &quot;`created_at` is NOT orderable unless the table declared it&quot; — PostgREST orders by any real column, and created_at IS one (site-schema.mjs:551); an unknown column is a 400/42703, never a fallback. Line 2117: &quot;only on declared columns&quot; — an undeclared filter column is likewise a 400. rows.ts:124 repeats the fallback claim in RowQuery. All wrong in the harmful direction: they tell the model a mistake degrades gracefully when it now takes the whole list down.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>The generator writes `useRows(&quot;services&quot;, { order: &quot;priority&quot; })` on a table with no priority column, trusting the documented silent fallback to id. PostgREST answers 400 42703, humanPgError renders &quot;That isn&#x27;t available.&quot;, and the services list on the published page is a permanent error state instead of an unsorted list. Nothing in the lint or the typecheck checks an order or filter column name.</p>
+</article>
+<article class="f" data-sev="low" data-area="worker">
+  <header class="fh">
+    <span class="sev s-low"><i class="dot"></i>low</span>
+    <h3>The &quot;your domain is live&quot; email is silently skipped whenever the panel wins the pending→live transition</h3>
+  </header>
+  <p class="loc"><code>worker.js:9146</code></p>
+  <p class="d">mailDomainLive has exactly one caller (worker.js:2117), inside runDomainWatch, and it fires only when the cron&#x27;s conditional PATCH (…&amp;status=eq.pending) claims the row. The GET /api/site/&lt;slug&gt;/domains listing performs the same pending→live write at worker.js:9146 filtered on hostname ALONE, with no status guard and no mail. The cron then selects status=eq.pending (worker.js:2080) and no longer sees the row, so nothing ever sends. The comment above runDomainWatch claims the mail is &quot;SENT EXACTLY ONCE BY CONSTRUCTION … because the update that sends it is also the update that stops it being pending&quot; — there are two writers of that transition and only one of them mails, so the invariant the design rests on does not hold.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>An owner adds a domain and is told by the panel copy &quot;you can close this and we&#x27;ll email you when it&#x27;s live.&quot; They reopen the Domains panel while the certificate is issuing; that request reads Cloudflare, sees active, and flips the row to live itself. The email is never sent to anyone, and the row can no longer be picked up by the only code path that sends it.</p>
+</article>
+<article class="f" data-sev="low" data-area="worker">
+  <header class="fh">
+    <span class="sev s-low"><i class="dot"></i>low</span>
+    <h3>The web-research model call is fired before the ownership check and abandoned unbilled on five early returns</h3>
+  </header>
+  <p class="loc"><code>worker.js:8351</code></p>
+  <p class="d">researchPromise (a Sonnet call with server-side web_search, priced at SEARCH_USD $0.01 per search plus tokens) starts at 8351. The 409 &#x27;that name is taken&#x27; (8382), the 503 lookup failure (8392), the 422/400 no-tables refusal (8420) and both 502 returns (8437, 8462) all return without awaiting it. Its usage only reaches the ledger as priorUsage on publishPages, which those paths never call, so the spend is incurred and billed to nobody. The .catch at creation prevents an unhandled rejection but the result is discarded; the refunds hand back only schemaCost.</p>
+  <p class="fs"><span class="fsl">Fails like this</span>A brief containing a URL that the designer flags needsWeb resolves to a slug another account already owns. The designer runs, four searches start, and the route answers 409 and refunds schemaCost about 40 seconds later - while ~$0.04 of search plus a Sonnet call has been spent on a request that produced nothing and charged nothing.</p>
+</article>
+<article class="f" data-sev="low" data-area="worker">
+  <header class="fh">
+    <span class="sev s-low"><i class="dot"></i>low</span>
+    <h3>Turnstile never runs on the checkout route — the only write path a payable table has</h3>
+  </header>
+  <p class="loc"><code>worker.js:4021</code></p>
+  <p class="d">`turnstileGate` has exactly one call site, worker.js:4191 inside `proxySiteService`, which covers PostgREST inserts. A payable table has no public INSERT grant (site-rls.mjs:307) so it never reaches that path; its only writer is `handleCheckout`, which contains no turnstile call. The client half matches: rows.ts `useCreateRow` wraps values in `challenged(...)`, while `useCheckout` (rows.ts:467) calls `fetch` directly and attaches no token. So an owner who switches spam protection on has it apply to every form except the one that creates order rows and calls Stripe. The only bound is CHECKOUT_PER_MIN = 6 per IP per slug (worker.js:3893, 7997).</p>
+  <p class="fs"><span class="fsl">Fails like this</span>A bot rotating source IPs hits POST /api/db/&lt;slug&gt;/checkout on a shop with Turnstile enabled. Each request that prices successfully writes a real pending order row and creates a real Stripe Checkout Session on the owner&#x27;s account — filling their order list with junk and consuming their Stripe rate budget — while the Secrets panel tells the owner spam protection is on.</p>
+</article></main>
+<footer>Recovered from ten agent transcripts · 9 August 2026 · verify phase did not run</footer>
+</div>
+<script>
+var sevF=null, areaF=null;
+function apply(){
+  document.querySelectorAll('.f').forEach(function(el){
+    var s=!sevF||el.dataset.sev===sevF, a=!areaF||el.dataset.area===areaF;
+    el.hidden=!(s&&a);
+  });
+  document.querySelectorAll('#sev .chip').forEach(function(c){
+    c.setAttribute('aria-pressed', String(c.dataset.f===sevF));});
+  document.querySelectorAll('#area .chip').forEach(function(c){
+    c.setAttribute('aria-pressed', String(c.dataset.a===areaF));});
+}
+document.querySelectorAll('#sev .chip').forEach(function(c){
+  c.onclick=function(){ sevF = sevF===c.dataset.f?null:c.dataset.f; apply(); };});
+document.querySelectorAll('#area .chip').forEach(function(c){
+  c.onclick=function(){ areaF = areaF===c.dataset.a?null:c.dataset.a; apply(); };});
+apply();
+</script>
