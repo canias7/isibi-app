@@ -19,11 +19,20 @@
 // $0: no model call, no container, no Neon project. Needs the template built.
 import http from "node:http";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
-const DIST = path.join(ROOT, "builder/lovable/template/dist");
+const TEMPLATE = path.join(ROOT, "builder/lovable/template");
+// BUILT INTO A SANDBOX, like every other integration test here, rather than read
+// out of the template's own `dist`. That directory exists on a machine where
+// somebody has run a build by hand and NOT on a fresh checkout — so reading it
+// makes this pass locally and fail in CI on a missing file, which is the exact
+// trap the workflow already records for the browser steps.
+const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), "isibi-routing-"));
+const DIST = path.join(sandbox, "dist");
 
 // Use whatever Chromium is on the machine — same reasoning as site-runtime.mjs.
 function findChromium() {
@@ -71,9 +80,18 @@ function serve(mountPrefix) {
 let passed = 0, failed = 0;
 const ok = (n, c, x) => { c ? (passed++, console.log("  ok   " + n)) : (failed++, console.log("  FAIL " + n + (x ? "  -> " + String(x).slice(0, 220) : ""))); };
 
-if (!fs.existsSync(path.join(DIST, "index.html"))) {
-  console.error("no dist — run `npx vite build` in builder/lovable/template first");
+if (!fs.existsSync(path.join(TEMPLATE, "node_modules"))) {
+  console.error("the template's dependencies are not installed — run `npm ci` in " + TEMPLATE);
   process.exit(1);
+}
+fs.cpSync(TEMPLATE, sandbox, { recursive: true, filter: (src) => !/(^|[\\/])(node_modules|dist|dist-ssr)$/.test(src) });
+fs.symlinkSync(path.join(TEMPLATE, "node_modules"), path.join(sandbox, "node_modules"), "dir");
+{
+  const sh = (cmd, args) => new Promise((r) => spawn(cmd, args, { cwd: sandbox, stdio: ["ignore", "ignore", "inherit"] }).on("close", r));
+  await sh("npx", ["tsr", "generate"]);
+  const code = await sh("npx", ["vite", "build", "--logLevel", "error"]);
+  ok("the template builds", code === 0 && fs.existsSync(path.join(DIST, "index.html")), "vite exited " + code);
+  if (!fs.existsSync(path.join(DIST, "index.html"))) { console.log("\n0 passed, 1 failed"); process.exit(1); }
 }
 
 // ── the rules this harness copies must still be the rules worker.js applies ──
