@@ -483,8 +483,16 @@ test("a REVISE buys no new photographs", () => {
   // signature failure, so the parameter and the call site are asserted apart.
   assert.match(worker, /async function buildAndPublishPages\(env, \{[^}]*\brevise\b[^}]*\}\)/,
     "buildAndPublishPages does not take the flag");
-  assert.match(worker, /revise: !!priorBrief,/,
-    "nothing tells it this is a revise — `priorBrief` is the free signal, off the ownership check");
+  assert.match(worker, /revise: existing,/,
+    "nothing tells it this is a revise — `existing` is the free signal, off the ownership check");
+  // AND THE SIGNAL IS OWNERSHIP, NOT THE STORED BRIEF. This was `!!priorBrief`,
+  // which gives the same answer for every site built since the brief started
+  // being recorded and the WRONG one for anything older: such a revise read as a
+  // first build and would have re-bought every photograph on it at ~19 credits
+  // each. The row is read once, for the ownership check, so this costs nothing.
+  assert.match(worker, /existing = !!\(owner && owner\.uid\);/,
+    "`existing` is not set from the ownership row — the flag arrives as undefined, " +
+    "so every revise reads as a first build and buys photographs again");
 });
 
 test("a revise keeps the site's stored look instead of re-rolling it", () => {

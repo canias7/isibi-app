@@ -142,8 +142,17 @@ try {
   // for themselves, are answerable from these two lines and from nothing else.
   const usage = (label, u, extra) => u && console.log(
     `   ${label}: in ${u.in} · out ${u.out} · cacheRead ${u.cacheRead} · cacheWrite ${u.cacheWrite}${extra || ""}`);
-  usage("schema call", d.schemaUsage, ` → ${d.schemaCredits} credits, charged ${d.schemaFee}`);
-  usage("pages call ", d.pagesUsage, ` → charged ${d.cost - (d.schemaFee || 0)} credits`);
+  // `schemaCost`, NOT `schemaFee` — there has never been a field by that name.
+  // It read `undefined`, so the schema line said "charged undefined" and, worse,
+  // the pages line subtracted `|| 0` and printed the WHOLE bill as the pages
+  // call: a run charging 9 + 11 reported "pages call → charged 20". The two
+  // numbers this report exists to separate were one number wearing a label.
+  // Measured on the 2026-08-09 run, against the trace in the same output.
+  usage("schema call", d.schemaUsage, ` → ${d.schemaCredits} credits, charged ${d.schemaCost}`);
+  usage("pages call ", d.pagesUsage, ` → charged ${d.cost - (d.schemaCost || 0)} credits`);
+  // A total, because two lines that must add up are easier to disbelieve than a
+  // third that states what the customer was actually charged.
+  if (typeof d.cost === "number") console.log(`   total charged: ${d.cost} credits`);
   // A RETRIED CONTAINER, SAID OUT LOUD. A build that succeeded on its second
   // compile is indistinguishable from one that succeeded on its first unless
   // this is printed — and the whole point of the retry is that the failure it
@@ -831,6 +840,22 @@ try {
       ok("and the corner change reached it too",
         /--radius:\s*[^;]+/.test(afterCss) && !/--radius:\s*0rem/.test(afterCss.slice(afterCss.lastIndexOf("--radius:"))),
         (afterCss.match(/--radius:[^;]*/g) || []).slice(-2).join(" ; "));
+
+      // ── AND THE SITE STILL HAS ITS TABLES ────────────────────────────────
+      //
+      // A LOOK-ONLY REVISE DECLARES NOTHING TO STORE, which is correct — the
+      // designer only sees "make the background yellow". Until 2026-08-09 that
+      // was refused outright (422), and the moment it was allowed through the
+      // danger moved one layer down: `_meta.schema` is the only copy the request
+      // path reads, so an apply that writes an empty table list over a real one
+      // takes every table off the data API while its rows sit untouched in
+      // Postgres. The site would look perfect and every list on it would 404.
+      const rowsAfter = await fetch(`${BASE}/api/site/${slug}/rows`, { headers: { Authorization: `Bearer ${jwt}` } });
+      const ra = await rowsAfter.json().catch(() => ({}));
+      const tablesAfter = (Array.isArray(ra.tables) ? ra.tables : []).map((t) => t.name || t).sort();
+      ok("the look-only revise did not erase the site's schema",
+        tablesAfter.length >= (d.tables || []).length && (d.tables || []).every((t) => tablesAfter.includes(t)),
+        `before: ${JSON.stringify((d.tables || []).slice().sort())}  after: ${JSON.stringify(tablesAfter)}`);
 
       // The pages still work after a republish — the other half of the gap.
       //

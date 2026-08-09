@@ -220,13 +220,39 @@ test("a refused build gives back what was actually taken, not the flat fee", () 
   // exact case ("they are left with literally nothing") the exception exists for.
   // `refundCredits` chunks it instead, and the assertion moved with it.
   const w = worker();
-  const i = w.indexOf("That brief didn't describe anything to store");
-  assert.ok(i > 0, "the no-tables refusal was reworded — rescope this");
-  const block = w.slice(i - 400, i);
-  assert.match(block, /refundCredits\(env, bu\.id, Math\.max\(0, schemaCost \|\| SITE_BUILD_FEE\)\)/,
+  // ANCHORED FORWARD FROM THE CONDITION, not backward from the message by a
+  // byte count. The refund and the wording are now separated by a ternary, and a
+  // window sized in bytes stops covering what it was written for the moment a
+  // comment lands between them — this session's recurring bug.
+  const at = w.indexOf("if (!spec.tables.length && !existing) {");
+  assert.ok(at > 0, "the no-tables refusal was reshaped — rescope this");
+  const block = w.slice(at, w.indexOf("let db;", at));
+  assert.ok(block.length > 200 && block.length < 2000, "the refusal block scan lost its bounds");
+  assert.match(block, /That brief didn't describe anything to store/,
+    "the refusal no longer says anything a customer can act on");
+  assert.match(block, /refundCredits\(env, bu\.id, Math\.max\(0, schemaCost\)\)/,
     "a refused build refunds the deposit and keeps the settlement");
+  // NO `|| SITE_BUILD_FEE` FALLBACK. This one refusal now serves the designer
+  // path AND the explicit-schema path, and on the second one nothing was ever
+  // taken (`schemaCost` is 0) — falling back to the fee there would hand back
+  // credits the caller never spent.
+  assert.ok(!/schemaCost \|\| SITE_BUILD_FEE/.test(block),
+    "the fee fallback is back, so an explicit-schema refusal refunds money nobody paid");
   assert.ok(!/Math\.min\(10,[^)]*schemaCost/.test(block),
     "the 10-credit clamp is back, so a cold Opus refusal keeps 5 credits");
+
+  // AND IT MUST NOT FIRE ON A REVISE — the live bug this moved for.
+  //
+  // The designer only sees the instruction on a revise, so "make the background
+  // yellow" correctly declares no tables. Refused, that answered 422 and changed
+  // nothing, which killed the whole token-override feature the day after it
+  // shipped. Measured against the deployed Worker on 2026-08-09, not reasoned.
+  //
+  // Asserted on the CONDITION rather than on `existing` appearing somewhere in
+  // the block: the flag being mentioned is not the flag being required.
+  assert.ok(at > w.indexOf("existing = !!(owner && owner.uid)"),
+    "the refusal sits before the ownership lookup again, where `existing` is not " +
+    "known yet — which is exactly how it came to refuse every look-only revise");
   // And the chunker really chunks: one call would hit the same RPC ceiling.
   const rc = w.slice(w.indexOf("async function refundCredits"), w.indexOf("// Read the caller's balance"));
   assert.ok(rc.length > 100, "refundCredits moved — this checks nothing");

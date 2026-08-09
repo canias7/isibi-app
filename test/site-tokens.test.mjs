@@ -704,3 +704,39 @@ test("the merge inherits a flag this run said nothing about", () => {
   assert.match(src, /if \(t\.retired === undefined && prevT && prevT\.retired !== undefined\) t\.retired = prevT\.retired;/,
     "a table re-listed without `retired` must keep whatever it was");
 });
+
+test("an apply that declares nothing cannot erase the stored schema", () => {
+  // A LOOK-ONLY REVISE NOW REACHES HERE WITH ZERO TABLES.
+  //
+  // "Make the background yellow" declares nothing to store, and until 2026-08-09
+  // the route refused it outright — so this line could never be reached with an
+  // empty `norm`. Now it can, and `_meta.schema` is the ONLY copy the request
+  // path reads: writing `{tables: []}` over a real schema takes every table off
+  // the data API while its rows sit untouched in Postgres.
+  //
+  // The merge above normally hands the stored tables back. It is wrapped in a
+  // bare `catch {}`, though — a transient read failure leaves `mergedTables` as
+  // that empty list, and this would publish it.
+  const src = fs.readFileSync(new URL("../site-schema.mjs", import.meta.url), "utf8");
+  const write = src.indexOf(`INSERT INTO _meta (k,v) VALUES ('schema', ?)`);
+  assert.ok(write > 0, "the schema write moved — rescope this");
+
+  // Anchored on what is IMMEDIATELY above the write, not on the guard existing
+  // somewhere in the file: a condition that does not enclose the statement is
+  // not a guard.
+  const before = src.slice(src.lastIndexOf("\n", src.lastIndexOf("\n", write - 1) - 1), write);
+  assert.match(before, /if \(mergedTables\.length \|\| norm\.length\) \{/,
+    "the schema write is not gated — an apply with nothing to say erases the site's tables");
+
+  // BOTH HALVES ARE LOAD-BEARING, and either alone is wrong in a different way.
+  // `norm.length` alone skips the write on the ordinary revise that merged
+  // successfully and declared nothing, leaving `_meta` stale against DDL that
+  // just ran. `mergedTables.length` alone is what the merge failure produces.
+  // Asserted apart so a mutation dropping one is caught.
+  const cond = before.slice(before.indexOf("if ("));
+  assert.ok(/mergedTables\.length/.test(cond), "the merged list is not consulted");
+  assert.ok(/norm\.length/.test(cond), "this run's own tables are not consulted");
+  assert.ok(/\|\|/.test(cond) && !/&&/.test(cond),
+    "the two halves are ANDed — either can be empty on a legitimate apply, so " +
+    "requiring both skips writes that must happen");
+});

@@ -959,7 +959,21 @@ export async function applySiteSchema(uuid, spec) {
     }
     if (byName.size) metaOut.functions = Array.from(byName.values());
   }
-  await sqlQuery(uuid, "INSERT INTO _meta (k,v) VALUES ('schema', ?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", [JSON.stringify(metaOut)]);
+  // AN APPLY THAT DECLARES NOTHING MUST NOT ERASE WHAT IS STORED.
+  //
+  // `_meta.schema` is the ONLY copy the request path ever reads, so writing an
+  // empty table list over a real one takes every table on the site off the data
+  // API while its rows sit untouched in Postgres. That was unreachable while an
+  // empty spec was refused at the route; a look-only revise ("make the
+  // background yellow") now reaches here with zero tables, and the merge above
+  // hands back the stored ones — EXCEPT when its read throws, where `mergedTables`
+  // is still that empty list and this would publish it.
+  //
+  // Skipped rather than written, because with nothing declared and nothing
+  // merged there is genuinely nothing to record: the write could only destroy.
+  if (mergedTables.length || norm.length) {
+    await sqlQuery(uuid, "INSERT INTO _meta (k,v) VALUES ('schema', ?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", [JSON.stringify(metaOut)]);
+  }
   // The spec on disk just changed; anything this isolate remembered is stale.
   invalidateSiteSchema(uuid);
   // ATTACHED TO THE ARRAY, and the guard that used to wrap this said

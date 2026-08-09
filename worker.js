@@ -8209,22 +8209,9 @@ async function handleRequest(request, env, ctx) {
             truncated: !!(e && e.truncated),
           }, { status: 503 });
         }
-        if (!designed || !Array.isArray(designed.tables) || !designed.tables.length) {
-          // REFUNDS WHAT WAS ACTUALLY TAKEN, not the flat fee. Once the deposit
-          // settles to real usage those two are different numbers, and refunding
-          // the fee here would keep the settlement — quietly charging for a build
-          // that 422s. Clamped to `credit_back`'s own 10-credit ceiling, which is
-          // far above what this call costs but is a real limit in the RPC.
-          //
-          // STILL A REFUND, and this is the one place the new rule bends. A
-          // page-generation failure keeps its charge because the customer is left
-          // a live database and a placeholder — real work, retained. This path
-          // returns before anything is provisioned, so they are left with
-          // literally nothing, and "charge for what you use" was never meant to
-          // mean charging for an empty hand.
-          await refundCredits(env, bu.id, Math.max(0, schemaCost || SITE_BUILD_FEE));
-          return Response.json({ ok: false, msg: "That brief didn't describe anything to store — try naming what the site keeps track of." }, { status: 422 });
-        }
+        // A DESIGNER THAT DECLARED NO TABLES IS NOT AUTOMATICALLY AN ERROR — see
+        // the one refusal below, after the ownership lookup. It used to be
+        // refused right here, and that made a look-only revise impossible.
       }
 
       // WEB RESEARCH, STARTED HERE AND AWAITED MUCH LATER — the gap is the point.
@@ -8261,6 +8248,12 @@ async function handleRequest(request, env, ctx) {
       // (ensureSiteBackend now enforces this too; belt and braces, because the
       // consequence is a cross-account write.)
       let priorBrief = "";
+      // IS THIS SLUG ALREADY A SITE OF THIS CALLER'S — i.e. is this a revise?
+      // Read off the same row as the ownership check, so it costs nothing, and
+      // it is the OWNERSHIP that decides rather than the stored brief: a site
+      // built before `brief` was recorded is still a revise, and treating it as
+      // a first build would re-buy every photograph on it.
+      let existing = false;
       try {
         const owner = await siteBackendRowFresh(env, slug);
         if (owner && owner.uid && owner.uid !== bu.id) {
@@ -8273,6 +8266,7 @@ async function handleRequest(request, env, ctx) {
           return Response.json({ ok: false, error: "that name is taken", cost: 0 }, { status: 409 });
         }
         // Free — this lookup already happens for the ownership check.
+        existing = !!(owner && owner.uid);
         priorBrief = (owner && owner.brief) || "";
       } catch (e) {
         console.error("ownership check failed:", slug, e && (e.detail || e.message));
@@ -8287,9 +8281,31 @@ async function handleRequest(request, env, ctx) {
 
       const spec = normalizeSchema(body.schema || designed || {});
       tr.at("normalize");
-      if (!spec.tables.length) {
+      // NO TABLES IS ONLY AN ERROR ON A FIRST BUILD.
+      //
+      // This refusal used to sit before the ownership lookup, where `existing`
+      // is not known yet — so it fired on every revise that named no table, and
+      // "make the background yellow" answered 422 and changed nothing. That is
+      // the exact instruction token overrides were built for: the designer sees
+      // only the instruction on a revise, so a look-only change CORRECTLY
+      // declares nothing to store, and the site's real schema is already in
+      // `_meta` where the merge leaves it untouched. Measured live 2026-08-09 —
+      // the smoke run's revise came back 422 with the whole feature dead.
+      //
+      // On a first build it is still the right answer, and it is still a refund:
+      // this returns before anything is provisioned, so the customer is left
+      // with literally nothing, and "charge for what you use" was never meant to
+      // mean charging for an empty hand. The refund is what was ACTUALLY taken,
+      // not the flat fee — once the deposit settles to real usage those are two
+      // different numbers, and refunding the fee would quietly keep the
+      // settlement on a build that 422s.
+      if (!spec.tables.length && !existing) {
         await refundCredits(env, bu.id, Math.max(0, schemaCost));
-        return Response.json({ ok: false, error: "schema declares no tables", cost: 0 }, { status: 400 });
+        // A caller that sent its own schema gets the machine answer; a customer
+        // whose brief the designer could make nothing of gets the sentence.
+        return body.schema
+          ? Response.json({ ok: false, error: "schema declares no tables", cost: 0 }, { status: 400 })
+          : Response.json({ ok: false, msg: "That brief didn't describe anything to store — try naming what the site keeps track of.", cost: 0 }, { status: 422 });
       }
 
       let db;
@@ -8509,11 +8525,17 @@ async function handleRequest(request, env, ctx) {
               files: attached.texts,
             }),
             spec: pageSpec, slug, brand,
-            // A REVISE, and the signal is free: `priorBrief` is read off
-            // site_backends during the ownership check and is only ever set when
+            // A REVISE, and the signal is free: `existing` is read off
+            // site_backends during the ownership check and is true exactly when
             // this slug has already been built. No new field on the request, and
             // nothing a client can claim.
-            revise: !!priorBrief,
+            //
+            // OWNERSHIP, NOT THE STORED BRIEF. This was `!!priorBrief`, which is
+            // the same answer for every site built since the brief started being
+            // recorded and the WRONG one for anything older — a revise on such a
+            // site read as a first build and would have re-bought every
+            // photograph on it at ~19 credits each.
+            revise: existing,
             // THE SITE AS IT STANDS, so a revise EDITS it rather than writing
             // every page again from the brief. Read only on a revise — a first
             // build has nothing to edit — and best-effort, because losing it

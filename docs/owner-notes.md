@@ -14787,3 +14787,27 @@ rather than one build.
 **Editing text is proven live now**, end to end: it lists the words on a page,
 changes one, rebuilds and republishes the site, refuses the same edit sent twice
 (so nothing gets applied to a page that's moved on), and charges nothing.
+
+### "Make the background yellow" was refused (2026-08-09)
+
+Found by the deploy check driving a real session, not by reading code. Asking
+for a colour or corner change on an existing site came back with *"That brief
+didn't describe anything to store"* and did nothing — so the whole
+change-one-colour feature was dead the day after it shipped.
+
+The cause: on a change request the builder is only shown what you typed, and
+"make the background yellow" quite rightly names nothing to store. The site
+took that as an empty brief. It now knows the difference between a new site
+(where an empty brief really is a problem) and a change to one that already
+exists.
+
+Two things came out of fixing it. A change like that now can't wipe your site's
+data structure if anything goes wrong mid-way — previously nothing stopped it,
+because that case was impossible to reach. And a revise on an older site was
+being treated as a brand-new build, which would have re-bought every photograph
+on it; that's now decided by whether the site exists rather than by a record
+that older sites don't have.
+
+Also fixed: the deploy check's own cost report was printing the whole bill under
+the page-writing step and nothing under the data-model step, so the two numbers
+it exists to tell apart were the same number twice.
