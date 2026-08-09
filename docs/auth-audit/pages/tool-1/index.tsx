@@ -1,21 +1,21 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMember, useLogin, useSignup } from "@/lib/rows";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
-import { useNavigate } from "@tanstack/react-router";
-import { useEffect } from "react";
 
+import { useMember, useLogin, useSignup } from "@/lib/rows";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { SafeImage } from "@/components/ui/safe-image";
@@ -34,25 +34,30 @@ function Door() {
   const login = useLogin();
   const signup = useSignup();
   const navigate = useNavigate();
-
-  useEffect(() => {
-    if (member.data) {
-      navigate({ to: "/records" });
-    }
-  }, [member.data, navigate]);
+  const [mode, setMode] = useState<"login" | "signup">("login");
 
   const form = useForm<Credentials>({
     resolver: zodResolver(credentials),
     defaultValues: { email: "", password: "" },
   });
 
-  const submit = (action: typeof login, values: Credentials) => {
-    action.mutate(values, {
-      onSuccess: () => {
+  if (!member.isPending && member.data) {
+    navigate({ to: "/records" });
+  }
+
+  const submit = (values: Credentials) => {
+    const action = mode === "login" ? login : signup;
+    const payload = mode === "login" ? values : { ...values, name: values.email.split("@")[0] };
+    action.mutate(payload, {
+      onSuccess: (data) => {
+        if (data && typeof data === "object" && "pending" in data) {
+          toast.message("Check your authenticator app to finish signing in.");
+          return;
+        }
         form.reset();
         navigate({ to: "/records" });
       },
-      onError: () => toast.error("That email and password didn't match."),
+      onError: (e) => toast.error(e.message),
     });
   };
 
@@ -62,43 +67,46 @@ function Door() {
         <p className="text-lg font-semibold tracking-tight">Halyard</p>
         <div className="max-w-md py-12">
           <h1 className="text-3xl font-semibold tracking-tight text-balance">
-            Every deal your team is working — one shared table, no inbox archaeology
+            Every deal the team is working, one shared table
           </h1>
           <p className="mt-4 text-muted-foreground">
-            Halyard is the internal deal tracker for small sales teams: everyone
-            signs in, sees the deals the team is working, adds their own, and
-            keeps a shared list of accounts up to date.
+            Halyard is where a small sales team keeps its deals honest — everyone signs in, sees
+            the same pipeline, adds a deal, and the whole team reads what changed and when.
           </p>
           <SafeImage className="mt-8" src={null} alt="The team's deals, as a table" ratio="16/10" />
           <ul className="mt-8 space-y-4 text-sm">
             <li className="flex items-start gap-3">
               <StatusBadge state="success">live</StatusBadge>
-              <span>Deals stay with the team — anyone can see and move any deal</span>
+              <span>One shared list of deals — no spreadsheet, no "whose copy is newest"</span>
             </li>
             <li className="flex items-start gap-3">
               <StatusBadge state="success">live</StatusBadge>
-              <span>One shared account list, written by whoever's on the call</span>
+              <span>A shared account book everyone on the team can add to</span>
             </li>
             <li className="flex items-start gap-3">
               <StatusBadge state="neutral">soon</StatusBadge>
-              <span>The playbook — the plays that have worked, in one place</span>
+              <span>Stage automation and quote templates</span>
             </li>
           </ul>
         </div>
         <p className="text-xs text-muted-foreground">
-          Built for teams of five to fifteen — no admin console to learn first.
+          Built for teams of five to fifteen. No public pages, no marketing — just the tool.
         </p>
       </section>
 
       <section className="flex items-center justify-center p-10">
         <Card className="w-full max-w-sm">
           <CardHeader>
-            <CardTitle>Sign in</CardTitle>
-            <CardDescription>Back to the pipeline in one field and a click.</CardDescription>
+            <CardTitle>{mode === "login" ? "Sign in" : "Create an account"}</CardTitle>
+            <CardDescription>
+              {mode === "login"
+                ? "Back to the pipeline in one field and a click."
+                : "Join your team's workspace."}
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <Form {...form}>
-              <form className="grid gap-4" onSubmit={form.handleSubmit((v) => submit(login, v))}>
+              <form className="grid gap-4" onSubmit={form.handleSubmit(submit)}>
                 <FormField
                   control={form.control}
                   name="email"
@@ -106,7 +114,7 @@ function Door() {
                     <FormItem>
                       <FormLabel>Work email</FormLabel>
                       <FormControl>
-                        <Input type="email" autoComplete="email" {...field} />
+                        <Input type="email" autoComplete="email" placeholder="you@team.co" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -125,24 +133,24 @@ function Door() {
                     </FormItem>
                   )}
                 />
-                <div className="flex gap-3">
-                  <Button type="submit" className="motion-press" disabled={login.isPending}>
-                    {login.isPending ? "Signing in…" : "Sign in"}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={signup.isPending}
-                    onClick={form.handleSubmit((v) => submit(signup, v))}
-                  >
-                    Create an account
-                  </Button>
-                </div>
+                <Button type="submit" className="motion-press" disabled={login.isPending || signup.isPending}>
+                  {mode === "login"
+                    ? login.isPending
+                      ? "Signing in…"
+                      : "Sign in"
+                    : signup.isPending
+                      ? "Creating…"
+                      : "Create account"}
+                </Button>
+                <button
+                  type="button"
+                  className="text-center text-xs text-muted-foreground underline underline-offset-4"
+                  onClick={() => setMode(mode === "login" ? "signup" : "login")}
+                >
+                  {mode === "login" ? "New here? Create an account" : "Already have an account? Sign in"}
+                </button>
               </form>
             </Form>
-            <p className="mt-4 text-center text-xs text-muted-foreground">
-              Not signed in yet? <Link className="underline underline-offset-4" to="/records">See what /records asks for</Link>.
-            </p>
           </CardContent>
         </Card>
       </section>

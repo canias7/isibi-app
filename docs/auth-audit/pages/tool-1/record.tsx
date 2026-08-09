@@ -1,30 +1,13 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
+import { useState } from "react";
 import { toast } from "sonner";
 
-import { useMember, useLogin, useSignup, useRows, useUpdateRow, type Row } from "@/lib/rows";
+import { useMember, useRows, useUpdateRow, type Row } from "@/lib/rows";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
 import { RecordHeader } from "@/components/ui/record-header";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { ActivityFeed } from "@/components/ui/activity-feed";
+import { ActivityFeed, type Activity } from "@/components/ui/activity-feed";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export const Route = createFileRoute("/record")({
@@ -45,21 +28,12 @@ function stageState(stage: string | null): "success" | "warning" | "danger" | "n
   return "neutral";
 }
 
-const credentials = z.object({
-  email: z.string().email("That doesn't look like an email address"),
-  password: z.string().min(8, "At least 8 characters"),
-});
-type Credentials = z.infer<typeof credentials>;
-
-const editSchema = z.object({
-  title: z.string().min(2, "Give the deal a name"),
-  value: z.string().min(1, "Add an estimated value"),
-  stage: z.string().min(1, "Pick a stage"),
-});
-type EditForm = z.infer<typeof editSchema>;
-
 function RecordPage() {
   const member = useMember();
+  const { id } = Route.useSearch();
+  const deals = useRows<Deal>("deals");
+  const update = useUpdateRow<Deal>("deals");
+  const [valueDraft, setValueDraft] = useState<string | null>(null);
 
   if (member.isPending) {
     return (
@@ -70,123 +44,29 @@ function RecordPage() {
   }
 
   if (!member.data) {
-    return <SignInPrompt />;
-  }
-
-  return <RecordBody />;
-}
-
-function SignInPrompt() {
-  const login = useLogin();
-  const signup = useSignup();
-
-  const form = useForm<Credentials>({
-    resolver: zodResolver(credentials),
-    defaultValues: { email: "", password: "" },
-  });
-
-  const submit = (action: typeof login, values: Credentials) => {
-    action.mutate(values, {
-      onSuccess: () => form.reset(),
-      onError: () => toast.error("That email and password didn't match."),
-    });
-  };
-
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/40 p-10">
-      <Card className="w-full max-w-sm">
-        <CardHeader>
-          <CardTitle>Sign in to Halyard</CardTitle>
-          <CardDescription>Records are only visible to the signed-in team.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Form {...form}>
-            <form className="grid gap-4" onSubmit={form.handleSubmit((v) => submit(login, v))}>
-              <FormField
-                control={form.control}
-                name="email"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Work email</FormLabel>
-                    <FormControl>
-                      <Input type="email" autoComplete="email" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="password"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Password</FormLabel>
-                    <FormControl>
-                      <Input type="password" autoComplete="current-password" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <div className="flex gap-3">
-                <Button type="submit" className="motion-press" disabled={login.isPending}>
-                  {login.isPending ? "Signing in…" : "Sign in"}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={signup.isPending}
-                  onClick={form.handleSubmit((v) => submit(signup, v))}
-                >
-                  Create an account
-                </Button>
-              </div>
-            </form>
-          </Form>
-          <p className="mt-4 text-center text-xs text-muted-foreground">
-            <Link className="underline underline-offset-4" to="/">Back to the front door</Link>
-          </p>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-function RecordBody() {
-  const { id } = Route.useSearch();
-  const deals = useRows<Deal>("deals");
-  const update = useUpdateRow<Deal>("deals");
-
-  const deal = deals.data?.find((d) => String(d.id) === id);
-
-  const form = useForm<EditForm>({
-    resolver: zodResolver(editSchema),
-    values: deal
-      ? { title: deal.title, value: deal.value ?? "", stage: deal.stage ?? "new" }
-      : undefined,
-  });
-
-  const onSave = (values: EditForm) => {
-    if (!deal) return;
-    update.mutate(
-      { id: deal.id, ...values },
-      {
-        onSuccess: () => toast.success("Saved."),
-        onError: (e: Error) => toast.error(e.message),
-      },
+    return (
+      <div className="flex min-h-screen items-center justify-center px-6">
+        <div className="max-w-sm text-center">
+          <h1 className="text-2xl font-semibold tracking-tight">Sign in to view this record</h1>
+          <p className="mt-2 text-muted-foreground">Deal records are private to signed-in members.</p>
+          <Button asChild className="mt-6">
+            <Link to="/">Go to sign in</Link>
+          </Button>
+        </div>
+      </div>
     );
-  };
+  }
 
   if (!id) {
     return (
-      <div className="mx-auto max-w-lg px-6 py-16">
-        <p className="text-muted-foreground">
-          No record selected.{" "}
-          <Link to="/records" className="underline">
-            Back to the records
-          </Link>
-          .
-        </p>
+      <div className="flex min-h-screen items-center justify-center px-6">
+        <div className="max-w-sm text-center">
+          <h1 className="text-2xl font-semibold tracking-tight">No record chosen</h1>
+          <p className="mt-2 text-muted-foreground">Open a deal from the pipeline table.</p>
+          <Button asChild className="mt-6">
+            <Link to="/records">Back to records</Link>
+          </Button>
+        </div>
       </div>
     );
   }
@@ -194,127 +74,118 @@ function RecordBody() {
   if (deals.isPending) {
     return (
       <div className="mx-auto max-w-3xl px-6 py-16">
-        <Skeleton className="h-40 rounded-xl" />
+        <Skeleton className="h-48 rounded-xl" />
       </div>
     );
   }
 
   if (deals.isError) {
     return (
-      <div className="mx-auto max-w-lg px-6 py-16">
+      <div className="mx-auto max-w-3xl px-6 py-16">
         <p className="text-sm text-destructive">Couldn't load this record. Refresh and try again.</p>
       </div>
     );
   }
 
+  const deal = deals.data?.find((d) => String(d.id) === id);
+
   if (!deal) {
     return (
-      <div className="mx-auto max-w-lg px-6 py-16">
-        <p className="text-muted-foreground">
-          We couldn't find that deal. It may have been removed by someone on the team.{" "}
-          <Link to="/records" className="underline">
-            Back to the records
-          </Link>
-          .
-        </p>
+      <div className="mx-auto max-w-3xl px-6 py-16 text-center">
+        <h1 className="text-2xl font-semibold tracking-tight">We couldn't find that deal</h1>
+        <p className="mt-2 text-muted-foreground">It may have been removed.</p>
+        <Button asChild className="mt-6">
+          <Link to="/records">Back to records</Link>
+        </Button>
       </div>
     );
   }
 
+  const activity: Activity[] = [
+    { who: "The team", what: `Created "${deal.title}"`, at: deal.created_at },
+  ];
+  if (deal.updated_at && deal.updated_at !== deal.created_at) {
+    activity.push({ who: "The team", what: `Updated to stage "${deal.stage ?? "new"}"`, at: deal.updated_at });
+  }
+
+  const onStage = (stage: string) => {
+    update.mutate(
+      { id: deal.id, stage },
+      {
+        onSuccess: () => toast.success("Stage updated"),
+        onError: (e) => toast.error(e.message),
+      },
+    );
+  };
+
+  const onValueSave = () => {
+    if (valueDraft === null) return;
+    update.mutate(
+      { id: deal.id, value: valueDraft },
+      {
+        onSuccess: () => {
+          toast.success("Value updated");
+          setValueDraft(null);
+        },
+        onError: (e) => toast.error(e.message),
+      },
+    );
+  };
+
   return (
     <div className="mx-auto max-w-3xl px-6 py-10">
       <Link to="/records" className="text-sm text-muted-foreground underline underline-offset-4">
-        ← Back to the records
+        ← Back to our deals
       </Link>
 
       <div className="mt-4">
         <RecordHeader
           title={deal.title}
-          subtitle={`Deal · shared with the team`}
+          subtitle="Shared with the team"
           status={<StatusBadge state={stageState(deal.stage)}>{deal.stage ?? "new"}</StatusBadge>}
         />
       </div>
 
-      <Card className="mt-6">
-        <CardHeader>
-          <CardTitle className="text-base">Fields</CardTitle>
-          <CardDescription>Edits here save straight to the team's shared record.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Form {...form}>
-            <form className="grid gap-4 sm:grid-cols-2" onSubmit={form.handleSubmit(onSave)}>
-              <FormField
-                control={form.control}
-                name="title"
-                render={({ field }) => (
-                  <FormItem className="sm:col-span-2">
-                    <FormLabel>Title</FormLabel>
-                    <FormControl>
-                      <Input {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="value"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Value</FormLabel>
-                    <FormControl>
-                      <Input {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="stage"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Stage</FormLabel>
-                    <FormControl>
-                      <select
-                        className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
-                        {...field}
-                      >
-                        {STAGES.map((s) => (
-                          <option key={s} value={s}>
-                            {s}
-                          </option>
-                        ))}
-                      </select>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <div className="sm:col-span-2">
-                <Button type="submit" className="motion-press" disabled={update.isPending}>
-                  {update.isPending ? "Saving…" : "Save changes"}
-                </Button>
-              </div>
-            </form>
-          </Form>
-        </CardContent>
-      </Card>
+      <div className="mt-8 grid gap-6 sm:grid-cols-2">
+        <div>
+          <p className="text-xs font-medium uppercase text-muted-foreground">Value</p>
+          <div className="mt-2 flex gap-2">
+            <Input
+              value={valueDraft ?? deal.value ?? ""}
+              onChange={(e) => setValueDraft(e.target.value)}
+              placeholder="£12,000"
+            />
+            <Button
+              variant="outline"
+              disabled={update.isPending || valueDraft === null}
+              onClick={onValueSave}
+            >
+              Save
+            </Button>
+          </div>
+        </div>
 
-      <Card className="mt-6">
-        <CardHeader>
-          <CardTitle className="text-base">Activity</CardTitle>
-          <CardDescription>What's happened on this deal so far.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ActivityFeed
-            items={[
-              { who: "System", what: `Deal created at stage "${deal.stage ?? "new"}"`, at: deal.created_at },
-            ]}
-            empty="No activity recorded yet."
-          />
-        </CardContent>
-      </Card>
+        <div>
+          <p className="text-xs font-medium uppercase text-muted-foreground">Stage</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {STAGES.map((s) => (
+              <button
+                key={s}
+                className={`rounded-md border px-2 py-1 text-xs capitalize motion-press ${deal.stage === s ? "border-primary bg-primary/10" : "border-border"}`}
+                disabled={update.isPending}
+                onClick={() => onStage(s)}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-10">
+        <p className="text-xs font-medium uppercase text-muted-foreground">Activity</p>
+        <ActivityFeed className="mt-3" items={activity} empty="Nothing has happened on this deal yet." />
+      </div>
     </div>
   );
 }
