@@ -1,13 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-
 import { SiteChrome } from "@/components/ui/site-chrome";
-import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/manage")({ component: Manage });
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "A calm room off the high street — mats provided.",
+  tagline: "A calm, well-lit studio — book your mat in a minute.",
   links: [
     { label: "Home", href: "/" },
     { label: "Book", href: "/book" },
@@ -23,13 +21,12 @@ function Manage() {
       <div className="mx-auto max-w-lg px-6 py-16">
         <h1 className="text-3xl font-semibold tracking-tight">Manage your booking</h1>
         <p className="mt-4 text-muted-foreground">
-          We email a confirmation the moment you book, and if you need to move a
-          class or cancel, reply to that email and we'll sort it out — this studio
-          doesn't yet have a self-serve link for changing a booking online.
+          To change or cancel a class, reply to your confirmation email or give the studio a
+          call — we'll sort it from our end.
         </p>
-        <Button asChild className="mt-6">
-          <Link to="/book">Book a class</Link>
-        </Button>
+        <Link to="/book" className="mt-6 inline-block text-sm font-medium underline underline-offset-4">
+          Book another class
+        </Link>
       </div>
     </SiteChrome>
   );

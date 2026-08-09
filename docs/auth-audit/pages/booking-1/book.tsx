@@ -6,7 +6,6 @@ import { z } from "zod";
 import { toast } from "sonner";
 
 import { useCreateRow, usePublicRows, type Row } from "@/lib/rows";
-import { SiteChrome } from "@/components/ui/site-chrome";
 import { AvailabilityGrid } from "@/components/ui/availability-grid";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,6 +17,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { SiteChrome } from "@/components/ui/site-chrome";
 import {
   Select,
   SelectContent,
@@ -37,7 +37,7 @@ type Appointment = Row;
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "A calm room off the high street — mats provided.",
+  tagline: "A calm, well-lit studio — book your mat in a minute.",
   links: [
     { label: "Home", href: "/" },
     { label: "Book", href: "/book" },
@@ -47,15 +47,15 @@ const CHROME = {
   action: { label: "Book now", href: "/book" },
 };
 
-const CLASSES = [
-  "Morning flow",
-  "Hatha",
-  "Power vinyasa",
+const CLASS_NAMES = [
+  "Sunrise Flow",
+  "Power Vinyasa",
+  "Hatha Slow",
   "Restorative",
-  "Beginners' six-week course",
+  "Beginners' Foundations",
 ];
 
-const SLOTS = ["07:00", "09:00", "12:15", "17:30", "18:30", "19:45"];
+const SLOTS = ["07:00", "09:00", "12:15", "17:30", "18:30", "19:30"];
 
 const booking = z.object({
   class_name: z.string().min(1, "Pick a class"),
@@ -83,10 +83,10 @@ function Book() {
     },
   });
 
-  const slot_date = form.watch("slot_date");
+  const date = form.watch("slot_date");
   const taken = usePublicRows<{ slot_date: string; slot_time: string }>(
     "bookings",
-    slot_date ? { slot_date } : undefined,
+    date ? { slot_date: date } : undefined,
   );
 
   const onSubmit = (values: Booking) => {
@@ -106,8 +106,7 @@ function Book() {
         <div className="mx-auto max-w-lg px-6 py-20 text-center motion-enter">
           <h1 className="text-3xl font-semibold tracking-tight">You're booked</h1>
           <p className="mt-3 text-muted-foreground">
-            We've sent a confirmation to your email. Need to move it or cancel? Use the
-            link in that email to manage your booking.
+            We've sent a confirmation to your email. See you on the mat.
           </p>
           <Button asChild variant="outline" className="mt-6">
             <Link to="/">Back to the studio</Link>
@@ -121,7 +120,7 @@ function Book() {
     <SiteChrome {...CHROME}>
       <div className="mx-auto max-w-2xl px-6 py-14">
         <h1 className="text-3xl font-semibold tracking-tight">Book a class</h1>
-        <p className="mt-2 text-muted-foreground">We'll email a confirmation straight away.</p>
+        <p className="mt-2 text-muted-foreground">Pick a class, a date, and a time — we'll hold your mat.</p>
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="mt-8 grid gap-4 sm:grid-cols-2">
@@ -138,9 +137,9 @@ function Book() {
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {CLASSES.map((c) => (
-                        <SelectItem key={c} value={c}>
-                          {c}
+                      {CLASS_NAMES.map((name) => (
+                        <SelectItem key={name} value={name}>
+                          {name}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -213,7 +212,7 @@ function Book() {
 
             <div className="sm:col-span-2">
               <Button type="submit" className="motion-press" disabled={create.isPending}>
-                {create.isPending ? "Booking…" : "Book class"}
+                {create.isPending ? "Booking…" : "Book now"}
               </Button>
             </div>
           </form>

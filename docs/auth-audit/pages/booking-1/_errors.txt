@@ -1,0 +1,1 @@
+src/routes/index.tsx(107,13): error TS2322: Type '({ name: string; description: string; price: number; meta: string; } | undefined)[]' is not assignable to type 'PriceRow[]'.

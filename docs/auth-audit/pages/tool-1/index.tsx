@@ -1,71 +1,23 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
 import { toast } from "sonner";
 
-import { useMember, useLogin, useSignup } from "@/lib/rows";
+import { useMember, useLogin, useSignup, useLogout } from "@/lib/rows";
+import { LoginForm } from "@/components/ui/login-form";
+import { SignupForm } from "@/components/ui/signup-form";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { StatsBand } from "@/components/ui/stats-band";
+import { SafeImage } from "@/components/ui/safe-image";
 
-export const Route = createFileRoute("/")({ component: Door });
+export const Route = createFileRoute("/")({ component: Home });
 
-const credentials = z.object({
-  email: z.string().email("That doesn't look like an email address"),
-  password: z.string().min(8, "At least 8 characters"),
-});
-
-type Credentials = z.infer<typeof credentials>;
-
-function Door() {
+function Home() {
   const member = useMember();
   const login = useLogin();
   const signup = useSignup();
-
-  const form = useForm<Credentials>({
-    resolver: zodResolver(credentials),
-    defaultValues: { email: "", password: "" },
-  });
-
-  const submit = (action: typeof login, values: Credentials) => {
-    action.mutate(values, {
-      onSuccess: (data) => {
-        if (data && typeof data === "object" && "pending" in data) {
-          toast.message("Check your authenticator app to finish signing in.");
-          return;
-        }
-        form.reset();
-      },
-      onError: () => toast.error("That email and password didn't match."),
-    });
-  };
-
-  if (member.isPending) {
-    return <main className="flex min-h-screen items-center justify-center text-muted-foreground">Checking your sign-in…</main>;
-  }
-
-  if (member.data) {
-    return (
-      <main className="flex min-h-screen flex-col items-center justify-center gap-6 px-6 text-center">
-        <h1 className="text-3xl font-semibold tracking-tight">Halyard</h1>
-        <p className="text-muted-foreground">Signed in as {member.data.name ?? member.data.email}.</p>
-        <Button asChild>
-          <Link to="/records">Go to the records</Link>
-        </Button>
-      </main>
-    );
-  }
+  const logout = useLogout();
+  const navigate = useNavigate();
+  const [mode, setMode] = useState<"login" | "signup">("login");
 
   return (
     <main className="grid min-h-screen md:grid-cols-2">
@@ -73,94 +25,95 @@ function Door() {
         <p className="text-lg font-semibold tracking-tight">Halyard</p>
         <div className="max-w-md py-12">
           <h1 className="text-3xl font-semibold tracking-tight text-balance">
-            One list of deals your whole sales team actually reads
+            Every deal your team is working, in one shared table
           </h1>
           <p className="mt-4 text-muted-foreground">
-            Halyard is where the team keeps its deals and its accounts — one shared table, not
-            five inboxes. Everyone signed in sees the team's own pipeline, opens a record, and
-            leaves a trail of what happened.
+            Halyard is where a small sales team keeps its pipeline: deals the whole team
+            reads and edits together, a shared list of accounts, and the playbook the
+            business keeps up to date.
           </p>
-          <StatsBand
-            className="mt-8"
-            columns={3}
-            items={[
-              { value: "1", label: "shared pipeline" },
-              { value: "0", label: "spreadsheets" },
-              { value: "100%", label: "visible to the team" },
-            ]}
-          />
+          <SafeImage className="mt-8" src={null} alt="The team's deals, as a table" ratio="16/10" />
           <ul className="mt-8 space-y-4 text-sm">
             <li className="flex items-start gap-3">
               <StatusBadge state="success">live</StatusBadge>
-              <span>Every deal the team is working, in one table with stage and value</span>
+              <span>Deals are shared — anyone on the team can open and move one</span>
             </li>
             <li className="flex items-start gap-3">
               <StatusBadge state="success">live</StatusBadge>
-              <span>A shared list of accounts anyone on the team can add to</span>
+              <span>One shared list of accounts, kept by whoever adds to it</span>
             </li>
             <li className="flex items-start gap-3">
-              <StatusBadge state="neutral">soon</StatusBadge>
-              <span>Playbook notes surfaced right on the record</span>
+              <StatusBadge state="neutral">reference</StatusBadge>
+              <span>The team's playbook, kept up to date by the business</span>
             </li>
           </ul>
         </div>
-        <p className="text-xs text-muted-foreground">
-          Built for teams of five to fifteen, not a whole department.
-        </p>
+        <p className="text-xs text-muted-foreground">No marketing site attached — this is the tool.</p>
       </section>
 
       <section className="flex items-center justify-center p-10">
-        <Card className="w-full max-w-sm">
-          <CardHeader>
-            <CardTitle>Sign in</CardTitle>
-            <CardDescription>Back to the pipeline in one field and a click.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Form {...form}>
-              <form className="grid gap-4" onSubmit={form.handleSubmit((v) => submit(login, v))}>
-                <FormField
-                  control={form.control}
-                  name="email"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Work email</FormLabel>
-                      <FormControl>
-                        <Input type="email" autoComplete="email" placeholder="you@yourteam.com" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="password"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Password</FormLabel>
-                      <FormControl>
-                        <Input type="password" autoComplete="current-password" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <div className="flex gap-3">
-                  <Button type="submit" className="motion-press" disabled={login.isPending}>
-                    {login.isPending ? "Signing in…" : "Sign in"}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={signup.isPending}
-                    onClick={form.handleSubmit((v) => submit(signup, v))}
-                  >
+        {member.isPending && <p className="text-sm text-muted-foreground">Checking your sign-in…</p>}
+
+        {!member.isPending && member.data && (
+          <div className="w-full max-w-sm space-y-4 text-center">
+            <p className="text-lg font-medium">Welcome back, {member.data.name}</p>
+            <Button className="w-full" onClick={() => navigate({ to: "/records" })}>
+              Go to records
+            </Button>
+            <Button variant="ghost" className="w-full" onClick={() => logout.mutate()}>
+              Sign out
+            </Button>
+          </div>
+        )}
+
+        {!member.isPending && !member.data && (
+          <div className="w-full max-w-sm">
+            {mode === "login" ? (
+              <LoginForm
+                busy={login.isPending}
+                onSubmit={(v) =>
+                  login.mutate(v, {
+                    onSuccess: () => {
+                      toast.success("Signed in.");
+                      navigate({ to: "/records" });
+                    },
+                    onError: (e) => toast.error(e.message),
+                  })
+                }
+              />
+            ) : (
+              <SignupForm
+                busy={signup.isPending}
+                onSubmit={(v) =>
+                  signup.mutate(v, {
+                    onSuccess: () => {
+                      toast.success("Account created.");
+                      navigate({ to: "/records" });
+                    },
+                    onError: (e) => toast.error(e.message),
+                  })
+                }
+              />
+            )}
+            <p className="mt-4 text-center text-xs text-muted-foreground">
+              {mode === "login" ? (
+                <>
+                  New to the team?{" "}
+                  <button className="underline underline-offset-4" onClick={() => setMode("signup")}>
                     Create an account
-                  </Button>
-                </div>
-              </form>
-            </Form>
-          </CardContent>
-        </Card>
+                  </button>
+                </>
+              ) : (
+                <>
+                  Already have one?{" "}
+                  <button className="underline underline-offset-4" onClick={() => setMode("login")}>
+                    Sign in
+                  </button>
+                </>
+              )}
+            </p>
+          </div>
+        )}
       </section>
     </main>
   );
