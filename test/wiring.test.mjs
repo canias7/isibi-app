@@ -16,6 +16,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { THEME_IDS, THEME_SHORTLIST, ALL_THEMES, resolveTheme } from "../builder/site-theme-registry.mjs";
+import { budgetFor, imageBudget } from "../builder/site-images.mjs";
 import { themeCss, THEMES } from "../builder/site-theme.mjs";
 import { briefWithLayout } from "../builder/page-gen.mjs";
 import { FAMILY_NAMES, READY_FAMILIES, STRUCTURE_NAMES, STRUCTURES, layoutDirective, familiesForPrompt, structuresForPrompt, FAMILIES } from "../builder/site-layouts.mjs";
@@ -310,8 +311,12 @@ test("the build both ASKS for photographs and BUYS them", () => {
   // becomes a placeholder); supply the dep with no allowance and nothing ever
   // writes a token for it to find. The two live ~10 lines apart and it is
   // entirely possible to add one and forget the other.
-  assert.match(worker, /const imgBudget = revise \? 0 : imageBudget\(family\)/,
-    "the budget is derived from the family, once (and a revise buys none)");
+  // ANCHORED ON THE DECISION, NOT ITS SPELLING. This named the exact expression
+  // `revise ? 0 : imageBudget(family)`, so a correct change failed a test about
+  // word order — the trap this repo keeps recording. What matters is that ONE
+  // call decides the budget and the model is told that same number.
+  assert.match(worker, /const imgBudget = budgetFor\(family, \{ revise, priorPages, slug \}\)/,
+    "the budget is no longer derived in one place from the family and the site's own history");
   assert.match(worker, /briefWithLayout\(\{ brief, family, structure, images: imgBudget \}\)/,
     "and stated to the model in the user turn");
   assert.match(worker, /images: \(pages, \{ balance, reserve \}\) =>\s*\n?\s*buySitePhotos\(/,
@@ -480,8 +485,20 @@ test("a REVISE buys no new photographs", () => {
   // revising a 5-photo agency site paid ~94 credits in NEW photographs on every
   // revise, for pictures they already owned, and orphaned the originals. Even a
   // typo fix bought one, because the directive actively asks for a token.
-  assert.match(worker, /const imgBudget = revise \? 0 : imageBudget\(family\)/,
+  // THE PROPERTY, DRIVEN — not the spelling of the line that implements it.
+  // Pinned to `revise ? 0 : imageBudget(family)`, this failed on the change that
+  // fixed a second bug in the same rule: a site whose FIRST build died before
+  // the image step has no photographs, and every attempt after it is a revise,
+  // so it could never get one. Both halves are asserted through the real
+  // function, and the wiring is checked separately below.
+  const shown = [{ path: "index.tsx", source: '<SafeImage src="/u/cafe/a.jpg" />' }];
+  const none = [{ path: "index.tsx", source: "<SafeImage src={row.photo} />" }];
+  assert.equal(budgetFor("marketplace", { revise: true, priorPages: shown, slug: "cafe" }), 0,
     "a revise re-derives a photo budget and re-bills for pictures the owner has");
+  assert.equal(budgetFor("marketplace", { revise: true, priorPages: none, slug: "cafe" }), imageBudget("marketplace"),
+    "a site that never got a photograph can never get one, however often it is rebuilt");
+  assert.match(worker, /const imgBudget = budgetFor\(family, \{ revise, priorPages, slug \}\)/,
+    "…and the route no longer asks that question");
   // AND THE FLAG HAS TO ARRIVE. The budget line above is correct and inert if
   // nothing ever passes `revise` — four of five layers working is this repo's
   // signature failure, so the parameter and the call site are asserted apart.

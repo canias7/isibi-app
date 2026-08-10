@@ -45,7 +45,7 @@ import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayou
 // to all 1,632 tests (nothing can import a Worker entrypoint); esbuild refuses
 // it at deploy time and the deploy is the first thing that ever sees it.
 import { publishPages, pageCredits, schemaSettlement, buildFloor, IMAGE_USD as SITE_PHOTO_USD } from "./builder/publish-pages.mjs";
-import { imageBudget, imagesAffordable, planImages, applyImages, imagePrompt, imageNote, IMAGE_ASPECT } from "./builder/site-images.mjs";
+import { imageBudget, budgetFor, imagesAffordable, planImages, applyImages, imagePrompt, imageNote, IMAGE_ASPECT } from "./builder/site-images.mjs";
 import { ASKABLE as SITE_TOKEN_NAMES, valueHint as siteTokenHint, mergeTokens, parseTokens, withContrast, tokenNote } from "./builder/site-tokens.mjs";
 import { extractText, applyEdits } from "./builder/site-text.mjs";
 import { archiveVersion, listVersions, rollbackVersion, deleteAllVersions, versionId, versionLabel } from "./site-versions.mjs";
@@ -5431,21 +5431,26 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
   // on a guess would lose the pictures from a customer who could afford them.
   // Over-stating it costs nothing — an unbought token is a placeholder.
   //
-  // A REVISE BUYS NONE. It re-derives the same budget from the same family and
-  // the model writes fresh descriptions, so nothing matches what was bought last
-  // time — a customer revising a 5-photo agency site paid ~94 credits in NEW
-  // photographs on every revise, for pictures they already owned, and orphaned
-  // the originals. Even "fix a typo" bought one, because the directive actively
-  // asks for a token.
+  // A REVISE OF A SITE THAT ALREADY SHOWS PHOTOGRAPHS BUYS NONE. It re-derives
+  // the same budget from the same family and the model writes fresh
+  // descriptions, so nothing matches what was bought last time — a customer
+  // revising a 5-photo agency site paid ~94 credits in NEW photographs on every
+  // revise, for pictures they already owned, and orphaned the originals. Even
+  // "fix a typo" bought one, because the directive actively asks for a token.
   //
   // Zero rather than "reuse what is there", deliberately: the photographs are in
   // `uploads/<slug>/`, which is the owner's own image library and survives a
   // publish, so they are not lost — but matching a NEW description to an OLD
   // file is a guess, and a wrong guess puts the wrong picture on the page.
-  // Stating zero also keeps the pages the model writes consistent with what the
-  // site can actually show. Buying more is a first-build decision until there is
-  // a real token->URL record to reuse.
-  const imgBudget = revise ? 0 : imageBudget(family);
+  //
+  // BUT A REVISE IS NOT THE SAME QUESTION AS "the site has pictures", which is
+  // what this used to assume. Images are bought AFTER the pages validate, so a
+  // first build whose generation returns nothing never reaches them — and from
+  // then on every attempt is a revise, because a revise is decided by ownership.
+  // Such a site could never get a photograph however many times it was rebuilt.
+  // `budgetFor` asks the honest question instead, off the prior pages that are
+  // already loaded here.
+  const imgBudget = budgetFor(family, { revise, priorPages, slug });
   const out = await publishPages({
     // Throws on failure, and the route logs it. There is no second attempt to
     // swallow one, so nothing needs logging here.

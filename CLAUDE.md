@@ -257,6 +257,17 @@ Every generation is metered in credits (1 credit = $0.008 fal cost). Postgres RP
 - **Rollout is per-POP and briefly inconsistent**: 5 of 6 requests carried the new policy within a minute of the deploy and one still had the old one. A single `curl` right after a deploy is not evidence either way.
 - 1896 tests, **8/8 mutations caught** from a verified-green baseline.
 
+## A site whose first build failed could never get a photograph (2026-08-10)
+
+**Asked why a real site had no images and the answer was three steps deep.** The first build died at `stage: validate`; photographs are bought AFTER the pages validate, so it never reached them. That attempt still claimed the slug — so every attempt after it was a **revise**, and `const imgBudget = revise ? 0 : imageBudget(family)` meant zero. The site could never get a picture however many times it was rebuilt.
+
+- **THE RULE WAS RIGHT ABOUT ITS OWN CASE AND WRONG ABOUT THE ONE BESIDE IT.** It exists because a revise re-derives the same budget and the model writes fresh descriptions, so nothing matches what was bought last time — a customer revising a 5-photo agency site paid **~94 credits in NEW photographs on every revise**, for pictures they already owned. That is still true and still prevented. What it assumed is that a revise means the site HAS pictures. Same shape as the `publicView` description two entries down, and the third instance this week.
+- **`budgetFor` asks the honest question: does this site already SHOW a photograph.** Off the **stored pages**, not by listing R2 — they are already loaded on every revise (`loadSiteSource`), so it costs no I/O, and they answer whether the site *displays* one where the upload library would only answer "are there files", which is true of an owner who uploaded a logo and would suppress photographs forever.
+- **NOT KNOWING BUYS NOTHING.** Unreadable or absent prior pages, or a missing slug, answer "has photographs" — because being wrong that way costs one unbought picture, and being wrong the other way re-buys the whole set. The match is **scoped to the slug**, or one customer's uploads would suppress another's.
+- **The wiring mutant survived the whole unit file**, as it always does: `worker.js` cannot be imported, so `budgetFor` sat correct and unused while the call site read `revise ? 0`. Closed with a source-read that also asserts the import, since a call to a name that was never imported is a `ReferenceError` on the build path — the `OWN_ZONES` failure one file over.
+- **TWO EXISTING GUARDS WERE PINNED TO THE OLD SPELLING** (`/const imgBudget = revise \? 0 : imageBudget\(family\)/`) and went red on a correct change — a test about word order, which this file already records as its own recurring trap. Both now drive the real `budgetFor` and assert the PROPERTY, with the wiring checked apart from it.
+- 1899 tests, **7/7 mutations caught** from a verified-green baseline.
+
 ## The model invents props on components it CAN see (2026-08-10)
 
 **Went looking for the "component the model was never told about" gap and the evidence says that is not the failure.** Every compile error the eval has ever recorded was on a component whose signature was already in the prompt — `render` on a `Column`, `onClick` on a bulk action, `title` on an `Activity`, `fallbackSeed` on a `Shot`. The model can read the API and writes a prop that is not in it anyway, `tsc` refuses the file, and since the salvage landed that costs the customer a page.

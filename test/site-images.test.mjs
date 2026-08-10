@@ -14,7 +14,9 @@ import {
   IMAGE_CAP, IMAGE_ASPECT, MAX_PROMPT_CHARS,
   imagesForPage, imageBudget, imagesAffordable, picturesAreContent,
   parseImageTokens, planImages, applyImages, imagePrompt, imageDirective, imageNote,
+  budgetFor, hasBoughtPhotos,
 } from "../builder/site-images.mjs";
+import { uploadUrl } from "../site-uploads.mjs";
 import { FAMILIES, READY_FAMILIES } from "../builder/site-layouts.mjs";
 import { IMAGE_USD, pageCost, pageCredits } from "../builder/publish-pages.mjs";
 import { lintPages, PAGE_RULES, briefWithLayout, SAFE_IMAGE_COMPONENTS, schemaDigest, validatePages } from "../builder/page-gen.mjs";
@@ -559,4 +561,75 @@ function P(){ return <div><Link to="/menu">m</Link></div>; }`;
   const bad = validatePages({ pages: [page("index.tsx", route())], notes: "" });
   assert.equal(bad.problems.length, 1);
   assert.match(bad.pages[0].source, /to="\/"/);
+});
+
+/* ------------------- a site whose first build failed could never get a photo */
+
+test("a revise buys none — unless the site never got any in the first place", () => {
+  // THE TRAP THIS CLOSES, measured live 2026-08-10. `revise ? 0 : imageBudget()`
+  // is right about its own case: a revise re-derives the same budget with fresh
+  // descriptions, so a customer revising a 5-photo site paid ~94 credits for
+  // pictures they already owned. It assumes a revise means the site HAS
+  // pictures. Images are bought AFTER the pages validate, so a first build whose
+  // generation returns nothing never reaches them — and every attempt after that
+  // is a revise, because a revise is decided by ownership. A real site sat with
+  // zero photographs and no way to ever get one.
+  const withPhoto = [{ path: "index.tsx", source: '<SafeImage src="/u/cafe/abc123.jpg" alt="the shop" />' }];
+  const without = [{ path: "index.tsx", source: "<SafeImage src={row.photo} alt={row.name} />" }];
+
+  assert.equal(budgetFor("marketplace", { revise: false, priorPages: null, slug: "cafe" }), imageBudget("marketplace"),
+    "a first build must get the family's budget");
+  assert.equal(budgetFor("marketplace", { revise: true, priorPages: withPhoto, slug: "cafe" }), 0,
+    "a revise of a site that already shows photographs must buy none — this is the ~94-credit bug");
+  assert.equal(budgetFor("marketplace", { revise: true, priorPages: without, slug: "cafe" }), imageBudget("marketplace"),
+    "a revise of a site with no photographs is the first build it never got");
+  // …and the two assertions above must not agree by accident.
+  assert.ok(imageBudget("marketplace") > 0, "the family under test buys no pictures, so this proves nothing");
+});
+
+test("not knowing costs nothing, and one site's pictures are not another's", () => {
+  // FAILS TOWARD SPENDING NOTHING. A site built before the source was stored
+  // hands back null, and reading that as "no photographs" would re-buy the whole
+  // set on its next revise — the expensive mistake, and the one this rule exists
+  // to prevent. Being wrong the other way costs an unbought picture.
+  for (const bad of [null, undefined, "not an array", {}]) {
+    assert.equal(budgetFor("marketplace", { revise: true, priorPages: bad, slug: "cafe" }), 0, String(bad));
+  }
+  // A missing slug is the same kind of not-knowing: with nothing to match on,
+  // every page would read as photograph-less and every revise would buy again.
+  assert.equal(budgetFor("marketplace", { revise: true, priorPages: [{ path: "i.tsx", source: 'src="/u/cafe/a.jpg"' }] }), 0,
+    "with no slug the match is meaningless and must not authorise a purchase");
+  // And the match is SCOPED — another site's upload URL is not this site's
+  // photograph, or one customer's pictures would suppress another's.
+  assert.equal(
+    budgetFor("marketplace", { revise: true, priorPages: [{ path: "i.tsx", source: 'src="/u/other-shop/a.jpg"' }], slug: "cafe" }),
+    imageBudget("marketplace"), "another site's uploads must not count as this site's");
+});
+
+test("hasBoughtPhotos matches the URL applyImages actually writes", () => {
+  // The two must agree about the shape or the check is looking for something
+  // that is never written. Driven through the REAL substitution rather than a
+  // retyped copy of the URL.
+  const url = uploadUrl("cafe", "abc123.jpg");
+  const pages = applyImages([{ path: "index.tsx", source: '<SafeImage src="@@IMG:the shop front@@" />' }],
+    { "@@IMG:the shop front@@": url });
+  assert.match(pages[0].source, /src="\/u\/cafe\/abc123\.jpg"/, "applyImages no longer writes that URL shape");
+  assert.equal(hasBoughtPhotos(pages, "cafe"), true, "the check cannot see a photograph applyImages just wrote");
+});
+
+test("…and worker.js actually asks budgetFor, rather than keeping the old rule", () => {
+  // THE WIRING LAYER, which every unit test above is blind to: worker.js cannot
+  // be imported, so a mutation reverting the call site to `revise ? 0` survived
+  // the whole file while `budgetFor` sat there correct and unused. That shape is
+  // recorded in this repo more times than any other.
+  const w = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(w, /const imgBudget = budgetFor\(family, \{ revise, priorPages, slug \}\)/,
+    "the image budget is no longer decided by budgetFor — a site whose first build failed can never get a photograph again");
+  assert.doesNotMatch(w, /const imgBudget = revise \? 0 :/,
+    "the old rule is back: a revise buys nothing even when the site has no pictures at all");
+  // budgetFor needs all three or it silently answers for the wrong site. Read
+  // off the import too, since a call to a name that was never imported is a
+  // ReferenceError on the build path — the `OWN_ZONES` failure, one file over.
+  assert.match(w, /import \{[^}]*\bbudgetFor\b[^}]*\} from "\.\/builder\/site-images\.mjs"/,
+    "budgetFor is called but never imported");
 });

@@ -135,6 +135,58 @@ export function imageBudget(family, { cap = IMAGE_CAP } = {}) {
 }
 
 /**
+ * Does this site ALREADY show photographs it paid for?
+ *
+ * THE QUESTION A REVISE SHOULD ASK, and it was asking a different one. The rule
+ * was `revise ? 0 : imageBudget(family)`, which is right about the case it was
+ * written for — a revise re-derives the same budget and the model writes fresh
+ * descriptions, so nothing matches what was bought last time and a customer
+ * revising a 5-photo site paid ~94 credits for pictures they already owned.
+ *
+ * It assumes a revise means the site HAS pictures. A site whose FIRST build
+ * failed has none — images are bought after the pages validate, so a generation
+ * that returns nothing never reaches them — and from that moment every attempt
+ * is a revise, because a revise is decided by ownership. Measured live
+ * 2026-08-10 on a real site: first build died at `stage: validate`, every retry
+ * after it was a revise, and the site could never get a photograph however many
+ * times it was rebuilt. Same shape as the `publicView` bug — a rule correct
+ * about its own case and silently wrong about the one beside it.
+ *
+ * Asked of the STORED PAGES rather than by listing R2, for two reasons. They are
+ * already loaded on every revise (`loadSiteSource`), so this costs no I/O. And
+ * they answer the question that actually matters — whether the site DISPLAYS a
+ * photograph — where the upload library would answer "are there files", which is
+ * true of an owner who uploaded a logo and would suppress photographs forever.
+ *
+ * UNREADABLE PAGES ANSWER TRUE, i.e. buy nothing. A site built before the source
+ * was stored hands back null, and guessing "no photographs" there would re-buy
+ * the whole set on the next revise — the expensive mistake this rule exists to
+ * prevent. Not knowing must cost nothing.
+ */
+export function sitePhotoUrl(slug) {
+  return "/u/" + String(slug || "").toLowerCase() + "/";
+}
+
+export function hasBoughtPhotos(pages, slug) {
+  if (!Array.isArray(pages)) return true;   // unknown → spend nothing
+  const mark = sitePhotoUrl(slug);
+  if (!slug) return true;
+  return pages.some((p) => p && typeof p.source === "string" && p.source.includes(mark));
+}
+
+/**
+ * What a build may spend on pictures, once it is known whether this is the first.
+ *
+ * ONE PLACE, so the two cases cannot drift: a first build gets the family's
+ * budget, a revise of a site that already shows photographs gets nothing, and a
+ * revise of a site that has none is treated as the first build it never got.
+ */
+export function budgetFor(family, { revise, priorPages, slug } = {}) {
+  if (revise && hasBoughtPhotos(priorPages, slug)) return 0;
+  return imageBudget(family);
+}
+
+/**
  * How many of a planned budget the balance can actually carry.
  *
  * `reserve` is what THIS BUILD's model calls really cost, measured — not an
