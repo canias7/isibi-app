@@ -89,10 +89,11 @@ export const ASK_TOOL = {
           "another colour, add a form, remove a section. \"ask\" if it is a question, a greeting, a thank-you, or anything else " +
           "that does not describe a change. When it is genuinely both — a question AND a change — answer \"build\", because the " +
           "build reply says what was done anyway and the customer would rather have the work than the explanation.\n\n" +
-          "\"clarify\" when you are told below that this is a first build with questions remaining AND the message describes a " +
-          "site to build. On a first build that is the NORMAL answer, not a last resort: ask the one thing you most need to " +
-          "know, and \"build\" is for when the questions have run out or you are told they are closed. Never on a change to a " +
-          "site that already exists.",
+          "\"clarify\" when you are told below that this is a first build with questions remaining, the message describes a " +
+          "site to build, AND the answer would change what gets built. Only two things do that: what the business actually " +
+          "IS, and what visitors DO on the site. If the brief already answers both, say \"build\" even with questions left — " +
+          "a question whose answer changes nothing costs them a minute and they came here to see a site. Never on a change " +
+          "to a site that already exists.",
       },
       answer: {
         type: "string",
@@ -197,10 +198,17 @@ const SYSTEM =
   "NEVER open with a question of your own here: somebody who typed \"hey\" has not told you anything yet, so there is " +
   "nothing to ask them ABOUT. Say hello back and invite them to tell you what they want, in one or two sentences.\n" +
   "2. Otherwise, if you are told below that this is a first build with questions remaining, and they HAVE described " +
-  "something to build: \"clarify\". A first build begins with a question, every time, while questions remain — a build " +
-  "takes about a minute and doing it again costs them again, so the cheapest moment to learn something is before it " +
-  "runs. Ask about what people DO on the site and how it should feel, never about details the owner can fill in " +
-  "afterwards, and never about something they have already told you.\n" +
+  "something to build: \"clarify\" — BUT ONLY IF THE ANSWER WOULD CHANGE WHAT YOU BUILD. Two things do, and almost " +
+  "nothing else does: what the business actually IS, and what visitors DO on the site (book a time, order something, " +
+  "send an enquiry, or just read it). Either one changes the pages, the words and what the site stores, and a build " +
+  "takes about a minute and costs them again to redo, so the cheapest moment to learn them is before it runs.\n" +
+  "   IF THE BRIEF DOES NOT SAY WHAT THE BUSINESS ACTUALLY IS, YOU MUST ASK. That one is never a judgement call: " +
+  "\"a website for my business\" and \"book classes\" name no trade, and a gym, a pottery studio and a driving school " +
+  "are three different sites. Everything else hangs off it.\n" +
+  "   OTHERWISE, IF THE BRIEF ALREADY ANSWERS BOTH, BUILD — do not spend a question just because you have one left. " +
+  "A question whose answer changes nothing is a minute of somebody's time, and they came to see a site, not to fill " +
+  "in a form. Never ask for things the owner types in afterwards — address, opening hours, prices, phone number, " +
+  "staff names — and never ask something they have already told you.\n" +
   "3. Otherwise: \"build\".";
 
 /**
@@ -218,9 +226,10 @@ export function askRequest({ message, site, canClarify = false, brief = "", qa =
   // plainly that questions are closed, rather than being left to infer it from
   // an absent section.
   const round = canClarify
-    ? "\n\nBEFORE THE BUILD\nThis is their FIRST build — nothing exists yet — so if their message describes a site, ask " +
-      "ONE question about it rather than building. You have " + left + " question" + (left === 1 ? "" : "s") +
-      " left, and the build starts on its own once they are used up.\n" +
+    ? "\n\nBEFORE THE BUILD\nThis is their FIRST build — nothing exists yet, so you MAY ask one question before " +
+      "building. You have " + left + " question" + (left === 1 ? "" : "s") + " left, and the build starts on its own " +
+      "once they are used up — but a question is worth asking only if its answer changes what you would build. If " +
+      "you already know what the business is and what people do on the site, build now.\n" +
       (asked.length
         ? "WHAT YOU HAVE ALREADY ASKED — do not ask any of these again, or anything close to them:\n" +
           asked.map((p) => "- " + String(p.q).trim() + " -> " + String(p.a).trim()).join("\n") + "\n"
@@ -255,7 +264,7 @@ export function askRequest({ message, site, canClarify = false, brief = "", qa =
  * pipeline that already works, and it must never be the reason a build does not
  * happen.
  */
-export function readRouting(reply, { canClarify = false, answering = false } = {}) {
+export function readRouting(reply, { canClarify = false, answering = false, attached = false } = {}) {
   const blocks = reply && Array.isArray(reply.content) ? reply.content : [];
   const use = blocks.find((b) => b && b.type === "tool_use");
   const input = (use && use.input) || {};
@@ -298,7 +307,18 @@ export function readRouting(reply, { canClarify = false, answering = false } = {
   // The cost, stated: somebody who interrupts mid-round with a real question
   // ("wait, can you read a URL?") gets a site instead of an answer. That is the
   // cheaper mistake, and they still have the site.
-  if (intent === "ask" && answering) return { intent: "build", answer: "" };
+  //
+  // `attached` IS THE SECOND REASON, and it is a separate flag rather than a
+  // second meaning on `answering`. They are different facts about the message —
+  // one is "this answers our question", the other is "a file came with it" — and
+  // this file already records what happens when two meanings share one flag.
+  // What they have in common is all that matters here: the CALLER knows the
+  // message is an instruction, so "ask" is not an honest outcome for it.
+  //
+  // Both bound `ask` and NEITHER bounds `clarify`, which is the whole point of
+  // the change that added `attached`: an attachment used to skip this call
+  // entirely, so a first build with a logo attached was never asked anything.
+  if (intent === "ask" && (answering || attached)) return { intent: "build", answer: "" };
   return { intent, answer: intent === "ask" ? answer : "" };
 }
 
@@ -447,7 +467,7 @@ export function askUsage(reply) {
  * that path running. `usage` comes back null on that route, so nothing is billed
  * for a call that failed — the same our-fault rule the build path follows.
  */
-export async function routeMessage(deps, { message, site, firstBuild = false, brief = "", qa = [], answering = false } = {}) {
+export async function routeMessage(deps, { message, site, firstBuild = false, brief = "", qa = [], answering = false, attached = false } = {}) {
   const text = String(message || "").trim();
   // AN EMPTY MESSAGE NEVER REACHES THE MODEL. The composer will not send one, but
   // this is a paid call behind a public route and "the client wouldn't do that"
@@ -465,6 +485,6 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
   } catch {
     return { intent: "build", answer: "", usage: null, failed: true };
   }
-  const routed = readRouting(reply, { canClarify, answering: !!answering });
+  const routed = readRouting(reply, { canClarify, answering: !!answering, attached: !!attached });
   return { ...routed, usage: askUsage(reply) };
 }

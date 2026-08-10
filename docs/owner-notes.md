@@ -12,6 +12,16 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ## OPEN — waiting to be picked up
 
+**THE BUILDER-ROUTE AUDIT (2026-08-10). Four criticals filed as tasks #75-78, all
+MEASURED. Thirty-four more findings are listed below and NOT verified — nobody has
+driven them.** The four filed ones are: `_meta` is a hand-maintained field list
+(so confirmations, texts and every card checkout are dead on every published
+site); `grantsFor` and `policiesFor` disagree and nothing revokes (so a retired
+form keeps taking public submissions); a payable table gets a direct write grant
+on 8 of the 16 read/write pairs; and `lintPages` false-alarms on the exact
+marketplace cell the pairs were added for. Read the dated entry below before
+starting any of them.
+
 **THE EDIT PATH (tasks #71-74). Owner's call 2026-08-10: designed, agreed, parked
 deliberately — raise it at the start of the next session.** Not blocked, not
 half-built, and nothing about it is started: the decision was to do it in one
@@ -21,6 +31,122 @@ the task descriptions. Order is #71 → #72 → #73, with #74 shipping alongside
 
 **Cloudflare Web Analytics for `gofarther.app`** — the owner asked to be reminded
 when they say they are home, since it wants doing on their desktop.
+
+---
+
+## 2026-08-10 — Work ON the designated branch, not on main
+
+**A push reported "Everything up-to-date" while the commit sat unpushed.** The
+session had been committing on local `main` and pushing with
+`git push -u origin claude/help-needed-ehlwlj` — which pushes the local BRANCH of
+that name, not `HEAD`. That branch was stale, so git honestly reported it had
+nothing to send, and the work was not on the remote. It reads exactly like a
+successful push.
+
+**So: `git checkout claude/help-needed-ehlwlj` at the start, and stay on it.**
+`git push origin HEAD:<branch>` is the form that cannot pick the wrong commit,
+and `git log --oneline -1 origin/<branch>` is the only proof — the push output
+is not one.
+
+---
+
+## 2026-08-10 — The builder-route audit
+
+**Seven parallel finder lenses over `/api/site/react-build` and every module it
+drives — dead wiring, money, diagnosability, security, today's changes, the happy
+path, the generator contract. 47 findings.** The adversarial-skeptic stage was
+started and **stopped**: 47 findings x 3 skeptics at this machine's 2-way agent
+concurrency is about three hours, and the top findings could be settled in
+minutes by RUNNING the code instead. That trade is the method to reuse — a
+skeptic gives an opinion, a measurement gives an answer.
+
+**How they were measured.** The real `applySiteSchema` was run against a
+recording fake for the database, and what it wrote to `_meta` was fed back
+through the REAL readers (`normalizeConfirm`, `normalizeSms`, `normalizePayment`,
+`resolveAccess`). `grantsFor` and `policiesFor` are plain modules, so all 16
+read/write cells were printed directly. `lintPages` and `schemaDigest` were run
+on a real page.
+
+### Confirmed (4 filed as #75-78)
+
+- **`_meta` drops `confirm`, `sms` and `payment`.** Measured: all three readers
+  return `null` from the stored table, so no booking confirmation has ever been
+  sent, no text message, and `handleCheckout` refuses every order. It also drops
+  `read`/`write` (a pair table stores as `access:"collect"`, whose resolved pair
+  is the INVERSE), never writes `jobs` at all (the cron's `callFn` requires
+  `spec.jobs`, so no scheduled job has ever run), and never merges `apis` (so any
+  revise erases them — measured, `apis = rates` then `apis = ERASED`).
+- **A retired table keeps accepting public submissions.** `grantsFor` returns
+  `[]`, which looks like the fix and is not: nothing in the repo emits a table
+  `REVOKE` (only functions get one), so the earlier build's grant persists — and
+  `policiesFor` ignores `retired` entirely and re-creates
+  `FOR INSERT WITH CHECK (true)`.
+- **A payable table gets `GRANT INSERT, UPDATE, DELETE` on 8 of 16 pairs**,
+  because the payment guard sits inside the `write === "anyone"` branch. Latent:
+  no site is pair-declared yet and no card has ever been charged.
+- **`lintPages` reads `t.access`** and reports `access "undefined"` on a correct
+  marketplace page — the one cell the pairs were added for, refused by our own
+  lint, in a message that prints the literal word "undefined" to the customer.
+
+### Refuted by measurement
+
+- `schemaDigest` was accused twice (PAID warning only for `collect`; every pair
+  table described as "an ordinary form"). **Both false** — it resolves pairs
+  correctly and warns properly. So `lintPages` and `schemaDigest` now disagree
+  about the same table, which is the actual defect.
+- "Retiring withdraws nothing" as stated — `grantsFor` does withdraw. The real
+  bug is the missing REVOKE plus the policy, a different fix.
+
+### The lesson worth keeping
+
+**CLAUDE.md recorded the `confirm`/`sms`/`payment` finding as REFUTED on
+2026-08-09, and it was real all along.** Its link-3 test asserts
+`metaOut = { tables: mergedTables }` and that the merge is whole-object. Both
+true. `mergedTables` is `norm`, and the field list that drops the three sits one
+layer ABOVE what the test looks at — so the guard written specifically to stop
+this class was watching the layer below the break. Eighth recorded instance.
+**Anything that says a feature is fine is worth the same ten minutes of driving
+it as anything that says a feature is dead.**
+
+### NOT VERIFIED — 34 findings nobody has driven
+
+Ranked as the finders reported them. Treat every line as a candidate, not a fact:
+the two refutations above came out of this same list.
+
+- **high** `builder/publish-pages.mjs:704` — Hitting our own 30,000-token page ceiling is a CHARGED stage, and it bills the maximum possible price for nothing
+- **high** `worker.js:8670` — Two post-design infrastructure failures keep the schema charge, and the guard counts refunds instead of naming them
+- **high** `worker.js:9042` — A salvaged build's compile error and cited lines are computed, stored, tested — and dropped at the response boundary
+- **high** `builder/publish-pages.mjs:667` — `out.billed` — the field added so an undercollection "stays visible instead of vanishing" — is read by nothing outside its own module
+- **high** `site-rls.mjs:500` — A `publicView` ignores trash / expires / scheduled, so unpublished, expired and soft-deleted rows are served to anonymous
+- **high** `site-schema.mjs:862` — The `retired`-preservation merge runs after the grants have already been emitted, so a re-declared retired table gets its public write endpoint back
+- **high** `site-schema.mjs:922` — A transient _meta read during a revise silently erases every other table from the site's stored schema, permanently
+- **high** `builder/site-images.mjs:185` — A site whose first build failed can still never buy a photograph — the fix for that exact case does not cover it
+- **high** `site-provision.mjs:62` — enableData/saveDataInfo never re-run once site_backends is recorded, so one failed _meta write leaves the site a permanent shell
+- **high** `builder/page-gen.mjs:3571` — lintPages misses the missing-useMember guard on a pair-declared member-written table, so a signed-out form ships and 401s
+- **high** `builder/page-gen.mjs:2243` — Rule 3's "the only names under that path you should use" list excludes button, input, form, select and textarea — and the prompt's own reference pages import all five
+- **high** `builder/page-gen.mjs:2433` — The "Reading rows" section makes three claims about ordering and limits that describe the Worker read path deleted on 2026-07-30
+- **high** `builder/page-gen.mjs:2277` — Rule 5 says the API silently drops undeclared fields; the codebase's own comment says PostgREST refuses the insert
+- **medium** `worker.js:8749` — pageSpec carries only this run's functions and apis, so a revise lints the site's own existing calls as 404s
+- **medium** `site-schema.mjs:703` — `oncePerUser: []` — the form the tool tells the designer to use — emits no unique index
+- **medium** `builder/publish-pages.mjs:770` — Photographs are bought before the compile, so every our-fault compile failure gives away real fal spend
+- **medium** `builder/publish-pages.mjs:647` — An our-fault build failure tells the customer "You weren't charged for this attempt" while the schema charge stands
+- **medium** `builder/site-images.mjs:184` — budgetFor does not fix the case its own docstring says it fixes — a site whose first build failed still can never get a photograph
+- **medium** `worker.js:8923` — A storage failure during publish is reported as `stage: "generate"` — the name reserved for the model API never answering
+- **medium** `worker.js:8925` — `upstreamType` and `billing` are computed for the page-generation failure and never reach the response, unlike the identical fields on the design failure
+- **medium** `builder/publish-pages.mjs:849` — A salvage whose own stub failed to compile is indistinguishable from a salvage that was refused
+- **medium** `site-rls.mjs:482` — `retired: true` withdraws the table's grants but leaves its public view created and granted to anonymous
+- **medium** `site-schema.mjs:703` — oncePerUser: [] — the form the new tool description recommends — creates no index at all
+- **medium** `builder/page-gen.mjs:2806` — The new aggregate line tells a contact-form-only site to build a sign-in gate
+- **medium** `site-rls.mjs:500` — The new expires/scheduled read filter is bypassed by publicView, which is the only public read path those tables have
+- **medium** `worker.js:8790` — A transient _meta read on a revise permanently overwrites the site's stored theme, family and fonts
+- **medium** `worker.js:8749` — The route's pageSpec merge lets this run's spec override `retired`, so the generator is told about a table the schema engine keeps retired
+- **medium** `builder/page-gen.mjs:3286` — The UI named-export lint flags type-only imports and lowercase exports — 4 of the 328 known-good corpus pages are false alarms
+- **medium** `builder/page-gen.mjs:2764` — schemaDigest drops the "SHARED WITH THE TEAM" warning for a pair-declared teamScope table while the policies still widen the read
+- **medium** `worker.js:4980` — Turnstile spam protection is skipped for any pair-declared publicly-writable table
+- **low** `worker.js:8575` — Web research is fired and paid for on four early-return paths that never reach the ledger
+- **low** `builder/publish-pages.mjs:718` — A truncated generation reports "the generator called the tool with no `pages` list at all", the same string as a genuinely empty tool call — and attaches the max_tokens output count to it
+- **low** `worker.js:8891` — priorPages and the stored look are gated on priorBrief while `revise` was deliberately moved to ownership
+- **low** `builder/page-gen.mjs:2250` — Rule 3's PascalCase-exception count disagrees with the derived list printed beside it
 
 ---
 

@@ -11092,7 +11092,11 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering) {
     // `firstBuild` is what opens the question path at all, and it is `isBuild` —
     // the same flag that decides build-vs-revise — so a revise can never be
     // interviewed. The server re-derives the budget from `qa` regardless.
-    body: JSON.stringify({ message: t, site: digest, firstBuild: !!isBuild, brief: brief, qa: qa, answering: !!answering }),
+    // `attached` closes off "ask" the way `answering` does, and leaves the
+    // question open. A file plus a sentence is an instruction, so answering it
+    // with a paragraph would drop the file on the floor — but that says nothing
+    // about whether a FIRST build should be asked what the business is.
+    body: JSON.stringify({ message: t, site: digest, firstBuild: !!isBuild, brief: brief, qa: qa, answering: !!answering, attached: !!(imgs && imgs.length) }),
   }).then(async (r) => {
     const d = await r.json().catch(() => null);
     if (!r.ok || !d) return go();
@@ -11535,12 +11539,25 @@ function siteSend(text) {
   // cost ~21 credits AND rewrote the customer's pages, and "hi" on a new project
   // built a site out of the word "hi".
   //
-  // Skipped entirely when something is ATTACHED. A file plus a sentence is the
-  // shape of "use this" — the router would have to guess which, and guessing
-  // "ask" there answers a build request with a paragraph and drops the
-  // attachment on the floor. The one case where paying for the routing call is
-  // worse than not asking.
-  if (reactPath && !imgs.length) { siteRoute(site, t, origin, isBuild, imgs, finish); return; }
+  // AN ATTACHMENT NO LONGER SKIPS THE QUESTION, only the answer.
+  //
+  // It used to skip this call entirely, on reasoning that was right about one
+  // outcome and took a second one with it: a file plus a sentence is the shape
+  // of "use this", so guessing "ask" answers a build request with a paragraph
+  // and drops the attachment on the floor. True — and `attached` closes "ask"
+  // off at the router instead, which is the narrow fix.
+  //
+  // What the skip also removed was the QUESTION. Owner's rule is that every new
+  // project is asked one thing before ~28 credits are spent on a guess, and
+  // attaching a logo to "a barber shop in Leeds" quietly opted out of it. The
+  // attachment survives the round — `siteAnswer` carries `clarify.imgs` through
+  // to the build — so there was never a reason it could not be asked.
+  //
+  // On a REVISE with an attachment both non-build outcomes are already closed
+  // (`canClarify` is false, `ask` is shut by `attached`), so the call could only
+  // ever answer "build". Skipping it there is not a policy, just not paying a
+  // credit for an answer that is already known.
+  if (reactPath && (!imgs.length || isBuild)) { siteRoute(site, t, origin, isBuild, imgs, finish); return; }
   if (reactPath) { reactSend(site, t, origin, isBuild ? 'build' : 'revise', imgs, finish); return; }
   // A LEGACY STATIC SITE CANNOT BE EDITED — the engine that made it is gone.
   //
