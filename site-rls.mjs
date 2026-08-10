@@ -196,6 +196,22 @@ export function policiesFor(t) {
     out.push(`DROP POLICY IF EXISTS ${p(s)} ON ${tn};`);
   }
 
+  // A RETIRED TABLE GETS NO POLICY AT ALL, and this function ignored `retired`
+  // entirely while `grantsFor` honoured it — two halves of one answer that
+  // disagreed. So removing a booking form dropped its policy shapes and then
+  // RE-CREATED `FOR INSERT WITH CHECK (true)` on the way out: with the stale
+  // grant that nothing revoked, the removed form kept accepting submissions from
+  // anyone. The drops above still run, which is what makes retiring take effect;
+  // returning here is what stops it being undone two lines later.
+  if (t && t.retired) return out;
+
+  // A PAYABLE TABLE GETS NO WRITE POLICY EITHER, for the same reason its grants
+  // were hoisted: the only way an order may exist is through /checkout, which
+  // inserts on the OWNER's connection and bypasses RLS, so a write policy here
+  // grants nothing the platform needs and is one mistake away from mattering.
+  // Reads are untouched — a customer must still see what they are buying.
+  const payable = !!(t && t.payment);
+
   // A soft-deleted row is gone as far as any reader is concerned. Applied in the
   // policy as well as in the Worker's query, or the Data API would serve rows the
   // site itself treats as deleted.
@@ -265,7 +281,10 @@ export function policiesFor(t) {
   // visitor may leave a row and may never reach one again — not their own, since
   // there is nothing to prove it is theirs, and certainly not anybody else's.
   // That is `collect` today and it stays true of every pair that writes `anyone`.
-  if (write === "anyone") {
+  if (payable) {
+    // nothing: no INSERT, no UPDATE, no DELETE policy on a table whose rows may
+    // only be created by the checkout route.
+  } else if (write === "anyone") {
     out.push(`CREATE POLICY ${p("insert")} ON ${tn} FOR INSERT WITH CHECK (true);`);
   } else if (write === "own") {
     // WITH CHECK on the NEW row, so a member cannot insert a row owned by somebody
@@ -320,11 +339,34 @@ export function grantsFor(t) {
   // table unreachable from the web while the rows stay exactly where they are —
   // the owner can still read and export them, and a later revise can bring the
   // feature back by simply not retiring it. Reversible in both directions.
-  if (t && t.retired) return [];
+  // REVOKE FIRST, THEN GRANT — grants were additive-only and nothing ever took
+  // one back.
+  //
+  // Omission protects a table Postgres grants to nobody, which is true on the
+  // FIRST build and false on every one after it: a GRANT persists, so not
+  // re-issuing one removes nothing. That is the same trap already recorded for
+  // `internal` FUNCTIONS, where Postgres grants EXECUTE to PUBLIC and three
+  // correct layers were undone by a default — here the default is fine and the
+  // LIFECYCLE is what breaks it.
+  //
+  // What it cost: `retired` returns no grants below, and that was described as
+  // withdrawing the table from the web. It withdrew nothing — a removed booking
+  // form kept its earlier INSERT grant and kept taking submissions. Same for a
+  // table tightened from `display` to `members`, or one that becomes payable
+  // after being built without a price.
+  //
+  // Emitted for EVERY table including a retired one, which is what makes the
+  // withdrawal real, and before the grants so a re-issued privilege is not taken
+  // straight back off. The apply loop runs these in order.
+  const revoke = [
+    `REVOKE ALL ON ${q(t.name)} FROM ${DATA_API_ROLES.anon};`,
+    `REVOKE ALL ON ${q(t.name)} FROM ${DATA_API_ROLES.user};`,
+  ];
+  if (t && t.retired) return revoke;
   const { read, write } = resolveAccess(t);
   const tn = q(t.name);
   const { anon, user } = DATA_API_ROLES;
-  const out = [];
+  const out = [...revoke];
 
   // WHO MAY ASK TO READ. `none` grants nothing, which is the other half of the
   // write-only guarantee: no policy AND no grant.
@@ -347,9 +389,24 @@ export function grantsFor(t) {
   // owner's connection. The hole closes by construction rather than by
   // validation somebody has to keep getting right. Keyed on the WRITE axis now,
   // so a payable table is protected however its access was spelled.
+  // A PAYABLE TABLE GETS NO WRITE GRANT ON ANY PAIR, and this check had to come
+  // OUT of the `anyone` branch to be true.
+  //
+  // It sat inside it, so the protection held for `collect` — the shape payments
+  // were built on — and for nothing else. Measured across all 16 cells: a
+  // payable table declared `write:"own"` or `write:"members"` was emitting
+  // `GRANT INSERT, UPDATE, DELETE … TO authenticated`, so any signed-in member
+  // could insert an order with `payment_status:"paid"` at a price they chose, or
+  // flip their own pending order to paid. Eight of the sixteen. The comment
+  // above claims the hole "closes by construction"; it closed for one preset.
+  //
+  // The read grant is deliberately left standing: a customer must still be able
+  // to SEE what they are buying. It is the write that must only ever happen
+  // through /checkout, which prices the basket from the site's own rows and
+  // inserts on the owner's connection.
+  if (t && t.payment) return out;
   if (write === "anyone") {
-    if (!(t && t.payment)) out.push(`GRANT INSERT ON ${tn} TO ${anon};`, `GRANT INSERT ON ${tn} TO ${user};`);
-    else return [];
+    out.push(`GRANT INSERT ON ${tn} TO ${anon};`, `GRANT INSERT ON ${tn} TO ${user};`);
   } else if (write === "own" || write === "members") {
     // ONE STATEMENT FOR THE MEMBER, matching what `user` and `feed` have always
     // emitted: they may ask for all four verbs and the POLICIES decide which

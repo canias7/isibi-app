@@ -642,9 +642,18 @@ test("a retired table is offered to the generator by nothing", async () => {
 test("a retired table is reachable from the web by nobody", async () => {
   const { grantsFor } = await import("../site-rls.mjs");
   for (const access of ["display", "collect", "user", "feed", "admin"]) {
-    assert.deepEqual(grantsFor({ name: "t", access, retired: true }), [],
+    const retired = grantsFor({ name: "t", access, retired: true });
+    assert.deepEqual(retired.filter((s) => /^GRANT /.test(s)), [],
       access + ": a retired table must have no grants at all");
-    assert.ok(grantsFor({ name: "t", access }).length > 0 || access === "admin",
+    // AND THE WITHDRAWAL HAS TO BE ACTIVE. Emitting no grant removes nothing —
+    // a GRANT persists, so a table granted on an earlier build kept its
+    // privilege and the removed form went on taking submissions. The REVOKE is
+    // what makes retiring real, which is why it is asserted on the retired case
+    // rather than left to the general one.
+    assert.ok(retired.some((s) => /^REVOKE ALL ON "t" FROM anonymous;/.test(s)),
+      access + ": retiring emits no REVOKE, so an earlier grant still stands");
+    assert.ok(retired.some((s) => /^REVOKE ALL ON "t" FROM authenticated;/.test(s)), access);
+    assert.ok(grantsFor({ name: "t", access }).filter((s) => /^GRANT /.test(s)).length > 0 || access === "admin",
       access + ": the un-retired case must still grant something, or this proves nothing");
   }
 });

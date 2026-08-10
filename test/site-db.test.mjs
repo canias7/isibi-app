@@ -451,7 +451,9 @@ test("grants name Neon's roles, not Supabase's", async () => {
   assert.equal(rls.DATA_API_ROLES.anon, "anonymous");
   assert.equal(rls.DATA_API_ROLES.user, "authenticated");
   for (const access of ["display", "collect", "admin", "user"]) {
-    for (const stmt of rls.grantsFor({ name: "services", access })) {
+    // Filtered to GRANTs: `grantsFor` also emits the REVOKEs that make a
+    // withdrawal real, and those name the same two roles in a `FROM` clause.
+    for (const stmt of rls.grantsFor({ name: "services", access }).filter((x) => /^GRANT /.test(x))) {
       assert.ok(!/\bTO anon\b/.test(stmt), `grants to a role that does not exist: ${stmt}`);
       assert.match(stmt, /TO (anonymous|authenticated);$/, stmt);
     }

@@ -271,10 +271,20 @@ test("a grant never gives more than the level allows", () => {
   // Both changed on 2026-08-04: the old spelling named a role that does not
   // exist, and Postgres refuses the whole statement, so pairing them meant
   // `authenticated` lost its grant too and no table was reachable by anybody.
-  assert.deepEqual(grantsFor(T({ access: "display" })), [
+  // THE GRANTS, apart from the REVOKEs that now lead every list. Grants used to
+  // be additive-only — nothing ever took one back — so `retired` withdrew
+  // nothing and a removed booking form kept accepting submissions.
+  assert.deepEqual(grantsFor(T({ access: "display" })).filter((s) => /^GRANT /.test(s)), [
     'GRANT SELECT ON "things" TO anonymous;',
     'GRANT SELECT ON "things" TO authenticated;',
   ]);
+  // …and the revokes come FIRST, or a re-issued privilege is taken straight
+  // back off and every table is unreachable.
+  const all = grantsFor(T({ access: "display" }));
+  assert.match(all[0], /^REVOKE ALL ON "things" FROM anonymous;/);
+  assert.match(all[1], /^REVOKE ALL ON "things" FROM authenticated;/);
+  assert.ok(all.findIndex((s) => /^GRANT /.test(s)) > all.findLastIndex((s) => /^REVOKE /.test(s)),
+    "a grant is issued before the revoke that would undo it");
   // The important one: a collect table must never be granted SELECT.
   const collect = grantsFor(T({ access: "collect" })).join("");
   assert.match(collect, /GRANT INSERT/);
@@ -282,9 +292,13 @@ test("a grant never gives more than the level allows", () => {
   // And a member table is never granted to the anonymous role. Matched as a
   // whole word: `/anon/` also matches inside `anonymous`, which happens to be
   // right here but is true by accident rather than by the assertion meaning it.
+  // GRANTS ONLY. Every list now leads with `REVOKE ALL … FROM anonymous`, which
+  // names the role while doing the exact opposite of granting to it — so a
+  // string search over the whole list reports the role as granted on a table
+  // that has just had its privileges taken away.
   for (const access of ["user", "feed", "admin"]) {
-    assert.ok(!/\banonymous\b/.test(grantsFor(T({ access })).join("")),
-      access + " must not be granted to the anonymous role");
+    const granted = grantsFor(T({ access })).filter((x) => /^GRANT /.test(x)).join("");
+    assert.ok(!/\banonymous\b/.test(granted), access + " must not be granted to the anonymous role");
   }
 });
 
@@ -515,7 +529,8 @@ test("a payable table gets no public insert, however its access was spelled", ()
   for (const t of [{ name: "orders", access: "collect", payment: { from: "products" } },
                    { name: "orders", read: "none", write: "anyone", payment: { from: "products" } },
                    { name: "orders", read: "public", write: "anyone", payment: { from: "products" } }]) {
-    assert.deepEqual(grantsFor(t), [], "a payable table is publicly insertable: " + JSON.stringify(t));
+    assert.deepEqual(grantsFor(t).filter((s) => /^GRANT (INSERT|UPDATE|DELETE|ALL)/.test(s)), [],
+      "a payable table is writable without going through checkout: " + JSON.stringify(t));
   }
   // …and without payment it IS insertable, or the loop passes on a builder that
   // grants nothing to anybody.
@@ -595,4 +610,41 @@ test("the filters are on the READ, never on the write", () => {
       assert.ok(!/expires_at|publish_at/.test(x), "a write policy filters on time: " + x);
     }
   }
+});
+
+test("a retired table gets no policy, not just no grant", () => {
+  // TWO HALVES OF ONE ANSWER THAT DISAGREED. `grantsFor` honoured `retired` and
+  // this function ignored it entirely — so retiring a booking form dropped its
+  // policy shapes and then RE-CREATED `FOR INSERT WITH CHECK (true)` on the way
+  // out. With the grant that nothing revoked, the removed form went on accepting
+  // submissions from anyone.
+  for (const access of ["display", "collect", "user", "feed", "admin"]) {
+    const out = policiesFor({ name: "t", access, retired: true });
+    assert.deepEqual(out.filter((s) => /^CREATE POLICY/.test(s)), [],
+      access + ": a retired table is given a policy");
+    // The DROPs must still run — that is what makes retiring take effect on a
+    // table that already had policies.
+    assert.ok(out.some((s) => /^DROP POLICY IF EXISTS/.test(s)),
+      access + ": retiring stops dropping the policies it already had");
+  }
+  // …and the un-retired case still creates something, or this proves nothing.
+  assert.ok(policiesFor({ name: "t", access: "display" }).some((s) => /^CREATE POLICY/.test(s)));
+});
+
+test("a payable table gets no write policy on any pair", () => {
+  // The only way an order may exist is POST /api/db/<slug>/checkout, which
+  // prices the basket from the site's own rows and inserts on the OWNER's
+  // connection — bypassing RLS. So a write policy here grants nothing the
+  // platform needs and is one mistake away from mattering.
+  const READ = ["none", "own", "members", "public"], WRITE = ["none", "own", "members", "anyone"];
+  for (const read of READ) for (const write of WRITE) {
+    const out = policiesFor({ name: "orders", read, write, payment: { from: "products", amount: "price" } });
+    const writes = out.filter((s) => /^CREATE POLICY[\s\S]*FOR (INSERT|UPDATE|DELETE)/.test(s));
+    assert.deepEqual(writes, [], `payable read=${read} write=${write} still has a write policy`);
+  }
+  // Reads are untouched — a customer must still see what they are buying.
+  assert.ok(policiesFor({ name: "orders", read: "public", write: "own", payment: { from: "p", amount: "price" } })
+    .some((s) => /FOR SELECT/.test(s)), "a payable table stopped being readable");
+  // And an ORDINARY table still gets its write policy, or this removed the tier.
+  assert.ok(policiesFor({ name: "b", access: "collect" }).some((s) => /FOR INSERT/.test(s)));
 });

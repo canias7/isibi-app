@@ -373,13 +373,16 @@ test("link 1: the declaration SURVIVES the normaliser's allow-list", () => {
 test("link 2: A PAYABLE TABLE GETS NO PUBLIC INSERT — the hole closes by construction", () => {
   const norm = normalizeSchema(payableSpec).tables;
   const orders = norm.find((t) => t.name === "orders");
-  assert.deepEqual(grantsFor(orders), []);
+  // No WRITE grant on any pair — hoisted out of the `anyone` branch, where it
+  // protected `collect` and nothing else. The read grant may stand: a customer
+  // has to see what they are buying.
+  assert.deepEqual(grantsFor(orders).filter((s) => /^GRANT (INSERT|UPDATE|DELETE|ALL)/.test(s)), []);
 });
 
 test("...while an ORDINARY collect table keeps its public INSERT", () => {
   // Or every contact form on the platform stops working.
   const plain = normalizeSchema({ tables: [{ name: "enquiries", access: "collect", columns: [{ name: "email" }] }] }).tables[0];
-  const g = grantsFor(plain);
+  const g = grantsFor(plain).filter((s) => /^GRANT /.test(s));
   assert.equal(g.length, 2);
   assert.ok(g.every((s) => /GRANT INSERT/.test(s)), g.join(" "));
 });
@@ -436,7 +439,8 @@ test("the whole chain holds from the file a build actually posts", () => {
   const orders = normalizeSchema(spec).tables.find((t) => t.name === "orders");
   assert.ok(orders && orders.payment, "payment must reach the normalised table");
   assert.equal(orders.payment.from, "products");
-  assert.deepEqual(grantsFor(orders), [], "and the table must still lose its public INSERT");
+  assert.deepEqual(grantsFor(orders).filter((s) => /^GRANT (INSERT|UPDATE|DELETE|ALL)/.test(s)), [],
+    "and the table must still lose every direct write");
 });
 
 test("link 0: THE DESIGNER CAN DECLARE IT — otherwise the whole chain is unreachable", () => {

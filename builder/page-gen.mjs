@@ -1277,7 +1277,7 @@ export const UI_SHORTLIST = (() => {
 // does not do. site-access.mjs is dependency-free, so this module stays
 // importable without the Worker's node_modules.
 export { MANAGED_COLUMNS } from "../site-access.mjs";
-import { MANAGED_COLUMNS, canReadAccess, canWriteAccess, whyNotReadable, needsMember, hasPublicView, canMemberWrite, resolveAccess, accessNameFor } from "../site-access.mjs";
+import { MANAGED_COLUMNS, canReadAccess, canWriteAccess, whyNotReadable, needsMember, hasPublicView, canMemberWrite, resolveAccess, accessNameFor, accessLabel, readNeedsMember } from "../site-access.mjs";
 
 export const MAX_PAGES = 6;
 export const MAX_PAGE_CHARS = 24000;
@@ -3105,7 +3105,7 @@ export function lintPages(pages, spec) {
   }
   const ui = new Set(UI_COMPONENTS);
   const say = (path, msg) => problems.push(path + ": " + msg);
-  const memberTables = [...tables.values()].filter((t) => needsMember(t.access));
+  const memberTables = [...tables.values()].filter((t) => needsMember(t));
 
   for (const { path, source } of pages) {
     // Strip COMMENTS before pattern-matching, so a rule quoted in a doc comment is
@@ -3189,8 +3189,8 @@ export function lintPages(pages, spec) {
     for (const m of editTargets) {
       const t = tables.get(m[1].toLowerCase());
       if (!t) { say(path, 'edits table "' + m[1] + '", which the schema does not declare.'); continue; }
-      if (!canMemberWrite(t.access)) {
-        say(path, 'edits "' + m[1] + '", which is access "' + t.access + '" — PATCH and DELETE on it return 403. Only `user` and `feed` rows have an owner who may change them.');
+      if (!canMemberWrite(t)) {
+        say(path, 'edits "' + m[1] + '", which is access "' + accessLabel(t) + '" — PATCH and DELETE on it return 403. Only `user` and `feed` rows have an owner who may change them.');
       } else if (!/\buseMember\b/.test(code)) {
         say(path, 'edits "' + m[1] + '" without useMember(). Only a signed-in member can change a row, and only their own — put the edit UI behind a sign-in.');
       }
@@ -3508,15 +3508,15 @@ export function lintPages(pages, spec) {
     // signed-out visitor and looks like a broken page rather than a locked one.
     for (const m of code.matchAll(/\buseRows\s*(?:<[^>]*>)?\s*\(\s*"([^"]+)"/g)) {
       const t = tables.get(m[1].toLowerCase());
-      if (t && needsMember(t.access) && !/\buseMember\b/.test(code)) {
-        say(path, 'reads "' + m[1] + '" (access "' + t.access + '") without useMember(). Signed out that returns 401, so the page must offer a sign-in rather than an error.');
+      if (t && readNeedsMember(t) && !/\buseMember\b/.test(code)) {
+        say(path, 'reads "' + m[1] + '" (access "' + accessLabel(t) + '") without useMember(). Signed out that returns 401, so the page must offer a sign-in rather than an error.');
       }
       if (!t) say(path, 'reads table "' + m[1] + '", which the schema does not declare.');
       // A member table is handled by the rule above: it is readable, just not
       // anonymously. Saying both would report one page twice and pay for a
       // repair pass to fix a problem that was already described.
-      else if (!canReadAccess(t.access) && !needsMember(t.access)) {
-        say(path, 'lists "' + m[1] + '", which is access "' + t.access + '" — reading it returns 403: ' + whyNotReadable(t.access) + '.');
+      else if (!canReadAccess(t) && !readNeedsMember(t)) {
+        say(path, 'lists "' + m[1] + '", which is access "' + accessLabel(t) + '" — reading it returns 403: ' + whyNotReadable(t) + '.');
       }
     }
     // `usePublicRows` is the one read that does NOT follow from a table's access
@@ -3533,10 +3533,10 @@ export function lintPages(pages, spec) {
     }
     for (const m of code.matchAll(/\buseRow\s*(?:<[^>]*>)?\s*\(\s*"([^"]+)"/g)) {
       const t = tables.get(m[1].toLowerCase());
-      if (t && needsMember(t.access) && !/\buseMember\b/.test(code)) {
-        say(path, 'reads one row of "' + m[1] + '" (access "' + t.access + '") without useMember(). Signed out that returns 401.');
-      } else if (t && !canReadAccess(t.access) && !needsMember(t.access)) {
-        say(path, 'reads one row of "' + m[1] + '", which is access "' + t.access + '" — reading it returns 403: ' + whyNotReadable(t.access) + '.');
+      if (t && readNeedsMember(t) && !/\buseMember\b/.test(code)) {
+        say(path, 'reads one row of "' + m[1] + '" (access "' + accessLabel(t) + '") without useMember(). Signed out that returns 401.');
+      } else if (t && !canReadAccess(t) && !readNeedsMember(t)) {
+        say(path, 'reads one row of "' + m[1] + '", which is access "' + accessLabel(t) + '" — reading it returns 403: ' + whyNotReadable(t) + '.');
       }
     }
     // A FUNCTION THE SCHEMA NEVER DECLARED IS A 404, and until 2026-08-04 no
@@ -3564,12 +3564,12 @@ export function lintPages(pages, spec) {
       // admin grants SELECT and nothing else, so this branch swallowed the one
       // case it most needed to report. An admin form passed the lint and then
       // refused its own administrator.
-      else if (canMemberWrite(t.access)) {
+      else if (canMemberWrite(t)) {
         if (!/\buseMember\b/.test(code)) {
-          say(path, 'writes to "' + m[1] + '" (access "' + t.access + '") without useMember(). Signed out that returns 401, so the form must be behind a sign-in.');
+          say(path, 'writes to "' + m[1] + '" (access "' + accessLabel(t) + '") without useMember(). Signed out that returns 401, so the form must be behind a sign-in.');
         }
       } else if (!canWriteAccess(t.access)) {
-        say(path, 'submits to "' + m[1] + '", which is access "' + t.access + '" — writing to it returns 403. Only a `collect` table accepts a write from a published site.');
+        say(path, 'submits to "' + m[1] + '", which is access "' + accessLabel(t) + '" — writing to it returns 403. Only a `collect` table accepts a write from a published site.');
       }
     }
   }

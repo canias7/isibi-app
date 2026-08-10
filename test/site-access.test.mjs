@@ -4,12 +4,12 @@
 // they have drifted between the two before. Driving them here means both callers
 // are reading something that is actually pinned down.
 import { test } from "node:test";
+import { lintPages } from "../builder/page-gen.mjs";
 import assert from "node:assert/strict";
 import {
   resolveAccess, ACCESS_PRESETS, READ_LEVELS, WRITE_LEVELS,
   MANAGED_COLUMNS, isManagedColumn, ACCESS_LEVELS, normalizeAccess,
-  normalizeRole, rolesForSchema, teamReadable, DEFAULT_ROLE, whyNotReadable,
-} from "../site-access.mjs";
+  normalizeRole, rolesForSchema, teamReadable, DEFAULT_ROLE, whyNotReadable, needsMember, canReadAccess, canWriteAccess, canMemberWrite, readNeedsMember, accessLabel } from "../site-access.mjs";
 
 test("managed columns are never writable, whatever case they arrive in", () => {
   for (const c of MANAGED_COLUMNS) {
@@ -136,4 +136,93 @@ test("every access level has a preset, and every preset is a level", () => {
     assert.ok(READ_LEVELS.includes(pair.read), name + " has an unknown read level: " + pair.read);
     assert.ok(WRITE_LEVELS.includes(pair.write), name + " has an unknown write level: " + pair.write);
   }
+});
+
+/* ── the predicates answer on the PAIR, not the preset name ──────────────── */
+
+test("all five presets answer exactly as they always did", () => {
+  // THE SAFETY ARGUMENT, and the same one the pair axes shipped with: this
+  // rewrote the predicates every access decision on every generated page runs
+  // through, so the presets are diffed against what they meant BEFORE rather
+  // than reasoned about. Any change here is a change to every existing site.
+  const was = {
+    //          needsMember, canRead, anonWrite, memberWrite
+    display: [false, true, false, false],
+    collect: [false, false, true, false],
+    user:    [true, false, false, true],
+    feed:    [true, false, false, true],
+    admin:   [true, false, false, false],
+  };
+  for (const [p, expected] of Object.entries(was)) {
+    assert.deepEqual(
+      [needsMember(p), canReadAccess(p), canWriteAccess(p), canMemberWrite(p)],
+      expected, p + " no longer means what it meant");
+    // …and the TABLE form must agree with the string form, or a caller that
+    // passes one gets a different answer from a caller that passes the other.
+    assert.deepEqual(
+      [needsMember({ access: p }), canReadAccess({ access: p }), canWriteAccess({ access: p }), canMemberWrite({ access: p })],
+      expected, p + ": the table form disagrees with the string form");
+  }
+});
+
+test("the marketplace cell reads publicly and writes per member", () => {
+  // THE CELL THE PAIR AXES EXIST FOR, and the one every predicate got wrong:
+  // they took an access STRING through `normalizeAccess`, which collapses
+  // anything unknown to "collect", so a pair-declared table answered as
+  // write-only. `lintPages` then refused a correct page with `access
+  // "undefined" — reading it returns 403`.
+  const t = { name: "listings", read: "public", write: "own" };
+  assert.equal(canReadAccess(t), true, "the public cannot read a public table");
+  assert.equal(readNeedsMember(t), false, "reading a public table is being made to require a sign-in");
+  assert.equal(canMemberWrite(t), true, "a member cannot write their own listing");
+  assert.equal(canWriteAccess(t), false, "a stranger can write a member-owned table");
+});
+
+test("`readNeedsMember` is NOT `needsMember`, and the difference is the pair", () => {
+  // Conflating them is wrong in both directions. The marketplace cell involves
+  // members (they write) while its read is open to anyone — asking the broad
+  // question made the lint demand useMember() before listing rows the whole
+  // public can see. The five presets never separated the two because in all
+  // five the read and the write agree about needing an identity.
+  const mk = { read: "public", write: "own" };
+  assert.equal(needsMember(mk), true, "the table does involve members");
+  assert.equal(readNeedsMember(mk), false, "…but reading it does not");
+  // On every preset the two still agree, which is why this never surfaced.
+  for (const p of ["display", "collect", "user", "feed", "admin"]) {
+    assert.equal(needsMember(p), readNeedsMember(p) || canMemberWrite(p),
+      p + ": the broad and narrow questions disagree on a preset");
+  }
+});
+
+test("a pair table is NAMED to the customer, never as `undefined`", () => {
+  assert.equal(accessLabel("display"), "display", "a preset must keep its familiar name");
+  assert.equal(accessLabel({ access: "collect" }), "collect");
+  assert.equal(accessLabel({ read: "public", write: "own" }), "read public / write own");
+  // The failure it replaces: the lint printed `t.access` straight into a message.
+  assert.ok(!/undefined/.test(accessLabel({ read: "public", write: "own" })));
+  assert.ok(!/undefined/.test(accessLabel({})));
+});
+
+test("the LINT accepts the marketplace page it used to refuse", () => {
+  // The whole point of the pair axes, refused by our own lint: `lists
+  // "listings", which is access "undefined" — reading it returns 403`, printing
+  // the literal word "undefined" to the customer. Driven through the real lint
+  // rather than through the predicates, because the predicates were only half
+  // of it — with them fixed the lint then demanded `useMember()` to read a
+  // PUBLIC table, which is the same bug wearing the other face.
+  const page = (src) => [{ path: "src/routes/index.tsx", source: 'import { useRows } from "@/lib/rows";\n' + src }];
+  const list = (table) => page('export default function H(){ const q = useRows("' + table + '"); return <div>{String(q.data)}</div>; }');
+  const lint = (t, table) => lintPages(list(table), { tables: [t] });
+
+  assert.deepEqual(lint({ name: "listings", read: "public", write: "own", columns: [{ name: "title" }] }, "listings"), [],
+    "a correct marketplace page is still refused");
+  assert.deepEqual(lint({ name: "menu", access: "display", columns: [{ name: "title" }] }, "menu"), [],
+    "a display table is refused");
+  // AND THE REAL ERRORS ARE STILL CAUGHT, or this loosened the lint instead of
+  // fixing it — which is strictly worse, because a page that 403s in front of a
+  // customer is what the rule exists to stop.
+  assert.match(lint({ name: "bk", access: "collect", columns: [{ name: "e" }] }, "bk")[0] || "",
+    /returns 403/, "a write-only table is no longer refused");
+  assert.match(lint({ name: "saved", access: "user", columns: [{ name: "e" }] }, "saved")[0] || "",
+    /useMember/, "a member table no longer asks for a sign-in");
 });

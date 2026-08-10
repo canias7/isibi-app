@@ -205,8 +205,27 @@ export function teamReadable(def) {
  * `admin` served public reads and refused every write, so only half of each was
  * usable and the generator was told to avoid them.
  */
+/**
+ * THESE PREDICATES ANSWER ON THE PAIR, NOT ON THE PRESET NAME.
+ *
+ * Every one of them took an access STRING and ran it through `normalizeAccess`,
+ * which collapses anything it does not recognise to "collect". A table declared
+ * with `read`/`write` has no `access`, so all five answered as though it were
+ * write-only — and `lintPages` refused a perfectly correct marketplace page with
+ * `lists "listings", which is access "undefined" — reading it returns 403`, on
+ * the exact cell the pair axes were added for, in a message printing the literal
+ * word "undefined" to the customer.
+ *
+ * POLYMORPHIC ON PURPOSE: a string still works, so every existing caller is
+ * unchanged, and passing the TABLE is what makes a pair answerable. The five
+ * presets resolve to the pairs they have always meant, which is asserted rather
+ * than assumed — the same safety argument the pair axes shipped with.
+ */
+const pairOf = (x) => resolveAccess(typeof x === "string" ? { access: x } : (x || {}));
+
 export function needsMember(access) {
-  return ["user", "feed", "admin"].includes(normalizeAccess(access));
+  const { read, write } = pairOf(access);
+  return read === "own" || read === "members" || write === "own" || write === "members";
 }
 
 /**
@@ -256,7 +275,7 @@ export function publicViewName(table) {
  * another's submission, and the member levels answer 401 until someone signs in.
  */
 export function canReadAccess(access) {
-  return normalizeAccess(access) === "display";
+  return pairOf(access).read === "public";
 }
 
 /**
@@ -266,7 +285,7 @@ export function canReadAccess(access) {
  * Everything else needs an identity to own or authorise the row.
  */
 export function canWriteAccess(access) {
-  return normalizeAccess(access) === "collect";
+  return pairOf(access).write === "anyone";
 }
 
 /**
@@ -294,15 +313,15 @@ export function canWriteAccess(access) {
  * owner maintains it", which is a coherent level and is now what it says.
  */
 export function canMemberWrite(access) {
-  const a = normalizeAccess(access);
-  return a === "user" || a === "feed";
+  const w = pairOf(access).write;
+  return w === "own" || w === "members";
 }
 
 /** Why a read is refused, in words a generated page's author can act on. */
 export function whyNotReadable(access) {
-  const a = normalizeAccess(access);
-  if (a === "collect") return "those rows are other visitors' submissions and are never served back";
-  if (needsMember(a)) return "those rows need a signed-in member — call useMember() and offer a sign-in";
+  const { read } = pairOf(access);
+  if (read === "none") return "those rows are other visitors' submissions and are never served back";
+  if (needsMember(access)) return "those rows need a signed-in member — call useMember() and offer a sign-in";
   return "the API refuses public reads of it";
 }
 
@@ -320,4 +339,35 @@ export function whyNotReadable(access) {
 export function isImageColumn(name) {
   return /(^|_)(image|images|img|photo|photos|picture|pic|avatar|logo|cover|thumbnail|thumb|banner|hero)(_|$)|_url$/i
     .test(String(name || ""));
+}
+
+/**
+ * HOW TO NAME THIS TABLE'S ACCESS TO A HUMAN.
+ *
+ * The lint's messages printed `t.access` directly, which is `undefined` on a
+ * pair-declared table — so a customer was told their page "is access
+ * \"undefined\"". A preset keeps its familiar name; a pair says what it is.
+ */
+export function accessLabel(t) {
+  if (typeof t === "string") return normalizeAccess(t);
+  const a = t && typeof t === "object" ? t.access : null;
+  if (typeof a === "string" && ACCESS_LEVELS.includes(a.toLowerCase())) return a.toLowerCase();
+  const { read, write } = pairOf(t);
+  return "read " + read + " / write " + write;
+}
+
+/**
+ * Does READING this table need a signed-in member?
+ *
+ * NOT the same question as `needsMember`, and conflating them is wrong in both
+ * directions on a pair. The marketplace cell — read "public", write "own" —
+ * involves members (they write their own listings) while its READ is open to
+ * anyone, so asking the broad question made the lint demand `useMember()` before
+ * a page could list rows the whole public can see. The five presets never
+ * separated the two because in all five the read and the write agree about
+ * needing an identity; a pair is exactly where they stop agreeing.
+ */
+export function readNeedsMember(t) {
+  const r = pairOf(t).read;
+  return r === "own" || r === "members";
 }
