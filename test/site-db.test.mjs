@@ -360,8 +360,16 @@ test("a container that answers with no JSON says what it DID answer", () => {
   // patterns that cannot appear in prose — so the comment beside the fix is
   // worded to avoid quoting the pattern this asserts against.
   const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const i = src.indexOf("getContainer(env.SITE_BUILD_CONTAINER)");
-  assert.ok(i > 0, "the container call is gone");
+  // ANCHORED INSIDE THE BUILD PATH, not on the first occurrence in the file.
+  // `recompileAndPublish` — the shared spine the free text edit and the cheap
+  // edit path use — also calls the container, and it is defined ABOVE this one,
+  // so a bare `indexOf` silently started asserting against the wrong function.
+  // First-occurrence anchors break by ADDITION, which is the hardest kind to
+  // predict when writing one.
+  const bp = src.indexOf("async function buildAndPublishPages");
+  assert.ok(bp > 0, "the build function is gone");
+  const i = src.indexOf("getContainer(env.SITE_BUILD_CONTAINER)", bp);
+  assert.ok(i > bp, "the container call is gone from the build path");
   // Windowed to the END OF THE DEP, not a guessed character count. A 1400-char
   // window stopped 134 characters short of the thing it asserts — the third time
   // in this session an assertion sized by luck went red for the wrong reason.

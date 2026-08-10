@@ -410,7 +410,13 @@ test("the archive is labelled with the change, and the change reaches it", () =>
   assert.match(worker, /changeNote:\s*brief,/, "the route must send the raw turn message");
   assert.match(worker, /async function buildAndPublishPages\(env, \{[^}]*changeNote/,
     "…and the build function must take it");
-  const i = worker.indexOf("await archiveVersion(");
+  // Inside the BUILD path: the shared spine archives too, with its own label,
+  // and it is defined above — so the first `archiveVersion(` in the file is no
+  // longer this one.
+  const bp = worker.indexOf("async function buildAndPublishPages");
+  assert.ok(bp > 0, "the build function is gone");
+  const i = worker.indexOf("await archiveVersion(", bp);
+  assert.ok(i > bp, "the build path no longer archives");
   const call = worker.slice(i, worker.indexOf("});", i));
   assert.match(call, /label: versionLabel\(\{[^}]*changeNote/, "…and the label must be built from it");
   // The composed brief is thousands of characters with the change buried in the

@@ -5521,6 +5521,97 @@ async function fetchSiteFonts(pair) {
  * Best-effort in both directions: no bucket, no uploads or a failed list all
  * mean a smaller card, never a failed publish.
  */
+/**
+ * THE SHARED SPINE: take a site's page source, compile it, publish it.
+ *
+ * No model call, no designer, no schema — source in, published site out. This is
+ * the half of a build that every path needs and the half an EDIT needs on its
+ * own: compile-and-publish sat at the END of a line built for creating a site
+ * from nothing, so the only way to reach it was to walk all of it, which is why
+ * "make the background yellow" cost the same ~28 credits as "build me a site".
+ *
+ * EXTRACTED FROM THE FREE TEXT EDIT, WHICH WAS ALREADY THE SECOND COPY. The
+ * build path has its own, and the two had silently diverged: this one titled the
+ * site with its SLUG, dropped its og:description and dropped its preview image,
+ * because `injectMeta` replaces its fenced block and a field not passed is a
+ * field removed. Nothing caught it — both paths compiled, both published, and
+ * only reading them side by side showed it. One spine is the answer to that, and
+ * the reason to do it before the cheap edit path rather than after.
+ *
+ * THE LOOK IS READ HERE, NOT PASSED IN, on purpose. A recompile that is handed a
+ * look can be handed the WRONG one, and the failure is silent — the site comes
+ * back re-themed by a caller that meant nothing by it. Reading the stored value
+ * means the only way to change a site's look is to change what is stored.
+ *
+ * A FAILED COMPILE LEAVES THE LIVE SITE ALONE, and that is the whole contract of
+ * the failure path: publishing a broken bundle to fix a typo is the trade nobody
+ * would make. Returns `{ok:false, error, detail}` and touches nothing.
+ */
+async function recompileAndPublish(env, { slug, pages, label }) {
+  let look = null, tokens = null;
+  try {
+    const conn = await siteBackendBySlug(env, slug);
+    const db = conn && conn.conn;
+    if (db) {
+      const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens')");
+      for (const r of rows || []) {
+        if (r.k === "site_look" && r.v) look = JSON.parse(r.v);
+        if (r.k === "site_tokens" && r.v) tokens = JSON.parse(r.v);
+      }
+    }
+  } catch (e) { console.error("recompile look read failed:", slug, e && e.message); }
+
+  const pair = resolvePair((look && look.fonts) || {});
+  const fontFiles = await fetchSiteFonts(pair);
+  const files = {};
+  for (const p of pages || []) files[p.path] = p.source;
+
+  let built;
+  try {
+    const c = getContainer(env.SITE_BUILD_CONTAINER);
+    const rr = await c.fetch(new Request("http://build/build", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        files, slug, title: (look && look.brand) || slug,
+        fonts: { heading: pair.heading.id, body: pair.body.id },
+        theme: (look && look.theme) || null,
+        tokens: Object.keys(tokens || {}).length ? withContrast(tokens) : undefined,
+        fontFiles: Object.keys(fontFiles).length ? fontFiles : undefined,
+      }),
+    }));
+    built = JSON.parse(await rr.text().catch(() => "")) || {};
+  } catch (e) {
+    built = { ok: false, error: String((e && e.message) || "the build service did not answer") };
+  }
+  if (!built || built.ok !== true || !built.files) {
+    return { ok: false, error: "compile", detail: String((built && built.error) || "").slice(0, 200) };
+  }
+
+  // THE SAME META A BUILD PUBLISHES. Every field here is one this path was
+  // missing when it was a second copy.
+  const wrote = await writeSiteDistToR2(env, slug, built.files, {
+    brand: (look && look.brand) || slug,
+    description: (look && look.description) || undefined,
+    image: await siteOgImage(env, slug),
+    url: siteUrlFor(slug, "https://" + APP_ZONE),
+    slug,
+  });
+  try {
+    await archiveVersion(versionDeps(env), {
+      slug,
+      id: versionId(Date.now(), Math.random().toString(36).slice(2)),
+      label: label || "Rebuilt",
+      files: Object.keys(built.files || {}).map((rel) => String(rel).replace(/[^a-z0-9/._-]/gi, "-")),
+    });
+  } catch (e) { console.error("archive failed:", slug, e && e.message); }
+  // LAST, AND ONLY ON SUCCESS. The stored source is what the next edit reads, so
+  // writing it before the compile is proved would hand the next edit a version
+  // that does not build.
+  await saveSiteSource(env, slug, pages);
+  return { ok: true, files: wrote, look };
+}
+
 async function siteOgImage(env, slug) {
   try {
     if (!env.SITES_BUCKET) return null;
@@ -9404,80 +9495,25 @@ async function handleRequest(request, env, ctx) {
             const ed = applyEdits(src, Array.isArray(tb && tb.edits) ? tb.edits.slice(0, 200) : []);
             if (!ed.ok) return Response.json({ ok: false, error: ed.error }, { status: 400 });
 
-            // The site's own look, so a recompile does not silently re-theme it.
-            let look = null, tokens = null;
-            try {
-              const conn = await siteBackendBySlug(env, ownerSlug);
-              const db = conn && conn.conn;
-              if (db) {
-                const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens')");
-                for (const r of rows || []) {
-                  if (r.k === "site_look" && r.v) look = JSON.parse(r.v);
-                  if (r.k === "site_tokens" && r.v) tokens = JSON.parse(r.v);
-                }
-              }
-            } catch (e) { console.error("text edit look read failed:", ownerSlug, e && e.message); }
-
-            const pair = resolvePair((look && look.fonts) || {});
-            const fontFiles = await fetchSiteFonts(pair);
-            const files = {};
-            for (const p of ed.pages) files[p.path] = p.source;
-
-            let built;
-            try {
-              const c = getContainer(env.SITE_BUILD_CONTAINER);
-              const rr = await c.fetch(new Request("http://build/build", {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({
-                  files, slug: ownerSlug, title: (look && look.brand) || ownerSlug,
-                  fonts: { heading: pair.heading.id, body: pair.body.id },
-                  theme: (look && look.theme) || null,
-                  tokens: Object.keys(tokens || {}).length ? withContrast(tokens) : undefined,
-                  fontFiles: Object.keys(fontFiles).length ? fontFiles : undefined,
-                }),
-              }));
-              built = JSON.parse(await rr.text().catch(() => "")) || {};
-            } catch (e) {
-              built = { ok: false, error: String((e && e.message) || "the build service did not answer") };
-            }
+            // THE SHARED SPINE — compile, publish, archive, store the source.
+            // This block WAS that code, inline, and it was the second copy: the
+            // build path has its own, and the two had quietly disagreed about
+            // three fields of the published meta. See `recompileAndPublish`.
+            const out = await recompileAndPublish(env, {
+              slug: ownerSlug, pages: ed.pages, label: "Edited the wording",
+            });
             // A FAILED COMPILE LEAVES THE LIVE SITE ALONE. The words came from
             // the owner, so a refusal here is theirs to correct — publishing a
             // broken bundle to fix a typo is the trade nobody would make.
-            if (!built || built.ok !== true || !built.files) {
+            if (!out.ok) {
               return Response.json({
                 ok: false, error: "compile",
                 msg: "That change didn't compile, so your site is untouched — try shorter wording.",
-                detail: String(built && built.error || "").slice(0, 200),
+                detail: out.detail,
               }, { status: 422 });
             }
 
-            // THE SAME META A BUILD PUBLISHES, which this was quietly missing
-            // half of. `injectMeta` REPLACES its fenced block, so a field not
-            // passed is a field removed: fixing a typo stripped the site's
-            // og:description and its preview image outright. `look.brand` was
-            // read here from the day this route shipped and the stored look did
-            // not carry a brand until 2026-08-10, so the title fell through to
-            // the SLUG on every text edit — the reader was right and nothing
-            // ever wrote the value.
-            const wrote = await writeSiteDistToR2(env, ownerSlug, built.files, {
-              brand: (look && look.brand) || ownerSlug,
-              description: (look && look.description) || undefined,
-              image: await siteOgImage(env, ownerSlug),
-              url: siteUrlFor(ownerSlug, "https://" + APP_ZONE),
-              slug: ownerSlug,
-            });
-            try {
-              await archiveVersion(versionDeps(env), {
-                slug: ownerSlug,
-                id: versionId(Date.now(), Math.random().toString(36).slice(2)),
-                label: "Edited the wording",
-                files: Object.keys(built.files || {}).map((rel) => String(rel).replace(/[^a-z0-9/._-]/gi, "-")),
-              });
-            } catch (e) { console.error("archive failed:", ownerSlug, e && e.message); }
-            await saveSiteSource(env, ownerSlug, ed.pages);
-
-            return Response.json({ ok: true, applied: ed.applied, files: wrote, cost: 0 });
+            return Response.json({ ok: true, applied: ed.applied, files: out.files, cost: 0 });
           }
           if (vr) {
             if (!env.SITES_BUCKET) return Response.json({ ok: false, error: "storage not configured" }, { status: 501 });

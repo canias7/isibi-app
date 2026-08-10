@@ -209,16 +209,22 @@ test("a text edit keeps the site's name, description and preview image", () => {
   //   og:description was DROPPED — no description was passed at all.
   //   og:image was DROPPED — the build derives it from the owner's first upload
   //   and this never did.
-  const i = worker.indexOf("const tx = url.pathname.match");
-  assert.ok(i > 0, "the text-edit route is gone");
-  const block = worker.slice(i, worker.indexOf("if (vr) {", i));
-  assert.ok(block.length > 0, "could not read the text-edit route");
-  assert.match(block, /title: \(look && look\.brand\) \|\| ownerSlug/,
+  // ASSERTED ON THE SPINE, where the publish now lives. All three were inline in
+  // the text route when they were broken, which is exactly why one spine exists:
+  // the build path had them and this path did not.
+  const i = worker.indexOf("async function recompileAndPublish(env, {");
+  assert.ok(i > 0, "the shared spine is gone");
+  const block = worker.slice(i, worker.indexOf("\nasync function siteOgImage(", i));
+  assert.ok(block.length > 0, "could not read the spine");
+  assert.match(block, /title: \(look && look\.brand\) \|\| slug/,
     "the recompile no longer titles the site with its own name");
   assert.match(block, /description: \(look && look\.description\) \|\| undefined/,
     "a text edit strips the site's description again");
-  assert.match(block, /image: await siteOgImage\(env, ownerSlug\)/,
+  assert.match(block, /image: await siteOgImage\(env, slug\)/,
     "a text edit strips the site's link-preview image again");
+  // …and the text route has to reach it, or the spine is correct and unused.
+  assert.match(worker, /recompileAndPublish\(env, \{\s*\n?\s*slug: ownerSlug, pages: ed\.pages/,
+    "the text route no longer publishes through the shared spine");
   // The look it reads has to be the one that CARRIES those, or all three read
   // undefined and the guard above passes on a site with no name.
   assert.match(worker, /brand: merged\.brand,\s*\n\s*description: merged\.description,/,

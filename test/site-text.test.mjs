@@ -190,21 +190,43 @@ test("an empty batch is refused rather than republishing nothing", () => {
 
 const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 
+// THE SPINE the text route now calls. These properties moved out of the route
+// when `recompileAndPublish` was extracted — not because they stopped mattering,
+// but because they became true for EVERY caller of it rather than for this one
+// route. Windowed to the function so the guards follow the behaviour.
+function spine() {
+  const i = worker.indexOf("async function recompileAndPublish(env, {");
+  assert.ok(i > 0, "the shared spine is gone");
+  const end = worker.indexOf("\nasync function siteOgImage(", i);
+  assert.ok(end > i, "could not find the end of the spine");
+  return worker.slice(i, end);
+}
+function textRoute() {
+  const i = worker.indexOf("if (tx) {");
+  assert.ok(i > 0, "the text route is gone");
+  const end = worker.indexOf("\n          if (vr) {", i);
+  assert.ok(end > i, "could not find the end of the text route");
+  return worker.slice(i, end);
+}
+
+
 test("editing the words asks no model anything", () => {
   // THE WHOLE POINT: a typo cost ~21 credits and a model call. The route must
   // reach the container and nothing else.
-  const i = worker.indexOf("if (tx) {");
-  assert.ok(i > 0, "the text route is gone");
-  const block = worker.slice(i, worker.indexOf("\n          if (vr) {", i));
+  const block = textRoute();
   assert.ok(!/anthropic|pagesRequest|generateSitePages|useCredits|collectCredits/i.test(block),
     "the text route must not call a model or spend credits");
-  assert.match(block, /getContainer\(env\.SITE_BUILD_CONTAINER\)/, "it must still compile");
+  // It compiles through the shared spine now, so the container call is asserted
+  // where it lives — and that the route actually reaches it.
+  assert.match(block, /recompileAndPublish\(env, \{/, "the text route no longer compiles at all");
+  assert.match(spine(), /getContainer\(env\.SITE_BUILD_CONTAINER\)/, "it must still compile");
+  assert.ok(!/anthropic|pagesRequest|generateSitePages|useCredits|collectCredits/i.test(spine()),
+    "the spine must not call a model or spend credits either");
   assert.match(block, /cost: 0/, "and it must say what it cost");
 });
 
 test("a failed compile leaves the live site alone", () => {
-  const i = worker.indexOf("if (tx) {");
-  const block = worker.slice(i, worker.indexOf("\n          if (vr) {", i));
+  const block = spine();
   const refuse = block.indexOf('error: "compile"');
   const publish = block.indexOf("writeSiteDistToR2");
   assert.ok(refuse > 0 && publish > refuse,
@@ -212,18 +234,28 @@ test("a failed compile leaves the live site alone", () => {
 });
 
 test("the edited source is stored back, or the next edit starts from the old words", () => {
-  const i = worker.indexOf("if (tx) {");
-  const block = worker.slice(i, worker.indexOf("\n          if (vr) {", i));
-  assert.match(block, /saveSiteSource\(env, ownerSlug, ed\.pages\)/);
+  const block = spine();
+  assert.match(block, /saveSiteSource\(env, slug, pages\)/);
   assert.match(block, /archiveVersion\(/, "and it must be a version, so it can be rolled back like any build");
+  // AFTER the publish, never before: the stored source is what the NEXT edit
+  // reads, so writing it before the compile is proved hands that edit a version
+  // which does not build.
+  assert.ok(block.indexOf("saveSiteSource") > block.indexOf("writeSiteDistToR2"),
+    "the source is stored before the publish is proved");
+  // …and the route must hand it the edited pages, or the spine stores nothing.
+  assert.match(textRoute(), /pages: ed\.pages/, "the edited pages never reach the spine");
 });
 
 test("the site's own look is carried through the recompile", () => {
   // A recompile that forgot the theme would silently re-style the whole site to
   // fix a typo — the exact failure the look anchor exists to prevent.
-  const i = worker.indexOf("if (tx) {");
-  const block = worker.slice(i, worker.indexOf("\n          if (vr) {", i));
+  const block = spine();
   assert.match(block, /site_look','site_tokens'/, "it must read the stored look");
+  // READ, NOT PASSED IN. A recompile handed a look can be handed the WRONG one,
+  // and the failure is silent — the site comes back re-themed by a caller that
+  // meant nothing by it.
+  assert.ok(!/function recompileAndPublish\(env, \{[^}]*\blook\b/.test(worker),
+    "the spine takes a look from its caller, so a caller can re-theme a site by accident");
   assert.match(block, /theme: \(look && look\.theme\) \|\| null/);
   assert.match(block, /withContrast\(tokens\)/);
   assert.match(block, /resolvePair\(\(look && look\.fonts\) \|\| \{\}\)/);
@@ -249,8 +281,7 @@ test("a failed compile leaves the live site alone — the ordering IS the guaran
   // Asserted on the CONDITION, not on the presence of the words anywhere: a
   // mutant replacing the refusal with `if (false)` left the message string in
   // place and survived, publishing a bundle that did not build.
-  const i = worker.indexOf("if (tx) {");
-  const block = worker.slice(i, worker.indexOf("\n          if (vr) {", i));
+  const block = spine();
   assert.match(block, /if \(!built \|\| built\.ok !== true \|\| !built\.files\) \{/,
     "the compile result must be the condition, not merely mentioned");
   const refuse = block.indexOf("if (!built || built.ok !== true");
