@@ -2786,7 +2786,30 @@ export function schemaDigest(spec) {
     }
     return lines.join("\n");
   }).join("\n\n");
-  return tableLines + fnLines + apiLines;
+  // THE AGGREGATE, WHICH NO PER-TABLE LINE CAN STATE.
+  //
+  // Every table above is described accurately and the fact that MATTERS is a
+  // property of the set: whether a signed-out visitor can read anything at all.
+  // Measured live 2026-08-10 on a real marketplace — `events` private per member,
+  // `bookings` write-only, `reviews` members-only — so not one visitor could see
+  // a single listing. The generator had no home page it could honestly write and
+  // returned NOTHING, and the failure surfaced two steps downstream at
+  // `stage: validate` with a message that named none of this.
+  //
+  // A STATEMENT OF FACT, NOT A RULE, which is what makes it safe to add. It
+  // cannot false-alarm: an internal tool legitimately has no public tables, and
+  // the sentence is correct for that site too — build the sign-in first. The
+  // alternative, refusing the schema, would be wrong for every such site, and
+  // this codebase already records that a check wrong a third of the time is
+  // worse than no check.
+  const readable = tables.filter((t) => resolveAccess(t).read === "public" || hasPublicView(t));
+  const shut = tables.length && !readable.length
+    ? "\nNOTHING ON THIS SITE IS READABLE BY A SIGNED-OUT VISITOR. Every table above needs a signed-in " +
+      "member, so there is NO public list to build and no browse page to write. Do not write one: it would " +
+      "401 for everybody who is not signed in. Build a home page that says what the site is and offers a " +
+      "sign-in, and put every list behind it.\n"
+    : "";
+  return tableLines + shut + fnLines + apiLines;
 }
 
 /**

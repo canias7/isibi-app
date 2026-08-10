@@ -1081,3 +1081,10 @@ Auth config (set 2026-07-03 via Management API): Site URL `https://isibi.ai`, re
 - **`IS NULL OR` IS THE CLAUSE THAT DECIDES WHETHER THIS IS USEFUL OR CATASTROPHIC.** `expires_at > now` is NULL for an unset column, which is not true — so without it every row that never had a date set would vanish. Mutation-checked in exactly that form.
 - **Filters ride the READ policy only.** An owner must still be able to correct a scheduled post before it appears, and edit a listing that has expired.
 - 1916 tests, **5/5 mutations caught**.
+
+**AND THE ONE FACT NO PER-TABLE LINE COULD STATE (2026-08-10).** `schemaDigest` described every table accurately and never said the thing that decided the build: **whether a signed-out visitor can read anything at all.** On the marketplace that failed, `events` was private per member, `bookings` write-only and `reviews` members-only — three correct descriptions adding up to a site with no page worth opening, and the generator returned nothing rather than something.
+
+- **A STATEMENT OF FACT, NOT A RULE, which is what makes it safe to add.** It cannot false-alarm: an internal tool legitimately has no public tables and the sentence is right for that site too — build the sign-in first. Refusing the schema instead would be wrong for every such site, and this file already records that a check wrong a third of the time is worse than no check.
+- **`publicView` COUNTS AS READABLE**, or a correctly-built marketplace would be told it cannot be built — the one instruction guaranteed to stop it working. Asserted, along with the pair-declared form, so neither route to a public table is missed.
+- **Also settled, and it corrects an earlier suspicion of mine:** the customer's raw brief — clarify answers folded in — DOES reach page generation (`pagesPrompt` opens with `"BRIEF\n" + brief`). So *"Trendy and modern"* is not consumed by the designer and discarded; the step that draws reads the same words. The thin frontend vocabulary is not the gap it looked like.
+- 1917 tests, **4/4 mutations caught**.

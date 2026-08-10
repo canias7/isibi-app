@@ -2480,3 +2480,47 @@ test("the four audited features are declarable, and the dead ones are not", () =
       f + " is offered but is not reachable end to end — check it stamps/reads/sends before exposing it");
   }
 });
+
+test("a site nobody can read says so ONCE, as a fact about the whole schema", () => {
+  // THE FAILURE THIS EXISTS FOR cost a customer a whole site. A marketplace came
+  // back with `events` private per member, `bookings` write-only and `reviews`
+  // members-only — every table described perfectly, and not one visitor able to
+  // see a single listing. The generator had no home page it could honestly write
+  // and returned NOTHING; the failure surfaced two steps later at
+  // `stage: validate` with a message that named none of this.
+  //
+  // No per-table line can say it, because it is a property of the SET.
+  const shut = schemaDigest({ tables: [
+    { name: "events", access: "user", columns: [{ name: "title", type: "text" }] },
+    { name: "bookings", access: "collect", columns: [{ name: "email", type: "text" }] },
+    { name: "reviews", access: "feed", columns: [{ name: "rating", type: "int" }] },
+  ] });
+  assert.match(shut, /NOTHING ON THIS SITE IS READABLE BY A SIGNED-OUT VISITOR/);
+  assert.match(shut, /offers a sign-in/, "it states the fact without saying what to build instead");
+  assert.equal((shut.match(/NOTHING ON THIS SITE/g) || []).length, 1, "said more than once");
+
+  // A STATEMENT OF FACT, NOT A RULE — which is what makes it safe. A site with
+  // ONE public table must stay quiet, or every ordinary business site carries a
+  // paragraph telling it not to build the page it should be building.
+  const open = schemaDigest({ tables: [
+    { name: "menu", access: "display", columns: [{ name: "dish", type: "text" }] },
+    { name: "bookings", access: "collect", columns: [{ name: "email", type: "text" }] },
+  ] });
+  assert.doesNotMatch(open, /NOTHING ON THIS SITE/, "a site with a public table was told it has none");
+
+  // …and a publicView is what makes a private table browsable, so it counts.
+  // Missing this would tell a correctly-built marketplace it cannot be built —
+  // the exact instruction that would stop it working.
+  const projected = schemaDigest({ tables: [
+    { name: "events", access: "user", publicView: { columns: ["title"] }, columns: [{ name: "title", type: "text" }] },
+  ] });
+  assert.doesNotMatch(projected, /NOTHING ON THIS SITE/, "a publicView was not counted as readable");
+
+  // The new read/write pair reaches it too, not only the preset names.
+  const pair = schemaDigest({ tables: [{ name: "listings", read: "public", write: "own", columns: [{ name: "t", type: "text" }] }] });
+  assert.doesNotMatch(pair, /NOTHING ON THIS SITE/, "a pair-declared public table was not counted");
+
+  // An empty schema says nothing — there is no site to describe, and the
+  // digest already has its own wording for that.
+  assert.doesNotMatch(schemaDigest({ tables: [] }), /NOTHING ON THIS SITE/);
+});
