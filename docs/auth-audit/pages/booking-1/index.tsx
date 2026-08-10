@@ -2,6 +2,7 @@ import { useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 
 import { useRows, type Row } from "@/lib/rows";
+import { SiteChrome } from "@/components/ui/site-chrome";
 import { AvailabilityGrid } from "@/components/ui/availability-grid";
 import { CtaBand } from "@/components/ui/cta-band";
 import { LocationCard } from "@/components/ui/location-card";
@@ -10,11 +11,11 @@ import { OpeningHours, type DayHours } from "@/components/ui/opening-hours";
 import { PriceList } from "@/components/ui/price-list";
 import { SafeImage } from "@/components/ui/safe-image";
 import { SectionHeader } from "@/components/ui/section-header";
-import { SiteChrome } from "@/components/ui/site-chrome";
-import { Skeleton } from "@/components/ui/skeleton";
+import { StatsBand } from "@/components/ui/stats-band";
 import { TeamGrid } from "@/components/ui/team-grid";
 import { Testimonial } from "@/components/ui/testimonial";
 import { TrustStrip } from "@/components/ui/trust-strip";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export const Route = createFileRoute("/")({ component: Home });
 
@@ -22,28 +23,40 @@ type Teacher = Row & { name: string; bio: string | null; photo_url: string | nul
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "A calm room, a good mat, classes most days.",
+  tagline: "A studio in the city centre, breathing room every hour.",
   links: [
-    { label: "Timetable", href: "#timetable" },
-    { label: "Prices", href: "#prices" },
+    { label: "Classes", href: "#classes" },
     { label: "Teachers", href: "#teachers" },
+    { label: "The work", href: "/work" },
     { label: "Find us", href: "#find-us" },
-    { label: "Members", href: "/members" },
   ],
   action: { label: "Book now", href: "/book" },
 };
 
 const HOURS: DayHours[] = [
-  { day: 1, label: "Monday", open: "07:00", close: "20:30" },
-  { day: 2, label: "Tuesday", open: "07:00", close: "20:30" },
-  { day: 3, label: "Wednesday", open: "07:00", close: "20:30" },
-  { day: 4, label: "Thursday", open: "07:00", close: "20:30" },
-  { day: 5, label: "Friday", open: "07:00", close: "19:00" },
-  { day: 6, label: "Saturday", open: "09:00", close: "14:00" },
-  { day: 0, label: "Sunday", open: "09:00", close: "12:30" },
+  { day: 1, label: "Monday", open: "07:00", close: "21:00" },
+  { day: 2, label: "Tuesday", open: "07:00", close: "21:00" },
+  { day: 3, label: "Wednesday", open: "07:00", close: "21:00" },
+  { day: 4, label: "Thursday", open: "07:00", close: "21:00" },
+  { day: 5, label: "Friday", open: "07:00", close: "20:00" },
+  { day: 6, label: "Saturday", open: "08:30", close: "16:00" },
+  { day: 0, label: "Sunday", open: "09:00", close: "14:00" },
 ];
 
-const SLOTS = ["07:30", "09:00", "10:30", "12:00", "17:30", "18:30", "19:30"];
+const PRICES = [
+  { name: "Drop-in class", description: "Any class on the timetable, one visit", price: 16, meta: "60 min" },
+  { name: "5-class pack", description: "Use across any style, valid 8 weeks", price: 70, meta: "save £10" },
+  { name: "Unlimited monthly", description: "As many classes as you can fit in", price: 85, meta: "per month" },
+  { name: "First class", description: "New to the studio? Your first visit is on us", price: 0, meta: "one-time" },
+];
+
+const CLASSES = [
+  { time: "07:00", title: "Sunrise Vinyasa", teacher: "Ines" },
+  { time: "09:30", title: "Slow Flow & Breath", teacher: "Priya" },
+  { time: "12:15", title: "Lunchtime Hatha", teacher: "Marcus" },
+  { time: "17:30", title: "Power Vinyasa", teacher: "Ines" },
+  { time: "19:00", title: "Restorative & Yin", teacher: "Priya" },
+];
 
 function Home() {
   const navigate = useNavigate();
@@ -56,155 +69,141 @@ function Home() {
         <div className="mx-auto max-w-6xl px-6 py-16">
           <div className="grid items-center gap-12 lg:grid-cols-[1.1fr_1fr]">
             <div>
-              <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                Studio classes · all levels welcome
-              </p>
+              <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Aurora Yoga · Studio</p>
               <h1 className="mt-3 text-5xl font-semibold tracking-tight text-balance">Aurora Yoga</h1>
               <p className="mt-5 max-w-lg text-lg leading-relaxed text-muted-foreground">
-                A quiet room, proper mats and a mix of strong and gentle classes through the
-                week. First class is free if you've never been.
+                Vinyasa, Hatha and Yin classes running from early morning to evening. Mats are provided — just bring yourself.
               </p>
               <div className="mt-7 flex flex-wrap items-center gap-3">
-                <Link
-                  to="/book"
-                  className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground motion-press"
-                >
-                  Book now
-                </Link>
-                <Link to="/work" className="rounded-md border border-border px-5 py-2.5 text-sm font-medium">
-                  See the studio
-                </Link>
+                <Link className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground motion-press" to="/book">Book now</Link>
+                <Link className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" to="/work">See the studio</Link>
                 <OpenNow hours={HOURS.map((h) => ({ day: h.day, open: h.open!, close: h.close! }))} />
               </div>
             </div>
-            <SafeImage src={null} alt="" ratio="1/1" fallbackSeed="aurora-hero" />
+            <div className="grid grid-cols-2 gap-4">
+              <SafeImage src={null} alt="" ratio="1/1" fallbackSeed="studio-1" />
+              <SafeImage src={null} alt="" ratio="1/1" fallbackSeed="studio-2" />
+              <SafeImage src={null} alt="" ratio="1/1" fallbackSeed="studio-3" />
+              <SafeImage src={null} alt="" ratio="1/1" fallbackSeed="studio-4" />
+            </div>
+          </div>
+          <div className="mt-14 border-t border-border pt-10">
+            <StatsBand items={[
+              { value: "20+", label: "Classes a week, across styles" },
+              { value: "4.9", label: "Average rating from members" },
+              { value: "5", label: "Teachers, each with their own focus" },
+              { value: "1st", label: "Class free for new members" },
+            ]} />
           </div>
         </div>
       </section>
 
       <section className="mx-auto max-w-6xl px-6 py-10">
-        <TrustStrip
-          items={[
-            { title: "All levels", description: "Every class notes who it suits" },
-            { title: "Free first class", description: "Come try it before you commit to anything" },
-            { title: "Mats provided", description: "Turn up in clothes you can move in" },
-          ]}
-        />
+        <TrustStrip items={[
+          { title: "Mats provided", description: "Bring water, we'll sort the rest" },
+          { title: "All levels welcome", description: "Every class states its pace up front" },
+          { title: "Book in seconds", description: "No account needed to reserve a slot" },
+        ]} />
       </section>
 
-      <section id="timetable" className="border-y border-border bg-muted/40">
+      <section id="classes" className="border-y border-border bg-muted/40">
         <div className="mx-auto max-w-6xl px-6 py-16">
-          <SectionHeader
-            eyebrow="Today"
-            title="Check availability"
-            description="Pick a time below, then finish your booking on the next page."
-          />
+          <SectionHeader eyebrow="Today" title="Today's classes" description="Pick a class time to hold your mat, then finish on the booking page." />
           <div className="mt-8 grid gap-8 lg:grid-cols-[1.35fr_1fr]">
             <div className="rounded-xl border bg-card p-6 shadow-sm">
-              <AvailabilityGrid slots={SLOTS} taken={["09:00", "18:30"]} value={slot} onSelect={setSlot} />
+              <ul className="mb-6 divide-y divide-border motion-stagger">
+                {CLASSES.map((c) => (
+                  <li key={c.time} className="flex items-center justify-between py-2 text-sm">
+                    <span className="font-medium">{c.time} · {c.title}</span>
+                    <span className="text-muted-foreground">with {c.teacher}</span>
+                  </li>
+                ))}
+              </ul>
+              <AvailabilityGrid
+                slots={CLASSES.map((c) => c.time)}
+                taken={[]}
+                value={slot}
+                onSelect={setSlot}
+              />
               <p className="mt-4 text-sm text-muted-foreground">
-                {slot ? `Holding ${slot} — pick a class on the booking page.` : "Tap a time to hold it."}
+                {slot ? `Holding ${slot} — finish on the booking page.` : "Tap a time to hold it."}
               </p>
               {slot && (
-                <Link
-                  to="/book"
-                  className="mt-2 inline-block text-sm font-medium underline underline-offset-4"
-                >
+                <Link className="mt-2 inline-block text-sm font-medium underline underline-offset-4" to="/book" search={{ time: slot }}>
                   Continue to book {slot} →
                 </Link>
               )}
             </div>
-            <SafeImage src={null} alt="" ratio="4/3" fallbackSeed="aurora-room" />
+            <SafeImage src={null} alt="" ratio="4/3" fallbackSeed="class-hero" />
           </div>
         </div>
       </section>
 
       <section id="prices" className="mx-auto max-w-6xl px-6 py-16">
-        <SectionHeader
-          eyebrow="Classes and prices"
-          title="What it costs"
-          description="Pay per class or ask about a block at the studio — either way, book your spot below."
-        />
+        <SectionHeader eyebrow="Pricing" title="Ways to join" description="Drop in whenever, or save with a pack — cancel anytime." />
         <PriceList
           className="mt-8"
-          items={[
-            { name: "Vinyasa Flow", description: "Steady pace, breath-led, builds through the class", price: 14, meta: "60 min" },
-            { name: "Gentle Hatha", description: "Slow and supported — good for a first class", price: 12, meta: "60 min" },
-            { name: "Restorative", description: "Mostly floor work, blankets and blocks", price: 12, meta: "75 min" },
-            { name: "Power Yoga", description: "Faster, stronger, for people already moving well", price: 15, meta: "50 min" },
-            { name: "Yin & Sound", description: "Long holds, ends with a sound bath", price: 16, meta: "75 min" },
-          ]}
-          action={{ label: "Book", onSelect: (r) => navigate({ to: "/book", search: { service: r.name } }) }}
+          items={PRICES}
+          action={{ label: "Book", onSelect: () => navigate({ to: "/book" }) }}
         />
       </section>
 
-      <section id="teachers" className="border-y border-border bg-muted/40">
+      <section className="border-y border-border bg-muted/40">
         <div className="mx-auto max-w-6xl px-6 py-16">
-          <SectionHeader eyebrow="Who's teaching" title="Meet the teachers" description="Each class notes who's leading it — ask them anything before or after." />
-          {teachers.isPending && <Skeleton className="mt-8 h-40 rounded-xl" />}
-          {teachers.isError && (
-            <p className="mt-8 text-sm text-destructive">Couldn't load the teachers. Refresh and try again.</p>
-          )}
-          {teachers.data?.length === 0 && (
-            <p className="mt-8 text-sm text-muted-foreground">Teacher profiles are coming soon.</p>
-          )}
-          {!!teachers.data?.length && (
-            <TeamGrid
-              className="mt-8"
-              items={teachers.data.map((t) => ({
-                name: t.name,
-                role: t.bio,
-                photo: t.photo_url,
-                fallbackSeed: t.name,
-              }))}
-            />
-          )}
-        </div>
-      </section>
-
-      <section className="mx-auto max-w-6xl px-6 py-16">
-        <SectionHeader eyebrow="Kind words" title="From the mats" />
-        <div className="mt-8 grid gap-5 sm:grid-cols-2">
-          <Testimonial
-            item={{
-              quote: "Came for the free class and never left. The Yin & Sound on Thursdays is my whole week's reset.",
-              name: "Priya Sharma",
-              role: "Thursday regular",
-            }}
-          />
-          <Testimonial
-            item={{
-              quote: "I'd never done yoga before. Gentle Hatha was exactly the right place to start.",
-              name: "Owen Bracewell",
-              role: "New to the mat",
-            }}
-          />
-        </div>
-      </section>
-
-      <section id="find-us" className="border-y border-border bg-muted/40">
-        <div className="mx-auto grid max-w-6xl gap-10 px-6 py-16 sm:grid-cols-2">
-          <div>
-            <SectionHeader eyebrow="Find us" title="The studio" />
-            <div className="mt-6 max-w-sm">
-              <OpeningHours days={HOURS} />
-            </div>
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <SectionHeader eyebrow="The studio" title="A look inside" />
+            <Link className="text-sm font-medium underline underline-offset-4" to="/work">The whole gallery →</Link>
           </div>
-          <LocationCard
-            className="self-start"
-            name="Aurora Yoga"
-            address="22 Riverside Walk, Bristol BS1 6ND"
-            note="Above the health food shop. Leave shoes at the top of the stairs."
-          />
+          <div className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-3">
+            <SafeImage src={null} alt="" ratio="4/3" fallbackSeed="peek-1" />
+            <SafeImage src={null} alt="" ratio="4/3" fallbackSeed="peek-2" />
+            <SafeImage src={null} alt="" ratio="4/3" fallbackSeed="peek-3" />
+          </div>
         </div>
       </section>
 
-      <section className="mx-auto max-w-6xl px-6 py-20">
-        <CtaBand
-          title="There's almost always a spot on the mat"
-          description="Book in thirty seconds — we'll see you on the mat."
-          action={{ label: "Book now", href: "/book" }}
+      <section id="teachers" className="mx-auto max-w-6xl px-6 py-16">
+        <SectionHeader eyebrow="Who's teaching" title="Our teachers" description="Every class states who's leading it and what pace to expect." />
+        {teachers.isPending && <Skeleton className="mt-8 h-40 rounded-xl" />}
+        {teachers.isError && (
+          <p className="mt-8 text-sm text-destructive">Couldn't load the teachers. Refresh and try again.</p>
+        )}
+        {teachers.data?.length === 0 && (
+          <p className="mt-8 text-sm text-muted-foreground">Teacher profiles are coming soon.</p>
+        )}
+        {!!teachers.data?.length && (
+          <TeamGrid
+            className="mt-8"
+            items={teachers.data.map((t) => ({ name: t.name, role: t.bio, photo: t.photo_url, fallbackSeed: t.name }))}
+          />
+        )}
+      </section>
+
+      <section className="border-y border-border bg-muted/40">
+        <div className="mx-auto max-w-6xl px-6 py-16">
+          <SectionHeader eyebrow="Kind words" title="From our members" />
+          <div className="mt-8 grid gap-5 sm:grid-cols-2">
+            <Testimonial item={{ quote: "The 7am Vinyasa is my whole week's anchor. Never rushed, always full but never crowded.", name: "Odette Marsh", role: "Member since 2022" }} />
+            <Testimonial item={{ quote: "Booked my first class not knowing a single pose. Left knowing exactly what to do next time.", name: "Callum Reyes", role: "New member" }} />
+          </div>
+        </div>
+      </section>
+
+      <section id="find-us" className="mx-auto grid max-w-6xl gap-10 px-6 py-16 sm:grid-cols-2">
+        <div>
+          <SectionHeader eyebrow="Find us" title="In the city centre" />
+          <div className="mt-6 max-w-sm"><OpeningHours days={HOURS} /></div>
+        </div>
+        <LocationCard
+          className="self-start"
+          name="Aurora Yoga"
+          address="18 Willow Court, Manchester M1 4EQ"
+          note="Above the health food shop. Bike racks out front; no on-site parking."
         />
+      </section>
+
+      <section className="mx-auto max-w-6xl px-6 pb-20">
+        <CtaBand title="There's usually a mat free today" description="Book in thirty seconds — we confirm by email." action={{ label: "Book now", href: "/book" }} />
       </section>
     </SiteChrome>
   );

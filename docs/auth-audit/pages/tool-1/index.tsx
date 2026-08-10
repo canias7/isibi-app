@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { Skeleton } from "@/components/ui/skeleton";
+import { ActivityFeed } from "@/components/ui/activity-feed";
 
 export const Route = createFileRoute("/")({ component: Door });
 
@@ -38,7 +38,6 @@ function Door() {
   const member = useMember();
   const login = useLogin();
   const signup = useSignup();
-  const navigate = useNavigate();
 
   const form = useForm<Credentials>({
     resolver: zodResolver(credentials),
@@ -53,7 +52,6 @@ function Door() {
           return;
         }
         form.reset();
-        navigate({ to: "/records" });
       },
       onError: () => toast.error("That email and password didn't match."),
     });
@@ -65,59 +63,64 @@ function Door() {
         <p className="text-lg font-semibold tracking-tight">Halyard</p>
         <div className="max-w-md py-12">
           <h1 className="text-3xl font-semibold tracking-tight text-balance">
-            One shared pipeline, no spreadsheet copies
+            One shared pipeline your whole sales team actually reads
           </h1>
           <p className="mt-4 text-muted-foreground">
-            Halyard is where a small sales team keeps its deals and accounts. Everyone signs in,
-            sees the deals the whole team is working, adds their own, and reads the same account
-            list — nothing lives in someone's private sheet.
+            Halyard is where the team keeps the deals it's working and the
+            accounts it sells into. Sign in to add a deal, move a stage, or
+            check who spoke to who last.
           </p>
           <ul className="mt-8 space-y-4 text-sm">
             <li className="flex items-start gap-3">
-              <StatusBadge state="success">live</StatusBadge>
-              <span>Deals are shared with your team — everyone reads and edits the same rows</span>
+              <StatusBadge state="success">shared</StatusBadge>
+              <span>Every deal is the team's, not one rep's private list</span>
             </li>
             <li className="flex items-start gap-3">
               <StatusBadge state="success">live</StatusBadge>
-              <span>One account list the whole team reads and adds to</span>
+              <span>Accounts are shared across the team the moment someone adds one</span>
             </li>
             <li className="flex items-start gap-3">
-              <StatusBadge state="neutral">soon</StatusBadge>
-              <span>Kanban view of the pipeline, stage by stage</span>
+              <StatusBadge state="neutral">reference</StatusBadge>
+              <span>The playbook — how the team qualifies and closes — lives right in the tool</span>
             </li>
           </ul>
+          <div className="mt-8">
+            <ActivityFeed
+              items={[
+                { who: "Priya", what: "moved Nettlefold Signage to Negotiation", at: new Date() },
+                { who: "Dan", what: "added the account Foss & Kerr", at: new Date(Date.now() - 1000 * 60 * 40) },
+              ]}
+            />
+          </div>
         </div>
         <p className="text-xs text-muted-foreground">
-          Built for small teams — no admin console, no seat limits to argue about.
+          Internal tool — for the team, not for prospects.
         </p>
       </section>
 
       <section className="flex items-center justify-center p-10">
-        {member.isPending && <Skeleton className="h-72 w-full max-w-sm rounded-xl" />}
-
-        {!member.isPending && member.data && (
-          <Card className="w-full max-w-sm motion-enter">
-            <CardHeader>
-              <CardTitle>You're signed in</CardTitle>
-              <CardDescription>Welcome back, {member.data.name}.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button className="w-full" onClick={() => navigate({ to: "/records" })}>
-                Go to records
+        <Card className="w-full max-w-sm">
+          <CardHeader>
+            <CardTitle>Sign in</CardTitle>
+            <CardDescription>
+              {member.isPending
+                ? "Checking your sign-in…"
+                : member.data
+                  ? `Signed in as ${member.data.name}.`
+                  : "Use your team email."}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-4">
+            {member.data ? (
+              <Button asChild>
+                <Link to="/records">Go to the records</Link>
               </Button>
-            </CardContent>
-          </Card>
-        )}
-
-        {!member.isPending && !member.data && (
-          <Card className="w-full max-w-sm">
-            <CardHeader>
-              <CardTitle>Sign in</CardTitle>
-              <CardDescription>Back to the pipeline in one field and a click.</CardDescription>
-            </CardHeader>
-            <CardContent>
+            ) : (
               <Form {...form}>
-                <form className="grid gap-4" onSubmit={form.handleSubmit((v) => submit(login, v))}>
+                <form
+                  className="grid gap-4"
+                  onSubmit={form.handleSubmit((v) => submit(login, v))}
+                >
                   <FormField
                     control={form.control}
                     name="email"
@@ -138,20 +141,27 @@ function Door() {
                       <FormItem>
                         <FormLabel>Password</FormLabel>
                         <FormControl>
-                          <Input type="password" autoComplete="current-password" {...field} />
+                          <Input
+                            type="password"
+                            autoComplete="current-password"
+                            {...field}
+                          />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
                   <div className="flex gap-3">
-                    <Button type="submit" className="motion-press flex-1" disabled={login.isPending}>
+                    <Button
+                      type="submit"
+                      className="motion-press flex-1"
+                      disabled={login.isPending}
+                    >
                       {login.isPending ? "Signing in…" : "Sign in"}
                     </Button>
                     <Button
                       type="button"
                       variant="outline"
-                      className="flex-1"
                       disabled={signup.isPending}
                       onClick={form.handleSubmit((v) => submit(signup, v))}
                     >
@@ -160,9 +170,9 @@ function Door() {
                   </div>
                 </form>
               </Form>
-            </CardContent>
-          </Card>
-        )}
+            )}
+          </CardContent>
+        </Card>
       </section>
     </main>
   );

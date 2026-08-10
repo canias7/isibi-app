@@ -10,23 +10,17 @@ import {
   useRows,
   useCreateRow,
   useUpdateRow,
+  useDeleteRow,
   type Row,
 } from "@/lib/rows";
 import { Button } from "@/components/ui/button";
 import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from "@/components/ui/card";
-import { DataTable } from "@/components/ui/data-table";
-import { TableSearch } from "@/components/ui/table-search";
-import { FilterBar } from "@/components/ui/filter-bar";
-import { BulkActions } from "@/components/ui/bulk-actions";
-import { StatusBadge } from "@/components/ui/status-badge";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Empty } from "@/components/ui/empty";
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import {
   Form,
   FormControl,
@@ -44,43 +38,122 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { DataTable } from "@/components/ui/data-table";
+import { TableSearch } from "@/components/ui/table-search";
+import { FilterBar } from "@/components/ui/filter-bar";
+import { BulkActions } from "@/components/ui/bulk-actions";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { SideNav } from "@/components/ui/side-nav";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Empty } from "@/components/ui/empty";
 
 export const Route = createFileRoute("/records")({ component: Records });
 
 type Deal = Row & { title: string; value: string | null; stage: string | null };
 type Account = Row & { name: string; website: string | null; notes: string | null };
-type Playbook = Row & { title: string; body: string | null };
 
-const STAGES = ["New", "Qualifying", "Proposal", "Negotiating", "Won", "Lost"];
+const STAGES = ["New", "Qualifying", "Proposal", "Negotiation", "Won", "Lost"];
 
 function stageState(stage: string | null): "success" | "warning" | "danger" | "neutral" {
   if (stage === "Won") return "success";
   if (stage === "Lost") return "danger";
-  if (stage === "Negotiating" || stage === "Proposal") return "warning";
+  if (stage === "Negotiation" || stage === "Proposal") return "warning";
   return "neutral";
 }
 
 const dealSchema = z.object({
   title: z.string().min(2, "Give the deal a name"),
-  value: z.string().min(1, "What's it worth"),
+  value: z.string().optional(),
   stage: z.string().min(1, "Pick a stage"),
 });
-
 type DealForm = z.infer<typeof dealSchema>;
+
+const accountSchema = z.object({
+  name: z.string().min(2, "Give the account a name"),
+  website: z.string().optional(),
+  notes: z.string().optional(),
+});
+type AccountForm = z.infer<typeof accountSchema>;
 
 function Records() {
   const member = useMember();
+  const [view, setView] = useState<"deals" | "accounts">("deals");
+
+  if (member.isPending) {
+    return (
+      <div className="p-10">
+        <Skeleton className="h-8 w-40" />
+        <Skeleton className="mt-4 h-64 w-full" />
+      </div>
+    );
+  }
+
+  if (!member.data) {
+    return (
+      <div className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-6 text-center">
+        <h1 className="text-2xl font-semibold tracking-tight">Halyard</h1>
+        <p className="mt-3 text-muted-foreground">
+          Sign in to see the team's deals and accounts.
+        </p>
+        <Button asChild className="mt-6">
+          <Link to="/">Sign in</Link>
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex min-h-screen">
+      <aside className="hidden w-56 shrink-0 border-r border-border bg-muted/30 p-4 md:block">
+        <p className="px-2 text-lg font-semibold tracking-tight">Halyard</p>
+        <div className="mt-6">
+          <SideNav
+            active={view}
+            sections={[
+              {
+                items: [
+                  { label: "Deals", href: "#deals" },
+                  { label: "Accounts", href: "#accounts" },
+                ],
+              },
+            ]}
+          />
+        </div>
+        <div className="mt-6 flex flex-col gap-1 px-2">
+          <Button
+            variant={view === "deals" ? "secondary" : "ghost"}
+            className="justify-start"
+            onClick={() => setView("deals")}
+          >
+            Deals
+          </Button>
+          <Button
+            variant={view === "accounts" ? "secondary" : "ghost"}
+            className="justify-start"
+            onClick={() => setView("accounts")}
+          >
+            Accounts
+          </Button>
+        </div>
+      </aside>
+
+      <div className="flex-1 overflow-y-auto">
+        {view === "deals" ? <DealsPanel /> : <AccountsPanel />}
+      </div>
+    </div>
+  );
+}
+
+function DealsPanel() {
   const navigate = useNavigate();
   const deals = useRows<Deal>("deals", { order: "id", dir: "desc" });
-  const accounts = useRows<Account>("accounts", { order: "id", dir: "desc", limit: 20 });
-  const playbook = useRows<Playbook>("playbook", { order: "id", dir: "desc", limit: 10 });
   const create = useCreateRow<Deal>("deals");
   const update = useUpdateRow<Deal>("deals");
+  const remove = useDeleteRow("deals");
 
   const [query, setQuery] = useState("");
-  const [stage, setStage] = useState<string | null>(null);
-  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [stageFilter, setStageFilter] = useState<string | null>(null);
+  const [selected, setSelected] = useState<number[]>([]);
   const [open, setOpen] = useState(false);
 
   const form = useForm<DealForm>({
@@ -89,22 +162,14 @@ function Records() {
   });
 
   const filtered = useMemo(() => {
-    const rows = deals.data ?? [];
-    return rows.filter((d) => {
-      if (stage && d.stage !== stage) return false;
-      if (query && !d.title.toLowerCase().includes(query.toLowerCase())) return false;
-      return true;
-    });
-  }, [deals.data, query, stage]);
-
-  const toggleRow = (id: number) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
+    let rows = deals.data ?? [];
+    if (stageFilter) rows = rows.filter((r) => r.stage === stageFilter);
+    if (query.trim()) {
+      const q = query.trim().toLowerCase();
+      rows = rows.filter((r) => r.title.toLowerCase().includes(q));
+    }
+    return rows;
+  }, [deals.data, stageFilter, query]);
 
   const onCreate = (values: DealForm) => {
     create.mutate(values, {
@@ -117,271 +182,328 @@ function Records() {
     });
   };
 
-  const bulkSetStage = (nextStage: string) => {
-    selected.forEach((id) => {
-      update.mutate(
-        { id, stage: nextStage },
-        {
-          onError: (e) => toast.error(e.message),
-        },
-      );
-    });
-    toast.success(`Moved ${selected.size} deal${selected.size === 1 ? "" : "s"} to ${nextStage}`);
-    setSelected(new Set());
+  const onBulkStage = (stage: string) => {
+    selected.forEach((id) => update.mutate({ id, stage } as Partial<Deal> & { id: number }));
+    toast.success(`Moved ${selected.length} deal${selected.length === 1 ? "" : "s"} to ${stage}`);
+    setSelected([]);
   };
 
-  if (member.isPending) {
-    return (
-      <div className="p-10">
-        <Skeleton className="h-10 w-64" />
-        <Skeleton className="mt-6 h-96 w-full" />
-      </div>
-    );
-  }
-
-  if (!member.data) {
-    return (
-      <main className="flex min-h-screen items-center justify-center p-10">
-        <Card className="w-full max-w-sm">
-          <CardHeader>
-            <CardTitle>Sign in to see the pipeline</CardTitle>
-            <CardDescription>The deals and accounts are only visible once you're in.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button className="w-full" onClick={() => navigate({ to: "/" })}>
-              Go to sign in
-            </Button>
-          </CardContent>
-        </Card>
-      </main>
-    );
-  }
+  const onBulkDelete = () => {
+    selected.forEach((id) => remove.mutate(id));
+    toast.success(`Removed ${selected.length} deal${selected.length === 1 ? "" : "s"}`);
+    setSelected([]);
+  };
 
   return (
-    <div className="flex min-h-screen">
-      <aside className="hidden w-64 shrink-0 border-r border-border bg-muted/30 p-6 md:block">
-        <p className="text-lg font-semibold tracking-tight">Halyard</p>
-        <nav className="mt-8 flex flex-col gap-1 text-sm">
-          <Link to="/records" className="rounded-md bg-muted px-3 py-2 font-medium">
-            Deals
-          </Link>
-        </nav>
+    <div className="p-6" id="deals">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">The team's deals</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Everyone on the team reads and edits these rows.
+          </p>
+        </div>
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogTrigger asChild>
+            <Button>New record</Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>New deal</DialogTitle>
+            </DialogHeader>
+            <Form {...form}>
+              <form className="grid gap-4" onSubmit={form.handleSubmit(onCreate)}>
+                <FormField
+                  control={form.control}
+                  name="title"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Title</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Nettlefold Signage — signage refit" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="value"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Value</FormLabel>
+                      <FormControl>
+                        <Input placeholder="£12,000" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="stage"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Stage</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Choose one" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {STAGES.map((s) => (
+                            <SelectItem key={s} value={s}>
+                              {s}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <Button type="submit" className="motion-press" disabled={create.isPending}>
+                  {create.isPending ? "Adding…" : "Add deal"}
+                </Button>
+              </form>
+            </Form>
+          </DialogContent>
+        </Dialog>
+      </div>
 
-        <p className="mt-8 text-xs font-medium uppercase text-muted-foreground">Stage</p>
-        <div className="mt-2 flex flex-col gap-1">
-          <button
-            className={`rounded-md px-3 py-1.5 text-left text-sm ${!stage ? "bg-muted font-medium" : "text-muted-foreground"}`}
-            onClick={() => setStage(null)}
+      <div className="mt-6 flex flex-wrap items-center gap-3">
+        <TableSearch
+          value={query}
+          onChange={setQuery}
+          placeholder="Search deals"
+          count={filtered.length}
+          total={deals.data?.length ?? 0}
+        />
+        <FilterBar
+          filters={stageFilter ? [{ key: "stage", label: stageFilter }] : []}
+          onRemove={() => setStageFilter(null)}
+          onClear={() => setStageFilter(null)}
+        >
+          <Select
+            value={stageFilter ?? "__all"}
+            onValueChange={(v) => setStageFilter(v === "__all" ? null : v)}
           >
-            All stages
-          </button>
-          {STAGES.map((s) => (
-            <button
-              key={s}
-              className={`rounded-md px-3 py-1.5 text-left text-sm ${stage === s ? "bg-muted font-medium" : "text-muted-foreground"}`}
-              onClick={() => setStage(s)}
-            >
-              {s}
-            </button>
-          ))}
-        </div>
+            <SelectTrigger className="w-40">
+              <SelectValue placeholder="All stages" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all">All stages</SelectItem>
+              {STAGES.map((s) => (
+                <SelectItem key={s} value={s}>
+                  {s}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </FilterBar>
+      </div>
 
-        <p className="mt-8 text-xs font-medium uppercase text-muted-foreground">Accounts</p>
-        <div className="mt-2 space-y-2">
-          {accounts.isPending && <Skeleton className="h-16 w-full" />}
-          {accounts.isError && (
-            <p className="text-xs text-destructive">Couldn't load accounts.</p>
-          )}
-          {accounts.data?.length === 0 && (
-            <p className="text-xs text-muted-foreground">No accounts yet.</p>
-          )}
-          {accounts.data?.slice(0, 6).map((a) => (
-            <div key={a.id} className="text-sm">
-              <p className="font-medium">{a.name}</p>
-              {a.website && (
-                <p className="truncate text-xs text-muted-foreground">{a.website}</p>
-              )}
-            </div>
-          ))}
-        </div>
-
-        <p className="mt-8 text-xs font-medium uppercase text-muted-foreground">Playbook</p>
-        <div className="mt-2 space-y-2">
-          {playbook.isPending && <Skeleton className="h-10 w-full" />}
-          {playbook.isError && (
-            <p className="text-xs text-destructive">Couldn't load the playbook.</p>
-          )}
-          {playbook.data?.length === 0 && (
-            <p className="text-xs text-muted-foreground">Nothing published yet.</p>
-          )}
-          {playbook.data?.slice(0, 4).map((p) => (
-            <p key={p.id} className="text-xs text-muted-foreground">
-              {p.title}
-            </p>
-          ))}
-        </div>
-      </aside>
-
-      <main className="flex-1 p-8">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Our deals</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Everything the team is working, shared across everyone signed in.
-            </p>
-          </div>
-          <Sheet open={open} onOpenChange={setOpen}>
-            <SheetTrigger asChild>
-              <Button className="motion-press">New record</Button>
-            </SheetTrigger>
-            <SheetContent>
-              <SheetHeader>
-                <SheetTitle>New deal</SheetTitle>
-              </SheetHeader>
-              <Form {...form}>
-                <form onSubmit={form.handleSubmit(onCreate)} className="mt-6 grid gap-4 px-4">
-                  <FormField
-                    control={form.control}
-                    name="title"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Title</FormLabel>
-                        <FormControl>
-                          <Input {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="value"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Value</FormLabel>
-                        <FormControl>
-                          <Input placeholder="£12,000" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="stage"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Stage</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Choose one" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {STAGES.map((s) => (
-                              <SelectItem key={s} value={s}>
-                                {s}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <Button type="submit" className="motion-press" disabled={create.isPending}>
-                    {create.isPending ? "Adding…" : "Add deal"}
-                  </Button>
-                </form>
-              </Form>
-            </SheetContent>
-          </Sheet>
-        </div>
-
-        <div className="mt-6 flex flex-wrap items-center gap-3">
-          <TableSearch
-            value={query}
-            onChange={setQuery}
-            placeholder="Search deals"
-            count={filtered.length}
-            total={deals.data?.length}
+      {selected.length > 0 && (
+        <div className="mt-4">
+          <BulkActions
+            count={selected.length}
+            onClear={() => setSelected([])}
+            actions={[
+              ...STAGES.map((s) => ({ label: `Move to ${s}`, onSelect: () => onBulkStage(s) })),
+              { label: "Delete", onSelect: onBulkDelete, destructive: true },
+            ]}
           />
-          {stage && (
-            <FilterBar
-              filters={[{ key: "stage", label: stage }]}
-              onRemove={() => setStage(null)}
-              onClear={() => setStage(null)}
-            />
-          )}
         </div>
+      )}
 
-        {selected.size > 0 && (
-          <div className="mt-4">
-            <BulkActions
-              count={selected.size}
-              onClear={() => setSelected(new Set())}
-              actions={STAGES.map((s) => ({
-                label: `Move to ${s}`,
-                onSelect: () => bulkSetStage(s),
-              }))}
-            />
-          </div>
+      <div className="mt-6">
+        {deals.isPending && <Skeleton className="h-64 w-full rounded-xl" />}
+        {deals.isError && (
+          <p className="text-sm text-destructive">
+            Couldn't load the deals. Refresh and try again.
+          </p>
         )}
+        {deals.data?.length === 0 && (
+          <Empty
+            title="No deals yet"
+            description="Add the first deal the team is working."
+          />
+        )}
+        {!!deals.data?.length && (
+          <DataTable
+            rows={filtered}
+            rowKey={(r) => r.id}
+            onRowClick={(r) => navigate({ to: "/record", search: { id: String(r.id) } })}
+            columns={[
+              {
+                key: "select",
+                header: "",
+                width: "2rem",
+                cell: (r) => (
+                  <input
+                    type="checkbox"
+                    checked={selected.includes(r.id)}
+                    onChange={(e) => {
+                      e.stopPropagation();
+                      setSelected((prev) =>
+                        prev.includes(r.id) ? prev.filter((id) => id !== r.id) : [...prev, r.id],
+                      );
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                ),
+              },
+              { key: "title", header: "Deal", cell: (r) => r.title },
+              { key: "value", header: "Value", cell: (r) => r.value ?? "—" },
+              {
+                key: "stage",
+                header: "Stage",
+                cell: (r) => <StatusBadge state={stageState(r.stage)}>{r.stage ?? "New"}</StatusBadge>,
+              },
+            ]}
+            empty="No deals match those filters."
+          />
+        )}
+      </div>
+    </div>
+  );
+}
 
-        <div className="mt-6">
-          {deals.isPending && <Skeleton className="h-96 w-full rounded-xl" />}
-          {deals.isError && (
-            <p className="text-sm text-destructive">
-              Couldn't load the team's deals. Refresh and try again.
-            </p>
-          )}
-          {deals.data?.length === 0 && (
-            <Empty
-              title="No deals yet"
-              description="Add the first deal your team is working and it'll show up here for everyone."
-            />
-          )}
-          {!!deals.data?.length && filtered.length === 0 && (
-            <Empty
-              title="Nothing matches"
-              description="Try a different search or clear the stage filter."
-            />
-          )}
-          {!!filtered.length && (
-            <DataTable
-              columns={[
-                {
-                  key: "select",
-                  header: "",
-                  width: "2rem",
-                  cell: (row) => (
-                    <input
-                      type="checkbox"
-                      checked={selected.has(row.id)}
-                      onChange={(e) => {
-                        e.stopPropagation();
-                        toggleRow(row.id);
-                      }}
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                  ),
-                },
-                { key: "title", header: "Title", cell: (row) => row.title },
-                { key: "value", header: "Value", cell: (row) => row.value ?? "—" },
-                {
-                  key: "stage",
-                  header: "Stage",
-                  cell: (row) => <StatusBadge state={stageState(row.stage)}>{row.stage ?? "New"}</StatusBadge>,
-                },
-              ]}
-              rows={filtered}
-              rowKey={(row) => row.id}
-              onRowClick={(row) => navigate({ to: "/record", search: { id: String(row.id) } })}
-            />
-          )}
+function AccountsPanel() {
+  const accounts = useRows<Account>("accounts", { order: "id", dir: "desc" });
+  const create = useCreateRow<Account>("accounts");
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+
+  const form = useForm<AccountForm>({
+    resolver: zodResolver(accountSchema),
+    defaultValues: { name: "", website: "", notes: "" },
+  });
+
+  const filtered = useMemo(() => {
+    let rows = accounts.data ?? [];
+    if (query.trim()) {
+      const q = query.trim().toLowerCase();
+      rows = rows.filter((r) => r.name.toLowerCase().includes(q));
+    }
+    return rows;
+  }, [accounts.data, query]);
+
+  const onCreate = (values: AccountForm) => {
+    create.mutate(values, {
+      onSuccess: () => {
+        toast.success("Account added");
+        form.reset();
+        setOpen(false);
+      },
+      onError: (e) => toast.error(e.message),
+    });
+  };
+
+  return (
+    <div className="p-6" id="accounts">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Accounts</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Shared across the team — anyone can add one.
+          </p>
         </div>
-      </main>
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogTrigger asChild>
+            <Button>New record</Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>New account</DialogTitle>
+            </DialogHeader>
+            <Form {...form}>
+              <form className="grid gap-4" onSubmit={form.handleSubmit(onCreate)}>
+                <FormField
+                  control={form.control}
+                  name="name"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Name</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Foss & Kerr Ltd" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="website"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Website</FormLabel>
+                      <FormControl>
+                        <Input placeholder="fossandkerr.co.uk" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="notes"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Notes</FormLabel>
+                      <FormControl>
+                        <Textarea rows={3} {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <Button type="submit" className="motion-press" disabled={create.isPending}>
+                  {create.isPending ? "Adding…" : "Add account"}
+                </Button>
+              </form>
+            </Form>
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      <div className="mt-6">
+        <TableSearch
+          value={query}
+          onChange={setQuery}
+          placeholder="Search accounts"
+          count={filtered.length}
+          total={accounts.data?.length ?? 0}
+        />
+      </div>
+
+      <div className="mt-6">
+        {accounts.isPending && <Skeleton className="h-64 w-full rounded-xl" />}
+        {accounts.isError && (
+          <p className="text-sm text-destructive">
+            Couldn't load the accounts. Refresh and try again.
+          </p>
+        )}
+        {accounts.data?.length === 0 && (
+          <Empty
+            title="No accounts yet"
+            description="Add the first account the team is selling into."
+          />
+        )}
+        {!!accounts.data?.length && (
+          <DataTable
+            rows={filtered}
+            rowKey={(r) => r.id}
+            columns={[
+              { key: "name", header: "Account", cell: (r) => r.name },
+              { key: "website", header: "Website", cell: (r) => r.website ?? "—" },
+              { key: "notes", header: "Notes", cell: (r) => r.notes ?? "—" },
+            ]}
+            empty="No accounts match that search."
+          />
+        )}
+      </div>
     </div>
   );
 }

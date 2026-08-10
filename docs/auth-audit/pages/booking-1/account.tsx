@@ -1,19 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { Link } from "@tanstack/react-router";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
 
-import {
-  useMember,
-  useLogin,
-  useSignup,
-  useLogout,
-  useRows,
-  useCreateRow,
-  type Row,
-} from "@/lib/rows";
+import { useMember, useLogin, useSignup, useLogout, useRows, type Row } from "@/lib/rows";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -25,23 +17,23 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { SiteChrome } from "@/components/ui/site-chrome";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Empty } from "@/components/ui/empty";
 
-export const Route = createFileRoute("/members")({ component: Members });
+export const Route = createFileRoute("/account")({ component: Account });
 
-type Note = Row & { title: string; body: string | null };
+type Announcement = Row & { title: string; body: string };
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "A calm room, a good mat, classes most days.",
+  tagline: "A studio in the city centre, breathing room every hour.",
   links: [
     { label: "Home", href: "/" },
     { label: "Book", href: "/book" },
     { label: "The work", href: "/work" },
-    { label: "Members", href: "/members" },
+    { label: "My notes", href: "/notes" },
+    { label: "Account", href: "/account" },
   ],
   action: { label: "Book now", href: "/book" },
 };
@@ -53,14 +45,7 @@ const credentials = z.object({
 
 type Credentials = z.infer<typeof credentials>;
 
-const noteSchema = z.object({
-  title: z.string().min(1, "Give it a title"),
-  body: z.string().min(1, "Write something"),
-});
-
-type NoteForm = z.infer<typeof noteSchema>;
-
-function Members() {
+function Account() {
   const member = useMember();
   const login = useLogin();
   const signup = useSignup();
@@ -93,9 +78,9 @@ function Members() {
 
         {!member.isPending && !member.data && (
           <>
-            <h1 className="text-3xl font-semibold tracking-tight">Members</h1>
+            <h1 className="text-3xl font-semibold tracking-tight">Your account</h1>
             <p className="mt-2 text-muted-foreground">
-              Sign in to keep your own practice notes between classes.
+              Sign in, or make an account to keep your notes and see studio announcements.
             </p>
 
             <Form {...form}>
@@ -152,23 +137,7 @@ function Members() {
 }
 
 function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) {
-  const notes = useRows<Note>("my_notes", { order: "id", dir: "desc" });
-  const create = useCreateRow<Note>("my_notes");
-
-  const form = useForm<NoteForm>({
-    resolver: zodResolver(noteSchema),
-    defaultValues: { title: "", body: "" },
-  });
-
-  const onSubmit = (values: NoteForm) => {
-    create.mutate(values, {
-      onSuccess: () => {
-        toast.success("Note saved");
-        form.reset();
-      },
-      onError: (e: Error) => toast.error(e.message),
-    });
-  };
+  const announcements = useRows<Announcement>("announcements", { order: "id", dir: "desc" });
 
   return (
     <>
@@ -179,76 +148,43 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
         </Button>
       </div>
 
+      <p className="mt-2 text-muted-foreground">
+        Keep your own practice notes on the{" "}
+        <Link to="/notes" className="underline underline-offset-4">
+          notes page
+        </Link>
+        .
+      </p>
+
       <Card className="mt-8">
         <CardHeader>
-          <CardTitle className="text-base">Add a note</CardTitle>
+          <CardTitle className="text-base">Studio announcements</CardTitle>
         </CardHeader>
         <CardContent>
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-4">
-              <FormField
-                control={form.control}
-                name="title"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Title</FormLabel>
-                    <FormControl>
-                      <Input placeholder="e.g. Left shoulder — go gentle" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="body"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Note</FormLabel>
-                    <FormControl>
-                      <Textarea rows={3} {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <Button type="submit" className="motion-press" disabled={create.isPending}>
-                {create.isPending ? "Saving…" : "Save note"}
-              </Button>
-            </form>
-          </Form>
+          {announcements.isPending && (
+            <div className="grid gap-2">
+              <Skeleton className="h-14 rounded-md" />
+              <Skeleton className="h-14 rounded-md" />
+            </div>
+          )}
+          {announcements.isError && (
+            <p className="text-sm text-destructive">Couldn't load announcements. Refresh and try again.</p>
+          )}
+          {announcements.data?.length === 0 && (
+            <Empty title="Nothing posted yet" description="Studio announcements will show up here." />
+          )}
+          {!!announcements.data?.length && (
+            <div className="grid gap-4 motion-stagger">
+              {announcements.data.map((a) => (
+                <div key={a.id} className="border-b border-border pb-3 last:border-none last:pb-0">
+                  <p className="font-medium">{a.title}</p>
+                  <p className="mt-1 text-sm text-muted-foreground whitespace-pre-wrap">{a.body}</p>
+                </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
-
-      <div className="mt-8">
-        <h2 className="text-lg font-semibold">Your notes</h2>
-        {notes.isPending && (
-          <div className="mt-4 grid gap-3">
-            <Skeleton className="h-20 rounded-xl" />
-            <Skeleton className="h-20 rounded-xl" />
-          </div>
-        )}
-        {notes.isError && (
-          <p className="mt-4 text-sm text-destructive">Couldn't load your notes. Refresh and try again.</p>
-        )}
-        {notes.data?.length === 0 && (
-          <Empty
-            className="mt-4"
-            title="No notes yet"
-            description="Anything you want to remember for next time — an ache, a breakthrough, a teacher's tip — goes here."
-          />
-        )}
-        {!!notes.data?.length && (
-          <ul className="mt-4 grid gap-3 motion-stagger">
-            {notes.data.map((n) => (
-              <li key={n.id} className="rounded-xl border bg-card p-4 shadow-sm">
-                <p className="font-medium">{n.title}</p>
-                {n.body && <p className="mt-1 text-sm text-muted-foreground">{n.body}</p>}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
     </>
   );
 }

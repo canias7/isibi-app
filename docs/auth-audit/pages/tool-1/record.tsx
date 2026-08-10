@@ -1,22 +1,25 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import { toast } from "sonner";
 
-import { useMember, useRows, useUpdateRow, type Row } from "@/lib/rows";
+import { useMember, useRows, useUpdateRow, useDeleteRow, type Row } from "@/lib/rows";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from "@/components/ui/card";
 import { RecordHeader } from "@/components/ui/record-header";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { ActivityFeed, type Activity } from "@/components/ui/activity-feed";
+import { ActivityFeed } from "@/components/ui/activity-feed";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -34,166 +37,248 @@ export const Route = createFileRoute("/record")({
 
 type Deal = Row & { title: string; value: string | null; stage: string | null };
 
-const STAGES = ["New", "Qualifying", "Proposal", "Negotiating", "Won", "Lost"];
+const STAGES = ["New", "Qualifying", "Proposal", "Negotiation", "Won", "Lost"];
 
 function stageState(stage: string | null): "success" | "warning" | "danger" | "neutral" {
   if (stage === "Won") return "success";
   if (stage === "Lost") return "danger";
-  if (stage === "Negotiating" || stage === "Proposal") return "warning";
+  if (stage === "Negotiation" || stage === "Proposal") return "warning";
   return "neutral";
 }
 
+const editSchema = z.object({
+  title: z.string().min(2, "Give the deal a name"),
+  value: z.string().optional(),
+  stage: z.string().min(1, "Pick a stage"),
+});
+type EditForm = z.infer<typeof editSchema>;
+
 function RecordPage() {
   const member = useMember();
-  const navigate = useNavigate();
   const { id } = Route.useSearch();
-  const deals = useRows<Deal>("deals", { order: "id", dir: "desc" });
+  const navigate = useNavigate();
+  const deals = useRows<Deal>("deals");
   const update = useUpdateRow<Deal>("deals");
-
-  const [title, setTitle] = useState<string | null>(null);
-  const [value, setValue] = useState<string | null>(null);
+  const remove = useDeleteRow("deals");
+  const [editing, setEditing] = useState(false);
 
   if (member.isPending || deals.isPending) {
     return (
-      <div className="p-10">
+      <div className="mx-auto max-w-3xl px-6 py-10">
         <Skeleton className="h-10 w-64" />
-        <Skeleton className="mt-6 h-64 w-full" />
+        <Skeleton className="mt-6 h-48 w-full" />
       </div>
     );
   }
 
   if (!member.data) {
     return (
-      <main className="flex min-h-screen items-center justify-center p-10">
-        <Card className="w-full max-w-sm">
-          <CardHeader>
-            <CardTitle>Sign in to open this record</CardTitle>
-            <CardDescription>Deals are only visible to signed-in team members.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button className="w-full" onClick={() => navigate({ to: "/" })}>
-              Go to sign in
-            </Button>
-          </CardContent>
-        </Card>
-      </main>
-    );
-  }
-
-  if (deals.isError) {
-    return (
-      <div className="p-10">
-        <p className="text-sm text-destructive">Couldn't load this deal. Refresh and try again.</p>
+      <div className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-6 text-center">
+        <h1 className="text-2xl font-semibold tracking-tight">Halyard</h1>
+        <p className="mt-3 text-muted-foreground">Sign in to open this record.</p>
+        <Button asChild className="mt-6">
+          <Link to="/">Sign in</Link>
+        </Button>
       </div>
     );
   }
 
-  const deal = deals.data?.find((d) => String(d.id) === id);
-
-  if (!id || !deal) {
+  if (!id) {
     return (
-      <div className="p-10">
+      <div className="mx-auto max-w-3xl px-6 py-10">
         <p className="text-muted-foreground">
-          We couldn't find that deal. It may not exist, or it's not one of ours.{" "}
+          No record chosen.{" "}
           <Link to="/records" className="underline">
-            Back to records
+            Back to the records
           </Link>
+          .
         </p>
       </div>
     );
   }
 
-  const activity: Activity[] = [
-    { who: "Deal", what: `Created as "${deal.title}" at ${deal.value ?? "an unset value"}`, at: deal.created_at },
-  ];
-  if (deal.updated_at && deal.updated_at !== deal.created_at) {
-    activity.push({ who: "Deal", what: `Last updated — now at stage "${deal.stage ?? "New"}"`, at: deal.updated_at });
+  const deal = deals.data?.find((r) => String(r.id) === id);
+
+  if (deals.isError) {
+    return (
+      <div className="mx-auto max-w-3xl px-6 py-10">
+        <p className="text-sm text-destructive">Couldn't load this record. Refresh and try again.</p>
+      </div>
+    );
   }
 
-  const saveField = (field: "title" | "value", next: string) => {
-    update.mutate(
-      { id: deal.id, [field]: next },
-      {
-        onSuccess: () => toast.success("Saved"),
-        onError: (e) => toast.error(e.message),
-      },
+  if (!deal) {
+    return (
+      <div className="mx-auto max-w-3xl px-6 py-10">
+        <p className="text-muted-foreground">
+          This record isn't there.{" "}
+          <Link to="/records" className="underline">
+            Back to the records
+          </Link>
+          .
+        </p>
+      </div>
     );
-  };
+  }
 
-  const saveStage = (stage: string) => {
+  return (
+    <div className="mx-auto max-w-3xl px-6 py-10">
+      <Button variant="ghost" asChild className="mb-4">
+        <Link to="/records">← Back to records</Link>
+      </Button>
+
+      <RecordHeader
+        title={deal.title}
+        subtitle={deal.value ?? undefined}
+        status={<StatusBadge state={stageState(deal.stage)}>{deal.stage ?? "New"}</StatusBadge>}
+        actions={
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setEditing((v) => !v)}>
+              {editing ? "Cancel" : "Edit"}
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={remove.isPending}
+              onClick={() =>
+                remove.mutate(deal.id, {
+                  onSuccess: () => {
+                    toast.success("Deal removed");
+                    navigate({ to: "/records" });
+                  },
+                  onError: (e) => toast.error(e.message),
+                })
+              }
+            >
+              Delete
+            </Button>
+          </div>
+        }
+      />
+
+      {editing ? (
+        <EditForm
+          deal={deal}
+          onDone={() => setEditing(false)}
+          update={update}
+        />
+      ) : (
+        <div className="mt-8 grid gap-4 sm:grid-cols-2">
+          <div className="rounded-lg border border-border p-4">
+            <p className="text-xs text-muted-foreground">Value</p>
+            <p className="mt-1 text-lg font-medium">{deal.value ?? "—"}</p>
+          </div>
+          <div className="rounded-lg border border-border p-4">
+            <p className="text-xs text-muted-foreground">Stage</p>
+            <p className="mt-1 text-lg font-medium">{deal.stage ?? "New"}</p>
+          </div>
+        </div>
+      )}
+
+      <div className="mt-10">
+        <h2 className="text-sm font-medium text-muted-foreground">Activity</h2>
+        <div className="mt-3">
+          <ActivityFeed
+            items={[
+              { who: member.data.name, what: "opened this record", at: new Date() },
+            ]}
+            empty="No activity recorded yet."
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EditForm({
+  deal,
+  onDone,
+  update,
+}: {
+  deal: Deal;
+  onDone: () => void;
+  update: ReturnType<typeof useUpdateRow<Deal>>;
+}) {
+  const form = useForm<EditForm>({
+    resolver: zodResolver(editSchema),
+    defaultValues: {
+      title: deal.title,
+      value: deal.value ?? "",
+      stage: deal.stage ?? "New",
+    },
+  });
+
+  const onSubmit = (values: EditForm) => {
     update.mutate(
-      { id: deal.id, stage },
+      { id: deal.id, ...values },
       {
-        onSuccess: () => toast.success("Stage updated"),
+        onSuccess: () => {
+          toast.success("Saved");
+          onDone();
+        },
         onError: (e) => toast.error(e.message),
       },
     );
   };
 
   return (
-    <div className="mx-auto max-w-3xl p-8">
-      <Link to="/records" className="text-sm text-muted-foreground underline">
-        Back to records
-      </Link>
-
-      <div className="mt-4">
-        <RecordHeader
-          title={deal.title}
-          subtitle="Shared with the team"
-          status={<StatusBadge state={stageState(deal.stage)}>{deal.stage ?? "New"}</StatusBadge>}
+    <Form {...form}>
+      <form className="mt-8 grid gap-4 sm:grid-cols-2" onSubmit={form.handleSubmit(onSubmit)}>
+        <FormField
+          control={form.control}
+          name="title"
+          render={({ field }) => (
+            <FormItem className="sm:col-span-2">
+              <FormLabel>Title</FormLabel>
+              <FormControl>
+                <Input {...field} />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
         />
-      </div>
-
-      <Card className="mt-6">
-        <CardHeader>
-          <CardTitle className="text-base">Fields</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-2">
-          <div className="grid gap-1.5">
-            <Label htmlFor="title">Title</Label>
-            <Input
-              id="title"
-              defaultValue={deal.title}
-              onChange={(e) => setTitle(e.target.value)}
-              onBlur={() => title !== null && title !== deal.title && saveField("title", title)}
-            />
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="value">Value</Label>
-            <Input
-              id="value"
-              defaultValue={deal.value ?? ""}
-              onChange={(e) => setValue(e.target.value)}
-              onBlur={() => value !== null && value !== deal.value && saveField("value", value)}
-            />
-          </div>
-          <div className="grid gap-1.5 sm:col-span-2">
-            <Label htmlFor="stage">Stage</Label>
-            <Select value={deal.stage ?? "New"} onValueChange={saveStage}>
-              <SelectTrigger id="stage">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {STAGES.map((s) => (
-                  <SelectItem key={s} value={s}>
-                    {s}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card className="mt-6">
-        <CardHeader>
-          <CardTitle className="text-base">Activity</CardTitle>
-          <CardDescription>What we know from this record's own history.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ActivityFeed items={activity} empty="No activity yet" />
-        </CardContent>
-      </Card>
-    </div>
+        <FormField
+          control={form.control}
+          name="value"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Value</FormLabel>
+              <FormControl>
+                <Input {...field} />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        <FormField
+          control={form.control}
+          name="stage"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Stage</FormLabel>
+              <Select onValueChange={field.onChange} value={field.value}>
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Choose one" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  {STAGES.map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {s}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        <div className="sm:col-span-2">
+          <Button type="submit" className="motion-press" disabled={update.isPending}>
+            {update.isPending ? "Saving…" : "Save changes"}
+          </Button>
+        </div>
+      </form>
+    </Form>
   );
 }
