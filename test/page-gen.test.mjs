@@ -8,6 +8,7 @@
 // and a broken published site.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { READ_LEVELS, WRITE_LEVELS } from "../site-access.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -142,11 +143,22 @@ test("the rules carry the reference page and the tool asks for files", () => {
 // ── the schema, as the generator is told about it ─────────────────────────────
 
 test("the digest states what each access level permits", () => {
+  // STATED AS THE READ/WRITE PAIR, with the preset name kept beside it. This
+  // pinned `access "display"`, and went red when the digest started describing
+  // the two axes — a test about wording, on a change that made the digest able
+  // to describe the eleven cells no preset names. The preset is still printed,
+  // because it is what the schema says and what a revise reads back.
   const d = schemaDigest(SPEC);
-  assert.match(d, /TABLE services — access "display"/);
-  assert.match(d, /TABLE appointments — access "collect"/);
-  assert.match(d, /never list these rows/);
+  assert.match(d, /TABLE services — read "public", write "none" \("display"\)/);
+  assert.match(d, /TABLE appointments — read "none", write "anyone" \("collect"\)/);
+  assert.match(d, /never list these rows/i);
   assert.match(d, /PRIVATE PER MEMBER/, "a user-scoped table is now buildable — behind a sign-in");
+  // A cell with NO preset name is described in full rather than as its nearest
+  // neighbour, which would be wrong in whichever direction they differ.
+  const listing = schemaDigest({ tables: [{ name: "listings", read: "public", write: "own", columns: [{ name: "title", type: "text" }] }] });
+  assert.match(listing, /TABLE listings — read "public", write "own":/, "an unnamed cell borrowed a preset's name");
+  assert.match(listing, /ANYONE READS IT/);
+  assert.match(listing, /A SIGNED-IN MEMBER WRITES ROWS THAT BECOME THEIRS/);
 });
 
 test("the digest names the columns, their types and what is required", () => {
@@ -2420,4 +2432,33 @@ test("an unreadable signature makes the lint SKIP, never guess", () => {
   assert.equal(propsOf(withEllipsis[0]), null, "a truncated signature must not yield a partial prop list");
   // …and a component with a whole signature still answers.
   assert.ok((propsOf("safe-image") || []).includes("fallbackSeed"));
+});
+
+test("the designer can DECLARE the pair, or the whole grid is unreachable", () => {
+  // THE HALF THAT MAKES IT A FEATURE. The policy layer can express all sixteen
+  // cells; if the designer's tool has no slot for them, none of it can ever be
+  // asked for — which is precisely the state 14 other schema features are in,
+  // fully built and reachable by nothing. Asserted at BOTH ends, because the
+  // substrate and the vocabulary are in different files and either alone is a
+  // dead feature wearing the other's clothes.
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const at = w.indexOf('name: "design_schema"');
+  assert.ok(at > 0, "the designer's tool is gone");
+  const tool = w.slice(at, at + 36000);
+  for (const [field, values] of [["read", READ_LEVELS], ["write", WRITE_LEVELS]]) {
+    assert.match(tool, new RegExp("\\n\\s+" + field + ": \\{"), "the designer cannot declare " + field);
+    for (const v of values) {
+      assert.ok(tool.includes('"' + v + '"'), field + " cannot be set to " + v);
+    }
+  }
+  // AND THE CASE IT WAS BUILT FOR IS NAMED. The five presets were each described
+  // accurately and the missing combination was described nowhere, so the
+  // designer had no reason to reach for it — the same failure as `publicView`,
+  // whose description named only the booking slot.
+  assert.match(tool, /USE 'public' WITH write 'own' FOR ANYTHING VISITORS POST AND OTHER VISITORS BROWSE/,
+    "the one combination with no shorthand is not pointed at, so it will not be used");
+  assert.match(tool, /marketplace/i);
+  // …and the five shorthands still say what they are, or this trades one gap
+  // for another.
+  assert.match(tool, /'display' = anyone reads it, nobody writes/);
 });

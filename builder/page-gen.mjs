@@ -1277,7 +1277,7 @@ export const UI_SHORTLIST = (() => {
 // does not do. site-access.mjs is dependency-free, so this module stays
 // importable without the Worker's node_modules.
 export { MANAGED_COLUMNS } from "../site-access.mjs";
-import { MANAGED_COLUMNS, canReadAccess, canWriteAccess, whyNotReadable, needsMember, hasPublicView, canMemberWrite } from "../site-access.mjs";
+import { MANAGED_COLUMNS, canReadAccess, canWriteAccess, whyNotReadable, needsMember, hasPublicView, canMemberWrite, resolveAccess, accessNameFor } from "../site-access.mjs";
 
 export const MAX_PAGES = 6;
 export const MAX_PAGE_CHARS = 24000;
@@ -2628,6 +2628,35 @@ export const SITE_PAGES_TOOL = {
   },
 };
 
+/**
+ * What each READ level means to a page, in the words the generator acts on.
+ *
+ * Composed with the write half rather than looked up by name, because the five
+ * names are now presets over a 4x4 grid and a table may legitimately sit in a
+ * cell with no name at all — "anyone reads, members write their own" is the
+ * commonest one, and describing it as its nearest preset would be a lie in
+ * whichever direction the preset differs.
+ */
+export const READ_NOTE = {
+  none: "NOBODY READS IT from a page — not a visitor, not a member, not the author. Never list these rows; a read returns 403.",
+  own: "PRIVATE PER MEMBER. Signed in, a member reads only their OWN rows; signed out, a read returns 401. Build the signed-in view AND a sign-in prompt.",
+  members: "ANY SIGNED-IN MEMBER READS EVERY ROW. Signed out, a read returns 401 — offer a sign-in rather than an empty list.",
+  public: "ANYONE READS IT, signed in or not. List it, show it, search it, and never gate it behind a sign-in.",
+};
+
+export const WRITE_NOTE = {
+  none: "NOBODY WRITES TO IT from a published page — no form, no useCreateRow, no edit, whatever role they hold. The business maintains these rows from its Go Farther dashboard. Build the reading UI and no write UI at all.",
+  anyone: "ANY VISITOR WRITES TO IT, with no account — a booking, an order, an enquiry. They may submit and may never reach a row again: update and delete both return 403.",
+  own: "A SIGNED-IN MEMBER WRITES ROWS THAT BECOME THEIRS, and edits or deletes only their own. Signed out, a write returns 401.",
+  members: "ANY SIGNED-IN MEMBER WRITES, and may edit or delete ANY row, not only their own.",
+};
+
+/** The two halves as one sentence, for a table however it was declared. */
+export function accessNote(t) {
+  const { read, write } = resolveAccess(t);
+  return "reads — " + (READ_NOTE[read] || READ_NOTE.none) + " writes — " + (WRITE_NOTE[write] || WRITE_NOTE.none);
+}
+
 export const ACCESS_NOTE = {
   display: "visitors READ it. List it, show it, search it. Writing to it returns 403.",
   collect: "visitors WRITE to it. Submit a form. Reading it returns 403 — never list these rows.",
@@ -2687,6 +2716,8 @@ export function schemaDigest(spec) {
     : "";
   const tableLines = tables.map((t) => {
     const access = String(t.access || "collect").toLowerCase();
+    const rw = resolveAccess(t);
+    const presetName = accessNameFor(rw);
     // Columns arrive in two shapes and BOTH must work. normalizeSchema produces
     // rich objects ({name, type, notnull, ref}); the schema persisted in a
     // site's own `_meta` stores plain NAMES. Filtering on `c.name` silently
@@ -2703,10 +2734,17 @@ export function schemaDigest(spec) {
       return c.name + " (" + bits.join(", ") + ")";
     });
     const lines = [
-      "TABLE " + t.name + " — access \"" + access + "\": " + (ACCESS_NOTE[access] || ACCESS_NOTE.collect),
+      // STATED AS THE PAIR. It read `access "user"` and the note for that name,
+      // which cannot describe a table sitting in one of the eleven cells no
+      // preset covers — and naming the nearest preset instead is wrong in
+      // whichever direction they differ. The preset name is still printed when
+      // there IS one, because it is what the schema says and what a revise will
+      // read back.
+      "TABLE " + t.name + " — read \"" + rw.read + "\", write \"" + rw.write + "\"" +
+        (presetName ? " (\"" + presetName + "\")" : "") + ": " + accessNote(t),
       "  columns: " + (described.length ? described.join(" · ") : "(none)"),
     ];
-    if (access === "display") {
+    if (rw.read === "public") {
       lines.push("  order / filter by: " + cols.map((c) => c.name).concat("id").join(", "));
       lines.push("  full-text search: " + (t.fts ? "yes — pass { q } to useRows" : "no — do not pass q"));
     }

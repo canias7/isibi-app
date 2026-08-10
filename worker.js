@@ -2965,7 +2965,33 @@ const SITE_SCHEMA_TOOL = {
                 "'user' = PRIVATE PER MEMBER: a signed-in visitor reads and writes only their own rows (saved recipes, my orders, a personal journal). " +
                 "'feed' = SHARED, MEMBER-AUTHORED: every signed-in member reads all rows and writes their own (reviews, comments, a community board). " +
                 "'admin' = SHARED, READ-ONLY FROM THE SITE: signed-in members read it and NOBODY writes it from a published page — the business maintains those rows from its Go Farther dashboard (announcements, staff notices). Pick it only when members should SEE something they never edit. " +
-                "The last three require the visitor to have an account on the site — use them ONLY when the brief actually asks for members, sign-in, or 'their own' anything. A shop that just needs a menu and a booking form must not have them.",
+                "The last three require the visitor to have an account on the site — use them ONLY when the brief actually asks for members, sign-in, or 'their own' anything. A shop that just needs a menu and a booking form must not have them. " +
+                "THESE FIVE ARE SHORTHANDS FOR A read/write PAIR. When none of them is the shape you need, set `read` and `write` instead and leave this out.",
+            },
+            // READ AND WRITE, SEPARATELY — the five names above cover 5 of the 16
+            // combinations, and the missing ones are ordinary. A marketplace built
+            // 2026-08-10 had no browsable page because "members post it, the public
+            // reads it" is not one of the five: the designer correctly followed
+            // "anything a visitor keeps as theirs" to `user`, and produced a site
+            // whose every listing was invisible to the visitors it existed for.
+            read: {
+              type: "string",
+              enum: ["none", "own", "members", "public"],
+              description:
+                "Who may READ this table, when the five shorthands do not fit. " +
+                "'public' = anyone, signed in or not. 'members' = any signed-in member sees every row. " +
+                "'own' = a signed-in member sees only their own rows. 'none' = nobody reads it from a page. " +
+                "USE 'public' WITH write 'own' FOR ANYTHING VISITORS POST AND OTHER VISITORS BROWSE — a marketplace, classifieds, a directory, a job board, public reviews, a community wall. " +
+                "That combination has no shorthand and is the one most often needed: without it the listings are invisible and the site has no page worth opening.",
+            },
+            write: {
+              type: "string",
+              enum: ["none", "own", "members", "anyone"],
+              description:
+                "Who may WRITE to this table, when the five shorthands do not fit. " +
+                "'anyone' = any visitor with no account (a booking form). 'own' = a signed-in member writes rows that become theirs and edits only those. " +
+                "'members' = any signed-in member may edit any row. 'none' = nothing on the published site writes to it; the business maintains it from its dashboard. " +
+                "Note 'anyone' can never be combined with read 'own' — an anonymous visitor has no identity for a row to be 'theirs', so it resolves to read 'none'.",
             },
             columns: {
               type: "array",
