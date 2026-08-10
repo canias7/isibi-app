@@ -147,3 +147,28 @@ test("mask is NOT declarable, because nothing can enforce it", () => {
   assert.ok(!/redact/i.test(w.slice(span[0], span[1])),
     "the tool still describes redaction to the model");
 });
+
+test("the designer is told publicView is what makes a listing browsable", () => {
+  // THE FAILURE THIS COMES FROM was a whole site, not a missing enhancement.
+  // The description named ONE use — greying out taken booking slots — so a
+  // marketplace brief ("people post their own events to sell") produced an
+  // `events` table at access "user" with no publicView. Measured 2026-08-10:
+  // that is 401 to a signed-out visitor and own-rows-only to a signed-in one,
+  // so nobody could browse a single listing, page generation had no home page
+  // it could honestly write, and the build returned no pages at all.
+  //
+  // Asserted because a rule nobody holds is one a later edit quietly drops, and
+  // this one is invisible when it goes: the schema still applies, the database
+  // still comes up, and the site simply cannot be built.
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const at = w.indexOf("            publicView: {");
+  assert.ok(at > 0, "the publicView field is gone from the designer's tool");
+  const desc = w.slice(at, at + 2200);
+  assert.match(desc, /VISITORS POST ROWS THAT OTHER VISITORS MUST BROWSE/,
+    "the browse case is not named, so the designer only learns the booking-slot use");
+  assert.match(desc, /marketplace/i, "the shape it applies to is not named");
+  assert.match(desc, /401/, "the consequence of leaving it off is not stated");
+  // …and the original booking-slot use is still there. Replacing one case with
+  // the other trades this bug for the one it was written to fix.
+  assert.match(desc, /BOOKING TABLE/, "the taken-slots use was lost");
+});

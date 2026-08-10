@@ -3066,7 +3066,18 @@ const SITE_SCHEMA_TOOL = {
               type: "object",
               description:
                 "A named, PII-filtered projection of this table that ANYONE may read, even though the table itself is not readable. " +
-                "USE THIS WITH A BOOKING TABLE so the page can grey out slots that are already taken: publicView {\"columns\":[\"appointment_date\",\"appointment_time\"]} publishes WHEN people have booked and nothing about WHO. " +
+                // THE CASE THAT DECIDES WHETHER THE SITE CAN EXIST, and it was
+                // missing. This description named only the booking slot — an
+                // optional enhancement — so a marketplace brief ("people post
+                // their own events to sell") produced `events` as a `user` table
+                // with no publicView, which is 401 signed out and own-rows-only
+                // signed in. Measured live 2026-08-10: nobody could browse a
+                // single listing, page generation had no home page it could
+                // honestly write, and the build came back with no pages at all.
+                "REQUIRED WHEN VISITORS POST ROWS THAT OTHER VISITORS MUST BROWSE — a marketplace, classifieds, a directory, a listings site. " +
+                "Without it there is NO browsable page: a \"user\" table is 401 to a signed-out visitor and own-rows-only to a signed-in one, so nobody can ever see a listing. " +
+                "Publish what a buyer needs (title, price, date, location, category) and leave out the rest. " +
+                "ALSO USE IT WITH A BOOKING TABLE so the page can grey out slots that are already taken: publicView {\"columns\":[\"appointment_date\",\"appointment_time\"]} publishes WHEN people have booked and nothing about WHO. " +
                 "Name only the columns a stranger may see — never a name, email, phone or note. `id` and `owner_id` are refused outright. " +
                 "Add \"where\":[\"status:eq:confirmed\"] when the table has a status, so a cancelled row stops occupying the slot.",
               properties: {
