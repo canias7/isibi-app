@@ -1,23 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
 
-import {
-  useMember,
-  useLogin,
-  useSignup,
-  useLogout,
-  useRows,
-  useCreateRow,
-  useUpdateRow,
-  useDeleteRow,
-  type Row,
-} from "@/lib/rows";
+import { useMember, useLogin, useSignup, useLogout } from "@/lib/rows";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Form,
   FormControl,
@@ -27,24 +15,18 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { SiteChrome } from "@/components/ui/site-chrome";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Empty } from "@/components/ui/empty";
-import { ActivityFeed } from "@/components/ui/activity-feed";
+import { ProfileCard } from "@/components/ui/profile-card";
 
 export const Route = createFileRoute("/account")({ component: Account });
 
-type Note = Row & { title: string; body: string };
-type Announcement = Row & { title: string; body: string };
-
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "A calm, well-taught practice — every level, every day.",
+  tagline: "A calm room, a good floor, and a class most evenings.",
   links: [
     { label: "Home", href: "/" },
     { label: "Book", href: "/book" },
-    { label: "The work", href: "/work" },
+    { label: "Members", href: "/members" },
     { label: "Account", href: "/account" },
   ],
   action: { label: "Book now", href: "/book" },
@@ -54,15 +36,7 @@ const credentials = z.object({
   email: z.string().email("That doesn't look like an email address"),
   password: z.string().min(8, "At least 8 characters"),
 });
-
 type Credentials = z.infer<typeof credentials>;
-
-const noteSchema = z.object({
-  title: z.string().min(1, "Give it a title"),
-  body: z.string().min(1, "Write something"),
-});
-
-type NoteForm = z.infer<typeof noteSchema>;
 
 function Account() {
   const member = useMember();
@@ -90,20 +64,37 @@ function Account() {
 
   return (
     <SiteChrome {...CHROME}>
-      <div className="mx-auto max-w-2xl px-6 py-16">
+      <div className="mx-auto max-w-md px-6 py-16">
         {member.isPending && <p className="text-muted-foreground">Checking your sign-in…</p>}
 
-        {member.data && <SignedIn name={member.data.name} onSignOut={() => logout.mutate()} />}
+        {member.data && (
+          <>
+            <h1 className="text-3xl font-semibold tracking-tight">Your account</h1>
+            <ProfileCard
+              className="mt-8"
+              name={member.data.name}
+              email={member.data.email}
+              actions={
+                <Button variant="outline" onClick={() => logout.mutate()}>
+                  Sign out
+                </Button>
+              }
+            />
+          </>
+        )}
 
         {!member.isPending && !member.data && (
           <>
             <h1 className="text-3xl font-semibold tracking-tight">Your account</h1>
             <p className="mt-2 text-muted-foreground">
-              Sign in to keep your practice notes, or make an account to start.
+              Sign in to manage your account, or create one to keep your class notes.
             </p>
 
             <Form {...form}>
-              <form className="mt-8 grid gap-4" onSubmit={form.handleSubmit((v) => submit(login, v))}>
+              <form
+                className="mt-8 grid gap-4"
+                onSubmit={form.handleSubmit((v) => submit(login, v))}
+              >
                 <FormField
                   control={form.control}
                   name="email"
@@ -149,183 +140,5 @@ function Account() {
         )}
       </div>
     </SiteChrome>
-  );
-}
-
-function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) {
-  const notes = useRows<Note>("my_notes", { order: "id", dir: "desc" });
-  const announcements = useRows<Announcement>("announcements", { order: "id", dir: "desc" });
-  const create = useCreateRow<Note>("my_notes");
-  const update = useUpdateRow<Note>("my_notes");
-  const remove = useDeleteRow("my_notes");
-  const [editing, setEditing] = useState<number | null>(null);
-
-  const form = useForm<NoteForm>({
-    resolver: zodResolver(noteSchema),
-    defaultValues: { title: "", body: "" },
-  });
-
-  const onSubmit = (values: NoteForm) => {
-    if (editing != null) {
-      update.mutate(
-        { id: editing, ...values },
-        {
-          onSuccess: () => {
-            toast.success("Note updated");
-            form.reset();
-            setEditing(null);
-          },
-          onError: (e: Error) => toast.error(e.message),
-        },
-      );
-      return;
-    }
-    create.mutate(values, {
-      onSuccess: () => {
-        toast.success("Note saved");
-        form.reset();
-      },
-      onError: (e: Error) => toast.error(e.message),
-    });
-  };
-
-  const startEdit = (n: Note) => {
-    setEditing(n.id as number);
-    form.reset({ title: n.title, body: n.body });
-  };
-
-  const cancelEdit = () => {
-    setEditing(null);
-    form.reset({ title: "", body: "" });
-  };
-
-  return (
-    <>
-      <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-semibold tracking-tight">Hello, {name}</h1>
-        <Button variant="ghost" onClick={onSignOut}>
-          Sign out
-        </Button>
-      </div>
-
-      <Card className="mt-8">
-        <CardHeader>
-          <CardTitle className="text-base">Studio announcements</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {announcements.isPending && <Skeleton className="h-16 rounded-lg" />}
-          {announcements.isError && (
-            <p className="text-sm text-destructive">Couldn't load announcements. Refresh and try again.</p>
-          )}
-          {announcements.data?.length === 0 && (
-            <Empty title="Nothing posted yet" description="Studio news will show up here." />
-          )}
-          {!!announcements.data?.length && (
-            <ActivityFeed
-              items={announcements.data.map((a) => ({ who: a.title, what: a.body, at: a.created_at }))}
-            />
-          )}
-        </CardContent>
-      </Card>
-
-      <Card className="mt-8">
-        <CardHeader>
-          <CardTitle className="text-base">Your practice notes</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {notes.isPending && (
-            <div className="grid gap-2">
-              <Skeleton className="h-12 rounded-lg" />
-              <Skeleton className="h-12 rounded-lg" />
-            </div>
-          )}
-          {notes.isError && (
-            <p className="text-sm text-destructive">Couldn't load your notes. Refresh and try again.</p>
-          )}
-          {notes.data?.length === 0 && (
-            <Empty title="No notes yet" description="Jot down how a class went, or what to work on next time." />
-          )}
-          {!!notes.data?.length && (
-            <ul className="grid gap-3 motion-stagger">
-              {notes.data.map((n) => (
-                <li key={n.id} className="rounded-lg border border-border p-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <p className="font-medium">{n.title}</p>
-                      <p className="mt-1 text-sm text-muted-foreground">{n.body}</p>
-                    </div>
-                    <div className="flex shrink-0 gap-2">
-                      <Button size="sm" variant="outline" onClick={() => startEdit(n)}>
-                        Edit
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        disabled={remove.isPending}
-                        onClick={() =>
-                          remove.mutate(n.id, {
-                            onSuccess: () => toast.success("Note deleted"),
-                            onError: (e: Error) => toast.error(e.message),
-                          })
-                        }
-                      >
-                        Delete
-                      </Button>
-                    </div>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="mt-6 grid gap-3">
-              <FormField
-                control={form.control}
-                name="title"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Title</FormLabel>
-                    <FormControl>
-                      <Input {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="body"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Note</FormLabel>
-                    <FormControl>
-                      <Textarea rows={3} {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <div className="flex gap-3">
-                <Button type="submit" className="motion-press" disabled={create.isPending || update.isPending}>
-                  {editing != null
-                    ? update.isPending
-                      ? "Saving…"
-                      : "Save changes"
-                    : create.isPending
-                      ? "Adding…"
-                      : "Add note"}
-                </Button>
-                {editing != null && (
-                  <Button type="button" variant="ghost" onClick={cancelEdit}>
-                    Cancel
-                  </Button>
-                )}
-              </div>
-            </form>
-          </Form>
-        </CardContent>
-      </Card>
-    </>
   );
 }
