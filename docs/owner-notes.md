@@ -34,6 +34,22 @@ when they say they are home, since it wants doing on their desktop.
 
 ---
 
+## 2026-08-10 — Work ON the designated branch, not on main
+
+**A push reported "Everything up-to-date" while the commit sat unpushed.** The
+session had been committing on local `main` and pushing with
+`git push -u origin claude/help-needed-ehlwlj` — which pushes the local BRANCH of
+that name, not `HEAD`. That branch was stale, so git honestly reported it had
+nothing to send, and the work was not on the remote. It reads exactly like a
+successful push.
+
+**So: `git checkout claude/help-needed-ehlwlj` at the start, and stay on it.**
+`git push origin HEAD:<branch>` is the form that cannot pick the wrong commit,
+and `git log --oneline -1 origin/<branch>` is the only proof — the push output
+is not one.
+
+---
+
 ## 2026-08-10 — The builder-route audit
 
 **Seven parallel finder lenses over `/api/site/react-build` and every module it
