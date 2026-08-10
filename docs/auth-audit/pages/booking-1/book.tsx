@@ -37,25 +37,25 @@ type Appointment = Row;
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "A calm, well-lit studio — book your mat in a minute.",
+  tagline: "A calm room, a good mat, classes most days.",
   links: [
     { label: "Home", href: "/" },
     { label: "Book", href: "/book" },
-    { label: "The studio", href: "/work" },
-    { label: "Account", href: "/account" },
+    { label: "The work", href: "/work" },
+    { label: "Members", href: "/members" },
   ],
   action: { label: "Book now", href: "/book" },
 };
 
-const CLASS_NAMES = [
-  "Sunrise Flow",
-  "Power Vinyasa",
-  "Hatha Slow",
+const CLASSES = [
+  "Vinyasa Flow",
+  "Gentle Hatha",
   "Restorative",
-  "Beginners' Foundations",
+  "Power Yoga",
+  "Yin & Sound",
 ];
 
-const SLOTS = ["07:00", "09:00", "12:15", "17:30", "18:30", "19:30"];
+const SLOTS = ["07:30", "09:00", "10:30", "12:00", "17:30", "18:30", "19:30"];
 
 const booking = z.object({
   class_name: z.string().min(1, "Pick a class"),
@@ -83,10 +83,10 @@ function Book() {
     },
   });
 
-  const date = form.watch("slot_date");
+  const slot_date = form.watch("slot_date");
   const taken = usePublicRows<{ slot_date: string; slot_time: string }>(
     "bookings",
-    date ? { slot_date: date } : undefined,
+    slot_date ? { slot_date } : undefined,
   );
 
   const onSubmit = (values: Booking) => {
@@ -106,11 +106,17 @@ function Book() {
         <div className="mx-auto max-w-lg px-6 py-20 text-center motion-enter">
           <h1 className="text-3xl font-semibold tracking-tight">You're booked</h1>
           <p className="mt-3 text-muted-foreground">
-            We've sent a confirmation to your email. See you on the mat.
+            We'll see you on the mat. Need to move or cancel? Use the link in your
+            confirmation email, or head to Manage.
           </p>
-          <Button asChild variant="outline" className="mt-6">
-            <Link to="/">Back to the studio</Link>
-          </Button>
+          <div className="mt-6 flex justify-center gap-3">
+            <Button asChild variant="outline">
+              <Link to="/">Back to the studio</Link>
+            </Button>
+            <Button asChild>
+              <Link to="/manage">Manage a booking</Link>
+            </Button>
+          </div>
         </div>
       </SiteChrome>
     );
@@ -120,7 +126,7 @@ function Book() {
     <SiteChrome {...CHROME}>
       <div className="mx-auto max-w-2xl px-6 py-14">
         <h1 className="text-3xl font-semibold tracking-tight">Book a class</h1>
-        <p className="mt-2 text-muted-foreground">Pick a class, a date, and a time — we'll hold your mat.</p>
+        <p className="mt-2 text-muted-foreground">Pick a class, a date and a time — we'll confirm by email.</p>
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="mt-8 grid gap-4 sm:grid-cols-2">
@@ -137,9 +143,9 @@ function Book() {
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {CLASS_NAMES.map((name) => (
-                        <SelectItem key={name} value={name}>
-                          {name}
+                      {CLASSES.map((c) => (
+                        <SelectItem key={c} value={c}>
+                          {c}
                         </SelectItem>
                       ))}
                     </SelectContent>
