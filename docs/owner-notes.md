@@ -10,6 +10,20 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## OPEN — waiting to be picked up
+
+**THE EDIT PATH (tasks #71-74). Owner's call 2026-08-10: designed, agreed, parked
+deliberately — raise it at the start of the next session.** Not blocked, not
+half-built, and nothing about it is started: the decision was to do it in one
+clean pass because it touches the code that publishes every live customer site.
+The design and the reasoning are in the entry below; the insertion points are in
+the task descriptions. Order is #71 → #72 → #73, with #74 shipping alongside #73.
+
+**Cloudflare Web Analytics for `gofarther.app`** — the owner asked to be reminded
+when they say they are home, since it wants doing on their desktop.
+
+---
+
 ## 2026-08-10 — Cost should follow the change, not the pipeline (owner's call)
 
 Owner's observation, walking the pipeline step by step: **every change goes
