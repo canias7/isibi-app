@@ -34,6 +34,64 @@ when they say they are home, since it wants doing on their desktop.
 
 ---
 
+## 2026-08-10 — "An edit changes exactly what was asked for, and nothing else" (owner's call)
+
+**The owner's words, confirmed emphatically, and it is the rule the whole edit
+path should be built on.** It arrived from the other direction: an audit of the
+designer on the EDIT path found `brand` and `description` change when nobody
+asked, and the owner's answer was not "anchor them" but **"for edit it should be
+able to edit literally everything."** That is the better rule, and it makes the
+finding half a bug rather than a whole one.
+
+**TWO DEFECTS, AND THEY ARE MIRROR IMAGES.** Measured on the live route:
+
+| | today | under the rule |
+|---|---|---|
+| `brand`, `description` | change when NOBODY asked — no anchor exists | change only when asked |
+| `theme`, `family`, `structure`, `fonts` | CANNOT change even when asked — hard-anchored | change when asked |
+
+The look was hard-anchored on 2026-08-08 to stop *"make the background yellow"*
+re-rolling a barber shop into a different site. That fixed drift by removing the
+capability — the comment says so: *"a re-theme is not a small edit."* So
+**"make it look like a newspaper" does nothing to a live site today**, while
+"fix the typo" can rename it.
+
+**THE DESIGNER IS NEVER TOLD IT IS AN EDIT.** `brief = body.instruction`, same
+system prompt, same required fields — it believes it is designing a site from
+scratch out of a fragment, and returns a brand, a description, a theme and a
+family invented from it. The platform then discards four of those and keeps the
+two most visible strings on the site: `<title>`, og:title and og:description all
+come from `designed.brand`/`designed.description`, while the PAGES keep the real
+name (they are returned as byte-identical edits). So the tab and the link
+preview disagree with the page.
+
+**THE LOAD-BEARING DECISION: ABSENT MEANS UNCHANGED, NOT RESTATED.** Two ways to
+express "keep it", and only one is safe:
+- *"return the same value unless asked to change it"* — the model restates
+  everything, and **restatement drifts**. That is precisely how the look
+  re-rolled in the first place.
+- *"omit anything you are not changing"* — omission cannot drift, because there
+  is no value to get subtly wrong. It is also cheaper: a one-colour edit returns
+  one field instead of a whole design.
+
+So on an edit every field is optional and the platform merges stored-unless-
+named — which is already how `tables` and `tokens` behave, and they are the two
+that work properly today. The designer must also be SHOWN the current state
+(brand, description, theme, family, structure, fonts, tables), or it cannot tell
+"change this" from "this is already so".
+
+**The guard that has to be real**, because letting the theme move again reopens
+the bug anchoring was introduced to fix: the designer is told the current theme
+BY NAME and told that naming it again is a no-op, and a test drives the case that
+caused it — *"make the background yellow"* must come back with `tokens` set and
+`theme` ABSENT.
+
+Tracked as #79, upstream of the parked edit path (#71-74): #73 assumed the design
+layer is fixed on an edit; under this rule it is just another layer that moves
+only when named.
+
+---
+
 ## 2026-08-10 — The question policy is PROVEN LIVE
 
 **Owner's call: "they gotta be smart with the questions, not all the time."** The
