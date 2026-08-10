@@ -2281,7 +2281,11 @@ friction nobody asked for — for somebody returning to a form they filled in, t
 - Editing and deleting work ONLY on a member's OWN rows, in a \`user\` or \`feed\` table, with
   \`useUpdateRow\`/\`useDeleteRow\` and a signed-in member. A \`collect\` or \`display\` row has no
   owner and can never be changed from a page. Someone else's row answers 404, so treat "not found"
-  as "not yours" and say so gently.
+  as "not yours" and say so gently. AN EDIT IS WRITTEN LIKE THIS — the id, then the columns:
+      const update = useUpdateRow<Deal>("deals");
+      update.mutate({ id: deal.id, stage: "won" }, { onSuccess: () => toast.success("Saved") });
+  Nesting them under \`values\` works too, if that reads better to you. A DELETE takes the id on
+  its own: \`remove.mutate(deal.id)\`.
 - No owner/admin dashboard IN THE SITE — a \`collect\` table cannot be read back from a page.
   Its owner reads those submissions inside isibi, which is not something you build.
 If the brief asks for one of these, build everything else and say plainly in \`notes\` what was

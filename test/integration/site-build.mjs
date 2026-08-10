@@ -725,6 +725,49 @@ function Home() { return <main><h1>${brand}</h1></main>; }`;
       `${loose.stage || "ok"}: ${String(loose.error || "").slice(0, 240)}`);
   }
 
+  // ── the two shapes an edit can be written in ────────────────────────────────
+  //
+  // `useCreateRow` takes the columns bare, so `{ id, values: {...} }` is the
+  // natural guess for an edit — and the eval recorded it FOUR times in five runs
+  // as `Type '{ stage: string; }' is not assignable to 'string | number |
+  // boolean | null | undefined'`, because `values` was read as a column name.
+  // Both shapes compile now. Only a real build can say so: this is a generic
+  // whose branches resolve against the row type.
+  {
+    const editPage = (call) => `import { createFileRoute } from "@tanstack/react-router";
+import { useUpdateRow, type Row } from "@/lib/rows";
+import { Button } from "@/components/ui/button";
+export const Route = createFileRoute("/")({ component: P });
+type Deal = Row & { title: string; stage: string | null };
+function P() {
+  const update = useUpdateRow<Deal>("deals");
+  return <main><Button onClick={() => ${call}}>Save</Button></main>;
+}`;
+
+    const spread = await post({ files: { "index.tsx": editPage('update.mutate({ id: 1, stage: "won" })') }, slug: "edit-spread", title: "Edit" });
+    ok("an edit written with the columns bare compiles", spread.ok === true,
+      `${spread.stage || "ok"}: ${String(spread.error || "").slice(0, 240)}`);
+
+    const nested = await post({ files: { "index.tsx": editPage('update.mutate({ id: 1, values: { stage: "won" } })') }, slug: "edit-nested", title: "Edit" });
+    ok("…and one written with the columns under `values` compiles too", nested.ok === true,
+      `${nested.stage || "ok"}: ${String(nested.error || "").slice(0, 240)}`);
+
+    // THE NEGATIVE, or both pass on a signature that stopped checking anything.
+    //
+    // NOT "a column the row does not have": `Row` carries an index signature, so
+    // an unknown column name has ALWAYS been accepted here and the data API drops
+    // it server-side. Asserting that would have failed for a reason predating
+    // this change — measured, and the first draft of this check did exactly that.
+    //
+    // What must still be refused is an OBJECT in a column, which is the original
+    // error this fix is about: `values` is a legitimate key now, and a nested
+    // object anywhere else is still not a row value.
+    const bogus = await post({ files: { "index.tsx": editPage('update.mutate({ id: 1, stage: { nested: "x" } })') }, slug: "edit-bogus", title: "Edit" });
+    ok("…while an object in a column is still refused",
+      bogus.ok === false && bogus.stage === "typecheck",
+      `${bogus.stage || "ok"}: ${String(bogus.error || "").slice(0, 240)}`);
+  }
+
   // ── the salvage stub ────────────────────────────────────────────────────────
   //
   // A page that does not compile is replaced by `stubPage` and the container runs

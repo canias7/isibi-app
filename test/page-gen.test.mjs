@@ -891,8 +891,15 @@ test("no hook demands a bare `number` for a row id", () => {
   // Either order — an intersection is commutative, and the first version of this
   // check demanded one spelling, so a correct signature written the other way round
   // failed a test about type semantics on a question of word order.
+  // An optional `(` between the `&` and the `Omit`, because the argument is a
+  // UNION now — the columns bare, or nested under `values`. The property being
+  // guarded is unchanged and holds in both branches: `id` is omitted from
+  // `Partial<T>` before it is intersected, so RowId is never narrowed back to
+  // `number`. Pinning the exact spelling failed a correct signature written a
+  // different way, which this test's own comment already warns about one
+  // assertion up.
   assert.ok(/Omit<Partial<T>, "id"> & \{ id: RowId \}/.test(rows) ||
-            /\{ id: RowId \} & Omit<Partial<T>, "id">/.test(rows),
+            /\{ id: RowId \} & \(?Omit<Partial<T>, "id">/.test(rows),
     "useUpdateRow must omit `id` from Partial<T> before widening it — Partial<T> carries " +
     "`id?: number` from Row, so intersecting narrows RowId straight back to number");
 });
@@ -1357,8 +1364,15 @@ test("useCreateRow does NOT ask PostgREST to return the inserted row", () => {
   // …and the sibling KEEPS it, which is not an inconsistency: PATCH is only ever
   // granted on user/feed tables, where the caller does have SELECT. Asserted so
   // that "fix the 403" cannot be applied with a blanket find-and-replace.
-  const update = rows.slice(rows.indexOf("export function useUpdateRow"));
-  assert.match(update.slice(0, 900), /return=representation/,
+  // TO THE NEXT LANDMARK, NOT 900 BYTES. Written `.slice(0, 900)` this went red
+  // the moment a comment was added inside the function — the window stopped
+  // reaching the header it exists to check, which is this repo's most repeated
+  // test bug and is a false alarm rather than a caught regression.
+  const at = rows.indexOf("export function useUpdateRow");
+  const end = rows.indexOf("export function useDeleteRow", at);
+  assert.ok(at > 0 && end > at, "useUpdateRow or its sibling was renamed — the window is empty");
+  const update = rows.slice(at, end);
+  assert.match(update, /return=representation/,
     "useUpdateRow lost the header too — an edit form now cannot show what it saved");
 });
 
@@ -2250,4 +2264,20 @@ test("…and the check can actually see a violation", () => {
   const line = '  "fixed z-50 gap-4 bg-background p-6 shadow-lg transition"';
   assert.ok(/bg-background/.test(line) && /\bfixed\b/.test(line) && /\bz-\d/.test(line),
     "the predicate no longer matches the exact string this bug was made of");
+});
+
+test("the rules show an UPDATE call, not just the hook's name", () => {
+  // `useUpdateRow` was named ONCE in the whole prompt with no worked example,
+  // while `useCreateRow` had nine — so the shape was guessed, and the guess
+  // (`{ id, values: {...} }`, natural because create takes the columns bare) was
+  // the top remaining compile error: `values` read as a column name, four times
+  // in five eval runs.
+  assert.match(PAGE_RULES, /update\.mutate\(\{ id: deal\.id, stage: "won" \}/,
+    "the rules still do not show what an edit call looks like");
+  // Both shapes really are accepted, so telling the model about the second one
+  // is not a lie. Asserted against the template's own signature.
+  const rows = fs.readFileSync(path.join(import.meta.dirname, "..", "builder", "lovable", "template", "src", "lib", "rows.ts"), "utf8");
+  assert.match(rows, /export type UpdateArg<T> = \{ id: RowId \} & \(Omit<Partial<T>, "id"> \| \{ values: Omit<Partial<T>, "id"> \}\)/,
+    "the rules promise a nested `values` the hook does not accept");
+  assert.match(rows, /mutationFn: \(arg: UpdateArg<T>\)/, "useUpdateRow no longer takes both shapes");
 });

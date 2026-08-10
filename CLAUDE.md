@@ -215,6 +215,18 @@ Every generation is metered in credits (1 credit = $0.008 fal cost). Postgres RP
 - **The last recurring shape is NOT fixed**, and it is not ours in the same way: an object assigned into a row field (`Type '{ stage: string; }' is not assignable to 'string | number | boolean | null | undefined'` — the `Row` index signature, three runs) and invented export names (`activityFeedPlaceholder`, `activityFeedFallback`). Both need thought rather than a field.
 - **The eval is what made this answerable at all.** One sample a run, errors committed per sample under `docs/auth-audit/pages/*/_errors.txt`, so eight runs of history turned "why did my build fail" from a shrug into a ranked list. 1843 tests, 3/3 mutations caught.
 
+## The last recurring compile error was an undocumented call (2026-08-09)
+
+**`Type '{ stage: string; }' is not assignable to 'string | number | boolean | null | undefined'` — four times in the last five eval runs, the top remaining failure once `fallbackSeed` was fixed.** The model was writing `update.mutate({ id, values: { stage: "won" } })`, so `values` was read as a COLUMN NAME and typechecked against a row value.
+
+- **THE MODEL WAS GUESSING, AND THE GUESS WAS REASONABLE.** `useUpdateRow` is named ONCE in the whole ~35,000-token prompt with **no worked example anywhere**, while `useCreateRow` has nine — and create takes the columns bare, so nesting them for an edit is the natural inference. Ours, not the model's, exactly like `fallbackSeed`.
+- **Fixed at BOTH ends, which is the rule this file already records.** The hook accepts either shape — the precedent is one function below it, where `useDeleteRow` already takes a bare id *or* `{id}` "because its sibling takes an object" — and the rules now show a real update call.
+- **A UNION, NOT AN OPTIONAL `values` ON THE INTERSECTION.** `T` carries an index signature, so `{ values?: … } & Omit<Partial<T>, "id">` intersects that property with the row-value union and makes it uncallable — which is the very error being fixed.
+- **THE TYPE WAS ONLY HALF, and a mutation proved it.** Making the runtime ignore `values` and PATCH an empty body survived the entire unit suite: a page that compiles, publishes, reports success and **saves nothing**. Killed by driving a real edit page in a browser against the stub and asserting the column is in the PATCH body — `test/integration/site-runtime.mjs` grew a `PATCH` handler for it. The worst failure shape there is, and only the browser could see it.
+- **My own negative assertion was wrong first**: "a column the row does not have is refused" fails because `Row`'s index signature has ALWAYS admitted arbitrary column names (the API drops them server-side). The negative that discriminates is an OBJECT in a column, which is the original error and must still be refused.
+- **Two existing guards went red on the way, both mine to fix and both the recurring shapes**: one pinned the exact spelling `{ id: RowId } & Omit<…>` and a union puts a `(` in the way; the other read `update.slice(0, 900)` and a comment pushed the header it checks past the window. Anchored on the property and on a landmark.
+- 1886 tests, site-build 75/75, site-runtime 26/26, **5/5 mutations caught** — with the browser harness in the sweep, since one of them is invisible without it.
+
 ## The "confirmations are dead" finding was WRONG (2026-08-09)
 
 **An audit reported that `confirm`, `sms` and `payment` never reach `_meta`, and it was repeated all evening as the platform's worst outstanding bug — booking confirmations, text messages and the entire card-payment path dead on every published site.** Driven end to end, **every link holds.** The finding was false.

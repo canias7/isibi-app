@@ -88,6 +88,31 @@ const ROUTES = Object.fromEntries(
     .filter((f) => f.endsWith(".tsx") && f !== "__root.tsx")
     .map((f) => [f, fs.readFileSync(path.join(TEMPLATE, "src/routes", f), "utf8")]),
 );
+// AN EDIT PAGE, WRITTEN THE WAY THE GENERATOR WRITES ONE.
+//
+// `useUpdateRow` accepts the columns bare or nested under `values`, because the
+// eval recorded the nested form four times in five runs. The TYPE accepting it
+// is only half: a mutation that made the runtime ignore `values` and PATCH an
+// empty body survived the whole unit suite — a page that compiles, publishes,
+// and silently saves nothing. Only driving it in a browser can see that.
+ROUTES["edit.tsx"] = `import * as React from "react";
+import { createFileRoute } from "@tanstack/react-router";
+import { useUpdateRow, type Row } from "@/lib/rows";
+
+export const Route = createFileRoute("/edit")({ component: Edit });
+
+type Service = Row & { name: string; price: number | null };
+
+function Edit() {
+  const update = useUpdateRow<Service>("services");
+  const [done, setDone] = React.useState(false);
+  React.useEffect(() => {
+    update.mutate({ id: 1, values: { name: "Skin fade" } }, { onSettled: () => setDone(true) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return <main data-done={done ? "yes" : "no"}>edit</main>;
+}
+`;
 const REFERENCE = ROUTES["index.tsx"];
 if (!REFERENCE) throw new Error("the template has no src/routes/index.tsx to drive");
 
@@ -110,6 +135,7 @@ const posted = [];
 // Counts reads of `services`, so a retry policy can be asserted on directly
 // rather than inferred from how long something took.
 let reads = 0;
+const patched = [];
 
 const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), "isibi-site-runtime-"));
 let buildSrv = null, siteSrv = null, browser = null;
@@ -220,6 +246,16 @@ try {
           }
           if (!wants) { res.writeHead(201, { "access-control-allow-origin": "*" }); return res.end(); }
           return send(res, 201, [{ id: 99, ...parsed }]);
+        });
+        return;
+      }
+      if (req.method === "PATCH") {
+        let body = "";
+        req.on("data", (c) => { body += c; });
+        req.on("end", () => {
+          let parsed = null; try { parsed = JSON.parse(body); } catch {}
+          patched.push({ table, body: parsed });
+          return send(res, 200, [{ id: 1, ...(parsed || {}) }]);
         });
         return;
       }
@@ -417,6 +453,30 @@ try {
     const body = await page.locator("body").innerText();
     ok("an empty form is rejected client-side, with no request sent", posted.length === 0, JSON.stringify(posted));
     ok("the visitor is told which field is wrong", /Pick a service|Tell us your name/i.test(body), body.slice(0, 600));
+    await page.context().close();
+  }
+  // ── 7. an edit written the nested way actually SAVES ──────────────────────
+  //
+  // The type accepting `{ id, values: {...} }` is only half the fix. A mutation
+  // that made the runtime ignore `values` and PATCH an empty body survived the
+  // entire unit suite: the page compiles, publishes, reports success, and saves
+  // nothing. This is the only check that can see the difference.
+  {
+    mode = "ok";
+    patched.length = 0;
+    const { page } = await newPage();
+    await page.goto(`${base}edit`, { waitUntil: "networkidle" });
+    await page.waitForFunction(() => document.querySelector("main")?.dataset.done === "yes", null, { timeout: 8000 }).catch(() => {});
+    ok("an edit written with the columns under `values` reaches the API",
+      patched.length === 1, JSON.stringify(patched));
+    ok("…and the COLUMN is in the body, not an empty object",
+      patched[0] && patched[0].body && patched[0].body.name === "Skin fade",
+      JSON.stringify(patched[0] && patched[0].body));
+    // …and `values` itself is not sent as though it were a column, which is the
+    // original error this whole change is about.
+    ok("…and `values` is not sent as a column",
+      patched[0] && patched[0].body && patched[0].body.values === undefined,
+      JSON.stringify(patched[0] && patched[0].body));
     await page.context().close();
   }
 } catch (e) {

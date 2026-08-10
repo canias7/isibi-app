@@ -481,6 +481,17 @@ export function useCheckout(table: string) {
   });
 }
 
+/**
+ * What `useUpdateRow` accepts: the columns bare, or nested under `values`.
+ *
+ * `Omit<Partial<T>, "id">` is still required in both branches with T
+ * unconstrained: whenever T DOES carry an id — the `Row` default, and any row
+ * type a page writes — `Partial<T>` carries `id?: number` and intersecting
+ * narrows RowId straight back to number, which is the third of the three errors
+ * that made every edit page a placeholder on 2026-07-29.
+ */
+export type UpdateArg<T> = { id: RowId } & (Omit<Partial<T>, "id"> | { values: Omit<Partial<T>, "id"> });
+
 /** Edit a row. Only reaches rows the site's policies let this member reach. */
 export function useUpdateRow<T = Row>(table: string) {
   const qc = useQueryClient();
@@ -490,12 +501,32 @@ export function useUpdateRow<T = Row>(table: string) {
     // `Partial<T>` carries `id?: number` and intersecting narrows RowId straight
     // back to number, which is the third of the three errors that made every
     // edit page a placeholder on 2026-07-29.
-    mutationFn: ({ id, ...values }: { id: RowId } & Omit<Partial<T>, "id">) =>
-      send<T[]>(base(table) + idFilter(id), {
+    // BOTH SHAPES, for the reason its sibling one function below already takes
+    // both: the generator reaches for the other one and a compile error here
+    // costs the whole page.
+    //
+    // `useCreateRow` takes the columns bare (`create.mutate(values)`), so
+    // `{ id, values: {...} }` is the natural guess for an edit — and it is what
+    // the eval recorded FOUR times in five runs, as
+    // `Type '{ stage: string; }' is not assignable to 'string | number | boolean
+    // | null | undefined'`: `values` was read as a column name and typechecked
+    // against a row value. Nothing in the rules ever showed the correct call.
+    //
+    // A UNION, not an intersection with an optional `values`. `T` carries an
+    // index signature, so `{ values?: … } & Omit<Partial<T>, "id">` intersects
+    // that property with the row-value union and makes it uncallable — which is
+    // the very error being fixed.
+    mutationFn: (arg: UpdateArg<T>) => {
+      const { id } = arg;
+      const nested = (arg as { values?: Omit<Partial<T>, "id"> }).values;
+      const { id: _drop, values: _drop2, ...rest } = arg as Record<string, unknown>;
+      void _drop; void _drop2;
+      return send<T[]>(base(table) + idFilter(id), {
         method: "PATCH",
         headers: { Prefer: "return=representation" },
-        body: JSON.stringify(values),
-      }).then((r) => r[0]),
+        body: JSON.stringify(nested && typeof nested === "object" ? nested : rest),
+      }).then((r) => r[0]);
+    },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["rows", siteSlug(), table] }); },
   });
 }
