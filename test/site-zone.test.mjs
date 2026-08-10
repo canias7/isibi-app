@@ -374,8 +374,18 @@ test("a shared link's preview image is on the SITE's domain, not the platform's"
   const w = read("worker.js");
   assert.doesNotMatch(w, /ogImage = "https:\/\/gofarther\.dev\/u\/"/,
     "the preview image still points at the platform domain");
-  assert.match(w, /ogImage = siteOrigin\(slug, "https:\/\/" \+ APP_ZONE\) \+ "\/u\/"/,
+  // NOT ANCHORED ON THE ASSIGNMENT. This read `ogImage = siteOrigin(…)` and went
+  // red when the derivation was extracted into `siteOgImage` so the free text
+  // edit could share it — a correct change failing a test about which side of an
+  // equals sign the expression sits on. What matters is that the URL is built
+  // from the SITE's origin, wherever that happens.
+  assert.match(w, /siteOrigin\(slug, "https:\/\/" \+ APP_ZONE\) \+ "\/u\/"/,
     "the preview image is not built from the site's own origin");
+  // …and that BOTH publish paths get one. The build derived it inline and the
+  // text edit never did, so fixing a typo stripped the site's preview image —
+  // exactly the divergence one spine exists to prevent.
+  assert.equal((w.match(/await siteOgImage\(env, /g) || []).length, 2,
+    "one of the two publish paths no longer asks for a preview image");
 });
 
 test("a paying customer is returned to the site, not to a 404", () => {

@@ -5501,6 +5501,36 @@ async function fetchSiteFonts(pair) {
 // all? — live in builder/publish-pages.mjs, which takes every side effect as an
 // injected function so they can be driven against fakes in test/publish-pages.test.mjs.
 // This is only the wiring that supplies the real ones.
+/**
+ * The picture a link preview shows: the first thing the owner uploaded.
+ *
+ * EXTRACTED BECAUSE THERE ARE TWO PUBLISH PATHS AND ONLY ONE HAD IT. A build
+ * derived this inline; the free text edit — which recompiles and republishes the
+ * same site — never did, so fixing a typo silently stripped the site's preview
+ * image. The same divergence dropped its description. Two implementations of
+ * "publish this site" is how the second one quietly lacks what the first has,
+ * which is the whole argument for one spine.
+ *
+ * ON THE SITE'S OWN DOMAIN, not the platform's. This is what WhatsApp and Slack
+ * show when a customer shares the shop, so pointing it at the tool the business
+ * happens to have been built with is the most visible place that leak can
+ * appear. `siteOrigin`, not `siteUrlFor` — uploads hang off the origin, and
+ * appending them to a site's home-page URL is the shape that already 404'd every
+ * image on the platform once.
+ *
+ * Best-effort in both directions: no bucket, no uploads or a failed list all
+ * mean a smaller card, never a failed publish.
+ */
+async function siteOgImage(env, slug) {
+  try {
+    if (!env.SITES_BUCKET) return null;
+    const objs = await siteUploadList(env, slug);
+    const first = objs.find((o) => o && !o.visitor) || objs[0];
+    if (!first) return null;
+    return siteOrigin(slug, "https://" + APP_ZONE) + "/u/" + slug + "/" + first.key.split("/").pop();
+  } catch (e) { console.error("og image lookup failed:", slug, e && e.message); return null; }
+}
+
 async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, ogImage, fonts, theme, tokens, family, structure, attachments, priorUsage, model, revise, changeNote, priorPages, mark }) {
   // Resolved once, before any model call: the pair always lands on something
   // installed, so a build never waits on a font it cannot get.
@@ -8997,20 +9027,7 @@ async function handleRequest(request, env, ctx) {
           const siteDescription = String(look.description || body.description || priorBrief || brief || "").slice(0, 300);
           // A picture for the link preview: the first thing the owner uploaded,
           // if anything. Best-effort — a missing one just means a small card.
-          let ogImage = null;
-          try {
-            if (env.SITES_BUCKET) {
-              const objs = await siteUploadList(env, slug);
-              const first = objs.find((o) => o && !o.visitor) || objs[0];
-              // ON THE SITE'S OWN DOMAIN, not the platform's. This is the picture
-              // WhatsApp and Slack show when a customer shares the shop's link, so
-              // pointing it at the tool a business happens to have been built with
-              // is the one place that leak is most visible. `siteOrigin`, not
-              // `siteUrlFor` — uploads hang off the origin, and appending them to a
-              // site's home-page URL is the shape that 404'd every image already.
-              if (first) ogImage = siteOrigin(slug, "https://" + APP_ZONE) + "/u/" + slug + "/" + first.key.split("/").pop();
-            }
-          } catch (e) { console.error("og image lookup failed:", slug, e && e.message); }
+          const ogImage = await siteOgImage(env, slug);
           tr.at("og");
           pages = await buildAndPublishPages(env, {
             // The linked pages and the researched facts ride on the brief, which
@@ -9435,8 +9452,18 @@ async function handleRequest(request, env, ctx) {
               }, { status: 422 });
             }
 
+            // THE SAME META A BUILD PUBLISHES, which this was quietly missing
+            // half of. `injectMeta` REPLACES its fenced block, so a field not
+            // passed is a field removed: fixing a typo stripped the site's
+            // og:description and its preview image outright. `look.brand` was
+            // read here from the day this route shipped and the stored look did
+            // not carry a brand until 2026-08-10, so the title fell through to
+            // the SLUG on every text edit — the reader was right and nothing
+            // ever wrote the value.
             const wrote = await writeSiteDistToR2(env, ownerSlug, built.files, {
               brand: (look && look.brand) || ownerSlug,
+              description: (look && look.description) || undefined,
+              image: await siteOgImage(env, ownerSlug),
               url: siteUrlFor(ownerSlug, "https://" + APP_ZONE),
               slug: ownerSlug,
             });

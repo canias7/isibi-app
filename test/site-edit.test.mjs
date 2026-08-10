@@ -192,3 +192,44 @@ test("the stored look is written on EVERY build, not just the first", () => {
   assert.match(worker, /brand: merged\.brand,\s*\n\s*description: merged\.description,/,
     "the stored look does not carry the name and description");
 });
+
+/* ── the free text edit publishes the SAME meta a build does ─────────────── */
+
+test("a text edit keeps the site's name, description and preview image", () => {
+  // THREE THINGS A TYPO FIX USED TO DESTROY, and all three came from the same
+  // cause: `/text` recompiles and republishes the site through its own inline
+  // copy of the publish step, and that copy passed less than the build's does.
+  // `injectMeta` REPLACES its fenced block, so a field not passed is a field
+  // removed.
+  //
+  //   the <title> became the SLUG — `title: (look && look.brand) || ownerSlug`
+  //   was read here from the day the route shipped, and the stored look did not
+  //   carry a brand until 2026-08-10, so it always fell through. The reader was
+  //   correct and nothing ever wrote the value.
+  //   og:description was DROPPED — no description was passed at all.
+  //   og:image was DROPPED — the build derives it from the owner's first upload
+  //   and this never did.
+  const i = worker.indexOf("const tx = url.pathname.match");
+  assert.ok(i > 0, "the text-edit route is gone");
+  const block = worker.slice(i, worker.indexOf("if (vr) {", i));
+  assert.ok(block.length > 0, "could not read the text-edit route");
+  assert.match(block, /title: \(look && look\.brand\) \|\| ownerSlug/,
+    "the recompile no longer titles the site with its own name");
+  assert.match(block, /description: \(look && look\.description\) \|\| undefined/,
+    "a text edit strips the site's description again");
+  assert.match(block, /image: await siteOgImage\(env, ownerSlug\)/,
+    "a text edit strips the site's link-preview image again");
+  // The look it reads has to be the one that CARRIES those, or all three read
+  // undefined and the guard above passes on a site with no name.
+  assert.match(worker, /brand: merged\.brand,\s*\n\s*description: merged\.description,/,
+    "the stored look does not carry the name and description the recompile reads");
+});
+
+test("the preview image is derived in ONE place, for both publish paths", () => {
+  // The divergence that caused it: a build derived the image inline and the text
+  // edit did not. Two implementations of "publish this site" is how the second
+  // quietly lacks what the first has.
+  assert.match(worker, /async function siteOgImage\(env, slug\)/, "the derivation is inlined again");
+  assert.equal((worker.match(/await siteOgImage\(env, /g) || []).length, 2,
+    "one of the two publish paths derives its own preview image again");
+});
