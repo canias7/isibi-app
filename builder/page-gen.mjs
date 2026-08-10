@@ -2958,7 +2958,17 @@ export function validatePages(input) {
   if (raw.length > MAX_PAGES) problems.push("More than " + MAX_PAGES + " pages were written; only the first " + MAX_PAGES + " were kept.");
   for (const p of raw.slice(0, MAX_PAGES)) {
     const source = p && typeof p.source === "string" ? p.source : "";
-    if (!source.trim()) continue;
+    // AN EMPTY PAGE IS A PROBLEM, NOT A SILENT SKIP. Dropped quietly, a call that
+    // named five routes and gave every one an empty `source` came out the far end
+    // as zero pages and zero problems — indistinguishable from a tool call with
+    // no `pages` list at all, and reported as "the generator called the tool with
+    // no pages in it", which is false and sends whoever reads it the wrong way.
+    // Measured 2026-08-10 on a real build that could not be diagnosed afterwards
+    // because all four of those failures print the same sentence.
+    if (!source.trim()) {
+      problems.push('"' + String((p && p.path) || "?").slice(0, 60) + '" was written with no code in it.');
+      continue;
+    }
     const path = cleanPath(p.path);
     if (!path) { problems.push('"' + String(p && p.path).slice(0, 60) + '" is not a route file name — use something like index.tsx or menu.tsx.'); continue; }
     if (seen.has(path)) { problems.push(path + " was written twice; only the first was kept."); continue; }

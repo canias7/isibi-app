@@ -708,7 +708,17 @@ export async function publishPages(deps, { spec, slug, priorUsage } = {}) {
       : gen.shape
         ? "the model never called the tool — stop_reason " + gen.shape.stopReason +
           ", blocks [" + gen.shape.blocks.join(", ") + "]"
-        : "the generator called the tool with no pages in it";
+        // FOUR MODEL FAILURES USED TO PRINT ONE SENTENCE, so a real build could
+        // not be diagnosed the next day: no `pages` key, an empty list, a list
+        // whose every entry had no code, and a tool call that never happened.
+        // The third is now a `problems` entry (see `validatePages`) and the first
+        // two are separated here. `out` is the output-token count, which is the
+        // one number that tells "the model said almost nothing" apart from "the
+        // model wrote a whole site and we dropped every page of it".
+        : (!gen.input || !Array.isArray(gen.input.pages)
+            ? "the generator called the tool with no `pages` list at all"
+            : "the generator called the tool with an empty `pages` list") +
+          " (" + ((gen.usage && gen.usage.out) || 0) + " output tokens)";
     out.notes = (gen.truncated
       ? "The pages came out longer than one pass allows — try a simpler brief."
       : "The generator didn't produce a usable page.") + " " + await settle(out.stage);

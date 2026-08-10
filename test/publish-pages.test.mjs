@@ -825,15 +825,35 @@ test("a build that validated nothing says WHY, not just that it failed", async (
 });
 
 test("and a generator that returned nothing at all is said plainly", async () => {
-  // THREE OUTCOMES, NOT TWO, because they need three different responses: the
-  // model answered in prose and never called the tool; it called the tool with
-  // nothing in it; or it called it and every page was refused. A build spent
-  // 9,810 output tokens and 22 credits on 2026-08-04 and the response could only
-  // say "didn't produce a usable page", which is all three at once.
+  // FOUR OUTCOMES, NOT TWO, because they need four different answers: the model
+  // answered in prose and never called the tool; it called the tool with no
+  // `pages` list at all; with an empty one; or with pages that had no code in
+  // them. A build spent 9,810 output tokens and 22 credits on 2026-08-04 and the
+  // response could only say "didn't produce a usable page" — and on 2026-08-10 a
+  // real failure could not be diagnosed the next day because all four printed one
+  // sentence. Each is driven here, and they must not read alike.
   const empty = harness({ generate: async () => gen([]) });
   const a = await publishPages(empty.deps, { spec: SPEC, slug: "cafe" });
   assert.equal(a.stage, "validate");
-  assert.match(a.error, /called the tool with no pages/, a.error);
+  assert.match(a.error, /empty `pages` list/, a.error);
+  // The output-token count is the one number separating "the model said almost
+  // nothing" from "it wrote a whole site and we dropped every page of it".
+  assert.match(a.error, /output tokens/, "the size of what came back is not reported");
+
+  // A tool call carrying no `pages` key at all — different mistake, and it read
+  // identically until this was split.
+  const noList = harness({ generate: async () => ({ ...gen([]), input: { notes: "here you go" } }) });
+  const a2 = await publishPages(noList.deps, { spec: SPEC, slug: "cafe" });
+  assert.match(a2.error, /no `pages` list at all/, a2.error);
+  assert.notEqual(a2.error, a.error, "an absent list and an empty one must not read the same");
+
+  // Pages that were NAMED and had no code in them. This was a silent skip, so it
+  // came out as zero pages and zero problems and was reported as a tool call with
+  // no pages in it — which is false, and sends whoever reads it the wrong way.
+  const hollow = harness({ generate: async () => ({ ...gen([]), input: { pages: [{ path: "index.tsx", source: "" }] } }) });
+  const a3 = await publishPages(hollow.deps, { spec: SPEC, slug: "cafe" });
+  assert.match(a3.error, /every page was refused/, a3.error);
+  assert.match(a3.error, /index\.tsx.*no code in it/, "the empty page is not named");
 
   // The one that actually happened: no tool_use block in the answer at all.
   const prose = harness({
