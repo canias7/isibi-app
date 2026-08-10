@@ -1072,3 +1072,42 @@ test("an unreadable balance still gets routed; an empty one does not", () => {
   assert.match(block, /intent: "build", cost: 0/,
     "an account with no credits no longer skips the paid call");
 });
+
+test("the deploy check probes the question policy, as a PAIR", () => {
+  // THE POLICY IS PROMPT TEXT, and no unit test can prove a prompt produces a
+  // behaviour — this file's own clarify tests assert wording, which is all they
+  // can do. `build smoke` is where it is actually measured, so what this holds
+  // is that the measurement still exists and is still the shape that means
+  // something.
+  const smoke = fs.readFileSync(new URL("./integration/build-smoke.mjs", import.meta.url), "utf8");
+  const at = smoke.indexOf("const routeIntent =");
+  assert.ok(at > 0, "the routing probes are gone, so the question policy is measured by nothing");
+  const block = smoke.slice(at, smoke.indexOf("--- the actual build", at));
+  assert.ok(block.length > 0, "the probe block no longer sits before the build");
+
+  // BOTH DIRECTIONS, because either alone is passed by a broken router: one that
+  // asks every time passes the floor, one that never asks passes the ceiling.
+  assert.match(block, /a website for my business/,
+    "the floor probe is gone — the brief that measured this dead last time");
+  assert.match(block, /thin\.intent === "clarify"/,
+    "nothing asserts a trade-less brief is still asked about");
+  assert.match(block, /full\.intent === "build"/,
+    "nothing asserts a complete brief is built rather than interrogated");
+
+  // AND THE ONE ASSERTION A STUCK ROUTER CANNOT PASS. Two green lines read as
+  // "it works" while being "it always asks" plus a coincidence; this is the one
+  // that cannot be true of a router jammed either way.
+  assert.match(block, /thin\.intent !== full\.intent/,
+    "the pair is no longer compared, so a router stuck on one answer reads as healthy");
+
+  // WITHOUT THIS THE WHOLE PAIR IS VACUOUS. `canClarify` is false on a revise, so
+  // a probe that forgets `firstBuild` gets "build" for both briefs and passes the
+  // floor check by accident — the exact shape of failure this test exists for.
+  assert.match(block, /firstBuild: true/,
+    "the probes do not open the question path, so both answer 'build' and prove nothing");
+
+  // It must stay a ROUTING call. Reaching /api/site/react-build here would spend
+  // a designer call, a Neon project and a compile per probe.
+  assert.match(block, /\/api\/site\/route/, "the probe no longer hits the routing endpoint");
+  assert.ok(!/react-build/.test(block), "a probe is calling the build route — that is a real site per probe");
+});

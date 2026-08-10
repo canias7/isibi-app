@@ -7,7 +7,11 @@
 //
 // It creates its own throwaway user, runs one real build, then removes the
 // user, its Neon project and its published files. Costs two Sonnet calls (the
-// schema design and the pages), plus a third if the pages need a repair pass.
+// schema design and the pages) plus two Haiku routing probes.
+//
+// The line here used to add "plus a third if the pages need a repair pass". The
+// repair pass was removed on 2026-08-04 — one model call a build, then the
+// placeholder — so that was describing a cost this file cannot incur.
 //
 // Needs SUPABASE_SERVICE_KEY and NEON_API_KEY. Run from CI (workflow_dispatch),
 // or locally with those in the environment.
@@ -90,6 +94,61 @@ try {
   jwt = sess && sess.access_token;
   ok("signed in and got a session", !!jwt, JSON.stringify(sess).slice(0, 200));
   if (!jwt) throw new Error("cannot continue without a token");
+
+  // --- does the builder still ask the right questions? ----------------------
+  //
+  // TWO MESSAGES, TWO WORDS READ, NOTHING BUILT. `/api/site/route` only decides
+  // ask-or-build and answers; the expensive half is a separate call this never
+  // makes. So each of these is one Haiku call — 1 credit — and no designer, no
+  // Neon project, no compile, no site.
+  //
+  // WHY BOTH, and this is the whole reason it is a pair rather than a check:
+  // EITHER ONE ALONE IS PASSED BY A BROKEN ROUTER. A builder that asks every
+  // single time passes the first; a builder that never asks passes the second.
+  // Only together do they bracket the behaviour — which is the vacuous-assertion
+  // trap this repo keeps recording, written down in advance for once.
+  //
+  // It is here because the question policy is PROMPT text, and no unit test can
+  // prove a prompt produces a behaviour. This has already regressed once
+  // exactly that way: "ask if you genuinely need to" plus "When in doubt,
+  // build" left the feature reachable at every layer and asking nothing, and it
+  // was found by a one-off manual probe long afterwards. Running on every
+  // deploy is the difference between finding that in a minute and finding it in
+  // a month.
+  const routeIntent = async (message) => {
+    const r0 = await fetch(`${BASE}/api/site/route`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${jwt}`, "content-type": "application/json" },
+      // `firstBuild` is what opens the question path at all — a revise is never
+      // asked anything, so without it both probes would trivially answer
+      // "build" and the pair would prove nothing.
+      body: JSON.stringify({ message, firstBuild: true, brief: message, site: {} }),
+    });
+    const d0 = await r0.json().catch(() => null);
+    return { status: r0.status, intent: d0 && d0.intent, body: JSON.stringify(d0 || {}).slice(0, 200) };
+  };
+
+  // THE FLOOR. This brief names no trade at all, and it is the exact one that
+  // proved the feature dead before — it came back "build" and a site was made
+  // out of a guess. A gym, a pottery studio and a driving school are three
+  // different sites, so there is nothing to build from here without asking.
+  const thin = await routeIntent("a website for my business");
+  ok("a brief that names no trade is asked about it", thin.intent === "clarify",
+    `got ${thin.intent} (${thin.status}) ${thin.body}`);
+
+  // THE CEILING. Trade named, and what visitors do named. Nothing is left that
+  // would change what gets built, so asking anyway spends a minute of somebody's
+  // time on a question whose answer changes nothing.
+  const full = await routeIntent(
+    "a barber shop in Leeds called Sharp Fade. Customers book an appointment online, and there is a price list for cuts and shaves.");
+  ok("a brief that answers everything is built, not interrogated", full.intent === "build",
+    `got ${full.intent} (${full.status}) ${full.body}`);
+
+  // AND THE PAIR IS REPORTED AS A PAIR. Two passing lines are easy to read as
+  // "the router works" when they are actually "it always asks" plus a fluke, so
+  // the one thing that cannot be true of a stuck router is stated on its own.
+  ok("the two briefs were routed differently", thin.intent !== full.intent,
+    `both came back ${thin.intent} — the router is stuck, whichever way it is stuck`);
 
   // --- the actual build ---------------------------------------------------
   const brief = "A small barber shop site. Visitors book an appointment by picking a date and time, and can see the list of services with prices.";
