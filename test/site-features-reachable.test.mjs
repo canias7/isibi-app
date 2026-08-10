@@ -135,3 +135,70 @@ test("each reader accepts the shape the normaliser produces", () => {
   assert.equal(normalizeSms(by.products), null);
   assert.equal(normalizePayment(by.products), null);
 });
+
+/* ── the link that was broken, asserted so it cannot break again ─────────── */
+
+test("EVERY field the normaliser produces survives into _meta", () => {
+  // THE FINDING THIS FILE GOT WRONG. Its link-3 test asserted
+  // `metaOut = { tables: mergedTables }` and that the merge is whole-object —
+  // both true, and both one layer BELOW the break. `mergedTables` comes from
+  // `norm`, and `norm.push` was a hand-typed list of 47 fields: anything a later
+  // feature added to `coerceTable` and forgot to add there was declarable,
+  // validated, applied to Postgres and then dropped. Measured: `confirm`, `sms`
+  // and `payment` never arrived, so no published site ever sent a booking
+  // confirmation and every card checkout refused — while this file said the
+  // chain held.
+  //
+  // DERIVED, so it cannot rot the same way: the push must SPREAD the normalised
+  // table. A field added tomorrow survives by default and forgetting is no
+  // longer possible.
+  const at = schema.indexOf("norm.push({");
+  assert.ok(at > 0, "the _meta table write moved");
+  const call = schema.slice(at, schema.indexOf("\n", at));
+  assert.match(call, /^norm\.push\(\{ \.\.\.t,/,
+    "_meta is being built from a hand-listed set of fields again — anything not listed is silently dropped");
+
+  // AND WHAT IT OVERRIDES IS ONLY WHAT MUST BE RECOMPUTED. A spread plus an
+  // override list is only safe while that list stays short and deliberate; an
+  // override of a DECLARED field would drop it just as the old list did.
+  const overrides = (call.match(/(\w+):/g) || []).map((x) => x.slice(0, -1));
+  const allowed = new Set(["name", "access", "retired", "columns", "refs", "refModes", "rules", "num", "json"]);
+  for (const k of overrides) {
+    assert.ok(allowed.has(k), `${k} is being recomputed over the normalised value — is that deliberate?`);
+  }
+
+  // The behavioural half: drive the REAL normaliser and require every field it
+  // produces for a table to be one the spread carries. Reading the source proves
+  // the shape; this proves the shape is enough.
+  const n = normalizeSchema(SPEC);
+  const t = n.tables.find((x) => x.name === "bookings");
+  for (const k of ["confirm", "sms", "access", "columns", "unique", "publicView", "teamScope"]) {
+    assert.ok(k in t, `the normaliser stopped producing ${k}, so this guard is now vacuous`);
+  }
+});
+
+test("a revise that says nothing about a feature keeps it", () => {
+  // The owner's rule for the edit path, one layer down: absent means unchanged.
+  // The table merge was whole-object, so re-declaring a table for an unrelated
+  // reason dropped every field the new declaration did not restate.
+  assert.match(schema, /if \(t\[k\] === undefined \|\| t\[k\] === null\) t\[k\] = prevT\[k\];/,
+    "a re-declared table drops the fields this edit said nothing about");
+  // Columns UNION rather than override: this list is the data API's allow-list
+  // and the DDL never drops a column, so shrinking it makes live columns
+  // unreadable with nothing to explain it.
+  assert.match(schema, /for \(const c of prevT\.columns\) if \(!have\.has/,
+    "a re-declared table shrinks its own column allow-list");
+});
+
+test("apis and jobs are merged, and jobs are written at all", () => {
+  // `jobs` was never written to `_meta`, and the cron's runner re-reads the
+  // stored schema and refuses to fire anything it does not find there — so NOT
+  // ONE SCHEDULED JOB HAS EVER RUN, with every layer above it correct.
+  assert.match(schema, /metaOut\.jobs = Array\.from\(byName\.values\(\)\)/,
+    "jobs never reach _meta, so the cron will never run one");
+  assert.match(schema, /metaOut\.apis = Array\.from\(byName\.values\(\)\)/,
+    "apis are replaced rather than merged, so any unrelated revise erases them");
+  // Both must read the PRIOR list, or "merge" is a rename of "replace".
+  assert.match(schema, /prev\.apis\)\) prevApis = prev\.apis\.filter/, "the stored apis are never read back");
+  assert.match(schema, /prev\.jobs\)\) prevJobs = prev\.jobs\.filter/, "the stored jobs are never read back");
+});

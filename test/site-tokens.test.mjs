@@ -701,8 +701,23 @@ test("the merge inherits a flag this run said nothing about", () => {
   // The other end of the same invariant, on the source: `undefined` has to be
   // distinguished from `false` at the point the two schemas are merged.
   const src = fs.readFileSync(new URL("../site-schema.mjs", import.meta.url), "utf8");
-  assert.match(src, /if \(t\.retired === undefined && prevT && prevT\.retired !== undefined\) t\.retired = prevT\.retired;/,
-    "a table re-listed without `retired` must keep whatever it was");
+  // THIS WAS ONE SPECIAL CASE AND IS NOW THE GENERAL RULE. It pinned the exact
+  // `retired` line; the override is whole-object, so EVERY field a revise did
+  // not restate was being dropped, not just that one — measured, a revise that
+  // re-declared a table for an unrelated reason lost its `confirm`.
+  assert.match(src, /for \(const k of Object\.keys\(prevT\)\) \{\s*\n\s*if \(t\[k\] === undefined \|\| t\[k\] === null\) t\[k\] = prevT\[k\];/,
+    "a table re-listed without a field must keep whatever that field was");
+  // NULL HAS TO COUNT AS SILENCE. `coerceTable` turns an unmentioned optional
+  // into an explicit null — `confirm: normalizeConfirm(def)` is null when none
+  // was declared — so filling only on `undefined` fixes nothing for exactly the
+  // fields this exists for. Asserted apart from the loop above, because the
+  // `undefined` half alone looks correct and covers none of the real cases.
+  assert.match(src, /t\[k\] === undefined \|\| t\[k\] === null/,
+    "an unmentioned optional field is stored as null, so null must read as silence");
+  // …and a value that IS stated still wins, or nothing could ever be changed:
+  // `retired: false` is how a removed feature is put back, and false is neither.
+  assert.ok(!/t\[k\] === undefined \|\| !t\[k\]/.test(src),
+    "falsy is being read as silence, so `retired: false` can never restore a table");
 });
 
 test("an apply that declares nothing cannot erase the stored schema", () => {

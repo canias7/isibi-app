@@ -864,7 +864,23 @@ export async function applySiteSchema(uuid, spec) {
       catch (e) { console.error("rls failed:", t.name, stmt.slice(0, 80), e && (e.detail || e.message)); }
     }
 
-    norm.push({ name: t.name, access, retired: t.retired, columns: colNames, refs, refModes: Object.keys(refModes).length ? refModes : null, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps, ordered: !!t.ordered, expires: !!t.expires, pinnable: !!t.pinnable, defaultSort: t.defaultSort || null, scheduled: !!t.scheduled, checks: t.checks || null, computed: t.computed || null, requireVerified: !!t.requireVerified, audit: !!t.audit, history: !!t.history, archivable: !!t.archivable, sync: !!t.sync, searchWeights: t.searchWeights || null, rateLimit: t.rateLimit || 0, geo: t.geo || null, transitions: t.transitions || null, formulas: t.formulas || null, fieldRoles: t.fieldRoles || null, teamRead: !!t.teamRead, currency: t.currency || null, approval: t.approval || null, sequence: t.sequence || null, roundRobin: t.roundRobin || null, assignBy: t.assignBy || null, sla: t.sla || null, mask: t.mask || null, jsonShapes: t.jsonShapes || null, fts: t.fts || null, webhooks: t.webhooks || null, teamScope: !!t.teamScope, publicView: t.publicView || null, noOverlap: t.noOverlap || null });
+    // DERIVED FROM THE NORMALISED TABLE, NOT RE-LISTED.
+    //
+    // This was a hand-typed list of 47 fields, and `_meta` is the ONLY copy the
+    // request path ever reads — so anything a later feature added to
+    // `coerceTable` and forgot to add HERE was declarable, validated, applied to
+    // Postgres, and then dropped on the floor. Measured: `confirm`, `sms` and
+    // `payment` never arrived, so no published site has ever sent a booking
+    // confirmation or a text message and every card checkout refused; `read` and
+    // `write` never arrived, so a pair-declared table read back as its fallback
+    // preset — the INVERSE of what was built — on every revise.
+    //
+    // The spread is the fix and the guard is that it stays a spread: a field
+    // added to the normaliser now survives by default, and forgetting is no
+    // longer possible. What follows it are the only things that must be
+    // RECOMPUTED rather than copied — the columns that were really created, the
+    // resolved access, and the reference/rule metadata built in this loop.
+    norm.push({ ...t, name: t.name, access, retired: t.retired, columns: colNames, refs, refModes: Object.keys(refModes).length ? refModes : null, rules, num: numCols, json: jsonCols });
   }
   // Persist the normalized access rules + column allow-list in the site's own DB so
   // the data API can enforce them per request. MERGE into whatever's already
@@ -910,6 +926,7 @@ export async function applySiteSchema(uuid, spec) {
   // Exactly the failure the comment below describes for tables, which was fixed
   // for tables and not for these.
   let mergedFns = [];
+  let prevApis = [], prevJobs = [];
   let rateLimits = spec.rateLimits || null; // this run's per-app rate config (if any)
   try {
     // Was `loadSiteSchema(env, uuid)` — a two-arg call left from the D1 era, and
@@ -923,18 +940,58 @@ export async function applySiteSchema(uuid, spec) {
       const byName = new Map();
       for (const t of prev.tables) if (t && t.name) byName.set(String(t.name).toLowerCase(), t);
       for (const t of norm) {
-        // THIS RUN OVERRIDES, EXCEPT WHERE IT SAID NOTHING. The override is
-        // whole-object, so a table re-listed without `retired` used to wipe the
-        // flag and restore its public write grant — a removed form quietly
-        // taking submissions again, with nothing on the site to show for it.
+        // THIS RUN OVERRIDES, EXCEPT WHERE IT SAID NOTHING.
+        //
+        // This was ONE special case — `retired` — with a comment explaining that
+        // a table re-listed without it wiped the flag and restored its public
+        // write grant. That reasoning is right and was never general: the
+        // override is whole-object, so a revise re-declaring a table drops
+        // EVERY field it did not restate. Measured: build a bookings table with
+        // a `confirm`, revise it for anything else, and the confirmation is
+        // gone.
+        //
+        // It is the owner's rule for the whole edit path (2026-08-10) applied
+        // one layer down: absent means unchanged. A field the new declaration
+        // did not mention is one this edit had no opinion about, so the stored
+        // answer stands.
         const key = String(t.name).toLowerCase();
         const prevT = byName.get(key);
-        if (t.retired === undefined && prevT && prevT.retired !== undefined) t.retired = prevT.retired;
+        if (prevT) {
+          // NULL COUNTS AS "SAID NOTHING", and that is not a shortcut. The
+          // normaliser turns an unmentioned optional field into an explicit
+          // `null` — `confirm: normalizeConfirm(def)` is null when the table
+          // declared none — so by the time the merge sees it, "did not mention"
+          // and "cleared it" are the same value. Filling only on `undefined`
+          // therefore fixed nothing for exactly the fields this is for: measured,
+          // a revise that re-declared a table for an unrelated reason still lost
+          // its confirmation.
+          //
+          // Safe because nothing can currently EXPRESS a removal — the designer
+          // says nothing, which is the same null — so no meaning is lost by
+          // reading null as silence. When a removal verb exists it must be an
+          // explicit field, the way `retired` is for a whole table, rather than
+          // an absence that means two things.
+          for (const k of Object.keys(prevT)) {
+            if (t[k] === undefined || t[k] === null) t[k] = prevT[k];
+          }
+          // COLUMNS UNION RATHER THAN OVERRIDE, because this is the data API's
+          // allow-list and the DDL never drops a column. A revise re-declaring a
+          // table with two of its six columns would otherwise shrink the list,
+          // and the four still sitting in Postgres would stop being readable
+          // with nothing to explain it.
+          if (Array.isArray(prevT.columns) && Array.isArray(t.columns)) {
+            const have = new Set(t.columns.map((c) => String(c).toLowerCase()));
+            for (const c of prevT.columns) if (!have.has(String(c).toLowerCase())) t.columns.push(c);
+          }
+        }
         byName.set(key, t);
       }
       mergedTables = Array.from(byName.values());
     }
     if (prev && Array.isArray(prev.functions)) mergedFns = prev.functions.filter((f) => f && f.name);
+    // The same read, so preserving these costs no extra round trip.
+    if (prev && Array.isArray(prev.apis)) prevApis = prev.apis.filter((a) => a && a.name);
+    if (prev && Array.isArray(prev.jobs)) prevJobs = prev.jobs.filter((j) => j && j.name);
     if (!rateLimits && prev && prev.rateLimits) rateLimits = prev.rateLimits; // preserve prior tuning when unspecified
   } catch {}
   // ── The declared functions ────────────────────────────────────────────────
@@ -966,9 +1023,42 @@ export async function applySiteSchema(uuid, spec) {
   const metaOut = { tables: mergedTables }; if (rateLimits) metaOut.rateLimits = rateLimits;
   // Declared third-party reads. Recorded whole, and unlike a function there is
   // nothing to "make" — no DDL runs, so there is no created/not-created split to
-  // filter on. A revise REPLACES the list rather than merging, because a
-  // declaration the new schema dropped is one the site no longer offers.
-  if (Array.isArray(spec.apis) && spec.apis.length) metaOut.apis = spec.apis;
+  // filter on.
+  //
+  // MERGED, NOT REPLACED, and the comment here used to argue the opposite: "a
+  // declaration the new schema dropped is one the site no longer offers". That
+  // reads reasonably and is wrong for the same reason it was wrong for functions
+  // one block below, whose comment already records the fix — a revise sends only
+  // the change, so an unrelated edit ("add a gallery") declares no apis, and
+  // `if (…length)` then leaves the key absent and the stored list is gone. The
+  // site did not stop offering it; the edit simply did not mention it. Measured:
+  // build with an api, revise without one, and the api is ERASED.
+  //
+  // It is also the owner's rule for the whole edit path (2026-08-10): absent
+  // means unchanged. Removing one is a thing to say explicitly, the way a table
+  // is `retired` — and there is no verb for that yet, which is a known gap and
+  // strictly better than erasing on silence.
+  {
+    const byName = new Map();
+    if (prevApis.length) for (const a of prevApis) if (a && a.name) byName.set(String(a.name).toLowerCase(), a);
+    if (Array.isArray(spec.apis)) for (const a of spec.apis) if (a && a.name) byName.set(String(a.name).toLowerCase(), a);
+    if (byName.size) metaOut.apis = Array.from(byName.values());
+  }
+  // SCHEDULED JOBS, WHICH WERE NEVER WRITTEN HERE AT ALL — so `_meta` had no
+  // `jobs` key, and the cron's runner re-reads the stored schema and refuses to
+  // fire anything it does not find there. Every layer above was correct: the
+  // designer could declare one, `persistSiteJobs` registered the row, and the
+  // runner then declined it forever. NOT ONE SCHEDULED JOB HAS EVER RUN.
+  //
+  // Merged like the rest. The runner's "skip a job the spec no longer declares"
+  // check stays exactly as it is — it is what stops a stale registry row firing
+  // — but silence from one unrelated edit is no longer what makes a job stale.
+  {
+    const byName = new Map();
+    if (prevJobs.length) for (const j of prevJobs) if (j && j.name) byName.set(String(j.name).toLowerCase(), j);
+    if (Array.isArray(spec.jobs)) for (const j of spec.jobs) if (j && j.name) byName.set(String(j.name).toLowerCase(), j);
+    if (byName.size) metaOut.jobs = Array.from(byName.values());
+  }
   // The digest reads this to tell the generator which functions it may call, so
   // only the ones that REALLY EXIST are recorded. Naming a failed function would
   // point the model at a 404.
