@@ -1,0 +1,55 @@
+# Can the builder's preview pane actually load a published site? At $0.
+#
+# THIS EXISTS BECAUSE THAT QUESTION WAS ANSWERED FROM A HEADER TWICE AND WAS
+# WRONG BOTH TIMES. Framing needs two policies, served by two different
+# responses on two different hostnames: `frame-ancestors` on the site says who
+# may frame it, `frame-src` on the workspace says what the workspace may frame.
+# Chrome refuses on either and prints the same sentence, so finding one header
+# correct proves nothing about the pane. On 2026-08-10 the site's half was
+# fixed, verified with curl, reported as done — and the preview stayed blank
+# because the workspace was still refusing.
+#
+# So this drives the two REAL policy strings, at the REAL origins, through a
+# REAL browser, and requires that a stranger's origin is refused — a run where
+# both answers agree means the harness is broken and it fails rather than
+# reporting a pass.
+#
+# No model call, no Neon project, no build, no secrets. It only needs the
+# deployed Worker, which is why it can run on every deploy.
+name: frame policy
+
+on:
+  workflow_run:
+    workflows: ["Deploy to Cloudflare"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      site_url:
+        description: 'A site-zone URL to frame (need not exist — the policy is applied by mount)'
+        required: false
+        default: 'https://frame-policy-probe.gofarther.app/'
+
+jobs:
+  frame:
+    # A failed deploy has nothing new to test.
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # playwright lives in the template's devDependencies, not the Worker's
+      # root package.json — the same place site-runtime.mjs resolves it from.
+      - name: Install the browser
+        working-directory: builder/lovable/template
+        run: npm ci --no-audit --no-fund && npx playwright install --with-deps chromium
+
+      - name: Both framing policies, in a real browser
+        env:
+          APP_ORIGIN: https://gofarther.dev
+          SITE_URL: ${{ github.event.inputs.site_url || 'https://frame-policy-probe.gofarther.app/' }}
+        run: node test/integration/frame-policy.mjs
