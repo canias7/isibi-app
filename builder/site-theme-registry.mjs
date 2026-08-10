@@ -117,3 +117,49 @@ export const THEME_SHORTLIST = [
   ...Object.keys(THEMES),
   ...spreadByCategory(CANDIDATES, SHORTLIST_SIZE).filter((n) => !(n in THEMES)),
 ].slice(0, SHORTLIST_SIZE);
+
+/**
+ * THE FONT PAIR A THEME ALREADY RECOMMENDS.
+ *
+ * Every one of the 500 themes carries `fonts: {heading, body}`, chosen for that
+ * theme — `broadsheet` is built around a serif with tight leading and caps
+ * kickers, and says so — and `site-theme.test.mjs` already asserts two things
+ * about all of them: that the pair EXISTS ("recommends no font pair" is its
+ * failure message) and that both ids are real entries in the same 24-font
+ * shortlist the designer picks from. So this is a curated, validated answer.
+ *
+ * IT WAS READ BY NOTHING. `themeCss` emits no `font-family` at all (measured),
+ * and every reader on the build path takes `look.fonts` — the designer's own
+ * separate pick, made from a prose hint, with no check that the two agree. Two
+ * choices that must match, made independently, with the right answer sitting one
+ * property away. The same shape as the charts that typechecked and rendered
+ * grey: nothing fails, it just looks wrong, and only looking tells you.
+ *
+ * A COPY, not the registry's own object: the result is JSON-stringified into the
+ * site's `_meta` and handed around, and aliasing a module constant into stored
+ * state is how a shared object eventually gets mutated by somebody.
+ *
+ * TWO GUARDS HERE ARE BELT-AND-BRACES, AND THEY SAY SO RATHER THAN PRETENDING
+ * TO BE TESTED. A mutation sweep found both, and measuring them showed neither
+ * changes any observable behaviour today:
+ *
+ *   - going through `resolveTheme` rather than `ALL_THEMES[name]` cannot matter
+ *     while the `.fonts` read below exists: `ALL_THEMES["__proto__"]` is truthy,
+ *     but its `.fonts` is `undefined`, so the falsy check returns null anyway —
+ *     same for `constructor` and `toString`. It stays because one guard for
+ *     "is this a real theme" is better than two answers to that question, and
+ *     because the `.fonts` check is one edit from being the thing that moves.
+ *   - the `heading && body` ternary is unobservable because 0 of the 500 themes
+ *     carries a half pair, which `site-theme.test.mjs` asserts for all of them.
+ *     It exists for the day somebody adds a theme with only a heading: without
+ *     it, `{heading:"x", body:""}` reaches the build and the body silently falls
+ *     back to the default face while everything reports success.
+ */
+export function themeFontPair(name) {
+  const t = resolveTheme(name);
+  const f = t && t.fonts;
+  if (!f || typeof f !== "object") return null;
+  const heading = typeof f.heading === "string" ? f.heading : "";
+  const body = typeof f.body === "string" ? f.body : "";
+  return (heading && body) ? { heading, body } : null;
+}

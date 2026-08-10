@@ -113,8 +113,17 @@ test("the other 400 are bounded, not lost — any of the 500 still resolves", ()
   // The chain moved into the `look` object (a revise now keeps the site's stored
   // theme instead of re-rolling it), but the body fallback inside it is what
   // keeps an off-list theme reachable by name.
-  assert.match(worker, /theme: \(priorLook && priorLook\.theme\) \|\| \(designed && designed\.theme\) \|\| \(body && body\.theme\)/,
+  // ANCHORED ON THE CHAIN, NOT ON WHERE IT LIVES. This named the property
+  // (`theme: (priorLook && …)`) and went red the day the expression moved into a
+  // `const` so the font fallback could depend on it — a correct change failing a
+  // test about word order, which is this repo's recurring source-guard bug.
+  // What matters is that the three-step fallback ENDS at the request body.
+  assert.match(worker, /\(priorLook && priorLook\.theme\) \|\| \(designed && designed\.theme\) \|\| \(body && body\.theme\)/,
     "the body fallback is gone, so off-list themes really are unreachable");
+  // …and that whatever holds it is what the look actually uses, or the chain is
+  // computed and discarded.
+  assert.match(worker, /const lookTheme = \(priorLook/, "the resolved theme is no longer computed in one place");
+  assert.match(worker, /\n\s*theme: lookTheme,/, "the look no longer uses the resolved theme");
 });
 
 test("the DESIGN call is cached, like the page call", () => {

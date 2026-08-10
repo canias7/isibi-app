@@ -59,7 +59,7 @@ import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis
 // kaplay + a runtime smoke test. See builder-game/. Parser format is identical.
 import { parseGeneratedFiles as parseGameFiles, GAME_RULES, GAME_ASSET_RULES, GAME_REVISE_RULES, gameFixRules, parseSpriteTokens, GAME_3D_RULES, game3DFixRules } from "./builder-game/game-gen.mjs";
 import { SHORTLIST, resolvePair } from "./builder/site-fonts.mjs";
-import { THEME_SHORTLIST } from "./builder/site-theme-registry.mjs";
+import { THEME_SHORTLIST, themeFontPair } from "./builder/site-theme-registry.mjs";
 import { READY_FAMILIES, STRUCTURE_NAMES, familiesForPrompt, structuresForPrompt } from "./builder/site-layouts.mjs";
 
 // Game build-service container (Phase 3). The image (./builder-game/Dockerfile)
@@ -3261,9 +3261,14 @@ const SITE_SCHEMA_TOOL = {
       fonts: {
         type: "object",
         description:
-          "The site's typeface, as a heading face and a body face. Pick for the BUSINESS, not for fashion: " +
-          "a law firm or a restaurant can carry a serif, a gym or a studio wants a confident sans, a plain sans is right for most. " +
-          "The two may be the same. A display serif set as the body face is tiring to read at 14px — pair it with a sans instead.",
+          "OPTIONAL, AND USUALLY LEAVE IT OUT. Every theme already carries a typeface pairing chosen to go with it — " +
+          "the one you pick above brings its own, and that is what the site gets when this is absent. Setting it anyway " +
+          "means overriding a considered pair with a guess.\n" +
+          "Set it ONLY when the brief asks for something about the type that the theme would not give: a named " +
+          "typeface, or an explicit instruction about the feel of the lettering. Then pick for the BUSINESS, not for " +
+          "fashion — a law firm or a restaurant can carry a serif, a gym or a studio wants a confident sans, a plain " +
+          "sans is right for most. The two may be the same. A display serif set as the body face is tiring to read at " +
+          "14px — pair it with a sans instead.",
         properties: {
           heading: { type: "string", enum: SITE_FONT_IDS, description: "Face for h1-h4." },
           body: { type: "string", enum: SITE_FONT_IDS, description: "Face for everything else." },
@@ -3375,7 +3380,12 @@ const SITE_SCHEMA_TOOL = {
         items: { type: "string" },
       },
     },
-    required: ["brand", "slug", "tables", "seed", "description", "fonts", "theme", "family"],
+    // `fonts` IS DELIBERATELY NOT HERE. It was required, so the model answered it
+    // on every build from a prose hint — while the theme it had just picked
+    // already carried a curated, validated pair that nothing read. Optional, the
+    // ordinary build inherits the theme's own pairing and the two cannot
+    // disagree; a brief with an opinion about type still overrides it.
+    required: ["brand", "slug", "tables", "seed", "description", "theme", "family"],
   },
 };
 
@@ -8802,11 +8812,30 @@ async function handleRequest(request, env, ctx) {
       // when nothing was stored, so a revise keeps what the site already wears.
       // Changing a theme deliberately is a rebuild, which is the honest answer —
       // a re-theme is not a small edit and should not happen by accident.
+      // RESOLVED FIRST, because the font fallback below depends on it. The pair
+      // has to come from the theme this site is ACTUALLY getting — falling back
+      // to `designed.theme` when a stored one won would recommend fonts for a
+      // theme the site is not wearing, which is a worse mismatch than the one
+      // this fixes.
+      const lookTheme = (priorLook && priorLook.theme) || (designed && designed.theme) || (body && body.theme) || null;
       const look = {
-        theme: (priorLook && priorLook.theme) || (designed && designed.theme) || (body && body.theme) || null,
+        theme: lookTheme,
         family: (priorLook && priorLook.family) || (designed && designed.family) || (body && body.family) || null,
         structure: (priorLook && priorLook.structure) || (designed && designed.structure) || (body && body.structure) || null,
-        fonts: (priorLook && priorLook.fonts) || (designed && designed.fonts) || (body && body.fonts) || null,
+        // …AND THE THEME'S OWN RECOMMENDATION IS THE LAST RESORT.
+        //
+        // Every theme carries a curated `fonts` pair, validated against the same
+        // 24-font shortlist the designer picks from — and it was read by
+        // NOTHING: `themeCss` emits no `font-family`, and every reader here took
+        // the designer's separate pick. So `broadsheet`, which is designed around
+        // a serif, would happily render in whatever was chosen independently from
+        // a prose hint, and every test passed.
+        //
+        // LAST, not first: a brief that really asks for a feel must still win,
+        // and a revise must keep the fonts the site already wears. This only
+        // decides the case where nobody expressed a preference — which is now the
+        // ordinary case, since `fonts` stopped being a required field.
+        fonts: (priorLook && priorLook.fonts) || (designed && designed.fonts) || (body && body.fonts) || themeFontPair(lookTheme),
       };
       if (!priorLook) {
         try {
