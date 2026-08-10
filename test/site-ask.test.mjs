@@ -761,23 +761,37 @@ test("a typed reply during a round is an ANSWER, not a new brief", () => {
     "the skip path calls the router");
 });
 
-test("a first build is told to ASK, not merely permitted to", () => {
-  // THE BUG THIS PINS, and it was mine rather than the model's. The owner chose
-  // "every new project asks"; the first prompt I wrote was the option they did
-  // NOT choose — "ask if you genuinely need to", with three separate
-  // otherwise-build clauses and, at the end, "When in doubt, build." Measured
-  // live against the deployed router: "a website for my business", which is as
-  // thin as a brief gets, came back `build`. The feature was reachable at every
-  // layer and asked nothing.
+test("a first build asks only when the answer changes the build — with a floor", () => {
+  // THE POLICY CHANGED (owner's call 2026-08-10: "they gotta be smart with the
+  // questions, not all the time"), and this test is rewritten rather than
+  // deleted because what it was protecting is still live.
   //
-  // A unit test cannot prove a prompt produces a behaviour — only a live probe
-  // can, and that is what found this. What a test CAN hold is the instruction
-  // not quietly reverting to the discouraging form.
+  // It used to pin "a first build begins with a question, every time". That
+  // wording exists because the version BEFORE it was measured live and the
+  // feature came out dead: "ask if you genuinely need to", three separate
+  // otherwise-build clauses and "When in doubt, build" produced `build` for "a
+  // website for my business", which is as thin as a brief gets. Softening in
+  // that direction has failed once already.
+  //
+  // So the new policy is not "ask if you feel like it". It is a NAMED test with
+  // a HARD FLOOR under it: ask when the answer changes what gets built, and
+  // always ask when the trade is unknown — which is exactly the brief that
+  // defeated the last attempt. Both halves are asserted, because the floor is
+  // the only thing standing between "be smart" and "never ask", and the
+  // discouraging tiebreak that killed it must stay gone.
   const sys = askRequest({ message: "a cafe", canClarify: true, brief: "a cafe" }).system[0].text;
-  assert.match(sys, /a first build begins with a question, every time/i,
-    "the first-build instruction is no longer an instruction");
+  assert.match(sys, /ONLY IF THE ANSWER WOULD CHANGE WHAT YOU BUILD/,
+    "the question is unconditional again — a good brief gets interrogated anyway");
+  assert.match(sys, /IF THE BRIEF DOES NOT SAY WHAT THE BUSINESS ACTUALLY IS, YOU MUST ASK/,
+    "the floor is gone: 'a website for my business' will build a site out of a guess, which is the measured failure");
+  assert.match(sys, /a website for my business/,
+    "the worked example went with it — the rule is abstract again");
   assert.ok(!/when in doubt,?\s*build/i.test(sys),
     "the prompt tells the model to prefer building — this is the exact line that made clarify dead");
+  // A UNIT TEST CANNOT PROVE A PROMPT PRODUCES A BEHAVIOUR. Only a live probe
+  // can, and that is what caught the last regression. Two briefs settle it after
+  // a deploy: "a website for my business" must ask, and a brief naming the trade
+  // AND what visitors do must build.
 
   // AN ORDERED DECISION, not three competing paragraphs. The first attempt at
   // strengthening clarify made it beat the greeting rule: "hey" came back as a
@@ -797,10 +811,15 @@ test("a first build is told to ASK, not merely permitted to", () => {
   assert.match(q, /pick up what they just told you/i,
     "nothing tells it to acknowledge the brief before asking");
 
-  // And the round text asks rather than permits.
+  // And the round text carries the same test the system block does. It used to
+  // read "ask ONE question about it rather than building", which is the
+  // unconditional form — the two blocks would then disagree about whether a good
+  // brief still gets interrogated, and the model would be picking between them.
   const round = String(askRequest({ message: "a cafe", canClarify: true, brief: "a cafe" }).messages[0].content);
-  assert.match(round, /ask ONE question about it rather than building/,
-    "the round text went back to offering the question as optional");
+  assert.match(round, /only if its answer changes what you would build/i,
+    "the round text still tells the model to ask unconditionally, against the system block");
+  assert.match(round, /questions? left/,
+    "the remaining budget is gone from the round text");
 
   // The greeting exception has to survive, or a first build interrogates
   // somebody who typed "hey" — measured working, and easy to lose while
