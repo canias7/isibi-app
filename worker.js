@@ -2993,6 +2993,42 @@ const SITE_SCHEMA_TOOL = {
                 "'members' = any signed-in member may edit any row. 'none' = nothing on the published site writes to it; the business maintains it from its dashboard. " +
                 "Note 'anyone' can never be combined with read 'own' — an anonymous visitor has no identity for a row to be 'theirs', so it resolves to read 'none'.",
             },
+            // FOUR OF OUR OWN FEATURES THAT NOTHING COULD ASK FOR. Every one is
+            // SQL this engine already writes — a unique index, a trigger, a
+            // policy clause — and none had a slot on this form, so no site the
+            // builder has ever made could have them. Audited before exposing:
+            // `sequence`, `checks`, `audit`, `history` and `version` were left
+            // out because they are NOT reachable end to end (a column nothing
+            // stamps, a table nothing reads, a lock the client never sends), and
+            // offering those would be the same dead-feature trap one layer up.
+            oncePerUser: {
+              type: "array",
+              items: { type: "string" },
+              description:
+                "Columns that may hold only ONE row per signed-in member — usually just [] with no columns, meaning one row per member full stop. " +
+                "ONE REVIEW PER CUSTOMER, one application per job, one vote per person, one booking per member per class. " +
+                "A second attempt is refused by the database with a duplicate error the page turns into a sentence. Only on a table members write.",
+            },
+            enforceRefs: {
+              type: "boolean",
+              description:
+                "Refuse a row whose `ref` column names a parent that does not exist. A booking for an event that was deleted, an order line for a product that is gone. " +
+                "Turn it on for any table whose rows point at another table's rows — it is what stops the site filling with orphans nobody can explain.",
+            },
+            expires: {
+              type: "boolean",
+              description:
+                "Give the table an `expires_at` column, and HIDE every row past it from every read, automatically. " +
+                "A limited offer, a job advert that closes, an event listing that should stop showing the day after. " +
+                "The owner sets the date from their dashboard; no page has to remember to filter, and one left unset never expires.",
+            },
+            scheduled: {
+              type: "boolean",
+              description:
+                "Give the table a `publish_at` column, and HIDE every row until that time. " +
+                "A post that goes live on Tuesday, a menu that changes at the weekend, a price list that starts next month. " +
+                "The owner sets it from their dashboard; a row with none is live immediately.",
+            },
             columns: {
               type: "array",
               // A picture is a `text` column holding a URL, and its NAME is what

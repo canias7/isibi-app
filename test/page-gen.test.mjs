@@ -2462,3 +2462,21 @@ test("the designer can DECLARE the pair, or the whole grid is unreachable", () =
   // for another.
   assert.match(tool, /'display' = anyone reads it, nobody writes/);
 });
+
+test("the four audited features are declarable, and the dead ones are not", () => {
+  // EXPOSED ONLY WHAT IS REACHABLE END TO END. `sequence` creates a column
+  // nothing stamps, `checks` is copied into _meta and emits no DDL at all,
+  // `audit` and `history` build tables the Worker reads in zero places, and
+  // `version` is a lock the client never sends back. Offering any of those
+  // would be the dead-feature trap one layer up — a slot that looks like a
+  // capability and does nothing.
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const tool = w.slice(w.indexOf('name: "design_schema"'), w.indexOf('name: "design_schema"') + 40000);
+  for (const f of ["oncePerUser", "enforceRefs", "expires", "scheduled"]) {
+    assert.match(tool, new RegExp("\\n\\s+" + f + ": \\{"), f + " is not declarable, so no site can have it");
+  }
+  for (const f of ["sequence", "checks", "audit", "history", "version"]) {
+    assert.doesNotMatch(tool, new RegExp("\\n\\s+" + f + ": \\{"),
+      f + " is offered but is not reachable end to end — check it stamps/reads/sends before exposing it");
+  }
+});

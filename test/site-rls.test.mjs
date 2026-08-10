@@ -550,3 +550,49 @@ test("every column a policy names is one the engine actually stamps", () => {
     }
   }
 });
+
+/* ------------------------------- expiring and scheduled rows hide themselves */
+
+test("an expired row and an unpublished row are hidden by the POLICY", () => {
+  // THEIR OWN COMMENTS IN THE SCHEMA ENGINE CLAIMED THIS AND IT WAS NOT TRUE.
+  // `expires` says "reads hide rows past it", `scheduled` says "hidden until
+  // this time" — that filtering lived in the Worker's own read path, deleted
+  // when the data layer moved to Neon. The columns stayed and the WHERE that
+  // used them did not, so an expiring offer never expired.
+  //
+  // In the POLICY rather than in the generated page, deliberately: a rule the
+  // model must remember on every list of every page is one it will eventually
+  // forget, and forgetting means a shop advertising last month's price.
+  const sel = (t) => policiesFor(t).find((x) => /FOR SELECT/.test(x)) || "";
+  assert.match(sel({ name: "offers", access: "display", expires: true }),
+    /"offers"\."expires_at" IS NULL OR "offers"\."expires_at" > to_char\(now\(\)/,
+    "an expired row is still served");
+  assert.match(sel({ name: "posts", access: "display", scheduled: true }),
+    /"posts"\."publish_at" IS NULL OR "posts"\."publish_at" <= to_char\(now\(\)/,
+    "a row is public before its publish date");
+  // NULL MEANS "NEVER EXPIRES" / "ALREADY LIVE", and it has to be admitted
+  // explicitly: `expires_at > now` is NULL for an unset column, which is not
+  // true, so every row without a date would vanish. This is the clause that
+  // decides whether the feature is useful or catastrophic.
+  for (const t of [{ name: "t", access: "display", expires: true }, { name: "t", access: "display", scheduled: true }]) {
+    assert.match(sel(t), /IS NULL OR/, "a row with no date set would be hidden: " + JSON.stringify(t));
+  }
+  // …and a table declaring neither is untouched, so no existing site changes.
+  assert.equal(sel({ name: "t", access: "display" }).includes("expires_at"), false);
+  assert.equal(sel({ name: "t", access: "display" }).includes("publish_at"), false);
+  // All three filters compose rather than replacing each other.
+  const all = sel({ name: "t", access: "display", trash: true, expires: true, scheduled: true });
+  for (const c of ["deleted_at", "expires_at", "publish_at"]) assert.ok(all.includes(c), c + " was lost when combined");
+});
+
+test("the filters are on the READ, never on the write", () => {
+  // An owner must still be able to edit a row that has expired or has not gone
+  // live yet — that is the whole point of a publish date. Applied to the write
+  // policies too, a scheduled post could not be corrected before it appeared.
+  const p = policiesFor({ name: "t", access: "user", expires: true, scheduled: true });
+  for (const x of p) {
+    if (/FOR (INSERT|UPDATE|DELETE)/.test(x)) {
+      assert.ok(!/expires_at|publish_at/.test(x), "a write policy filters on time: " + x);
+    }
+  }
+});

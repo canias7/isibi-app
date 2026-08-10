@@ -199,7 +199,35 @@ export function policiesFor(t) {
   // A soft-deleted row is gone as far as any reader is concerned. Applied in the
   // policy as well as in the Worker's query, or the Data API would serve rows the
   // site itself treats as deleted.
-  const live = t && t.trash ? ` AND ${tn}."deleted_at" IS NULL` : "";
+  // WHAT COUNTS AS A LIVE ROW, enforced where it cannot be forgotten.
+  //
+  // `trash` has always filtered here. `expires` and `scheduled` did NOT, and
+  // their own comments in the schema engine claim they do — "reads hide rows
+  // past it", "hidden until this time". That filtering lived in the Worker's own
+  // read path, which was deleted when the data layer moved to Neon: the columns
+  // stayed and the WHERE that used them did not. So an expiring offer never
+  // expired and a scheduled post was public the moment it was written.
+  //
+  // IN THE POLICY RATHER THAN IN THE PAGE, deliberately, and this is the
+  // `safe-image` argument applied to data: a rule the generator must remember on
+  // every list of every page is one it will eventually forget, and forgetting
+  // means a shop advertising last month's price. A policy cannot be forgotten,
+  // it applies to the owner's dashboard and the public API alike, and it is one
+  // clause instead of a sentence in the prompt.
+  //
+  // COMPARED AS TEXT, which is correct here rather than lucky: these columns are
+  // TEXT holding `YYYY-MM-DD HH24:MI:SS` UTC, a zero-padded format whose
+  // lexicographic order IS its chronological order. `NOW_UTC` is the same
+  // expression the engine's own defaults use, so a row written and a row read
+  // are measured on one clock.
+  const NOW_UTC = "to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS')";
+  const live =
+    (t && t.trash ? ` AND ${tn}."deleted_at" IS NULL` : "") +
+    // NULL means "never expires" / "already live", so both are written to admit
+    // it explicitly. Left implicit, `expires_at > now` is NULL for an unset
+    // column, which is not true — and every row without one would vanish.
+    (t && t.expires ? ` AND (${tn}."expires_at" IS NULL OR ${tn}."expires_at" > ${NOW_UTC})` : "") +
+    (t && t.scheduled ? ` AND (${tn}."publish_at" IS NULL OR ${tn}."publish_at" <= ${NOW_UTC})` : "");
   const signedIn = "app_user_id() IS NOT NULL";
   // The team widening, and the null case is the one that matters: a member in no
   // organization must fall back to their own rows. `team_id = app_...` would be
