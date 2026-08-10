@@ -1,16 +1,18 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 
 import { SiteChrome } from "@/components/ui/site-chrome";
+import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/manage")({ component: Manage });
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "A studio in the city centre, breathing room every hour.",
+  tagline: "A calm, well-lit studio — every class ends on time.",
   links: [
     { label: "Home", href: "/" },
     { label: "Book", href: "/book" },
     { label: "The work", href: "/work" },
+    { label: "Account", href: "/account" },
   ],
   action: { label: "Book now", href: "/book" },
 };
@@ -21,12 +23,12 @@ function Manage() {
       <div className="mx-auto max-w-lg px-6 py-16">
         <h1 className="text-3xl font-semibold tracking-tight">Manage your booking</h1>
         <p className="mt-4 text-muted-foreground">
-          Every confirmation email includes a link that opens your booking directly, so you can move or cancel it
-          from there. If you've lost that email, get in touch and we'll sort it by hand.
+          To change or cancel a class, use the link in your confirmation email — it opens your booking
+          directly. If you can't find it, drop us a line and we'll sort it out.
         </p>
-        <Link to="/book" className="mt-6 inline-block rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground motion-press">
-          Book a new class
-        </Link>
+        <Button asChild variant="outline" className="mt-6">
+          <Link to="/book">Book a class</Link>
+        </Button>
       </div>
     </SiteChrome>
   );

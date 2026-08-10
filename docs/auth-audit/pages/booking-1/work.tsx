@@ -9,11 +9,12 @@ export const Route = createFileRoute("/work")({ component: Work });
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "A studio in the city centre, breathing room every hour.",
+  tagline: "A calm, well-lit studio — every class ends on time.",
   links: [
     { label: "Home", href: "/" },
     { label: "Book", href: "/book" },
     { label: "The work", href: "/work" },
+    { label: "Account", href: "/account" },
   ],
   action: { label: "Book now", href: "/book" },
 };
@@ -22,23 +23,31 @@ function Work() {
   return (
     <SiteChrome {...CHROME}>
       <div className="mx-auto max-w-6xl px-6 py-16">
-        <SectionHeader eyebrow="The studio" title="A look inside" description="The space, the classes, the community — a few moments from our floor." />
+        <SectionHeader
+          eyebrow="The work"
+          title="Inside the studio"
+          description="A look at the space, the classes and the corner you'll find your mat in."
+        />
         <Gallery
-          className="mt-8"
+          className="mt-8 motion-reveal"
           columns={3}
           items={[
-            { src: null, alt: "", caption: "Sunrise Vinyasa, first light through the studio windows", fallbackSeed: "work-1" },
-            { src: null, alt: "", caption: "Mats laid out before an evening class", fallbackSeed: "work-2" },
-            { src: null, alt: "", caption: "A Restorative & Yin class, low light and blankets", fallbackSeed: "work-3" },
-            { src: null, alt: "", caption: "Props wall — blocks, straps and bolsters", fallbackSeed: "work-4" },
-            { src: null, alt: "", caption: "The studio floor, empty between classes", fallbackSeed: "work-5" },
-            { src: null, alt: "", caption: "A Saturday Power Vinyasa in full flow", fallbackSeed: "work-6" },
+            { src: null, alt: "", caption: "Sunrise Vinyasa, first light through the front windows", fallbackSeed: "work-1" },
+            { src: null, alt: "", caption: "Blocks and bolsters, set out before a restorative class", fallbackSeed: "work-2" },
+            { src: null, alt: "", caption: "The main room, eighteen mats laid out", fallbackSeed: "work-3" },
+            { src: null, alt: "", caption: "Evening Wind-down, lights low", fallbackSeed: "work-4" },
+            { src: null, alt: "", caption: "The studio entrance on Middle Street", fallbackSeed: "work-5" },
+            { src: null, alt: "", caption: "Tea and quiet after a Saturday class", fallbackSeed: "work-6" },
           ]}
         />
       </div>
-      <section className="mx-auto max-w-6xl px-6 pb-20">
-        <CtaBand title="Come see it for yourself" description="Your first class is on us." action={{ label: "Book now", href: "/book" }} />
-      </section>
+      <div className="mx-auto max-w-6xl px-6 pb-20">
+        <CtaBand
+          title="See it for yourself"
+          description="Book a class and try the space firsthand."
+          action={{ label: "Book now", href: "/book" }}
+        />
+      </div>
     </SiteChrome>
   );
 }

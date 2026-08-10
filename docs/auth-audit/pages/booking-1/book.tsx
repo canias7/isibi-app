@@ -28,9 +28,8 @@ import {
 
 export const Route = createFileRoute("/book")({
   component: Book,
-  validateSearch: (search: Record<string, unknown>): { class?: string; time?: string } => ({
-    class: typeof search.class === "string" ? search.class : undefined,
-    time: typeof search.time === "string" ? search.time : undefined,
+  validateSearch: (search: Record<string, unknown>): { service?: string } => ({
+    service: typeof search.service === "string" ? search.service : undefined,
   }),
 });
 
@@ -38,25 +37,26 @@ type Appointment = Row;
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "A studio in the city centre, breathing room every hour.",
+  tagline: "A calm, well-lit studio — every class ends on time.",
   links: [
     { label: "Home", href: "/" },
     { label: "Book", href: "/book" },
     { label: "The work", href: "/work" },
-    { label: "Manage booking", href: "/manage" },
+    { label: "Account", href: "/account" },
   ],
   action: { label: "Book now", href: "/book" },
 };
 
-const CLASS_NAMES = [
+const CLASSES = [
   "Sunrise Vinyasa",
-  "Slow Flow & Breath",
-  "Lunchtime Hatha",
-  "Power Vinyasa",
-  "Restorative & Yin",
+  "Slow Flow",
+  "Restorative",
+  "Power Yoga",
+  "Hatha Basics",
+  "Evening Wind-down",
 ];
 
-const SLOTS = ["07:00", "09:30", "12:15", "17:30", "19:00"];
+const SLOTS = ["07:30", "09:00", "10:30", "12:00", "17:30", "18:45"];
 
 const booking = z.object({
   class_name: z.string().min(1, "Pick a class"),
@@ -69,7 +69,7 @@ const booking = z.object({
 type Booking = z.infer<typeof booking>;
 
 function Book() {
-  const { class: preselected, time: preselectedTime } = Route.useSearch();
+  const { service: preselected } = Route.useSearch();
   const create = useCreateRow<Appointment>("bookings");
   const [booked, setBooked] = useState(false);
 
@@ -80,20 +80,20 @@ function Book() {
       customer_name: "",
       customer_email: "",
       slot_date: "",
-      slot_time: preselectedTime ?? "",
+      slot_time: "",
     },
   });
 
-  const slot_date = form.watch("slot_date");
+  const slotDate = form.watch("slot_date");
   const taken = usePublicRows<{ slot_date: string; slot_time: string }>(
     "bookings",
-    slot_date ? { slot_date } : undefined,
+    slotDate ? { slot_date: slotDate } : undefined,
   );
 
   const onSubmit = (values: Booking) => {
     create.mutate(values, {
       onSuccess: () => {
-        toast.success("Booked — see you on the mat.");
+        toast.success("Booked — see you on your mat.");
         form.reset();
         setBooked(true);
       },
@@ -107,7 +107,7 @@ function Book() {
         <div className="mx-auto max-w-lg px-6 py-20 text-center motion-enter">
           <h1 className="text-3xl font-semibold tracking-tight">You're booked</h1>
           <p className="mt-3 text-muted-foreground">
-            We've sent a confirmation to your email. Need to change your class? Use the link in that email or visit the manage page with your claim link.
+            We've sent a confirmation by email. Need to change your class? Use the link in that email to manage it.
           </p>
           <Button asChild variant="outline" className="mt-6">
             <Link to="/">Back to the studio</Link>
@@ -121,7 +121,7 @@ function Book() {
     <SiteChrome {...CHROME}>
       <div className="mx-auto max-w-2xl px-6 py-14">
         <h1 className="text-3xl font-semibold tracking-tight">Book a class</h1>
-        <p className="mt-2 text-muted-foreground">We'll confirm your spot by email.</p>
+        <p className="mt-2 text-muted-foreground">Pick a class, a date and a time — we confirm by email.</p>
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="mt-8 grid gap-4 sm:grid-cols-2">
@@ -134,11 +134,11 @@ function Book() {
                   <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder="Choose a class" />
+                        <SelectValue placeholder="Choose one" />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {CLASS_NAMES.map((c) => (
+                      {CLASSES.map((c) => (
                         <SelectItem key={c} value={c}>
                           {c}
                         </SelectItem>
@@ -213,7 +213,7 @@ function Book() {
 
             <div className="sm:col-span-2">
               <Button type="submit" className="motion-press" disabled={create.isPending}>
-                {create.isPending ? "Booking…" : "Book class"}
+                {create.isPending ? "Booking…" : "Book now"}
               </Button>
             </div>
           </form>

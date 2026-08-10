@@ -1,4 +1,5 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -23,7 +24,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { ActivityFeed } from "@/components/ui/activity-feed";
+import { SafeImage } from "@/components/ui/safe-image";
 
 export const Route = createFileRoute("/")({ component: Door });
 
@@ -38,22 +39,26 @@ function Door() {
   const member = useMember();
   const login = useLogin();
   const signup = useSignup();
+  const navigate = useNavigate();
+  const [error, setError] = useState<string | null>(null);
 
   const form = useForm<Credentials>({
     resolver: zodResolver(credentials),
     defaultValues: { email: "", password: "" },
   });
 
+  if (!member.isPending && member.data) {
+    navigate({ to: "/records" });
+  }
+
   const submit = (action: typeof login, values: Credentials) => {
+    setError(null);
     action.mutate(values, {
-      onSuccess: (data) => {
-        if (data && typeof data === "object" && "pending" in data) {
-          toast.message("Check your authenticator app to finish signing in.");
-          return;
-        }
+      onSuccess: () => {
         form.reset();
+        navigate({ to: "/records" });
       },
-      onError: () => toast.error("That email and password didn't match."),
+      onError: (e) => setError(e.message),
     });
   };
 
@@ -63,38 +68,36 @@ function Door() {
         <p className="text-lg font-semibold tracking-tight">Halyard</p>
         <div className="max-w-md py-12">
           <h1 className="text-3xl font-semibold tracking-tight text-balance">
-            One shared pipeline your whole sales team actually reads
+            Every deal your team is working, in one shared table
           </h1>
           <p className="mt-4 text-muted-foreground">
-            Halyard is where the team keeps the deals it's working and the
-            accounts it sells into. Sign in to add a deal, move a stage, or
-            check who spoke to who last.
+            Halyard is the deal tracker for small sales teams. Everyone signs in,
+            sees the same pipeline, adds their own deals, and keeps a shared list
+            of accounts — no spreadsheet, no separate inbox.
           </p>
+          <SafeImage
+            className="mt-8"
+            src={null}
+            alt="The team's deals, laid out as a table"
+            ratio="16/10"
+          />
           <ul className="mt-8 space-y-4 text-sm">
             <li className="flex items-start gap-3">
-              <StatusBadge state="success">shared</StatusBadge>
-              <span>Every deal is the team's, not one rep's private list</span>
+              <StatusBadge state="success">live</StatusBadge>
+              <span>One shared table — the whole team reads and edits the same deals</span>
             </li>
             <li className="flex items-start gap-3">
               <StatusBadge state="success">live</StatusBadge>
-              <span>Accounts are shared across the team the moment someone adds one</span>
+              <span>A running list of accounts, built up by everyone who signs in</span>
             </li>
             <li className="flex items-start gap-3">
-              <StatusBadge state="neutral">reference</StatusBadge>
-              <span>The playbook — how the team qualifies and closes — lives right in the tool</span>
+              <StatusBadge state="neutral">soon</StatusBadge>
+              <span>Playbook notes the team can search from inside a record</span>
             </li>
           </ul>
-          <div className="mt-8">
-            <ActivityFeed
-              items={[
-                { who: "Priya", what: "moved Nettlefold Signage to Negotiation", at: new Date() },
-                { who: "Dan", what: "added the account Foss & Kerr", at: new Date(Date.now() - 1000 * 60 * 40) },
-              ]}
-            />
-          </div>
         </div>
         <p className="text-xs text-muted-foreground">
-          Internal tool — for the team, not for prospects.
+          Built for teams of five to fifteen — no admin dashboard, no per-seat setup.
         </p>
       </section>
 
@@ -102,75 +105,56 @@ function Door() {
         <Card className="w-full max-w-sm">
           <CardHeader>
             <CardTitle>Sign in</CardTitle>
-            <CardDescription>
-              {member.isPending
-                ? "Checking your sign-in…"
-                : member.data
-                  ? `Signed in as ${member.data.name}.`
-                  : "Use your team email."}
-            </CardDescription>
+            <CardDescription>Back to the pipeline in one field and a click.</CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-4">
-            {member.data ? (
-              <Button asChild>
-                <Link to="/records">Go to the records</Link>
-              </Button>
-            ) : (
-              <Form {...form}>
-                <form
-                  className="grid gap-4"
-                  onSubmit={form.handleSubmit((v) => submit(login, v))}
-                >
-                  <FormField
-                    control={form.control}
-                    name="email"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Work email</FormLabel>
-                        <FormControl>
-                          <Input type="email" autoComplete="email" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="password"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Password</FormLabel>
-                        <FormControl>
-                          <Input
-                            type="password"
-                            autoComplete="current-password"
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <div className="flex gap-3">
-                    <Button
-                      type="submit"
-                      className="motion-press flex-1"
-                      disabled={login.isPending}
-                    >
-                      {login.isPending ? "Signing in…" : "Sign in"}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={signup.isPending}
-                      onClick={form.handleSubmit((v) => submit(signup, v))}
-                    >
-                      Create account
-                    </Button>
-                  </div>
-                </form>
-              </Form>
-            )}
+          <CardContent>
+            <Form {...form}>
+              <form
+                className="grid gap-4"
+                onSubmit={form.handleSubmit((v) => submit(login, v))}
+              >
+                <FormField
+                  control={form.control}
+                  name="email"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Work email</FormLabel>
+                      <FormControl>
+                        <Input type="email" autoComplete="email" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="password"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Password</FormLabel>
+                      <FormControl>
+                        <Input type="password" autoComplete="current-password" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                {error && <p className="text-sm text-destructive">{error}</p>}
+                <div className="flex gap-3">
+                  <Button type="submit" className="motion-press" disabled={login.isPending}>
+                    {login.isPending ? "Signing in…" : "Sign in"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={signup.isPending}
+                    onClick={form.handleSubmit((v) => submit(signup, v))}
+                  >
+                    Create account
+                  </Button>
+                </div>
+              </form>
+            </Form>
           </CardContent>
         </Card>
       </section>

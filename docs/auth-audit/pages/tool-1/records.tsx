@@ -10,17 +10,17 @@ import {
   useRows,
   useCreateRow,
   useUpdateRow,
-  useDeleteRow,
   type Row,
 } from "@/lib/rows";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
+import { DataTable } from "@/components/ui/data-table";
+import { TableSearch } from "@/components/ui/table-search";
+import { FilterBar } from "@/components/ui/filter-bar";
+import { BulkActions } from "@/components/ui/bulk-actions";
+import { SideNav } from "@/components/ui/side-nav";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { Empty } from "@/components/ui/empty";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Form,
   FormControl,
@@ -38,16 +38,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { DataTable } from "@/components/ui/data-table";
-import { TableSearch } from "@/components/ui/table-search";
-import { FilterBar } from "@/components/ui/filter-bar";
-import { BulkActions } from "@/components/ui/bulk-actions";
-import { StatusBadge } from "@/components/ui/status-badge";
-import { SideNav } from "@/components/ui/side-nav";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Empty } from "@/components/ui/empty";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 
-export const Route = createFileRoute("/records")({ component: Records });
+export const Route = createFileRoute("/records")({
+  component: Records,
+  validateSearch: (search: Record<string, unknown>): { view?: string } => ({
+    view: typeof search.view === "string" ? search.view : undefined,
+  }),
+});
 
 type Deal = Row & { title: string; value: string | null; stage: string | null };
 type Account = Row & { name: string; website: string | null; notes: string | null };
@@ -62,8 +66,8 @@ function stageState(stage: string | null): "success" | "warning" | "danger" | "n
 }
 
 const dealSchema = z.object({
-  title: z.string().min(2, "Give the deal a name"),
-  value: z.string().optional(),
+  title: z.string().min(2, "Give the deal a title"),
+  value: z.string().min(1, "Add a value"),
   stage: z.string().min(1, "Pick a stage"),
 });
 type DealForm = z.infer<typeof dealSchema>;
@@ -77,83 +81,69 @@ type AccountForm = z.infer<typeof accountSchema>;
 
 function Records() {
   const member = useMember();
-  const [view, setView] = useState<"deals" | "accounts">("deals");
+  const { view } = Route.useSearch();
+  const section = view === "accounts" ? "accounts" : view === "playbook" ? "playbook" : "deals";
 
   if (member.isPending) {
     return (
-      <div className="p-10">
-        <Skeleton className="h-8 w-40" />
-        <Skeleton className="mt-4 h-64 w-full" />
+      <div className="flex min-h-screen items-center justify-center">
+        <p className="text-sm text-muted-foreground">Checking your sign-in…</p>
       </div>
     );
   }
 
   if (!member.data) {
     return (
-      <div className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-6 text-center">
-        <h1 className="text-2xl font-semibold tracking-tight">Halyard</h1>
-        <p className="mt-3 text-muted-foreground">
-          Sign in to see the team's deals and accounts.
-        </p>
-        <Button asChild className="mt-6">
-          <Link to="/">Sign in</Link>
-        </Button>
+      <div className="flex min-h-screen items-center justify-center px-6 text-center">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Sign in to see the pipeline</h1>
+          <p className="mt-2 text-muted-foreground">
+            Deals, accounts and the playbook are only visible once you're signed in.
+          </p>
+          <Button asChild className="mt-6">
+            <Link to="/">Go to sign in</Link>
+          </Button>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="flex min-h-screen">
-      <aside className="hidden w-56 shrink-0 border-r border-border bg-muted/30 p-4 md:block">
+      <aside className="w-56 border-r border-border p-4">
         <p className="px-2 text-lg font-semibold tracking-tight">Halyard</p>
-        <div className="mt-6">
-          <SideNav
-            active={view}
-            sections={[
-              {
-                items: [
-                  { label: "Deals", href: "#deals" },
-                  { label: "Accounts", href: "#accounts" },
-                ],
-              },
-            ]}
-          />
-        </div>
-        <div className="mt-6 flex flex-col gap-1 px-2">
-          <Button
-            variant={view === "deals" ? "secondary" : "ghost"}
-            className="justify-start"
-            onClick={() => setView("deals")}
-          >
-            Deals
-          </Button>
-          <Button
-            variant={view === "accounts" ? "secondary" : "ghost"}
-            className="justify-start"
-            onClick={() => setView("accounts")}
-          >
-            Accounts
-          </Button>
-        </div>
+        <SideNav
+          className="mt-6"
+          active={section === "deals" ? "deals" : section === "accounts" ? "accounts" : "playbook"}
+          sections={[
+            {
+              items: [
+                { label: "Deals", href: "/records" },
+                { label: "Accounts", href: "/records?view=accounts" },
+                { label: "Playbook", href: "/records?view=playbook" },
+              ],
+            },
+          ]}
+        />
       </aside>
-
-      <div className="flex-1 overflow-y-auto">
-        {view === "deals" ? <DealsPanel /> : <AccountsPanel />}
-      </div>
+      <main className="flex-1 overflow-y-auto p-8">
+        {section === "deals" && <DealsSurface />}
+        {section === "accounts" && <AccountsSurface />}
+        {section === "playbook" && <PlaybookSurface />}
+      </main>
     </div>
   );
 }
 
-function DealsPanel() {
-  const navigate = useNavigate();
+function DealsSurface() {
   const deals = useRows<Deal>("deals", { order: "id", dir: "desc" });
   const create = useCreateRow<Deal>("deals");
   const update = useUpdateRow<Deal>("deals");
-  const remove = useDeleteRow("deals");
+  const navigate = useNavigate();
 
   const [query, setQuery] = useState("");
   const [stageFilter, setStageFilter] = useState<string | null>(null);
-  const [selected, setSelected] = useState<number[]>([]);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
   const [open, setOpen] = useState(false);
 
   const form = useForm<DealForm>({
@@ -171,7 +161,7 @@ function DealsPanel() {
     return rows;
   }, [deals.data, stageFilter, query]);
 
-  const onCreate = (values: DealForm) => {
+  const onSubmit = (values: DealForm) => {
     create.mutate(values, {
       onSuccess: () => {
         toast.success("Deal added");
@@ -182,25 +172,33 @@ function DealsPanel() {
     });
   };
 
-  const onBulkStage = (stage: string) => {
-    selected.forEach((id) => update.mutate({ id, stage } as Partial<Deal> & { id: number }));
-    toast.success(`Moved ${selected.length} deal${selected.length === 1 ? "" : "s"} to ${stage}`);
-    setSelected([]);
+  const bulkSetStage = (stage: string) => {
+    const ids = Array.from(selected);
+    ids.forEach((id) => {
+      update.mutate({ id, stage }, {
+        onError: (e) => toast.error(e.message),
+      });
+    });
+    toast.success(`Moved ${ids.length} deal${ids.length === 1 ? "" : "s"} to ${stage}`);
+    setSelected(new Set());
   };
 
-  const onBulkDelete = () => {
-    selected.forEach((id) => remove.mutate(id));
-    toast.success(`Removed ${selected.length} deal${selected.length === 1 ? "" : "s"}`);
-    setSelected([]);
+  const toggle = (id: number) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
   return (
-    <div className="p-6" id="deals">
-      <div className="flex flex-wrap items-center justify-between gap-4">
+    <div>
+      <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">The team's deals</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Our deals</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Everyone on the team reads and edits these rows.
+            Everything the team is working, shared across the whole pipeline.
           </p>
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
@@ -212,7 +210,7 @@ function DealsPanel() {
               <DialogTitle>New deal</DialogTitle>
             </DialogHeader>
             <Form {...form}>
-              <form className="grid gap-4" onSubmit={form.handleSubmit(onCreate)}>
+              <form className="grid gap-4" onSubmit={form.handleSubmit(onSubmit)}>
                 <FormField
                   control={form.control}
                   name="title"
@@ -220,7 +218,7 @@ function DealsPanel() {
                     <FormItem>
                       <FormLabel>Title</FormLabel>
                       <FormControl>
-                        <Input placeholder="Nettlefold Signage — signage refit" {...field} />
+                        <Input {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -248,7 +246,7 @@ function DealsPanel() {
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger>
-                            <SelectValue placeholder="Choose one" />
+                            <SelectValue />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
@@ -278,19 +276,16 @@ function DealsPanel() {
           onChange={setQuery}
           placeholder="Search deals"
           count={filtered.length}
-          total={deals.data?.length ?? 0}
+          total={deals.data?.length}
         />
         <FilterBar
           filters={stageFilter ? [{ key: "stage", label: stageFilter }] : []}
           onRemove={() => setStageFilter(null)}
           onClear={() => setStageFilter(null)}
         >
-          <Select
-            value={stageFilter ?? "__all"}
-            onValueChange={(v) => setStageFilter(v === "__all" ? null : v)}
-          >
+          <Select value={stageFilter ?? "__all"} onValueChange={(v) => setStageFilter(v === "__all" ? null : v)}>
             <SelectTrigger className="w-40">
-              <SelectValue placeholder="All stages" />
+              <SelectValue placeholder="Stage" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="__all">All stages</SelectItem>
@@ -304,65 +299,59 @@ function DealsPanel() {
         </FilterBar>
       </div>
 
-      {selected.length > 0 && (
-        <div className="mt-4">
-          <BulkActions
-            count={selected.length}
-            onClear={() => setSelected([])}
-            actions={[
-              ...STAGES.map((s) => ({ label: `Move to ${s}`, onSelect: () => onBulkStage(s) })),
-              { label: "Delete", onSelect: onBulkDelete, destructive: true },
-            ]}
-          />
-        </div>
+      {selected.size > 0 && (
+        <BulkActions
+          count={selected.size}
+          onClear={() => setSelected(new Set())}
+          actions={STAGES.map((s) => ({ label: `Move to ${s}`, onSelect: () => bulkSetStage(s) }))}
+        />
       )}
 
-      <div className="mt-6">
-        {deals.isPending && <Skeleton className="h-64 w-full rounded-xl" />}
+      <div className="mt-4">
+        {deals.isPending && <Skeleton className="h-64 rounded-xl" />}
         {deals.isError && (
-          <p className="text-sm text-destructive">
-            Couldn't load the deals. Refresh and try again.
-          </p>
+          <p className="text-sm text-destructive">Couldn't load the deals. Refresh and try again.</p>
         )}
-        {deals.data?.length === 0 && (
+        {!deals.isPending && !deals.isError && filtered.length === 0 && (
           <Empty
-            title="No deals yet"
-            description="Add the first deal the team is working."
+            title={deals.data?.length === 0 ? "No deals yet" : "Nothing matches"}
+            description={
+              deals.data?.length === 0
+                ? "Add the team's first deal to get the pipeline going."
+                : "Try a different search or clear the stage filter."
+            }
           />
         )}
-        {!!deals.data?.length && (
+        {!deals.isPending && !deals.isError && filtered.length > 0 && (
           <DataTable
-            rows={filtered}
-            rowKey={(r) => r.id}
-            onRowClick={(r) => navigate({ to: "/record", search: { id: String(r.id) } })}
             columns={[
               {
                 key: "select",
                 header: "",
                 width: "2rem",
-                cell: (r) => (
+                cell: (row) => (
                   <input
                     type="checkbox"
-                    checked={selected.includes(r.id)}
+                    checked={selected.has(row.id)}
                     onChange={(e) => {
                       e.stopPropagation();
-                      setSelected((prev) =>
-                        prev.includes(r.id) ? prev.filter((id) => id !== r.id) : [...prev, r.id],
-                      );
+                      toggle(row.id);
                     }}
                     onClick={(e) => e.stopPropagation()}
                   />
                 ),
               },
-              { key: "title", header: "Deal", cell: (r) => r.title },
-              { key: "value", header: "Value", cell: (r) => r.value ?? "—" },
+              { key: "title", header: "Title", cell: (row) => row.title },
+              { key: "value", header: "Value", cell: (row) => row.value ?? "—" },
               {
                 key: "stage",
                 header: "Stage",
-                cell: (r) => <StatusBadge state={stageState(r.stage)}>{r.stage ?? "New"}</StatusBadge>,
+                cell: (row) => <StatusBadge state={stageState(row.stage)}>{row.stage ?? "—"}</StatusBadge>,
               },
             ]}
-            empty="No deals match those filters."
+            rows={filtered}
+            rowKey={(row) => row.id}
+            onRowClick={(row) => navigate({ to: "/record", search: { id: String(row.id) } })}
           />
         )}
       </div>
@@ -370,7 +359,7 @@ function DealsPanel() {
   );
 }
 
-function AccountsPanel() {
+function AccountsSurface() {
   const accounts = useRows<Account>("accounts", { order: "id", dir: "desc" });
   const create = useCreateRow<Account>("accounts");
   const [query, setQuery] = useState("");
@@ -382,15 +371,13 @@ function AccountsPanel() {
   });
 
   const filtered = useMemo(() => {
-    let rows = accounts.data ?? [];
-    if (query.trim()) {
-      const q = query.trim().toLowerCase();
-      rows = rows.filter((r) => r.name.toLowerCase().includes(q));
-    }
-    return rows;
+    const rows = accounts.data ?? [];
+    if (!query.trim()) return rows;
+    const q = query.trim().toLowerCase();
+    return rows.filter((r) => r.name.toLowerCase().includes(q));
   }, [accounts.data, query]);
 
-  const onCreate = (values: AccountForm) => {
+  const onSubmit = (values: AccountForm) => {
     create.mutate(values, {
       onSuccess: () => {
         toast.success("Account added");
@@ -402,12 +389,12 @@ function AccountsPanel() {
   };
 
   return (
-    <div className="p-6" id="accounts">
-      <div className="flex flex-wrap items-center justify-between gap-4">
+    <div>
+      <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Accounts</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Shared across the team — anyone can add one.
+            Shared across the team — anyone signed in can add one.
           </p>
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
@@ -419,7 +406,7 @@ function AccountsPanel() {
               <DialogTitle>New account</DialogTitle>
             </DialogHeader>
             <Form {...form}>
-              <form className="grid gap-4" onSubmit={form.handleSubmit(onCreate)}>
+              <form className="grid gap-4" onSubmit={form.handleSubmit(onSubmit)}>
                 <FormField
                   control={form.control}
                   name="name"
@@ -427,7 +414,7 @@ function AccountsPanel() {
                     <FormItem>
                       <FormLabel>Name</FormLabel>
                       <FormControl>
-                        <Input placeholder="Foss & Kerr Ltd" {...field} />
+                        <Input {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -440,7 +427,7 @@ function AccountsPanel() {
                     <FormItem>
                       <FormLabel>Website</FormLabel>
                       <FormControl>
-                        <Input placeholder="fossandkerr.co.uk" {...field} />
+                        <Input placeholder="acme.com" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -474,34 +461,68 @@ function AccountsPanel() {
           onChange={setQuery}
           placeholder="Search accounts"
           count={filtered.length}
-          total={accounts.data?.length ?? 0}
+          total={accounts.data?.length}
         />
       </div>
 
-      <div className="mt-6">
-        {accounts.isPending && <Skeleton className="h-64 w-full rounded-xl" />}
+      <div className="mt-4">
+        {accounts.isPending && <Skeleton className="h-64 rounded-xl" />}
         {accounts.isError && (
-          <p className="text-sm text-destructive">
-            Couldn't load the accounts. Refresh and try again.
-          </p>
+          <p className="text-sm text-destructive">Couldn't load accounts. Refresh and try again.</p>
         )}
-        {accounts.data?.length === 0 && (
+        {!accounts.isPending && !accounts.isError && filtered.length === 0 && (
           <Empty
-            title="No accounts yet"
-            description="Add the first account the team is selling into."
+            title={accounts.data?.length === 0 ? "No accounts yet" : "Nothing matches"}
+            description={
+              accounts.data?.length === 0
+                ? "Add the first account the team is working with."
+                : "Try a different search."
+            }
           />
         )}
-        {!!accounts.data?.length && (
+        {!accounts.isPending && !accounts.isError && filtered.length > 0 && (
           <DataTable
-            rows={filtered}
-            rowKey={(r) => r.id}
             columns={[
-              { key: "name", header: "Account", cell: (r) => r.name },
-              { key: "website", header: "Website", cell: (r) => r.website ?? "—" },
-              { key: "notes", header: "Notes", cell: (r) => r.notes ?? "—" },
+              { key: "name", header: "Name", cell: (row) => row.name },
+              { key: "website", header: "Website", cell: (row) => row.website ?? "—" },
+              { key: "notes", header: "Notes", cell: (row) => row.notes ?? "—" },
             ]}
-            empty="No accounts match that search."
+            rows={filtered}
+            rowKey={(row) => row.id}
           />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PlaybookSurface() {
+  type Playbook = Row & { title: string; body: string | null };
+  const playbook = useRows<Playbook>("playbook", { order: "id", dir: "desc" });
+
+  return (
+    <div>
+      <h1 className="text-2xl font-semibold tracking-tight">Playbook</h1>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Maintained by the business — read here, edited from the dashboard.
+      </p>
+      <div className="mt-6">
+        {playbook.isPending && <Skeleton className="h-48 rounded-xl" />}
+        {playbook.isError && (
+          <p className="text-sm text-destructive">Couldn't load the playbook. Refresh and try again.</p>
+        )}
+        {!playbook.isPending && !playbook.isError && playbook.data?.length === 0 && (
+          <Empty title="No entries yet" description="The playbook is empty for now." />
+        )}
+        {!!playbook.data?.length && (
+          <ul className="motion-stagger grid gap-4">
+            {playbook.data.map((p) => (
+              <li key={p.id} className="rounded-lg border border-border p-4">
+                <h2 className="font-medium">{p.title}</h2>
+                <p className="mt-1 text-sm text-muted-foreground">{p.body}</p>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
     </div>
