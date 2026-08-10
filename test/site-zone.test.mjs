@@ -463,3 +463,28 @@ test("a customer's site can be framed by the builder and by nobody else", () => 
   assert.match(w, /h\.set\("X-Frame-Options", sameOriginFrame \? "SAMEORIGIN" : "DENY"\)/,
     "the app is no longer denied framing");
 });
+
+test("the preview needs BOTH policies, so both are asserted together", () => {
+  // FRAMING TAKES TWO AND FIXING ONE IS INDISTINGUISHABLE FROM FIXING NEITHER.
+  // The site's `frame-ancestors` says who may frame it; the workspace's
+  // `frame-src` says what the workspace may frame. Chrome refuses on either and
+  // renders the SAME "This content is blocked. Contact the site owner to fix the
+  // issue." — so the first fix landed, was verified by reading the site's header,
+  // and the pane stayed blank because the parent was still refusing.
+  //
+  // Asserted as a PAIR in one test on purpose: two tests can go green one at a
+  // time and neither knows the preview is broken.
+  const w = read("worker.js");
+  assert.match(w, /"frame-src 'self' blob: https:\/\/\*\." \+ SITE_ZONE/,
+    "the workspace's own CSP does not allow it to frame the site zone — every preview is blocked at the parent");
+  assert.doesNotMatch(w, /"frame-src 'self' blob:",/,
+    "frame-src is back to same-origin only, which cannot load a site on its own domain");
+  const at = w.indexOf("// THE BUILDER'S PREVIEW IS NOW CROSS-ORIGIN");
+  assert.ok(at > 0, "the published-site frame-ancestors comment moved");
+  assert.match(w.slice(at, at + 900), /"frame-ancestors 'self' https:\/\/" \+ APP_ZONE/,
+    "the site no longer lets the workspace frame it — the other half of the same failure");
+  // Both are derived from the zone constants rather than spelled out, so a zone
+  // rename cannot leave one of them naming a domain that no longer exists.
+  assert.equal(SITE_ZONE, "gofarther.app");
+  assert.equal(APP_ZONE, "gofarther.dev");
+});

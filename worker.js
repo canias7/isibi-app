@@ -890,7 +890,19 @@ const CSP = [
   // sandboxed allow-scripts iframe from a Blob URL — an opaque origin with no
   // access to the app's DOM/storage; srcdoc would inherit THIS CSP and block
   // the generated site's own inline scripts).
-  "frame-src 'self' blob:",
+  // FRAMING TAKES TWO POLICIES AND THIS IS THE OTHER ONE. `frame-ancestors` on
+  // the SITE says who may frame it; `frame-src` here, on the WORKSPACE, says
+  // what the workspace may frame — and a preview needs both to agree. Fixing
+  // only the site's half left the pane showing Chrome's "This content is
+  // blocked. Contact the site owner to fix the issue.", which is the parent
+  // page's refusal and reads exactly like the child's.
+  //
+  // It was `'self' blob:` and correct for as long as a preview was same-origin
+  // (`gofarther.dev/s/<slug>/`) or a Blob URL. A site is on `<slug>.gofarther.app`
+  // now, which is neither. Derived from SITE_ZONE rather than spelled out, so the
+  // two cannot drift; the wildcard is one label deep, matching the one label
+  // Universal SSL covers and the one `siteHostSlug` will resolve.
+  "frame-src 'self' blob: https://*." + SITE_ZONE,
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com",
   // *.ytimg.com = YouTube video thumbnails, *.cdninstagram.com / *.fbcdn.net =
