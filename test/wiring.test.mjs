@@ -17,6 +17,7 @@ import path from "node:path";
 
 import { THEME_IDS, THEME_SHORTLIST, ALL_THEMES, resolveTheme } from "../builder/site-theme-registry.mjs";
 import { budgetFor, imageBudget } from "../builder/site-images.mjs";
+import { mergeLook, movedFields, hasValue, EDIT_RULE, currentStateNote } from "../builder/site-edit.mjs";
 import { themeCss, THEMES } from "../builder/site-theme.mjs";
 import { briefWithLayout } from "../builder/page-gen.mjs";
 import { FAMILY_NAMES, READY_FAMILIES, STRUCTURE_NAMES, STRUCTURES, layoutDirective, familiesForPrompt, structuresForPrompt, FAMILIES } from "../builder/site-layouts.mjs";
@@ -110,19 +111,17 @@ test("the other 400 are bounded, not lost — any of the 500 still resolves", ()
   const offList = THEME_IDS.filter((n) => !THEME_SHORTLIST.includes(n));
   assert.equal(offList.length, THEME_IDS.length - 100);
   for (const n of offList) assert.ok(resolveTheme(n), `${n} is unreachable even by name`);
-  // The chain moved into the `look` object (a revise now keeps the site's stored
-  // theme instead of re-rolling it), but the body fallback inside it is what
-  // keeps an off-list theme reachable by name.
-  // ANCHORED ON THE CHAIN, NOT ON WHERE IT LIVES. This named the property
-  // (`theme: (priorLook && …)`) and went red the day the expression moved into a
-  // `const` so the font fallback could depend on it — a correct change failing a
-  // test about word order, which is this repo's recurring source-guard bug.
-  // What matters is that the three-step fallback ENDS at the request body.
-  assert.match(worker, /\(priorLook && priorLook\.theme\) \|\| \(designed && designed\.theme\) \|\| \(body && body\.theme\)/,
-    "the body fallback is gone, so off-list themes really are unreachable");
-  // …and that whatever holds it is what the look actually uses, or the chain is
-  // computed and discarded.
-  assert.match(worker, /const lookTheme = \(priorLook/, "the resolved theme is no longer computed in one place");
+  // DRIVEN, NOT SPELLED. This pinned the inline `(priorLook && …) || (designed
+  // && …) || (body && …)` chain twice over and went red when the merge moved
+  // into `mergeLook` — a correct change failing a test about word order. The
+  // property that keeps an off-list theme reachable is that a body-supplied
+  // theme survives when nothing else names one, whoever implements it.
+  assert.equal(mergeLook(null, null, { theme: "off-list-one" }).theme, "off-list-one",
+    "a theme named on the request body no longer reaches the build");
+  assert.equal(mergeLook(null, { theme: "designed" }, { theme: "off-list-one" }).theme, "designed",
+    "the body outranks the designer on a first build");
+  // …and the route has to actually use it, or the merge is correct and unread.
+  assert.match(worker, /const merged = mergeLook\(priorLook, designed, body/, "the route does not merge the look");
   assert.match(worker, /\n\s*theme: lookTheme,/, "the look no longer uses the resolved theme");
 });
 
@@ -194,7 +193,11 @@ test("the structure axis is offered, optional, and every name works", () => {
 });
 
 test("the structure reaches the route, and the model is told what each one is", () => {
-  assert.match(worker, /structure: \(priorLook && priorLook\.structure\) \|\| \(designed && designed\.structure\) \|\| \(body && body\.structure\)/);
+  // The property rather than the spelling — same move as the theme chain above.
+  assert.equal(mergeLook(null, null, { structure: "bento" }).structure, "bento",
+    "a structure named on the request body no longer reaches the build");
+  assert.equal(mergeLook({ structure: "sidebar" }, { structure: "bento" }, null).structure, "sidebar",
+    "an uninstructed designer overrides the stored structure again");
   assert.match(worker, /structure: look\.structure,/, "and the resolved value has to reach the build");
   assert.match(worker, /async function buildAndPublishPages\(env, \{[^}]*\bstructure\b[^}]*\}\)/);
   assert.match(worker, /structuresForPrompt\(\)/, "the eight are offered as bare names with no description");
@@ -544,7 +547,38 @@ test("a revise keeps the site's stored look instead of re-rolling it", () => {
   assert.match(worker, /INSERT INTO _meta \(k,v\) VALUES \('site_look'/, "nothing ever writes it");
   assert.match(worker, /if \(priorBrief\) \{[\s\S]{0,400}site_look/,
     "the look is read on a FIRST build too, which would pin an empty one");
-  assert.match(worker, /if \(!priorLook\) \{/, "a revise overwrites the stored look");
+  // WRITTEN ON EVERY BUILD NOW, and this assertion is the inverse of what it
+  // was. `if (!priorLook)` was correct while the look could never change after a
+  // first build — anchoring made the stored value permanent, so re-writing it
+  // was a no-op. An edit can move any of these now (owner's rule 2026-08-10),
+  // and writing only on the first build would apply the change once and forget
+  // it, so the NEXT edit would resurrect the old look. Safe because the value
+  // written is the merged one, which is stored-unless-named.
+  assert.ok(!/if \(!priorLook\) \{/.test(worker),
+    "the look is written only on a first build again, so an edit to it is forgotten by the next edit");
+  assert.match(worker, /INSERT INTO _meta \(k,v\) VALUES \('site_look'[\s\S]{0,120}JSON\.stringify\(look\)/,
+    "the merged look is not what gets stored");
+
+  // AND THE GUARANTEE ITSELF, driven rather than spelled. "A revise keeps the
+  // stored look" is now "stored unless the change named it" — the same
+  // protection, expressed so that asking CAN change it.
+  const stored = { theme: "broadsheet", family: "salon", structure: "sidebar", brand: "Sharp Fade", description: "A barber shop." };
+  // An instructed designer that named nothing changes nothing. This is the case
+  // that used to re-roll the look, and it is the ordinary edit.
+  const quiet = mergeLook(stored, { tokens: { background: "#ffff00" } }, null, { instructed: true });
+  for (const k of ["theme", "family", "structure", "brand", "description"]) {
+    assert.equal(quiet[k], stored[k], `a colour-only edit moved ${k}`);
+  }
+  assert.deepEqual(movedFields(stored, quiet), [], "a colour-only edit reports having moved something");
+  // …and naming one moves exactly that one.
+  const rethemed = mergeLook(stored, { theme: "zine" }, null, { instructed: true });
+  assert.equal(rethemed.theme, "zine", "an edit that asks for a new theme cannot get one");
+  assert.equal(rethemed.family, "salon", "re-theming also changed the family");
+  assert.deepEqual(movedFields(stored, rethemed), ["theme"]);
+  // WITHOUT the instruction the OLD precedence holds, which is the interlock:
+  // an unread state must never let an untold designer re-roll a live site.
+  assert.equal(mergeLook(stored, { theme: "zine" }, null).theme, "broadsheet",
+    "an uninstructed designer re-themes the site again");
   for (const k of ["theme", "family", "structure", "fonts"]) {
     assert.ok(new RegExp(k + ": look\\." + k + ",").test(worker), k + " does not reach the build from `look`");
   }

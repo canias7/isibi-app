@@ -10,6 +10,7 @@ import {
   resolveFont, resolvePair, fontCss, fontImports, shortlistForPrompt, stackFor,
 } from "../builder/site-fonts.mjs";
 import { themeFontPair, THEME_SHORTLIST } from "../builder/site-theme-registry.mjs";
+import { mergeLook } from "../builder/site-edit.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -223,8 +224,20 @@ test("the DESIGNER can actually declare a font, and only a real one", () => {
   // designer's answer is still what a FIRST build uses, and both halves of that
   // are asserted apart: the chain that computes it, and the value reaching the
   // build. Either alone passes while the other is broken.
-  assert.match(src, /fonts: \(priorLook && priorLook\.fonts\) \|\| \(designed && designed\.fonts\)/,
-    "the designer's answer has to reach the build");
+  // THE PROPERTY, NOT THE CHAIN. This pinned the inline
+  // `(priorLook && …) || (designed && …)` expression and went red when the merge
+  // moved into `mergeLook` — word order again. What has to hold is that a
+  // designer that NAMES a pair still reaches the build, on a first build and on
+  // an instructed edit alike, so a brief asking for a typeface is not ignored.
+  assert.deepEqual(mergeLook(null, { fonts: { heading: "lora", body: "geist" } }, null).fonts,
+    { heading: "lora", body: "geist" }, "the designer's answer has to reach the build");
+  assert.deepEqual(mergeLook({ fonts: { heading: "inter", body: "inter" } },
+    { fonts: { heading: "lora", body: "geist" } }, null, { instructed: true }).fonts,
+    { heading: "lora", body: "geist" }, "an edit that asks for a typeface cannot get one");
+  // …and a half pair is NOT an answer, or `{heading:"x"}` reaches the build and
+  // the body silently defaults — the same rule `themeFontPair` follows.
+  assert.equal(mergeLook(null, { fonts: { heading: "lora" } }, null).fonts, null);
+  assert.match(src, /const merged = mergeLook\(priorLook, designed, body/, "the route does not merge the look");
   assert.match(src, /fonts: look\.fonts,/, "the resolved fonts never reach buildAndPublishPages");
   assert.match(src, /fonts: \{ heading: fontPair\.heading\.id, body: fontPair\.body\.id \}/,
     "and the build request has to carry it");

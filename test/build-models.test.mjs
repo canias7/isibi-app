@@ -133,7 +133,11 @@ test("the build route resolves the picker ONCE and gives it to both calls", () =
     "the route does not read body.picker through the allow-list");
   // Both calls, by name. Reading the field and then not using it is precisely
   // the state this whole change was fixing.
-  assert.match(workerCode, /designSiteSchema\(env, briefWithLinks, models\.design\)/,
+  // NOT ANCHORED ON THE CLOSING PAREN. This was `models\.design\)` and went red
+  // the day the designer gained a fourth argument (the site's current state on
+  // an edit) — a correct change failing a test about arity, which is this repo's
+  // recurring source-guard bug.
+  assert.match(workerCode, /designSiteSchema\(env, briefWithLinks, models\.design\b/,
     "the designer is not given the chosen model");
   assert.match(workerCode, /model: models\.pages/,
     "page generation is not given the chosen model");

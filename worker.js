@@ -60,6 +60,7 @@ import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis
 import { parseGeneratedFiles as parseGameFiles, GAME_RULES, GAME_ASSET_RULES, GAME_REVISE_RULES, gameFixRules, parseSpriteTokens, GAME_3D_RULES, game3DFixRules } from "./builder-game/game-gen.mjs";
 import { SHORTLIST, resolvePair } from "./builder/site-fonts.mjs";
 import { THEME_SHORTLIST, themeFontPair } from "./builder/site-theme-registry.mjs";
+import { currentStateNote, EDIT_RULE, EDIT_REQUIRED, mergeLook, movedFields } from "./builder/site-edit.mjs";
 import { READY_FAMILIES, STRUCTURE_NAMES, familiesForPrompt, structuresForPrompt } from "./builder/site-layouts.mjs";
 
 // Game build-service container (Phase 3). The image (./builder-game/Dockerfile)
@@ -3440,7 +3441,13 @@ async function anthropicMessages(env, body) {
 // never send `model: undefined` and 400 the whole builder; the caller passing
 // it is what a test asserts, because a default that quietly wins is how a picker
 // goes back to being decoration.
-async function designSiteSchema(env, brief, model = modelsFor().design) {
+// `current` is the site as it stands, on an EDIT only — absent on every first
+// build, which is why a build's request is byte-identical to what it always
+// sent. When it is present the model is shown the current values and told to
+// return ONLY what this change alters, and the tool's `required` list is emptied
+// for the same reason: a required field is one the model must answer, and
+// answering it is exactly what moves a value nobody asked to move.
+async function designSiteSchema(env, brief, model = modelsFor().design, current = null) {
   // The request is built FIRST and the usage below is stamped from `req.model`,
   // so what we bill and what we sent cannot disagree — the same by-construction
   // discipline as pricing from one table instead of two.
@@ -3465,8 +3472,15 @@ async function designSiteSchema(env, brief, model = modelsFor().design) {
               "Then fill every 'display' table with 3-6 realistic starter rows in `seed`. This is not optional and it is not decoration: " +
               "nothing can write to a display table after the build, so an unseeded table is an empty list forever, and any form field that " +
               "chooses from it will have nothing to choose. Write content a real business would publish." }],
-      messages: [{ role: "user", content: brief }],
+      // THE STATE AND THE RULE RIDE IN THE USER MESSAGE, never the cached blocks
+      // above: both vary per site, and a per-site byte in the cached prefix
+      // misses the ~10,800-token cache on every build. Same reasoning as the
+      // layout directive and the attachments.
+      messages: [{ role: "user", content: current ? brief + currentStateNote(current) + EDIT_RULE : brief }],
   };
+  // Emptied on an edit, and only on an edit. `required` is a static part of the
+  // tool, so this is the one place it can vary per call.
+  if (current) req.tools = [{ ...req.tools[0], input_schema: { ...SITE_SCHEMA_TOOL.input_schema, required: EDIT_REQUIRED } }];
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
@@ -8477,6 +8491,14 @@ async function handleRequest(request, env, ctx) {
 
       // A brief means "design the schema"; an explicit schema skips the model.
       let designed = null;
+      // OUT HERE BESIDE `designed`, AND FOR THE SAME REASON — it is read at the
+      // look merge, hundreds of lines below the block that fills it in. Declared
+      // inside that block it is a ReferenceError on every build, which is the
+      // `vidRefN` failure exactly: `node --check` passes, esbuild passes, and no
+      // test can import a Worker entrypoint. Caught here by the scope scanner
+      // written after that one, on the first run — "declared at 8562, block
+      // closes at 8639, read at 8878".
+      let editState = null;
       // NOW BILLED ON — owner's call 2026-08-08, "every time a model is used it
       // needs to charge on our price model". This used to say "MEASURED, NOT
       // BILLED ON", which was the right caution at the time (a measurement
@@ -8531,8 +8553,44 @@ async function handleRequest(request, env, ctx) {
         // guessing about.
         tr.at("gate");
 
+        // WHAT THE SITE IS NOW — read BEFORE the model call, because it is an
+        // input to it. An edit was never told it was an edit: the designer got
+        // `body.instruction` and nothing else, believed it was designing from
+        // scratch, and returned a brand and a description invented from a
+        // fragment which then became the <title> and the link preview.
+        //
+        // ON AN EDIT ONLY, and gated on the caller naming a slug we can resolve.
+        // A first build has nothing to read and adds no round trip.
+        //
+        // BEST-EFFORT, AND FAILING MEANS "NOT INSTRUCTED". `editState` staying
+        // null is what makes `mergeLook` keep the OLD precedence below — so a
+        // Neon blip degrades to exactly the behaviour that shipped before this,
+        // rather than to a designer that was never told to omit and whose answer
+        // now wins. The interlock is the point; see site-edit.mjs.
+        const editSlug = typeof body.slug === "string" ? body.slug.trim().toLowerCase() : "";
+        if (editSlug) {
+          try {
+            const conn = await siteNeonProject(env, editSlug);
+            if (conn) {
+              const rows = await sqlQuery(conn, "SELECT k, v FROM _meta WHERE k IN ('site_look','schema')");
+              let stored = null, storedSchema = null;
+              for (const r of rows || []) {
+                if (r.k === "site_look" && r.v) stored = JSON.parse(r.v);
+                if (r.k === "schema" && r.v) storedSchema = JSON.parse(r.v);
+              }
+              if (stored) {
+                editState = {
+                  ...stored,
+                  tables: (storedSchema && Array.isArray(storedSchema.tables) ? storedSchema.tables : [])
+                    .map((t) => t && t.name).filter(Boolean),
+                };
+              }
+            }
+          } catch (e) { console.error("edit state read failed:", editSlug, e && e.message); }
+        }
+
         try {
-          const dz = await designSiteSchema(env, briefWithLinks, models.design);
+          const dz = await designSiteSchema(env, briefWithLinks, models.design, editState);
           designed = dz && dz.input;
           schemaUsage = (dz && dz.usage) || null;
           tr.at("design", schemaUsage ? { out: schemaUsage.out, in: schemaUsage.in } : undefined);
@@ -8753,7 +8811,6 @@ async function handleRequest(request, env, ctx) {
       // them, and publish the dist. The database is already live at this point, so
       // this stage cannot fail the build — it either publishes the real app or
       // falls through to the placeholder below.
-      const brand = String((designed && designed.brand) || body.brand || slug).slice(0, 60);
 
       // Pages are generated against every table the site HAS, not just the ones
       // this request designed.
@@ -8817,11 +8874,20 @@ async function handleRequest(request, env, ctx) {
       // to `designed.theme` when a stored one won would recommend fonts for a
       // theme the site is not wearing, which is a worse mismatch than the one
       // this fixes.
-      const lookTheme = (priorLook && priorLook.theme) || (designed && designed.theme) || (body && body.theme) || null;
+      // STORED-UNLESS-NAMED, which is the owner's rule made mechanical: an edit
+      // changes exactly what was asked for and nothing else. `instructed` is the
+      // interlock — the designer's answer only outranks the stored value when
+      // the designer was actually TOLD to omit what it is keeping, which is what
+      // `editState` above records. Unread state, a first build, or an older
+      // caller all fall back to the previous precedence, so the failure
+      // direction is "the edit did not take" rather than "the site re-themed
+      // itself". See builder/site-edit.mjs.
+      const merged = mergeLook(priorLook, designed, body, { instructed: !!editState });
+      const lookTheme = merged.theme;
       const look = {
         theme: lookTheme,
-        family: (priorLook && priorLook.family) || (designed && designed.family) || (body && body.family) || null,
-        structure: (priorLook && priorLook.structure) || (designed && designed.structure) || (body && body.structure) || null,
+        family: merged.family,
+        structure: merged.structure,
         // …AND THE THEME'S OWN RECOMMENDATION IS THE LAST RESORT.
         //
         // Every theme carries a curated `fonts` pair, validated against the same
@@ -8835,13 +8901,44 @@ async function handleRequest(request, env, ctx) {
         // and a revise must keep the fonts the site already wears. This only
         // decides the case where nobody expressed a preference — which is now the
         // ordinary case, since `fonts` stopped being a required field.
-        fonts: (priorLook && priorLook.fonts) || (designed && designed.fonts) || (body && body.fonts) || themeFontPair(lookTheme),
+        fonts: merged.fonts || themeFontPair(lookTheme),
+        // THE TWO THAT MOVED WHEN NOBODY ASKED, now stored like the rest.
+        //
+        // Neither had an anchor at all: `brand` was `designed.brand || slug` and
+        // `description` was `designed.description || priorBrief`, so on an edit
+        // a designer that had seen only "fix the typo" decided what the site was
+        // called. It became the <title>, the og:title and the og:description,
+        // while the pages kept the real name — so the tab and the link preview
+        // disagreed with the page. They are the two most visible strings on the
+        // site and they were the only two with nothing holding them.
+        brand: merged.brand,
+        description: merged.description,
       };
-      if (!priorLook) {
-        try {
-          await sqlQuery(db, "INSERT INTO _meta (k,v) VALUES ('site_look', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v", [JSON.stringify(look)]);
-        } catch (e) { console.error("look write failed:", slug, e && e.message); }
-      }
+      // WRITTEN ON EVERY BUILD, not only the first.
+      //
+      // It was `if (!priorLook)`, which was correct while the look could never
+      // change after a first build — anchoring made the stored value permanent,
+      // so re-writing it was a no-op. Now an edit CAN move any of these, and
+      // writing only on the first build would apply the change once and forget
+      // it, so the next edit would resurrect the old look. The value written is
+      // the MERGED one, which is stored-unless-named, so this cannot drift.
+      try {
+        await sqlQuery(db, "INSERT INTO _meta (k,v) VALUES ('site_look', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v", [JSON.stringify(look)]);
+      } catch (e) { console.error("look write failed:", slug, e && e.message); }
+      // What this edit actually moved, for the trace: a customer who asks for
+      // one thing and gets four changed cannot see that from the site, and
+      // neither can anybody reading a log. Derived from the merge rather than
+      // from what the model mentioned, so it reports the CHANGE.
+      const lookMoved = priorLook ? movedFields(priorLook, look) : [];
+      if (lookMoved.length) tr.at("look", { moved: lookMoved.join(",") });
+
+      // OFF THE MERGED LOOK, not re-derived. This was declared ~4,600 characters
+      // earlier as `(designed && designed.brand) || body.brand || slug`, which is
+      // where the rename came from: no stored value was consulted because none
+      // was kept. Moved down rather than given its own fallback chain, so there
+      // is ONE answer to "what is this site called" and it is the same one the
+      // stored look holds.
+      const brand = String(look.brand || body.brand || slug).slice(0, 60);
 
       // ── AND THE ONE COLOUR THEY ASKED TO CHANGE ────────────────────────────
       //
@@ -8893,7 +8990,11 @@ async function handleRequest(request, env, ctx) {
           // The one-line description for the head. A revise sends no brief, so
           // the designer writes none — fall back to the brief the site was built
           // from rather than publishing a page with nothing under its name.
-          const siteDescription = String((designed && designed.description) || body.description || priorBrief || brief || "").slice(0, 300);
+          // OFF THE MERGED LOOK, for the same reason as `brand` above: this was
+          // `designed.description || …`, so an edit rewrote the site's link
+          // preview out of the instruction. `priorBrief` stays as the last
+          // resort for sites built before the description was ever stored.
+          const siteDescription = String(look.description || body.description || priorBrief || brief || "").slice(0, 300);
           // A picture for the link preview: the first thing the owner uploaded,
           // if anything. Best-effort — a missing one just means a small card.
           let ogImage = null;
