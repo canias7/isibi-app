@@ -15069,3 +15069,20 @@ Both fixed. The check now refuses an import of something a file doesn't export
 and tells the AI what it does export, and the rule plus its 16 real exceptions
 are now in the instructions. That was the second of the three common failures;
 one left.
+
+---
+
+**Existing sites are left alone (your call, 9 Aug evening).**
+
+The see-through-menu fix only reaches a site when that site is next built. You
+said to leave the ones already published as they are, so nothing sweeps through
+and rebuilds them.
+
+Worth knowing why that is the right call and not just the lazy one: a rebuild is
+a real model call, it costs the site's owner credits, and it re-rolls the page
+copy — so "fixing" a site nobody asked us to touch would charge somebody for a
+change they did not request and reword their pages while doing it.
+
+So: forno-and-co and anything else already live keeps its transparent mobile
+menu until it is edited for some other reason. Every site built from now on has
+the fix. If one ever needs it sooner, sending that site any revise picks it up.
