@@ -505,7 +505,21 @@ export async function publishPages(deps, { spec, slug, priorUsage } = {}) {
   // over, once in credits and once in trust — so a free attempt says so, and a
   // charged one says what it was charged for rather than leaving them to notice.
   const FREE = "You weren't charged for this attempt.";
+  // TWO PAID SENTENCES, BECAUSE ONE OF THEM WAS A LIE ON A REAL BUILD. Seen
+  // live 2026-08-10: `stage: validate`, `the generator called the tool with no
+  // pages in it`, under a message reading "the pages were written, they just
+  // didn't work". No pages were written — that is the whole reason the stage
+  // fired. Somebody reading it goes looking for pages that do not exist, and it
+  // is the worst possible moment to be inaccurate, because the same message is
+  // telling them they have been charged.
+  //
+  // `validate` covers three different things and only one of them wrote
+  // anything: every page refused (it did), the tool called empty, and the model
+  // never calling the tool at all. The charge is the same for all three — we
+  // really did pay for those tokens, which is what `CHARGED_STAGES` says — so
+  // what changes is only the description of what the money bought.
   const PAID = "This attempt used credits — the pages were written, they just didn't work.";
+  const PAID_NOTHING = "This attempt used credits — the model was called and didn't return a page.";
 
   // `buildMs` is what the caller waited for. It was summed across attempts when
   // there were two; with one call it is simply that call, and the accumulator is
@@ -663,7 +677,15 @@ export async function publishPages(deps, { spec, slug, priorUsage } = {}) {
     // `charged` is about the LEDGER, not about the intent. A build that billed
     // 21 and collected 0 must not tell the customer it used their credits.
     out.charged = took > 0;
-    return took > 0 ? PAID : FREE;
+    // DERIVED FROM WHAT THE MODEL RETURNED, not passed in. `settle` takes a stage
+    // rather than a flag precisely so a new failure mode has to be classified in
+    // one place instead of remembered at each call site, and a wording parameter
+    // would put that back — three call sites, each free to describe the same
+    // outcome differently. `gen.input` is the tool payload `validatePages` reads,
+    // so this asks the same object the same question: did any page arrive at all.
+    // True on `home`, `typecheck` and `published`, which all have pages by then.
+    const wrote = !!(gen && gen.input && Array.isArray(gen.input.pages) && gen.input.pages.length);
+    return took > 0 ? (wrote ? PAID : PAID_NOTHING) : FREE;
   };
 
   const v = validatePages(gen.input);

@@ -14,7 +14,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   OWN_ZONES, APP_ZONE, SITE_ZONE, SITE_ZONE_LIVE,
-  isOwnHostname, isAppHostname, siteHostSlug, siteHostFor, siteLabelFor, siteUrlFor, claimRefusal, servedAtRoot, siteOrigin } from "../site-domains.mjs";
+  isOwnHostname, isAppHostname, siteHostSlug, siteHostFor, siteLabelFor, siteUrlFor, claimRefusal, servedAtRoot, siteOrigin,
+  isPublishedSiteRequest } from "../site-domains.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => fs.readFileSync(path.join(ROOT, p), "utf8");
@@ -390,4 +391,75 @@ test("a paying customer is returned to the site, not to a 404", () => {
   const block = w.slice(at, at + 200);
   assert.match(block, /siteUrlFor\(slug, origin\)/, "the platform case must resolve to the site's real address");
   assert.match(block, /origin\.replace\(/, "a custom domain must return to ITSELF, not to ours");
+});
+
+test("a published site is recognised by its MOUNT, not by its raw path", () => {
+  // THE BUG THIS EXISTS FOR was total and invisible. `harden()` picked the
+  // permissive website policy off the pathname alone — true only while a site
+  // was served from `gofarther.dev/s/<slug>/`. Both hostname rewrites replace
+  // the pathname INSIDE `handleRequest`, and `harden` gets the ORIGINAL request,
+  // so `<slug>.gofarther.app/` arrived looking like `/` and every published site
+  // on every customer-facing address was served the platform's lockdown policy.
+  // Measured live: `x-frame-options: DENY` and `frame-ancestors 'none'` on two
+  // real sites, which is why the builder's own preview pane rendered Chrome's
+  // "This content is blocked".
+  //
+  // Latent from the day the site zone went live, TOTAL the day `/s/<slug>/`
+  // started redirecting away — that was the one address with the right headers.
+  const yes = [
+    ["event-vendora.gofarther.app", "/", "the address every customer is given"],
+    ["forno-and-co.gofarther.app", "/menu", "a route on the site zone"],
+    ["sharpfadebarbers.com", "/", "a custom domain"],
+    ["gofarther.dev", "/s/x/", "the internal mount"],
+    ["gofarther.dev", "/preview/x", "the builder's draft preview"],
+  ];
+  const no = [
+    ["gofarther.dev", "/", "the workspace itself"],
+    ["gofarther.dev", "/api/credits", "a platform API call"],
+    ["event-vendora.gofarther.app", "/api/db/x/data/y", "a site calling its own API"],
+    ["event-vendora.gofarther.app", "/u/x/photo.jpg", "an upload"],
+    ["gofarther.app", "/", "the bare zone apex, which only redirects"],
+  ];
+  for (const [h, p, why] of yes) {
+    if (!SITE_ZONE_LIVE && h.endsWith(SITE_ZONE)) continue;
+    assert.equal(isPublishedSiteRequest(h, p), true, h + p + " must get the website policy — " + why);
+  }
+  for (const [h, p, why] of no) {
+    assert.equal(isPublishedSiteRequest(h, p), false, h + p + " must keep the strict app policy — " + why);
+  }
+});
+
+test("…and worker.js asks that question rather than keeping its own copy", () => {
+  // The guard that could have caught the original: `harden` is in worker.js,
+  // which cannot be imported, so the decision was untestable where it lived.
+  // Asserted at BOTH ends — the helper is used, and the path-only test it
+  // replaced is gone — because either alone passes while the other rots.
+  const w = read("worker.js");
+  assert.match(w, /const publishedSite = isPublishedSiteRequest\(hostname, pathname\)/,
+    "harden no longer resolves the mount through the shared helper");
+  assert.doesNotMatch(w, /const publishedSite = pathname\.startsWith\("\/s\/"\)/,
+    "harden is back to deciding on the raw path, which is blind to both hostname rewrites");
+  assert.match(w, /isPublishedSiteRequest/, "the helper is not imported into worker.js");
+});
+
+test("a customer's site can be framed by the builder and by nobody else", () => {
+  // `frame-ancestors 'self'` was written when a site was same-origin with the
+  // workspace framing it. A site is on its own registrable domain now, so
+  // `'self'` means the preview pane can never load — and `X-Frame-Options` has
+  // no syntax for "self plus one other origin" (`ALLOW-FROM` is dead), so any
+  // value there either blocks the preview or is ignored.
+  const w = read("worker.js");
+  const at = w.indexOf('"base-uri \'self\'",\n      // THE BUILDER\'S PREVIEW IS NOW CROSS-ORIGIN');
+  assert.ok(at > 0, "the published-site CSP block moved");
+  const block = w.slice(at, at + 1600);
+  assert.match(block, /"frame-ancestors 'self' https:\/\/" \+ APP_ZONE \+ " https:\/\/www\." \+ APP_ZONE/,
+    "the platform is no longer allowed to frame a published site, so the preview stays blocked");
+  assert.match(block, /h\.delete\("X-Frame-Options"\)/,
+    "X-Frame-Options must be DELETED on a published site, not merely left unset — an upstream one would survive");
+  // …and the strict policy still denies everything else. Without this the test
+  // above passes just as well on a Worker that stopped framing-protecting the
+  // app, which is the opposite of what was wanted.
+  assert.match(w, /"frame-ancestors 'none'"/, "the app's own strict policy lost frame-ancestors");
+  assert.match(w, /h\.set\("X-Frame-Options", sameOriginFrame \? "SAMEORIGIN" : "DENY"\)/,
+    "the app is no longer denied framing");
 });

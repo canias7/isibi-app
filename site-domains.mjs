@@ -230,6 +230,37 @@ export function servedAtRoot(pathname) {
 }
 
 /**
+ * Is this request going to be answered by a published customer site?
+ *
+ * THE SECURITY HEADERS NEED THIS AND WERE ASKING THE WRONG QUESTION. `harden()`
+ * in worker.js picked the permissive website policy off the raw pathname —
+ * `/s/…` or `/preview/…` — which was the whole truth only while a site was
+ * served from `gofarther.dev/s/<slug>/`. Both hostname rewrites replace the
+ * pathname INSIDE `handleRequest`, and `harden` is handed the original request,
+ * so `<slug>.gofarther.app/` arrived looking like `/` and every published site
+ * on every customer-facing address was served the platform's lockdown policy:
+ * `frame-ancestors 'none'`, `X-Frame-Options: DENY`, and a `frame-src` with no
+ * map hosts. Measured live on two real sites 2026-08-10.
+ *
+ * It lives HERE rather than in worker.js because worker.js cannot be imported
+ * and this is the third place that had to answer "which mount is this" — the
+ * two rewrites being the others. A copy in an untestable file is how the answer
+ * drifts, and the drift is silent: the site still renders, so only a person
+ * looking at a preview pane or a map can tell.
+ *
+ * Asked through the same helpers the rewrites use, in the same order. `/api/`
+ * and `/u/` stay on the app policy because the router leaves them unrewritten;
+ * the bare zone apex is NOT a site (no label), so its redirect keeps the strict
+ * headers rather than being handed a customer policy it has no use for.
+ */
+export function isPublishedSiteRequest(hostname, pathname) {
+  const p = String(pathname || "");
+  if (p.startsWith("/s/") || p.startsWith("/preview/")) return true;
+  if (servedAtRoot(p)) return false;
+  return !!siteHostSlug(hostname) || !isOwnHostname(hostname);
+}
+
+/**
  * A slug that may be a DNS label.
  *
  * A build slug is already `[a-z0-9-]` capped at 60 (`worker.js`), so this is

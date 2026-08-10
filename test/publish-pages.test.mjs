@@ -433,6 +433,36 @@ test("the sentence a FAILED build shows follows the ledger, not the intent", asy
   assert.equal(b.charged, true);
 });
 
+test("a charged failure says what the money bought, and never invents pages", async () => {
+  // SEEN LIVE 2026-08-10. A real build came back `stage: validate` / "the
+  // generator called the tool with no pages in it", under a sentence reading
+  // "the pages were written, they just didn't work". No pages were written —
+  // that is the whole reason the stage fired. It is the worst moment to be
+  // inaccurate, because the same message is saying they have been charged.
+  //
+  // `validate` covers three outcomes and only one wrote anything. The CHARGE is
+  // the same for all three — the tokens were really spent — so what changes is
+  // only the description, which is asserted per outcome here.
+  const empty = harness({ generate: async () => gen([]) });
+  const a = await publishPages(empty.deps, { spec: SPEC, slug: "cafe" });
+  assert.equal(a.stage, "validate");
+  assert.match(a.notes, /used credits/, "the tokens were spent, so this is still a charge");
+  assert.doesNotMatch(a.notes, /pages were written/,
+    "it claims pages were written on the one path where none were");
+  assert.match(a.notes, /didn't return a page/);
+
+  // The model never calling the tool at all is the same class.
+  const none = harness({ generate: async () => gen([], { input: null, shape: { stopReason: "end_turn", blocks: ["text"] } }) });
+  const b = await publishPages(none.deps, { spec: SPEC, slug: "cafe" });
+  assert.doesNotMatch(b.notes, /pages were written/);
+
+  // …and a build whose pages really WERE written and then failed still says so,
+  // or the assertions above pass on a message that simply stopped saying it.
+  const wrote = harness({ compile: async () => ({ ok: false, stage: "typecheck", error: "index.tsx(3,1): TS2322" }) });
+  const c = await publishPages(wrote.deps, { spec: SPEC, slug: "cafe" });
+  assert.match(c.notes, /pages were written/, "a real typecheck failure did write pages and must say so");
+});
+
 test("truncation is a failed generation, not a shipped half-file", async () => {
   const { deps, calls } = harness({ generate: async () => gen([], { input: null, truncated: true }) });
   const out = await publishPages(deps, { spec: SPEC, slug: "cafe" });

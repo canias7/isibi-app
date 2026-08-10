@@ -14,7 +14,7 @@ import { handleInbound, MAX_BODY as INBOUND_MAX_BODY, MAX_PER_MINUTE as INBOUND_
 // every Cloudflare custom-hostname call the platform made threw before it could
 // reach the API. Invisible until the line ran, which is the whole class of bug
 // `test/worker-imports.test.mjs` now covers.
-import { OWN_ZONES, APP_ZONE, SITE_ZONE, normalizeHostname, isOwnHostname, isAppHostname, servedAtRoot, siteHostSlug, siteHostFor, siteUrlFor, siteOrigin, claimRefusal, dnsInstructions, readStatus } from "./site-domains.mjs";
+import { OWN_ZONES, APP_ZONE, SITE_ZONE, normalizeHostname, isOwnHostname, isAppHostname, servedAtRoot, isPublishedSiteRequest, siteHostSlug, siteHostFor, siteUrlFor, siteOrigin, claimRefusal, dnsInstructions, readStatus } from "./site-domains.mjs";
 import { checkDns, dnsSentence } from "./site-dns.mjs";
 import { detectProvider, providerSentence } from "./site-registrar.mjs";
 import { offerFor as dcOfferFor, applyUrl as dcApplyUrl, signQuery as dcSign, rsaSigner as dcSigner } from "./site-domain-connect.mjs";
@@ -974,8 +974,8 @@ function harden(res, request) {
   // These are fixed, self-authored files with no user-input reflection, so
   // 'unsafe-inline' here carries no injection risk. The app + auth + API keep
   // the strict policy (DENY / frame-ancestors 'none' / no inline scripts).
-  let pathname = "";
-  try { pathname = new URL(request.url).pathname; } catch {}
+  let pathname = "", hostname = "";
+  try { const u = new URL(request.url); pathname = u.pathname; hostname = u.hostname; } catch {}
   const sameOriginFrame = pathname.startsWith("/mkt/demo");
   // A published Website-Builder site (gofarther.dev/s/<slug>) is a real end-user
   // website — it needs its OWN inline <style>/<script>, Google Fonts, and the
@@ -984,7 +984,23 @@ function harden(res, request) {
   // /preview/ = the builder's live draft preview: it renders the SAME generated
   // page in the workspace iframe, so it needs the identical website CSP (a
   // blob/srcdoc preview would inherit the strict app CSP and blank the page).
-  const publishedSite = pathname.startsWith("/s/") || pathname.startsWith("/preview/");
+  //
+  // DECIDED ON THE MOUNT, NOT THE RAW PATH — and reading only the path is what
+  // broke every published site the day the site zone went live. `harden` is
+  // handed the ORIGINAL request, while both hostname rewrites replace the
+  // pathname with `/s/<slug>/…` INSIDE `handleRequest`. So a visit to
+  // `<slug>.gofarther.app/` arrives here looking like `/`, misses this test, and
+  // is served the platform's lockdown policy: `frame-ancestors 'none'`,
+  // `X-Frame-Options: DENY`, and a `frame-src` with no map hosts in it. Measured
+  // live on two real sites. It went from latent to total when `/s/<slug>/`
+  // started redirecting away, because that was the one address with the right
+  // headers and nobody lands on it any more.
+  //
+  // Asked the same way the router asks it, through the same helpers rather than
+  // a second copy of the rule: a site-zone label, or a hostname that is not ours
+  // at all (a custom domain). `servedAtRoot` keeps `/api/` and `/u/` on the app
+  // policy exactly as the router leaves them unrewritten.
+  const publishedSite = isPublishedSiteRequest(hostname, pathname);
   h.set("X-Content-Type-Options", "nosniff");
   if (publishedSite) {
     h.set("Content-Security-Policy", [
@@ -998,9 +1014,21 @@ function harden(res, request) {
       // maps. Without this, default-src 'self' would block the map iframe on publish.
       "frame-src 'self' https://www.openstreetmap.org https://www.google.com https://maps.google.com",
       "base-uri 'self'",
-      "frame-ancestors 'self'",
+      // THE BUILDER'S PREVIEW IS NOW CROSS-ORIGIN, which `'self'` alone cannot
+      // express. It was written when a site was served from `gofarther.dev/s/…`,
+      // same-origin with the workspace framing it; a site lives on its own
+      // registrable domain now, so `'self'` means only the site may frame the
+      // site and the preview pane renders Chrome's "This content is blocked".
+      // The platform is named explicitly rather than opened up — a customer's
+      // site stays unframable by anybody else, which is the clickjacking answer.
+      "frame-ancestors 'self' https://" + APP_ZONE + " https://www." + APP_ZONE,
     ].join("; "));
-    h.set("X-Frame-Options", "SAMEORIGIN");
+    // AND NO `X-Frame-Options` AT ALL, deliberately. It has no syntax for "self
+    // plus one other origin" — `ALLOW-FROM` is dead in every current browser —
+    // so any value here either blocks the preview or is ignored. `frame-ancestors`
+    // is the expressive control and supersedes it per spec; DELETED rather than
+    // left unset, because an upstream response carrying one would survive.
+    h.delete("X-Frame-Options");
   } else {
     const demoCSP = CSP
       .replace("frame-ancestors 'none'", "frame-ancestors 'self'")
