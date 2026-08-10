@@ -10,6 +10,41 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## 2026-08-10 — Cost should follow the change, not the pipeline (owner's call)
+
+Owner's observation, walking the pipeline step by step: **every change goes
+through the whole thing.** "Make the background yellow" and "add a members area"
+take the identical path and cost the same ~30 credits, because compile-and-
+publish sits at the END of a line built for creating a site from nothing — the
+only way to reach the publisher is to walk all of it.
+
+**The structural change:** stop treating a site as something you regenerate.
+It is four layers that meet at one compile step — the data model, the pages, the
+look (theme/tokens/fonts, compiled to CSS), and the words inside the pages. They
+are already separate; we just re-derive all four whenever one moves. Pull
+compile-and-publish out into a shared spine and each path re-derives only what
+changed.
+
+**The owner improved my design, and the improvement is the useful part.** I
+proposed two cheap intents, `style` and `text`. They asked whether those should
+be one. They should: the two differ in MECHANISM but not in DECISION, and the
+router should only decide the thing with money attached — do we need new pages,
+or are the pages we have still right? The case that settles it is an ordinary
+message: *"make it blue and fix the typo in the header"* is both, and a
+two-intent router has to pick one and half-do the job.
+
+**Measured on the way, because the whole idea rests on it:** 329 generated pages
+contain zero hardcoded colours — they name roles (`bg-primary`), never values.
+So a colour change genuinely cannot require a page rewrite. But nothing ENFORCES
+that, so it is luck rather than a rule, which is why the lint ships in the same
+change rather than after.
+
+**Preference to keep:** when the owner asks "should X and Y be the same thing",
+check whether they differ in what somebody DECIDES or only in how it is carried
+out. Only the first justifies two paths.
+
+---
+
 ## 2026-08-10 — Went looking for one gap and the evidence named a different one
 
 I had this on my list as "the model can't see most of the component kit". I went
