@@ -34,6 +34,45 @@ when they say they are home, since it wants doing on their desktop.
 
 ---
 
+## 2026-08-10 — The question policy is PROVEN LIVE
+
+**Owner's call: "they gotta be smart with the questions, not all the time."** The
+prompt was not permitting a question, it was demanding one — the tool
+description said outright that `build` is for when the questions have RUN OUT —
+so a brief that already answered everything still got interrogated three times
+and the model had to invent questions to fill the slots.
+
+**Measured against the deployed Worker on the first run after the change**
+(`build smoke`, 2c629f0, 97 passed / 0 failed):
+
+```
+ok   a brief that names no trade is asked about it
+ok   a brief that answers everything is built, not interrogated
+ok   the two briefs were routed differently
+```
+
+- `"a website for my business"` → **clarify**. That is the exact brief that
+  measured this feature DEAD the last time it was softened, so the floor is the
+  half that matters: an unnamed trade is not a judgement call.
+- `"a barber shop in Leeds… book online… price list"` → **build**.
+- They differed, which is the only assertion a router jammed on one answer
+  cannot pass.
+
+**THE PAIR IS THE POINT, and it is written down here because a single probe was
+the shape of the last failure.** Either one alone is passed by a broken router:
+one that asks every time passes the floor, one that never asks passes the
+ceiling. Both plus the difference is what brackets it.
+
+**It runs on every deploy now**, inside `build smoke`, which already holds a
+session — two Haiku calls, ~2 credits, no designer, no Neon project, no compile,
+no site. The last regression here was found by a one-off manual probe long after
+the feature had gone quiet; this is the difference between a minute and a month.
+
+**A unit test cannot prove a prompt produces a behaviour.** Several entries in
+CLAUDE.md say this feature was "not proven live". As of this run it is.
+
+---
+
 ## 2026-08-10 — Work ON the designated branch, not on main
 
 **A push reported "Everything up-to-date" while the commit sat unpushed.** The
