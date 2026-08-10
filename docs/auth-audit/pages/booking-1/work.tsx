@@ -1,5 +1,4 @@
 import { createFileRoute } from "@tanstack/react-router";
-
 import { SiteChrome } from "@/components/ui/site-chrome";
 import { Gallery } from "@/components/ui/gallery";
 import { SectionHeader } from "@/components/ui/section-header";
@@ -9,44 +8,36 @@ export const Route = createFileRoute("/work")({ component: Work });
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "A calm, well-lit studio — every class ends on time.",
+  tagline: "A calm studio room, six classes a day.",
   links: [
     { label: "Home", href: "/" },
     { label: "Book", href: "/book" },
     { label: "The work", href: "/work" },
     { label: "Account", href: "/account" },
   ],
-  action: { label: "Book now", href: "/book" },
+  action: { label: "Check availability", href: "/book" },
 };
 
 function Work() {
   return (
     <SiteChrome {...CHROME}>
       <div className="mx-auto max-w-6xl px-6 py-16">
-        <SectionHeader
-          eyebrow="The work"
-          title="Inside the studio"
-          description="A look at the space, the classes and the corner you'll find your mat in."
-        />
+        <SectionHeader eyebrow="The studio" title="The room, the classes, the people in them" description="A look at what a session here actually feels like." />
         <Gallery
-          className="mt-8 motion-reveal"
+          className="mt-8"
           columns={3}
           items={[
-            { src: null, alt: "", caption: "Sunrise Vinyasa, first light through the front windows", fallbackSeed: "work-1" },
-            { src: null, alt: "", caption: "Blocks and bolsters, set out before a restorative class", fallbackSeed: "work-2" },
-            { src: null, alt: "", caption: "The main room, eighteen mats laid out", fallbackSeed: "work-3" },
-            { src: null, alt: "", caption: "Evening Wind-down, lights low", fallbackSeed: "work-4" },
-            { src: null, alt: "", caption: "The studio entrance on Middle Street", fallbackSeed: "work-5" },
-            { src: null, alt: "", caption: "Tea and quiet after a Saturday class", fallbackSeed: "work-6" },
+            { src: "@@IMG:a full yoga class mid-pose in warm studio light@@", alt: "", caption: "Morning Flow, a full room" },
+            { src: "@@IMG:a close-up of hands in a supported stretch, blocks nearby@@", alt: "", caption: "Yin & Restore — props for every shape" },
+            { src: "@@IMG:a teacher adjusting a student's alignment in a standing pose@@", alt: "", caption: "A hands-on correction, Foundations" },
+            { src: "@@IMG:a pregnant woman in a gentle seated yoga pose@@", alt: "", caption: "Prenatal, modified and unhurried" },
+            { src: "@@IMG:rows of neatly stacked yoga mats and bolsters against a wall@@", alt: "", caption: "Set up before the evening class" },
+            { src: "@@IMG:a sunlit empty studio floor early in the morning@@", alt: "", caption: "Before the first class of the day" },
           ]}
         />
       </div>
       <div className="mx-auto max-w-6xl px-6 pb-20">
-        <CtaBand
-          title="See it for yourself"
-          description="Book a class and try the space firsthand."
-          action={{ label: "Book now", href: "/book" }}
-        />
+        <CtaBand title="See it for yourself" description="Your first class is on us — check availability and come try the room." action={{ label: "Check availability", href: "/book" }} />
       </div>
     </SiteChrome>
   );
