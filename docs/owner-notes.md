@@ -10,6 +10,25 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## 2026-08-10 — Went looking for one gap and the evidence named a different one
+
+I had this on my list as "the model can't see most of the component kit". I went
+to the eval history rather than acting on the hunch, and it said the opposite:
+**every recorded compile failure was on a component the model COULD see** — it
+read the API and invented a prop that was not in it. So the fix is a lint that
+checks a call against the signature the prompt already carries, not more prompt.
+
+Worth keeping as a pattern: the thing that finally made this answerable was the
+per-sample error log the eval commits. Before that, "why did my build fail" was
+a shrug; with eight runs of history it is a ranked list.
+
+**The part I nearly got wrong.** A lint that complains about correct code is
+worse than no lint — it teaches the model away from components that are fine. So
+the bar was zero false alarms across all 328 pages the model learns from, and it
+took five separate fixes to get there from 121.
+
+---
+
 ## 2026-08-08 — An attachment is just an attachment
 
 Owner corrected me twice, and the second correction is the more useful one.

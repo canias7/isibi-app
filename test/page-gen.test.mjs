@@ -13,8 +13,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   REFERENCE_PAGE, REFERENCE_PAGES, UI_COMPONENTS, UI_SHORTLIST, UI_SHORTLIST_API, PAGE_RULES, SITE_PAGES_TOOL, MAX_PAGES, MANAGED_COLUMNS,
-  schemaDigest, pagesPrompt, repairPrompt, validatePages, lintPages, briefForPages, ACCESS_NOTE,
-} from "../builder/page-gen.mjs";
+  schemaDigest, pagesPrompt, repairPrompt, validatePages, lintPages, briefForPages, ACCESS_NOTE, propsOf } from "../builder/page-gen.mjs";
 import { COMPONENT_API, COMPONENT_TYPES } from "../builder/component-api.mjs";
 import { build as buildApi, render as renderApi, extract as extractApi, buildTypes as buildTypesApi, extractTypes as extractTypesApi } from "../builder/gen-component-api.mjs";
 import * as api from "../builder/page-gen.mjs";
@@ -2280,4 +2279,145 @@ test("the rules show an UPDATE call, not just the hook's name", () => {
   assert.match(rows, /export type UpdateArg<T> = \{ id: RowId \} & \(Omit<Partial<T>, "id"> \| \{ values: Omit<Partial<T>, "id"> \}\)/,
     "the rules promise a nested `values` the hook does not accept");
   assert.match(rows, /mutationFn: \(arg: UpdateArg<T>\)/, "useUpdateRow no longer takes both shapes");
+});
+
+/* ------------------------- a prop the component does not take */
+
+test("the lint catches a prop invented on a component it CAN see", () => {
+  // The failure the eval actually records. Every recorded compile error was on a
+  // component whose signature was in the prompt — `render` on a `Column`,
+  // `title` on an `Activity` — not on one the model could not see. Caught here
+  // it costs nothing; caught by `tsc` it costs the page.
+  const page = (body) => ({ path: "p.tsx", source:
+    'import { createFileRoute } from "@tanstack/react-router";\n' +
+    'export const Route = createFileRoute("/")({ component: P });\n' + body });
+  const hits = (body) => lintPages([page(body)], { tables: [] })
+    .filter((x) => /not part of that shape|does not take/.test(x));
+
+  assert.equal(hits('import { SafeImage } from "@/components/ui/safe-image";\nfunction P(){ return <SafeImage src="/x" caption="no" />; }').length, 1,
+    "a wrong JSX attribute is not caught");
+  assert.equal(hits('import { DataTable } from "@/components/ui/data-table";\nfunction P(){ return <DataTable columns={[{ key:"a", header:"A", render:(r:any)=>r.x }]} rows={[]} />; }').length, 1,
+    "a wrong key inside a prop's object is not caught");
+  assert.equal(hits('import { ActivityFeed } from "@/components/ui/activity-feed";\nfunction P(){ return <ActivityFeed items={[{ who:"a", what:"b", at:"c", title:"x" }]} />; }').length, 1,
+    "a wrong key in an Activity is not caught");
+});
+
+test("…and never flags a correct page", () => {
+  // THE MEASUREMENT THAT DECIDES WHETHER THIS LINT CAN EXIST. A rule that cries
+  // wolf teaches the model away from components that are perfectly real, which
+  // is worse than the miss it prevents. Driven over every reference page and
+  // every family exemplar — 328 known-good pages, the same corpus the model
+  // learns the kit from.
+  //
+  // Getting here took five separate fixes, every one of them a false alarm on a
+  // page that was right: a second copy of the splitter that never got the `=>`
+  // guard (121 pages), a module documenting one of its several exports (55), the
+  // innermost braces read as the item (24), prose inside strings scanned as code
+  // (14), and a nested element's props read as the outer one's (1).
+  const roots = [
+    path.join(import.meta.dirname, "..", "builder", "lovable", "template", "src", "family-pages"),
+    path.join(import.meta.dirname, "..", "builder", "lovable", "template", "src", "routes"),
+  ];
+  const files = [];
+  const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+    const p = path.join(d, e.name);
+    if (e.isDirectory()) walk(p); else if (e.name.endsWith(".tsx") && e.name !== "__root.tsx") files.push(p);
+  } };
+  for (const r of roots) if (fs.existsSync(r)) walk(r);
+  assert.ok(files.length > 300, "the corpus scan found only " + files.length + " pages — it has drifted");
+  const bad = [];
+  for (const f of files) {
+    const out = lintPages([{ path: "x.tsx", source: fs.readFileSync(f, "utf8") }], { tables: [] })
+      .filter((x) => /not part of that shape|does not take/.test(x));
+    if (out.length) bad.push(path.basename(path.dirname(f)) + "/" + path.basename(f) + ": " + out[0]);
+  }
+  assert.deepEqual(bad, [], "the prop lint flags known-good pages:\n  " + bad.slice(0, 8).join("\n  "));
+});
+
+test("aria-* and data-* are DOM passthrough, never a signature miss", () => {
+  // These reach the DOM through the component's rest props and are in no
+  // signature, so judging them against one flags the accessibility attributes a
+  // good page carries — punishing exactly the pages we want more of. Measured
+  // without the guard: `aria-hidden` and `data-testid` on a correct <SafeImage>
+  // both report. The 328-page corpus did not hold this, so it is driven here.
+  const src = 'import { createFileRoute } from "@tanstack/react-router";\n' +
+    'import { SafeImage } from "@/components/ui/safe-image";\n' +
+    'export const Route = createFileRoute("/")({ component: P });\n' +
+    'function P(){ return <SafeImage src="/x" aria-hidden="true" data-testid="hero" />; }';
+  const hits = (s) => lintPages([{ path: "p.tsx", source: s }], { tables: [] })
+    .filter((x) => /not part of that shape|does not take/.test(x));
+  assert.deepEqual(hits(src), [], "aria-*/data-* are being judged against the signature");
+  // …and an invented attribute on the same element still reports, so the above
+  // is not passing on a lint that has stopped reading attributes at all.
+  assert.equal(hits(src.replace('data-testid="hero"', 'caption="no"')).length, 1,
+    "the passthrough case passes because nothing is checked, not because the guard held");
+});
+
+test("`=>` is not a closing bracket, and the case that proves it is in a PAGE", () => {
+  // `(row: T) => React.ReactNode` drove the depth negative, so every field after
+  // a function-typed one was lost — and a field the reader cannot see is a FALSE
+  // ALARM on correct code, which is the one thing this lint must never produce.
+  //
+  // WHERE THE PROOF HAD TO COME FROM IS THE POINT. Removing the guard changes
+  // the extracted props of ZERO of the 2,017 kit components (measured), because
+  // `Math.max(0, d - 1)` absorbs the negative depth whenever the arrow sits at
+  // the top of a shape — which is where every un-truncated kit signature puts
+  // it. So the whole 328-page corpus stayed green and the mutant read as inert.
+  // It is not: a PAGE can nest an arrow one brace deeper than any signature
+  // does, and there the clamp does not save it. Driven with exactly that.
+  const page = (body) => ({ path: "p.tsx", source:
+    'import { createFileRoute } from "@tanstack/react-router";\n' +
+    'import { ActivityFeed } from "@/components/ui/activity-feed";\n' +
+    'export const Route = createFileRoute("/")({ component: P });\n' + body });
+  const hits = (body) => lintPages([page(body)], { tables: [] })
+    .filter((x) => /not part of that shape|does not take/.test(x));
+
+  // An object-valued field holding an arrow. Every key here is real; without the
+  // guard the depth drops to 0 at the `>` and the comma after it splits the
+  // item, so `tz` — a key of the INNER object — is judged against Activity.
+  assert.deepEqual(hits('function P(){ return <ActivityFeed items={[{ who:"a", what:"b", at:{ on:(x)=>x, tz:"UTC" } }]} />; }'), [],
+    "an arrow nested inside a field's object breaks the depth count");
+  // …and the same page with a genuinely wrong key still reports, so the
+  // assertion above is not passing on a lint that has stopped looking.
+  assert.equal(hits('function P(){ return <ActivityFeed items={[{ who:"a", what:"b", at:{ on:(x)=>x }, title:"t" }]} />; }').length, 1,
+    "the clean case passes because the lint went quiet, not because the guard held");
+});
+
+test("a spread makes the lint SKIP, in both places it can appear", () => {
+  // A spread can supply ANYTHING, so there is no honest answer about which
+  // props or keys are present — and the whole justification for this lint is
+  // that it never cries wolf. Two separate guards, because a spread lands in
+  // two different places and a mutation proved neither was held: `{...props}`
+  // on the element, and `...base` inside the object handed to a prop. Each is
+  // driven with a case the lint WOULD otherwise flag, so a passing assertion
+  // means the guard fired rather than that the page happened to be clean.
+  const page = (body) => ({ path: "p.tsx", source:
+    'import { createFileRoute } from "@tanstack/react-router";\n' +
+    'export const Route = createFileRoute("/")({ component: P });\n' + body });
+  const hits = (body) => lintPages([page(body)], { tables: [] })
+    .filter((x) => /not part of that shape|does not take/.test(x));
+
+  const attrSpread = 'import { SafeImage } from "@/components/ui/safe-image";\n' +
+    'function P(){ return <SafeImage src="/x" {...rest} caption="no" />; }';
+  assert.equal(hits(attrSpread).length, 0, "an element carrying {...} must not have its attributes judged");
+  assert.equal(hits(attrSpread.replace(" {...rest}", "")).length, 1,
+    "the spread case passes because the page is clean, not because the guard fired");
+
+  const keySpread = 'import { ActivityFeed } from "@/components/ui/activity-feed";\n' +
+    'function P(){ return <ActivityFeed items={[{ ...base, title:"x" }]} />; }';
+  assert.equal(hits(keySpread).length, 0, "an object containing a spread must not have its keys judged");
+  assert.equal(hits(keySpread.replace(" ...base,", "")).length, 1,
+    "the key-spread case passes because the object is clean, not because the guard fired");
+});
+
+test("an unreadable signature makes the lint SKIP, never guess", () => {
+  // `gen-component-api` elides a long nested type with an ellipsis, which leaves
+  // an unbalanced brace — so the prop list looks complete and is not. 15 of 2,032
+  // components are in that state, and on one of them a correct page was reported
+  // as wrong. Skipping is the only safe answer.
+  const withEllipsis = Object.entries(COMPONENT_API).find(([, v]) => String(v).includes("…"));
+  assert.ok(withEllipsis, "no component has a truncated signature — this guard now checks nothing");
+  assert.equal(propsOf(withEllipsis[0]), null, "a truncated signature must not yield a partial prop list");
+  // …and a component with a whole signature still answers.
+  assert.ok((propsOf("safe-image") || []).includes("fallbackSeed"));
 });

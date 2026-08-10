@@ -967,6 +967,278 @@ export const UI_COMPONENTS = [
 //
 // Names alone stay in rule 3; this is the reference the model checks a call
 // against, which is why it is a separate block rather than a longer rule.
+/**
+ * Which kit module exports this JSX tag, or null.
+ *
+ * Derived from `UI_EXPORTS`, which is itself derived from `COMPONENT_API` — so a
+ * tag resolves exactly when the prompt claims that component exists. A name
+ * exported by two modules resolves to NEITHER: guessing which one a page meant
+ * is how a lint invents a complaint about a correct call.
+ */
+export function uiModuleFor(tag) {
+  const hits = [];
+  for (const [mod, names] of Object.entries(UI_EXPORTS)) if (names.has(tag)) hits.push(mod);
+  return hits.length === 1 ? hits[0] : null;
+}
+
+/**
+ * The PROP NAMES each documented component accepts, derived from its signature.
+ *
+ * The failure this exists for is the one the eval actually records: not a
+ * component the model could not see, but a prop invented on one it could.
+ * `render` on `Column`, `onClick` on a bulk action, `title` on an `Activity`,
+ * `activityFeedPlaceholder` out of `activity-feed` — every recorded compile
+ * failure was on a component whose signature was in the prompt.
+ *
+ * SPLIT ON DEPTH, never on a bare comma. A signature carries object props
+ * (`action?: { label: string; href?: string }`), generics and function types,
+ * all full of commas and colons that are NOT top-level props — and a regex
+ * written for the flat case is a mistake this codebase has now made three
+ * separate times (the chart lib's missing semicolons, `Column<T>`, `DataTable<T>`).
+ *
+ * Returns null for a component with no signature, so the lint can SKIP it rather
+ * than guess: a false alarm teaches the model away from a component that is
+ * perfectly real, which is worse than the miss.
+ */
+export function propsOf(component, tag) {
+  const sig = COMPONENT_API[component];
+  // A TRUNCATED SIGNATURE CANNOT ANSWER "IS THIS PROP REAL". `gen-component-api`
+  // elides a long nested type with `…`, which leaves an unbalanced brace — the
+  // splitter never returns to depth 0 and every prop after it disappears. That
+  // is a list of props that LOOKS complete and is not, which turns a correct
+  // call into a complaint. Skipping is the only safe answer, and it is the same
+  // rule the import check uses for a module with no known exports.
+  if (typeof sig === "string" && sig.includes("\u2026")) return null;
+  if (!sig) return null;
+  // THE SIGNATURE MUST BE FOR THIS TAG. A module can export several components —
+  // `testimonial.tsx` has `Testimonial` and `TestimonialGrid` — and COMPONENT_API
+  // documents ONE of them. Reading the wrong one reported `TestimonialGrid` as
+  // taking `item`, which is the other component's prop, on a page that was right.
+  if (tag && !new RegExp("^" + tag + "\\s*\\(").test(sig)) return null;
+  const open = sig.indexOf("(");
+  if (open < 0) return null;
+  // The matching close paren, not the first one — a function-typed prop has its own.
+  let depth = 0, close = -1;
+  for (let i = open; i < sig.length; i++) {
+    const c = sig[i];
+    if (c === "(") depth++;
+    else if (c === ")") { depth--; if (depth === 0) { close = i; break; } }
+  }
+  if (close < 0) return null;
+  // THROUGH THE SHARED SPLITTER, not a second copy of it. This function had its
+  // own inline loop, written before `splitTop` was extracted — so the `=>` fix
+  // reached one and not the other, and every prop after a function-typed one was
+  // invisible. `ContactForm(onSubmit: (v: {…}) => void, busy?, …)` came back as
+  // just `onSubmit`, which turned four correct props into a lint complaint.
+  // Measured: 121 of 328 known-good pages flagged. Two copies of one rule, in
+  // the same change that extracted the helper to avoid exactly that.
+  const parts = splitTop(sig.slice(open + 1, close), ",");
+  const names = [];
+  for (const raw of parts) {
+    const m = raw.trim().match(/^([A-Za-z_$][\w$]*)\??\s*:/);
+    if (m) names.push(m[1]);
+  }
+  return names.length ? names : null;
+}
+
+/**
+ * The element's OWN attributes — `[name, indexOfValue]` — never a nested one's.
+ *
+ * A prop can hold a whole element: `media={<SafeImage src={null} …/>}`. Reading
+ * the attribute text flat pulled `src`, `alt` and `ratio` out of the INNER
+ * component and reported them against the outer one, on pages that were right.
+ * So names are taken at brace depth 0 only.
+ */
+function ownAttrs(attrs) {
+  const out = [];
+  let d = 0;
+  for (let i = 0; i < attrs.length; i++) {
+    const c = attrs[i];
+    if ("{([".includes(c)) { d++; continue; }
+    if ("})]".includes(c)) { d = Math.max(0, d - 1); continue; }
+    if (d !== 0) continue;
+    const m = /^([a-zA-Z][\w-]*)\s*=/.exec(attrs.slice(i));
+    if (!m || (i > 0 && /[\w-]/.test(attrs[i - 1]))) continue;
+    let v = i + m[0].length;
+    while (v < attrs.length && /\s/.test(attrs[v])) v++;
+    out.push([m[1], v]);
+    i = v - 1;
+  }
+  return out;
+}
+
+/**
+ * Blank every string literal, keeping the length.
+ *
+ * A page is full of prose, and prose contains angle brackets, colons and commas.
+ * Without this the element scanner read `<CodeBlock code={\`<Table invoices={x}/>\`}>`
+ * as an element called Table, and a `Faq` answer containing ", so:" as a field
+ * called `so` — 24 complaints about pages that were right.
+ *
+ * LENGTH-PRESERVING, never removing, because every index computed here is used
+ * against the real text. That is written down in this repo as the rule for
+ * comment stripping and it holds identically for strings.
+ *
+ * A template's `${…}` is blanked WITH it. That can hide a real element inside an
+ * interpolation, which is a miss rather than a false alarm — the safe direction
+ * for a lint whose whole viability is not crying wolf.
+ */
+function blankStrings(code) {
+  const out = code.split("");
+  let i = 0;
+  while (i < code.length) {
+    const c = code[i];
+    if (c === '"' || c === "'" || c === "`") {
+      const quote = c;
+      let j = i + 1;
+      while (j < code.length) {
+        if (code[j] === "\\") { j += 2; continue; }
+        if (code[j] === quote) break;
+        j++;
+      }
+      for (let k = i + 1; k < Math.min(j, code.length); k++) if (out[k] !== "\n") out[k] = " ";
+      i = j + 1;
+      continue;
+    }
+    i++;
+  }
+  return out.join("");
+}
+
+/**
+ * Every `<Component …>` in a page, with its attribute text.
+ *
+ * Depth-aware because a prop can hold anything: an arrow function's `=>`, a
+ * generic, a nested object. Yields `[full, tag, attrs]` so it drops into the
+ * same shape the regex it replaced produced.
+ */
+function* jsxElements(real) {
+  // SCANNED ON THE BLANKED VIEW, SLICED FROM THE REAL ONE — the indices are the
+  // same by construction, which is the entire reason the blanker preserves
+  // length. Attributes are yielded blanked too: the lint reads key NAMES, and a
+  // key never lives inside a string.
+  const code = blankStrings(real);
+  const open = /<([A-Z][A-Za-z0-9]*)[\s/>]/g;
+  let m;
+  while ((m = open.exec(code))) {
+    let i = m.index + 1 + m[1].length, d = 0, end = -1;
+    for (; i < code.length; i++) {
+      const c = code[i];
+      if ("{([".includes(c)) d++;
+      else if ("})]".includes(c)) d = Math.max(0, d - 1);
+      // `code[i - 1] !== "="` IS BELT-AND-BRACES TOO, and measured as such: a
+      // mutation removing it survives, because every JSX expression lives inside
+      // `{}`, so an arrow is never at depth 0 and `d === 0` already excludes it.
+      // It only earns its keep once the depth is WRONG — an unmatched `}` in a
+      // JSX comment clamps d to 0 mid-element, and then the arrow really would
+      // end the element early. Kept for that, and because deleting it is one
+      // simplification away from restoring the truncation bug described above.
+      else if (c === ">" && d === 0 && code[i - 1] !== "=") { end = i; break; }
+    }
+    if (end < 0) continue;
+    yield [code.slice(m.index, end + 1), m[1], code.slice(m.index + 1 + m[1].length, end).replace(/\/$/, "")];
+    open.lastIndex = end;
+  }
+}
+
+/**
+ * Split a bracketed list on its TOP-LEVEL separator, ignoring nested ones.
+ *
+ * Shared by the prop reader and the shape reader because both are defeated by
+ * the same thing: a signature and a type body are both full of commas, colons
+ * and semicolons that belong to something nested. This codebase has written a
+ * flat splitter three times and been wrong three times.
+ */
+function splitTop(src, sep) {
+  const out = [];
+  const str = String(src);
+  let buf = "", d = 0;
+  for (let i = 0; i < str.length; i++) {
+    const c = str[i];
+    // `=>` IS NOT A CLOSING BRACKET. `cell?: (row: T) => React.ReactNode` drove
+    // the depth negative, so every field after a function-typed one was lost —
+    // and a field the reader cannot see is a FALSE ALARM on correct code, which
+    // is the one thing this lint must never produce. Found by reading the output
+    // rather than by a test: `Column` came back missing `numeric` and `width`.
+    if (c === ">" && str[i - 1] === "=") { buf += c; continue; }
+    if ("([{<".includes(c)) d++;
+    else if (")]}>".includes(c)) d = Math.max(0, d - 1);
+    if (c === sep && d === 0) { out.push(buf); buf = ""; continue; }
+    buf += c;
+  }
+  out.push(buf);
+  return out;
+}
+
+/**
+ * The bodies of the TOP-LEVEL object literals in a prop value.
+ *
+ * Depth-tracked, because an item can hold objects of its own and their keys are
+ * not the item's keys — reading the innermost braces reported `capacities: {
+ * Standing: 120 }` as an item with a field called `Standing`.
+ */
+function topObjects(value) {
+  const out = [];
+  let d = 0, start = -1;
+  for (let i = 0; i < value.length; i++) {
+    const c = value[i];
+    if (c === "{") { if (d === 0) start = i; d++; }
+    else if (c === "}") { d--; if (d === 0 && start >= 0) { out.push(value.slice(start + 1, i)); start = -1; } }
+  }
+  return out;
+}
+
+/**
+ * The FIELD NAMES of the object a prop expects, when the signature names a type
+ * the component also documents.
+ *
+ * THIS is the shape the eval actually records — not a wrong JSX attribute, but a
+ * wrong key inside an object literal handed to one: `{ src, alt, fallbackSeed }`
+ * against `Shot`, `{ key, header, render }` against `Column`, `{ who, what,
+ * title }` against `Activity`. Measured on the real failing pages: 20 of one and
+ * 7 of another in the recorded history.
+ *
+ * Returns null unless the type is documented on THAT component — two components
+ * export a type called `Activity` with different shapes, so a name alone cannot
+ * resolve it, which is the same reason `UI_SHORTLIST_API` prints only cited types.
+ */
+export function shapeOf(component, prop, tag) {
+  const sig = COMPONENT_API[component];
+  // A TRUNCATED SIGNATURE CANNOT ANSWER "IS THIS PROP REAL". `gen-component-api`
+  // elides a long nested type with `…`, which leaves an unbalanced brace — the
+  // splitter never returns to depth 0 and every prop after it disappears. That
+  // is a list of props that LOOKS complete and is not, which turns a correct
+  // call into a complaint. Skipping is the only safe answer, and it is the same
+  // rule the import check uses for a module with no known exports.
+  if (typeof sig === "string" && sig.includes("\u2026")) return null;
+  const types = COMPONENT_TYPES[component];
+  if (!sig || !types) return null;
+  if (tag && !new RegExp("^" + tag + "\\s*\\(").test(sig)) return null;
+  const open = sig.indexOf("(");
+  if (open < 0) return null;
+  for (const part of splitTop(sig.slice(open + 1, sig.lastIndexOf(")")), ",")) {
+    const m = part.trim().match(/^([A-Za-z_$][\w$]*)\??\s*:\s*([A-Za-z_$][\w$]*)(?:<[^>]*>)?(\[\])?/);
+    if (!m || m[1] !== prop) continue;
+    const body = types[m[2]];
+    if (!body) return null;
+    const fields = [];
+    for (const f of splitTop(body.replace(/^\{|\}$/g, ""), ";")) {
+      const fm = f.trim().match(/^([A-Za-z_$][\w$]*)\??\s*:/);
+      if (fm) fields.push(fm[1]);
+    }
+    return fields.length ? fields : null;
+  }
+  return null;
+}
+
+/**
+ * Attributes every component takes regardless of its signature, so the lint
+ * cannot flag them. `key`/`ref` are React's own; `className`/`children` the
+ * prompt already promises every component in the kit accepts; the rest are
+ * standard DOM passthrough.
+ */
+export const FREE_PROPS = new Set(["key", "ref", "className", "children", "style", "id", "title", "role", "tabIndex"]);
+
 export const UI_SHORTLIST_API = () => {
   const lines = [];
   for (const n of UI_SHORTLIST) {
@@ -2950,6 +3222,85 @@ export function lintPages(pages, spec) {
         if (!known.has(name)) {
           say(path, 'imports { ' + name + ' } from "@/components/ui/' + m[2] + '", which does not export it. ' +
             "That module exports: " + [...known].join(", ") + ".");
+        }
+      }
+    }
+
+    // A PROP THE COMPONENT DOES NOT TAKE — the failure the eval actually records.
+    //
+    // Every recorded compile failure was on a component whose signature WAS in
+    // the prompt: `render` on a `Column`, `onClick` on a bulk action, `title` on
+    // an `Activity`, `fallbackSeed` on a `Shot`. The model can see the component
+    // and invents a prop anyway, `tsc` refuses the file, and since the salvage
+    // landed that costs the page rather than the site. Caught here it costs
+    // nothing — the site publishes and the problem is reported.
+    //
+    // SKIPPED for any component with no documented signature, the same rule as
+    // the import check above: a false alarm teaches the model away from a
+    // component that is perfectly real, which is worse than the miss.
+    //
+    // SKIPPED for an element carrying a spread, because `{...props}` can supply
+    // anything and there is no way to know what.
+    // THE ELEMENT'S ATTRIBUTES, SCANNED RATHER THAN MATCHED. Written
+    // `<([A-Z]\w*)\s([^>]*?)>` this stopped at the first `>` — which inside
+    // `cell: (r) => r.x` is the arrow, so every element with a function-typed
+    // prop was truncated and skipped. The `=>` trap for the third time in one
+    // change, and the reason `splitTop` carries the same guard.
+    for (const im of jsxElements(code)) {
+      const mod = uiModuleFor(im[1]);
+      if (!mod) continue;
+      const allowed = propsOf(mod, im[1]);
+      if (!allowed) continue;
+      const attrs = im[2];
+      if (attrs.includes("{...")) continue;
+      const ok = new Set([...allowed, ...FREE_PROPS]);
+      for (const [prop] of ownAttrs(attrs)) {
+        // `aria-*`/`data-*` are DOM passthrough and never in a signature.
+        if (/^(aria|data)-/.test(prop) || ok.has(prop)) continue;
+        say(path, "<" + im[1] + "> is given `" + prop + "`, which it does not take. " +
+          "It takes: " + allowed.join(", ") + ".");
+      }
+      // AND THE KEYS INSIDE A PROP'S OBJECTS, which is the shape that actually
+      // fails. Measured on the real pages: the invented name is almost never a
+      // JSX attribute, it is a key in the array handed to one — `fallbackSeed`
+      // in a `Shot`, `render` in a `Column`, `title` in an `Activity`.
+      for (const [name, at] of ownAttrs(attrs)) {
+        const fields = shapeOf(mod, name, im[1]);
+        // `attrs[at] !== "{"` IS BELT-AND-BRACES, AND SAYING SO IS THE POINT.
+        // A mutation removing it survived the whole suite, and unlike the other
+        // survivors this one really is inert: with a string value the scan below
+        // runs on to the NEXT prop's brace, and it stops at the first `}` that
+        // returns the depth to zero — which is that same brace's own close. So
+        // the slice always carries one unmatched `{` and `topObjects` yields
+        // nothing from it. Kept because that is an EMERGENT property of the
+        // scan, not a local one: it holds by accident of where the loop breaks,
+        // and a later edit to that loop would turn a string-valued prop into a
+        // reader of the next prop's object. This makes the precondition local.
+        if (!fields || attrs[at] !== "{") continue;
+        // The value as written, from the `{` to its match — bounded to the
+        // attribute so a later prop's braces cannot be read as this one's.
+        const from = at;
+        let d = 0, end = -1;
+        for (let i = from; i < attrs.length; i++) {
+          if (attrs[i] === "{") d++;
+          else if (attrs[i] === "}") { d--; if (!d) { end = i; break; } }
+        }
+        if (end < 0) continue;
+        const value = attrs.slice(from + 1, end);
+        // Inline literals only. A variable, a `.map()` or a spread can hold
+        // anything, and guessing is how a lint invents a complaint.
+        if (value.includes("...")) continue;
+        // THE OUTERMOST OBJECTS, not the innermost. `/\{([^{}]*)\}/` matches the
+        // deepest braces, so `{ name: "x", capacities: { Standing: 120 } }` was
+        // read as an item with one key called `Standing` — a page that was
+        // perfectly correct, reported as wrong.
+        for (const body of topObjects(value)) {
+          for (const kv of splitTop(body, ",")) {
+            const km = kv.trim().match(/^([a-zA-Z_$][\w$]*)\s*:/);
+            if (!km || fields.includes(km[1])) continue;
+            say(path, "<" + im[1] + "> `" + name + "` is given `" + km[1] +
+              "`, which is not part of that shape. It takes: " + fields.join(", ") + ".");
+          }
         }
       }
     }

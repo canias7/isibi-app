@@ -385,8 +385,15 @@ test("the lint passes a token in ANY component that draws through SafeImage", ()
   // SafeImage alone was too narrow — measured on the first live build, which
   // put one in <Gallery> and was told off for doing the right thing. Refusing
   // those teaches the model to hand-roll an <img>, which is the failure.
+  // FILTERED TO THE TOKEN RULE'S OWN MESSAGES. These fixtures are synthetic —
+  // `<Gallery src=… alt=…>` is not a call that would compile, because Gallery
+  // takes `items` — and since the prop lint landed, an invalid call is reported
+  // as one. That is the prop lint doing its job on a fixture that was never
+  // meant to be realistic; this test is about the IMAGE TOKEN, so it asserts on
+  // the image-token verdict and lets the other rule speak for itself.
+  const tokenOnly = (out) => out.filter((x) => /@@IMG|token/i.test(x));
   for (const tag of ["SafeImage", "Gallery", "Hero", "TeamGrid", "ProductCard", "ImageStrip"]) {
-    const ok = lintPages([page("index.tsx", "<" + tag + ' src="@@IMG:the shop front@@" alt="the shop" />')], { tables: [] });
+    const ok = tokenOnly(lintPages([page("index.tsx", "<" + tag + ' src="@@IMG:the shop front@@" alt="the shop" />')], { tables: [] }));
     assert.deepEqual(ok, [], tag + " must be allowed");
   }
 });
@@ -410,8 +417,9 @@ test("the lint names SafeImage exactly, not any tag that resembles it", () => {
   // every case here happened to use <img>. The kit is full of S components —
   // Section, Skeleton, SiteChrome — and a token in any of them is a broken
   // image the moment it cannot be bought.
+  const tokenOnly = (out) => out.filter((x) => /@@IMG|token/i.test(x));
   for (const tag of ["Section", "Skeleton", "SiteChrome", "SafeImageX"]) {
-    const bad = lintPages([page("index.tsx", "<" + tag + ' src="@@IMG:a thing@@" />')], { tables: [] });
+    const bad = tokenOnly(lintPages([page("index.tsx", "<" + tag + ' src="@@IMG:a thing@@" />')], { tables: [] }));
     assert.equal(bad.length, 1, tag + " must be refused");
     assert.match(bad[0], new RegExp("inside <" + tag + ">"));
   }
