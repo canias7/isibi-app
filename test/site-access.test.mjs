@@ -6,6 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  resolveAccess, ACCESS_PRESETS, READ_LEVELS, WRITE_LEVELS,
   MANAGED_COLUMNS, isManagedColumn, ACCESS_LEVELS, normalizeAccess,
   normalizeRole, rolesForSchema, teamReadable, DEFAULT_ROLE, whyNotReadable,
 } from "../site-access.mjs";
@@ -100,4 +101,39 @@ test("each refusal is explained in the terms of its OWN access level", () => {
   // `display` is readable, so it has no explanation to give beyond the generic
   // one — and an unknown level must not be described as a member table.
   assert.doesNotMatch(whyNotReadable("display"), /signed-in member/);
+});
+
+test("an unreadable access declaration falls back to the CLOSED pair", () => {
+  // THE DIRECTION IS THE WHOLE POINT. A typo, a renamed level, a model that
+  // invents a word, a stored schema from a future version — all of them land
+  // here, and the fallback decides whether an unrecognised table is world
+  // readable or invisible. `collect` reads nothing, so a mistake costs a broken
+  // feature; `display` reads everything, so a mistake costs somebody's rows.
+  // A mutation flipping this to `display` survived the whole suite.
+  for (const bad of ["displayy", "DISPLAY_", "public", "", null, undefined, 7, {}, ["display"]]) {
+    assert.deepEqual(resolveAccess({ access: bad }), { read: "none", write: "anyone" }, String(bad));
+  }
+  // …and a real one still resolves, or the loop passes on a function that
+  // answers "closed" to everything.
+  assert.deepEqual(resolveAccess({ access: "display" }), { read: "public", write: "none" });
+  // The same rule on each axis independently: an unrecognised half falls back to
+  // the preset's, never to the most permissive value.
+  assert.deepEqual(resolveAccess({ access: "collect", read: "everyone" }), { read: "none", write: "anyone" });
+  assert.deepEqual(resolveAccess({ access: "display", write: "all" }), { read: "public", write: "none" });
+});
+
+test("every access level has a preset, and every preset is a level", () => {
+  // WHAT THE UNREACHABLE `||` IN `resolveAccess` ACTUALLY PROTECTS. A mutation
+  // changing its fallback survives, because `normalizeAccess` can only return a
+  // key that exists — so the branch is inert and asserting it directly proves
+  // nothing. The real hazard is a SIXTH level added to one constant and not the
+  // other, which is what this checks, derived from both.
+  assert.deepEqual([...ACCESS_LEVELS].sort(), Object.keys(ACCESS_PRESETS).sort(),
+    "ACCESS_LEVELS and ACCESS_PRESETS disagree — a level with no preset falls back to collect silently");
+  // …and each preset names real values on both axes, or a typo would resolve to
+  // a pair the policy builder has no branch for and emit no policy at all.
+  for (const [name, pair] of Object.entries(ACCESS_PRESETS)) {
+    assert.ok(READ_LEVELS.includes(pair.read), name + " has an unknown read level: " + pair.read);
+    assert.ok(WRITE_LEVELS.includes(pair.write), name + " has an unknown write level: " + pair.write);
+  }
 });

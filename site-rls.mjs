@@ -32,7 +32,7 @@
 // Pure string building. Every statement this produces is asserted in
 // test/site-rls.test.mjs and applied against a real Postgres in the e2e.
 
-import { hasPublicView, publicViewName } from "./site-access.mjs";
+import { hasPublicView, publicViewName, resolveAccess } from "./site-access.mjs";
 
 /**
  * Who the caller is, according to the database.
@@ -211,40 +211,47 @@ export function policiesFor(t) {
   // `uuid = text` is not an operator Postgres has, so a type guess here is a
   // policy that fails to create rather than one that refuses a row. Casting the
   // uuid to text is always lossless and always defined; the reverse is not.
-  const ours = (t && t.teamScope && access === "user")
+  // TEAM WIDENING keys on the PROPERTY — rows are owned per member — rather
+  // than on the name `user`, or the same table declared as a pair would lose it.
+  const ours = (t && t.teamScope && resolveAccess(t).read === "own")
     ? `(${mine} OR (${tn}."team_id" IS NOT NULL AND ${tn}."team_id"::text = app_team_id()))`
     : `(${mine})`;
 
-  if (access === "display") {
-    out.push(`CREATE POLICY ${p("read")} ON ${tn} FOR SELECT USING (true${live});`);
-    return out; // no write policy: content is the owner's, changed through their own door
-  }
-  if (access === "collect") {
-    // Write-only. No SELECT policy at all, deliberately — see above.
+  // COMPOSED FROM THE PAIR, not switched on the five names. The five are still
+  // exactly what they were — asserted byte-for-byte against the previous
+  // implementation, which is the only reason a change to the security layer of
+  // every published site is safe to make in one go. What is new is that the
+  // cells BETWEEN them can now be reached at all.
+  const { read, write } = resolveAccess(t);
+
+  // READ. `none` emits NOTHING, and that omission is the protection rather than
+  // a rule that could be written wrong: with row-level security on, a table with
+  // no SELECT policy returns no rows to anybody, and no filter in the wrong
+  // clause can weaken it. That is what makes `collect` write-only, and it now
+  // holds for every pair whose read is `none` rather than for one named level.
+  if (read === "public") out.push(`CREATE POLICY ${p("read")} ON ${tn} FOR SELECT USING (true${live});`);
+  else if (read === "members") out.push(`CREATE POLICY ${p("read")} ON ${tn} FOR SELECT USING (${signedIn}${live});`);
+  else if (read === "own") out.push(`CREATE POLICY ${p("read")} ON ${tn} FOR SELECT USING (${ours}${live});`);
+
+  // WRITE. `anyone` gets INSERT AND NOTHING ELSE, deliberately: an anonymous
+  // visitor may leave a row and may never reach one again — not their own, since
+  // there is nothing to prove it is theirs, and certainly not anybody else's.
+  // That is `collect` today and it stays true of every pair that writes `anyone`.
+  if (write === "anyone") {
     out.push(`CREATE POLICY ${p("insert")} ON ${tn} FOR INSERT WITH CHECK (true);`);
-    return out;
-  }
-  if (access === "user") {
-    out.push(`CREATE POLICY ${p("read")} ON ${tn} FOR SELECT USING (${ours}${live});`);
+  } else if (write === "own") {
     // WITH CHECK on the NEW row, so a member cannot insert a row owned by somebody
     // else. USING on the existing row for an update, so they cannot reach one.
     out.push(`CREATE POLICY ${p("insert")} ON ${tn} FOR INSERT WITH CHECK (${mine});`);
     out.push(`CREATE POLICY ${p("update")} ON ${tn} FOR UPDATE USING (${ours}) WITH CHECK (${ours});`);
     out.push(`CREATE POLICY ${p("delete")} ON ${tn} FOR DELETE USING (${ours});`);
-    return out;
+  } else if (write === "members") {
+    out.push(`CREATE POLICY ${p("insert")} ON ${tn} FOR INSERT WITH CHECK (${signedIn});`);
+    out.push(`CREATE POLICY ${p("update")} ON ${tn} FOR UPDATE USING (${signedIn}) WITH CHECK (${signedIn});`);
+    out.push(`CREATE POLICY ${p("delete")} ON ${tn} FOR DELETE USING (${signedIn});`);
   }
-  if (access === "feed") {
-    out.push(`CREATE POLICY ${p("read")} ON ${tn} FOR SELECT USING (${signedIn}${live});`);
-    out.push(`CREATE POLICY ${p("insert")} ON ${tn} FOR INSERT WITH CHECK (${mine});`);
-    out.push(`CREATE POLICY ${p("update")} ON ${tn} FOR UPDATE USING (${mine}) WITH CHECK (${mine});`);
-    out.push(`CREATE POLICY ${p("delete")} ON ${tn} FOR DELETE USING (${mine});`);
-    return out;
-  }
-  // admin. Read for anyone signed in; writing is the Worker's call, because
-  // `writeRoles` names roles that mean something to this application and nothing
-  // to Postgres. Omitting the write policy REFUSES the write at the database,
-  // which is the safe direction — the Worker's own door still allows it.
-  out.push(`CREATE POLICY ${p("read")} ON ${tn} FOR SELECT USING (${signedIn}${live});`);
+  // `write: "none"` emits nothing at all — `display` and `admin`. Content is the
+  // owner's and is changed through their own door, which is not subject to RLS.
   return out;
 }
 
@@ -286,29 +293,53 @@ export function grantsFor(t) {
   // the owner can still read and export them, and a later revise can bring the
   // feature back by simply not retiring it. Reversible in both directions.
   if (t && t.retired) return [];
-  const access = String((t && t.access) || "collect").toLowerCase();
+  const { read, write } = resolveAccess(t);
   const tn = q(t.name);
   const { anon, user } = DATA_API_ROLES;
-  if (access === "display") return [`GRANT SELECT ON ${tn} TO ${anon};`, `GRANT SELECT ON ${tn} TO ${user};`];
-  if (access === "collect") {
-    // A PAYABLE TABLE GETS NO PUBLIC INSERT AT ALL, and this is the whole
-    // security model rather than an optimisation.
-    //
-    // An order carries payment_status. Leave the table publicly insertable and
-    // anyone can POST /data/orders with payment_status "paid" and a total they
-    // chose — goods marked sold with no money behind them. Column-level grants
-    // could carve the payment columns out, but then the row still exists at a
-    // price nobody computed, and every future column has to remember to opt out.
-    //
-    // With no grant, the ONLY way an order can exist is POST /api/db/<slug>/checkout,
-    // which prices the basket from the site's own rows and inserts through the
-    // owner's connection. The hole closes by construction rather than by
-    // validation somebody has to keep getting right.
-    if (t && t.payment) return [];
-    return [`GRANT INSERT ON ${tn} TO ${anon};`, `GRANT INSERT ON ${tn} TO ${user};`];
+  const out = [];
+
+  // WHO MAY ASK TO READ. `none` grants nothing, which is the other half of the
+  // write-only guarantee: no policy AND no grant.
+  if (read === "public") out.push(`GRANT SELECT ON ${tn} TO ${anon};`, `GRANT SELECT ON ${tn} TO ${user};`);
+  else if (read === "members" || read === "own") out.push(`GRANT SELECT ON ${tn} TO ${user};`);
+
+  // WHO MAY ASK TO WRITE.
+  //
+  // A PAYABLE TABLE GETS NO PUBLIC INSERT AT ALL, and this is the whole
+  // security model rather than an optimisation.
+  //
+  // An order carries payment_status. Leave the table publicly insertable and
+  // anyone can POST /data/orders with payment_status "paid" and a total they
+  // chose — goods marked sold with no money behind them. Column-level grants
+  // could carve the payment columns out, but then the row still exists at a
+  // price nobody computed, and every future column has to remember to opt out.
+  //
+  // With no grant, the ONLY way an order can exist is POST /api/db/<slug>/checkout,
+  // which prices the basket from the site's own rows and inserts through the
+  // owner's connection. The hole closes by construction rather than by
+  // validation somebody has to keep getting right. Keyed on the WRITE axis now,
+  // so a payable table is protected however its access was spelled.
+  if (write === "anyone") {
+    if (!(t && t.payment)) out.push(`GRANT INSERT ON ${tn} TO ${anon};`, `GRANT INSERT ON ${tn} TO ${user};`);
+    else return [];
+  } else if (write === "own" || write === "members") {
+    // ONE STATEMENT FOR THE MEMBER, matching what `user` and `feed` have always
+    // emitted: they may ask for all four verbs and the POLICIES decide which
+    // rows. But it must NOT swallow the anonymous read granted above — an
+    // earlier draft returned here and dropped it, which silently broke the one
+    // cell this whole change exists for: "anyone reads, members write their
+    // own" published a listings table the public still could not read. Caught by
+    // printing the new cells rather than by trusting the composition.
+    // THE VERBS FOLLOW THE READ AXIS TOO. `user` and `feed` both read, so both
+    // keep the four-verb statement they have always emitted. A pair that writes
+    // per-member and reads NOTHING gets no SELECT: the policy would never return
+    // a row anyway, so the grant buys nothing — and a privilege with no purpose
+    // is one that stops being harmless the day somebody adds a policy by mistake.
+    const verbs = read === "none" ? "INSERT, UPDATE, DELETE" : "SELECT, INSERT, UPDATE, DELETE";
+    const forMember = `GRANT ${verbs} ON ${tn} TO ${user};`;
+    return read === "public" ? [`GRANT SELECT ON ${tn} TO ${anon};`, forMember] : [forMember];
   }
-  if (access === "admin") return [`GRANT SELECT ON ${tn} TO ${user};`];
-  return [`GRANT SELECT, INSERT, UPDATE, DELETE ON ${tn} TO ${user};`];
+  return out;
 }
 
 // ── The public projection ────────────────────────────────────────────────────

@@ -30,8 +30,92 @@ export function isManagedColumn(name) {
 export const ACCESS_LEVELS = ["collect", "display", "user", "feed", "admin"];
 
 export function normalizeAccess(access) {
-  const a = String(access || "").toLowerCase();
+  // A STRING, not anything stringifiable. `String(["display"])` is `"display"`,
+  // so an array reached the allow-list and passed it — a table declared
+  // `access: ["display"]` became world-readable. Same coercion bug this codebase
+  // already recorded for `normalizeRole` (`String(7)` is `"7"`), on the field
+  // that decides who may read a business's customer data.
+  if (typeof access !== "string") return "collect";
+  const a = access.toLowerCase();
   return ACCESS_LEVELS.includes(a) ? a : "collect";
+}
+
+// ------------------------------------------------- read and write, separately
+
+/**
+ * THE FIVE LEVELS ARE FIVE POINTS IN A GRID, and the grid is what a site needs.
+ *
+ * Every table answers two independent questions — who may READ it, who may
+ * WRITE it — and the five names fuse them into one word. `display` does not mean
+ * "public read"; it means "public read AND no visitor writes". `collect` does
+ * not mean "anyone writes"; it means "anyone writes AND nobody reads". They are
+ * bundles, not axes, so any combination nobody pre-bundled is not merely missing
+ * — it is inexpressible.
+ *
+ * Measured 2026-08-10: the five cover 5 of the 16 cells, and the empty ones are
+ * ordinary. "Anyone reads, members write their own" is a listings site, a job
+ * board, public reviews, a directory, a community wall — and a marketplace,
+ * which is where this was found: the designer put a member-posted `events` table
+ * at `user`, correctly following its own instructions, and produced a site whose
+ * every listing was invisible to the visitors it existed for.
+ *
+ * The names stay, as PRESETS. Every stored schema on every published site is
+ * written in them, they read well, and `display` is the right thing to say when
+ * that is what you mean. What changes is that they are now defined in terms of
+ * the two axes rather than being the only vocabulary there is.
+ */
+export const READ_LEVELS = ["none", "own", "members", "public"];
+export const WRITE_LEVELS = ["none", "own", "members", "anyone"];
+
+export const ACCESS_PRESETS = {
+  display: { read: "public", write: "none" },
+  collect: { read: "none", write: "anyone" },
+  user: { read: "own", write: "own" },
+  feed: { read: "members", write: "own" },
+  admin: { read: "members", write: "none" },
+};
+
+const normalizeRead = (v, fallback) =>
+  (typeof v === "string" && READ_LEVELS.includes(v.toLowerCase())) ? v.toLowerCase() : fallback;
+const normalizeWrite = (v, fallback) =>
+  (typeof v === "string" && WRITE_LEVELS.includes(v.toLowerCase())) ? v.toLowerCase() : fallback;
+
+/**
+ * A table's `{read, write}` pair, however it was declared.
+ *
+ * `read`/`write` win when given; anything missing or unrecognised falls back to
+ * the preset named by `access`, and that in turn falls back to `collect` — which
+ * is the safe direction, because `collect` reads nothing.
+ *
+ * ONE COMBINATION IS REFUSED, and it is refused rather than emitted because it
+ * cannot mean anything: `read: "own"` with `write: "anyone"`. "Own" needs an
+ * identity to be own OF, and an anonymous insert has none — the row would be
+ * owned by nobody and readable by nobody, which is `read: "none"` wearing a
+ * misleading name. It resolves to exactly that. (The thing somebody asking for
+ * it actually wants is a booking the customer can come back to, which is what
+ * the claim token does — a signed link to one row, not an access level.)
+ */
+export function resolveAccess(t) {
+  const def = t && typeof t === "object" ? t : {};
+  // The `||` cannot fire today and is kept deliberately: `normalizeAccess`
+  // always returns one of `ACCESS_LEVELS`, and every one of those has a preset —
+  // an agreement between two constants that a sixth level added to one and not
+  // the other would break. It fails toward `collect`, which reads nothing.
+  // Asserted as that agreement in the tests, since a mutation here is inert.
+  const preset = ACCESS_PRESETS[normalizeAccess(def.access)] || ACCESS_PRESETS.collect;
+  const read = normalizeRead(def.read, preset.read);
+  const write = normalizeWrite(def.write, preset.write);
+  if (read === "own" && write === "anyone") return { read: "none", write: "anyone" };
+  return { read, write };
+}
+
+/** The preset name for a pair, when there is one — for wording, never for logic. */
+export function accessNameFor(pair) {
+  const p = pair || {};
+  for (const [name, v] of Object.entries(ACCESS_PRESETS)) {
+    if (v.read === p.read && v.write === p.write) return name;
+  }
+  return null;
 }
 
 // ------------------------------------------------------------- roles

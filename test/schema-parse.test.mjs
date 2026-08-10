@@ -326,3 +326,24 @@ test("owner_id is declared uuid in the CREATE and the ALTER, and they agree", ()
   assert.ok(!/"team_id"\s+INTEGER/.test(src),
     "team_id INTEGER is the pre-Neon-Auth shape; teams get rebuilt on organization/member, which are uuid keyed");
 });
+
+
+test("the normaliser carries read and write through", () => {
+  // `coerceTable` builds its output field by field, so anything not named in
+  // that literal is dropped SILENTLY on every build — the failure that left
+  // `teamScope` declarable, DDL'd, stored and stripped for months. A mutation
+  // removing these two survived the whole suite: the pair-declared table simply
+  // became `collect`, which reads nothing, so the site looked merely broken.
+  const n = normalizeSchema({ tables: [
+    { name: "listings", read: "public", write: "own", columns: [{ name: "title", type: "text" }] },
+    { name: "menu", access: "display", columns: [{ name: "dish", type: "text" }] },
+  ] });
+  const by = Object.fromEntries(n.tables.map((t) => [t.name, t]));
+  assert.equal(by.listings.read, "public", "the read axis was dropped by the normaliser");
+  assert.equal(by.listings.write, "own", "the write axis was dropped by the normaliser");
+  // A preset-declared table carries no pair, and must not be given one here —
+  // `resolveAccess` is the single place that decides what an absent half means.
+  assert.equal(by.menu.read, undefined);
+  assert.equal(by.menu.write, undefined);
+  assert.equal(by.menu.access, "display");
+});

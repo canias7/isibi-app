@@ -13,6 +13,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { policiesFor, grantsFor, APP_USER_FN, APP_USER_FN_NATIVE, APP_USER_FN_FALLBACK, SESSION_JWT_EXT, SESSION_JWT_GRANTS, APP_TEAM_FN, POLICY_PREFIX } from "../site-rls.mjs";
+import { ACCESS_PRESETS, resolveAccess } from "../site-access.mjs";
 
 const sql = (t) => policiesFor(t).join("\n");
 const T = (over) => ({ name: "things", access: "user", columns: [{ name: "title" }], ...over });
@@ -194,16 +195,31 @@ test("teamScope on a non-user table is ignored, as it is everywhere else", () =>
   // fail to CREATE — which applySiteSchema logs and carries on from — and leave
   // that table with no read policy, i.e. invisible to its own members. Asserted
   // from both files, so the two conditions cannot drift apart.
+  // ASSERTED AS AN AGREEMENT BETWEEN THE TWO FILES, not as a spelling. This
+  // pinned the literal `t.teamScope && access === "user"` in both, and went red
+  // on a correct change — the read/write split, where the condition became
+  // "the read is own-scoped" and stayed exactly as narrow. Word order again.
+  //
+  // What it protects is unchanged and is the reason it must not simply be
+  // deleted: the policy widens to the team, and the ENGINE stamps the column
+  // that clause names. Widen on a condition the engine does not stamp on and
+  // the policy names a column that does not exist, fails to CREATE — which
+  // applySiteSchema logs and carries on from — and the table is left with NO
+  // read policy at all, i.e. invisible to its own members.
   const rls = fs.readFileSync(new URL("../site-rls.mjs", import.meta.url), "utf8");
   const engine = fs.readFileSync(new URL("../site-schema.mjs", import.meta.url), "utf8");
-  assert.match(rls, /t\.teamScope && access === "user"/, "the policy's condition changed");
-  // Matched on the CONDITION and the column, not the whole statement: this
-  // guard is about the two conditions agreeing, and pinning the DDL string too
-  // made it fail when a DEFAULT was added — a change that cannot affect the
-  // invariant. A guard that fires on unrelated edits gets relaxed rather than
-  // read.
-  assert.match(engine, /t\.teamScope && access === "user"\) cols\.push\('"team_id" UUID/,
-    "the column's condition changed, so the policy may now reference a column no table has");
+  const norm = (x) => x.replace(/resolveAccess\(t\)/g, "rw").replace(/\s+/g, " ").trim();
+  const policyCond = (rls.match(/const ours = \(([^)]*\)?[^)]*)\)\s*\n/) || [])[1];
+  const columnCond = (engine.match(/if \((t\.teamScope[^)]*(?:\([^)]*\))?[^)]*)\) cols\.push\('"team_id" UUID/) || [])[1];
+  assert.ok(policyCond, "the policy's team-widening condition could not be read");
+  assert.ok(columnCond, "the engine's team_id condition could not be read");
+  assert.equal(norm(policyCond).replace(/^t && /, ""), norm(columnCond),
+    "the policy widens on a different condition than the one the column is stamped on:\n  policy: " +
+    norm(policyCond) + "\n  column: " + norm(columnCond));
+  // …and both are still NARROW. Two conditions can agree perfectly and both be
+  // wrong — `true` on each side would pass the equality above.
+  assert.match(norm(policyCond), /teamScope/, "the policy no longer requires teamScope at all");
+  assert.match(norm(policyCond), /read === "own"/, "the policy widens on something other than an own-scoped read");
 });
 
 // --------------------------------------------------------------- trash
@@ -401,4 +417,136 @@ test("a team-scoped row stamps the caller's team, safely", () => {
   assert.match(decl[1], /THEN app_team_id\(\)::uuid END/);
   // `~*`, because a uuid can arrive uppercased and `~` would reject it.
   assert.ok(!/ ~ /.test(decl[1]), "case-sensitive matching drops an uppercased uuid: " + decl[1]);
+});
+
+/* ---------------------------- read and write as two axes, not five bundles */
+
+test("the five presets emit EXACTLY what they always did", () => {
+  // THE WHOLE SAFETY ARGUMENT FOR THIS CHANGE. Splitting access into a
+  // read/write pair rewrote the security layer of every published site, and the
+  // only responsible way to do that is to prove the five existing levels come
+  // out unchanged and the new cells are purely additive.
+  //
+  // Asserted as PROPERTIES of each preset rather than as a captured string, so
+  // it keeps meaning something after a deliberate future change to the SQL.
+  const kinds = (t) => policiesFor(t).filter((x) => x.startsWith("CREATE POLICY"))
+    .map((x) => (x.match(/FOR (\w+)/) || [])[1]).join(",");
+  const expect = {
+    display: "SELECT",
+    collect: "INSERT",
+    user: "SELECT,INSERT,UPDATE,DELETE",
+    feed: "SELECT,INSERT,UPDATE,DELETE",
+    admin: "SELECT",
+  };
+  for (const [access, want] of Object.entries(expect)) {
+    assert.equal(kinds({ name: "t", access }), want, access);
+    // …and declaring the same thing as a pair reaches identical SQL, which is
+    // what makes the presets presets rather than a parallel implementation.
+    const pair = ACCESS_PRESETS[access];
+    assert.deepEqual(policiesFor({ name: "t", ...pair }), policiesFor({ name: "t", access }),
+      access + " declared as a pair produces different policies than the preset");
+    assert.deepEqual(grantsFor({ name: "t", ...pair }), grantsFor({ name: "t", access }),
+      access + " declared as a pair produces different grants than the preset");
+  }
+});
+
+test("a read of `none` emits no SELECT policy AND no SELECT grant", () => {
+  // The write-only guarantee, which used to be a property of the NAME `collect`
+  // and is now a property of the axis. Both halves matter: a policy with no
+  // grant is unreachable, a grant with no policy returns nothing — and the
+  // protection is the ABSENCE of the statement, which no filter in the wrong
+  // clause can weaken.
+  for (const t of [{ name: "t", access: "collect" }, { name: "t", read: "none", write: "anyone" },
+                   { name: "t", read: "none", write: "own" }]) {
+    assert.ok(!policiesFor(t).some((x) => /FOR SELECT/.test(x)), "a SELECT policy was emitted: " + JSON.stringify(t));
+    assert.ok(!grantsFor(t).some((x) => /GRANT SELECT/.test(x)), "a SELECT grant was emitted: " + JSON.stringify(t));
+  }
+  // …and a readable table really does get both, or the loop above passes on a
+  // builder that has stopped emitting anything at all.
+  const open = { name: "t", read: "public", write: "none" };
+  assert.ok(policiesFor(open).some((x) => /FOR SELECT USING \(true/.test(x)));
+  assert.ok(grantsFor(open).some((x) => /GRANT SELECT ON "t" TO anonymous/.test(x)));
+});
+
+test("anyone-writes never gets UPDATE or DELETE, on any pair", () => {
+  // An anonymous visitor may leave a row and must never reach one again — not
+  // their own, since nothing proves it is theirs, and certainly not anybody
+  // else's. True of `collect` today; now true of the axis, so a new cell that
+  // opens the reads cannot quietly open the edits with them.
+  for (const read of ["none", "members", "public"]) {
+    const p = policiesFor({ name: "t", read, write: "anyone" });
+    assert.ok(!p.some((x) => /FOR (UPDATE|DELETE)/.test(x)), "read:" + read + " let an anonymous visitor edit rows");
+    assert.ok(p.some((x) => /FOR INSERT/.test(x)), "read:" + read + " cannot be written at all");
+  }
+});
+
+test("the cell this was built for: anyone reads, members write their own", () => {
+  // The marketplace / classifieds / job board / public reviews shape, which the
+  // five names could not express at all — `display` is public but nobody writes,
+  // `feed` is member-written but needs a sign-in to read.
+  const t = { name: "listings", read: "public", write: "own" };
+  const p = policiesFor(t), g = grantsFor(t);
+  assert.match(p.find((x) => /FOR SELECT/.test(x)), /USING \(true/, "the public cannot read the listings");
+  assert.match(p.find((x) => /FOR INSERT/.test(x)), /owner_id" = app_user_id\(\)/, "a member could post as somebody else");
+  assert.match(p.find((x) => /FOR UPDATE/.test(x)), /owner_id" = app_user_id\(\)/, "a member could edit somebody else's listing");
+  // THE GRANT THE FIRST DRAFT DROPPED. The member branch returned early and
+  // discarded the anonymous SELECT collected above, so the one cell this whole
+  // change exists for published a table the public still could not read. Caught
+  // by printing the new cells rather than by trusting the composition.
+  assert.ok(g.some((x) => /GRANT SELECT ON "listings" TO anonymous/.test(x)),
+    "the public has no SELECT grant, so the listings 403 however open the policy is");
+  assert.ok(g.some((x) => /GRANT SELECT, INSERT, UPDATE, DELETE ON "listings" TO authenticated/.test(x)));
+});
+
+test("own-read with anyone-write is refused, because it cannot mean anything", () => {
+  // "Own" needs an identity to be own OF and an anonymous insert has none, so
+  // the row would be owned by nobody and readable by nobody. That is `read:
+  // "none"` wearing a misleading name, and it resolves to exactly that rather
+  // than emitting a policy that silently matches no row ever.
+  assert.deepEqual(resolveAccess({ read: "own", write: "anyone" }), { read: "none", write: "anyone" });
+  assert.deepEqual(policiesFor({ name: "t", read: "own", write: "anyone" }),
+    policiesFor({ name: "t", access: "collect" }), "it must degrade to exactly collect");
+});
+
+test("a payable table gets no public insert, however its access was spelled", () => {
+  // The security model is the MISSING GRANT, not a validation. Keyed on the
+  // write axis now, so a payable table declared as a pair is protected too —
+  // keyed on the name `collect`, it would not have been.
+  for (const t of [{ name: "orders", access: "collect", payment: { from: "products" } },
+                   { name: "orders", read: "none", write: "anyone", payment: { from: "products" } },
+                   { name: "orders", read: "public", write: "anyone", payment: { from: "products" } }]) {
+    assert.deepEqual(grantsFor(t), [], "a payable table is publicly insertable: " + JSON.stringify(t));
+  }
+  // …and without payment it IS insertable, or the loop passes on a builder that
+  // grants nothing to anybody.
+  assert.ok(grantsFor({ name: "orders", access: "collect" }).some((x) => /GRANT INSERT/.test(x)));
+});
+
+test("every column a policy names is one the engine actually stamps", () => {
+  // THE INVARIANT BEHIND BOTH `owner_id` AND `team_id`, asserted as an agreement
+  // between the two files rather than as a spelling in either. A policy naming a
+  // column the engine did not create fails to CREATE — which applySiteSchema
+  // logs and carries on from — leaving the table with NO policy of that kind:
+  // silently readable by nobody, or writable by nobody, with a green build.
+  //
+  // A mutation stopping `owner_id` from ever being stamped survived the whole
+  // suite, because nothing tied the policy's reference to the column's creation.
+  const engine = fs.readFileSync(new URL("../site-schema.mjs", import.meta.url), "utf8");
+  const stampsOwner = /if \(rw\.write === "own" \|\| rw\.read === "own"\) \{ cols\.push\('"owner_id" UUID/.test(engine);
+  assert.ok(stampsOwner, "the engine no longer stamps owner_id on member-scoped writes");
+
+  // Now drive it: every pair whose POLICIES mention owner_id must be a pair the
+  // engine stamps it for, and every pair it stamps for must have a policy using
+  // it — checked in both directions so neither side can drift alone.
+  for (const read of ["none", "own", "members", "public"]) {
+    for (const write of ["none", "own", "members", "anyone"]) {
+      const pair = resolveAccess({ read, write });
+      const sql = policiesFor({ name: "t", read, write }).join("\n");
+      const named = /owner_id/.test(sql);
+      const stamped = pair.write === "own" || pair.read === "own";
+      assert.equal(named, stamped,
+        `read:${read} write:${write} — policies ${named ? "name" : "do not name"} owner_id but the engine ` +
+        `${stamped ? "stamps" : "does not stamp"} it`);
+    }
+  }
 });
