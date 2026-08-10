@@ -215,6 +215,16 @@ Every generation is metered in credits (1 credit = $0.008 fal cost). Postgres RP
 - **The last recurring shape is NOT fixed**, and it is not ours in the same way: an object assigned into a row field (`Type '{ stage: string; }' is not assignable to 'string | number | boolean | null | undefined'` — the `Row` index signature, three runs) and invented export names (`activityFeedPlaceholder`, `activityFeedFallback`). Both need thought rather than a field.
 - **The eval is what made this answerable at all.** One sample a run, errors committed per sample under `docs/auth-audit/pages/*/_errors.txt`, so eight runs of history turned "why did my build fail" from a shrug into a ranked list. 1843 tests, 3/3 mutations caught.
 
+## The "confirmations are dead" finding was WRONG (2026-08-09)
+
+**An audit reported that `confirm`, `sms` and `payment` never reach `_meta`, and it was repeated all evening as the platform's worst outstanding bug — booking confirmations, text messages and the entire card-payment path dead on every published site.** Driven end to end, **every link holds.** The finding was false.
+
+- **`metaOut = { tables: mergedTables }` stores WHOLE table objects**, so a field on a table needs no second place to be remembered. That is why the finding was wrong, and it is the property worth knowing: adding a fifth per-table feature requires nothing here.
+- **All four links measured, not read:** the designer's tool offers all three per table · `normalizeSchema` keeps them (a real spec in, all three out) · the merge is whole-object · the write path loads the stored schema, finds the table, and calls `confirmSubmitter` and `smsSubmitter`, while `handleCheckout` resolves `normalizePayment` off the same stored table.
+- **`test/site-features-reachable.test.mjs` is the answer to "is it actually wired", asserted per link**, because this repo has recorded a feature dead at ONE silent link six times and every one of them looked fine from both ends. 9/9 mutations caught — each link broken in turn goes red.
+- **TWO OF MY OWN ASSERTIONS MATCHED THE FUNCTION'S OWN DECLARATION.** `confirmSubmitter\(env, ctx, \{ slug, db, def, row` matches both `function confirmSubmitter(env, ctx, { slug, db, def, row })` and the call — so a mutation deleting the CALL survived, twice. The declaration takes `row }`, the call passes `row: row`. Anchored on that now. The `buildEffortHTML()` failure again, and the reason a source-read must anchor on something only the thing being asserted can have.
+- **The lesson about the audit itself:** a finding with a file and a line number reads as measured and this one was inferred. Anything that says a feature is dead is worth ten minutes of driving it before it is repeated — the cost of believing it was a whole evening of describing the platform as more broken than it is.
+
 ## Every modal on every site was see-through (2026-08-09)
 
 **Reported from a phone: the mobile menu on a published site, with the page's own headings legible straight through the panel.** Thirteen components, every site on a backdrop theme.
