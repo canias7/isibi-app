@@ -8301,9 +8301,24 @@ async function handleRequest(request, env, ctx) {
       // read rather than a debit: the charge is settled afterwards on real usage,
       // and a call this small does not warrant the deposit-and-settle dance the
       // schema call needs.
-      let rBal = 0;
-      try { rBal = await readCredits(auth); } catch { rBal = 0; }
-      if (!(rBal > 0)) {
+      //
+      // A ZERO BALANCE AND AN UNREADABLE ONE ARE DIFFERENT ANSWERS, and reading
+      // them as one turned every ledger blip into "nobody may ask a question".
+      // It was `catch { rBal = 0 }`, so an unreachable Supabase looked exactly
+      // like an empty account: the router was skipped, the message became a
+      // build, and that build then failed on its own gate against the same
+      // unreadable ledger — so a question got an error about credits instead of
+      // an answer, for a reason that had nothing to do with either.
+      //
+      // This one call fails OPEN, deliberately, against the usual rule. The
+      // rule exists to stop an expensive model call being made for somebody who
+      // cannot pay; this is the cheapest call in the platform (~$0.0026) and
+      // `collectCredits` below already tolerates a ledger that will not answer.
+      // Nothing expensive escapes either way — the build behind it still meets
+      // its own gate, which still fails closed.
+      let rBal = null;
+      try { const n = await readCredits(auth); rBal = Number.isFinite(n) ? n : null; } catch { rBal = null; }
+      if (rBal !== null && !(rBal > 0)) {
         // Out of credits is not a reason to refuse to BUILD — the build path has
         // its own gate and its own 402, with a message about the thing they were
         // actually trying to do. Falling through keeps one place that says
@@ -8332,6 +8347,12 @@ async function handleRequest(request, env, ctx) {
           // `=== true`, like `firstBuild` beside it: nothing merely truthy off a
           // public body changes how a paid call is read.
           answering: rb.answering === true,
+          // A FILE CAME WITH THE MESSAGE. Same effect as `answering` — "ask" is
+          // closed off, "clarify" is not — and a separate flag because it is a
+          // different fact. Before this, an attachment skipped the routing call
+          // altogether, so a first build with a logo attached was never asked
+          // anything, against the rule that every new project gets one question.
+          attached: rb.attached === true,
         },
       );
       let rCost = 0;

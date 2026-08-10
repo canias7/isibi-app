@@ -255,7 +255,7 @@ export function askRequest({ message, site, canClarify = false, brief = "", qa =
  * pipeline that already works, and it must never be the reason a build does not
  * happen.
  */
-export function readRouting(reply, { canClarify = false, answering = false } = {}) {
+export function readRouting(reply, { canClarify = false, answering = false, attached = false } = {}) {
   const blocks = reply && Array.isArray(reply.content) ? reply.content : [];
   const use = blocks.find((b) => b && b.type === "tool_use");
   const input = (use && use.input) || {};
@@ -298,7 +298,18 @@ export function readRouting(reply, { canClarify = false, answering = false } = {
   // The cost, stated: somebody who interrupts mid-round with a real question
   // ("wait, can you read a URL?") gets a site instead of an answer. That is the
   // cheaper mistake, and they still have the site.
-  if (intent === "ask" && answering) return { intent: "build", answer: "" };
+  //
+  // `attached` IS THE SECOND REASON, and it is a separate flag rather than a
+  // second meaning on `answering`. They are different facts about the message —
+  // one is "this answers our question", the other is "a file came with it" — and
+  // this file already records what happens when two meanings share one flag.
+  // What they have in common is all that matters here: the CALLER knows the
+  // message is an instruction, so "ask" is not an honest outcome for it.
+  //
+  // Both bound `ask` and NEITHER bounds `clarify`, which is the whole point of
+  // the change that added `attached`: an attachment used to skip this call
+  // entirely, so a first build with a logo attached was never asked anything.
+  if (intent === "ask" && (answering || attached)) return { intent: "build", answer: "" };
   return { intent, answer: intent === "ask" ? answer : "" };
 }
 
@@ -447,7 +458,7 @@ export function askUsage(reply) {
  * that path running. `usage` comes back null on that route, so nothing is billed
  * for a call that failed — the same our-fault rule the build path follows.
  */
-export async function routeMessage(deps, { message, site, firstBuild = false, brief = "", qa = [], answering = false } = {}) {
+export async function routeMessage(deps, { message, site, firstBuild = false, brief = "", qa = [], answering = false, attached = false } = {}) {
   const text = String(message || "").trim();
   // AN EMPTY MESSAGE NEVER REACHES THE MODEL. The composer will not send one, but
   // this is a paid call behind a public route and "the client wouldn't do that"
@@ -465,6 +476,6 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
   } catch {
     return { intent: "build", answer: "", usage: null, failed: true };
   }
-  const routed = readRouting(reply, { canClarify, answering: !!answering });
+  const routed = readRouting(reply, { canClarify, answering: !!answering, attached: !!attached });
   return { ...routed, usage: askUsage(reply) };
 }

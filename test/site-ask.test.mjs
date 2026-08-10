@@ -244,7 +244,13 @@ test("the route exists, is auth-gated, and is reachable", () => {
   const src = worker();
   assert.match(src, /url\.pathname === "\/api\/site\/route"/, "the route matcher is gone");
   const i = src.indexOf('url.pathname === "/api/site/route"');
-  const block = src.slice(i, i + 2200);
+  // TO A LANDMARK, NOT A BYTE COUNT. This was `slice(i, i + 2200)` and went red
+  // on a correct change the moment a comment was added inside the handler — a
+  // guard about character counts rather than about the handler. The block runs
+  // to where the NEXT route begins, so it covers this one however it grows.
+  const end = src.indexOf('url.pathname === "/api/site/react-build"', i);
+  assert.ok(end > i, "could not find the end of the routing handler");
+  const block = src.slice(i, end);
   assert.match(block, /await authUser\(request, env\)/, "a paid model call must not be open to the world");
   assert.match(block, /routeMessage\(/, "the matcher is there and calls nothing");
 });
@@ -333,13 +339,19 @@ test("the balance refreshes after a routing charge", () => {
     "the router debits credits and nothing re-reads the balance");
 });
 
-test("an attachment skips the router entirely", () => {
-  // A file plus a sentence is the shape of "use this". The router would have to
-  // guess which, and guessing "ask" answers a build request with a paragraph and
-  // drops the attachment — the one case where paying for the call is worse than
-  // not asking.
-  assert.match(chat(), /if \(reactPath && !imgs\.length\) \{ siteRoute\(/,
-    "the attachment bypass is gone, so a file can be answered instead of used");
+test("an attachment on a REVISE skips the router, and on a first build does not", () => {
+  // THIS TEST USED TO PIN THE BYPASS ITSELF (`!imgs.length`), and the bypass was
+  // too wide. Its reasoning was right about one outcome — a file plus a sentence
+  // is "use this", so answering with a paragraph drops the file — and `attached`
+  // now bounds exactly that at the router. What the bypass ALSO removed was the
+  // first-build question, which has nothing to do with build-vs-ask.
+  //
+  // So the property is no longer "attachments skip the call". It is: skip it
+  // only when it could not change the answer. On a revise both non-build
+  // outcomes are already closed, so the call is a credit spent on a known
+  // result; on a first build the question is live.
+  assert.match(chat(), /if \(reactPath && \(!imgs\.length \|\| isBuild\)\) \{ siteRoute\(/,
+    "the routing condition changed — a first build with a file may be skipping its question again");
 });
 
 test("the digest the client sends is names only", () => {
@@ -608,8 +620,13 @@ test("the route passes the round through, and requires a real boolean", () => {
   assert.match(block, /brief: rb\.brief/);
   assert.match(block, /qa: rb\.qa/);
   // The question is returned, or the whole tier is computed and rendered by
-  // nothing — the dead-field shape this repo has recorded six times.
-  assert.match(w.slice(i, i + 4000), /question: routed\.intent === "clarify" \? routed\.question/);
+  // nothing — the dead-field shape this repo has recorded six times. Read to the
+  // NEXT ROUTE rather than to `i + 4000`: a byte window stops covering what it
+  // was written for as soon as a comment is added above the line, which is this
+  // repo's recurring source-guard bug and is how this one failed.
+  const end = w.indexOf('url.pathname === "/api/site/react-build"', i);
+  assert.ok(end > i, "could not find the end of the routing handler");
+  assert.match(w.slice(i, end), /question: routed\.intent === "clarify" \? routed\.question/);
 });
 
 test("the BUILD route folds the answers in, and does it in one place", () => {
@@ -957,4 +974,82 @@ test("the trade is the first question when the brief does not name it", () => {
   assert.match(d, /trade/i, "the rule must name the thing it is about");
   // The example is what makes it concrete rather than a slogan.
   assert.match(d, /Book classes/, "the measured case is what stops this reading as generic advice");
+});
+
+test("an attachment closes off prose without closing off the question", () => {
+  // AN ATTACHMENT USED TO SKIP THE ROUTING CALL ENTIRELY, which was right about
+  // one outcome and silently took a second one with it. A file plus a sentence
+  // is an instruction, so answering it with a paragraph drops the file on the
+  // floor — `attached` bounds that. It must NOT bound `clarify`, or attaching a
+  // logo opts a first build out of the one question the owner asked for.
+  const askReply = { content: [{ type: "tool_use", input: { intent: "ask", answer: "Nice logo!" } }] };
+  assert.equal(readRouting(askReply, { attached: true }).intent, "build",
+    "a message with a file attached must not be answered with prose");
+  assert.equal(readRouting(askReply, { attached: true }).answer, "",
+    "the prose must not be shown as though it were a reply");
+  // With nothing attached it is still an ordinary question, or this bounded
+  // nothing and removed the feature instead.
+  assert.equal(readRouting(askReply, { attached: false }).intent, "ask");
+
+  const q = { text: "What do people do on it?", options: ["Book a slot", "Send an enquiry"] };
+  const clarifyReply = { content: [{ type: "tool_use", input: { intent: "clarify", question: q } }] };
+  assert.equal(readRouting(clarifyReply, { canClarify: true, attached: true }).intent, "clarify",
+    "an attachment must not suppress the first-build question");
+});
+
+test("routeMessage passes `attached` through to the reader", () => {
+  // Where it dies silently: `readRouting` is correct and never told. The same
+  // hole `answering` had, one flag over.
+  const reply = { content: [{ type: "tool_use", input: { intent: "ask", answer: "hmm" } }] };
+  return routeMessage({ send: async () => reply },
+    { message: "use this logo", site: {}, firstBuild: true, brief: "a barber shop", attached: true, qa: [] })
+    .then((r) => assert.equal(r.intent, "build", "`attached` did not reach readRouting"));
+});
+
+test("the route hands `attached` to the router, strictly", () => {
+  const w = worker();
+  const i = w.indexOf("await routeMessage(");
+  assert.ok(i > 0, "the routing call is gone");
+  const end = w.indexOf("\n      );", i);
+  assert.ok(end > i, "could not find the end of the routing call");
+  assert.match(w.slice(i, end), /attached:\s*rb\.attached === true/,
+    "the attachment flag never reaches routeMessage, so a file can still be answered with prose");
+});
+
+test("the composer routes a first build even with a file attached", () => {
+  // THE HALF THAT WAS THE BUG. `siteSend` skipped `siteRoute` whenever anything
+  // was attached, so no first build with a logo was ever asked anything.
+  const c = chat();
+  const j = c.indexOf("function siteSend(");
+  assert.ok(j > 0, "siteSend is gone");
+  const send = c.slice(j, c.indexOf("\nfunction ", j + 10));
+  assert.match(send, /if \(reactPath && \(!imgs\.length \|\| isBuild\)\)/,
+    "an attachment skips the router again, so a first build with a file is never asked a question");
+  // …and the flag is actually put on the wire, derived from the attachments
+  // rather than taken as an argument nobody passes.
+  assert.match(c, /attached:\s*!!\(imgs && imgs\.length\)/,
+    "siteRoute drops the attachment flag before sending it");
+  // The round keeps the files, or answering the question builds without them.
+  const a = c.indexOf("function siteAnswer(");
+  assert.match(c.slice(a, c.indexOf("\nfunction ", a + 10)), /site\.clarify\.imgs \|\| \[\]/,
+    "the attachments do not survive the clarify round");
+});
+
+test("an unreadable balance still gets routed; an empty one does not", () => {
+  // TWO DIFFERENT ANSWERS THAT WERE READ AS ONE. `catch { rBal = 0 }` made an
+  // unreachable Supabase look exactly like an empty account, so every ledger
+  // blip turned every question into a build — and that build then failed on its
+  // own gate against the same ledger.
+  const w = worker();
+  const i = w.indexOf('url.pathname === "/api/site/route"');
+  assert.ok(i > 0, "the routing route is gone");
+  const block = w.slice(i, w.indexOf("await routeMessage(", i));
+  assert.match(block, /catch \{ rBal = null; \}/,
+    "an unreadable ledger is being read as a zero balance again");
+  assert.match(block, /if \(rBal !== null && !\(rBal > 0\)\)/,
+    "the gate no longer separates 'no credits' from 'could not tell'");
+  // A REAL zero must still short-circuit, or this turned the gate off entirely
+  // and every empty account pays for routing.
+  assert.match(block, /intent: "build", cost: 0/,
+    "an account with no credits no longer skips the paid call");
 });
