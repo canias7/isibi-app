@@ -45,8 +45,8 @@ const password = `Es-${stamp}-${Math.random().toString(36).slice(2, 10)}`;
 // claimed by whoever built it first across every account, so letting the
 // designer name the site from a fixed brief means it proposes the same good name
 // every run and the second run 409s on something that is not a bug.
-const slug = `esmoke-${stamp}-${Math.random().toString(36).slice(2, 6)}`;
-let userId = null, jwt = null;
+let slug = `esmoke-${stamp}-${Math.random().toString(36).slice(2, 6)}`;
+let userId = null, jwt = null, deleted = false;
 
 const api = (path, init) => fetch(`${BASE}${path}`, {
   ...(init || {}),
@@ -93,18 +93,32 @@ async function main() {
   });
 
   // --- one real build, so there is something to edit ------------------------
+  // ONE RETRY, BECAUSE THE BUILD IS A LOTTERY AND THE LANES ARE WHAT IS UNDER
+  // TEST. Roughly one generation in five does not compile — measured, and the
+  // documented rate — so without this a run has a ~20% chance of costing ~50
+  // credits and eight minutes to prove nothing about the thing it exists for.
+  // Losing twice is unlucky enough to be worth reporting as a failure.
+  //
+  // The slug changes on the retry: the first attempt CLAIMED the old one, so
+  // building again at the same address is a revise, and a revise is a different
+  // path with a different budget. It has to be a fresh first build.
   console.log(`\nbuilding a real site… ${slug}`);
-  const t0 = Date.now();
-  const br = await post("/api/site/react-build", {
-    slug,
-    brief: "A barber shop in Sheffield called Ridge & Bone. A price list of services, and a page where people can book a chair.",
-    picker: "sonnet",
-  });
-  const b = (await jsonOf(br)) || {};
+  const brief = "A barber shop in Sheffield called Ridge & Bone. A price list of services, and a page where people can book a chair.";
+  let b = {}, br = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt) {
+      slug = `${slug}-r${attempt}`;
+      console.log(`   the generator missed — one more, at ${slug}`);
+    }
+    const t0 = Date.now();
+    br = await post("/api/site/react-build", { slug, brief, picker: "sonnet" });
+    b = (await jsonOf(br)) || {};
+    console.log(`   ${Math.round((Date.now() - t0) / 1000)}s, ${b.cost} credits, page=${b.page}, files: ${(b.files || []).length}`);
+    if (br.status === 200 && b.page === "app") break;
+  }
   ok("the build returns 200", br.status === 200, `${br.status} ${JSON.stringify(b).slice(0, 200)}`);
   ok("a real app was published, not the placeholder", b.page === "app",
-    `page=${b.page} stage=${b.stage} error=${String(b.error || "").slice(0, 160)}`);
-  console.log(`   ${Math.round((Date.now() - t0) / 1000)}s, ${b.cost} credits, pages: ${(b.files || []).length}`);
+    `page=${b.page} stage=${b.stage} error=${String(b.error || "").slice(0, 200)}`);
   // EVERYTHING BELOW NEEDS A REAL APP. On the placeholder there is no page source
   // to edit and no nav to add to, so the lanes would correctly refuse and the run
   // would report a pile of failures about a build that never happened.
@@ -270,6 +284,7 @@ async function main() {
   console.log("\ncleaning up…");
   const del = await api(`/api/site/${slug}`, { method: "DELETE" });
   ok("the owner can delete the site", del.status === 200, String(del.status));
+  deleted = true;
 }
 
 main()
@@ -277,6 +292,12 @@ main()
   .finally(async () => {
     // The Neon project first — it is a capped, billed resource whose only record
     // is a Supabase row, and deleting the user cascades that row away.
+    // THE SITE FIRST, AND ON EVERY EXIT. The placeholder path returns early and
+    // skipped this, leaving the published files in R2 with the Supabase row about
+    // to cascade away underneath them — the orphaned-prefix state that needs an
+    // operator sweeper to clear. A test must not manufacture the one condition
+    // the platform has no self-service answer for.
+    try { if (jwt && slug && !deleted) await api(`/api/site/${slug}`, { method: "DELETE" }).catch(() => {}); } catch { /* best effort */ }
     try { if (userId && env.NEON_API_KEY) await dropUserProject(env, userId).catch(() => {}); } catch { /* best effort */ }
     if (userId) {
       await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${userId}`, { method: "DELETE", headers: svc() }).catch(() => {});
