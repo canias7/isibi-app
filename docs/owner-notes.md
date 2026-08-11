@@ -23,18 +23,65 @@ marketplace cell the pairs were added for. Read the dated entry below before
 starting any of them.
 
 **THE EDIT AND ADDON LANES ARE BUILT AND PUSHED (2026-08-11), NOT PROVEN LIVE.**
-Five commits on `claude/help-needed-ehlwlj`, 2022 tests, 18/18 mutations. What is
-left: task #83 (the edit lane's `page` layer, which escalates honestly today) and
-#74 (the colour lint). **Nothing here has run against a funded account** — the
-model account was empty when it was written, so every claim below is from tests
-and source reading, not from a real build. The first live change to a real site
-is the thing to watch, and the honest first question is whether the router picks
-`edit` for a colour change rather than `addon`.
+Fifteen commits on `claude/help-needed-ehlwlj`, 2078 tests, 69/69 mutations. All
+four layers are in (`data`, `text`, `look`, `page`), the addon lane can add AND
+remove a page, the data layer can remove a row, and the colour lint runs on both
+generating lanes. **Nothing here has run against a funded account** — every claim
+is from tests and source reading, not from a real build. The first live change to
+a real site is the thing to watch, and the honest first question is whether the
+router picks `edit` for a colour change rather than `addon`.
+
+Costs, estimated rather than measured: a typo ~25 → ~0.5 credits, a colour change
+~25 → ~2, a one-page structure change ~25 → ~5, adding a page ~25 → ~8, and
+changing a price ~25 → ~0.3 with **no recompile at all** (rows are read at
+runtime). Those numbers are the reason for the whole thing and none of them is
+proven.
 
 **Cloudflare Web Analytics for `gofarther.app`** — the owner asked to be reminded
 when they say they are home, since it wants doing on their desktop.
 
 ---
+
+## 2026-08-11 — A page could not be removed, and a row could not either
+
+**The lanes could add and change and not take away**, which made every deletion
+the most expensive request on the platform. Four fixes, one of them found by a
+mutant rather than by reading.
+
+- **Removing a page cost ~25 credits.** Nothing deleted except the full revise,
+  which does it by omission — so "take the gallery page off" fell through the
+  addon merge, came back as no change, escalated, and paid for every page on the
+  site to be retyped. It is a field on the tool now, with three guards: never the
+  home page, never a page another page still links to (a link at a route that no
+  longer exists does not compile, so the whole change would be refused and
+  nothing would move), and never one written in the same breath. **Allowed for
+  pages and NOT for rows because a page can be restored** — every publish is
+  archived — and a row cannot.
+- **And the commonest deletion was still refused.** Take away a page nothing
+  links to and the model correctly returns no files at all; the merge read that
+  as an empty answer and escalated. The one case the feature exists for was the
+  one case it did not cover. **Found by a mutation, not by reading it.**
+- **A considered refusal was climbing the ladder.** "Remove the home page" has an
+  answer — no, and here is why — and it came back wearing the same reason as a
+  dead end, which the client reads as *escalate*. So the platform would have
+  rebuilt a customer's whole site, for ~25 credits, in reply to a question. It is
+  shown now; a genuine dead end still goes up.
+- **The page picker kept what went.** The client merged the added pages in and
+  never dropped the removed ones: told the page is gone, still offered it, and
+  opening it lands on a route the site no longer has.
+- **Removing a row was refused outright** and pointed at the Data panel — the
+  cheapest request there is, routed to the one place the customer came here to
+  avoid. It works now, and the row's contents come back on the answer, because
+  **the thread is the only undo a deleted row has.**
+- **The text reply named nothing** — "Updated the wording in 3 places", a number
+  nobody can check against their own site. The server had always returned the new
+  wording; nothing read it.
+- **Three mutants survived by matching text that outlives the mutation**, and one
+  was my own new line making an existing guard ambiguous. All three replies are
+  extracted from `chat.js` and RUN now rather than grepped, which turns a claim
+  about the text of a file into a claim about what the customer is shown.
+- 2078 tests, **69/69 mutations caught** from a verified-green baseline. **Not
+  proven live.**
 
 ## 2026-08-11 — Four routes, and a live bug in the spine they publish through
 
