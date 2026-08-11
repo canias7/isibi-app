@@ -210,8 +210,13 @@ async function main() {
   ok("…and it reports the brand moved", (l.moved || []).includes("brand"), JSON.stringify(l.moved));
   ok("…and the rename reached the PAGES, not just the stored brand", (Number(l.renamed) || 0) > 0,
     `renamed=${l.renamed}`);
-  if (b.url) {
-    const live = await fetch(b.url, { headers: { "user-agent": "Mozilla/5.0 (edit-smoke)" } });
+  // `siteUrlFor` FALLS BACK TO A PATH, so `b.url` is sometimes `/s/<slug>/` and
+  // not an absolute URL — measured on the first run, where `fetch` threw
+  // "Failed to parse URL" and took the rest of the run with it. Resolved
+  // against the base rather than assumed absolute.
+  const liveUrl = b.url ? new URL(b.url, BASE).toString() : "";
+  if (liveUrl) {
+    const live = await fetch(liveUrl, { headers: { "user-agent": "Mozilla/5.0 (edit-smoke)" } });
     const html = await live.text().catch(() => "");
     // THE ONE ASSERTION THAT COULD NOT BE MADE FROM A UNIT TEST: the published
     // page, fetched over the wire, says the new name.

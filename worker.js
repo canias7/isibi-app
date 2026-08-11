@@ -49,7 +49,11 @@ import { imageBudget, budgetFor, imagesAffordable, planImages, applyImages, coun
 import { ASKABLE as SITE_TOKEN_NAMES, valueHint as siteTokenHint, mergeTokens, parseTokens, withContrast, tokenNote } from "./builder/site-tokens.mjs";
 import { extractText, applyEdits } from "./builder/site-text.mjs";
 import { runTextEdit, runDataEdit, renamePages, MAX_DATA_ROWS } from "./builder/site-apply.mjs";
-import { resolveAccess } from "./site-access.mjs";
+import { resolveAccess, ACCESS_PRESETS } from "./site-access.mjs";
+// The pair a `display` table resolves to. Named once, from the presets, so the
+// data layer's gate cannot drift from the vocabulary again — it was compared
+// against "anyone", which is a WRITE level, and matched nothing on any site.
+const DISPLAY_PAIR = ACCESS_PRESETS.display;
 import { mergeAddonPages, unlinkedPages, routeOf } from "./builder/site-addon.mjs";
 import { archiveVersion, listVersions, rollbackVersion, deleteAllVersions, versionId, versionLabel } from "./site-versions.mjs";
 import { readLinkedPages, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, attachments, MAX_QUERIES } from "./builder/site-context.mjs";
@@ -8561,6 +8565,18 @@ async function handleRequest(request, env, ctx) {
         ok: true,
         intent: routed.intent,
         answer: routed.intent === "ask" ? routed.answer : undefined,
+        // WHICH LAYER, AND WHICH PAGE — and without them the entire edit lane is
+        // unreachable. Measured live 2026-08-11, first run of `edit smoke`:
+        // `intent=edit layer=undefined`. `readEdit` decides the layer, this
+        // response dropped it, `siteEdit` posted `layer: ''`, and the edit route
+        // could dispatch to none of its four branches. Four layers, a router
+        // that picks between them correctly, and one missing field between them.
+        //
+        // The wiring layer for the tenth recorded time, and the reason the live
+        // run exists: 2091 unit tests all passed, because every one of them
+        // drives `readRouting` directly and worker.js cannot be imported.
+        layer: routed.intent === "edit" ? routed.layer : undefined,
+        page: routed.intent === "edit" ? routed.page : undefined,
         // The question to put in front of the build, already cleaned into
         // something renderable — two to four options, deduped, capped. The
         // client shows it verbatim rather than re-deciding anything, so there is
@@ -9592,8 +9608,19 @@ async function handleRequest(request, env, ctx) {
               const dTables = [];
               for (const t of (dSpec.tables || [])) {
                 if (!t || !t.name) continue;
+                // `public`, NOT `anyone` — and getting that word wrong made the
+                // whole layer dead. Measured live 2026-08-11: every data edit
+                // answered `no-data`, because `READ_LEVELS` is
+                // ["none","own","members","public"] and "anyone" is a WRITE
+                // level. So the condition was false for every table on every
+                // site, and the cheapest lane on the platform could never find a
+                // single row to change.
+                //
+                // Asserted against `ACCESS_PRESETS.display` rather than spelled
+                // out, so the two cannot disagree again: this IS the display
+                // preset, and naming it is what makes that true by construction.
                 const pair = resolveAccess(t);
-                if (!(pair.read === "anyone" && pair.write === "none")) continue;
+                if (pair.read !== DISPLAY_PAIR.read || pair.write !== DISPLAY_PAIR.write) continue;
                 const cols = (Array.isArray(t.columns) ? t.columns : [])
                   .map((c) => (typeof c === "string" ? c : c && c.name)).filter(Boolean);
                 try {

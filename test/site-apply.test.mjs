@@ -775,8 +775,15 @@ test("the route reads only tables the PUBLIC can read and NOBODY can write", () 
   // `display` only, and it is a boundary rather than a shortcut: a `collect`
   // table holds customers' bookings, and "cancel John's booking" is not a
   // sentence to hand a model.
+  //
+  // THIS GUARD PINNED THE BROKEN SPELLING and was green for the whole time the
+  // layer was dead: it required `pair.read === "anyone"`, which is the bug —
+  // "anyone" is a WRITE level, so the condition was false for every table on
+  // every site and every data edit answered `no-data`. It asserts the PROPERTY
+  // now, through the preset, which is the only form that cannot restate a
+  // mistake as a requirement.
   const b = editBlock();
-  assert.match(b, /pair\.read === "anyone" && pair\.write === "none"/,
+  assert.match(b, /pair\.read !== DISPLAY_PAIR\.read \|\| pair\.write !== DISPLAY_PAIR\.write/,
     "the data layer does not restrict itself to display tables");
   assert.match(b, /LIMIT " \+ MAX_DATA_ROWS/, "the row read is unbounded");
 });
@@ -1275,4 +1282,55 @@ test("the look reply shows a lint problem and reports how far a rename got", () 
   assert.match(editReply({ layer: "look", moved: ["brand"], renamed: 0 }), /couldn’t find the old name/);
   // And a look change that is not a rename says nothing about one.
   assert.equal(/old name/.test(editReply({ layer: "look", moved: ["theme"], renamed: 0 })), false);
+});
+
+// ── the two the live run found ───────────────────────────────────────────────
+//
+// Both were mine, both shipped, and both were invisible to every one of the
+// 2091 unit tests here — because every one drives the decision modules directly
+// and neither `worker.js` nor `public/chat.js` can be imported. `edit smoke`
+// found them in one pass, which is the entire argument for it existing.
+
+test("the router RETURNS the layer it picked", () => {
+  // MEASURED LIVE: `intent=edit layer=undefined`. `readEdit` decides the layer,
+  // the route dropped it on the floor, the client posted `layer: ''`, and the
+  // edit route could dispatch to none of its four branches. Four working layers,
+  // a router that picks between them correctly, and one missing field between
+  // them — the whole lane unreachable from the composer.
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const at = w.indexOf('if (url.pathname === "/api/site/route"');
+  assert.ok(at > 0, "the routing route moved");
+  const body = w.slice(at, w.indexOf("// Website builder", at));
+  assert.ok(body.length > 500, "the window no longer covers the route");
+  // The PROPERTY: every field the client reads off this answer is on it.
+  for (const f of ["intent", "answer", "question", "layer", "page"]) {
+    assert.match(body, new RegExp("\\b" + f + ":"), "the routing answer never carries `" + f + "`");
+  }
+  // And the client really does read them, or the other half is the dead one.
+  const chat = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+  assert.match(chat, /d\.layer/, "the client never reads the layer");
+  assert.match(chat, /siteEdit\(site, d,/, "the routing answer is not what drives the edit");
+});
+
+test("the data layer's gate is the display PRESET, not a spelling of it", async () => {
+  // MEASURED LIVE: every data edit answered `no-data`. The gate read
+  // `pair.read === "anyone"` — and "anyone" is a WRITE level; the read levels are
+  // ["none","own","members","public"]. So it was false for every table on every
+  // site, and the cheapest lane on the platform could never find a row.
+  const { resolveAccess, ACCESS_PRESETS, READ_LEVELS, WRITE_LEVELS } = await import("../site-access.mjs");
+  // The fact that broke it, pinned: the two vocabularies are DIFFERENT, and a
+  // word from one is not a word from the other.
+  assert.equal(READ_LEVELS.includes("anyone"), false, "`anyone` is not a read level");
+  assert.equal(WRITE_LEVELS.includes("anyone"), true);
+  assert.deepEqual(resolveAccess({ name: "s", access: "display" }), ACCESS_PRESETS.display,
+    "a display table no longer resolves to the display preset");
+
+  // The gate itself is asserted where it lives, one test above. What is added
+  // here is the fact that made it wrong: the two vocabularies are different, and
+  // the comparison must name the preset rather than spell a level.
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(w, /const DISPLAY_PAIR = ACCESS_PRESETS\.display;/,
+    "the gate is not derived from the preset, so it can drift from the vocabulary again");
+  assert.equal(/pair\.read === "(?:anyone|public)"/.test(w), false,
+    "the gate spells a level out again instead of naming the preset");
 });
