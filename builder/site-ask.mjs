@@ -169,8 +169,12 @@ export const ASK_TOOL = {
           "builder can do, so prefer it whenever it is honestly true.\n" +
           "\"look\" — colour, theme, fonts, how round the corners are, the site's name, its one-line description. Anything " +
           "about how the site LOOKS rather than what it says or where things sit.\n" +
-          "\"page\" — the arrangement of one existing page: move a section, take one out, lay a list out differently, add a " +
-          "block built from parts the page already has. Name the page in `page`.",
+          "\"page\" — the arrangement of ONE existing page: move a section, take one out, lay a list out differently, " +
+          "add a block built from parts the page already has. Name it in `page`.\n" +
+          "ONE PAGE, AND ONLY ONE. If the change is meant to land on several — \"put the phone number in the footer " +
+          "of every page\", \"add the gallery to the menu everywhere\" — this is NOT the layer for it: it edits the " +
+          "single page you name and leaves the rest exactly as they are, so the site would end up disagreeing with " +
+          "itself. Answer \"addon\" for those; it can touch the pages a visitor would look on.",
       },
       page: {
         type: "string",

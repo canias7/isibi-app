@@ -12,6 +12,7 @@ import {
   TEXT_TOOL, TEXT_MODEL, TEXT_MAX_TOKENS, MAX_TEXT_ITEMS, MAX_TEXT_CHARS,
   textRequest, textItems, readTextEdits, textUsage, runTextEdit,
 } from "../builder/site-apply.mjs";
+import { EDIT_LAYERS, ASK_TOOL } from "../builder/site-ask.mjs";
 
 const HOME = {
   path: "src/routes/index.tsx",
@@ -762,4 +763,36 @@ test("the composer has a reply for the data layer, and names what moved", () => 
   assert.match(b, /e\.layer === 'data'/, "the client cannot describe a data edit");
   assert.match(b, /r\.table/, "the reply does not name which table changed");
   assert.match(b, /e\.failed/, "a partial apply must be told to the owner");
+});
+
+test("a page edit NAMES the page, and never hides what it refused", () => {
+  // THE SILENT PARTIAL THIS CLOSES. The page layer changes exactly one file and
+  // drops anything else the model returned — deliberately, so one instruction
+  // cannot rewrite a page nobody named. But `editReply` had no `page` branch, so
+  // it fell through to "✅ Done.": ask for a link "on every page", get it on one,
+  // and be told it worked, with the site left disagreeing with itself.
+  const from = CHAT.indexOf("function editReply(");
+  assert.ok(from > 0, "editReply is gone");
+  const to = CHAT.indexOf("\n}\n", CHAT.indexOf("return '✅ Done.';", from));
+  const b = CHAT.slice(from, to);
+  assert.match(b, /e\.layer === 'page'/, "the client cannot describe a page edit");
+  assert.match(b, /e\.ignored/, "the pages this layer refused are never shown to the owner");
+  assert.match(b, /left alone/, "a partial must say which pages were not touched");
+
+  // EVERY LAYER THE ROUTE CAN RETURN HAS A BRANCH, derived rather than listed —
+  // a fifth layer added later must not fall through to "Done" the way this one
+  // did for its whole life.
+  for (const layer of EDIT_LAYERS) {
+    assert.ok(b.includes("e.layer === '" + layer + "'"),
+      "editReply has no branch for the " + layer + " layer, so it would report a bare Done");
+  }
+});
+
+test("the rules say a multi-page change is NOT a page edit", () => {
+  // The other end of the same failure: the router should never pick this layer
+  // for "on every page", because the layer physically cannot do it.
+  const d = ASK_TOOL.input_schema.properties.layer.description;
+  assert.match(d, /ONE PAGE, AND ONLY ONE/);
+  assert.match(d, /every page/i, "the description must name the case it gets wrong");
+  assert.match(d, /Answer "addon" for those/, "it must say where the change belongs instead");
 });

@@ -11284,6 +11284,21 @@ function editReply(e) {
     if (e.failed) out += ' ' + e.failed + ' couldn\u2019t be saved \u2014 try that one again.';
     return out;
   }
+  if (e.layer === 'page') {
+    // NAMES THE PAGE, AND NAMES WHAT IT REFUSED. This layer changes exactly one
+    // file and drops anything else the model returned — deliberately, so one
+    // instruction cannot rewrite a page nobody named. Reporting only "Done"
+    // makes that a SILENT PARTIAL: ask for a link "on every page", get it on
+    // one, and be told it worked.
+    let out = '✅ Updated ' + (e.page || 'the page') + '.';
+    const ign = Array.isArray(e.ignored) ? e.ignored.map(sitePathOf).filter(Boolean) : [];
+    if (ign.length) {
+      out += ' I only changed that one — ' + ign.join(', ') +
+        (ign.length === 1 ? ' was' : ' were') + ' left alone. Ask again naming ' +
+        (ign.length === 1 ? 'it' : 'them') + ' if you want the same change there.';
+    }
+    return out;
+  }
   if (e.layer === 'look') {
     const moved = (Array.isArray(e.moved) ? e.moved : []).slice(0, 4);
     const tokens = (Array.isArray(e.tokens) ? e.tokens : []).slice(0, 4);
