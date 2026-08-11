@@ -48,6 +48,7 @@ import { publishPages, pageCredits, schemaSettlement, buildFloor, IMAGE_USD as S
 import { imageBudget, budgetFor, imagesAffordable, planImages, applyImages, imagePrompt, imageNote, IMAGE_ASPECT } from "./builder/site-images.mjs";
 import { ASKABLE as SITE_TOKEN_NAMES, valueHint as siteTokenHint, mergeTokens, parseTokens, withContrast, tokenNote } from "./builder/site-tokens.mjs";
 import { extractText, applyEdits } from "./builder/site-text.mjs";
+import { runTextEdit } from "./builder/site-apply.mjs";
 import { archiveVersion, listVersions, rollbackVersion, deleteAllVersions, versionId, versionLabel } from "./site-versions.mjs";
 import { readLinkedPages, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, attachments, MAX_QUERIES } from "./builder/site-context.mjs";
 import { routeMessage, clarifiedBrief } from "./builder/site-ask.mjs";
@@ -9403,6 +9404,14 @@ async function handleRequest(request, env, ctx) {
       // shape-checked by `isVersionId` before it can address an object.
       const vr = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/versions(\/restore)?$/i);
       const tx = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/text$/i);
+      // THE EDIT LANE. Change what the site already has, and nothing else.
+      //
+      // Its own route rather than a mode on the build handler, deliberately: the
+      // guarantee "an edit never touches the schema" is worth having as a
+      // property of the CODE PATH — nothing reachable from here can call
+      // `applySiteSchema`, `seedSiteRows` or the page generator — rather than as
+      // a rule somebody has to keep remembering inside a 700-line handler.
+      const ed = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/edit$/i);
       // EVERY owner-scoped matcher above has to appear here, and `dm2` did not —
       // so `/api/site/<slug>/domains` was dispatched by nothing and fell through
       // to the 404 at the bottom of the router. Custom domains were unreachable
@@ -9414,10 +9423,10 @@ async function handleRequest(request, env, ctx) {
       // so from outside the two are indistinguishable — which is how this
       // survived a live probe until the dispatch was read.
       // `test/api-auth.test.mjs` holds the list against the matchers now.
-      if (om || mm || an || uf || xp || nt || sk || dm2 || vr || tx) {
+      if (om || mm || an || uf || xp || nt || sk || dm2 || vr || tx || ed) {
         const ou = await authUser(request);
         if (!ou) return UNAUTHED();
-        const ownerSlug = (om || mm || an || uf || xp || nt || sk || dm2 || vr || tx)[1].toLowerCase();
+        const ownerSlug = (om || mm || an || uf || xp || nt || sk || dm2 || vr || tx || ed)[1].toLowerCase();
         const ownerDeps = {
           ownerOf: async (s2) => {
             const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(s2)}&select=uid`, { headers: svcHeaders(env), signal: AbortSignal.timeout(12000) });
@@ -9456,6 +9465,197 @@ async function handleRequest(request, env, ctx) {
           // other route in this block; a slug that is not yours answers 404
           // rather than 403, because the slug space is public and a 403 confirms
           // which names are taken.
+          if (ed) {
+            // ── THE EDIT LANE ─────────────────────────────────────────────
+            //
+            // Two layers live here and neither runs the page generator, which
+            // is the entire saving. `text` lifts the strings out of the stored
+            // source, has a Haiku call pick which change, and puts them back.
+            // `look` moves theme, fonts, colours, corners, the name and the
+            // description — all of which the CONTAINER applies, so the pages
+            // are recompiled untouched.
+            //
+            // EVERYTHING THAT CANNOT BE DONE HERE ESCALATES WITH A 200. This
+            // route sits below `addon` and `build` on a ladder, so its failure
+            // answer is not an error the customer sees — it is `escalate:true`
+            // and the client walks up to the next rung. A 4xx here would show
+            // somebody a refusal for a change that is perfectly possible one
+            // step up.
+            if (!env.SITES_BUCKET) return Response.json({ ok: false, error: "storage not configured" }, { status: 501 });
+            if (request.method !== "POST") return Response.json({ ok: false, error: "method not allowed" }, { status: 405 });
+            const g = await assertOwner(ownerDeps, ownerSlug, ou.id);
+            if (g.error) return Response.json(g.error.body, { status: g.error.status });
+
+            const eb = await request.json().catch(() => ({}));
+            const eLayer = String((eb && eb.layer) || "");
+            const eInstruction = String((eb && eb.instruction) || "").trim().slice(0, 2000);
+            const eAuth = request.headers.get("Authorization") || "";
+            // ONE shape for every "I cannot do this, try the rung above".
+            const escalate = (reason, extra) =>
+              Response.json({ ok: false, escalate: true, reason, cost: 0, ...(extra || {}) });
+            if (!eInstruction) return escalate("empty");
+            if (!env.ANTHROPIC_API_KEY) return escalate("unconfigured");
+
+            // THE STORED SOURCE IS THE WHOLE PREMISE. Without it there is
+            // nothing to edit — a site built before the source was kept — and
+            // the rung above regenerates from scratch, which is exactly right.
+            const eSrc = await loadSiteSource(env, ownerSlug);
+            if (!eSrc || !eSrc.length) return escalate("no-source");
+
+            // Charged only when the change actually PUBLISHED, the same rule
+            // `publishPages` follows: a lane that failed and left the site
+            // untouched has delivered nothing to bill for.
+            const eCharge = async (usage) => {
+              if (!usage) return 0;
+              try { return await collectCredits(eAuth, pageCredits(usage)); } catch { return 0; }
+            };
+
+            if (eLayer === "text") {
+              const out = await runTextEdit({ send: (req) => anthropicMessages(env, req) },
+                { instruction: eInstruction, pages: eSrc });
+              // `escalate` false with `ok` false is the one case that is NOT a
+              // rung problem: the stored source moved under us, and the lane
+              // above would be working from the same copy. Retrying fixes it.
+              if (!out.ok) {
+                if (!out.escalate) {
+                  return Response.json({
+                    ok: false, error: out.reason, cost: 0,
+                    msg: "Your site changed while that was being edited — send it again.",
+                  }, { status: 409 });
+                }
+                return escalate(out.reason);
+              }
+              const pub = await recompileAndPublish(env, {
+                slug: ownerSlug, pages: out.pages,
+                label: versionLabel({ revise: true, changeNote: eInstruction }),
+              });
+              // A FAILED COMPILE LEAVES THE LIVE SITE ALONE, and is not
+              // escalated: the rung above would rewrite pages the owner never
+              // asked to have rewritten, to fix a typo.
+              if (!pub.ok) {
+                return Response.json({
+                  ok: false, error: "compile", cost: 0,
+                  msg: "That wording didn't compile, so your site is untouched — try shorter wording.",
+                  detail: pub.detail,
+                }, { status: 422 });
+              }
+              return Response.json({
+                ok: true, layer: "text", applied: out.applied, files: pub.files,
+                changed: out.edits.map((e) => e.to).slice(0, 8),
+                cost: await eCharge(out.usage), usage: out.usage,
+              });
+            }
+
+            if (eLayer === "look") {
+              const cinfo = await siteBackendBySlug(env, ownerSlug);
+              const edb = cinfo && cinfo.conn;
+              if (!edb) return escalate("no-backend");
+              let priorLook = null, priorTokens = null, eSchema = null;
+              try {
+                const rows = await sqlQuery(edb, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','schema')");
+                for (const r of rows || []) {
+                  if (r.k === "site_look" && r.v) priorLook = JSON.parse(r.v);
+                  if (r.k === "site_tokens" && r.v) priorTokens = JSON.parse(r.v);
+                  if (r.k === "schema" && r.v) eSchema = JSON.parse(r.v);
+                }
+              } catch (e) { console.error("edit look read failed:", ownerSlug, e && e.message); return escalate("no-meta"); }
+              if (!priorLook) return escalate("no-look");
+
+              // The designer, told what the site is now and told to return ONLY
+              // what this change moves. Same call the build uses, same edit
+              // rule — there is no second designer for edits.
+              let designed = null, dUsage = null;
+              try {
+                const d = await designSiteSchema(env, eInstruction, modelsFor(eb && eb.picker).design, {
+                  ...priorLook,
+                  tables: ((eSchema && eSchema.tables) || []).map((t) => t && t.name).filter(Boolean),
+                });
+                designed = d.input; dUsage = d.usage;
+              } catch (e) {
+                // The model is down or unpaid. Our fault, our cost — and the
+                // rung above will fail the same way, so this is reported rather
+                // than escalated into a second bill for the same outage. The
+                // SAME `upstreamKind` shape the build route answers with: a
+                // billing failure is the one nothing retries past, and telling
+                // somebody to try again spends their evening on it.
+                console.error("edit design failed:", ownerSlug, e && e.message);
+                const eKind = upstreamKind(e && e.detail);
+                return Response.json({
+                  ok: false, error: "design", cost: 0,
+                  msg: eKind.billing
+                    ? "The site builder is temporarily unavailable — this is on us, not your change."
+                    : "The designer is busy — try again in a moment.",
+                  upstream: (e && e.status) || null,
+                  upstreamType: eKind.type,
+                  billing: eKind.billing || undefined,
+                }, { status: 503 });
+              }
+
+              const merged = mergeLook(priorLook, designed, {}, { instructed: true });
+              const moved = movedFields(priorLook, merged);
+              const nextTokens = mergeTokens(priorTokens, designed && designed.tokens);
+              const tokensMoved = JSON.stringify(nextTokens) !== JSON.stringify(priorTokens || {});
+
+              // WHAT THIS LANE CAN HONESTLY MOVE, AND WHAT IT ONLY APPEARS TO.
+              //
+              // The container is handed `theme`, `tokens` and `fonts`, so those
+              // really do change a site that is merely recompiled. `family` and
+              // `structure` are layout decisions the PAGES were written against
+              // and the container never sees — storing a new one here would
+              // change nothing a visitor could see while reporting success, and
+              // would leave the stored look disagreeing with the pages it
+              // describes. "Make it look like a newspaper" is a real request and
+              // it belongs one rung up, where pages are rewritten.
+              const needsPages = moved.filter((k) => k === "family" || k === "structure");
+              if (needsPages.length) return escalate("needs-pages", { moved: needsPages });
+              if (!moved.length && !tokensMoved) return escalate("no-change");
+
+              try {
+                await sqlQuery(edb, "INSERT INTO _meta (k,v) VALUES ('site_look', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v",
+                  [JSON.stringify({ ...merged, fonts: merged.fonts || themeFontPair(merged.theme) })]);
+                if (Object.keys(nextTokens).length) {
+                  await sqlQuery(edb, "INSERT INTO _meta (k,v) VALUES ('site_tokens', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v",
+                    [JSON.stringify(nextTokens)]);
+                }
+              } catch (e) {
+                // Nothing has been published yet, so the site is exactly as it
+                // was. Reported rather than escalated: a write that failed once
+                // will fail for the bigger lane too.
+                console.error("edit look write failed:", ownerSlug, e && e.message);
+                return Response.json({ ok: false, error: "store", cost: 0, msg: "That change couldn't be saved — try again." }, { status: 503 });
+              }
+
+              // THE PAGES GO BACK UNTOUCHED. `recompileAndPublish` reads the
+              // look it was just handed out of `_meta` rather than taking it as
+              // an argument, which is what makes "store, then recompile" the
+              // whole of this layer.
+              // Labelled by the CHANGE, in the customer's own words — the one
+              // question the versions panel is opened to answer. `versionLabel`
+              // already does exactly this for a revise; a second labeller here
+              // would be a second thing that can disagree about what to call a
+              // build.
+              const pub = await recompileAndPublish(env, {
+                slug: ownerSlug, pages: eSrc,
+                label: versionLabel({ revise: true, changeNote: eInstruction }),
+              });
+              if (!pub.ok) {
+                return Response.json({
+                  ok: false, error: "compile", cost: 0,
+                  msg: "That look didn't compile, so your site is untouched.",
+                  detail: pub.detail,
+                }, { status: 422 });
+              }
+              return Response.json({
+                ok: true, layer: "look", moved, tokens: tokensMoved ? Object.keys(nextTokens) : [],
+                files: pub.files, cost: await eCharge(dUsage), usage: dUsage,
+              });
+            }
+
+            // `page` IS NOT BUILT YET and says so rather than pretending. It
+            // escalates like everything else this lane cannot do, so the change
+            // still happens — one rung up, at the price of a rung up.
+            return escalate("layer");
+          }
           if (tx) {
             // ── CHANGING THE WORDS, WITH NO MODEL CALL ────────────────────
             //

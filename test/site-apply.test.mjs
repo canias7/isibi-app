@@ -317,3 +317,105 @@ test("the tool tells the model to change only what was asked, and to change ALL 
   const to = TEXT_TOOL.input_schema.properties.edits.items.properties.to.description;
   assert.match(to, /no quotes, no braces/i, "the model must be told what breaks the source");
 });
+
+// ── the wiring layer, which is where this repo keeps losing features ──────────
+//
+// worker.js cannot be imported, so every assertion here reads it. Eight times
+// now a feature has been correct at every layer and dead at one silent one.
+
+const WORKER = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+
+/** The edit handler's own block, so a claim about it cannot be satisfied by the build path. */
+function editBlock() {
+  const from = WORKER.indexOf("\n          if (ed) {");
+  assert.ok(from > 0, "the edit handler is gone or renamed — every assertion below would pass vacuously");
+  const to = WORKER.indexOf("\n          if (tx) {", from);
+  assert.ok(to > from, "could not find the end of the edit handler");
+  return WORKER.slice(from, to);
+}
+
+test("the route exists, is dispatched, and reaches the module", () => {
+  assert.match(WORKER, /const ed = url\.pathname\.match\(\/\^\\\/api\\\/site\\\/[^\n]*\\\/edit\$/,
+    "no /api/site/<slug>/edit matcher");
+  // In the dispatch condition AND in the ownerSlug list. Missing from either is
+  // the exact shape of the `dm2` bug: a handler that looks gated and is dead.
+  const gate = WORKER.match(/if \(om \|\| mm \|\|[^)]*\) \{/g) || [];
+  assert.ok(gate.length && gate.every((g) => g.includes("|| ed")),
+    "the edit matcher is not in the dispatch condition");
+  assert.match(WORKER, /const ownerSlug = \(om \|\| mm \|\|[^)]*\|\| ed\)/,
+    "the edit matcher is not in the ownerSlug list, so it would read another route's slug");
+  const b = editBlock();
+  assert.match(b, /runTextEdit\(/, "the text layer is not wired to the module");
+  assert.match(b, /recompileAndPublish\(/, "the lane never publishes");
+  assert.match(b, /assertOwner\(/, "the edit lane is not ownership-gated");
+});
+
+test("the edit handler CANNOT reach the schema, the seeder or the page generator", () => {
+  // The guarantee is a property of the code path, not a rule inside a 700-line
+  // handler. Comments blanked, since the block explains what it may not do.
+  const raw = editBlock();
+  const b = raw.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m) => " ".repeat(m.length));
+  assert.equal(b.length, raw.length, "blanking must preserve offsets");
+  for (const forbidden of ["applySiteSchema", "seedSiteRows", "generateSitePages", "buildAndPublishPages", "ensureSiteBackend"]) {
+    assert.ok(!b.includes(forbidden), "the edit lane must not be able to reach " + forbidden);
+  }
+  // Not passing because the block was blanked away.
+  assert.match(b, /runTextEdit/);
+});
+
+test("the charge comes AFTER the publish, on every layer", () => {
+  // The exemption IS the ordering: a publish that throws leaves the spend
+  // un-made. A mutation moving the charge up would bill for a site that was
+  // never changed.
+  const b = editBlock();
+  // ANCHOR ON THE CALL, NOT THE DEFINITION. The first draft of this took
+  // `indexOf("collectCredits(")`, which lands inside the `eCharge` helper
+  // declared near the top of the block — so it measured where the helper is
+  // WRITTEN rather than where it RUNS, and went red on correct code. Same trap
+  // as a guard matching `buildEffortHTML()`'s own definition.
+  assert.equal((b.match(/collectCredits\(/g) || []).length, 1,
+    "there must be exactly one place money leaves the ledger");
+  const calls = [...b.matchAll(/eCharge\(/g)].map((m) => m.index);
+  assert.ok(calls.length >= 2, "each layer's success must charge — found " + calls.length);
+  for (const at of calls) {
+    assert.ok(b.lastIndexOf("recompileAndPublish(", at) > 0,
+      "a charge at offset " + at + " runs before anything was published");
+  }
+  // And the helper itself is declared once, so the ordering above cannot be
+  // satisfied by a second charge site that happens to sit lower.
+  assert.equal((b.match(/const eCharge = /g) || []).length, 1);
+});
+
+test("a failed edit publishes nothing and says the site is untouched", () => {
+  const b = editBlock();
+  // Two compile failures, one per layer, and both must promise the live site is
+  // intact — that promise is what makes it safe to try the cheap lane first.
+  const untouched = b.match(/site is untouched/g) || [];
+  assert.equal(untouched.length, 2, "each layer must tell the customer their site survived a failed edit");
+  assert.match(b, /status: 422/, "a failed compile is not reported as success");
+});
+
+test("everything the lane cannot do escalates with a 200, not a refusal", () => {
+  // This route sits BELOW addon and build on a ladder. A 4xx here shows somebody
+  // a refusal for a change that is perfectly possible one rung up.
+  const b = editBlock();
+  assert.match(b, /escalate = \(reason, extra\) =>\s*\n?\s*Response\.json\(\{ ok: false, escalate: true/,
+    "the escalation helper is gone or no longer answers 200");
+  for (const reason of ["empty", "unconfigured", "no-source", "no-backend", "no-meta", "no-look", "needs-pages", "no-change", "layer"]) {
+    assert.ok(b.includes('escalate("' + reason + '"'), "no escalation path for: " + reason);
+  }
+});
+
+test("a family or structure change is escalated, never silently stored", () => {
+  // The container is handed theme, tokens and fonts — those really do change a
+  // recompiled site. `family` and `structure` are what the PAGES were written
+  // against and the container never sees them, so storing one here would report
+  // success, change nothing a visitor can see, and leave the stored look
+  // disagreeing with the pages it describes.
+  const b = editBlock();
+  const needs = b.indexOf("const needsPages");
+  const write = b.indexOf("INSERT INTO _meta (k,v) VALUES ('site_look'");
+  assert.ok(needs > 0 && write > 0, "the guard or the write is gone — this assertion cannot hold vacuously");
+  assert.ok(needs < write, "the family/structure check must run BEFORE the look is stored");
+  assert.match(b, /needsPages\.length\) return escalate\("needs-pages"/);
+});
