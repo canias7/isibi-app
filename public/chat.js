@@ -11273,6 +11273,17 @@ function editReply(e) {
     const n = Number(e.applied) || 0;
     return '✅ Updated the wording' + (n > 1 ? ' in ' + n + ' places' : '') + '.';
   }
+  if (e.layer === 'data') {
+    // NAMES WHAT MOVED, because this layer changes rows the customer cannot see
+    // in the page source — "done" leaves them with nothing to check.
+    const rows = Array.isArray(e.applied) ? e.applied : [];
+    const what = rows.map((r) => (r.id === undefined ? 'added to ' : '') + r.table).filter(Boolean);
+    const uniq = [...new Set(what)];
+    let out = '✅ Updated ' + (rows.length === 1 ? 'one entry' : rows.length + ' entries') +
+      (uniq.length ? ' in ' + uniq.join(', ') : '') + '.';
+    if (e.failed) out += ' ' + e.failed + ' couldn\u2019t be saved \u2014 try that one again.';
+    return out;
+  }
   if (e.layer === 'look') {
     const moved = (Array.isArray(e.moved) ? e.moved : []).slice(0, 4);
     const tokens = (Array.isArray(e.tokens) ? e.tokens : []).slice(0, 4);

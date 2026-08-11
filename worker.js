@@ -48,7 +48,8 @@ import { publishPages, pageCredits, schemaSettlement, buildFloor, IMAGE_USD as S
 import { imageBudget, budgetFor, imagesAffordable, planImages, applyImages, imagePrompt, imageNote, IMAGE_ASPECT } from "./builder/site-images.mjs";
 import { ASKABLE as SITE_TOKEN_NAMES, valueHint as siteTokenHint, mergeTokens, parseTokens, withContrast, tokenNote } from "./builder/site-tokens.mjs";
 import { extractText, applyEdits } from "./builder/site-text.mjs";
-import { runTextEdit } from "./builder/site-apply.mjs";
+import { runTextEdit, runDataEdit, MAX_DATA_ROWS } from "./builder/site-apply.mjs";
+import { resolveAccess } from "./site-access.mjs";
 import { mergeAddonPages, unlinkedPages, routeOf } from "./builder/site-addon.mjs";
 import { archiveVersion, listVersions, rollbackVersion, deleteAllVersions, versionId, versionLabel } from "./site-versions.mjs";
 import { readLinkedPages, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, attachments, MAX_QUERIES } from "./builder/site-context.mjs";
@@ -9542,6 +9543,87 @@ async function handleRequest(request, env, ctx) {
               try { return await collectCredits(eAuth, pageCredits(usage)); } catch { return 0; }
             };
 
+            if (eLayer === "data") {
+              // ── THE CONTENT THE SITE STORES ─────────────────────────────
+              //
+              // The cheapest layer there is, and the one the audit was missing:
+              // a generated site keeps its menu and its prices in a `display`
+              // table and renders them with `useRows`, so those words are NOT in
+              // the page source and no page-facing layer could ever reach them.
+              // Before this, "change the price of a haircut to £25" fell through
+              // edit, addon and build and came back ~25 credits later unchanged.
+              //
+              // NOTHING IS RECOMPILED AND NOTHING IS REPUBLISHED. The published
+              // bundle reads these rows at runtime, so the change is live the
+              // moment it commits.
+              const ddb = await siteBackendBySlug(env, ownerSlug);
+              if (!ddb) return escalate("no-backend");
+              let dSpec = null;
+              try {
+                const rows = await sqlQuery(ddb, "SELECT v FROM _meta WHERE k = 'schema'");
+                if (rows && rows[0] && rows[0].v) dSpec = JSON.parse(rows[0].v);
+              } catch (e) { console.error("data edit schema read failed:", ownerSlug, e && e.message); }
+              if (!dSpec) return escalate("no-meta");
+
+              // `display` TABLES ONLY, and that is a boundary rather than a
+              // shortcut. A `collect` table holds customers' bookings and
+              // enquiries — the visitor's data, not the owner's content — and
+              // "cancel John's booking" is not a sentence to hand a model. The
+              // Data panel is where those are changed, with the row on screen.
+              const dTables = [];
+              for (const t of (dSpec.tables || [])) {
+                if (!t || !t.name) continue;
+                const pair = resolveAccess(t);
+                if (!(pair.read === "anyone" && pair.write === "none")) continue;
+                const cols = (Array.isArray(t.columns) ? t.columns : [])
+                  .map((c) => (typeof c === "string" ? c : c && c.name)).filter(Boolean);
+                try {
+                  const rows = await sqlQuery(ddb, "SELECT * FROM \"" + String(t.name).replace(/"/g, "") + "\" ORDER BY id LIMIT " + MAX_DATA_ROWS);
+                  dTables.push({ name: t.name, columns: cols, rows: rows || [] });
+                } catch (e) { console.error("data edit row read failed:", ownerSlug, t.name, e && e.message); }
+              }
+
+              const dOut = await runDataEdit({
+                send: (req) => anthropicMessages(env, req),
+                // ONE STATEMENT PER CHANGE, parameterised, with the table name
+                // taken from the DECLARED schema rather than from the model —
+                // it is the only part that cannot be a bound parameter.
+                apply: async (c) => {
+                  const name = String(c.table).replace(/"/g, "");
+                  const cols = Object.keys(c.values);
+                  if (c.id === undefined) {
+                    const marks = cols.map(() => "?").join(", ");
+                    await sqlQuery(ddb, "INSERT INTO \"" + name + "\" (" + cols.map((k) => '"' + k.replace(/"/g, "") + '"').join(", ") + ") VALUES (" + marks + ")", cols.map((k) => c.values[k]));
+                    return true;
+                  }
+                  const sets = cols.map((k) => '"' + k.replace(/"/g, "") + '" = ?').join(", ");
+                  await sqlQuery(ddb, "UPDATE \"" + name + "\" SET " + sets + " WHERE id = ?", [...cols.map((k) => c.values[k]), c.id]);
+                  return true;
+                },
+              }, { instruction: eInstruction, tables: dTables });
+
+              if (!dOut.ok) {
+                // A model that read the rows and matched none does NOT escalate:
+                // the rungs above cannot change a row either, so sending them up
+                // spends ~25 credits to fail differently. Said plainly instead,
+                // with the one thing the owner can actually do about it.
+                if (!dOut.escalate) {
+                  return Response.json({
+                    ok: false, error: dOut.reason, cost: 0,
+                    msg: dOut.reason === "no-match"
+                      ? "I couldn't match that to anything the site stores. If you meant to remove something, delete it in the Data panel — I can change and add, but not delete."
+                      : "That change couldn't be saved — try again.",
+                  }, { status: 422 });
+                }
+                return escalate(dOut.reason);
+              }
+              return Response.json({
+                ok: true, layer: "data",
+                applied: dOut.applied.map((c) => ({ table: c.table, id: c.id, columns: Object.keys(c.values) })),
+                failed: dOut.failed,
+                cost: await eCharge(dOut.usage), usage: dOut.usage,
+              });
+            }
             if (eLayer === "text") {
               const out = await runTextEdit({ send: (req) => anthropicMessages(env, req) },
                 { instruction: eInstruction, pages: eSrc });

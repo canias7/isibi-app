@@ -251,3 +251,220 @@ export async function runTextEdit(deps, { instruction, pages } = {}) {
   if (!ed.ok) return { ok: false, escalate: false, reason: "stale", detail: ed.error, usage };
   return { ok: true, pages: ed.pages, applied: ed.applied, edits, usage };
 }
+
+// ── THE DATA LAYER: the content the site STORES ──────────────────────────────
+//
+// FOUND BY AUDIT, and it is the hole that mattered. A generated site keeps its
+// menu, its prices, its services and its opening times in a `display` table and
+// renders them with `useRows` — so those words are NOT in the page source, and
+// none of the three page-facing layers can reach them. "Change the price of a
+// haircut to £25" found no string, escalated to addon, escalated to build, and
+// came back ~25 credits later with the price unchanged. Three lanes, real money,
+// nothing done: the worst shape there is, and the commonest thing a small
+// business asks for.
+//
+// IT IS ALSO THE CHEAPEST LAYER, and by a distance. Rows are read at RUNTIME by
+// the published bundle, so nothing is recompiled and nothing is republished —
+// the change is live the moment the UPDATE commits. One Haiku call, no container.
+//
+// `display` TABLES ONLY, and that is a boundary rather than a simplification. A
+// `collect` table holds customers' bookings and enquiries: those rows are the
+// visitor's data, not the owner's content, and "cancel John's booking" is not a
+// sentence to hand a model. The owner still has the Data panel for those, where
+// they can see the row they are changing.
+
+/** Haiku. Picking which row and which column is not a design task. */
+export const DATA_MODEL = "claude-haiku-4-5";
+export const DATA_MAX_TOKENS = 1200;
+/** How many rows the model is shown. A menu is a dozen; a hundred is not a menu. */
+export const MAX_DATA_ROWS = 60;
+/** How many changes one instruction may make. "Put the prices up by 10%" is a real ask. */
+export const MAX_DATA_OPS = 20;
+
+export const DATA_TOOL = {
+  name: "write_row_changes",
+  description: "Change the content this site stores — a price, a menu item, an opening time — or add a new one.",
+  input_schema: {
+    type: "object",
+    properties: {
+      changes: {
+        type: "array",
+        description:
+          "One entry per row that this instruction actually changes, and nothing else. A row you do not mention is " +
+          "left exactly as it is.\n" +
+          "IF THE INSTRUCTION CANNOT BE DONE BY CHANGING OR ADDING ROWS — it asks to DELETE one, or it is about the " +
+          "look of the page rather than what is stored — return an empty array. Guessing at the nearest row is worse " +
+          "than saying you could not do it.",
+        items: {
+          type: "object",
+          properties: {
+            table: { type: "string", description: "The table name, exactly as listed below." },
+            id: { type: "integer", description: "The id of the row to change. LEAVE THIS OUT to add a new row." },
+            values: {
+              type: "object",
+              description:
+                "The columns to set, and their new values. Only the columns that change — a column you do not " +
+                "mention keeps what it has. Use the column names exactly as listed below. When adding a row, give " +
+                "every column the others have, or the new one will look broken beside them.",
+            },
+          },
+          required: ["table", "values"],
+        },
+      },
+    },
+    required: ["changes"],
+  },
+};
+
+const DATA_SYSTEM =
+  "You change the content stored by a small business's website — the menu, the prices, the services, the opening " +
+  "times. You are given the tables, their columns and their current rows, and one instruction from the owner.\n\n" +
+  "CHANGE ONLY WHAT THEY ASKED FOR. Everything else is there because they wanted it, and tidying it while you are " +
+  "in there is not a favour: they cannot see what you touched.\n\n" +
+  "Use their words and their formatting. If the prices around it are written \"£24\", a new one is \"£26\" and not " +
+  "\"26.00\". Match what is already there.\n\n" +
+  "If they say what the new value is, use it exactly. Only write something yourself when they describe a change " +
+  "rather than dictating one.";
+
+/**
+ * The tables and rows the model may change, as text.
+ *
+ * IDS ARE SHOWN AND EVERYTHING ELSE IS THE ROW'S OWN CONTENT. The model picks an
+ * id off this list and the caller checks it against the same list before it
+ * reaches SQL, so a model cannot name a row it was not offered.
+ */
+export function dataDigest(tables) {
+  const out = [];
+  for (const t of Array.isArray(tables) ? tables : []) {
+    if (!t || !t.name || !Array.isArray(t.rows)) continue;
+    const cols = (Array.isArray(t.columns) ? t.columns : []).filter((c) => typeof c === "string");
+    out.push("TABLE " + t.name + " — columns: " + (cols.join(", ") || "(none declared)"));
+    for (const r of t.rows.slice(0, MAX_DATA_ROWS)) {
+      const bits = cols.map((c) => c + "=" + JSON.stringify(r[c] === undefined ? null : r[c]));
+      out.push("  id " + r.id + ": " + bits.join(", "));
+    }
+    if (!t.rows.length) out.push("  (no rows yet)");
+  }
+  return out.join("\n");
+}
+
+export function dataRequest({ instruction, tables }) {
+  return {
+    model: DATA_MODEL,
+    max_tokens: DATA_MAX_TOKENS,
+    tools: [DATA_TOOL],
+    tool_choice: { type: "tool", name: "write_row_changes" },
+    system: [{ type: "text", text: DATA_SYSTEM }],
+    messages: [{
+      role: "user",
+      content: "WHAT THIS SITE STORES\n" + dataDigest(tables) +
+        "\n\nWHAT THEY ASKED FOR\n" + String(instruction || "").trim().slice(0, 2000),
+    }],
+  };
+}
+
+/**
+ * What came back, checked against what was offered.
+ *
+ * EVERY REJECTION IS SILENT AND THE COUNT IS WHAT MATTERS — zero changes is an
+ * outcome the caller reports rather than an error, and it is where a model that
+ * understood nothing surfaces. A table nobody offered, a column the table does
+ * not declare, an id that is not in the list: each is dropped on its own rather
+ * than failing the batch beside it.
+ *
+ * A VALUE MUST BE A SCALAR. An object or an array in a column is the `Row` index
+ * signature error this repo already records, arriving from the other direction.
+ */
+export function readDataChanges(reply, tables) {
+  const blocks = reply && Array.isArray(reply.content) ? reply.content : [];
+  const use = blocks.find((b) => b && b.type === "tool_use");
+  const raw = (use && use.input && use.input.changes) || [];
+  const byName = new Map();
+  for (const t of Array.isArray(tables) ? tables : []) {
+    if (t && t.name) byName.set(String(t.name), {
+      cols: new Set((Array.isArray(t.columns) ? t.columns : []).filter((c) => typeof c === "string")),
+      ids: new Set((Array.isArray(t.rows) ? t.rows : []).map((r) => Number(r.id))),
+    });
+  }
+  const out = [];
+  for (const c of Array.isArray(raw) ? raw : []) {
+    if (!c || typeof c !== "object") continue;
+    const t = byName.get(String(c.table || ""));
+    if (!t) continue;
+    const values = c.values && typeof c.values === "object" && !Array.isArray(c.values) ? c.values : null;
+    if (!values) continue;
+    const set = {};
+    for (const [k, v] of Object.entries(values)) {
+      if (!t.cols.has(k)) continue;
+      if (v === null) { set[k] = null; continue; }
+      if (typeof v === "object") continue; // a shape in a column is not a value
+      set[k] = typeof v === "string" ? v.slice(0, 2000) : v;
+    }
+    if (!Object.keys(set).length) continue;
+    if (c.id === undefined || c.id === null) { out.push({ table: String(c.table), values: set }); }
+    else {
+      const id = Math.floor(Number(c.id));
+      // AN ID WE DID NOT OFFER IS NOT A ROW. Checked against the list the model
+      // was shown, so it cannot reach SQL by naming a number.
+      if (!Number.isFinite(id) || !t.ids.has(id)) continue;
+      out.push({ table: String(c.table), id, values: set });
+    }
+    if (out.length >= MAX_DATA_OPS) break;
+  }
+  return out;
+}
+
+/** The four token kinds, in the shape `pageCredits` prices. One price table, everywhere. */
+export function dataUsage(reply) {
+  const u = (reply && reply.usage) || {};
+  return {
+    in: Number(u.input_tokens) || 0,
+    out: Number(u.output_tokens) || 0,
+    cacheRead: Number(u.cache_read_input_tokens) || 0,
+    cacheWrite: Number(u.cache_creation_input_tokens) || 0,
+    model: DATA_MODEL,
+  };
+}
+
+/**
+ * The whole data layer.
+ *
+ * `deps.send(request)` → the Messages API response.
+ * `deps.apply(change)`  → performs one update or insert, returns truthy on success.
+ *
+ * NO PUBLISH STEP AT ALL. The published bundle reads these rows at runtime, so
+ * the change is live the moment it commits — this is the only layer that costs
+ * no container time.
+ *
+ * ESCALATES ONLY WHEN THERE WAS NOTHING TO WORK WITH. A site with no `display`
+ * table really might want a page change instead. But a model that read the rows
+ * and matched none of them does NOT escalate: the rungs above cannot change a
+ * row either, so sending them up spends ~25 credits to fail differently.
+ */
+export async function runDataEdit(deps, { instruction, tables } = {}) {
+  const usable = (Array.isArray(tables) ? tables : []).filter((t) => t && t.name && Array.isArray(t.rows));
+  if (!usable.length) return { ok: false, escalate: true, reason: "no-data", usage: null };
+  let reply;
+  try {
+    reply = await deps.send(dataRequest({ instruction, tables: usable }));
+  } catch (e) {
+    return { ok: false, escalate: true, reason: "model", detail: String((e && e.message) || "").slice(0, 200), usage: null };
+  }
+  const usage = dataUsage(reply);
+  const changes = readDataChanges(reply, usable);
+  if (!changes.length) return { ok: false, escalate: false, reason: "no-match", usage };
+
+  const applied = [], failed = [];
+  for (const c of changes) {
+    try {
+      const ok = await deps.apply(c);
+      (ok ? applied : failed).push(c);
+    } catch { failed.push(c); }
+  }
+  // A PARTIAL APPLY IS REPORTED, NOT HIDDEN. Rows are independent — unlike a
+  // page, where half an edit is a file that does not compile — so the four that
+  // worked are worth keeping, and the owner has to be told about the one that
+  // did not or they will believe all five landed.
+  if (!applied.length) return { ok: false, escalate: false, reason: "write", usage, failed: failed.length };
+  return { ok: true, applied, failed: failed.length, usage };
+}

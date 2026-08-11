@@ -393,11 +393,26 @@ test("the charge comes AFTER the publish, on every layer", () => {
   assert.equal((b.match(/collectCredits\(/g) || []).length, 1,
     "there must be exactly one place money leaves the ledger");
   const calls = [...b.matchAll(/eCharge\(/g)].map((m) => m.index);
-  assert.ok(calls.length >= 2, "each layer's success must charge — found " + calls.length);
+  assert.ok(calls.length >= 3, "each layer's success must charge — found " + calls.length);
+  // EVERY CHARGE COMES AFTER THE WORK IT BILLS FOR, which is not the same as
+  // "after the publish" — this asserted the latter and went red on the DATA
+  // layer, whose defining property is that it publishes nothing at all. Rows are
+  // read at runtime, so the change is live the moment it commits.
   for (const at of calls) {
-    assert.ok(b.lastIndexOf("recompileAndPublish(", at) > 0,
-      "a charge at offset " + at + " runs before anything was published");
+    const published = b.lastIndexOf("recompileAndPublish(", at);
+    const wroteRows = b.lastIndexOf("runDataEdit(", at);
+    assert.ok(published > 0 || wroteRows > 0,
+      "a charge at offset " + at + " runs before any work was done");
   }
+  // And the data layer really does skip the container, or it is not the cheap
+  // layer it claims to be. Asserted as an absence between its own boundaries.
+  const dFrom = b.indexOf('if (eLayer === "data") {');
+  const dTo = b.indexOf('if (eLayer === "text") {');
+  assert.ok(dFrom > 0 && dTo > dFrom, "the data layer is gone or moved");
+  const dBlock = b.slice(dFrom, dTo);
+  assert.ok(!dBlock.includes("recompileAndPublish("),
+    "the data layer must not recompile — rows are read at runtime");
+  assert.match(dBlock, /runDataEdit\(/);
   // And the helper itself is declared once, so the ordering above cannot be
   // satisfied by a second charge site that happens to sit lower.
   assert.equal((b.match(/const eCharge = /g) || []).length, 1);
@@ -412,7 +427,11 @@ test("a failed edit publishes nothing and says the site is untouched", () => {
   assert.ok(compiles >= 2, "expected a compile-failure branch per publishing layer, found " + compiles);
   assert.equal((b.match(/site is untouched/g) || []).length, compiles,
     "every layer's compile failure must tell the customer their site survived it");
-  assert.equal((b.match(/status: 422/g) || []).length, compiles,
+  // A 422 THAT IS NOT A COMPILE FAILURE IS FINE — the data layer refuses with
+  // one when it matched nothing, and it never compiles anything. This asserted
+  // equality and went red on a legitimate fourth refusal. What must hold is that
+  // no compile failure escapes as a success.
+  assert.ok((b.match(/status: 422/g) || []).length >= compiles,
     "a failed compile is not reported as success");
 });
 
@@ -587,4 +606,160 @@ test("a page the site does not have escalates to the rung that can add one", () 
   const b = editBlock();
   assert.match(b, /if \(!target\) return escalate\("no-page"/,
     "asking to change a page that does not exist IS an addon");
+});
+
+// ── the data layer: the content the site STORES ──────────────────────────────
+//
+// The gap the audit found. A generated site keeps its menu and prices in a
+// `display` table and renders them with useRows, so those words are NOT in the
+// page source — "change the price of a haircut to £25" fell through edit, addon
+// and build and came back ~25 credits later with the price unchanged.
+
+const {
+  DATA_TOOL, DATA_MODEL, MAX_DATA_ROWS: DROWS, MAX_DATA_OPS,
+  dataDigest, dataRequest, readDataChanges, runDataEdit,
+} = await import("../builder/site-apply.mjs");
+
+const MENU = [{
+  name: "services",
+  columns: ["name", "price", "minutes"],
+  rows: [
+    { id: 1, name: "Haircut", price: "£22", minutes: 30 },
+    { id: 2, name: "Beard trim", price: "£12", minutes: 15 },
+  ],
+}];
+const dataReply = (changes, usage) => ({
+  content: [{ type: "tool_use", name: "write_row_changes", input: { changes } }],
+  usage: usage || { input_tokens: 400, output_tokens: 30 },
+});
+
+test("the model is shown the rows it may change, with their ids", () => {
+  const d = dataDigest(MENU);
+  assert.match(d, /TABLE services — columns: name, price, minutes/);
+  assert.match(d, /id 1: name="Haircut", price="£22", minutes=30/);
+  assert.match(dataRequest({ instruction: "haircut is now £25", tables: MENU }).messages[0].content, /£25/);
+  assert.match(DATA_MODEL, /haiku/i, "picking a row is not a design task");
+});
+
+test("an id nobody offered cannot reach SQL", () => {
+  // The model picks an id off a list we printed; the caller checks it against
+  // the same list, so a number it invented is not a row.
+  assert.equal(readDataChanges(dataReply([{ table: "services", id: 999, values: { price: "£30" } }]), MENU).length, 0);
+  assert.equal(readDataChanges(dataReply([{ table: "bookings", id: 1, values: { price: "£30" } }]), MENU).length, 0,
+    "a table nobody offered is not a table");
+  assert.equal(readDataChanges(dataReply([{ table: "services", id: 1, values: { secret: "x" } }]), MENU).length, 0,
+    "a column the table does not declare is dropped");
+});
+
+test("a real change survives, and a shape in a column does not", () => {
+  const ok = readDataChanges(dataReply([{ table: "services", id: 1, values: { price: "£25" } }]), MENU);
+  assert.deepEqual(ok, [{ table: "services", id: 1, values: { price: "£25" } }]);
+  // An object in a column is the `Row` index-signature error arriving from the
+  // other direction, and it would reach Postgres as "[object Object]".
+  assert.equal(readDataChanges(dataReply([{ table: "services", id: 1, values: { price: { amount: 25 } } }]), MENU).length, 0);
+  assert.equal(readDataChanges(dataReply([{ table: "services", id: 1, values: { price: ["£25"] } }]), MENU).length, 0);
+});
+
+test("a row with no id is an INSERT", () => {
+  const add = readDataChanges(dataReply([{ table: "services", values: { name: "Hot towel", price: "£8", minutes: 10 } }]), MENU);
+  assert.equal(add.length, 1);
+  assert.equal(add[0].id, undefined, "no id means add, not overwrite row 0");
+  assert.equal(add[0].values.name, "Hot towel");
+});
+
+test("nothing matched does NOT escalate — the rungs above cannot change a row either", async () => {
+  // Sending this up the ladder spends ~25 credits to fail differently, which is
+  // the exact shape the data layer was built to end.
+  const r = await runDataEdit({ send: async () => dataReply([]), apply: async () => true },
+    { instruction: "remove the beard trim", tables: MENU });
+  assert.equal(r.ok, false);
+  assert.equal(r.escalate, false);
+  assert.equal(r.reason, "no-match");
+  assert.ok(r.usage, "a call that happened is still billed");
+});
+
+test("a site with no display table DOES escalate", async () => {
+  // Here the rung above really might help: they may be asking for a page change.
+  const r = await runDataEdit({ send: async () => dataReply([]), apply: async () => true },
+    { instruction: "x", tables: [] });
+  assert.equal(r.escalate, true);
+  assert.equal(r.reason, "no-data");
+  assert.equal(r.usage, null, "a site with nothing stored costs no model call");
+});
+
+test("a partial apply is REPORTED, not hidden", async () => {
+  // Rows are independent, unlike a page where half an edit is a file that does
+  // not compile — so the ones that worked are worth keeping, and the owner has
+  // to be told about the one that did not.
+  let n = 0;
+  const r = await runDataEdit({
+    send: async () => dataReply([
+      { table: "services", id: 1, values: { price: "£25" } },
+      { table: "services", id: 2, values: { price: "£14" } },
+    ]),
+    apply: async () => (++n === 1),
+  }, { instruction: "put the prices up", tables: MENU });
+  assert.equal(r.ok, true);
+  assert.equal(r.applied.length, 1);
+  assert.equal(r.failed, 1, "the failure must be counted, not swallowed");
+});
+
+test("the number of changes one instruction may make is bounded", () => {
+  const many = Array.from({ length: MAX_DATA_OPS + 5 }, () => ({ table: "services", values: { name: "x" } }));
+  assert.equal(readDataChanges(dataReply(many), MENU).length, MAX_DATA_OPS);
+});
+
+test("the tool tells the model to return nothing rather than guess", () => {
+  const d = DATA_TOOL.input_schema.properties.changes.description;
+  assert.match(d, /empty array/i);
+  assert.match(d, /DELETE/i, "the one thing this layer cannot do must be named");
+  assert.match(d, /Guessing at the nearest row is worse/i);
+});
+
+test("the route reads only tables the PUBLIC can read and NOBODY can write", () => {
+  // `display` only, and it is a boundary rather than a shortcut: a `collect`
+  // table holds customers' bookings, and "cancel John's booking" is not a
+  // sentence to hand a model.
+  const b = editBlock();
+  assert.match(b, /pair\.read === "anyone" && pair\.write === "none"/,
+    "the data layer does not restrict itself to display tables");
+  assert.match(b, /LIMIT " \+ MAX_DATA_ROWS/, "the row read is unbounded");
+});
+
+test("every write failing is a FAILURE, not a success with nothing in it", async () => {
+  // The mutation sweep's one survivor. Without this the owner is told the change
+  // landed, `applied` is empty, and the site is exactly as it was — the failure
+  // this whole lane is written to prevent, arriving through the write path
+  // instead of the model.
+  const r = await runDataEdit({
+    send: async () => dataReply([{ table: "services", id: 1, values: { price: "£25" } }]),
+    apply: async () => { throw new Error("connection lost"); },
+  }, { instruction: "haircut is £25", tables: MENU });
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, "write");
+  assert.equal(r.failed, 1);
+  // NOT escalated: a database that would not take the write will not take it
+  // for a bigger lane either.
+  assert.equal(r.escalate, false);
+
+  // And a write that merely returns falsy counts the same as one that throws.
+  const quiet = await runDataEdit({
+    send: async () => dataReply([{ table: "services", id: 1, values: { price: "£25" } }]),
+    apply: async () => false,
+  }, { instruction: "x", tables: MENU });
+  assert.equal(quiet.ok, false);
+  assert.equal(quiet.reason, "write");
+});
+
+test("the composer has a reply for the data layer, and names what moved", () => {
+  // A layer the client cannot describe reports "✅ Done." for a price change,
+  // which leaves the owner with nothing to check — and this lane touches rows
+  // they cannot see in the page source.
+  const from = CHAT.indexOf("function editReply(");
+  assert.ok(from > 0, "editReply is gone");
+  const to = CHAT.indexOf("\n}\n", CHAT.indexOf("return '✅ Done.';", from));
+  const b = CHAT.slice(from, to);
+  assert.match(b, /e\.layer === 'data'/, "the client cannot describe a data edit");
+  assert.match(b, /r\.table/, "the reply does not name which table changed");
+  assert.match(b, /e\.failed/, "a partial apply must be told to the owner");
 });

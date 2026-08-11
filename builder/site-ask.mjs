@@ -104,6 +104,11 @@ export const FALLBACK_NO_SITE = "build";
  * The three things an edit can be, and they are three because they cost three
  * different amounts and touch three different files.
  *
+ * `data`   — the content the site STORES: a price, a menu item, an opening time.
+ *            The cheapest of all — rows are read at runtime, so nothing is even
+ *            recompiled. Found by audit: those words are not in the page source,
+ *            so before this layer existed the commonest request a small business
+ *            has fell through all three rungs and changed nothing.
  * `text`   — the words only. No page model call at all; the strings are lifted
  *            out of the stored source and put back.
  * `look`   — colour, theme, fonts, corners, the name, the description. The
@@ -115,7 +120,7 @@ export const FALLBACK_NO_SITE = "build";
  * An unrecognised layer is not a fourth option, it is a routing failure, and it
  * goes UP the ladder like every other one.
  */
-export const EDIT_LAYERS = ["text", "look", "page"];
+export const EDIT_LAYERS = ["data", "text", "look", "page"];
 
 export const ASK_TOOL = {
   name: "route_message",
@@ -154,6 +159,11 @@ export const ASK_TOOL = {
         enum: EDIT_LAYERS,
         description:
           "Only when intent is \"edit\", and required for one. Which part of the site the change lives in.\n" +
+          "\"data\" — the content the site STORES and shows in a list: a price, a menu item, a service, an opening " +
+          "time, a team member. ASK YOURSELF WHETHER IT IS ONE OF MANY — a price sits in a price list, a dish sits on " +
+          "a menu, and those live in the site's database rather than being written into the page. This is the " +
+          "cheapest and fastest thing the builder can do, so prefer it whenever the thing being changed is one row " +
+          "of something the site lists. The tables it has are named above.\n" +
           "\"text\" — ONLY the words change and nothing else: a heading, a sentence, a button label, a phone number, an " +
           "address, a price written on the page. Nothing moves and nothing changes colour. This is the cheapest thing the " +
           "builder can do, so prefer it whenever it is honestly true.\n" +
