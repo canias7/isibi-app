@@ -999,8 +999,15 @@ test("what was just deleted is carried forward, so an undo has a referent", asyn
 
 test("the block reaches the request, and only through it", async () => {
   const { dataRequest } = await import("../builder/site-apply.mjs");
-  const recent = [{ table: "services", was: { name: "Beard trim" } }];
-  assert.match(dataRequest({ instruction: "put it back", tables: MENU, recent }).messages[0].content, /Beard trim/);
+  // A VALUE THE DIGEST CANNOT CONTAIN. The first draft used "Beard trim", which
+  // is a row in MENU — so the assertion was satisfied by `dataDigest` and passed
+  // with the whole undo block deleted. Found by a mutant; the vacuous-assertion
+  // shape this repo keeps recording, in my own test.
+  const recent = [{ table: "services", was: { name: "Hot stone massage" } }];
+  const content = dataRequest({ instruction: "put it back", tables: MENU, recent }).messages[0].content;
+  assert.equal(/Hot stone massage/.test(dataDigest(MENU)), false, "the fixture already contains it — the check is vacuous");
+  assert.match(content, /Hot stone massage/);
+  assert.match(content, /JUST REMOVED FROM THIS SITE/, "the block has no heading, so the rows read as part of the tables");
   // AND A REQUEST WITHOUT ONE IS BYTE-IDENTICAL TO BEFORE. Every caller that
   // does not use this feature must send exactly the request it sent yesterday.
   assert.equal(
@@ -1134,6 +1141,10 @@ test("`name=` is code on a DOM element and prose on a component", async () => {
   }
   // Everything else in the list stays unconditional — the window widened to see
   // the tag, and those patterns are end-anchored, so nothing else may move.
+  // A `name=` WITH NO TAG IN VIEW answers "code" — the direction that leaves the
+  // string alone. Reachable: a fragment whose opening tag is off the front of
+  // the 120-character window, or simply absent.
+  assert.deepEqual(texts('name="Zed Motors"'), [], "a name= with no tag was guessed at rather than left alone");
   assert.deepEqual(texts('<div className="flex items-center justify-between">'), []);
   assert.deepEqual(texts('<Link to="/book">'), []);
   assert.deepEqual(texts('useRows("bookings", { order: "created_at" })'), []);
@@ -1172,4 +1183,42 @@ test("the rename holds across all 100 family exemplars", async () => {
   assert.equal(moved, carried, "the chrome name did not change on " + (carried - moved) + " of " + carried);
   assert.equal(broke, 0, "the rename moved something structural on " + broke + " pages");
   assert.ok(leftovers <= 2, leftovers + " pages still carry the old name somewhere");
+});
+
+test("runDataEdit hands the undo to the request it sends", async () => {
+  // THE MODULE'S OWN SEAM, and a mutant walked straight through it: `runDataEdit`
+  // took `recent` and called `dataRequest` without it. Both halves were correct
+  // and the wire between them was cut — the shape this repo has recorded nine
+  // times, here inside one file.
+  const { runDataEdit } = await import("../builder/site-apply.mjs");
+  let sent = null;
+  await runDataEdit({
+    send: (req) => { sent = req; return dataReply([]); },
+    apply: async () => true,
+  }, { instruction: "put it back", tables: MENU, recent: [{ table: "services", was: { name: "Hot stone massage" } }] });
+  assert.ok(sent, "nothing was sent");
+  assert.match(sent.messages[0].content, /Hot stone massage/, "the undo was accepted and dropped");
+});
+
+test("the look reply shows a lint problem and reports how far a rename got", () => {
+  // TWO VACUOUS ASSERTIONS FIXED AT ONCE. The lint one was a grep for
+  // `problemNote(e.problems)`, which the page branch also contains — so deleting
+  // it from the look branch passed. The rename one was a grep for a sentence
+  // that survives inside a branch mutated to `if (false)`. Both are driven now.
+  const chat = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+  const cut = (name) => {
+    const at = chat.indexOf("function " + name + "(");
+    assert.ok(at > 0, name + " is gone from chat.js");
+    return chat.slice(at, chat.indexOf("\n}", at) + 2);
+  };
+  const editReply = new Function(
+    [cut("problemNote"), cut("photoNote"), cut("sitePathOf"), cut("editReply")].join("\n") + "\nreturn editReply;")();
+  assert.match(editReply({ layer: "look", moved: ["theme"], problems: ["index.tsx: names a colour"] }),
+    /names a colour/, "the look reply hides what the lint found");
+  // A rename that reached the pages says how far, and one that reached nothing
+  // says THAT — which is the only thing the customer needs to act on.
+  assert.match(editReply({ layer: "look", moved: ["brand"], renamed: 3 }), /3 places/);
+  assert.match(editReply({ layer: "look", moved: ["brand"], renamed: 0 }), /couldn’t find the old name/);
+  // And a look change that is not a rename says nothing about one.
+  assert.equal(/old name/.test(editReply({ layer: "look", moved: ["theme"], renamed: 0 })), false);
 });

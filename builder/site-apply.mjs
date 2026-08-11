@@ -187,9 +187,17 @@ export function renamePages(pages, from, to) {
   if (!edits.length) return { pages: Array.isArray(pages) ? pages : [], applied: 0 };
   const r = applyEdits(pages, edits);
   // A REFUSAL LEAVES THE PAGES EXACTLY AS THEY WERE. `applyEdits` fails the whole
-  // batch on one bad offset and hands back the original set, and a rename that
-  // could not be applied must not stop the brand being stored — the title and
-  // the link preview are still worth correcting.
+  // batch on one bad offset, and a rename that could not be applied must not
+  // stop the brand being stored — the title and the link preview are still
+  // worth correcting.
+  //
+  // BELT AND BRACES, AND SAYING SO RATHER THAN PRETENDING IT IS TESTED: a
+  // mutation removing this `r.ok` check survives, because `applyEdits` already
+  // returns the untouched originals on failure (it edits a separate draft map
+  // precisely so it can). That is an EMERGENT property of a function one edit
+  // away from changing, and its own comment explains it is deliberate — so the
+  // check stays, and the alternative is silently depending on another module's
+  // failure shape.
   return r.ok ? { pages: r.pages, applied: r.applied } : { pages: Array.isArray(pages) ? pages : [], applied: 0 };
 }
 
