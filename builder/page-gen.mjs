@@ -2591,21 +2591,32 @@ export const SITE_PAGES_TOOL = {
     properties: {
       pages: {
         type: "array",
-        // `minItems: 1`, because `required: ["pages"]` only demands the KEY —
-        // an empty array satisfies it perfectly. Measured live 2026-08-05: a
-        // build spent 68 seconds and 23 credits, called this tool correctly, and
-        // handed it `[]`. The customer was charged for a placeholder, which is
-        // the worst outcome the pipeline can produce: it costs what a working
-        // site costs and delivers nothing.
+        // THERE WAS A `minItems: 1` HERE AND IT MADE A DELETION INEXPRESSIBLE.
+        // It was added for a measured reason — 2026-08-05, a build called this
+        // tool correctly, handed it `[]`, and charged 23 credits for a
+        // placeholder — and it is the wrong LAYER for that reason, because this
+        // one tool serves a build, a revise, an addon and a one-page edit, and
+        // only the first two are always wrong to answer with no pages.
         //
-        // There is deliberately NO `maxItems`. The cap belongs in
-        // `validatePages`, which keeps the first MAX_PAGES and rewrites any link
-        // to a page it dropped — a working site minus one page. A schema ceiling
-        // would instead make a model that wanted seven produce an INVALID call,
-        // and an invalid call is the empty-array failure this line exists to
-        // stop. Refusing too much is the same bug as accepting nothing.
-        minItems: 1,
-        description: "One entry per route file. At least one, and one of them MUST be index.tsx.",
+        // MEASURED 2026-08-11, and it explains two failed attempts at fixing this
+        // with words: "remove the gallery page" came back rewriting all four of
+        // the site's pages and never setting `remove`. That was read as the model
+        // ignoring the prompt. It was not — the schema OBLIGED it to return at
+        // least one page, a pure deletion has none, and the only expressible
+        // answer was the site rewritten. The same shape as `usePublicRows`, where
+        // the honest call was a type error and the only one that compiled was a
+        // lie.
+        //
+        // The requirement moved to `validatePages`, which is handed `partial` and
+        // therefore KNOWS which of the four it is looking at. There is still no
+        // `maxItems`, for the reason below: the cap belongs there too.
+        //
+        // A schema ceiling would make a model that wanted seven pages produce an
+        // INVALID call, and an invalid call is the empty-array failure this all
+        // exists to stop. Refusing too much is the same bug as accepting nothing.
+        description: "One entry per route file, and one of them MUST be index.tsx. Leave this an EMPTY list only when " +
+          "the change is purely a deletion and no page needed its links edited — otherwise every build, revise and " +
+          "edit needs at least one.",
         items: {
           type: "object",
           properties: {

@@ -1814,9 +1814,26 @@ test("the tool cannot be called with an empty page list", () => {
   // it perfectly, and that is exactly what came back on a real build: 68 seconds,
   // 23 credits charged, a placeholder published. The most expensive possible
   // outcome, because it costs what a working site costs and delivers nothing.
+  //
+  // THE `minItems: 1` THAT USED TO BE ASSERTED HERE IS GONE, and removing it was
+  // the fix for a different bug measured on 2026-08-11: this one tool serves a
+  // build, a revise, an addon and a one-page edit, and it OBLIGED every one of
+  // them to return at least one page. A pure deletion has none — so "remove the
+  // gallery page" could not be expressed, and the model answered the only way the
+  // schema allowed, by rewriting the whole site. Two attempts to fix that with
+  // prompt wording failed, because the schema was overruling the words.
+  //
+  // The protection it provided is NOT lost: `publishPages` already tells the four
+  // empty outcomes apart by name — no tool call, no `pages` key, an empty list,
+  // and pages with no code — and refuses each. That separation is asserted in
+  // `test/publish-pages.test.mjs`; this is the pointer to it, because a reader
+  // finding the constraint gone needs to know where it went.
   const pages = SITE_PAGES_TOOL.input_schema.properties.pages;
-  assert.equal(pages.minItems, 1, "an empty array is a legal call without this");
-  assert.deepEqual(SITE_PAGES_TOOL.input_schema.required, ["pages"], "and the key itself must still be required");
+  assert.equal(pages.minItems, undefined, "a deletion cannot be expressed while this is set");
+  assert.deepEqual(SITE_PAGES_TOOL.input_schema.required, ["pages"], "the key itself must still be required");
+  // And the description has to say when an empty list is legitimate, or the
+  // model has a field it is allowed to use and no idea when.
+  assert.match(pages.description, /EMPTY list only when/i, "nothing tells the model when none is right");
   // NO ceiling, deliberately. The cap lives in validatePages, which keeps the
   // first MAX_PAGES and rewrites any link to one it dropped — a working site
   // minus a page. A schema ceiling would make a model that wanted more produce
