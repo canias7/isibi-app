@@ -75,6 +75,48 @@ export const MAX_QUESTION_CHARS = 240;
 /** Long enough to be a real answer, short enough to sit on a button. */
 export const MAX_OPTION_CHARS = 48;
 
+/**
+ * THE ESCALATION LADDER — edit → addon → build, cheapest rung first.
+ *
+ * Until this existed the router had two work answers, `build` and nothing else,
+ * and on a site that already existed `build` meant a full revise: designer, all
+ * pages regenerated, container, republish, ~25 credits. So "change the phone
+ * number" and "build me a barber shop" ran the identical ten steps.
+ *
+ * Three rungs now, and the ONLY reason it is safe to default to a cheap one is
+ * that each rung can hand off upward when it finds it cannot do the job. An
+ * `edit` that locates no target becomes an `addon`; an `addon` that cannot
+ * express the change becomes a `build`. So being wrong downward costs one cheap
+ * step and then does the right thing, while being wrong upward costs the
+ * customer real money for work nobody asked for.
+ *
+ * That inverts the old rule ON AN EXISTING SITE and leaves it intact everywhere
+ * else. `readRouting`'s doctrine — every unclear case resolves to work, never to
+ * a chatty paragraph — is unchanged and is what `FALLBACK_*` encode; what
+ * changes is WHICH work, and only because the ladder makes the cheap answer
+ * recoverable. With no site there is nothing to edit and nothing to add to, so
+ * the fallback is still `build`.
+ */
+export const FALLBACK_WITH_SITE = "addon";
+export const FALLBACK_NO_SITE = "build";
+
+/**
+ * The three things an edit can be, and they are three because they cost three
+ * different amounts and touch three different files.
+ *
+ * `text`   — the words only. No page model call at all; the strings are lifted
+ *            out of the stored source and put back.
+ * `look`   — colour, theme, fonts, corners, the name, the description. The
+ *            designer already knows how to do this without regenerating a
+ *            single page, which is the whole saving.
+ * `page`   — one existing page's structure. One page through the pages model
+ *            rather than all of them.
+ *
+ * An unrecognised layer is not a fourth option, it is a routing failure, and it
+ * goes UP the ladder like every other one.
+ */
+export const EDIT_LAYERS = ["text", "look", "page"];
+
 export const ASK_TOOL = {
   name: "route_message",
   description: "Say whether this message is asking for a change to the site or asking a question, answer it if it is a question, and ask for the one thing you most need to know if this is a first build and the brief leaves it open.",
@@ -83,17 +125,49 @@ export const ASK_TOOL = {
     properties: {
       intent: {
         type: "string",
-        enum: ["build", "ask", "clarify"],
+        enum: ["build", "ask", "clarify", "edit", "addon"],
         description:
-          "\"build\" if the message is asking for the site to be created or changed in any way — new pages, different wording, " +
-          "another colour, add a form, remove a section. \"ask\" if it is a question, a greeting, a thank-you, or anything else " +
-          "that does not describe a change. When it is genuinely both — a question AND a change — answer \"build\", because the " +
-          "build reply says what was done anyway and the customer would rather have the work than the explanation.\n\n" +
+          "\"ask\" if the message is a question, a greeting, a thank-you, or anything else that does not describe a change. " +
+          "When it is genuinely both — a question AND a change — answer with the work, because the reply says what was done " +
+          "anyway and the customer would rather have the work than the explanation.\n\n" +
           "\"clarify\" when you are told below that this is a first build with questions remaining, the message describes a " +
           "site to build, AND the answer would change what gets built. Only two things do that: what the business actually " +
           "IS, and what visitors DO on the site. If the brief already answers both, say \"build\" even with questions left — " +
           "a question whose answer changes nothing costs them a minute and they came here to see a site. Never on a change " +
-          "to a site that already exists.",
+          "to a site that already exists.\n\n" +
+          "THE OTHER THREE ARE WORK, AND WHICH ONE DEPENDS ENTIRELY ON WHETHER THE SITE ALREADY EXISTS. You are told below.\n" +
+          "\"build\" — there is no site yet and they are describing one to make. On a site that ALREADY EXISTS, use this only " +
+          "when they want the whole thing thrown away and remade as something else: a different business, a different purpose. " +
+          "It is the most expensive answer there is and it rewrites every page, so it is never the answer to a change.\n" +
+          "\"edit\" — changing something the site ALREADY HAS. Different wording, a different colour or theme or font, a " +
+          "section of an existing page laid out differently, something taken away.\n" +
+          "\"addon\" — adding something the site DOES NOT HAVE YET. A page it has no page for, or something it needs to STORE " +
+          "that it has no table for.\n\n" +
+          "THE QUESTION THAT SEPARATES EDIT FROM ADDON IS NOT THE ENGLISH ONE. \"Add a testimonials section to the home page\" " +
+          "sounds like an addon and is an EDIT, because the home page already exists and nothing new has to be stored. Ask " +
+          "instead: does this need a page the site does not have, or a table it does not have? Yes is \"addon\", no is \"edit\". " +
+          "The pages and tables it has are listed above.\n" +
+          "WHEN YOU CANNOT TELL, ANSWER \"addon\". It can do everything an edit can and an edit cannot do what it does.",
+      },
+      layer: {
+        type: "string",
+        enum: EDIT_LAYERS,
+        description:
+          "Only when intent is \"edit\", and required for one. Which part of the site the change lives in.\n" +
+          "\"text\" — ONLY the words change and nothing else: a heading, a sentence, a button label, a phone number, an " +
+          "address, a price written on the page. Nothing moves and nothing changes colour. This is the cheapest thing the " +
+          "builder can do, so prefer it whenever it is honestly true.\n" +
+          "\"look\" — colour, theme, fonts, how round the corners are, the site's name, its one-line description. Anything " +
+          "about how the site LOOKS rather than what it says or where things sit.\n" +
+          "\"page\" — the arrangement of one existing page: move a section, take one out, lay a list out differently, add a " +
+          "block built from parts the page already has. Name the page in `page`.",
+      },
+      page: {
+        type: "string",
+        description:
+          "Only when layer is \"page\". The route path of the page being changed, copied EXACTLY from the list of pages " +
+          "above — \"/\" for the home page, \"/menu\", \"/book\". If the change is about a page that is not in that list, the " +
+          "site does not have it yet and the intent is \"addon\", not \"edit\".",
       },
       answer: {
         type: "string",
@@ -209,7 +283,17 @@ const SYSTEM =
   "A question whose answer changes nothing is a minute of somebody's time, and they came to see a site, not to fill " +
   "in a form. Never ask for things the owner types in afterwards — address, opening hours, prices, phone number, " +
   "staff names — and never ask something they have already told you.\n" +
-  "3. Otherwise: \"build\".";
+  "3. Otherwise it is WORK, and which of the three depends on whether a site already exists. You are told below which " +
+  "case you are in, and the answers are not interchangeable:\n" +
+  "   NO SITE YET — \"build\", always. There is nothing to edit and nothing to add to.\n" +
+  "   A SITE EXISTS — \"edit\" or \"addon\", and \"build\" only to throw the whole site away and start again. Pick the " +
+  "cheapest one that can honestly do the job: an edit is seconds and costs almost nothing, an addon costs a few " +
+  "credits, a rebuild costs about twenty-five and replaces every page they have. Somebody who asked for a different " +
+  "shade of blue must never be given a new site.\n\n" +
+  "WHAT THE THREE COST, because it is the whole reason they are separate. Changing words: no model writes anything, " +
+  "the words are lifted out of the page and put back. Changing the look: the design is adjusted and the site is " +
+  "recompiled, and not one page is rewritten. Adding a page: one page is written. Rebuilding: every page is written " +
+  "again from nothing, and whatever the owner had is gone.";
 
 /**
  * The one definition of the routing call.
@@ -217,8 +301,19 @@ const SYSTEM =
  * Extracted the way `pagesRequest` was, and for the same reason: the moment two
  * places construct this request, a test tunes something production does not run.
  */
-export function askRequest({ message, site, canClarify = false, brief = "", qa = [] } = {}) {
+export function askRequest({ message, site, canClarify = false, brief = "", qa = [], hasSite = false } = {}) {
   const text = String(message || "").trim().slice(0, MAX_MESSAGE);
+  // WHICH ANSWERS ARE EVEN AVAILABLE, said outright rather than left to be
+  // inferred from whether the digest happens to list any pages. The digest is a
+  // description of the site; this is an instruction about the decision, and a
+  // model asked to derive the second from the first will occasionally derive it
+  // wrongly — on the one call where being wrong means a customer's site is
+  // rebuilt over a colour change.
+  const state = hasSite
+    ? "\n\nWHICH CASE YOU ARE IN\nTHE SITE ALREADY EXISTS. Answer \"edit\" or \"addon\" for work — never \"build\", unless " +
+      "they are explicitly asking to scrap this site and make a different one. Rebuilding replaces every page they have."
+    : "\n\nWHICH CASE YOU ARE IN\nTHERE IS NO SITE YET. Answer \"build\" for work — never \"edit\" or \"addon\", because " +
+      "there is nothing yet to change or to add to.";
   const asked = (Array.isArray(qa) ? qa : []).filter((p) => p && p.q && p.a).slice(0, MAX_CLARIFY);
   const left = MAX_CLARIFY - asked.length;
   // WHAT THE ROUND SO FAR WAS, so the next question is not the last one again.
@@ -245,7 +340,7 @@ export function askRequest({ message, site, canClarify = false, brief = "", qa =
     // is a decision the code can read, not a reply a human has to interpret.
     tool_choice: { type: "tool", name: "route_message" },
     system: [{ type: "text", text: SYSTEM }],
-    messages: [{ role: "user", content: "THEIR SITE\n" + siteDigest(site) + round + "\n\nTHEIR MESSAGE\n" + text }],
+    messages: [{ role: "user", content: "THEIR SITE\n" + siteDigest(site) + state + round + "\n\nTHEIR MESSAGE\n" + text }],
   };
 }
 
@@ -264,11 +359,17 @@ export function askRequest({ message, site, canClarify = false, brief = "", qa =
  * pipeline that already works, and it must never be the reason a build does not
  * happen.
  */
-export function readRouting(reply, { canClarify = false, answering = false, attached = false } = {}) {
+export function readRouting(reply, { canClarify = false, answering = false, attached = false, hasSite = false, pages = [] } = {}) {
   const blocks = reply && Array.isArray(reply.content) ? reply.content : [];
   const use = blocks.find((b) => b && b.type === "tool_use");
   const input = (use && use.input) || {};
   const answer = String(input.answer || "").trim();
+  // The bottom of the ladder for this state. See FALLBACK_WITH_SITE: unclear
+  // still resolves to WORK and never to a paragraph — what the site's existence
+  // changes is which work, because on an existing site "build" is a ~25-credit
+  // rewrite of every page rather than the harmless default it is on an empty one.
+  const fallback = hasSite ? FALLBACK_WITH_SITE : FALLBACK_NO_SITE;
+  const work = (intent) => ({ intent, answer: "" });
 
   // CLARIFY IS GATED BY THE CALLER, NOT BY THE MODEL. `canClarify` is false on
   // every revise and the moment the question budget is spent, and a model that
@@ -281,14 +382,25 @@ export function readRouting(reply, { canClarify = false, answering = false, atta
     // answerless "ask" is: honouring it shows the customer an empty prompt and
     // builds nothing, which is indistinguishable from the builder being broken.
     if (q) return { intent: "clarify", answer: "", question: q };
-    return { intent: "build", answer: "" };
+    return work(fallback);
   }
 
-  const intent = input.intent === "ask" ? "ask" : "build";
+  // THE TWO NEW RUNGS, AND BOTH ARE GATED ON THE SITE EXISTING. An "edit" with
+  // nothing to edit is not a cheaper build, it is a lane with no input — so on an
+  // empty project both fall through to the bottom of this function and build,
+  // which is what every caller did before these existed.
+  if (hasSite && input.intent === "addon") return work("addon");
+  if (hasSite && input.intent === "edit") return readEdit(input, pages);
+  // "build" IS STILL HONOURED ON AN EXISTING SITE, deliberately and narrowly:
+  // it is the only way to say "scrap this and make me a different site", which is
+  // a thing people really do ask for. The tool description is what keeps it rare.
+  if (input.intent === "build") return work("build");
+
+  const intent = input.intent === "ask" ? "ask" : fallback;
   // AN "ask" WITH NOTHING TO SAY IS A BUILD. The model chose the cheap branch and
   // then wrote no reply, so honouring it would show the customer an empty message
   // and do nothing — the one outcome worse than an unnecessary build.
-  if (intent === "ask" && !answer) return { intent: "build", answer: "" };
+  if (intent === "ask" && !answer) return work(fallback);
   // AN "ask" IN REPLY TO OUR OWN QUESTION IS A DEAD END, and it shipped as one.
   //
   // Measured live 2026-08-09: brief "Book classes", two questions answered, and
@@ -318,8 +430,57 @@ export function readRouting(reply, { canClarify = false, answering = false, atta
   // Both bound `ask` and NEITHER bounds `clarify`, which is the whole point of
   // the change that added `attached`: an attachment used to skip this call
   // entirely, so a first build with a logo attached was never asked anything.
-  if (intent === "ask" && (answering || attached)) return { intent: "build", answer: "" };
+  if (intent === "ask" && (answering || attached)) return work(fallback);
   return { intent, answer: intent === "ask" ? answer : "" };
+}
+
+/**
+ * A page path, in the one spelling everything downstream compares against.
+ *
+ * The model copies these out of a list we wrote, and it will still occasionally
+ * hand back "menu", "/menu/" or "/Menu" — none of which is a different page, and
+ * all of which would fail an equality check and send an ordinary edit up the
+ * ladder to a lane that would try to ADD a page the site already has.
+ */
+export function normalizePagePath(raw) {
+  let s = String(raw == null ? "" : raw).trim();
+  if (!s) return "";
+  s = s.split(/[?#]/)[0].trim();
+  if (!s) return "";
+  if (!s.startsWith("/")) s = "/" + s;
+  if (s.length > 1) s = s.replace(/\/+$/, "") || "/";
+  return s.toLowerCase().slice(0, 120);
+}
+
+/**
+ * An edit, or the rung above it.
+ *
+ * EVERY FAILURE HERE GOES UP, never sideways and never to a refusal. A missing
+ * layer, a layer nobody recognises, a page-shaped edit that names no page: each
+ * of them means the router did not actually decide, and the cost of guessing
+ * "edit" anyway is a lane that finds nothing to change and reports success
+ * having done nothing — which is the failure this whole file is written to
+ * avoid, one rung down.
+ *
+ * THE PAGE CHECK IS THE USEFUL ONE, and it falls out of the ladder for free:
+ * "change the gallery page" on a site with no gallery is not a broken edit, it
+ * is an ADDON, correctly identified without anyone having to ask a model twice.
+ *
+ * NOT KNOWING BUYS NOTHING, though. With no page list to check against — an
+ * older caller, a site whose digest carried none — the edit passes through with
+ * the path as given, and the apply step escalates later with a real reason. The
+ * alternative is inventing a refusal out of evidence we do not have, and sending
+ * every page edit on those sites to a lane that would try to add a duplicate.
+ */
+export function readEdit(input, pages) {
+  const layer = EDIT_LAYERS.includes(input && input.layer) ? input.layer : null;
+  if (!layer) return { intent: FALLBACK_WITH_SITE, answer: "" };
+  if (layer !== "page") return { intent: "edit", answer: "", layer };
+  const want = normalizePagePath(input.page);
+  if (!want) return { intent: FALLBACK_WITH_SITE, answer: "" };
+  const known = (Array.isArray(pages) ? pages : []).map(normalizePagePath).filter(Boolean);
+  if (known.length && !known.includes(want)) return { intent: FALLBACK_WITH_SITE, answer: "" };
+  return { intent: "edit", answer: "", layer, page: want };
 }
 
 /**
@@ -467,7 +628,7 @@ export function askUsage(reply) {
  * that path running. `usage` comes back null on that route, so nothing is billed
  * for a call that failed — the same our-fault rule the build path follows.
  */
-export async function routeMessage(deps, { message, site, firstBuild = false, brief = "", qa = [], answering = false, attached = false } = {}) {
+export async function routeMessage(deps, { message, site, firstBuild = false, brief = "", qa = [], answering = false, attached = false, hasSite = false } = {}) {
   const text = String(message || "").trim();
   // AN EMPTY MESSAGE NEVER REACHES THE MODEL. The composer will not send one, but
   // this is a paid call behind a public route and "the client wouldn't do that"
@@ -479,12 +640,27 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
   // model is merely told about is not a cap.
   const asked = (Array.isArray(qa) ? qa : []).filter((p) => p && p.q && p.a);
   const canClarify = !!firstBuild && asked.length < MAX_CLARIFY;
+  // `hasSite` IS NOT `!firstBuild`, and collapsing them is the tempting mistake.
+  // `firstBuild` is the composer's belief about a project in localStorage;
+  // `hasSite` is the server's knowledge that this slug has a published site it
+  // owns. They agree almost always, and the case where they do not — a project
+  // whose build failed, a stale tab — is exactly the case where routing an edit
+  // at a site that does not exist costs a lane with no input. Passed in, and
+  // defaulting to false so any caller that has not been taught about it behaves
+  // exactly as it did before these two rungs existed.
+  const pages = (site && Array.isArray(site.pages)) ? site.pages : [];
   let reply;
   try {
-    reply = await deps.send(askRequest({ message: text, site, canClarify, brief, qa: asked }));
+    reply = await deps.send(askRequest({ message: text, site, canClarify, brief, qa: asked, hasSite: !!hasSite }));
   } catch {
-    return { intent: "build", answer: "", usage: null, failed: true };
+    // A THROW IS THE BOTTOM OF THE LADDER FOR THIS STATE, not unconditionally a
+    // build. On an existing site an unreachable router used to mean the customer
+    // paid ~25 credits and had every page rewritten because a Haiku call timed
+    // out. `addon` is recoverable in a way that is not.
+    return { intent: !!hasSite ? FALLBACK_WITH_SITE : FALLBACK_NO_SITE, answer: "", usage: null, failed: true };
   }
-  const routed = readRouting(reply, { canClarify, answering: !!answering, attached: !!attached });
+  const routed = readRouting(reply, {
+    canClarify, answering: !!answering, attached: !!attached, hasSite: !!hasSite, pages,
+  });
   return { ...routed, usage: askUsage(reply) };
 }

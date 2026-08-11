@@ -12,7 +12,9 @@ import fs from "node:fs";
 import {
   ASK_TOOL, ASK_MODEL, ASK_MAX_TOKENS, MAX_MESSAGE,
   MAX_CLARIFY, MIN_OPTIONS, MAX_OPTIONS, MAX_OPTION_CHARS, MAX_QUESTION_CHARS,
-  askRequest, readRouting, readQuestion, clipOption, clarifiedBrief, askUsage, routeMessage, siteDigest,
+  EDIT_LAYERS, FALLBACK_WITH_SITE, FALLBACK_NO_SITE,
+  askRequest, readRouting, readEdit, readQuestion, clipOption, clarifiedBrief, askUsage, routeMessage,
+  siteDigest, normalizePagePath,
 } from "../builder/site-ask.mjs";
 
 const SITE = { name: "Sharp Fade", url: "/s/sharp-fade/", pages: ["/", "/book"], tables: ["services", "bookings"] };
@@ -191,20 +193,25 @@ test("the enum and the reader agree, and every declared value is reachable", () 
   // six times over, so the check runs in BOTH directions rather than pinning a
   // list somebody has to remember to update.
   const declared = ASK_TOOL.input_schema.properties.intent.enum;
-  assert.deepEqual([...declared].sort(), ["ask", "build", "clarify"]);
+  assert.deepEqual([...declared].sort(), ["addon", "ask", "build", "clarify", "edit"]);
 
   // Every declared value produces itself when the caller allows it. A well-formed
-  // payload is built per intent, because each branch needs a different field and
-  // an intent starved of its field falls through to build for the WRONG reason —
-  // which would let a genuinely unreachable intent pass this test.
+  // payload is built per intent, because each branch needs a different field AND a
+  // different caller state — an intent starved of either falls through to the
+  // fallback for the WRONG reason, which would let a genuinely unreachable intent
+  // pass this test. `edit` and `addon` are gated on `hasSite`, so a fixture that
+  // forgot it would report them unreachable when they are merely not offered.
   const wellFormed = {
-    build: {},
-    ask: { answer: "Two pages." },
-    clarify: { question: { text: "Do customers book?", options: ["Yes", "No"] } },
+    build: [{}, {}],
+    ask: [{ answer: "Two pages." }, {}],
+    clarify: [{ question: { text: "Do customers book?", options: ["Yes", "No"] } }, { canClarify: true }],
+    edit: [{ layer: "text" }, { hasSite: true }],
+    addon: [{}, { hasSite: true }],
   };
   for (const v of declared) {
     assert.ok(Object.hasOwn(wellFormed, v), "a new intent was declared and this guard was not taught its shape: " + v);
-    const r = readRouting(toolReply({ intent: v, ...wellFormed[v] }), { canClarify: true });
+    const [input, opts] = wellFormed[v];
+    const r = readRouting(toolReply({ intent: v, ...input }), opts);
     assert.equal(r.intent, v, "declared intent " + v + " is unreachable through the reader");
   }
 });
@@ -570,9 +577,9 @@ test("the request tells the model where it is in the round", () => {
   assert.ok(!/already asked/i.test(closed));
 });
 
-test("the tool offers all three intents and describes the question", () => {
+test("the tool offers every intent and describes the question", () => {
   const p = ASK_TOOL.input_schema.properties;
-  assert.deepEqual(p.intent.enum, ["build", "ask", "clarify"]);
+  assert.deepEqual(p.intent.enum, ["build", "ask", "clarify", "edit", "addon"]);
   assert.equal(p.question.properties.options.minItems, MIN_OPTIONS);
   assert.equal(p.question.properties.options.maxItems, MAX_OPTIONS);
   assert.deepEqual(p.question.required, ["text", "options"]);
@@ -1110,4 +1117,182 @@ test("the deploy check probes the question policy, as a PAIR", () => {
   // a designer call, a Neon project and a compile per probe.
   assert.match(block, /\/api\/site\/route/, "the probe no longer hits the routing endpoint");
   assert.ok(!/react-build/.test(block), "a probe is calling the build route — that is a real site per probe");
+});
+
+// ── the escalation ladder: edit → addon → build ───────────────────────────────
+//
+// The rule this whole section defends is that being wrong DOWN the ladder is
+// recoverable and being wrong UP it is not. A cheap answer that cannot do the
+// job hands off to the next rung; an expensive answer nobody asked for has
+// already rewritten a customer's pages by the time anyone notices.
+
+test("with a site, the fallback is addon; with none it is still build", () => {
+  // THE OLD RULE WAS "every unclear case builds" and on an existing site that
+  // meant a ~25-credit rewrite of every page, triggered by a model that failed
+  // to answer cleanly. Unclear still resolves to WORK — that half is unchanged
+  // and is what stops a build request being swallowed by a paragraph.
+  const junk = [
+    { intent: "nonsense" },
+    { intent: "" },
+    { intent: 7 },
+    {},
+    { intent: ["edit"] },
+  ];
+  for (const input of junk) {
+    assert.equal(readRouting(toolReply(input), { hasSite: true }).intent, "addon",
+      "on an existing site an undecided router must take the cheap recoverable rung: " + JSON.stringify(input));
+    assert.equal(readRouting(toolReply(input), { hasSite: false }).intent, "build",
+      "with no site there is nothing to add to: " + JSON.stringify(input));
+  }
+  assert.equal(FALLBACK_WITH_SITE, "addon");
+  assert.equal(FALLBACK_NO_SITE, "build");
+});
+
+test("edit and addon are unreachable until a site exists", () => {
+  // Not a policy — a lane with no input. An "edit" on an empty project has
+  // nothing to locate, so honouring it would report success having done nothing.
+  for (const intent of ["edit", "addon"]) {
+    const r = readRouting(toolReply({ intent, layer: "text" }), { hasSite: false });
+    assert.equal(r.intent, "build", intent + " must not be routable before there is a site");
+  }
+});
+
+test("a build on an EXISTING site is still honoured, narrowly", () => {
+  // "Scrap this and make me a different site" is a real request. The tool
+  // description is what keeps it rare; the reader must not make it impossible.
+  const r = readRouting(toolReply({ intent: "build" }), { hasSite: true });
+  assert.equal(r.intent, "build");
+});
+
+test("every edit layer survives the reader, and an unknown one goes UP", () => {
+  for (const layer of EDIT_LAYERS) {
+    const input = layer === "page" ? { intent: "edit", layer, page: "/book" } : { intent: "edit", layer };
+    const r = readRouting(toolReply(input), { hasSite: true, pages: SITE.pages });
+    assert.equal(r.intent, "edit", "declared layer " + layer + " is unreachable");
+    assert.equal(r.layer, layer);
+  }
+  for (const layer of [undefined, "", "colours", "TEXT", 3, ["text"]]) {
+    const r = readRouting(toolReply({ intent: "edit", layer }), { hasSite: true, pages: SITE.pages });
+    assert.equal(r.intent, "addon",
+      "an edit whose layer nobody recognises is an undecided router, and must escalate: " + JSON.stringify(layer));
+  }
+});
+
+test("a page edit naming a page the site does not have IS an addon", () => {
+  // The useful half of the ladder, and it costs nothing: "change the gallery
+  // page" on a site with no gallery is not a broken edit, it is somebody asking
+  // for a gallery.
+  const r = readRouting(toolReply({ intent: "edit", layer: "page", page: "/gallery" }),
+    { hasSite: true, pages: SITE.pages });
+  assert.equal(r.intent, "addon");
+
+  const ok = readRouting(toolReply({ intent: "edit", layer: "page", page: "/book" }),
+    { hasSite: true, pages: SITE.pages });
+  assert.equal(ok.intent, "edit");
+  assert.equal(ok.page, "/book");
+});
+
+test("a page edit with no page named escalates rather than guessing the home page", () => {
+  for (const page of [undefined, "", "   ", null, 5]) {
+    const r = readRouting(toolReply({ intent: "edit", layer: "page", page }), { hasSite: true, pages: SITE.pages });
+    assert.equal(r.intent, "addon", "no page named must escalate, not default to '/': " + JSON.stringify(page));
+  }
+});
+
+test("NOT KNOWING BUYS NOTHING: with no page list, a page edit passes through", () => {
+  // An older caller, or a digest that carried no pages. Inventing a refusal out
+  // of evidence we do not have would send every page edit on those sites to a
+  // lane that tries to ADD a page they already have.
+  const r = readRouting(toolReply({ intent: "edit", layer: "page", page: "/menu" }), { hasSite: true, pages: [] });
+  assert.equal(r.intent, "edit");
+  assert.equal(r.page, "/menu");
+});
+
+test("a page path is normalised before it is compared", () => {
+  // The model copies these out of a list we wrote and still returns "menu",
+  // "/menu/" and "/Menu". None is a different page, and all three would fail an
+  // equality check and escalate an ordinary edit into an attempted duplicate.
+  assert.equal(normalizePagePath("menu"), "/menu");
+  assert.equal(normalizePagePath("/menu/"), "/menu");
+  assert.equal(normalizePagePath("/Menu"), "/menu");
+  assert.equal(normalizePagePath("  /book  "), "/book");
+  assert.equal(normalizePagePath("/book?x=1"), "/book");
+  assert.equal(normalizePagePath("/"), "/");
+  assert.equal(normalizePagePath(""), "");
+  assert.equal(normalizePagePath(null), "");
+  for (const raw of ["menu", "/menu/", "/MENU"]) {
+    assert.equal(readEdit({ layer: "page", page: raw }, ["/", "/menu"]).intent, "edit",
+      "a page written as " + raw + " should still match /menu");
+  }
+});
+
+test("the model is TOLD which case it is in, in words", () => {
+  // The digest describes the site; this is an instruction about the decision.
+  // A model asked to derive the second from the first gets it wrong occasionally
+  // — on the one call where wrong means a site rebuilt over a colour change.
+  const withSite = askRequest({ message: "make it blue", site: SITE, hasSite: true }).messages[0].content;
+  assert.match(withSite, /THE SITE ALREADY EXISTS/);
+  assert.match(withSite, /never "build"/i);
+
+  const without = askRequest({ message: "a barber shop", site: null, hasSite: false }).messages[0].content;
+  assert.match(without, /THERE IS NO SITE YET/);
+  assert.match(without, /never "edit" or "addon"/i);
+});
+
+test("the tool says what separates an edit from an addon, and where to fail", () => {
+  const d = ASK_TOOL.input_schema.properties.intent.description;
+  // The English question is the wrong one — "add a testimonials section" is an
+  // edit. This is the measured trap, so the description must name it.
+  assert.match(d, /testimonials/i, "the description does not name the case the boundary gets wrong");
+  assert.match(d, /page the site does not have|table it does not have/i);
+  assert.match(d, /cannot tell.*addon/is, "the description must say which way to fail");
+  // And the layer field has to explain what each one costs to pick between them.
+  const l = ASK_TOOL.input_schema.properties.layer.description;
+  for (const layer of EDIT_LAYERS) assert.ok(l.includes('"' + layer + '"'), "layer " + layer + " is undescribed");
+});
+
+test("a router that throws takes the cheap rung, not the expensive one", async () => {
+  // An unreachable Haiku call used to mean the customer paid ~25 credits and had
+  // every page rewritten because a routing request timed out.
+  const boom = { send: async () => { throw new Error("upstream"); } };
+  const withSite = await routeMessage(boom, { message: "make it blue", site: SITE, hasSite: true });
+  assert.equal(withSite.intent, "addon");
+  assert.equal(withSite.failed, true);
+  assert.equal(withSite.usage, null, "a call that failed bills nothing");
+
+  const without = await routeMessage(boom, { message: "a barber shop", hasSite: false });
+  assert.equal(without.intent, "build");
+});
+
+test("routeMessage passes the site's own pages to the reader", async () => {
+  // The wiring between the digest and the page check. Without it every page edit
+  // on every site escalates, and nothing anywhere fails.
+  let sent = null;
+  const deps = { send: async (req) => { sent = req; return toolReply({ intent: "edit", layer: "page", page: "/book" }); } };
+  const r = await routeMessage(deps, { message: "move the form up", site: SITE, hasSite: true });
+  assert.equal(r.intent, "edit", "a page the site really has must not escalate");
+  assert.equal(r.page, "/book");
+  assert.match(sent.messages[0].content, /\/book/, "the model was never shown the pages it must choose from");
+
+  const miss = { send: async () => toolReply({ intent: "edit", layer: "page", page: "/gallery" }) };
+  assert.equal((await routeMessage(miss, { message: "x", site: SITE, hasSite: true })).intent, "addon");
+});
+
+test("an answerless ask on an existing site becomes addon, not a rebuild", async () => {
+  // The existing doctrine — an "ask" with nothing to say is work — with the
+  // ladder applied. Before this it cost a full revise.
+  const r = readRouting(toolReply({ intent: "ask", answer: "   " }), { hasSite: true });
+  assert.equal(r.intent, "addon");
+  const bounded = readRouting(toolReply({ intent: "ask", answer: "Sure!" }), { hasSite: true, answering: true });
+  assert.equal(bounded.intent, "addon");
+  const attached = readRouting(toolReply({ intent: "ask", answer: "Sure!" }), { hasSite: true, attached: true });
+  assert.equal(attached.intent, "addon");
+});
+
+test("a real question on an existing site is still answered", () => {
+  // The ladder must not eat the ask path. This is the failure the router exists
+  // to prevent, pointed the other way.
+  const r = readRouting(toolReply({ intent: "ask", answer: "You have two pages." }), { hasSite: true });
+  assert.equal(r.intent, "ask");
+  assert.equal(r.answer, "You have two pages.");
 });
