@@ -23,6 +23,87 @@
 export const MAX_RETURNED = 6;
 
 /**
+ * WHAT AN ADDON MAY CHANGE ABOUT A TABLE THE SITE ALREADY HAS.
+ *
+ * Exactly the two features that need a PAGE as well as a schema change, which is
+ * what makes them this lane's and not the `rules` layer's:
+ *
+ *   payment    — a table becomes payable, and a page needs a Buy button.
+ *   publicView — a read-only projection, and a page needs `usePublicRows`.
+ *
+ * Everything else about an existing table belongs to `rules`, which publishes
+ * nothing. Two lanes able to change one thing is two answers that can disagree.
+ */
+export const ADDON_TABLE_FIELDS = ["payment", "publicView"];
+
+/**
+ * Fold a designed schema over the site's stored one.
+ *
+ * WHAT THIS FIXES. `normalizeSchema`'s dedup is "first declaration wins, and
+ * later ones contribute any COLUMNS the first did not have" — written for the
+ * BUILD path, where two tables of one name is a model mistake and first-wins is
+ * the protection that stopped a duplicate destroying the first's guarantees.
+ * The addon lane concatenated `[...prior, ...designed]` straight into it, so on
+ * a table that already existed the designer's `payment` and `publicView` were
+ * dropped SILENTLY. Measured through the real normaliser. That is why a site
+ * built without a price could never start taking money.
+ *
+ * A COMPELLED FIELD IS NOT A STATEMENT OF INTENT, AND THAT IS THE WHOLE SAFETY
+ * ARGUMENT HERE. `design_schema` requires `["name", "access", "columns"]` on
+ * every table, so a designer asked to make `bookings` payable MUST also answer
+ * `access` — and whatever it answers is compliance with a schema, not a decision
+ * about who may read a real business's booking list. Taking it would let "let
+ * people pay for these" quietly publish every customer's name and phone number.
+ * So `access`, `read` and `write` are IGNORED on a table that already exists;
+ * moving them is the `rules` layer, whose own tool leaves them optional, so a
+ * value there really is something somebody asked for.
+ *
+ * A COLUMN IS NEVER REMOVED AND A TABLE IS NEVER DROPPED, for the reason
+ * `mergeRules` gives: `_meta` is what the data API derives from, so dropping a
+ * column hides it from every read while the values sit in Postgres.
+ */
+export function mergeAddonSchema(prior, designed) {
+  const base = (Array.isArray(prior) ? prior : []).filter((t) => t && t.name).map((t) => ({ ...t }));
+  const byName = new Map(base.map((t) => [String(t.name).toLowerCase(), t]));
+  const added = [], altered = [];
+
+  for (const d of Array.isArray(designed) ? designed : []) {
+    if (!d || !d.name) continue;
+    const key = String(d.name).toLowerCase();
+    const have = byName.get(key);
+    // A TABLE THE SITE DOES NOT HAVE IS APPENDED WHOLE, exactly as before. This
+    // is the ordinary addon and nothing about it changes.
+    if (!have) {
+      const copy = { ...d };
+      base.push(copy);
+      byName.set(key, copy);
+      added.push(copy.name);
+      continue;
+    }
+    const fields = [];
+    for (const k of ADDON_TABLE_FIELDS) {
+      if (d[k] === undefined || d[k] === null) continue;
+      have[k] = d[k];
+      fields.push(k);
+    }
+    // NEW COLUMNS ONLY. This is what `normalizeSchema`'s dedup already did, kept
+    // deliberately: "add a photo to the booking form" is a real addon, and it is
+    // the one part of the old behaviour that was right.
+    const has = new Set((Array.isArray(have.columns) ? have.columns : [])
+      .map((c) => String(typeof c === "string" ? c : (c && c.name) || "").toLowerCase()).filter(Boolean));
+    for (const c of Array.isArray(d.columns) ? d.columns : []) {
+      const name = String(typeof c === "string" ? c : (c && c.name) || "").toLowerCase();
+      if (!name || has.has(name)) continue;
+      have.columns = [...(Array.isArray(have.columns) ? have.columns : []), c];
+      has.add(name);
+      fields.push("column " + name);
+    }
+    if (fields.length) altered.push({ table: have.name, fields });
+  }
+  return { tables: base, added, altered };
+}
+
+/**
  * Fold what the model returned over what the site already has.
  *
  * THE MERGE IS THE WHOLE FEATURE, and it is deliberately dumb: a returned path

@@ -97,7 +97,19 @@ export const EDIT_RULE =
   "no fonts at all. The same for the name and the description: leave them out unless this change is about them.\n" +
   "A change to a colour is `tokens` and nothing else. A change to the wording is neither — the pages are edited " +
   "elsewhere, so return no tables and no seed for it. Only declare a table when this change genuinely needs one " +
-  "stored, and then declare only that table; the ones it already has are kept for you.";
+  "stored, and then declare only that table; the ones it already has are kept for you.\n" +
+  // THE TWO FEATURES THAT NEED A PAGE AS WELL AS A SCHEMA, and the reason this
+  // sentence exists at all: the designer could already emit them on an existing
+  // table and they were dropped silently, so a site built without a price could
+  // never start taking money. The access warning is the important half — the
+  // tool COMPELS `access` on every table, so a designer naming an existing one
+  // has to answer it, and an answer that is compliance rather than intent would
+  // have opened a booking list to the public if the merge trusted it.
+  "YOU MAY NAME A TABLE THE SITE ALREADY HAS, for exactly two things: to add a column to it, and to make it take " +
+  "PAYMENTS or publish a read-only `publicView` of it. Those two need a page as well, which is why they come here. " +
+  "Anything else about an existing table — who may read it, who may write it, whether it emails, what it refuses — " +
+  "is changed elsewhere and is IGNORED here, so the `access` you have to fill in for an existing table is discarded " +
+  "and the site keeps its own.";
 
 /**
  * Stored-unless-named, for the six fields an edit may move.

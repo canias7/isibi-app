@@ -55,7 +55,7 @@ import { resolveAccess, ACCESS_PRESETS } from "./site-access.mjs";
 // data layer's gate cannot drift from the vocabulary again — it was compared
 // against "anyone", which is a WRITE level, and matched nothing on any site.
 const DISPLAY_PAIR = ACCESS_PRESETS.display;
-import { mergeAddonPages, unlinkedPages, routeOf } from "./builder/site-addon.mjs";
+import { mergeAddonPages, mergeAddonSchema, unlinkedPages, routeOf } from "./builder/site-addon.mjs";
 import { archiveVersion, listVersions, rollbackVersion, deleteAllVersions, versionId, versionLabel } from "./site-versions.mjs";
 import { readLinkedPages, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, attachments, MAX_QUERIES } from "./builder/site-context.mjs";
 import { routeMessage, clarifiedBrief } from "./builder/site-ask.mjs";
@@ -10167,12 +10167,26 @@ async function handleRequest(request, env, ctx) {
             // database adds what is new and leaves what is there. Seeding is
             // best-effort and skips a table that already has rows, exactly as
             // it does on a revise.
-            let aTables = [];
+            let aTables = [], aAltered = [];
             if (aDesigned && Array.isArray(aDesigned.tables) && aDesigned.tables.length) {
-              const merged = normalizeSchema({ tables: [...(aSpec.tables || []), ...aDesigned.tables] });
+              // A TABLE THE SITE ALREADY HAS CAN NOW BE ALTERED, narrowly. The
+              // concat this replaces fed `normalizeSchema`, whose dedup is
+              // first-declaration-wins — so `payment` and `publicView` on an
+              // existing table were dropped silently and a site built without a
+              // price could never start taking money. `mergeAddonSchema` keeps
+              // the columns-only behaviour that was right and adds those two;
+              // `access` stays the site's own, because the tool COMPELS it.
+              const folded = mergeAddonSchema(aSpec.tables || [], aDesigned.tables);
+              aAltered = folded.altered;
+              const merged = normalizeSchema({ tables: folded.tables });
               try {
                 await applySiteSchema(adb, merged);
-                aTables = aDesigned.tables.map((t) => t && t.name).filter(Boolean);
+                // WHAT WAS CREATED, not what was NAMED. This read every table
+                // the designer mentioned, which was harmless while an existing
+                // one could not be touched and became a lie the moment it could:
+                // "made a bookings table" for a booking table the site has had
+                // since it was built.
+                aTables = folded.added;
                 aSpec = (await loadSiteSchema(adb).catch(() => null)) || merged;
               } catch (e) {
                 console.error("addon schema apply failed:", ownerSlug, e && (e.detail || e.message));
@@ -10272,7 +10286,7 @@ async function handleRequest(request, env, ctx) {
               added: aMerge.added, changed: aMerge.changed, removed: aMerge.removed, kept: aMerge.kept,
               reverted: aMerge.reverted,
               photos: aSlots,
-              tables: aTables,
+              tables: aTables, altered: aAltered,
               unlinked: unlinkedPages(aMerge.pages, aMerge.added),
               problems: aProblems.slice(0, 4),
               files: aPub.files, cost: aCost,

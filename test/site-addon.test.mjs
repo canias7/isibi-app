@@ -8,9 +8,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
-  MAX_RETURNED, mergeAddonPages, unlinkedPages, routeOf, addonReply, keptReply,
+  MAX_RETURNED, mergeAddonPages, mergeAddonSchema, ADDON_TABLE_FIELDS, unlinkedPages, routeOf, addonReply, keptReply,
 } from "../builder/site-addon.mjs";
 import { priorPagesBlock, pagesRequest, pagesPrompt, validatePages, SITE_PAGES_TOOL } from "../builder/page-gen.mjs";
+import { EDIT_RULE } from "../builder/site-edit.mjs";
 
 const page = (path, source) => ({ path: "src/routes/" + path, source });
 const SITE = [
@@ -744,4 +745,143 @@ test("a revert is reported all the way to the customer", () => {
   assert.match(w, /reverted: aMerge\.reverted/, "the route computes the revert and never returns it");
   const chat = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
   assert.match(chat, /a\.reverted/, "the client is never told a page was put back");
+});
+
+// ── ALTERING A TABLE THE SITE ALREADY HAS ────────────────────────────────────
+//
+// The whole reason this exists: the lane concatenated `[...prior, ...designed]`
+// into `normalizeSchema`, whose dedup is first-declaration-wins, so `payment`
+// and `publicView` on an existing table were dropped SILENTLY — which is why a
+// site built without a price could never start taking money.
+
+const priorTables = () => ([
+  { name: "bookings", access: "collect", columns: [{ name: "customer", type: "text" }],
+    unique: ["slot"], confirm: { to: "email", subject: "s", body: "b" } },
+  { name: "menu", access: "display", columns: [{ name: "dish", type: "text" }] },
+]);
+
+test("a table the site does not have is appended whole, exactly as before", () => {
+  const { tables, added, altered } = mergeAddonSchema(priorTables(), [
+    { name: "gallery", access: "display", columns: [{ name: "caption", type: "text" }] },
+  ]);
+  assert.equal(tables.length, 3);
+  assert.deepEqual(added, ["gallery"]);
+  assert.deepEqual(altered, []);
+  assert.equal(tables[2].access, "display", "a NEW table keeps the access it was designed with");
+});
+
+test("PAYMENT REACHES A TABLE THAT ALREADY EXISTS — the bug this closes", () => {
+  const pay = { from: "bookings", amount: "price", currency: "GBP" };
+  const { tables, added, altered } = mergeAddonSchema(priorTables(), [
+    { name: "bookings", access: "collect", columns: [], payment: pay },
+  ]);
+  assert.deepEqual(tables[0].payment, pay);
+  assert.deepEqual(added, [], "an existing table was not created");
+  assert.deepEqual(altered, [{ table: "bookings", fields: ["payment"] }]);
+});
+
+test("publicView reaches one too", () => {
+  const view = { columns: ["slot"], where: [], limit: 500 };
+  const { tables } = mergeAddonSchema(priorTables(), [
+    { name: "bookings", access: "collect", columns: [], publicView: view },
+  ]);
+  assert.deepEqual(tables[0].publicView, view);
+});
+
+test("A COMPELLED `access` IS DISCARDED ON AN EXISTING TABLE, and that is the safety property", () => {
+  // `design_schema` requires ["name","access","columns"], so a designer asked to
+  // make `bookings` payable MUST answer `access` — and an answer that is
+  // compliance with a schema is not a decision about who may read a real
+  // business's booking list. Trusting it publishes every customer's phone number.
+  const { tables } = mergeAddonSchema(priorTables(), [
+    { name: "bookings", access: "display", read: "public", write: "anyone", columns: [], payment: { from: "bookings", amount: "p" } },
+  ]);
+  assert.equal(tables[0].access, "collect", "the site keeps its own access level");
+  assert.equal(tables[0].read, undefined);
+  assert.equal(tables[0].write, undefined);
+});
+
+test("nothing else about an existing table moves — that is the rules layer's", () => {
+  const { tables, altered } = mergeAddonSchema(priorTables(), [
+    { name: "bookings", access: "collect", columns: [],
+      confirm: { to: "customer", subject: "x", body: "y" }, sms: { to: "customer", body: "z" },
+      unique: ["something_else"], maxRows: 3, retired: true },
+  ]);
+  assert.deepEqual(tables[0].confirm, { to: "email", subject: "s", body: "b" }, "the site's own confirmation survives");
+  assert.equal(tables[0].sms, undefined);
+  assert.deepEqual(tables[0].unique, ["slot"]);
+  assert.equal(tables[0].maxRows, undefined);
+  assert.equal(tables[0].retired, undefined);
+  assert.deepEqual(altered, [], "and none of it counts as a change");
+});
+
+test("a new column is added to an existing table — the one old behaviour that was right", () => {
+  const { tables, altered } = mergeAddonSchema(priorTables(), [
+    { name: "bookings", access: "collect", columns: [{ name: "customer", type: "text" }, { name: "photo", type: "text" }] },
+  ]);
+  assert.deepEqual(tables[0].columns.map((c) => c.name), ["customer", "photo"]);
+  assert.deepEqual(altered, [{ table: "bookings", fields: ["column photo"] }]);
+});
+
+test("A COLUMN IS NEVER REMOVED — _meta is what the data API derives from", () => {
+  const { tables } = mergeAddonSchema(priorTables(), [
+    { name: "bookings", access: "collect", columns: [{ name: "photo", type: "text" }] },
+  ]);
+  assert.ok(tables[0].columns.some((c) => c.name === "customer"),
+    "dropping a column hides it from every read while the values sit in Postgres");
+});
+
+test("a table is never dropped", () => {
+  const { tables } = mergeAddonSchema(priorTables(), [{ name: "bookings", access: "collect", columns: [] }]);
+  assert.deepEqual(tables.map((t) => t.name), ["bookings", "menu"]);
+});
+
+test("the merge does not mutate the stored spec it was handed", () => {
+  const prior = priorTables();
+  mergeAddonSchema(prior, [{ name: "bookings", access: "collect", columns: [], payment: { from: "bookings", amount: "p" } }]);
+  assert.equal(prior[0].payment, undefined, "a merge that edits its input corrupts _meta on a failed apply");
+});
+
+test("a designed table with no name is dropped rather than crashing the build", () => {
+  const { tables, added } = mergeAddonSchema(priorTables(), [{ access: "display", columns: [] }, null, "menu"]);
+  assert.equal(tables.length, 2);
+  assert.deepEqual(added, []);
+});
+
+test("the two alterable fields are the two that need a PAGE, and nothing else", () => {
+  assert.deepEqual(ADDON_TABLE_FIELDS, ["payment", "publicView"]);
+});
+
+test("a payable table survives normalizeSchema — the engine really receives it", async () => {
+  const { normalizeSchema } = await import("../site-schema.mjs");
+  const { tables } = mergeAddonSchema(priorTables(), [{
+    name: "bookings", access: "collect",
+    columns: [{ name: "price", type: "integer" }],
+    payment: { from: "bookings", amount: "price", currency: "GBP" },
+  }]);
+  const t = normalizeSchema({ tables }).tables[0];
+  assert.ok(t.payment, "this is the exact property the old concat dropped");
+  assert.equal(t.access, "collect");
+});
+
+test("THE ROUTE USES THE MERGE, and reports what it CREATED rather than what was named", () => {
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(w, /mergeAddonSchema\(aSpec\.tables \|\| \[\], aDesigned\.tables\)/,
+    "the addon lane still concatenates into normalizeSchema, so payment is dropped again");
+  assert.ok(!/tables: \[\.\.\.\(aSpec\.tables \|\| \[\]\), \.\.\.aDesigned\.tables\]/.test(w),
+    "the old concat is still there");
+  assert.match(w, /aTables = folded\.added/,
+    "the response names every table the designer mentioned, so it claims to have created one the site already had");
+  assert.match(w, /import \{[^}]*mergeAddonSchema[^}]*\} from "\.\/builder\/site-addon\.mjs"/,
+    "a call to a name that was never imported is a ReferenceError on the build path");
+});
+
+test("the designer is TOLD it may name an existing table, and told access is discarded", () => {
+  // Without this the capability exists and nothing can ask for it — the dead
+  // feature shape this repo has recorded ten times. The access half matters
+  // more: a designer that believes its compelled answer counts would write one.
+  assert.match(EDIT_RULE, /table the site already has/i);
+  assert.match(EDIT_RULE, /PAYMENTS/);
+  assert.match(EDIT_RULE, /publicView/);
+  assert.match(EDIT_RULE, /access[^.]*discarded/i);
 });
