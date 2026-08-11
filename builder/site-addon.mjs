@@ -62,12 +62,32 @@ export const ADDON_TABLE_FIELDS = ["payment", "publicView"];
  * `mergeRules` gives: `_meta` is what the data API derives from, so dropping a
  * column hides it from every read while the values sit in Postgres.
  */
+/**
+ * The spec-level tiers an addon may declare, beyond its tables.
+ *
+ * ALL THREE WERE DROPPED ON THIS PATH, measured: the route passed
+ * `{ tables: … }` and nothing else, so `normalizeSchema` never saw them. That
+ * is the entire "the model writes the backend" tier — an inbound webhook
+ * handler, a confirmation computed by SQL, a third-party read — unreachable on
+ * any site after its first build.
+ *
+ * They are name-keyed lists, so passing only what the designer NAMED is right:
+ * `applySiteSchema` seeds `_meta` from the stored spec before merging, so a
+ * function nobody mentioned stays recorded, and one that is mentioned is
+ * `CREATE OR REPLACE`d. Rate limits are deliberately NOT here — an addon does
+ * not ask for them, and the erase semantics are a separate question.
+ */
+export const ADDON_SPEC_FIELDS = ["functions", "apis", "jobs"];
+
 export function mergeAddonSchema(prior, designed) {
-  const base = (Array.isArray(prior) ? prior : []).filter((t) => t && t.name).map((t) => ({ ...t }));
+  const priorTables = Array.isArray(prior) ? prior : (prior && Array.isArray(prior.tables) ? prior.tables : []);
+  const designedSpec = Array.isArray(designed) ? { tables: designed } : (designed && typeof designed === "object" ? designed : {});
+  const designedTables = Array.isArray(designedSpec.tables) ? designedSpec.tables : [];
+  const base = priorTables.filter((t) => t && t.name).map((t) => ({ ...t }));
   const byName = new Map(base.map((t) => [String(t.name).toLowerCase(), t]));
   const added = [], altered = [];
 
-  for (const d of Array.isArray(designed) ? designed : []) {
+  for (const d of designedTables) {
     if (!d || !d.name) continue;
     const key = String(d.name).toLowerCase();
     const have = byName.get(key);
@@ -100,7 +120,18 @@ export function mergeAddonSchema(prior, designed) {
     }
     if (fields.length) altered.push({ table: have.name, fields });
   }
-  return { tables: base, added, altered };
+
+  // The three spec-level tiers, carried only when the designer named one, so a
+  // build that declares nothing sends exactly what it sent before.
+  const spec = { tables: base };
+  const declared = [];
+  for (const k of ADDON_SPEC_FIELDS) {
+    const v = designedSpec[k];
+    if (!Array.isArray(v) || !v.length) continue;
+    spec[k] = v;
+    declared.push(k);
+  }
+  return { spec, tables: base, added, altered, declared };
 }
 
 /**

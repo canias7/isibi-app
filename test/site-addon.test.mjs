@@ -8,7 +8,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
-  MAX_RETURNED, mergeAddonPages, mergeAddonSchema, ADDON_TABLE_FIELDS, unlinkedPages, routeOf, addonReply, keptReply,
+  MAX_RETURNED, mergeAddonPages, mergeAddonSchema, ADDON_TABLE_FIELDS, ADDON_SPEC_FIELDS,
+  unlinkedPages, routeOf, addonReply, keptReply,
 } from "../builder/site-addon.mjs";
 import { priorPagesBlock, pagesRequest, pagesPrompt, validatePages, SITE_PAGES_TOOL } from "../builder/page-gen.mjs";
 import { EDIT_RULE } from "../builder/site-edit.mjs";
@@ -865,11 +866,15 @@ test("a payable table survives normalizeSchema — the engine really receives it
 });
 
 test("THE ROUTE USES THE MERGE, and reports what it CREATED rather than what was named", () => {
+  // ANCHORED ON THE PROPERTY, NOT THE ARGUMENT LIST. The first draft pinned the
+  // exact call `mergeAddonSchema(aSpec.tables || [], aDesigned.tables)` and went
+  // red on a correct change one commit later — a test about word order, which
+  // this repo has now recorded four times.
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.match(w, /mergeAddonSchema\(aSpec\.tables \|\| \[\], aDesigned\.tables\)/,
-    "the addon lane still concatenates into normalizeSchema, so payment is dropped again");
+  assert.match(w, /const folded = mergeAddonSchema\(/,
+    "the addon lane no longer folds its designed schema over the stored one");
   assert.ok(!/tables: \[\.\.\.\(aSpec\.tables \|\| \[\]\), \.\.\.aDesigned\.tables\]/.test(w),
-    "the old concat is still there");
+    "the old concat is back, so payment on an existing table is dropped again");
   assert.match(w, /aTables = folded\.added/,
     "the response names every table the designer mentioned, so it claims to have created one the site already had");
   assert.match(w, /import \{[^}]*mergeAddonSchema[^}]*\} from "\.\/builder\/site-addon\.mjs"/,
@@ -884,4 +889,69 @@ test("the designer is TOLD it may name an existing table, and told access is dis
   assert.match(EDIT_RULE, /PAYMENTS/);
   assert.match(EDIT_RULE, /publicView/);
   assert.match(EDIT_RULE, /access[^.]*discarded/i);
+});
+
+// ── THE SPEC-LEVEL TIERS ─────────────────────────────────────────────────────
+//
+// The route passed `{ tables: … }` and nothing else, so `functions`, `apis` and
+// `jobs` never reached `normalizeSchema` at all — the entire "the model writes
+// the backend" tier unreachable on any site after its first build.
+
+const FN = { name: "hook_stripe", args: [{ name: "payload", type: "jsonb" }], returns: "void", body: "BEGIN END;", internal: true };
+const API = { name: "rates", url: "https://example.com/r" };
+
+test("A FUNCTION THE DESIGNER DECLARES REACHES THE SPEC — the tier this unblocks", () => {
+  const { spec, declared } = mergeAddonSchema(priorTables(), { tables: [], functions: [FN] });
+  assert.deepEqual(spec.functions, [FN]);
+  assert.ok(declared.includes("functions"));
+});
+
+test("a third-party API declaration reaches it too", () => {
+  const { spec } = mergeAddonSchema(priorTables(), { tables: [], apis: [API] });
+  assert.deepEqual(spec.apis, [API]);
+});
+
+test("a build that declares none sends exactly what it sent before", () => {
+  const { spec, declared } = mergeAddonSchema(priorTables(), { tables: [] });
+  assert.deepEqual(Object.keys(spec), ["tables"], "an empty tier must not appear as an empty list");
+  assert.deepEqual(declared, []);
+});
+
+test("an empty list is not a declaration", () => {
+  const { spec } = mergeAddonSchema(priorTables(), { tables: [], functions: [], apis: null });
+  assert.equal(spec.functions, undefined);
+  assert.equal(spec.apis, undefined);
+});
+
+test("the three tiers are the ones that were dropped, and rate limits are deliberately not among them", () => {
+  assert.deepEqual(ADDON_SPEC_FIELDS, ["functions", "apis", "jobs"]);
+  assert.ok(!ADDON_SPEC_FIELDS.includes("rateLimits"),
+    "an addon does not ask for rate limits and the erase semantics are a separate question");
+});
+
+test("the merge still takes a bare table array, so nothing that called it the old way breaks", () => {
+  const { tables, added } = mergeAddonSchema(priorTables(), [{ name: "gallery", access: "display", columns: [] }]);
+  assert.equal(tables.length, 3);
+  assert.deepEqual(added, ["gallery"]);
+});
+
+test("A DECLARED FUNCTION SURVIVES normalizeSchema — measured, because it did not before", async () => {
+  const { normalizeSchema } = await import("../site-schema.mjs");
+  const { spec } = mergeAddonSchema(priorTables(), { tables: [], functions: [FN], apis: [API] });
+  const n = normalizeSchema(spec);
+  assert.equal((n.functions || []).length, 1, "this is the exact tier the old `{tables}` call dropped");
+  assert.equal((n.apis || []).length, 1);
+  // …and the shape the route USED to send drops both, or the assertion above
+  // passes against a normaliser that would have worked all along.
+  const oldWay = normalizeSchema({ tables: spec.tables });
+  assert.equal((oldWay.functions || []).length, 0);
+  assert.equal((oldWay.apis || []).length, 0);
+});
+
+test("THE ROUTE HANDS OVER THE WHOLE DESIGNED SPEC", () => {
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(w, /mergeAddonSchema\(aSpec\.tables \|\| \[\], aDesigned\)/,
+    "the route still passes aDesigned.tables, so functions and apis are dropped again");
+  assert.match(w, /normalizeSchema\(folded\.spec\)/,
+    "the route rebuilds a tables-only object, which throws the tiers away after the merge kept them");
 });

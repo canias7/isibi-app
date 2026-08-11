@@ -10176,9 +10176,15 @@ async function handleRequest(request, env, ctx) {
               // price could never start taking money. `mergeAddonSchema` keeps
               // the columns-only behaviour that was right and adds those two;
               // `access` stays the site's own, because the tool COMPELS it.
-              const folded = mergeAddonSchema(aSpec.tables || [], aDesigned.tables);
+              // THE WHOLE DESIGNED SPEC, not just its tables. Passing
+              // `{tables}` alone dropped `functions`, `apis` and `jobs` before
+              // `normalizeSchema` ever saw them — measured — which is the entire
+              // "the model writes the backend" tier unreachable on any site
+              // after its first build: no inbound webhook handler, no
+              // confirmation computed by SQL, no third-party read.
+              const folded = mergeAddonSchema(aSpec.tables || [], aDesigned);
               aAltered = folded.altered;
-              const merged = normalizeSchema({ tables: folded.tables });
+              const merged = normalizeSchema(folded.spec);
               try {
                 await applySiteSchema(adb, merged);
                 // WHAT WAS CREATED, not what was NAMED. This read every table
