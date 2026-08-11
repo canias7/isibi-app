@@ -537,3 +537,4 @@ test("nothing in the owner block assigns a Response to `r`", () => {
   assert.ok(/^\s*r = \{ body:/m.test(block) || /r = await handleOwner/.test(block),
     "the scan found no `r =` assignments at all — it is looking at the wrong region");
 });
+

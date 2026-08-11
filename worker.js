@@ -4311,10 +4311,29 @@ async function proxySiteService(env, request, url, slug, path, which, ctx) {
   //
   // SET, not forwarded, on purpose. Forwarding trusts whatever the client sent —
   // and this endpoint is public, so that is an attacker-chosen value reaching
-  // Better Auth's trusted-origins check. The request genuinely originates from
-  // this Worker's own origin, so that is what it says, and a caller cannot
-  // influence it.
-  headers.set("origin", url.origin);
+  // Better Auth's trusted-origins check. A caller cannot influence this.
+  //
+  // AND IT IS THE UPSTREAM'S OWN ORIGIN, NOT OURS — which is the fix for a live
+  // break, measured 2026-08-11. It used to be `url.origin` (i.e.
+  // `https://gofarther.dev`), and Better Auth answered every sign-up and every
+  // sign-in with `403 INVALID_ORIGIN`: 33/2 passing the day before, 21/12 after,
+  // with nothing in our own diff touching this path. The whole member tier —
+  // `user`, `feed`, `admin` — dead on every published site.
+  //
+  // Better Auth's documented default is that it "trusts the base URL of your app
+  // (i.e. baseURL)" and NOTHING else, and Neon's trusted-domain list is a CONSOLE
+  // setting per project. A platform that provisions a project per site can never
+  // tick that box, so depending on it was depending on a default we do not own —
+  // and one that evidently moved. The upstream's own origin is trusted by
+  // construction, needs no configuration, and cannot drift.
+  //
+  // The CSRF protection this check exists for is a browser concept and buys
+  // nothing here: the caller is this Worker, server to server, and the value is
+  // still ours to set rather than the client's to choose. The real gate on this
+  // endpoint is the rate limiter above it.
+  let upstreamOrigin = url.origin;
+  try { upstreamOrigin = new URL(base).origin; } catch { /* keep ours; a base we cannot parse is one we cannot improve on */ }
+  headers.set("origin", upstreamOrigin);
   // A VISITOR HAS NO TOKEN, AND NEON WILL NOT SERVE A REQUEST WITHOUT ONE.
   //
   // Measured 2026-08-04: every public read answered

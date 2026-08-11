@@ -81,20 +81,53 @@ test("it cleans up the billed resources it created", () => {
     "something gates the cleanup block, so a failing run can leak a billed Neon project");
 });
 
-test("the proxy SETS Origin rather than forwarding what a caller sent", () => {
-  // MEASURED LIVE 2026-08-04, first run of member smoke: every signup answered
-  // `400 MISSING_ORIGIN`. The proxy's header allow-list is about COOKIES — it
-  // exists so gofarther.dev's cookies never reach a third party — and it dropped
-  // `Origin`, which is not a cookie. No generated site could sign anybody up.
+test("the auth proxy sends the UPSTREAM's origin, never ours and never the caller's", () => {
+  // A LIVE BREAK, MEASURED 2026-08-11. This sent `url.origin`
+  // (`https://gofarther.dev`) and Better Auth answered every sign-up and every
+  // sign-in with `403 INVALID_ORIGIN` — `member smoke` went 33/2 to 21/12
+  // overnight with nothing in our own diff touching this path. The whole member
+  // tier, dead on every published site.
   //
-  // SET, not forwarded: this endpoint is public, so forwarding trusts an
-  // attacker-chosen value into Better Auth's trusted-origins check. The request
-  // really does originate from this Worker.
+  // Better Auth's documented default is that it trusts "the base URL of your app
+  // (i.e. baseURL)" and nothing else, and Neon's trusted-domain list is a CONSOLE
+  // setting per project — which a platform provisioning a project per site can
+  // never tick. So our origin was only ever working by a default we do not own,
+  // and it moved. The upstream's own origin is trusted by construction.
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.match(w, /headers\.set\("origin", url\.origin\)/,
-    "the auth proxy does not set Origin, so signup answers MISSING_ORIGIN");
-  assert.ok(!/for \(const h of \[[^\]]*"origin"/.test(w),
-    "Origin is being FORWARDED from the caller — on a public endpoint that is attacker-chosen");
+  const at = w.indexOf("async function proxySiteService(");
+  assert.ok(at > 0, "proxySiteService was renamed");
+  // Anchored on a landmark inside the function rather than a byte count — a
+  // window sized in bytes stops covering what it was written for the moment a
+  // comment is added above it, which has happened three times in this repo.
+  const end = w.indexOf("siteAnonToken(db)", at);
+  assert.ok(end > at, "the anon-token landmark moved; the window no longer covers the header block");
+  const body = w.slice(at, end);
+
+  // (1) IT MUST STILL BE SET. Without any Origin at all, Better Auth answers
+  // `400 MISSING_ORIGIN` on every call that is not a plain GET — the break of
+  // 2026-08-04, one layer over.
+  assert.match(body, /headers\.set\("origin"/, "no Origin is sent at all");
+
+  // (2) FROM THE UPSTREAM, NOT FROM US. The property, not the spelling: the
+  // value handed to `headers.set` must be derived from `base`.
+  const sent = body.match(/headers\.set\("origin",\s*([A-Za-z0-9_.]+)\)/);
+  assert.ok(sent, "the Origin is not set from a plain identifier — re-read this guard");
+  const derived = new RegExp("(?:const|let)\\s+" + sent[1] + "\\b[\\s\\S]{0,400}?new URL\\(base\\)\\.origin");
+  assert.match(body, derived, "the Origin sent is not derived from the upstream base");
+  assert.equal(/headers\.set\("origin",\s*url\.origin\)/.test(body), false,
+    "the platform's own origin is sent again — this is the 403 INVALID_ORIGIN break");
+
+  // (3) NEVER THE CALLER'S. This endpoint is public, so a forwarded Origin is an
+  // attacker-chosen value reaching a trusted-origins check. `origin` must not be
+  // in the forwarded allow-list.
+  const fwd = body.match(/for \(const h of \[([^\]]*)\]/);
+  assert.ok(fwd, "the forwarded header allow-list moved");
+  assert.equal(/["']origin["']/.test(fwd[1]), false, "Origin is forwarded from the caller");
+
+  // (4) AN UNPARSEABLE BASE MUST NOT THROW. This runs on a public endpoint, and
+  // `new URL()` on a stored value that is not a URL is an exception, not a 501.
+  assert.match(body, /try \{[^}]*new URL\(base\)\.origin[^}]*\} catch/,
+    "a base that cannot be parsed would throw on a public route");
 });
 
 test("sign-out sends a body, or the auth server refuses it as 415", () => {
