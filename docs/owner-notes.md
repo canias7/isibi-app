@@ -52,6 +52,31 @@ on gofarther.dev**; every build 503s at `design`, the deposit refunds, nothing i
 charged. **Read the timestamp on this line before believing it** — it is true
 until somebody tops the account up, and nothing announces when that happens.
 
+**THE SCHEMA WAS WRITE-ONCE, AND THE `rules` LAYER FIXES IT (2026-08-11).** Owner's
+call: *"for edit it needs to be able to edit anything it can build."* Audited on
+that basis and the gap was one thing, not a list — **everything the designer can
+declare at build time was frozen the moment the build finished.** Measured through
+the real normaliser, not inferred: the addon lane merges with `normalizeSchema`,
+whose rule is "first declaration wins, later ones contribute COLUMNS", so a table
+on a live site could gain a column and nothing else, ever. `confirm DROPPED ·
+payment DROPPED · noOverlap DROPPED`, silently.
+
+So all of these were impossible on a site that already existed, and every one is
+something a real business asks for in its first week: **email the customer when
+they book · text them · stop two people taking one slot · let people browse the
+listings without signing in · one entry per customer · close the form.**
+
+`builder/site-rules.mjs` is the sixth edit layer, ~0.3 credits, and it publishes
+NOTHING — every rule is enforced in Postgres or read out of `_meta` on the
+request path, so no page source changes and no visitor re-downloads anything.
+2156 tests, 25/25 mutations. **Not proven live** — the account is empty (above).
+
+**STILL MISSING FROM EDIT, in order:** photographs (a picture cannot be replaced
+after the build — a `picture` layer, so it does not cost a ~5-credit page
+regeneration plus ~19 a photo), `payment` and `publicView` (both need a page as
+well, so they belong to addon once its merge stops dropping properties), and
+per-page share previews.
+
 **Cloudflare Web Analytics for `gofarther.app`** — the owner asked to be reminded
 when they say they are home, since it wants doing on their desktop.
 

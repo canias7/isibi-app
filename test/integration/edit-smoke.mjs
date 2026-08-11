@@ -259,6 +259,51 @@ async function main() {
       `${live.status}, ${html.length} bytes, looked for ${JSON.stringify(newName)} and its escaped form`);
   }
 
+  // ── THE RULES LAYER: what the site DOES, proved against the real API ──────
+  //
+  // ASSERTED THROUGH THE PUBLIC DATA API, NOT THROUGH OUR OWN 200. A rule that
+  // returns `ok:true` and does not reach Postgres is exactly the failure this
+  // layer was built to fix — the addon merge dropped `confirm`, `payment` and
+  // `noOverlap` silently for months and looked like success from both ends. So
+  // the check is behavioural: close a table with a rule, watch a stranger be
+  // refused by the database, reopen it, watch them be let back in.
+  console.log("\nchanging a rule, and proving it at the database…");
+  const publicRead = (table) => fetch(`${BASE}/api/db/${slug}/data/${table}?select=*`);
+  const openBefore = await publicRead(display.name);
+  ok(`"${display.name}" is publicly readable to begin with`, openBefore.status === 200,
+    `${openBefore.status} — without this the close below proves nothing`);
+
+  const rRules = await route(`Close the ${display.name} list — nobody outside should see it for now`, digest);
+  ok("a rule change routes to the RULES layer", rRules.intent === "edit" && rRules.layer === "rules",
+    `intent=${rRules.intent} layer=${rRules.layer}`);
+
+  const shut = await post(`/api/site/${slug}/edit`, {
+    layer: "rules", instruction: `Close the ${display.name} list — nobody outside should be able to see it`, picker: "sonnet",
+  });
+  const sh = (await jsonOf(shut)) || {};
+  ok("the rule change succeeds", shut.status === 200 && sh.ok === true, `${shut.status} ${JSON.stringify(sh).slice(0, 240)}`);
+  // THE POINT OF THE LANE, and the same property the data layer has: a rule is
+  // enforced in Postgres and on the request path, so no page source changed and
+  // nothing was rebuilt.
+  ok("…and nothing was republished", !sh.files || !sh.files.length, JSON.stringify(sh.files || []).slice(0, 120));
+  ok("…and it says which table moved", (sh.applied || []).length > 0, JSON.stringify(sh.applied));
+
+  const closed = await publicRead(display.name);
+  ok("THE DATABASE REALLY REFUSES A STRANGER NOW", closed.status === 401 || closed.status === 403 || closed.status === 404,
+    `${closed.status} ${(await closed.text().catch(() => "")).slice(0, 200)}`);
+
+  // AND IT COMES BACK. A rule that can only be applied is a deletion wearing
+  // another name — an owner who closes a form for a busy weekend has to be able
+  // to open it on Monday, and that reopening is a second real schema apply.
+  const open = await post(`/api/site/${slug}/edit`, {
+    layer: "rules", instruction: `Open the ${display.name} list up again so anyone can see it`, picker: "sonnet",
+  });
+  const op = (await jsonOf(open)) || {};
+  ok("the rule can be put back", open.status === 200 && op.ok === true, `${open.status} ${JSON.stringify(op).slice(0, 200)}`);
+  const reopened = await publicRead(display.name);
+  ok("…and the database lets them back in", reopened.status === 200,
+    `${reopened.status} ${(await reopened.text().catch(() => "")).slice(0, 200)}`);
+
   // ── THE ADDON LANE ────────────────────────────────────────────────────────
   console.log("\nadding a page, then taking it away…");
   const ad = await post(`/api/site/${slug}/addon`, {

@@ -21,6 +21,7 @@ on:
     paths:
       - 'builder/site-apply.mjs'
       - 'builder/site-addon.mjs'
+      - 'builder/site-rules.mjs'
       - 'builder/site-ask.mjs'
       - 'builder/site-text.mjs'
       # THE FILE THAT DECIDES WHAT THE LANES CAN EXPRESS. Left out at first, and
