@@ -53,7 +53,16 @@ export const TEXT_MAX_TOKENS = 1500;
  * arbitrary scatter. A change that needed a string past the cap comes back as
  * "nothing matched", which escalates — the honest outcome, and not a silent miss.
  */
-export const MAX_TEXT_ITEMS = 400;
+/**
+ * How many strings the text layer will look at.
+ *
+ * MEASURED, NOT PICKED. Across the 100 family exemplars — the closest thing in
+ * the repo to a real generated site — the counts are median 201, p90 260, and a
+ * maximum of 424 (`repair-shop` at 3 pages, `salon` at 6). At 400 the largest
+ * two were TRUNCATED; 600 clears every one with headroom and costs nothing on
+ * the other 98, because a cap only bills when it binds.
+ */
+export const MAX_TEXT_ITEMS = 600;
 
 /** One replacement. Matches `site-text.mjs`'s own ceiling on a label. */
 export const MAX_TEXT_CHARS = 400;
@@ -215,7 +224,11 @@ export function textItems(pages) {
     if (!p || typeof p.path !== "string") continue;
     for (const it of extractText(p.source)) {
       out.push({ path: p.path, text: it.text, at: it.at });
-      if (out.length >= MAX_TEXT_ITEMS) return out;
+      // ONE PAST THE CAP, so the caller can tell "exactly full" from "there was
+      // more". Stopping AT the cap makes those two indistinguishable, and the
+      // only safe reading is then the pessimistic one — which sends a site
+      // sitting exactly on the boundary up to the expensive lane for nothing.
+      if (out.length > MAX_TEXT_ITEMS) return out;
     }
   }
   return out;
@@ -289,6 +302,18 @@ export function textUsage(reply) {
 export async function runTextEdit(deps, { instruction, pages } = {}) {
   const items = textItems(pages);
   if (!items.length) return { ok: false, escalate: true, reason: "no-text", usage: null };
+  // A PARTIAL LIST SHOWN AS COMPLETE IS THE BUG THIS LAYER'S DESIGN AVOIDS,
+  // reintroduced by its own cap. `textItems` is flat and cross-page precisely
+  // because a phone number lives in a footer on every page, and changing it in
+  // one place "leaves the site disagreeing with itself — which is worse than not
+  // changing it, because nobody notices". A truncated list does exactly that:
+  // the model is handed the first N strings under the heading "THE TEXT ON THEIR
+  // SITE", changes the ones it can see, and the last page keeps the old number.
+  //
+  // So an over-full site ESCALATES rather than half-editing. The rung above
+  // rewrites every page from the whole source and gets it right — expensive, and
+  // the right answer for the 2% of sites that reach here.
+  if (items.length > MAX_TEXT_ITEMS) return { ok: false, escalate: true, reason: "too-much-text", usage: null };
   let reply;
   try {
     reply = await deps.send(textRequest({ instruction, items }));

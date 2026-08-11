@@ -107,9 +107,63 @@ test("the offered list is capped, and the cap is on the INPUT", () => {
     source: Array.from({ length: 40 }, (_, j) => "      <p>line " + i + "-" + j + "</p>").join("\n"),
   }));
   const items = textItems(many);
-  assert.equal(items.length, MAX_TEXT_ITEMS, "2000 strings must not all be paid for");
+  // ONE PAST THE CAP, deliberately: stopping AT it makes "exactly full" and
+  // "there was more" indistinguishable, and the only safe reading of that is the
+  // pessimistic one — which sends a site sitting exactly on the boundary up to
+  // the expensive lane for nothing.
+  assert.equal(items.length, MAX_TEXT_ITEMS + 1, "2000 strings must not all be paid for");
   const body = textRequest({ instruction: "x", items }).messages[0].content;
   assert.equal(body.split("\n").filter((l) => /^\d+\. \[/.test(l)).length, MAX_TEXT_ITEMS);
+});
+
+test("a site too wordy to see whole is escalated, never half-edited", async () => {
+  // THE CAP REINTRODUCED THE BUG THIS LAYER'S DESIGN AVOIDS. `textItems` is flat
+  // and cross-page because a phone number lives in a footer on every page, and
+  // changing it in one place "leaves the site disagreeing with itself — which is
+  // worse than not changing it, because nobody notices". A truncated list does
+  // exactly that: the model gets the first N strings under the heading "THE TEXT
+  // ON THEIR SITE", changes what it can see, and the last page keeps the old
+  // number. Measured before the cap moved: 2 of the 100 exemplars truncated.
+  const { runTextEdit } = await import("../builder/site-apply.mjs");
+  const big = Array.from({ length: 40 }, (_, i) => ({
+    path: "src/routes/p" + i + ".tsx",
+    source: Array.from({ length: 30 }, (_, j) => "      <p>line " + i + "-" + j + "</p>").join("\n"),
+  }));
+  let called = false;
+  const out = await runTextEdit({ send: () => { called = true; return {}; } }, { instruction: "x", pages: big });
+  assert.equal(out.ok, false);
+  assert.equal(out.reason, "too-much-text");
+  assert.equal(out.escalate, true, "the rung above must still do the work");
+  assert.equal(called, false, "a model call was paid for on a view that could never be complete");
+});
+
+test("the cap clears every real site, with headroom", async () => {
+  // MEASURED, NOT PICKED. Across the 100 family exemplars — the closest thing in
+  // the repo to a generated site — the counts are median 201, p90 260, max 424
+  // (repair-shop at 3 pages, salon at 6). At 400 the largest two truncated and
+  // silently half-edited; 600 clears them all and costs nothing on the other 98,
+  // because a cap only bills when it binds.
+  const { extractText } = await import("../builder/site-text.mjs");
+  const root = new URL("../builder/lovable/template/src/family-pages/", import.meta.url);
+  let worst = 0, worstFam = "", counted = 0;
+  for (const fam of fs.readdirSync(root)) {
+    let n = 0, saw = false;
+    for (const f of fs.readdirSync(new URL(fam + "/", root))) {
+      if (!f.endsWith(".tsx")) continue;
+      saw = true;
+      n += extractText(fs.readFileSync(new URL(fam + "/" + f, root), "utf8")).length;
+    }
+    if (!saw) continue;
+    counted++;
+    if (n > worst) { worst = n; worstFam = fam; }
+  }
+  assert.ok(counted > 80, "only " + counted + " families scanned — the walk broke");
+  assert.ok(worst < MAX_TEXT_ITEMS,
+    "the wordiest site (" + worstFam + ", " + worst + " strings) does not fit under the cap of " + MAX_TEXT_ITEMS +
+    " — every edit on it escalates to a full revise");
+  // And the cap is not so far above the corpus that it has stopped meaning
+  // anything: a guard with no relation to the thing it bounds is not a guard.
+  assert.ok(MAX_TEXT_ITEMS < worst * 3, "the cap is " + MAX_TEXT_ITEMS + " against a worst case of " + worst);
 });
 
 test("a page with no path or no source is skipped rather than throwing", () => {
