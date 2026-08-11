@@ -329,7 +329,7 @@ const WORKER = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8")
 function editBlock() {
   const from = WORKER.indexOf("\n          if (ed) {");
   assert.ok(from > 0, "the edit handler is gone or renamed — every assertion below would pass vacuously");
-  const to = WORKER.indexOf("\n          if (tx) {", from);
+  const to = WORKER.indexOf("\n          if (ad) {", from);
   assert.ok(to > from, "could not find the end of the edit handler");
   return WORKER.slice(from, to);
 }
@@ -342,7 +342,12 @@ test("the route exists, is dispatched, and reaches the module", () => {
   const gate = WORKER.match(/if \(om \|\| mm \|\|[^)]*\) \{/g) || [];
   assert.ok(gate.length && gate.every((g) => g.includes("|| ed")),
     "the edit matcher is not in the dispatch condition");
-  assert.match(WORKER, /const ownerSlug = \(om \|\| mm \|\|[^)]*\|\| ed\)/,
+  // THE PROPERTY, NOT THE LIST. This pinned `|| ed)` and went red the day the
+  // addon matcher was added after it — a guard about word order, which is what
+  // this repo keeps recording. What matters is that `ed` is in the expression.
+  const owner = WORKER.match(/const ownerSlug = \(([^)]*)\)\[1\]/);
+  assert.ok(owner, "the ownerSlug expression is gone or reshaped");
+  assert.ok(owner[1].split("||").map((s2) => s2.trim()).includes("ed"),
     "the edit matcher is not in the ownerSlug list, so it would read another route's slug");
   const b = editBlock();
   assert.match(b, /runTextEdit\(/, "the text layer is not wired to the module");

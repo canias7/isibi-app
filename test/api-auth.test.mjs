@@ -55,7 +55,16 @@ function routes() {
 // A pure fixed window bleeds into the NEXT route's block and reports an open
 // route as gated — which is the dangerous direction, and it happened: the
 // published-site data API passed this test while calling no auth at all.
-const WINDOW = 45;
+const WINDOW = 60;
+
+// RAISED FROM 45 when the edit and addon lanes added two matchers to the
+// /api/site/* block, which declares a dozen route patterns before it gates. The
+// gate did not move; the declarations in front of it grew.
+//
+// Safe to raise because the window is CAPPED at `nextDispatchAfter` — a larger
+// number cannot bleed into the next route's block, it can only reach further
+// inside its own. The danger the comment above names is the cap's job, not this
+// number's.
 
 // Consecutive dispatch lines are ONE decision only when they are arms of the
 // SAME expression — `/api/video`, `/api/image` and `/api/audio` are three arms

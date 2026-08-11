@@ -11132,6 +11132,11 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering) {
     // would have got anyway. So this must never surface an escalation as an
     // error — the change still happens, one rung up.
     if (d.intent === 'edit' && site.slug) return siteEdit(site, d, t, origin, finish, go);
+    // THE MIDDLE RUNG. Adds a page or a table and keeps everything else; costs a
+    // few credits where the revise below costs ~25 and rewrites pages that were
+    // fine. Falls through to that revise on anything it cannot do, exactly like
+    // the edit above it.
+    if (d.intent === 'addon' && site.slug) return siteAddon(site, t, origin, finish, go);
     if (d.intent !== 'ask' || !d.answer) return go();
     // A QUESTION. Nothing is built, nothing on the site changes, and the reply
     // is an ordinary assistant message — no build steps, because there was no
@@ -11196,6 +11201,68 @@ function siteEdit(site, d, instruction, origin, finish, fallback) {
     if (s) { s.previewV = (s.previewV || 0) + 1; sitesSave(); }
     finish(editReply(e));
   }).catch(fallback);
+}
+// The middle rung: add a page or a table, keep everything else.
+//
+// Same contract as `siteEdit` — every failure falls through to the revise, and
+// an escalation is never surfaced as an error — but this one CAN take a while
+// (a model call plus a container build), so the step rows stay running rather
+// than being stopped the way a question stops them.
+function siteAddon(site, instruction, origin, finish, fallback) {
+  const slug = String(site.slug || '');
+  if (!slug) return fallback();
+  apiFetch('/api/site/' + encodeURIComponent(slug) + '/addon', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ instruction: instruction, picker: buildPicker }),
+  }).then(async (r) => {
+    const a = await r.json().catch(() => null);
+    if (!a) return fallback();
+    if (a.escalate) return fallback();
+    if (!r.ok || !a.ok) {
+      if (a.msg) { finish('⚠️ ' + a.msg); return; }
+      return fallback();
+    }
+    scheduleCreditRefresh();
+    const s = siteById(origin);
+    if (s) {
+      s.previewV = (s.previewV || 0) + 1;
+      // A NEW PAGE HAS TO REACH THE PICKER, or the customer is told it was added
+      // and cannot open it. Merged rather than replaced: the response names only
+      // what this addon touched, and `s.pages` is the whole site.
+      const added = (Array.isArray(a.added) ? a.added : []).map(sitePathOf).filter(Boolean);
+      if (added.length && Array.isArray(s.pages)) {
+        for (const p of added) if (!s.pages.some((q) => q && q.path === p)) s.pages.push({ path: p });
+      }
+      sitesSave();
+    }
+    finish(addonReplyText(a));
+  }).catch(fallback);
+}
+// `src/routes/gallery.tsx` → `/gallery`. Kept in step with `routeOf` in
+// builder/site-addon.mjs; the client cannot import it, and the only cost of
+// disagreeing is a page missing from the picker.
+function sitePathOf(file) {
+  const m = String(file || '').match(/^src\/routes\/(.+)\.tsx$/i);
+  if (!m) return '';
+  const rel = m[1];
+  if (rel === 'index') return '/';
+  if (rel.endsWith('/index')) return '/' + rel.slice(0, -'/index'.length);
+  return '/' + rel;
+}
+// What the addon did, naming the pages — including the one they did not ask
+// about. The nav link is a page this lane touches on its own, and not saying so
+// is how a legitimate change reads as the site being altered behind them.
+function addonReplyText(a) {
+  const added = (Array.isArray(a.added) ? a.added : []).map(sitePathOf).filter(Boolean);
+  const changed = (Array.isArray(a.changed) ? a.changed : []).map(sitePathOf).filter(Boolean);
+  const bits = [];
+  if (added.length) bits.push('added ' + added.join(', '));
+  if (changed.length) bits.push('linked it from ' + changed.join(', '));
+  if (Array.isArray(a.tables) && a.tables.length) bits.push('now storing ' + a.tables.join(', '));
+  let out = bits.length ? '✅ Done — ' + bits.join(', ') + '.' : '✅ Done.';
+  const un = Array.isArray(a.unlinked) ? a.unlinked : [];
+  if (un.length) out += ' Nothing links to ' + un.join(', ') + ' yet — say where you want the link and I’ll add it.';
+  return out;
 }
 // What an edit actually did, in one line.
 //

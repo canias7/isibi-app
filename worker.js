@@ -38,7 +38,7 @@ import { scrubSecrets, neonConfigured, sqlQuery, sqlExec, createUserProject, cre
 import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlIdent, seedSiteRows } from "./site-schema.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
-import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, SITE_PAGES_MAX_TOKENS } from "./builder/page-gen.mjs";
+import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, SITE_PAGES_MAX_TOKENS } from "./builder/page-gen.mjs";
 // ALIASED, because worker.js already has an `IMAGE_USD` — the per-model price
 // map for the image GENERATOR the customer drives directly. Imported under its
 // own name the two collide, and the collision is invisible to `node --check` and
@@ -49,6 +49,7 @@ import { imageBudget, budgetFor, imagesAffordable, planImages, applyImages, imag
 import { ASKABLE as SITE_TOKEN_NAMES, valueHint as siteTokenHint, mergeTokens, parseTokens, withContrast, tokenNote } from "./builder/site-tokens.mjs";
 import { extractText, applyEdits } from "./builder/site-text.mjs";
 import { runTextEdit } from "./builder/site-apply.mjs";
+import { mergeAddonPages, unlinkedPages } from "./builder/site-addon.mjs";
 import { archiveVersion, listVersions, rollbackVersion, deleteAllVersions, versionId, versionLabel } from "./site-versions.mjs";
 import { readLinkedPages, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, attachments, MAX_QUERIES } from "./builder/site-context.mjs";
 import { routeMessage, clarifiedBrief } from "./builder/site-ask.mjs";
@@ -3710,12 +3711,12 @@ async function siteWebResearch(env, brief, queries) {
 //
 // ONE call per build. There is no repair pass — see builder/publish-pages.mjs
 // for the measurement it was removed on.
-async function generateSitePages(env, brief, spec, brand, family, attachments, model, priorPages) {
+async function generateSitePages(env, brief, spec, brand, family, attachments, model, priorPages, mode) {
   // One definition, shared with the eval harness — see pagesRequest. Restating
   // it here would mean the harness tunes against a different request from the
   // one production runs. Held in a const so the usage below can be stamped with
   // the model that was actually sent.
-  const req = pagesRequest({ brief, spec, brand, family, attachments, model, priorPages });
+  const req = pagesRequest({ brief, spec, brand, family, attachments, model, priorPages, mode });
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
@@ -9439,6 +9440,10 @@ async function handleRequest(request, env, ctx) {
       // `applySiteSchema`, `seedSiteRows` or the page generator — rather than as
       // a rule somebody has to keep remembering inside a 700-line handler.
       const ed = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/edit$/i);
+      // THE ADDON LANE. Add what the site does not have, keep everything it
+      // does. Its own route for the same reason the edit lane has one: what a
+      // rung may touch is worth being a property of the code path.
+      const ad = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/addon$/i);
       // EVERY owner-scoped matcher above has to appear here, and `dm2` did not —
       // so `/api/site/<slug>/domains` was dispatched by nothing and fell through
       // to the 404 at the bottom of the router. Custom domains were unreachable
@@ -9450,10 +9455,10 @@ async function handleRequest(request, env, ctx) {
       // so from outside the two are indistinguishable — which is how this
       // survived a live probe until the dispatch was read.
       // `test/api-auth.test.mjs` holds the list against the matchers now.
-      if (om || mm || an || uf || xp || nt || sk || dm2 || vr || tx || ed) {
+      if (om || mm || an || uf || xp || nt || sk || dm2 || vr || tx || ed || ad) {
         const ou = await authUser(request);
         if (!ou) return UNAUTHED();
-        const ownerSlug = (om || mm || an || uf || xp || nt || sk || dm2 || vr || tx || ed)[1].toLowerCase();
+        const ownerSlug = (om || mm || an || uf || xp || nt || sk || dm2 || vr || tx || ed || ad)[1].toLowerCase();
         const ownerDeps = {
           ownerOf: async (s2) => {
             const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(s2)}&select=uid`, { headers: svcHeaders(env), signal: AbortSignal.timeout(12000) });
@@ -9683,6 +9688,148 @@ async function handleRequest(request, env, ctx) {
             // escalates like everything else this lane cannot do, so the change
             // still happens — one rung up, at the price of a rung up.
             return escalate("layer");
+          }
+          if (ad) {
+            // ── THE ADDON LANE ────────────────────────────────────────────
+            //
+            // The rung between edit and build: add a page the site does not
+            // have, or a table it has no table for, and KEEP everything it
+            // does. A build would answer the same request by rewriting all five
+            // pages that were fine.
+            //
+            // WHAT MAKES IT CHEAPER IS WHAT COMES BACK. The prompt still
+            // carries the whole site — input is ~5% of a warm build and rides
+            // in the cache — but the model returns only the new page and the
+            // pages it had to touch to make it reachable, and `mergeAddonPages`
+            // folds that over the rest. Output is ~87% of the bill.
+            if (!env.SITES_BUCKET) return Response.json({ ok: false, error: "storage not configured" }, { status: 501 });
+            if (request.method !== "POST") return Response.json({ ok: false, error: "method not allowed" }, { status: 405 });
+            const ga = await assertOwner(ownerDeps, ownerSlug, ou.id);
+            if (ga.error) return Response.json(ga.error.body, { status: ga.error.status });
+
+            const ab = await request.json().catch(() => ({}));
+            const aInstruction = String((ab && ab.instruction) || "").trim().slice(0, 2000);
+            const aAuth = request.headers.get("Authorization") || "";
+            // Same shape as the edit lane's: this rung has one above it too.
+            const aEscalate = (reason, extra) =>
+              Response.json({ ok: false, escalate: true, reason, cost: 0, ...(extra || {}) });
+            if (!aInstruction) return aEscalate("empty");
+            if (!env.ANTHROPIC_API_KEY) return aEscalate("unconfigured");
+
+            const aSrc = await loadSiteSource(env, ownerSlug);
+            if (!aSrc || !aSrc.length) return aEscalate("no-source");
+            const adb = await siteBackendBySlug(env, ownerSlug);
+            if (!adb) return aEscalate("no-backend");
+
+            let aLook = null, aSpec = null;
+            try {
+              const rows = await sqlQuery(adb, "SELECT k, v FROM _meta WHERE k IN ('site_look','schema')");
+              for (const r of rows || []) {
+                if (r.k === "site_look" && r.v) aLook = JSON.parse(r.v);
+                if (r.k === "schema" && r.v) aSpec = JSON.parse(r.v);
+              }
+            } catch (e) { console.error("addon meta read failed:", ownerSlug, e && e.message); return aEscalate("no-meta"); }
+            if (!aLook || !aSpec) return aEscalate("no-meta");
+
+            const aModels = modelsFor(ab && ab.picker);
+            // THE DESIGNER, IN EDIT MODE. It declares only a table this change
+            // genuinely needs — `site-edit.mjs`'s absent-means-unchanged rule —
+            // so most addons come back with none and the schema step no-ops.
+            let aDesigned = null, aDesignUsage = null;
+            try {
+              const d = await designSiteSchema(env, aInstruction, aModels.design, {
+                ...aLook,
+                tables: ((aSpec && aSpec.tables) || []).map((t) => t && t.name).filter(Boolean),
+              });
+              aDesigned = d.input; aDesignUsage = d.usage;
+            } catch (e) {
+              console.error("addon design failed:", ownerSlug, e && e.message);
+              const aKind = upstreamKind(e && e.detail);
+              return Response.json({
+                ok: false, error: "design", cost: 0,
+                msg: aKind.billing
+                  ? "The site builder is temporarily unavailable — this is on us, not your change."
+                  : "The designer is busy — try again in a moment.",
+                upstream: (e && e.status) || null, upstreamType: aKind.type, billing: aKind.billing || undefined,
+              }, { status: 503 });
+            }
+
+            // A NEW TABLE, IF THIS CHANGE NEEDS ONE. No provisioning: the site
+            // has a database already, and every statement the engine emits is
+            // additive or IF NOT EXISTS, so applying a merged spec to a live
+            // database adds what is new and leaves what is there. Seeding is
+            // best-effort and skips a table that already has rows, exactly as
+            // it does on a revise.
+            let aTables = [];
+            if (aDesigned && Array.isArray(aDesigned.tables) && aDesigned.tables.length) {
+              const merged = normalizeSchema({ tables: [...(aSpec.tables || []), ...aDesigned.tables] });
+              try {
+                await applySiteSchema(adb, merged);
+                aTables = aDesigned.tables.map((t) => t && t.name).filter(Boolean);
+                aSpec = (await loadSiteSchema(adb).catch(() => null)) || merged;
+              } catch (e) {
+                console.error("addon schema apply failed:", ownerSlug, e && (e.detail || e.message));
+                return Response.json({ ok: false, error: "schema", cost: 0, msg: "That change needed a new table and it couldn't be created — your site is untouched." }, { status: 502 });
+              }
+              try { await seedSiteRows(adb, merged, aDesigned.seed); }
+              catch (e) { console.error("addon seeding failed:", ownerSlug, e && e.message); }
+            }
+
+            // ONE PAGE CALL, in addon mode. `priorPages` is the whole site so
+            // the model can edit a nav entry; `mode` is what makes it return
+            // only what it touched.
+            let aGen = null;
+            try {
+              aGen = await generateSitePages(env, aInstruction, aSpec, aLook.brand || ownerSlug,
+                aLook.family || null, [], aModels.pages, aSrc, "addon");
+            } catch (e) {
+              console.error("addon generate failed:", ownerSlug, e && e.message);
+              const aKind = upstreamKind(e && e.detail);
+              return Response.json({
+                ok: false, error: "generate", cost: 0,
+                msg: aKind.billing
+                  ? "The site builder is temporarily unavailable — this is on us, not your change."
+                  : "The builder is busy — try again in a moment.",
+                upstream: (e && e.status) || null, upstreamType: aKind.type, billing: aKind.billing || undefined,
+              }, { status: 503 });
+            }
+
+            const aValid = validatePages(aGen && aGen.input, { partial: true });
+            const aMerge = mergeAddonPages(aSrc, aValid.pages);
+            // NOTHING USABLE CAME BACK — escalate rather than report success.
+            // The rung above rewrites the whole site, which is expensive and
+            // does work.
+            if (!aMerge.ok) return aEscalate(aMerge.reason, { problems: aValid.problems.slice(0, 4) });
+
+            const aPub = await recompileAndPublish(env, {
+              slug: ownerSlug, pages: aMerge.pages,
+              label: versionLabel({ revise: true, changeNote: aInstruction }),
+            });
+            // A FAILED COMPILE LEAVES THE LIVE SITE ALONE. Not escalated: the
+            // rung above would rewrite pages the owner never asked about, to
+            // recover from a page this one wrote.
+            if (!aPub.ok) {
+              return Response.json({
+                ok: false, error: "compile", cost: 0,
+                msg: "That addition didn't compile, so your site is untouched — try describing it differently.",
+                detail: aPub.detail,
+              }, { status: 422 });
+            }
+
+            // Charged after the publish, on measured usage, from the one price
+            // table — the same rule every other model call follows.
+            let aCost = 0;
+            try {
+              const bill = pageCredits(aDesignUsage) + pageCredits(aGen && aGen.usage);
+              aCost = await collectCredits(aAuth, bill);
+            } catch { aCost = 0; }
+            return Response.json({
+              ok: true,
+              added: aMerge.added, changed: aMerge.changed, tables: aTables,
+              unlinked: unlinkedPages(aMerge.pages, aMerge.added),
+              problems: aValid.problems.slice(0, 4),
+              files: aPub.files, cost: aCost,
+            });
           }
           if (tx) {
             // ── CHANGING THE WORDS, WITH NO MODEL CALL ────────────────────

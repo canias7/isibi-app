@@ -2939,11 +2939,35 @@ export function familyExemplar(family) {
  * to today's behaviour for the site that would have been most expensive.
  */
 const MAX_PRIOR_CHARS = 90000;
-export function priorPagesBlock(pages) {
+export function priorPagesBlock(pages, mode = "revise") {
   const list = (Array.isArray(pages) ? pages : [])
     .filter((p) => p && typeof p.path === "string" && typeof p.source === "string" && p.source.trim());
   if (!list.length) return "";
   const total = list.reduce((n, p) => n + p.source.length, 0);
+  // ADDING SOMETHING IS NOT REWRITING EVERYTHING, and the difference is the
+  // whole reason the addon lane exists. A revise re-emits every page — output is
+  // ~87% of what a build costs, so "add a gallery" pays to re-type five pages
+  // that did not change. Here the model returns the NEW page and the pages it
+  // had to touch to make it reachable, and the caller merges that over the rest.
+  //
+  // The nav is why "and nothing else" is not quite the rule: each generated page
+  // declares its own CHROME with its own links, so a page nobody links to is a
+  // page nobody can reach. Usually that is the home page, and usually the answer
+  // is two files instead of six.
+  if (mode === "addon" && total <= MAX_PRIOR_CHARS) {
+    return "\n\nTHE SITE AS IT STANDS — YOU ARE ADDING TO IT\n" +
+      "Below is the CURRENT source of every page, exactly as it is published right now.\n\n" +
+      "RETURN ONLY WHAT IS NEW OR CHANGED. A page you do not return is kept exactly as it is, so returning one " +
+      "unchanged bills the customer for retyping their own site. Usually that is ONE new page, plus the page a " +
+      "visitor would look on to find it — each page carries its own nav links, so a new page nobody links to is " +
+      "a page nobody can reach.\n\n" +
+      "IF THE THING THEY ASKED FOR BELONGS ON A PAGE THAT ALREADY EXISTS, return that page edited and add no new " +
+      "file at all. A testimonials section on the home page is an edit to the home page, not a new route.\n\n" +
+      "Anything you DO return must be the whole file, and everything in it that this change does not touch stays " +
+      "BYTE-IDENTICAL — the same headings, the same sentences, the same sections in the same order. The customer " +
+      "wrote this site; a change they did not ask for reads to them as their site being replaced.\n\n" +
+      list.map((p) => "--- " + p.path + " ---\n" + p.source).join("\n\n");
+  }
   if (total > MAX_PRIOR_CHARS) {
     return "\n\nTHE SITE AS IT STANDS\nIt has these pages: " + list.map((p) => p.path).join(", ") +
       ". They are too large to show here, so write them again in full \u2014 keep the same pages, the same " +
@@ -2959,7 +2983,7 @@ export function priorPagesBlock(pages) {
     list.map((p) => "--- " + p.path + " ---\n" + p.source).join("\n\n");
 }
 
-export function pagesPrompt(brief, spec, brand, family, attachCount = 0, priorPages = null) {
+export function pagesPrompt(brief, spec, brand, family, attachCount = 0, priorPages = null, mode = "revise") {
   const name = String(brand || "").trim();
   const example = familyExemplar(family);
   const n = Math.max(0, Math.floor(Number(attachCount) || 0));
@@ -2988,7 +3012,7 @@ export function pagesPrompt(brief, spec, brand, family, attachCount = 0, priorPa
       : "") +
     // LAST, so the model reads the shape-to-copy first and the site-to-edit
     // second. Empty on a first build, so nothing about that path changes.
-    priorPagesBlock(priorPages);
+    priorPagesBlock(priorPages, mode);
 }
 
 // A route path the container will accept: under src/routes, .tsx, no traversal,
@@ -3011,7 +3035,7 @@ function cleanPath(raw) {
  * Structural check on the tool's output: real paths, real source, an index.
  * Returns the files worth trying to compile plus everything wrong with them.
  */
-export function validatePages(input) {
+export function validatePages(input, { partial = false } = {}) {
   const problems = [];
   const pages = [];
   const seen = new Set();
@@ -3038,7 +3062,12 @@ export function validatePages(input) {
     seen.add(path);
     pages.push({ path, source });
   }
-  if (pages.length && !seen.has("index.tsx")) problems.push("There is no index.tsx, so the site has no home page.");
+  // A PARTIAL SET HAS NO HOME PAGE AND SHOULD NOT, which is not the same as a
+  // site having none. The addon lane returns only what it wrote — usually one
+  // new page and the nav entry that reaches it — and the site's real index is
+  // kept untouched by `mergeAddonPages`. Reporting it missing there would put a
+  // false problem on every single addon.
+  if (!partial && pages.length && !seen.has("index.tsx")) problems.push("There is no index.tsx, so the site has no home page.");
 
   // ── A LINK TO A PAGE THAT DOES NOT EXIST IS A DEAD BUILD ──────────────────
   //
@@ -3740,7 +3769,7 @@ export const SITE_PAGES_MAX_TOKENS = 30000;
  * the next call pays the write premium again. That is once per deploy that
  * touches the rules, against a saving on every build in between.
  */
-export function pagesRequest({ brief, spec, brand, family, attachments, model, priorPages } = {}) {
+export function pagesRequest({ brief, spec, brand, family, attachments, model, priorPages, mode = "revise" } = {}) {
   // THE ATTACHED FILES \u2014 images and PDFs \u2014 and where they sit is load-bearing
   // twice over.
   //
@@ -3759,7 +3788,7 @@ export function pagesRequest({ brief, spec, brand, family, attachments, model, p
   // caller and test already sees, so adding this feature changes no request that
   // does not use it.
   const blocks = Array.isArray(attachments) ? attachments.filter(Boolean) : [];
-  const text = pagesPrompt(brief, spec, brand, family, blocks.length, priorPages);
+  const text = pagesPrompt(brief, spec, brand, family, blocks.length, priorPages, mode);
   return {
     // The composer's Builder picker chooses this; `modelsFor()` with no
     // argument is the default pair, which is what the eval harness and every

@@ -2094,8 +2094,14 @@ test("the site to EDIT comes after the site to COPY", () => {
   const src = fs.readFileSync(new URL("../builder/page-gen.mjs", import.meta.url), "utf8");
   const fn = src.slice(src.indexOf("export function pagesPrompt"), src.indexOf("// A route path the container will accept"));
   const example = fn.indexOf("A SITE OF THIS TRADE, DONE WELL");
-  const prior = fn.indexOf("priorPagesBlock(priorPages)");
-  assert.ok(example > 0 && prior > example, "the prior source must be appended last");
+  // ANCHORED ON THE CALL, NOT ITS ARGUMENT LIST. This read
+  // `priorPagesBlock(priorPages)` and went red the day the block learned a
+  // second parameter — a test about word order failing a change that was
+  // correct, which this repo keeps recording. What it protects is the ORDER.
+  const prior = fn.indexOf("priorPagesBlock(");
+  assert.ok(example > 0, "the exemplar block is gone — this assertion cannot hold vacuously");
+  assert.ok(prior > 0, "pagesPrompt no longer appends the prior source at all");
+  assert.ok(prior > example, "the prior source must be appended last");
 });
 
 test("a site too large to show degrades instead of blowing the prompt", async () => {
