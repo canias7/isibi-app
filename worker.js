@@ -44,7 +44,7 @@ import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayou
 // own name the two collide, and the collision is invisible to `node --check` and
 // to all 1,632 tests (nothing can import a Worker entrypoint); esbuild refuses
 // it at deploy time and the deploy is the first thing that ever sees it.
-import { publishPages, pageCredits, schemaSettlement, buildFloor, IMAGE_USD as SITE_PHOTO_USD } from "./builder/publish-pages.mjs";
+import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, IMAGE_USD as SITE_PHOTO_USD } from "./builder/publish-pages.mjs";
 import { imageBudget, budgetFor, imagesAffordable, planImages, applyImages, countImageSlots, imagePrompt, imageNote, IMAGE_ASPECT } from "./builder/site-images.mjs";
 import { ASKABLE as SITE_TOKEN_NAMES, valueHint as siteTokenHint, mergeTokens, parseTokens, withContrast, tokenNote } from "./builder/site-tokens.mjs";
 import { extractText, applyEdits } from "./builder/site-text.mjs";
@@ -5573,6 +5573,24 @@ async function fetchSiteFonts(pair) {
  * the failure path: publishing a broken bundle to fix a typo is the trade nobody
  * would make. Returns `{ok:false, error, detail}` and touches nothing.
  */
+/**
+ * What to tell the owner when a recompile failed.
+ *
+ * ONE SENTENCE, NOT FIVE. Every lane that publishes through `recompileAndPublish`
+ * had its own wording, and all of them blamed the customer's change — which is
+ * right for a type error and wrong for our container being drained mid-deploy.
+ * Measured 2026-08-11: a colour change answered `tsc was killed by SIGTERM` and
+ * the owner was told their look "didn't compile".
+ *
+ * `pub.ours` is set only when the container was KILLED twice, which is a signal
+ * that the process never got to judge the code at all.
+ */
+function compileMsg(pub, theirs) {
+  return (pub && pub.ours)
+    ? "That didn't go through — our build service was restarting. Try again in a moment; nothing was charged."
+    : theirs;
+}
+
 async function recompileAndPublish(env, { slug, pages, label }) {
   let look = null, tokens = null;
   try {
@@ -5601,26 +5619,54 @@ async function recompileAndPublish(env, { slug, pages, label }) {
   const files = {};
   for (const p of pages || []) files[p.path] = p.source;
 
-  let built;
-  try {
-    const c = getContainer(env.SITE_BUILD_CONTAINER);
-    const rr = await c.fetch(new Request("http://build/build", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        files, slug, title: (look && look.brand) || slug,
-        fonts: { heading: pair.heading.id, body: pair.body.id },
-        theme: (look && look.theme) || null,
-        tokens: Object.keys(tokens || {}).length ? withContrast(tokens) : undefined,
-        fontFiles: Object.keys(fontFiles).length ? fontFiles : undefined,
-      }),
-    }));
-    built = JSON.parse(await rr.text().catch(() => "")) || {};
-  } catch (e) {
-    built = { ok: false, error: String((e && e.message) || "the build service did not answer") };
+  // A DRAINED CONTAINER IS NOT THE CUSTOMER'S BROKEN CODE, and this path treated
+  // it as exactly that. Measured live 2026-08-11, in the middle of a deploy: a
+  // colour change answered `tsc was killed by SIGTERM (no output)` eight seconds
+  // in, and the owner was told "That look didn't compile, so your site is
+  // untouched" — their change blamed for our rollout, with no retry.
+  //
+  // The build path has had `wasKilled` and one more attempt since 2026-08-09.
+  // This is the SHARED SPINE — every edit layer and the addon publish through it
+  // — and it had neither. Every deploy we do is a window in which a customer's
+  // cheapest change fails and reads as their fault.
+  //
+  // ONE RETRY, and only for a kill. A genuine type error is deterministic: trying
+  // again buys 20-40 seconds of container time to fail identically. A kill is a
+  // signal that the process never got to judge the code at all, which is the one
+  // failure worth repeating.
+  const compile = async () => {
+    try {
+      const c = getContainer(env.SITE_BUILD_CONTAINER);
+      const rr = await c.fetch(new Request("http://build/build", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          files, slug, title: (look && look.brand) || slug,
+          fonts: { heading: pair.heading.id, body: pair.body.id },
+          theme: (look && look.theme) || null,
+          tokens: Object.keys(tokens || {}).length ? withContrast(tokens) : undefined,
+          fontFiles: Object.keys(fontFiles).length ? fontFiles : undefined,
+        }),
+      }));
+      return JSON.parse(await rr.text().catch(() => "")) || {};
+    } catch (e) {
+      return { ok: false, error: String((e && e.message) || "the build service did not answer") };
+    }
+  };
+  let built = await compile();
+  let killed = false;
+  if ((!built || built.ok !== true) && wasKilled(built && built.error)) {
+    killed = true;
+    built = await compile();
   }
   if (!built || built.ok !== true || !built.files) {
-    return { ok: false, error: "compile", detail: String((built && built.error) || "").slice(0, 200) };
+    // AND IT SAYS WHOSE FAULT IT WAS. `killed` is the difference between "your
+    // change has an error in it" and "our container went away twice" — and the
+    // caller turns that into the sentence the owner reads.
+    return {
+      ok: false, error: "compile", ours: killed && wasKilled(built && built.error),
+      detail: String((built && built.error) || "").slice(0, 200),
+    };
   }
 
   // THE SAME META A BUILD PUBLISHES. Every field here is one this path was
@@ -9714,7 +9760,7 @@ async function handleRequest(request, env, ctx) {
               if (!pub.ok) {
                 return Response.json({
                   ok: false, error: "compile", cost: 0,
-                  msg: "That wording didn't compile, so your site is untouched — try shorter wording.",
+                  msg: compileMsg(pub, "That wording didn't compile, so your site is untouched — try shorter wording."),
                   detail: pub.detail,
                 }, { status: 422 });
               }
@@ -9835,7 +9881,7 @@ async function handleRequest(request, env, ctx) {
               if (!pub.ok) {
                 return Response.json({
                   ok: false, error: "compile", cost: 0,
-                  msg: "That look didn't compile, so your site is untouched.",
+                  msg: compileMsg(pub, "That look didn't compile, so your site is untouched."),
                   detail: pub.detail,
                 }, { status: 422 });
               }
@@ -9917,7 +9963,7 @@ async function handleRequest(request, env, ctx) {
               if (!pPub.ok) {
                 return Response.json({
                   ok: false, error: "compile", cost: 0,
-                  msg: "That change didn't compile, so your site is untouched — try describing it differently.",
+                  msg: compileMsg(pPub, "That change didn't compile, so your site is untouched — try describing it differently."),
                   detail: pPub.detail,
                 }, { status: 422 });
               }
@@ -10093,7 +10139,7 @@ async function handleRequest(request, env, ctx) {
             if (!aPub.ok) {
               return Response.json({
                 ok: false, error: "compile", cost: 0,
-                msg: "That addition didn't compile, so your site is untouched — try describing it differently.",
+                msg: compileMsg(aPub, "That addition didn't compile, so your site is untouched — try describing it differently."),
                 detail: aPub.detail,
               }, { status: 422 });
             }
@@ -10168,7 +10214,7 @@ async function handleRequest(request, env, ctx) {
             if (!out.ok) {
               return Response.json({
                 ok: false, error: "compile",
-                msg: "That change didn't compile, so your site is untouched — try shorter wording.",
+                msg: compileMsg(tPub, "That change didn't compile, so your site is untouched — try shorter wording."),
                 detail: out.detail,
               }, { status: 422 });
             }

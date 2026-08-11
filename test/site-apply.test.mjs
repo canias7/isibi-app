@@ -1350,3 +1350,52 @@ test("the data layer's gate is the display PRESET, not a spelling of it", async 
   assert.equal(/pair\.read === "(?:anyone|public)"/.test(w), false,
     "the gate spells a level out again instead of naming the preset");
 });
+
+// ── a drained container is not the customer's broken code ────────────────────
+
+test("a killed compile is retried once, and only a kill is", async () => {
+  // MEASURED LIVE 2026-08-11, mid-deploy: a colour change answered `tsc was
+  // killed by SIGTERM (no output)` eight seconds in, and the owner was told
+  // "That look didn't compile, so your site is untouched" — their change blamed
+  // for our rollout, with no retry. The build path has had `wasKilled` and one
+  // more attempt since 2026-08-09; the SHARED SPINE that every edit layer and
+  // the addon publish through had neither, so every deploy is a window in which
+  // the cheapest change on the platform fails and reads as the customer's fault.
+  const { wasKilled } = await import("../builder/publish-pages.mjs");
+  assert.equal(wasKilled("tsc was killed by SIGTERM (no output)"), true);
+  assert.equal(wasKilled("src/routes/index.tsx(56,6): error TS2304: Cannot find name 'SiteChrome'."), false,
+    "a real type error must NOT be retried — it is deterministic and buys 40s of container time to fail identically");
+
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const at = w.indexOf("async function recompileAndPublish(");
+  assert.ok(at > 0, "the shared spine was renamed");
+  const body = w.slice(at, w.indexOf("async function siteOgImage(", at));
+  assert.ok(body.length > 500, "the window no longer covers the spine");
+  // THE REGION BETWEEN THE FIRST ATTEMPT AND THE VERDICT, because a mutation
+  // proved the looser form vacuous: `if (false)` leaves BOTH `await compile()`
+  // calls in the file, so "there are two of them" passes against a retry that
+  // can never happen. What has to be true is that the second one is REACHED
+  // ONLY through the kill test.
+  const first = body.indexOf("let built = await compile();");
+  const verdict = body.indexOf("if (!built || built.ok !== true || !built.files)");
+  assert.ok(first > 0 && verdict > first, "the spine's compile/verdict shape moved");
+  const retry = body.slice(first, verdict);
+  assert.match(retry, /wasKilled\(/, "the retry is not gated on the failure being a kill");
+  assert.match(retry, /await compile\(\)/, "there is no second attempt");
+  // AND IT SAYS WHOSE FAULT IT WAS, or the retry is invisible and the message
+  // still accuses the customer.
+  assert.match(body, /ours: killed/, "the caller cannot tell our failure from theirs");
+  assert.match(w, /function compileMsg\(/, "there is no single sentence for a failed compile");
+  assert.equal((w.match(/function compileMsg\(/g) || []).length, 1);
+  // AND THE HONEST SENTENCE IS IN IT. Asserting only that the function exists
+  // passed against a version whose `pub.ours` branch returned the accusing text
+  // — the function present, the apology gone.
+  const cm = w.slice(w.indexOf("function compileMsg("), w.indexOf("async function recompileAndPublish("));
+  assert.match(cm, /our build service was restarting/, "our own failure no longer says it was ours");
+  assert.match(cm, /nothing was charged/, "…and does not say the customer keeps their credits");
+  // Every lane that publishes through the spine must use it — five wordings that
+  // can disagree is how four of them went on blaming the customer.
+  const blaming = [...w.matchAll(/msg: "That [^"]*didn't compile[^"]*"/g)];
+  assert.deepEqual(blaming.map((m) => m[0].slice(0, 50)), [],
+    "a lane still reports a failed compile without asking whose fault it was");
+});
