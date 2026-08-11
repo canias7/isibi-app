@@ -183,6 +183,15 @@ export const ASK_TOOL = {
           "above — \"/\" for the home page, \"/menu\", \"/book\". If the change is about a page that is not in that list, the " +
           "site does not have it yet and the intent is \"addon\", not \"edit\".",
       },
+      remove: {
+        type: "boolean",
+        description:
+          "Only when layer is \"page\". True when they are asking for that page to be TAKEN AWAY — \"remove the gallery " +
+          "page\", \"we don't need the about page any more\", \"delete /prices\".\n" +
+          "ONLY WHEN THEY PLAINLY MEAN DELETE THE WHOLE PAGE. Changing what is on a page, taking a SECTION off it, or " +
+          "emptying it out are all ordinary page edits — leave this out for those. Getting it wrong the other way takes " +
+          "a page off their site.",
+      },
       answer: {
         type: "string",
         description:
@@ -494,7 +503,29 @@ export function readEdit(input, pages) {
   if (!want) return { intent: FALLBACK_WITH_SITE, answer: "" };
   const known = (Array.isArray(pages) ? pages : []).map(normalizePagePath).filter(Boolean);
   if (known.length && !known.includes(want)) return { intent: FALLBACK_WITH_SITE, answer: "" };
-  return { intent: "edit", answer: "", layer, page: want };
+  // ── TAKING THE PAGE AWAY, DECIDED HERE AND NOWHERE ELSE ───────────────────
+  //
+  // MEASURED THREE TIMES: asked to delete a page, the page model rewrites the
+  // site and never sets the field that deletes one. The words were made
+  // unmissable, the schema constraint that forbade the honest answer was removed,
+  // and it still did not happen. So this stops being something a model
+  // volunteers and becomes something the ROUTER decides — which it is already
+  // equipped for, because it has just resolved the page against the site's real
+  // list. A deletion then needs NO page generation at all: ~0.3 credits and a
+  // recompile, against the ~28 a rewrite costs.
+  //
+  // THE BIAS IS INVERTED HERE, AND DELIBERATELY. Everywhere else in this file an
+  // unclear answer resolves to WORK, because a wrong refusal is worse than a
+  // wrong action. Removal is the one verb where that is false: a wrong "edit"
+  // costs a page the customer can see and undo, and a wrong "remove" takes their
+  // page away. So it is `=== true` and nothing merely truthy, it only applies to
+  // a page that really exists, and everything else is an ordinary page edit.
+  //
+  // It is safe to be this direct because the merge still refuses the dangerous
+  // cases — never the home page, never one another page still links to — and a
+  // publish is archived, so a page deleted by mistake is one restore away.
+  const remove = input && input.remove === true;
+  return { intent: "edit", answer: "", layer, page: want, ...(remove ? { remove: true } : {}) };
 }
 
 /**

@@ -480,8 +480,16 @@ test("a failed edit publishes nothing and says the site is untouched", () => {
   // about arithmetic rather than about the promise it is protecting.
   const compiles = (b.match(/error: "compile"/g) || []).length;
   assert.ok(compiles >= 2, "expected a compile-failure branch per publishing layer, found " + compiles);
-  assert.equal((b.match(/site is untouched/g) || []).length, compiles,
-    "every layer's compile failure must tell the customer their site survived it");
+  // THE PROMISE, NOT THE PHRASE. This counted the literal "site is untouched"
+  // and went red on a fifth branch that keeps the promise in different words
+  // ("so nothing changed") — a test about wording, on a file whose whole subject
+  // is that a customer must be told their site survived. The alternation is
+  // small and deliberate: these are the ways this codebase says it, and a new
+  // branch that says it a sixth way should have to add itself here rather than
+  // pass by accident.
+  const survived = (b.match(/site is untouched|nothing changed|your site is exactly as it was/g) || []).length;
+  assert.equal(survived, compiles,
+    "a compile failure does not tell the customer their site survived it: " + survived + " of " + compiles);
   // A 422 THAT IS NOT A COMPILE FAILURE IS FINE — the data layer refuses with
   // one when it matched nothing, and it never compiles anything. This asserted
   // equality and went red on a legitimate fourth refusal. What must hold is that

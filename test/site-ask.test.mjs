@@ -1296,3 +1296,74 @@ test("a real question on an existing site is still answered", () => {
   assert.equal(r.intent, "ask");
   assert.equal(r.answer, "You have two pages.");
 });
+
+// ── the router decides a deletion ────────────────────────────────────────────
+//
+// THREE ATTEMPTS AT PERSUASION FAILED. Asked to delete a page, the pages model
+// rewrites the site and never sets the field that deletes one — with the
+// instruction directly under the header, the tool description leading on it, and
+// the schema constraint that once made the honest answer impossible removed.
+// Ruled out along the way: the block is not being truncated, since every one of
+// the 100 family exemplars fits under MAX_PRIOR_CHARS (max 50,646 of 90,000).
+//
+// So it stops being something a model volunteers. The router has just resolved
+// the page against the site's real list; deleting is then a merge rather than a
+// generation — ~0.3 credits and a recompile, against ~28 for a rewrite.
+
+test("a removal is carried, and only when it is unmistakable", () => {
+  const pages = ["/", "/book", "/gallery"];
+  const ask = (input) => readEdit(input, pages);
+  const cut = ask({ layer: "page", page: "/gallery", remove: true });
+  assert.equal(cut.intent, "edit");
+  assert.equal(cut.layer, "page");
+  assert.equal(cut.page, "/gallery");
+  assert.equal(cut.remove, true);
+
+  // THE BIAS IS INVERTED HERE AND NOWHERE ELSE IN THIS FILE. Everywhere else an
+  // unclear answer resolves to WORK, because a wrong refusal is worse than a
+  // wrong action. Removal is the one verb where that is false: a wrong edit
+  // costs a page the customer can see and undo, a wrong removal takes their page
+  // away. So nothing merely truthy may do it.
+  for (const v of ["yes", 1, "true", {}, [], "no"]) {
+    const r = ask({ layer: "page", page: "/gallery", remove: v });
+    assert.equal(r.remove, undefined, "a removal fired on " + JSON.stringify(v));
+    assert.equal(r.intent, "edit", "…and it must still be an ordinary page edit");
+  }
+  // Absent is an ordinary edit, and the field is not invented on other layers.
+  assert.equal(ask({ layer: "page", page: "/book" }).remove, undefined);
+  assert.equal(ask({ layer: "text", remove: true }).remove, undefined, "text has no page to remove");
+
+  // A page the site does not have is still an addon, removal or not — the same
+  // resolution that protects every other page edit.
+  assert.equal(ask({ layer: "page", page: "/nope", remove: true }).intent, "addon");
+});
+
+test("the router can express a removal at all, and says when not to", () => {
+  const f = ASK_TOOL.input_schema.properties.remove;
+  assert.ok(f, "the router has no way to say a page should go");
+  assert.equal(f.type, "boolean");
+  // The distinction that decides whether this is safe: a section coming off a
+  // page is not the page coming off the site.
+  assert.match(f.description, /ONLY WHEN THEY PLAINLY MEAN DELETE THE WHOLE PAGE/);
+  assert.match(f.description, /takes\s+a page off their site/, "the consequence is not stated");
+});
+
+test("the deletion path reaches the route and calls no model", () => {
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const at = w.indexOf('if (eLayer === "page") {');
+  assert.ok(at > 0, "the page layer moved");
+  const branch = w.slice(at, w.indexOf('const eModels = modelsFor(', at));
+  assert.match(branch, /eb\.remove === true/, "the route never reads the removal");
+  assert.match(branch, /mergeAddonPages\(eSrc, \[\], \[target\.path\]\)/,
+    "the removal does not go through the merge that holds the guards");
+  // THE WHOLE POINT: it returns before the model call. If `generateSitePages`
+  // appears above the merge, the cheap path is not cheap.
+  assert.equal(/generateSitePages/.test(branch), false,
+    "a deletion still pays for page generation");
+  assert.match(branch, /cost: 0/, "a deletion that generated nothing must not be billed as if it had");
+  // And the client sends it as a real boolean, or something truthy on the wire
+  // takes a page away.
+  const chat = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+  assert.match(chat, /remove: d\.remove === true/, "the client never sends it, or sends it loosely");
+  assert.match(chat, /Took ' \+ \(gone/, "the customer is not told the page went");
+});

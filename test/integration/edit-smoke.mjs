@@ -54,6 +54,12 @@ const api = (path, init) => fetch(`${BASE}${path}`, {
 });
 const post = (path, body) => api(path, { method: "POST", body: JSON.stringify(body) });
 const jsonOf = async (r) => { try { return await r.json(); } catch { return null; } };
+/** `src/routes/gallery.tsx` -> `/gallery`, for checking the page really stopped serving. */
+const routeOfAdded = (f) => {
+  const m = String(f || "").match(/^src\/routes\/(.+)\.tsx$/i);
+  if (!m) return "/";
+  return m[1] === "index" ? "/" : "/" + m[1].replace(/\/index$/, "");
+};
 
 /** One routing call, exactly as the composer makes it. */
 async function route(message, digest) {
@@ -265,6 +271,30 @@ async function main() {
   if (put) console.log(`   reverted ${put} page(s) the model rewrote for no reason: ${JSON.stringify(a.reverted)}`);
 
   if (added) {
+    // THE ROUTER DECIDES A DELETION NOW, not the pages model. Three attempts to
+    // get the model to volunteer it failed against words it was demonstrably
+    // reading, so the route it takes is: one Haiku routing call, then a merge and
+    // a recompile — no page generation at all.
+    const rmRoute = await route("Remove the gallery page", { ...digest, pages: [...(digest.pages || []), added] });
+    ok("a deletion routes to the page layer with `remove`",
+      rmRoute.intent === "edit" && rmRoute.layer === "page" && rmRoute.remove === true,
+      `intent=${rmRoute.intent} layer=${rmRoute.layer} remove=${rmRoute.remove} page=${rmRoute.page}`);
+    if (rmRoute.remove === true) {
+      const cut = await post(`/api/site/${slug}/edit`, {
+        layer: "page", page: rmRoute.page, remove: true, instruction: "Remove the gallery page", picker: "sonnet",
+      });
+      const c = (await jsonOf(cut)) || {};
+      ok("the page is deleted", cut.status === 200 && c.ok === true && (c.removed || []).length > 0,
+        `${cut.status} ${JSON.stringify(c).slice(0, 240)}`);
+      // THE WHOLE POINT: it cost nothing but a recompile.
+      ok("…and it cost nothing to generate", c.cost === 0, `cost=${c.cost}`);
+      const after = await fetch(new URL(`${routeOfAdded(added)}`, liveUrl || BASE).toString(),
+        { headers: { "user-agent": "Mozilla/5.0 (edit-smoke)" } }).catch(() => null);
+      if (after) console.log(`   the removed page now answers ${after.status}`);
+    }
+
+    // And the addon lane's own removal, which is the path when something still
+    // links to the page and the links have to come out first.
     const rmp = await post(`/api/site/${slug}/addon`, {
       instruction: "Actually remove the gallery page again, and take the link out of the header",
       picker: "sonnet",

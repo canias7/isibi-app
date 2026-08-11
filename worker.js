@@ -9910,6 +9910,57 @@ async function handleRequest(request, env, ctx) {
               // there — which is exactly what the rung above does.
               if (!target) return escalate("no-page", { page: wantRoute });
 
+              // ── TAKING THE PAGE AWAY, WITH NO MODEL CALL AT ALL ───────────
+              //
+              // THREE ATTEMPTS AT PERSUASION FAILED, and the measurements are why
+              // this is here rather than in a prompt. Asked to delete a page, the
+              // pages model rewrites the site and never sets the field that
+              // deletes one — with the instruction directly under the header, the
+              // tool description leading on it, and the schema constraint that
+              // once made the honest answer impossible removed. Ruled out on the
+              // way: the block is not being truncated, since every one of the 100
+              // family exemplars fits under `MAX_PRIOR_CHARS` (max 50,646 against
+              // 90,000). It is seeing the words.
+              //
+              // So the decision moves to the ROUTER, which is already equipped
+              // for it: it has just resolved this page against the site's real
+              // list. Deleting is then a MERGE, not a generation — ~0.3 credits
+              // and a recompile, against the ~28 a rewrite costs, on the one
+              // operation that should be the cheapest thing the platform does.
+              //
+              // `mergeAddonPages` does the deciding, unchanged, so the guards are
+              // the ones already tested: never the home page, and never a page
+              // another page still links to. That second refusal is the whole
+              // reason a model is still sometimes needed — and when it fires this
+              // escalates to the addon lane, which can rewrite the linkers.
+              if (eb && eb.remove === true) {
+                const cut = mergeAddonPages(eSrc, [], [target.path]);
+                if (!cut.ok) {
+                  // A page something still links to needs the links taken out
+                  // first, and that DOES need a model. Up the ladder, with the
+                  // sentence the merge already composed.
+                  if (cut.msg) return Response.json({ ok: false, error: cut.reason, cost: 0, msg: cut.msg.trim() }, { status: 422 });
+                  return escalate(cut.reason, { page: wantRoute });
+                }
+                const cutPub = await recompileAndPublish(env, {
+                  slug: ownerSlug, pages: cut.pages,
+                  label: versionLabel({ revise: true, changeNote: eInstruction }),
+                });
+                if (!cutPub.ok) {
+                  return Response.json({
+                    ok: false, error: "compile", cost: 0,
+                    msg: compileMsg(cutPub, "Taking that page out left the site not compiling, so nothing changed."),
+                    detail: cutPub.detail,
+                  }, { status: 422 });
+                }
+                // NO `cost`, because nothing was generated. The routing call that
+                // decided this was already charged where every routing call is.
+                return Response.json({
+                  ok: true, layer: "page", page: wantRoute, removed: cut.removed,
+                  files: cutPub.files, cost: 0,
+                });
+              }
+
               const eDb = await siteBackendBySlug(env, ownerSlug);
               let eSpec = null, eLook2 = null;
               try {

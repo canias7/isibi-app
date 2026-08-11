@@ -11178,6 +11178,11 @@ function siteEdit(site, d, instruction, origin, finish, fallback) {
     body: JSON.stringify({
       layer: String(d.layer || ''),
       page: d.page ? String(d.page) : '',
+      // THE ROUTER DECIDES A DELETION, not the pages model — three attempts to
+      // get the model to volunteer it failed against words it was demonstrably
+      // reading. Passed through verbatim as a real boolean, so nothing merely
+      // truthy on the wire can take a customer's page away.
+      remove: d.remove === true,
       instruction: instruction,
       picker: buildPicker,
       // THE UNDO. A deleted row is gone from the table, so the server cannot
@@ -11211,6 +11216,10 @@ function siteEdit(site, d, instruction, origin, finish, fallback) {
       // later removal and CLEARED by an add, because once a row has been put
       // back, carrying it forward is a standing offer to put it back again on
       // an unrelated change.
+      // A DELETED PAGE LEAVES THE PICKER, exactly as it does on the addon lane.
+      // Told it is gone and still offered it is the same lie either way.
+      const cut = (Array.isArray(e.removed) ? e.removed : []).map(sitePathOf).filter(Boolean);
+      if (cut.length && Array.isArray(s.pages)) s.pages = s.pages.filter((q) => !(q && cut.indexOf(q.path) >= 0));
       const rows = Array.isArray(e.applied) ? e.applied : [];
       const gone = rows.filter((r) => r && r.removed && r.was).map((r) => ({ table: r.table, was: r.was }));
       if (gone.length) s.undoRows = gone.slice(0, 3);
@@ -11381,6 +11390,14 @@ function editReply(e) {
     }
     if (e.failed) out += ' ' + e.failed + ' couldn\u2019t be saved \u2014 try that one again.';
     return out;
+  }
+  if (e.layer === 'page' && Array.isArray(e.removed) && e.removed.length) {
+    // FREE, AND SAYING SO IS THE POINT. This is the one change that costs nothing
+    // but a recompile, and the customer has been told for months that editing
+    // pages is expensive.
+    const gone = e.removed.map(sitePathOf).filter(Boolean);
+    return '✅ Took ' + (gone.join(', ') || 'that page') + ' off the site. Every publish is kept, ' +
+      'so say the word if you want it back.' + problemNote(e.problems);
   }
   if (e.layer === 'page') {
     // NAMES THE PAGE, AND NAMES WHAT IT REFUSED. This layer changes exactly one
