@@ -42,6 +42,29 @@ when they say they are home, since it wants doing on their desktop.
 
 ---
 
+## 2026-08-11 — The text layer's own cap half-edited the site
+
+**Found by measuring the cap against real sites instead of trusting it.** The
+free-text lane looks at a flat, cross-page list of every string, and its design
+note says exactly why: a phone number lives in a footer on every page, so
+changing it in one place *"leaves the site disagreeing with itself — which is
+worse than not changing it, because nobody notices."*
+
+- **THE CAP DID THAT.** The first 400 strings went to the model under the heading
+  "the text on their site" — a partial view presented as complete — so "change
+  the phone number" changed what it could see and the last page kept the old one.
+  Silent, on the one lane whose whole value is being cheap enough to use for
+  small corrections.
+- **Measured across the 100 exemplars**: median 201 strings, p90 260, max 424 —
+  and **two truncated** (`repair-shop` at 3 pages, `salon` at 6). Not big sites,
+  just wordy ones.
+- **Two halves, because raising the cap is not the fix.** It goes to 600, which
+  clears every real site and costs nothing on the other 98 (a cap only bills when
+  it binds) — and a site too wordy to see whole now **escalates instead of being
+  half-edited**. That is expensive and correct: the rung above rewrites from the
+  whole source.
+- 2091 tests, **4/4 mutations**. **Not proven live.**
+
 ## 2026-08-11 — The undo, the rename, and the empty picture frame
 
 **Three gaps found by auditing what the lanes cannot do, rather than what they
