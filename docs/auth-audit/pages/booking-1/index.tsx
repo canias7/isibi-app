@@ -2,15 +2,15 @@ import { useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useRows, type Row } from "@/lib/rows";
 import { SiteChrome } from "@/components/ui/site-chrome";
-import { AvailabilityGrid } from "@/components/ui/availability-grid";
+import { WeekStrip } from "@/components/ui/week-strip";
 import { CtaBand } from "@/components/ui/cta-band";
+import { Gallery } from "@/components/ui/gallery";
 import { LocationCard } from "@/components/ui/location-card";
 import { OpenNow } from "@/components/ui/open-now";
 import { OpeningHours, type DayHours } from "@/components/ui/opening-hours";
 import { PriceList } from "@/components/ui/price-list";
 import { SafeImage } from "@/components/ui/safe-image";
 import { SectionHeader } from "@/components/ui/section-header";
-import { StatsBand } from "@/components/ui/stats-band";
 import { TeamGrid } from "@/components/ui/team-grid";
 import { Testimonial } from "@/components/ui/testimonial";
 import { TrustStrip } from "@/components/ui/trust-strip";
@@ -22,12 +22,12 @@ type Teacher = Row & { name: string; bio: string | null; photo_url: string | nul
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "A calm room, a steady practice.",
+  tagline: "A calm, well-lit studio for every kind of practice.",
   links: [
     { label: "Classes", href: "#classes" },
-    { label: "Teachers", href: "#teachers" },
+    { label: "The teachers", href: "#teachers" },
+    { label: "The studio", href: "/work" },
     { label: "Find us", href: "#find-us" },
-    { label: "Account", href: "/account" },
   ],
   action: { label: "Book now", href: "/book" },
 };
@@ -38,16 +38,24 @@ const HOURS: DayHours[] = [
   { day: 3, label: "Wednesday", open: "07:00", close: "20:30" },
   { day: 4, label: "Thursday", open: "07:00", close: "20:30" },
   { day: 5, label: "Friday", open: "07:00", close: "19:00" },
-  { day: 6, label: "Saturday", open: "08:30", close: "13:00" },
-  { day: 0, label: "Sunday", open: "09:00", close: "12:30" },
+  { day: 6, label: "Saturday", open: "08:30", close: "14:00" },
+  { day: 0, label: "Sunday", open: "09:00", close: "13:00" },
 ];
 
-const TODAY_SLOTS = ["07:00", "09:00", "12:15", "17:30", "18:30", "19:30"];
+const CLASSES = [
+  { name: "Sunrise Flow", description: "A gentle vinyasa to start the day", price: 16, meta: "60 min" },
+  { name: "Power Vinyasa", description: "Strength and breath, a proper sweat", price: 18, meta: "75 min" },
+  { name: "Slow & Restorative", description: "Long holds, blankets and blocks", price: 16, meta: "60 min" },
+  { name: "Hatha Fundamentals", description: "Alignment-focused, good for beginners", price: 14, meta: "60 min" },
+  { name: "Yin & Sound Bath", description: "Deep stretch closing with a gong bath", price: 20, meta: "90 min" },
+];
 
 function Home() {
-  const navigate = useNavigate();
-  const [slot, setSlot] = useState<string | null>(null);
   const teachers = useRows<Teacher>("teachers", { order: "name", dir: "asc" });
+  const navigate = useNavigate();
+  const [day, setDay] = useState<string | null>(null);
+  const start = new Date();
+  start.setDate(start.getDate() - start.getDay());
 
   return (
     <SiteChrome {...CHROME}>
@@ -55,114 +63,108 @@ function Home() {
         <div className="mx-auto max-w-6xl px-6 py-16">
           <div className="grid items-center gap-12 lg:grid-cols-[1.1fr_1fr]">
             <div>
-              <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Studio &amp; online</p>
-              <h1 className="mt-3 text-5xl font-semibold tracking-tight text-balance">Aurora Yoga</h1>
+              <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Aurora Yoga</p>
+              <h1 className="mt-3 text-5xl font-semibold tracking-tight text-balance">Come as you are, leave a little lighter</h1>
               <p className="mt-5 max-w-lg text-lg leading-relaxed text-muted-foreground">
-                Small classes, proper attention to your alignment, and a room that stays quiet even when it's full.
+                Small classes, proper heating in winter, and teachers who remember your name after the first visit.
               </p>
               <div className="mt-7 flex flex-wrap items-center gap-3">
-                <Link className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground motion-press" to="/book">Check availability</Link>
-                <Link className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" to="/work">See the studio</Link>
+                <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground motion-press" href="/book">Book now</a>
+                <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#classes">See classes</a>
                 <OpenNow hours={HOURS.map((h) => ({ day: h.day, open: h.open!, close: h.close! }))} />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <SafeImage src={null} alt="" ratio="1/1" fallbackSeed="aurora-a" />
-              <SafeImage src={null} alt="" ratio="1/1" fallbackSeed="aurora-b" />
-              <SafeImage src={null} alt="" ratio="1/1" fallbackSeed="aurora-c" />
-              <SafeImage src={null} alt="" ratio="1/1" fallbackSeed="aurora-d" />
+              <SafeImage src="@@IMG:a bright, well-lit yoga studio with mats laid out in rows@@" alt="The main studio floor" ratio="1/1" />
+              <SafeImage src="@@IMG:a yoga teacher demonstrating a standing pose to a small class@@" alt="A teacher leading a pose" ratio="1/1" fallbackSeed="teacher" />
+              <SafeImage src="@@IMG:rolled yoga mats and blocks stacked neatly on a wooden shelf@@" alt="Mats and props ready for class" ratio="1/1" fallbackSeed="props" />
+              <SafeImage src="@@IMG:soft morning light coming through large studio windows onto a wooden floor@@" alt="Morning light in the studio" ratio="1/1" fallbackSeed="light" />
             </div>
-          </div>
-          <div className="mt-14 border-t border-border pt-10">
-            <StatsBand items={[
-              { value: "12", label: "Classes on the timetable each week" },
-              { value: "6", label: "Teachers, all qualified 200hr+" },
-              { value: "10 yr", label: "Running on the same street" },
-              { value: "£14", label: "Drop-in, first class £7" },
-            ]} />
           </div>
         </div>
       </section>
 
       <section className="mx-auto max-w-6xl px-6 py-10">
         <TrustStrip items={[
-          { title: "Small classes", description: "Capped so the teacher can actually see you" },
+          { title: "Small classes", description: "Capped at eighteen, so teachers can actually see you" },
           { title: "All levels welcome", description: "Every class notes who it suits" },
-          { title: "Mats provided", description: "Turn up in whatever you're wearing" },
+          { title: "Mats provided", description: "Turn up empty-handed if you like" },
         ]} />
       </section>
 
       <section id="classes" className="border-y border-border bg-muted/40">
         <div className="mx-auto max-w-6xl px-6 py-16">
-          <SectionHeader eyebrow="Today" title="Today's classes" description="Pick a time — we hold your spot for ten minutes while you finish booking." />
-          <div className="mt-8 grid gap-8 lg:grid-cols-[1.35fr_1fr]">
-            <div className="rounded-xl border bg-card p-6 shadow-sm">
-              <AvailabilityGrid slots={TODAY_SLOTS} taken={["09:00"]} value={slot} onSelect={setSlot} />
-              <p className="mt-4 text-sm text-muted-foreground">
-                {slot ? `Holding ${slot} — pick a class on the booking page.` : "Tap a time to hold it."}
-              </p>
-              {slot && (
-                <button
-                  className="mt-2 inline-block text-sm font-medium underline underline-offset-4"
-                  onClick={() => navigate({ to: "/book", search: { time: slot } })}
-                >
-                  Continue to book {slot} →
-                </button>
-              )}
-            </div>
-            <SafeImage src={null} alt="" ratio="4/3" fallbackSeed="aurora-studio" />
+          <SectionHeader eyebrow="This week" title="Pick a day, then a class" description="Availability updates as people book — the exact times are confirmed on the booking page." />
+          <div className="mt-8 rounded-xl border bg-card p-6 shadow-sm">
+            <WeekStrip start={start} value={day} onSelect={setDay} />
+            <p className="mt-4 text-sm text-muted-foreground">
+              {day ? `Looking at ${day} — choose a class and time on the booking page.` : "Tap a day to see what fits."}
+            </p>
+            <a className="mt-3 inline-block text-sm font-medium underline underline-offset-4" href="/book">Continue to book →</a>
           </div>
         </div>
       </section>
 
       <section className="mx-auto max-w-6xl px-6 py-16">
-        <SectionHeader eyebrow="The timetable" title="What's on this week" description="Drop in to any class — no membership needed, though regulars save with a class pack." />
-        <PriceList className="mt-8" items={[
-          { name: "Sunrise Flow", description: "Mon &amp; Thu, 7:00 — a gentle wake-up vinyasa", price: 14, meta: "60 min" },
-          { name: "Hatha Foundations", description: "Tue &amp; Fri, 9:00 — slow, precise, good for beginners", price: 14, meta: "60 min" },
-          { name: "Lunchtime Reset", description: "Wed, 12:15 — a short practice for the middle of the day", price: 10, meta: "40 min" },
-          { name: "Vinyasa Strong", description: "Mon–Thu, 18:30 — a proper sweat, all levels welcome", price: 14, meta: "75 min" },
-          { name: "Restorative &amp; Yin", description: "Sun, 9:00 — long holds, blankets and bolsters", price: 15, meta: "75 min" },
-        ]} action={{ label: "Book", onSelect: (r) => navigate({ to: "/book", search: { service: r.name } }) }} />
+        <SectionHeader eyebrow="The timetable" title="Classes and drop-in prices" description="Pay as you go, or ask about our ten-class card at the desk." />
+        <PriceList
+          className="mt-8"
+          items={CLASSES}
+          action={{ label: "Book", onSelect: (r) => navigate({ to: "/book", search: { class: r.name } }) }}
+        />
       </section>
 
-      <section id="teachers" className="border-y border-border bg-muted/40">
+      <section className="border-y border-border bg-muted/40">
         <div className="mx-auto max-w-6xl px-6 py-16">
-          <SectionHeader eyebrow="Who teaches" title="Meet the teachers" description="Every class page tells you who's leading it — ask us who to try first." />
-          {teachers.isPending && <Skeleton className="mt-8 h-48 rounded-xl" />}
-          {teachers.isError && (
-            <p className="mt-8 text-sm text-destructive">Couldn't load the teachers. Refresh and try again.</p>
-          )}
-          {teachers.data?.length === 0 && (
-            <p className="mt-8 text-sm text-muted-foreground">Teacher profiles are coming soon.</p>
-          )}
-          {!!teachers.data?.length && (
-            <TeamGrid
-              className="mt-8"
-              items={teachers.data.map((t) => ({ name: t.name, role: t.bio, photo: t.photo_url, fallbackSeed: t.name }))}
-            />
-          )}
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <SectionHeader eyebrow="The studio" title="A look inside" />
+            <Link to="/work" className="text-sm font-medium underline underline-offset-4">The whole gallery →</Link>
+          </div>
+          <Gallery className="mt-8" columns={3} items={[
+            { src: "@@IMG:a row of students in a seated meditation pose, eyes closed@@", alt: "A class settling in", fallbackSeed: "g1" },
+            { src: "@@IMG:a close-up of bare feet on a yoga mat mid-pose@@", alt: "Mid-flow, feet grounded", fallbackSeed: "g2" },
+            { src: "@@IMG:a wide shot of a sunlit studio during a warrior pose sequence@@", alt: "Warrior sequence at sunrise", fallbackSeed: "g3" },
+          ]} />
         </div>
       </section>
 
-      <section className="mx-auto max-w-6xl px-6 py-16">
-        <SectionHeader eyebrow="Kind words" title="From the mats" />
-        <div className="mt-8 grid gap-5 sm:grid-cols-2">
-          <Testimonial item={{ quote: "The Wednesday lunchtime class saved my back and my sanity. Forty minutes, in and out.", name: "Priya Shah", role: "Lunchtime Reset regular" }} />
-          <Testimonial item={{ quote: "First studio where I actually got corrected instead of just watched. Small classes make the difference.", name: "Tom Aldridge", role: "Hatha Foundations" }} />
+      <section id="teachers" className="mx-auto max-w-6xl px-6 py-16">
+        <SectionHeader eyebrow="Who teaches" title="Meet the teachers" description="Every class page tells you who's leading it — ask at the desk if you'd like to try someone new." />
+        {teachers.isPending && <Skeleton className="mt-8 h-40 rounded-xl" />}
+        {teachers.isError && (
+          <p className="mt-8 text-sm text-destructive">Couldn't load the teachers. Refresh and try again.</p>
+        )}
+        {teachers.data?.length === 0 && (
+          <p className="mt-8 text-sm text-muted-foreground">Teacher profiles are coming soon.</p>
+        )}
+        {!!teachers.data?.length && (
+          <TeamGrid
+            className="mt-8"
+            items={teachers.data.map((t) => ({ name: t.name, role: t.bio, photo: t.photo_url, fallbackSeed: t.name }))}
+          />
+        )}
+      </section>
+
+      <section className="border-y border-border bg-muted/40">
+        <div className="mx-auto max-w-6xl px-6 py-16">
+          <SectionHeader eyebrow="Kind words" title="What students say" />
+          <div className="mt-8 grid gap-5 sm:grid-cols-2">
+            <Testimonial item={{ quote: "I was terrified of my first class. Nobody made me feel behind, and now it's the best hour of my week.", name: "Priya Shah", role: "Slow & Restorative, twice weekly" }} />
+            <Testimonial item={{ quote: "Small enough that the teacher actually corrects your alignment, not just calls out poses.", name: "Tom Fenwick", role: "Power Vinyasa regular" }} />
+          </div>
         </div>
       </section>
 
       <section id="find-us" className="mx-auto grid max-w-6xl gap-10 px-6 py-16 sm:grid-cols-2">
         <div>
-          <SectionHeader eyebrow="Find us" title="In the studio" />
+          <SectionHeader eyebrow="Find us" title="Come and visit" />
           <div className="mt-6 max-w-sm"><OpeningHours days={HOURS} /></div>
         </div>
-        <LocationCard className="self-start" name="Aurora Yoga" address="18 Willow Mews, Bristol BS6 5TF" note="Above the wholefood shop — buzzer for Aurora, up one flight." />
+        <LocationCard className="self-start" name="Aurora Yoga" address="48 Millbank Row, Bristol BS6 5TF" note="Above the deli, entrance round the side. Bike racks out front, no dedicated parking." />
       </section>
 
       <section className="mx-auto max-w-6xl px-6 pb-20">
-        <CtaBand title="There's usually a mat free today" description="Book in thirty seconds — we confirm by email." action={{ label: "Book now", href: "/book" }} />
+        <CtaBand title="There's a class most evenings this week" description="Book now — you'll get a confirmation and a reminder before it starts." action={{ label: "Book now", href: "/book" }} />
       </section>
     </SiteChrome>
   );

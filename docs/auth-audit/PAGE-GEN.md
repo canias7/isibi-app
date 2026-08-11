@@ -15,11 +15,11 @@ A single failure is variance; a column of the same error is a mismatch worth fix
 
 ## What it cost
 
-- output 10,206 tok/sample · fresh in 4,368 · cache read 34,091 · write 17,046
-- $0.2403 a sample at list price · comments are 0.0% of the source written
+- output 10,126 tok/sample · fresh in 4,368 · cache read 34,117 · write 17,058
+- $0.2392 a sample at list price · comments are 0.0% of the source written
 
 ## Samples
 
 - **booking 1. ok** — index.tsx, book.tsx, manage.tsx, work.tsx, account.tsx
 - **menu 1. ok** — index.tsx
-- **tool 1. ok** — index.tsx, records.tsx, record.tsx, playbook.tsx
+- **tool 1. ok** — index.tsx, records.tsx, record.tsx
