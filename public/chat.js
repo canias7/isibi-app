@@ -11262,7 +11262,24 @@ function addonReplyText(a) {
   let out = bits.length ? '✅ Done — ' + bits.join(', ') + '.' : '✅ Done.';
   const un = Array.isArray(a.unlinked) ? a.unlinked : [];
   if (un.length) out += ' Nothing links to ' + un.join(', ') + ' yet — say where you want the link and I’ll add it.';
-  return out;
+  return out + problemNote(a.problems);
+}
+// WHAT THE LINT FOUND, appended to whatever the lane reported.
+//
+// The server returns `problems` on every path that generates a page and NEITHER
+// reply rendered them, so a page that publishes while calling `fetch`, naming a
+// table that does not exist or hardcoding a colour said "✅ Done." and nothing
+// else. A lint problem deliberately does not block publishing — the site is real
+// and usable — but a problem nobody is shown is a problem nobody fixes.
+//
+// ONE helper, used by both replies. Two copies drift into one lane reporting and
+// the other not, which is the shape this session keeps finding.
+function problemNote(list) {
+  const p = (Array.isArray(list) ? list : []).filter((x) => typeof x === 'string' && x.trim()).slice(0, 3);
+  if (!p.length) return '';
+  // The lint's own sentences, which are written to the person who has to act on
+  // them. Rewording them here would be a second place they can be wrong.
+  return ' ⚠️ ' + p.join(' ');
 }
 // What an edit actually did, in one line.
 //
@@ -11297,7 +11314,7 @@ function editReply(e) {
         (ign.length === 1 ? ' was' : ' were') + ' left alone. Ask again naming ' +
         (ign.length === 1 ? 'it' : 'them') + ' if you want the same change there.';
     }
-    return out;
+    return out + problemNote(e.problems);
   }
   if (e.layer === 'look') {
     const moved = (Array.isArray(e.moved) ? e.moved : []).slice(0, 4);

@@ -38,7 +38,7 @@ import { scrubSecrets, neonConfigured, sqlQuery, sqlExec, createUserProject, cre
 import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlIdent, seedSiteRows } from "./site-schema.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
-import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, SITE_PAGES_MAX_TOKENS } from "./builder/page-gen.mjs";
+import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, lintPages, SITE_PAGES_MAX_TOKENS } from "./builder/page-gen.mjs";
 // ALIASED, because worker.js already has an `IMAGE_USD` — the per-model price
 // map for the image GENERATOR the customer drives directly. Imported under its
 // own name the two collide, and the collision is invisible to `node --check` and
@@ -9817,13 +9817,16 @@ async function handleRequest(request, env, ctx) {
 
               const pValid = validatePages(eGen && eGen.input, { partial: true });
               pValid.pages = applyImages(pValid.pages, {});
+              // Same as the addon lane: the shape check is not the lint, and the
+              // lint is the one that matters.
+              const pProblems = pValid.problems.concat(lintPages(pValid.pages, eSpec));
               // ONLY THE PAGE THAT WAS ASKED FOR. A page edit that returns a
               // different file is not a page edit, and taking it would let one
               // instruction rewrite a page the customer never named. The prompt
               // says so too; this is the half that cannot be talked out of it.
               const wrote = (pValid.pages || []).find((p) => p.path === target.path);
               if (!wrote || wrote.source === target.source) {
-                return escalate(wrote ? "no-change" : "no-page-back", { problems: pValid.problems.slice(0, 4) });
+                return escalate(wrote ? "no-change" : "no-page-back", { problems: pProblems.slice(0, 4) });
               }
               const pPages = eSrc.map((p) => (p.path === target.path ? { path: p.path, source: wrote.source } : p));
 
@@ -9841,7 +9844,7 @@ async function handleRequest(request, env, ctx) {
               return Response.json({
                 ok: true, layer: "page", page: wantRoute,
                 ignored: (pValid.pages || []).filter((p) => p.path !== target.path).map((p) => p.path).slice(0, 4),
-                problems: pValid.problems.slice(0, 4),
+                problems: pProblems.slice(0, 4),
                 files: pPub.files, cost: await eCharge(eGen && eGen.usage), usage: eGen && eGen.usage,
               });
             }
@@ -9969,11 +9972,24 @@ async function handleRequest(request, env, ctx) {
             // this repo relied on the model alone it shipped a broken image on the
             // first live site it made.
             aValid.pages = applyImages(aValid.pages, {});
+            // AND LINTED. `validatePages` checks the SHAPE — a path, a Route
+            // export, no duplicates. `lintPages` is the one that catches the
+            // class of page that typechecks, bundles and then 403s or renders
+            // wrong: a table the schema never declared, a `collect` table being
+            // listed, a component that does not exist, an invented prop, a `#/`
+            // link, a demo chart full of a stranger's invented numbers — and the
+            // literal colour that would make the look layer silently do nothing.
+            //
+            // It ran ONLY in the build path, so both lanes that generate pages
+            // were publishing without any of it. It does not block publishing,
+            // by design; what it does is report, and reporting nothing was the
+            // bug.
+            const aProblems = aValid.problems.concat(lintPages(aValid.pages, aSpec));
             const aMerge = mergeAddonPages(aSrc, aValid.pages);
             // NOTHING USABLE CAME BACK — escalate rather than report success.
             // The rung above rewrites the whole site, which is expensive and
             // does work.
-            if (!aMerge.ok) return aEscalate(aMerge.reason, { problems: aValid.problems.slice(0, 4) });
+            if (!aMerge.ok) return aEscalate(aMerge.reason, { problems: aProblems.slice(0, 4) });
 
             const aPub = await recompileAndPublish(env, {
               slug: ownerSlug, pages: aMerge.pages,
@@ -10001,7 +10017,7 @@ async function handleRequest(request, env, ctx) {
               ok: true,
               added: aMerge.added, changed: aMerge.changed, tables: aTables,
               unlinked: unlinkedPages(aMerge.pages, aMerge.added),
-              problems: aValid.problems.slice(0, 4),
+              problems: aProblems.slice(0, 4),
               files: aPub.files, cost: aCost,
             });
           }

@@ -342,3 +342,85 @@ test("neither lane can publish an unbought image token", async () => {
   const swept = applyImages([{ path: "a.tsx", source: '<SafeImage src="@@IMG:a chair@@" alt="x" />' }], {});
   assert.ok(!swept[0].source.includes("@@IMG"), "the sweep does not clear an unbought token");
 });
+
+test("both generating lanes LINT, and both show what it found", async () => {
+  // THE BIGGEST GAP THE AUDIT FOUND. `lintPages` ran only inside the build path,
+  // so the addon lane and the page-edit layer published without ANY of it: a
+  // table the schema never declared, a `collect` table being listed, a component
+  // that does not exist, an invented prop, a `#/` link, a demo chart full of a
+  // stranger's invented numbers — and the literal colour that makes the look
+  // layer silently do nothing. Measured on one page carrying four of them: the
+  // build path reports four problems and both lanes reported none.
+  const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(worker, /^import .*\blintPages\b/m, "worker.js does not import the lint");
+  const block = (open, close) => {
+    const from = worker.indexOf(open);
+    assert.ok(from > 0, "block is gone: " + open.trim());
+    const to = worker.indexOf(close, from);
+    assert.ok(to > from, "could not find the end of " + open.trim());
+    return worker.slice(from, to);
+  };
+  for (const [name, b] of [
+    ["addon", block("\n          if (ad) {", "\n          if (tx) {")],
+    ["page edit", block("\n            if (eLayer === \"page\") {", "\n            // A LAYER NOBODY IMPLEMENTS")],
+  ]) {
+    assert.match(b, /lintPages\(\w+\.pages, \w+\)/, name + " publishes a generated page without linting it");
+    // Against the SITE'S OWN schema, or the table checks cannot fire at all.
+    assert.match(b, /\.problems\.concat\(lintPages\(/, name + " drops the lint's findings on the floor");
+  }
+
+  // And the lint really does catch these, so the assertions above are not
+  // matching a call that finds nothing.
+  const { lintPages } = await import("../builder/page-gen.mjs");
+  const found = lintPages([{
+    path: "src/routes/g.tsx",
+    source: 'import { createFileRoute } from "@tanstack/react-router";\n' +
+      'export const Route = createFileRoute("/g")({});\n' +
+      'export default function G(){ fetch("/x"); return <div className="bg-amber-400"><a href="#/book">B</a></div>; }',
+  }], { tables: [] });
+  assert.ok(found.length >= 3, "the lint found only " + found.length + " on a page carrying several faults");
+});
+
+test("the customer is SHOWN what the lint found, on both lanes", () => {
+  // A lint problem deliberately does not block publishing — the site is real and
+  // usable — but a problem nobody is shown is a problem nobody fixes. Both
+  // replies returned "✅ Done." and dropped `problems` entirely.
+  const chat = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+  assert.match(chat, /function problemNote\(/, "there is no way to render a lint problem");
+  // ONE helper, used by both — two copies drift into one lane reporting and the
+  // other not, which is the exact shape this session keeps finding.
+  assert.equal((chat.match(/function problemNote\(/g) || []).length, 1);
+  assert.match(chat, /problemNote\(e\.problems\)/, "the page edit does not show them");
+  assert.match(chat, /problemNote\(a\.problems\)/, "the addon does not show them");
+});
+
+test("chat.js calls nothing it does not define", () => {
+  // FOUND BY THIS FILE'S OWN TEST, and it was live for a moment: a call to
+  // `problemNote` landed while the function itself did not, because a script
+  // aborted between the two edits. `node --check` passes — it is a syntax check,
+  // not a scope check — so the failure would have been a ReferenceError the
+  // first time anybody used the addon lane. The `vidRefN` class, in the one file
+  // no test can import.
+  //
+  // COMMENTS ARE NOT BLANKED, AND THAT IS THE MEASURED DECISION. The first draft
+  // blanked them the way every other scan in this repo does, and a stray `/*`
+  // inside a string ate 38% OF THE FILE — precisely the failure already recorded
+  // for worker.js at 46%. It swallowed four real declarations and reported them
+  // as undeclared. Raw source: 1554 declarations and ZERO false alarms, against
+  // 1381 and four.
+  //
+  // Proved to fail honestly rather than assumed: renaming `problemNote`'s
+  // declaration makes this go red, measured before it was kept.
+  const chat = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+  const declared = new Set([
+    ...[...chat.matchAll(/(?:^|\s)(?:async\s+)?function\s+(\w+)\s*\(/gm)].map((m) => m[1]),
+    ...[...chat.matchAll(/(?:^|[;{},)]\s*|\s)(?:const|let|var)\s+(\w+)\s*=/gm)].map((m) => m[1]),
+  ]);
+  assert.ok(declared.size > 1000, "only found " + declared.size + " declarations — the scan broke");
+  // Narrowed to names shaped like this file's OWN vocabulary, so browser and
+  // library globals are not flagged. A wider net here would cry wolf, and a
+  // scan that cries wolf is worse than no scan.
+  const ours = /\b(site[A-Z]\w+|render[A-Z]\w+|paint[A-Z]\w+|problemNote|editReply|addonReplyText|buildDownMsg)\s*\(/g;
+  const missing = [...new Set([...chat.matchAll(ours)].map((m) => m[1]))].filter((n) => !declared.has(n));
+  assert.deepEqual(missing, [], "chat.js calls " + missing.join(", ") + " and declares it nowhere");
+});
