@@ -10,7 +10,7 @@ import fs from "node:fs";
 import {
   MAX_RETURNED, mergeAddonPages, unlinkedPages, routeOf, addonReply,
 } from "../builder/site-addon.mjs";
-import { priorPagesBlock, pagesRequest, pagesPrompt } from "../builder/page-gen.mjs";
+import { priorPagesBlock, pagesRequest, pagesPrompt, validatePages } from "../builder/page-gen.mjs";
 
 const page = (path, source) => ({ path: "src/routes/" + path, source });
 const SITE = [
@@ -287,4 +287,23 @@ test("the client's route-path reader agrees with the module's", () => {
   for (const f of ["src/routes/index.tsx", "src/routes/gallery.tsx", "src/routes/shop/index.tsx", "src/routes/shop/item.tsx", "nonsense", ""]) {
     assert.equal(clientPathOf(f), routeOf(f), "the two readers disagree about " + JSON.stringify(f));
   }
+});
+
+test("a PARTIAL set is not told it has no home page", () => {
+  // The survivor of the mutation sweep, and a real gap: an addon returns only
+  // what it wrote, so an index.tsx is absent by design and the site's real one
+  // is kept by the merge. Without the flag every single addon carries a false
+  // "There is no index.tsx" problem — and `problems` reaches the customer.
+  const partial = { pages: [{ path: "gallery.tsx", source: 'import {createFileRoute} from "x";\nexport const Route = createFileRoute("/gallery")({});' }] };
+  const asPartial = validatePages(partial, { partial: true });
+  assert.equal(asPartial.pages.length, 1, "the page itself must still validate");
+  assert.ok(!asPartial.problems.some((p) => /index\.tsx/.test(p)),
+    "a partial set must not be told it has no home page: " + JSON.stringify(asPartial.problems));
+
+  // And the flag is not a no-op — a WHOLE site with no index really is broken,
+  // and must still be reported. Both directions, or the assertion above passes
+  // on a validator that stopped checking at all.
+  const asWhole = validatePages(partial);
+  assert.ok(asWhole.problems.some((p) => /index\.tsx/.test(p)),
+    "a full page set with no home page must still be flagged");
 });
