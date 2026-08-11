@@ -22,24 +22,35 @@ on 8 of the 16 read/write pairs; and `lintPages` false-alarms on the exact
 marketplace cell the pairs were added for. Read the dated entry below before
 starting any of them.
 
-**THE EDIT AND ADDON LANES ARE MERGED AND DEPLOYED (2026-08-11), NOT PROVEN LIVE.**
-They are on `main` and running on gofarther.dev. **The Anthropic balance is empty
-again** (measured: `page gen eval` and `build smoke` both answer *"Your credit
-balance is too low"*, nothing billed), so no build, edit or addon has actually
-run. That top-up is the one thing standing between here and knowing.
-Fifteen commits on `claude/help-needed-ehlwlj`, 2078 tests, 69/69 mutations. All
-four layers are in (`data`, `text`, `look`, `page`), the addon lane can add AND
-remove a page, the data layer can remove a row, and the colour lint runs on both
-generating lanes. **Nothing here has run against a funded account** — every claim
-is from tests and source reading, not from a real build. The first live change to
-a real site is the thing to watch, and the honest first question is whether the
-router picks `edit` for a colour change rather than `addon`.
+**THE EDIT AND ADDON LANES ARE LIVE AND MOSTLY PROVEN (2026-08-11).** On `main`,
+running on gofarther.dev, and `edit smoke` drove them against the deployed Worker
+seven times tonight — 11/11 → 26/3 → 28/1 → 24/5 → **29/1**. Proven with a real
+site, a real customer message and a real published page: **the router picks the
+lane** (a price change → `data`, a colour → `look`, a new page → `addon`, a
+question answered rather than built) · **a data edit changes the row in Postgres
+and republishes nothing** · **a row can be removed and put back** ("actually put
+that back, I didn't mean to delete it") · **a rename reaches the published page**,
+fetched over the wire · **an addon adds a page, links it, publishes it — and puts
+back four pages the model rewrote for no reason**, twice running.
 
-Costs, estimated rather than measured: a typo ~25 → ~0.5 credits, a colour change
-~25 → ~2, a one-page structure change ~25 → ~5, adding a page ~25 → ~8, and
-changing a price ~25 → ~0.3 with **no recompile at all** (rows are read at
-runtime). Those numbers are the reason for the whole thing and none of them is
-proven.
+Costs, MEASURED not estimated: a build 56–93 credits over 116–240s · adding a page
+28 · a data edit ~0.3 with no rebuild at all · deleting a page ~0.3. The gap
+between 0.3 and 27 is the whole argument for the ladder.
+
+**STILL UNPROVEN: deleting a page, and the `text` and `page` layers.** The 22:01
+run was 29/1 and the one failure was the harness feeding the router source paths
+where the composer sends routes — a bug in the check, fixed in `83b4c39`. Its
+proof run never started: see the next entry.
+
+**THE ANTHROPIC ACCOUNT IS EMPTY AGAIN — measured 2026-08-11 22:19Z.** `edit
+smoke` on `83b4c39` died at the first model call: `503 stage:"design"
+upstream:400 upstreamType:"invalid_request_error" billing:true`, twice, in 2s and
+1s. `billing:true` is set only when the provider says *"credit balance is too
+low"*, so this is the account and not the code — and it drained **inside twenty
+minutes** of the 29/1 run above. **While it is empty no customer can build a site
+on gofarther.dev**; every build 503s at `design`, the deposit refunds, nothing is
+charged. **Read the timestamp on this line before believing it** — it is true
+until somebody tops the account up, and nothing announces when that happens.
 
 **Cloudflare Web Analytics for `gofarther.app`** — the owner asked to be reminded
 when they say they are home, since it wants doing on their desktop.
