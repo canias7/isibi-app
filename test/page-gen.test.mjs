@@ -1068,9 +1068,58 @@ test("every hook the rules name is exported by the template", () => {
     [...rows.matchAll(/export (?:async )?function (\w+)/g)].map((m) => m[1])
       .concat([...rows.matchAll(/export const (\w+)/g)].map((m) => m[1])),
   );
-  // Backticked `useThing(` in the prose — how the rules always cite a hook.
-  const named = [...new Set([...PAGE_RULES.matchAll(/`(use[A-Z]\w+)\(/g)].map((m) => m[1]))];
-  assert.ok(named.length >= 4, "expected the rules to cite several hooks, found " + named.length);
+  // DERIVED AT BOTH ENDS, and the comment this replaces was measurably wrong.
+  // It said backticked `useThing(` was "how the rules always cite a hook" and
+  // scanned for exactly that — which covered 12 of them and silently skipped
+  // FIVE REAL @/lib/rows HOOKS the rules tell the model to import, including
+  // `useCreateRow`, the single most-used hook on every generated site. Rename or
+  // remove one of those and the rules would still name it, every page would fail
+  // tsc, and this guard would have stayed green.
+  //
+  // Two sources now, and neither is a hand list. Every name the rules IMPORT
+  // from @/lib/rows in a worked example — unambiguous and complete. Plus every
+  // backticked call in the prose, minus the names the rules import from
+  // somewhere else, so React's useState and the router's useNavigate exclude
+  // themselves rather than being remembered.
+  const importedFrom = (mod) => new Set([...PAGE_RULES.matchAll(/import\s*\{([^}]*)\}\s*from\s*"([^"]+)"/g)]
+    .filter((m) => m[2] === mod)
+    .flatMap((m) => m[1].split(",").map((n) => n.trim().replace(/^type\s+/, "")))
+    .filter(Boolean));
+  const ours = importedFrom("@/lib/rows");
+  const foreign = new Set([...PAGE_RULES.matchAll(/import\s*\{([^}]*)\}\s*from\s*"([^"]+)"/g)]
+    .filter((m) => m[2] !== "@/lib/rows")
+    .flatMap((m) => m[1].split(",").map((n) => n.trim().replace(/^type\s+/, "")))
+    .filter(Boolean));
+  // A GENERIC DEFEATS A PATTERN WRITTEN FOR THE NON-GENERIC CASE, which this
+  // repo has now recorded four times — and the reference page really does write
+  // `useRows<Service>(`. Latent here today; closed anyway, since the cost is one
+  // optional group and the failure is silent.
+  // ANY BACKTICKED HOOK NAME, WITH OR WITHOUT A CALL. Requiring the paren left
+  // `useUpdateRow`, `useDeleteRow` and `useCheckout` uncovered — the rules name
+  // them in prose, not in a worked call. The backtick is this file's own
+  // convention for "this is a real identifier", and widening to it was MEASURED
+  // safe first: all 16 names it admits are exported by rows.ts today, so it
+  // adds coverage without adding a false alarm.
+  // BACKTICKED NAMES *AND* EVERY CALL IN A WORKED EXAMPLE. `useUploadFile` is
+  // shown only inside a ```tsx block — the strongest signal there is, since that
+  // is the model being shown the call — and neither the backtick scan nor the
+  // import scan reached it.
+  //
+  // NOT PRECEDED BY A DOT: `Route.useParams()` and `Route.useSearch()` are
+  // methods on the route object rather than hooks anybody imports, and they were
+  // the only two false positives when this was measured. Excluding the dot takes
+  // the list to 18 names, ALL of which rows.ts exports today.
+  const cited = [...new Set([
+    ...[...PAGE_RULES.matchAll(/`(use[A-Z]\w+)/g)].map((m) => m[1]),
+    ...[...PAGE_RULES.matchAll(/(^|[^.\w])(use[A-Z]\w+)\s*(?:<[^>]*>)?\s*\(/gm)].map((m) => m[2]),
+  ])].filter((n) => !foreign.has(n));
+  const named = [...new Set([...ours, ...cited])].filter((n) => /^use[A-Z]/.test(n));
+  assert.ok(ours.size >= 5, "the rules no longer show a worked import from @/lib/rows — re-derive this guard");
+  assert.ok(named.length >= 16, "expected the rules to cite several hooks, found " + named.length);
+  for (const must of ["useCreateRow", "useUpdateRow", "useDeleteRow", "useUploadFile", "useCheckout"]) {
+    assert.ok(named.includes(must),
+      must + " is named by the rules and was NOT covered before this guard was rewritten — it must stay covered");
+  }
   const missing = named.filter((n) => !exported.has(n));
   assert.deepEqual(missing, [],
     "the rules name " + missing.join(", ") + " and @/lib/rows does not export it — " +
