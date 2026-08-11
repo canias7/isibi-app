@@ -45,10 +45,10 @@ import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayou
 // to all 1,632 tests (nothing can import a Worker entrypoint); esbuild refuses
 // it at deploy time and the deploy is the first thing that ever sees it.
 import { publishPages, pageCredits, schemaSettlement, buildFloor, IMAGE_USD as SITE_PHOTO_USD } from "./builder/publish-pages.mjs";
-import { imageBudget, budgetFor, imagesAffordable, planImages, applyImages, imagePrompt, imageNote, IMAGE_ASPECT } from "./builder/site-images.mjs";
+import { imageBudget, budgetFor, imagesAffordable, planImages, applyImages, countImageSlots, imagePrompt, imageNote, IMAGE_ASPECT } from "./builder/site-images.mjs";
 import { ASKABLE as SITE_TOKEN_NAMES, valueHint as siteTokenHint, mergeTokens, parseTokens, withContrast, tokenNote } from "./builder/site-tokens.mjs";
 import { extractText, applyEdits } from "./builder/site-text.mjs";
-import { runTextEdit, runDataEdit, MAX_DATA_ROWS } from "./builder/site-apply.mjs";
+import { runTextEdit, runDataEdit, renamePages, MAX_DATA_ROWS } from "./builder/site-apply.mjs";
 import { resolveAccess } from "./site-access.mjs";
 import { mergeAddonPages, unlinkedPages, routeOf } from "./builder/site-addon.mjs";
 import { archiveVersion, listVersions, rollbackVersion, deleteAllVersions, versionId, versionLabel } from "./site-versions.mjs";
@@ -9606,7 +9606,14 @@ async function handleRequest(request, env, ctx) {
                   await sqlQuery(ddb, "UPDATE \"" + name + "\" SET " + sets + " WHERE id = ?", [...cols.map((k) => c.values[k]), c.id]);
                   return true;
                 },
-              }, { instruction: eInstruction, tables: dTables });
+                // WHAT THE LAST EDIT DELETED, carried by the client because it
+                // is the only party that still has it — the row is gone from the
+                // table, so `dataDigest` cannot mention it and "put it back" had
+                // no referent at all. Taken on trust and SHOWN to the model, never
+                // written: whatever comes back still goes through
+                // `readDataChanges`, which admits only declared tables, declared
+                // columns and scalar values.
+              }, { instruction: eInstruction, tables: dTables, recent: (eb && eb.recent) || null });
 
               if (!dOut.ok) {
                 // A model that read the rows and matched none does NOT escalate:
@@ -9752,17 +9759,31 @@ async function handleRequest(request, env, ctx) {
                 return Response.json({ ok: false, error: "store", cost: 0, msg: "That change couldn't be saved — try again." }, { status: 503 });
               }
 
-              // THE PAGES GO BACK UNTOUCHED. `recompileAndPublish` reads the
-              // look it was just handed out of `_meta` rather than taking it as
-              // an argument, which is what makes "store, then recompile" the
-              // whole of this layer.
+              // A RENAME IS THE ONE THING HERE THAT IS ALSO ON THE PAGES. Every
+              // other field in `EDIT_FIELDS` is read from `_meta` at compile
+              // time; the brand is ALSO a literal in every page's source
+              // (`<SiteChrome name="…">`, headings, copy), so storing it alone
+              // changed the browser tab and the link preview and left every
+              // visible heading saying the old name — reported as done. No model
+              // call: `renamePages` reuses the free text editor's own extractor,
+              // so it rewrites prose a visitor reads and never an import path,
+              // a route id or a URL.
+              let eSrcOut = eSrc, renamed = 0;
+              if (moved.includes("brand") && priorLook && priorLook.brand && merged.brand) {
+                const rn = renamePages(eSrc, priorLook.brand, merged.brand);
+                eSrcOut = rn.pages; renamed = rn.applied;
+              }
+              // THE PAGES OTHERWISE GO BACK UNTOUCHED. `recompileAndPublish`
+              // reads the look it was just handed out of `_meta` rather than
+              // taking it as an argument, which is what makes "store, then
+              // recompile" the whole of this layer.
               // Labelled by the CHANGE, in the customer's own words — the one
               // question the versions panel is opened to answer. `versionLabel`
               // already does exactly this for a revise; a second labeller here
               // would be a second thing that can disagree about what to call a
               // build.
               const pub = await recompileAndPublish(env, {
-                slug: ownerSlug, pages: eSrc,
+                slug: ownerSlug, pages: eSrcOut,
                 label: versionLabel({ revise: true, changeNote: eInstruction }),
               });
               if (!pub.ok) {
@@ -9774,7 +9795,7 @@ async function handleRequest(request, env, ctx) {
               }
               return Response.json({
                 ok: true, layer: "look", moved, tokens: tokensMoved ? Object.keys(nextTokens) : [],
-                files: pub.files, cost: await eCharge(dUsage), usage: dUsage,
+                renamed, files: pub.files, cost: await eCharge(dUsage), usage: dUsage,
               });
             }
 
@@ -9828,6 +9849,7 @@ async function handleRequest(request, env, ctx) {
               }
 
               const pValid = validatePages(eGen && eGen.input, { partial: true });
+              const pSlots = countImageSlots(pValid.pages);
               pValid.pages = applyImages(pValid.pages, {});
               // Same as the addon lane: the shape check is not the lint, and the
               // lint is the one that matters.
@@ -9855,6 +9877,7 @@ async function handleRequest(request, env, ctx) {
               }
               return Response.json({
                 ok: true, layer: "page", page: wantRoute,
+                photos: pSlots,
                 ignored: (pValid.pages || []).filter((p) => p.path !== target.path).map((p) => p.path).slice(0, 4),
                 problems: pProblems.slice(0, 4),
                 files: pPub.files, cost: await eCharge(eGen && eGen.usage), usage: eGen && eGen.usage,
@@ -9983,6 +10006,7 @@ async function handleRequest(request, env, ctx) {
             // if it is written regardless. The build path has both, and the one time
             // this repo relied on the model alone it shipped a broken image on the
             // first live site it made.
+            const aSlots = countImageSlots(aValid.pages);
             aValid.pages = applyImages(aValid.pages, {});
             // AND LINTED. `validatePages` checks the SHAPE — a path, a Route
             // export, no duplicates. `lintPages` is the one that catches the
@@ -10038,6 +10062,7 @@ async function handleRequest(request, env, ctx) {
             return Response.json({
               ok: true,
               added: aMerge.added, changed: aMerge.changed, removed: aMerge.removed, kept: aMerge.kept,
+              photos: aSlots,
               tables: aTables,
               unlinked: unlinkedPages(aMerge.pages, aMerge.added),
               problems: aProblems.slice(0, 4),

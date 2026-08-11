@@ -11180,6 +11180,13 @@ function siteEdit(site, d, instruction, origin, finish, fallback) {
       page: d.page ? String(d.page) : '',
       instruction: instruction,
       picker: buildPicker,
+      // THE UNDO. A deleted row is gone from the table, so the server cannot
+      // show the model what "put it back" refers to — the client is the only
+      // party that still holds it, because it rendered the contents in the
+      // reply. Sent only on the data layer, which is the only one that could
+      // act on it.
+      recent: d.layer === 'data' && Array.isArray(site.undoRows) && site.undoRows.length
+        ? site.undoRows.slice(0, 3) : undefined,
     }),
   }).then(async (r) => {
     const e = await r.json().catch(() => null);
@@ -11198,7 +11205,18 @@ function siteEdit(site, d, instruction, origin, finish, fallback) {
     // preview keeps showing the old bundle and the change reads as not applied.
     scheduleCreditRefresh();
     const s = siteById(origin);
-    if (s) { s.previewV = (s.previewV || 0) + 1; sitesSave(); }
+    if (s) {
+      s.previewV = (s.previewV || 0) + 1;
+      // REMEMBER WHAT WENT, so the next message can undo it. Replaced by a
+      // later removal and CLEARED by an add, because once a row has been put
+      // back, carrying it forward is a standing offer to put it back again on
+      // an unrelated change.
+      const rows = Array.isArray(e.applied) ? e.applied : [];
+      const gone = rows.filter((r) => r && r.removed && r.was).map((r) => ({ table: r.table, was: r.was }));
+      if (gone.length) s.undoRows = gone.slice(0, 3);
+      else if (rows.some((r) => r && r.id === undefined)) s.undoRows = null;
+      sitesSave();
+    }
     finish(editReply(e));
   }).catch(fallback);
 }
@@ -11275,6 +11293,7 @@ function addonReplyText(a) {
   if (changed.length) bits.push('linked it from ' + changed.join(', '));
   if (Array.isArray(a.tables) && a.tables.length) bits.push('now storing ' + a.tables.join(', '));
   let out = bits.length ? '✅ Done — ' + bits.join(', ') + '.' : '✅ Done.';
+  out += photoNote(a.photos);
   // A PAGE WE REFUSED TO DELETE IS SAID PLAINLY. Keeping it quietly is the
   // silent partial this lane already had once: asked for gone, told it worked,
   // still there.
@@ -11341,9 +11360,16 @@ function editReply(e) {
     for (const g of gone.slice(0, 3)) {
       const w = g && g.was && typeof g.was === 'object' ? g.was : null;
       if (!w) continue;
-      const desc = Object.keys(w).filter((k) => k !== 'id' && w[k] != null && String(w[k]).trim())
-        .slice(0, 3).map((k) => k + ' ' + String(w[k]).slice(0, 40)).join(', ');
-      if (desc) out += ' Gone from ' + g.table + ': ' + desc + '. Say the word and I\u2019ll put it back.';
+      const cols = Object.keys(w).filter((k) => k !== 'id' && w[k] != null && String(w[k]).trim());
+      const desc = cols.slice(0, 3).map((k) => k + ' ' + String(w[k]).slice(0, 40)).join(', ');
+      // NAMED, NOT "say the word". Bare "undo that" is genuinely ambiguous to
+      // the router \u2014 it could be a page, a colour or a row \u2014 and would be
+      // classified as something that cannot restore anything. Handing them the
+      // words to say makes the request data-shaped, which is the one lane that
+      // can act on it, and turns a vague promise into a concrete one.
+      const name = String(w[cols[0]] || '').slice(0, 40);
+      if (desc) out += ' Gone from ' + g.table + ': ' + desc +
+        (name ? '. Say \u201cput ' + name + ' back\u201d and I\u2019ll restore it.' : '');
     }
     if (e.failed) out += ' ' + e.failed + ' couldn\u2019t be saved \u2014 try that one again.';
     return out;
@@ -11361,15 +11387,40 @@ function editReply(e) {
         (ign.length === 1 ? ' was' : ' were') + ' left alone. Ask again naming ' +
         (ign.length === 1 ? 'it' : 'them') + ' if you want the same change there.';
     }
-    return out + problemNote(e.problems);
+    return out + photoNote(e.photos) + problemNote(e.problems);
   }
   if (e.layer === 'look') {
     const moved = (Array.isArray(e.moved) ? e.moved : []).slice(0, 4);
     const tokens = (Array.isArray(e.tokens) ? e.tokens : []).slice(0, 4);
     const bits = moved.concat(tokens);
-    return '✅ Updated the look' + (bits.length ? ' — ' + bits.join(', ') : '') + '.';
+    let out = '✅ Updated the look' + (bits.length ? ' — ' + bits.join(', ') : '') + '.';
+    // A RENAME REACHES THE PAGES, and saying how far is the honest half. The
+    // name is stored once and written into every page; the customer can check
+    // the second half by looking, and a count of zero on a rename is the one
+    // thing they need to know went wrong.
+    if (moved.indexOf('brand') >= 0) {
+      const n = Number(e.renamed) || 0;
+      out += n
+        ? ' Changed the name in ' + n + (n === 1 ? ' place' : ' places') + ' on the pages too.'
+        : ' The title and link preview now use it, but I couldn’t find the old name written on any page — check the headings.';
+    }
+    return out + problemNote(e.problems);
   }
   return '✅ Done.';
+}
+// A PICTURE SLOT NOBODY CAN FILL, said out loud.
+//
+// Neither the edit nor the addon lane buys photographs — deliberate, because a
+// revise re-buying pictures the owner already had was a ~94-credit bug — so a
+// NEW page that wants one publishes with an empty frame. Four outcomes render
+// that same blank box and only one is a bug, which is why the build path has
+// `imageNote`; these two lanes had nothing, so the customer was left looking at
+// a gap with no way to know it was theirs to fill.
+function photoNote(n) {
+  const c = Number(n) || 0;
+  if (!c) return '';
+  return ' There ' + (c === 1 ? 'is a space' : 'are ' + c + ' spaces') +
+    ' for a photo — upload yours in the Data panel and ' + (c === 1 ? 'it' : 'they') + '\u2019ll fill in.';
 }
 // What to say when a build could not run.
 //

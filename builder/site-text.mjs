@@ -33,7 +33,35 @@ const MIN_LEN = 2;
  * file ("flex items-center justify-between"), and replacing one silently
  * restyles the page.
  */
-const CODE_ATTRS = /\b(className|to|href|src|id|key|name|type|value|htmlFor|table|order|dir|slot|variant|size|as|role|aria-[a-z-]+|data-[a-z-]+)\s*=\s*$/;
+const CODE_ATTRS = /\b(className|to|href|src|id|key|type|value|htmlFor|table|order|dir|slot|variant|size|as|role|aria-[a-z-]+|data-[a-z-]+)\s*=\s*$/;
+
+/**
+ * `name=` is the one that depends on WHAT IT IS ON.
+ *
+ * On a DOM element it is the submitted field key — `<input name="email">` — and
+ * rewriting it changes which column a booking lands in, which is exactly the
+ * class of silent breakage this list exists for. On a COMPONENT it is an
+ * ordinary prop, and on every page this platform generates it is THE BUSINESS
+ * NAME: `<SiteChrome name="Tenfold Nails">`, the heading a visitor reads on
+ * every page of the site.
+ *
+ * Listed unconditionally, both were invisible: the free text editor could not
+ * change a business's name in its own header, and a rename through the look
+ * layer moved the `<h1>` and the tagline and left the chrome saying the old
+ * name — measured, 2 of 3.
+ *
+ * The distinction is one React enforces rather than one we invented: a
+ * lowercase tag is a DOM element and a capitalised one is a component.
+ */
+const NAME_ATTR = /\bname\s*=\s*$/;
+function nameIsCode(before) {
+  if (!NAME_ATTR.test(before)) return false;
+  const open = before.lastIndexOf("<");
+  // No opening tag in the window we can see: assume the dangerous reading, which
+  // is the one that leaves the string alone.
+  if (open < 0) return true;
+  return !/^[A-Z]/.test(before.slice(open + 1));
+}
 
 /** A whole string that is plainly not something a person wrote to be read. */
 function looksLikeCode(v) {
@@ -87,8 +115,12 @@ export function extractText(source) {
 
   // Quoted strings, skipping the ones that are a code-ish attribute's value.
   for (const m of src.matchAll(/(["'])((?:[^\\\n]|\\.)*?)\1/g)) {
-    const before = src.slice(Math.max(0, m.index - 24), m.index);
-    if (CODE_ATTRS.test(before)) continue;
+    // WIDE ENOUGH TO SEE THE TAG. 24 characters reaches back past `name=` and
+    // no further, so `nameIsCode` could never find the `<` that decides it —
+    // and with no tag in view it answers "code", which is the safe direction
+    // and also the answer that made the whole distinction do nothing.
+    const before = src.slice(Math.max(0, m.index - 120), m.index);
+    if (CODE_ATTRS.test(before) || nameIsCode(before)) continue;
     // An import specifier or an object key is not prose either.
     if (/\bfrom\s*$/.test(before) || /[{,]\s*$/.test(before)) continue;
     push(m[2], m.index + 1, "string");

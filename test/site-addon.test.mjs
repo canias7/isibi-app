@@ -607,7 +607,7 @@ test("the addon reply is DRIVEN, not grepped", () => {
     const end = chat.indexOf("\n}", at);
     return chat.slice(at, end + 2);
   };
-  const reply = new Function(cut("problemNote") + "\n" + cut("sitePathOf") + "\n" + cut("addonReplyText") +
+  const reply = new Function([cut("problemNote"), cut("photoNote"), cut("sitePathOf"), cut("addonReplyText")].join("\n") +
     "\nreturn addonReplyText;")();
   const gone = reply({ added: [], changed: [], removed: ["src/routes/prices.tsx"] });
   assert.match(gone, /removed \/prices/, gone);

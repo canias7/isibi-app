@@ -305,6 +305,28 @@ export const IMAGE_ASPECT = "4:3";
  * The sweep at the end catches malformed and half-written tokens too, so
  * nothing shaped like one can survive to the compiler.
  */
+/**
+ * How many picture slots a page set asks for.
+ *
+ * FOUR OUTCOMES RENDER THE SAME BLANK BOX and only one of them is a bug — that
+ * is why `imageNote` exists on the build path. The edit and addon lanes buy no
+ * photographs at all (deliberate: a revise re-buying pictures the owner already
+ * has was a ~94-credit bug), so a NEW page that wants one publishes with a
+ * placeholder and, until this, said nothing about it. The customer is left
+ * looking at an empty frame with no way to know it is theirs to fill.
+ *
+ * Counted BEFORE `applyImages` sweeps, because after it there is nothing left to
+ * count.
+ */
+export function countImageSlots(pages) {
+  let n = 0;
+  for (const p of Array.isArray(pages) ? pages : []) {
+    const src = String((p && p.source) || "");
+    for (const _ of src.matchAll(IMAGE_TOKEN)) n++;
+  }
+  return n;
+}
+
 export function applyImages(pages, urlByToken) {
   const map = urlByToken instanceof Map ? urlByToken : new Map(Object.entries(urlByToken || {}));
   return (Array.isArray(pages) ? pages : []).map((p) => {

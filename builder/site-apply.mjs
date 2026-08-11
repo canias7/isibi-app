@@ -141,6 +141,59 @@ export function textRequest({ instruction, items }) {
 }
 
 /**
+ * Rename the business everywhere its name is WRITTEN, with no model call.
+ *
+ * THE NAME LIVES IN TWO PLACES AND ONLY ONE OF THEM WAS MOVING. `_meta.site_look`
+ * holds the brand, which the container puts in `<title>` and the publish puts in
+ * the link preview; every page ALSO carries it as a literal — `<SiteChrome
+ * name="Tenfold Nails">` and in headings and copy — and that is the half a
+ * visitor actually reads. So "call it Sharp Fade instead" changed the browser tab
+ * and the WhatsApp preview, left every heading saying the old name, and reported
+ * success. The router's own layer description offers "the site's name", so this
+ * is a request the platform invites.
+ *
+ * IT REUSES `extractText`, WHICH IS THE WHOLE SAFETY ARGUMENT. A blind
+ * `split(old).join(new)` would rewrite the name inside an import path, a route
+ * id, a className or a URL — a site that does not compile, or one whose links
+ * 404. `extractText` already answers "is this string prose a visitor reads", is
+ * already tested, and is the same discrimination the free text editor runs on;
+ * a second, looser rule here is a second thing that can be wrong.
+ *
+ * Deterministic, so it costs nothing: no model call, no tokens.
+ */
+export function renamePages(pages, from, to) {
+  const was = String(from == null ? "" : from).trim();
+  const now = String(to == null ? "" : to).trim();
+  // A rename to the same name, or to or from nothing, is not a rename. A very
+  // short old name is refused outright — replacing every "A" on a site is not a
+  // rename, it is damage, and no business is helped by us guessing.
+  if (!was || !now || was === now || was.length < 2) return { pages: Array.isArray(pages) ? pages : [], applied: 0 };
+  const edits = [];
+  for (const p of Array.isArray(pages) ? pages : []) {
+    if (!p || typeof p.path !== "string" || typeof p.source !== "string") continue;
+    for (const it of extractText(p.source)) {
+      if (!it.text.includes(was)) continue;
+      const next = it.text.split(was).join(now);
+      // The same bound the text editor applies to a replacement, for the same
+      // reason: a very long string is not a label and rewriting it wholesale is
+      // not what was asked for.
+      if (next === it.text || next.length > MAX_TEXT_CHARS) continue;
+      // `extractText` yields `{text, at}` and no path — the page is the one we
+      // are iterating, which is exactly how `textItems` pairs them one function
+      // below.
+      edits.push({ path: p.path, at: it.at, from: it.text, to: next });
+    }
+  }
+  if (!edits.length) return { pages: Array.isArray(pages) ? pages : [], applied: 0 };
+  const r = applyEdits(pages, edits);
+  // A REFUSAL LEAVES THE PAGES EXACTLY AS THEY WERE. `applyEdits` fails the whole
+  // batch on one bad offset and hands back the original set, and a rename that
+  // could not be applied must not stop the brand being stored — the title and
+  // the link preview are still worth correcting.
+  return r.ok ? { pages: r.pages, applied: r.applied } : { pages: Array.isArray(pages) ? pages : [], applied: 0 };
+}
+
+/**
  * Every string on the site, in one flat numbered list.
  *
  * FLAT AND CROSS-PAGE ON PURPOSE. A phone number lives in a footer that is on
@@ -357,7 +410,51 @@ export function dataDigest(tables) {
   return out.join("\n");
 }
 
-export function dataRequest({ instruction, tables }) {
+/** At most this many removed rows are carried forward as undo context. */
+export const MAX_RECENT = 3;
+
+/**
+ * What was just deleted, so "put it back" has something to refer to.
+ *
+ * THE REPLY PROMISES AN UNDO AND THIS IS THE ONLY THING THAT MAKES IT TRUE. A
+ * deleted row is gone from the table, so `dataDigest` — which lists what the
+ * site has NOW — cannot mention it, and a model asked to "put the beard trim
+ * back" was handed an instruction with no referent and rows that no longer
+ * contain it. It matched nothing and refused, on a promise made one message
+ * earlier.
+ *
+ * The contents come from the client, which rendered them; they are not trusted
+ * for anything except being SHOWN to the model. Whatever it does with them still
+ * goes through `readDataChanges`, which admits only declared tables, declared
+ * columns and scalar values — so this widens what can be ASKED for and nothing
+ * about what can be written.
+ *
+ * WORDED SO IT IS NOT AN INSTRUCTION TO RE-ADD. It rides on every data edit
+ * while it is the latest removal, so a block that read as "restore these" would
+ * put a row back on an unrelated change. It says plainly that it is only for a
+ * request to undo.
+ */
+export function recentBlock(recent) {
+  const rows = (Array.isArray(recent) ? recent : [])
+    .filter((r) => r && typeof r.table === "string" && r.was && typeof r.was === "object" && !Array.isArray(r.was))
+    .slice(0, MAX_RECENT);
+  if (!rows.length) return "";
+  const lines = rows.map((r) => {
+    const bits = Object.keys(r.was)
+      .filter((k) => k !== "id" && (typeof r.was[k] === "string" || typeof r.was[k] === "number" || typeof r.was[k] === "boolean"))
+      .slice(0, 12)
+      .map((k) => k + "=" + JSON.stringify(String(r.was[k]).slice(0, 200)));
+    return "  " + r.table + ": " + bits.join(", ");
+  }).filter((l) => l.trim().length > 3);
+  if (!lines.length) return "";
+  return "\n\nJUST REMOVED FROM THIS SITE\nThese rows were deleted a moment ago and are no longer in the tables above.\n" +
+    lines.join("\n") +
+    "\nONLY USE THIS IF THEY ARE ASKING FOR SOMETHING TO BE PUT BACK — \"undo that\", \"put it back\", \"I didn't " +
+    "mean to delete that\". Then add the row again with these values. For any other instruction, ignore this " +
+    "entirely: it is a record of what went, not a list of things to restore.";
+}
+
+export function dataRequest({ instruction, tables, recent }) {
   return {
     model: DATA_MODEL,
     max_tokens: DATA_MAX_TOKENS,
@@ -366,7 +463,7 @@ export function dataRequest({ instruction, tables }) {
     system: [{ type: "text", text: DATA_SYSTEM }],
     messages: [{
       role: "user",
-      content: "WHAT THIS SITE STORES\n" + dataDigest(tables) +
+      content: "WHAT THIS SITE STORES\n" + dataDigest(tables) + recentBlock(recent) +
         "\n\nWHAT THEY ASKED FOR\n" + String(instruction || "").trim().slice(0, 2000),
     }],
   };
@@ -463,12 +560,12 @@ export function dataUsage(reply) {
  * and matched none of them does NOT escalate: the rungs above cannot change a
  * row either, so sending them up spends ~25 credits to fail differently.
  */
-export async function runDataEdit(deps, { instruction, tables } = {}) {
+export async function runDataEdit(deps, { instruction, tables, recent } = {}) {
   const usable = (Array.isArray(tables) ? tables : []).filter((t) => t && t.name && Array.isArray(t.rows));
   if (!usable.length) return { ok: false, escalate: true, reason: "no-data", usage: null };
   let reply;
   try {
-    reply = await deps.send(dataRequest({ instruction, tables: usable }));
+    reply = await deps.send(dataRequest({ instruction, tables: usable, recent }));
   } catch (e) {
     return { ok: false, escalate: true, reason: "model", detail: String((e && e.message) || "").slice(0, 200), usage: null };
   }

@@ -909,7 +909,7 @@ test("the replies are DRIVEN, not grepped", async () => {
     assert.ok(end > at, name + " has no end");
     return chat.slice(at, end + 2);
   };
-  const editReply = new Function(cut("problemNote") + "\n" + cut("sitePathOf") + "\n" + cut("editReply") +
+  const editReply = new Function([cut("problemNote"), cut("photoNote"), cut("sitePathOf"), cut("editReply")].join("\n") +
     "\nreturn editReply;")();
 
   // A REMOVAL READS AS A REMOVAL, and says what it was. The row is gone from
@@ -917,7 +917,10 @@ test("the replies are DRIVEN, not grepped", async () => {
   const gone = editReply({ layer: "data", applied: [{ table: "services", id: 2, removed: true, was: { id: 2, name: "Beard trim", price: "£12" } }] });
   assert.match(gone, /removed one entry/i, gone);
   assert.match(gone, /Beard trim/, "the deleted row's contents are not shown: " + gone);
-  assert.match(gone, /put it back/, gone);
+  // NAMES THE WORDS TO SAY, not "say the word" — bare "undo that" is ambiguous
+  // to the router and would be classified as something that cannot restore a
+  // row at all. Asserted as the property: the offer quotes the row.
+  assert.match(gone, /put .*Beard trim.* back/, gone);
   assert.equal(/updated one entry/i.test(gone), false, "a deletion is reported as an update: " + gone);
 
   // An ordinary edit is unchanged by any of this.
@@ -960,4 +963,213 @@ test("the text reply names what it now says", () => {
   assert.ok(branch.length > 200, "the text branch of editReply moved");
   assert.match(branch, /e\.changed/, "the text reply never reads what the wording now says");
   assert.match(branch, /problemNote\(e\.problems\)/, "a lint problem on a text edit is shown to nobody");
+});
+
+// ── the undo ─────────────────────────────────────────────────────────────────
+//
+// The removal reply offers to put the row back. Nothing made that true: the row
+// is gone from the table, so `dataDigest` — which lists what the site has NOW —
+// cannot mention it, and the model was handed an instruction with no referent.
+// It matched nothing and refused, on a promise made one message earlier.
+
+test("what was just deleted is carried forward, so an undo has a referent", async () => {
+  const { recentBlock, MAX_RECENT } = await import("../builder/site-apply.mjs");
+  const block = recentBlock([{ table: "services", was: { id: 2, name: "Beard trim", price: "£12" } }]);
+  assert.match(block, /Beard trim/, "the deleted row is not shown to the model");
+  assert.match(block, /services/);
+  // WORDED SO IT IS NOT AN ORDER. It rides on every data edit while it is the
+  // latest removal, so a block reading "restore these" would put a row back on
+  // an unrelated change.
+  assert.match(block, /ONLY USE THIS IF THEY ARE ASKING FOR SOMETHING TO BE PUT BACK/);
+  assert.match(block, /ignore this/i);
+  // Nothing to say is said in no words at all — an empty heading in the prompt
+  // is tokens spent on nothing, on the cheapest call the platform makes.
+  assert.equal(recentBlock(null), "");
+  assert.equal(recentBlock([]), "");
+  assert.equal(recentBlock([{ table: "x" }]), "", "a row with no contents is not a record of anything");
+  assert.equal(recentBlock([{ was: { a: 1 } }]), "");
+  assert.equal(recentBlock([{ table: "s", was: { id: 4 } }]), "", "an id alone tells the model nothing");
+  // Bounded, like every other list that reaches a prompt.
+  const many = Array.from({ length: MAX_RECENT + 4 }, (_, i) => ({ table: "t", was: { name: "row" + i } }));
+  assert.equal(recentBlock(many).split("\n").filter((l) => l.startsWith("  t:")).length, MAX_RECENT);
+  // A shape in a column is not a value, and neither is a whole nested object
+  // pasted into the prompt.
+  assert.equal(/nested/.test(recentBlock([{ table: "t", was: { a: { nested: 1 } } }])), false);
+});
+
+test("the block reaches the request, and only through it", async () => {
+  const { dataRequest } = await import("../builder/site-apply.mjs");
+  const recent = [{ table: "services", was: { name: "Beard trim" } }];
+  assert.match(dataRequest({ instruction: "put it back", tables: MENU, recent }).messages[0].content, /Beard trim/);
+  // AND A REQUEST WITHOUT ONE IS BYTE-IDENTICAL TO BEFORE. Every caller that
+  // does not use this feature must send exactly the request it sent yesterday.
+  assert.equal(
+    dataRequest({ instruction: "x", tables: MENU }).messages[0].content,
+    dataRequest({ instruction: "x", tables: MENU, recent: [] }).messages[0].content);
+});
+
+test("the undo is wired end to end, not just built", () => {
+  // Three layers, none importable, and this repo has recorded a feature dead at
+  // exactly one of these seams nine times over.
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(w, /recent: \(eb && eb\.recent\) \|\| null/, "the route never reads it off the body");
+  const chat = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+  const at = chat.indexOf("function siteEdit(");
+  const body = chat.slice(at, chat.indexOf("\n}", at));
+  assert.match(body, /recent:/, "the client never sends it");
+  assert.match(body, /d\.layer === 'data'/, "it is sent on layers that could not act on it");
+  // REMEMBERED ON A REMOVAL AND FORGOTTEN ON AN ADD. Carried forever, it is a
+  // standing offer to re-add a row on an unrelated change.
+  assert.match(body, /s\.undoRows = gone/, "nothing remembers what went");
+  assert.match(body, /s\.undoRows = null/, "the undo is never cleared, so it can fire twice");
+  // That the offer NAMES the row is asserted on the rendered output in "the
+  // replies are DRIVEN, not grepped" — a source-read of the same fact would be a
+  // second, weaker copy of it.
+});
+
+// ── renaming ─────────────────────────────────────────────────────────────────
+
+test("a rename reaches the pages, not just the stored brand", async () => {
+  const { renamePages } = await import("../builder/site-apply.mjs");
+  // THE NAME LIVES IN TWO PLACES AND ONLY ONE WAS MOVING. `_meta.site_look`
+  // drives the <title> and the link preview; every page carries it as a literal,
+  // which is the half a visitor reads. So a rename changed the browser tab and
+  // left every heading saying the old name — and reported success.
+  const pages = [{
+    path: "src/routes/index.tsx",
+    source: 'import { createFileRoute } from "@tanstack/react-router";\n' +
+      'export const Route = createFileRoute("/")({});\n' +
+      'export default function Home(){ return <SiteChrome name="Tenfold Nails" tagline="Ten chairs at Tenfold Nails.">' +
+      '<h1>Tenfold Nails</h1></SiteChrome>; }',
+  }];
+  const r = renamePages(pages, "Tenfold Nails", "Sharp Fade");
+  assert.ok(r.applied >= 2, "only " + r.applied + " of the visible names changed");
+  const src = r.pages[0].source;
+  assert.equal(/Tenfold Nails/.test(src), false, "the old name survives: " + src);
+  assert.match(src, /name="Sharp Fade"/);
+  assert.match(src, /<h1>Sharp Fade<\/h1>/);
+  // AND NEVER THE CODE. An import path, a route id or a URL carrying the old
+  // name would be a site that does not compile or whose links 404 — which is
+  // exactly why this reuses the text editor's own extractor rather than a
+  // second, looser rule.
+  assert.match(src, /@tanstack\/react-router/);
+  assert.match(src, /createFileRoute\("\/"\)/);
+});
+
+test("a rename refuses rather than guesses", async () => {
+  const { renamePages } = await import("../builder/site-apply.mjs");
+  const pages = [{ path: "a.tsx", source: 'export default function A(){ return <h1>A Salon</h1>; }' }];
+  for (const [from, to] of [["", "X"], ["A Salon", ""], ["A Salon", "A Salon"], ["A", "B"]]) {
+    const r = renamePages(pages, from, to);
+    assert.equal(r.applied, 0, "renamed on " + JSON.stringify([from, to]));
+    assert.equal(r.pages[0].source, pages[0].source, "the source moved on " + JSON.stringify([from, to]));
+  }
+  // A one-character old name is the dangerous one and is refused by length:
+  // replacing every "A" on a site is not a rename, it is damage.
+  assert.equal(renamePages(pages, "A", "Zed").applied, 0);
+  // Nothing to find is not a failure — the brand is still worth storing.
+  assert.equal(renamePages(pages, "Nowhere Ltd", "X").applied, 0);
+});
+
+test("the look layer applies the rename and says how far it got", () => {
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(w, /import \{[^}]*renamePages[^}]*\} from "\.\/builder\/site-apply\.mjs"/,
+    "renamePages is called and never imported — a ReferenceError on the live path");
+  assert.match(w, /renamePages\(eSrc, priorLook\.brand, merged\.brand\)/, "the look layer never renames the pages");
+  assert.match(w, /moved\.includes\("brand"\)/, "every look change would rewrite the pages");
+  assert.match(w, /pages: eSrcOut/, "the renamed pages are computed and then not published");
+  assert.match(w, /renamed, files: pub\.files/, "the client cannot tell a rename that landed from one that did not");
+  const chat = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+  assert.match(chat, /couldn’t find the old name written on any page/,
+    "a rename that reached nothing reads as complete success");
+});
+
+// ── the picture slot ─────────────────────────────────────────────────────────
+
+test("a photo slot nobody can fill is said out loud", async () => {
+  const { countImageSlots } = await import("../builder/site-images.mjs");
+  assert.equal(countImageSlots([{ path: "a", source: '<SafeImage src="@@IMG:a chair@@" />' }]), 1);
+  assert.equal(countImageSlots([
+    { path: "a", source: "@@IMG:one@@ @@IMG:two@@" },
+    { path: "b", source: "no pictures here" },
+  ]), 2);
+  assert.equal(countImageSlots([]), 0);
+  assert.equal(countImageSlots(null), 0);
+
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  // COUNTED BEFORE THE SWEEP, or there is nothing left to count — `applyImages`
+  // removes every token, which is the whole point of it.
+  for (const [c, a] of [["const aSlots = countImageSlots(aValid.pages);", "aValid.pages = applyImages"],
+                        ["const pSlots = countImageSlots(pValid.pages);", "pValid.pages = applyImages"]]) {
+    assert.ok(w.indexOf(c) > 0, "no slot count before " + a);
+    assert.ok(w.indexOf(c) < w.indexOf(a), "the count runs after the sweep, so it is always zero");
+  }
+  assert.match(w, /photos: aSlots/, "the addon answer never carries it");
+  assert.match(w, /photos: pSlots/, "the page edit never carries it");
+  const chat = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+  assert.match(chat, /function photoNote\(/);
+  assert.equal((chat.match(/function photoNote\(/g) || []).length, 1, "two copies drift into one lane saying it");
+  assert.match(chat, /photoNote\(a\.photos\)/, "the addon reply is silent about an empty frame");
+  assert.match(chat, /photoNote\(e\.photos\)/, "the page edit is silent about an empty frame");
+});
+
+test("`name=` is code on a DOM element and prose on a component", async () => {
+  // THE BUSINESS NAME LIVES BEHIND THIS ONE ATTRIBUTE. Every generated page
+  // carries `<SiteChrome name="Tenfold Nails">` — the heading a visitor reads —
+  // and `name` was listed unconditionally as code, so the free text editor could
+  // not change a business's own name in its own header, and a rename moved the
+  // <h1> and the tagline and left the chrome saying the old one. Measured: 2 of 3.
+  //
+  // The distinction is React's, not one we invented: a lowercase tag is a DOM
+  // element, where `name` is the submitted field key and rewriting it changes
+  // which column a booking lands in.
+  const { extractText } = await import("../builder/site-text.mjs");
+  const texts = (s) => extractText(s).map((i) => i.text);
+  assert.deepEqual(texts('<SiteChrome name="Tenfold Nails">'), ["Tenfold Nails"]);
+  assert.deepEqual(texts('<SiteHeader brand="x" tagline="Ten chairs" name="Tenfold Nails" />'),
+    ["Ten chairs", "Tenfold Nails"], "the tag is out of the window a component prop can be seen through");
+  for (const dom of ['<input name="email" />', '<input name="Email" />', '<select name="service_id">',
+                     '<textarea name="notes" />', '<form><input name="full name" /></form>']) {
+    assert.deepEqual(texts(dom), [], "a submitted field key was offered as prose: " + dom);
+  }
+  // Everything else in the list stays unconditional — the window widened to see
+  // the tag, and those patterns are end-anchored, so nothing else may move.
+  assert.deepEqual(texts('<div className="flex items-center justify-between">'), []);
+  assert.deepEqual(texts('<Link to="/book">'), []);
+  assert.deepEqual(texts('useRows("bookings", { order: "created_at" })'), []);
+});
+
+test("the rename holds across all 100 family exemplars", async () => {
+  // THE FIXTURE ABOVE IS MINE AND THE CORPUS IS NOT. A rename tuned on a page I
+  // wrote is tuned to how I write pages; these are the exemplars the model
+  // learns the kit from, and they are the closest thing in the repo to what a
+  // real generated site looks like.
+  //
+  // MEASURED: 93 pages carry a chrome name, 93 rename, 0 structural breaks, 1
+  // occurrence survives — a business name inside an ARRAY LITERAL ("Licensee:
+  // The Dram Room Ltd."), which `extractText` skips because a string preceded by
+  // `{` or `,` is usually an object key. That limitation is shared with the free
+  // text editor and is not worth widening a rule for one legal-notice line;
+  // recorded here so it is a known number rather than a surprise.
+  const { renamePages } = await import("../builder/site-apply.mjs");
+  const root = new URL("../builder/lovable/template/src/family-pages/", import.meta.url);
+  let carried = 0, moved = 0, broke = 0, leftovers = 0;
+  for (const fam of fs.readdirSync(root)) {
+    let src;
+    try { src = fs.readFileSync(new URL(fam + "/index.tsx", root), "utf8"); } catch { continue; }
+    const m = src.match(/<SiteChrome\s+name="([^"]+)"/);
+    if (!m) continue;
+    carried++;
+    const out = renamePages([{ path: fam + "/index.tsx", source: src }], m[1], "Zeta Works").pages[0].source;
+    if (/<SiteChrome\s+name="Zeta Works"/.test(out)) moved++;
+    if (out.includes(m[1])) leftovers++;
+    // NOTHING STRUCTURAL MAY MOVE. This is the whole reason it goes through
+    // `extractText` rather than a blind replace: an import path or a route id
+    // carrying the old name would be a site that does not compile.
+    if (!/@tanstack\/react-router/.test(out) || !/createFileRoute\("[^"]*"\)/.test(out)) broke++;
+  }
+  assert.ok(carried > 80, "only " + carried + " exemplars carry a chrome name — the scan broke");
+  assert.equal(moved, carried, "the chrome name did not change on " + (carried - moved) + " of " + carried);
+  assert.equal(broke, 0, "the rename moved something structural on " + broke + " pages");
+  assert.ok(leftovers <= 2, leftovers + " pages still carry the old name somewhere");
 });
