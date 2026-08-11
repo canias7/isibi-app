@@ -9717,8 +9717,10 @@ async function handleRequest(request, env, ctx) {
               const eModels = modelsFor(eb && eb.picker);
               let eGen = null;
               try {
-                eGen = await generateSitePages(env, eInstruction, eSpec, eLook2.brand || ownerSlug,
-                  eLook2.family || null, [], eModels.pages, eSrc, "page", target.path);
+                // Same as the addon lane: a stated zero, because the absence of
+                // one is not an instruction and the model writes tokens anyway.
+                eGen = await generateSitePages(env, briefWithLayout({ brief: eInstruction, images: 0 }),
+                  eSpec, eLook2.brand || ownerSlug, eLook2.family || null, [], eModels.pages, eSrc, "page", target.path);
               } catch (e) {
                 console.error("page edit generate failed:", ownerSlug, e && e.message);
                 const pKind = upstreamKind(e && e.detail);
@@ -9732,6 +9734,7 @@ async function handleRequest(request, env, ctx) {
               }
 
               const pValid = validatePages(eGen && eGen.input, { partial: true });
+              pValid.pages = applyImages(pValid.pages, {});
               // ONLY THE PAGE THAT WAS ASKED FOR. A page edit that returns a
               // different file is not a page edit, and taking it would let one
               // instruction rewrite a page the customer never named. The prompt
@@ -9856,8 +9859,15 @@ async function handleRequest(request, env, ctx) {
             // only what it touched.
             let aGen = null;
             try {
-              aGen = await generateSitePages(env, aInstruction, aSpec, aLook.brand || ownerSlug,
-                aLook.family || null, [], aModels.pages, aSrc, "addon");
+              // `images: 0` IS AN INSTRUCTION AND ITS ABSENCE IS NOT. Neither
+              // this lane nor the edit lane buys photographs — the rule a revise
+              // already follows — and `site-images.mjs`'s own comment names
+              // exactly what happens without a stated zero: "a model with no
+              // instruction writes image tokens anyway". An unbought token
+              // publishes as the literal text `@@IMG:a barber chair@@`: a broken
+              // image AND a visible leak of how the site was made.
+              aGen = await generateSitePages(env, briefWithLayout({ brief: aInstruction, images: 0 }),
+                aSpec, aLook.brand || ownerSlug, aLook.family || null, [], aModels.pages, aSrc, "addon");
             } catch (e) {
               console.error("addon generate failed:", ownerSlug, e && e.message);
               const aKind = upstreamKind(e && e.detail);
@@ -9871,6 +9881,12 @@ async function handleRequest(request, env, ctx) {
             }
 
             const aValid = validatePages(aGen && aGen.input, { partial: true });
+            // AND SWEPT ANYWAY, belt and braces. The directive is what SHOULD stop a
+            // token being written; this is what stops one reaching a customer's site
+            // if it is written regardless. The build path has both, and the one time
+            // this repo relied on the model alone it shipped a broken image on the
+            // first live site it made.
+            aValid.pages = applyImages(aValid.pages, {});
             const aMerge = mergeAddonPages(aSrc, aValid.pages);
             // NOTHING USABLE CAME BACK — escalate rather than report success.
             // The rung above rewrites the whole site, which is expensive and

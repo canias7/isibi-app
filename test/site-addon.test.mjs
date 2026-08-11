@@ -307,3 +307,38 @@ test("a PARTIAL set is not told it has no home page", () => {
   assert.ok(asWhole.problems.some((p) => /index\.tsx/.test(p)),
     "a full page set with no home page must still be flagged");
 });
+
+test("neither lane can publish an unbought image token", async () => {
+  // FOUND BY AUDIT, and it is a bug this repo has shipped once already. Neither
+  // lane buys photographs, and `site-images.mjs`'s own comment says what happens
+  // without a stated zero: "a model with no instruction writes image tokens
+  // anyway". An unbought token publishes as the literal text `@@IMG:a barber
+  // chair@@` — a broken image AND a visible leak of how the site was made.
+  //
+  // BOTH HALVES, because either alone is the failure. The directive is what
+  // should stop one being written; the sweep is what stops one reaching a
+  // customer if it is written regardless.
+  const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const block = (open, close) => {
+    const from = worker.indexOf(open);
+    assert.ok(from > 0, "block is gone: " + open.trim());
+    const to = worker.indexOf(close, from);
+    assert.ok(to > from, "could not find the end of " + open.trim());
+    return worker.slice(from, to);
+  };
+  for (const [name, b] of [
+    ["addon", block("\n          if (ad) {", "\n          if (tx) {")],
+    ["page edit", block("\n            if (eLayer === \"page\") {", "\n            // A LAYER NOBODY IMPLEMENTS")],
+  ]) {
+    assert.match(b, /briefWithLayout\(\{ brief: \w+, images: 0 \}\)/,
+      name + " does not tell the model there are no photographs");
+    assert.match(b, /applyImages\(\w+\.pages, \{\}\)/,
+      name + " does not sweep an unbought token before publishing");
+  }
+
+  // And the sweep really does clear one, so the assertion above is not just
+  // matching a call that does nothing.
+  const { applyImages } = await import("../builder/site-images.mjs");
+  const swept = applyImages([{ path: "a.tsx", source: '<SafeImage src="@@IMG:a chair@@" alt="x" />' }], {});
+  assert.ok(!swept[0].source.includes("@@IMG"), "the sweep does not clear an unbought token");
+});
