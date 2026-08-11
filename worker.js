@@ -49,6 +49,7 @@ import { imageBudget, budgetFor, imagesAffordable, planImages, applyImages, coun
 import { ASKABLE as SITE_TOKEN_NAMES, valueHint as siteTokenHint, mergeTokens, parseTokens, withContrast, tokenNote } from "./builder/site-tokens.mjs";
 import { extractText, applyEdits } from "./builder/site-text.mjs";
 import { runTextEdit, runDataEdit, renamePages, MAX_DATA_ROWS } from "./builder/site-apply.mjs";
+import { runRulesEdit } from "./builder/site-rules.mjs";
 import { resolveAccess, ACCESS_PRESETS } from "./site-access.mjs";
 // The pair a `display` table resolves to. Named once, from the presets, so the
 // data layer's gate cannot drift from the vocabulary again — it was compared
@@ -9733,6 +9734,70 @@ async function handleRequest(request, env, ctx) {
                   : { table: c.table, id: c.id, columns: Object.keys(c.values) })),
                 failed: dOut.failed,
                 cost: await eCharge(dOut.usage), usage: dOut.usage,
+              });
+            }
+            if (eLayer === "rules") {
+              // ── WHAT THE SITE DOES WITH WHAT PEOPLE SUBMIT ──────────────
+              //
+              // The schema was WRITE-ONCE until this existed, and it was the
+              // largest hole in the ladder. Measured through the real
+              // normaliser: the addon lane merges with `normalizeSchema`, whose
+              // rule is "first declaration wins, later ones contribute COLUMNS",
+              // so a table on a live site could gain a column and nothing else —
+              // `confirm DROPPED · payment DROPPED · noOverlap DROPPED`, and
+              // dropped SILENTLY, which is worse than refused.
+              //
+              // So "email the customer when they book", "stop two people taking
+              // one slot" and "let people browse without signing in" were all
+              // impossible on any site that already existed, and the last of
+              // those has already cost a whole build: a marketplace whose every
+              // listing was private came out as the placeholder.
+              //
+              // NOTHING IS RECOMPILED AND NOTHING IS REPUBLISHED. Every rule
+              // here is enforced in Postgres or read out of `_meta` on the
+              // request path, so no page source changes and no visitor
+              // re-downloads anything.
+              const rdb = await siteBackendBySlug(env, ownerSlug);
+              if (!rdb) return escalate("no-backend");
+              let rSpec = null;
+              try { rSpec = await loadSiteSchema(rdb); }
+              catch (e) { console.error("rules edit schema read failed:", ownerSlug, e && e.message); }
+              if (!rSpec || !Array.isArray(rSpec.tables) || !rSpec.tables.length) return escalate("no-meta");
+
+              // EVERY TABLE, unlike the data layer's `display`-only list. A rule
+              // is about who may reach a table and what it refuses, and the
+              // tables that most need one — a booking list, an enquiry form —
+              // are exactly the `collect` ones the data layer will not touch.
+              // Nothing here reads a ROW, so no customer's data is shown to a
+              // model: the digest is names, columns, types and rules.
+              const rOut = await runRulesEdit({
+                send: (req) => anthropicMessages(env, req),
+                // ONE APPLY FOR THE MERGED SPEC. `applySiteSchema` re-emits
+                // every table's REVOKEs, grants and policies in order, which is
+                // what makes a pair change and a `retired` take effect on a
+                // table that already exists — and it persists `_meta` itself, so
+                // there is no second write that could disagree with the DDL.
+                apply: async (spec) => { await applySiteSchema(rdb, normalizeSchema(spec)); return true; },
+              }, { instruction: eInstruction, tables: rSpec.tables });
+
+              if (!rOut.ok) {
+                if (!rOut.escalate) {
+                  return Response.json({
+                    ok: false, error: rOut.reason, cost: await eCharge(rOut.usage), usage: rOut.usage,
+                    // A REFUSAL IS SAID IN FULL. `rulesReply` is the one place
+                    // that turns a refused rule into words, and a no-match that
+                    // silently reads as "nothing happened" is how a booking
+                    // table that still takes double bookings looks like success.
+                    msg: rOut.reason === "no-match"
+                      ? rOut.msg
+                      : "That change couldn't be saved — try again.",
+                  }, { status: 422 });
+                }
+                return escalate(rOut.reason);
+              }
+              return Response.json({
+                ok: true, layer: "rules", applied: rOut.applied, refused: rOut.refused || [],
+                msg: rOut.msg, cost: await eCharge(rOut.usage), usage: rOut.usage,
               });
             }
             if (eLayer === "text") {

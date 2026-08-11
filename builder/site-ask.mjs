@@ -120,7 +120,7 @@ export const FALLBACK_NO_SITE = "build";
  * An unrecognised layer is not a fourth option, it is a routing failure, and it
  * goes UP the ladder like every other one.
  */
-export const EDIT_LAYERS = ["data", "text", "look", "page"];
+export const EDIT_LAYERS = ["data", "text", "look", "page", "rules"];
 
 export const ASK_TOOL = {
   name: "route_message",
@@ -169,6 +169,13 @@ export const ASK_TOOL = {
           "builder can do, so prefer it whenever it is honestly true.\n" +
           "\"look\" — colour, theme, fonts, how round the corners are, the site's name, its one-line description. Anything " +
           "about how the site LOOKS rather than what it says or where things sit.\n" +
+          "\"rules\" — WHAT THE SITE DOES WITH WHAT PEOPLE SUBMIT, rather than anything on a page. Who may see an " +
+          "entry and who may add one (\"let people browse the listings without signing in\", \"close the booking " +
+          "form\"), whether the customer gets an email or a text when they submit, and what the site refuses (\"don't " +
+          "let two people book the same slot\", \"only twenty places\", \"one review per customer\"). NOTHING A " +
+          "VISITOR CAN SEE CHANGES, which is why it is nearly free — so prefer it whenever the change is honestly " +
+          "about behaviour rather than appearance. If the ask ALSO needs something new on a page — a button, a form " +
+          "field — that is \"addon\", not this.\n" +
           "\"page\" — the arrangement of ONE existing page: move a section, take one out, lay a list out differently, " +
           "add a block built from parts the page already has. Name it in `page`.\n" +
           "ONE PAGE, AND ONLY ONE. If the change is meant to land on several — \"put the phone number in the footer " +

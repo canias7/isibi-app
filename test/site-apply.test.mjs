@@ -416,14 +416,33 @@ test("the edit handler CANNOT reach the schema, the seeder or the page generator
   const raw = editBlock();
   const b = raw.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m) => " ".repeat(m.length));
   assert.equal(b.length, raw.length, "blanking must preserve offsets");
-  // WHAT MAKES AN EDIT SAFE IS THE SCHEMA, NOT THE GENERATOR. This listed
-  // `generateSitePages` too, which was true while the lane had only `text` and
-  // `look` and became a FALSE CLAIM the day the `page` layer landed — that layer
-  // generates, deliberately, one file instead of five. Page generation is merely
-  // expensive; touching the database is what an edit must never do.
-  for (const forbidden of ["applySiteSchema", "seedSiteRows", "ensureSiteBackend", "buildAndPublishPages"]) {
+  // THE BAN BECOMES A SCOPE, FOR THE SECOND TIME. This listed
+  // `generateSitePages`, which was true while the lane had only `text` and
+  // `look` and became a FALSE CLAIM the day the `page` layer landed. It then
+  // listed `applySiteSchema`, which was true until the `rules` layer landed —
+  // that layer's whole purpose is to change what a table DOES, which is a schema
+  // apply and nothing else. A guard that forbids the feature is not protecting
+  // anything; what it must hold now is that the reach is BOUNDED to one branch.
+  //
+  // These three stay absolutely forbidden and are the ones that matter:
+  // `seedSiteRows` FABRICATES ROWS — a rule change that invents a customer's
+  // booking is the worst thing this lane could do — and the other two are how a
+  // build provisions and republishes a whole site.
+  for (const forbidden of ["seedSiteRows", "ensureSiteBackend", "buildAndPublishPages"]) {
     assert.ok(!b.includes(forbidden), "the edit lane must not be able to reach " + forbidden);
   }
+  assert.equal((b.match(/applySiteSchema\(/g) || []).length, 1,
+    "the schema may be applied from exactly one place in the edit lane");
+  const rFrom = b.indexOf('if (eLayer === "rules") {');
+  const rTo = b.indexOf('if (eLayer === "text") {');
+  assert.ok(rFrom > 0 && rTo > rFrom, "the rules layer is gone or moved");
+  assert.ok(b.slice(rFrom, rTo).includes("applySiteSchema("),
+    "…and that place is the rules branch, not some other layer");
+  // AND IT PUBLISHES NOTHING, which is what makes it a rung below `look` rather
+  // than a variant of `addon`. Asserted as an absence between its own
+  // boundaries, exactly as the data layer's is.
+  assert.ok(!b.slice(rFrom, rTo).includes("recompileAndPublish("),
+    "a rule is enforced in Postgres and on the request path — no page changes, so nothing is republished");
   // AND THE GENERATION IT DOES DO IS BOUNDED. Without the mode and the target it
   // is an ordinary revise wearing an edit's name — every page re-emitted, at the
   // price the lane exists to avoid.
@@ -854,6 +873,34 @@ test("a page edit NAMES the page, and never hides what it refused", () => {
   for (const layer of EDIT_LAYERS) {
     assert.ok(b.includes("e.layer === '" + layer + "'"),
       "editReply has no branch for the " + layer + " layer, so it would report a bare Done");
+  }
+});
+
+test("EVERY LAYER THE WORKER IMPLEMENTS IS ONE THE ROUTER CAN ASK FOR", () => {
+  // THE OTHER DIRECTION, and it is the one that was missing. Every guard about
+  // layers loops over `EDIT_LAYERS`, so DELETING a name from that list shrinks
+  // what they check and the whole layer goes unreachable with the suite green —
+  // measured: removing "rules" survived all 2153 tests. A derived check cannot
+  // be derived from the thing being mutated.
+  //
+  // So this reads the branches the Worker really has and requires the router to
+  // offer each one. A layer with a handler nobody can route to is dead code that
+  // looks live from every angle, which this repo has now recorded ten times.
+  const b = editBlock();
+  const implemented = [...b.matchAll(/eLayer === "([a-z]+)"/g)].map((m) => m[1]);
+  const uniq = [...new Set(implemented)];
+  assert.ok(uniq.length >= 4, "the branch scan found almost nothing, so it is not scanning: " + JSON.stringify(uniq));
+  for (const layer of uniq) {
+    assert.ok(EDIT_LAYERS.includes(layer),
+      "the worker implements the " + layer + " layer and the router cannot ask for it — it is unreachable");
+  }
+  // AND NO LAYER IS OFFERED WITH NOTHING BEHIND IT. `look` is the one handled by
+  // falling through rather than by a named branch, so it is excused explicitly
+  // rather than by loosening the rule for everything.
+  for (const layer of EDIT_LAYERS) {
+    if (layer === "look") continue;
+    assert.ok(uniq.includes(layer),
+      "the router can ask for the " + layer + " layer and the worker has no branch for it");
   }
 });
 

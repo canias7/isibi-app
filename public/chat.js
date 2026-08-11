@@ -11391,6 +11391,18 @@ function editReply(e) {
     if (e.failed) out += ' ' + e.failed + ' couldn\u2019t be saved \u2014 try that one again.';
     return out;
   }
+  if (e.layer === 'rules') {
+    // THE SERVER WROTE THIS ONE. `rulesReply` is the single place a rule change
+    // becomes words, and it is the only place that knows what was REFUSED — a
+    // second copy here would eventually drop the refusal and report a booking
+    // table that still takes double bookings as a plain success.
+    //
+    // NOTHING WAS REPUBLISHED, and the owner is told so: a rule that changes no
+    // page still changes what the site does the moment it applies, and somebody
+    // waiting for their site to redeploy would refresh and see nothing move.
+    const said = typeof e.msg === 'string' && e.msg.trim() ? e.msg.trim() : '✅ Done.';
+    return said + ' It’s live now — nothing needed rebuilding.';
+  }
   if (e.layer === 'page' && Array.isArray(e.removed) && e.removed.length) {
     // FREE, AND SAYING SO IS THE POINT. This is the one change that costs nothing
     // but a recompile, and the customer has been told for months that editing
