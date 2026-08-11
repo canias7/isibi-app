@@ -2939,11 +2939,39 @@ export function familyExemplar(family) {
  * to today's behaviour for the site that would have been most expensive.
  */
 const MAX_PRIOR_CHARS = 90000;
-export function priorPagesBlock(pages, mode = "revise") {
+export function priorPagesBlock(pages, mode = "revise", target = "") {
   const list = (Array.isArray(pages) ? pages : [])
     .filter((p) => p && typeof p.path === "string" && typeof p.source === "string" && p.source.trim());
   if (!list.length) return "";
   const total = list.reduce((n, p) => n + p.source.length, 0);
+
+  // ONE PAGE, AND ONLY THAT PAGE'S SOURCE GOES IN THE PROMPT. This is the
+  // cheapest generation there is: the prior-source block rides in the USER
+  // message and is not cached, so showing one file instead of five is a real
+  // saving on input as well as on output. The other pages are named so a link
+  // can point at one, and shown to nobody.
+  //
+  // A target nobody can find degrades to the ordinary revise rather than
+  // silently editing the wrong file — the caller checks this too, and two
+  // places refusing is better than one place guessing.
+  if (mode === "page") {
+    const one = list.find((p) => p.path === target);
+    if (one && one.source.length <= MAX_PRIOR_CHARS) {
+      const others = list.filter((p) => p.path !== one.path).map((p) => p.path);
+      return "\n\nTHE PAGE YOU ARE CHANGING\n" +
+        "Below is the current source of " + one.path + ", exactly as it is published right now.\n\n" +
+        "RETURN THIS ONE FILE AND NOTHING ELSE. Change only what the instruction asks for; everything else in it " +
+        "stays BYTE-IDENTICAL — the same headings, the same sentences, the same sections in the same order, the " +
+        "same components. Do not reword, retitle, tidy or improve anything you were not asked about. The customer " +
+        "wrote this page; a change they did not ask for reads to them as their site being replaced.\n\n" +
+        "Do not return any other page, and do not create one. If what they are asking for needs a page that does " +
+        "not exist, return this file unchanged and it will be handled elsewhere.\n" +
+        (others.length ? "The site's other pages, which you may link to and must not return: " + others.join(", ") + "\n" : "") +
+        "\n--- " + one.path + " ---\n" + one.source;
+    }
+    // No such page, or one too large to show: fall through to the full revise
+    // below, which is what the caller would have done anyway.
+  }
   // ADDING SOMETHING IS NOT REWRITING EVERYTHING, and the difference is the
   // whole reason the addon lane exists. A revise re-emits every page — output is
   // ~87% of what a build costs, so "add a gallery" pays to re-type five pages
@@ -2983,7 +3011,7 @@ export function priorPagesBlock(pages, mode = "revise") {
     list.map((p) => "--- " + p.path + " ---\n" + p.source).join("\n\n");
 }
 
-export function pagesPrompt(brief, spec, brand, family, attachCount = 0, priorPages = null, mode = "revise") {
+export function pagesPrompt(brief, spec, brand, family, attachCount = 0, priorPages = null, mode = "revise", target = "") {
   const name = String(brand || "").trim();
   const example = familyExemplar(family);
   const n = Math.max(0, Math.floor(Number(attachCount) || 0));
@@ -3012,7 +3040,7 @@ export function pagesPrompt(brief, spec, brand, family, attachCount = 0, priorPa
       : "") +
     // LAST, so the model reads the shape-to-copy first and the site-to-edit
     // second. Empty on a first build, so nothing about that path changes.
-    priorPagesBlock(priorPages, mode);
+    priorPagesBlock(priorPages, mode, target);
 }
 
 // A route path the container will accept: under src/routes, .tsx, no traversal,
@@ -3769,7 +3797,7 @@ export const SITE_PAGES_MAX_TOKENS = 30000;
  * the next call pays the write premium again. That is once per deploy that
  * touches the rules, against a saving on every build in between.
  */
-export function pagesRequest({ brief, spec, brand, family, attachments, model, priorPages, mode = "revise" } = {}) {
+export function pagesRequest({ brief, spec, brand, family, attachments, model, priorPages, mode = "revise", target = "" } = {}) {
   // THE ATTACHED FILES \u2014 images and PDFs \u2014 and where they sit is load-bearing
   // twice over.
   //
@@ -3788,7 +3816,7 @@ export function pagesRequest({ brief, spec, brand, family, attachments, model, p
   // caller and test already sees, so adding this feature changes no request that
   // does not use it.
   const blocks = Array.isArray(attachments) ? attachments.filter(Boolean) : [];
-  const text = pagesPrompt(brief, spec, brand, family, blocks.length, priorPages, mode);
+  const text = pagesPrompt(brief, spec, brand, family, blocks.length, priorPages, mode, target);
   return {
     // The composer's Builder picker chooses this; `modelsFor()` with no
     // argument is the default pair, which is what the eval harness and every

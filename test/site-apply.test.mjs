@@ -361,9 +361,21 @@ test("the edit handler CANNOT reach the schema, the seeder or the page generator
   const raw = editBlock();
   const b = raw.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m) => " ".repeat(m.length));
   assert.equal(b.length, raw.length, "blanking must preserve offsets");
-  for (const forbidden of ["applySiteSchema", "seedSiteRows", "generateSitePages", "buildAndPublishPages", "ensureSiteBackend"]) {
+  // WHAT MAKES AN EDIT SAFE IS THE SCHEMA, NOT THE GENERATOR. This listed
+  // `generateSitePages` too, which was true while the lane had only `text` and
+  // `look` and became a FALSE CLAIM the day the `page` layer landed — that layer
+  // generates, deliberately, one file instead of five. Page generation is merely
+  // expensive; touching the database is what an edit must never do.
+  for (const forbidden of ["applySiteSchema", "seedSiteRows", "ensureSiteBackend", "buildAndPublishPages"]) {
     assert.ok(!b.includes(forbidden), "the edit lane must not be able to reach " + forbidden);
   }
+  // AND THE GENERATION IT DOES DO IS BOUNDED. Without the mode and the target it
+  // is an ordinary revise wearing an edit's name — every page re-emitted, at the
+  // price the lane exists to avoid.
+  assert.match(b, /generateSitePages\([^;]*"page", target\.path\)/s,
+    "the page layer must generate in page mode against one named file");
+  assert.equal((b.match(/generateSitePages\(/g) || []).length, 1,
+    "the edit lane must make at most one generation call");
   // Not passing because the block was blanked away.
   assert.match(b, /runTextEdit/);
 });
@@ -393,11 +405,15 @@ test("the charge comes AFTER the publish, on every layer", () => {
 
 test("a failed edit publishes nothing and says the site is untouched", () => {
   const b = editBlock();
-  // Two compile failures, one per layer, and both must promise the live site is
-  // intact — that promise is what makes it safe to try the cheap lane first.
-  const untouched = b.match(/site is untouched/g) || [];
-  assert.equal(untouched.length, 2, "each layer must tell the customer their site survived a failed edit");
-  assert.match(b, /status: 422/, "a failed compile is not reported as success");
+  // DERIVED FROM THE BRANCHES, not a count somebody remembers to bump — this
+  // read `=== 2` and went red the day a third layer landed, which is a test
+  // about arithmetic rather than about the promise it is protecting.
+  const compiles = (b.match(/error: "compile"/g) || []).length;
+  assert.ok(compiles >= 2, "expected a compile-failure branch per publishing layer, found " + compiles);
+  assert.equal((b.match(/site is untouched/g) || []).length, compiles,
+    "every layer's compile failure must tell the customer their site survived it");
+  assert.equal((b.match(/status: 422/g) || []).length, compiles,
+    "a failed compile is not reported as success");
 });
 
 test("everything the lane cannot do escalates with a 200, not a refusal", () => {
@@ -504,4 +520,71 @@ test("an edit is dispatched, and every failure falls back to the build", () => {
     "the escalation check must run before the failure check");
   // A published change has to bust the preview, or it reads as not applied.
   assert.match(b, /previewV = \(s\.previewV \|\| 0\) \+ 1/);
+});
+
+// ── the page layer: one page's source, one model call ────────────────────────
+
+const { priorPagesBlock: pageBlock, pagesRequest: pageReq } = await import("../builder/page-gen.mjs");
+
+const P_SITE = [
+  { path: "src/routes/index.tsx", source: 'export default function Home(){return <p>Sharp Fade</p>;}' },
+  { path: "src/routes/book.tsx", source: 'export default function Book(){return <p>Book a chair</p>;}' },
+  { path: "src/routes/prices.tsx", source: 'export default function Prices(){return <p>From 20</p>;}' },
+];
+
+test("page mode shows ONE page's source and merely names the others", () => {
+  // The prior-source block rides in the USER message and is NOT cached, so
+  // showing one file instead of five is a real saving on input as well as
+  // output. The other paths go in so a link can point at one.
+  const b = pageBlock(P_SITE, "page", "src/routes/book.tsx");
+  assert.match(b, /THE PAGE YOU ARE CHANGING/);
+  assert.match(b, /Book a chair/, "the target's source must be shown");
+  assert.ok(!b.includes("Sharp Fade"), "another page's SOURCE must not be in the prompt");
+  assert.ok(!b.includes("From 20"));
+  assert.match(b, /must not return: src\/routes\/index\.tsx, src\/routes\/prices\.tsx/,
+    "the other pages must be named so a link can point at one");
+  assert.match(b, /RETURN THIS ONE FILE AND NOTHING ELSE/);
+});
+
+test("a target nobody can find degrades to the full revise rather than editing the wrong file", () => {
+  const b = pageBlock(P_SITE, "page", "src/routes/gallery.tsx");
+  assert.ok(!/THE PAGE YOU ARE CHANGING/.test(b), "a missing target must not produce a page-mode prompt");
+  assert.match(b, /Return every page again/, "it must fall back to what the caller would have done anyway");
+});
+
+test("page mode reaches the request through the ONE call definition", () => {
+  const r = pageReq({ brief: "move the form up", spec: { tables: [] }, brand: "Sharp Fade", priorPages: P_SITE, mode: "page", target: "src/routes/book.tsx" });
+  const body = typeof r.messages[0].content === "string" ? r.messages[0].content : r.messages[0].content.at(-1).text;
+  assert.match(body, /THE PAGE YOU ARE CHANGING/);
+  // The cached system block must be byte-identical to a revise's, or every page
+  // edit misses the ~27,000-token prompt cache.
+  const rev = pageReq({ brief: "x", spec: { tables: [] }, brand: "Sharp Fade", priorPages: P_SITE });
+  assert.deepEqual(r.system, rev.system);
+});
+
+test("the page layer takes ONLY the page that was asked for", () => {
+  // A page edit that returns a different file is not a page edit, and taking it
+  // would let one instruction rewrite a page the customer never named. The
+  // prompt says so; this is the half that cannot be talked out of it.
+  const b = editBlock();
+  assert.match(b, /const wrote = \(pValid\.pages \|\| \[\]\)\.find\(\(p\) => p\.path === target\.path\)/,
+    "the handler does not pin the returned file to the target");
+  assert.match(b, /ignored:/, "files the model returned uninvited must be reported, not silently dropped");
+  // An unchanged page is not a publish: it would bill a recompile for a
+  // byte-identical site.
+  assert.match(b, /wrote\.source === target\.source/);
+});
+
+test("the page layer finds its file through routeOf, not a second mapping", () => {
+  // Two path-to-route readers are two things that can disagree about what
+  // src/routes/shop/index.tsx is called.
+  const b = editBlock();
+  assert.match(b, /eSrc\.find\(\(p\) => p && routeOf\(p\.path\) === wantRoute\)/);
+  assert.ok(!/\.replace\(\/\^src\\\/routes\\\//.test(b), "the handler is rolling its own path mapping");
+});
+
+test("a page the site does not have escalates to the rung that can add one", () => {
+  const b = editBlock();
+  assert.match(b, /if \(!target\) return escalate\("no-page"/,
+    "asking to change a page that does not exist IS an addon");
 });

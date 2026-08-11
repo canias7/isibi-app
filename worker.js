@@ -49,7 +49,7 @@ import { imageBudget, budgetFor, imagesAffordable, planImages, applyImages, imag
 import { ASKABLE as SITE_TOKEN_NAMES, valueHint as siteTokenHint, mergeTokens, parseTokens, withContrast, tokenNote } from "./builder/site-tokens.mjs";
 import { extractText, applyEdits } from "./builder/site-text.mjs";
 import { runTextEdit } from "./builder/site-apply.mjs";
-import { mergeAddonPages, unlinkedPages } from "./builder/site-addon.mjs";
+import { mergeAddonPages, unlinkedPages, routeOf } from "./builder/site-addon.mjs";
 import { archiveVersion, listVersions, rollbackVersion, deleteAllVersions, versionId, versionLabel } from "./site-versions.mjs";
 import { readLinkedPages, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, attachments, MAX_QUERIES } from "./builder/site-context.mjs";
 import { routeMessage, clarifiedBrief } from "./builder/site-ask.mjs";
@@ -3711,12 +3711,12 @@ async function siteWebResearch(env, brief, queries) {
 //
 // ONE call per build. There is no repair pass — see builder/publish-pages.mjs
 // for the measurement it was removed on.
-async function generateSitePages(env, brief, spec, brand, family, attachments, model, priorPages, mode) {
+async function generateSitePages(env, brief, spec, brand, family, attachments, model, priorPages, mode, target) {
   // One definition, shared with the eval harness — see pagesRequest. Restating
   // it here would mean the harness tunes against a different request from the
   // one production runs. Held in a const so the usage below can be stamped with
   // the model that was actually sent.
-  const req = pagesRequest({ brief, spec, brand, family, attachments, model, priorPages, mode });
+  const req = pagesRequest({ brief, spec, brand, family, attachments, model, priorPages, mode, target });
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
@@ -9684,9 +9684,85 @@ async function handleRequest(request, env, ctx) {
               });
             }
 
-            // `page` IS NOT BUILT YET and says so rather than pretending. It
-            // escalates like everything else this lane cannot do, so the change
-            // still happens — one rung up, at the price of a rung up.
+            if (eLayer === "page") {
+              // ── ONE PAGE, ONE MODEL CALL ────────────────────────────────
+              //
+              // The cheapest generation there is: only this page's source goes
+              // into the prompt and only this page comes back, where a revise
+              // pays to re-emit every page of the site to move one section.
+              //
+              // THE FILE IS FOUND THROUGH `routeOf`, the same function the addon
+              // lane uses to name a route — rather than a second path-to-route
+              // mapping here, which is two things that can disagree about what
+              // `src/routes/shop/index.tsx` is called.
+              const wantRoute = String((eb && eb.page) || "").trim().toLowerCase();
+              const target = eSrc.find((p) => p && routeOf(p.path) === wantRoute);
+              // The router checks this against the digest already; it can still
+              // be wrong about a site whose digest carried no pages. A page we
+              // cannot find is an ADDON — they are asking for one that is not
+              // there — which is exactly what the rung above does.
+              if (!target) return escalate("no-page", { page: wantRoute });
+
+              const eDb = await siteBackendBySlug(env, ownerSlug);
+              let eSpec = null, eLook2 = null;
+              try {
+                const rows = await sqlQuery(eDb, "SELECT k, v FROM _meta WHERE k IN ('site_look','schema')");
+                for (const r of rows || []) {
+                  if (r.k === "schema" && r.v) eSpec = JSON.parse(r.v);
+                  if (r.k === "site_look" && r.v) eLook2 = JSON.parse(r.v);
+                }
+              } catch (e) { console.error("page edit meta read failed:", ownerSlug, e && e.message); }
+              if (!eSpec || !eLook2) return escalate("no-meta");
+
+              const eModels = modelsFor(eb && eb.picker);
+              let eGen = null;
+              try {
+                eGen = await generateSitePages(env, eInstruction, eSpec, eLook2.brand || ownerSlug,
+                  eLook2.family || null, [], eModels.pages, eSrc, "page", target.path);
+              } catch (e) {
+                console.error("page edit generate failed:", ownerSlug, e && e.message);
+                const pKind = upstreamKind(e && e.detail);
+                return Response.json({
+                  ok: false, error: "generate", cost: 0,
+                  msg: pKind.billing
+                    ? "The site builder is temporarily unavailable — this is on us, not your change."
+                    : "The builder is busy — try again in a moment.",
+                  upstream: (e && e.status) || null, upstreamType: pKind.type, billing: pKind.billing || undefined,
+                }, { status: 503 });
+              }
+
+              const pValid = validatePages(eGen && eGen.input, { partial: true });
+              // ONLY THE PAGE THAT WAS ASKED FOR. A page edit that returns a
+              // different file is not a page edit, and taking it would let one
+              // instruction rewrite a page the customer never named. The prompt
+              // says so too; this is the half that cannot be talked out of it.
+              const wrote = (pValid.pages || []).find((p) => p.path === target.path);
+              if (!wrote || wrote.source === target.source) {
+                return escalate(wrote ? "no-change" : "no-page-back", { problems: pValid.problems.slice(0, 4) });
+              }
+              const pPages = eSrc.map((p) => (p.path === target.path ? { path: p.path, source: wrote.source } : p));
+
+              const pPub = await recompileAndPublish(env, {
+                slug: ownerSlug, pages: pPages,
+                label: versionLabel({ revise: true, changeNote: eInstruction }),
+              });
+              if (!pPub.ok) {
+                return Response.json({
+                  ok: false, error: "compile", cost: 0,
+                  msg: "That change didn't compile, so your site is untouched — try describing it differently.",
+                  detail: pPub.detail,
+                }, { status: 422 });
+              }
+              return Response.json({
+                ok: true, layer: "page", page: wantRoute,
+                ignored: (pValid.pages || []).filter((p) => p.path !== target.path).map((p) => p.path).slice(0, 4),
+                problems: pValid.problems.slice(0, 4),
+                files: pPub.files, cost: await eCharge(eGen && eGen.usage), usage: eGen && eGen.usage,
+              });
+            }
+
+            // A LAYER NOBODY IMPLEMENTS escalates rather than pretending, so the
+            // change still happens — one rung up, at the price of a rung up.
             return escalate("layer");
           }
           if (ad) {
