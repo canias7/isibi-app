@@ -68,6 +68,14 @@ export function uploadName(hashHex, ext) {
 // the bundle compiles perfectly around a dead URL.
 export const uploadKey = (slug, name) => "uploads/" + String(slug).toLowerCase() + "/" + name;
 export const uploadUrl = (slug, name) => "/u/" + String(slug).toLowerCase() + "/" + name;
+/**
+ * The inverse of `uploadKey` — the file's own name out of a stored object key.
+ *
+ * HERE BECAUSE `uploadKey` IS HERE. The layout of that key is this module's, so
+ * a caller splitting it by hand is a second place that knows it, and the two
+ * drift the first time the prefix changes.
+ */
+export const uploadFileName = (key) => String(key || "").split("/").pop() || "";
 const keyFor = uploadKey;
 const urlFor = uploadUrl;
 

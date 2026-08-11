@@ -410,6 +410,26 @@ test("the route exists, is dispatched, and reaches the module", () => {
   assert.match(b, /assertOwner\(/, "the edit lane is not ownership-gated");
 });
 
+/**
+ * One layer's branch, from its own `if` to whichever branch comes NEXT.
+ *
+ * DERIVED, because sliced to a named neighbour it swallows anything inserted
+ * between them — measured: adding the `picture` branch between `rules` and
+ * `text` put a recompiling layer inside the window that asserts the rules layer
+ * never recompiles, and inside the one that asserts the data layer never does.
+ * Both went red on a correct change, which is the overlapping-window bug this
+ * repo already records twice.
+ */
+function layerBranch(b, layer) {
+  const from = b.indexOf('if (eLayer === "' + layer + '") {');
+  assert.ok(from >= 0, "the " + layer + " layer is gone or moved");
+  const rest = [...b.matchAll(/if \(eLayer === "[a-z]+"\) \{/g)]
+    .map((m) => m.index).filter((i) => i > from);
+  const to = rest.length ? rest[0] : b.length;
+  assert.ok(to > from, "the " + layer + " branch is empty");
+  return b.slice(from, to);
+}
+
 test("the edit handler CANNOT reach the schema, the seeder or the page generator", () => {
   // The guarantee is a property of the code path, not a rule inside a 700-line
   // handler. Comments blanked, since the block explains what it may not do.
@@ -433,15 +453,13 @@ test("the edit handler CANNOT reach the schema, the seeder or the page generator
   }
   assert.equal((b.match(/applySiteSchema\(/g) || []).length, 1,
     "the schema may be applied from exactly one place in the edit lane");
-  const rFrom = b.indexOf('if (eLayer === "rules") {');
-  const rTo = b.indexOf('if (eLayer === "text") {');
-  assert.ok(rFrom > 0 && rTo > rFrom, "the rules layer is gone or moved");
-  assert.ok(b.slice(rFrom, rTo).includes("applySiteSchema("),
+  const rBlock = layerBranch(b, "rules");
+  assert.ok(rBlock.includes("applySiteSchema("),
     "…and that place is the rules branch, not some other layer");
   // AND IT PUBLISHES NOTHING, which is what makes it a rung below `look` rather
   // than a variant of `addon`. Asserted as an absence between its own
   // boundaries, exactly as the data layer's is.
-  assert.ok(!b.slice(rFrom, rTo).includes("recompileAndPublish("),
+  assert.ok(!rBlock.includes("recompileAndPublish("),
     "a rule is enforced in Postgres and on the request path — no page changes, so nothing is republished");
   // AND THE GENERATION IT DOES DO IS BOUNDED. Without the mode and the target it
   // is an ordinary revise wearing an edit's name — every page re-emitted, at the
@@ -480,10 +498,7 @@ test("the charge comes AFTER the publish, on every layer", () => {
   }
   // And the data layer really does skip the container, or it is not the cheap
   // layer it claims to be. Asserted as an absence between its own boundaries.
-  const dFrom = b.indexOf('if (eLayer === "data") {');
-  const dTo = b.indexOf('if (eLayer === "text") {');
-  assert.ok(dFrom > 0 && dTo > dFrom, "the data layer is gone or moved");
-  const dBlock = b.slice(dFrom, dTo);
+  const dBlock = layerBranch(b, "data");
   assert.ok(!dBlock.includes("recompileAndPublish("),
     "the data layer must not recompile — rows are read at runtime");
   assert.match(dBlock, /runDataEdit\(/);

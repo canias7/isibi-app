@@ -25,7 +25,7 @@ import { makeLimiter, bucketKey, tooMany, WINDOW_MS } from "./rate-limit.mjs";
 import { ensureSiteBackend as ensureSiteBackendPure } from "./site-provision.mjs";
 import { lookupRoute, saveRoute, dropRoute } from "./site-routing.mjs";
 import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerMembers, handleOwnerAnalytics, assertOwner } from "./site-owner.mjs";
-import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload, MAX_UPLOAD_BYTES, MAX_VISITOR_UPLOAD_BYTES, sniffImage, uploadName, uploadKey, uploadUrl } from "./site-uploads.mjs";
+import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload, MAX_UPLOAD_BYTES, MAX_VISITOR_UPLOAD_BYTES, sniffImage, uploadName, uploadKey, uploadUrl, uploadFileName } from "./site-uploads.mjs";
 import { handleOwnerExport } from "./site-export.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
 import { makeTrace } from "./builder/trace.mjs";
@@ -50,6 +50,7 @@ import { ASKABLE as SITE_TOKEN_NAMES, valueHint as siteTokenHint, mergeTokens, p
 import { extractText, applyEdits } from "./builder/site-text.mjs";
 import { runTextEdit, runDataEdit, renamePages, MAX_DATA_ROWS } from "./builder/site-apply.mjs";
 import { runRulesEdit } from "./builder/site-rules.mjs";
+import { runPictureEdit } from "./builder/site-picture.mjs";
 import { resolveAccess, ACCESS_PRESETS } from "./site-access.mjs";
 // The pair a `display` table resolves to. Named once, from the presets, so the
 // data layer's gate cannot drift from the vocabulary again — it was compared
@@ -2653,6 +2654,37 @@ async function genSitePhoto(env, prompt) {
  * appear in the owner's own image library, which is the whole reason a build
  * that later fails to compile has not simply burned the money.
  */
+/**
+ * One photograph, generated and stored under the site's own uploads.
+ *
+ * EXTRACTED SO THERE IS ONE COPY. The build path and the `picture` layer both
+ * need generate → sniff → hash → put, and two copies of that drift: the sniff is
+ * the only thing standing between an image model's answer and an SVG served
+ * inline from our own origin, so a second copy that forgets it is a stored XSS.
+ *
+ * Returns the URL, or null. Never throws: a photograph that could not be made is
+ * a slot left alone, not a failed edit.
+ */
+async function makeSitePhoto(env, slug, prompt) {
+  try {
+    const p = imagePrompt(prompt);
+    if (!p) return null;
+    const bytes = await genSitePhoto(env, p);
+    const kind = sniffImage(bytes);
+    if (!kind) return null;
+    if (bytes.length > MAX_UPLOAD_BYTES) return null;
+    const digest = await crypto.subtle.digest("SHA-256", bytes);
+    const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+    const name = uploadName(hex, kind.ext);
+    if (!name) return null;
+    await env.SITES_BUCKET.put(uploadKey(slug, name), bytes, { httpMetadata: { contentType: kind.mime } });
+    return uploadUrl(slug, name);
+  } catch (e) {
+    console.error("photo failed:", slug, e && e.message);
+    return null;
+  }
+}
+
 async function buySitePhotos(env, { slug, pages, budget, balance, reserve }) {
   let affordable = imagesAffordable(budget, { balance, reserve, usd: SITE_PHOTO_USD });
   // THE OWNER'S OWN IMAGE ALLOWANCE, respected rather than bypassed. Generated
@@ -9798,6 +9830,67 @@ async function handleRequest(request, env, ctx) {
               return Response.json({
                 ok: true, layer: "rules", applied: rOut.applied, refused: rOut.refused || [],
                 msg: rOut.msg, cost: await eCharge(rOut.usage), usage: rOut.usage,
+              });
+            }
+            if (eLayer === "picture") {
+              // ── A PHOTOGRAPH ON A PAGE THAT ALREADY EXISTS ──────────────
+              //
+              // Pictures were bought at BUILD time and after that nothing could
+              // touch them: a revise buys none (it re-derives the same budget
+              // against fresh descriptions, so ~94 credits of NEW photographs
+              // for ones the owner already had) and no lane could swap one. So
+              // "use a photo of MY shop instead" had no path at all.
+              //
+              // THE FREE HALF IS THE USEFUL HALF TODAY. Every `SafeImage` on
+              // every published site is drawing its placeholder, because the
+              // image balance has never been funded — so the owner's OWN
+              // photographs, which need no image model, are what actually fills
+              // them, and are better than a made-up one for a business that has
+              // them.
+              const balance = await readCredits(eAuth).catch(() => 0);
+              const pOut = await runPictureEdit({
+                send: (req) => anthropicMessages(env, req),
+                // The owner's upload library, named the way they see it.
+                library: async () => (await siteUploadList(env, ownerSlug))
+                  .map((o) => ({ name: uploadFileName(o.key), url: uploadUrl(ownerSlug, uploadFileName(o.key)) }))
+                  .filter((f) => f.name),
+                // ONE PHOTOGRAPH AT A TIME, priced against the real balance
+                // before each. Checked per picture rather than once up front
+                // because each one is ~19 credits: a batch that can afford two
+                // of three must buy the two, and the third is reported.
+                generate: async (describe) => {
+                  if (!imagesAffordable(1, { balance, usd: SITE_PHOTO_USD })) return null;
+                  return makeSitePhoto(env, ownerSlug, describe);
+                },
+              }, { instruction: eInstruction, pages: eSrc });
+
+              if (!pOut.ok) {
+                if (!pOut.escalate) {
+                  return Response.json({
+                    ok: false, error: pOut.reason, cost: await eCharge(pOut.usage), usage: pOut.usage,
+                    // The module writes this — it is the only thing that knows
+                    // which slot could not be filled and why.
+                    msg: pOut.msg || "That change couldn't be made — try again.",
+                  }, { status: 422 });
+                }
+                return escalate(pOut.reason);
+              }
+              const pPub = await recompileAndPublish(env, {
+                slug: ownerSlug, pages: pOut.pages,
+                label: versionLabel({ revise: true, changeNote: eInstruction }),
+              });
+              if (!pPub.ok) {
+                return Response.json({
+                  ok: false, error: "compile", cost: 0,
+                  msg: compileMsg(pPub, "That picture change didn't compile, so your site is untouched."),
+                  detail: pPub.detail,
+                }, { status: 422 });
+              }
+              return Response.json({
+                ok: true, layer: "picture", msg: pOut.msg,
+                changed: pOut.changed, files: pPub.files,
+                used: pOut.used.length, made: pOut.made.length, failed: pOut.failed,
+                cost: await eCharge(pOut.usage), usage: pOut.usage,
               });
             }
             if (eLayer === "text") {

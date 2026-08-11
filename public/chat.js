@@ -11391,6 +11391,13 @@ function editReply(e) {
     if (e.failed) out += ' ' + e.failed + ' couldn\u2019t be saved \u2014 try that one again.';
     return out;
   }
+  if (e.layer === 'picture') {
+    // THE SERVER NAMES THE PICTURE. A src is not something the owner can check,
+    // so the reply quotes the description the slot already carries — and the
+    // module is the only thing that knows which ones could not be made, which is
+    // the half a second copy here would eventually drop.
+    return (typeof e.msg === 'string' && e.msg.trim() ? e.msg.trim() : '✅ Done.');
+  }
   if (e.layer === 'rules') {
     // THE SERVER WROTE THIS ONE. `rulesReply` is the single place a rule change
     // becomes words, and it is the only place that knows what was REFUSED — a
