@@ -23,6 +23,16 @@ on:
       - 'builder/site-addon.mjs'
       - 'builder/site-ask.mjs'
       - 'builder/site-text.mjs'
+      # THE FILE THAT DECIDES WHAT THE LANES CAN EXPRESS. Left out at first, and
+      # it cost a cycle: the fix for the delete verb was a change to the tool
+      # SCHEMA in page-gen.mjs, this filter did not name it, and the run that
+      # would have proved the fix never fired. The addon prompt, the tool the
+      # model answers with, and `validatePages` all live here.
+      #
+      # The cost, stated: page-gen.mjs changes often and this run is ~50 credits.
+      # That is the right trade for a lane customers pay for — and `build smoke`
+      # covers the other half of this file for free on every deploy anyway.
+      - 'builder/page-gen.mjs'
       - 'test/integration/edit-smoke.mjs'
       - '.github/workflows/edit-smoke.yml'
   workflow_dispatch:
