@@ -11,6 +11,7 @@ import {
   useLogout,
   useRows,
   useCreateRow,
+  useUpdateRow,
   useDeleteRow,
   type Row,
 } from "@/lib/rows";
@@ -37,10 +38,11 @@ type Announcement = Row & { title: string; body: string };
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "A calm room, a steady practice.",
+  tagline: "A calm, well-lit studio for every kind of practice.",
   links: [
     { label: "Home", href: "/" },
     { label: "Book", href: "/book" },
+    { label: "The studio", href: "/work" },
     { label: "Account", href: "/account" },
   ],
   action: { label: "Book now", href: "/book" },
@@ -152,28 +154,29 @@ function Account() {
 }
 
 function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) {
-  const notes = useRows<Note>("my_notes");
-  const createNote = useCreateRow<Note>("my_notes");
-  const deleteNote = useDeleteRow("my_notes");
-  const announcements = useRows<Announcement>("announcements");
+  const notes = useRows<Note>("my_notes", { order: "id", dir: "desc" });
+  const announcements = useRows<Announcement>("announcements", { order: "id", dir: "desc" });
+  const create = useCreateRow<Note>("my_notes");
+  const update = useUpdateRow<Note>("my_notes");
+  const remove = useDeleteRow("my_notes");
 
-  const noteForm = useForm<NoteForm>({
+  const form = useForm<NoteForm>({
     resolver: zodResolver(noteSchema),
     defaultValues: { title: "", body: "" },
   });
 
-  const onAddNote = (values: NoteForm) => {
-    createNote.mutate(values, {
+  const onAdd = (values: NoteForm) => {
+    create.mutate(values, {
       onSuccess: () => {
         toast.success("Note saved");
-        noteForm.reset();
+        form.reset();
       },
       onError: (e: Error) => toast.error(e.message),
     });
   };
 
   return (
-    <>
+    <div>
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-semibold tracking-tight">Hello, {name}</h1>
         <Button variant="ghost" onClick={onSignOut}>
@@ -186,17 +189,17 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
           <CardTitle className="text-base">Studio announcements</CardTitle>
         </CardHeader>
         <CardContent>
-          {announcements.isPending && <Skeleton className="h-20 rounded-xl" />}
+          {announcements.isPending && <Skeleton className="h-20 rounded-lg" />}
           {announcements.isError && (
             <p className="text-sm text-destructive">Couldn't load announcements. Refresh and try again.</p>
           )}
           {announcements.data?.length === 0 && (
-            <Empty title="Nothing posted yet" description="The studio hasn't shared anything here." />
+            <Empty title="Nothing posted yet" description="The studio hasn't shared anything here yet." />
           )}
           {!!announcements.data?.length && (
             <ul className="grid gap-4 motion-stagger">
               {announcements.data.map((a) => (
-                <li key={a.id} className="rounded-lg border border-border p-4">
+                <li key={a.id} className="border-b border-border pb-4 last:border-0 last:pb-0">
                   <p className="font-medium">{a.title}</p>
                   <p className="mt-1 text-sm text-muted-foreground">{a.body}</p>
                 </li>
@@ -206,48 +209,61 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
         </CardContent>
       </Card>
 
-      <Card className="mt-8">
+      <Card className="mt-6">
         <CardHeader>
           <CardTitle className="text-base">Your practice notes</CardTitle>
         </CardHeader>
         <CardContent>
-          {notes.isPending && <Skeleton className="h-20 rounded-xl" />}
+          {notes.isPending && <Skeleton className="h-24 rounded-lg" />}
           {notes.isError && (
             <p className="text-sm text-destructive">Couldn't load your notes. Refresh and try again.</p>
           )}
           {notes.data?.length === 0 && (
-            <Empty title="No notes yet" description="Keep track of what worked in class, or what to ask your teacher next time." />
+            <Empty title="No notes yet" description="Jot down what worked in class, or what to try next time." />
           )}
           {!!notes.data?.length && (
             <ul className="grid gap-3">
               {notes.data.map((n) => (
-                <li key={n.id} className="flex items-start justify-between gap-4 rounded-lg border border-border p-4">
+                <li key={n.id} className="flex items-start justify-between gap-3 rounded-lg border border-border p-3">
                   <div>
                     <p className="font-medium">{n.title}</p>
                     <p className="mt-1 text-sm text-muted-foreground">{n.body}</p>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={deleteNote.isPending}
-                    onClick={() =>
-                      deleteNote.mutate(n.id, {
-                        onSuccess: () => toast.success("Note deleted"),
-                        onError: (e: Error) => toast.error(e.message),
-                      })
-                    }
-                  >
-                    Delete
-                  </Button>
+                  <div className="flex shrink-0 gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        update.mutate(
+                          { id: n.id, title: n.title, body: `${n.body}` },
+                          { onSuccess: () => toast.success("Saved") },
+                        )
+                      }
+                    >
+                      Touch
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() =>
+                        remove.mutate(n.id, {
+                          onSuccess: () => toast.success("Deleted"),
+                          onError: (e: Error) => toast.error(e.message),
+                        })
+                      }
+                    >
+                      Delete
+                    </Button>
+                  </div>
                 </li>
               ))}
             </ul>
           )}
 
-          <Form {...noteForm}>
-            <form onSubmit={noteForm.handleSubmit(onAddNote)} className="mt-6 grid gap-3">
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onAdd)} className="mt-6 grid gap-3 border-t border-border pt-6">
               <FormField
-                control={noteForm.control}
+                control={form.control}
                 name="title"
                 render={({ field }) => (
                   <FormItem>
@@ -260,7 +276,7 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
                 )}
               />
               <FormField
-                control={noteForm.control}
+                control={form.control}
                 name="body"
                 render={({ field }) => (
                   <FormItem>
@@ -273,14 +289,14 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
                 )}
               />
               <div>
-                <Button type="submit" className="motion-press" disabled={createNote.isPending}>
-                  {createNote.isPending ? "Saving…" : "Add note"}
+                <Button type="submit" className="motion-press" disabled={create.isPending}>
+                  {create.isPending ? "Saving…" : "Add note"}
                 </Button>
               </div>
             </form>
           </Form>
         </CardContent>
       </Card>
-    </>
+    </div>
   );
 }

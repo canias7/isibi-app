@@ -1,4 +1,5 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -17,7 +18,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { PriorityBadge } from "@/components/ui/priority-badge";
+import { FeatureGrid } from "@/components/ui/feature-grid";
 
 export const Route = createFileRoute("/")({ component: Home });
 
@@ -32,45 +33,51 @@ function Home() {
   const member = useMember();
   const login = useLogin();
   const signup = useSignup();
+  const navigate = useNavigate();
+  const [mode, setMode] = useState<"login" | "signup">("login");
+  const [name, setName] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   const form = useForm<Credentials>({
     resolver: zodResolver(credentials),
     defaultValues: { email: "", password: "" },
   });
 
-  const submit = (action: typeof login, values: Credentials) => {
-    action.mutate(values, {
-      onSuccess: (data) => {
-        if (data && typeof data === "object" && "pending" in data) {
-          toast.message("Check your authenticator app to finish signing in.");
-          return;
-        }
-        form.reset();
-      },
-      onError: () => toast.error("That email and password didn't match."),
-    });
+  if (member.data) {
+    navigate({ to: "/records" });
+  }
+
+  const onSubmit = (values: Credentials) => {
+    setError(null);
+    if (mode === "login") {
+      login.mutate(values, {
+        onSuccess: () => {
+          form.reset();
+          navigate({ to: "/records" });
+        },
+        onError: (e) => {
+          setError(e.message);
+          toast.error(e.message);
+        },
+      });
+    } else {
+      signup.mutate(
+        { ...values, name: name || values.email.split("@")[0] },
+        {
+          onSuccess: () => {
+            form.reset();
+            navigate({ to: "/records" });
+          },
+          onError: (e) => {
+            setError(e.message);
+            toast.error(e.message);
+          },
+        },
+      );
+    }
   };
 
-  if (member.isPending) {
-    return (
-      <main className="flex min-h-screen items-center justify-center">
-        <p className="text-muted-foreground">Checking your sign-in…</p>
-      </main>
-    );
-  }
-
-  if (member.data) {
-    return (
-      <main className="flex min-h-screen items-center justify-center px-6">
-        <div className="text-center">
-          <h1 className="text-2xl font-semibold tracking-tight">You're signed in, {member.data.name}</h1>
-          <Button asChild className="mt-6">
-            <Link to="/records">Go to records</Link>
-          </Button>
-        </div>
-      </main>
-    );
-  }
+  const busy = login.isPending || signup.isPending;
 
   return (
     <main className="grid min-h-screen md:grid-cols-2">
@@ -78,40 +85,65 @@ function Home() {
         <p className="text-lg font-semibold tracking-tight">Halyard</p>
         <div className="max-w-md py-12">
           <h1 className="text-3xl font-semibold tracking-tight text-balance">
-            Every deal your team is working, one shared table
+            One table for every deal your team is working
           </h1>
           <p className="mt-4 text-muted-foreground">
-            Halyard is where a small sales team keeps its pipeline. Deals move through stages, the
-            team's accounts sit in one shared list, and every record keeps its own activity trail —
-            no spreadsheet, no separate inbox.
+            Halyard is the shared pipeline for a small sales team: every deal, every
+            account and the plays that work, in one place everyone reads from and
+            writes to together.
           </p>
-          <ul className="mt-8 space-y-4 text-sm">
+          <FeatureGrid
+            className="mt-8"
+            columns={2}
+            items={[
+              { title: "Shared deals", description: "Your whole team sees and edits the same pipeline" },
+              { title: "Shared accounts", description: "One list of who you're selling to, kept current" },
+              { title: "The playbook", description: "Guidance the business keeps up to date, always visible" },
+              { title: "Your own signal", description: "Add a deal in seconds, from wherever you are" },
+            ]}
+          />
+          <ul className="mt-8 space-y-3 text-sm">
             <li className="flex items-start gap-3">
-              <StatusBadge state="success">shared</StatusBadge>
-              <span>The team's deals and accounts, read and edited by everyone on the team</span>
+              <StatusBadge state="success">live</StatusBadge>
+              <span>Search and filter the deals your team is working right now</span>
             </li>
             <li className="flex items-start gap-3">
-              <PriorityBadge level="high" />
-              <span>Filter, search and act on a selection without leaving the table</span>
-</li>
-            <li className="flex items-start gap-3">
-              <StatusBadge state="neutral">reference</StatusBadge>
-              <span>A shared playbook the team reads, kept up to date from outside the tool</span>
+              <StatusBadge state="success">live</StatusBadge>
+              <span>Open any deal to its own record — fields and history together</span>
             </li>
           </ul>
         </div>
-        <p className="text-xs text-muted-foreground">Sign in with your team account below.</p>
+        <p className="text-xs text-muted-foreground">
+          Built for teams who'd rather sign in than sign up for another inbox.
+        </p>
       </section>
 
       <section className="flex items-center justify-center p-10">
         <Card className="w-full max-w-sm">
           <CardHeader>
-            <CardTitle>Sign in</CardTitle>
-            <CardDescription>Back to the pipeline in one field and a click.</CardDescription>
+            <CardTitle>{mode === "login" ? "Sign in" : "Create an account"}</CardTitle>
+            <CardDescription>
+              {mode === "login"
+                ? "Back to the pipeline in a field and a click."
+                : "Join your team's Halyard in a minute."}
+            </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="grid gap-4">
+            {mode === "signup" && (
+              <div className="grid gap-1.5">
+                <label className="text-sm font-medium" htmlFor="hy-name">
+                  Name
+                </label>
+                <Input
+                  id="hy-name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Jordan Reyes"
+                />
+              </div>
+            )}
             <Form {...form}>
-              <form className="grid gap-4" onSubmit={form.handleSubmit((v) => submit(login, v))}>
+              <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-4">
                 <FormField
                   control={form.control}
                   name="email"
@@ -138,21 +170,43 @@ function Home() {
                     </FormItem>
                   )}
                 />
-                <div className="flex gap-3">
-                  <Button type="submit" className="motion-press" disabled={login.isPending}>
-                    {login.isPending ? "Signing in…" : "Sign in"}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={signup.isPending}
-                    onClick={form.handleSubmit((v) => submit(signup, v))}
-                  >
-                    Create an account
-                  </Button>
-                </div>
+                {error && <p className="text-sm text-destructive">{error}</p>}
+                <Button type="submit" className="motion-press" disabled={busy}>
+                  {busy
+                    ? mode === "login"
+                      ? "Signing in…"
+                      : "Creating account…"
+                    : mode === "login"
+                      ? "Sign in"
+                      : "Create account"}
+                </Button>
               </form>
             </Form>
+            <p className="text-center text-xs text-muted-foreground">
+              {mode === "login" ? (
+                <>
+                  New here?{" "}
+                  <button
+                    type="button"
+                    className="underline underline-offset-4"
+                    onClick={() => setMode("signup")}
+                  >
+                    Create an account
+                  </button>
+                </>
+              ) : (
+                <>
+                  Already have one?{" "}
+                  <button
+                    type="button"
+                    className="underline underline-offset-4"
+                    onClick={() => setMode("login")}
+                  >
+                    Sign in
+                  </button>
+                </>
+              )}
+            </p>
           </CardContent>
         </Card>
       </section>
