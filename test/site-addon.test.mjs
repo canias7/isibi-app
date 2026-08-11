@@ -537,8 +537,21 @@ test("the model is TOLD how to remove, in the addon block and in the tool", () =
   // "remove the gallery" by returning nothing, which is precisely the escalation
   // this change exists to stop.
   const block = priorPagesBlock(SITE, "addon");
-  assert.match(block, /TO REMOVE A PAGE, LIST IT IN `remove`/, "the addon prompt never mentions removal");
+  // NOT just the word `remove` — the surviving half of the paragraph contains it,
+  // which a mutation proved by deleting the sentence that does the work and
+  // passing anyway. The instruction has to be the one that ANSWERS the question
+  // the model is actually asking itself.
+  assert.match(block, /`remove` IS THE ONLY THING THAT DOES IT/,
+    "the addon prompt never says which field deletes a page");
+  assert.match(block, /NOT returning it does NOTHING here/,
+    "the prompt does not contradict the not-returning habit head-on");
   assert.match(block, /a page you do not return is\s+KEPT/i, "the prompt does not correct the revise habit");
+  // AND IT MUST BIND ON COST. Measured live: "add a gallery page" rewrote all
+  // four existing pages for 28 credits, with the "return only what is new or
+  // changed" rule already in the prompt and not binding. A number with the
+  // consequence attached is what replaced it.
+  assert.match(block, /TWO FILES IS THE NORMAL ANSWER/, "the prompt states no bound on how much comes back");
+  assert.match(block, /thrown away/, "the prompt does not say an unasked-for rewrite is discarded");
   // And the tool has somewhere to put it. OPTIONAL — a build must not be asked
   // for a field it can never have a use for.
   assert.ok(SITE_PAGES_TOOL.input_schema.properties.remove, "the tool cannot carry a removal");
@@ -647,4 +660,88 @@ test("the route hands a considered refusal to the customer, not to the build lan
   assert.ok(refuse > 0, "a refusal with a reason still escalates to the build lane");
   assert.ok(climb > 0, "the escalation is gone — a dead end must still reach the rung above");
   assert.ok(refuse < climb, "the escalation is checked first, so the refusal can never fire");
+});
+
+// ── an addon may not rewrite what it was not asked about ─────────────────────
+//
+// MEASURED LIVE, first run of `edit smoke`: "add a gallery page" came back
+// having changed index, book, manage AND work — four of four existing pages —
+// for 28 credits, a whole build's price for an addition. The prompt already said
+// to return only what is new or changed. A rule a model is merely TOLD is not a
+// rule; this is the same reasoning that put MAX_CLARIFY in code.
+
+test("a rewrite nobody asked for is reverted, and named", () => {
+  const gallery = page("gallery.tsx", "export default function G(){return <p>Work</p>;}");
+  // index carries the new link — that is the ONE page this lane is allowed to
+  // reach beyond the thing it adds. `book` was rewritten for no reason at all.
+  const linked = { path: SITE[0].path, source: SITE[0].source.replace('"/book"', '"/gallery"') };
+  const meddled = { path: SITE[1].path, source: 'export default function Book(){return <p>Book a chair with us today</p>;}' };
+  const r = mergeAddonPages(SITE, [gallery, linked, meddled]);
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.added, ["src/routes/gallery.tsx"]);
+  assert.deepEqual(r.changed, ["src/routes/index.tsx"], "the page carrying the link must survive");
+  assert.deepEqual(r.reverted, ["src/routes/book.tsx"]);
+  assert.equal(r.pages.find((p) => p.path === SITE[1].path).source, SITE[1].source,
+    "the customer's own page was replaced by one they did not ask for");
+});
+
+test("…and it does NOT apply when nothing was added or removed", () => {
+  // "Put testimonials on the home page" is an addon whose whole content is a
+  // changed page — the prompt tells the model to do exactly that. There is no
+  // route to point at, and reverting here would throw away the entire request.
+  const edited = { path: SITE[0].path, source: SITE[0].source + "\n// testimonials" };
+  const r = mergeAddonPages(SITE, [edited]);
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.changed, ["src/routes/index.tsx"]);
+  assert.deepEqual(r.reverted, []);
+});
+
+test("a page that DROPPED a link to a removed page is never reverted", () => {
+  // THE ORDERING TRAP, and the reason both sides of the comparison are checked.
+  // On a removal the model's new source is the one with the link taken OUT, so
+  // it mentions nothing; the STORED source is the one that still points at the
+  // deleted route. Checking only the new source would revert exactly that page —
+  // putting a `<Link to="/book">` back for a route that no longer exists, which
+  // does not compile, on the one path where the removal loop has already checked
+  // that nothing links to it.
+  const unlinked = { path: SITE[0].path, source: 'const CHROME = { links: [] };\nexport default function Home(){return <p>Sharp Fade</p>;}' };
+  const r = mergeAddonPages(SITE, [unlinked], ["src/routes/book.tsx"]);
+  assert.deepEqual(r.removed, ["src/routes/book.tsx"], "kept: " + JSON.stringify(r.kept));
+  assert.deepEqual(r.reverted, [], "the unlink was reverted — the site would not compile");
+  assert.equal(r.pages.find((p) => p.path === SITE[0].path).source.includes('"/book"'), false);
+});
+
+test("reverting can never turn a real addon into a refusal", () => {
+  // WRITTEN AS THE OPPOSITE ASSERTION FIRST, and it could not fire. The revert
+  // only runs when something was added or removed — and both of those ARE
+  // changes, so the set it guards can never be emptied into `no-change`. That is
+  // a property of the ordering rather than a coincidence, and it is worth
+  // pinning: a future edit that let the revert run unconditionally would make a
+  // model whose only output was a rewrite report a publish of a byte-identical
+  // site.
+  const gallery = page("gallery.tsx", "export default function G(){return <p>Work</p>;}");
+  const meddled = { path: SITE[1].path, source: 'export default function Book(){return <p>Different words</p>;}' };
+  const r = mergeAddonPages(SITE, [gallery, meddled]);
+  assert.equal(r.ok, true, "an addition survived its own revert pass: " + r.reason);
+  assert.deepEqual(r.added, ["src/routes/gallery.tsx"]);
+  assert.deepEqual(r.reverted, ["src/routes/book.tsx"]);
+
+  // And with NO add and NO removal the rule does not run at all, so a lone
+  // rewrite is still the request and still lands.
+  const alone = mergeAddonPages(SITE, [meddled]);
+  assert.equal(alone.ok, true);
+  assert.deepEqual(alone.changed, ["src/routes/book.tsx"]);
+  assert.deepEqual(alone.reverted, []);
+});
+
+test("a revert is reported all the way to the customer", () => {
+  // A SILENT REVERT IS THE SAME PARTIAL THIS LANE HAS HAD TWICE. It is the
+  // customer's own page being put back — and if they really did want it edited,
+  // this sentence is the only way they find out it did not stick.
+  assert.match(addonReply({ added: ["src/routes/g.tsx"], reverted: ["src/routes/book.tsx"] }),
+    /I left \/book as it was/);
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(w, /reverted: aMerge\.reverted/, "the route computes the revert and never returns it");
+  const chat = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+  assert.match(chat, /a\.reverted/, "the client is never told a page was put back");
 });

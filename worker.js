@@ -10108,6 +10108,7 @@ async function handleRequest(request, env, ctx) {
             return Response.json({
               ok: true,
               added: aMerge.added, changed: aMerge.changed, removed: aMerge.removed, kept: aMerge.kept,
+              reverted: aMerge.reverted,
               photos: aSlots,
               tables: aTables,
               unlinked: unlinkedPages(aMerge.pages, aMerge.added),

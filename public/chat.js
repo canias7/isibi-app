@@ -11305,6 +11305,14 @@ function addonReplyText(a) {
       : ' I left ' + p + ' — ' + (k.from || []).map(sitePathOf).filter(Boolean).join(', ') +
         ' still links to it. Ask me to take the link out first.';
   }
+  // A REVERT IS SAID OUT LOUD — the customer's own page being put back. Composed
+  // the same way the server composes it, because chat.js cannot import the module.
+  const back = (Array.isArray(a.reverted) ? a.reverted : []).map(sitePathOf).filter(Boolean).slice(0, 3);
+  if (back.length) {
+    out += ' I left ' + back.join(', ') + ' as ' + (back.length === 1 ? 'it was' : 'they were') +
+      ' — nothing there needed to change for this. Ask me directly if you did want ' +
+      (back.length === 1 ? 'it' : 'them') + ' edited.';
+  }
   const un = Array.isArray(a.unlinked) ? a.unlinked : [];
   if (un.length) out += ' Nothing links to ' + un.join(', ') + ' yet — say where you want the link and I’ll add it.';
   return out + problemNote(a.problems);

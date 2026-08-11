@@ -97,6 +97,50 @@ export function mergeAddonPages(prior, returned, remove) {
     gone.push(path);
   }
 
+  // ── AN ADDON MAY NOT REWRITE THE PAGES IT WAS NOT ASKED ABOUT ─────────────
+  //
+  // MEASURED LIVE, first run of `edit smoke`: "add a gallery page" came back
+  // having changed index, book, manage AND work — four of the site's four
+  // existing pages — for 28 credits, which is a whole build's price for an
+  // addition. The prompt says "RETURN ONLY WHAT IS NEW OR CHANGED… returning one
+  // unchanged bills the customer for retyping their own site", and the model
+  // returned everything anyway. A rule a model is merely TOLD is not a rule —
+  // the same reasoning that put `MAX_CLARIFY` in code rather than in a schema
+  // description.
+  //
+  // THE JUSTIFICATION IS REACHABILITY, which is the module's own stated reason
+  // for touching anything beyond the new page: "the one place this lane reaches
+  // beyond the thing it adds is the page a visitor would look on to find it." So
+  // a changed page keeps its change if it MENTIONS a route that was added or
+  // removed — it is carrying the link, or it is dropping one that would no
+  // longer compile. Anything else is a rewrite nobody asked for, and it is
+  // reverted to what the customer already had.
+  //
+  // IT DOES NOT APPLY WHEN NOTHING WAS ADDED OR REMOVED. "Put testimonials on the
+  // home page" is an addon whose whole content is a changed page, and the prompt
+  // tells the model to do exactly that; there is no route to point at, and
+  // reverting there would throw away the entire request.
+  const reverted = [];
+  if (added.length || gone.length) {
+    const routes = [...added, ...gone].map(routeOf).filter(Boolean);
+    for (const path of changed.slice()) {
+      const src = (byPath.get(path) || {}).source || "";
+      const was = base.find((p) => p.path === path);
+      if (!was) continue;
+      // BOTH SIDES, AND THE SECOND ONE IS LOAD-BEARING RATHER THAN THOROUGH.
+      // On a REMOVAL the model's new source is the one with the link taken OUT,
+      // so it mentions nothing; the stored source is the one that still points
+      // at the deleted route. Checking only the new source would revert exactly
+      // that page — putting back a `<Link to="/gallery">` for a route that no
+      // longer exists, which does not compile, on the one path where the
+      // removal loop above has already satisfied itself that nothing links to it.
+      if (routes.some((r) => src.includes('"' + r + '"') || was.source.includes('"' + r + '"'))) continue;
+      byPath.set(path, { path, source: was.source });
+      changed.splice(changed.indexOf(path), 1);
+      reverted.push(path);
+    }
+  }
+
   if (!added.length && !changed.length && !gone.length) {
     // A REFUSAL IS NOT AN ABSENCE OF WORK, and the difference decides whether
     // the customer is charged ~25 credits for asking a question. `no-change`
@@ -107,7 +151,7 @@ export function mergeAddonPages(prior, returned, remove) {
     if (kept.length) return { ok: false, reason: "kept", kept, msg: keptReply(kept) };
     return { ok: false, reason: "no-change" };
   }
-  return { ok: true, pages: [...byPath.values()], added, changed, removed: gone, kept };
+  return { ok: true, pages: [...byPath.values()], added, changed, removed: gone, kept, reverted };
 }
 
 /**
@@ -183,7 +227,7 @@ export function keptReply(kept) {
   return out;
 }
 
-export function addonReply({ added = [], changed = [], removed = [], kept = [], unlinked = [] } = {}) {
+export function addonReply({ added = [], changed = [], removed = [], kept = [], unlinked = [], reverted = [] } = {}) {
   const bits = [];
   if (added.length) bits.push("added " + added.map(routeOf).filter(Boolean).join(", "));
   if (removed.length) bits.push("removed " + removed.map(routeOf).filter(Boolean).join(", "));
@@ -193,6 +237,16 @@ export function addonReply({ added = [], changed = [], removed = [], kept = [], 
   // keeping it is the silent partial this lane already had once: the owner asks
   // for it gone, is told the change worked, and it is still there.
   head += keptReply(kept);
+  // A REVERT IS SAID OUT LOUD. It is the customer's own page being put back, so
+  // staying quiet about it is the silent partial this lane has already had twice
+  // — and if the model really was asked to change that page, this sentence is
+  // how they find out it did not stick.
+  const back = (Array.isArray(reverted) ? reverted : []).map(routeOf).filter(Boolean).slice(0, 3);
+  if (back.length) {
+    head += " I left " + back.join(", ") + " as " + (back.length === 1 ? "it was" : "they were") +
+      " — nothing there needed to change for this. Ask me directly if you did want " +
+      (back.length === 1 ? "it" : "them") + " edited.";
+  }
   if (!unlinked.length) return head;
   // Said plainly, because the owner is about to look for a page they cannot
   // find, and the fix is one sentence from them.

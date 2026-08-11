@@ -1302,9 +1302,25 @@ test("the router RETURNS the layer it picked", () => {
   assert.ok(at > 0, "the routing route moved");
   const body = w.slice(at, w.indexOf("// Website builder", at));
   assert.ok(body.length > 500, "the window no longer covers the route");
-  // The PROPERTY: every field the client reads off this answer is on it.
+  // THE RESPONSE OBJECT ITSELF, not the region around it. Written against the
+  // whole window this guard was VACUOUS and a mutation proved it: the comment
+  // above the fix says "`siteEdit` posted `layer: ''`", which satisfies a search
+  // for `layer:` perfectly well once the code line is deleted. My own comment
+  // defeated my own assertion — the same family as every anchor lesson in this
+  // repo, arriving through prose instead of through word order.
+  // THE LAST ONE IN THE BLOCK, not the first: the first is the 401 for an
+  // unauthenticated caller, and anchoring there gave a 6,860-byte "response
+  // literal" that was really the whole route — a window that would have passed
+  // for any reason at all.
+  const ret = body.lastIndexOf("return Response.json({");
+  assert.ok(ret > 0, "the routing answer is no longer a Response.json literal");
+  const obj = body.slice(ret, body.indexOf("\n      });", ret));
+  assert.ok(obj.length > 60 && obj.length < 1500, "the response literal window looks wrong: " + obj.length);
+  // The PROPERTY: every field the client reads off this answer is on it, as a
+  // real property with a value rather than as a word in a sentence.
   for (const f of ["intent", "answer", "question", "layer", "page"]) {
-    assert.match(body, new RegExp("\\b" + f + ":"), "the routing answer never carries `" + f + "`");
+    assert.match(obj.replace(/\/\/[^\n]*/g, ""), new RegExp("^\\s*" + f + ":", "m"),
+      "the routing answer never carries `" + f + "`");
   }
   // And the client really does read them, or the other half is the dead one.
   const chat = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");

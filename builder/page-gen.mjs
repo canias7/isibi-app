@@ -2622,7 +2622,9 @@ export const SITE_PAGES_TOOL = {
         type: "array",
         items: { type: "string" },
         description:
-          "ONLY when you are adding to a site that already exists and the change asks for a page to be TAKEN AWAY. " +
+          "THE ONLY WAY TO DELETE A PAGE. Use it whenever the change asks for one to go away — \"remove the gallery " +
+          "page\", \"we don't need the about page any more\". Leaving a page out of `pages` does NOT delete it here: " +
+          "an unreturned page is KEPT, so a deletion answered that way silently does nothing. " +
           "The route files to delete, exactly as they are named above — for example \"src/routes/gallery.tsx\".\n" +
           "IF YOU REMOVE A PAGE YOU MUST ALSO RETURN EVERY PAGE THAT LINKS TO IT, with the link taken out. A link " +
           "pointing at a route that no longer exists does not compile, so the whole change would be refused and " +
@@ -3002,7 +3004,15 @@ export function priorPagesBlock(pages, mode = "revise", target = "") {
       "RETURN ONLY WHAT IS NEW OR CHANGED. A page you do not return is kept exactly as it is, so returning one " +
       "unchanged bills the customer for retyping their own site. Usually that is ONE new page, plus the page a " +
       "visitor would look on to find it — each page carries its own nav links, so a new page nobody links to is " +
-      "a page nobody can reach.\n\n" +
+      "a page nobody can reach.\n" +
+      // MEASURED, NOT FEARED. First live run: "add a gallery page" came back
+      // having rewritten all four of the site's existing pages, for 28 credits —
+      // a whole build's price for an addition. The rule above was already there
+      // and did not bind, so it is now stated as a NUMBER with the consequence
+      // attached, and the merge reverts an unjustified rewrite regardless.
+      "TWO FILES IS THE NORMAL ANSWER AND FOUR IS ALWAYS WRONG. Do not return a page just because you read it. If " +
+      "a page does not gain or lose a link, and the change does not name it, leave it out — a rewrite of a page " +
+      "nobody asked about will be thrown away and the customer will still have paid for the words.\n\n" +
       "IF THE THING THEY ASKED FOR BELONGS ON A PAGE THAT ALREADY EXISTS, return that page edited and add no new " +
       "file at all. A testimonials section on the home page is an edit to the home page, not a new route.\n\n" +
       // WITHOUT THIS SENTENCE THE DELETE VERB IS UNREACHABLE. The full-revise
@@ -3011,9 +3021,12 @@ export function priorPagesBlock(pages, mode = "revise", target = "") {
       // is KEPT. So a model working from that habit answers "remove the gallery"
       // by returning nothing, the merge reports no change, and the request
       // escalates to the ~25-credit revise this lane exists to avoid.
-      "TO REMOVE A PAGE, LIST IT IN `remove`. Not returning it does nothing here — a page you do not return is " +
-      "KEPT. And return every page that links to the one you are removing, with the link taken out, or the site " +
-      "will not compile and nothing will change at all.\n\n" +
+      "ARE THEY ASKING FOR A PAGE TO GO AWAY? THEN `remove` IS THE ONLY THING THAT DOES IT. Put its file path in " +
+      "`remove` — \"src/routes/gallery.tsx\". NOT returning it does NOTHING here: a page you do not return is " +
+      "KEPT, which is the opposite of what it means on an ordinary rewrite, and answering a deletion by returning " +
+      "the other pages leaves the page exactly where it was. Measured: that is what happens when this is missed. " +
+      "Also return any page that LINKS to the one being removed, with the link taken out, or the site will not " +
+      "compile and nothing will change at all.\n\n" +
       "Anything you DO return must be the whole file, and everything in it that this change does not touch stays " +
       "BYTE-IDENTICAL — the same headings, the same sentences, the same sections in the same order. The customer " +
       "wrote this site; a change they did not ask for reads to them as their site being replaced.\n\n" +
