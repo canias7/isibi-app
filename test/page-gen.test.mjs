@@ -2530,3 +2530,110 @@ test("a site nobody can read says so ONCE, as a fact about the whole schema", ()
   // digest already has its own wording for that.
   assert.doesNotMatch(schemaDigest({ tables: [] }), /NOTHING ON THIS SITE/);
 });
+
+// ── a page may not name a colour ─────────────────────────────────────────────
+//
+// The reason is a feature rather than a preference. A site's colours come from
+// its theme and its per-site token patch, both applied by the CONTAINER — so a
+// page that writes `bg-amber-400` is unreachable by either, and "make the
+// background yellow" moves the token, reports success and changes nothing. That
+// is the edit lane's `look` layer silently doing nothing.
+
+test("the colour rules do not fire on a single page of the corpus the model learns from", async () => {
+  // THE ONLY MEASUREMENT THAT DECIDES WHETHER THIS RULE CAN EXIST. A lint that
+  // cries wolf teaches the model away from something perfectly correct, which is
+  // strictly worse than the miss it prevents. Driven over all 329 pages — the 4
+  // reference pages and 324 family exemplars — and it has to be ZERO.
+  const { lintPages } = await import("../builder/page-gen.mjs");
+  const root = new URL("../builder/lovable/template/src/", import.meta.url);
+  const files = [];
+  const walk = (dir) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = new URL(e.name + (e.isDirectory() ? "/" : ""), dir);
+      if (e.isDirectory()) walk(p);
+      else if (e.name.endsWith(".tsx")) files.push(p);
+    }
+  };
+  walk(new URL("family-pages/", root));
+  walk(new URL("routes/", root));
+  assert.ok(files.length > 300, "only found " + files.length + " corpus pages — the scan broke");
+  const pages = files.map((f) => ({ path: f.pathname, source: fs.readFileSync(f, "utf8") }));
+  const colour = lintPages(pages, { tables: [] }).filter((p) => /colour|color/i.test(p));
+  assert.deepEqual(colour, [], "the colour rules false-alarm on pages we wrote ourselves");
+});
+
+test("each colour shape is caught, and each near-miss is left alone", async () => {
+  const { lintPages } = await import("../builder/page-gen.mjs");
+  const wrap = (cls) => ({
+    path: "index.tsx",
+    source: 'import {createFileRoute} from "x";\nexport const Route = createFileRoute("/")({});\n' +
+      'export default function P(){return <div className="' + cls + '">hi</div>;}',
+  });
+  const colourOf = (cls) => lintPages([wrap(cls)], { tables: [] }).filter((p) => /colour|color/i.test(p));
+
+  for (const bad of ["bg-amber-400", "text-red-600", "border-slate-200", "ring-blue-500", "from-pink-50", "divide-gray-100"]) {
+    assert.equal(colourOf(bad).length, 1, "must flag the literal class " + bad);
+  }
+  for (const bad of ["bg-[#ff0000]", "text-[rgb(255,0,0)]", "border-[hsl(0,100%,50%)]", "bg-[oklch(0.7_0.2_40)]"]) {
+    assert.equal(colourOf(bad).length, 1, "must flag the fixed colour " + bad);
+  }
+
+  // THE NEAR-MISSES, and every one of them is real in the corpus or in the kit.
+  for (const ok of [
+    "bg-background text-foreground",     // the tokens themselves
+    "bg-muted/40 text-muted-foreground",
+    "bg-primary hover:bg-primary/90",
+    "text-[0.7rem] text-[11px]",         // an arbitrary SIZE, which the corpus uses
+    "grid-cols-2 gap-4 md:gap-6",        // numbers that are not colours
+    "border-2 rounded-xl shadow-sm",
+    "bg-cover bg-center",                // bg- utilities that name no colour
+    "text-sm font-medium tracking-tight",
+  ]) {
+    assert.deepEqual(colourOf(ok), [], "must NOT flag: " + ok);
+  }
+});
+
+test("a three-digit hex is left alone, because an in-page anchor looks exactly like one", async () => {
+  // MEASURED: the corpus really does contain `href="#add"`, `#123` and `#125`.
+  // Flagging those would teach the model away from an anchor that is correct,
+  // which costs more than the miss — so six or eight digits only.
+  const { lintPages } = await import("../builder/page-gen.mjs");
+  const page = (body) => ({
+    path: "index.tsx",
+    source: 'import {createFileRoute} from "x";\nexport const Route = createFileRoute("/")({});\n' +
+      "export default function P(){return " + body + ";}",
+  });
+  const colourOf = (body) => lintPages([page(body)], { tables: [] }).filter((p) => /colour|color/i.test(p));
+  assert.deepEqual(colourOf('<a href="#add">Add</a>'), [], "an in-page anchor is not a colour");
+  assert.deepEqual(colourOf('<a href="#prices">Prices</a>'), []);
+  assert.equal(colourOf('<div style={{ color: "#ff0000" }} />').length, 1, "a six-digit hex IS a colour");
+  assert.equal(colourOf('<div style={{ color: "#ff0000ff" }} />').length, 1, "an eight-digit hex IS a colour");
+});
+
+test("one page reports the colour problem once, not once per occurrence", async () => {
+  // A page with forty literal classes would otherwise bury every other problem
+  // the lint found, and the fix is the same sentence either way.
+  const { lintPages } = await import("../builder/page-gen.mjs");
+  const many = Array.from({ length: 12 }, (_, i) => "bg-red-" + (100 + i * 100)).join(" ");
+  const out = lintPages([{
+    path: "index.tsx",
+    source: 'import {createFileRoute} from "x";\nexport const Route = createFileRoute("/")({});\n' +
+      'export default function P(){return <div className="' + many + '">hi</div>;}',
+  }], { tables: [] }).filter((p) => /colour|color/i.test(p));
+  assert.equal(out.length, 1);
+});
+
+test("the rules give the REASON a page may not name a colour, not just the ban", async () => {
+  // A lint problem does not block publishing, so what actually stops this is the
+  // model knowing the law. The rules already said "breaks dark mode", which is
+  // true and is now the weaker half: since the edit lane shipped, a hardcoded
+  // colour is one the OWNER can never change.
+  const { PAGE_RULES } = await import("../builder/page-gen.mjs");
+  assert.match(PAGE_RULES, /NEVER a literal colour/);
+  assert.match(PAGE_RULES, /never change/i, "the rules must say what it costs the owner, not only that it is banned");
+  // All three shapes named, so the model is not left inferring that only the
+  // Tailwind palette counts.
+  for (const shape of ["bg-slate-900", "text-red-600", "bg-[#1a1a1a]", "hex in a style prop"]) {
+    assert.ok(PAGE_RULES.includes(shape), "the rules do not name the shape: " + shape);
+  }
+});

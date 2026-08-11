@@ -2477,7 +2477,10 @@ with \`id="prices"\` — is a different thing and is fine.
 ## Styling
 
 Tailwind v4 with semantic tokens: bg-background, text-foreground, bg-card, text-muted-foreground,
-border-border, bg-primary, text-destructive. A raw bg-slate-900 breaks dark mode. Also available:
+border-border, bg-primary, text-destructive. NEVER a literal colour — not bg-slate-900, not text-red-600, not
+bg-[#1a1a1a], not a hex in a style prop. The site's colours come from its theme and from the owner's own
+changes, both applied at build time, so a colour written into a page is one they can never change: ask for a
+yellow background afterwards and every token moves except the one you hardcoded. It breaks dark mode too. Also available:
 lucide-react icons, date-fns, recharts. Import nothing that is not already a dependency.
 
 ## Motion
@@ -3145,6 +3148,25 @@ export function validatePages(input, { partial = false } = {}) {
 // at runtime — a page that 403s against its own API looks perfect until it is
 // loaded. Deliberately high-precision: every rule here is checked against the
 // schema, so a hit is always a real defect, never a style opinion.
+/**
+ * The colours a page must not name, as three patterns.
+ *
+ * Kept up here and EXPORTED so the tests drive the real ones rather than
+ * retyping them — a second copy of a pattern is two things that can disagree
+ * about what counts as a colour.
+ */
+export const TAILWIND_PALETTE =
+  "slate|gray|grey|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose";
+export const COLOUR_UTILITIES =
+  "bg|text|border|ring|from|to|via|fill|stroke|decoration|outline|accent|caret|divide|placeholder|shadow";
+export const TAILWIND_COLOUR =
+  new RegExp("\\b(?:" + COLOUR_UTILITIES + ")-(?:" + TAILWIND_PALETTE + ")-[0-9]{2,3}\\b", "g");
+/** The bracket's CONTENTS decide — `text-[0.7rem]` is a size and is in the corpus. */
+export const ARBITRARY_COLOUR =
+  new RegExp("\\b(?:" + COLOUR_UTILITIES + ")-\\[(?:#[0-9a-fA-F]{3,8}|(?:rgba?|hsla?|oklch|lab|lch|color)\\([^\\]]*\\))\\]", "g");
+/** Six or eight digits only: `#add` is a real in-page anchor in the corpus. */
+export const HEX_COLOUR = /#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6})\b/g;
+
 export function lintPages(pages, spec) {
   const problems = [];
   const tables = new Map();
@@ -3180,6 +3202,47 @@ export function lintPages(pages, spec) {
 
     if (/\b(?:fetch|XMLHttpRequest)\s*\(/.test(code) || /\baxios\b/.test(code)) {
       say(path, "calls fetch directly. Read with useRows and write with useCreateRow from @/lib/rows — no fetch code in a page.");
+    }
+    // A PAGE MAY NOT NAME A COLOUR, and the reason is a feature rather than a
+    // preference. The site's colours come from its theme and from the per-site
+    // token patch, both of which the CONTAINER applies at build time — so a page
+    // that writes `bg-amber-400` is unreachable by either. "Make the background
+    // yellow" then moves the token, reports success, and the page does not
+    // change: the edit lane's `look` layer silently doing nothing, which is the
+    // exact failure it was built to end.
+    //
+    // Three shapes, and the corpus decides how tight each can be. Measured over
+    // all 329 pages the model learns from — the 4 reference pages and 324 family
+    // exemplars — there are ZERO literal colours of any kind, so none of these
+    // can false-alarm on a page written the way we teach.
+    for (const m of code.matchAll(TAILWIND_COLOUR)) {
+      say(path, "writes the literal colour class \"" + m[0] + "\". Use the theme tokens — bg-background, text-foreground, " +
+        "bg-primary, bg-muted and so on — or the site's own colours can never change it.");
+      break;
+    }
+    // An arbitrary value that is a COLOUR. `text-[0.7rem]` and `text-[11px]` are
+    // real and appear in the corpus, so the bracket's CONTENTS have to be the
+    // test rather than the bracket itself.
+    let arb = false;
+    for (const m of code.matchAll(ARBITRARY_COLOUR)) {
+      say(path, "writes the fixed colour \"" + m[0] + "\". Use the theme tokens instead — a colour written into the page " +
+        "cannot be changed afterwards.");
+      arb = true;
+      break;
+    }
+    // THE HEX SCAN RUNS ON CODE WITH THE ARBITRARY VALUES BLANKED, because
+    // `bg-[#ff0000]` matches both rules and one mistake reported twice reads as
+    // two mistakes. Blanked rather than removed, so offsets stay valid — the
+    // idiom this file already follows for comments.
+    const noArb = arb ? code.replace(ARBITRARY_COLOUR, (m) => " ".repeat(m.length)) : code;
+    // A raw hex colour. SIX OR EIGHT DIGITS ONLY: the three-digit form collides
+    // with in-page anchors, and the corpus really does contain `href="#add"` —
+    // flagging that would teach the model away from an anchor that is perfectly
+    // correct, which costs more than the miss.
+    for (const m of noArb.matchAll(HEX_COLOUR)) {
+      say(path, "writes the raw colour \"" + m[0] + "\". Use the theme tokens — a hex colour in a page ignores the site's " +
+        "theme and cannot be changed later.");
+      break;
     }
     // COMMONJS IN AN ESM BUNDLE. Measured live 2026-08-08: a generated page
     // reached for `require()` out of training-data habit, and it passed every
