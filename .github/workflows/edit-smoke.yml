@@ -1,0 +1,57 @@
+# The edit and addon lanes against the deployed Worker.
+#
+# The two cheap rungs — `edit` (four layers) and `addon` — shipped with NO live
+# coverage of any kind. `build smoke` proves the BUILD path and never touches
+# these routes; `member smoke` proves auth. Nothing drove the thing a customer
+# actually does after their site exists: type a sentence and have the cheapest
+# possible thing happen. This repo has recorded a feature dead at a silent
+# wiring layer nine times, and every one looked fine from both ends.
+#
+# UNLIKE `member smoke`, THIS ONE COSTS REAL MONEY — about 50 credits a run: one
+# real build to have a site to edit, then the lanes themselves. That is why it is
+# NOT on every deploy. It runs when the lanes' own code changes, and on demand.
+#
+# It also burns a throwaway Neon project and a Supabase user per run, both
+# destroyed in the test's `finally`.
+name: edit smoke
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'builder/site-apply.mjs'
+      - 'builder/site-addon.mjs'
+      - 'builder/site-ask.mjs'
+      - 'builder/site-text.mjs'
+      - 'test/integration/edit-smoke.mjs'
+      - '.github/workflows/edit-smoke.yml'
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: 'Base URL to test against'
+        required: false
+        default: 'https://gofarther.dev'
+
+jobs:
+  edit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --no-audit --no-fund
+
+      # A push to main deploys in parallel with this. Waiting is cheaper than a
+      # false red: the lanes under test are the ones that just changed, and
+      # testing them against the previous Worker proves nothing about either.
+      - name: Let the deploy land
+        run: sleep 90
+
+      - name: The edit and addon lanes, end to end
+        env:
+          SMOKE_BASE_URL: ${{ github.event.inputs.base_url || 'https://gofarther.dev' }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+        run: node test/integration/edit-smoke.mjs
