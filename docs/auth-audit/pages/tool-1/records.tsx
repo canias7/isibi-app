@@ -14,14 +14,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { DataTable } from "@/components/ui/data-table";
-import { TableSearch } from "@/components/ui/table-search";
-import { FilterBar } from "@/components/ui/filter-bar";
-import { BulkActions } from "@/components/ui/bulk-actions";
-import { StatusBadge } from "@/components/ui/status-badge";
-import { SideNav } from "@/components/ui/side-nav";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Empty } from "@/components/ui/empty";
 import {
   Form,
   FormControl,
@@ -32,20 +24,40 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { DataTable } from "@/components/ui/data-table";
+import { TableSearch } from "@/components/ui/table-search";
+import { FilterBar } from "@/components/ui/filter-bar";
+import { BulkActions } from "@/components/ui/bulk-actions";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { SideNav } from "@/components/ui/side-nav";
+import { Empty } from "@/components/ui/empty";
+import { Skeleton } from "@/components/ui/skeleton";
 
-export const Route = createFileRoute("/records")({ component: Records });
+export const Route = createFileRoute("/records")({
+  component: Records,
+  validateSearch: (search: Record<string, unknown>): { tab?: string } => ({
+    tab: typeof search.tab === "string" ? search.tab : undefined,
+  }),
+});
 
 type Deal = Row & { title: string; value: string | null; stage: string | null };
 type Account = Row & { name: string; website: string | null; notes: string | null };
 
 const STAGES = ["New", "Qualifying", "Proposal", "Negotiation", "Won", "Lost"];
+
+const dealSchema = z.object({
+  title: z.string().min(2, "Give the deal a name"),
+  value: z.string().optional(),
+  stage: z.string().min(1, "Pick a stage"),
+});
+type DealForm = z.infer<typeof dealSchema>;
+
+const accountSchema = z.object({
+  name: z.string().min(2, "Give the account a name"),
+  website: z.string().optional(),
+  notes: z.string().optional(),
+});
+type AccountForm = z.infer<typeof accountSchema>;
 
 function stageState(stage: string | null): "success" | "warning" | "danger" | "neutral" {
   if (stage === "Won") return "success";
@@ -54,36 +66,22 @@ function stageState(stage: string | null): "success" | "warning" | "danger" | "n
   return "neutral";
 }
 
-const dealSchema = z.object({
-  title: z.string().min(2, "Give the deal a name"),
-  value: z.string().optional(),
-  stage: z.string().min(1, "Pick a stage"),
-});
-
-type DealForm = z.infer<typeof dealSchema>;
-
-const accountSchema = z.object({
-  name: z.string().min(2, "Give the account a name"),
-  website: z.string().optional(),
-  notes: z.string().optional(),
-});
-
-type AccountForm = z.infer<typeof accountSchema>;
-
 function Records() {
   const member = useMember();
-  const [view, setView] = useState<"deals" | "accounts">("deals");
-  const [query, setQuery] = useState("");
-  const [stageFilter, setStageFilter] = useState<string | null>(null);
-  const [selected, setSelected] = useState<number[]>([]);
-  const [dealOpen, setDealOpen] = useState(false);
-  const [accountOpen, setAccountOpen] = useState(false);
+  const { tab } = Route.useSearch();
+  const active = tab === "accounts" ? "accounts" : "deals";
   const navigate = useNavigate();
 
   const deals = useRows<Deal>("deals", { order: "id", dir: "desc" });
   const accounts = useRows<Account>("accounts", { order: "id", dir: "desc" });
   const createDeal = useCreateRow<Deal>("deals");
   const createAccount = useCreateRow<Account>("accounts");
+
+  const [query, setQuery] = useState("");
+  const [stageFilter, setStageFilter] = useState<string | null>(null);
+  const [selected, setSelected] = useState<number[]>([]);
+  const [dealOpen, setDealOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
 
   const dealForm = useForm<DealForm>({
     resolver: zodResolver(dealSchema),
@@ -108,7 +106,9 @@ function Records() {
     let rows = accounts.data ?? [];
     if (query.trim()) {
       const q = query.toLowerCase();
-      rows = rows.filter((a) => a.name.toLowerCase().includes(q));
+      rows = rows.filter(
+        (a) => a.name.toLowerCase().includes(q) || (a.website ?? "").toLowerCase().includes(q),
+      );
     }
     return rows;
   }, [accounts.data, query]);
@@ -120,7 +120,7 @@ function Records() {
         dealForm.reset();
         setDealOpen(false);
       },
-      onError: (e: Error) => toast.error(e.message),
+      onError: (e) => toast.error(e.message),
     });
   };
 
@@ -131,136 +131,68 @@ function Records() {
         accountForm.reset();
         setAccountOpen(false);
       },
-      onError: (e: Error) => toast.error(e.message),
+      onError: (e) => toast.error(e.message),
     });
   };
 
   if (member.isPending) {
     return (
-      <div className="p-10">
-        <Skeleton className="h-8 w-40" />
-        <Skeleton className="mt-6 h-96 w-full" />
-      </div>
+      <main className="flex min-h-screen items-center justify-center">
+        <p className="text-muted-foreground">Checking your sign-in…</p>
+      </main>
     );
   }
 
   if (!member.data) {
     return (
-      <div className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center gap-4 p-10 text-center">
-        <h1 className="text-2xl font-semibold tracking-tight">Sign in to see the pipeline</h1>
-        <p className="text-muted-foreground">
-          Deals and accounts are private to your team — you need to be signed in to read them.
-        </p>
-        <Button asChild>
-          <Link to="/">Sign in</Link>
-        </Button>
-      </div>
+      <main className="flex min-h-screen items-center justify-center px-6 text-center">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Sign in to see the pipeline</h1>
+          <p className="mt-2 text-muted-foreground">Deals and accounts are only visible to the team, signed in.</p>
+          <Button asChild className="mt-6">
+            <Link to="/">Go to sign in</Link>
+          </Button>
+        </div>
+      </main>
     );
   }
 
   return (
     <div className="flex min-h-screen">
-      <aside className="w-60 shrink-0 border-r border-border p-6">
+      <aside className="w-64 shrink-0 border-r border-border bg-muted/30 p-6">
         <p className="text-lg font-semibold tracking-tight">Halyard</p>
         <SideNav
-          className="mt-8"
-          active={view}
+          className="mt-6"
+          active={active === "accounts" ? "accounts" : "deals"}
           sections={[
             {
+              title: "Records",
               items: [
-                { label: "Deals", href: "#deals" },
-                { label: "Accounts", href: "#accounts" },
+                { label: "Deals", href: "/records" },
+                { label: "Accounts", href: "/records?tab=accounts" },
+                { label: "Playbook", href: "/playbook" },
               ],
             },
           ]}
         />
-        <div className="mt-8 flex flex-col gap-2">
-          <Button variant={view === "deals" ? "default" : "outline"} onClick={() => setView("deals")}>
-            Deals
-          </Button>
-          <Button variant={view === "accounts" ? "default" : "outline"} onClick={() => setView("accounts")}>
-            Accounts
-          </Button>
-        </div>
       </aside>
 
-      <main className="flex-1 p-8">
+      <main className="flex-1 overflow-x-hidden p-8">
         <div className="flex items-center justify-between gap-4">
-          <h1 className="text-2xl font-semibold tracking-tight">
-            {view === "deals" ? "The team's deals" : "Accounts"}
-          </h1>
-          {view === "deals" ? (
-            <Dialog open={dealOpen} onOpenChange={setDealOpen}>
-              <DialogTrigger asChild>
-                <Button className="motion-press">New record</Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>New deal</DialogTitle>
-                </DialogHeader>
-                <Form {...dealForm}>
-                  <form className="grid gap-4" onSubmit={dealForm.handleSubmit(onCreateDeal)}>
-                    <FormField
-                      control={dealForm.control}
-                      name="title"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Title</FormLabel>
-                          <FormControl>
-                            <Input {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={dealForm.control}
-                      name="value"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Value</FormLabel>
-                          <FormControl>
-                            <Input placeholder="£4,000" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={dealForm.control}
-                      name="stage"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Stage</FormLabel>
-                          <Select onValueChange={field.onChange} value={field.value}>
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Choose a stage" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              {STAGES.map((s) => (
-                                <SelectItem key={s} value={s}>
-                                  {s}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <Button type="submit" disabled={createDeal.isPending}>
-                      {createDeal.isPending ? "Adding…" : "Add deal"}
-                    </Button>
-                  </form>
-                </Form>
-              </DialogContent>
-            </Dialog>
-          ) : (
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">
+              {active === "accounts" ? "Accounts" : "Deals"}
+            </h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {active === "accounts"
+                ? "The team's shared list of accounts."
+                : "The deals our team is working right now."}
+            </p>
+          </div>
+          {active === "accounts" ? (
             <Dialog open={accountOpen} onOpenChange={setAccountOpen}>
               <DialogTrigger asChild>
-                <Button className="motion-press">New record</Button>
+                <Button>New record</Button>
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
@@ -288,7 +220,7 @@ function Records() {
                         <FormItem>
                           <FormLabel>Website</FormLabel>
                           <FormControl>
-                            <Input placeholder="https://example.com" {...field} />
+                            <Input placeholder="https://…" {...field} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -307,8 +239,74 @@ function Records() {
                         </FormItem>
                       )}
                     />
-                    <Button type="submit" disabled={createAccount.isPending}>
+                    <Button type="submit" className="motion-press" disabled={createAccount.isPending}>
                       {createAccount.isPending ? "Adding…" : "Add account"}
+                    </Button>
+                  </form>
+                </Form>
+              </DialogContent>
+            </Dialog>
+          ) : (
+            <Dialog open={dealOpen} onOpenChange={setDealOpen}>
+              <DialogTrigger asChild>
+                <Button>New record</Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>New deal</DialogTitle>
+                </DialogHeader>
+                <Form {...dealForm}>
+                  <form className="grid gap-4" onSubmit={dealForm.handleSubmit(onCreateDeal)}>
+                    <FormField
+                      control={dealForm.control}
+                      name="title"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Title</FormLabel>
+                          <FormControl>
+                            <Input {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={dealForm.control}
+                      name="value"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Value</FormLabel>
+                          <FormControl>
+                            <Input placeholder="£" {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={dealForm.control}
+                      name="stage"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Stage</FormLabel>
+                          <FormControl>
+                            <select
+                              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                              {...field}
+                            >
+                              {STAGES.map((s) => (
+                                <option key={s} value={s}>
+                                  {s}
+                                </option>
+                              ))}
+                            </select>
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <Button type="submit" className="motion-press" disabled={createDeal.isPending}>
+                      {createDeal.isPending ? "Adding…" : "Add deal"}
                     </Button>
                   </form>
                 </Form>
@@ -317,19 +315,19 @@ function Records() {
           )}
         </div>
 
-        <div className="mt-6 flex flex-col gap-3">
+        <div className="mt-6 flex flex-wrap items-center gap-3">
           <TableSearch
             value={query}
             onChange={setQuery}
-            placeholder={view === "deals" ? "Search deals" : "Search accounts"}
-            count={view === "deals" ? filteredDeals.length : filteredAccounts.length}
-            total={view === "deals" ? (deals.data?.length ?? 0) : (accounts.data?.length ?? 0)}
+            placeholder={active === "accounts" ? "Search accounts" : "Search deals"}
+            count={active === "accounts" ? filteredAccounts.length : filteredDeals.length}
+            total={active === "accounts" ? accounts.data?.length : deals.data?.length}
           />
-          {view === "deals" && (
+          {active === "deals" && (
             <FilterBar
-              filters={stageFilter ? [{ key: stageFilter, label: stageFilter }] : []}
-              onClear={() => setStageFilter(null)}
+              filters={stageFilter ? [{ key: "stage", label: stageFilter }] : []}
               onRemove={() => setStageFilter(null)}
+              onClear={() => setStageFilter(null)}
             >
               {STAGES.map((s) => (
                 <Button
@@ -345,7 +343,7 @@ function Records() {
           )}
         </div>
 
-        {view === "deals" && selected.length > 0 && (
+        {active === "deals" && selected.length > 0 && (
           <BulkActions
             count={selected.length}
             onClear={() => setSelected([])}
@@ -358,58 +356,50 @@ function Records() {
           />
         )}
 
-        <div className="mt-4">
-          {view === "deals" ? (
+        <div className="mt-6">
+          {active === "accounts" ? (
             <>
-              {deals.isPending && <Skeleton className="h-80 w-full rounded-xl" />}
-              {deals.isError && (
-                <p className="text-sm text-destructive">Couldn't load the deals. Refresh and try again.</p>
+              {accounts.isPending && <Skeleton className="h-64 rounded-xl" />}
+              {accounts.isError && (
+                <p className="text-sm text-destructive">Couldn't load accounts. Refresh and try again.</p>
               )}
-              {!deals.isPending && !deals.isError && filteredDeals.length === 0 && (
-                <Empty
-                  title="No deals yet"
-                  description="Add the first deal the team is working and it'll show up here."
-                />
+              {accounts.data?.length === 0 && (
+                <Empty title="No accounts yet" description="Add the first account the team is working with." />
               )}
-              {!deals.isPending && !deals.isError && filteredDeals.length > 0 && (
+              {!!accounts.data?.length && (
                 <DataTable
-                  rowKey={(row) => row.id}
-                  onRowClick={(row) => navigate({ to: "/record", search: { id: String(row.id) } })}
-                  rows={filteredDeals}
+                  rows={filteredAccounts}
+                  rowKey={(r) => r.id}
                   columns={[
-                    { key: "title", header: "Title", cell: (row) => row.title },
-                    { key: "value", header: "Value", cell: (row) => row.value ?? "—" },
-                    {
-                      key: "stage",
-                      header: "Stage",
-                      cell: (row) => (
-                        <StatusBadge state={stageState(row.stage)}>{row.stage ?? "New"}</StatusBadge>
-                      ),
-                    },
+                    { key: "name", header: "Name", cell: (r) => r.name },
+                    { key: "website", header: "Website", cell: (r) => r.website ?? "—" },
+                    { key: "notes", header: "Notes", cell: (r) => r.notes ?? "—" },
                   ]}
                 />
               )}
             </>
           ) : (
             <>
-              {accounts.isPending && <Skeleton className="h-80 w-full rounded-xl" />}
-              {accounts.isError && (
-                <p className="text-sm text-destructive">Couldn't load accounts. Refresh and try again.</p>
+              {deals.isPending && <Skeleton className="h-64 rounded-xl" />}
+              {deals.isError && (
+                <p className="text-sm text-destructive">Couldn't load deals. Refresh and try again.</p>
               )}
-              {!accounts.isPending && !accounts.isError && filteredAccounts.length === 0 && (
-                <Empty
-                  title="No accounts yet"
-                  description="Add the first account and the whole team will see it."
-                />
+              {deals.data?.length === 0 && (
+                <Empty title="No deals yet" description="Add the first deal the team is working." />
               )}
-              {!accounts.isPending && !accounts.isError && filteredAccounts.length > 0 && (
+              {!!deals.data?.length && (
                 <DataTable
-                  rowKey={(row) => row.id}
-                  rows={filteredAccounts}
+                  rows={filteredDeals}
+                  rowKey={(r) => r.id}
+                  onRowClick={(r) => navigate({ to: "/record", search: { id: String(r.id) } })}
                   columns={[
-                    { key: "name", header: "Name", cell: (row) => row.name },
-                    { key: "website", header: "Website", cell: (row) => row.website ?? "—" },
-                    { key: "notes", header: "Notes", cell: (row) => row.notes ?? "—" },
+                    { key: "title", header: "Title", cell: (r) => r.title },
+                    { key: "value", header: "Value", cell: (r) => r.value ?? "—" },
+                    {
+                      key: "stage",
+                      header: "Stage",
+                      cell: (r) => <StatusBadge state={stageState(r.stage)}>{r.stage ?? "New"}</StatusBadge>,
+                    },
                   ]}
                 />
               )}
