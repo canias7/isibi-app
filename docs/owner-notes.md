@@ -42,6 +42,45 @@ when they say they are home, since it wants doing on their desktop.
 
 ---
 
+## 2026-08-11 — The undo, the rename, and the empty picture frame
+
+**Three gaps found by auditing what the lanes cannot do, rather than what they
+get wrong.** The middle one went a layer deeper than it looked.
+
+- **THE UNDO DID NOT EXIST.** The removal reply offered to put the row back and
+  nothing made that true: the row is gone from the table, so the digest — which
+  lists what the site has NOW — could not mention it, and the model got an
+  instruction with no referent. It matched nothing and refused, on a promise made
+  one message earlier. The deleted contents are carried into the next data edit
+  now, and the reply **names the row** — *"say 'put Beard trim back'"* — because
+  bare "undo that" is ambiguous to the router and would be classified as
+  something that cannot restore anything.
+- **RENAMING THE SITE HALF-LANDED AND REPORTED SUCCESS.** The name lives in two
+  places: the stored brand, which drives the browser tab and the WhatsApp
+  preview, and a literal in every page, which is the half a visitor reads. So
+  "call it X instead" changed the tab and left every heading saying the old name.
+- **AND THAT ONLY MOVED 2 OF 3, which is the part worth keeping.** `name` was
+  listed as code unconditionally, and `<SiteChrome name="…">` is the heading on
+  every generated page — so **the free text editor could never change a
+  business's name in its own header either**. The fix uses a distinction React
+  enforces rather than one we invented: a lowercase tag is a form field, where
+  the name decides which column a booking lands in; a capitalised one is a
+  component, where it is prose.
+- **MEASURED OVER THE 100 FAMILY EXEMPLARS**, not a fixture I wrote: 93 carry a
+  chrome name, **93 rename, 0 structural breaks, 1 leftover** — a name inside an
+  array literal, which the extractor skips. Recorded as a number rather than
+  fixed by widening a rule this change did not set out to touch.
+- **A PICTURE SLOT NOBODY COULD FILL SAID NOTHING.** Neither lane buys
+  photographs (deliberate), so a new page that wants one publishes with an empty
+  frame and the customer had no way to know it was theirs to fill.
+- **THE SWEEP THEN FOUND SEVEN GAPS IN MY OWN GUARDS, and three were VACUOUS** —
+  the worst asserted the deleted row reaches the model by matching a string the
+  fixture's own rows already contained, so it passed with the whole feature
+  deleted. One was a seam inside a single file. One is genuinely inert and says
+  so in the source rather than being deleted or pretended-to-be-tested.
+- 2089 tests, **87/95 then 8/8** from verified-green baselines. **Not proven
+  live.**
+
 ## 2026-08-11 — A page could not be removed, and a row could not either
 
 **The lanes could add and change and not take away**, which made every deletion
