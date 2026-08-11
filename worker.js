@@ -5551,8 +5551,17 @@ async function fetchSiteFonts(pair) {
 async function recompileAndPublish(env, { slug, pages, label }) {
   let look = null, tokens = null;
   try {
-    const conn = await siteBackendBySlug(env, slug);
-    const db = conn && conn.conn;
+    // `siteBackendBySlug` RETURNS THE CONNECTION STRING, not a record. This read
+    // `conn && conn.conn`, which is `undefined` for a string — so the `_meta`
+    // read below never ran, `look` and `tokens` stayed null, and every publish
+    // through this function shipped with NO theme, NO colour overrides, the
+    // default font pair, and the site's SLUG as its title in place of its brand.
+    //
+    // That is precisely the divergence this function was extracted to END: the
+    // free text-edit route used to carry its own copy which dropped three fields
+    // of the published meta, and one wrong property access put it straight back,
+    // worse. Every other caller in this file uses the return value directly.
+    const db = await siteBackendBySlug(env, slug);
     if (db) {
       const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens')");
       for (const r of rows || []) {
@@ -8499,6 +8508,24 @@ async function handleRequest(request, env, ctx) {
           // altogether, so a first build with a logo attached was never asked
           // anything, against the rule that every new project gets one question.
           attached: rb.attached === true,
+          // DOES THIS PROJECT ALREADY HAVE A SITE — the flag that opens `edit`
+          // and `addon` at all, and the one that stops a colour change on a live
+          // site costing a full rewrite of every page.
+          //
+          // TAKEN ON TRUST HERE, DELIBERATELY, because a routing answer is not a
+          // permission. Neither direction of a lie is worth a round trip: claim
+          // a site that is not yours and the edit route's `assertOwner` answers
+          // 404 and the client falls back to the build it would have run anyway;
+          // claim you have none and you rebuild your own site with your own
+          // credits, which is exactly what happened before these rungs existed.
+          //
+          // ONE OWNERSHIP MECHANISM, NOT TWO THAT CAN DISAGREE — the rule this
+          // file already follows for analytics. A first draft verified it here
+          // as well and was WRONG in a way nothing would have caught:
+          // `siteBackendBySlug` returns the connection STRING, so reading a
+          // `.uid` off it is always undefined and the two new rungs would have
+          // been silently unreachable for every customer.
+          hasSite: rb.hasSite === true,
         },
       );
       let rCost = 0;
@@ -9547,8 +9574,9 @@ async function handleRequest(request, env, ctx) {
             }
 
             if (eLayer === "look") {
-              const cinfo = await siteBackendBySlug(env, ownerSlug);
-              const edb = cinfo && cinfo.conn;
+              // The connection STRING, used directly — see recompileAndPublish,
+              // where reading a `.conn` off it silently disabled the whole look.
+              const edb = await siteBackendBySlug(env, ownerSlug);
               if (!edb) return escalate("no-backend");
               let priorLook = null, priorTokens = null, eSchema = null;
               try {

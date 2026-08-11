@@ -419,3 +419,84 @@ test("a family or structure change is escalated, never silently stored", () => {
   assert.ok(needs < write, "the family/structure check must run BEFORE the look is stored");
   assert.match(b, /needsPages\.length\) return escalate\("needs-pages"/);
 });
+
+test("nothing reads a property off siteBackendBySlug — it returns a STRING", () => {
+  // THE BUG THIS EXISTS FOR, found while wiring the edit lane and already live:
+  // `recompileAndPublish` did `const conn = await siteBackendBySlug(...); const
+  // db = conn && conn.conn;`. That is `undefined` for a string, so the `_meta`
+  // read it guards never ran — and every publish through the shared spine
+  // shipped with no theme, no colour overrides, the default fonts and the site's
+  // SLUG in place of its brand. Exactly the divergence that function was
+  // extracted to end, reintroduced by one property access.
+  //
+  // DERIVED FROM THE FUNCTION'S OWN RETURN, so it stops being true the day the
+  // contract really changes rather than the day somebody forgets this comment.
+  const decl = WORKER.match(/async function siteBackendBySlug\(env, slug\) \{ return ([^;]+); \}/);
+  assert.ok(decl, "siteBackendBySlug is gone or reshaped — re-derive this guard");
+  assert.match(decl[1], /_resolveBackend/, "the lookup no longer goes through the route resolver");
+  const routing = fs.readFileSync(new URL("../site-routing.mjs", import.meta.url), "utf8");
+  assert.match(routing, /if \(deps\.kv\) \{\s*\n\s*try \{\s*\n\s*const hit = await deps\.kv\.get\(key\);\s*\n\s*if \(hit\) return hit;/,
+    "lookupRoute no longer returns the KV value directly, so it may no longer be a string");
+
+  // Every binding of its result, and what is done with that binding.
+  const binds = [...WORKER.matchAll(/(?:const|let)\s+(\w+)\s*=\s*await siteBackendBySlug\(/g)].map((m) => m[1]);
+  assert.ok(binds.length >= 8, "only found " + binds.length + " callers — the scan broke");
+  const src = WORKER.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m) => " ".repeat(m.length));
+  for (const name of new Set(binds)) {
+    for (const prop of ["conn", "uid", "brief", "neon_db"]) {
+      assert.ok(!new RegExp("\\b" + name + "\\." + prop + "\\b").test(src),
+        "`" + name + "." + prop + "` reads a property off a connection string — it is always undefined");
+    }
+  }
+});
+
+// ── the client half, which is the other layer that goes silently dead ─────────
+
+const CHAT = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+
+test("the composer opens the two cheap rungs, and dispatches the edit", () => {
+  // Without `hasSite` on the wire the router has two work answers and every
+  // change to a live site is a ~25-credit rewrite. Asserted at BOTH ends —
+  // either alone passes while the wire is cut.
+  // THE BODY LINE ITSELF, not a byte window from the fetch — a window sized in
+  // characters stops covering what it was written for the moment a comment is
+  // added above the thing it checks, which this repo has recorded three times
+  // and which the first draft of this assertion did again.
+  const body = CHAT.split("\n").find((l) => l.includes("body: JSON.stringify({ message: t, site: digest,"));
+  assert.ok(body, "the routing call's body is gone or reshaped — re-derive this guard");
+  assert.match(body, /hasSite:/, "the routing call does not send hasSite");
+  assert.match(body, /slug: site\.slug/, "the routing call does not send the slug");
+  // `hasSite` must be about a PUBLISHED site, not merely about a project
+  // existing in localStorage — the router's two new rungs write to a live site.
+  assert.match(CHAT, /hasSite: !!\(site\.slug && sitePages\(site\)\.length\)/,
+    "hasSite is no longer derived from the site actually having pages");
+});
+
+test("the server reads hasSite off the body, strictly", () => {
+  // `=== true`, like firstBuild and attached beside it: nothing merely truthy
+  // off a public body may open a write path over a published site.
+  assert.match(WORKER, /hasSite: rb\.hasSite === true/,
+    "the route ignores hasSite, so edit and addon are unreachable for everyone");
+});
+
+test("an edit is dispatched, and every failure falls back to the build", () => {
+  assert.match(CHAT, /d\.intent === 'edit' && site\.slug\) return siteEdit\(/,
+    "the client never routes an edit anywhere");
+  const from = CHAT.indexOf("function siteEdit(");
+  assert.ok(from > 0, "siteEdit is gone — the assertions below would pass vacuously");
+  const to = CHAT.indexOf("\nfunction editReply(", from);
+  assert.ok(to > from, "could not find the end of siteEdit");
+  const b = CHAT.slice(from, to);
+  assert.match(b, /'\/api\/site\/' \+ encodeURIComponent\(slug\) \+ '\/edit'/, "siteEdit posts nowhere");
+  // THE ESCALATION MUST NEVER SURFACE AS AN ERROR. It is the whole reason
+  // trying the cheap rung first is safe.
+  assert.match(b, /if \(e\.escalate\) return fallback\(\)/);
+  assert.match(b, /if \(!e\) return fallback\(\)/, "an unreadable body is not a refusal");
+  assert.match(b, /\}\)\.catch\(fallback\)/, "a network drop must land on the build too");
+  // And the escalation branch must come BEFORE the generic failure branch, or a
+  // 200 carrying escalate:true would be read as an error and shown as one.
+  assert.ok(b.indexOf("e.escalate") < b.indexOf("!r.ok || !e.ok"),
+    "the escalation check must run before the failure check");
+  // A published change has to bust the preview, or it reads as not applied.
+  assert.match(b, /previewV = \(s\.previewV \|\| 0\) \+ 1/);
+});

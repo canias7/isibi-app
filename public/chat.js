@@ -11096,7 +11096,13 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering) {
     // question open. A file plus a sentence is an instruction, so answering it
     // with a paragraph would drop the file on the floor — but that says nothing
     // about whether a FIRST build should be asked what the business is.
-    body: JSON.stringify({ message: t, site: digest, firstBuild: !!isBuild, brief: brief, qa: qa, answering: !!answering, attached: !!(imgs && imgs.length) }),
+    // `slug` and `hasSite` OPEN THE TWO CHEAP RUNGS. Until they were sent, the
+    // router had two work answers and on an existing site the only one it could
+    // give was `build` — a ~25-credit rewrite of every page, for a change of
+    // colour. `hasSite` is deliberately not `!isBuild`: that flag is about this
+    // project having pages in localStorage, this one is about the SERVER owning
+    // a published site at that slug, and the server re-checks it anyway.
+    body: JSON.stringify({ message: t, site: digest, firstBuild: !!isBuild, brief: brief, qa: qa, answering: !!answering, attached: !!(imgs && imgs.length), slug: site.slug || '', hasSite: !!(site.slug && sitePages(site).length) }),
   }).then(async (r) => {
     const d = await r.json().catch(() => null);
     if (!r.ok || !d) return go();
@@ -11116,6 +11122,16 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering) {
       if (siteOpenId === origin) renderSites();
       return;
     }
+    // A CHEAP CHANGE, ON ITS OWN ROUTE. `edit` is the bottom rung of the ladder
+    // — words, colours, the theme, the fonts, the name — and none of it runs the
+    // page generator, so it costs a fraction of a revise and takes seconds.
+    //
+    // EVERY FAILURE FALLS THROUGH TO `go()`, which is the revise that used to be
+    // the only answer. That is what makes trying the cheap rung first safe: the
+    // worst case is the customer waits a moment longer for the outcome they
+    // would have got anyway. So this must never surface an escalation as an
+    // error — the change still happens, one rung up.
+    if (d.intent === 'edit' && site.slug) return siteEdit(site, d, t, origin, finish, go);
     if (d.intent !== 'ask' || !d.answer) return go();
     // A QUESTION. Nothing is built, nothing on the site changes, and the reply
     // is an ordinary assistant message — no build steps, because there was no
@@ -11133,6 +11149,70 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering) {
     sitesSave();
     if (siteOpenId === origin) renderSites();
   }).catch(go);
+}
+// The cheap rung: change what the site already has, without rewriting a page.
+//
+// `fallback` IS THE WHOLE SAFETY ARGUMENT and it is the revise that used to be
+// the only answer. Anything this lane cannot do — a layer it does not implement,
+// a site with no stored source, a look change that really does need pages
+// rewritten — comes back `escalate:true` and lands there, so the customer gets
+// the change either way and the worst case is that they waited a moment longer.
+// That is what makes trying the cheap rung first safe, and it is why an
+// escalation must NEVER be shown as an error.
+//
+// The two that are NOT escalations are the two a bigger lane cannot fix either:
+// a stored source that moved under us (retrying is the fix) and a compile that
+// failed (the site is untouched, and rewriting every page to fix a typo is the
+// trade nobody would make). Those the customer is told about, in the server's
+// own words.
+function siteEdit(site, d, instruction, origin, finish, fallback) {
+  const slug = String(site.slug || '');
+  if (!slug) return fallback();
+  apiFetch('/api/site/' + encodeURIComponent(slug) + '/edit', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      layer: String(d.layer || ''),
+      page: d.page ? String(d.page) : '',
+      instruction: instruction,
+      picker: buildPicker,
+    }),
+  }).then(async (r) => {
+    const e = await r.json().catch(() => null);
+    // A body we cannot read is not a refusal — it is us not knowing, and the
+    // rung above still works.
+    if (!e) return fallback();
+    if (e.escalate) return fallback();
+    if (!r.ok || !e.ok) {
+      // The server's own sentence when it has one. `buildDownMsg` already knows
+      // to drop the "try again in a few seconds" advice on a failure that no
+      // amount of retrying fixes.
+      if (e.msg) { finish('⚠️ ' + e.msg); return; }
+      return fallback();
+    }
+    // PUBLISHED. Bump the cache-buster the same way a revise does, or the
+    // preview keeps showing the old bundle and the change reads as not applied.
+    scheduleCreditRefresh();
+    const s = siteById(origin);
+    if (s) { s.previewV = (s.previewV || 0) + 1; sitesSave(); }
+    finish(editReply(e));
+  }).catch(fallback);
+}
+// What an edit actually did, in one line.
+//
+// NAMES WHAT MOVED. A customer who asks for one thing and gets four changed
+// cannot see that from the site, and "done" tells them nothing they can check.
+function editReply(e) {
+  if (e.layer === 'text') {
+    const n = Number(e.applied) || 0;
+    return '✅ Updated the wording' + (n > 1 ? ' in ' + n + ' places' : '') + '.';
+  }
+  if (e.layer === 'look') {
+    const moved = (Array.isArray(e.moved) ? e.moved : []).slice(0, 4);
+    const tokens = (Array.isArray(e.tokens) ? e.tokens : []).slice(0, 4);
+    const bits = moved.concat(tokens);
+    return '✅ Updated the look' + (bits.length ? ' — ' + bits.join(', ') : '') + '.';
+  }
+  return '✅ Done.';
 }
 // What to say when a build could not run.
 //
