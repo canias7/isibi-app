@@ -71,11 +71,23 @@ NOTHING — every rule is enforced in Postgres or read out of `_meta` on the
 request path, so no page source changes and no visitor re-downloads anything.
 2156 tests, 25/25 mutations. **Not proven live** — the account is empty (above).
 
-**STILL MISSING FROM EDIT, in order:** photographs (a picture cannot be replaced
-after the build — a `picture` layer, so it does not cost a ~5-credit page
-regeneration plus ~19 a photo), `payment` and `publicView` (both need a page as
-well, so they belong to addon once its merge stops dropping properties), and
-per-page share previews.
+**ALL THREE OF THOSE ARE NOW DONE (2026-08-11).** `payment` and `publicView`
+reach an existing table through the addon lane — its merge concatenated into
+`normalizeSchema`, whose dedup is first-declaration-wins, so both were dropped
+silently and a site built without a price could never start taking money. The
+same call also dropped `functions`, `apis` and `jobs` entirely, which is the
+whole "the model writes the backend" tier unreachable after a first build. And
+`builder/site-picture.mjs` is the seventh edit layer: a photograph is matched by
+the description its slot already carries for a screen reader, and filled from the
+owner's OWN uploads (free, no image model) or by making one.
+
+**EDIT NOW DOES EVERYTHING BUILD DOES, with one exception:** per-page share
+previews are still site-level only.
+
+**THE ONE THING TO WATCH ON THE PICTURE LAYER: the image balance has never been
+funded**, so every `SafeImage` on every published site is drawing its placeholder
+and no photograph has ever been generated. The upload half needs no image model
+and is what works today — which is why the tool prefers it.
 
 **Cloudflare Web Analytics for `gofarther.app`** — the owner asked to be reminded
 when they say they are home, since it wants doing on their desktop.
