@@ -130,7 +130,16 @@ async function main() {
   // would report a pile of failures about a build that never happened.
   if (b.page !== "app") { console.log("\nskipping the lanes — the build fell back to the placeholder"); return; }
 
-  const digest = { name: b.brand || "", url: b.url || "", pages: (b.files || []).slice(0, 24), tables: b.tables || [] };
+  // ROUTES, NOT SOURCE PATHS — and getting this wrong made the router look broken
+  // when it was right. The build reports `files` as `src/routes/index.tsx`; the
+  // composer's digest carries `/` and `/book`. Fed the source paths, `readEdit`
+  // correctly refused to name a page it had not been shown and fell back to
+  // addon, which is the guard working. A check that claims to drive the route
+  // "exactly as the composer makes it" has to send what the composer sends.
+  const routes = (b.files || []).map(routeOfAdded).filter(Boolean).slice(0, 24);
+  ok("the digest carries ROUTES, the way the composer sends them",
+    routes.length > 0 && routes.every((r) => r.startsWith("/")), JSON.stringify(routes));
+  const digest = { name: b.brand || "", url: b.url || "", pages: routes, tables: b.tables || [] };
 
   // --- what the site stores, so the instructions can name something real ----
   const tr = await api(`/api/site/${slug}/rows`);
@@ -275,7 +284,8 @@ async function main() {
     // get the model to volunteer it failed against words it was demonstrably
     // reading, so the route it takes is: one Haiku routing call, then a merge and
     // a recompile — no page generation at all.
-    const rmRoute = await route("Remove the gallery page", { ...digest, pages: [...(digest.pages || []), added] });
+    const rmRoute = await route("Remove the gallery page",
+      { ...digest, pages: [...(digest.pages || []), routeOfAdded(added)] });
     ok("a deletion routes to the page layer with `remove`",
       rmRoute.intent === "edit" && rmRoute.layer === "page" && rmRoute.remove === true,
       `intent=${rmRoute.intent} layer=${rmRoute.layer} remove=${rmRoute.remove} page=${rmRoute.page}`);
