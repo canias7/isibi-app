@@ -22,15 +22,69 @@ on 8 of the 16 read/write pairs; and `lintPages` false-alarms on the exact
 marketplace cell the pairs were added for. Read the dated entry below before
 starting any of them.
 
-**THE EDIT PATH (tasks #71-74). Owner's call 2026-08-10: designed, agreed, parked
-deliberately — raise it at the start of the next session.** Not blocked, not
-half-built, and nothing about it is started: the decision was to do it in one
-clean pass because it touches the code that publishes every live customer site.
-The design and the reasoning are in the entry below; the insertion points are in
-the task descriptions. Order is #71 → #72 → #73, with #74 shipping alongside #73.
+**THE EDIT AND ADDON LANES ARE BUILT AND PUSHED (2026-08-11), NOT PROVEN LIVE.**
+Five commits on `claude/help-needed-ehlwlj`, 2022 tests, 18/18 mutations. What is
+left: task #83 (the edit lane's `page` layer, which escalates honestly today) and
+#74 (the colour lint). **Nothing here has run against a funded account** — the
+model account was empty when it was written, so every claim below is from tests
+and source reading, not from a real build. The first live change to a real site
+is the thing to watch, and the honest first question is whether the router picks
+`edit` for a colour change rather than `addon`.
 
 **Cloudflare Web Analytics for `gofarther.app`** — the owner asked to be reminded
 when they say they are home, since it wants doing on their desktop.
+
+---
+
+## 2026-08-11 — Four routes, and a live bug in the spine they publish through
+
+**Owner's model, drawn on paper and agreed over eight rounds: ask, build, edit,
+addon, as a CYCLE.** Published is not the end of a build, it is the fork — edit
+and addon both leave it and both return to it, so a site has one terminal state
+and three ways of reaching it, and the loop closes through the router because
+that is where the next message enters. Ask is the only lane that publishes
+nothing and never ends. Two artifacts hold the model: the target and the present.
+
+- **THE LADDER IS WHY IT IS SAFE TO DEFAULT CHEAP.** edit → addon → build, and
+  each rung hands off UPWARD when it finds it cannot do the job. That inverts the
+  old "every unclear case builds" rule ON AN EXISTING SITE only — unclear still
+  resolves to WORK and never to a paragraph, which is what stops a build request
+  being swallowed; what changes is which work, because on a live site `build`
+  means a ~25-credit rewrite of every page.
+- **TWO OF THE THREE EDIT LAYERS RUN NO PAGE MODEL CALL, and that is the whole
+  saving.** Words: the strings come out of the stored source, a Haiku call picks
+  which change, they go back at the exact offsets. Look: the designer moves
+  theme, fonts, colours, corners, the name — all things the CONTAINER applies —
+  so `recompileAndPublish` republishes the pages untouched. A typo fix goes ~25
+  credits → ~0.5; a colour change ~25 → ~2.
+- **`family` AND `structure` ESCALATE RATHER THAN BEING STORED.** The container
+  never sees them; they are what the PAGES were written against. Storing one
+  would report success, change nothing a visitor can see, and leave the stored
+  look disagreeing with the pages it describes.
+- **THE ADDON LANE IS CHEAPER BECAUSE OF WHAT COMES BACK, not what goes out.**
+  The prompt still carries the whole site (input rides in the cache and is ~5% of
+  a build); the model returns only the new page and the pages it had to touch, and
+  the merge folds that over the rest. **The nav is why it is not "and nothing
+  else"** — each generated page declares its own `CHROME` with its own links, so
+  a page nobody links to is a page nobody can reach.
+- **A LIVE BUG, AND IT WAS THREE COMMITS OLD.** `recompileAndPublish` read
+  `conn.conn` off `siteBackendBySlug`, which returns the connection STRING — so
+  the `_meta` read it guards never ran and **every publish through the shared
+  spine shipped with no theme, no colour overrides, the default fonts and the
+  site's SLUG in place of its brand.** Exactly the divergence that function was
+  extracted to end, reintroduced by one property access. The free text-edit route
+  publishes through it. Guarded by deriving the contract from the function's own
+  body and refusing `.conn`/`.uid`/`.brief` on all ten call sites — and a first
+  draft of the router's ownership check had the identical bug, which would have
+  left both new rungs silently unreachable for every customer.
+- **`validatePages` was not imported into worker.js** — a ReferenceError on every
+  addon, caught by checking every helper the new handler names against module
+  scope rather than by running it. The `vidRefN` class, ninth recorded time.
+- **Six of my own guards went red on correct code**, all the same two shapes:
+  pinned to an argument list or a matcher list (`priorPagesBlock(priorPages)`,
+  `|| ed)`), or sized in bytes/lines (`api-auth`'s 45-line window, outgrown by two
+  new matchers). Re-anchored on properties. **Assert the property, not the
+  spelling** is now the most frequently learned lesson in this repo.
 
 ---
 
