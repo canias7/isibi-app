@@ -796,3 +796,168 @@ test("the rules say a multi-page change is NOT a page edit", () => {
   assert.match(d, /every page/i, "the description must name the case it gets wrong");
   assert.match(d, /Answer "addon" for those/, "it must say where the change belongs instead");
 });
+
+// ── taking a row away ────────────────────────────────────────────────────────
+//
+// The awkward half of a pair. The lane could change a row and add one and not
+// remove one, so "take the beard trim off the menu" answered with a refusal
+// pointing at the Data panel — the cheapest possible request routed to the one
+// place the customer came here to avoid.
+//
+// THE UNDO IS THE WHOLE DESIGN CONSTRAINT. A page deleted by mistake is one
+// restore away (every publish is archived); a row is gone. So the removal
+// carries the row's contents back, out of OUR list rather than the model's, and
+// the reply prints them — the thread IS the undo.
+
+test("a removal names a row we offered, and carries what it was", () => {
+  const out = readDataChanges(dataReply([{ table: "services", id: 2, remove: true }]), MENU);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].remove, true);
+  assert.equal(out[0].id, 2);
+  assert.deepEqual(out[0].was, { id: 2, name: "Beard trim", price: "£12", minutes: 15 },
+    "the deleted row's contents are the only undo it has");
+});
+
+test("`was` comes from our own list, never from the model", () => {
+  // The reply echoes it back as the undo, so a model that invented the contents
+  // would have the customer restore a row that never existed. It is looked up by
+  // id in the rows WE printed; anything the model sent alongside is ignored.
+  const out = readDataChanges(dataReply([{
+    table: "services", id: 2, remove: true,
+    was: { name: "Something else" }, values: { name: "Something else" },
+  }]), MENU);
+  assert.equal(out[0].was.name, "Beard trim", "the model's version of the row was believed");
+});
+
+test("a removal cannot name a row nobody offered", () => {
+  // The same gate the value path has, and it matters more here: an id the model
+  // invented would be a DELETE against a real table on a number nobody checked.
+  assert.equal(readDataChanges(dataReply([{ table: "services", id: 999, remove: true }]), MENU).length, 0);
+  assert.equal(readDataChanges(dataReply([{ table: "bookings", id: 1, remove: true }]), MENU).length, 0);
+  assert.equal(readDataChanges(dataReply([{ table: "services", remove: true }]), MENU).length, 0,
+    "a removal with no id at all was accepted");
+  assert.equal(readDataChanges(dataReply([{ table: "services", id: "2", remove: true }]), MENU).length, 1,
+    "a numeric string is the shape a model returns and is checkable");
+});
+
+test("only a real true removes — nothing merely truthy", () => {
+  // `remove: "no"` is truthy, and a loose check would delete a row on a model
+  // that was answering "no". The value path is what an unrecognised flag falls
+  // through to, which is the recoverable direction.
+  const soft = readDataChanges(dataReply([{ table: "services", id: 2, remove: "no", values: { price: "£14" } }]), MENU);
+  assert.equal(soft.length, 1);
+  assert.equal(soft[0].remove, undefined, "a truthy non-true flag deleted the row");
+  assert.deepEqual(soft[0].values, { price: "£14" });
+  assert.equal(readDataChanges(dataReply([{ table: "services", id: 2, remove: 1 }]), MENU).length, 0,
+    "a removal with no values and no real flag is not an edit either");
+});
+
+test("removals are bounded with everything else", () => {
+  const many = Array.from({ length: MAX_DATA_OPS + 5 }, () => ({ table: "services", id: 1, remove: true }));
+  assert.equal(readDataChanges(dataReply(many), MENU).length, MAX_DATA_OPS);
+});
+
+test("the tool can express a removal, and does not demand values for one", () => {
+  const props = DATA_TOOL.input_schema.properties.changes.items.properties;
+  assert.ok(props.remove, "the tool has no way to say a row should go");
+  assert.equal(DATA_TOOL.input_schema.properties.changes.items.required.includes("values"), false,
+    "a removal cannot be expressed while values is required");
+  assert.deepEqual(DATA_TOOL.input_schema.properties.changes.items.required, ["table"]);
+  // Said in the description, because the model reading it is the only thing
+  // stopping a replacement being expressed as a delete-then-add.
+  assert.match(props.remove.description, /Never as a way of replacing a row/);
+  assert.match(props.remove.description, /no undo/i);
+});
+
+test("the route deletes by bound parameter, and hands `was` back", () => {
+  // The wiring layer. worker.js cannot be imported, so the SQL and the response
+  // shape are read. The id is already checked against the offered rows, and the
+  // statement still binds it — the table name is the only thing interpolated,
+  // and it is scrubbed, exactly as the update and insert beside it.
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(w, /if \(c\.remove\) \{[\s\S]{0,200}?DELETE FROM \\"" \+ name \+ "\\" WHERE id = \?/,
+    "the delete branch is missing or does not bind the id");
+  assert.match(w, /removed: true, was: c\.was \|\| null/, "the deleted row's contents never reach the client");
+});
+
+test("the refusal no longer sends them somewhere else to delete", () => {
+  // It used to read "I can change and add, but not delete", which stopped being
+  // true. A message that describes a limit the code no longer has teaches the
+  // customer not to ask again.
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.equal(/I can change and add, but not delete/.test(w), false,
+    "the refusal still claims the lane cannot delete");
+  assert.match(w, /say which list it's in and I'll have another go/);
+});
+
+test("the replies are DRIVEN, not grepped", async () => {
+  // THREE MUTANTS SURVIVED A SOURCE-READ VERSION OF THIS, and all three for the
+  // same reason: the mutated line's words survive elsewhere in the file. Deleting
+  // `problemNote(e.problems)` from the page branch passed, because the text
+  // branch now has one too; blanking the removed-row list passed, because
+  // `r.removed` still appears in the line that keeps the others.
+  //
+  // So the functions are EXTRACTED AND RUN. chat.js cannot be imported — it is a
+  // plain browser script — but a function can be sliced out and evaluated, which
+  // is what `sitePathOf` already does one file over. This turns a claim about
+  // the text of the file into a claim about what the customer is shown.
+  const chat = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+  const cut = (name) => {
+    const at = chat.indexOf("function " + name + "(");
+    assert.ok(at > 0, name + " is gone from chat.js");
+    const end = chat.indexOf("\n}", at);
+    assert.ok(end > at, name + " has no end");
+    return chat.slice(at, end + 2);
+  };
+  const editReply = new Function(cut("problemNote") + "\n" + cut("sitePathOf") + "\n" + cut("editReply") +
+    "\nreturn editReply;")();
+
+  // A REMOVAL READS AS A REMOVAL, and says what it was. The row is gone from
+  // the Data panel too, so the contents in the thread are the whole undo.
+  const gone = editReply({ layer: "data", applied: [{ table: "services", id: 2, removed: true, was: { id: 2, name: "Beard trim", price: "£12" } }] });
+  assert.match(gone, /removed one entry/i, gone);
+  assert.match(gone, /Beard trim/, "the deleted row's contents are not shown: " + gone);
+  assert.match(gone, /put it back/, gone);
+  assert.equal(/updated one entry/i.test(gone), false, "a deletion is reported as an update: " + gone);
+
+  // An ordinary edit is unchanged by any of this.
+  const upd = editReply({ layer: "data", applied: [{ table: "services", id: 1, columns: ["price"] }] });
+  assert.match(upd, /Updated one entry in services/);
+  assert.equal(/removed/.test(upd), false, upd);
+
+  // BOTH IN ONE ANSWER, which is the shape "swap the beard trim for a hot
+  // towel" produces.
+  const both = editReply({ layer: "data", applied: [
+    { table: "services", id: 1, columns: ["price"] },
+    { table: "services", id: 2, removed: true, was: { name: "Beard trim" } },
+  ] });
+  assert.match(both, /Updated one entry/i, both);
+  assert.match(both, /removed one entry/i, both);
+
+  // THE TEXT REPLY QUOTES WHAT IT NOW SAYS. A count is a number nobody can
+  // check against their own site.
+  const txt = editReply({ layer: "text", applied: 2, changed: ["Book a chair today", "Open until 7"] });
+  assert.match(txt, /Book a chair today/, txt);
+
+  // AND EVERY BRANCH SHOWS WHAT THE LINT FOUND, asserted per branch, because
+  // one shared grep passes while any single branch is silent.
+  for (const e of [
+    { layer: "text", applied: 1, changed: ["x"], problems: ["prices.tsx: names a colour"] },
+    { layer: "page", page: "src/routes/prices.tsx", problems: ["prices.tsx: names a colour"] },
+  ]) {
+    assert.match(editReply(e), /names a colour/, "the " + e.layer + " reply hides what the lint found");
+  }
+});
+
+test("the text reply names what it now says", () => {
+  // "Updated the wording in 3 places" is a number the customer cannot check —
+  // the same silent-partial class as the two this lane already fixed, one notch
+  // milder. The server has always returned the new strings; nothing read them.
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(w, /changed: out\.edits\.map\(\(e\) => e\.to\)/, "the server stopped returning the new wording");
+  const chat = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+  const branch = chat.slice(chat.indexOf("function editReply("), chat.indexOf("if (e.layer === 'data')"));
+  assert.ok(branch.length > 200, "the text branch of editReply moved");
+  assert.match(branch, /e\.changed/, "the text reply never reads what the wording now says");
+  assert.match(branch, /problemNote\(e\.problems\)/, "a lint problem on a text edit is shown to nobody");
+});

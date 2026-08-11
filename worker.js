@@ -9590,6 +9590,12 @@ async function handleRequest(request, env, ctx) {
                 // it is the only part that cannot be a bound parameter.
                 apply: async (c) => {
                   const name = String(c.table).replace(/"/g, "");
+                  // A REMOVAL. The id has already been checked against the rows
+                  // the model was shown, so it cannot name one it never saw.
+                  if (c.remove) {
+                    await sqlQuery(ddb, "DELETE FROM \"" + name + "\" WHERE id = ?", [c.id]);
+                    return true;
+                  }
                   const cols = Object.keys(c.values);
                   if (c.id === undefined) {
                     const marks = cols.map(() => "?").join(", ");
@@ -9611,7 +9617,7 @@ async function handleRequest(request, env, ctx) {
                   return Response.json({
                     ok: false, error: dOut.reason, cost: 0,
                     msg: dOut.reason === "no-match"
-                      ? "I couldn't match that to anything the site stores. If you meant to remove something, delete it in the Data panel — I can change and add, but not delete."
+                      ? "I couldn't match that to anything the site stores — say which list it's in and I'll have another go."
                       : "That change couldn't be saved — try again.",
                   }, { status: 422 });
                 }
@@ -9619,7 +9625,13 @@ async function handleRequest(request, env, ctx) {
               }
               return Response.json({
                 ok: true, layer: "data",
-                applied: dOut.applied.map((c) => ({ table: c.table, id: c.id, columns: Object.keys(c.values) })),
+                // `was` RIDES BACK ON A REMOVAL, and it is the only undo a
+                // deleted row has: pages are archived on every publish and can
+                // be restored, rows are not. With the contents in the thread,
+                // putting one back is one sentence.
+                applied: dOut.applied.map((c) => (c.remove
+                  ? { table: c.table, id: c.id, removed: true, was: c.was || null }
+                  : { table: c.table, id: c.id, columns: Object.keys(c.values) })),
                 failed: dOut.failed,
                 cost: await eCharge(dOut.usage), usage: dOut.usage,
               });
@@ -9985,10 +9997,20 @@ async function handleRequest(request, env, ctx) {
             // by design; what it does is report, and reporting nothing was the
             // bug.
             const aProblems = aValid.problems.concat(lintPages(aValid.pages, aSpec));
-            const aMerge = mergeAddonPages(aSrc, aValid.pages);
+            // `remove` IS OPTIONAL ON THE TOOL and the build prompt never mentions
+            // it, so no build request changes shape. Only the addon prompt
+            // explains it, and only this lane reads it.
+            const aRemove = (aGen && aGen.input && Array.isArray(aGen.input.remove)) ? aGen.input.remove : [];
+            const aMerge = mergeAddonPages(aSrc, aValid.pages, aRemove);
+            // A CONSIDERED REFUSAL DOES NOT CLIMB THE LADDER. Escalation is for
+            // "this lane could not answer" — the rung above rewrites the whole
+            // site, which is expensive and does work. "Remove the home page" has
+            // an answer, and sending it up rebuilds a customer's site, for ~25
+            // credits, in reply to a request that should have been one sentence.
+            if (!aMerge.ok && aMerge.msg) {
+              return Response.json({ ok: false, error: aMerge.reason, cost: 0, msg: aMerge.msg.trim() }, { status: 422 });
+            }
             // NOTHING USABLE CAME BACK — escalate rather than report success.
-            // The rung above rewrites the whole site, which is expensive and
-            // does work.
             if (!aMerge.ok) return aEscalate(aMerge.reason, { problems: aProblems.slice(0, 4) });
 
             const aPub = await recompileAndPublish(env, {
@@ -10015,7 +10037,8 @@ async function handleRequest(request, env, ctx) {
             } catch { aCost = 0; }
             return Response.json({
               ok: true,
-              added: aMerge.added, changed: aMerge.changed, tables: aTables,
+              added: aMerge.added, changed: aMerge.changed, removed: aMerge.removed, kept: aMerge.kept,
+              tables: aTables,
               unlinked: unlinkedPages(aMerge.pages, aMerge.added),
               problems: aProblems.slice(0, 4),
               files: aPub.files, cost: aCost,

@@ -305,10 +305,19 @@ export const DATA_TOOL = {
               description:
                 "The columns to set, and their new values. Only the columns that change — a column you do not " +
                 "mention keeps what it has. Use the column names exactly as listed below. When adding a row, give " +
-                "every column the others have, or the new one will look broken beside them.",
+                "every column the others have, or the new one will look broken beside them. Leave this out when " +
+                "you are removing a row.",
+            },
+            remove: {
+              type: "boolean",
+              description:
+                "True to DELETE the row with this id. Give the `table` and the `id` and nothing else.\n" +
+                "ONLY when they clearly asked for something to be taken off the site — \"take the beard trim off " +
+                "the menu\", \"we don't do that any more\". Never as a way of replacing a row: to change one, set " +
+                "its values. There is no undo for a deleted row.",
             },
           },
-          required: ["table", "values"],
+          required: ["table"],
         },
       },
     },
@@ -384,6 +393,7 @@ export function readDataChanges(reply, tables) {
     if (t && t.name) byName.set(String(t.name), {
       cols: new Set((Array.isArray(t.columns) ? t.columns : []).filter((c) => typeof c === "string")),
       ids: new Set((Array.isArray(t.rows) ? t.rows : []).map((r) => Number(r.id))),
+      rows: Array.isArray(t.rows) ? t.rows : [],
     });
   }
   const out = [];
@@ -391,6 +401,18 @@ export function readDataChanges(reply, tables) {
     if (!c || typeof c !== "object") continue;
     const t = byName.get(String(c.table || ""));
     if (!t) continue;
+    // A REMOVAL, and it must name a row we offered. The row's own contents are
+    // carried along from OUR list — never the model's — because the reply echoes
+    // them back, and that echo is the ONLY undo a deleted row has. Pages are
+    // archived on every publish and can be restored; rows are not.
+    if (c.remove === true) {
+      const rid = Math.floor(Number(c.id));
+      if (!Number.isFinite(rid) || !t.ids.has(rid)) continue;
+      const was = t.rows.find((r) => Number(r.id) === rid) || null;
+      out.push({ table: String(c.table), id: rid, remove: true, was });
+      if (out.length >= MAX_DATA_OPS) break;
+      continue;
+    }
     const values = c.values && typeof c.values === "object" && !Array.isArray(c.values) ? c.values : null;
     if (!values) continue;
     const set = {};

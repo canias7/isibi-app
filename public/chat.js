@@ -11233,6 +11233,19 @@ function siteAddon(site, instruction, origin, finish, fallback) {
       if (added.length && Array.isArray(s.pages)) {
         for (const p of added) if (!s.pages.some((q) => q && q.path === p)) s.pages.push({ path: p });
       }
+      // AND A PAGE THAT WENT HAS TO LEAVE THE PICKER. Adding without removing is
+      // the same lie the other way round: the customer is told the page is gone,
+      // the picker still offers it, and opening it lands on a route the site no
+      // longer has. The two halves belong in one place, or the next person adds
+      // a third field and keeps only the flattering one.
+      // The SELECTION needs nothing: `sitePageActive` resolves `site.active`
+      // with `|| pages[0]`, so a path that has left the list falls back to the
+      // home page on its own. Clearing it here would be a line that cannot
+      // change what anybody sees.
+      const removed = (Array.isArray(a.removed) ? a.removed : []).map(sitePathOf).filter(Boolean);
+      if (removed.length && Array.isArray(s.pages)) {
+        s.pages = s.pages.filter((q) => !(q && removed.indexOf(q.path) >= 0));
+      }
       sitesSave();
     }
     finish(addonReplyText(a));
@@ -11255,11 +11268,24 @@ function sitePathOf(file) {
 function addonReplyText(a) {
   const added = (Array.isArray(a.added) ? a.added : []).map(sitePathOf).filter(Boolean);
   const changed = (Array.isArray(a.changed) ? a.changed : []).map(sitePathOf).filter(Boolean);
+  const removed = (Array.isArray(a.removed) ? a.removed : []).map(sitePathOf).filter(Boolean);
   const bits = [];
   if (added.length) bits.push('added ' + added.join(', '));
+  if (removed.length) bits.push('removed ' + removed.join(', '));
   if (changed.length) bits.push('linked it from ' + changed.join(', '));
   if (Array.isArray(a.tables) && a.tables.length) bits.push('now storing ' + a.tables.join(', '));
   let out = bits.length ? '✅ Done — ' + bits.join(', ') + '.' : '✅ Done.';
+  // A PAGE WE REFUSED TO DELETE IS SAID PLAINLY. Keeping it quietly is the
+  // silent partial this lane already had once: asked for gone, told it worked,
+  // still there.
+  for (const k of (Array.isArray(a.kept) ? a.kept : []).slice(0, 3)) {
+    if (!k || !k.path) continue;
+    const p = sitePathOf(k.path);
+    out += k.why === 'home'
+      ? ' I left ' + p + ' — that\u2019s the home page, and removing it would leave the site with no front door.'
+      : ' I left ' + p + ' — ' + (k.from || []).map(sitePathOf).filter(Boolean).join(', ') +
+        ' still links to it. Ask me to take the link out first.';
+  }
   const un = Array.isArray(a.unlinked) ? a.unlinked : [];
   if (un.length) out += ' Nothing links to ' + un.join(', ') + ' yet — say where you want the link and I’ll add it.';
   return out + problemNote(a.problems);
@@ -11287,17 +11313,38 @@ function problemNote(list) {
 // cannot see that from the site, and "done" tells them nothing they can check.
 function editReply(e) {
   if (e.layer === 'text') {
+    // NAMES WHAT IT NOW SAYS. "Updated the wording in 3 places" is a number the
+    // owner cannot check — the same class as the two silent partials this file
+    // already fixed, one notch milder. The server returns the new strings.
     const n = Number(e.applied) || 0;
-    return '✅ Updated the wording' + (n > 1 ? ' in ' + n + ' places' : '') + '.';
+    const said = (Array.isArray(e.changed) ? e.changed : [])
+      .filter((x) => typeof x === 'string' && x.trim()).slice(0, 3)
+      .map((x) => '“' + x.slice(0, 60) + '”');
+    return '✅ Updated the wording' + (n > 1 ? ' in ' + n + ' places' : '') +
+      (said.length ? ' — now ' + said.join(', ') : '') + '.' + problemNote(e.problems);
   }
   if (e.layer === 'data') {
     // NAMES WHAT MOVED, because this layer changes rows the customer cannot see
     // in the page source — "done" leaves them with nothing to check.
     const rows = Array.isArray(e.applied) ? e.applied : [];
-    const what = rows.map((r) => (r.id === undefined ? 'added to ' : '') + r.table).filter(Boolean);
-    const uniq = [...new Set(what)];
-    let out = '✅ Updated ' + (rows.length === 1 ? 'one entry' : rows.length + ' entries') +
-      (uniq.length ? ' in ' + uniq.join(', ') : '') + '.';
+    const gone = rows.filter((r) => r && r.removed);
+    const rest = rows.filter((r) => !(r && r.removed));
+    const uniq = [...new Set(rest.map((r) => (r.id === undefined ? 'added to ' : '') + r.table).filter(Boolean))];
+    const bits = [];
+    if (rest.length) bits.push('updated ' + (rest.length === 1 ? 'one entry' : rest.length + ' entries') +
+      (uniq.length ? ' in ' + uniq.join(', ') : ''));
+    if (gone.length) bits.push('removed ' + (gone.length === 1 ? 'one entry' : gone.length + ' entries'));
+    let out = bits.length ? '✅ ' + bits.join(', ').replace(/^./, (c) => c.toUpperCase()) + '.' : '✅ Done.';
+    // WHAT WENT, IN WORDS. A deleted row has no version history to restore from,
+    // so the contents sitting in the thread ARE the undo — "put that back" is
+    // one sentence with the data already on screen.
+    for (const g of gone.slice(0, 3)) {
+      const w = g && g.was && typeof g.was === 'object' ? g.was : null;
+      if (!w) continue;
+      const desc = Object.keys(w).filter((k) => k !== 'id' && w[k] != null && String(w[k]).trim())
+        .slice(0, 3).map((k) => k + ' ' + String(w[k]).slice(0, 40)).join(', ');
+      if (desc) out += ' Gone from ' + g.table + ': ' + desc + '. Say the word and I\u2019ll put it back.';
+    }
     if (e.failed) out += ' ' + e.failed + ' couldn\u2019t be saved \u2014 try that one again.';
     return out;
   }

@@ -36,12 +36,18 @@ export const MAX_RETURNED = 6;
  * `src/routes` and writes what it is given, so handing it the subset would
  * publish a site consisting of the new page alone.
  */
-export function mergeAddonPages(prior, returned) {
+export function mergeAddonPages(prior, returned, remove) {
   const base = (Array.isArray(prior) ? prior : [])
     .filter((p) => p && typeof p.path === "string" && typeof p.source === "string");
   const got = (Array.isArray(returned) ? returned : [])
     .filter((p) => p && typeof p.path === "string" && typeof p.source === "string" && p.source.trim());
-  if (!got.length) return { ok: false, reason: "nothing-returned" };
+  // A REMOVAL IS WORK EVEN WITH NO PAGE BEHIND IT, and reading it as an empty
+  // answer is how the commonest deletion there is stayed expensive: take away a
+  // page nothing links to and the model correctly returns no files at all, which
+  // this refused as `nothing-returned` — straight up the ladder to the ~25-credit
+  // revise the lane exists to undercut. Found by a mutant, not by reading.
+  const wants = (Array.isArray(remove) ? remove : []).some((r) => typeof r === "string" && r);
+  if (!got.length && !wants) return { ok: false, reason: "nothing-returned" };
   if (got.length > MAX_RETURNED) return { ok: false, reason: "too-many", count: got.length };
 
   const had = new Set(base.map((p) => p.path));
@@ -57,8 +63,51 @@ export function mergeAddonPages(prior, returned) {
     // looking for damage that is not there.
     else if (!same) changed.push(p.path);
   }
-  if (!added.length && !changed.length) return { ok: false, reason: "no-change" };
-  return { ok: true, pages: [...byPath.values()], added, changed };
+  // ── TAKING A PAGE AWAY ────────────────────────────────────────────────────
+  //
+  // Allowed here and NOT in the data layer, and the difference is whether it can
+  // be undone: every publish is archived and there is a restore route, so a page
+  // deleted by mistake is one click from coming back. A deleted ROW has no such
+  // record, which is why that layer echoes what it removed instead.
+  //
+  // Before this, "remove the gallery page" fell through the merge (which only
+  // ever added), came back `no-change`, escalated, and cost a ~25-credit full
+  // revise to do by omission — about twelve times what it should.
+  const gone = [];
+  const kept = [];
+  for (const raw of Array.isArray(remove) ? remove.slice(0, MAX_RETURNED) : []) {
+    const path = typeof raw === "string" ? raw : "";
+    if (!byPath.has(path)) continue;                       // nothing to remove
+    if (added.includes(path) || changed.includes(path)) continue; // written and removed in one breath
+    // THE HOME PAGE IS NEVER REMOVABLE. It is the one address a customer shares,
+    // and a site whose root renders nothing is worse than any page they wanted
+    // gone. Same rule the salvage already applies to a build with no index.
+    if (routeOf(path) === "/") { kept.push({ path, why: "home" }); continue; }
+    // A LINK POINTING AT A ROUTE THAT NO LONGER EXISTS DOES NOT COMPILE, so
+    // deleting a page nothing was told to unlink would fail the whole change and
+    // leave the site untouched — 20-40s of container time to achieve nothing,
+    // and a TypeScript error the owner cannot act on. Refused here instead, with
+    // the pages that still point at it named.
+    const route = routeOf(path);
+    const linkers = [...byPath.values()]
+      .filter((p) => p.path !== path && !gone.includes(p.path) && typeof p.source === "string" && p.source.includes('"' + route + '"'))
+      .map((p) => p.path);
+    if (linkers.length) { kept.push({ path, why: "linked", from: linkers.slice(0, 4) }); continue; }
+    byPath.delete(path);
+    gone.push(path);
+  }
+
+  if (!added.length && !changed.length && !gone.length) {
+    // A REFUSAL IS NOT AN ABSENCE OF WORK, and the difference decides whether
+    // the customer is charged ~25 credits for asking a question. `no-change`
+    // escalates: the rung above rewrites the whole site, which is right when
+    // this lane simply could not answer. But "remove the home page" HAS an
+    // answer — no, and here is why — and sending that up the ladder rebuilds
+    // their site in reply to a request that should have been one sentence.
+    if (kept.length) return { ok: false, reason: "kept", kept, msg: keptReply(kept) };
+    return { ok: false, reason: "no-change" };
+  }
+  return { ok: true, pages: [...byPath.values()], added, changed, removed: gone, kept };
 }
 
 /**
@@ -113,11 +162,37 @@ export function routeOf(path) {
  * can touch a page they did not ask about — the nav link — so not saying which
  * is how a legitimate change reads as their site being altered behind them.
  */
-export function addonReply({ added = [], changed = [], unlinked = [] } = {}) {
+/**
+ * The pages we would not delete, and why — one composition, two readers.
+ *
+ * It is BOTH half of a success reply and the WHOLE of a refusal: an addon whose
+ * every removal was refused did no other work, so this sentence is all there is
+ * to say. Two copies of it drift into a refusal that explains itself and a
+ * success that keeps a page silently, which is the partial this lane already had
+ * once.
+ */
+export function keptReply(kept) {
+  let out = "";
+  for (const k of Array.isArray(kept) ? kept.slice(0, 3) : []) {
+    if (!k || !k.path) continue;
+    out += k.why === "home"
+      ? " I left " + routeOf(k.path) + " — that is the home page, and removing it would leave the site with no front door."
+      : " I left " + routeOf(k.path) + " — " + (k.from || []).map(routeOf).filter(Boolean).join(", ") +
+        " still link" + ((k.from || []).length === 1 ? "s" : "") + " to it. Ask me to take the link out first.";
+  }
+  return out;
+}
+
+export function addonReply({ added = [], changed = [], removed = [], kept = [], unlinked = [] } = {}) {
   const bits = [];
   if (added.length) bits.push("added " + added.map(routeOf).filter(Boolean).join(", "));
+  if (removed.length) bits.push("removed " + removed.map(routeOf).filter(Boolean).join(", "));
   if (changed.length) bits.push("linked it from " + changed.map(routeOf).filter(Boolean).join(", "));
-  const head = bits.length ? "✅ Done — " + bits.join(", ") + "." : "✅ Done.";
+  let head = bits.length ? "✅ Done — " + bits.join(", ") + "." : "✅ Done.";
+  // A PAGE WE REFUSED TO DELETE IS SAID PLAINLY, with the reason. Silently
+  // keeping it is the silent partial this lane already had once: the owner asks
+  // for it gone, is told the change worked, and it is still there.
+  head += keptReply(kept);
   if (!unlinked.length) return head;
   // Said plainly, because the owner is about to look for a page they cannot
   // find, and the fix is one sentence from them.

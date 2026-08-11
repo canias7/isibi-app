@@ -2618,6 +2618,17 @@ export const SITE_PAGES_TOOL = {
           required: ["path", "source"],
         },
       },
+      remove: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "ONLY when you are adding to a site that already exists and the change asks for a page to be TAKEN AWAY. " +
+          "The route files to delete, exactly as they are named above — for example \"src/routes/gallery.tsx\".\n" +
+          "IF YOU REMOVE A PAGE YOU MUST ALSO RETURN EVERY PAGE THAT LINKS TO IT, with the link taken out. A link " +
+          "pointing at a route that no longer exists does not compile, so the whole change would be refused and " +
+          "their site left as it was. Never remove the home page.\n" +
+          "Leave this out entirely for anything that is not a deletion.",
+      },
       notes: {
         type: "string",
         description:
@@ -2994,6 +3005,15 @@ export function priorPagesBlock(pages, mode = "revise", target = "") {
       "a page nobody can reach.\n\n" +
       "IF THE THING THEY ASKED FOR BELONGS ON A PAGE THAT ALREADY EXISTS, return that page edited and add no new " +
       "file at all. A testimonials section on the home page is an edit to the home page, not a new route.\n\n" +
+      // WITHOUT THIS SENTENCE THE DELETE VERB IS UNREACHABLE. The full-revise
+      // block one branch below says "to delete a page, simply do not return it",
+      // which is exactly true there and does NOTHING here — an unreturned page
+      // is KEPT. So a model working from that habit answers "remove the gallery"
+      // by returning nothing, the merge reports no change, and the request
+      // escalates to the ~25-credit revise this lane exists to avoid.
+      "TO REMOVE A PAGE, LIST IT IN `remove`. Not returning it does nothing here — a page you do not return is " +
+      "KEPT. And return every page that links to the one you are removing, with the link taken out, or the site " +
+      "will not compile and nothing will change at all.\n\n" +
       "Anything you DO return must be the whole file, and everything in it that this change does not touch stays " +
       "BYTE-IDENTICAL — the same headings, the same sentences, the same sections in the same order. The customer " +
       "wrote this site; a change they did not ask for reads to them as their site being replaced.\n\n" +
