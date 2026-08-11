@@ -22,7 +22,11 @@ on 8 of the 16 read/write pairs; and `lintPages` false-alarms on the exact
 marketplace cell the pairs were added for. Read the dated entry below before
 starting any of them.
 
-**THE EDIT AND ADDON LANES ARE BUILT AND PUSHED (2026-08-11), NOT PROVEN LIVE.**
+**THE EDIT AND ADDON LANES ARE MERGED AND DEPLOYED (2026-08-11), NOT PROVEN LIVE.**
+They are on `main` and running on gofarther.dev. **The Anthropic balance is empty
+again** (measured: `page gen eval` and `build smoke` both answer *"Your credit
+balance is too low"*, nothing billed), so no build, edit or addon has actually
+run. That top-up is the one thing standing between here and knowing.
 Fifteen commits on `claude/help-needed-ehlwlj`, 2078 tests, 69/69 mutations. All
 four layers are in (`data`, `text`, `look`, `page`), the addon lane can add AND
 remove a page, the data layer can remove a row, and the colour lint runs on both
@@ -41,6 +45,35 @@ proven.
 when they say they are home, since it wants doing on their desktop.
 
 ---
+
+## 2026-08-11 — Member sign-in was dead on every published site, and it is fixed
+
+**Found by merging.** The deploy went out clean, and `member smoke` — which runs
+against the real platform for free — came back **21 passed / 12 failed**, where
+the day before it was **33 / 2**. Every sign-up and every sign-in on a published
+site was answering `403 INVALID_ORIGIN`. The whole member tier (`user`, `feed`,
+`admin`) was unusable. **PROVEN FIXED THE SAME HOUR: 35 passed, 0 failed.**
+
+- **NOT CAUSED BY THE MERGE, established before touching anything.** The diff
+  deployed that day touches no provisioning file and has ZERO matches for the
+  proxy, origins or headers; the smoke's base URL is unchanged. Everything before
+  auth still passed on the failing run — the site built, tables were created,
+  seeded rows were readable, a stranger could submit a form — so provisioning,
+  grants, RLS and the Data API were all fine.
+- **THE CAUSE IS A DEFAULT WE DO NOT OWN.** The proxy sent OUR origin
+  (`gofarther.dev`) to the site's auth server. Better Auth's documented default is
+  that it trusts *"the base URL of your app (i.e. baseURL)"* and nothing else, and
+  Neon's trusted-domain list is a **Console setting per project** — a box a
+  platform that provisions a project per site can never tick. So it only ever
+  worked by a Neon default, and the default moved.
+- **The fix is to send the UPSTREAM's own origin**, which is trusted by
+  construction and needs no configuration. Still SET rather than forwarded, so a
+  caller on this public endpoint still cannot choose it.
+- **THE EXISTING GUARD PINNED THE EXACT BROKEN VALUE**, so it went RED on the
+  correct fix and GREEN on the live break. The sharpest form of the lesson this
+  file keeps recording: **assert the property, not the spelling.** One guard now,
+  on four properties.
+- 2091 tests, **4/4 mutations**. **Proven live** — the only thing today that is.
 
 ## 2026-08-11 — The text layer's own cap half-edited the site
 
