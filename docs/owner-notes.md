@@ -16043,3 +16043,25 @@ deletion checks skip with a printed reason instead of pointing at something real
 The rename passed this time too, so those four failures earlier were bad luck
 rather than a bug. I've kept the wider error message anyway — the cause was
 never actually in the log, and next time it will be.
+
+**One field left, and I know exactly which (12 Aug).**
+
+With the naming bug fixed, the run came back:
+
+    intent=edit  layer=page  page=/gallery  remove=undefined
+
+Lane right, layer right, and it found the gallery page correctly. The only thing
+missing is the single true/false that means "delete it" — against a message that
+is literally the first example written in that field's own instructions.
+
+The reason is the same one that bit an hour earlier, one field over. That
+instruction ENDED on a warning: "getting it wrong the other way takes a page off
+their site." The last thing an AI reads is the strongest, and the last thing this
+said was a reason not to do it. Both warnings are still there; I've only changed
+which one comes last, so it now ends on what happens if it's left out — the page
+stays and we tell the customer it's done.
+
+**Being straight: this is the fourth time a model has declined to set this flag,
+across two different places in the code.** If wording doesn't fix it this time,
+the answer is to stop asking for a true/false and make it a choice it has to
+make — which is a bigger change and I'd rather try the cheap one first and know.

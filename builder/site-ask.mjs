@@ -234,8 +234,21 @@ export const ASK_TOOL = {
           "For layer \"page\": true when they are asking for that page to be TAKEN AWAY — \"remove the gallery " +
           "page\", \"we don't need the about page any more\", \"delete /prices\".\n" +
           "ONLY WHEN THEY PLAINLY MEAN DELETE THE WHOLE PAGE. Changing what is on a page, taking a SECTION off it, or " +
-          "emptying it out are all ordinary page edits — leave this out for those. Getting it wrong the other way takes " +
-          "a page off their site.\n" +
+          "emptying it out are all ordinary page edits — leave this out for those, because setting it there " +
+          "takes a page off their site.\n" +
+          // THE LAST SENTENCE OF A FIELD IS THE STRONGEST ONE IN IT, and this
+          // clause used to end on "getting it wrong the other way takes a page
+          // off their site" — a warning against the action, as the final word.
+          // Measured live 2026-08-12, on a run where everything else was right:
+          // `intent=edit layer=page page=/gallery remove=undefined`, against the
+          // message "Remove the gallery page" and this field's own first example.
+          // The model picked the lane, the layer and the page, and declined the
+          // boolean. So the closing word is now what happens if it is omitted,
+          // which is the failure the customer actually sees. Same fix that moved
+          // the addon tie-break an hour earlier.
+          "WITHOUT THIS FIELD THE PAGE STAYS. Layer \"page\" on its own is an ordinary edit, so if they have said the " +
+          "page should GO and you leave this out, nothing is deleted and they are told the change was made. When they " +
+          "have asked for a page to be gone, set it.\n" +
           "For layer \"logo\": true when they want the logo TAKEN OFF and the header to go back to showing the " +
           "business name — \"drop the logo\", \"remove our logo\", \"just the name is fine\". A message that ATTACHES " +
           "a picture is never a removal.",

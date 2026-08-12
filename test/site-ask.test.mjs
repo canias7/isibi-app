@@ -1405,6 +1405,16 @@ test("THE ROUTER IS TOLD A PAGE DELETION IS AN EDIT, and told not to ask about i
   const tie = t.slice(t.indexOf("WHEN YOU CANNOT TELL"));
   assert.ok(tie.length > 0 && /A REMOVAL IS NEVER AN ADDON/.test(tie),
     "the exception is stated somewhere ABOVE the tie-break, where the model has already stopped reading");
+  // AND THE SAME LESSON ONE FIELD OVER. `remove`'s page clause used to CLOSE on
+  // "getting it wrong the other way takes a page off their site" — a warning
+  // against the action as its final word. Measured live with everything else
+  // correct (`layer=page page=/gallery remove=undefined`) against this field's
+  // own first example. It closes on the consequence of OMITTING it now.
+  assert.match(t, /WITHOUT THIS FIELD THE PAGE STAYS/,
+    "the remove field never says what happens when it is left out, which is the failure the customer sees");
+  const rm = t.slice(t.indexOf("WITHOUT THIS FIELD THE PAGE STAYS"));
+  assert.ok(!/takes a page off their site/.test(rm.slice(0, 400)),
+    "the clause still ends on the warning, which is the position that lost it twice");
 });
 
 test("…and the conservatism below it is NOT loosened by that", () => {
