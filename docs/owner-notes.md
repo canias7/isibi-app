@@ -16065,3 +16065,26 @@ stays and we tell the customer it's done.
 across two different places in the code.** If wording doesn't fix it this time,
 the answer is to stop asking for a true/false and make it a choice it has to
 make — which is a bigger change and I'd rather try the cheap one first and know.
+
+**The account is empty again (05:52Z) — that's all 18 failures.**
+
+The run says `17 passed, 18 failed` and it looks alarming. It isn't. Every one of
+them comes from a single line: the AI provider refused with *"credit balance is
+too low"*. Once the model can't be called, the router falls back, the rule change
+can't be sent, the addon can't build — and the check that says the database
+refuses a stranger fails because **the rule was never applied**, not because
+anything is insecure.
+
+Nobody was charged: `cost: 0` on every one, and the deposits refund.
+
+**And I should own the cause.** It emptied about two hours after you topped it
+up, and the reason is my own loop tonight — six live runs, each one a real site
+build plus a real page addon. Debugging a live check by re-running it is real
+spend, and at that pace it drains faster than a day of actual customers would.
+I should have batched the fixes into one run instead of merging each and
+watching.
+
+**So I've stopped triggering runs.** The deletion fix is merged and unproven; it
+needs one run whenever you next top up, not six. Worth knowing that while the
+account is empty, no customer can build or change a site either — it's a real
+outage wearing the shape of a test failure.
