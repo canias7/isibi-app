@@ -3351,10 +3351,33 @@ const SITE_SCHEMA_TOOL = {
       },
       seed: {
         type: "object",
+        // MEASURED: THE DESIGNER LEFT THIS OUT ON TWO CONSECUTIVE BUILDS, and
+        // being in `required` did not stop it — a required field means the KEY
+        // is present, so `seed: {}` satisfies the schema perfectly. The three
+        // silent shapes are absent, `{}`, and an empty array, and only the
+        // first is even a violation.
+        //
+        // IT IS ALSO THE SECOND-LARGEST THING THIS TOOL ASKS FOR: measured on a
+        // reconstructed answer, `seed` is ~41% of the designer's output tokens
+        // against `tables`' 47%, and it was carrying 526 characters of
+        // instruction against `family`'s 10,990 for 1% of the output. That is
+        // the sharpest cost-to-guidance mismatch in the tool, and it is the one
+        // field with a failure anybody has actually seen. Longer is close to
+        // free — this rides in the cached prefix — so the fix is words.
         description: "Starter rows for each 'display' table, keyed by table name: {\"services\": [{...}, {...}]}. " +
           "REQUIRED for every display table — a table left unseeded shows an empty list forever, because nothing can write to it after the build. " +
           "Write 3-6 realistic rows per table using only that table's declared columns. Make them plausible for this specific business, not placeholders: " +
-          "real service names and real prices, not 'Item 1' / 0.00.",
+          "real service names and real prices, not 'Item 1' / 0.00.\n" +
+          "THIS IS NOT OPTIONAL AND IT IS NOT DECORATION. There is no route by which a display table is ever filled " +
+          "in later: no page can write to it, no form can, the platform has no importer, and the owner editing rows " +
+          "by hand in their dashboard is the only way — so an empty table is what the customer's site SHIPS with. " +
+          "A price list with nothing in it is a business that looks closed. Worse, any form field that chooses from " +
+          "that table renders with ZERO options, so nobody can submit it at all: an unseeded `services` table means " +
+          "the booking form is dead, not merely bare.\n" +
+          "COUNT YOUR OWN TABLES BEFORE YOU FINISH. Every table you declared with a public read and no public write " +
+          "needs a key here. An empty object, an empty array, or a missing key are all the same outcome as not " +
+          "answering — the schema accepts them and the site ships broken. If a table genuinely has no starter " +
+          "content to write, it should not have been a display table.",
         additionalProperties: { type: "array", items: { type: "object" } },
       },
       // The typeface. Declared as an ENUM rather than free text, so an invalid

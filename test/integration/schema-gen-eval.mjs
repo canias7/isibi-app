@@ -1,0 +1,235 @@
+// Does the DESIGNER produce a schema a business can actually use?
+//
+// WHY THIS EXISTS. The step that decides a site's tables, its access levels, its
+// seed rows and its family was measured by NOTHING. `page gen eval` has 43 runs
+// of history and SENDS the schema; `confirm smoke` and `member smoke` send one
+// deliberately to skip this call; `build smoke` designs one and `console.log`s
+// it without asserting anything. So every claim about designer quality — it
+// skips `seed`, it picks the nearest preset — rested on two anecdotes from one
+// week, and two changes were shipped against them.
+//
+// This is the same call with everything else stripped away: no database, no
+// container, no publish, no account. A brief goes in, N samples come back, and
+// each answer is scored on things checkable without a human.
+//
+// WHAT IT DOES NOT DO. It does not judge whether the schema is GOOD — whether
+// `price` should be on the dish or the portion is a design question and this
+// harness would only pretend to answer it. It checks properties that are true
+// or false: every display table got starter rows, a booking table got something
+// holding the slot, a brief about browsing produced something a stranger can
+// read. Those are the three failures this platform has actually shipped.
+//
+// ONE CALL A SAMPLE, because production makes one call a build.
+//
+// THE REQUEST IS THE REAL ONE, and getting that right is the whole value.
+// `page gen eval` issues through `pagesRequest`, the same function worker.js
+// uses, specifically so it cannot drift into tuning a different prompt. The
+// design call has no such function — it is inline in `worker.js`, which cannot
+// be imported — so this reads the REAL tool literal out of the file and
+// resolves every identifier from the REAL modules. It is not a restatement; it
+// is the same object. `readSchemaTool` REFUSES to stub anything, because a
+// stubbed enum is a harness measuring a prompt the platform does not send.
+//
+// The clean fix is to extract the request the way `pagesRequest` was extracted.
+// That is deliberately NOT done here: 17 test files read `worker.js` for this
+// tool, and moving it means retargeting all 17 with no live build available to
+// verify the result. It is a follow-up for when the platform can be exercised.
+//
+// Needs ANTHROPIC_API_KEY. Costs exactly one design call per sample —
+// ~1.5 credits warm, ~6.5 cold, measured 2026-08-12.
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { normalizeSchema } from "../../site-schema.mjs";
+import { resolveAccess } from "../../site-access.mjs";
+import { READY_FAMILIES } from "../../builder/site-layouts.mjs";
+import { pageCost } from "../../builder/publish-pages.mjs";
+
+const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+const SAMPLES = Math.max(1, Math.min(Number(process.env.EVAL_SAMPLES) || 2, 10));
+const KEY = process.env.ANTHROPIC_API_KEY || "";
+const MODEL = process.env.EVAL_MODEL || "claude-sonnet-5";
+
+if (!KEY) { console.error("ANTHROPIC_API_KEY is required"); process.exit(1); }
+
+/**
+ * The REAL `design_schema` tool and system text, out of the real worker.js.
+ *
+ * Every identifier the literal references is resolved from the module
+ * worker.js itself imports it from. Anything that cannot be resolved is a hard
+ * failure rather than a stub: a harness that quietly measures a 1-entry enum
+ * where production sends 100 is worse than no harness, and this one nearly
+ * shipped that way.
+ */
+async function readSchemaTool() {
+  const src = fs.readFileSync(path.join(ROOT, "worker.js"), "utf8");
+  const [fonts, layouts, tokens, themes] = await Promise.all([
+    import(path.join(ROOT, "builder", "site-fonts.mjs")),
+    import(path.join(ROOT, "builder", "site-layouts.mjs")),
+    import(path.join(ROOT, "builder", "site-tokens.mjs")),
+    import(path.join(ROOT, "builder", "site-theme-registry.mjs")),
+  ]);
+  const scope = {
+    SITE_FONT_IDS: fonts.SHORTLIST.map((f) => f.id),
+    SITE_FAMILY_IDS: layouts.READY_FAMILIES,
+    SITE_STRUCTURE_IDS: layouts.STRUCTURE_NAMES,
+    familiesForPrompt: layouts.familiesForPrompt,
+    structuresForPrompt: layouts.structuresForPrompt,
+    SITE_TOKEN_NAMES: tokens.ASKABLE,
+    siteTokenHint: tokens.valueHint,
+    THEME_SHORTLIST: themes.THEME_SHORTLIST,
+    SITE_THEME_IDS: themes.THEME_SHORTLIST,
+  };
+  for (const [k, v] of Object.entries(scope)) globalThis[k] = v;
+
+  const at = src.indexOf("const SITE_SCHEMA_TOOL");
+  if (at < 0) throw new Error("SITE_SCHEMA_TOOL is gone from worker.js — retarget this harness");
+  let depth = 0, i = src.indexOf("{", src.indexOf("=", at)), j = i;
+  for (; j < src.length; j++) {
+    const c = src[j];
+    if (c === "{") depth++;
+    else if (c === "}") { depth--; if (!depth) { j++; break; } }
+  }
+  let tool;
+  try { tool = eval("(" + src.slice(i, j) + ")"); }
+  catch (e) {
+    // NEVER STUBBED. If an identifier is missing here the harness must stop, not
+    // invent a placeholder — that is how a 100-entry enum becomes a 1-entry one
+    // and every number in the report describes a prompt nobody sends.
+    throw new Error("could not resolve the tool: " + e.message + " — add it to `scope`, do not stub it");
+  }
+
+  // The system block, lifted from the same file rather than retyped.
+  const sysAt = src.indexOf('text: "You design the data model');
+  if (sysAt < 0) throw new Error("the system block moved — retarget this harness");
+  const sysEnd = src.indexOf('" }]', sysAt);
+  const system = eval("[" + src.slice(sysAt + 6, sysEnd + 1) + "]").join("");
+
+  // Sanity: the enums must be the real size, or something above silently failed.
+  const fam = tool.input_schema.properties.family.enum || [];
+  if (fam.length !== READY_FAMILIES.length) {
+    throw new Error("the family enum read as " + fam.length + " and the module says " + READY_FAMILIES.length);
+  }
+  return { tool, system };
+}
+
+import { SCENARIOS, CHECKS, ALWAYS } from "./schema-checks.mjs";
+
+
+async function designOnce({ tool, system }, brief) {
+  const req = {
+    model: MODEL,
+    max_tokens: 8000,
+    tools: [{ ...tool, cache_control: { type: "ephemeral" } }],
+    tool_choice: { type: "tool", name: "design_schema" },
+    system: [{ type: "text", cache_control: { type: "ephemeral" }, text: system }],
+    messages: [{ role: "user", content: brief }],
+  };
+  const r = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "x-api-key": KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+    body: JSON.stringify(req),
+  });
+  const body = await r.json().catch(() => null);
+  if (!r.ok) {
+    const e = new Error("anthropic " + r.status);
+    e.detail = JSON.stringify(body || {}).slice(0, 300);
+    throw e;
+  }
+  const call = (body.content || []).find((b) => b.type === "tool_use");
+  const u = body.usage || {};
+  return {
+    input: call ? call.input : null,
+    usage: {
+      in: u.input_tokens || 0, out: u.output_tokens || 0,
+      cacheRead: u.cache_read_input_tokens || 0, cacheWrite: u.cache_creation_input_tokens || 0,
+      model: MODEL,
+    },
+  };
+}
+
+const rows = [];
+const totals = { in: 0, out: 0, cacheRead: 0, cacheWrite: 0, model: MODEL };
+let reachedModel = false;
+
+const loaded = await readSchemaTool();
+console.log("tool read: " + (loaded.tool.input_schema.properties.family.enum || []).length + " families, "
+  + JSON.stringify(loaded.tool).length + " chars · system " + loaded.system.length + " chars");
+console.log(SCENARIOS.length + " scenarios × " + SAMPLES + " samples, model " + MODEL + "\n");
+
+for (const sc of SCENARIOS) {
+  for (let n = 1; n <= SAMPLES; n++) {
+    const row = { key: sc.key, n, ok: false, checks: [], error: "" };
+    try {
+      const { input, usage } = await designOnce(loaded, sc.brief);
+      reachedModel = true;
+      for (const k of ["in", "out", "cacheRead", "cacheWrite"]) totals[k] += usage[k];
+      if (!input) { row.error = "the model called the tool with nothing in it"; rows.push(row); continue; }
+      const spec = normalizeSchema(input);
+      for (const name of [...sc.expect, ...ALWAYS]) {
+        const res = CHECKS[name](input, spec);
+        row.checks.push({ name, ...res });
+      }
+      row.ok = row.checks.every((c) => c.ok !== false);
+      row.tables = spec.tables.map((t) => t.name + ":" + resolveAccess(t).read + "/" + resolveAccess(t).write);
+      row.family = input.family;
+    } catch (e) {
+      row.error = String(e.message) + (e.detail ? " " + e.detail : "");
+    }
+    rows.push(row);
+    const mark = row.error ? "!!" : (row.ok ? "ok" : "  ");
+    console.log("  " + mark + " " + (sc.key + " " + n).padEnd(16)
+      + (row.error || row.checks.map((c) => (c.ok === false ? "✗" : c.ok === null ? "–" : "✓") + c.name).join(" ")));
+    for (const c of row.checks) if (c.ok === false) console.log("        " + c.name + ": " + c.why);
+    if (row.tables) console.log("        " + row.family + " · " + row.tables.join("  "));
+  }
+}
+
+// A RUN THAT NEVER REACHED THE MODEL IS NOT A SCORE OF ZERO. The page eval
+// learned this the hard way: an empty account writing 0% into the series is a
+// permanent lie in the one file that tracks quality.
+if (!reachedModel) {
+  console.log("\nTHE RUN NEVER REACHED THE MODEL — nothing was measured and nothing was billed.");
+  for (const r of rows.slice(0, 1)) console.log("  " + r.error);
+  console.log("\nSCHEMA-GEN.md is left as it was: a run that could not ask is not a failure rate.");
+  process.exit(1);
+}
+
+const passed = rows.filter((r) => r.ok).length;
+const failed = rows.filter((r) => !r.ok);
+const byCheck = {};
+for (const r of rows) for (const c of r.checks) {
+  byCheck[c.name] = byCheck[c.name] || { pass: 0, fail: 0, skip: 0 };
+  byCheck[c.name][c.ok === false ? "fail" : c.ok === null ? "skip" : "pass"]++;
+}
+const cost = pageCost(totals);
+const md = [
+  "# Schema designer — does it produce a usable data model?",
+  "",
+  "**" + passed + "/" + rows.length + " samples clean.** " + SCENARIOS.length + " briefs × " + SAMPLES + " samples, one call each.",
+  "",
+  "No database, no publish, no account — this measures the DESIGNER, not the build path around it.",
+  "Each check is a property that is true or false, never a judgement about whether the schema is *good*.",
+  "",
+  "## By check",
+  "",
+  ...Object.entries(byCheck).map(([k, v]) =>
+    "- **" + k + "** — " + v.pass + " pass, " + v.fail + " fail" + (v.skip ? ", " + v.skip + " n/a" : "")),
+  "",
+  "## What it cost",
+  "",
+  "- output " + Math.round(totals.out / rows.length) + " tok/sample · fresh in " + totals.in
+    + " · cache read " + totals.cacheRead + " · write " + totals.cacheWrite,
+  "- " + cost.toFixed(3) + " credits for the run",
+  "",
+  "## Samples",
+  "",
+  ...rows.map((r) => "- **" + r.key + " " + r.n + "** — " + (r.error ? "ERROR " + r.error
+    : (r.ok ? "clean" : r.checks.filter((c) => c.ok === false).map((c) => c.name + " (" + c.why + ")").join("; ")))),
+  "",
+].join("\n");
+
+fs.mkdirSync(path.join(ROOT, "docs", "auth-audit"), { recursive: true });
+fs.writeFileSync(path.join(ROOT, "docs", "auth-audit", "SCHEMA-GEN.md"), md);
+console.log("\n" + passed + "/" + rows.length + " clean · " + cost.toFixed(3) + " credits · wrote docs/auth-audit/SCHEMA-GEN.md");
+process.exit(failed.length ? 1 : 0);

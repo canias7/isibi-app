@@ -1,0 +1,95 @@
+# Does the DESIGNER produce a schema a business can actually use?
+#
+# The step that decides a site's tables, its access levels, its seed rows and
+# its family was measured by NOTHING. `page gen eval` sends the schema;
+# `confirm smoke` and `member smoke` send one deliberately to skip this call;
+# `build smoke` designs one and prints it without asserting anything. So every
+# claim about designer quality rested on anecdotes, and changes were shipped
+# against them.
+#
+# This samples the design call alone — no database, no publish, no container,
+# no account — and scores each answer on properties that are true or false:
+# every display table got starter rows, a booking table got something holding
+# the slot, a browsing brief produced something a stranger can read.
+#
+# CHEAPER THAN THE PAGE EVAL BY AN ORDER OF MAGNITUDE. A design call is ~1.5
+# credits warm and ~6.5 cold, against ~28 for a page call, because the output
+# is ~500 tokens rather than ~10,000. Four scenarios × 1 sample is the default.
+name: schema gen eval
+
+on:
+  push:
+    branches: [main]
+    paths:
+      # The tool itself. Every field on it is what this measures, so any edit
+      # to it is exactly when the number is worth having.
+      - "worker.js"
+      # The checks read these to decide what an answer means — a change to how
+      # access resolves, or to what the engine keeps, changes the verdict
+      # without changing the model's answer at all.
+      - "site-access.mjs"
+      - "site-schema.mjs"
+      - "builder/site-layouts.mjs"
+      - "test/integration/schema-gen-eval.mjs"
+      - "test/integration/schema-checks.mjs"
+  workflow_dispatch:
+    inputs:
+      samples:
+        description: "Samples per scenario (1-10)"
+        required: false
+        default: "1"
+
+permissions:
+  contents: write
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci --no-audit --no-fund --loglevel=error
+
+      # No template dependencies and no container: nothing here compiles a page.
+      # The whole harness is one HTTP call per sample plus the schema engine.
+      - name: Sample the designer
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # PER SCENARIO, and there are four. Raise it when chasing a
+          # regression: the same failure repeated across samples is what
+          # separates a systematic mismatch from variance, and one sample of
+          # four shapes cannot tell them apart.
+          EVAL_SAMPLES: ${{ github.event.inputs.samples || '1' }}
+        run: node test/integration/schema-gen-eval.mjs
+
+      - name: Commit the report
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if [ -n "$(git status --porcelain docs/auth-audit)" ]; then
+            git add docs/auth-audit
+            # The marker below stops this push re-triggering the workflows that
+            # would otherwise trigger this one. Never write it into an ordinary
+            # commit message or PR body — GitHub scans the whole message and
+            # skips every workflow for that push, silently and with a green tick.
+            git commit -m "Schema designer eval ($(date -u +%Y-%m-%dT%H:%MZ)) [skip ci]"
+            for i in 1 2 3; do
+              git pull --rebase origin main && git push origin HEAD:main && break
+              sleep $((i * 5))
+            done
+          else
+            echo "no report to commit"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: schema-gen-eval
+          path: |
+            docs/auth-audit/SCHEMA-GEN.md

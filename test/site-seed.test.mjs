@@ -240,3 +240,55 @@ test("the settlement prices EVERY call in the step, not just the first", async (
   assert.equal(schemaSettlement(big, 0), one);
   assert.equal(schemaSettlement(null, 5), 0, "an unreadable meter must KEEP the deposit, never refund it");
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE INSTRUCTION, not just the machinery.
+//
+// The engine seeds correctly and is tested above; the failure measured twice
+// this week is upstream of all of it — the designer did not WRITE any seed rows.
+// `required` cannot stop that, because a required field means the key is
+// present and `seed: {}` satisfies the schema. So the only thing standing
+// between a customer and a price list with nothing in it is what the tool says,
+// which makes the wording load-bearing and worth pinning.
+test("the seed field states the consequence, not just the requirement", () => {
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const at = w.indexOf("\n      seed: {");
+  assert.ok(at > 0, "the seed field is gone from design_schema");
+  // To the NEXT field, never a byte count — a window sized in bytes stops
+  // covering what it was written for, which has bitten this repo five times.
+  //
+  // AND IT IS BELT-AND-BRACES, said out loud rather than left looking like
+  // protection. A mutation widening this to the whole file changes NO result,
+  // because the uniqueness assertion below already guarantees each phrase
+  // occurs once — so the slice cannot be satisfied from outside it either way.
+  // What the window still earns is the assertion on the next line: `seed`
+  // being renamed or moved fails here rather than silently reading nothing.
+  const end = w.indexOf("\n      fonts: {", at);
+  assert.ok(end > at, "the field after `seed` moved — retarget this window");
+  const field = w.slice(at, end);
+
+  // 1. THE DEAD FORM. An unseeded table whose rows a Select reads renders with
+  //    zero options, so nobody can submit — the part that makes this a broken
+  //    site rather than a bare one, and the part a model is least likely to
+  //    infer from "required".
+  // 2. THE THREE SILENT SHAPES. Absent, `{}` and `[]` are the same outcome and
+  //    only the first is a schema violation.
+  // 3. NO LATER ROUTE. Why it cannot be left for the owner: no importer, and no
+  //    page that writes to a display table.
+  const MUST = [
+    [/ZERO options/, "the dead-form consequence is not stated — the model is told it is required and not what breaks"],
+    [/An empty object, an empty array, or a missing key/, "the empty shapes are not named, and they are what the failure actually looked like"],
+    [/no route by which/, "nothing says a display table can never be filled in later"],
+  ];
+  for (const [re, why] of MUST) {
+    assert.match(field, re, why);
+    // AND UNIQUE TO THIS FIELD, which is what makes the window above mean
+    // anything. Without it a mutation widening the slice to the whole file
+    // changes no result — the assertions would be satisfied by a neighbour, the
+    // failure this repo records under "the neighbour satisfies the assertion".
+    // Found by exactly that mutation surviving.
+    const hits = w.split(re.source.replace(/\\/g, "")).length - 1;
+    assert.equal(hits, 1, "`" + re.source + "` appears " + hits + " times in worker.js — "
+      + "this assertion can be satisfied from outside the seed field, so the window is decoration");
+  }
+});
