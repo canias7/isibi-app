@@ -269,7 +269,12 @@ async function main() {
     layer: "look", instruction: `Change the name of the business to "${newName}"`, picker: "sonnet",
   });
   const l = (await jsonOf(lk)) || {};
-  ok("the look edit succeeds", lk.status === 200 && l.ok === true, `${lk.status} ${JSON.stringify(l).slice(0, 200)}`);
+  // 900, NOT 200. This is where a `compile` failure lands, and its `detail` is
+  // the container's own output — which LEADS with Vite's benign
+  // `new URL("../", import.meta.url)` warning from main.tsx, so 200 characters
+  // showed the warning and cut off the actual error. Measured 2026-08-12: the
+  // rename failed four checks and the cause was not in the log.
+  ok("the look edit succeeds", lk.status === 200 && l.ok === true, `${lk.status} ${JSON.stringify(l).slice(0, 900)}`);
   ok("…and it reports the brand moved", (l.moved || []).includes("brand"), JSON.stringify(l.moved));
   ok("…and the rename reached the PAGES, not just the stored brand", (Number(l.renamed) || 0) > 0,
     `renamed=${l.renamed}`);
@@ -363,14 +368,24 @@ async function main() {
     // get the model to volunteer it failed against words it was demonstrably
     // reading, so the route it takes is: one Haiku routing call, then a merge and
     // a recompile — no page generation at all.
-    const rmRoute = await route("Remove the gallery page",
-      { ...digest, pages: [...(digest.pages || []), routeOfAdded(added)] });
+    // ASK FOR THE PAGE THAT WAS ACTUALLY MADE. This said "the gallery page"
+    // whatever the addon had named the file — so if the model called it
+    // `work.tsx`, the router was asked to remove a page the digest does not
+    // list, and answering `page: "/"` with no `remove` is then the RIGHT answer
+    // to a question that should never have been asked. Measured 2026-08-12:
+    // `intent=edit layer=page remove=undefined page=/`, with nothing in the log
+    // saying what the added page was called.
+    const goneRoute = routeOfAdded(added);
+    const goneName = goneRoute.replace(/^\//, "").replace(/-/g, " ") || "home";
+    const sent = [...(digest.pages || []), goneRoute];
+    const rmRoute = await route(`Remove the ${goneName} page`, { ...digest, pages: sent });
     ok("a deletion routes to the page layer with `remove`",
       rmRoute.intent === "edit" && rmRoute.layer === "page" && rmRoute.remove === true,
-      `intent=${rmRoute.intent} layer=${rmRoute.layer} remove=${rmRoute.remove} page=${rmRoute.page}`);
+      `intent=${rmRoute.intent} layer=${rmRoute.layer} remove=${rmRoute.remove} page=${rmRoute.page} ` +
+      `· asked to remove "${goneName}" (${added}) · pages sent ${JSON.stringify(sent)}`);
     if (rmRoute.remove === true) {
       const cut = await post(`/api/site/${slug}/edit`, {
-        layer: "page", page: rmRoute.page, remove: true, instruction: "Remove the gallery page", picker: "sonnet",
+        layer: "page", page: rmRoute.page, remove: true, instruction: `Remove the ${goneName} page`, picker: "sonnet",
       });
       const c = (await jsonOf(cut)) || {};
       ok("the page is deleted", cut.status === 200 && c.ok === true && (c.removed || []).length > 0,
@@ -385,7 +400,7 @@ async function main() {
     // And the addon lane's own removal, which is the path when something still
     // links to the page and the links have to come out first.
     const rmp = await post(`/api/site/${slug}/addon`, {
-      instruction: "Actually remove the gallery page again, and take the link out of the header",
+      instruction: `Actually remove the ${goneName} page again, and take the link out of the header`,
       picker: "sonnet",
     });
     const p = (await jsonOf(rmp)) || {};
