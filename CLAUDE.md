@@ -1105,6 +1105,17 @@ Auth config (set 2026-07-03 via Management API): Site URL `https://isibi.ai`, re
 - **THREE OF FOUR MUTANTS SURVIVED THE FIRST SWEEP, ALL THE OVERLAPPING-WINDOW BUG.** A window of 400 characters after the 404 check ran into the 403 branch, so deleting the 404 branch's own `alert` was satisfied by its neighbour's; the 403 assertion reached the failure branch's `return;` the same way. The three branches are carved by the NEXT condition's index now, so nothing is proved by the branch below it. **This repo's most repeated own-goal, and the third instance this session.**
 - Verified with a live read of `site_backends` and a real request to the subdomain — not inferred from the code. 2350 tests, **4/4 mutations caught** from a verified-green baseline.
 
+## The whole `page` edit layer was dead, on a path-string mismatch (2026-08-12)
+
+**With the wire fixed, a deletion arrived correctly — `layer=page`, `remove` true, `page=/gallery` — and answered `no-page`.** Diagnosed from the source with no further runs, on the owner's instruction.
+
+- **`cleanPath` STRIPS `src/routes/` AND `routeOf` REQUIRED IT.** Every stored page path is bare (`gallery.tsx`) — the container puts the prefix back when it writes the files — and `routeOf` was anchored `^src/routes/(.+)\.tsx$`, so it answered `""` for **every page on every site**. Proven by driving the real producer into the real consumer rather than by reading.
+- **NOT ONLY DELETION — THE WHOLE LAYER.** The page layer finds its target with `eSrc.find((p) => routeOf(p.path) === wantRoute)`, which could never match, so **every page edit answered `no-page` and escalated to a ~25-credit addon**. The addon lane's nav-link logic (`[...added, ...gone].map(routeOf).filter(Boolean)`) and `addonReply`'s page names went with it.
+- **THE FIXTURE IS WHY NOTHING CAUGHT IT.** `test/site-addon.test.mjs` builds every page as `{ path: "src/routes/" + path }` — a shape the pipeline never produces — so 72 tests exercised a spelling that does not exist in production. **A fixture more capable than reality hides exactly the bug it is there to catch**, the `setTotp` lesson in a path string.
+- **THE GUARD IS A COMPOSITION, NOT A SECOND FIXTURE.** `validatePages` decides the stored path and `routeOf` reads it back; two hand-written fixtures agreed with each other and with neither. The new check drives the real producer into the real consumer and asserts every page that can be STORED can be ADDRESSED — and a mutation to either side goes red.
+- **Fourth path-shape mismatch in one session**, and they are all the same shape: the build reports `src/routes/x.tsx`, the addon and the store report `x.tsx`, and any code anchored on one is blind to the other. `routeOfAdded` in the live check had it, and now `routeOf` did.
+- 2352 tests, **4/4 mutations caught** from a verified-green baseline. **NOT PROVEN LIVE** — held deliberately, so the next run is spent once.
+
 ## Page deletion was never wired to the client, and five prompt fixes chased it (2026-08-12)
 
 **`/api/site/route` returned `intent`, `answer`, `layer`, `page`, `question`, `cost`, `usage` — and never `remove`.** `readEdit` decides it, `public/chat.js` reads `d.remove === true` and posts it on: **both halves correct, the wire cut.** So page deletion has been unreachable in the product since it shipped, and `rmRoute.remove` was `undefined` on every live run whatever the model answered.

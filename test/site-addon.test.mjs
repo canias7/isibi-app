@@ -92,6 +92,17 @@ test("malformed entries are skipped, not crashed on", () => {
 // ── reachability ─────────────────────────────────────────────────────────────
 
 test("a route path is derived from the file, and an odd shape is skipped", () => {
+  // THE SHAPE THAT IS ACTUALLY STORED, first. `cleanPath` strips `src/routes/`
+  // on the way in — the container puts it back when it writes the files — so
+  // every page this function is handed in production is BARE. Requiring the
+  // prefix made it answer "" for every page on every site, which killed the
+  // whole `page` edit layer, and nothing caught it because every fixture in this
+  // file prepends the prefix by hand.
+  assert.equal(routeOf("index.tsx"), "/");
+  assert.equal(routeOf("gallery.tsx"), "/gallery");
+  assert.equal(routeOf("shop/index.tsx"), "/shop");
+  assert.equal(routeOf("shop/item.tsx"), "/shop/item");
+  // And the container's spelling still works, because the build reports it.
   assert.equal(routeOf("src/routes/index.tsx"), "/");
   assert.equal(routeOf("src/routes/gallery.tsx"), "/gallery");
   assert.equal(routeOf("src/routes/shop/index.tsx"), "/shop");
@@ -954,4 +965,29 @@ test("THE ROUTE HANDS OVER THE WHOLE DESIGNED SPEC", () => {
     "the route still passes aDesigned.tables, so functions and apis are dropped again");
   assert.match(w, /normalizeSchema\(folded\.spec\)/,
     "the route rebuilds a tables-only object, which throws the tiers away after the merge kept them");
+});
+
+test("`routeOf` CAN READ WHAT `validatePages` STORES", () => {
+  // THE GUARD THAT WAS MISSING, and it is a composition rather than a second
+  // fixture. `validatePages` decides the path a page is stored under and
+  // `routeOf` is what reads it back; two hand-written fixtures agreed with each
+  // other and with neither. Driving the real producer into the real consumer is
+  // the only form of this that cannot drift.
+  //
+  // What it cost: the `page` edit layer looked its target up with
+  // `routeOf(p.path) === wantRoute`, so it matched nothing, answered `no-page`
+  // and escalated EVERY page edit to a ~25-credit addon. Found live 2026-08-12
+  // on a deletion that had arrived at the right layer with the right route.
+  const stored = validatePages({
+    pages: [
+      { path: "src/routes/index.tsx", source: 'createFileRoute("/")' },
+      { path: "gallery.tsx", source: 'createFileRoute("/gallery")' },
+      { path: "routes/shop/index.tsx", source: 'createFileRoute("/shop")' },
+    ],
+  }, { partial: true }).pages;
+  assert.equal(stored.length, 3, "the fixture no longer survives validation — rescope this");
+  assert.deepEqual(stored.map((p) => routeOf(p.path)), ["/", "/gallery", "/shop"],
+    "a stored page has no route, so nothing that looks one up by route can find it");
+  // The property, stated: every page that can be stored can be addressed.
+  for (const p of stored) assert.notEqual(routeOf(p.path), "", p.path + " is stored and unaddressable");
 });

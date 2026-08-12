@@ -303,7 +303,24 @@ export function unlinkedPages(pages, added) {
  * orphaned.
  */
 export function routeOf(path) {
-  const m = String(path || "").match(/^src\/routes\/(.+)\.tsx$/i);
+  // THE PREFIX IS OPTIONAL BECAUSE STORED PAGES DO NOT HAVE IT, and requiring it
+  // made this function answer "" for every page on every site.
+  //
+  // `cleanPath` in page-gen.mjs strips `src/routes/` on the way in — the
+  // container puts it back when it writes the files — so what is stored, and
+  // what every caller here is handed, is a BARE `gallery.tsx`. This matched none
+  // of it. Measured live 2026-08-12: a deletion arrived correctly at the page
+  // layer with the right route and answered `no-page`, because
+  // `eSrc.find((p) => routeOf(p.path) === wantRoute)` could never match
+  // anything. THE WHOLE `page` EDIT LAYER WAS DEAD, not only deletion — every
+  // page edit escalated to a ~25-credit addon — and the nav-link logic below
+  // and `addonReply`'s page names went with it.
+  //
+  // NOTHING CAUGHT IT BECAUSE THE FIXTURE WAS WRONG: `test/site-addon.test.mjs`
+  // builds every page as `"src/routes/" + path`, a shape the pipeline never
+  // produces. A fixture more capable than reality hides exactly the bug it is
+  // there to catch — the `setTotp` lesson, in a path string.
+  const m = String(path || "").match(/^(?:src\/routes\/)?(.+)\.tsx$/i);
   if (!m) return "";
   const rel = m[1];
   if (rel === "index") return "/";

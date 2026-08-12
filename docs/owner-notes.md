@@ -16117,3 +16117,30 @@ I also built the bigger change (making "delete" a choice the AI picks rather tha
 a box it ticks), tested it — **and deliberately didn't ship it.** With both in at
 once, the next run can't tell you which one fixed it. It's one commit away if the
 wiring alone isn't enough.
+
+**Worked it out from the code — no run spent (12 Aug).**
+
+The wiring fix worked: the deletion now reaches the right place with the right
+instruction. It then failed one step later with "no such page", pointing at a
+page that plainly exists.
+
+**The cause is a filename mismatch, and it's bigger than deleting.** When a page
+is saved we strip `src/routes/` off the front of its filename (the build machine
+puts it back when it writes the files). The function that works out a page's web
+address *required* that prefix — so it answered "no address" for **every page on
+every site**.
+
+That means it was never just deletion: **any change to a single page** couldn't
+find the page, gave up, and escalated to the expensive rebuild — about 25 credits
+instead of about 5, every time, silently. It also broke the addon's "which pages
+did I touch" reply.
+
+**Nothing caught it because the tests were feeding it a filename shape that never
+happens.** Every test case built the name by hand with the prefix on it. 72 tests
+passing against a spelling production never produces. The new check doesn't
+hand-write a name at all — it takes what the saving code really stores and feeds
+it to the reading code, and insists every page that can be saved can be found.
+
+Fixed, tested, four deliberate breakages all caught. **I have not merged it** —
+merging starts a run, and you said to work it out first. It's ready when you want
+to spend one.
