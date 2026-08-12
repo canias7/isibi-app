@@ -38,6 +38,33 @@ const ok = (name, cond, extra) => {
 };
 const svc = (extra) => ({ apikey: SVC, Authorization: `Bearer ${SVC}`, "content-type": "application/json", ...(extra || {}) });
 
+/**
+ * THE ONE FAILURE THAT MAKES EVERY CHECK BELOW IT MEANINGLESS.
+ *
+ * When the model account runs out of credit, every lane answers — a routing
+ * call falls back to `addon` by design, a rule change answers 422 `send`, an
+ * addon answers 503 `design`, and the check that a stranger is refused fails
+ * because the rule was never applied. Measured 2026-08-12: **17 passed, 18
+ * failed**, every one of the 18 descending from a single 503, and reading it
+ * took a careful pass through the whole log to establish that nothing was
+ * actually broken.
+ *
+ * `billing` is set by `upstreamKind()` only when the provider's own message
+ * matches "credit balance is too low", so it is a fact rather than an inference.
+ * Stopping on it is also cheaper: the run bails instead of driving six more
+ * lanes against a provider that will refuse all of them.
+ */
+let dead = false;
+const funded = (j) => {
+  if (!dead && j && j.billing === true) {
+    dead = true;
+    console.log("\n⛔ THE MODEL ACCOUNT IS OUT OF CREDIT — stopping here.");
+    console.log("   Nothing below this would prove anything, and every lane would fail for this one reason.");
+    console.log("   This is also a live outage: while it lasts, no customer can build or change a site either.");
+  }
+  return !dead;
+};
+
 const stamp = Date.now().toString(36);
 const email = `edit-smoke-${stamp}@gofarther.dev`;
 const password = `Es-${stamp}-${Math.random().toString(36).slice(2, 10)}`;
@@ -138,6 +165,11 @@ async function main() {
     b = (await jsonOf(br)) || {};
     console.log(`   ${Math.round((Date.now() - t0) / 1000)}s, ${b.cost} credits, page=${b.page}, files: ${(b.files || []).length}`);
     if (br.status === 200 && b.page === "app") break;
+    // AND NEVER RETRY INTO AN EMPTY ACCOUNT. The retry exists for the
+    // generator lottery; a refusal for want of credit will refuse again,
+    // so a second attempt is a second Neon project and another minute for
+    // an answer already known.
+    if (b && b.billing === true) break;
   }
   ok("the build returns 200", br.status === 200, `${br.status} ${JSON.stringify(b).slice(0, 200)}`);
   ok("a real app was published, not the placeholder", b.page === "app",
@@ -145,6 +177,7 @@ async function main() {
   // EVERYTHING BELOW NEEDS A REAL APP. On the placeholder there is no page source
   // to edit and no nav to add to, so the lanes would correctly refuse and the run
   // would report a pile of failures about a build that never happened.
+  if (!funded(b)) return;
   if (b.page !== "app") { console.log("\nskipping the lanes — the build fell back to the placeholder"); return; }
 
   // ROUTES, NOT SOURCE PATHS — and getting this wrong made the router look broken
@@ -220,6 +253,7 @@ async function main() {
       layer: "data", instruction: `Change the price of the ${first} to £26`, picker: "sonnet",
     });
     const e = (await jsonOf(ed)) || {};
+    if (!funded(e)) return;
     ok("the data edit succeeds", ed.status === 200 && e.ok === true, `${ed.status} ${JSON.stringify(e).slice(0, 200)}`);
     ok("…and it says which rows moved", Array.isArray(e.applied) && e.applied.length > 0, JSON.stringify(e.applied));
     // THE POINT OF THIS LANE: rows are read at runtime, so nothing is rebuilt and
@@ -291,6 +325,7 @@ async function main() {
   // `new URL("../", import.meta.url)` warning from main.tsx, so 200 characters
   // showed the warning and cut off the actual error. Measured 2026-08-12: the
   // rename failed four checks and the cause was not in the log.
+  if (!funded(l)) return;
   ok("the look edit succeeds", lk.status === 200 && l.ok === true, `${lk.status} ${JSON.stringify(l).slice(0, 900)}`);
   ok("…and it reports the brand moved", (l.moved || []).includes("brand"), JSON.stringify(l.moved));
   ok("…and the rename reached the PAGES, not just the stored brand", (Number(l.renamed) || 0) > 0,
@@ -337,6 +372,7 @@ async function main() {
     layer: "rules", instruction: `Close the ${display.name} list — nobody outside should be able to see it`, picker: "sonnet",
   });
   const sh = (await jsonOf(shut)) || {};
+  if (!funded(sh)) return;
   ok("the rule change succeeds", shut.status === 200 && sh.ok === true, `${shut.status} ${JSON.stringify(sh).slice(0, 240)}`);
   // THE POINT OF THE LANE, and the same property the data layer has: a rule is
   // enforced in Postgres and on the request path, so no page source changed and
@@ -367,6 +403,7 @@ async function main() {
     picker: "sonnet",
   });
   const a = (await jsonOf(ad)) || {};
+  if (!funded(a)) return;
   ok("the addon succeeds", ad.status === 200 && a.ok === true, `${ad.status} ${JSON.stringify(a).slice(0, 240)}`);
   const added = (a.added || [])[0];
   ok("…and a page was added", !!added, JSON.stringify(a.added));
