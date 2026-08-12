@@ -317,7 +317,16 @@ test("the DESIGNER can declare one, or nothing ever reaches this route", () => {
   // function it will accept because the tool never mentioned the convention.
   const i = worker.indexOf("      functions: {");
   assert.ok(i > 0, "the design_schema field exists");
-  const field = worker.slice(i, i + 4000);
+  // RUN TO THE NEXT FIELD, never a byte count. This was `slice(i, i + 4000)`
+  // and went red the moment the functions description grew — a capacity
+  // paragraph was added ahead of the webhook half, and the window stopped
+  // reaching the thing it asserts. A guard sized in bytes silently stops
+  // covering what it was written for; this repo has now recorded that four
+  // separate times, and this is the fifth.
+  const end = worker.indexOf("      tables: {", i);
+  assert.ok(end > i, "the field after `functions` moved — retarget this window");
+  const field = worker.slice(i, end);
+  assert.ok(field.length > 1000, "the functions field was not read whole: " + field.length);
   assert.ok(/hook_<something>/.test(field), "the naming convention is stated");
   assert.ok(/one jsonb argument/.test(field), "and the shape it must have");
   assert.ok(/internal:true/.test(field), "and that it must be internal");

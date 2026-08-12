@@ -378,3 +378,63 @@ export function readNeedsMember(t) {
   const r = pairOf(t).read;
   return r === "own" || r === "members";
 }
+
+/**
+ * A publicly-writable table that reserves a moment in time, with nothing
+ * stopping two people reserving the same one.
+ *
+ * WHY THIS EXISTS. On 2026-07-28 the engine's four booking constraints were
+ * fully implemented, tested, and undeclarable — so two customers booked the
+ * same 14:00 on a real generated barber shop and both were accepted. Making
+ * them declarable fixed availability, not USE: nothing checks that a table
+ * shaped like a booking came back carrying one. That is the same failure as
+ * `seed`, which is a required field the designer skipped on two consecutive
+ * builds this week. This makes the omission SAY something instead of showing
+ * up as a double booking weeks later.
+ *
+ * DELIBERATELY NARROW, because a check that cries wolf is worse than no check —
+ * this repo has recorded that a rule wrong on a third of its hits teaches the
+ * model away from something correct. Three conditions must all hold:
+ *
+ *   1. the public can write to it — a `write: "none"` table is the owner's own
+ *      and cannot be double-booked by a stranger, and it is also the shape the
+ *      capacity pattern uses (writes go through a function instead), so firing
+ *      there would punish the better answer.
+ *   2. it names BOTH a day-ish and a time-ish column, or one slot-ish column.
+ *      A contact form with a `preferred_date` and nothing else is not a booking.
+ *   3. no `noOverlap`, and no `unique` that actually COVERS one of those
+ *      columns. A `unique` on `email` is a real constraint about something
+ *      else, and reading it as protection is how this check would pass while
+ *      the slot stays open.
+ *
+ * Returns the table names, never a sentence — the caller decides how to say it.
+ */
+const DAYISH = /^(.*_)?(date|day|on|when)(_.*)?$/;
+const TIMEISH = /^(.*_)?(time|hour|starts?|start_at|from)(_.*)?$/;
+const SLOTISH = /^(.*_)?(slot|appointment|booking_at|starts_at|scheduled_at)(_.*)?$/;
+
+export function unguardedBookings(spec) {
+  const tables = (spec && Array.isArray(spec.tables)) ? spec.tables : [];
+  const out = [];
+  for (const t of tables) {
+    if (!t || !t.name) continue;
+    if (resolveAccess(t).write === "none") continue;
+
+    const cols = (Array.isArray(t.columns) ? t.columns : [])
+      .map((c) => String((c && c.name) || c || "").toLowerCase())
+      .filter(Boolean);
+    const timeCols = cols.filter((c) => DAYISH.test(c) || TIMEISH.test(c) || SLOTISH.test(c));
+    const shaped = cols.some((c) => SLOTISH.test(c)) ||
+      (cols.some((c) => DAYISH.test(c)) && cols.some((c) => TIMEISH.test(c)));
+    if (!shaped) continue;
+
+    if (t.noOverlap) continue;
+    // The unique must COVER a time column. Anything else is a constraint about
+    // a different question and leaves the slot exactly as open as before.
+    const guarded = (Array.isArray(t.unique) ? t.unique : []).some((u) =>
+      (Array.isArray(u && u.columns) ? u.columns : [])
+        .some((c) => timeCols.includes(String(c).toLowerCase())));
+    if (!guarded) out.push(t.name);
+  }
+  return out;
+}

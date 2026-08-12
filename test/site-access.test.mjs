@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import {
   resolveAccess, ACCESS_PRESETS, READ_LEVELS, WRITE_LEVELS,
   MANAGED_COLUMNS, isManagedColumn, ACCESS_LEVELS, normalizeAccess,
-  normalizeRole, rolesForSchema, teamReadable, DEFAULT_ROLE, whyNotReadable, needsMember, canReadAccess, canWriteAccess, canMemberWrite, readNeedsMember, accessLabel } from "../site-access.mjs";
+  normalizeRole, rolesForSchema, teamReadable, DEFAULT_ROLE, whyNotReadable, needsMember, canReadAccess, canWriteAccess, canMemberWrite, readNeedsMember, accessLabel, unguardedBookings } from "../site-access.mjs";
 
 test("managed columns are never writable, whatever case they arrive in", () => {
   for (const c of MANAGED_COLUMNS) {
@@ -239,4 +239,87 @@ test("the LINT accepts the marketplace page it used to refuse", () => {
     /returns 403/, "a write-only table is no longer refused");
   assert.match(lint({ name: "saved", access: "user", columns: [{ name: "e" }] }, "saved")[0] || "",
     /useMember/, "a member table no longer asks for a sign-in");
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A BOOKING TABLE WITH NOTHING STOPPING A DOUBLE BOOKING.
+//
+// The four constraints became declarable on 2026-07-28 after two customers
+// booked the same 14:00 on a real generated barber shop and both were accepted.
+// That fixed AVAILABILITY and not USE: nothing checks that a table shaped like a
+// booking came back carrying one, so the same outcome can still arrive as "the
+// designer did not ask for it on that site". Same shape as `seed`, a required
+// field skipped on two consecutive builds.
+//
+// The whole design constraint is NOT CRYING WOLF — this repo has recorded that a
+// rule wrong on a third of its hits teaches the model away from something
+// correct, so every case below that must NOT fire is asserted as hard as the
+// ones that must.
+const cols = (...names) => names.map((name) => ({ name, type: "text" }));
+const flags = (t) => unguardedBookings({ tables: [t] });
+
+test("a publicly-writable booking table with no slot constraint is named", () => {
+  assert.deepEqual(flags({
+    name: "bookings", access: "collect", columns: cols("name", "phone", "slot_date", "slot_time"),
+  }), ["bookings"], "a day plus a time, open to anyone, and nothing holding the slot");
+});
+
+test("a unique that COVERS the slot clears it, and one that does not never could", () => {
+  const base = { name: "bookings", access: "collect", columns: cols("name", "email", "slot_date", "slot_time") };
+  assert.deepEqual(flags({ ...base, unique: [{ columns: ["slot_date", "slot_time"] }] }), [],
+    "the constraint that actually holds the slot must clear the warning");
+  // THE ASSERTION THAT MATTERS. A `unique` on `email` is a real constraint about
+  // a different question — one booking per address — and reading it as slot
+  // protection is how this check passes while the slot stays wide open.
+  assert.deepEqual(flags({ ...base, unique: [{ columns: ["email"] }] }), ["bookings"],
+    "a unique on something that is not the slot was read as protection");
+});
+
+test("noOverlap clears it — it is the other constraint that holds a time", () => {
+  assert.deepEqual(flags({
+    name: "bookings", access: "collect", columns: cols("name", "slot_date", "slot_time"),
+    noOverlap: { start: "starts", end: "ends" },
+  }), []);
+});
+
+test("the capacity pattern is not punished for being the better answer", () => {
+  // `write: "none"` plus a function is what the tool now tells the model to do
+  // when a slot holds more than one person. Firing here would flag exactly the
+  // schema we are asking for.
+  assert.deepEqual(flags({
+    name: "bookings", read: "none", write: "none", columns: cols("name", "slot_date", "slot_time"),
+  }), []);
+});
+
+test("things that are not bookings are left alone", () => {
+  assert.deepEqual(flags({ name: "dishes", access: "display", columns: cols("name", "price") }), [],
+    "a menu is not a booking");
+  assert.deepEqual(flags({
+    name: "enquiries", access: "collect", columns: cols("name", "message", "preferred_date"),
+  }), [], "a contact form mentioning a date is not a booking — a day alone is not a slot");
+  assert.deepEqual(flags({ name: "signups", access: "collect", columns: cols("name", "email") }), [],
+    "a mailing list has no slot at all");
+});
+
+test("one slot-shaped column is enough on its own", () => {
+  assert.deepEqual(flags({
+    name: "appointments", access: "collect", columns: cols("name", "starts_at"),
+  }), ["appointments"], "a single timestamp column is a slot — a day and a time in one field");
+});
+
+test("it reads the whole spec and returns names, never a sentence", () => {
+  const out = unguardedBookings({ tables: [
+    { name: "dishes", access: "display", columns: cols("name", "price") },
+    { name: "bookings", access: "collect", columns: cols("slot_date", "slot_time") },
+    { name: "classes", access: "collect", columns: cols("day", "start_time") },
+  ]});
+  assert.deepEqual(out, ["bookings", "classes"]);
+  // Names only: the caller decides the wording, and a sentence here would be a
+  // second place the message can drift from the one on the response.
+  for (const x of out) assert.equal(typeof x, "string");
+});
+
+test("junk in cannot throw — this runs on every build", () => {
+  for (const bad of [null, undefined, {}, { tables: null }, { tables: [null, 7, "x"] }])
+    assert.deepEqual(unguardedBookings(bad), [], "threw or answered oddly on " + JSON.stringify(bad));
 });

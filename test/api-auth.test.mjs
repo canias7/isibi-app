@@ -861,3 +861,64 @@ test("a build with no attachments sends the shape it always sent", () => {
   assert.match(WORKER_SRC, /async function designSiteSchema\(env, brief, model = modelsFor\(\)\.design, current = null, files = \[\]\)/,
     "files must default to empty, or the callers that pass none break");
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE WIRING FOR THE UNGUARDED-BOOKING WARNING.
+//
+// `unguardedBookings` is correct and tested at the leaf, which is exactly the
+// state `teamScope` was in while being dead at five layers, and `budgetFor` was
+// in while `worker.js` still read `revise ? 0`. This file exists because the
+// Worker cannot be imported: a function can be perfect and called by nothing,
+// and every unit test still passes. Asserted at three points, because any one
+// of them alone passes while the wire is cut.
+test("the build route computes the unguarded-booking warning and returns it", () => {
+  const w = SRC;
+  // 1. IMPORTED. A call to a name that was never imported is a ReferenceError on
+  //    the build path — the OWN_ZONES failure, which took every custom-domain
+  //    call down for days without a syntax error anywhere.
+  const imp = /import \{([^}]*)\} from "\.\/site-access\.mjs"/.exec(w);
+  assert.ok(imp, "the site-access import is gone");
+  assert.match(imp[1], /\bunguardedBookings\b/,
+    "unguardedBookings is used in worker.js and never imported — a ReferenceError on every build");
+
+  // 2. CALLED, on the spec that is actually built. Anchored on the assignment
+  //    rather than on the bare name, so a mention in a comment cannot satisfy it.
+  assert.match(w, /const unguarded = unguardedBookings\(spec\)/,
+    "nothing computes the warning from the normalised spec");
+
+  // 3. RETURNED. The whole point is that the omission is visible from outside;
+  //    computed and dropped is the dead-field shape that let a failed build tick
+  //    every step. Bounded like its neighbours, so one broken schema cannot
+  //    return an unbounded list.
+  assert.match(w, /unguarded: unguarded\.length \? unguarded\.slice\(0, \d+\) : undefined/,
+    "the warning is computed and never put on the response");
+});
+
+test("the designer is told how to build a slot that holds more than one person", () => {
+  // The substrate could always do this — a function is SECURITY DEFINER, so it
+  // writes into a table the caller cannot, and `useRpcAction` calls it from a
+  // page. Nothing said so, which made capacity unreachable in practice on the
+  // commonest kind of site this platform builds.
+  const w = SRC;
+  const at = w.indexOf('name: "design_schema"');
+  const fns = w.indexOf("OPTIONAL Postgres functions", at);
+  assert.ok(fns > 0, "the functions field is gone — retarget this test");
+  // Windowed to the functions field by its NEXT landmark, never a byte count —
+  // a window sized in bytes stops covering what it was written for the moment a
+  // comment is added above it, which has happened repeatedly in this repo.
+  const end = w.indexOf("RECEIVING DATA FROM ANOTHER SYSTEM", fns);
+  const body = w.slice(fns, end > fns ? end : fns + 4000);
+  assert.ok(body.length > 500, "the functions description was not read whole: " + body.length);
+
+  assert.match(body, /holds more than one|capacity/i, "the capacity case is not described at all");
+  // THE LOCK IS THE CORRECTNESS OF THE WHOLE PATTERN. A bare count-then-insert
+  // lets two people both see the last place and both take it — the exact double
+  // booking `unique` exists to prevent, reintroduced by the thing meant to
+  // generalise it. A capacity paragraph without this is worse than none.
+  assert.match(body, /pg_advisory_xact_lock/,
+    "the capacity pattern is described without the lock, so it races on precisely the class that fills up");
+  // And it must say to close the direct write path, or the function is one route
+  // in among two and the open one wins.
+  assert.match(body, /write: \\?"none\\?"/,
+    "nothing says to close the table to direct writes, so the capacity check can be walked around");
+});

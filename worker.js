@@ -53,7 +53,7 @@ import { runRulesEdit } from "./builder/site-rules.mjs";
 import { runPictureEdit } from "./builder/site-picture.mjs";
 import { runLogoEdit } from "./builder/site-logo.mjs";
 import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
-import { resolveAccess, ACCESS_PRESETS } from "./site-access.mjs";
+import { resolveAccess, ACCESS_PRESETS, unguardedBookings } from "./site-access.mjs";
 // The pair a `display` table resolves to. Named once, from the presets, so the
 // data layer's gate cannot drift from the vocabulary again — it was compared
 // against "anyone", which is a WRITE level, and matched nothing on any site.
@@ -2962,6 +2962,28 @@ const SITE_SCHEMA_TOOL = {
           "getting the new one. Change only the fields you took arguments for; never let it move status or the token itself. " +
           "Skip all of this for a " +
           "plain contact form, which nobody returns to. Bodies are plain SQL over this site's own tables.\n\n" +
+          // WHEN A SLOT HOLDS MORE THAN ONE PERSON. `unique` gives a capacity of
+          // exactly one and `maxRows` caps the WHOLE table — so "12 places in
+          // this class", "8 tables at 7pm", "30 pitches" was inexpressible, on a
+          // platform whose commonest site is a booking site. The substrate could
+          // already do it (a function is SECURITY DEFINER, so it writes into a
+          // table the caller cannot; `useRpcAction` calls it from a page) and
+          // nothing said so — the same dead-at-the-last-link shape this file
+          // keeps recording, arriving as a missing sentence rather than missing
+          // code. THE LOCK IS NOT OPTIONAL: a bare count-then-insert lets two
+          // people both see 11 of 12 and both book, which is the exact bug
+          // `unique` exists to prevent, reintroduced by the thing meant to
+          // generalise it.
+          "A SLOT THAT HOLDS MORE THAN ONE PERSON. `unique` on a booking table means a capacity of exactly ONE, " +
+          "and `maxRows` caps the whole table. When the brief says a class, a session, a table or a pitch holds " +
+          "N people, neither fits — so make the booking go through a function instead of straight into the table. " +
+          "Declare the table `write: \"none\"` so nothing can insert around it, and one function taking the " +
+          "customer's details plus whichever columns identify the slot. In the body: take " +
+          "`pg_advisory_xact_lock(hashtext(<the slot's identity>))` FIRST, then count the rows already in that " +
+          "slot, `RAISE EXCEPTION 'fully booked'` if it is at capacity, and INSERT otherwise. The lock is what " +
+          "makes it true — without it two people both see the last place and both get it, which is the double " +
+          "booking this is here to stop. Put the capacity where the brief puts it: a number on the class row when " +
+          "each class has its own, or a literal when the whole business has one number.\n\n" +
           "RECEIVING DATA FROM ANOTHER SYSTEM. A function named `hook_<something>` taking exactly one jsonb argument and " +
           "marked internal:true is reachable at POST /api/db/<slug>/hook/<something>, behind a shared secret the OWNER " +
           "stores. Use it when the brief says another system sends this site data — a supplier's stock feed, a booking " +
@@ -9249,6 +9271,14 @@ async function handleRequest(request, env, ctx) {
 
       const spec = normalizeSchema(body.schema || designed || {});
       tr.at("normalize");
+      // A BOOKING TABLE WITH NOTHING STOPPING A DOUBLE BOOKING, named rather
+      // than discovered by a customer. Making the four constraints declarable
+      // on 2026-07-28 fixed availability and not USE — nothing checks that a
+      // table shaped like a booking came back carrying one, which is the same
+      // shape as `seed` being skipped on two builds this week. No model call
+      // and no I/O: it reads the spec that is already in hand.
+      const unguarded = unguardedBookings(spec);
+      if (unguarded.length) console.warn("unguarded booking table:", slug, unguarded.join(","));
       // NO TABLES IS ONLY AN ERROR ON A FIRST BUILD.
       //
       // This refusal used to sit before the ownership lookup, where `existing`
@@ -9714,6 +9744,14 @@ async function handleRequest(request, env, ctx) {
         // is still empty in. Undefined when there were no gaps, so a build the
         // designer got right answers exactly as it did before.
         seedTopUp: seedTopUp || undefined,
+        // A BOOKING TABLE ANYONE CAN DOUBLE-BOOK. Not fatal and deliberately
+        // not a refusal: the site works, and for a business that genuinely
+        // takes unlimited sign-ups this is the right schema. It is here so the
+        // omission is VISIBLE at build time rather than discovered by two
+        // customers turning up for the same 14:00, which is how it was found
+        // the first time. Undefined when clean, so a correct build's response
+        // is byte-identical to before.
+        unguarded: unguarded.length ? unguarded.slice(0, 6) : undefined,
         // WHAT WAS READ FOR THIS BUILD, and what could not be. The whole reason
         // link-reading exists is that the old behaviour — a URL in the brief
         // that nothing fetched — was invisible: the model inferred a business
