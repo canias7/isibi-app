@@ -10494,44 +10494,75 @@ function sitePublishPanel(site) {
   const published = !!site.published;
   let box = document.getElementById('sitePubModal'); if (box) box.remove();
   box = document.createElement('div'); box.id = 'sitePubModal'; box.className = 'si-modal';
-  box.innerHTML = '<div class="si-card"><div class="si-head"><b>' + (published ? 'Published' : 'Publish') + '</b><button type="button" class="si-x" aria-label="Close">×</button></div><div class="si-body">' +
-    (published
-      ? '<div class="sp-row"><span class="sp-k">Live URL</span><a class="sp-url" href="' + esc(url) + '" target="_blank" rel="noopener">' + esc(url.replace(/^https?:\/\//, '')) + '</a></div>' +
+  const offline = site.offline === true;
+  box.innerHTML = '<div class="si-card"><div class="si-head"><b>' + (offline ? 'Off the web' : 'Live') + '</b><button type="button" class="si-x" aria-label="Close">×</button></div><div class="si-body">' +
+    // THERE IS NO PUBLISH BUTTON ANY MORE, and that is the fix rather than an
+    // omission. A React site goes live as part of the build — the old Publish and
+    // Republish buttons POSTed `/api/site/publish` with `p.html`, the D1-era page
+    // format deleted 2026-07-27, at a route with zero occurrences in worker.js.
+    // Same reasoning that removed the "Live ↗" button: a control that does
+    // nothing the product already does is worse than no control.
+    (offline
+      ? '<p class="sp-intro">This site is <b>off the web</b>. Your pages, bookings, members and settings are all still here.</p>' +
+        (slug ? '<div class="sp-row"><span class="sp-k">Its link</span><span class="sp-v">' + esc(siteChipUrl({ slug })) + '</span></div>' : '') +
+        '<div class="sp-actions"><button type="button" class="st-publish" id="spLive">Put it back online</button></div>'
+      : '<div class="sp-row"><span class="sp-k">Live URL</span><a class="sp-url" href="' + esc(url) + '" target="_blank" rel="noopener">' + esc(url.replace(/^https?:\/\//, '')) + '</a></div>' +
         '<div class="sp-row"><span class="sp-k">Visibility</span><span class="sp-v sp-vis">' + ic('globe', 14) + ' Public · anyone with the link</span></div>' +
-        '<div class="sp-row"><span class="sp-k">Visitors</span><span class="sp-v">0</span></div>' +
-        '<div class="sp-actions"><button type="button" class="st-publish" id="spUpdate">Republish</button><button type="button" class="st-share" id="spCopy">Copy link</button><button type="button" class="st-share sp-unpub" id="spUnpub">Unpublish</button></div>'
-      : '<p class="sp-intro">Publish to put your site live on the web at a real link.</p>' +
-        (slug ? '<div class="sp-row"><span class="sp-k">Your link</span><span class="sp-v">' + esc(siteChipUrl({ slug })) + '</span></div>' : '') +
-        '<div class="sp-actions"><button type="button" class="st-publish" id="spUpdate">Publish now</button></div>') +
+        '<p class="sp-intro">Every change you make goes live on its own — there is nothing to publish.</p>' +
+        '<div class="sp-actions"><button type="button" class="st-share" id="spCopy">Copy link</button><button type="button" class="st-share sp-unpub" id="spUnpub">Take it offline</button></div>') +
   '</div></div>';
   document.body.appendChild(box);
   const close = () => box.remove();
   box.querySelector('.si-x').onclick = close;
   box.addEventListener('click', (e) => { if (e.target === box) close(); });
-  const up = box.querySelector('#spUpdate'); if (up) up.onclick = () => { close(); sitePublish(site); };
   const cp = box.querySelector('#spCopy'); if (cp) cp.onclick = () => { try { navigator.clipboard.writeText(url); } catch (e) {} if (typeof sbToast === 'function') sbToast('Live link copied — ' + url); };
-  const un = box.querySelector('#spUnpub'); if (un) un.onclick = () => { close(); siteUnpublish(site); };
+  const un = box.querySelector('#spUnpub'); if (un) un.onclick = () => { close(); siteSetLive(site, false); };
+  const lv = box.querySelector('#spLive'); if (lv) lv.onclick = () => { close(); siteSetLive(site, true); };
 }
-// Take the live site offline (deletes the hosted files; keeps the identity so
-// re-publishing restores the same URL, and members/submissions survive).
-function siteUnpublish(site) {
+// Off the web, and back, at the same address.
+//
+// THIS REPLACES A BUTTON THAT LIED. `siteUnpublish` POSTed `/api/site/unpublish`
+// — a path with ZERO occurrences in worker.js — and on the 404 told the owner
+// "couldn't take it offline just now, try again", so the site stayed up and they
+// retried forever. The server owns the wording now, because it is the only side
+// that knows whether there is a saved copy to put back.
+function siteSetLive(site, live) {
+  const slug = String(site.slug || '');
+  if (!slug || siteBusy) return;
   const origin = site.id;
-  apiFetch('/api/site/unpublish', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ siteId: site.id }) })
-    .then(async (r) => {
-      const d = await r.json().catch(() => ({}));
-      const s = siteById(origin); if (!s) return;
-      if (r.ok && d.ok) {
-        s.published = false; delete s.liveUrl; // keep s.slug (identity) so Republish restores the same URL
-        s.msgs.push({ r: 'a', t: '⏹ Taken offline — the live link now returns Not Found. Hit Publish to put it back up at the same URL.' });
-        if (typeof sbToast === 'function') sbToast('Site taken offline.');
-      } else {
-        s.msgs.push({ r: 'a', t: '⚠️ Couldn’t take it offline just now — try again.' });
-      }
-      sitesSave(); if (siteOpenId === origin) renderSites();
-    }).catch(() => { if (typeof sbToast === 'function') sbToast('Couldn’t take it offline — try again.'); });
+  siteBusy = true;
+  site.msgs.push({ r: 'a', t: live ? '\u21bb Putting your site back online\u2026' : '\u23f9 Taking your site off the web\u2026' });
+  sitesSave(); renderSites();
+  // `on: true` means OFFLINE, matching the route's name.
+  apiFetch('/api/site/' + encodeURIComponent(slug) + '/offline', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ on: !live }),
+  }).then(async (r) => {
+    const d = await r.json().catch(() => ({}));
+    siteBusy = false;
+    const s = siteById(origin); if (!s) return;
+    if (r.ok && d.ok) {
+      // OFFLINE IS ITS OWN STATE, not the absence of a live URL. A site with no
+      // URL has never been built; one that is offline has been, and the panel has
+      // to tell somebody which of those they are looking at.
+      s.offline = !live;
+      s.msgs.push({ r: 'a', t: d.msg || (live ? '\u2705 Back online.' : '\u23f9 Taken offline.') });
+      if (typeof sbToast === 'function') sbToast(live ? 'Back online.' : 'Site taken offline.');
+    } else {
+      // THE SERVER'S OWN WORDS. A 409 means there was no saved copy to put back
+      // and it refused rather than wiping — a generic "try again" there sends the
+      // owner round a loop that cannot succeed.
+      s.msgs.push({ r: 'a', t: d.msg || '\u26a0\ufe0f Couldn\u2019t do that just now \u2014 your site is unchanged.' });
+    }
+    sitesSave();
+    if (siteOpenId === origin) renderSites();
+  }).catch(() => {
+    siteBusy = false;
+    const s = siteById(origin);
+    if (s) { s.msgs.push({ r: 'a', t: '\u26a0\ufe0f Couldn\u2019t reach the server \u2014 your site is unchanged.' }); sitesSave(); renderSites(); }
+  });
 }
-// The workspace mirrors Lovable's anatomy (owner reference 2026-07-18): a top
-// bar (project name + view tabs · devices, Share, Publish), a slim chat rail,
+
 // and the stage (Preview / Code / More). Skinned in Go Farther's own dark + pink→amber.
 function renderSiteWorkspace(view, site) {
   const pages = sitePages(site);
@@ -10818,7 +10849,10 @@ function renderSiteWorkspace(view, site) {
   // Publish: push the site live to gofarther.dev/s/<slug> (or Republish to update).
   const pb = document.getElementById('stPub');
   if (pb) {
-    if (site.liveUrl) pb.textContent = 'Republish';
+    // NOT "Republish" — a React site publishes as part of the build, so there is
+    // nothing to re-do. The panel behind it is about the one thing that IS a
+    // choice: whether the site is on the web at all.
+    if (site.liveUrl) pb.textContent = site.offline ? 'Offline' : 'Live';
     pb.onclick = () => { if (!pb.disabled) sitePublishPanel(site); };
   }
   const ib = document.getElementById('stInbox');
@@ -11914,42 +11948,6 @@ function siteStop() {
   if (siteAbort) { try { siteAbort.abort(); } catch (e) {} }
 }
 
-// Publish the site live: every page → R2, served at gofarther.dev/s/<slug>. Republish
-// reuses the same URL. The live link lands in the thread + a toast.
-function sitePublish(site) {
-  const pages = sitePages(site);
-  if (!pages.length || siteBusy) return;
-  const origin = site.id;
-  siteBusy = true;
-  site.msgs.push({ r: 'a', t: '🚀 Publishing your site…' });
-  sitesSave();
-  renderSites();
-  apiFetch('/api/site/publish', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ siteId: site.id, name: site.name, pages: pages.map((p) => ({ path: p.path, html: p.html })) }),
-  }).then(async (r) => {
-    const d = await r.json().catch(() => ({}));
-    siteBusy = false;
-    const s = siteById(origin);
-    if (!s) return;
-    if (r.ok && d.url) {
-      s.liveUrl = d.url; s.published = true; s.slug = d.slug || s.slug;
-      s.msgs.push({ r: 'a', t: '✅ Live at ' + d.url + ' — it’s a real website now. Share the link, or hit Republish after any change. Form submissions land in your Inbox (top bar).' });
-    } else if (r.status === 501) {
-      s.msgs.push({ r: 'a', t: '⚠️ Hosting isn’t switched on yet — hang tight.' });
-    } else {
-      s.msgs.push({ r: 'a', t: '⚠️ Couldn’t publish just now — try again in a moment.' });
-    }
-    sitesSave();
-    if (siteOpenId === origin) renderSites();
-    if (r.ok && d.url && typeof sbToast === 'function') sbToast('Published live → ' + d.url);
-  }).catch(() => {
-    siteBusy = false;
-    const s = siteById(origin);
-    if (s) { s.msgs.push({ r: 'a', t: '⚠️ Lost the connection while publishing — try again.' }); sitesSave(); if (siteOpenId === origin) renderSites(); }
-  });
-}
-
 // Inbox: the site owner's form submissions (waitlist/contact/etc.), newest first.
 async function siteInbox(site) {
   const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
@@ -11990,16 +11988,15 @@ async function siteInbox(site) {
       bodyEl.innerHTML = html;
       return;
     }
-    const r = await apiFetch('/api/site/submissions?slug=' + encodeURIComponent(slug));
-    const d = await r.json().catch(() => ({ submissions: [] }));
-    const subs = Array.isArray(d.submissions) ? d.submissions : [];
-    if (!subs.length) { bodyEl.innerHTML = '<div class="si-empty">No submissions yet. When someone fills out a form on your live site, it lands here.</div>'; return; }
-    bodyEl.innerHTML = '<div class="si-count">' + subs.length + ' submission' + (subs.length === 1 ? '' : 's') + '</div>' + subs.map((s) => {
-      const fields = (s.data && typeof s.data === 'object') ? Object.keys(s.data).filter((k) => k !== '_hp' && k !== 'hp') : [];
-      const when = (() => { try { return new Date(s.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch (e) { return ''; } })();
-      return '<div class="si-item"><div class="si-item-top"><span class="si-form">' + esc(s.form || 'form') + '</span><span class="si-when">' + esc(when) + '</span></div>' +
-        fields.map((k) => '<div class="si-row"><span class="si-k">' + esc(k) + '</span><span class="si-v">' + esc(String(s.data[k])) + '</span></div>').join('') + '</div>';
-    }).join('');
+    // NO FALLBACK ANY MORE. This branch served D1-era sites through
+    // `/api/site/submissions`, a route deleted with that runtime — so what a
+    // pre-React site's owner actually got here was a 404 rendered as "couldn't
+    // load submissions, try again", which is the same lie the Unpublish button
+    // told. Every site the platform makes is React + Neon and takes the branch
+    // above; anything that reaches here predates that and has no submissions
+    // store left to read.
+    bodyEl.innerHTML = '<div class="si-empty">This one was made before the current builder, so its submissions aren\u2019t stored any more. Anything sent to a form since then is in the Data panel.</div>';
+    return;
   } catch (e) { bodyEl.innerHTML = '<div class="si-empty">Couldn’t load submissions just now — try again.</div>'; }
 }
 

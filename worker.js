@@ -58,6 +58,7 @@ import { resolveAccess, ACCESS_PRESETS } from "./site-access.mjs";
 const DISPLAY_PAIR = ACCESS_PRESETS.display;
 import { mergeAddonPages, mergeAddonSchema, unlinkedPages, routeOf } from "./builder/site-addon.mjs";
 import { archiveVersion, listVersions, rollbackVersion, deleteAllVersions, versionId, versionLabel } from "./site-versions.mjs";
+import { takeOffline, putBackOnline } from "./site-live.mjs";
 import { readLinkedPages, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, attachments, MAX_QUERIES } from "./builder/site-context.mjs";
 import { routeMessage, clarifiedBrief } from "./builder/site-ask.mjs";
 import { modelsFor } from "./builder/build-models.mjs";
@@ -1034,7 +1035,14 @@ function harden(res, request) {
       "connect-src 'self'",
       // Live map embeds (OpenStreetMap / Google Maps) — no API key, real interactive
       // maps. Without this, default-src 'self' would block the map iframe on publish.
-      "frame-src 'self' https://www.openstreetmap.org https://www.google.com https://maps.google.com",
+      // Maps AND video. `VideoEmbed` is in the generator's component list and has
+      // a documented signature, so the model is actively told to use it — and it
+      // emits an iframe at youtube-nocookie / player.vimeo, neither of which was
+      // on this list. It typechecked, bundled, published and rendered NOTHING:
+      // this repo's signature failure shape, sitting live. Both are the
+      // privacy-preserving hosts the component deliberately chose (no cookie on
+      // a visitor who never pressed play), which is why they are safe to name.
+      "frame-src 'self' https://www.openstreetmap.org https://www.google.com https://maps.google.com https://www.youtube-nocookie.com https://player.vimeo.com",
       "base-uri 'self'",
       // THE BUILDER'S PREVIEW IS NOW CROSS-ORIGIN, which `'self'` alone cannot
       // express. It was written when a site was served from `gofarther.dev/s/…`,
@@ -9534,6 +9542,12 @@ async function handleRequest(request, env, ctx) {
       const uf = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/uploads(?:\/([A-Za-z0-9._-]{1,80}))?$/i);
       const xp = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/export$/i);
       const nt = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/notify$/i);
+      // Off the web and back, at the same address. The panel had an Unpublish
+      // button for months that POSTed `/api/site/unpublish` — a route with ZERO
+      // occurrences in this file — and told the owner to try again when it
+      // 404'd. Its neighbours were no better: `/api/site/publish` posted the
+      // D1-era `p.html` page format, deleted 2026-07-27.
+      const lv = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/offline$/i);
       // The owner's own domains. The hostname in the path is matched loosely
       // here and normalised properly by `normalizeHostname` before it is used
       // for anything — this pattern only has to stop a path traversal.
@@ -9570,10 +9584,10 @@ async function handleRequest(request, env, ctx) {
       // so from outside the two are indistinguishable — which is how this
       // survived a live probe until the dispatch was read.
       // `test/api-auth.test.mjs` holds the list against the matchers now.
-      if (om || mm || an || uf || xp || nt || sk || dm2 || vr || tx || ed || ad) {
+      if (om || mm || an || uf || xp || nt || lv || sk || dm2 || vr || tx || ed || ad) {
         const ou = await authUser(request);
         if (!ou) return UNAUTHED();
-        const ownerSlug = (om || mm || an || uf || xp || nt || sk || dm2 || vr || tx || ed || ad)[1].toLowerCase();
+        const ownerSlug = (om || mm || an || uf || xp || nt || lv || sk || dm2 || vr || tx || ed || ad)[1].toLowerCase();
         const ownerDeps = {
           ownerOf: async (s2) => {
             const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(s2)}&select=uid`, { headers: svcHeaders(env), signal: AbortSignal.timeout(12000) });
@@ -10785,6 +10799,48 @@ async function handleRequest(request, env, ctx) {
               console.error("secrets:", e && (e.detail || e.message));
               return Response.json({ ok: false, error: "couldn't reach the secret store just now" }, { status: 503 });
             }
+          } else if (lv) {
+            // OFF THE WEB, AND BACK, AT THE SAME ADDRESS.
+            //
+            // The one removal that worked before this was `DELETE
+            // /api/site/<slug>`, which drops the Neon database and every booking
+            // in it. Between "live" and "destroyed" there was nothing — no
+            // answer for a refit, a seasonal closure, or a site built before
+            // launch.
+            //
+            // `site-live.mjs` owns the decision and REFUSES when nothing could
+            // put the site back, so this cannot turn a reversible action into a
+            // permanent one. Nothing here touches the database: the rows, the
+            // members, the secrets and the domains all survive untouched, which
+            // is the half the owner is anxious about.
+            const lslug = lv[1].toLowerCase();
+            const g = await assertOwner(ownerDeps, lslug, ou.id);
+            if (g.error) return Response.json(g.error.body, { status: g.error.status });
+            if (request.method !== "POST") return Response.json({ error: "method not allowed" }, { status: 405 });
+            const lb = await request.json().catch(() => ({}));
+            const liveDeps = {
+              versions: ({ slug }) => listVersions(versionDeps(env), { slug }),
+              // The stored page source — the second, independent way back. Read
+              // as a COUNT rather than kept, so a large site does not pull its
+              // whole source into memory to answer a yes/no question.
+              hasSource: async ({ slug }) => {
+                const src = await loadSiteSource(env, slug).catch(() => null);
+                return !!(src && src.length);
+              },
+              wipe: ({ slug }) => deleteSitePrefix(env, slug),
+              rollback: ({ slug, id }) => rollbackVersion(versionDeps(env), { slug, id }),
+              recompile: async ({ slug }) => {
+                const src = await loadSiteSource(env, slug).catch(() => null);
+                if (!src || !src.length) return { ok: false };
+                return recompileAndPublish(env, { slug, pages: src, label: "Back online" });
+              },
+            };
+            // `on: true` means OFFLINE, matching the route's name — the same
+            // shape `/notify {on}` uses, so the two read alike.
+            const out = lb.on === false
+              ? await putBackOnline(liveDeps, { slug: lslug })
+              : await takeOffline(liveDeps, { slug: lslug });
+            return Response.json(out, { status: out.ok ? 200 : (out.reason === "no-way-back" ? 409 : 503) });
           } else if (nt) {
             // The off switch. Email the owner did not ask for, with no way to
             // stop it, is not something to ship.
