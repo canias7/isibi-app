@@ -51,7 +51,7 @@ function Item({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }) {
       onMouseLeave={() => setPaused(false)}
       onFocus={() => setPaused(true)}
       onBlur={() => setPaused(false)}
-      className="motion-enter pointer-events-auto flex items-start gap-3 rounded-lg border border-border bg-background p-3 shadow-lg"
+      className="motion-enter pointer-events-auto flex items-start gap-3 rounded-lg border border-border bg-popover p-3 shadow-lg"
     >
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium">{toast.title}</p>

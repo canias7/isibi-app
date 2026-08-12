@@ -2354,12 +2354,20 @@ function floatingPanelsPaintedWithThePageToken(token) {
         if (lines[j].includes(">")) break;          // this one closed
       }
       const cls = win.join(" ");
-      // Positioned, with or without a responsive prefix (`md:absolute`), AND
-      // casting a shadow. The shadow is what separates a panel from the things
-      // that are CORRECTLY painted with the page token: a 1px divider drawn to
-      // look like a seam, a full-bleed veil over a photo, and the page root.
-      if (!/(?:^|[\s"'`])(?:[a-z]+:)?(?:fixed|absolute)\b/.test(cls)) continue;
-      if (!/\bshadow(-|\b)/.test(cls)) continue;
+      // Positioned, with or without a responsive prefix (`md:absolute`) — OR
+      // `pointer-events-auto`, which is only ever written on the surface INSIDE
+      // a `pointer-events-none` floating layer: that is how a toast or a nudge
+      // floats without swallowing clicks on the page beneath. Both instances in
+      // the kit (`toast-stack`, `nudge-bubble`) are positioned by a parent, so
+      // nothing about their own class list says they float.
+      const positioned = /(?:^|[\s"'`])(?:[a-z]+:)?(?:fixed|absolute)\b/.test(cls)
+        || /\bpointer-events-auto\b/.test(cls);
+      if (!positioned) continue;
+      // Casting a shadow is what separates a panel from the things CORRECTLY
+      // painted with the page token: a 1px divider drawn to look like a seam, a
+      // full-bleed veil over a photo, and the page root itself. `shadow-none`
+      // is not a shadow, and matching it flags an ordinary sidebar input.
+      if (!/\bshadow(-|\b)/.test(cls) || /\bshadow-none\b/.test(cls)) continue;
       out.push(f + ":" + (i + 1) + "  " + lines[i].trim().slice(0, 90));
     }
   }
