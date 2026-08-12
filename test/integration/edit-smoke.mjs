@@ -70,15 +70,37 @@ const funded = (j) => {
   return !dead;
 };
 
+/**
+ * REUSE THE SITE INSTEAD OF PAYING FOR ONE EVERY RUN.
+ *
+ * The build is HALF the cost of a run — ~25 credits of the ~50 — and it exists
+ * only so there is something to edit. `build smoke` already proves the build
+ * path on every deploy, free of this. So when the fixture site is already there,
+ * this skips straight to the lanes: ~25 credits and ~2.5 minutes saved, which
+ * matters most when the lanes are what is being iterated on.
+ *
+ * NO STORED PASSWORD ANYWHERE. The account is a fixed address and the run resets
+ * its password through the admin API with the service key it already holds, so
+ * nothing new has to be kept in a secret or a cache.
+ *
+ * SELF-HEALING, WHICH IS WHAT MAKES IT SAFE. If the fixture site is missing,
+ * unreadable or not ours, it builds a fresh one at that slug and carries on —
+ * so a fixture that gets into a bad state costs one ordinary run, not a red
+ * check nobody can clear. `SMOKE_FRESH=1` forces the old behaviour: a throwaway
+ * account, a throwaway slug, and everything torn down at the end.
+ */
+const FRESH = process.env.SMOKE_FRESH === "1";
+const FIXTURE_SLUG = (process.env.SMOKE_SLUG || "esmoke-fixture").toLowerCase();
+
 const stamp = Date.now().toString(36);
-const email = `edit-smoke-${stamp}@gofarther.dev`;
+const email = FRESH ? `edit-smoke-${stamp}@gofarther.dev` : `edit-smoke-${FIXTURE_SLUG}@gofarther.dev`;
 const password = `Es-${stamp}-${Math.random().toString(36).slice(2, 10)}`;
 // A SLUG WE CHOOSE, for the reason `build smoke` already records: a slug is
 // claimed by whoever built it first across every account, so letting the
 // designer name the site from a fixed brief means it proposes the same good name
 // every run and the second run 409s on something that is not a bug.
-let slug = `esmoke-${stamp}-${Math.random().toString(36).slice(2, 6)}`;
-let userId = null, jwt = null, deleted = false;
+let slug = FRESH ? `esmoke-${stamp}-${Math.random().toString(36).slice(2, 6)}` : FIXTURE_SLUG;
+let userId = null, jwt = null, deleted = false, reused = false;
 
 const api = (path, init) => fetch(`${BASE}${path}`, {
   ...(init || {}),
@@ -125,9 +147,24 @@ async function main() {
     method: "POST", headers: svc(),
     body: JSON.stringify({ email, password, email_confirm: true }),
   });
-  const made = await jsonOf(mk);
+  let made = await jsonOf(mk);
   userId = made && made.id;
-  ok("created a throwaway user", !!userId, JSON.stringify(made));
+  // ALREADY THERE, ON THE SECOND RUN AND EVERY RUN AFTER. The fixture account is
+  // a fixed address, so creating it answers "already registered" — find it and
+  // reset its password rather than storing one anywhere.
+  if (!userId && !FRESH) {
+    const found = await fetch(`${SUPABASE_URL}/auth/v1/admin/users?filter=${encodeURIComponent(email)}`, { headers: svc() });
+    const list = (await jsonOf(found)) || {};
+    const hit = (list.users || []).find((u) => u && String(u.email || "").toLowerCase() === email.toLowerCase());
+    if (hit && hit.id) {
+      const reset = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${hit.id}`, {
+        method: "PUT", headers: svc(), body: JSON.stringify({ password, email_confirm: true }),
+      });
+      made = await jsonOf(reset);
+      userId = (made && made.id) || hit.id;
+    }
+  }
+  ok(FRESH ? "created a throwaway user" : "the fixture account is ready", !!userId, JSON.stringify(made));
   if (!userId) return;
 
   const si = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
@@ -157,10 +194,43 @@ async function main() {
   // The slug changes on the retry: the first attempt CLAIMED the old one, so
   // building again at the same address is a revise, and a revise is a different
   // path with a different budget. It has to be a fresh first build.
-  console.log(`\nbuilding a real site… ${slug}`);
   const brief = "A barber shop in Sheffield called Ridge & Bone. A price list of services, and a page where people can book a chair.";
   let b = {}, br = null;
-  for (let attempt = 0; attempt < 2; attempt++) {
+
+  // ── IS THE FIXTURE ALREADY THERE? ─────────────────────────────────────────
+  //
+  // `/rows` answers 200 with this site's tables when it exists AND is ours —
+  // `assertOwner` refuses anything else with a 404 — so one free read decides it
+  // and doubles as the ownership check. `/text` then gives the page list, which
+  // is everything the lanes need that the build response would have carried.
+  //
+  // ANYTHING UNEXPECTED FALLS THROUGH TO BUILDING. A missing site, a site that
+  // is not ours, no tables, no pages: all of them build, which is exactly the
+  // old behaviour and costs one ordinary run.
+  if (!FRESH) {
+    try {
+      const rowsR = await api(`/api/site/${slug}/rows`);
+      const txtR = await api(`/api/site/${slug}/text`);
+      const tabs = ((await jsonOf(rowsR)) || {}).tables || [];
+      const src = ((await jsonOf(txtR)) || {}).pages || [];
+      if (rowsR.status === 200 && txtR.status === 200 && tabs.length && src.length) {
+        reused = true;
+        b = {
+          page: "app",
+          files: src.map((x) => x && x.path).filter(Boolean),
+          tables: tabs.map((t) => t && t.name).filter(Boolean),
+          brand: "", url: `https://${slug}.gofarther.app`,
+        };
+        br = { status: 200 };
+        console.log(`\nreusing ${slug} — no build, ~25 credits and ~2.5 minutes saved`);
+        console.log(`   pages: ${JSON.stringify(b.files)}`);
+        console.log(`   tables: ${JSON.stringify(b.tables)}`);
+      }
+    } catch { /* fall through and build */ }
+  }
+
+  if (!reused) console.log(`\nbuilding a real site… ${slug}`);
+  for (let attempt = 0; !reused && attempt < 2; attempt++) {
     if (attempt) {
       slug = `${slug}-r${attempt}`;
       console.log(`   the generator missed — one more, at ${slug}`);
@@ -176,14 +246,35 @@ async function main() {
     // an answer already known.
     if (b && b.billing === true) break;
   }
-  ok("the build returns 200", br.status === 200, `${br.status} ${JSON.stringify(b).slice(0, 200)}`);
-  ok("a real app was published, not the placeholder", b.page === "app",
+  if (!reused) ok("the build returns 200", br.status === 200, `${br.status} ${JSON.stringify(b).slice(0, 200)}`);
+  if (!reused) ok("a real app was published, not the placeholder", b.page === "app",
     `page=${b.page} stage=${b.stage} error=${String(b.error || "").slice(0, 200)}`);
   // EVERYTHING BELOW NEEDS A REAL APP. On the placeholder there is no page source
   // to edit and no nav to add to, so the lanes would correctly refuse and the run
   // would report a pile of failures about a build that never happened.
   if (!funded(b)) return;
   if (b.page !== "app") { console.log("\nskipping the lanes — the build fell back to the placeholder"); return; }
+
+  // A LEFTOVER PAGE FROM A RUN THAT DIED BEFORE ITS OWN CLEANUP.
+  //
+  // The addon adds a page and the deletion takes it away, so a green run leaves
+  // the fixture exactly as it found it. A run that dies in between does not —
+  // and the next addon would then be adding a second one beside it, which is a
+  // different test than the one written here. Cleared with the cheap lane, and
+  // best-effort: a failure to tidy is reported and never fails the run.
+  if (reused) {
+    for (const stale of (b.files || []).filter((f) => /gallery|photos|work-gallery/i.test(f))) {
+      const staleRoute = routeOfAdded(stale);
+      if (!staleRoute || staleRoute === "/") continue;
+      const wipe = await post(`/api/site/${slug}/edit`, {
+        layer: "page", page: staleRoute, remove: true,
+        instruction: `Remove the ${staleRoute.slice(1)} page`, picker: "sonnet",
+      });
+      const w = (await jsonOf(wipe)) || {};
+      console.log(`   tidied a leftover ${staleRoute}: ${w.ok ? "removed" : (w.error || wipe.status)}`);
+      if (w.ok) b.files = (b.files || []).filter((f) => f !== stale);
+    }
+  }
 
   // ROUTES, NOT SOURCE PATHS — and getting this wrong made the router look broken
   // when it was right. The build reports `files` as `src/routes/index.tsx`; the
@@ -528,6 +619,13 @@ async function main() {
   }
 
   // --- and the owner can take it all down ----------------------------------
+  // KEPT ON PURPOSE WHEN REUSING — that is the whole saving. The site delete is
+  // still exercised on a fresh run, which is what proves that route.
+  if (reused) {
+    console.log(`\nkeeping ${slug} for the next run — the build is what costs, and it is already paid for`);
+    deleted = true; // stops the teardown removing it
+    return;
+  }
   console.log("\ncleaning up…");
   const del = await api(`/api/site/${slug}`, { method: "DELETE" });
   ok("the owner can delete the site", del.status === 200, String(del.status));
@@ -546,9 +644,11 @@ main()
     // the platform has no self-service answer for.
     try { if (jwt && slug && !deleted) await api(`/api/site/${slug}`, { method: "DELETE" }).catch(() => {}); } catch { /* best effort */ }
     try { if (userId && env.NEON_API_KEY) await dropUserProject(env, userId).catch(() => {}); } catch { /* best effort */ }
-    if (userId) {
+    if (userId && !reused) {
       await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${userId}`, { method: "DELETE", headers: svc() }).catch(() => {});
       console.log("  removed the throwaway user");
+    } else if (reused) {
+      console.log(`  kept the fixture account and ${slug}`);
     }
     console.log(`\n${passed} passed, ${failed} failed`);
     process.exit(failed ? 1 : 0);

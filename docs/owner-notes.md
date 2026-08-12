@@ -16174,3 +16174,31 @@ from — not the code. It waits for the real deploy now.
 One thing worth watching: asked to remove the page *and* take the link out, the
 bigger lane took the links out and left the page, for 27 credits. You're then one
 cheap step from done — the check now proves that rather than assuming it.
+
+**Your idea: stop paying to rebuild the site every run (12 Aug).**
+
+You were right that this was the waste. Every run built a whole new website just
+to have something to edit — **about half the cost and half the clock of a run**,
+paid over and over to reach the bits we were actually fixing.
+
+It now reuses one fixture site. On the first run it builds it; after that it
+checks the site is there and goes straight to the lanes. **About 25 credits and
+two and a half minutes saved every run.**
+
+Three things make that safe rather than fragile:
+
+- **Nothing new is stored anywhere.** The test account is a fixed address and the
+  run resets its own password each time using the admin access it already has —
+  no password in a secret, no password in a cache.
+- **It heals itself.** If the site is missing, unreadable, or not ours, it just
+  builds a fresh one and carries on. A fixture that goes bad costs one ordinary
+  run, not a permanently red check.
+- **It tidies up.** A green run adds a page and removes it, so the site ends
+  where it started. If a run dies in between, the next one clears the leftover
+  before it starts, so it isn't quietly testing something different.
+
+`SMOKE_FRESH=1` forces the old behaviour — throwaway account, throwaway site,
+everything deleted — which is also what still proves the delete-a-site path.
+
+We're not losing build coverage: `build smoke` already exercises the whole build
+on every deploy, for free. The build in *this* check was only ever scaffolding.
