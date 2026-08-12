@@ -1062,6 +1062,18 @@ Postgres side: `public.use_quota(p_kind, p_limit)` (SECURITY DEFINER, atomic che
 
 Auth config (set 2026-07-03 via Management API): Site URL `https://isibi.ai`, redirect allow-list `https://isibi.ai/**, https://www.isibi.ai/**`, email rate limit 100/hour.
 
+## The router answered a deletion with a question (2026-08-12)
+
+**Found by `edit smoke` on the first funded run: 37 passed, 2 failed.** Asked to *"Remove the gallery page"*, the deployed router came back `intent=ask layer=undefined remove=undefined page=undefined` — a paragraph in reply to an instruction. The second failure (`escalate:"no-change"`) is the same bug one step downstream.
+
+- **THE CODE WAS FINE, WHICH IS WHY NOTHING BELOW THE ROUTER COULD HAVE CAUGHT IT.** `readEdit` resolves the page against the site's real list and honours `remove === true` exactly as written; the unit suite was green throughout. The failure was entirely in what the model is TOLD, and the only thing that could see it was a live call.
+- **THE MISSING SENTENCE IS NOT ABOUT DELETION, IT IS ABOUT CONFIRMATION.** The `edit` clause said "something taken away", the `page` layer said "take one out" about a SECTION, and nothing anywhere told the model not to check first. **Asking "are you sure?" is the natural thing a helpful model does with a destructive instruction, and it is the one answer this interface cannot accept** — there is no yes button, so the round dead-ends and reads as the builder refusing to work. The same shape as the clarify dead-end recorded 2026-08-09, arriving through a different door.
+- **Three additions, each mutation-checked**: `ask` may never be a confirmation; the `edit` intent names a whole-page deletion explicitly; the `page` layer says a deletion belongs to it. Asserted on the assembled tool description, because a prompt fix with nothing holding it is one a later edit drops silently.
+- **THE CONSERVATISM UNDERNEATH IS DELIBERATELY UNTOUCHED, and that is asserted separately.** `remove` is still `=== true` and nothing merely truthy, still only applies to a page that really exists, and the merge still refuses the home page and any page another links to. The fix is about the model REACHING the layer, never about what happens once it does — everywhere else in that file unclear resolves to WORK, and removal is the one verb where that is inverted.
+- **A mutation could not find its own anchor**, because I had split the phrase across a string concatenation with markdown asterisks the rest of the file does not use. The check reported "0 failed" for a guard that was actually real — a false all-clear, which is the more dangerous direction. Rewritten in the file's own caps style, contiguous, and all three fire.
+- **What this run also proved, first time live:** the `rules` layer end to end — *"THE DATABASE REALLY REFUSES A STRANGER NOW"*, a real Postgres policy verified by reading as an outsider and then put back. Plus a rename reaching the published page over the wire, and a row changed/removed/undone in Postgres.
+- **`text`, `picture` and `logo` are still unproven live** — `edit smoke` drives none of them, which corrects a claim made earlier the same day that this run would cover `text` and `picture`.
+
 ## "Hey, this is my logo, put it there" (2026-08-12, owner's call)
 
 **The eighth edit layer, and the owner's own words for it.** A picker in the uploads panel was proposed and turned down for the obvious better thing: attach the logo, say what it is, it goes in the header. **The attachment IS which picture** — nothing to match, nothing to remember — which is what makes the whole layer free of a model call.

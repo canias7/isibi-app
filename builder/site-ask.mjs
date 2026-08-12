@@ -137,7 +137,11 @@ export const ASK_TOOL = {
         description:
           "\"ask\" if the message is a question, a greeting, a thank-you, or anything else that does not describe a change. " +
           "When it is genuinely both — a question AND a change — answer with the work, because the reply says what was done " +
-          "anyway and the customer would rather have the work than the explanation.\n\n" +
+          "anyway and the customer would rather have the work than the explanation.\n" +
+          "NEVER ANSWER \"ask\" TO CHECK THAT THEY MEANT IT. A request to take something away — a page, a section, a row, " +
+          "the logo — is an instruction, not an opening bid, and answering it with \"are you sure?\" is the single worst " +
+          "thing you can do here: there is no yes button, so it reads as the builder refusing to work. Every change is " +
+          "archived and every one can be undone by saying so, which is what makes acting the safe choice. Do the work.\n\n" +
           "\"clarify\" when you are told below that this is a first build with questions remaining, the message describes a " +
           "site to build, AND the answer would change what gets built. Only two things do that: what the business actually " +
           "IS, and what visitors DO on the site. If the brief already answers both, say \"build\" even with questions left — " +
@@ -149,6 +153,9 @@ export const ASK_TOOL = {
           "It is the most expensive answer there is and it rewrites every page, so it is never the answer to a change.\n" +
           "\"edit\" — changing something the site ALREADY HAS. Different wording, a different colour or theme or font, a " +
           "section of an existing page laid out differently, something taken away.\n" +
+          "TAKING A WHOLE PAGE OFF THE SITE IS AN EDIT — \"remove the gallery page\", \"we don't need the about page any " +
+          "more\" — with layer \"page\", that page named, and `remove` true. It is not an \"addon\" and it is certainly " +
+          "not a question.\n" +
           "\"addon\" — adding something the site DOES NOT HAVE YET. A page it has no page for, or something it needs to STORE " +
           "that it has no table for.\n\n" +
           "THE QUESTION THAT SEPARATES EDIT FROM ADDON IS NOT THE ENGLISH ONE. \"Add a testimonials section to the home page\" " +
@@ -194,6 +201,9 @@ export const ASK_TOOL = {
           "a message about the header, the top of the site, or the brand mark is this and not \"picture\".\n" +
           "\"page\" — the arrangement of ONE existing page: move a section, take one out, lay a list out differently, " +
           "add a block built from parts the page already has. Name it in `page`.\n" +
+          "THIS IS ALSO WHERE A PAGE IS DELETED. \"Remove the gallery page\" is this layer, that page in `page`, and " +
+          "`remove` true — not a rewrite of the site and not a question back. Deleting costs almost nothing precisely " +
+          "because it comes here.\n" +
           "ONE PAGE, AND ONLY ONE. If the change is meant to land on several — \"put the phone number in the footer " +
           "of every page\", \"add the gallery to the menu everywhere\" — this is NOT the layer for it: it edits the " +
           "single page you name and leaves the rest exactly as they are, so the site would end up disagreeing with " +

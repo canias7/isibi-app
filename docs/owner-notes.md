@@ -194,6 +194,46 @@ when they say they are home, since it wants doing on their desktop.
 
 ---
 
+## 2026-08-12 — The account is funded, and the live run found one real bug
+
+**You topped up and `edit smoke` ran against the live platform: 37 passed, 2
+failed.** A real build went through — 147s, 54 credits, a real app rather than
+the placeholder — so the account question is settled.
+
+**Proven live for the first time**, and the `rules` layer is the one worth
+reading: a rule change routed correctly, republished nothing, and then **the
+database really refused a stranger** — a genuine Postgres policy, verified by
+trying to read the table as an outsider, and put back again afterwards. Also
+proven: a rename reaching the *published* page over the wire, a row changed,
+removed and undone in Postgres, and the addon adding a page while reverting one
+the model had rewritten for no reason.
+
+**THE ONE BUG: deleting a page.** Asked to *"Remove the gallery page"*, the router
+answered `intent=ask` — a question back — instead of routing it to the page layer
+with `remove`. The second failure is just the first one downstream.
+
+**The code was fine, which is why nothing below could have caught it.** `readEdit`
+resolves the page against the site's real list and honours `remove` correctly. The
+gap was in what the router is TOLD: the `edit` clause said only "something taken
+away", the `page` layer said "take one out" about a *section*, and nothing
+anywhere told it not to check first. **Asking "are you sure?" is the natural thing
+a helpful model does with a destructive instruction — and it is the one answer
+this interface cannot accept, because there is no yes button.** It reads as the
+builder refusing to work.
+
+Fixed in the tool description, in three places, each one mutation-checked so a
+later edit cannot drop it silently. **The conservatism underneath is deliberately
+untouched**: `remove` still has to be a real `true`, still only applies to a page
+that really exists, and the merge still refuses the home page and any page
+something else links to.
+
+**Still not proven live: `text`, `picture` and `logo`** — and I owe you a
+correction there. I said this run would prove `text` and `picture`; it doesn't
+drive either. It covers page *deletion* only. Those three need their own coverage
+in `edit smoke`, which does not exist yet.
+
+---
+
 ## 2026-08-12 — "Hey, this is my logo, put it there"
 
 **Your words, and you were right to reject the picker.** I proposed a chooser in

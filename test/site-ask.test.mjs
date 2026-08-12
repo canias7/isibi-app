@@ -1369,6 +1369,48 @@ test("the router can express a removal at all, and says when not to", () => {
   assert.match(f.description, /takes\s+a page off their site/, "the consequence is not stated");
 });
 
+test("THE ROUTER IS TOLD A PAGE DELETION IS AN EDIT, and told not to ask about it", () => {
+  // MEASURED LIVE 2026-08-12, and this is the failure the whole deletion path
+  // was invisible behind: `edit smoke` asked the deployed router to
+  // "Remove the gallery page" and it came back
+  // `intent=ask layer=undefined remove=undefined page=undefined`.
+  //
+  // The CODE was fine — `readEdit` resolves the page and honours `remove === true`
+  // — so nothing below the router could have caught it. What was missing was in
+  // the tool description: the `edit` clause said only "something taken away",
+  // the `page` layer said "take one out" about a SECTION, and nothing anywhere
+  // told the model not to check first. Asking "are you sure?" is the natural
+  // thing a helpful model does with a destructive instruction, and it is the one
+  // answer this interface cannot accept — there is no yes button, so it reads as
+  // the builder refusing to work.
+  //
+  // Asserted on the description because that is where the fix lives, and a
+  // prompt fix with nothing holding it is one a later edit drops silently.
+  const t = JSON.stringify(ASK_TOOL);
+  assert.match(t, /NEVER ANSWER \\"ask\\" TO CHECK THAT THEY MEANT IT/,
+    "nothing stops the router asking for confirmation before a destructive change");
+  assert.match(t, /TAKING A WHOLE PAGE OFF THE SITE IS AN EDIT/,
+    "the intent field never says a page deletion is an edit");
+  assert.match(t, /THIS IS ALSO WHERE A PAGE IS DELETED/,
+    "the page layer never says a deletion belongs to it");
+});
+
+test("…and the conservatism below it is NOT loosened by that", () => {
+  // The bias on `remove` is deliberately inverted from everything else in this
+  // file: unclear resolves to WORK everywhere except here, because a wrong edit
+  // costs a page they can undo and a wrong removal takes their page away. The
+  // fix above is about the model REACHING the layer, and must not touch this.
+  assert.deepEqual(
+    readEdit({ layer: "page", page: "/gallery", remove: "true" }, ["/gallery"]),
+    { intent: "edit", answer: "", layer: "page", page: "/gallery" },
+    "a truthy string took a page away");
+  assert.equal(
+    readEdit({ layer: "page", page: "/nope", remove: true }, ["/gallery"]).intent,
+    "addon", "a removal was honoured for a page the site does not have");
+  assert.equal(
+    readEdit({ layer: "page", page: "/gallery", remove: true }, ["/gallery"]).remove, true);
+});
+
 test("the deletion path reaches the route and calls no model", () => {
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   const at = w.indexOf('if (eLayer === "page") {');
