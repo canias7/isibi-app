@@ -26,7 +26,7 @@ export function GuidedStep({ title, body, step, of, onNext, onBack, onSkip, next
   const last = step >= of;
   return (
     <section role="dialog" aria-label={`${title} — step ${step} of ${of}`}
-      className={cn("flex max-w-sm flex-col gap-3 rounded-md border border-border bg-background p-4 shadow-xs", className)}>
+      className={cn("flex max-w-sm flex-col gap-3 rounded-md border border-border bg-popover p-4 shadow-xs", className)}>
       <div>
         <p className="text-xs text-muted-foreground tabular-nums">Step {step} of {of}</p>
         <h2 className="text-sm font-semibold">{title}</h2>

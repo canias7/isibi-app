@@ -79,7 +79,7 @@ export function ShortcutOverlay({ open, onClose, groups, className }: {
       <button type="button" onClick={onClose} aria-label="Close"
         className="absolute inset-0 cursor-default bg-foreground/50" />
       <div role="dialog" aria-modal="true" aria-label="Keyboard shortcuts"
-        className={cn("relative flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden rounded-xl border border-border bg-background shadow-xl", className)}>
+        className={cn("relative flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden rounded-xl border border-border bg-popover shadow-xl", className)}>
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <h2 className="text-base font-semibold">Keyboard shortcuts</h2>
           <button type="button" onClick={onClose} aria-label="Close"

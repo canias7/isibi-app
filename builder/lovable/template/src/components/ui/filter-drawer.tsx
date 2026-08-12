@@ -47,7 +47,7 @@ export function FilterDrawer({ open, onClose, onApply, onClear, resultCount, act
     <div className={cn("fixed inset-0 z-50 flex", className)}>
       <div className="absolute inset-0 bg-foreground/40" onClick={onClose} aria-hidden="true" />
       <div role="dialog" aria-modal="true" aria-label={title}
-        className="relative ml-auto flex h-full w-full max-w-sm flex-col bg-background shadow-lg">
+        className="relative ml-auto flex h-full w-full max-w-sm flex-col bg-popover shadow-lg">
         <div className="flex items-center gap-2 border-b border-border px-4 py-3">
           <h2 className="text-sm font-medium">{title}</h2>
           {activeCount > 0 && (

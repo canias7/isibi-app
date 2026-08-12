@@ -2366,6 +2366,67 @@ function floatingPanelsPaintedWithThePageToken(token) {
   return out;
 }
 
+/**
+ * Every MODAL SURFACE painted with `token`.
+ *
+ * A second rule rather than a widening of the first, because the property is
+ * different and so is the evidence for it. The first asks whether an element
+ * POSITIONS itself over the page; three real dialogs do not — the full-bleed
+ * wrapper is positioned and the surface is a plain `relative` child of it, so
+ * a same-element check cannot see any of them. `role="dialog"` says what the
+ * element IS, which is the thing that actually decides this: whatever a modal
+ * is layered over, you must not be able to read the page through it.
+ *
+ * An indentation-based ancestor walk was tried first and is not what this is.
+ * It misses `modal-stack`, whose wrapper `className` sits at the SAME
+ * indentation as the child it wraps, and it flagged a hairline divider and a
+ * tab chip that are both correct.
+ */
+function dialogSurfacesPaintedWithThePageToken(token) {
+  const kit = path.join(import.meta.dirname, "..", "builder", "lovable", "template", "src", "components", "ui");
+  const out = new Set();
+  for (const f of fs.readdirSync(kit).filter((n) => n.endsWith(".tsx"))) {
+    const lines = fs.readFileSync(path.join(kit, f), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+      .replace(/^\s*\/\/.*$/gm, "")
+      .split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      if (!/role="dialog"|aria-modal/.test(lines[i])) continue;
+      // The dialog's own tag AND the panel just inside it.
+      for (let j = i; j < Math.min(lines.length, i + 16); j++) {
+        if (!lines[j].includes(token)) continue;
+        if (new RegExp(token.replace(/[-/]/g, "\\$&") + "\\/\\d").test(lines[j])) continue;
+        out.add(f + ":" + (j + 1) + "  " + lines[j].trim().slice(0, 90));
+        break;
+      }
+    }
+  }
+  return [...out];
+}
+
+test("no MODAL SURFACE paints itself with the page-root token", () => {
+  // Found 2026-08-12 while fixing the floating-panel class above: four
+  // `role="dialog"` surfaces were on `--background`, which 449 of the 500
+  // themes re-emit with alpha. A dialog is the worst possible thing to be able
+  // to read the page through, and shadcn's own `dialog`/`alert-dialog` in this
+  // same kit have used `bg-popover` throughout.
+  const offenders = dialogSurfacesPaintedWithThePageToken("bg-background");
+  assert.deepEqual(offenders, [],
+    "a visitor can read the page through these dialogs:\n  " + offenders.join("\n  "));
+});
+
+test("…and the dialog check can see one, and is not just matching nothing", () => {
+  // A rule that has stopped matching reports a clean kit. Reading the SAME
+  // predicate back for the token the correct dialogs use proves it still finds
+  // dialog surfaces at all — 14 of them, including the four just fixed.
+  const correct = dialogSurfacesPaintedWithThePageToken("bg-popover");
+  assert.ok(correct.length >= 10,
+    "the dialog scan found only " + correct.length + " surfaces — it has stopped matching");
+  for (const f of ["modal-stack.tsx", "filter-drawer.tsx", "shortcut-overlay.tsx", "guided-step.tsx"]) {
+    assert.ok(correct.some((c) => c.startsWith(f)), "the scan no longer sees " + f);
+  }
+});
+
 test("no FLOATING panel paints itself with the page-root token", () => {
   // A theme with a decorative backdrop re-emits `--background` at 35% alpha on
   // purpose — every generated page's root div carries `bg-background`, and an

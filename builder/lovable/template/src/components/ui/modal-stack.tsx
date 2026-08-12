@@ -85,6 +85,60 @@ export function useModalStack() {
   return ctx;
 }
 
+/**
+ * `StackedModal` WITHOUT a provider is one modal, not a crash.
+ *
+ * It used to call `useModalStack`, so a page that reached for the dialog and
+ * not the provider threw at render and the error boundary took the WHOLE page
+ * down — a blank site, from markup that typechecks, bundles and publishes. The
+ * page generator is handed `StackedModal(id, open, onClose, …)` and nothing in
+ * that signature mentions a provider; the two names do not pair the way
+ * `<Carousel>` and `<CarouselContent>` do, so there is nothing to notice.
+ *
+ * That is the `message-scroller` failure, which this kit exists partly because
+ * of: it typechecked, bundled, and hard-crashed the page because its context
+ * lived in a package and nothing said it needed a provider.
+ *
+ * So it degrades the way the rest of the kit does — `lazy-boundary` renders
+ * everything when IntersectionObserver is missing, `scroll-reveal` renders
+ * visible under reduced motion. One modal is the overwhelmingly common case
+ * anyway; the stack is what the SECOND one needs. Solo it owns the two things
+ * the provider would have owned for it: Escape, and the scroll lock.
+ */
+function useModalOrSolo(id: string, open: boolean, onClose: () => void) {
+  const ctx = React.useContext(Ctx);
+  const solo = ctx === null;
+
+  // Registered during render, not in an effect — an inline `onClose={() => …}`
+  // is a new function every time and would churn the stack on every render.
+  ctx?.register(id, onClose);
+
+  React.useEffect(() => {
+    if (!ctx) return;
+    if (open) ctx.open(id); else ctx.close(id);
+    return () => ctx.close(id);
+  }, [ctx, open, id]);
+
+  React.useEffect(() => {
+    if (!solo || !open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [solo, open, onClose]);
+
+  // Solo, this modal is always the top one: there is nothing else in the stack.
+  return { solo, isTop: solo ? true : ctx!.top === id };
+}
+
 export function StackedModal({ id, open, onClose, title, children, footer, className }: {
   id: string;
   open: boolean;
@@ -94,18 +148,9 @@ export function StackedModal({ id, open, onClose, title, children, footer, class
   footer?: React.ReactNode;
   className?: string;
 }) {
-  const stack = useModalStack();
-  const { open: push, close: pop, register } = stack;
-
-  register(id, onClose);
-
-  React.useEffect(() => {
-    if (open) push(id); else pop(id);
-    return () => pop(id);
-  }, [open, id, push, pop]);
+  const { solo, isTop } = useModalOrSolo(id, open, onClose);
 
   if (!open) return null;
-  const isTop = stack.top === id;
 
   return (
     <div
@@ -114,11 +159,16 @@ export function StackedModal({ id, open, onClose, title, children, footer, class
       aria-label={typeof title === "string" ? title : undefined}
       className={cn("fixed inset-0 z-50 grid place-items-center p-4", !isTop && "pointer-events-none")}
     >
+      {/* With a provider there is ONE scrim for the whole stack, rendered by it,
+          because two translucent layers is visibly darker than one. Solo there
+          is no provider to draw it, and a modal over an undimmed page reads as
+          part of the page. */}
+      {solo ? <div aria-hidden className="fixed inset-0 -z-10 bg-foreground/50" /> : null}
       <div
         onClick={(e) => { if (e.target === e.currentTarget && isTop) onClose(); }}
         className="absolute inset-0"
       />
-      <div className={cn("relative flex w-full max-w-md flex-col gap-3 rounded-xl border border-border bg-background p-4 shadow-xl",
+      <div className={cn("relative flex w-full max-w-md flex-col gap-3 rounded-xl border border-border bg-popover p-4 shadow-xl",
         !isTop && "scale-95 opacity-70", className)}>
         {title ? <h2 className="text-base font-semibold">{title}</h2> : null}
         <div className="min-w-0">{children}</div>
