@@ -11,20 +11,12 @@ import {
   useLogout,
   useRows,
   useCreateRow,
-  useUpdateRow,
   useDeleteRow,
   type Row,
 } from "@/lib/rows";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { SiteChrome } from "@/components/ui/site-chrome";
@@ -38,7 +30,7 @@ type Announcement = Row & { title: string; body: string };
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "A calm, well-lit studio for every kind of practice.",
+  tagline: "A quiet studio, a full timetable.",
   links: [
     { label: "Home", href: "/" },
     { label: "Book", href: "/book" },
@@ -97,14 +89,11 @@ function Account() {
           <>
             <h1 className="text-3xl font-semibold tracking-tight">Your account</h1>
             <p className="mt-2 text-muted-foreground">
-              Sign in to keep your own practice notes and see studio announcements.
+              Sign in to keep your own notes and see studio announcements.
             </p>
 
             <Form {...form}>
-              <form
-                className="mt-8 grid gap-4"
-                onSubmit={form.handleSubmit((v) => submit(login, v))}
-              >
+              <form className="mt-8 grid gap-4" onSubmit={form.handleSubmit((v) => submit(login, v))}>
                 <FormField
                   control={form.control}
                   name="email"
@@ -157,7 +146,6 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
   const notes = useRows<Note>("my_notes", { order: "id", dir: "desc" });
   const announcements = useRows<Announcement>("announcements", { order: "id", dir: "desc" });
   const create = useCreateRow<Note>("my_notes");
-  const update = useUpdateRow<Note>("my_notes");
   const remove = useDeleteRow("my_notes");
 
   const form = useForm<NoteForm>({
@@ -165,7 +153,7 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
     defaultValues: { title: "", body: "" },
   });
 
-  const onAdd = (values: NoteForm) => {
+  const onSubmit = (values: NoteForm) => {
     create.mutate(values, {
       onSuccess: () => {
         toast.success("Note saved");
@@ -176,7 +164,7 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
   };
 
   return (
-    <div>
+    <>
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-semibold tracking-tight">Hello, {name}</h1>
         <Button variant="ghost" onClick={onSignOut}>
@@ -189,18 +177,18 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
           <CardTitle className="text-base">Studio announcements</CardTitle>
         </CardHeader>
         <CardContent>
-          {announcements.isPending && <Skeleton className="h-20 rounded-lg" />}
+          {announcements.isPending && <Skeleton className="h-16 rounded-lg" />}
           {announcements.isError && (
-            <p className="text-sm text-destructive">Couldn't load announcements. Refresh and try again.</p>
+            <p className="text-sm text-destructive">Couldn't load announcements.</p>
           )}
           {announcements.data?.length === 0 && (
-            <Empty title="Nothing posted yet" description="The studio hasn't shared anything here yet." />
+            <Empty title="Nothing posted yet" description="Check back for studio news." />
           )}
           {!!announcements.data?.length && (
-            <ul className="grid gap-4 motion-stagger">
+            <ul className="grid gap-3 motion-stagger">
               {announcements.data.map((a) => (
-                <li key={a.id} className="border-b border-border pb-4 last:border-0 last:pb-0">
-                  <p className="font-medium">{a.title}</p>
+                <li key={a.id} className="rounded-lg border border-border p-3">
+                  <p className="text-sm font-medium">{a.title}</p>
                   <p className="mt-1 text-sm text-muted-foreground">{a.body}</p>
                 </li>
               ))}
@@ -211,57 +199,42 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
 
       <Card className="mt-6">
         <CardHeader>
-          <CardTitle className="text-base">Your practice notes</CardTitle>
+          <CardTitle className="text-base">Your notes</CardTitle>
         </CardHeader>
         <CardContent>
           {notes.isPending && <Skeleton className="h-24 rounded-lg" />}
-          {notes.isError && (
-            <p className="text-sm text-destructive">Couldn't load your notes. Refresh and try again.</p>
-          )}
+          {notes.isError && <p className="text-sm text-destructive">Couldn't load your notes.</p>}
           {notes.data?.length === 0 && (
-            <Empty title="No notes yet" description="Jot down what worked in class, or what to try next time." />
+            <Empty title="No notes yet" description="Jot down anything you want to remember before your next class." />
           )}
           {!!notes.data?.length && (
-            <ul className="grid gap-3">
+            <ul className="grid gap-3 motion-stagger">
               {notes.data.map((n) => (
                 <li key={n.id} className="flex items-start justify-between gap-3 rounded-lg border border-border p-3">
                   <div>
-                    <p className="font-medium">{n.title}</p>
+                    <p className="text-sm font-medium">{n.title}</p>
                     <p className="mt-1 text-sm text-muted-foreground">{n.body}</p>
                   </div>
-                  <div className="flex shrink-0 gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() =>
-                        update.mutate(
-                          { id: n.id, title: n.title, body: `${n.body}` },
-                          { onSuccess: () => toast.success("Saved") },
-                        )
-                      }
-                    >
-                      Touch
-                    </Button>
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      onClick={() =>
-                        remove.mutate(n.id, {
-                          onSuccess: () => toast.success("Deleted"),
-                          onError: (e: Error) => toast.error(e.message),
-                        })
-                      }
-                    >
-                      Delete
-                    </Button>
-                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={remove.isPending}
+                    onClick={() =>
+                      remove.mutate(n.id, {
+                        onSuccess: () => toast.success("Note removed"),
+                        onError: (e: Error) => toast.error(e.message),
+                      })
+                    }
+                  >
+                    Remove
+                  </Button>
                 </li>
               ))}
             </ul>
           )}
 
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onAdd)} className="mt-6 grid gap-3 border-t border-border pt-6">
+            <form onSubmit={form.handleSubmit(onSubmit)} className="mt-6 grid gap-3">
               <FormField
                 control={form.control}
                 name="title"
@@ -297,6 +270,6 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
           </Form>
         </CardContent>
       </Card>
-    </div>
+    </>
   );
 }

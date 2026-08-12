@@ -1,14 +1,23 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
-
-import { useMember, useRows, useUpdateRow, useDeleteRow, type Row } from "@/lib/rows";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import {
+  useMember,
+  useRows,
+  useUpdateRow,
+  useDeleteRow,
+  type Row,
+} from "@/lib/rows";
+import { useLogin } from "@/lib/rows";
+import { LoginForm } from "@/components/ui/login-form";
 import { RecordHeader } from "@/components/ui/record-header";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ActivityFeed } from "@/components/ui/activity-feed";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Empty } from "@/components/ui/empty";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -16,6 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export const Route = createFileRoute("/record")({
   component: RecordPage,
@@ -25,76 +35,82 @@ export const Route = createFileRoute("/record")({
 });
 
 type Deal = Row & { title: string; value: string | null; stage: string | null };
-type Account = Row & { name: string; website: string | null; notes: string | null };
+type Playbook = Row & { title: string; body: string | null };
 
 const STAGES = ["New", "Qualifying", "Proposal", "Negotiation", "Won", "Lost"];
 
-function stageState(stage: string | null) {
-  if (stage === "Won") return "success" as const;
-  if (stage === "Lost") return "danger" as const;
-  if (stage === "Negotiation" || stage === "Proposal") return "warning" as const;
-  return "neutral" as const;
+function stageState(stage: string | null): "success" | "warning" | "danger" | "neutral" {
+  if (stage === "Won") return "success";
+  if (stage === "Lost") return "danger";
+  if (stage === "Negotiation" || stage === "Proposal") return "warning";
+  return "neutral";
 }
 
 function RecordPage() {
-  const { id } = Route.useSearch();
   const member = useMember();
-  const deals = useRows<Deal>("deals");
-  const accounts = useRows<Account>("accounts", { order: "id", dir: "desc" });
-  const update = useUpdateRow<Deal>("deals");
-  const remove = useDeleteRow("deals");
-  const navigate = useNavigate();
+  const login = useLogin();
 
-  const deal = deals.data?.find((r) => String(r.id) === id);
-
-  const [title, setTitle] = useState("");
-  const [value, setValue] = useState("");
-  const [stage, setStage] = useState("New");
-
-  useEffect(() => {
-    if (deal) {
-      setTitle(deal.title);
-      setValue(deal.value ?? "");
-      setStage(deal.stage ?? "New");
-    }
-  }, [deal]);
-
-  if (member.isPending || deals.isPending) {
+  if (member.isPending) {
     return (
       <div className="p-10">
-        <Skeleton className="h-8 w-64" />
-        <Skeleton className="mt-4 h-40 w-full" />
+        <Skeleton className="h-64 rounded-xl" />
       </div>
     );
   }
 
   if (!member.data) {
     return (
-      <div className="mx-auto max-w-md px-6 py-24 text-center">
-        <h1 className="text-2xl font-semibold tracking-tight">Sign in to open this record</h1>
-        <p className="mt-3 text-muted-foreground">Deals are private to your signed-in team.</p>
-        <Button asChild className="mt-6">
-          <Link to="/">Sign in</Link>
-        </Button>
+      <main className="flex min-h-screen items-center justify-center p-10">
+        <div className="w-full max-w-sm">
+          <h1 className="mb-6 text-center text-2xl font-semibold tracking-tight">Halyard</h1>
+          <LoginForm
+            busy={login.isPending}
+            error={login.error?.message}
+            onSubmit={(v) => login.mutate(v, { onError: (e) => toast.error(e.message) })}
+          />
+        </div>
+      </main>
+    );
+  }
+
+  return <RecordView />;
+}
+
+function RecordView() {
+  const { id } = Route.useSearch();
+  const navigate = useNavigate();
+  const deals = useRows<Deal>("deals");
+  const playbook = useRows<Playbook>("playbook", { order: "id", dir: "asc" });
+  const update = useUpdateRow<Deal>("deals");
+  const remove = useDeleteRow("deals");
+
+  const deal = deals.data?.find((d) => String(d.id) === id);
+
+  const [title, setTitle] = useState("");
+  const [value, setValue] = useState("");
+  const [dirty, setDirty] = useState(false);
+
+  if (!id) {
+    return (
+      <div className="mx-auto max-w-lg px-6 py-16 text-center">
+        <p className="text-muted-foreground">
+          No record selected. <Link to="/records" className="underline">Back to records</Link>
+        </p>
       </div>
     );
   }
 
-  if (!id) {
+  if (deals.isPending) {
     return (
-      <div className="mx-auto max-w-md px-6 py-24 text-center">
-        <h1 className="text-2xl font-semibold tracking-tight">No record chosen</h1>
-        <p className="mt-3 text-muted-foreground">Open a deal from the records table.</p>
-        <Button asChild className="mt-6" variant="outline">
-          <Link to="/records">Back to records</Link>
-        </Button>
+      <div className="p-10">
+        <Skeleton className="h-72 rounded-xl" />
       </div>
     );
   }
 
   if (deals.isError) {
     return (
-      <div className="mx-auto max-w-md px-6 py-24 text-center">
+      <div className="p-10">
         <p className="text-sm text-destructive">Couldn't load this record. Refresh and try again.</p>
       </div>
     );
@@ -102,23 +118,42 @@ function RecordPage() {
 
   if (!deal) {
     return (
-      <div className="mx-auto max-w-md px-6 py-24 text-center">
-        <h1 className="text-2xl font-semibold tracking-tight">We couldn't find that deal</h1>
-        <p className="mt-3 text-muted-foreground">
-          It may have been removed, or it belongs to a different team.
-        </p>
-        <Button asChild className="mt-6" variant="outline">
-          <Link to="/records">Back to records</Link>
+      <div className="p-10">
+        <Empty
+          title="Not found"
+          description="This deal doesn't exist, or has been removed."
+        />
+        <Button variant="outline" className="mt-4" onClick={() => navigate({ to: "/records" })}>
+          Back to records
         </Button>
       </div>
     );
   }
 
-  const onSave = () => {
+  const startEdit = () => {
+    setTitle(deal.title);
+    setValue(deal.value ?? "");
+    setDirty(true);
+  };
+
+  const saveEdit = () => {
     update.mutate(
-      { id: deal.id, title, value, stage },
+      { id: deal.id, title, value },
       {
-        onSuccess: () => toast.success("Saved"),
+        onSuccess: () => {
+          toast.success("Saved");
+          setDirty(false);
+        },
+        onError: (e) => toast.error(e.message),
+      },
+    );
+  };
+
+  const onStage = (stage: string) => {
+    update.mutate(
+      { id: deal.id, stage },
+      {
+        onSuccess: () => toast.success("Stage updated"),
         onError: (e) => toast.error(e.message),
       },
     );
@@ -127,94 +162,127 @@ function RecordPage() {
   const onDelete = () => {
     remove.mutate(deal.id, {
       onSuccess: () => {
-        toast.success("Deal removed");
+        toast.success("Deleted");
         navigate({ to: "/records" });
       },
       onError: (e) => toast.error(e.message),
     });
   };
 
-  const trail = [
-    { who: "Team", what: `stage set to ${deal.stage ?? "New"}`, at: deal.updated_at ?? deal.created_at },
-    { who: "Team", what: "record created", at: deal.created_at },
-  ];
-
   return (
-    <div className="mx-auto max-w-4xl px-6 py-10">
+    <div className="mx-auto max-w-3xl px-6 py-10">
+      <Link to="/records" className="text-sm text-muted-foreground underline">
+        Back to records
+      </Link>
+
       <RecordHeader
+        className="mt-4"
         title={deal.title}
-        subtitle="Shared with your team — anyone can edit"
+        subtitle={deal.value ? `Worth ${deal.value}` : "No value set"}
         status={<StatusBadge state={stageState(deal.stage)}>{deal.stage ?? "New"}</StatusBadge>}
         actions={
-          <Button variant="destructive" onClick={onDelete} disabled={remove.isPending}>
-            {remove.isPending ? "Removing…" : "Delete"}
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={startEdit}>
+              Edit
+            </Button>
+            <Button variant="destructive" size="sm" onClick={onDelete} disabled={remove.isPending}>
+              {remove.isPending ? "Deleting…" : "Delete"}
+            </Button>
+          </div>
         }
       />
 
-      <div className="mt-8 grid gap-4 sm:grid-cols-2">
-        <div className="grid gap-1.5">
-          <label className="text-sm font-medium">Title</label>
-          <Input value={title} onChange={(e) => setTitle(e.target.value)} />
-        </div>
-        <div className="grid gap-1.5">
-          <label className="text-sm font-medium">Value</label>
-          <Input value={value} onChange={(e) => setValue(e.target.value)} />
-        </div>
-        <div className="grid gap-1.5">
-          <label className="text-sm font-medium">Stage</label>
-          <Select value={stage} onValueChange={setStage}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {STAGES.map((s) => (
-                <SelectItem key={s} value={s}>
-                  {s}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="flex items-end">
-          <Button className="motion-press" onClick={onSave} disabled={update.isPending}>
-            {update.isPending ? "Saving…" : "Save changes"}
-          </Button>
-        </div>
-      </div>
+      <Card className="mt-6">
+        <CardHeader>
+          <CardTitle className="text-base">Fields</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4">
+          {dirty ? (
+            <>
+              <div className="grid gap-1.5">
+                <Label htmlFor="deal-title">Title</Label>
+                <Input id="deal-title" value={title} onChange={(e) => setTitle(e.target.value)} />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="deal-value">Value</Label>
+                <Input id="deal-value" value={value} onChange={(e) => setValue(e.target.value)} />
+              </div>
+              <div className="flex gap-2">
+                <Button onClick={saveEdit} disabled={update.isPending} className="motion-press">
+                  {update.isPending ? "Saving…" : "Save"}
+                </Button>
+                <Button variant="ghost" onClick={() => setDirty(false)}>
+                  Cancel
+                </Button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="grid gap-1.5">
+                <Label>Title</Label>
+                <p className="text-sm">{deal.title}</p>
+              </div>
+              <div className="grid gap-1.5">
+                <Label>Value</Label>
+                <p className="text-sm">{deal.value ?? "—"}</p>
+              </div>
+            </>
+          )}
+          <div className="grid gap-1.5">
+            <Label htmlFor="deal-stage">Stage</Label>
+            <Select value={deal.stage ?? "New"} onValueChange={onStage}>
+              <SelectTrigger id="deal-stage" className="w-56">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {STAGES.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {s}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
 
-      <div className="mt-10">
-        <h2 className="text-lg font-semibold tracking-tight">Activity</h2>
-        <ActivityFeed className="mt-4" items={trail} empty="Nothing recorded yet" />
-      </div>
+      <Card className="mt-6">
+        <CardHeader>
+          <CardTitle className="text-base">Activity</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ActivityFeed
+            items={[
+              { who: "This deal", what: "was created", at: deal.created_at },
+              { who: "This deal", what: "was last updated", at: deal.updated_at },
+            ]}
+            empty="No activity yet"
+          />
+        </CardContent>
+      </Card>
 
-      <div className="mt-10">
-        <h2 className="text-lg font-semibold tracking-tight">Accounts</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          The team's shared accounts, for reference while you work this deal.
-        </p>
-        {accounts.isPending && <Skeleton className="mt-4 h-24" />}
-        {accounts.isError && (
-          <p className="mt-4 text-sm text-destructive">Couldn't load accounts.</p>
-        )}
-        {accounts.data?.length === 0 && (
-          <p className="mt-4 text-sm text-muted-foreground">No accounts yet.</p>
-        )}
-        <ul className="mt-4 space-y-2 motion-stagger">
-          {accounts.data?.slice(0, 5).map((a) => (
-            <li key={a.id} className="rounded-md border border-border p-3 text-sm">
-              <p className="font-medium">{a.name}</p>
-              {a.website && <p className="text-muted-foreground">{a.website}</p>}
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      <div className="mt-10">
-        <Button asChild variant="outline">
-          <Link to="/records">Back to records</Link>
-        </Button>
-      </div>
+      <Card className="mt-6">
+        <CardHeader>
+          <CardTitle className="text-base">Team playbook</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {playbook.isPending && <Skeleton className="h-24 rounded-md" />}
+          {playbook.isError && (
+            <p className="text-sm text-destructive">Couldn't load the playbook.</p>
+          )}
+          {playbook.data?.length === 0 && (
+            <p className="text-sm text-muted-foreground">Nothing published yet.</p>
+          )}
+          <div className="space-y-4 motion-stagger">
+            {playbook.data?.map((p) => (
+              <div key={p.id}>
+                <p className="text-sm font-medium">{p.title}</p>
+                <p className="mt-1 text-sm text-muted-foreground">{p.body}</p>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
