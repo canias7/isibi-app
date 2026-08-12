@@ -1385,7 +1385,13 @@ test("the router RETURNS the layer it picked", () => {
   const ret = body.lastIndexOf("return Response.json({");
   assert.ok(ret > 0, "the routing answer is no longer a Response.json literal");
   const obj = body.slice(ret, body.indexOf("\n      });", ret));
-  assert.ok(obj.length > 60 && obj.length < 1500, "the response literal window looks wrong: " + obj.length);
+  // MEASURED ON THE CODE, NOT THE TEXT. The bound exists to catch a window that
+  // has silently swallowed the whole route; comments are what this repo puts its
+  // reasoning in, so counting them made a correct, well-documented field
+  // addition fail a size check. Blanked rather than removed, per the house rule.
+  const code = obj.replace(/^\s*\/\/.*$/gm, "");
+  assert.ok(code.length > 60 && code.length < 1500,
+    "the response literal window looks wrong: " + code.length + " of code in " + obj.length + " bytes");
   // The PROPERTY: every field the client reads off this answer is on it, as a
   // real property with a value rather than as a word in a sentence.
   for (const f of ["intent", "answer", "question", "layer", "page"]) {

@@ -8704,6 +8704,28 @@ async function handleRequest(request, env, ctx) {
         // drives `readRouting` directly and worker.js cannot be imported.
         layer: routed.intent === "edit" ? routed.layer : undefined,
         page: routed.intent === "edit" ? routed.page : undefined,
+        // AND WHETHER THE PAGE IS BEING TAKEN AWAY — the SAME BUG as the two
+        // fields above it, in the same object, found the same way, and never
+        // added when they were. `readEdit` sets `remove: true`, `public/chat.js`
+        // reads `d.remove === true` and posts it on, and this response dropped
+        // it in between: BOTH HALVES CORRECT, the wire cut.
+        //
+        // So page deletion has been unreachable in the product since it shipped,
+        // and `rmRoute.remove` was `undefined` on every live run no matter what
+        // the model answered. Five prompt rewrites tonight were chasing a field
+        // that could not have arrived — and from outside, "the model did not set
+        // it" and "we did not forward it" are the same `undefined`.
+        //
+        // The wiring layer for the ELEVENTH recorded time in this file.
+        //
+        // The `intent === "edit"` half is BELT-AND-BRACES and says so rather
+        // than being deleted or pretended-to-be-tested: `readEdit` is the only
+        // thing that sets `remove`, and it only runs on the edit path, so a
+        // mutation removing this gate changes no answer and survives the suite.
+        // Kept because its two siblings above are gated the same way and because
+        // it holds by a property of another function one file over — the shape
+        // this repo keeps a note for instead of a false assertion.
+        remove: routed.intent === "edit" && routed.remove === true ? true : undefined,
         // The question to put in front of the build, already cleaned into
         // something renderable — two to four options, deduped, capped. The
         // client shows it verbatim rather than re-deciding anything, so there is

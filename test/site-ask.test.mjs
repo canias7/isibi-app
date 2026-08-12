@@ -1452,3 +1452,39 @@ test("the deletion path reaches the route and calls no model", () => {
   assert.match(chat, /remove: d\.remove === true/, "the client never sends it, or sends it loosely");
   assert.match(chat, /Took ' \+ \(gone/, "the customer is not told the page went");
 });
+
+test("EVERY FIELD `readEdit` DECIDES REACHES THE CLIENT", () => {
+  // DERIVED AT BOTH ENDS, because listing them by hand is how the third one was
+  // missed. `layer` and `page` were added to the route response on 2026-08-11
+  // after a live run showed `layer=undefined`; `remove` was decided by the same
+  // function, read by the same client, and never added — so page deletion was
+  // unreachable in the product from the day it shipped, and five prompt
+  // rewrites chased a field the wire could not carry. From outside, "the model
+  // did not set it" and "we did not forward it" are the same `undefined`.
+  //
+  // worker.js cannot be imported, so this is a source read — and it is derived
+  // from what `readEdit` really returns rather than from a list, so a fourth
+  // field added to that shape has to be forwarded or this goes red.
+  const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const client = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+  const decided = new Set();
+  for (const page of ["/", "/gallery"]) {
+    for (const extra of [{}, { remove: true }]) {
+      const out = readEdit({ layer: "page", page, ...extra }, ["/", "/gallery"]);
+      Object.keys(out).forEach((k) => decided.add(k));
+    }
+  }
+  decided.delete("answer");   // only meaningful for `ask`, and carried separately
+  decided.delete("intent");   // always returned
+  assert.ok(decided.has("remove"), "the scan sees no `remove` — readEdit changed shape, rescope this");
+  const body = worker.slice(worker.indexOf("intent: routed.intent,"));
+  const resp = body.slice(0, body.indexOf("usage: routed.usage"));
+  for (const field of decided) {
+    assert.match(resp, new RegExp("\\b" + field + ":\\s*routed\\."),
+      `the route decides \`${field}\` and never sends it — the edit lane cannot act on it`);
+  }
+  // AND THE CLIENT READS IT. Either end alone passes while the wire is cut,
+  // which is exactly the state this was found in.
+  assert.match(client, /remove:\s*d\.remove === true/,
+    "the composer no longer carries the deletion flag to the edit route");
+});

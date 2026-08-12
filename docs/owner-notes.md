@@ -16088,3 +16088,32 @@ watching.
 needs one run whenever you next top up, not six. Worth knowing that while the
 account is empty, no customer can build or change a site either — it's a real
 outage wearing the shape of a test failure.
+
+**I found it, and it was never the AI.**
+
+The router answers over a small JSON object — which lane, which layer, which
+page. **It never included the "delete it" flag.** The part that decides it was
+right, the part in the browser that reads it was right, and the message between
+them dropped the field on the floor.
+
+So page deletion has never worked in the product, not just in the test. And
+`remove=undefined` was going to come back on every run no matter what the AI
+answered.
+
+**Five prompt rewrites tonight were chasing that.** Three of them were real — the
+lane genuinely moved from "asks a question" to "wrong lane" to "right lane", and
+those fields DO get through, so I was measuring something true. The last two
+aimed at the flag itself, and they could not have changed anything. The lesson,
+and I'll take it: **before rewriting instructions because a field comes back
+empty, check the field can even arrive.** From the outside, "it didn't answer"
+and "we didn't pass it on" look identical.
+
+The check that would have caught it is now derived rather than hand-listed — it
+asks the decision function what it actually returns and insists every one of
+those reaches the browser. A hand-written list is exactly what missed this when
+the same bug was fixed for the other two fields three days ago.
+
+I also built the bigger change (making "delete" a choice the AI picks rather than
+a box it ticks), tested it — **and deliberately didn't ship it.** With both in at
+once, the next run can't tell you which one fixed it. It's one commit away if the
+wiring alone isn't enough.
