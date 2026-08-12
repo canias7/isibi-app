@@ -16283,3 +16283,37 @@ looks exactly like an ordinary expensive run.
 
 **Nothing was charged for either failed build** — the refusal happens before
 anything is built, and the deposit is returned.
+
+**The run after the fix: the account is out of credit again.**
+
+`edit smoke` stopped after four checks with one line:
+
+```
+stage=design upstream=400 type=invalid_request_error kind=Error … "billing":true
+⛔ THE MODEL ACCOUNT IS OUT OF CREDIT — stopping here.
+```
+
+That `billing` flag is only ever set when the provider literally says the credit
+balance is too low, so this is the account and not the code. **It's a live
+outage, not just a red check — while it lasts nobody can build or change a site
+on the platform.** Fourth time in three days.
+
+**It cost one second and nothing was charged.** The refusal happens before
+anything gets built, the deposit comes back, and it correctly didn't try a second
+time — a refusal for want of money will refuse again.
+
+**Three things I'd built earlier finally earned their keep in this one run.** The
+same empty account produced *seventeen* confusing failures two days ago and four
+today, because the run now stops at the first money failure instead of letting
+every lane fail for the same reason. The reason arrived on the line describing
+the attempt, rather than needing a dig through server logs. And the fixture
+scan said honestly that there was nothing to reuse instead of quietly paying
+to rebuild.
+
+**One thing is still unexplained.** The failure twenty minutes earlier was a
+*different* one — no status, no type, no billing flag. An empty account would
+have set all three, so that was something else, probably a dropped connection.
+It's instrumented now: if it happens again the reply says which.
+
+**Nothing more to run until the account is topped up.** Any further run just pays
+to read the same sentence back.
