@@ -121,12 +121,22 @@ which is what that missing survey looks like from the outside.
 
 ### THE GAPS, ranked by what a real business hits first
 
-1. **Who gets the "a booking arrived" email.** Hardcoded to the owner's *platform
-   login address*: `ownerEmail` (`worker.js:4638-4646`) fetches the GoTrue account
-   and returns `u.email`; `site-notify.mjs:99` takes `to` from it and nothing else.
-   No recipient column on `site_backends`, only a `notify` boolean. So
-   *"send bookings to bookings@… and copy my manager"* is unanswerable. **`rules`
-   should own this — it already sets `confirm.to` and `sms.to` on the same table.**
+**Read #1 before trusting the rest: the audit's top finding was FALSE, and it was
+false in the way this file keeps recording — inferred from a code path rather than
+checked against the rule it appeared to break.**
+
+1. **NOTHING — and this was a WRONG FINDING, kept because the mistake is the
+   lesson.** The audit reported that the "a booking arrived" email is tied to the
+   owner's platform login, and it was relayed as the top gap. **The sender is the
+   site owner's OWN key**, read out of that site's Secrets by `siteMailSecrets`
+   (`worker.js:5314`) and refused outright when they have pasted none — bring-your-own,
+   exactly as the standing rule says, with `env.EMAIL` nowhere near it. What
+   `ownerEmail` supplies is only the RECIPIENT, our own record of our own customer,
+   and the code says so in a comment one line above the call. **Which key sends and
+   which address it is addressed to are two different questions, and mashing them
+   together is what produced a false critical.** The residual is trivial: an owner
+   cannot route the alert to a second address, and they see every submission in the
+   Data panel anyway.
 2. **Any third-party tag** — Google Analytics, Meta Pixel, a chat widget, a
    Calendly embed. Structurally impossible: `script-src 'self'`,
    `connect-src 'self'`, `img-src` without a wildcard (`worker.js:1030-1034`), AND
