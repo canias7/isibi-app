@@ -39,9 +39,11 @@ export function RetryCountdown({ seconds, onElapsed, onRetryNow, what, className
     return () => clearInterval(id);
   }, [seconds]);
 
+  const elapsedRef = React.useRef(onElapsed);
+  elapsedRef.current = onElapsed;
   React.useEffect(() => {
-    if (left === 0 && !fired.current) { fired.current = true; onElapsed?.(); }
-  }, [left, onElapsed]);
+    if (left === 0 && !fired.current) { fired.current = true; elapsedRef.current?.(); }
+  }, [left]);
 
   return (
     <span className={cn("inline-flex items-center gap-2 text-sm text-muted-foreground", className)}>

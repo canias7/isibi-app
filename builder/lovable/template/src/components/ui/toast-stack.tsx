@@ -36,14 +36,18 @@ export function useToasts(max = 3) {
 
 function Item({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }) {
   const [paused, setPaused] = React.useState(false);
+  // Out of the deps: an inline `onDismiss` restarted the timer on every
+  // parent render, so a toast could sit on the page indefinitely.
+  const dismissRef = React.useRef(onDismiss);
+  dismissRef.current = onDismiss;
   // Anything with an action waits for a decision.
   const ms = toast.action ? 0 : (toast.duration ?? 5000);
 
   React.useEffect(() => {
     if (!ms || paused) return;
-    const t = setTimeout(onDismiss, ms);
+    const t = setTimeout(() => dismissRef.current?.(), ms);
     return () => clearTimeout(t);
-  }, [ms, paused, onDismiss]);
+  }, [ms, paused]);
 
   return (
     <li

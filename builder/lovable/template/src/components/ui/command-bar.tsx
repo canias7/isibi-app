@@ -31,16 +31,18 @@ export type Command = {
 };
 
 export function useCommandShortcut(onOpen: () => void) {
+  const openRef = React.useRef(onOpen);
+  openRef.current = onOpen;
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key.toLowerCase() !== "k" || !(e.metaKey || e.ctrlKey)) return;
       // Or the browser acts on it too.
       e.preventDefault();
-      onOpen();
+      openRef.current();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [onOpen]);
+  }, []);
 }
 
 export function shortcutLabel() {

@@ -30,12 +30,14 @@ export function DrawerStack({ sheets, onBack, onCloseAll, className }: {
   const start = React.useRef<number | null>(null);
   const top = sheets.length - 1;
 
+  const backRef = React.useRef(onBack);
+  backRef.current = onBack;
   React.useEffect(() => {
     if (sheets.length === 0) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); onBack(); } };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); backRef.current(); } };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [sheets.length, onBack]);
+  }, [sheets.length]);
 
   if (sheets.length === 0) return null;
 

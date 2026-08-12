@@ -33,10 +33,17 @@ export function Typewriter({ text, speed = 40, startDelay = 0, cursor = true, on
 }) {
   const chars = React.useMemo(() => Array.from(text), [text]);
   const [n, setN] = React.useState(0);
+  // The latest `onDone`, held in a ref so it is not a DEPENDENCY. Inline
+  // `onDone={() => …}` is a new function on every parent render, and this
+  // effect opens with `setN(0)` — so the typing restarted from the first
+  // character every time anything above it re-rendered. Same pattern as
+  // `click-outside`.
+  const doneRef = React.useRef(onDone);
+  doneRef.current = onDone;
 
   React.useEffect(() => {
     const reduced = typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (reduced) { setN(chars.length); onDone?.(); return; }
+    if (reduced) { setN(chars.length); doneRef.current?.(); return; }
     setN(0);
     let i = 0;
     let ticking: ReturnType<typeof setInterval> | null = null;
@@ -46,12 +53,12 @@ export function Typewriter({ text, speed = 40, startDelay = 0, cursor = true, on
         setN(i);
         if (i >= chars.length) {
           if (ticking) clearInterval(ticking);
-          onDone?.();
+          doneRef.current?.();
         }
       }, speed);
     }, startDelay);
     return () => { clearTimeout(begin); if (ticking) clearInterval(ticking); };
-  }, [chars, speed, startDelay, onDone]);
+  }, [chars, speed, startDelay]);
 
   return (
     <span className={cn("relative inline-block", className)}>

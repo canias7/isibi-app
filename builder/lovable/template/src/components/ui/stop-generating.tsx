@@ -26,11 +26,13 @@ export function StopGenerating({ onStop, label = "Stop", showLabel, className }:
   showLabel?: boolean;
   className?: string;
 }) {
+  const stopRef = React.useRef(onStop);
+  stopRef.current = onStop;
   React.useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onStop(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") stopRef.current(); };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [onStop]);
+  }, []);
 
   return (
     <button

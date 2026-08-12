@@ -119,6 +119,12 @@ function useModalOrSolo(id: string, open: boolean, onClose: () => void) {
     return () => ctx.close(id);
   }, [ctx, open, id]);
 
+  // Solo, Escape is bound here rather than by the provider — and `onClose` is
+  // held in a ref rather than depended on, or an inline `onClose={() => …}`
+  // would rebind the listener and re-apply the scroll lock on every render of
+  // whatever owns the dialog.
+  const closeRef = React.useRef(onClose);
+  closeRef.current = onClose;
   React.useEffect(() => {
     if (!solo || !open) return;
     const prev = document.body.style.overflow;
@@ -126,14 +132,14 @@ function useModalOrSolo(id: string, open: boolean, onClose: () => void) {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       e.stopPropagation();
-      onClose();
+      closeRef.current();
     };
     document.addEventListener("keydown", onKey);
     return () => {
       document.body.style.overflow = prev;
       document.removeEventListener("keydown", onKey);
     };
-  }, [solo, open, onClose]);
+  }, [solo, open]);
 
   // Solo, this modal is always the top one: there is nothing else in the stack.
   return { solo, isTop: solo ? true : ctx!.top === id };

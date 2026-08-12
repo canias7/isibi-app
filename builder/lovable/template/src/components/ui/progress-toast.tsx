@@ -31,11 +31,17 @@ export function ProgressToast({
   onDismiss?: () => void;
   className?: string;
 }) {
+  // Out of the deps: an inline `onDismiss` restarted the six-second
+  // dismissal on every parent render, and a progress toast's parent is
+  // re-rendering constantly by definition.
+  const dismissRef = React.useRef(onDismiss);
+  dismissRef.current = onDismiss;
+
   React.useEffect(() => {
     if (status !== "done" || !onDismiss) return;
-    const t = setTimeout(onDismiss, 6000);
+    const t = setTimeout(() => dismissRef.current?.(), 6000);
     return () => clearTimeout(t);
-  }, [status, onDismiss]);
+  }, [status]);
 
   const known = value != null && total != null && total > 0;
   const pct = known ? Math.min(100, Math.max(0, (value / total) * 100)) : null;

@@ -34,18 +34,26 @@ export function BlockingOverlay({ show, message, detail, onCancel, cancelAfter =
 }) {
   const ref = React.useRef<HTMLDivElement>(null);
   const [canCancel, setCanCancel] = React.useState(false);
+  // Only the PRESENCE of `onCancel` matters here — it is never called in this
+  // effect — so a stable boolean is the dependency, not the function. With the
+  // function itself in the list, an inline `onCancel={() => …}` re-ran the
+  // effect on every parent render and re-armed the timer, so the Cancel button
+  // never appeared on an overlay whose parent re-renders (which is the usual
+  // reason something is blocking in the first place). A ref would work too;
+  // a boolean says what the dependency actually is.
+  const cancellable = !!onCancel;
 
   React.useEffect(() => {
     if (!show) { setCanCancel(false); return; }
     ref.current?.focus();
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    const t = onCancel ? setTimeout(() => setCanCancel(true), cancelAfter) : null;
+    const t = cancellable ? setTimeout(() => setCanCancel(true), cancelAfter) : null;
     return () => {
       document.body.style.overflow = prev;
       if (t) clearTimeout(t);
     };
-  }, [show, onCancel, cancelAfter]);
+  }, [show, cancellable, cancelAfter]);
 
   if (!show) return null;
 

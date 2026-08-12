@@ -37,6 +37,8 @@ export function InfiniteScroll({
   const busy = React.useRef(false);
   busy.current = !!loading;
 
+  const loadRef = React.useRef(onLoadMore);
+  loadRef.current = onLoadMore;
   React.useEffect(() => {
     const el = sentinel.current;
     if (!el || !hasMore || error) return;
@@ -44,11 +46,11 @@ export function InfiniteScroll({
     const io = new IntersectionObserver(([entry]) => {
       // The sentinel stays intersecting while the new page renders; without
       // this guard that is three requests for page 2.
-      if (entry.isIntersecting && !busy.current) onLoadMore();
+      if (entry.isIntersecting && !busy.current) loadRef.current();
     }, { rootMargin });
     io.observe(el);
     return () => io.disconnect();
-  }, [onLoadMore, hasMore, error, rootMargin]);
+  }, [hasMore, error, rootMargin]);
 
   return (
     <div className={className}>

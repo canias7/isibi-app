@@ -21,6 +21,8 @@ import { cn } from "@/lib/utils";
  * a trigger accepts a keystroke and then loses it when the palette takes focus.
  */
 export function useSearchKey(onOpen: () => void, key = "/") {
+  const openRef = React.useRef(onOpen);
+  openRef.current = onOpen;
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const combo = (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k";
@@ -30,11 +32,11 @@ export function useSearchKey(onOpen: () => void, key = "/") {
       // Never steal a keystroke from a field somebody is typing in.
       if (bare && el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
       e.preventDefault();
-      onOpen();
+      openRef.current();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [onOpen, key]);
+  }, [key]);
 }
 
 export function SearchShortcut({ onOpen, placeholder = "Search", className }: {

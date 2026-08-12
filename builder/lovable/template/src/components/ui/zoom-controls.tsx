@@ -34,16 +34,18 @@ export function ZoomControls({ value, onChange, onFit, min = 0.1, max = 8, class
   max?: number;
   className?: string;
 }) {
+  const changeRef = React.useRef(onChange);
+  changeRef.current = onChange;
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return;
-      if (e.key === "=" || e.key === "+") { e.preventDefault(); onChange(zoomStep(value, 1, min, max)); }
-      if (e.key === "-") { e.preventDefault(); onChange(zoomStep(value, -1, min, max)); }
-      if (e.key === "0") { e.preventDefault(); onChange(1); }
+      if (e.key === "=" || e.key === "+") { e.preventDefault(); changeRef.current(zoomStep(value, 1, min, max)); }
+      if (e.key === "-") { e.preventDefault(); changeRef.current(zoomStep(value, -1, min, max)); }
+      if (e.key === "0") { e.preventDefault(); changeRef.current(1); }
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [value, onChange, min, max]);
+  }, [value, min, max]);
 
   return (
     <div className={cn("inline-flex items-center rounded-md border border-border bg-background", className)}>

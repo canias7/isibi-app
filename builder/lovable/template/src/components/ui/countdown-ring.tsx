@@ -37,9 +37,11 @@ export function CountdownRing({ to, total, label, onDone, className }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [left <= 36e5, left <= 864e5, left <= 0]);
 
+  const doneRef = React.useRef(onDone);
+  doneRef.current = onDone;
   React.useEffect(() => {
-    if (left <= 0 && !doneFired.current) { doneFired.current = true; onDone?.(); }
-  }, [left, onDone]);
+    if (left <= 0 && !doneFired.current) { doneFired.current = true; doneRef.current?.(); }
+  }, [left]);
 
   const span = total ?? Math.max(1, to.getTime() - mounted.current);
   const frac = Math.min(1, Math.max(0, left / span));

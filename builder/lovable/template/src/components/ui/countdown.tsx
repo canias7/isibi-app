@@ -9,15 +9,21 @@ export function Countdown({ to, onDone, className }: {
 }) {
   const target = React.useMemo(() => new Date(to).getTime(), [to]);
   const [left, setLeft] = React.useState(() => Math.max(0, target - Date.now()));
+  // Out of the deps: an inline `onDone` tore down and rebuilt the interval
+  // on every parent render. `left` stays, because re-arming each second is
+  // how this ticks.
+  const doneRef = React.useRef(onDone);
+  doneRef.current = onDone;
+
   React.useEffect(() => {
     if (left <= 0) return;
     const t = setInterval(() => {
       const next = Math.max(0, target - Date.now());
       setLeft(next);
-      if (next === 0) onDone?.();
+      if (next === 0) doneRef.current?.();
     }, 1000);
     return () => clearInterval(t);
-  }, [target, left, onDone]);
+  }, [target, left]);
 
   const s = Math.floor(left / 1000);
   const parts = [

@@ -2374,6 +2374,60 @@ function floatingPanelsPaintedWithThePageToken(token) {
   return out;
 }
 
+test("no effect depends on a callback PROP", () => {
+  // An inline `onDone={() => …}` is a NEW function on every parent render, so a
+  // callback in a dependency array re-runs the effect every time anything above
+  // the component re-renders. What that costs depends on the body, and in this
+  // kit it cost real behaviour: `typewriter` opened with `setN(0)` and restarted
+  // its typing from the first character; `snackbar`, `toast-stack` and
+  // `progress-toast` re-armed their auto-dismiss timeouts, so a toast could sit
+  // on the page indefinitely; `blocking-overlay` re-armed the timer that reveals
+  // its Cancel button, on an overlay whose parent is re-rendering by definition.
+  //
+  // The component cannot know whether its caller memoised the function, so the
+  // answer is always the same: hold the latest one in a ref and call through it.
+  // `click-outside`, `infinite-sentinel` and `key-sequence` already did.
+  // Where only the PRESENCE of the callback matters, a `!!fn` boolean is the
+  // honest dependency — that is `blocking-overlay`.
+  const kit = path.join(import.meta.dirname, "..", "builder", "lovable", "template", "src", "components", "ui");
+  const offenders = [];
+  for (const f of fs.readdirSync(kit).filter((n) => n.endsWith(".tsx"))) {
+    const code = fs.readFileSync(path.join(kit, f), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+      .replace(/^\s*\/\/.*$/gm, "");
+    // PROPS ONLY. An internal `const onSelect = React.useCallback(…)` is stable
+    // by construction and belongs in the deps — `carousel` has exactly that, and
+    // a rule matching every `on*` identifier accused it of the opposite of what
+    // it does. The names are collected from the destructuring patterns, so what
+    // is flagged is a function the CALLER hands in.
+    const props = new Set();
+    for (const m of code.matchAll(/(?:export )?function \w+\s*\(\s*\{([^}]*)\}/g)) {
+      for (const part of m[1].split(",")) {
+        const name = (part.match(/^\s*(?:\.\.\.)?([A-Za-z_$][\w$]*)/) || [])[1];
+        if (name) props.add(name);
+      }
+    }
+    // A POSITIONAL parameter is caller-supplied too, and a hook is where they
+    // turn up: `useCommandShortcut(onOpen: () => void)` re-bound a document
+    // keydown listener on every render of whatever called it. Reading only
+    // destructured props missed that entirely.
+    for (const m of code.matchAll(/(?:export )?function \w+\s*\(\s*([A-Za-z_$][\w$]*)\s*:/g)) props.add(m[1]);
+    code.split("\n").forEach((line, i) => {
+      // The closing line of a hook's dependency array.
+      const m = line.match(/^\s*\}, \[([^\]]*)\]/);
+      if (!m) return;
+      for (const dep of m[1].split(",").map((d) => d.trim())) {
+        if (/^on[A-Z][A-Za-z0-9]*$/.test(dep) && props.has(dep)) {
+          offenders.push(f + ":" + (i + 1) + "  depends on " + dep);
+        }
+      }
+    });
+  }
+  assert.deepEqual(offenders, [],
+    "these re-run whenever the parent re-renders, because an inline callback is a new function each time:\n  "
+      + offenders.join("\n  "));
+});
+
 test("nothing in the kit puts an unsanitised value into the DOM as HTML", () => {
   // `rich-text` assigned its `defaultValue` prop straight to `.innerHTML`, and
   // the signature says `defaultValue?: string` — which reads exactly like an

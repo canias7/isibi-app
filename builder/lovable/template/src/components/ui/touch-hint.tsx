@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { cn } from "@/lib/utils";
 /**
  * "Swipe to see more" — the gesture hint, shown only where the gesture exists.
@@ -27,14 +27,16 @@ export function TouchHint({ message = "Swipe to see more", onUsed, className }: 
   className?: string;
 }) {
   const [show, setShow] = useState(false);
+  const usedRef = useRef(onUsed);
+  usedRef.current = onUsed;
   useEffect(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
     if (!window.matchMedia("(pointer: coarse)").matches) return;
     setShow(true);
-    const hide = () => { setShow(false); onUsed?.(); };
+    const hide = () => { setShow(false); usedRef.current?.(); };
     window.addEventListener("touchmove", hide, { once: true, passive: true });
     return () => window.removeEventListener("touchmove", hide);
-  }, [onUsed]);
+  }, []);
   if (!show) return null;
   return (
     <p aria-hidden="true" className={cn("text-xs text-muted-foreground", className)}>

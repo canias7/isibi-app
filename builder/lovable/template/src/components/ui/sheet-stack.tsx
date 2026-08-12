@@ -30,14 +30,16 @@ export function SheetStack({ sheets, onBack, onCloseAll, side = "right", classNa
   const refs = React.useRef<(HTMLDivElement | null)[]>([]);
   const top = sheets.length - 1;
 
+  const backRef = React.useRef(onBack);
+  backRef.current = onBack;
   React.useEffect(() => {
     if (sheets.length === 0) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.stopPropagation(); onBack(); }
+      if (e.key === "Escape") { e.stopPropagation(); backRef.current(); }
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [sheets.length, onBack]);
+  }, [sheets.length]);
 
   React.useEffect(() => {
     refs.current[top]?.querySelector<HTMLElement>("button, a, input, [tabindex]")?.focus();
