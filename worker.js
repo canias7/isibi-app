@@ -2955,7 +2955,12 @@ const SITE_SCHEMA_TOOL = {
           "{name:'claim_token', type:'text', default:'uuid'} — `default:'uuid'` is the reserved token that fills it with a " +
           "random uuid, and the column is TEXT, so the function's argument is type 'text' too — plus a function taking that " +
           "token and returning exactly the matching row, then " +
-          "the site can offer a link back to it. Declare a second to cancel by the same token. Skip this entirely for a " +
+          "the site can offer a link back to it. Declare a SECOND to cancel by the same token, and — for anything with a " +
+          "date, a time or a quantity in it — a THIRD to CHANGE it: same token argument plus one argument per field the " +
+          "customer may move, doing an UPDATE ... WHERE claim_token = tok. Without that third one the only way to shift an " +
+          "appointment is to cancel and rebook, which on a table with `unique` or `noOverlap` means giving up the slot before " +
+          "getting the new one. Change only the fields you took arguments for; never let it move status or the token itself. " +
+          "Skip all of this for a " +
           "plain contact form, which nobody returns to. Bodies are plain SQL over this site's own tables.\n\n" +
           "RECEIVING DATA FROM ANOTHER SYSTEM. A function named `hook_<something>` taking exactly one jsonb argument and " +
           "marked internal:true is reachable at POST /api/db/<slug>/hook/<something>, behind a shared secret the OWNER " +
@@ -3513,7 +3518,7 @@ async function anthropicMessages(env, body) {
 // return ONLY what this change alters, and the tool's `required` list is emptied
 // for the same reason: a required field is one the model must answer, and
 // answering it is exactly what moves a value nobody asked to move.
-async function designSiteSchema(env, brief, model = modelsFor().design, current = null) {
+async function designSiteSchema(env, brief, model = modelsFor().design, current = null, files = []) {
   // The request is built FIRST and the usage below is stamped from `req.model`,
   // so what we bill and what we sent cannot disagree — the same by-construction
   // discipline as pricing from one table instead of two.
@@ -3542,7 +3547,30 @@ async function designSiteSchema(env, brief, model = modelsFor().design, current 
       // above: both vary per site, and a per-site byte in the cached prefix
       // misses the ~10,800-token cache on every build. Same reasoning as the
       // layout directive and the attachments.
-      messages: [{ role: "user", content: current ? brief + currentStateNote(current) + EDIT_RULE : brief }],
+      // THE ATTACHED FILES, WHICH THE DESIGNER NEVER SAW.
+      //
+      // `attachments()` has always split the composer's files into content
+      // blocks (images, PDFs) and plain text, and only the PAGE call was handed
+      // the blocks. Text was folded into the brief and reached here; a picture
+      // or a PDF did not. So a caf\u00e9 owner attaching their menu as a PDF got a
+      // menu table the model INVENTED, because seed rows are written HERE and
+      // this is the one call that never saw the menu.
+      //
+      // The recorded reason not to do this was that it "means paying for those
+      // tokens on the flat-fee schema call" \u2014 and that reason expired on
+      // 2026-08-08, when the fee became a DEPOSIT that `schemaSettlement` trues
+      // up against real usage. The tokens are now billed for what they are.
+      //
+      // Placed exactly where `pagesRequest` places them: in the USER message,
+      // after both cached blocks, so an attachment does not miss the ~10,800-token
+      // cache; and BEFORE the text within that message, the order the API is
+      // documented to work best in. With no files the content stays a plain
+      // STRING, so no request that does not use the feature changes shape.
+      messages: [{ role: "user", content: (() => {
+        const text = current ? brief + currentStateNote(current) + EDIT_RULE : brief;
+        const blocks = Array.isArray(files) ? files.filter(Boolean) : [];
+        return blocks.length ? [...blocks, { type: "text", text }] : text;
+      })() }],
   };
   // Emptied on an edit, and only on an edit. `required` is a static part of the
   // tool, so this is the one place it can vary per call.
@@ -8985,7 +9013,7 @@ async function handleRequest(request, env, ctx) {
         }
 
         try {
-          const dz = await designSiteSchema(env, briefWithLinks, models.design, editState);
+          const dz = await designSiteSchema(env, briefWithLinks, models.design, editState, attached.blocks);
           designed = dz && dz.input;
           schemaUsage = (dz && dz.usage) || null;
           tr.at("design", schemaUsage ? { out: schemaUsage.out, in: schemaUsage.in } : undefined);

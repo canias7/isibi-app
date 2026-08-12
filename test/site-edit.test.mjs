@@ -203,7 +203,12 @@ test("an edit requires nothing of the model", () => {
 test("the route reads the current state and hands it to the designer", () => {
   // worker.js cannot be imported, so every layer above can be correct while the
   // state never arrives — the shape this repo has recorded eight times.
-  assert.match(worker, /designSiteSchema\(env, briefWithLinks, models\.design, editState\)/,
+  // ANCHORED ON THE ARGUMENT, NOT THE ARITY. This pinned the exact four-argument
+  // call, so adding a FIFTH — the attached files, which the designer never saw —
+  // failed a test about current state on a change that did not touch it. What
+  // has to hold is that `editState` is what the call is given, whatever else
+  // rides beside it.
+  assert.match(worker, /designSiteSchema\(env, briefWithLinks, models\.design, editState\b/,
     "the designer is not given the site's current state, so it is still told nothing");
   assert.match(worker, /SELECT k, v FROM _meta WHERE k IN \('site_look','schema'\)/,
     "nothing reads the stored look and schema before the design call");
@@ -226,8 +231,20 @@ test("the designer's tool drops its required list on an edit ONLY", () => {
     "an edit still requires brand/description/theme/family, which is what moves them");
   // A FIRST BUILD IS UNTOUCHED. The whole change is gated on `current`, so a
   // build sends the request it has always sent — including the cached tool block.
-  assert.match(worker, /messages: \[\{ role: "user", content: current \? brief \+ currentStateNote\(current\) \+ EDIT_RULE : brief \}\]/,
-    "the state and rule no longer ride in the user message, or a build's message changed shape");
+  // THE PROPERTY IS WHAT THE MESSAGE SAYS, not how it is assembled. This pinned
+  // the literal one-line `content:` expression, so wrapping it to append the
+  // attached files failed a test about the EDIT RULE on a change that left the
+  // rule exactly where it was. Two things still have to hold: the state and the
+  // rule ride in the USER message (never the cached blocks above it), and a
+  // build with neither state nor files sends a plain STRING — the shape every
+  // existing caller and test already sees.
+  const msg = worker.slice(worker.indexOf('messages: [{ role: "user", content: (() => {'));
+  const body = msg.slice(0, msg.indexOf("})() }],"));
+  assert.ok(body.length > 60 && body.length < 900, "the designer's user message was not found whole: " + body.length);
+  assert.match(body, /current \? brief \+ currentStateNote\(current\) \+ EDIT_RULE : brief/,
+    "the state and rule no longer ride in the user message");
+  assert.match(body, /blocks\.length \? \[\.\.\.blocks, \{ type: "text", text \}\] : text/,
+    "a request with no attachments must stay a plain string, or every existing caller changes shape");
 });
 
 test("brand and description come off the merged look, not re-derived", () => {

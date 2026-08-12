@@ -2703,3 +2703,73 @@ test("the rules give the REASON a page may not name a colour, not just the ban",
     assert.ok(PAGE_RULES.includes(shape), "the rules do not name the shape: " + shape);
   }
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// A CUSTOMER CAN CHANGE THEIR BOOKING, NOT ONLY CANCEL IT.
+//
+// The claim link could read and cancel — `PATCH` was an honest 405 — so "move my
+// Tuesday cut to Thursday" meant cancelling and rebooking, typing everything in
+// again. On a table with `unique` or `noOverlap` that gives the slot up BEFORE
+// the new one is secured, so a customer can lose the only appointment they had
+// while trying to move it by an hour.
+//
+// The engine could always do this: a declared function takes `tok` plus whatever
+// arguments it likes. Three links were missing — no client hook, the designer was
+// never told to declare a third function, and the reference page never showed
+// one. Each is asserted separately, because this repo has recorded a feature dead
+// at ONE silent link six times and every one looked fine from both ends.
+test("the amend hook exists, is cited, and is shown", () => {
+  const rows = fs.readFileSync(path.join(TEMPLATE, "src", "lib", "rows.ts"), "utf8");
+
+  // 1. It exists, and takes a FUNCTION NAME like its two siblings — a page
+  //    calling it with a table name reaches an endpoint that is not there.
+  assert.match(rows, /export function useAmendClaim\(fn: string\)/,
+    "useAmendClaim is missing from the template, or does not take the function name");
+  // 2. It carries the token AND the caller's fields. Sending only `tok` is what
+  //    `useCancelClaim` already does; without values this is that hook again.
+  assert.match(rows, /values: Record<string, unknown>/, "useAmendClaim takes no values, so it cannot change anything");
+  // 3. THE TOKEN IS SPREAD FIRST. A `values` carrying its own `tok` must not be
+  //    able to overwrite the one that proves who is asking.
+  assert.match(rows, /\{ tok: claim, \.\.\.values \}/,
+    "the caller's fields are spread over the token, so a page could send someone else's tok");
+
+  // 4. RULE 10 names it — windowed, because the reference page below ALSO
+  //    contains the string, so a bare `PAGE_RULES` match passes via the page
+  //    even when the rule itself has lost it. Found by mutation: swapping the
+  //    citation out of rule 10 left this green. The neighbour-satisfies-the-
+  //    assertion failure, which this repo keeps recording.
+  const rule10 = PAGE_RULES.slice(PAGE_RULES.indexOf("10. GIVE THE VISITOR THEIR SUBMISSION BACK"));
+  const r10 = rule10.slice(0, rule10.indexOf("\n11."));
+  assert.ok(r10.length > 200 && r10.length < 4000, "rule 10 was not found whole: " + r10.length);
+  assert.match(r10, /useAmendClaim/, "rule 10 never mentions the amend hook");
+  assert.match(r10, /values:/, "rule 10 does not show the call shape, so the model invents one");
+  // 5. …and SHOW it. A rule the model is told but never shown is one it
+  //    satisfies by inventing a shape, which is why there are four reference
+  //    pages rather than one.
+  const manage = REFERENCE_PAGES.find((p) => p.path === "manage.tsx");
+  assert.ok(manage, "the manage reference page is gone");
+  assert.match(manage.source, /useAmendClaim\(/, "the manage page names the hook but never calls it");
+  assert.match(manage.source, /values: \{/, "the manage page never demonstrates passing values");
+});
+
+test("the designer is told to declare the amend function", () => {
+  // Without this the hook is real, the page knows how to call it, and no schema
+  // ever declares the function it needs — the dead-at-one-link shape again, at
+  // the only layer that can create one.
+  const tool = fs.readFileSync(path.join(ROOT, "worker.js"), "utf8");
+  const i = tool.indexOf("OPTIONAL Postgres functions this site needs");
+  assert.ok(i > 0, "the functions description was not found");
+  const desc = tool.slice(i, tool.indexOf("RECEIVING DATA FROM ANOTHER SYSTEM", i));
+  assert.ok(desc.length > 200, "the functions description was not found whole: " + desc.length);
+  assert.match(desc, /THIRD/, "the designer is not told to declare a third, amend function");
+  assert.match(desc, /UPDATE \.\.\. WHERE claim_token = tok/, "…and is not told what its body does");
+  // The REASON, not just the instruction: this repo's own lesson is that a rule
+  // whose reason is stated survives an edit that a bare rule does not.
+  // THE CONSEQUENCE, NOT THE ALTERNATIVE'S NAME. This matched "cancel and
+  // rebook" alone, so a mutation deleting the clause that says WHY that is bad
+  // left it green — the reason is the half that survives an edit, and it was
+  // the half nothing held.
+  assert.match(desc, /cancel and rebook/i, "the alternative is not named");
+  assert.match(desc, /giving up the slot before/i,
+    "the COST of cancel-and-rebook is unstated, so the rule is one edit from being dropped");
+});

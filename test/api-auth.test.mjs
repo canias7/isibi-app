@@ -809,3 +809,55 @@ test("a `send` check hands off before its lane's own refusal", () => {
     assert.ok(!/status: (4\d\d)/.test(m[0]), "a model outage answered with a 4xx: " + m[0].trim());
   }
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// THE DESIGNER SEES THE ATTACHED FILES.
+//
+// `attachments()` has always split the composer's files into content blocks
+// (images, PDFs) and plain text, and only the PAGE call got the blocks. Text was
+// folded into the brief and reached the designer; a picture or a PDF did not. So
+// a café owner attaching their menu as a PDF got a menu table the model
+// INVENTED — because seed rows are written by the DESIGNER, and that is the one
+// call that never saw the menu.
+//
+// The recorded reason not to do this was that it "means paying for those tokens
+// on the flat-fee schema call". That reason expired on 2026-08-08, when the fee
+// became a deposit `schemaSettlement` trues up against real usage.
+test("the build route hands the attached files to the designer", () => {
+  assert.match(WORKER_SRC, /designSiteSchema\(env, briefWithLinks, models\.design, editState, attached\.blocks\)/,
+    "the designer is still not given the attached files, so a PDF menu cannot reach the seed rows");
+  // The blocks are the IMAGE/PDF pile, not the text one — text already reached
+  // the designer by a different route, folded into the brief.
+  assert.match(WORKER_SRC, /const attached = attachments\(body\.images\)/, "the splitter is not called");
+});
+
+test("attachments ride in the designer's user message, after the cached blocks", () => {
+  // Anywhere in `system` or `tools` and every attachment is a cache MISS on
+  // ~10,800 identical tokens — which costs far more than the files do. This is
+  // the same placement `pagesRequest` uses and for the same measured reason.
+  const i = WORKER_SRC.indexOf("async function designSiteSchema(");
+  const fn = WORKER_SRC.slice(i, WORKER_SRC.indexOf("\n}\n", i));
+  assert.ok(fn.length > 800, "designSiteSchema was not found whole: " + fn.length);
+  const sys = fn.indexOf("system: [");
+  const msg = fn.indexOf('messages: [{ role: "user"');
+  assert.ok(sys > 0 && msg > sys, "the user message no longer comes after the system block");
+  assert.ok(!/system: \[[\s\S]{0,400}files/.test(fn), "the files reached the cached system block");
+  // BEFORE the text within that message — the order the API is documented to
+  // work best in, and the order the page prompt already uses.
+  assert.match(fn, /\[\.\.\.blocks, \{ type: "text", text \}\]/,
+    "the files must come before the text in the user message");
+});
+
+test("a build with no attachments sends the shape it always sent", () => {
+  // The content stays a plain STRING rather than a one-element array, so no
+  // request that does not use the feature changes at all — the property that
+  // makes this safe to add to the most expensive call on the platform.
+  const i = WORKER_SRC.indexOf("async function designSiteSchema(");
+  const fn = WORKER_SRC.slice(i, WORKER_SRC.indexOf("\n}\n", i));
+  assert.match(fn, /blocks\.length \? \[\.\.\.blocks, \{ type: "text", text \}\] : text/,
+    "an empty attachment list must fall back to a plain string");
+  // And the parameter DEFAULTS to empty, so the two callers that pass nothing
+  // (the look layer and the addon) are untouched.
+  assert.match(WORKER_SRC, /async function designSiteSchema\(env, brief, model = modelsFor\(\)\.design, current = null, files = \[\]\)/,
+    "files must default to empty, or the callers that pass none break");
+});

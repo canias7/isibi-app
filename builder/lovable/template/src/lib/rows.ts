@@ -929,3 +929,35 @@ export function useCancelClaim(fn: string) {
     onSuccess: () => { qc.invalidateQueries(); },
   });
 }
+
+/**
+ * CHANGE that submission — move the appointment rather than binning it.
+ *
+ * The gap this closes: a claim link could read and cancel, and nothing else. So
+ * "move my Tuesday cut to Thursday" meant cancelling and booking again, typing
+ * everything back in — and on a site whose booking table has a `unique` or
+ * `noOverlap` constraint, giving up the slot before securing the new one.
+ *
+ * It is the SAME endpoint and the same shape as the other two: a
+ * `SECURITY DEFINER` function named by the schema, taking the token plus
+ * whatever it lets the customer change. That is what keeps this safe — the
+ * function decides which columns move, so a page cannot reach a column the
+ * business never meant to expose, and the constraints re-run inside the UPDATE
+ * exactly as they did on the insert.
+ *
+ * `values` are the function's OWN argument names, not column names — they
+ * happen to match on most sites, and the function is what decides.
+ */
+export function useAmendClaim(fn: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ claim, values }: { claim: string; values: Record<string, unknown> }) =>
+      send<unknown>(`/api/db/${siteSlug()}/data/rpc/${fn}`, {
+        method: "POST",
+        // The token FIRST, then the caller's fields — so a `values` carrying its
+        // own `tok` cannot overwrite the one that proves who is asking.
+        body: JSON.stringify({ tok: claim, ...values }),
+      }),
+    onSuccess: () => { qc.invalidateQueries(); },
+  });
+}
