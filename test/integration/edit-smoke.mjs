@@ -627,10 +627,17 @@ async function main() {
   }
 
   // --- and the owner can take it all down ----------------------------------
-  // KEPT ON PURPOSE WHEN REUSING — that is the whole saving. The site delete is
-  // still exercised on a fresh run, which is what proves that route.
-  if (reused) {
-    console.log(`\nkeeping ${slug} for the next run — the build is what costs, and it is already paid for`);
+  // KEPT WHENEVER WE ARE IN FIXTURE MODE — not only when this run reused one,
+  // which is the bug that would have made the whole saving impossible. On the
+  // FIRST fixture run nothing exists yet, so the site is built rather than
+  // reused; deleting it at the end would leave the next run with nothing to
+  // reuse either, and it would build again, forever. The condition has to be
+  // "are we keeping a fixture", not "did we find one".
+  //
+  // The site-delete route is still exercised on a fresh run (SMOKE_FRESH=1),
+  // which is what proves it.
+  if (!FRESH) {
+    console.log(`\n${reused ? "keeping" : "leaving"} ${slug} for the next run — the build is what costs, and it is now paid for`);
     deleted = true; // stops the teardown removing it
     return;
   }
@@ -650,12 +657,16 @@ main()
     // to cascade away underneath them — the orphaned-prefix state that needs an
     // operator sweeper to clear. A test must not manufacture the one condition
     // the platform has no self-service answer for.
-    try { if (jwt && slug && !deleted) await api(`/api/site/${slug}`, { method: "DELETE" }).catch(() => {}); } catch { /* best effort */ }
-    try { if (userId && env.NEON_API_KEY) await dropUserProject(env, userId).catch(() => {}); } catch { /* best effort */ }
-    if (userId && !reused) {
+    // ON A THROW, TOO. A fixture run that dies mid-way must not have its site or
+    // its Neon project swept — that is the thing being kept, and losing it means
+    // the next run pays for a build again. A fresh run still tears everything
+    // down on every exit, which is what stops an orphaned prefix.
+    try { if (FRESH && jwt && slug && !deleted) await api(`/api/site/${slug}`, { method: "DELETE" }).catch(() => {}); } catch { /* best effort */ }
+    try { if (FRESH && userId && env.NEON_API_KEY) await dropUserProject(env, userId).catch(() => {}); } catch { /* best effort */ }
+    if (userId && FRESH) {
       await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${userId}`, { method: "DELETE", headers: svc() }).catch(() => {});
       console.log("  removed the throwaway user");
-    } else if (reused) {
+    } else if (!FRESH) {
       console.log(`  kept the fixture account and ${slug}`);
     }
     console.log(`\n${passed} passed, ${failed} failed`);

@@ -16227,3 +16227,18 @@ them fail.
 Only the first two were ever about the model. That's the thing I'd take from
 tonight: when a field comes back empty, check it can arrive before rewriting the
 instructions.
+
+**And a bug in the money-saving change itself, caught before it cost anything.**
+
+The reuse only kicked in when a site was *found*. On the very first run there
+isn't one — so it built a site and then **deleted it at the end**, leaving the
+next run nothing to reuse. It would have built every single time, forever, and
+looked like it was working.
+
+The condition has to be "are we keeping a fixture", not "did we find one". Fixed
+in all four places that tear something down, including the one that fires when a
+run crashes — a run that dies halfway must not sweep away the thing being kept.
+
+So: **this run builds the site once and leaves it. Every run after that skips
+straight to the lanes** — about 25 credits and two and a half minutes cheaper,
+each time.
