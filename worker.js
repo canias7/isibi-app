@@ -2938,7 +2938,28 @@ const SITE_SCHEMA_TOOL = {
           properties: {
             name: { type: "string", description: "lowercase identifier the page calls by, e.g. exchange_rates" },
             url: { type: "string", description: "https only. e.g. https://api.example.com/v1/latest?base={{param.base}}&key={{RATES_KEY}}" },
-            method: { type: "string", enum: ["GET", "POST"] },
+            // A POST HERE IS STILL A READ, and the caching is why that has to
+            // be said. `normalizeApi` gives every declaration a 60-second
+            // window by default and `cacheKey` is slug|name|params — no method,
+            // no body — so a declared POST is sent ONCE and then answered from
+            // the store for a minute without contacting the service at all.
+            //
+            // Right for what this exists for: plenty of read endpoints require
+            // POST (GraphQL, some search and pricing APIs), and caching them is
+            // the whole point, since every uncached read spends the OWNER's own
+            // quota. Wrong the moment the POST does something — the first call
+            // lands, the next few silently do not, and it starts working again
+            // a minute later, which reads as the third party being flaky rather
+            // than as us not calling them.
+            //
+            // Not fixed by refusing to cache POSTs: that breaks the legitimate
+            // case and puts the owner's quota back on every page view. Fixed by
+            // saying the thing the model cannot infer from "POST only".
+            method: { type: "string", enum: ["GET", "POST"],
+              description: "GET unless the service's READ endpoint requires POST (GraphQL, some search and pricing APIs). " +
+                "NEVER use this to make something happen on the other side — send a message, place an order, reserve a slot. " +
+                "Every answer here is cached, so the request is made once and then answered from the store until the window " +
+                "expires: an action would run sometimes and not others. Outbound actions belong in a database function." },
             headers: { type: "object", description: "e.g. {\"Authorization\":\"Bearer {{RATES_KEY}}\"}" },
             body: { type: "string", description: "POST only. The request body, with the same {{SECRET}} and {{param.x}} placeholders." },
             params: { type: "array", items: { type: "string" }, description: "Names a page may pass. Anything else is dropped." },

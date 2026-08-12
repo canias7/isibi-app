@@ -304,3 +304,56 @@ test("a third-party read never follows a redirect", () => {
   assert.match(src, /res\.status >= 300 && res\.status < 400/,
     "a 3xx has to be refused, not read as an empty body");
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A DECLARED POST IS CACHED, AND THE MODEL HAD NO WAY TO KNOW.
+//
+// `normalizeApi` gives every declaration a 60-second window by default and
+// `cacheKey` is slug|name|params — no method, no body — so a POST is sent ONCE
+// and then answered from the store for a minute without contacting the service
+// at all. That is correct for what this field exists for: plenty of READ
+// endpoints require POST (GraphQL, search, pricing), and caching them is the
+// point, since every uncached read spends the OWNER's own quota.
+//
+// It is wrong the moment the POST does something. The first call lands, the
+// next few silently do not, and it works again a minute later — which reads as
+// the third party being flaky rather than as us not calling them.
+//
+// NOT FIXED BY REFUSING TO CACHE POSTS: that breaks the legitimate case and
+// puts the owner's quota back on every page view. The behaviour is right and
+// the INSTRUCTION was missing, so the instruction is what is pinned here.
+test("a POST really is cached like a GET — the premise of the wording below", () => {
+  // Asserted rather than assumed, because the guidance is only worth having
+  // while this is true. If POSTs ever stop being cached, this fails first and
+  // the wording should go with it.
+  assert.equal(normalizeApi({ name: "n", url: "https://x.example/n", method: "POST", body: "{}" }).ttl, 60,
+    "a POST no longer gets the default cache window — re-read the method guidance");
+  assert.equal(normalizeApi({ name: "n", url: "https://x.example/n" }).ttl, 60);
+  // And the key does not separate them, which is safe only because a name maps
+  // to exactly one declaration.
+  assert.equal(cacheKey("s", { name: "n", params: [] }, {}), cacheKey("s", { name: "n", params: [] }, {}));
+});
+
+test("the tool tells the model a POST here must not DO anything", () => {
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const at = w.indexOf('method: { type: "string", enum: ["GET", "POST"]');
+  assert.ok(at > 0, "the apis method field moved — retarget this test");
+  // To the next field, never a byte count.
+  const end = w.indexOf("headers: {", at);
+  assert.ok(end > at, "the field after `method` moved — retarget this window");
+  const desc = w.slice(at, end);
+
+  // The legitimate case, so the model does not read this as "never POST" and
+  // lose GraphQL and every search endpoint that requires one.
+  assert.match(desc, /GraphQL|read endpoint requires POST|READ endpoint requires POST/i,
+    "nothing says when a POST IS right, so the model will avoid it entirely");
+  // THE CONSEQUENCE, which is the part it cannot infer from "POST only".
+  assert.match(desc, /cached/i,
+    "the model is not told the answer is cached, which is the whole reason an action fails intermittently");
+  assert.match(desc, /sometimes and not others|once and then|not always/i,
+    "the intermittent failure is not described, and 'cached' alone does not imply it");
+  // And where an outbound action actually belongs, or the model has a rule with
+  // nowhere to go.
+  assert.match(desc, /function/i,
+    "nothing points at where an outbound action does belong");
+});
