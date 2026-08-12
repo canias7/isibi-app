@@ -2998,6 +2998,18 @@ const SITE_SCHEMA_TOOL = {
       },
       tables: {
         type: "array",
+        // THE ARRAY ITSELF SAID NOTHING. 36% of this tool's ~11,250 tokens sit
+        // inside `items`, and the field the whole site hangs off had no
+        // description of its own — the only sentence framing the decision was
+        // in the system block, one layer away from where the answer is written.
+        // Says what a table IS, and gives the two axes as the thing to decide,
+        // since the pair is now the general form and `access` the shorthand.
+        description:
+          "The things this site has to REMEMBER — one table per kind of thing. A site that is only words needs none; " +
+          "a barber shop needs two (the services it offers, the bookings it takes). Usually one to four. " +
+          "For each one, decide who may READ it and who may WRITE to it: that pair is enforced in the database itself, " +
+          "so a table nobody may read cannot leak however the pages are written. " +
+          "Name it for the thing it holds, in the plural — `services`, `bookings`, `listings`.",
         items: {
           type: "object",
           properties: {
@@ -3282,7 +3294,22 @@ const SITE_SCHEMA_TOOL = {
               required: ["from"],
             },
           },
-          required: ["name", "access", "columns"],
+          // `access` IS NOT REQUIRED, AND IT USED TO BE — the tool contradicted
+          // itself. Its own description ends "when none of them is the shape you
+          // need, set `read` and `write` instead and LEAVE THIS OUT", so a model
+          // doing exactly what it is told produced an invalid tool call, and one
+          // satisfying the schema had to name a preset it had just been told did
+          // not fit. It resolves that by picking the nearest preset — which is
+          // how a marketplace ends up with private listings, the failure the
+          // read/write pair was added to prevent.
+          //
+          // THE COST, STATED: a table declaring neither `access` nor a pair is
+          // now possible, and `coerceTable` gives it the collect shape — write
+          // only, readable by nobody. That is the fail-safe direction and the
+          // reason this is safe to relax: the wrong answer is an invisible menu,
+          // which the owner sees at once and a revise fixes, rather than a
+          // `collect` table of customer phone numbers served to the public.
+          required: ["name", "columns"],
         },
       },
       // Starter content, and not a nicety: nothing can write to a `display` table

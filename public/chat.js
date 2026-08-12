@@ -10305,7 +10305,7 @@ async function loadSiteData(site) {
   // a staff-managed table was the ONE kind that rendered with a blank label and
   // read as an unlabelled odd-one-out beside four that were named.
   const accLabel = { collect: 'submissions', display: 'content', user: 'per-user', feed: 'public feed', admin: 'members' };
-  const side = '<div class="st-data-side">' + tabs.map((t) => '<button type="button" class="st-data-tab' + (t.name === sel ? ' on' : '') + '" data-dtable="' + esc(t.name) + '"><span class="st-data-tn">' + esc(t.label) + '</span>' + '<span class="st-data-acc">' + esc(accLabel[t.access] || '') + '</span>' + '</button>').join('') + '</div>';
+  const side = '<div class="st-data-side">' + tabs.map((t) => '<button type="button" class="st-data-tab' + (t.name === sel ? ' on' : '') + '" data-dtable="' + esc(t.name) + '"><span class="st-data-tn">' + esc(t.label) + '</span>' + '<span class="st-data-acc">' + esc(accLabel[t.access] || t.access || '') + '</span>' + '</button>').join('') + '</div>';
   // Add / edit form (owner content editor) — a field per declared column.
   let formHtml = '';
   if (editable && siteDataForm) {

@@ -172,3 +172,171 @@ test("the designer is told publicView is what makes a listing browsable", () => 
   // the other trades this bug for the one it was written to fix.
   assert.match(desc, /BOOKING TABLE/, "the taken-slots use was lost");
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A FIELD THE TOOL TELLS THE MODEL TO OMIT MAY NOT BE REQUIRED.
+//
+// `access` was both, and the contradiction cost a whole class of site. Its
+// description ends "when none of them is the shape you need, set `read` and
+// `write` instead and LEAVE THIS OUT" — while `required` named it. A model
+// doing what it was told produced an invalid tool call; a model satisfying the
+// schema had to name a preset it had just been told did not fit, and resolved
+// that by picking the nearest one. That is how a marketplace ends up with
+// private listings: the exact failure the read/write pair was added to prevent
+// (measured live 2026-08-10, the site came out as the placeholder).
+//
+// Asserted as a PROPERTY rather than as "access is not required", so the next
+// field to grow an omit-instruction is caught too — this tool has 21 per-table
+// fields and 16 top-level ones, and three of them already say it.
+/**
+ * ONE PASS THAT KNOWS ABOUT BOTH, because neither order works alone.
+ *
+ * Blank comments first and a `//` inside a string literal — `"https://…"`, which
+ * the `apis` field is full of — eats to the end of the line and destroys the
+ * braces after it. That is the recorded worker.js trap ("a whole-file comment
+ * blanker CANNOT be used on worker.js"; a stray `/*` in a string once ate 46% of
+ * it). Blank strings first and a quote inside a comment opens a string that
+ * never closes. So this walks once, tracking both states.
+ *
+ * `strings` chooses which view comes out: false keeps string CONTENT, which is
+ * what the omit-instruction is read from; true blanks it, which is what brace
+ * counting has to run on. Offsets are identical either way — blank, never
+ * delete, so a span found in one indexes correctly into the other.
+ */
+const blankNonCode = (s, { strings }) => {
+  const out = s.split("");
+  const blank = (i) => { if (s[i] !== "\n") out[i] = " "; };
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === "/" && s[i + 1] === "/") { while (i < s.length && s[i] !== "\n") blank(i++); continue; }
+    if (c === "/" && s[i + 1] === "*") {
+      const end = s.indexOf("*/", i + 2);
+      const stop = end < 0 ? s.length : end + 2;
+      while (i < stop) blank(i++);
+      i--; continue;
+    }
+    if (c === '"' || c === "'" || c === "`") {
+      const q = c;
+      i++;
+      while (i < s.length && s[i] !== q) {
+        if (s[i] === "\\") { if (strings) { blank(i); blank(i + 1); } i += 2; continue; }
+        if (strings) blank(i);
+        i++;
+      }
+      continue;
+    }
+  }
+  return out.join("");
+};
+
+/**
+ * A schema field's own text, with any nested `items:`/`properties:` block
+ * removed. Without this a parent inherits every child's wording: `tables`
+ * contains `access`, whose description says "leave this out", so the parent
+ * reads as telling the model to omit it.
+ */
+const ownText = (body) => {
+  let out = body;
+  for (const key of ["items:", "properties:"]) {
+    for (;;) {
+      const at = out.indexOf(key);
+      if (at < 0) break;
+      const span = balanced(out, at, "{", "}");
+      if (!span) break;
+      out = out.slice(0, at) + out.slice(span[1]);
+    }
+  }
+  return out;
+};
+
+test("no field the tool tells the model to omit is also required", () => {
+  // TWO VIEWS OF THE SAME TEXT, at identical offsets. `struct` has strings
+  // blanked and is what the brace counting runs on; `w` keeps them and is what
+  // the omit-instruction is read from — the instruction IS a string, so a scan
+  // that blanks strings can never find it, and a scan that keeps them cannot
+  // count braces. Blanking preserves offsets, so a span found in one indexes
+  // correctly into the other.
+  const src = read("worker.js");
+  const w = blankNonCode(src, { strings: false });      // descriptions readable
+  const struct = blankNonCode(src, { strings: true });  // braces countable
+  // Found in `w`: `struct` has the literal blanked, so the anchor is not there.
+  // Offsets are identical, so this index is valid against both.
+  const at = w.indexOf('name: "design_schema"');
+  assert.ok(at > 0, "the design_schema tool is gone — retarget this test");
+
+  // "Leave this out", "LEAVE IT OUT", "Omit it" — the phrasings the tool really
+  // uses, matched on the source rather than a retyped list. Checked against the
+  // file so a rewording that loses every one of them fails here rather than
+  // silently making this test vacuous.
+  const OMIT = /leave (this|it|them) out|omit it/i;
+  assert.ok(OMIT.test(w.slice(at, at + 42000)),
+    "no omit-instruction found anywhere in the tool — the pattern has drifted, and this test now passes vacuously");
+
+  /** Every `name: { … }` directly inside a properties block, with its own text. */
+  const fieldsIn = (propsAt) => {
+    const span = balanced(struct, propsAt, "{", "}");
+    assert.ok(span, "could not read a properties block");
+    const props = struct.slice(span[0], span[1]);
+    const out = new Map();
+    for (const m of props.matchAll(/([a-zA-Z_]\w*)\s*:\s*\{/g)) {
+      const pre = props.slice(0, m.index);
+      if (pre.split("{").length - pre.split("}").length !== 1) continue;
+      const body = balanced(props, m.index + m[0].length - 1, "{", "}");
+      // Sliced out of `w`, not `struct` — the description is what is being read.
+      // NESTED BLOCKS CUT OUT FIRST. A field's body contains its children, so
+      // `tables` inherited `access`'s "leave this out" and was reported as
+      // contradicting itself. Only a field's OWN text may speak for it.
+      if (body) out.set(m[1], ownText(w.slice(span[0] + body[0], span[0] + body[1])));
+    }
+    return out;
+  };
+
+  /**
+   * The `required: [...]` belonging to the same object as a properties block.
+   *
+   * WALKED TO THE ENCLOSING BRACE, never a byte window. The first draft read
+   * 400 characters past the properties block and went red the moment a comment
+   * was written above `required:` — this repo's most repeated own-goal, and it
+   * happened here again while writing the test for it. Depth is tracked from
+   * the end of `properties`, and the scan stops at the `}` that closes the
+   * object both keys live in, so a nested `required` cannot be picked up.
+   */
+  const requiredAfter = (propsAt) => {
+    const span = balanced(struct, propsAt, "{", "}");
+    let depth = 0;
+    for (let i = span[1]; i < struct.length; i++) {
+      const c = struct[i];
+      if (c === "{" || c === "[") depth++;
+      else if (c === "]") depth--;
+      else if (c === "}") { if (depth === 0) return []; depth--; }
+      else if (depth === 0 && c === "r" && struct.startsWith("required:", i)) {
+        const m = /required:\s*\[([^\]]*)\]/.exec(w.slice(i, i + 600));
+        if (m) return [...m[1].matchAll(/"([a-zA-Z_]\w*)"/g)].map((x) => x[1]);
+      }
+    }
+    return [];
+  };
+
+  const tablesAt = struct.indexOf("tables:", at);
+  const perTable = struct.indexOf("properties:", tablesAt);
+  const topLevel = struct.indexOf("properties:", struct.indexOf("input_schema:", at));
+
+  const checked = [];
+  for (const [where, propsAt] of [["per-table", perTable], ["top-level", topLevel]]) {
+    const fields = fieldsIn(propsAt);
+    const required = new Set(requiredAfter(propsAt));
+    assert.ok(fields.size > 5, where + ": read only " + fields.size + " fields — the scan is broken");
+    assert.ok(required.size > 0, where + ": read no required list — the scan is broken");
+    for (const [name, body] of fields) {
+      if (!OMIT.test(body)) continue;
+      checked.push(where + "." + name);
+      assert.ok(!required.has(name),
+        where + " field `" + name + "` tells the model to leave it out AND is in `required` — " +
+        "a model obeying the description writes an invalid tool call, and one obeying the schema " +
+        "overrides the instruction. Drop it from `required` or drop the instruction.");
+    }
+  }
+  assert.ok(checked.length > 0,
+    "found no field carrying an omit-instruction inside a properties block — the extraction is broken, " +
+    "because `access` and `fonts` both carry one");
+});
