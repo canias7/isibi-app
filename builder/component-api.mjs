@@ -284,7 +284,7 @@ export const COMPONENT_API = {
   "clamp-text": "ClampText(lines?: 1 | 2 | 3 | 4 | 5 | 6 = 2, children?: React.ReactNode)",
   "clear-filters": "ClearFilters(activeCount: number, onClear: () => void, query?: string, onClearQuery?: () => void, label?: string = \"Clear filters\")",
   "clear-form": "ClearForm(filledCount: number, onClear: () => void, label?: string = \"Clear the form\")",
-  "click-collect": "ClickCollect(value: \"delivery\" | \"collect\", onChange: (v: \"delivery\" | \"collect\") => void, delivery: { priceMinor: number; when: string }, collect: { place: string; when: string; hours?: string; priceMinor?: number }, currency?: string)",
+  "click-collect": "ClickCollect(value: \"delivery\" | \"collect\", onChange: (v: \"delivery\" | \"collect\") => void, delivery: { priceMinor: number; when: string }, collect: { place: string; when: string; hours?: string; priceMinor?: number }, currency?: string = \"GBP\")",
   "clipboard-blocked": "ClipboardBlocked(value: string, label?: string = \"Copying is not available here — select and copy this yourself\", multiline?: boolean)",
   "clipboard-history": "ClipboardHistory(history: { text: string; label?: string }[], onCopy: (text: string) => void, onClear?: () => void)",
   "club-fixture": "ClubFixture(title: string, when?: string, where?: string, memberYes?: number = 0, guestYes?: number = 0, noReply?: number = 0, minimum?: number, replyBy?: string, cancelled?: boolean, costNote?: string)",

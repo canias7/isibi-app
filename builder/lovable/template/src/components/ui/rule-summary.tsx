@@ -28,7 +28,12 @@ export function RuleSummary({ trigger, conditions = [], actions, join = "and", c
   join?: "and" | "or";
   className?: string;
 }) {
+  // The empty case is not decoration: `actions` is rendered UNGUARDED below,
+  // and with `[]` the last-element read is `undefined`, so the sentence came
+  // out as "…, every time,  and undefined" on the owner's own automation
+  // screen. `conditions` is guarded by its own `length > 0`; this one was not.
   const list = (xs: string[], word: string) =>
+    xs.length === 0 ? "" :
     xs.length === 1 ? xs[0] : `${xs.slice(0, -1).join(", ")} ${word} ${xs[xs.length - 1]}`;
   return (
     <p className={cn("text-sm", className)}>

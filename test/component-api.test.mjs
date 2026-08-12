@@ -15,6 +15,40 @@ import { importedComponentApi, repairPrompt, pagesPrompt, UI_COMPONENTS } from "
 
 const UI_DIR = "builder/lovable/template/src/components/ui";
 
+/** The contents of the `{…}` opening at `open`, exclusive. */
+function braced(src, open) {
+  let depth = 0;
+  for (let i = open; i < src.length; i++) {
+    if (src[i] === "{") depth++;
+    else if (src[i] === "}") { depth--; if (depth === 0) return src.slice(open + 1, i); }
+  }
+  return null;
+}
+
+/**
+ * Split on a separator that is not nested. A FLAT split reads
+ * `items: { href?: string }[]` as a prop called `href` — this repo has written
+ * a flat splitter and regretted it four times, and the one over the TYPE block
+ * is safe from the regex-literal trap because a type annotation has no
+ * regex literals in it.
+ */
+function splitTopLevel(s, sep) {
+  const parts = [];
+  let depth = 0, quote = null, start = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (quote) { if (c === quote && s[i - 1] !== "\\") quote = null; continue; }
+    if (c === '"' || c === "'" || c === "`") { quote = c; continue; }
+    if ("([{<".includes(c)) depth++;
+    // `=>` is not a closing bracket: without this a function-typed prop drives
+    // the depth negative and every field after it disappears.
+    else if (">)]}".includes(c)) { if (!(c === ">" && s[i - 1] === "=")) depth = Math.max(0, depth - 1); }
+    else if (c === sep && depth === 0) { parts.push(s.slice(start, i)); start = i + 1; }
+  }
+  parts.push(s.slice(start));
+  return parts;
+}
+
 test("the committed notes match what the components actually take", () => {
   // The whole point. Re-derive from the files and require byte equality with
   // what is committed — so changing a prop and forgetting to regenerate fails
@@ -72,6 +106,51 @@ test("no signature names a symbol that exists only inside the component file", (
   assert.deepEqual(unresolved, [],
     "the model is told to write one of these and cannot find out what they are:\n  " +
       unresolved.join("\n  "));
+});
+
+test("no prop is declared in the type and left out of the destructuring", () => {
+  // `ClickCollect` declared `currency?: string` and never destructured it, so
+  // the formatter named "GBP" outright and a euro shop that set the prop
+  // correctly still priced every line in pounds. The prop is published in the
+  // generated signature, so the model sets it and nothing happens — the worst
+  // shape of wrong, because from the outside it looks handled.
+  //
+  // BOUND IS TESTED BY THE NAME APPEARING ANYWHERE in the destructuring text,
+  // not by splitting it. Crude, and crude in the SAFE direction: it can only
+  // miss a real one, never invent one. Splitting mis-parsed
+  // `allow = /^[A-Za-z0-9 .,'&-]*$/` on the apostrophe inside the character
+  // class and accused `personalisation-field`, which destructures `className`
+  // perfectly well — a false alarm on correct code, which is the failure this
+  // repo treats as worse than the miss.
+  const dir = path.join(process.cwd(), UI_DIR);
+  const unreadable = [];
+  for (const f of fs.readdirSync(dir).filter((n) => n.endsWith(".tsx"))) {
+    const src = fs.readFileSync(path.join(dir, f), "utf8");
+    const re = /export function (\w+)\s*(?:<(?:[^<>()]|<[^<>()]*>)*>)?\s*\(\s*\{/g;
+    let m;
+    while ((m = re.exec(src))) {
+      const dOpen = m.index + m[0].length - 1;
+      const destruct = braced(src, dOpen);
+      if (destruct == null) continue;
+      const after = src.slice(dOpen + destruct.length + 2);
+      const t = after.match(/^\s*:\s*\{/);
+      if (!t) continue;
+      const types = braced(src, dOpen + destruct.length + 2 + t[0].length - 1);
+      if (types == null) continue;
+      for (const part of splitTopLevel(types, ";")) {
+        const name = (part.match(/^\s*([A-Za-z_$][\w$]*)\??\s*:/) || [])[1];
+        if (!name) continue;
+        // `x?: never` is a deliberate "you may not pass this" device — it is
+        // there to refuse a wrong prop NAME, and has no value to destructure.
+        if (/:\s*never\b/.test(part)) continue;
+        if (!new RegExp("\\b" + name + "\\b").test(destruct)) {
+          unreadable.push(f + "  " + m[1] + "(" + name + ")");
+        }
+      }
+    }
+  }
+  assert.deepEqual(unreadable, [],
+    "the signature offers these and the component cannot read them:\n  " + unreadable.join("\n  "));
 });
 
 test("every documented component is a real one, and the count is sane", () => {

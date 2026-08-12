@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Bookmark, Star } from "lucide-react";
+import { Bookmark, Star, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 /**
  * Named searches somebody has kept — "Saturday no-shows", "Unpaid over £50".
@@ -64,6 +64,18 @@ export function SavedSearch({ items, active, onRun, onSave, onRemove, onSetDefau
                   className={cn("cursor-pointer rounded p-0.5 text-muted-foreground hover:text-foreground",
                     i.isDefault ? "" : "opacity-0 group-hover/s:opacity-100 focus-visible:opacity-100")}>
                   <Star aria-hidden className={cn("size-3", i.isDefault && "fill-current")} />
+                </button>
+              ) : null}
+              {/* `onRemove` was declared, published in the generated signature,
+                  and called by nothing — so a page wired it up and saved
+                  searches could never be deleted. Same reveal-on-hover
+                  treatment as the default star beside it, and it keeps a real
+                  accessible name rather than relying on the icon. */}
+              {onRemove ? (
+                <button type="button" onClick={() => onRemove(i.key)}
+                  aria-label={`Remove ${i.name}`}
+                  className="cursor-pointer rounded p-0.5 text-muted-foreground opacity-0 group-hover/s:opacity-100 hover:text-foreground focus-visible:opacity-100">
+                  <X aria-hidden className="size-3" />
                 </button>
               ) : null}
             </li>
