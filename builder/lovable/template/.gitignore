@@ -6,3 +6,14 @@ dist/
 dist-ssr/
 # produced by `tsr generate` before every build
 src/routeTree.gen.ts
+
+# KIT-WIDE SWEEP SCRATCH — a harness that renders or typechecks all 2,112
+# components at once leaves these behind, and committing one is expensive in a
+# way that is not obvious. `tsconfig.json` includes `src/**/*.ts`, and
+# `src/__all_entry.ts` re-exports every component, so TypeScript follows it into
+# the whole kit and the `exclude` that keeps a customer build fast is defeated:
+# measured 2026-08-12, `tsc -p tsconfig.json` went 3.9s -> 32.4s, 8.4x, on every
+# build. `Dockerfile` does `COPY lovable/template/ ./`, so anything committed
+# here is in the build image too.
+__sweep/
+src/__all_entry.ts
