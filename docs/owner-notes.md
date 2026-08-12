@@ -16018,3 +16018,28 @@ was already right.
 
 It's merged, so it'll work after this deploy lands. There's no need to clear
 anything by hand.
+
+**37 passed, 2 failed — and the two are my test's fault, not the builder's.**
+
+I made the failure print what it had actually asked for, and it said:
+
+    asked to remove "home" (gallery.tsx)
+
+The check works out a page's address from its filename, and it only understood
+the long form the *build* reports (`src/routes/gallery.tsx`). The addon reports
+the short form (`gallery.tsx`). It didn't recognise it, and its fallback was —
+of all things — **the home page**. So for two runs it has been asking the
+builder to delete the customer's home page, the builder has been correctly
+refusing, and the run reported that refusal as the builder being broken.
+
+So the deletion routing may well have been fine since the tie-break fix. The
+next run says so either way.
+
+The real lesson is the fallback, not the typo: a helper that answers "the home
+page" when it can't work something out is the worst possible default for a
+helper used to name a page for deletion. It now answers "nothing", and the
+deletion checks skip with a printed reason instead of pointing at something real.
+
+The rename passed this time too, so those four failures earlier were bad luck
+rather than a bug. I've kept the wider error message anyway — the cause was
+never actually in the log, and next time it will be.

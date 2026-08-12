@@ -54,10 +54,27 @@ const api = (path, init) => fetch(`${BASE}${path}`, {
 });
 const post = (path, body) => api(path, { method: "POST", body: JSON.stringify(body) });
 const jsonOf = async (r) => { try { return await r.json(); } catch { return null; } };
-/** `src/routes/gallery.tsx` -> `/gallery`, for checking the page really stopped serving. */
+/**
+ * `src/routes/gallery.tsx` -> `/gallery`, for checking the page really stopped
+ * serving.
+ *
+ * BOTH SPELLINGS, because the two lanes report differently and assuming one
+ * cost a whole run. The BUILD reports `files` as `src/routes/index.tsx`; the
+ * ADDON reports `added`/`reverted` as bare `gallery.tsx`. Anchored on the full
+ * path only, a bare name matched nothing.
+ *
+ * AND IT ANSWERS "" RATHER THAN "/" WHEN IT CANNOT TELL. That fallback is what
+ * turned the miss into a wrong result instead of a visible one: `gallery.tsx`
+ * became `/`, so the deletion check asked the router to take the HOME page away
+ * — which it correctly refused to flag, and the run reported the router as
+ * broken when the router was right. A helper whose failure mode is "return the
+ * home page" is the worst possible default for a helper used to name a page for
+ * deletion. Callers filter it out, so an unreadable name skips rather than
+ * pointing at something real.
+ */
 const routeOfAdded = (f) => {
-  const m = String(f || "").match(/^src\/routes\/(.+)\.tsx$/i);
-  if (!m) return "/";
+  const m = String(f || "").match(/^(?:src\/routes\/)?(.+)\.tsx$/i);
+  if (!m) return "";
   return m[1] === "index" ? "/" : "/" + m[1].replace(/\/index$/, "");
 };
 
@@ -376,14 +393,20 @@ async function main() {
     // `intent=edit layer=page remove=undefined page=/`, with nothing in the log
     // saying what the added page was called.
     const goneRoute = routeOfAdded(added);
-    const goneName = goneRoute.replace(/^\//, "").replace(/-/g, " ") || "home";
-    const sent = [...(digest.pages || []), goneRoute];
-    const rmRoute = await route(`Remove the ${goneName} page`, { ...digest, pages: sent });
-    ok("a deletion routes to the page layer with `remove`",
+    const goneName = goneRoute.replace(/^\//, "").replace(/-/g, " ");
+    // NEVER ASK TO DELETE THE HOME PAGE. The merge refuses it by design, so a
+    // check that asks for it is testing the guard and reporting it as a routing
+    // failure — which is exactly what happened when an unparsed filename fell
+    // through to "/". If the added page cannot be named, there is nothing here
+    // to drive and saying so is the honest outcome.
+    const sent = [...new Set([...(digest.pages || []), goneRoute].filter(Boolean))];
+    if (!goneName) console.log(`   skipping the deletion — can't name the added page from ${JSON.stringify(added)}`);
+    const rmRoute = goneName ? await route(`Remove the ${goneName} page`, { ...digest, pages: sent }) : null;
+    if (rmRoute) ok("a deletion routes to the page layer with `remove`",
       rmRoute.intent === "edit" && rmRoute.layer === "page" && rmRoute.remove === true,
       `intent=${rmRoute.intent} layer=${rmRoute.layer} remove=${rmRoute.remove} page=${rmRoute.page} ` +
       `· asked to remove "${goneName}" (${added}) · pages sent ${JSON.stringify(sent)}`);
-    if (rmRoute.remove === true) {
+    if (rmRoute && rmRoute.remove === true) {
       const cut = await post(`/api/site/${slug}/edit`, {
         layer: "page", page: rmRoute.page, remove: true, instruction: `Remove the ${goneName} page`, picker: "sonnet",
       });
