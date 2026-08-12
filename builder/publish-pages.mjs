@@ -248,8 +248,17 @@ export const ourFault = (stage) => !CHARGED_STAGES.has(String(stage || ""));
  * month. Zero is also the only answer that cannot over-charge.
  */
 export function schemaSettlement(usage, deposit) {
-  if (!usage) return 0;
-  return pageCredits(usage) - (Number(deposit) || 0);
+  // A LIST, BECAUSE THE SCHEMA STEP CAN BE MORE THAN ONE CALL and the two are
+  // not on the same model. When the designer omits its required `seed`, a small
+  // Haiku call fills the gap — so the step's real cost is a Sonnet-or-Opus call
+  // plus a Haiku one, and adding their token counts into a single object would
+  // price one at the other's rate. That is the `sumUsage` bug this file already
+  // paid for. `pageCredits` is variadic: it prices each part at its own model's
+  // rates, sums the DOLLARS, and rounds once. A single usage still works exactly
+  // as it did, and an empty or missing report still keeps the deposit.
+  const parts = (Array.isArray(usage) ? usage : [usage]).filter(Boolean);
+  if (!parts.length) return 0;
+  return pageCredits(...parts) - (Number(deposit) || 0);
 }
 
 /**

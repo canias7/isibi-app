@@ -180,8 +180,16 @@ test("the schema call is captured, reported, AND billed on measured usage", () =
   // not a price.
   assert.match(w, /useCredits\(request\.headers\.get\("Authorization"\) \|\| "", SITE_BUILD_FEE\)/,
     "the affordability gate is gone — an empty account can start a paid model call");
-  assert.match(w, /const settle = schemaSettlement\(schemaUsage, SITE_BUILD_FEE\)/,
-    "the deposit is never settled, so the flat fee is back under another name");
+  // THE PROPERTY IS "THE DEPOSIT IS SETTLED AGAINST WHAT THE STEP REALLY COST",
+  // not the exact argument list. Pinned to `schemaSettlement(schemaUsage, …)`
+  // this went red when the schema step legitimately became two calls — the
+  // designer plus the Haiku top-up that fills a missing `seed` — and had to
+  // settle against both. A test about word order failing a correct change is
+  // this repo's most repeated own-goal.
+  const settle = w.match(/const settle = schemaSettlement\(([^)]*)\)/);
+  assert.ok(settle, "the deposit is never settled, so the flat fee is back under another name");
+  assert.ok(settle[1].includes("schemaUsage"), "the settlement no longer reads what the designer call cost");
+  assert.ok(settle[1].includes("SITE_BUILD_FEE"), "the settlement is not against the deposit that was taken");
   // BOTH DIRECTIONS. A settlement that only ever charges more is a fee with a
   // surcharge; one that only ever refunds is a discount. Either alone passes a
   // check that merely looks for `settle`.
@@ -189,7 +197,10 @@ test("the schema call is captured, reported, AND billed on measured usage", () =
   // moment a comment was added above the call they guard — this repo's recurring
   // window-drift bug, and the third time it has bitten. The settlement block is
   // bounded by its own `else if`, so both halves are read from the real branch.
-  const sIdx = w.indexOf("const settle = schemaSettlement(schemaUsage, SITE_BUILD_FEE)");
+  // The index comes from the match above rather than a second literal copy of
+  // the call — two spellings of one anchor is how the half below silently stops
+  // guarding the half above.
+  const sIdx = settle.index;
   const sEnd = w.indexOf("schemaCredits:", sIdx);
   assert.ok(sIdx > 0 && sEnd > sIdx, "the settlement block moved; this guard checks nothing");
   const sBlock = w.slice(sIdx, sEnd);

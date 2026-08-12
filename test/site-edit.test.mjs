@@ -212,8 +212,13 @@ test("the route reads the current state and hands it to the designer", () => {
   // `editState` must be declared at the OUTER scope: it is read hundreds of
   // lines below the block that fills it, and inside that block it is a
   // ReferenceError on every build. Caught exactly that way on the first run.
-  assert.match(worker, /let designed = null;[\s\S]{0,600}let editState = null;/,
-    "editState is no longer hoisted beside `designed`");
+  // ANCHORED ON THE PROPERTY, NOT THE SPELLING. This matched `let designed =
+  // null;` exactly, so declaring a sibling on the same line — which the seed
+  // top-up did — failed a test about hoisting on a change that hoisted nothing.
+  // What matters is that both are at the OUTER scope and `editState` comes
+  // after, whatever else shares their lines.
+  const outer = worker.match(/\n {6}let designed = null[^\n]*\n[\s\S]{0,600}?\n {6}let editState = null;/);
+  assert.ok(outer, "editState is no longer hoisted at the same outer scope as `designed`");
 });
 
 test("the designer's tool drops its required list on an edit ONLY", () => {

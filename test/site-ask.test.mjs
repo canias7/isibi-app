@@ -1393,6 +1393,18 @@ test("THE ROUTER IS TOLD A PAGE DELETION IS AN EDIT, and told not to ask about i
     "the intent field never says a page deletion is an edit");
   assert.match(t, /THIS IS ALSO WHERE A PAGE IS DELETED/,
     "the page layer never says a deletion belongs to it");
+  // THE TIE-BREAK IS THE LAST SENTENCE AND THEREFORE THE STRONGEST ONE. With
+  // the three above in place and this one absent, the live router stopped
+  // answering "ask" and started answering "addon" — measured on the very next
+  // run — because it read "addon can do everything an edit can", which is
+  // FALSE for a removal: no addon can take a page off a site, so the answer
+  // spends a full page-generation call and comes back `no-change`. The
+  // exception has to sit at the tie-break, not eight lines above it.
+  assert.match(t, /A REMOVAL IS NEVER AN ADDON/,
+    "the addon tie-break can swallow a deletion again, which costs a real call and changes nothing");
+  const tie = t.slice(t.indexOf("WHEN YOU CANNOT TELL"));
+  assert.ok(tie.length > 0 && /A REMOVAL IS NEVER AN ADDON/.test(tie),
+    "the exception is stated somewhere ABOVE the tie-break, where the model has already stopped reading");
 });
 
 test("…and the conservatism below it is NOT loosened by that", () => {

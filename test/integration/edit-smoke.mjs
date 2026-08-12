@@ -210,7 +210,18 @@ async function main() {
     // the platform is quietly paying for the most expensive step.
     ok("…and no files were republished", !e.files || !e.files.length, JSON.stringify(e.files || []).slice(0, 120));
     rows = await rowsOf();
-    ok("the change really is in the database", JSON.stringify(rows).includes("26"), JSON.stringify(rows).slice(0, 200));
+    // MANAGED COLUMNS STRIPPED FIRST, because with them in this check could
+    // never fail: `created_at` is a 2026 timestamp, so `includes("26")` was true
+    // of every row of every table on every run. Caught by reading a live log
+    // where the edit answered 422 `write` — applied nothing — and this still
+    // reported `ok`. An assertion that cannot fail is worse than none: it is the
+    // one that says a broken write worked.
+    const vals = rows.map((r) => {
+      const o = { ...r };
+      for (const k of ["id", "created_at", "updated_at", "owner_id", "team_id"]) delete o[k];
+      return o;
+    });
+    ok("the change really is in the database", JSON.stringify(vals).includes("26"), JSON.stringify(vals).slice(0, 200));
 
     // ── REMOVING A ROW, AND PUTTING IT BACK ───────────────────────────────────
     //

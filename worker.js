@@ -52,6 +52,7 @@ import { runTextEdit, runDataEdit, renamePages, MAX_DATA_ROWS } from "./builder/
 import { runRulesEdit } from "./builder/site-rules.mjs";
 import { runPictureEdit } from "./builder/site-picture.mjs";
 import { runLogoEdit } from "./builder/site-logo.mjs";
+import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
 import { resolveAccess, ACCESS_PRESETS } from "./site-access.mjs";
 // The pair a `display` table resolves to. Named once, from the presets, so the
 // data layer's gate cannot drift from the vocabulary again — it was compared
@@ -8802,7 +8803,7 @@ async function handleRequest(request, env, ctx) {
         : brief;
 
       // A brief means "design the schema"; an explicit schema skips the model.
-      let designed = null;
+      let designed = null, seedUsage = null, seedTopUp = null;
       // OUT HERE BESIDE `designed`, AND FOR THE SAME REASON — it is read at the
       // look merge, hundreds of lines below the block that fills it in. Declared
       // inside that block it is a ReferenceError on every build, which is the
@@ -8906,6 +8907,33 @@ async function handleRequest(request, env, ctx) {
           designed = dz && dz.input;
           schemaUsage = (dz && dz.usage) || null;
           tr.at("design", schemaUsage ? { out: schemaUsage.out, in: schemaUsage.in } : undefined);
+          // STARTER ROWS THE DESIGNER DID NOT WRITE. `seed` is a required field
+          // on its tool and the model omits it anyway — measured on two
+          // consecutive builds — and nothing noticed, so the site published with
+          // an empty price list and a booking form whose Service select had no
+          // options at all. Permanently: nothing can write to a `display` table
+          // after this point.
+          //
+          // HERE, NOT AT THE SEEDING STEP, for two reasons. It is before the
+          // settlement, so the one deposit trues up against BOTH calls instead
+          // of a second charge with its own rounding; and it is before
+          // provisioning, so a build that never gets a database has not paid for
+          // rows it will not use. `designed.tables` is the right thing to read
+          // even on a revise — a revise declares only what it is changing, which
+          // is exactly the set that could contain a new unfilled table.
+          if (designed) {
+            const top = await topUpSeed(
+              { send: (req) => anthropicMessages(env, req) },
+              { brief: briefWithLinks, spec: designed, seed: designed.seed },
+            );
+            if (top.gaps.length) {
+              seedTopUp = { gaps: top.gaps, filled: Object.keys(top.rows) };
+              console.log("seed top-up:", slug, JSON.stringify(seedTopUp));
+            }
+            if (Object.keys(top.rows).length) designed = { ...designed, seed: mergeSeed(designed.seed, top.rows) };
+            seedUsage = top.usage;
+            if (top.usage) tr.at("seedrows", { out: top.usage.out, in: top.usage.in });
+          }
           // SETTLE THE DEPOSIT. Positive: the call cost more than the fee, take
           // the difference. Negative: it cost less, give the difference back —
           // bounded by the deposit itself, so it can never exceed `credit_back`'s
@@ -8913,7 +8941,7 @@ async function handleRequest(request, env, ctx) {
           // to fail the build: the schema is in hand and the database is about to
           // be built on it, and losing that over a ledger round trip would be a
           // far more expensive failure than a credit in either direction.
-          const settle = schemaSettlement(schemaUsage, SITE_BUILD_FEE);
+          const settle = schemaSettlement([schemaUsage, seedUsage], SITE_BUILD_FEE);
           schemaCost = SITE_BUILD_FEE + settle;
           if (settle > 0) {
             // COLLECT, not just ask. `use_credits` refuses a bill larger than
@@ -9456,6 +9484,13 @@ async function handleRequest(request, env, ctx) {
         // already been deleted by the time it was asked. Sixth recorded instance
         // of a failure that could not name itself. Bounded, like the log line.
         seedSkipped: (seeded && seeded.skipped.length) ? seeded.skipped.slice(0, 6) : undefined,
+        // WHETHER THE DESIGNER HAD TO BE COVERED FOR, and for which tables. A
+        // build where this is absent is one where `seed` arrived complete; a
+        // build where `gaps` is non-empty and `filled` is shorter is one where
+        // the top-up ran and did not fully succeed, which is the state a menu
+        // is still empty in. Undefined when there were no gaps, so a build the
+        // designer got right answers exactly as it did before.
+        seedTopUp: seedTopUp || undefined,
         // WHAT WAS READ FOR THIS BUILD, and what could not be. The whole reason
         // link-reading exists is that the old behaviour — a URL in the brief
         // that nothing fetched — was invisible: the model inferred a business

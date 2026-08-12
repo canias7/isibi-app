@@ -15965,3 +15965,35 @@ What I did fix: one bad roll of the dice was throwing away the whole run. An
 empty menu killed thirty-odd checks that don't need one — including the deletion
 fix I was trying to prove, twice over. Now only the price-change checks are
 skipped and everything else still runs.
+
+**The run got all the way through this time — 31 passed, 8 failed.** Before, it
+died at check 7. So the seeding fix worked (`"services" came back seeded`) and
+the restructure paid immediately: the rules lane passed all eight, including a
+stranger genuinely being refused by the database, and the addon passed all three
+— everything the last two runs had thrown away.
+
+**Your deletion is still wrong, but it moved.** It was answering with a question;
+now it answers "addon" — the expensive lane — which spends a real call and comes
+back "nothing changed". I found why, and it's one sentence. The instructions end
+with *"when you can't tell, answer addon: it can do everything an edit can"*.
+That's the last thing the AI reads and so the strongest, and **it isn't true for
+deleting** — nothing in that lane can take a page off a site. The rule saying a
+deletion is an edit was eight lines further up and lost to it. The exception now
+sits in the tie-break itself.
+
+**I also found a test that could never fail.** It checked the price change
+landed by looking for "26" anywhere in the rows — and every row has a 2026
+timestamp on it, so it said "ok" on a run where the edit had actually failed
+with an error. Fixed. A test that always passes is worse than no test.
+
+**Two things from that run I haven't got to the bottom of:** the price change
+itself failed (`422`, nothing applied) even though removing and restoring a row
+on the same table worked seconds later; and the rename failed to compile, with a
+message that leads with a harmless Vite warning so the real cause is cut off.
+Both are on the list, neither is diagnosed.
+
+**And the starter-rows top-up you picked is built.** A small fast model fills in
+only the tables the designer left empty, only on builds that came up short — a
+build it got right makes no extra call at all. It can't fail a build, it can't
+put rows anywhere they don't belong, and it's billed with the schema call as one
+charge rather than two.

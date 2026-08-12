@@ -162,7 +162,19 @@ export const ASK_TOOL = {
           "sounds like an addon and is an EDIT, because the home page already exists and nothing new has to be stored. Ask " +
           "instead: does this need a page the site does not have, or a table it does not have? Yes is \"addon\", no is \"edit\". " +
           "The pages and tables it has are listed above.\n" +
-          "WHEN YOU CANNOT TELL, ANSWER \"addon\". It can do everything an edit can and an edit cannot do what it does.",
+          // THE TIE-BREAK HAD ONE FALSE CLAUSE IN IT, and it cost the deletion
+          // twice. Measured live: with "taking a page off is an edit" added
+          // above, `Remove the gallery page` stopped answering "ask" and started
+          // answering "addon" — because the LAST sentence of this description is
+          // the strongest instruction in it, and it said addon can do everything
+          // an edit can. For a removal that is simply untrue: no addon can take
+          // a page off a site, so the answer costs a real page-generation call
+          // and ends `no-change`, which reads to the customer as being ignored.
+          // The exception has to sit AT the tie-break, not eight lines above it.
+          "WHEN YOU CANNOT TELL, ANSWER \"addon\" — it can do everything an edit can EXCEPT take something away.\n" +
+          "A REMOVAL IS NEVER AN ADDON. Nothing in that lane can delete a page or a section, so sending a removal there " +
+          "spends a full page-generation call and changes nothing at all. If they are asking for something to GO, it is " +
+          "an \"edit\", every time, even when you are unsure of anything else about it.",
       },
       layer: {
         type: "string",
