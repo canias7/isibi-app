@@ -2374,6 +2374,42 @@ function floatingPanelsPaintedWithThePageToken(token) {
   return out;
 }
 
+test("nothing in the kit puts an unsanitised value into the DOM as HTML", () => {
+  // `rich-text` assigned its `defaultValue` prop straight to `.innerHTML`, and
+  // the signature says `defaultValue?: string` — which reads exactly like an
+  // `<input defaultValue>`. React makes you type `dangerouslySetInnerHTML` so
+  // the danger is visible at the call site; assigning `.innerHTML` by hand is
+  // the same act with the warning removed, and `markdown-preview` in this kit
+  // refuses to do it in as many words.
+  //
+  // Proven by execution, not by reading: mounted in a real browser with
+  // `<img src=x onerror=…>` as the prop, the handler FIRED. On a generated site
+  // that value is a row a visitor typed, opened by the owner in an editor.
+  const kit = path.join(import.meta.dirname, "..", "builder", "lovable", "template", "src", "components", "ui");
+  const raw = [];
+  const undocumented = [];
+  // Two `dangerouslySetInnerHTML` uses are deliberate and both are reasoned in
+  // their own source. This is a REVIEW GATE rather than a scan: a third one is
+  // a decision somebody should have to make on purpose.
+  const ALLOWED_DANGEROUS = new Set(["chart.tsx", "seo-jsonld.tsx"]);
+  for (const f of fs.readdirSync(kit).filter((n) => n.endsWith(".tsx"))) {
+    const src = fs.readFileSync(path.join(kit, f), "utf8");
+    const code = src.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " ")).replace(/^\s*\/\/.*$/gm, "");
+    for (const m of code.matchAll(/\.innerHTML\s*=\s*([A-Za-z_$][\w$]*)/g)) {
+      // The assigned name must be the OUTPUT of the cleaner, in this same file.
+      if (!new RegExp("(?:const|let)\\s+" + m[1] + "\\s*=\\s*cleanEditorHtml\\(").test(code)) {
+        raw.push(f + ": .innerHTML = " + m[1] + " — not the output of cleanEditorHtml()");
+      }
+    }
+    if (/dangerouslySetInnerHTML/.test(code) && !ALLOWED_DANGEROUS.has(f)) undocumented.push(f);
+  }
+  assert.deepEqual(raw, [],
+    "these put a value into the DOM as HTML without cleaning it:\n  " + raw.join("\n  "));
+  assert.deepEqual(undocumented, [],
+    "new dangerouslySetInnerHTML — is the value author-written (chart config) or could a " +
+    "visitor reach it? Say which in the source, then add it here:\n  " + undocumented.join("\n  "));
+});
+
 /**
  * Every MODAL SURFACE painted with `token`.
  *
