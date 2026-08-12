@@ -100,6 +100,24 @@ const password = `Es-${stamp}-${Math.random().toString(36).slice(2, 10)}`;
 // designer name the site from a fixed brief means it proposes the same good name
 // every run and the second run 409s on something that is not a bug.
 let slug = FRESH ? `esmoke-${stamp}-${Math.random().toString(36).slice(2, 6)}` : FIXTURE_SLUG;
+/** How many builds one run will attempt before giving up on the generator. */
+const ATTEMPTS = 2;
+/**
+ * THE NAME OF THE FIXTURE ON EACH ATTEMPT — ONE EXPRESSION, TWO READERS.
+ *
+ * The retry used to mutate `slug` in place, so a run whose FIRST build missed
+ * left its site at `esmoke-fixture-r1` while the reuse scan below only ever
+ * looked at `esmoke-fixture`. The reuse could therefore never kick in again
+ * after a single unlucky generation — measured 2026-08-12, one run after the
+ * reuse shipped: the fixture was live at `-r1`, the scan looked at the bare
+ * slug, found the claimed-but-empty husk of the failed attempt, and paid for two
+ * more builds.
+ *
+ * So the builder and the finder are the same function now. A name the build loop
+ * can produce is a name the scan looks for, by construction rather than by two
+ * lists agreeing.
+ */
+const slugFor = (attempt) => (attempt ? `${FIXTURE_SLUG}-r${attempt}` : FIXTURE_SLUG);
 let userId = null, jwt = null, deleted = false, reused = false;
 
 const api = (path, init) => fetch(`${BASE}${path}`, {
@@ -207,38 +225,59 @@ async function main() {
   // ANYTHING UNEXPECTED FALLS THROUGH TO BUILDING. A missing site, a site that
   // is not ours, no tables, no pages: all of them build, which is exactly the
   // old behaviour and costs one ordinary run.
+  //
+  // EVERY NAME THE BUILD LOOP COULD HAVE LEFT BEHIND, newest first: a run that
+  // missed once put the real site at `-r1` and the bare slug holds nothing but a
+  // claimed husk, so looking only at the bare slug finds the wrong one and pays
+  // to rebuild.
   if (!FRESH) {
-    try {
-      const rowsR = await api(`/api/site/${slug}/rows`);
-      const txtR = await api(`/api/site/${slug}/text`);
-      const tabs = ((await jsonOf(rowsR)) || {}).tables || [];
-      const src = ((await jsonOf(txtR)) || {}).pages || [];
-      if (rowsR.status === 200 && txtR.status === 200 && tabs.length && src.length) {
-        reused = true;
-        b = {
-          page: "app",
-          files: src.map((x) => x && x.path).filter(Boolean),
-          tables: tabs.map((t) => t && t.name).filter(Boolean),
-          brand: "", url: `https://${slug}.gofarther.app`,
-        };
-        br = { status: 200 };
-        console.log(`\nreusing ${slug} — no build, ~25 credits and ~2.5 minutes saved`);
-        console.log(`   pages: ${JSON.stringify(b.files)}`);
-        console.log(`   tables: ${JSON.stringify(b.tables)}`);
-      }
-    } catch { /* fall through and build */ }
+    for (let a = ATTEMPTS - 1; a >= 0 && !reused; a--) {
+      const cand = slugFor(a);
+      try {
+        const rowsR = await api(`/api/site/${cand}/rows`);
+        const txtR = await api(`/api/site/${cand}/text`);
+        const tabs = ((await jsonOf(rowsR)) || {}).tables || [];
+        const src = ((await jsonOf(txtR)) || {}).pages || [];
+        if (rowsR.status === 200 && txtR.status === 200 && tabs.length && src.length) {
+          reused = true;
+          slug = cand;
+          b = {
+            page: "app",
+            files: src.map((x) => x && x.path).filter(Boolean),
+            tables: tabs.map((t) => t && t.name).filter(Boolean),
+            brand: "", url: `https://${slug}.gofarther.app`,
+          };
+          br = { status: 200 };
+          console.log(`\nreusing ${slug} — no build, ~25 credits and ~2.5 minutes saved`);
+          console.log(`   pages: ${JSON.stringify(b.files)}`);
+          console.log(`   tables: ${JSON.stringify(b.tables)}`);
+        }
+        // WHAT EACH CANDIDATE ANSWERED, because "we are building" and "we could
+        // not reuse" look identical from the log otherwise — and a reuse that
+        // silently stops working reads as an ordinary run costing 25 credits
+        // rather than as the regression it is.
+        else console.log(`   ${cand}: rows=${rowsR.status}/${tabs.length} text=${txtR.status}/${src.length} — not reusable`);
+      } catch (e) { console.log(`   ${cand}: ${e && e.message} — not reusable`); }
+    }
   }
 
-  if (!reused) console.log(`\nbuilding a real site… ${slug}`);
-  for (let attempt = 0; !reused && attempt < 2; attempt++) {
+  if (!reused) console.log(`\nbuilding a real site… ${slugFor(0)}`);
+  for (let attempt = 0; !reused && attempt < ATTEMPTS; attempt++) {
+    if (!FRESH) slug = slugFor(attempt);
     if (attempt) {
-      slug = `${slug}-r${attempt}`;
+      if (FRESH) slug = `${slug}-r${attempt}`;
       console.log(`   the generator missed — one more, at ${slug}`);
     }
     const t0 = Date.now();
     br = await post("/api/site/react-build", { slug, brief, picker: "sonnet" });
     b = (await jsonOf(br)) || {};
     console.log(`   ${Math.round((Date.now() - t0) / 1000)}s, ${b.cost} credits, page=${b.page}, files: ${(b.files || []).length}`);
+    // WHY IT MISSED, ON THE ATTEMPT LINE. A failed build's reason lives in
+    // fields nothing printed until the assertion 15 lines below, which reports
+    // once for a loop that ran twice — so two different faults read as one.
+    if (br.status !== 200 || b.page !== "app") {
+      console.log(`   stage=${b.stage} upstream=${b.upstream} type=${b.upstreamType} kind=${b.kind}${b.why ? " why=" + b.why : ""}`);
+    }
     if (br.status === 200 && b.page === "app") break;
     // AND NEVER RETRY INTO AN EMPTY ACCOUNT. The retry exists for the
     // generator lottery; a refusal for want of credit will refuse again,
@@ -246,7 +285,11 @@ async function main() {
     // an answer already known.
     if (b && b.billing === true) break;
   }
-  if (!reused) ok("the build returns 200", br.status === 200, `${br.status} ${JSON.stringify(b).slice(0, 200)}`);
+  // 900, matching the printer. A producer cap of 200 under a printer cap of 900
+  // is two limits where only the smaller one is real — the exact bug the `ok`
+  // comment records, still live one call site over, and it is why a design
+  // failure's `kind` was invisible on the line written to explain it.
+  if (!reused) ok("the build returns 200", br.status === 200, `${br.status} ${JSON.stringify(b).slice(0, 900)}`);
   if (!reused) ok("a real app was published, not the placeholder", b.page === "app",
     `page=${b.page} stage=${b.stage} error=${String(b.error || "").slice(0, 200)}`);
   // EVERYTHING BELOW NEEDS A REAL APP. On the placeholder there is no page source

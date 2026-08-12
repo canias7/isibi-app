@@ -8998,6 +8998,25 @@ async function handleRequest(request, env, ctx) {
             // The provider's own error TYPE, shape-checked. Never its message,
             // which a 400 can fill with the request.
             upstreamType: kind.type,
+            // THE ERROR'S CLASS, WHICH IS THE ONLY THING THAT SPEAKS WHEN THERE
+            // WAS NO HTTP RESPONSE AT ALL. `upstream` and `upstreamType` are
+            // both read off a response body, so a `fetch` that throws — a
+            // network fault, a DNS blip, an aborted connection — leaves BOTH
+            // null and the reply says nothing whatsoever about what happened.
+            // Measured 2026-08-12: a run failed here twice against a Worker
+            // byte-identical to one that had passed eleven minutes earlier, and
+            // the response could not distinguish "the network dropped" from "we
+            // threw". The class can: a `TypeError` is the fetch, anything else
+            // is ours.
+            //
+            // A NAME IS A CLASS AND CANNOT BE A SECRET — the same rule the owner
+            // data route states for its own catch. The message is withheld from
+            // every class but `ReferenceError`, whose message is always
+            // "<name> is not defined": a programmer bug, never request data, and
+            // the single most valuable string this repo has ever put in a
+            // response (it is how `OWN_ZONES` was found).
+            kind: String((e && e.name) || "Error").slice(0, 40),
+            why: (e && e.name) === "ReferenceError" ? String((e && e.message) || "").slice(0, 120) : undefined,
             billing: kind.billing || undefined,
             truncated: !!(e && e.truncated),
           }, { status: 503 });

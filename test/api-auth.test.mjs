@@ -410,6 +410,37 @@ test("the page-generation catch returns the stage, not only a note", () => {
   assert.ok(!/e\.detail/.test(rest), "the raw upstream detail must not be returned: " + rest);
 });
 
+// THE DESIGN CATCH MUST NAME THE ERROR'S CLASS, because that is the only thing
+// that speaks when there was no HTTP response at all.
+//
+// `upstream` and `upstreamType` are both read off a response BODY, so a `fetch`
+// that throws — a network fault, a DNS blip, an aborted connection, or a bug of
+// ours in the same try — leaves both null and the reply says nothing about what
+// happened. Measured 2026-08-12: `edit smoke` failed here twice against a Worker
+// byte-identical to one that had passed eleven minutes earlier, and the response
+// could not distinguish "the network dropped" from "we threw".
+test("the design catch returns the error's class, and its message only for a ReferenceError", () => {
+  const branch = WORKER_SRC.slice(WORKER_SRC.indexOf('console.error("schema design failed:'));
+  const block = branch.slice(0, branch.indexOf("{ status: 503 }"));
+  assert.ok(block.length > 200 && block.length < 4000, "the design catch was not found whole: " + block.length);
+  assert.match(block, /kind: String\(\(e && e\.name\) \|\| "Error"\)/, "the class must be returned");
+  // THE MESSAGE IS WITHHELD FROM EVERY CLASS BUT ONE. A provider message can
+  // quote the request, and the request carries the brief. A ReferenceError's
+  // message is always "<name> is not defined" — a programmer bug, never request
+  // data — and it is how `OWN_ZONES` was found.
+  assert.match(block, /=== "ReferenceError" \?/, "the message must be gated on the one safe class");
+  // `e.message` may appear in exactly two places: the log line, and inside that
+  // gate. Anywhere else it is on its way to a caller unconditionally. Removed
+  // and then asserted gone, the same shape as the page-generation guard above —
+  // a check for one specific spelling is walked past by a ternary.
+  const rest = block
+    .replace(/console\.error\([^;]*\);/, "")
+    .replace(/\(e && e\.name\) === "ReferenceError" \? String\(\(e && e\.message\) \|\| ""\)\.slice\(0, \d+\) : undefined/, "");
+  assert.ok(!/e\.message/.test(rest), "the raw error message must not be returned: " + rest);
+  assert.ok(!/e\.detail/.test(rest.replace(/upstreamKind\(e && e\.detail\)/, "")),
+    "the raw upstream detail must not be returned: " + rest);
+});
+
 // EVERY OWNER-SCOPED MATCHER MUST BE DISPATCHED, not merely gated.
 //
 // `/api/site/<slug>/domains` was defined, handled, and reachable by NOTHING:

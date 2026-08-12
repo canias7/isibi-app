@@ -16242,3 +16242,44 @@ run crashes — a run that dies halfway must not sweep away the thing being kept
 So: **this run builds the site once and leaves it. Every run after that skips
 straight to the lanes** — about 25 credits and two and a half minutes cheaper,
 each time.
+
+---
+
+## The run after that: two failures, one of them a whole build we paid for (2026-08-12)
+
+The next run came back **2 passed, 2 failed**, and both failures are the same
+line — the build refused with *"The designer is busy — try again in a moment."*
+
+**The important thing first: the platform code was byte-identical to the run that
+had just passed 42 of 43.** Only the test file and these notes changed between
+them. So nothing in the builder regressed; something outside it went wrong for
+about half a minute.
+
+**But the response could not say what.** The refusal carried a status field and a
+type field, and both were empty — because both of them are read off a reply from
+the AI provider, and this failure never got a reply at all. A dropped
+connection, a DNS blip, or a bug of ours all look exactly the same from the
+outside: two empty fields and a friendly sentence.
+
+So the refusal now carries **the error's class** — one word that says which it
+was. A `TypeError` is the network; anything else is ours. The message itself is
+still withheld (it can quote the brief back), with one deliberate exception: the
+class that only ever means "a programmer left a name undefined", where the
+message is the whole diagnosis and can't contain anything private. That exception
+is how a total outage of custom domains was found back in August.
+
+**And the reason it cost a build at all was mine.** The money-saving fixture
+change kept the site under whichever name the build finally succeeded at — so a
+run whose first attempt missed left the site at `esmoke-fixture-r1`, while the
+next run only ever looked for `esmoke-fixture`. One unlucky generation and the
+reuse could never kick in again. It found the empty shell of the failed attempt,
+shrugged, and paid to build twice.
+
+Now the name the builder uses and the name the finder looks for come out of the
+**same one line**, so they can't disagree, and it checks both. It also says out
+loud what each one answered — "we're building" and "we couldn't reuse" read
+identically in a log otherwise, which is how a saving that quietly stops working
+looks exactly like an ordinary expensive run.
+
+**Nothing was charged for either failed build** — the refusal happens before
+anything is built, and the deposit is returned.
