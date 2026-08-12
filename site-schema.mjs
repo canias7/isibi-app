@@ -17,7 +17,7 @@
 import { sqlQuery, sqlQuery as realSqlQuery } from "./site-db.mjs";
 import { policiesFor, grantsFor, publicViewSql, functionSql, SESSION_JWT_EXT, SESSION_JWT_GRANTS, APP_TEAM_FN, APP_USER_FN_NATIVE, APP_USER_FN_FALLBACK } from "./site-rls.mjs";
 import { normalizePayment, PAYMENT_COLUMNS } from "./site-payments.mjs";
-import { resolveAccess } from "./site-access.mjs";
+import { resolveAccess, accessNameFor, accessLabel } from "./site-access.mjs";
 import { normalizeConfirm } from "./site-mail.mjs";
 import { normalizeSms } from "./site-sms.mjs";
 import { normalizeJob } from "./site-jobs.mjs";
@@ -1165,9 +1165,31 @@ export async function seedSiteRows(uuid, spec, seed, deps) {
   for (const [rawTable, rawRows] of Object.entries(seed)) {
     const t = byName.get(String(rawTable).toLowerCase());
     if (!t) { out.skipped.push(rawTable + ": not a table in this schema"); continue; }
+    // ASKED ON THE PAIR, NOT ON THE PRESET NAME — and reading `t.access` here was
+    // a live bug for two days. The read/write axes landed 2026-08-10 and this
+    // function was not taught about them, so a table declared `read: "public",
+    // write: "none"` — which IS `display`, spelled the other way — fell through
+    // `normalizeSchema`'s allow-list to `access: "collect"` and was SILENTLY not
+    // seeded. Nothing can write to such a table afterwards, so that is an empty
+    // list forever and a booking form whose Service select reads it renders with
+    // zero options: exactly the failure seeding was built to fix, resurrected by
+    // a change one file over. Measured live in `edit smoke` — a barber shop whose
+    // `services` came back with 0 rows.
+    //
+    // Deliberately the display PAIR and nothing wider. `admin` is also
+    // write-none and is still not seeded; whether it should be is a separate
+    // decision, and broadening what gets fabricated is the direction with real
+    // cost. Every preset-declared table therefore behaves exactly as before.
+    //
     // Seeding a `collect` table would be fabricating customer submissions, and the
     // API refuses to read them back anyway, so there would be no way to see them.
-    if (t.access !== "display") { out.skipped.push(t.name + ": only display tables are seeded (" + t.access + ")"); continue; }
+    if (accessNameFor(resolveAccess(t)) !== "display") {
+      // NAMED HONESTLY. This printed `t.access`, so a pair-declared table was
+      // reported as "collect" — a word nobody wrote, sending the reader after a
+      // declaration that does not exist.
+      out.skipped.push(t.name + ": only display tables are seeded (" + accessLabel(t) + ")");
+      continue;
+    }
     const rows = Array.isArray(rawRows) ? rawRows.slice(0, MAX_SEED_ROWS) : [];
     if (!rows.length) continue;
 

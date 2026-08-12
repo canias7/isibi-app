@@ -350,10 +350,17 @@ export function isImageColumn(name) {
  */
 export function accessLabel(t) {
   if (typeof t === "string") return normalizeAccess(t);
-  const a = t && typeof t === "object" ? t.access : null;
-  if (typeof a === "string" && ACCESS_LEVELS.includes(a.toLowerCase())) return a.toLowerCase();
-  const { read, write } = pairOf(t);
-  return "read " + read + " / write " + write;
+  // NAMED BY WHAT IT RESOLVES TO, never by the `access` field as written — and
+  // reading that field first was still wrong after this function was added to
+  // fix exactly this class. `normalizeSchema` STAMPS `access: "collect"` on any
+  // table that did not declare a recognised preset, so a pair-declared display
+  // table reaches every downstream reader carrying a level nobody wrote, and
+  // trusting it printed "collect" for a table that is public-read. Resolving
+  // first cannot do that: a preset keeps its familiar name, a pair-declared
+  // table that happens to BE a preset gets that preset's name (it is the same
+  // thing spelled differently), and a cell with no shorthand says what it is.
+  const pair = resolveAccess(t);
+  return accessNameFor(pair) || ("read " + pair.read + " / write " + pair.write);
 }
 
 /**

@@ -203,6 +203,20 @@ test("a pair table is NAMED to the customer, never as `undefined`", () => {
   assert.ok(!/undefined/.test(accessLabel({})));
 });
 
+test("a stamped `access` never outranks the pair the table really has", () => {
+  // THE SHAPE EVERY DOWNSTREAM READER ACTUALLY SEES. `normalizeSchema` builds
+  // its output field by field and stamps `access: "collect"` on anything that
+  // did not declare a recognised preset — so a pair-declared table arrives here
+  // carrying a level nobody wrote, and naming it by that field reported a
+  // public-read menu as "collect". This function exists to stop a message
+  // describing a table as something it is not; reading the written field first
+  // left it doing that one layer up.
+  assert.equal(accessLabel({ access: "collect", read: "public", write: "none" }), "display");
+  assert.equal(accessLabel({ access: "collect", read: "public", write: "own" }), "read public / write own");
+  // And the ordinary case is untouched: a real `collect` table is still collect.
+  assert.equal(accessLabel({ access: "collect" }), "collect");
+});
+
 test("the LINT accepts the marketplace page it used to refuse", () => {
   // The whole point of the pair axes, refused by our own lint: `lists
   // "listings", which is access "undefined" — reading it returns 403`, printing

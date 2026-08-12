@@ -9448,6 +9448,14 @@ async function handleRequest(request, env, ctx) {
         // Rows per display table. An empty object means the site published with
         // empty lists — which reads as a working build and is not one.
         seeded: (seeded && seeded.seeded) || {},
+        // WHY NOTHING WAS SEEDED, when nothing was. The reason existed only as a
+        // `console.log` in Cloudflare, so a build that published a site with an
+        // empty menu gave the caller no way to tell "the designer wrote no seed
+        // rows" from "we refused to seed the table it named" — and answering that
+        // question about a real failing build cost a guess, because the site had
+        // already been deleted by the time it was asked. Sixth recorded instance
+        // of a failure that could not name itself. Bounded, like the log line.
+        seedSkipped: (seeded && seeded.skipped.length) ? seeded.skipped.slice(0, 6) : undefined,
         // WHAT WAS READ FOR THIS BUILD, and what could not be. The whole reason
         // link-reading exists is that the old behaviour — a URL in the brief
         // that nothing fetched — was invisible: the model inferred a business

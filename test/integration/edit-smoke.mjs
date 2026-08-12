@@ -149,7 +149,13 @@ async function main() {
   if (!display) return;
   const rowsOf = async () => (((await jsonOf(await api(`/api/site/${slug}/rows/${display.name}`))) || {}).rows) || [];
   let rows = await rowsOf();
-  ok(`"${display.name}" came back seeded`, rows.length > 0, `${rows.length} rows`);
+  // THE DETAIL IS THE POINT HERE. This failed live on 2026-08-12 reading only
+  // `0 rows`, and answering WHY took a source audit rather than a glance: the
+  // reason a table is not seeded lived solely in a Cloudflare log, and the site
+  // had already been deleted by the run's own cleanup. `seedSkipped` is on the
+  // build response now, so the next failure names its own cause.
+  ok(`"${display.name}" came back seeded`, rows.length > 0,
+    `${rows.length} rows · seeded=${JSON.stringify(b.seeded || {})} skipped=${JSON.stringify(b.seedSkipped || [])}`);
   if (!rows.length) return;
   // The first column that carries words — what a person would name in a sentence.
   const col = (display.columns || []).find((c) => typeof rows[0][c] === "string" && rows[0][c].trim());

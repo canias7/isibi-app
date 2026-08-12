@@ -15887,3 +15887,60 @@ change they did not request and reword their pages while doing it.
 So: forno-and-co and anything else already live keeps its transparent mobile
 menu until it is edited for some other reason. Every site built from now on has
 the fix. If one ever needs it sooner, sending that site any revise picks it up.
+
+---
+
+**The re-run found a worse bug than the one it was re-running (12 Aug, ~4:30am).**
+
+The deletion fix went in and the live check never got far enough to test it. It
+stopped four checks earlier, on this:
+
+    FAIL "services" came back seeded  -> 0 rows
+
+A barber shop built fine — real app, four pages, 55 credits — and its price list
+was **empty**. That is not cosmetic. Nothing can write to a menu table after the
+build, so an empty one is empty forever, and the booking form's "which service?"
+dropdown reads from it — so it renders with no options and **nobody can book**.
+It is the exact failure we fixed on 28 July by seeding starter rows at build
+time, come back.
+
+The cause is a change from two days ago. A table used to say what it was in one
+word — "display", "collect" — and we added the ability to say it as two
+("anyone reads it" / "nobody writes it"), because the one-word list couldn't
+express a marketplace. The seeding step was never told about the second way of
+writing it, so a table declared the new way was quietly skipped and left empty.
+
+The part that makes it more than an oversight: **the instructions tell the AI to
+use the new way.** The tool's own words are "when none of these five fits, set
+read and write instead and leave this out". So the designer is being asked to
+write it in the form the seeder ignores.
+
+Fixed: seeding now asks what a table actually *is* rather than which word was
+used for it. Every table written the old way behaves exactly as it did — that is
+asserted, not assumed, because this touches what gets written into a real
+customer's database.
+
+**And the thing that made this hard to answer, which I've also fixed.** The
+reason a table wasn't seeded existed only in a Cloudflare log, and the test
+deletes its own site when it finishes — so by the time the question was asked,
+the evidence was gone and I had to reason it out from the source instead of
+reading it. The build response now says *why* it skipped a table, and the live
+check prints it. Sixth time something in here couldn't explain its own failure.
+
+**Being straight about what is proven.** The hole is real, it produces exactly
+this symptom, and the instructions steer the AI into it. I have **not** proven it
+is what fired on that specific run — two other explanations survive (the designer
+wrote no starter rows at all, or gave a word we don't recognise). The next run
+answers that by itself now, which it couldn't before.
+
+**One thing I found and deliberately did not change tonight.** The tool marks
+`access` as required *and* tells the AI to leave it out — a contradiction since
+10 Aug. It is worth fixing, and I left it alone on purpose: it is the highest-
+leverage prompt in the product, and changing it tonight would put an untested
+variable into the very run I'm trying to read. Noted for next time.
+
+**Also known, also not fixed:** your own Data panel labels a table by the word
+that was written rather than what it resolves to, so a table declared the new
+way shows the wrong access label and offers the "email me on submissions" toggle
+on a table nobody can submit to. Harmless — turning it on just means no emails —
+and the fix needs the browser script to learn the rule, which is its own change.

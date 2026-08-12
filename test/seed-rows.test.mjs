@@ -9,8 +9,9 @@
 // seeding the wrong table, seeding twice on a revise, or letting one bad row
 // take the other eleven with it.
 import { test } from "node:test";
+import fs from "node:fs";
 import assert from "node:assert/strict";
-import { seedSiteRows, MAX_SEED_ROWS } from "../site-schema.mjs";
+import { seedSiteRows, MAX_SEED_ROWS, normalizeSchema } from "../site-schema.mjs";
 
 const SPEC = {
   tables: [
@@ -175,4 +176,98 @@ test("table and column names are matched case-insensitively", async () => {
   const out = await seedSiteRows("conn", SPEC, { Services: [{ Name: "Skin fade", PRICE: 28 }] }, deps);
   assert.deepEqual(out.seeded, { services: 1 });
   assert.match(inserts(calls)[0].sql, /INSERT INTO "services" \("name","price"\)/);
+});
+
+// ── DECLARED AS A PAIR ───────────────────────────────────────────────────────
+//
+// `display` is a PRESET over `{read: "public", write: "none"}`, and since the
+// axes landed on 2026-08-10 a designer may write either. This function asked
+// `t.access === "display"` — the preset name — so a pair-declared table fell
+// through `normalizeSchema`'s allow-list to `collect` and was silently not
+// seeded. Nothing can write to it afterwards, so that is an empty menu forever
+// and a booking form with zero options in its Service select: the exact failure
+// seeding exists to prevent, reintroduced from one file over.
+//
+// Driven through the REAL `normalizeSchema` rather than a hand-built spec,
+// because the coercion IS the bug — a test that hands `seedSiteRows` a shape the
+// pipeline never produces passes while the pipeline is broken.
+test("a display table declared as a read/write pair is seeded", async () => {
+  const spec = normalizeSchema({
+    tables: [{ name: "services", read: "public", write: "none", columns: [{ name: "name" }, { name: "price" }] }],
+  });
+  assert.equal(spec.tables[0].access, "collect",
+    "the premise: the allow-list coerces a pair-declared table's access, which is why the preset name cannot be the question");
+  const { deps, calls } = db();
+  const out = await seedSiteRows("conn", spec, { services: [{ name: "Skin fade", price: 28 }] }, deps);
+  assert.deepEqual(out.seeded, { services: 1 }, JSON.stringify(out.skipped));
+  assert.equal(inserts(calls).length, 1);
+});
+
+test("a pair that is NOT display is still refused", async () => {
+  // The marketplace cell — anyone reads, members write their own. Fabricating
+  // rows there invents listings attributed to nobody, on somebody's real site.
+  // This is the half that stops the fix above from broadening what gets made up.
+  const spec = normalizeSchema({
+    tables: [{ name: "listings", read: "public", write: "own", columns: [{ name: "title" }] }],
+  });
+  const { deps, calls } = db();
+  const out = await seedSiteRows("conn", spec, { listings: [{ title: "Invented" }] }, deps);
+  assert.deepEqual(out.seeded, {});
+  assert.equal(inserts(calls).length, 0);
+  assert.ok(out.skipped.some((s) => /only display tables/.test(s)), JSON.stringify(out.skipped));
+});
+
+test("admin is deliberately still not seeded", async () => {
+  // Also write-none, so "nobody can write to it" would have caught it. The rule
+  // is the display PAIR and nothing wider: whether an admin table should carry
+  // starter rows is a separate decision, and broadening this is the direction
+  // with real cost. Pinned so a well-meaning widening has to be deliberate.
+  const spec = normalizeSchema({ tables: [{ name: "staff", access: "admin", columns: [{ name: "name" }] }] });
+  const { deps, calls } = db();
+  const out = await seedSiteRows("conn", spec, { staff: [{ name: "Ada" }] }, deps);
+  assert.deepEqual(out.seeded, {});
+  assert.equal(inserts(calls).length, 0);
+});
+
+test("every preset behaves exactly as it did before the pair was asked", async () => {
+  // The safety argument for the change, asserted rather than reasoned: the five
+  // names resolve to the pairs they have always meant, so no site declared in
+  // the old vocabulary can seed differently than it did yesterday.
+  for (const [access, want] of [["display", 1], ["collect", 0], ["user", 0], ["feed", 0], ["admin", 0]]) {
+    const spec = normalizeSchema({ tables: [{ name: "t", access, columns: [{ name: "name" }] }] });
+    const { deps } = db();
+    const out = await seedSiteRows("conn", spec, { t: [{ name: "x" }] }, deps);
+    assert.equal(out.seeded.t || 0, want, access);
+  }
+});
+
+test("the refusal names the pair, not a preset nobody wrote", async () => {
+  // It printed `t.access`, so a pair-declared table was reported as "collect" —
+  // a word absent from the declaration, sending whoever reads the build response
+  // looking for something that is not there.
+  const spec = normalizeSchema({
+    tables: [{ name: "listings", read: "public", write: "own", columns: [{ name: "title" }] }],
+  });
+  const { deps } = db();
+  const out = await seedSiteRows("conn", spec, { listings: [{ title: "x" }] }, deps);
+  const msg = out.skipped.find((s) => /listings/.test(s)) || "";
+  assert.match(msg, /read public \/ write own/, msg);
+  assert.doesNotMatch(msg, /collect/, "naming a level the declaration never used is a false trail");
+});
+
+test("the build response carries WHY nothing was seeded", () => {
+  // A DIAGNOSTIC WHOSE ABSENCE LOOKS EXACTLY LIKE GOOD NEWS, which is why it is
+  // guarded at all. `skipped` existed only as a Cloudflare `console.log`, so a
+  // build that published a site with an empty menu answered with `seeded: {}`
+  // and nothing else — indistinguishable from a designer that simply wrote no
+  // seed rows. Answering that about a real failing build cost a source audit,
+  // because the site had already been deleted by the run that failed on it.
+  // worker.js cannot be imported, so this is a source read.
+  const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(worker, /seedSkipped:\s*\(seeded && seeded\.skipped\.length\)/,
+    "the build response must carry the skip reasons, not only the counts");
+  // An empty list must be ABSENT rather than `[]`: every clean build's response
+  // stays byte-identical to what it was before this field existed.
+  assert.match(worker, /seedSkipped:[^\n]*:\s*undefined/,
+    "nothing skipped means no field at all");
 });
