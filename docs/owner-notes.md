@@ -16378,3 +16378,38 @@ checking themselves rather than the code; both re-anchored.
 
 2380 tests pass. **None of this is proven against the live site** — the model
 account is still empty.
+
+---
+
+## 12 Aug, evening — a bug in what I'd just merged, and the account is still empty
+
+**The account has not been topped up.** I merged the booking-amend work and ran
+it live; three checks went red and the model provider says why in plain words:
+*"Your credit balance is too low to access the Anthropic API."* That is a
+**live outage, not a test failure** — while it lasts nobody can build or change
+a site on gofarther.dev either. Nothing was charged to anyone; the customer
+ledger reads exactly what it read before.
+
+Everything that doesn't need the model is green: the deploy, the unit tests,
+the real container build, members, payments, booking confirmations, and the
+preview-framing check.
+
+**Two things I built for exactly this situation earned their keep.** The build
+check now **stops after one second** instead of grinding through 39 checks that
+would all fail for the same reason — and it keeps its test site rather than
+tearing it down on a run that proved nothing. And the generator's quality
+tracker **refused to write a score**: a run that never reached the model is not
+a zero, and recording one would have put a permanent lie in the one file that
+tracks whether generated sites compile.
+
+**And I found a real bug in the code I'd merged an hour earlier.** The
+"change my booking" link sends your booking token alongside the fields being
+changed, and the token was written in a position where the fields could
+overwrite it — with a comment beside it claiming the opposite. Hard to exploit
+(you'd need somebody else's valid token to begin with), but the comment stated
+a protection that wasn't there, which is how it survives the next edit.
+
+**My own test asserted the bug.** It checked the *spelling* of that line rather
+than what it does, so it passed on the broken version and would have failed on
+the fix. It now runs the real expression with a hostile input and checks the
+token survives. Fixed, and the old order turns the test red.
