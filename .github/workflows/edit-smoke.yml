@@ -76,11 +76,45 @@ jobs:
           node-version: '22'
       - run: npm ci --no-audit --no-fund
 
-      # A push to main deploys in parallel with this. Waiting is cheaper than a
-      # false red: the lanes under test are the ones that just changed, and
-      # testing them against the previous Worker proves nothing about either.
-      - name: Let the deploy land
-        run: sleep 90
+      # WAIT FOR THE DEPLOY OF THIS COMMIT, RATHER THAN GUESSING AT IT.
+      #
+      # This slept 90 seconds while the deploy takes about THREE MINUTES, so
+      # every run tested the Worker mid-replacement — with two container images
+      # rebuilding underneath it, because the build image bakes the template's
+      # dependencies. Measured 2026-08-12: two compile failures in one run,
+      # one of them `internal error; reference = …`, which is Cloudflare saying
+      # the container could not start. Every step that does NOT use the
+      # container passed in the same run.
+      #
+      # It is why results have been inconsistent all night: a `422 write` that
+      # passed next time, a rename that failed to compile and then did not.
+      # Infrastructure churn was being read as the code being wrong.
+      #
+      # `build smoke` and `member smoke` avoid this with `workflow_run`, which
+      # fires only on a SUCCESSFUL deploy. This one cannot use it: `workflow_run`
+      # carries no path filter, so it would run on every deploy at ~50 credits a
+      # time, which is the whole reason this workflow is on `push` with paths.
+      # So it polls for the same fact instead.
+      #
+      # FALLS THROUGH RATHER THAN FAILING. If the deploy is still going after the
+      # cap, or was skipped (a docs-only commit deploys nothing), it proceeds —
+      # which is exactly today's behaviour and never worse.
+      - name: Wait for this commit's deploy to land
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for i in $(seq 1 40); do
+            state=$(gh run list --workflow=deploy.yml --commit="$GITHUB_SHA" \
+              --json status,conclusion --jq '.[0] | "\(.status)/\(.conclusion // "")"' 2>/dev/null || echo "")
+            case "$state" in
+              completed/success) echo "deploy landed after $((i * 15))s"; sleep 20; exit 0 ;;
+              completed/*) echo "the deploy did not succeed ($state) — testing the Worker that is live"; exit 0 ;;
+              "") echo "no deploy found for this commit yet ($((i * 15))s)" ;;
+              *) echo "deploy $state ($((i * 15))s)" ;;
+            esac
+            sleep 15
+          done
+          echo "gave up waiting after 10m — proceeding, which is what the old fixed sleep always did"
 
       - name: The edit and addon lanes, end to end
         env:

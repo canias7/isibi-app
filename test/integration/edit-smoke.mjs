@@ -34,7 +34,12 @@ if (!SVC) { console.error("SUPABASE_SERVICE_KEY is required"); process.exit(1); 
 let passed = 0, failed = 0;
 const ok = (name, cond, extra) => {
   if (cond) { passed++; console.log(`  ok   ${name}`); }
-  else { failed++; console.log(`  FAIL ${name}${extra ? "  -> " + String(extra).slice(0, 300) : ""}`); }
+  // 900, NOT 300 — and my own widening of the look edit's detail to 900 was
+  // invisible until this moved too, so the compile error stayed hidden behind
+  // Vite's benign `new URL("../", import.meta.url)` warning for three runs.
+  // A cap in the producer and a smaller one in the printer is two limits, and
+  // only the smaller one is real.
+  else { failed++; console.log(`  FAIL ${name}${extra ? "  -> " + String(extra).slice(0, 900) : ""}`); }
 };
 const svc = (extra) => ({ apikey: SVC, Authorization: `Bearer ${SVC}`, "content-type": "application/json", ...(extra || {}) });
 
