@@ -2728,10 +2728,22 @@ test("the amend hook exists, is cited, and is shown", () => {
   // 2. It carries the token AND the caller's fields. Sending only `tok` is what
   //    `useCancelClaim` already does; without values this is that hook again.
   assert.match(rows, /values: Record<string, unknown>/, "useAmendClaim takes no values, so it cannot change anything");
-  // 3. THE TOKEN IS SPREAD FIRST. A `values` carrying its own `tok` must not be
-  //    able to overwrite the one that proves who is asking.
-  assert.match(rows, /\{ tok: claim, \.\.\.values \}/,
-    "the caller's fields are spread over the token, so a page could send someone else's tok");
+  // 3. THE TOKEN WINS OVER THE CALLER'S FIELDS. Asserted by EVALUATING the real
+  //    expression rather than matching its spelling — the first draft of this
+  //    pinned `{ tok: claim, ...values }` and called it the protection, which is
+  //    exactly backwards: a later property wins in an object literal, so that
+  //    order lets `values.tok` replace the token proving who is asking. A
+  //    spelling assertion cannot tell those two apart; running it can.
+  const amendFn = rows.slice(rows.indexOf("export function useAmendClaim"));
+  const amendBody = amendFn.slice(0, amendFn.indexOf("\n}"));
+  assert.ok(amendBody.length > 100 && amendBody.length < 2000, "useAmendClaim was not read whole: " + amendBody.length);
+  const literal = amendBody.match(/JSON\.stringify\((\{[^}]*\})\)/);
+  assert.ok(literal, "useAmendClaim no longer builds its body from an object literal — check this by hand");
+  const build = new Function("claim", "values", "return " + literal[1]);
+  assert.equal(build("MINE", { date: "Thu" }).tok, "MINE", "the token does not reach the request at all");
+  assert.equal(build("MINE", { tok: "SOMEONE ELSE", date: "Thu" }).tok, "MINE",
+    "the caller's fields are written over the token, so a page could send someone else's tok");
+  assert.equal(build("MINE", { date: "Thu" }).date, "Thu", "the caller's fields never reach the function");
 
   // 4. RULE 10 names it — windowed, because the reference page below ALSO
   //    contains the string, so a bare `PAGE_RULES` match passes via the page

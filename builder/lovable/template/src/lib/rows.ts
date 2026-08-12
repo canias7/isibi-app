@@ -954,9 +954,11 @@ export function useAmendClaim(fn: string) {
     mutationFn: ({ claim, values }: { claim: string; values: Record<string, unknown> }) =>
       send<unknown>(`/api/db/${siteSlug()}/data/rpc/${fn}`, {
         method: "POST",
-        // The token FIRST, then the caller's fields — so a `values` carrying its
-        // own `tok` cannot overwrite the one that proves who is asking.
-        body: JSON.stringify({ tok: claim, ...values }),
+        // THE TOKEN IS WRITTEN LAST, and that ordering is the whole guard: a
+        // later property wins in an object literal, so `values` carrying its own
+        // `tok` cannot overwrite the one that proves who is asking. Written the
+        // other way round it reads as protection and is the opposite.
+        body: JSON.stringify({ ...values, tok: claim }),
       }),
     onSuccess: () => { qc.invalidateQueries(); },
   });
