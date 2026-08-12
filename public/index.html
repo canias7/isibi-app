@@ -241,12 +241,16 @@
         <div class="pp-bal" data-act="credits-topup" data-keydown="credits-topup" title="Get more credits" role="button" tabindex="0">
           <span class="pp-bal-txt">
             <span class="pp-bal-lbl">Credits</span>
+            <!-- The gauge is gone (owner, 2026-08-12) — the last pink→amber
+                 gradient left anywhere in the app outside the landing chatbox,
+                 on a platform that has been black-and-white since 2026-07-23.
+                 It was also telling nobody anything: its fill was the balance
+                 over the HIGHEST balance ever seen on this browser, so it only
+                 ever said "less than you once had". The header pill lost the
+                 same gauge on 2026-07-16 for the first reason; this is the
+                 second place it survived. -->
             <span class="pp-bal-row">
               <span class="pp-bal-n" id="creditChip">✦ —</span>
-              <svg class="cr-arc" viewBox="0 0 30 17" aria-hidden="true">
-                <path class="cr-arc-bg" d="M 3 15 A 12 12 0 0 1 27 15"/>
-                <path class="cr-arc-fg" id="credArcMenu" d="M 3 15 A 12 12 0 0 1 27 15"/>
-              </svg>
             </span>
           </span>
           <span class="pp-bal-cta">Top up</span>

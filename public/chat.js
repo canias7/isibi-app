@@ -4685,8 +4685,10 @@ function setCredits(n) {
     localStorage.setItem(CRED_MAX_KEY, String(max));
   } catch {}
   const frac = max > 0 ? Math.max(0, Math.min(1, n / max)) : 0;
+  // `credArcMenu` went with the gauge on 2026-08-12 (owner). `setArcFill` is
+  // null-safe, so leaving the call would have worked — and a line naming an
+  // element that no longer exists reads as wiring somebody will later hunt for.
   setArcFill(document.getElementById('credArc'), frac);
-  setArcFill(document.getElementById('credArcMenu'), frac);
   const pill = document.getElementById('credPill');
   if (pill) pill.classList.add('show');
 }
