@@ -12,6 +12,26 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ## OPEN — waiting to be picked up
 
+**⚠️ THE ANTHROPIC ACCOUNT IS EMPTY, AND THAT IS A CUSTOMER-FACING OUTAGE
+(measured 2026-08-12 03:23Z).** Nobody can build a site on gofarther.dev while it
+is: the very first model call answers `503 stage:"design"` with `billing:true` in
+about a second. **This is the fourth time in four days.** Everything else on the
+platform is fine — the deploy of `a36a652` was green and `member smoke`,
+`payments smoke`, `confirm smoke` and `frame policy` all passed.
+
+**How to read it, because it looks far worse than it is.** `build smoke` reported
+**6 passed, 16 failed** and `edit smoke` 2/2 — and all 18 descend from that ONE
+503, before anything is provisioned or charged. Two of them even look like a
+router bug (*"a brief that names no trade is asked about it"* → `intent: build`);
+that is the router's documented fallback firing because the routing call 503'd
+too, and `cost: 0` on it proves nothing was billed. `balance: 20` in the same log
+is the ledger correctly untouched. **Read `billing` on the FIRST failure before
+reading any of the others.**
+
+A build is ~27-93 credits of real spend and CI drives several a night, so this
+account empties in hours, not days. Topping it up is the only fix and it needs
+you.
+
 **THE BUILDER-ROUTE AUDIT (2026-08-10). Four criticals filed as tasks #75-78, all
 MEASURED. Thirty-four more findings are listed below and NOT verified — nobody has
 driven them.** The four filed ones are: `_meta` is a hand-maintained field list
