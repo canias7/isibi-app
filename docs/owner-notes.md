@@ -15944,3 +15944,24 @@ that was written rather than what it resolves to, so a table declared the new
 way shows the wrong access label and offers the "email me on submissions" toggle
 on a table nobody can submit to. Harmless — turning it on just means no emails —
 and the fix needs the browser script to learn the rule, which is its own change.
+
+**And the next run proved me wrong, which is exactly what I built it to do.**
+
+    FAIL "services" came back seeded  -> 0 rows · seeded={} skipped=[]
+
+`skipped=[]` means nothing was *refused*. So the bug I fixed an hour ago wasn't
+the one that fired — **the AI simply didn't write any starter rows.** It's a
+required field and it left it out, on two builds in a row after one that didn't.
+
+That's a real problem for customers, and I have not fixed it: the site publishes
+with an empty price list and a booking form nobody can use, and we tell them
+"✅ Built". Three ways to fix it, and they cost different things — ask the AI
+again (a second full call, ~9-15 credits a build), ask a cheap model just for the
+rows when they're missing (~1 credit, only on the failure path), or leave it and
+tell the customer their menu is empty. **That's your call, so I've stopped there
+rather than picking one at 5am.**
+
+What I did fix: one bad roll of the dice was throwing away the whole run. An
+empty menu killed thirty-odd checks that don't need one — including the deletion
+fix I was trying to prove, twice over. Now only the price-change checks are
+skipped and everything else still runs.

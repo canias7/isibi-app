@@ -156,21 +156,36 @@ async function main() {
   // build response now, so the next failure names its own cause.
   ok(`"${display.name}" came back seeded`, rows.length > 0,
     `${rows.length} rows · seeded=${JSON.stringify(b.seeded || {})} skipped=${JSON.stringify(b.seedSkipped || [])}`);
-  if (!rows.length) return;
-  // The first column that carries words — what a person would name in a sentence.
-  const col = (display.columns || []).find((c) => typeof rows[0][c] === "string" && rows[0][c].trim());
+  // AN EMPTY MENU MUST NOT THROW THE WHOLE RUN AWAY, and it did twice tonight.
+  // Only the DATA lane needs a row to name in a sentence; the router, the look
+  // lane, the rules lane, the addon lane and the page deletion all work fine on
+  // an empty table — the rules lane names the TABLE, not a row. Returning here
+  // meant one build-lottery outcome cost 30-odd checks that had nothing to do
+  // with it, and the deletion fix this run existed to prove was among them.
+  // Same lesson as "one bad page cost the whole site": stub the part that is
+  // broken, keep everything that still works. The failure above is still a
+  // failure — it is a real defect and the run stays red.
+  const col = rows.length
+    // The first column that carries words — what a person would name in a sentence.
+    ? (display.columns || []).find((c) => typeof rows[0][c] === "string" && rows[0][c].trim())
+    : null;
   const first = col ? String(rows[0][col]) : "";
-  ok("…and a row we can name in an instruction", !!first, JSON.stringify(rows[0]).slice(0, 160));
-  if (!first) return;
+  if (rows.length) ok("…and a row we can name in an instruction", !!first, JSON.stringify(rows[0]).slice(0, 160));
+  // Deliberately NOT a skipped assertion that reads as a pass: `ok()` counts,
+  // and a check silently recorded as green on a run where it never ran is the
+  // one failure mode a live harness must not have.
+  if (!first) console.log("\nskipping the DATA lane — the build produced no row to name");
 
   // ── THE ROUTER ────────────────────────────────────────────────────────────
   //
   // Never driven live before. Every claim about which lane a sentence lands in
   // came from unit tests against fake model replies.
   console.log("\nthe router picks a lane…");
-  const rData = await route(`Change the price of the ${first} to £26`, digest);
-  ok("a price change routes to the DATA layer", rData.intent === "edit" && rData.layer === "data",
-    `intent=${rData.intent} layer=${rData.layer}`);
+  if (first) {
+    const rData = await route(`Change the price of the ${first} to £26`, digest);
+    ok("a price change routes to the DATA layer", rData.intent === "edit" && rData.layer === "data",
+      `intent=${rData.intent} layer=${rData.layer}`);
+  }
   const rLook = await route("Make the background a warm cream", digest);
   ok("a colour change routes to the LOOK layer", rLook.intent === "edit" && rLook.layer === "look",
     `intent=${rLook.intent} layer=${rLook.layer}`);
@@ -181,53 +196,55 @@ async function main() {
   ok("a question is answered, not built", rAsk.intent === "ask" && !!rAsk.answer,
     `intent=${rAsk.intent} answer=${String(rAsk.answer || "").slice(0, 80)}`);
 
-  // ── THE DATA LAYER: a row changes, and NOTHING is recompiled ──────────────
-  console.log("\nchanging a row…");
-  const ed = await post(`/api/site/${slug}/edit`, {
-    layer: "data", instruction: `Change the price of the ${first} to £26`, picker: "sonnet",
-  });
-  const e = (await jsonOf(ed)) || {};
-  ok("the data edit succeeds", ed.status === 200 && e.ok === true, `${ed.status} ${JSON.stringify(e).slice(0, 200)}`);
-  ok("…and it says which rows moved", Array.isArray(e.applied) && e.applied.length > 0, JSON.stringify(e.applied));
-  // THE POINT OF THIS LANE: rows are read at runtime, so nothing is rebuilt and
-  // nothing is republished. A recompile here would mean the cheapest change on
-  // the platform is quietly paying for the most expensive step.
-  ok("…and no files were republished", !e.files || !e.files.length, JSON.stringify(e.files || []).slice(0, 120));
-  rows = await rowsOf();
-  ok("the change really is in the database", JSON.stringify(rows).includes("26"), JSON.stringify(rows).slice(0, 200));
-
-  // ── REMOVING A ROW, AND PUTTING IT BACK ───────────────────────────────────
-  //
-  // Both shipped today. The removal was refused outright until this morning, and
-  // the undo it offers is only real because the client carries the deleted row
-  // forward — the row is gone from the table, so nothing on the server can see
-  // what "put it back" refers to.
-  console.log("\nremoving a row, and undoing it…");
-  const before = (await rowsOf()).length;
-  const rm = await post(`/api/site/${slug}/edit`, {
-    layer: "data", instruction: `Take the ${first} off the list entirely`, picker: "sonnet",
-  });
-  const r2 = (await jsonOf(rm)) || {};
-  const gone = (r2.applied || []).filter((x) => x && x.removed);
-  ok("a row can be removed at all", rm.status === 200 && r2.ok === true && gone.length > 0,
-    `${rm.status} ${JSON.stringify(r2).slice(0, 200)}`);
-  ok("…and the row's contents come back for the undo", !!(gone[0] && gone[0].was),
-    JSON.stringify(gone[0] || {}).slice(0, 200));
-  const after = (await rowsOf()).length;
-  ok("…and it really is gone from the database", after === before - 1, `${before} → ${after}`);
-
-  if (gone[0] && gone[0].was) {
-    // EXACTLY WHAT THE CLIENT SENDS: the last removal, carried forward. Without
-    // it the model is handed an instruction with no referent and matches nothing.
-    const undo = await post(`/api/site/${slug}/edit`, {
-      layer: "data", instruction: "Actually put that back, I didn't mean to delete it", picker: "sonnet",
-      recent: [{ table: gone[0].table, was: gone[0].was }],
+  if (first) {
+    // ── THE DATA LAYER: a row changes, and NOTHING is recompiled ──────────────
+    console.log("\nchanging a row…");
+    const ed = await post(`/api/site/${slug}/edit`, {
+      layer: "data", instruction: `Change the price of the ${first} to £26`, picker: "sonnet",
     });
-    const u = (await jsonOf(undo)) || {};
-    ok("the undo is accepted", undo.status === 200 && u.ok === true, `${undo.status} ${JSON.stringify(u).slice(0, 200)}`);
-    const back = await rowsOf();
-    ok("…and the row is really back", back.length === before && JSON.stringify(back).includes(first),
-      `${after} → ${back.length}`);
+    const e = (await jsonOf(ed)) || {};
+    ok("the data edit succeeds", ed.status === 200 && e.ok === true, `${ed.status} ${JSON.stringify(e).slice(0, 200)}`);
+    ok("…and it says which rows moved", Array.isArray(e.applied) && e.applied.length > 0, JSON.stringify(e.applied));
+    // THE POINT OF THIS LANE: rows are read at runtime, so nothing is rebuilt and
+    // nothing is republished. A recompile here would mean the cheapest change on
+    // the platform is quietly paying for the most expensive step.
+    ok("…and no files were republished", !e.files || !e.files.length, JSON.stringify(e.files || []).slice(0, 120));
+    rows = await rowsOf();
+    ok("the change really is in the database", JSON.stringify(rows).includes("26"), JSON.stringify(rows).slice(0, 200));
+
+    // ── REMOVING A ROW, AND PUTTING IT BACK ───────────────────────────────────
+    //
+    // Both shipped today. The removal was refused outright until this morning, and
+    // the undo it offers is only real because the client carries the deleted row
+    // forward — the row is gone from the table, so nothing on the server can see
+    // what "put it back" refers to.
+    console.log("\nremoving a row, and undoing it…");
+    const before = (await rowsOf()).length;
+    const rm = await post(`/api/site/${slug}/edit`, {
+      layer: "data", instruction: `Take the ${first} off the list entirely`, picker: "sonnet",
+    });
+    const r2 = (await jsonOf(rm)) || {};
+    const gone = (r2.applied || []).filter((x) => x && x.removed);
+    ok("a row can be removed at all", rm.status === 200 && r2.ok === true && gone.length > 0,
+      `${rm.status} ${JSON.stringify(r2).slice(0, 200)}`);
+    ok("…and the row's contents come back for the undo", !!(gone[0] && gone[0].was),
+      JSON.stringify(gone[0] || {}).slice(0, 200));
+    const after = (await rowsOf()).length;
+    ok("…and it really is gone from the database", after === before - 1, `${before} → ${after}`);
+
+    if (gone[0] && gone[0].was) {
+      // EXACTLY WHAT THE CLIENT SENDS: the last removal, carried forward. Without
+      // it the model is handed an instruction with no referent and matches nothing.
+      const undo = await post(`/api/site/${slug}/edit`, {
+        layer: "data", instruction: "Actually put that back, I didn't mean to delete it", picker: "sonnet",
+        recent: [{ table: gone[0].table, was: gone[0].was }],
+      });
+      const u = (await jsonOf(undo)) || {};
+      ok("the undo is accepted", undo.status === 200 && u.ok === true, `${undo.status} ${JSON.stringify(u).slice(0, 200)}`);
+      const back = await rowsOf();
+      ok("…and the row is really back", back.length === before && JSON.stringify(back).includes(first),
+        `${after} → ${back.length}`);
+    }
   }
 
   // ── THE LOOK LAYER, AND THE RENAME ────────────────────────────────────────
