@@ -922,3 +922,27 @@ test("the designer is told how to build a slot that holds more than one person",
   assert.match(body, /write: \\?"none\\?"/,
     "nothing says to close the table to direct writes, so the capacity check can be walked around");
 });
+
+test("the build route records what the designer reached for", () => {
+  // `droppedFields` reads the RAW answer, and the raw answer exists in exactly
+  // one place: this route, before `normalizeSchema` throws the unknown fields
+  // away. Correct-and-uncalled is the state `teamScope` was in while dead at
+  // five layers, and worker.js cannot be imported.
+  const w = SRC;
+  const imp = /import \{([^}]*)\} from "\.\/site-schema\.mjs"/.exec(w);
+  assert.ok(imp, "the site-schema import is gone");
+  assert.match(imp[1], /\bdroppedFields\b/,
+    "droppedFields is used in worker.js and never imported — a ReferenceError on every build");
+
+  // READ OFF THE RAW ANSWER, not off `spec`. Passing the normalised spec would
+  // report nothing on every build forever, because the allow-list has already
+  // removed exactly what this is looking for — a feature that cannot fail and
+  // cannot ever fire.
+  assert.match(w, /const reached = droppedFields\(body\.schema \|\| designed \|\| \{\}\)/,
+    "the recorder is not reading the raw designer answer");
+  assert.ok(!/droppedFields\(spec\)/.test(w),
+    "the recorder reads the NORMALISED spec, where the dropped fields are already gone");
+
+  assert.match(w, /reached: reached\.length \? reached : undefined/,
+    "what the designer reached for is computed and never put on the response");
+});

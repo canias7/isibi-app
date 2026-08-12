@@ -1275,3 +1275,84 @@ export function parseSchemaSpec(files) {
 // (body `{"functions":[{"name":"x","steps":[…],"schedule":?,"verify":?}]}` or a
 // bare array). Strips the file (never ships as a static asset). Returns validated
 // [{name, spec}] ready for persistSiteFunctions.
+
+/**
+ * What the designer tried to declare and we silently threw away.
+ *
+ * WHY THIS EXISTS. `coerceTable` is an allow-list: it builds its output field by
+ * field, so a property nobody added to that literal is dropped without a trace.
+ * That is a real protection — it is what stops a model inventing a guarantee the
+ * engine never keeps — but it also means the single best evidence about what the
+ * platform is MISSING has been discarded on every build ever made. A frontier
+ * model reading a real customer's brief and reaching for `capacity`, `waitlist`
+ * or `buffer_minutes` is telling us something no amount of reasoning from the
+ * tool's own contents can: what businesses actually ask for.
+ *
+ * This repo has a hard number on the alternative. Of the ~30 features the schema
+ * engine grew, ELEVEN ended up implemented and unreachable — round-robin lead
+ * routing, SLA escalation, on a platform that makes barber shops. Each was
+ * somebody guessing. Recording the reaches turns the next such decision into a
+ * count instead of an opinion.
+ *
+ * DERIVED FROM BEHAVIOUR, NEVER FROM A LIST. The normaliser recognises 143 keys
+ * once aliases are counted (`maxRows` is also `rowLimit`, `cap`, `max`), and a
+ * hand-copied list of those would be wrong within a month — the exact drift this
+ * file's other guards exist to catch. So a field counts as ignored when REMOVING
+ * it changes nothing about the normalised table. A synonym the engine honours
+ * therefore never reports, which is correct: the model asked for something it
+ * got, under a different name.
+ *
+ * ONLY TRUTHY VALUES ARE TESTED, and that is not tidiness. `trash: false` is
+ * indistinguishable from `trash` being absent, so every table declaring a
+ * default explicitly would report as a missing feature and bury the real ones.
+ *
+ * NAMES ONLY — never values, and never the table's data. A dropped field can
+ * carry text lifted straight out of a customer's brief, and a diagnostic that
+ * quietly logs business content is a worse problem than the one it solves.
+ */
+const MAX_DROPPED = 12;
+
+/**
+ * The per-table fields `design_schema` actually offers.
+ *
+ * THE BOUNDARY THAT MATTERS IS THE TOOL'S, NOT THE NORMALISER'S. Behaviour alone
+ * says `access: "collect"` was ignored — and it was, because collect is the
+ * default — but the model asked for something real and got it. Reporting that
+ * as a missing capability buries the reaches that matter under every table on
+ * every site. So a field must be BOTH outside what the tool offers AND ignored.
+ *
+ * Twenty-one names, listed here because `worker.js` cannot be imported, and
+ * asserted against the real tool in BOTH directions by
+ * `test/dropped-fields.test.mjs` — a field added to the tool and forgotten here
+ * would be reported as a missing feature on every build that used it.
+ */
+export const TOOL_TABLE_FIELDS = new Set([
+  "name", "retired", "access", "read", "write", "oncePerUser", "enforceRefs",
+  "expires", "scheduled", "columns", "timestamps", "fts", "unique", "uniqueCI",
+  "maxRows", "teamScope", "publicView", "noOverlap", "confirm", "sms", "payment",
+]);
+
+export function droppedFields(spec) {
+  if (!spec || typeof spec !== "object") return [];
+  const raw = Array.isArray(spec.tables) ? spec.tables
+    : (spec.tables && typeof spec.tables === "object") ? Object.values(spec.tables) : [];
+  const seen = new Set();
+  for (const def of raw) {
+    if (!def || typeof def !== "object" || Array.isArray(def)) continue;
+    // The table as the engine sees it, once. Everything below is compared to it.
+    const kept = JSON.stringify(normalizeSchema({ tables: [def] }).tables[0] || null);
+    for (const key of Object.keys(def)) {
+      if (seen.size >= MAX_DROPPED) return [...seen].sort();
+      if (TOOL_TABLE_FIELDS.has(key)) continue;
+      const v = def[key];
+      // A falsy value cannot be told apart from absence, and an empty array or
+      // object is the same — reporting those buries the signal in defaults.
+      if (!v) continue;
+      if (Array.isArray(v) ? !v.length : (typeof v === "object" && !Object.keys(v).length)) continue;
+      const without = { ...def };
+      delete without[key];
+      if (JSON.stringify(normalizeSchema({ tables: [without] }).tables[0] || null) === kept) seen.add(key);
+    }
+  }
+  return [...seen].sort();
+}

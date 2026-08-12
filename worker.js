@@ -35,7 +35,7 @@ import { normalizePayment, parseCart, priceCart, checkoutSessionArgs, formEncode
 import { rescopeCookie } from "./site-cookie.mjs";
 import { drainTeardown } from "./site-teardown.mjs";
 import { scrubSecrets, neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteProject, enableNeonAuth, enableDataApi, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
-import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlIdent, seedSiteRows } from "./site-schema.mjs";
+import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlIdent, seedSiteRows, droppedFields } from "./site-schema.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
 import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, lintPages, SITE_PAGES_MAX_TOKENS } from "./builder/page-gen.mjs";
@@ -9302,6 +9302,16 @@ async function handleRequest(request, env, ctx) {
       // and no I/O: it reads the spec that is already in hand.
       const unguarded = unguardedBookings(spec);
       if (unguarded.length) console.warn("unguarded booking table:", slug, unguarded.join(","));
+      // WHAT THE DESIGNER REACHED FOR AND WE DO NOT HAVE. `coerceTable` is an
+      // allow-list, so a field the tool never offered is dropped without a
+      // trace — which is the right protection and also throws away the only
+      // evidence about what this platform is MISSING that does not come from
+      // somebody guessing. Eleven schema features were built by guessing and
+      // ended up reachable by nothing; a count of real reaches is what replaces
+      // that. Read off the RAW answer, before the allow-list, because after it
+      // there is nothing left to read. Names only, never values.
+      const reached = droppedFields(body.schema || designed || {});
+      if (reached.length) console.warn("designer reached for:", slug, reached.join(","));
       // NO TABLES IS ONLY AN ERROR ON A FIRST BUILD.
       //
       // This refusal used to sit before the ownership lookup, where `existing`
@@ -9775,6 +9785,13 @@ async function handleRequest(request, env, ctx) {
         // the first time. Undefined when clean, so a correct build's response
         // is byte-identical to before.
         unguarded: unguarded.length ? unguarded.slice(0, 6) : undefined,
+        // FIELDS THE DESIGNER DECLARED THAT THE TOOL DOES NOT OFFER. Not an
+        // error and not shown to the customer — their site is unaffected, since
+        // these were dropped exactly as they always were. It is here so that
+        // after twenty real builds "do we need another capability?" is a count
+        // instead of an opinion. Undefined when clean, so a build where the
+        // designer stayed inside the tool answers as it did before.
+        reached: reached.length ? reached : undefined,
         // WHAT WAS READ FOR THIS BUILD, and what could not be. The whole reason
         // link-reading exists is that the old behaviour — a URL in the brief
         // that nothing fetched — was invisible: the model inferred a business
