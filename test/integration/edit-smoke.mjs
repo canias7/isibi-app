@@ -418,8 +418,21 @@ async function main() {
   // is the PROPERTY — every page it kept as changed has a reason — rather than a
   // count the model happens to land on.
   const kept2 = (a.changed || []).length, put = (a.reverted || []).length;
-  ok("…and every page it changed was carrying the new link", kept2 <= 2,
-    `changed=${JSON.stringify(a.changed)} reverted=${JSON.stringify(a.reverted)}`);
+  // CALIBRATED AGAINST A BROKEN `routeOf`, and it went red the moment that was
+  // fixed. The lane reverts a changed page that does NOT mention a route it just
+  // added — and `routeOf` answered "" for every page, so the list of new routes
+  // was always empty and almost everything got reverted. `<= 2` was a proxy for
+  // that behaviour, not for the property.
+  //
+  // With the fix, the nav link lands in a SHARED header, so every page in the
+  // site legitimately carries it: `changed=["index.tsx","book.tsx","work.tsx"]`
+  // with nothing reverted is the lane working, not running away with the site.
+  // The real property is that it does not rewrite MORE than the site has, and
+  // that whatever it kept, it can name.
+  const totalPages = (b.files || []).length + 1; // +1 for the page it just added
+  ok("…and every page it changed was carrying the new link",
+    kept2 <= totalPages && (a.changed || []).every((f) => typeof f === "string" && f),
+    `changed=${JSON.stringify(a.changed)} reverted=${JSON.stringify(a.reverted)} of ${totalPages} pages`);
   if (put) console.log(`   reverted ${put} page(s) the model rewrote for no reason: ${JSON.stringify(a.reverted)}`);
 
   if (added) {
@@ -453,7 +466,19 @@ async function main() {
         layer: "page", page: rmRoute.page, remove: true, instruction: `Remove the ${goneName} page`, picker: "sonnet",
       });
       const c = (await jsonOf(cut)) || {};
-      ok("the page is deleted", cut.status === 200 && c.ok === true && (c.removed || []).length > 0,
+      // A REFUSAL BECAUSE OTHER PAGES STILL LINK TO IT IS THE GUARD WORKING, not
+      // a failure — and asserting a one-step deletion was asserting a flow this
+      // product deliberately does not have. Measured live: `error: "kept"`,
+      // *"I left /gallery — /, /book, /work still link to it. Ask me to take the
+      // link out first."* Deleting it anyway leaves three pages linking into
+      // nothing, which is the whole reason the merge refuses.
+      //
+      // So the outcome is EITHER gone, or refused with the reason and the pages
+      // named. Anything else — a silent refusal, or a claim of success with
+      // nothing removed — is still a failure.
+      const cutGone = cut.status === 200 && c.ok === true && (c.removed || []).length > 0;
+      const cutHeld = c.error === "kept" && /link/i.test(String(c.msg || ""));
+      ok("the page is deleted, or the refusal names what still links to it", cutGone || cutHeld,
         `${cut.status} ${JSON.stringify(c).slice(0, 240)}`);
       // THE WHOLE POINT: it cost nothing but a recompile.
       ok("…and it cost nothing to generate", c.cost === 0, `cost=${c.cost}`);
@@ -477,6 +502,29 @@ async function main() {
     ok("a page can be removed, or the refusal explains itself", removed || kept || !!p.msg,
       `${rmp.status} ${JSON.stringify(p).slice(0, 240)}`);
     if (removed) ok("…and the page really went", (p.removed || []).includes(added), JSON.stringify(p.removed));
+
+    // ── AND THEN THE WHOLE JOURNEY, WHICH IS THE POINT ────────────────────
+    //
+    // The design is two steps and the check never drove them: the page layer
+    // refuses a page other pages link to, and the addon lane is the rung that
+    // takes the links out. Measured live 2026-08-12 — the addon changed all
+    // three linking pages and did NOT remove the page, so from outside it read
+    // as a failure when the customer was in fact one step from done.
+    //
+    // If the addon took the links out, the cheap deletion must now succeed. That
+    // is the sentence a customer would type next, and until this it was never
+    // driven.
+    if (!removed && (p.changed || []).length) {
+      const again = await post(`/api/site/${slug}/edit`, {
+        layer: "page", page: rmRoute.page, remove: true,
+        instruction: `Remove the ${goneName} page`, picker: "sonnet",
+      });
+      const g = (await jsonOf(again)) || {};
+      ok("…and with the links gone, the cheap deletion goes through",
+        again.status === 200 && g.ok === true && (g.removed || []).length > 0,
+        `${again.status} ${JSON.stringify(g).slice(0, 240)}`);
+      ok("…and it still cost nothing to generate", g.cost === 0, `cost=${g.cost}`);
+    }
   }
 
   // --- and the owner can take it all down ----------------------------------

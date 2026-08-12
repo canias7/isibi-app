@@ -16144,3 +16144,33 @@ it to the reading code, and insists every page that can be saved can be found.
 Fixed, tested, four deliberate breakages all caught. **I have not merged it** —
 merging starts a run, and you said to work it out first. It's ready when you want
 to spend one.
+
+**It works. The deletion was being refused on purpose (12 Aug).**
+
+First run that didn't race the deploy, and the answer was one line:
+
+    ok   a deletion routes to the page layer with `remove`
+    422  "I left /gallery — /, /book, /work still link to it.
+          Ask me to take the link out first."
+
+**The page was found and deliberately kept**, because three other pages link to
+it — deleting it would leave three dead links. That's the safety rule doing
+exactly its job, and it says so in plain English. The rename and the rules lane
+both passed clean too.
+
+So the deletion path is working. What was failing was **my check, asserting a
+one-step delete the product deliberately doesn't do.** The design is two steps:
+the cheap lane refuses a linked page, the bigger lane takes the links out. The
+check now accepts the refusal when it names what's linking, and then does what
+you'd actually type next — links out, then delete — and insists that goes
+through for nothing.
+
+**And the big one: this check has been racing the deploy on every single run.**
+It waited a flat 90 seconds; the deploy takes 3 minutes and 26 seconds. So it's
+been testing the site while it was still being replaced, with the build machines
+rebuilding underneath it. That's where the random "didn't compile" failures came
+from — not the code. It waits for the real deploy now.
+
+One thing worth watching: asked to remove the page *and* take the link out, the
+bigger lane took the links out and left the page, for 27 credits. You're then one
+cheap step from done — the check now proves that rather than assuming it.
