@@ -6,7 +6,8 @@
 // Contract:
 //   POST /build   { "files": { "index.tsx": "<tsx source>", ... },   // relative to src/routes/
 //                   "slug":  "<site slug>",                          // OPTIONAL, baked as VITE_SITE_SLUG
-//                   "title": "<brand>" }                             // OPTIONAL, the <title> tag
+//                   "title": "<brand>",                              // OPTIONAL, the <title> tag + the mark
+//                   "lang":  "<bcp-47>" }                            // OPTIONAL, the <html lang> attribute
 //     → 200 { "ok": true,  "files": {…dist…}, "ms": N }
 //     → 200 { "ok": false, "error": "<tsc output>",  "stage": "typecheck" }
 //     → 200 { "ok": false, "error": "<vite stderr>", "stage": "build" }
@@ -26,6 +27,7 @@ import { resolvePair, fontCss, fontImports } from "./site-fonts.mjs";
 import { themeCss } from "./site-theme.mjs";
 import { resolveTheme } from "./site-theme-registry.mjs";
 import { tokensCss, stripThemeRadius, validForWrite } from "./site-tokens.mjs";
+import { applyIdentity, initialsMark, normalizeLang } from "./site-identity.mjs";
 import { exitReason } from "./exit-reason.mjs";
 
 const APP = process.env.APP_DIR || "/app";
@@ -73,15 +75,39 @@ function resetRoutes() {
   try { fs.rmSync(path.join(APP, SSR_DIR), { recursive: true, force: true }); } catch {}
 }
 
-// The published tab should carry the business's name, not the template's "App".
-function writeIndexHtml(title) {
-  let html = fs.readFileSync(INDEX_BASE, "utf8");
-  const t = String(title || "").trim().slice(0, 70);
-  if (t) {
-    const esc = t.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-    html = html.replace(/<title>[\s\S]*?<\/title>/i, "<title>" + esc + "</title>");
+// The published tab: the business's name, its language, and its own mark.
+//
+// ALWAYS FROM `INDEX_BASE`, never from the last build's output — this is the one
+// file every route's prerendered head derives from, and rewriting it in place
+// would compound one site's title, language and icon into the next one's.
+//
+// THE ICON IS WRITTEN TO `icon.svg` RATHER THAN OVER `favicon.svg`. The template
+// ships a real `public/favicon.svg` and this container is long-lived, serving
+// every build on the platform: overwriting it leaves no pristine copy, so the
+// first site's mark becomes the fallback for every site afterwards that has no
+// brand. Deleted before every build for the same reason `src/routes` is — a
+// stale one is one site's mark on another's tab.
+function writeIndexHtml(title, lang, brand) {
+  const base = fs.readFileSync(INDEX_BASE, "utf8");
+  const iconPath = path.join(APP, "public", "icon.svg");
+  try { fs.rmSync(iconPath, { force: true }); } catch {}
+
+  let icon = null;
+  try {
+    const svg = initialsMark(brand || title);
+    if (svg) {
+      fs.mkdirSync(path.dirname(iconPath), { recursive: true });
+      fs.writeFileSync(iconPath, svg);
+      icon = "/icon.svg";
+    }
+  } catch {
+    // A site keeps the template's mark. Failing a build over a tab icon would
+    // trade a working site for a decoration.
+    icon = null;
   }
-  fs.writeFileSync(path.join(APP, "index.html"), html);
+
+  fs.writeFileSync(path.join(APP, "index.html"), applyIdentity(base, { title, lang, icon }));
+  return { lang: normalizeLang(lang), icon: !!icon };
 }
 
 // The site's typeface, written per build.
@@ -394,7 +420,7 @@ const server = http.createServer((req, res) => {
     return oneAtATime(async () => {
     try {
       resetRoutes();
-      writeIndexHtml(payload.title);
+      const identityUsed = writeIndexHtml(payload.title, payload.lang, payload.title);
       const fontsUsed = writeFonts(payload.fonts, payload.fontFiles);
       // ONE reading of the patch, shared: whether a radius was asked for decides
       // both that the theme's own corner rules give way and what is written.
@@ -462,7 +488,7 @@ const server = http.createServer((req, res) => {
 
       const dist = collectDist();
       if (!dist["index.html"]) return send(res, 200, { ok: false, stage: "build", error: "build produced no index.html", ms: Date.now() - t0, ...times });
-      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, fonts: fontsUsed, theme: themeUsed, tokens: tokensUsed, prerendered: pre.done, prerenderSkipped: pre.skipped });
+      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, fonts: fontsUsed, theme: themeUsed, tokens: tokensUsed, identity: identityUsed, prerendered: pre.done, prerenderSkipped: pre.skipped });
     } catch (e) {
       return send(res, 200, { ok: false, stage: "build", error: String((e && e.message) || e).slice(0, 2000), ms: Date.now() - t0, ...times });
     }

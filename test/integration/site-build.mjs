@@ -244,7 +244,10 @@ try {
 
   console.log("\nbuilding a two-page site…");
   const t0 = Date.now();
-  const built = await post({ files: { "index.tsx": INDEX, "menu.tsx": MENU }, slug: "fold-coffee", title: "Fold Coffee" });
+  // `lang` rides on the main build rather than costing its own: it is a
+  // property of the document every page's head is derived from, so the site
+  // that is already being built is the honest place to read it back.
+  const built = await post({ files: { "index.tsx": INDEX, "menu.tsx": MENU }, slug: "fold-coffee", title: "Fold Coffee", lang: "pt-BR" });
   console.log(`  (${Math.round((Date.now() - t0) / 1000)}s)`);
 
   ok("the build succeeds", built.ok === true, built.stage + ": " + built.error);
@@ -318,6 +321,37 @@ try {
     ok("it produced hashed js and css", names.some((n) => /^assets\/.*\.js$/.test(n)) && names.some((n) => /^assets\/.*\.css$/.test(n)), names.join(", "));
     ok("the html is the app shell, not a page of markup", /id="root"/.test(built.files["index.html"].t || ""));
     ok("the brand reached the title tag", /<title>Fold Coffee<\/title>/.test(built.files["index.html"].t || ""), (built.files["index.html"].t || "").slice(0, 200));
+
+    // ── the site's language, and its own mark ──────────────────────────────
+    //
+    // BOTH WERE HARDCODED IN THE TEMPLATE until 2026-08-12: every published
+    // site declared `lang="en"` — so Chrome offered a Spanish shop's own
+    // customers a translation of a page that was already Spanish — and every
+    // one of them shipped the same generic favicon.
+    //
+    // ASSERTED ON THE PRERENDERED PAGES, not only on `index.html`. Each route
+    // is rendered to its own file and every one of them carries a head; a check
+    // that reads the shell alone passes while the pages a visitor actually
+    // lands on say something else.
+    // ASSERTED AS A PROPERTY, NOT A SPELLING. The first draft matched
+    // `href="/icon.svg"` and went red on a correct build: the template sets vite
+    // `base: "./"`, so every asset reference in the shell — the bundle and the
+    // stylesheet included — is emitted relative. What matters is not how the
+    // path is written but that it RESOLVES TO A FILE IN THE DIST; a head
+    // pointing at a 404 is a broken icon, which is strictly worse than the
+    // generic one it replaced.
+    for (const [name, html] of Object.entries(built.files).filter(([k]) => k.endsWith(".html"))) {
+      const h = html.t || "";
+      ok(`${name} declares the site's own language`, /<html[^>]*\blang="pt-BR"/.test(h),
+        (h.match(/<html[^>]*>/) || [""])[0]);
+      const link = (h.match(/<link[^>]*rel="icon"[^>]*>/) || [""])[0];
+      const href = ((link.match(/href="([^"]+)"/) || [])[1] || "").replace(/^\.?\//, "");
+      ok(`${name}'s icon is a file this build actually published`, !!href && !!built.files[href], link);
+      ok(`${name} no longer ships the template's shared favicon`, href !== "favicon.svg", link);
+    }
+    const icon = (built.files["icon.svg"] || {}).t || "";
+    ok("the mark is a self-contained svg", /<svg[\s\S]*<\/svg>$/.test(icon), icon.slice(0, 120));
+    ok("the mark carries this site's initials", />FC</.test(icon), icon.slice(0, 200));
 
     const js = names.filter((n) => n.endsWith(".js")).map((n) => built.files[n].t || "").join("");
     ok("the bundle talks to the tables the pages named", js.includes("drinks") && js.includes("enquiries"));
@@ -631,6 +665,20 @@ function Home() { return <main><h1>${brand}</h1></main>; }`;
     ok("neither build carries the OTHER site's content",
       !A.includes("FADE AND CO") && !B.includes("AURORA YOGA"),
       "one build was published with the other's pages — a cross-tenant content leak");
+
+    // THE NEGATIVE, AND IT IS FREE HERE. Neither of these sends a `lang`, which
+    // is the state of every site built before 2026-08-12: the attribute must be
+    // LEFT ALONE rather than guessed at, or one deploy silently relabels every
+    // existing site on the platform.
+    const shell = (r) => ((r.files || {})["index.html"] || {}).t || "";
+    ok("a build that names no language keeps the one the template had",
+      /<html[^>]*\blang="en"/.test(shell(a)), (shell(a).match(/<html[^>]*>/) || [""])[0]);
+    // …and each still gets its OWN mark. The container is shared and long-lived,
+    // so a mark written once and not cleared is one customer's icon on another's
+    // tab — the same leak the content check above is here for, one file over.
+    const mark = (r) => ((r.files || {})["icon.svg"] || {}).t || "";
+    ok("each concurrent build gets its own mark", />AY</.test(mark(a)) && />FC</.test(mark(b)),
+      `a=${(mark(a).match(/>([^<]*)<\/text>/) || [])[1]} b=${(mark(b).match(/>([^<]*)<\/text>/) || [])[1]}`);
   }
   // ── a link to a page that does not exist ─────────────────────────────────────
   //

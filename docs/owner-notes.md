@@ -141,10 +141,12 @@ checked against the rule it appeared to break.**
    Calendly embed. Structurally impossible: `script-src 'self'`,
    `connect-src 'self'`, `img-src` without a wildcard (`worker.js:1030-1034`), AND
    nothing anywhere can put a line into the `<head>`.
-3. **The site's language.** `builder/lovable/template/index.html:2` is
-   `<html lang="en">` and the container rewrites only `<title>`. A Welsh site the
-   `text` lane can genuinely translate still declares itself English — so Chrome
-   offers to translate it *into* English. **`look` should own it.**
+3. ~~**The site's language.**~~ **FIXED 2026-08-12** — see the dated entry below.
+   Was: `builder/lovable/template/index.html:2` is `<html lang="en">` and the
+   container rewrites only `<title>`, so a Welsh site the `text` lane can
+   genuinely translate still declared itself English and Chrome offered to
+   translate it *into* English. The designer now reads the language off the brief
+   and `look` owns changing it.
 4. **Turning a constraint OFF** (`unique`/`noOverlap`/`oncePerUser`/`maxRows`), and
    **changing an existing one's columns**. Refused deliberately in
    `site-rules.mjs:63`, and the refusal is correct: **measured, there is not one
@@ -155,14 +157,100 @@ checked against the rule it appeared to break.**
    database name and the ownership key. Renaming the *business* works, so the
    customer gets a site saying "The Chair Room" at `sharp-fade-barbers.gofarther.app`
    forever. Only exit is delete-and-rebuild, which loses everything.
-6. **Favicon**, **the link-preview picture (`og:image`)**, and **a logo in the
-   header** — the three most visible things a rebrand touches.
+6. **Favicon** — ~~every site shares one~~ **FIXED 2026-08-12**, each site now gets
+   its own mark derived from its name. **The link-preview picture (`og:image`)** —
+   **PARTLY REFUTED on checking**: there IS one, `siteOgImage` (`worker.js:5737`)
+   picks the owner's first upload and `injectMeta` publishes it. The real gap is
+   narrower: the owner cannot CHOOSE which picture, so with 30 uploads they get
+   whichever R2 lists first. **A logo in the header** — CONFIRMED and still open:
+   `SiteChrome` takes `name: string` and `SiteHeader` takes `brand: string`
+   (`site-chrome.tsx:45-63`), so there is no image slot anywhere in the frame.
+   Needs an explicit way to say WHICH picture — uploads are content-hashed, so
+   there is no filename to match on. Two candidates, and it is a decision rather
+   than a detail: a picker in the uploads panel, or routing an attached image to
+   the `look` layer instead of straight to a rebuild.
 7. **Dropping a table / bulk-deleting rows**, **external image URLs** (an Instagram
    photo, a supplier's shot), **`noindex`/robots**, **social sign-in for a site's
    own members**, **per-site rate limits**.
 
 **Cloudflare Web Analytics for `gofarther.app`** — the owner asked to be reminded
 when they say they are home, since it wants doing on their desktop.
+
+---
+
+## 2026-08-12 — Every site said it was English, and every site had the same icon
+
+**Two of the ranked gaps above, and both were true of EVERY site the platform has
+ever published.** They are one piece because they live in one file: `index.html`
+is what Vite builds from and what every prerendered route derives its head from,
+the model never sees it, so the container is the only place either can happen.
+
+- **`<html lang="en">` WAS HARDCODED.** The container rewrote the `<title>` and
+  nothing else, so a café in Lisbon and a peluquería in Madrid both published as
+  English. Not cosmetic: **Chrome offers to translate a Spanish page into English
+  when the page claims to be English**, a screen reader pronounces Spanish words
+  with an English voice, and a search engine files the site under the wrong
+  language. The designer now reads the language off the brief — the customer
+  writing to you in Spanish IS the answer, and it is the one step that has read
+  their words — and `look` owns changing it afterwards.
+- **ALL OF THEM SHARED ONE FAVICON**, a 231-byte dark square with a circle in it.
+  The same mark in the tab, the bookmark bar and the phone home screen for a
+  barber, a bakery and a builder. Each site now gets a mark derived from its NAME:
+  two initials on a colour hashed from the name, so it is distinct per business,
+  stable for its lifetime, and needs no upload and no theme.
+- **A BUSINESS'S OWN LOGO IS A SEPARATE THING AND IS STILL OPEN** — see gap 6
+  above. It needs an explicit way to say which picture, because uploads are
+  content-hashed and there is no filename to match. Not built rather than
+  half-built.
+
+**FIVE THINGS THIS TURNED UP THAT ARE WORTH KEEPING.**
+
+- **THE DESIGNER WAS NEVER GOING TO BE TOLD WHAT LANGUAGE THE SITE IS.**
+  `currentStateNote` is a hand-written list and `EDIT_FIELDS` is not, so adding a
+  seventh field produced a value the model could CHANGE while never being shown
+  what it already was — and the note and the tool schema are both in English, so
+  a designer not told a site is Spanish has every reason to answer `en` and
+  relabel a live site on a request that was only about a colour. **The same shape
+  as `publicView`'s description twice and the schema digest before it.** Now
+  derived: a test builds a look with every `EDIT_FIELDS` key and requires the note
+  to state each one. Mutation-checked — deleting the line goes red.
+- **THE ICON'S SAFETY IS THAT IT CANNOT CONTAIN ANYTHING BUT LETTERS.** `initials`
+  takes the FIRST character of each word and keeps only words starting with a
+  Unicode letter, so `<script>alert(1)</script>` becomes `SA`. The escaping around
+  it is belt-and-braces that can never fire — kept, and **said so in the source**,
+  because this file already records that a guard which reads local and is not
+  is worse than none.
+- **THE CJK MARK OVERFLOWED ITS BOX, AND ONLY A RENDER COULD SAY SO.** A CJK glyph
+  is ~1em wide against ~0.68em for a Latin capital, so two at the Latin size
+  measure 30 of the 32px box and touch the rounded corners. Valid SVG, correct
+  code, looks broken — **the grey-charts lesson**, found by looking at sixteen
+  marks at 16px, 32px and 64px rather than reasoning about them.
+- **MY FIRST INTEGRATION ASSERTION WAS A SPELLING AND WENT RED ON A CORRECT
+  BUILD.** It matched `href="/icon.svg"`; the template sets vite `base: "./"`, so
+  every asset reference — the bundle and the stylesheet included — is emitted
+  relative. It now asserts the PROPERTY: the icon href must resolve to a file this
+  build actually published, which is what stops a head pointing at a 404. **Assert
+  the property, not the spelling**, for the fifth time this week.
+- **NOTED AND NOT CHASED, because it is pre-existing and not about the icon:** that
+  relative base means a NESTED route (`/services/haircuts`) would resolve
+  `./assets/…` to `/services/assets/…` and 404 — the whole bundle, not just the
+  mark. **Measured: zero of the 318 family exemplars declare a nested route id**,
+  so the model has never been shown one and does not write them. Latent, not live.
+
+**THE MUTATION SWEEP'S THREE SURVIVORS WERE ALL REAL.** `/icon\.svg/` **matches
+`favicon.svg`** — a substring of the very thing it forbade, so a mutant writing
+the mark over the template's own file passed. Deleting `"lang"` from
+`EDIT_FIELDS` **shrank my own derived guard**, which is the `EDIT_LAYERS` failure
+from the day before: **a derived check cannot be derived from the thing being
+mutated**; the replacement anchors on the consumer instead. And the third was
+INERT — an early return that changed no answer for any name, now deleted rather
+than tested. **33/33 caught** across both sweeps.
+
+`site-identity.mjs` is a plain module — no filesystem, no HTTP — so all of it is
+tested outside the container. 2288 unit tests; the $0 `site build` integration now
+reads the language and the mark back off the REAL prerendered pages, and proves a
+build that names no language keeps the one it had, which is the state of every
+site built before today.
 
 ---
 

@@ -3401,6 +3401,22 @@ const SITE_SCHEMA_TOOL = {
           "How the pages are ARRANGED — optional. Every family already has a sensible default, so leave this out " +
           "unless the brief asks for a shape that is not the usual one for this kind of site.\n\n" + structuresForPrompt(),
       },
+      // WHAT LANGUAGE THE SITE IS WRITTEN IN, which nothing could say until
+      // 2026-08-12 — the template hardcodes `<html lang="en">`, so a peluquería
+      // in Madrid published as English and Chrome offered its own customers a
+      // translation into English of a page that was already Spanish.
+      //
+      // DERIVED FROM THE BRIEF RATHER THAN ASKED FOR. A person describing their
+      // business in Spanish is not going to be asked which language they want;
+      // the brief is the answer, and this is the one step that has read it.
+      lang: {
+        type: "string",
+        description:
+          "The language THE SITE'S OWN PAGES are written in, as a BCP-47 tag — `es`, `fr`, `pt-BR`, `de`. " +
+          "Read it from the brief: the language the customer wrote to you in is almost always the language " +
+          "their customers read. It is NOT the language of this conversation and NOT where the business is — " +
+          "a Welsh café writing to you in English gets `en`. Leave it out only if you genuinely cannot tell.",
+      },
       // THE WEB-SEARCH GATE, RIDING ON A CALL THAT ALREADY HAPPENS. Searching
       // costs real money per search and is worth it on a small minority of
       // briefs, so it has to be gated — and the obvious way to gate it, a small
@@ -5683,6 +5699,11 @@ async function recompileAndPublish(env, { slug, pages, label }) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           files, slug, title: (look && look.brand) || slug,
+          // THE SITE'S OWN LANGUAGE, out of the same stored look as everything
+          // else here. Absent on every site built before 2026-08-12, and
+          // `applyIdentity` leaves the attribute alone rather than guessing —
+          // an old site keeps `en` until something tells it otherwise.
+          lang: (look && look.lang) || null,
           fonts: { heading: pair.heading.id, body: pair.body.id },
           theme: (look && look.theme) || null,
           tokens: Object.keys(tokens || {}).length ? withContrast(tokens) : undefined,
@@ -5744,7 +5765,7 @@ async function siteOgImage(env, slug) {
   } catch (e) { console.error("og image lookup failed:", slug, e && e.message); return null; }
 }
 
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, ogImage, fonts, theme, tokens, family, structure, attachments, priorUsage, model, revise, changeNote, priorPages, mark }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, ogImage, fonts, theme, tokens, family, structure, lang, attachments, priorUsage, model, revise, changeNote, priorPages, mark }) {
   // Resolved once, before any model call: the pair always lands on something
   // installed, so a build never waits on a font it cannot get.
   const fontPair = resolvePair(fonts || {});
@@ -5809,6 +5830,12 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ files, slug, title: brand,
+          // WHAT LANGUAGE THE PAGES ARE IN, from the designer's reading of the
+          // brief. `<html lang>` was hardcoded `en` on every site the platform
+          // has ever published; the container refuses anything that is not a
+          // well-formed tag, so a model that answers with a country name is a
+          // site that keeps the attribute it had.
+          lang: lang || null,
           fonts: { heading: fontPair.heading.id, body: fontPair.body.id },
           // Passed by NAME, resolved inside the container against the same
           // registry the enum came from. Sending the resolved object instead
@@ -9319,6 +9346,11 @@ async function handleRequest(request, env, ctx) {
             tokens: siteTokens,
             family: look.family,
             structure: look.structure,
+            // Out of the same merged look as the other five, so a revise that
+            // does not mention the language keeps it — the field is on
+            // `EDIT_FIELDS`, which is what makes "absent means unchanged" true
+            // of it without a second rule here.
+            lang: look.lang,
             auth: request.headers.get("Authorization") || "",
             mark: (n) => tr.at(n),
           });

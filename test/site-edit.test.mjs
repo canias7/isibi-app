@@ -17,6 +17,7 @@ const STORED = {
   brand: "Sharp Fade", description: "A barber shop in Leeds.",
   theme: "broadsheet", family: "salon", structure: "sidebar",
   fonts: { heading: "noto-serif", body: "source-sans-3" },
+  lang: "en-GB",
 };
 
 /* ── absent means unchanged ─────────────────────────────────────────────── */
@@ -27,6 +28,59 @@ test("an instructed edit that names nothing changes nothing", () => {
   const out = mergeLook(STORED, { tokens: { background: "#ffff00" } }, null, { instructed: true });
   for (const k of EDIT_FIELDS) assert.deepEqual(out[k], STORED[k], `${k} moved on a colour-only edit`);
   assert.deepEqual(movedFields(STORED, out), []);
+});
+
+test("EVERY FIELD THE PUBLISH PATH READS OFF THE LOOK IS ONE THE MERGE PRODUCES", () => {
+  // ANCHORED ON THE CONSUMER, NOT ON `EDIT_FIELDS`, and a mutation is the whole
+  // reason. Deleting a name from that list SHRINKS every guard that loops over
+  // it, so removing `lang` passed the entire suite with the feature dead — the
+  // exact failure recorded for `EDIT_LAYERS` a day earlier. **A derived check
+  // cannot be derived from the thing being mutated.**
+  //
+  // The chain this asserts is the real one: `worker.js` reads `look.lang` and
+  // hands it to the container, and `mergeLook` only ever emits `EDIT_FIELDS`
+  // keys — so a field the Worker reads and the merge does not produce is
+  // permanently `undefined`, silently, on every site.
+  const read = new Set([...worker.matchAll(/\blook\.([a-zA-Z_]+)/g)].map((m) => m[1]));
+  assert.ok(read.size >= 5, "the scan found only " + read.size + " look reads, so it has stopped scanning");
+  const produced = new Set(Object.keys(mergeLook({}, {}, {})));
+  for (const field of read) {
+    assert.ok(produced.has(field),
+      "worker.js reads `look." + field + "` and mergeLook never produces it — it is undefined on every site");
+  }
+  // …and the one this change added is really among them, or the loop above is
+  // satisfied by a Worker that stopped reading it at all.
+  assert.ok(read.has("lang"), "nothing in the publish path reads the site's language any more");
+});
+
+test("EVERY FIELD AN EDIT CAN MOVE IS ONE THE DESIGNER IS TOLD THE CURRENT VALUE OF", () => {
+  // DERIVED, because `currentStateNote` is a hand-written list and `EDIT_FIELDS`
+  // is not — so adding a seventh field silently produced a value the model could
+  // change while never being told what it already was. That is the shape this
+  // repo has recorded three times (`publicView`'s description twice, and the
+  // schema digest before it): a rule conditioned on a fact the model was never
+  // given.
+  //
+  // It bites hardest on `lang`. The note and the tool schema are both written in
+  // English, so a designer NOT told a site is Spanish has every reason to answer
+  // `en` — relabelling a live site on a request that was only ever about a
+  // colour.
+  const full = Object.fromEntries(EDIT_FIELDS.map((k) => [k, k === "fonts" ? { heading: "inter", body: "inter" } : "value-of-" + k]));
+  const note = currentStateNote(full);
+  for (const k of EDIT_FIELDS) {
+    if (k === "fonts") { assert.match(note, /fonts:/, "the note does not state the fonts"); continue; }
+    assert.ok(note.includes("value-of-" + k),
+      "`" + k + "` can be moved by an edit and the designer is never shown the site's current one");
+  }
+});
+
+test("…and the rule tells it not to restate the language, in the terms the merge implements", () => {
+  // `instructed: true` makes the designer's answer BEAT the stored value, so the
+  // instruction to omit is the only thing holding it. Named explicitly rather
+  // than left under "every other field", because the conversation being in
+  // English is itself the reason a model would answer this one.
+  assert.match(EDIT_RULE, /LANGUAGE/);
+  assert.match(EDIT_RULE, /conversation is in English and the site may not be/i);
 });
 
 test("naming one field moves exactly that one", () => {

@@ -30,7 +30,7 @@
 // whole decision is tested without a Worker, a model or a database.
 
 /** The look/identity fields an edit may move. `tables` and `tokens` merge on their own paths. */
-export const EDIT_FIELDS = ["brand", "description", "theme", "family", "structure", "fonts"];
+export const EDIT_FIELDS = ["brand", "description", "theme", "family", "structure", "fonts", "lang"];
 
 /**
  * Nothing is required of an EDIT.
@@ -70,6 +70,14 @@ export function currentStateNote(current) {
   add("theme", c.theme);
   add("family", c.family);
   add("structure", c.structure);
+  // THE LANGUAGE THE PAGES ARE WRITTEN IN. Stated for the same reason as
+  // everything else here and with a sharper edge than most: this note is written
+  // in English and so is the tool schema, so a designer that is NOT told a site
+  // is Spanish has every reason to answer `en` — and would relabel a live site
+  // on a request that was only ever about a colour. `publicView` twice, and the
+  // schema digest before it, are the same failure: a rule conditioned on a fact
+  // the model was never given.
+  add("language", c.lang);
   const f = c.fonts && typeof c.fonts === "object" ? c.fonts : null;
   if (f && str(f.heading) && str(f.body)) lines.push("fonts: " + str(f.heading) + " for headings, " + str(f.body) + " for body");
   const tables = Array.isArray(c.tables) ? c.tables.map(str).filter(Boolean).slice(0, 24) : [];
@@ -94,7 +102,9 @@ export const EDIT_RULE =
   "exactly what the site has now, and that is how you say \"leave it alone\".\n" +
   "DO NOT RESTATE A VALUE TO KEEP IT. Naming the theme it already has achieves nothing, and naming a DIFFERENT one " +
   "re-themes the entire site — so if the change is not about the look, return no theme, no family, no structure and " +
-  "no fonts at all. The same for the name and the description: leave them out unless this change is about them.\n" +
+  "no fonts at all. The same for the name, the description and the LANGUAGE: leave them out unless this change is " +
+  "about them. This conversation is in English and the site may not be — return a language only if the change is " +
+  "asking you to alter what language its pages are written in.\n" +
   "A change to a colour is `tokens` and nothing else. A change to the wording is neither — the pages are edited " +
   "elsewhere, so return no tables and no seed for it. Only declare a table when this change genuinely needs one " +
   "stored, and then declare only that table; the ones it already has are kept for you.\n" +

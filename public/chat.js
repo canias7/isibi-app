@@ -11468,9 +11468,16 @@ function editReply(e) {
     return out + photoNote(e.photos) + problemNote(e.problems);
   }
   if (e.layer === 'look') {
+    // OUR FIELD NAMES ARE NOT THE CUSTOMER'S WORDS. `moved` carries the stored
+    // look's own keys, and joining them raw produced "Updated the look — lang.",
+    // which tells somebody nothing. It was already inconsistent with itself:
+    // the branch four lines below says "the name" about the field this sentence
+    // called "brand". Anything unmapped falls through unchanged, so a field
+    // added later reads no worse than it does today.
+    const SAY = { lang: 'language', brand: 'name', description: 'the description' };
     const moved = (Array.isArray(e.moved) ? e.moved : []).slice(0, 4);
     const tokens = (Array.isArray(e.tokens) ? e.tokens : []).slice(0, 4);
-    const bits = moved.concat(tokens);
+    const bits = moved.map(function (k) { return SAY[k] || k; }).concat(tokens);
     let out = '✅ Updated the look' + (bits.length ? ' — ' + bits.join(', ') : '') + '.';
     // A RENAME REACHES THE PAGES, and saying how far is the honest half. The
     // name is stored once and written into every page; the customer can check

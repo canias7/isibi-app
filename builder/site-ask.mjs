@@ -111,9 +111,9 @@ export const FALLBACK_NO_SITE = "build";
  *            has fell through all three rungs and changed nothing.
  * `text`   — the words only. No page model call at all; the strings are lifted
  *            out of the stored source and put back.
- * `look`   — colour, theme, fonts, corners, the name, the description. The
- *            designer already knows how to do this without regenerating a
- *            single page, which is the whole saving.
+ * `look`   — colour, theme, fonts, corners, the name, the description, the
+ *            declared language. The designer already knows how to do this
+ *            without regenerating a single page, which is the whole saving.
  * `page`   — one existing page's structure. One page through the pages model
  *            rather than all of them.
  *
@@ -167,8 +167,11 @@ export const ASK_TOOL = {
           "\"text\" — ONLY the words change and nothing else: a heading, a sentence, a button label, a phone number, an " +
           "address, a price written on the page. Nothing moves and nothing changes colour. This is the cheapest thing the " +
           "builder can do, so prefer it whenever it is honestly true.\n" +
-          "\"look\" — colour, theme, fonts, how round the corners are, the site's name, its one-line description. Anything " +
-          "about how the site LOOKS rather than what it says or where things sit.\n" +
+          "\"look\" — colour, theme, fonts, how round the corners are, the site's name, its one-line description, and " +
+          "WHAT LANGUAGE ITS PAGES ARE DECLARED TO BE IN. Anything about how the site LOOKS rather than what it says " +
+          "or where things sit. (The declared language is a fact about the site, not a translation — \"this site is in " +
+          "Spanish, stop telling browsers it's English\" belongs here; \"translate the whole site into Spanish\" is a " +
+          "rewrite and belongs further up.)\n" +
           "\"rules\" — WHAT THE SITE DOES WITH WHAT PEOPLE SUBMIT, rather than anything on a page. Who may see an " +
           "entry and who may add one (\"let people browse the listings without signing in\", \"close the booking " +
           "form\"), whether the customer gets an email or a text when they submit, and what the site refuses (\"don't " +
