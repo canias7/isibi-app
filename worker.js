@@ -2996,15 +2996,48 @@ const SITE_SCHEMA_TOOL = {
           required: ["name", "returns", "body"],
           properties: {
             name: { type: "string", description: "lowercase identifier, e.g. booking_by_claim" },
+            // THE TWO HALVES OF THIS TOOL SPOKE DIFFERENT TYPE LANGUAGES. A
+            // column may be text/integer/real/boolean/json; an argument was
+            // offered seven types no column can ever be. A body compares its
+            // arguments to columns, so `{name:"d", type:"date"}` against a
+            // TEXT `slot_date` is `operator does not exist: text = date` — the
+            // function fails to CREATE, and the page's lookup is silently not
+            // there. Non-fatal and reported in `functionErrors`, so the site
+            // still builds without the capability it was asked for.
+            //
+            // The tool already knew this trap: its own example warned that a
+            // claim token is TEXT "not uuid". Somebody hit the uuid version and
+            // documented that one case; the date, numeric and bigint versions
+            // were left open.
+            //
+            // NARROWED IN WHAT IS OFFERED, NOT IN WHAT IS ACCEPTED. `date` and
+            // `timestamptz` are gone from this enum because NO column is ever
+            // either, so they can only be right via an explicit cast nothing
+            // asks for. The engine's own allow-list still takes them, so a
+            // schema stored before today re-applies on a revise exactly as it
+            // did — narrowing that too would break existing sites to tidy a
+            // prompt. `uuid` and `jsonb` STAY and are not oversights: `owner_id`
+            // and `team_id` really are UUID, and a `hook_*` handler takes
+            // exactly one jsonb payload.
+            //
+            // `integer` joins `int` because that is the word the columns use,
+            // and the engine has always accepted both — offering one spelling
+            // while the other half of the tool uses the other is the mismatch
+            // in miniature.
             args: {
               type: "array",
-              description: "Arguments. A claim lookup takes one: {name:'tok', type:'text'} — the claim_token column is TEXT, so the argument matching it is text, not uuid.",
+              description: "Arguments, matched to the COLUMN each one is compared against. What a declared column really is in Postgres: " +
+                "`text` is TEXT · `integer` is INTEGER · `real` is REAL · `boolean` is INTEGER 0/1, NOT boolean · `json` is TEXT, NOT jsonb. " +
+                "The columns the platform adds: `id` is INTEGER, `owner_id` and `team_id` are UUID, and `created_at` and every other " +
+                "timestamp is TEXT in 'YYYY-MM-DD HH:MM:SS'. " +
+                "THERE IS NO DATE COLUMN — a date or a time lives in a TEXT column, so an argument matching one is `text`. " +
+                "A claim lookup takes one: {name:'tok', type:'text'} — the claim_token column is TEXT, so the argument matching it is text, not uuid.",
               items: {
                 type: "object",
                 required: ["name", "type"],
                 properties: {
                   name: { type: "string" },
-                  type: { type: "string", enum: ["text", "int", "bigint", "numeric", "boolean", "uuid", "date", "timestamptz", "json", "jsonb"] },
+                  type: { type: "string", enum: ["text", "int", "integer", "bigint", "numeric", "boolean", "uuid", "json", "jsonb"] },
                 },
               },
             },

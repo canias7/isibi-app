@@ -347,3 +347,100 @@ test("the normaliser carries read and write through", () => {
   assert.equal(by.menu.write, undefined);
   assert.equal(by.menu.access, "display");
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE TWO HALVES OF THE TOOL SPOKE DIFFERENT TYPE LANGUAGES.
+//
+// A column may be text/integer/real/boolean/json. A function argument was
+// offered seven types no column can ever be — date, timestamptz, bigint,
+// numeric, uuid, jsonb, int. A function body compares its arguments to columns,
+// so `{name:"d", type:"date"}` against a TEXT `slot_date` is
+// `operator does not exist: text = date`: the function fails to CREATE, and the
+// page's lookup silently is not there. Non-fatal and reported in
+// `functionErrors`, so the site builds without the capability it asked for.
+//
+// The tool already knew the trap existed — its own example warns a claim token
+// is TEXT "not uuid" — so somebody hit that version and documented that one
+// case while the date, numeric and bigint versions stayed open.
+test("what the tool OFFERS as an argument type, the engine accepts", () => {
+  // DERIVED FROM BOTH FILES, because the failure is a disagreement between
+  // them. A type in the tool that the engine drops means the argument silently
+  // vanishes from the function's signature, and the body then references a
+  // parameter that does not exist.
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const at = w.indexOf("Arguments, matched to the COLUMN");
+  assert.ok(at > 0, "the args description moved — retarget this test");
+  // FROM INSIDE THE BRACKETS, not from the property. Anchored at
+  // `type: { type: "string", enum: [` the scan swallowed that literal
+  // `"string"` and reported it as an offered type the engine drops — a false
+  // alarm about a type nobody declared. Found by the test failing on correct
+  // code, which is the cheap direction for this mistake.
+  const enumAt = w.indexOf("enum: [", w.indexOf('type: { type: "string", enum: [', at)) + "enum: [".length;
+  const offered = [...w.slice(enumAt, w.indexOf("]", enumAt)).matchAll(/"([a-z]+)"/g)].map((m) => m[1]);
+  assert.ok(offered.length > 5, "read only " + offered.length + " arg types — the scan is broken");
+  assert.ok(!offered.includes("string"), "the scan is reading the property, not the enum");
+
+  const s = fs.readFileSync(new URL("../site-schema.mjs", import.meta.url), "utf8");
+  const sets = [...s.matchAll(/const TYPES = new Set\(\[([^\]]*)\]\)/g)].map((m) =>
+    [...m[1].matchAll(/"([a-z]+)"/g)].map((x) => x[1]));
+  // Two `TYPES` live in this file at different scopes — columns and functions.
+  // The function one is whichever contains `uuid`; picking by position would
+  // break the day somebody reorders the file.
+  const engine = sets.find((set) => set.includes("uuid"));
+  assert.ok(engine, "the function TYPES allow-list is gone — retarget this test");
+
+  const orphan = offered.filter((t) => !engine.includes(t));
+  assert.deepEqual(orphan, [],
+    "the tool offers argument types the engine drops: " + orphan.join(", ") +
+    " — the argument disappears from the signature and the body references a parameter that is not there");
+});
+
+test("no argument type is offered that no column can ever be matched to", () => {
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const at = w.indexOf("Arguments, matched to the COLUMN");
+  const enumAt = w.indexOf("enum: [", w.indexOf('type: { type: "string", enum: [', at)) + "enum: [".length;
+  const offered = [...w.slice(enumAt, w.indexOf("]", enumAt)).matchAll(/"([a-z]+)"/g)].map((m) => m[1]);
+
+  // GONE, because no column is ever either. A date or a time lives in a TEXT
+  // column, so a `date` argument can only be right through an explicit cast
+  // that nothing asks for — an option that is almost always the wrong answer.
+  for (const dead of ["date", "timestamptz"])
+    assert.ok(!offered.includes(dead),
+      "`" + dead + "` is offered again, and no column can ever be one");
+
+  // KEPT DELIBERATELY, and these are not oversights: `owner_id` and `team_id`
+  // really are UUID columns, and a `hook_*` handler takes exactly one jsonb
+  // payload. Removing them would break the two features that need them.
+  for (const needed of ["uuid", "jsonb"])
+    assert.ok(offered.includes(needed),
+      "`" + needed + "` was removed — owner_id is UUID and an inbound hook takes jsonb");
+
+  // `integer` alongside `int`, because that is the word the COLUMNS use and the
+  // engine has always taken both. Offering one spelling while the other half of
+  // the tool uses the other is the whole mismatch in miniature.
+  assert.ok(offered.includes("integer") && offered.includes("int"),
+    "the columns say `integer` and the arguments must accept that spelling");
+});
+
+test("the args description states what a declared column REALLY is", () => {
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const at = w.indexOf("Arguments, matched to the COLUMN");
+  const end = w.indexOf("items: {", at);
+  assert.ok(end > at, "the args description could not be read whole");
+  const desc = w.slice(at, end);
+
+  // THE TWO SURPRISING ONES, which a model cannot infer and will get wrong.
+  // A `boolean` column is INTEGER 0/1 in Postgres and a `json` column is TEXT —
+  // so a `boolean` or `jsonb` argument compared to one is the same mismatch as
+  // the date case, arriving from a type the tool still offers.
+  assert.match(desc, /`boolean` is INTEGER 0\/1, NOT boolean/,
+    "nothing says a boolean column is an INTEGER, so a boolean argument compared to one fails");
+  assert.match(desc, /`json` is TEXT, NOT jsonb/,
+    "nothing says a json column is TEXT, so a jsonb argument compared to one fails");
+  // And the fact that makes the removal above make sense from the model's side.
+  assert.match(desc, /THERE IS NO DATE COLUMN/,
+    "the model is not told that a date lives in a TEXT column");
+  // The managed columns, which a function is most likely to be handed.
+  assert.match(desc, /`owner_id` and `team_id` are UUID/,
+    "the only UUID columns on the platform are not named");
+});
