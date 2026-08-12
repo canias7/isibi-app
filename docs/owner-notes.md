@@ -89,6 +89,68 @@ funded**, so every `SafeImage` on every published site is drawing its placeholde
 and no photograph has ever been generated. The upload half needs no image model
 and is what works today — which is why the tool prefers it.
 
+## THE BUILD-vs-EDIT GAP AUDIT (2026-08-12) — what the chat still cannot do
+
+**Asked "what else needs adding to edit that's on build" and ran it as a 24-agent
+audit rather than answering from memory**: six readers over the build path, a
+cross-reference, an adversarial refuter per candidate, and a completeness critic.
+**9 of 16 candidates were REFUTED** — the skeptic doing its job, and the reason to
+trust what survived. **I then verified the top four by hand.** One caveat on the
+method: the survey agent covering *what the lanes can change* died mid-response,
+so the candidate list was generated without it; the refuters read the real lane
+code anyway, and the completeness critic found **nine more than the main pass**,
+which is what that missing survey looks like from the outside.
+
+### TWO LIVE BUGS, found on the way and not edit gaps at all
+
+- **THE "TAKE OFFLINE" BUTTON CALLS A ROUTE THAT DOES NOT EXIST, AND TELLS THE
+  OWNER IT WORKED.** `public/chat.js:10519` POSTs `/api/site/unpublish`;
+  `grep -c` in `worker.js` is **0**. On the failure path it says *"Couldn't take it
+  offline just now — try again"*, so the site stays up and the owner is told to
+  retry forever. There is no way to take a site down without `DELETE`, which drops
+  the Neon database permanently. A seasonal business, a refit, or a site built
+  before launch has nothing between "live" and "destroyed".
+- **`VideoEmbed` IS OFFERED TO THE GENERATOR AND BLOCKED BY OUR OWN CSP.** The
+  component emits a `youtube-nocookie`/`vimeo` iframe
+  (`video-embed.tsx:12-13`); the published-site policy is
+  `frame-src 'self' https://www.openstreetmap.org https://www.google.com
+  https://maps.google.com` (`worker.js:1037`) — neither host is on it. It is named
+  in `page-gen.mjs` AND `component-api.mjs`, so the model is actively told to use
+  it. **Typechecks, bundles, publishes, renders nothing** — this repo's signature
+  failure shape, live right now.
+
+### THE GAPS, ranked by what a real business hits first
+
+1. **Who gets the "a booking arrived" email.** Hardcoded to the owner's *platform
+   login address*: `ownerEmail` (`worker.js:4638-4646`) fetches the GoTrue account
+   and returns `u.email`; `site-notify.mjs:99` takes `to` from it and nothing else.
+   No recipient column on `site_backends`, only a `notify` boolean. So
+   *"send bookings to bookings@… and copy my manager"* is unanswerable. **`rules`
+   should own this — it already sets `confirm.to` and `sms.to` on the same table.**
+2. **Any third-party tag** — Google Analytics, Meta Pixel, a chat widget, a
+   Calendly embed. Structurally impossible: `script-src 'self'`,
+   `connect-src 'self'`, `img-src` without a wildcard (`worker.js:1030-1034`), AND
+   nothing anywhere can put a line into the `<head>`.
+3. **The site's language.** `builder/lovable/template/index.html:2` is
+   `<html lang="en">` and the container rewrites only `<title>`. A Welsh site the
+   `text` lane can genuinely translate still declares itself English — so Chrome
+   offers to translate it *into* English. **`look` should own it.**
+4. **Turning a constraint OFF** (`unique`/`noOverlap`/`oncePerUser`/`maxRows`), and
+   **changing an existing one's columns**. Refused deliberately in
+   `site-rules.mjs:63`, and the refusal is correct: **measured, there is not one
+   `DROP INDEX` anywhere in the repo**, so removing it from `_meta` would leave the
+   index standing. The gap is the missing DROP half.
+5. **Renaming the slug / web address.** Decided by one model call on the first
+   build and simultaneously the hostname, the R2 prefix, the uploads prefix, the
+   database name and the ownership key. Renaming the *business* works, so the
+   customer gets a site saying "The Chair Room" at `sharp-fade-barbers.gofarther.app`
+   forever. Only exit is delete-and-rebuild, which loses everything.
+6. **Favicon**, **the link-preview picture (`og:image`)**, and **a logo in the
+   header** — the three most visible things a rebrand touches.
+7. **Dropping a table / bulk-deleting rows**, **external image URLs** (an Instagram
+   photo, a supplier's shot), **`noindex`/robots**, **social sign-in for a site's
+   own members**, **per-site rate limits**.
+
 **Cloudflare Web Analytics for `gofarther.app`** — the owner asked to be reminded
 when they say they are home, since it wants doing on their desktop.
 
