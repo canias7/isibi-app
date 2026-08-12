@@ -11,6 +11,21 @@
 # real build to have a site to edit, then the lanes themselves. That is why it is
 # NOT on every deploy. It runs when the lanes' own code changes, and on demand.
 #
+# WHAT THIS FILTER CANNOT COVER, stated because it cost a night. The lanes'
+# ROUTE — the dispatch, and the response object the composer reads — lives in
+# `worker.js`, which is NOT here and cannot be: it changes on nearly every commit
+# and this run is ~50 credits. So on 2026-08-12 the route was found to have never
+# forwarded `remove`, page deletion was unreachable in the product from the day it
+# shipped, and no run fired for the commit that fixed it. If a change touches the
+# wiring rather than a lane module, trigger this by hand or with a change to a
+# file that is listed.
+#
+# AND WHAT IT COVERS IS NARROWER THAN WHAT IT NAMES. `site-text.mjs`,
+# `site-picture.mjs` and `site-logo.mjs` are lane modules with NO assertion in
+# this run — text, picture and logo are still unproven live. They are worth
+# listing anyway (a change there is a change to the edit lane), but a green run
+# says nothing about them.
+#
 # It also burns a throwaway Neon project and a Supabase user per run, both
 # destroyed in the test's `finally`.
 name: edit smoke
@@ -35,6 +50,12 @@ on:
       # That is the right trade for a lane customers pay for — and `build smoke`
       # covers the other half of this file for free on every deploy anyway.
       - 'builder/page-gen.mjs'
+      # THE LOOK LANE'S OWN MERGE, and it was missing. `mergeLook` and
+      # `EDIT_FIELDS` live here and the rename is FOUR of this run's assertions,
+      # so a change here can break a lane this check covers and never be checked.
+      # Second time the trigger list has forgotten a file it needed — the first
+      # was the picture layer.
+      - 'builder/site-edit.mjs'
       - 'test/integration/edit-smoke.mjs'
       - '.github/workflows/edit-smoke.yml'
   workflow_dispatch:
