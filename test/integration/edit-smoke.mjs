@@ -590,7 +590,15 @@ async function main() {
     // reporting success, which is what the `kept` field is for.
     const removed = (p.removed || []).length > 0;
     const kept = (p.kept || []).length > 0;
-    ok("a page can be removed, or the refusal explains itself", removed || kept || !!p.msg,
+    // `problems` IS THE EXPLANATION ON THIS PATH, and leaving it out was the last
+    // thing failing. Measured live: the cheap lane had already deleted the page,
+    // so the addon found links pointing at something that no longer exists, took
+    // them out, and said exactly that — `ok: true`, `changed: ["index.tsx"]`,
+    // `problems: ["These pages were linked to and do not exist…"]`. Nothing
+    // removed and nothing kept, because there was nothing left to remove. That
+    // is the lane being right, reported in the field it reports problems in.
+    const explained = removed || kept || !!p.msg || (p.problems || []).length > 0;
+    ok("a page can be removed, or the refusal explains itself", explained,
       `${rmp.status} ${JSON.stringify(p).slice(0, 240)}`);
     if (removed) ok("…and the page really went", (p.removed || []).includes(added), JSON.stringify(p.removed));
 

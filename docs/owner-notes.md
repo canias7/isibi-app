@@ -16202,3 +16202,28 @@ everything deleted — which is also what still proves the delete-a-site path.
 
 We're not losing build coverage: `build smoke` already exercises the whole build
 on every deploy, for free. The build in *this* check was only ever scaffolding.
+
+**Deleting a page works. Proven end to end (12 Aug, 3:40am).**
+
+    ok  a deletion routes to the page layer with `remove`
+    ok  the page is deleted, or the refusal names what still links to it
+    ok  …and it cost nothing to generate
+        the removed page now answers 404
+    ok  …and with the links gone, the cheap deletion goes through
+    ok  …and it still cost nothing to generate
+
+42 passed, 1 failed — and the one failure is the check again, not the builder.
+The bigger lane answered "done, and by the way those links pointed at a page
+that no longer exists" — which is right, said in the field it says problems in,
+and my condition didn't list that field. One line.
+
+**Eight live runs to get here, and it's worth knowing what they actually found:**
+two real problems with what the AI was told, and **four bugs of our own that were
+completely silent** — a field the answer never carried, a filename it couldn't
+read, a check asking to delete the home page, and a check racing the deploy. Plus
+two checks that had been calibrated while a bug was live, so fixing the bug made
+them fail.
+
+Only the first two were ever about the model. That's the thing I'd take from
+tonight: when a field comes back empty, check it can arrive before rewriting the
+instructions.

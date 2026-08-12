@@ -1105,6 +1105,13 @@ Auth config (set 2026-07-03 via Management API): Site URL `https://isibi.ai`, re
 - **THREE OF FOUR MUTANTS SURVIVED THE FIRST SWEEP, ALL THE OVERLAPPING-WINDOW BUG.** A window of 400 characters after the 404 check ran into the 403 branch, so deleting the 404 branch's own `alert` was satisfied by its neighbour's; the 403 assertion reached the failure branch's `return;` the same way. The three branches are carved by the NEXT condition's index now, so nothing is proved by the branch below it. **This repo's most repeated own-goal, and the third instance this session.**
 - Verified with a live read of `site_backends` and a real request to the subdomain — not inferred from the code. 2350 tests, **4/4 mutations caught** from a verified-green baseline.
 
+## PAGE DELETION IS PROVEN LIVE, END TO END (2026-08-12)
+
+**42 passed, 1 failed, and the deletion journey is complete**: routed to the page layer with `remove`, the page found by name, the guard's refusal naming what still linked to it, the links taken out, the deletion going through, **the removed page answering 404 over the wire** — and both deletions costing nothing to generate. Eight live runs to get here, and the last four found bugs that were never in the model.
+
+- **THE ONE REMAINING FAILURE WAS THE CHECK, FOR THE FOURTH TIME.** The addon answered `ok: true` with `changed: ["index.tsx"]`, nothing removed, nothing kept, and `problems: ["These pages were linked to and do not exist…"]` — because the cheap lane had ALREADY deleted the page, so it found links pointing at something gone and took them out. Correct, and reported in the field it reports problems in; the assertion listed `removed`, `kept` and `msg` and not that one.
+- **THE SCOREBOARD OF THE EIGHT RUNS, because the pattern is the lesson.** Two were real prompt bugs (a confirmation question, then the wrong lane). **Four were ours and silent**: the route never forwarded `remove`, `routeOf` could not read a stored path, the check asked to delete the home page, and the check raced the deploy. **Two were checks calibrated against a live bug** — fixing the bug turned them red. Only the first two were about what the model answered.
+
 ## The deletion works, and the check was asserting a flow the product does not have (2026-08-12)
 
 **First run that did not race the deploy, and the answer arrived in one line:** `ok a deletion routes to the page layer with 'remove'`, then `422 error:"kept"` — *"I left /gallery — /, /book, /work still link to it. Ask me to take the link out first."* **The page was FOUND and refused by the guard**, which is the `routeOf` fix working end to end. The look lane and the rules lane both passed clean.
