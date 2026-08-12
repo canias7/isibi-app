@@ -116,11 +116,14 @@ export const FALLBACK_NO_SITE = "build";
  *            without regenerating a single page, which is the whole saving.
  * `page`   — one existing page's structure. One page through the pages model
  *            rather than all of them.
+ * `logo`   — the business's own artwork at the top of every page. The
+ *            ATTACHMENT is which picture, so nothing has to be matched and no
+ *            model writes a line; the URL is read at compile time.
  *
  * An unrecognised layer is not a fourth option, it is a routing failure, and it
  * goes UP the ladder like every other one.
  */
-export const EDIT_LAYERS = ["data", "text", "look", "page", "rules", "picture"];
+export const EDIT_LAYERS = ["data", "text", "look", "page", "rules", "picture", "logo"];
 
 export const ASK_TOOL = {
   name: "route_message",
@@ -183,6 +186,12 @@ export const ASK_TOOL = {
           "or taking one off. \"Use my own photo of the shop instead\", \"the picture of the chairs is wrong\", " +
           "\"add a photo to the about page\". This is about the IMAGE ITSELF and never about the words beside it or " +
           "where it sits on the page.\n" +
+          "\"logo\" — THE BUSINESS'S OWN LOGO, which goes at the top of every page and is not a photograph on one. " +
+          "\"here's my logo\", \"this is our logo, put it in the header\", \"use this as the logo\", \"my logo goes " +
+          "top left\" — nearly always with a picture attached, because the attachment IS which picture they mean. " +
+          "Answer this for taking it OFF as well (\"drop the logo\", \"just the name is fine\"), with `remove` true " +
+          "and no attachment expected. THE WORD \"LOGO\" IS THE SIGNAL and it is a strong one: a picture attached to " +
+          "a message about the header, the top of the site, or the brand mark is this and not \"picture\".\n" +
           "\"page\" — the arrangement of ONE existing page: move a section, take one out, lay a list out differently, " +
           "add a block built from parts the page already has. Name it in `page`.\n" +
           "ONE PAGE, AND ONLY ONE. If the change is meant to land on several — \"put the phone number in the footer " +
@@ -200,11 +209,14 @@ export const ASK_TOOL = {
       remove: {
         type: "boolean",
         description:
-          "Only when layer is \"page\". True when they are asking for that page to be TAKEN AWAY — \"remove the gallery " +
+          "For layer \"page\": true when they are asking for that page to be TAKEN AWAY — \"remove the gallery " +
           "page\", \"we don't need the about page any more\", \"delete /prices\".\n" +
           "ONLY WHEN THEY PLAINLY MEAN DELETE THE WHOLE PAGE. Changing what is on a page, taking a SECTION off it, or " +
           "emptying it out are all ordinary page edits — leave this out for those. Getting it wrong the other way takes " +
-          "a page off their site.",
+          "a page off their site.\n" +
+          "For layer \"logo\": true when they want the logo TAKEN OFF and the header to go back to showing the " +
+          "business name — \"drop the logo\", \"remove our logo\", \"just the name is fine\". A message that ATTACHES " +
+          "a picture is never a removal.",
       },
       answer: {
         type: "string",

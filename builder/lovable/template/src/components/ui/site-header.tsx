@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Menu } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { SITE_LOGO } from "@/site-brand";
 
 export type NavLink = { label: string; href: string };
 
@@ -78,8 +79,28 @@ export function SiteHeader({
   return (
     <header className={cn("sticky top-0 z-40 border-b bg-background/85 backdrop-blur", className)}>
       <div className="mx-auto flex h-14 max-w-6xl items-center gap-4 px-6">
+        {/* THE BUSINESS'S OWN LOGO, when it has attached one.
+         *
+         * IT REPLACES THE NAME RATHER THAN SITTING BESIDE IT, and the name
+         * becomes the `alt`. Most small-business logos are lockups that already
+         * contain the name, so showing both prints it twice — and the alt keeps
+         * it for a screen reader, for a text browser, and for the case that
+         * matters most here: the image failing to load, where the header falls
+         * back to exactly what every site has today rather than to nothing.
+         *
+         * `max-w` is not decoration. A wide wordmark with no bound pushes the
+         * nav off the right-hand edge, and the person who notices is a visitor
+         * who cannot find the booking link. */}
         <SiteLink href="/" className="font-semibold tracking-tight">
-          {brand}
+          {SITE_LOGO ? (
+            <img
+              src={SITE_LOGO}
+              alt={brand}
+              className="h-7 w-auto max-w-[180px] object-contain"
+            />
+          ) : (
+            brand
+          )}
         </SiteLink>
         <nav className="ml-auto hidden items-center gap-6 md:flex">
           {links.map((l) => (

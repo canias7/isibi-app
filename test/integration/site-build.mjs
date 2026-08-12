@@ -247,7 +247,7 @@ try {
   // `lang` rides on the main build rather than costing its own: it is a
   // property of the document every page's head is derived from, so the site
   // that is already being built is the honest place to read it back.
-  const built = await post({ files: { "index.tsx": INDEX, "menu.tsx": MENU }, slug: "fold-coffee", title: "Fold Coffee", lang: "pt-BR" });
+  const built = await post({ files: { "index.tsx": INDEX, "menu.tsx": MENU }, slug: "fold-coffee", title: "Fold Coffee", lang: "pt-BR", logo: "/u/fold-coffee/logo.png" });
   console.log(`  (${Math.round((Date.now() - t0) / 1000)}s)`);
 
   ok("the build succeeds", built.ok === true, built.stage + ": " + built.error);
@@ -352,6 +352,17 @@ try {
     const icon = (built.files["icon.svg"] || {}).t || "";
     ok("the mark is a self-contained svg", /<svg[\s\S]*<\/svg>$/.test(icon), icon.slice(0, 120));
     ok("the mark carries this site's initials", />FC</.test(icon), icon.slice(0, 200));
+
+    // A LOGO ON A SITE WITH NO HEADER IS HARMLESS, and that is the only thing
+    // this build can honestly say about one. These fixtures render no
+    // `SiteChrome`, so nothing imports `site-brand.ts` and Vite tree-shakes it
+    // out — the logo correctly does not reach the bundle at all. Two drafts of
+    // an assertion here were wrong for that one reason: first demanding the
+    // logo in the prerendered head, then demanding it in the JS. The proof that
+    // it renders belongs on a page that has a header, and it lives in its own
+    // build below. What matters here is that `logo` in the payload does not
+    // disturb a site that never asked for one, which "the build succeeds"
+    // above already covers.
 
     const js = names.filter((n) => n.endsWith(".js")).map((n) => built.files[n].t || "").join("");
     ok("the bundle talks to the tables the pages named", js.includes("drinks") && js.includes("enquiries"));
@@ -679,6 +690,65 @@ function Home() { return <main><h1>${brand}</h1></main>; }`;
     const mark = (r) => ((r.files || {})["icon.svg"] || {}).t || "";
     ok("each concurrent build gets its own mark", />AY</.test(mark(a)) && />FC</.test(mark(b)),
       `a=${(mark(a).match(/>([^<]*)<\/text>/) || [])[1]} b=${(mark(b).match(/>([^<]*)<\/text>/) || [])[1]}`);
+
+    // NEITHER OF THESE SENT A LOGO, so neither may carry the one the build
+    // before them did. The container writes `site-brand.ts` on every build for
+    // exactly this reason — it is a long-lived process serving every site on
+    // the platform, and a file left behind is one customer's logo on another's
+    // header. Same leak the content check above is here for, one file over.
+    ok("a build that sends no logo carries none",
+      !shell(a).includes("logo.png") && !shell(b).includes("logo.png"),
+      "the previous build's logo is still on disk and reached a site that never asked for one");
+  }
+
+  // ── the logo in a real header, server-rendered ───────────────────────────
+  //
+  // ITS OWN BUILD, on a page that uses `SiteChrome` — the fixtures above render
+  // no header at all, so asserting on them passed for the wrong reason and then
+  // failed for the right one.
+  //
+  // WHAT THIS PROVES THAT NOTHING ELSE CAN: the logo is present in the
+  // PRERENDERED HTML. It is baked into the bundle by a generated module rather
+  // than injected into the head, precisely so the server render has it — read
+  // from an injected `<meta>` it would be absent in the snapshot and present
+  // after hydration, which is a mismatch and a header that visibly flips from
+  // the name to the logo on every page load.
+  console.log("\nbuilding a site with a logo…");
+  const CHROMED = `import { createFileRoute } from "@tanstack/react-router";
+import { SiteChrome } from "@/components/ui/site-chrome";
+export const Route = createFileRoute("/")({ component: Home });
+function Home() {
+  return (
+    <SiteChrome name="Sharp Fade Barbers" links={[{ label: "Book", href: "/book" }]}>
+      <main><h1>Walk-ins welcome</h1></main>
+    </SiteChrome>
+  );
+}`;
+  const withLogo = await post({ files: { "index.tsx": CHROMED }, slug: "logo-site", title: "Sharp Fade Barbers", logo: "/u/logo-site/mark.png" });
+  ok("a site using the site frame builds with a logo", withLogo.ok === true, withLogo.stage + ": " + withLogo.error);
+  if (withLogo.ok) {
+    const h = (withLogo.files["index.html"] || {}).t || "";
+    // NOT CALLED `img`. The block-scope scanner in `worker-imports.test.mjs`
+    // reads the source as text, so a bare three-letter name that also appears
+    // inside a regex literal (`/<img[^>]*>/` two assertions down) reads to it as
+    // a use after the block closed — a ReferenceError that is not there. The
+    // scanner is deliberately narrow rather than a parser, so the cheap fix is a
+    // name that cannot collide with markup.
+    const logoImg = (h.match(/<img[^>]*src="\/u\/logo-site\/mark\.png"[^>]*>/) || [""])[0];
+    ok("the logo is SERVER-RENDERED into the header", !!logoImg, h.slice(0, 400));
+    // The name is the ALT, so a failed image degrades to what every site shows
+    // today rather than to an empty bar — and a crawler still reads the name.
+    ok("…with the business name as its alt", /alt="Sharp Fade Barbers"/.test(logoImg), logoImg);
+    // Unbounded, a wide wordmark pushes the nav off the right-hand edge and a
+    // visitor cannot find the booking link.
+    ok("…and a width bound, so it cannot push the nav off the page", /max-w-\[\d+px\]/.test(logoImg), logoImg);
+  }
+
+  const noLogo = await post({ files: { "index.tsx": CHROMED }, slug: "logo-site", title: "Sharp Fade Barbers" });
+  if (noLogo.ok) {
+    const h = (noLogo.files["index.html"] || {}).t || "";
+    ok("a site with no logo shows the name, exactly as before", h.includes("Sharp Fade Barbers") && !/<img[^>]*mark\.png/.test(h),
+      "the previous build's logo survived into a site that sent none");
   }
   // ── a link to a page that does not exist ─────────────────────────────────────
   //

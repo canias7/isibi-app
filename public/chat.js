@@ -11165,7 +11165,7 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering) {
     // worst case is the customer waits a moment longer for the outcome they
     // would have got anyway. So this must never surface an escalation as an
     // error — the change still happens, one rung up.
-    if (d.intent === 'edit' && site.slug) return siteEdit(site, d, t, origin, finish, go);
+    if (d.intent === 'edit' && site.slug) return siteEdit(site, d, t, origin, finish, go, imgs);
     // THE MIDDLE RUNG. Adds a page or a table and keeps everything else; costs a
     // few credits where the revise below costs ~25 and rewrites pages that were
     // fine. Falls through to that revise on anything it cannot do, exactly like
@@ -11204,7 +11204,7 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering) {
 // failed (the site is untouched, and rewriting every page to fix a typo is the
 // trade nobody would make). Those the customer is told about, in the server's
 // own words.
-function siteEdit(site, d, instruction, origin, finish, fallback) {
+function siteEdit(site, d, instruction, origin, finish, fallback, imgs) {
   const slug = String(site.slug || '');
   if (!slug) return fallback();
   apiFetch('/api/site/' + encodeURIComponent(slug) + '/edit', {
@@ -11226,6 +11226,12 @@ function siteEdit(site, d, instruction, origin, finish, fallback) {
       // act on it.
       recent: d.layer === 'data' && Array.isArray(site.undoRows) && site.undoRows.length
         ? site.undoRows.slice(0, 3) : undefined,
+      // THE ATTACHED PICTURE, AND ONLY WHERE IT MEANS SOMETHING. The logo layer
+      // is the one rung where the attachment IS the instruction — it is which
+      // picture, and there is nothing else to resolve it against. Sent on that
+      // layer alone so no other edit carries a megabyte of base64 it will not
+      // read.
+      images: d.layer === 'logo' && Array.isArray(imgs) && imgs.length ? imgs.slice(0, 3) : undefined,
     }),
   }).then(async (r) => {
     const e = await r.json().catch(() => null);
@@ -11466,6 +11472,12 @@ function editReply(e) {
         (ign.length === 1 ? 'it' : 'them') + ' if you want the same change there.';
     }
     return out + photoNote(e.photos) + problemNote(e.problems);
+  }
+  if (e.layer === 'logo') {
+    // THE SERVER'S OWN SENTENCE. It is the only side that knows whether the
+    // logo went on or came off, and a generic "done" over a removal reads as
+    // the builder not having understood.
+    return String(e.msg || '✅ Done.');
   }
   if (e.layer === 'look') {
     // OUR FIELD NAMES ARE NOT THE CUSTOMER'S WORDS. `moved` carries the stored
@@ -11926,12 +11938,17 @@ function siteSend(text) {
   // attachment survives the round — `siteAnswer` carries `clarify.imgs` through
   // to the build — so there was never a reason it could not be asked.
   //
-  // On a REVISE with an attachment both non-build outcomes are already closed
-  // (`canClarify` is false, `ask` is shut by `attached`), so the call could only
-  // ever answer "build". Skipping it there is not a policy, just not paying a
-  // credit for an answer that is already known.
-  if (reactPath && (!imgs.length || isBuild)) { siteRoute(site, t, origin, isBuild, imgs, finish); return; }
-  if (reactPath) { reactSend(site, t, origin, isBuild ? 'build' : 'revise', imgs, finish); return; }
+  // A REVISE WITH AN ATTACHMENT IS ROUTED AGAIN, and the reason it stopped
+  // being skipped is worth keeping: the skip was justified by "both non-build
+  // outcomes are already closed, so the call could only ever answer build" —
+  // true of the layers that existed, and made FALSE by the `logo` layer. An
+  // attached picture plus "this is my logo" now has a real, honest answer that
+  // is neither a paragraph nor a ~27-credit rewrite of every page.
+  //
+  // The reasoning that closed `ask` still stands and is unchanged: `attached`
+  // shuts it at the router, because answering a file with prose drops the file
+  // on the floor. What re-opens is only the WORK answers.
+  if (reactPath) { siteRoute(site, t, origin, isBuild, imgs, finish); return; }
   // A LEGACY STATIC SITE CANNOT BE EDITED — the engine that made it is gone.
   //
   // This posted to `POST /api/site`, deleted with the D1 runtime on 2026-07-27.

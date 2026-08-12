@@ -177,24 +177,70 @@ checked against the rule it appeared to break.**
    database name and the ownership key. Renaming the *business* works, so the
    customer gets a site saying "The Chair Room" at `sharp-fade-barbers.gofarther.app`
    forever. Only exit is delete-and-rebuild, which loses everything.
-6. **Favicon** — ~~every site shares one~~ **FIXED 2026-08-12**, each site now gets
-   its own mark derived from its name. **The link-preview picture (`og:image`)** —
-   **PARTLY REFUTED on checking**: there IS one, `siteOgImage` (`worker.js:5737`)
-   picks the owner's first upload and `injectMeta` publishes it. The real gap is
-   narrower: the owner cannot CHOOSE which picture, so with 30 uploads they get
-   whichever R2 lists first. **A logo in the header** — CONFIRMED and still open:
-   `SiteChrome` takes `name: string` and `SiteHeader` takes `brand: string`
-   (`site-chrome.tsx:45-63`), so there is no image slot anywhere in the frame.
-   Needs an explicit way to say WHICH picture — uploads are content-hashed, so
-   there is no filename to match on. Two candidates, and it is a decision rather
-   than a detail: a picker in the uploads panel, or routing an attached image to
-   the `look` layer instead of straight to a rebuild.
+6. ~~**Favicon**, **`og:image`**, **a logo in the header**~~ — **ALL RESOLVED
+   2026-08-12.** The favicon: each site now gets its own mark derived from its
+   name. **The logo: attach it and say "this is my logo"** — your call, and the
+   right one; the picker I proposed was overcomplicating it. **`og:image` was
+   PARTLY REFUTED on checking** — there already is one, `siteOgImage` picks your
+   first upload and it is published; the only residue is that you cannot choose
+   *which* picture, which the same attach-and-say mechanism could cover later if
+   it ever matters.
 7. **Dropping a table / bulk-deleting rows**, **external image URLs** (an Instagram
    photo, a supplier's shot), **`noindex`/robots**, **social sign-in for a site's
    own members**, **per-site rate limits**.
 
 **Cloudflare Web Analytics for `gofarther.app`** — the owner asked to be reminded
 when they say they are home, since it wants doing on their desktop.
+
+---
+
+## 2026-08-12 — "Hey, this is my logo, put it there"
+
+**Your words, and you were right to reject the picker.** I proposed a chooser in
+the uploads panel; you said just make it normal. The attachment IS which picture,
+so nothing has to be matched or remembered — which is also what makes this the
+cheapest rung on the ladder. **Attach the logo, say it's your logo, it goes in the
+header of every page.** "Drop the logo" takes it off again. No model writes a
+line, no page is rewritten, and it costs only the routing call that already
+happens.
+
+**What was actually missing was the slot.** `SiteHeader` took the business name
+as a string and there was no image slot anywhere in the frame, so no site the
+platform has ever made could show a logo. The hard half was never that — it was
+that uploads are stored under a hash of their contents, so "use the one with the
+black lettering" has no filename to resolve against. Attaching it answers that
+completely.
+
+**Three decisions worth knowing, because they will show up.**
+
+- **The logo REPLACES the name rather than sitting beside it**, with the name as
+  the image's alt text. Most small-business logos already contain the name, so
+  showing both prints it twice — and the alt means a screen reader still reads
+  it, Google still reads it, and if the image ever fails to load the header falls
+  back to exactly what it shows today rather than to an empty bar.
+- **SVG is refused, and this is the one that may annoy you.** A logo is the most
+  likely thing to arrive as an SVG because that is what a designer hands over.
+  But an SVG is a document that can carry a script, and we serve it from your
+  customer's own domain — so it is a real security hole rather than a fussy rule.
+  The message says to export a PNG instead rather than just saying no.
+- **A revise would have silently taken the logo off**, and that was worth catching
+  before it shipped: the container rewrites the logo file on every build (it has
+  to, or one site's logo leaks onto the next), so any path not carrying the stored
+  value carries nothing. Someone would have attached a logo, asked for a page
+  change, and watched it vanish with no error.
+
+**One recorded rule was reversed to make this possible.** An attachment used to
+skip the router entirely on an existing site — justified by "the only answer it
+could give is *rebuild*", which was true of the layers that existed and is false
+now that there is a logo layer. So an attachment is routed again. The half that
+mattered is unchanged: a message carrying a file is never answered with a
+paragraph.
+
+**Proven by building a real site through the real container, with and without a
+logo, and looking at both** — including checking the logo is in the server-
+rendered HTML rather than painted in afterwards, which is the difference between
+a clean page load and the header visibly flipping from the name to the logo every
+time somebody opens it.
 
 ---
 

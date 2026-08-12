@@ -184,6 +184,31 @@ function writeFonts(fonts, fontFiles) {
   return { heading: pair.heading.id, body: pair.body.id, applied, fetched: Object.keys(written), notes };
 }
 
+// The site's own logo, baked into the bundle rather than injected into the head.
+//
+// WRITTEN ON EVERY BUILD, INCLUDING WHEN THERE IS NONE. This container is
+// long-lived and serves every build on the platform, so a file left behind by
+// the last site is that site's logo on this one's header — the same leak
+// `resetRoutes` and the per-build icon already guard against. An empty string is
+// a real answer here and has to be written as one.
+//
+// ONLY AN ABSOLUTE https URL OR A SITE-RELATIVE `/u/` PATH. The value ends up in
+// a `src` inside generated TypeScript, so it is quoted with JSON.stringify AND
+// bounded to shapes that cannot be a `javascript:` URL — the string comes from
+// our own `_meta`, but "it came from us" is how the first person to reach that
+// row through some other route gets an XSS on a customer's site.
+function writeSiteLogo(logo) {
+  const s = typeof logo === "string" ? logo.trim() : "";
+  const ok = /^https:\/\/[^\s"'<>]+$/i.test(s) || /^\/u\/[a-z0-9][a-z0-9-]{0,80}\/[a-z0-9._-]{1,120}$/i.test(s);
+  const value = ok ? s : "";
+  fs.writeFileSync(
+    path.join(APP, "src", "site-brand.ts"),
+    "// Generated per build by build-server.mjs. Do not edit.\n" +
+      "export const SITE_LOGO = " + JSON.stringify(value) + ";\n",
+  );
+  return { logo: !!value, refused: !!s && !ok };
+}
+
 function run(cmd, args, env) {
   return new Promise((resolve) => {
     const child = spawn(cmd, args, { cwd: APP, env: { ...process.env, ...(env || {}) } });
@@ -421,6 +446,7 @@ const server = http.createServer((req, res) => {
     try {
       resetRoutes();
       const identityUsed = writeIndexHtml(payload.title, payload.lang, payload.title);
+      const logoUsed = writeSiteLogo(payload.logo);
       const fontsUsed = writeFonts(payload.fonts, payload.fontFiles);
       // ONE reading of the patch, shared: whether a radius was asked for decides
       // both that the theme's own corner rules give way and what is written.
@@ -488,7 +514,7 @@ const server = http.createServer((req, res) => {
 
       const dist = collectDist();
       if (!dist["index.html"]) return send(res, 200, { ok: false, stage: "build", error: "build produced no index.html", ms: Date.now() - t0, ...times });
-      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, fonts: fontsUsed, theme: themeUsed, tokens: tokensUsed, identity: identityUsed, prerendered: pre.done, prerenderSkipped: pre.skipped });
+      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, fonts: fontsUsed, theme: themeUsed, tokens: tokensUsed, identity: identityUsed, brand: logoUsed, prerendered: pre.done, prerenderSkipped: pre.skipped });
     } catch (e) {
       return send(res, 200, { ok: false, stage: "build", error: String((e && e.message) || e).slice(0, 2000), ms: Date.now() - t0, ...times });
     }

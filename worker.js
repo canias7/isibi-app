@@ -51,6 +51,7 @@ import { extractText, applyEdits } from "./builder/site-text.mjs";
 import { runTextEdit, runDataEdit, renamePages, MAX_DATA_ROWS } from "./builder/site-apply.mjs";
 import { runRulesEdit } from "./builder/site-rules.mjs";
 import { runPictureEdit } from "./builder/site-picture.mjs";
+import { runLogoEdit } from "./builder/site-logo.mjs";
 import { resolveAccess, ACCESS_PRESETS } from "./site-access.mjs";
 // The pair a `display` table resolves to. Named once, from the presets, so the
 // data layer's gate cannot drift from the vocabulary again — it was compared
@@ -5649,7 +5650,7 @@ function compileMsg(pub, theirs) {
 }
 
 async function recompileAndPublish(env, { slug, pages, label }) {
-  let look = null, tokens = null;
+  let look = null, tokens = null, logo = "";
   try {
     // `siteBackendBySlug` RETURNS THE CONNECTION STRING, not a record. This read
     // `conn && conn.conn`, which is `undefined` for a string — so the `_meta`
@@ -5663,10 +5664,16 @@ async function recompileAndPublish(env, { slug, pages, label }) {
     // worse. Every other caller in this file uses the return value directly.
     const db = await siteBackendBySlug(env, slug);
     if (db) {
-      const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens')");
+      const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_logo')");
       for (const r of rows || []) {
         if (r.k === "site_look" && r.v) look = JSON.parse(r.v);
         if (r.k === "site_tokens" && r.v) tokens = JSON.parse(r.v);
+        // ITS OWN KEY, NOT A FIELD ON `site_look`, and that is load-bearing.
+        // `mergeLook` builds its output from `EDIT_FIELDS` alone, so anything
+        // else stored on that object is DROPPED by the next look edit — a
+        // customer changing a colour would silently lose their logo. Stored
+        // beside `site_tokens`, which is a separate concern for the same reason.
+        if (r.k === "site_logo" && typeof r.v === "string") logo = r.v;
       }
     }
   } catch (e) { console.error("recompile look read failed:", slug, e && e.message); }
@@ -5704,6 +5711,7 @@ async function recompileAndPublish(env, { slug, pages, label }) {
           // `applyIdentity` leaves the attribute alone rather than guessing —
           // an old site keeps `en` until something tells it otherwise.
           lang: (look && look.lang) || null,
+          logo,
           fonts: { heading: pair.heading.id, body: pair.body.id },
           theme: (look && look.theme) || null,
           tokens: Object.keys(tokens || {}).length ? withContrast(tokens) : undefined,
@@ -5765,7 +5773,7 @@ async function siteOgImage(env, slug) {
   } catch (e) { console.error("og image lookup failed:", slug, e && e.message); return null; }
 }
 
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, ogImage, fonts, theme, tokens, family, structure, lang, attachments, priorUsage, model, revise, changeNote, priorPages, mark }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, ogImage, fonts, theme, tokens, family, structure, lang, logo, attachments, priorUsage, model, revise, changeNote, priorPages, mark }) {
   // Resolved once, before any model call: the pair always lands on something
   // installed, so a build never waits on a font it cannot get.
   const fontPair = resolvePair(fonts || {});
@@ -5836,6 +5844,10 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
           // well-formed tag, so a model that answers with a country name is a
           // site that keeps the attribute it had.
           lang: lang || null,
+          // A first build has none and sends "", which is what the container
+          // writes anyway. A REVISE carries the stored one — see `priorLogo`,
+          // without which every revise would quietly take the logo off.
+          logo: logo || "",
           fonts: { heading: fontPair.heading.id, body: fontPair.body.id },
           // Passed by NAME, resolved inside the container against the same
           // registry the enum came from. Sending the resolved object instead
@@ -9154,13 +9166,20 @@ async function handleRequest(request, env, ctx) {
       // goes. Best-effort in both directions — losing it re-rolls the look, which
       // is exactly today's behaviour, so it can never be worse than what it
       // replaces.
-      let priorLook = null, priorTokens = null;
+      let priorLook = null, priorTokens = null, priorLogo = "";
       if (priorBrief) {
         try {
-          const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens')");
+          const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_logo')");
           for (const r of rows || []) {
             if (r.k === "site_look" && r.v) priorLook = JSON.parse(r.v);
             if (r.k === "site_tokens" && r.v) priorTokens = JSON.parse(r.v);
+            // READ HERE OR A REVISE TAKES THE LOGO OFF. The container writes
+            // `site-brand.ts` on EVERY build — it has to, or one site's logo
+            // leaks onto the next — so a build path that does not send the
+            // stored value sends nothing, and nothing means empty. A customer
+            // who attached a logo and then asked for any page change would have
+            // watched it disappear, with no error and nothing to point at.
+            if (r.k === "site_logo" && typeof r.v === "string") priorLogo = r.v;
           }
         } catch (e) { console.error("look read failed:", slug, e && e.message); }
       }
@@ -9351,6 +9370,10 @@ async function handleRequest(request, env, ctx) {
             // `EDIT_FIELDS`, which is what makes "absent means unchanged" true
             // of it without a second rule here.
             lang: look.lang,
+            // Read straight off `_meta` rather than through `mergeLook`: the
+            // logo is not something a designer can name, so it has no business
+            // in `EDIT_FIELDS` and would be dropped by that merge if it were.
+            logo: priorLogo,
             auth: request.headers.get("Authorization") || "",
             mark: (n) => tr.at(n),
           });
@@ -9937,6 +9960,68 @@ async function handleRequest(request, env, ctx) {
                 changed: pOut.changed, files: pPub.files,
                 used: pOut.used.length, made: pOut.made.length, failed: pOut.failed,
                 cost: await eCharge(pOut.usage), usage: pOut.usage,
+              });
+            }
+            if (eLayer === "logo") {
+              // ── THE BUSINESS'S OWN ARTWORK IN ITS OWN HEADER ────────────
+              //
+              // Until now `SiteHeader` took `brand: string` and there was no
+              // image slot anywhere in the frame, so a business with a logo
+              // could not use it on the site we built them.
+              //
+              // NO MODEL CALL AT ALL, on either path. The attachment IS the
+              // choice — nothing has to be matched against anything — so this
+              // costs only the routing call that already happened plus a
+              // container run, and it rewrites no page: the URL is read at
+              // COMPILE time out of `_meta`, so every page gets the logo
+              // without a line of page source changing.
+              const ldb = await siteBackendBySlug(env, ownerSlug);
+              if (!ldb) return escalate("no-backend");
+              // UP TO 3 ARRIVE AND ONLY THE FIRST IS USED — the composer allows
+              // three, and a business has one logo. Taking the first is the only
+              // non-arbitrary choice; asking which would be a question about
+              // something they can simply send again.
+              const eImages = Array.isArray(eb && eb.images) ? eb.images.slice(0, 3) : [];
+              const lOut = await runLogoEdit({
+                sniff: sniffImage,
+                // The same content-hashed library every other upload lands in,
+                // so it obeys the owner's own file allowance and goes when the
+                // site goes.
+                store: async ({ bytes, kind }) => {
+                  if (!env.SITES_BUCKET) return null;
+                  const digest = await crypto.subtle.digest("SHA-256", bytes);
+                  const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+                  const name = uploadName(hex, kind.ext);
+                  if (!name) return null;
+                  await env.SITES_BUCKET.put(uploadKey(ownerSlug, name), bytes, { httpMetadata: { contentType: kind.mime } });
+                  return uploadUrl(ownerSlug, name);
+                },
+                // ITS OWN `_meta` KEY, never a field on `site_look`: that object
+                // is rebuilt from `EDIT_FIELDS` by `mergeLook`, so a logo stored
+                // on it would be dropped by the next colour change.
+                save: async ({ logo }) => {
+                  await sqlQuery(ldb, "INSERT INTO _meta (k,v) VALUES ('site_logo', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v", [String(logo || "")]);
+                },
+                publish: () => recompileAndPublish(env, {
+                  slug: ownerSlug, pages: eSrc,
+                  label: versionLabel({ revise: true, changeNote: eInstruction }),
+                }),
+              }, { images: eImages, remove: eb && eb.remove === true });
+
+              if (!lOut.ok) {
+                // NEVER ESCALATED. The rung above is a full revise, which cannot
+                // put a logo in a header either — it would spend ~27 credits
+                // rewriting pages and end with the same missing logo, which
+                // reads as the builder ignoring what was asked. A refusal here
+                // is the honest answer and it says what to do instead.
+                return Response.json({
+                  ok: false, error: lOut.reason, cost: 0, msg: lOut.msg,
+                }, { status: 422 });
+              }
+              return Response.json({
+                ok: true, layer: "logo", msg: lOut.msg,
+                removed: !!lOut.removed, url: lOut.url || "", files: lOut.files,
+                cost: 0, usage: null,
               });
             }
             if (eLayer === "text") {

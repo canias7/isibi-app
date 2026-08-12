@@ -346,19 +346,40 @@ test("the balance refreshes after a routing charge", () => {
     "the router debits credits and nothing re-reads the balance");
 });
 
-test("an attachment on a REVISE skips the router, and on a first build does not", () => {
-  // THIS TEST USED TO PIN THE BYPASS ITSELF (`!imgs.length`), and the bypass was
-  // too wide. Its reasoning was right about one outcome — a file plus a sentence
-  // is "use this", so answering with a paragraph drops the file — and `attached`
-  // now bounds exactly that at the router. What the bypass ALSO removed was the
-  // first-build question, which has nothing to do with build-vs-ask.
+test("EVERY builder message is routed, attachment or not", () => {
+  // THIS ASSERTION HAS NOW BEEN WRONG TWICE, BOTH TIMES FOR THE SAME REASON: it
+  // pinned the exact spelling of the routing condition, so it went red on a
+  // correct change and said nothing about what it was protecting.
   //
-  // So the property is no longer "attachments skip the call". It is: skip it
-  // only when it could not change the answer. On a revise both non-build
-  // outcomes are already closed, so the call is a credit spent on a known
-  // result; on a first build the question is live.
-  assert.match(chat(), /if \(reactPath && \(!imgs\.length \|\| isBuild\)\) \{ siteRoute\(/,
-    "the routing condition changed — a first build with a file may be skipping its question again");
+  // The bypass it first pinned (`!imgs.length`) was too wide — it also skipped
+  // the first-build question. Narrowed to revises-only, it was still a claim
+  // about the LAYERS THAT EXISTED: "on a revise both non-build outcomes are
+  // closed, so the call could only answer build". The `logo` layer made that
+  // false — an attached picture plus "this is my logo" has a real cheap answer —
+  // and a skip would have made that rung unreachable for the one message shape
+  // it exists to serve.
+  //
+  // So the durable property is the one asserted here: NOTHING bypasses the
+  // router, because a bypass is how a rung silently stops existing. The
+  // narrower rule that a file is never answered with prose is a separate thing,
+  // held one assertion down, where it belongs — at the router, not at the door.
+  const c = chat();
+  const j = c.indexOf("function siteSend(");
+  assert.ok(j > 0, "siteSend is gone");
+  const send = c.slice(j, c.indexOf("\nfunction ", j + 10));
+  assert.match(send, /if \(reactPath\) \{ siteRoute\(/,
+    "something is bypassing the router again — whatever it skips is a rung nobody can reach");
+  assert.ok(!/imgs\.length[^\n]*siteRoute|siteRoute[^\n]*imgs\.length/.test(send),
+    "the routing decision reads the attachments again, which is the bypass this replaced");
+});
+
+test("…and a file is still never answered with a paragraph", () => {
+  // The half of the old rule that survives, and it is enforced at the ROUTER
+  // rather than by refusing to call it: `attached` closes off `ask`, so a
+  // message carrying a file always gets work back. Answering it with prose
+  // drops the file on the floor, which is the original failure.
+  assert.match(chat(), /attached:\s*!!\(imgs && imgs\.length\)/,
+    "siteRoute drops the attachment flag, so `ask` is no longer closed off for a message with a file");
 });
 
 test("the digest the client sends is names only", () => {
@@ -1049,7 +1070,7 @@ test("the composer routes a first build even with a file attached", () => {
   const j = c.indexOf("function siteSend(");
   assert.ok(j > 0, "siteSend is gone");
   const send = c.slice(j, c.indexOf("\nfunction ", j + 10));
-  assert.match(send, /if \(reactPath && \(!imgs\.length \|\| isBuild\)\)/,
+  assert.match(send, /if \(reactPath\) \{ siteRoute\(/,
     "an attachment skips the router again, so a first build with a file is never asked a question");
   // …and the flag is actually put on the wire, derived from the attachments
   // rather than taken as an argument nobody passes.
