@@ -53,6 +53,15 @@ function shortType(t) {
   // characters, against ~9,000 tokens for the entire shortlist, and it rides in
   // the cached block.
   if (/^(?:"[^"]*"\s*\|\s*)+"[^"]*"$/.test(s)) return s;
+  // A union that MIXES literals with a shape is the same contract as either
+  // half and was being cut at the join. `source-label` resolved to
+  // `"owner" | "member" | "imported" | "ai" | { label: string; meaning?: string }`
+  // and printed as `"owner" | "member" | "imported" | "ai" | { …` — so the
+  // alternative that is NOT one of the four words, the one a caller reaches for
+  // precisely when none of them fits, was the part hidden. Bounded like the
+  // object rule rather than kept without limit, since only one member has to be
+  // a literal to land here.
+  if (/"[^"]*"\s*\|/.test(s) && s.length <= 200) return s;
   if (s.length <= 46) return s;
   // AN INLINE OBJECT LITERAL IS THE SAME CONTRACT AS A STRING UNION, and it was
   // being collapsed for the same reason the union used to be truncated: it
@@ -105,6 +114,92 @@ function keysOnly(s) {
   return keys.length ? `{ ${keys.join("; ")} }${arr ? "[]" : ""}` : (arr ? "object[]" : "object");
 }
 
+/**
+ * The literal keys of a module-private `const X = { … }`, as a union.
+ *
+ * DELIBERATELY ONLY THE UNANNOTATED FORM. `const X = {…}` is what makes
+ * TypeScript infer literal keys; `const X: Record<string, T> = {…}` has
+ * `keyof` of `string`, so listing its keys would tell the model that the
+ * twenty it happens to hold are the only ones allowed when in fact any string
+ * is. `care-icons` is that case — narrowing it would be a worse lie than the
+ * unresolved name, and this regex declines it by construction.
+ */
+function constKeyUnion(source, name) {
+  const m = new RegExp("\\bconst\\s+" + name + "\\s*=\\s*\\{").exec(source);
+  if (!m) return null;
+  const body = block(source, m.index + m[0].length - 1);
+  if (body == null) return null;
+  const keys = [];
+  for (const part of splitTop(tidy(body), ",")) {
+    const colon = part.indexOf(":");
+    if (colon <= 0) continue;
+    let k = part.slice(0, colon).trim();
+    if (/^["'].*["']$/.test(k)) k = k.slice(1, -1);
+    if (!/^[A-Za-z0-9_-]+$/.test(k)) continue;
+    keys.push('"' + k + '"');
+  }
+  return keys.length ? keys.join(" | ") : null;
+}
+
+/**
+ * A `type X = "a" | "b"` alias, but ONLY when every member is a string literal.
+ *
+ * The body is put through the keyof resolution FIRST, because the alias is
+ * routinely a name for one: `tag-scope` declares
+ * `export type TagScopeValue = keyof typeof SCOPES`, which is two hops from
+ * anything the model can read and was the last of the nine still opaque after
+ * the direct case was fixed.
+ */
+function aliasUnion(source, name) {
+  const m = new RegExp("\\btype\\s+" + name + "\\s*=\\s*([^;\\n]+)").exec(source);
+  if (!m) return null;
+  const body = resolveKeyof(tidy(m[1]), source);
+  return /^(?:"[^"]*"\s*\|\s*)+"[^"]*"$/.test(body) ? body : null;
+}
+
+/** `keyof typeof X` -> the literal keys of X, wherever it appears in a type. */
+function resolveKeyof(text, source) {
+  return text.replace(/keyof typeof (\w+)/g, (whole, name) =>
+    constKeyUnion(source, name) || whole);
+}
+
+/**
+ * Resolve the names that exist only INSIDE the component file.
+ *
+ * THIS IS THE THIRD TIME THIS FILE HAS LEARNED THE SAME LESSON, and the two
+ * comments in `shortType` are the first two: a union of string literals is
+ * never truncated, an inline object shape is never collapsed, because those
+ * values ARE the contract and a caller has to write one of them exactly.
+ * `keyof typeof MODELS` is the same failure wearing a name — worse, in fact,
+ * because it does not merely hide the values, it names a symbol the model has
+ * no way to look up. `MODELS` is a module-private const; the page generator is
+ * handed the signature and nothing else.
+ *
+ * Measured 2026-08-12: nine components shipped one, and the guesses a model
+ * makes from the prop name are exactly the ones TypeScript refuses —
+ * `AttributionNote model="last_click"` against `"last-click"` is TS2820, and
+ * `LawfulBasisNote basis="legitimate-interest"` against `"legitimate"` is
+ * TS2322. Neither is a runtime bug: the page fails to COMPILE, so it is stubbed
+ * and the customer is billed for the build that produced it.
+ *
+ * A string-literal ALIAS goes the same way. `extractTypes` drops one on the
+ * stated grounds that "a union of other names or a bare alias says nothing the
+ * signature did not" — true of a union of NAMES and false of a union of
+ * LITERALS, which says all of it. `tag-scope` was the instance.
+ *
+ * Resolved here rather than in `shortType` because only this function holds the
+ * source, and it runs BEFORE it so the union lands under the never-truncate
+ * rule that already exists.
+ */
+function resolveLocalNames(type, source) {
+  const out = resolveKeyof(tidy(type), source);
+  // Safe to sweep every capitalised name: `aliasUnion` answers null for
+  // anything that is not a local string-literal union, so `React`, `Date` and
+  // every exported shape in COMPONENT_TYPES pass through untouched.
+  return out.replace(/\b([A-Z][A-Za-z0-9]*)\b/g, (whole, name) =>
+    aliasUnion(source, name) || whole);
+}
+
 export function extract(source) {
   const out = [];
   // export function Name({ a, b = 1 }: { a: T; b?: U }) {
@@ -155,7 +250,7 @@ export function extract(source) {
       if (key === "className") continue;
       const optional = nameRaw.endsWith("?");
       const d = defaults.get(key);
-      props.push(`${key}${optional ? "?" : ""}: ${shortType(part.slice(colon + 1))}${d ? ` = ${tidy(d)}` : ""}`);
+      props.push(`${key}${optional ? "?" : ""}: ${shortType(resolveLocalNames(part.slice(colon + 1), source))}${d ? ` = ${tidy(d)}` : ""}`);
     }
     if (props.length) out.push({ name: m[1], props });
   }
