@@ -146,3 +146,47 @@ test("the video hosts are the PRIVACY-PRESERVING ones the component chose", () =
   assert.match(embed, /youtube-nocookie\.com/, "the component no longer uses the host the policy allows");
   assert.match(embed, /player\.vimeo\.com/);
 });
+
+test("a delete that answers 'already gone' clears the card instead of asking for a retry", () => {
+  // THE SAME FAILURE THIS FILE WAS WRITTEN FOR, one layer along: a button whose
+  // only outcome is "try again in a moment" on a call that can never succeed.
+  // The backend row IS the ownership record, so a site already taken down has no
+  // row and `DELETE /api/site/<slug>` answers 404 — forever. The card told the
+  // owner it was "still live", which was untrue, and no amount of retrying could
+  // clear it. Measured live 2026-08-12 on `pulse-fitness`: no row in
+  // `site_backends`, the subdomain answering 404, the card unremovable.
+  const del = CHAT.slice(CHAT.indexOf("data-del"));
+  const block = del.slice(0, del.indexOf("function siteCreate"));
+  assert.ok(block.includes("/api/site/"), "the delete button no longer calls the real route — rescope this");
+  // CARVED INTO THE THREE BRANCHES, because a window measured in characters
+  // runs straight into the next one: a first draft asserted `alert(` within 400
+  // chars of the 404 check and passed with that alert DELETED, satisfied by the
+  // 403 branch's alert below it. Three of four mutants survived that way. Each
+  // branch is now bounded by the next condition, so nothing is proved by its
+  // neighbour.
+  const i404 = block.indexOf("dr.status === 404");
+  const i403 = block.indexOf("dr.status === 403");
+  const iFail = block.indexOf("!dr || !dr.ok");
+  assert.ok(i404 > 0, "an already-gone site still fails the delete, so its card can never be removed");
+  assert.ok(i403 > i404, "a site owned by another account is no longer told apart from one already gone");
+  assert.ok(iFail > i403, "a real failure no longer keeps the card, so a live site can be dropped from the list");
+
+  // ALREADY GONE: says so, and does NOT return — falling through is what clears
+  // the card. "We took your site down" and "there was nothing left of it" are
+  // different facts, and the 2026-08-08 bug was a client that dropped the record
+  // on a 404 without telling anybody.
+  const gone = block.slice(i404, i403);
+  assert.match(gone, /alert\(/, "the card is cleared silently, which is how a failed takedown reads as a successful one");
+  assert.doesNotMatch(gone, /\breturn;/, "it still bails out, so the card survives the one status that means it should not");
+
+  // NOT YOURS: says so, and DOES return. Clearing the card here would hide an
+  // ownership bug rather than report one.
+  const theirs = block.slice(i403, iFail);
+  assert.match(theirs, /alert\(/, "another account's site is dropped with no explanation");
+  assert.match(theirs, /\breturn;/, "another account's site is silently dropped from the list");
+
+  // A REAL FAILURE: says so, and DOES return, which is the behaviour that was
+  // already right and must survive the change above it.
+  const failed = block.slice(iFail, iFail + 400);
+  assert.match(failed, /alert\([\s\S]*?\breturn;/, "a failed takedown no longer keeps the site in the list to retry");
+});

@@ -15997,3 +15997,24 @@ only the tables the designer left empty, only on builds that came up short — a
 build it got right makes no extra call at all. It can't fail a build, it can't
 put rows anywhere they don't belong, and it's billed with the schema call as one
 charge rather than two.
+
+**Why you couldn't delete Pulse Fitness (12 Aug).**
+
+**That site is already gone** — I checked two ways rather than guessing. There's
+no record of it in the database at all, and `pulse-fitness.gofarther.app`
+answers 404. Nothing is live, nothing is billing.
+
+What you were fighting is a dead card in your browser. The delete button asks
+the server to take the site down first, and only removes the card if the server
+says it did. With no record on the server there's nothing to authorise the
+delete against, so it answers "no such site" — **every time, forever** — and the
+card told you it was "still live, try again in a moment", which was untrue in
+both halves.
+
+Fixed: "already gone" now clears the card, and says so rather than pretending we
+took something down. A site that genuinely belongs to another account still
+refuses, and a real failure still keeps the card so you can retry — that part
+was already right.
+
+It's merged, so it'll work after this deploy lands. There's no need to clear
+anything by hand.

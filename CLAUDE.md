@@ -1092,6 +1092,16 @@ Auth config (set 2026-07-03 via Management API): Site URL `https://isibi.ai`, re
 - **My own new guard false-alarmed on a sibling's correct wording**, searching the whole tool schema for "only when layer is page" and matching the `page` PATH field, which is right to say it. Windowed to the `remove` field. Same class as everything else in this file: a check that cries wolf on correct code.
 - 2317 unit tests; proven by building a real site through the real container **with** and **without** a logo and looking at both.
 
+## A site the server had already deleted could never leave the workspace (2026-08-12)
+
+**Reported by the owner: the ✕ on a project card kept answering *"Couldn't take that site down just now — it's still live. Try again in a moment."*** Both halves of that sentence were false. Measured: **no `site_backends` row for the slug at all**, and `pulse-fitness.gofarther.app` answering **404** — the site was already gone, and retrying could never do anything.
+
+- **THE OWNERSHIP ROW IS THE ONLY THING A DELETE CAN AUTHORISE AGAINST**, so a site with no row answers 404 *by construction* — which is exactly the state of every site that has already been taken down, and of every build that failed before claiming its slug. The client required a 2xx before dropping the local card, so those cards were **permanently unremovable** and the only advice on offer was to retry forever.
+- **404 NOW CLEARS THE CARD, AND THIS IS NOT THE 2026-08-08 BUG RETURNING.** That one dropped the record on a 404 from a route that *had never existed*, so every delete silently failed while the site kept running. This route exists and its 404 has exactly one meaning. **It is said out loud rather than done quietly** — "we took your site down" and "there was nothing left of it" are different facts and the customer is entitled to which one.
+- **403 STILL REFUSES**, deliberately: it is the one status meaning somebody ELSE owns that slug, and clearing the card on it would hide an ownership bug rather than report one. Every other failure keeps the card, which was already right.
+- **THREE OF FOUR MUTANTS SURVIVED THE FIRST SWEEP, ALL THE OVERLAPPING-WINDOW BUG.** A window of 400 characters after the 404 check ran into the 403 branch, so deleting the 404 branch's own `alert` was satisfied by its neighbour's; the 403 assertion reached the failure branch's `return;` the same way. The three branches are carved by the NEXT condition's index now, so nothing is proved by the branch below it. **This repo's most repeated own-goal, and the third instance this session.**
+- Verified with a live read of `site_backends` and a real request to the subdomain — not inferred from the code. 2350 tests, **4/4 mutations caught** from a verified-green baseline.
+
 ## The deletion moved from a question to the wrong lane, and the tie-break was why (2026-08-12)
 
 **Two live runs, two different wrong answers, one buried false clause.** After the prompt fix that stopped `Remove the gallery page` being answered with a confirmation question, the very next run answered **`intent=addon`** — a full page-generation call that came back `no-change`, so the customer pays and the page stays.

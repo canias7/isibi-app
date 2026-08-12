@@ -10087,7 +10087,30 @@ function renderSites() {
       // A failure now KEEPS the site in the list, so it can be tried again.
       let dr;
       try { dr = await apiFetch('/api/site/' + encodeURIComponent(s.slug), { method: 'DELETE' }); } catch (e) { dr = null; }
-      if (!dr || !dr.ok) {
+      // A 404 IS "ALREADY GONE", AND KEEPING THE CARD FOR IT MADE ONE
+      // UNDELETABLE FOREVER. The backend row is the ownership record, so a slug
+      // with no row answers 404 — and a site that was already taken down (or
+      // whose build never claimed the slug) has no row by definition. The card
+      // then failed every retry with "it's still live", which was untrue in both
+      // halves: measured 2026-08-12 on `pulse-fitness`, where the row was gone,
+      // the subdomain answered 404 and the customer could not clear the card by
+      // any means.
+      //
+      // Removing it here is NOT the 2026-08-08 bug coming back. That one dropped
+      // the record on a 404 from a route that HAD NEVER EXISTED, so every delete
+      // silently failed while the site kept running. This route exists, and its
+      // 404 has exactly one meaning. It is said out loud rather than done
+      // quietly, because "we took your site down" and "there was nothing of it
+      // left" are different facts and the customer is entitled to which one.
+      if (dr && dr.status === 404) {
+        alert("That site was already gone on our side, so I've taken it off your list.");
+      } else if (dr && dr.status === 403) {
+        // Not yours. The local card is wrong either way, but this is the one
+        // status that means somebody ELSE's site is at that slug, and quietly
+        // clearing it would hide an ownership bug rather than report one.
+        alert("That site belongs to another account, so it can't be removed from here.");
+        return;
+      } else if (!dr || !dr.ok) {
         alert("Couldn't take that site down just now — it's still live. Try again in a moment.");
         return;
       }
