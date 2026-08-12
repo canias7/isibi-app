@@ -72,7 +72,7 @@ export function MegaMenu({ label, columns, className }: {
         <div id={id}
           className={cn(
             // In the flow on a phone; a floating panel from md up.
-            "z-40 mt-1 grid gap-4 rounded-lg border border-border bg-background p-4",
+            "z-40 mt-1 grid gap-4 rounded-lg border border-border bg-popover p-4",
             "md:absolute md:left-0 md:w-[42rem] md:grid-cols-3 md:shadow-xl")}>
           {columns.map((c) => (
             <div key={c.key}>

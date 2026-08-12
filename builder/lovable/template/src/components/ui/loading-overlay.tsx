@@ -14,7 +14,7 @@ export function LoadingOverlay({ busy, label = "Loading…", className, children
       <div className={cn(busy && "pointer-events-none opacity-50")} aria-busy={busy}>{children}</div>
       {busy && (
         <div className="absolute inset-0 grid place-items-center" role="status">
-          <span className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm shadow-sm">
+          <span className="flex items-center gap-2 rounded-md border bg-popover px-3 py-2 text-sm shadow-sm">
             <Spinner /> {label}
           </span>
         </div>

@@ -78,11 +78,11 @@ export function SnapCarousel({ children, label = "Carousel", showDots = true, cl
           {children}
         </div>
         <button type="button" onClick={() => go(-1)} disabled={ends.start} aria-label="Previous"
-          className="absolute top-1/2 left-1 grid size-7 -translate-y-1/2 cursor-pointer place-items-center rounded-full border border-border bg-background shadow-sm hover:bg-muted disabled:pointer-events-none disabled:opacity-0">
+          className="absolute top-1/2 left-1 grid size-7 -translate-y-1/2 cursor-pointer place-items-center rounded-full border border-border bg-popover shadow-sm hover:bg-muted disabled:pointer-events-none disabled:opacity-0">
           <ChevronLeft aria-hidden className="size-4" />
         </button>
         <button type="button" onClick={() => go(1)} disabled={ends.end} aria-label="Next"
-          className="absolute top-1/2 right-1 grid size-7 -translate-y-1/2 cursor-pointer place-items-center rounded-full border border-border bg-background shadow-sm hover:bg-muted disabled:pointer-events-none disabled:opacity-0">
+          className="absolute top-1/2 right-1 grid size-7 -translate-y-1/2 cursor-pointer place-items-center rounded-full border border-border bg-popover shadow-sm hover:bg-muted disabled:pointer-events-none disabled:opacity-0">
           <ChevronRight aria-hidden className="size-4" />
         </button>
       </div>

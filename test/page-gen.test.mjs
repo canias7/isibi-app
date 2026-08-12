@@ -2314,6 +2314,58 @@ test("the rules are numbered 1..N with no gaps and no duplicates", () => {
     "the rules are numbered " + nums.join(",") + " — expected 1.." + nums.length);
 });
 
+/**
+ * Every element in the kit that FLOATS over page content and paints itself with
+ * `token`. Both tests below ask through this one function: two copies of the
+ * predicate is how the scan and the proof-it-fires drift apart, and then the
+ * proof passes against a scan that has stopped matching anything.
+ *
+ * WHAT IT DELIBERATELY DOES NOT SEE: an unpositioned element that floats only
+ * because its PARENT is positioned — `loading-overlay`'s chip sits inside an
+ * `absolute inset-0` wrapper and was fixed by hand. Catching those needs to
+ * follow the JSX tree, and every cheap approximation of it flags each of the
+ * many correct children of an absolute container. A narrow check with a stated
+ * hole beats a broad one nobody trusts.
+ */
+function floatingPanelsPaintedWithThePageToken(token) {
+  const kit = path.join(import.meta.dirname, "..", "builder", "lovable", "template", "src", "components", "ui");
+  const out = [];
+  for (const f of fs.readdirSync(kit).filter((n) => n.endsWith(".tsx"))) {
+    // Blank comments rather than delete them, so the line numbers reported here
+    // are the real ones — and so the paragraph explaining this rule is not a hit.
+    const code = fs.readFileSync(path.join(kit, f), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+      .replace(/^\s*\/\/.*$/gm, "");
+    const lines = code.split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      if (!lines[i].includes(token)) continue;
+      // `sticky` is IN the page flow — headers and pinned table columns are
+      // painted with the page token on purpose, and always were.
+      if (/\bsticky\b/.test(lines[i])) continue;
+      // An explicit alpha is a deliberate scrim over an image (`/60`, `/85`),
+      // not a panel that was meant to be opaque.
+      if (new RegExp(token.replace(/[-/]/g, "\\$&") + "\\/\\d").test(lines[i])) continue;
+      // Only this element's own class list: a wrapped `cn(...)` string counts,
+      // a sibling element's does not.
+      const win = [lines[i]];
+      for (let j = i + 1; j < Math.min(lines.length, i + 3); j++) {
+        if (lines[j].includes("<")) break;          // a new element begins
+        win.push(lines[j]);
+        if (lines[j].includes(">")) break;          // this one closed
+      }
+      const cls = win.join(" ");
+      // Positioned, with or without a responsive prefix (`md:absolute`), AND
+      // casting a shadow. The shadow is what separates a panel from the things
+      // that are CORRECTLY painted with the page token: a 1px divider drawn to
+      // look like a seam, a full-bleed veil over a photo, and the page root.
+      if (!/(?:^|[\s"'`])(?:[a-z]+:)?(?:fixed|absolute)\b/.test(cls)) continue;
+      if (!/\bshadow(-|\b)/.test(cls)) continue;
+      out.push(f + ":" + (i + 1) + "  " + lines[i].trim().slice(0, 90));
+    }
+  }
+  return out;
+}
+
 test("no FLOATING panel paints itself with the page-root token", () => {
   // A theme with a decorative backdrop re-emits `--background` at 35% alpha on
   // purpose — every generated page's root div carries `bg-background`, and an
@@ -2325,28 +2377,38 @@ test("no FLOATING panel paints itself with the page-root token", () => {
   // DERIVED, not a list of the four known today: a fifth overlay added later
   // would inherit the same bug, and upstream shadcn says `bg-background` on all
   // of them, so a component refresh is the likely way it comes back.
-  const kit = path.join(import.meta.dirname, "..", "builder", "lovable", "template", "src", "components", "ui");
-  const offenders = [];
-  for (const f of fs.readdirSync(kit).filter((n) => n.endsWith(".tsx"))) {
-    const src = fs.readFileSync(path.join(kit, f), "utf8");
-    // Strip comments, or the paragraph explaining this rule counts as a hit.
-    const code = src.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " ")).replace(/^\s*\/\/.*$/gm, "");
-    for (const line of code.split("\n")) {
-      if (!/bg-background/.test(line)) continue;
-      // A floating surface is the one that is `fixed` AND stacked above the page.
-      if (/\bfixed\b/.test(line) && /\bz-\d/.test(line)) offenders.push(f + ": " + line.trim().slice(0, 90));
-    }
-  }
+  //
+  // IT CAME BACK, and this predicate is the second attempt (2026-08-12). The
+  // first asked for `fixed` AND `z-\d` ON ONE LINE, which is a description of
+  // the four it was written for rather than of the bug. Eleven components had
+  // reintroduced it and it saw none of them, in three different ways:
+  //   - `absolute` panels (rich-tooltip, share-sheet, whats-new-dot, slide-over,
+  //     snap-carousel, node-graph) — a tooltip floats every bit as much as a
+  //     sheet, and `fixed` was never the property that mattered;
+  //   - `fixed` panels whose stacking is in `style={{ zIndex }}` rather than a
+  //     class (drawer-stack, sheet-stack), so no `z-N` was ever on the line;
+  //   - a class list that WRAPS, carrying `md:absolute` onto the next string
+  //     inside the same `cn(...)` (mega-menu).
+  // Measured at the time: 449 of the 500 themes re-emit `--background` with
+  // alpha, 295 of them at 0.35. Assert the property, not the spelling.
+  const offenders = floatingPanelsPaintedWithThePageToken("bg-background");
   assert.deepEqual(offenders, [],
     "these float over the page and would be translucent on a backdrop theme:\n  " + offenders.join("\n  "));
 });
 
-test("…and the check can actually see a violation", () => {
-  // The scan above returning [] is only worth something if it would find one.
-  // Same shape as the sheet's own class string, which is what it must catch.
-  const line = '  "fixed z-50 gap-4 bg-background p-6 shadow-lg transition"';
-  assert.ok(/bg-background/.test(line) && /\bfixed\b/.test(line) && /\bz-\d/.test(line),
-    "the predicate no longer matches the exact string this bug was made of");
+test("…and the check can actually see a violation — in all three shapes it once missed", () => {
+  // The scan returning [] is worth something only if it would find one. Reading
+  // the kit back for `bg-popover` puts the ELEVEN fixed components in front of
+  // the predicate exactly as they were when they were broken, so this cannot
+  // rot into a check on a hand-typed string that no longer resembles the bug.
+  const caught = floatingPanelsPaintedWithThePageToken("bg-popover").join("\n");
+  for (const [file, shape] of [
+    ["rich-tooltip.tsx", "an `absolute` panel"],
+    ["drawer-stack.tsx", "a `fixed` panel whose zIndex is in style={{}}"],
+    ["mega-menu.tsx", "a class list that wraps onto the next line"],
+  ]) {
+    assert.ok(caught.includes(file), "the predicate stopped seeing " + shape + " (" + file + ")");
+  }
 });
 
 test("the rules show an UPDATE call, not just the hook's name", () => {

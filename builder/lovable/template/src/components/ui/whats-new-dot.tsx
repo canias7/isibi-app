@@ -37,7 +37,7 @@ export function WhatsNewDot({ feature, version, note, className }: {
         <span className="block size-2 rounded-full bg-foreground" />
       </button>
       {open ? (
-        <span className="absolute left-1/2 top-full z-20 mt-1 w-48 -translate-x-1/2 rounded-md border border-border bg-background p-2 text-xs shadow-md">
+        <span className="absolute left-1/2 top-full z-20 mt-1 w-48 -translate-x-1/2 rounded-md border border-border bg-popover p-2 text-xs shadow-md">
           {note}
           <button type="button" onClick={() => setOpen(false)}
             className="mt-1.5 block cursor-pointer text-[11px] text-muted-foreground underline underline-offset-2">

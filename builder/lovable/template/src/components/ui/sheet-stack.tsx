@@ -60,7 +60,7 @@ export function SheetStack({ sheets, onBack, onCloseAll, side = "right", classNa
             // `inert` keeps focus out of the panels underneath.
             {...(i === top ? {} : { inert: true })}
             style={{ [side]: `${back * 12}px`, zIndex: 41 + i }}
-            className={cn("fixed inset-y-0 flex w-[min(28rem,calc(100vw-3rem))] flex-col border-border bg-background shadow-xl",
+            className={cn("fixed inset-y-0 flex w-[min(28rem,calc(100vw-3rem))] flex-col border-border bg-popover shadow-xl",
               side === "right" ? "border-l" : "border-r",
               i !== top && "opacity-60", className)}
           >

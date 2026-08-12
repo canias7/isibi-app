@@ -55,7 +55,7 @@ export function ShareSheet({ url, title, text, children, label = "Share", classN
         {label}
       </button>
       {open ? (
-        <div className="absolute right-0 z-40 mt-1 w-64 rounded-lg border border-border bg-background p-2 shadow-lg">
+        <div className="absolute right-0 z-40 mt-1 w-64 rounded-lg border border-border bg-popover p-2 shadow-lg">
           {children}
           {error ? <p className="mt-1 text-xs font-medium">{error}</p> : null}
         </div>

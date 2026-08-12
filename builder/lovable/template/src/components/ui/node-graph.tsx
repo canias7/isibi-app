@@ -71,7 +71,7 @@ export function NodeGraph({ nodes, edges, onPick, selected, className }: {
       {nodes.map((n) => (
         <button key={n.id} type="button" onClick={() => onPick?.(n.id)}
           style={{ left: `${n.x}%`, top: `${n.y}%` }}
-          className={cn("absolute -translate-x-1/2 -translate-y-1/2 rounded-md border bg-background px-2 py-1 text-[11px] shadow-sm",
+          className={cn("absolute -translate-x-1/2 -translate-y-1/2 rounded-md border bg-popover px-2 py-1 text-[11px] shadow-sm",
             selected === n.id ? "border-foreground font-medium" : "border-border",
             onPick && "cursor-pointer hover:bg-muted")}>
           {n.label}
