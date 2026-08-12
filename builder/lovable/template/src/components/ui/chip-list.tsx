@@ -22,10 +22,18 @@ export function ChipList({ items, max, onRemove, onClick, className }: {
       aria-label={items.map((i) => i.label).join(", ")}>
       {shown.map((it) => (
         <li key={it.value}>
+          {/* THE CHIP'S `onClick` WAS ON A BARE `<span>` — no role, no
+              tabIndex, no key handler — so it could be clicked and never
+              reached by keyboard. The label becomes a real `<button>` instead
+              of making the whole chip one, because the remove control below is
+              already a button and a button inside a button is invalid markup
+              that browsers silently restructure. */}
           <span className={cn("inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-xs",
-            onClick && "cursor-pointer hover:bg-muted")}
-            onClick={onClick ? () => onClick(it.value) : undefined}>
-            {it.label}
+            onClick && "hover:bg-muted")}>
+            {onClick
+              ? <button type="button" onClick={() => onClick(it.value)}
+                  className="cursor-pointer">{it.label}</button>
+              : it.label}
             {onRemove && (
               <button type="button" aria-label={`Remove ${it.label}`}
                 onClick={(e) => { e.stopPropagation(); onRemove(it.value); }}
