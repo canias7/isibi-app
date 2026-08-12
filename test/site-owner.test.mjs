@@ -138,8 +138,36 @@ test("the listing counts what is waiting in each table", async () => {
   const r = await handleOwnerTables(deps, { slug: "cafe", uid: "owner-1" });
   assert.equal(r.status, 200);
   assert.deepEqual(r.body.tables, [
-    { name: "bookings", access: "collect", rows: 3, columns: ["customer_name", "email"], paid: false },
-    { name: "services", access: "display", rows: 3, columns: ["title", "price"], paid: false },
+    { name: "bookings", access: "collect", memberRows: false, rows: 3, columns: ["customer_name", "email"], paid: false },
+    { name: "services", access: "display", memberRows: false, rows: 3, columns: ["title", "price"], paid: false },
+  ]);
+});
+
+test("the listing labels a PAIR-declared table by what it is, not by the stamped preset", async () => {
+  // `normalizeSchema` stamps `access: "collect"` on anything that did not name
+  // one of the five shorthands — and the design tool tells the model pairs are
+  // the escape hatch and to leave `access` out. So the Data panel showed a
+  // public menu as "submissions", and decided whether "+ Add" made sense by
+  // comparing that name against 'user'/'feed', which a pair matches neither of.
+  //
+  // `memberRows` is the fact, asked of the WRITE axis in `site-access.mjs`, so
+  // the client never re-derives it — one question, one answer.
+  const spec = { tables: [
+    { name: "menu", read: "public", write: "none", columns: [{ name: "dish" }] },
+    { name: "listings", read: "public", write: "own", columns: [{ name: "title" }] },
+    { name: "diary", read: "own", write: "own", columns: [{ name: "note" }] },
+  ] };
+  const { deps } = harness({ deps: { loadSchema: async () => spec, query: async () => [{ n: 0 }] } });
+  const r = await handleOwnerTables(deps, { slug: "cafe", uid: "owner-1" });
+  assert.deepEqual(r.body.tables.map((t) => [t.name, t.access, t.memberRows]), [
+    // The pair IS the display preset, so it is named as one.
+    ["menu", "display", false],
+    // A marketplace cell: public to read, each member writes their own. Nobody
+    // pre-bundled a name for it, so it says what it is rather than borrowing a
+    // wrong one — and its rows belong to members, which is what stops the owner
+    // being offered an "+ Add" the API answers 409 to.
+    ["listings", "read public / write own", true],
+    ["diary", "user", true],
   ]);
 });
 

@@ -9817,6 +9817,22 @@ function siteRestore(id, idx) {
   const s = siteById(id);
   if (!s || !Array.isArray(s.history) || !s.history[idx]) return;
   const snap = s.history[idx];
+  // A REACT SITE'S PAGES ARE ON THE SERVER, SO THIS CANNOT RESTORE ONE.
+  //
+  // Everything below rewrites localStorage and prints "↩ Restored to: …" — and
+  // for a React site that is a lie the customer cannot see through, because the
+  // preview iframe loads the LIVE url, so it shows the build they were trying
+  // to undo while the message says it worked. `siteSnap` runs on every
+  // successful react build, so this rail is populated on every React site and
+  // the button was reachable on all of them. It also replaced `s.pages` with an
+  // older build's stub list, desyncing the page picker from what is published.
+  //
+  // This is the failure the 2026-08-08 work recorded as fixed, still live one
+  // button over: the real restore (`siteVersions`, Cloud → Versions) copies an
+  // archived build back over the live prefix through the publish path. Sent
+  // there rather than reimplemented, so there is ONE thing that restores a
+  // published site.
+  if (s.react) { siteVersions(s); return; }
   siteSnap(s, 'Before restore');
   s.pages = (snap.pages || []).map((p) => ({ path: p.path, name: p.name, html: p.html }));
   s.design = snap.design || s.design;
@@ -10255,27 +10271,34 @@ async function loadSiteData(site) {
     const d = await r.json().catch(() => ({}));
     if (r.ok && Array.isArray(d.tables)) tables = d.tables;
   } catch (e) {}
-  // No synthetic "Users" tab: it read /api/site/<slug>/members, which went with
-  // the auth layer on 2026-07-30. Showing a tab that always errors is worse than
-  // not showing one.
-  const tabs = tables.map((t) => ({ name: t.name, access: t.access, columns: t.columns || [], label: t.name }));
+  // No synthetic "Users" tab HERE — member accounts get their own panel
+  // (`siteMembers`, Cloud → Members), because managing one is a different job
+  // from editing a table's rows: a role, a suspension, a removal. The comment
+  // this replaces said the members route "went with the auth layer on
+  // 2026-07-30" and left `const members = false` behind to prove it; the route
+  // was rebuilt on Neon Auth the same day, and the dead flag then made every
+  // ternary that mentioned it unreachable code pretending to be a branch.
+  const tabs = tables.map((t) => ({ name: t.name, access: t.access, memberRows: !!t.memberRows, columns: t.columns || [], label: t.name }));
   let sel = (siteDataTable && tabs.some((t) => t.name === siteDataTable)) ? siteDataTable : (tabs[0] && tabs[0].name);
   siteDataTable = sel;
   const selTab = tabs.find((t) => t.name === sel) || { columns: [] };
-  const members = false;
   // Editing and deleting work on every declared table — it is all the owner's.
   // Adding does not: a `user`/`feed` row belongs to a member of the site, and
   // the owner has no member id to stamp on it, so the API answers 409.
-  const editable = !!sel && !members;
-  const canAdd = editable && selTab.access !== 'user' && selTab.access !== 'feed';
+  const editable = !!sel;
+  // ASKED OF THE SERVER'S OWN ANSWER, not re-derived from the access NAME.
+  // `access` is a label for people; whether a row belongs to a member is a fact
+  // `site-access.mjs` resolves from the write axis, and a table declared as a
+  // pair (`{read:"own", write:"own"}`) matches neither 'user' nor 'feed' — so
+  // this offered "+ Add" on exactly the tables where the API answers 409.
+  const canAdd = editable && !selTab.memberRows;
   const cols = (selTab.columns || []).map((c) => (typeof c === 'string' ? c : c && c.name)).filter(Boolean);
   let rows = [], err = false;
   if (sel) {
     try {
-      const r = await apiFetch(members ? base + '/members' : base + '/rows/' + encodeURIComponent(sel));
+      const r = await apiFetch(base + '/rows/' + encodeURIComponent(sel));
       const d = await r.json().catch(() => ({}));
-      const got = members ? d.members : d.rows;
-      if (r.ok && Array.isArray(got)) rows = got; else err = true;
+      if (r.ok && Array.isArray(d.rows)) rows = d.rows; else err = true;
     } catch (e) { err = true; }
   }
   // One per access level the schema engine can produce — `admin` was missing, so
@@ -10306,7 +10329,7 @@ async function loadSiteData(site) {
   let main;
   if (!tabs.length) main = '<div class="st-empty">No data tables yet.</div>';
   else if (err) main = '<div class="st-empty">Couldn’t load this table just now.</div>';
-  else if (!rows.length && !formHtml) main = '<div class="st-empty">Nothing here yet.' + (canAdd ? ' Use “+ Add” to put in your first row.' : ' When visitors ' + (members ? 'sign up' : 'submit') + ', it shows up here.') + '</div>';
+  else if (!rows.length && !formHtml) main = '<div class="st-empty">Nothing here yet.' + (canAdd ? ' Use “+ Add” to put in your first row.' : ' When visitors submit, it shows up here.') + '</div>';
   else {
     const displayCols = rows.length ? Object.keys(rows[0]) : cols;
     main = (rows.length ? '<div class="st-data-tablewrap"><table class="st-data-grid"><thead><tr>' + displayCols.map((c) => '<th>' + esc(c) + '</th>').join('') + (editable ? '<th></th>' : '') + '</tr></thead><tbody>' +
@@ -10383,10 +10406,8 @@ async function loadSiteData(site) {
   };
   host.querySelectorAll('[data-edit]').forEach((b) => b.onclick = () => { const row = rows.find((r) => String(r.id) === b.dataset.edit); siteDataForm = { editId: b.dataset.edit, values: row ? Object.assign({}, row) : {} }; loadSiteData(site); });
   host.querySelectorAll('[data-rm]').forEach((b) => b.onclick = async () => {
-    if (!confirm(members ? 'Remove this member? They will no longer be able to sign in.' : 'Delete this row?')) return;
-    const path = members
-      ? base + '/members/' + encodeURIComponent(b.dataset.rm)
-      : base + '/rows/' + encodeURIComponent(sel) + '/' + encodeURIComponent(b.dataset.rm);
+    if (!confirm('Delete this row?')) return;
+    const path = base + '/rows/' + encodeURIComponent(sel) + '/' + encodeURIComponent(b.dataset.rm);
     try {
       const r = await apiFetch(path, { method: 'DELETE' });
       if (!r.ok) { const d = await r.json().catch(() => ({})); sbToast(d.error || 'Couldn’t delete that.'); return; }
@@ -10417,7 +10438,13 @@ function moreCloud(site) {
   // Flip a name out of DEAD_PANELS the moment its route exists again.
   const DEAD_PANELS = {
     security: 'Off since the audit log was removed',        // /events — routed nowhere
-    versions: 'No build history is kept yet',              // /backend/rollback — nothing records builds
+    // `versions` WAS HERE AND ITS ROUTE HAD EXISTED FOR FOUR DAYS. The archive,
+    // the 10-version retention and `POST /api/site/<slug>/versions/restore` all
+    // shipped 2026-08-08 and `siteVersions` was rewired to call them — and this
+    // entry, with its stale "/backend/rollback — nothing records builds" note,
+    // kept forcing the card to render Off and stripping its click handler. So
+    // the feature was live end to end on the server and unreachable in the
+    // product, which is precisely what the line above says to prevent.
     functions: 'Set up by your app, nothing to configure', // jobs are declared in the schema, not here
     emails: 'Set up in Secrets — add your provider key',   // no route; the key lives under Secrets
   };
@@ -10800,6 +10827,10 @@ function renderSiteWorkspace(view, site) {
     else if (b.dataset.cloud === 'emails') siteEmails(site);
     else if (b.dataset.cloud === 'payments') sitePayments(site);
     else if (b.dataset.cloud === 'domains') siteDomains(site);
+    // WITHOUT THIS BRANCH THE MEMBERS CARD FELL THROUGH TO THE INBOX — a card
+    // promising "Accounts that sign up in your app" that opened form
+    // submissions, while the whole server-side member API sat unreachable.
+    else if (b.dataset.cloud === 'members') siteMembers(site);
     else siteInbox(site);
   });
   // Deep security scan — no route behind it, so the button stays disabled and is
@@ -11343,11 +11374,21 @@ function siteAddon(site, instruction, origin, finish, fallback) {
     finish(addonReplyText(a));
   }).catch(fallback);
 }
-// `src/routes/gallery.tsx` → `/gallery`. Kept in step with `routeOf` in
-// builder/site-addon.mjs; the client cannot import it, and the only cost of
-// disagreeing is a page missing from the picker.
+// `src/routes/gallery.tsx` OR a bare `gallery.tsx` → `/gallery`. Kept in step
+// with `routeOf` in builder/site-addon.mjs; the client cannot import it.
+//
+// THE PREFIX IS OPTIONAL AND THAT IS THE WHOLE POINT. This anchored on
+// `^src/routes/` while the edit and addon lanes return the BARE stored path —
+// `cleanPath` strips the prefix on the way in and the container puts it back —
+// so every `added`/`changed`/`removed`/`kept` path mapped to '' and was
+// filtered away by the `.filter(Boolean)` below. New pages never entered the
+// page picker, deleted pages never left it, and the replies named no pages at
+// all. `routeOf` was fixed for exactly this on 2026-08-12 and this copy, which
+// lives in the browser, was not: the FIFTH instance of one shape being read by
+// code anchored on the other. Both spellings are accepted here for the same
+// reason they are there — assuming one is what cost the last four.
 function sitePathOf(file) {
-  const m = String(file || '').match(/^src\/routes\/(.+)\.tsx$/i);
+  const m = String(file || '').match(/^(?:src\/routes\/)?(.+)\.tsx$/i);
   if (!m) return '';
   const rel = m[1];
   if (rel === 'index') return '/';
@@ -11706,7 +11747,14 @@ function reactSend(site, t, origin, mode, imgs, finish, qa) {
         : 'Built ' + (name ? '“' + name + '”' : 'your site') + '. Tell me what to change.';
       siteFinishBuild(origin, (built ? '✅ ' : '⚠️ ') + (said || canned), build, note, buildWhy(d));
     } else if (r.status === 402 || (d && d.need === 'credits')) {
-      finish('⚡ You don’t have enough credits to build this right now. Tap your ✦ balance up top to get more.');
+      // THE SERVER'S OWN SENTENCE WINS, because on the picker-floor refusal it
+      // names the FREE way out and this one does not. `buildFloor` answers with
+      // the floor, the balance, and "switch the Builder to Sonnet 5" — its
+      // comment says naming the cheaper picker is the point, since topping up
+      // "is not the only way out and is the less useful one". That message was
+      // composed and discarded here, so somebody on Opus with 30 credits was
+      // sent to buy more instead of flipping a control back.
+      finish('⚡ ' + ((d && d.msg) || 'You don’t have enough credits to build this right now. Tap your ✦ balance up top to get more.'));
     } else if (d && d.need === 'rebuild') {
       finish('That older draft can’t be edited directly — say “rebuild it” and I’ll regenerate it as a React app.');
     } else if (r.status === 429) { finish('⏳ You’ve hit today’s build limit — it resets within 24 hours.'); }
@@ -12228,6 +12276,115 @@ async function siteVersions(site) {
       '</div>').join('') + '</div>';
     bodyEl.querySelectorAll('[data-vid]').forEach((b) => {
       b.onclick = () => restore(b.getAttribute('data-vid'), b.getAttribute('data-vl'));
+    });
+  };
+  load();
+}
+
+// Members — the accounts that signed up on the OWNER'S published site, not on
+// Go Farther. List, change a role, suspend, reinstate, remove.
+//
+// THE SERVER SIDE HAS BEEN LIVE AND UNREACHABLE. `handleOwnerMembers` implements
+// all four verbs against `neon_auth."user"` and is tested; the Members card was
+// clickable, promised "Accounts that sign up in your app", and fell through the
+// cloud dispatch to `else siteInbox(site)` — the form-submissions modal. A stale
+// comment in `loadSiteData` claimed the route "went with the auth layer on
+// 2026-07-30"; it was rebuilt on Neon Auth the same day and never re-wired. So
+// there was no way, anywhere in the product, to see who had an account on a site
+// you own — let alone suspend one.
+async function siteMembers(site) {
+  const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
+  if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — member accounts show up here.'); return; }
+  const { bodyEl } = stCloudModal('siteMembersModal', 'Members');
+  const base = '/api/site/' + encodeURIComponent(slug) + '/members';
+
+  // One helper for all three writes: they differ only in method and body, and
+  // every one of them ends by re-reading the list, because a member's row is the
+  // thing being changed and a stale row beside a "done" toast is how somebody
+  // suspends the same person twice.
+  const change = async (id, init, okMsg) => {
+    try {
+      const r = await apiFetch(base + '/' + encodeURIComponent(id), init);
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.ok) {
+        // The server names the roles a site's own tables actually check, which
+        // is the only useful thing to say when a role is refused — a generic
+        // "couldn't do that" leaves the owner guessing at a closed set.
+        const roles = Array.isArray(d.roles) && d.roles.length ? ' Try: ' + d.roles.join(', ') + '.' : '';
+        if (typeof sbToast === 'function') sbToast((d.error || 'That didn’t work.') + roles);
+      } else if (typeof sbToast === 'function') sbToast(okMsg);
+    } catch (e) { if (typeof sbToast === 'function') sbToast('Lost the connection — try again.'); }
+    load();
+  };
+
+  const setRole = (id, email) => {
+    const next = prompt('Role for ' + (email || 'this member') + '\n\n"admin" can write to staff-managed tables; "user" is an ordinary member. Your site’s own tables may name others.', 'user');
+    if (next == null) return;
+    const role = String(next).trim().toLowerCase();
+    if (!role) return;
+    change(id, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ role }),
+    }, 'Role updated.');
+  };
+
+  const suspend = (id, email, on) => {
+    // ASKED ONLY ON THE WAY IN. Suspending locks somebody out of an account they
+    // are using; reinstating gives it back, and a confirm on a harmless action
+    // is how people learn to click through the one that matters.
+    if (on && !confirm('Suspend ' + (email || 'this member') + '?\n\nThey are signed out everywhere and cannot sign back in until you reinstate them. Their rows stay.')) return;
+    change(id, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ suspended: !!on }),
+    }, on ? 'Suspended.' : 'Reinstated.');
+  };
+
+  const remove = (id, email) => {
+    if (!confirm('Remove ' + (email || 'this member') + ' for good?\n\nThis cannot be undone. Anything they submitted stays on your site but stops being attributed to anyone.')) return;
+    change(id, { method: 'DELETE' }, 'Member removed.');
+  };
+
+  const load = async () => {
+    bodyEl.innerHTML = '<div class="si-empty">Loading…</div>';
+    let d = {};
+    try {
+      const r = await apiFetch(base);
+      d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error('bad');
+    } catch (e) {
+      bodyEl.innerHTML = '<div class="si-empty">Couldn’t read your members. Try again in a moment.</div>';
+      return;
+    }
+    const list = Array.isArray(d.members) ? d.members : [];
+    const intro = '<p class="sp-intro">People who created an account on your site. This is separate from your Go Farther account.</p>';
+    if (!list.length) {
+      // NO MEMBERS AND NO SIGN-IN ARE DIFFERENT THINGS and only one of them is
+      // worth acting on, so do not report the empty list as if something failed.
+      bodyEl.innerHTML = intro + '<div class="si-empty">Nobody has signed up yet. Accounts appear here as people create them.</div>';
+      return;
+    }
+    bodyEl.innerHTML = intro + '<div class="st-hist">' + list.map((m) => {
+      const who = esc(String(m.email || m.name || m.id || '').slice(0, 80));
+      // State as a WORD, not a colour — the platform is black-and-white and its
+      // own component kit forbids colour-only state.
+      const bits = [];
+      if (m.suspended) bits.push('Suspended');
+      bits.push(esc(String(m.role || 'user')));
+      if (!m.verified) bits.push('unverified email');
+      return '<div class="st-hitem"><span class="st-hi-ic">' + ic('users', 14) + '</span>' +
+        '<div class="st-hi-tx"><b>' + who + '</b><span>' + bits.join(' · ') + '</span></div>' +
+        '<button type="button" class="st-hi-restore" data-mrole="' + esc(String(m.id)) + '" data-me="' + who + '">Role</button>' +
+        '<button type="button" class="st-hi-restore" data-msus="' + esc(String(m.id)) + '" data-mon="' + (m.suspended ? '0' : '1') + '" data-me="' + who + '">' +
+          (m.suspended ? 'Reinstate' : 'Suspend') + '</button>' +
+        '<button type="button" class="st-hi-restore" data-mdel="' + esc(String(m.id)) + '" data-me="' + who + '">Remove</button>' +
+        '</div>';
+    }).join('') + '</div>';
+    bodyEl.querySelectorAll('[data-mrole]').forEach((b) => {
+      b.onclick = () => setRole(b.getAttribute('data-mrole'), b.getAttribute('data-me'));
+    });
+    bodyEl.querySelectorAll('[data-msus]').forEach((b) => {
+      b.onclick = () => suspend(b.getAttribute('data-msus'), b.getAttribute('data-me'), b.getAttribute('data-mon') === '1');
+    });
+    bodyEl.querySelectorAll('[data-mdel]').forEach((b) => {
+      b.onclick = () => remove(b.getAttribute('data-mdel'), b.getAttribute('data-me'));
     });
   };
   load();

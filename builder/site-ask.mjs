@@ -125,6 +125,17 @@ export const FALLBACK_NO_SITE = "build";
  */
 export const EDIT_LAYERS = ["data", "text", "look", "page", "rules", "picture", "logo"];
 
+/**
+ * The layers where "take it away" is a thing a customer can ask for.
+ *
+ * Named rather than left implicit because `remove` is read once for every layer
+ * and it must not leak to the ones that have no removal path — a `data` edit
+ * carrying `remove: true` would be a flag nothing acts on, which is how this
+ * repo's dead features start. The tool schema's own `remove` description names
+ * exactly these two, and a test holds the two lists together.
+ */
+export const REMOVABLE_LAYERS = ["page", "logo"];
+
 export const ASK_TOOL = {
   name: "route_message",
   description: "Say whether this message is asking for a change to the site or asking a question, answer it if it is a question, and ask for the one thing you most need to know if this is a first build and the brief leaves it open.",
@@ -559,7 +570,24 @@ export function normalizePagePath(raw) {
 export function readEdit(input, pages) {
   const layer = EDIT_LAYERS.includes(input && input.layer) ? input.layer : null;
   if (!layer) return { intent: FALLBACK_WITH_SITE, answer: "" };
-  if (layer !== "page") return { intent: "edit", answer: "", layer };
+  // `remove` IS READ FOR EVERY LAYER THAT HAS ONE, above the page branch.
+  //
+  // It used to be read only inside the page branch, below the early return —
+  // so when the logo layer landed and its tool description asked for the SAME
+  // field ("true when they want the logo TAKEN OFF"), the flag was stripped
+  // here before the route ever saw it. Everything downstream was correct and
+  // starved: the route's gate, the client's `d.remove === true`, the worker's
+  // logo branch, `runLogoEdit`'s removal path. "Drop the logo, just the name is
+  // fine" fell through to the attach path with no image and answered
+  // "Attach the logo with the 📎 button" — the exact inversion the flag exists
+  // to prevent, and not escalated, so there was no working removal at all.
+  //
+  // `=== true` and nothing merely truthy, for the reason the page branch below
+  // states at length: this is the one verb where guessing wrong takes something
+  // away rather than adding something visible and undoable.
+  const remove = input && input.remove === true;
+  const removal = remove ? { remove: true } : {};
+  if (layer !== "page") return { intent: "edit", answer: "", layer, ...(REMOVABLE_LAYERS.includes(layer) ? removal : {}) };
   const want = normalizePagePath(input.page);
   if (!want) return { intent: FALLBACK_WITH_SITE, answer: "" };
   const known = (Array.isArray(pages) ? pages : []).map(normalizePagePath).filter(Boolean);
@@ -585,8 +613,10 @@ export function readEdit(input, pages) {
   // It is safe to be this direct because the merge still refuses the dangerous
   // cases — never the home page, never one another page still links to — and a
   // publish is archived, so a page deleted by mistake is one restore away.
-  const remove = input && input.remove === true;
-  return { intent: "edit", answer: "", layer, page: want, ...(remove ? { remove: true } : {}) };
+  // `remove` is read once, at the top, so the logo layer gets the same field
+  // this branch does — it was declared here and the early return above stripped
+  // it from every other layer.
+  return { intent: "edit", answer: "", layer, page: want, ...removal };
 }
 
 /**

@@ -13,7 +13,7 @@
 // Injected like the rest, so the decisions run without Supabase, Neon or a
 // Worker — see test/site-owner.test.mjs.
 
-import { isManagedColumn } from "./site-access.mjs";
+import { isManagedColumn, resolveAccess, accessLabel } from "./site-access.mjs";
 import { constraintError } from "./site-errors.mjs";
 
 const json = (body, status = 200) => ({ status, body });
@@ -119,7 +119,10 @@ export async function handleOwnerData(deps, { slug, table, uid, params = {} } = 
   const rows = await deps.query(db, `SELECT * FROM ${deps.ident(def.name)} ORDER BY ${deps.ident(order)} ${dir} LIMIT ? OFFSET ?`, [limit, offset]);
   // `_fts` is the search index, not data — the same strip the public read does.
   for (const r of rows) if (r && r._fts !== undefined) delete r._fts;
-  return json({ rows, limit, offset, access: def.access });
+  // LABELLED BY THE RESOLVED PAIR, not the stamped preset name — a table
+  // declared `{read:"public", write:"none"}` is a display table and read back as
+  // "collect" before this, which is what the Data panel showed the owner.
+  return json({ rows, limit, offset, access: accessLabel(def), memberRows: memberWritten(def) });
 }
 
 /** Which tables an owner can read, and how many rows are waiting in each. */
@@ -144,7 +147,13 @@ export async function handleOwnerTables(deps, { slug, uid } = {}) {
     // managed ones are filtered out, since a form field for `id` or `_fts` is a
     // field whose value is silently dropped on save.
     tables.push({
-      name: t.name, access: t.access, rows: count,
+      name: t.name, access: accessLabel(t), rows: count,
+      // WHOSE ROWS THESE ARE, as a fact rather than a name to be re-derived.
+      // The client used to compare the access string against 'user'/'feed' to
+      // decide whether "+ Add" makes sense; a pair spelling the same thing
+      // matches neither, and a client copy of the resolution rule is a second
+      // place that can disagree with `site-access.mjs`. One boolean instead.
+      memberRows: memberWritten(t),
       columns: columnNames(t).filter((c) => !isManagedColumn(c)),
       // Whether this table takes card payments. A BOOLEAN, not the declaration:
       // the panel only needs to say which tables are paid, and `payment.from`
@@ -180,7 +189,15 @@ export async function handleOwnerWrite(deps, { slug, table, uid, method, rowId, 
   // `_users` out of reach, so no password hash is ever writable through here.
   if (!def) return json({ error: "no such table" }, 404);
 
-  const access = String(def.access || "collect").toLowerCase();
+  // THE PAIR, NOT THE PRESET NAME. `normalizeSchema` stamps
+  // `access: "collect"` on ANY table that did not declare one of the five
+  // shorthands — and the design tool actively tells the model that pairs are
+  // the escape hatch and to leave `access` out. So a member table spelled
+  // `{read:"own", write:"own"}` arrived here wearing "collect", walked past the
+  // 409 below, and the owner's POST wrote a row with `owner_id` NULL: invisible
+  // to every member-scoped read, which is exactly the orphan that 409 exists to
+  // prevent. Third place this month that asked the name instead of resolving.
+  const access = resolveAccess(def);
   const tn = deps.ident(def.name);
 
   // A constraint firing here is the owner being told something true — "price is
@@ -197,6 +214,18 @@ export async function handleOwnerWrite(deps, { slug, table, uid, method, rowId, 
   }
 }
 
+/**
+ * Do this table's rows belong to a MEMBER of the site rather than to the owner?
+ *
+ * The one question behind both the 409 on an owner POST and the client's "+ Add"
+ * button, asked of the write axis so a preset and the pair that spells the same
+ * thing answer identically.
+ */
+function memberWritten(def) {
+  const w = resolveAccess(def).write;
+  return w === "own" || w === "members";
+}
+
 async function runWrite(deps, { db, def, access, tn, method, rowId, body }) {
   if (method === "POST") {
     // A `user`/`feed` row belongs to a MEMBER, and the owner is not one — their
@@ -204,8 +233,12 @@ async function runWrite(deps, { db, def, access, tn, method, rowId, body }) {
     // would carry owner_id NULL: invisible to every `user` read (which scopes to
     // the caller's own id) and unattributable in a feed. Refused rather than
     // silently creating an orphan.
-    if (access === "user" || access === "feed") {
-      return json({ error: "rows here belong to a member of your site, so they can only be added by one", access, code: "member_table" }, 409);
+    // ASKED OF THE WRITE AXIS, which is the thing that decides it: a row whose
+    // writer is a member carries that member's id, and the owner has none.
+    // `user` and `feed` are both `write: "own"`; a pair spelling the same thing
+    // is refused identically, which is the point.
+    if (access.write === "own" || access.write === "members") {
+      return json({ error: "rows here belong to a member of your site, so they can only be added by one", access: accessLabel(def), code: "member_table" }, 409);
     }
     const { cols, vals } = pickWritable(def, body);
     if (!cols.length) return json({ error: "nothing to write" }, 400);

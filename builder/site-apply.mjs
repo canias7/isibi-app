@@ -318,7 +318,23 @@ export async function runTextEdit(deps, { instruction, pages } = {}) {
   try {
     reply = await deps.send(textRequest({ instruction, items }));
   } catch (e) {
-    return { ok: false, escalate: true, reason: "model", detail: String((e && e.message) || "").slice(0, 200), usage: null };
+    // OUR MODEL CALL FAILED, SO THIS IS REPORTED AND NOT ESCALATED — the rule
+    // every sibling lane already follows, and the look layer states outright:
+    // "the rung above will fail the same way, so this is reported rather than
+    // escalated into a second bill for the same outage."
+    //
+    // Escalating meant one transient Haiku failure on "change the price of a
+    // haircut to £25" ran a FULL revise: designer, every page regenerated,
+    // container, republish — ~25 credits and every page's copy rewritten in
+    // different words, for a one-row change. And when the outage persisted,
+    // that revise 503'd at stage "design", so the customer was shown a
+    // designer-outage message about a build they never asked for.
+    //
+    // `reason: "send"` matches `runRulesEdit` and `runPictureEdit`, so the
+    // route answers all three with the same upstream-aware message; `error` is
+    // carried for the reason they carry it — the status and the billing flag
+    // are read off the real failure rather than guessed at.
+    return { ok: false, escalate: false, reason: "send", error: e, usage: null };
   }
   const usage = textUsage(reply);
   const edits = readTextEdits(reply, items);
@@ -600,7 +616,23 @@ export async function runDataEdit(deps, { instruction, tables, recent } = {}) {
   try {
     reply = await deps.send(dataRequest({ instruction, tables: usable, recent }));
   } catch (e) {
-    return { ok: false, escalate: true, reason: "model", detail: String((e && e.message) || "").slice(0, 200), usage: null };
+    // OUR MODEL CALL FAILED, SO THIS IS REPORTED AND NOT ESCALATED — the rule
+    // every sibling lane already follows, and the look layer states outright:
+    // "the rung above will fail the same way, so this is reported rather than
+    // escalated into a second bill for the same outage."
+    //
+    // Escalating meant one transient Haiku failure on "change the price of a
+    // haircut to £25" ran a FULL revise: designer, every page regenerated,
+    // container, republish — ~25 credits and every page's copy rewritten in
+    // different words, for a one-row change. And when the outage persisted,
+    // that revise 503'd at stage "design", so the customer was shown a
+    // designer-outage message about a build they never asked for.
+    //
+    // `reason: "send"` matches `runRulesEdit` and `runPictureEdit`, so the
+    // route answers all three with the same upstream-aware message; `error` is
+    // carried for the reason they carry it — the status and the billing flag
+    // are read off the real failure rather than guessed at.
+    return { ok: false, escalate: false, reason: "send", error: e, usage: null };
   }
   const usage = dataUsage(reply);
   const changes = readDataChanges(reply, usable);

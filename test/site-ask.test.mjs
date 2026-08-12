@@ -12,7 +12,7 @@ import fs from "node:fs";
 import {
   ASK_TOOL, ASK_MODEL, ASK_MAX_TOKENS, MAX_MESSAGE,
   MAX_CLARIFY, MIN_OPTIONS, MAX_OPTIONS, MAX_OPTION_CHARS, MAX_QUESTION_CHARS,
-  EDIT_LAYERS, FALLBACK_WITH_SITE, FALLBACK_NO_SITE,
+  EDIT_LAYERS, REMOVABLE_LAYERS, FALLBACK_WITH_SITE, FALLBACK_NO_SITE,
   askRequest, readRouting, readEdit, readQuestion, clipOption, clarifiedBrief, askUsage, routeMessage,
   siteDigest, normalizePagePath,
 } from "../builder/site-ask.mjs";
@@ -1487,4 +1487,66 @@ test("EVERY FIELD `readEdit` DECIDES REACHES THE CLIENT", () => {
   // which is exactly the state this was found in.
   assert.match(client, /remove:\s*d\.remove === true/,
     "the composer no longer carries the deletion flag to the edit route");
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// `remove` REACHES EVERY LAYER THAT HAS ONE.
+//
+// It was read only inside the page branch, BELOW the early return for every
+// other layer — so when the logo layer landed and its tool description asked
+// for the same field ("true when they want the logo TAKEN OFF"), the flag was
+// stripped here before the route ever saw it. Everything downstream was correct
+// and starved, and "drop the logo, just the name is fine" was answered with
+// "Attach the logo with the 📎 button" — the exact inversion the flag exists to
+// prevent, and not escalated, so there was no working removal at all.
+//
+// DERIVED FROM `REMOVABLE_LAYERS`, not from a list of the two known today: the
+// point of naming that constant is that a third removable layer cannot arrive
+// with the flag silently dropped.
+test("every removable layer carries `remove` off the router", () => {
+  const pages = ["/", "/gallery"];
+  assert.ok(REMOVABLE_LAYERS.length >= 2, "the constant must name real layers");
+  for (const layer of REMOVABLE_LAYERS) {
+    assert.ok(EDIT_LAYERS.includes(layer), layer + " is not an edit layer at all");
+    const extra = layer === "page" ? { page: "/gallery" } : {};
+    const on = readEdit({ layer, remove: true, ...extra }, pages);
+    assert.equal(on.layer, layer);
+    assert.equal(on.remove, true, layer + " lost the removal flag");
+    // ABSENT, not `false` — the route gates on `=== true` and an explicit
+    // false would read the same, but a caller inspecting the object should see
+    // the same shape a plain edit has.
+    const off = readEdit({ layer, ...extra }, pages);
+    assert.equal(off.remove, undefined, layer + " invented a removal nobody asked for");
+  }
+});
+
+test("a layer with no removal path never carries the flag", () => {
+  // A flag nothing acts on is how this repo's dead features start: it reads at
+  // the route as a capability and there is no code behind it.
+  for (const layer of EDIT_LAYERS.filter((l) => !REMOVABLE_LAYERS.includes(l))) {
+    const r = readEdit({ layer, remove: true }, ["/"]);
+    assert.equal(r.layer, layer);
+    assert.equal(r.remove, undefined, layer + " must not carry a flag no lane reads");
+  }
+});
+
+test("only a real boolean removes anything", () => {
+  // The one verb where guessing wrong takes something away rather than adding
+  // something visible and undoable, so nothing merely truthy counts.
+  for (const bad of ["true", 1, {}, [], "yes"]) {
+    for (const layer of REMOVABLE_LAYERS) {
+      const extra = layer === "page" ? { page: "/gallery" } : {};
+      assert.equal(readEdit({ layer, remove: bad, ...extra }, ["/", "/gallery"]).remove, undefined,
+        layer + " accepted " + JSON.stringify(bad) + " as a removal");
+    }
+  }
+});
+
+test("the tool description asks for `remove` on exactly the removable layers", () => {
+  // The schema is what the model reads; if it offers the field for a layer the
+  // reader drops, the model answers a question nobody listens to.
+  const desc = ASK_TOOL.input_schema.properties.remove.description;
+  for (const layer of REMOVABLE_LAYERS) {
+    assert.ok(desc.includes('"' + layer + '"'), "the remove field never mentions layer " + layer);
+  }
 });

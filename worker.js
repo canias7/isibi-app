@@ -44,7 +44,7 @@ import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayou
 // own name the two collide, and the collision is invisible to `node --check` and
 // to all 1,632 tests (nothing can import a Worker entrypoint); esbuild refuses
 // it at deploy time and the deploy is the first thing that ever sees it.
-import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, IMAGE_USD as SITE_PHOTO_USD } from "./builder/publish-pages.mjs";
+import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, MIN_CREDITS, IMAGE_USD as SITE_PHOTO_USD } from "./builder/publish-pages.mjs";
 import { imageBudget, budgetFor, imagesAffordable, planImages, applyImages, countImageSlots, imagePrompt, imageNote, IMAGE_ASPECT } from "./builder/site-images.mjs";
 import { ASKABLE as SITE_TOKEN_NAMES, valueHint as siteTokenHint, mergeTokens, parseTokens, withContrast, tokenNote } from "./builder/site-tokens.mjs";
 import { extractText, applyEdits } from "./builder/site-text.mjs";
@@ -8099,8 +8099,12 @@ async function handleRequest(request, env, ctx) {
       const flushCode = (force) => { if (codeBuf && (force || codeBuf.length >= 120)) { emit({ ev: "code", t: codeBuf }); codeBuf = ""; } };
       const onDelta = (d) => { codeBuf += d; flushCode(false); };
       const run = async () => {
+        // DECLARED OUTSIDE THE TRY, so the catch below can refund it. Inside,
+        // `cost` is not in scope there — a `ReferenceError` on the one path that
+        // gives a customer their credits back, which is this file's own most
+        // repeated bug arriving in the fix for it.
+        let cost = 0;
         try {
-          let cost = 0;
           emit({ ev: "phase", phase: "generating" });
           const genRules = engine === "3d" ? GAME_3D_RULES : (art === "sprites" ? GAME_ASSET_RULES : GAME_RULES);
           const g = await streamGen(genRules, "Build this game. Output ONLY the file blocks.\n\n" + brief, onDelta);
@@ -8140,7 +8144,26 @@ async function handleRequest(request, env, ctx) {
             if (!Object.keys(fixed).length) break;
             Object.assign(files, fixed);
           }
-          if (!bd.ok) { emit({ ev: "error", stage: "build", msg: String(bd.error || "build failed").slice(0, 600), fixed: attempt }); return; }
+          if (!bd.ok) {
+            // OUR CONTAINER, OUR COST. The charges above are collected the
+            // moment each generation returns, before anything is compiled, and
+            // nothing here gave them back — so a container drained mid-bundle,
+            // or one that answered "build service returned no JSON" because it
+            // never started, kept 20-30 credits and delivered no game. There
+            // was no refund on ANY failure branch of either game route, and
+            // `/api/refund` covers fal jobs only, so it could never be undone.
+            //
+            // `build` IS AN OUR-FAULT STAGE by the platform's own rule, which
+            // the site builder states and this route never adopted: nothing in
+            // the error text separates a drained container from a genuine
+            // bundler error, and being wrong toward free costs an occasional
+            // real failure while being wrong the other way bills somebody for
+            // our rollout. Through `refundCredits`, which chunks past
+            // `credit_back`'s 10-credit cap — a full generation is well past it.
+            await refundCredits(env, gu.id, cost).catch(() => {});
+            emit({ ev: "error", stage: "build", msg: String(bd.error || "build failed").slice(0, 600), fixed: attempt, refunded: cost });
+            return;
+          }
           emit({ ev: "phase", phase: "publishing" });
           const seed = ((brief.toLowerCase().match(/[a-z0-9]+/g) || ["game"]).slice(0, 3).join("-").slice(0, 40)) || "game";
           const slug = seed + "-" + crypto.randomUUID().slice(0, 6);
@@ -8149,6 +8172,13 @@ async function handleRequest(request, env, ctx) {
           let balAfter; try { balAfter = await readCredits(auth); } catch { balAfter = bal0 - cost; }
           emit({ ev: "done", url: "/g/" + slug + "/", slug, buildMs, fixed: attempt, smoke: bd.smoke || null, cost, balance: balAfter });
         } catch (e) {
+          // A THROW AFTER THE CHARGE IS OURS TOO — `writeGameDistToR2` failing,
+          // the R2 put, anything past the last generation. The customer has no
+          // game and no way to ask for the credits back.
+          //
+          // Never on a 402: that IS the ledger refusing, so nothing was taken
+          // and "refunding" it would be minting credits out of a failure to pay.
+          if (cost > 0 && !(e && e.status === 402)) await refundCredits(env, gu.id, cost).catch(() => {});
           emit({ ev: "error", msg: (e && e.status === 402) ? "not enough credits" : String(e && e.message || e).slice(0, 200), detail: (e && e.detail) || undefined });
         } finally {
           try { await writer.close(); } catch {}
@@ -8230,8 +8260,12 @@ async function handleRequest(request, env, ctx) {
       const flushCode = (force) => { if (codeBuf && (force || codeBuf.length >= 120)) { emit({ ev: "code", t: codeBuf }); codeBuf = ""; } };
       const onDelta = (d) => { codeBuf += d; flushCode(false); };
       const run = async () => {
+        // DECLARED OUTSIDE THE TRY, so the catch below can refund it. Inside,
+        // `cost` is not in scope there — a `ReferenceError` on the one path that
+        // gives a customer their credits back, which is this file's own most
+        // repeated bug arriving in the fix for it.
+        let cost = 0;
         try {
-          let cost = 0;
           let files = { ...srcObj.files };
           // Phase 6: the game's sprite PNGs are re-bundled from the stash so a revise
           // rebuild keeps its art (assets aren't in the source, they're bundled files).
@@ -8269,13 +8303,39 @@ async function handleRequest(request, env, ctx) {
             if (!Object.keys(fixed).length) break;
             Object.assign(files, fixed);
           }
-          if (!bd.ok) { emit({ ev: "error", stage: "build", msg: String(bd.error || "build failed").slice(0, 600), fixed: attempt }); return; }
+          if (!bd.ok) {
+            // OUR CONTAINER, OUR COST. The charges above are collected the
+            // moment each generation returns, before anything is compiled, and
+            // nothing here gave them back — so a container drained mid-bundle,
+            // or one that answered "build service returned no JSON" because it
+            // never started, kept 20-30 credits and delivered no game. There
+            // was no refund on ANY failure branch of either game route, and
+            // `/api/refund` covers fal jobs only, so it could never be undone.
+            //
+            // `build` IS AN OUR-FAULT STAGE by the platform's own rule, which
+            // the site builder states and this route never adopted: nothing in
+            // the error text separates a drained container from a genuine
+            // bundler error, and being wrong toward free costs an occasional
+            // real failure while being wrong the other way bills somebody for
+            // our rollout. Through `refundCredits`, which chunks past
+            // `credit_back`'s 10-credit cap — a full generation is well past it.
+            await refundCredits(env, gu.id, cost).catch(() => {});
+            emit({ ev: "error", stage: "build", msg: String(bd.error || "build failed").slice(0, 600), fixed: attempt, refunded: cost });
+            return;
+          }
           emit({ ev: "phase", phase: "publishing" });
           await writeGameDistToR2(env, slug, bd.files);
           try { await env.SITES_BUCKET.put("gamesrc/" + slug + ".json", JSON.stringify({ files, assets: gameAssets, uid: gu.id, engine }), { httpMetadata: { contentType: "application/json" } }); } catch {}
           let balAfter; try { balAfter = await readCredits(auth); } catch { balAfter = bal0 - cost; }
           emit({ ev: "done", url: "/g/" + slug + "/", slug, buildMs, fixed: attempt, smoke: bd.smoke || null, cost, balance: balAfter });
         } catch (e) {
+          // A THROW AFTER THE CHARGE IS OURS TOO — `writeGameDistToR2` failing,
+          // the R2 put, anything past the last generation. The customer has no
+          // game and no way to ask for the credits back.
+          //
+          // Never on a 402: that IS the ledger refusing, so nothing was taken
+          // and "refunding" it would be minting credits out of a failure to pay.
+          if (cost > 0 && !(e && e.status === 402)) await refundCredits(env, gu.id, cost).catch(() => {});
           emit({ ev: "error", msg: (e && e.status === 402) ? "not enough credits" : String(e && e.message || e).slice(0, 200), detail: (e && e.detail) || undefined });
         } finally {
           try { await writer.close(); } catch {}
@@ -9024,6 +9084,47 @@ async function handleRequest(request, env, ctx) {
         // A DESIGNER THAT DECLARED NO TABLES IS NOT AUTOMATICALLY AN ERROR — see
         // the one refusal below, after the ownership lookup. It used to be
         // refused right here, and that made a look-only revise impossible.
+      } else {
+        // AN EXPLICIT SCHEMA SKIPS THE MODEL CALL, NOT THE AFFORDABILITY CHECK.
+        //
+        // The deposit and `buildFloor` both live in the branch above, and
+        // provisioning runs after it either way — so anyone signed in who posted
+        // their own `schema` reached `ensureSiteBackend` with NO credit check at
+        // all. `publishPages` still refuses to generate below its own floor, so
+        // what was free is the NEON PROJECT: a capped, billed resource, one per
+        // site, against a platform-wide cap of 100. Repeat with fresh slugs and
+        // builds stop working for everybody.
+        //
+        // A BALANCE READ, NOT A DEPOSIT, and the difference is deliberate. No
+        // model call happens on this path, so there is nothing to hold money
+        // against; the only thing worth stopping is provisioning on an empty
+        // account. A read can race a concurrent build, which is the same
+        // exposure this path had in full a moment ago and bounded to one.
+        // `MIN_CREDITS`, NOT `buildFloor`, and the difference is the point.
+        // `buildFloor` = a cold designer call at this picker's rates PLUS the
+        // generation floor — and no designer call happens on this path, so
+        // charging for one would refuse a build that costs strictly less than
+        // an ordinary one. `MIN_CREDITS` is the amount `publishPages` already
+        // requires before it will generate at all, which is the real downstream
+        // requirement and comfortably inside a new account's grant of 20 (both
+        // `confirm smoke` and `member smoke` build this way on a fresh account
+        // and must keep passing).
+        const floor = MIN_CREDITS;
+        const bal = await readCredits(request.headers.get("Authorization") || "").catch(() => null);
+        // FAILS CLOSED. An unreadable ledger is the shape that made this free in
+        // the first place — "cannot tell" must not mean "go ahead" on the one
+        // path that provisions a capped resource.
+        if (bal === null || bal < floor) {
+          return Response.json({
+            ok: false,
+            error: "not enough credits",
+            need: "credits",
+            cost: floor,
+            msg: bal === null
+              ? "Couldn't check your balance just now — try again in a moment."
+              : "A build needs about " + floor + " credits and you have " + bal + ".",
+          }, { status: 402 });
+        }
       }
 
       // WEB RESEARCH, STARTED HERE AND AWAITED MUCH LATER — the gap is the point.
@@ -9130,6 +9231,17 @@ async function handleRequest(request, env, ctx) {
           return Response.json({ ok: false, error: "that name is taken", cost: 0 }, { status: 409 });
         }
         console.error("site provision failed:", slug, e && e.status, e && (e.detail || e.message));
+        // REFUNDED, BECAUSE THIS FAILURE IS OURS AND THEY ARE LEFT WITH NOTHING.
+        //
+        // Only the `conflict` branch above used to give the money back, so a
+        // Neon outage, a dead key or a project quota answered 502 and KEPT the
+        // settled schema charge — 9 credits cold Sonnet, 15 Opus, out of a new
+        // account's grant of 20. Every sibling refusal on this route refunds,
+        // with the stated reason that the caller is left with literally nothing;
+        // a provisioning failure leaves them in exactly that state, and
+        // infrastructure being down is an our-fault stage by `ourFault`'s own
+        // list. During an outage each retry cost half a grant for nothing.
+        await refundCredits(env, bu.id, Math.max(0, schemaCost));
         // THE STATUS IS THE DIAGNOSIS. A dead key (401), a plan or permission
         // limit (403), a project quota (422) and Neon being down (5xx) all read
         // identically without it, and each needs a completely different fix —
@@ -9145,6 +9257,7 @@ async function handleRequest(request, env, ctx) {
           // identically.
           stage: (e && e.stage) || null,
           detail: scrubSecrets(String((e && (e.detail || e.message)) || "")).slice(0, 300),
+          cost: 0,
         }, { status: 502 });
       }
 
@@ -9154,7 +9267,21 @@ async function handleRequest(request, env, ctx) {
         tr.at("schema", { tables: (spec.tables || []).length });
       } catch (e) {
         console.error("schema apply failed:", slug, e && (e.detail || e.message));
-        return Response.json({ ok: false, error: "could not apply the schema", detail: String(e && (e.detail || e.message)).slice(0, 300) }, { status: 502 });
+        // REFUNDED FOR THE SAME REASON as the provisioning failure above: this
+        // is our schema engine failing against a database we just made, not
+        // anything the customer wrote, and `ourFault` treats an unclassified
+        // stage as ours by design. They are left with an empty database and no
+        // site — technically an artifact, practically nothing.
+        await refundCredits(env, bu.id, Math.max(0, schemaCost));
+        // SCRUBBED, like the provisioning detail one branch up and unlike this
+        // line until now. A Postgres or Neon error can quote the statement, and
+        // the statement is built from the connection the vault handed us.
+        return Response.json({
+          ok: false,
+          error: "could not apply the schema",
+          detail: scrubSecrets(String((e && (e.detail || e.message)) || "")).slice(0, 300),
+          cost: 0,
+        }, { status: 502 });
       }
 
       // Register the site's scheduled jobs. Best-effort and non-fatal for the
@@ -9805,9 +9932,45 @@ async function handleRequest(request, env, ctx) {
             // Charged only when the change actually PUBLISHED, the same rule
             // `publishPages` follows: a lane that failed and left the site
             // untouched has delivered nothing to bill for.
-            const eCharge = async (usage) => {
-              if (!usage) return 0;
-              try { return await collectCredits(eAuth, pageCredits(usage)); } catch { return 0; }
+            //
+            // VARIADIC, because the picture layer has a second thing to bill:
+            // a generated photograph is real fal spend at IMAGE_USD and is
+            // priced by the same one table. `pageCredits` takes several parts
+            // and rounds ONCE, so passing them is the whole fix — summing two
+            // calls would charge twice for the rounding, which is the bug the
+            // addon lane had.
+            const eCharge = async (usage, ...more) => {
+              const parts = [usage, ...more].filter(Boolean);
+              if (!parts.length) return 0;
+              try { return await collectCredits(eAuth, pageCredits(...parts)); } catch { return 0; }
+            };
+
+            // OUR MODEL CALL DIED — ONE ANSWER, FOR ALL FOUR LANES.
+            //
+            // Every lane carries the thrown error back as `reason: "send"`, and
+            // each of them used to fold it into a flat 422 "that change couldn't
+            // be saved — try again", which is wrong twice: the status says the
+            // customer's request was at fault when it was ours, and a BILLING
+            // outage is the one failure nothing retries past, so "try again in a
+            // moment" spends somebody's evening on it.
+            //
+            // Same shape the look layer and the build route already answer with,
+            // so a lane that goes down reports identically wherever it sits on
+            // the ladder. 503, never escalated: the rung above calls the same
+            // provider and would fail the same way, at ~25 credits.
+            const modelDown = (e, what) => {
+              console.error("edit model call failed:", ownerSlug, eLayer, e && e.message);
+              const k = upstreamKind(e && e.detail);
+              return Response.json({
+                ok: false, error: "send", cost: 0,
+                msg: k.billing
+                  ? "The site builder is temporarily unavailable — this is on us, not your change."
+                  : (what || "That didn't go through — try again in a moment."),
+                upstream: (e && e.status) || null,
+                upstreamType: k.type,
+                billing: k.billing || undefined,
+                kind: String((e && e.name) || "Error").slice(0, 40),
+              }, { status: 503 });
             };
 
             if (eLayer === "data") {
@@ -9899,6 +10062,7 @@ async function handleRequest(request, env, ctx) {
                 // spends ~25 credits to fail differently. Said plainly instead,
                 // with the one thing the owner can actually do about it.
                 if (!dOut.escalate) {
+                  if (dOut.reason === "send") return modelDown(dOut.error, "I couldn't reach the model that makes that change — try again in a moment.");
                   return Response.json({
                     ok: false, error: dOut.reason, cost: 0,
                     msg: dOut.reason === "no-match"
@@ -9967,6 +10131,7 @@ async function handleRequest(request, env, ctx) {
 
               if (!rOut.ok) {
                 if (!rOut.escalate) {
+                  if (rOut.reason === "send") return modelDown(rOut.error, "I couldn't reach the model that sets that rule — try again in a moment.");
                   return Response.json({
                     ok: false, error: rOut.reason, cost: await eCharge(rOut.usage), usage: rOut.usage,
                     // A REFUSAL IS SAID IN FULL. `rulesReply` is the one place
@@ -10000,7 +10165,15 @@ async function handleRequest(request, env, ctx) {
               // photographs, which need no image model, are what actually fills
               // them, and are better than a made-up one for a business that has
               // them.
-              const balance = await readCredits(eAuth).catch(() => 0);
+              // A WORKING BALANCE, DECREMENTED AS PHOTOGRAPHS ARE BOUGHT.
+              //
+              // This was read once and never moved, so the per-picture
+              // affordability check below could not bind across a batch: an
+              // account with 20 credits passed the same check three times and
+              // bought three photographs it could afford one of. The comment on
+              // that check already said a batch that can afford two of three
+              // must buy the two; nothing implemented it.
+              let balance = await readCredits(eAuth).catch(() => 0);
               const pOut = await runPictureEdit({
                 send: (req) => anthropicMessages(env, req),
                 // The owner's upload library, named the way they see it.
@@ -10013,12 +10186,18 @@ async function handleRequest(request, env, ctx) {
                 // of three must buy the two, and the third is reported.
                 generate: async (describe) => {
                   if (!imagesAffordable(1, { balance, usd: SITE_PHOTO_USD })) return null;
-                  return makeSitePhoto(env, ownerSlug, describe);
+                  const made = await makeSitePhoto(env, ownerSlug, describe);
+                  // Only a photograph that really landed costs anything, so the
+                  // working balance moves on success and not on the attempt —
+                  // the same rule the build path's `made` count follows.
+                  if (made) balance -= SITE_PHOTO_USD / CREDIT_USD;
+                  return made;
                 },
               }, { instruction: eInstruction, pages: eSrc });
 
               if (!pOut.ok) {
                 if (!pOut.escalate) {
+                  if (pOut.reason === "send") return modelDown(pOut.error, "I couldn't reach the model that picks the picture — try again in a moment.");
                   return Response.json({
                     ok: false, error: pOut.reason, cost: await eCharge(pOut.usage), usage: pOut.usage,
                     // The module writes this — it is the only thing that knows
@@ -10039,11 +10218,26 @@ async function handleRequest(request, env, ctx) {
                   detail: pPub.detail,
                 }, { status: 422 });
               }
+              // THE PHOTOGRAPHS ARE BILLED, WHICH THEY WERE NOT.
+              //
+              // This charged `pageCredits(usage)` over model tokens only, so a
+              // generated photograph — $0.15 of real fal spend, ~19 credits, and
+              // the exact charge the BUILD path applies for the identical
+              // picture — cost the customer nothing. "Add three photos of the
+              // shop" was about $0.45 to us and roughly one credit to them.
+              // Latent only while the image balance is empty and `generate`
+              // returns null; the day it is funded it is live money.
+              //
+              // Counted from `made`, not from what was asked for: a photograph
+              // that failed or was never affordable was never bought. Priced
+              // through the SAME variadic call as the tokens so the two land on
+              // one bill with one rounding.
+              const pImages = pOut.made.length ? { images: pOut.made.length } : null;
               return Response.json({
                 ok: true, layer: "picture", msg: pOut.msg,
                 changed: pOut.changed, files: pPub.files,
                 used: pOut.used.length, made: pOut.made.length, failed: pOut.failed,
-                cost: await eCharge(pOut.usage), usage: pOut.usage,
+                cost: await eCharge(pOut.usage, pImages), usage: pOut.usage,
               });
             }
             if (eLayer === "logo") {
@@ -10116,6 +10310,12 @@ async function handleRequest(request, env, ctx) {
               // above would be working from the same copy. Retrying fixes it.
               if (!out.ok) {
                 if (!out.escalate) {
+                  // A MODEL OUTAGE IS NOT A STALE EDIT. The 409 below says the
+                  // site moved under the offsets and to send it again, which is
+                  // exactly wrong advice when the provider is down or unpaid —
+                  // and would be the message on every text edit for the whole
+                  // outage.
+                  if (out.reason === "send") return modelDown(out.error, "I couldn't reach the model that picks the wording — try again in a moment.");
                   return Response.json({
                     ok: false, error: out.reason, cost: 0,
                     msg: "Your site changed while that was being edited — send it again.",
@@ -10592,7 +10792,15 @@ async function handleRequest(request, env, ctx) {
             // table — the same rule every other model call follows.
             let aCost = 0;
             try {
-              const bill = pageCredits(aDesignUsage) + pageCredits(aGen && aGen.usage);
+              // VARIADIC, NOT TWO CALLS ADDED. `pageCredits` takes several
+              // usages precisely so they land on one bill with ONE rounding and
+              // ONE 1-credit floor — its own comment says adding
+              // separately-rounded results "would charge twice for the
+              // rounding". Measured against the real module: a typical
+              // Haiku-design + Sonnet-pages pair billed 20 summed against 19
+              // priced together, and two tiny calls billed 2 against 1. Every
+              // addon on the platform overpaid one to two credits.
+              const bill = pageCredits(aDesignUsage, aGen && aGen.usage);
               aCost = await collectCredits(aAuth, bill);
             } catch { aCost = 0; }
             return Response.json({
@@ -10658,7 +10866,7 @@ async function handleRequest(request, env, ctx) {
             if (!out.ok) {
               return Response.json({
                 ok: false, error: "compile",
-                msg: compileMsg(tPub, "That change didn't compile, so your site is untouched — try shorter wording."),
+                msg: compileMsg(out, "That change didn't compile, so your site is untouched — try shorter wording."),
                 detail: out.detail,
               }, { status: 422 });
             }

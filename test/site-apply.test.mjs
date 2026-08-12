@@ -296,14 +296,27 @@ test("nothing matched ESCALATES rather than reporting success", async () => {
   assert.equal(bare.usage, null, "a site with no words costs no model call at all");
 });
 
-test("a throw escalates and bills nothing", async () => {
-  const r = await runTextEdit({ send: async () => { throw new Error("upstream 503"); } },
+test("a throw is REPORTED, never escalated, and bills nothing", async () => {
+  // THIS TEST USED TO ASSERT THE BUG. It required `escalate: true`, which meant
+  // one transient model failure on a text edit ran a FULL revise — designer,
+  // every page regenerated, container, republish, ~25 credits — and rewrote
+  // copy nobody asked about, for a wording change. And when the outage
+  // persisted the revise 503'd at stage "design", so the customer saw a
+  // designer-outage message about a build they never requested.
+  //
+  // The rule every sibling lane follows, stated in the look layer: "the rung
+  // above will fail the same way, so this is reported rather than escalated
+  // into a second bill for the same outage."
+  const boom = new Error("upstream 503");
+  const r = await runTextEdit({ send: async () => { throw boom; } },
     { instruction: "x", pages: PAGES });
   assert.equal(r.ok, false);
-  assert.equal(r.escalate, true);
-  assert.equal(r.reason, "model");
+  assert.equal(r.escalate, false, "our own outage must not buy a second, dearer attempt");
+  assert.equal(r.reason, "send", "matches runRulesEdit/runPictureEdit so one route branch answers all of them");
+  assert.equal(r.error, boom, "the real error travels, so the status and the billing flag are read rather than guessed");
   assert.equal(r.usage, null, "our fault is our cost");
 });
+
 
 test("a source that MOVES between the extract and the apply is refused, and does not escalate", async () => {
   // Within one call the offsets agree by construction — they were just read out
@@ -1474,4 +1487,21 @@ test("a killed compile is retried once, and only a kill is", async () => {
   const blaming = [...w.matchAll(/msg: "That [^"]*didn't compile[^"]*"/g)];
   assert.deepEqual(blaming.map((m) => m[0].slice(0, 50)), [],
     "a lane still reports a failed compile without asking whose fault it was");
+});
+
+// Placed here rather than beside its text-lane twin because `runDataEdit` is
+// imported by the data-lane block below, not by the text-lane one above.
+test("a data-lane throw is reported the same way as a text-lane one", async () => {
+  // Both lanes had the identical defect and the audit named only one. Asserted
+  // together so a fix to either cannot drift from the other.
+  const boom = new Error("upstream 529");
+  const r = await runDataEdit({ send: async () => { throw boom; } }, {
+    instruction: "change the price",
+    tables: [{ name: "menu", columns: ["item", "price"], rows: [{ id: 1, item: "Cut", price: "20" }] }],
+  });
+  assert.equal(r.ok, false);
+  assert.equal(r.escalate, false);
+  assert.equal(r.reason, "send");
+  assert.equal(r.error, boom);
+  assert.equal(r.usage, null);
 });

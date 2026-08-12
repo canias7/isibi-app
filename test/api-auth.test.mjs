@@ -569,3 +569,243 @@ test("nothing in the owner block assigns a Response to `r`", () => {
     "the scan found no `r =` assignments at all — it is looking at the wrong region");
 });
 
+
+// ─────────────────────────────────────────────────────────────────────────
+// OUR FAILURE, OUR COST — on the build route's two infrastructure branches.
+//
+// Only the name-taken branch refunded, so a Neon outage, a dead key or a
+// project quota answered 502 and KEPT the settled schema charge: 9 credits cold
+// Sonnet, 15 Opus, out of a new account's grant of 20. Every sibling refusal on
+// this route refunds, with the stated reason that the caller is left with
+// literally nothing — which is exactly where a provisioning failure leaves them
+// — and infrastructure being down is an our-fault stage by `ourFault`'s own
+// list. During an outage each retry cost half a grant for nothing.
+for (const [what, anchor] of [
+  ["provisioning", 'console.error("site provision failed:'],
+  ["the schema apply", 'console.error("schema apply failed:'],
+]) {
+  test("a failed " + what + " refunds the schema charge", () => {
+    const i = WORKER_SRC.indexOf(anchor);
+    assert.ok(i > 0, "the " + what + " catch was not found");
+    const block = WORKER_SRC.slice(i, WORKER_SRC.indexOf("{ status: 502 }", i));
+    assert.ok(block.length > 100 && block.length < 3000, what + " catch not found whole: " + block.length);
+    // Anchored on the SPEND, not on a helper name — the refund is the thing.
+    assert.match(block, /refundCredits\(env, bu\.id/, what + " keeps the customer's money on our own failure");
+    assert.match(block, /cost: 0/, "…and must say so, or the client shows a charge that was given back");
+  });
+}
+
+test("the schema-apply 502 scrubs what it returns", () => {
+  // Its sibling one branch up already did. A Postgres or Neon error can quote
+  // the statement, and the statement is built from the connection the vault
+  // handed us.
+  const i = WORKER_SRC.indexOf('console.error("schema apply failed:');
+  const block = WORKER_SRC.slice(i, WORKER_SRC.indexOf("{ status: 502 }", i));
+  assert.match(block, /scrubSecrets\(/, "the schema-apply detail must go through the scrubber");
+});
+
+// AN EXPLICIT SCHEMA SKIPS THE MODEL CALL, NOT THE AFFORDABILITY CHECK.
+//
+// The deposit and `buildFloor` both live inside `if (!body.schema)`, and
+// provisioning runs after it either way — so anyone signed in who posted their
+// own schema reached `ensureSiteBackend` with no credit check at all. What was
+// free is the NEON PROJECT: a capped, billed resource, one per site, against a
+// platform-wide cap of 100.
+test("the explicit-schema build path still checks the balance before provisioning", () => {
+  const i = WORKER_SRC.indexOf("      if (!body.schema) {");
+  assert.ok(i > 0, "the schema-exempt block was not found");
+  const prov = WORKER_SRC.indexOf("db = await ensureSiteBackend(", i);
+  assert.ok(prov > i, "provisioning was not found after the schema block");
+  const between = WORKER_SRC.slice(i, prov);
+  // The `else` arm of that same `if` is the only place it can go and still be
+  // on the path a schema-carrying build takes.
+  assert.match(between, /\} else \{[\s\S]*readCredits\(/, "the explicit-schema path reaches provisioning with no balance read");
+  assert.match(between, /need: "credits"/, "…and must refuse in the shape the client already handles");
+  // FAILS CLOSED. An unreadable ledger is the shape that made this free in the
+  // first place: "cannot tell" must not mean "go ahead" on the one path that
+  // provisions a capped resource.
+  assert.match(between, /bal === null \|\| bal < floor/, "an unreadable balance must refuse, not proceed");
+});
+
+// A GAME BUILD THAT DIES IN OUR CONTAINER GIVES THE CREDITS BACK.
+//
+// Both game routes collect the model charge the moment each generation returns,
+// before anything compiles, and nothing gave it back — so a container drained
+// mid-bundle, or one that never started ("build service returned no JSON"),
+// kept 20-30 credits and delivered no game. There was no refund on ANY failure
+// branch of either route, and `/api/refund` covers fal jobs only.
+test("both game routes refund on a build failure and on a throw", () => {
+  const marks = [...WORKER_SRC.matchAll(/ev: "error", stage: "build"/g)];
+  assert.equal(marks.length, 2, "expected the build and revise routes: " + marks.length);
+  for (const m of marks) {
+    const block = WORKER_SRC.slice(Math.max(0, m.index - 1400), m.index + 200);
+    assert.match(block, /refundCredits\(env, gu\.id, cost\)/, "a game build failure kept the charge");
+  }
+  const throws = [...WORKER_SRC.matchAll(/emit\(\{ ev: "error", msg: \(e && e\.status === 402\)/g)];
+  assert.equal(throws.length, 2, "expected two game catch blocks: " + throws.length);
+  for (const m of throws) {
+    const block = WORKER_SRC.slice(Math.max(0, m.index - 700), m.index);
+    assert.match(block, /refundCredits\(env, gu\.id, cost\)/, "a game throw kept the charge");
+    // Never on a 402: that IS the ledger refusing, so nothing was taken and
+    // "refunding" it would mint credits out of a failure to pay.
+    assert.match(block, /!\(e && e\.status === 402\)/, "a 402 must not be refunded — nothing was taken");
+  }
+});
+
+test("the game routes declare `cost` where their catch can see it", () => {
+  // Declared inside the try, `cost` is not in scope in the catch — a
+  // ReferenceError on the one path that gives a customer their credits back,
+  // which is this file's own most repeated bug arriving in the fix for it.
+  const runs = [...WORKER_SRC.matchAll(/const run = async \(\) => \{\n([\s\S]{0,400}?)try \{/g)];
+  assert.equal(runs.length, 2, "expected two game run() blocks: " + runs.length);
+  for (const m of runs) {
+    assert.match(m[1], /let cost = 0;/, "`cost` must be declared before the try, or the catch cannot refund it");
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// EVERY `compileMsg` CALL NAMES A VARIABLE THAT EXISTS.
+//
+// `compileMsg(tPub, …)` shipped on the /text route's compile-failure branch and
+// `tPub` appears exactly ONCE in 12,604 lines — this use. The compile result
+// there is `out`; every sibling branch has its own local (`pub`, `pPub`, `aPub`,
+// `cutPub`, `rPub`), which is precisely why the wrong one is easy to write. So
+// the branch written to answer "that didn't compile, your site is untouched"
+// threw a ReferenceError and 500'd instead, on every compile failure.
+//
+// The existing free-variable scanner cannot see this: it walks FORWARD from a
+// declaration to a read after its block closes, and this name is declared
+// nowhere at all. Same family as `vidRefN` and `du.id`, third instance.
+test("every compileMsg call names a variable declared in worker.js", () => {
+  const calls = [...WORKER_SRC.matchAll(/compileMsg\(\s*([A-Za-z_$][\w$]*)\s*,/g)];
+  assert.ok(calls.length >= 5, "the compileMsg scan found too few calls: " + calls.length);
+  const bad = [];
+  for (const m of calls) {
+    const name = m[1];
+    // Declared SOMEWHERE in the file, as a const/let/var or a parameter of the
+    // enclosing arrow — a deliberately loose test, because the failure being
+    // caught is a name that exists nowhere rather than one out of scope.
+    const declared = new RegExp("(?:const|let|var)\\s+" + name + "\\b").test(WORKER_SRC);
+    if (!declared) bad.push(name + " (worker.js:" + (WORKER_SRC.slice(0, m.index).split("\n").length) + ")");
+  }
+  assert.deepEqual(bad, [], "these compileMsg calls name a variable that is never declared: " + bad.join(", "));
+});
+
+test("the compileMsg scan can actually fail", () => {
+  // A scan that stopped matching would report a clean file forever. Driven
+  // against the exact shape of the bug it was written for.
+  const fake = 'msg: compileMsg(tPub, "x"),\nconst out = 1;';
+  const names = [...fake.matchAll(/compileMsg\(\s*([A-Za-z_$][\w$]*)\s*,/g)].map((m) => m[1]);
+  assert.deepEqual(names, ["tPub"]);
+  assert.equal(/(?:const|let|var)\s+tPub\b/.test(fake), false, "the declaration check must not match a name that is only used");
+});
+
+// THE ADDON BILL IS ONE VARIADIC CALL, NOT TWO ADDED.
+//
+// `pageCredits` takes several usages precisely so they land on one bill with ONE
+// rounding and ONE 1-credit floor — its own comment says adding
+// separately-rounded results "would charge twice for the rounding". The addon
+// route summed two calls: measured against the real module, a typical
+// Haiku-design + Sonnet-pages pair billed 20 against 19, and two tiny calls
+// billed 2 against 1. Every addon on the platform overpaid.
+test("the addon prices both of its calls together", () => {
+  const i = WORKER_SRC.indexOf("const bill = pageCredits(");
+  assert.ok(i > 0, "the addon bill was not found");
+  const line = WORKER_SRC.slice(i, WORKER_SRC.indexOf("\n", i));
+  assert.ok(!/\+\s*pageCredits\(/.test(line), "the addon adds two separately-rounded bills: " + line.trim());
+  assert.match(line, /pageCredits\([^)]*,[^)]*\)/, "both usages must go through one variadic call: " + line.trim());
+});
+
+test("adding two pageCredits results really does overcharge", async () => {
+  // The assertion above is about spelling; this is about why it matters, driven
+  // through the real pricing module rather than restated.
+  const { pageCredits } = await import("../builder/publish-pages.mjs");
+  const design = { in: 500, out: 300, model: "claude-haiku-4-5" };
+  const gen = { in: 2000, out: 9000, cacheRead: 27000, model: "claude-sonnet-5" };
+  assert.ok(pageCredits(design) + pageCredits(gen) > pageCredits(design, gen),
+    "summing rounds twice — if this ever stops being true the guard above is pointless");
+  const tiny = { in: 10, out: 5, model: "claude-haiku-4-5" };
+  assert.equal(pageCredits(tiny, tiny), 1, "two tiny calls are one credit together");
+  assert.equal(pageCredits(tiny) + pageCredits(tiny), 2, "…and two apart, which is the double floor");
+});
+
+// A PHOTOGRAPH BOUGHT BY THE PICTURE LAYER IS BILLED.
+//
+// It charged `pageCredits(usage)` over model tokens only, so a generated
+// photograph — $0.15 of real fal spend and ~19 credits, the exact charge the
+// BUILD path applies for the identical picture — cost the customer nothing.
+// Latent only while the image balance is empty; the day it is funded it is live
+// money going out with nothing coming back.
+test("the picture layer bills the photographs it bought", () => {
+  const i = WORKER_SRC.indexOf('ok: true, layer: "picture"');
+  assert.ok(i > 0, "the picture success response was not found");
+  const block = WORKER_SRC.slice(Math.max(0, i - 900), WORKER_SRC.indexOf("});", i));
+  assert.match(block, /images: pOut\.made\.length/, "the photographs are not priced into the bill");
+  assert.match(block, /eCharge\(pOut\.usage, pImages\)/, "…and must be charged through the same one call as the tokens");
+  // COUNTED FROM `made`, not from what was asked for: a photograph that failed
+  // or was never affordable was never bought.
+  assert.ok(!/images: pOut\.(budget|planned|changed)/.test(block), "the bill must count what was MADE, not what was wanted");
+});
+
+test("the picture layer's working balance moves as it spends", () => {
+  // Read once and never decremented, the per-picture affordability check could
+  // not bind across a batch: an account with 20 credits passed the same check
+  // three times and bought three photographs it could afford one of.
+  const i = WORKER_SRC.indexOf("const pOut = await runPictureEdit({");
+  const block = WORKER_SRC.slice(Math.max(0, i - 900), WORKER_SRC.indexOf("}, { instruction: eInstruction, pages: eSrc });", i));
+  assert.match(block, /let balance = await readCredits/, "a const balance can never be decremented");
+  assert.match(block, /balance -= SITE_PHOTO_USD \/ CREDIT_USD/, "the balance must fall as photographs are bought");
+  assert.match(block, /if \(made\)/, "…only for one that really landed");
+});
+
+// EVERY EDIT LANE ANSWERS OUR OWN OUTAGE THE SAME WAY.
+//
+// The lanes return `reason: "send"` when their model call throws, and each used
+// to fold that into a flat 422 — "that change couldn't be saved, try again" for
+// three of them, and "your site changed while that was being edited, send it
+// again" for the text lane. Both are wrong twice over: the status blames the
+// customer's request for our failure, and "try again" is the worst possible
+// advice during a BILLING outage, which is the one thing nothing retries past.
+//
+// Derived from the lanes that can produce it, so a fifth lane cannot arrive
+// with its own quiet 422.
+test("every edit lane routes a model outage to the shared 503", () => {
+  const lanes = [["data", "dOut"], ["text", "out"], ["rules", "rOut"], ["picture", "pOut"]];
+  for (const [name, v] of lanes) {
+    const re = new RegExp(v.replace("$", "\\$") + '\\.reason === "send"[^\\n]*modelDown\\(' + v + '\\.error');
+    assert.match(WORKER_SRC, re, "the " + name + " lane does not hand a model outage to modelDown");
+  }
+  // The helper itself must carry the three things that make it worth having.
+  const i = WORKER_SRC.indexOf("const modelDown = (e, what) =>");
+  assert.ok(i > 0, "modelDown was not found");
+  // SLICED TO THE FUNCTION'S OWN CLOSE, not to the status being asserted. A
+  // first draft ended the window at `{ status: 503 }` — so a mutation changing
+  // that status moved the window's END past it and every assertion still
+  // matched a wider region. An anchor that moves with the thing it asserts
+  // proves nothing, which is this repo's own most repeated testing bug.
+  const body = WORKER_SRC.slice(i, WORKER_SRC.indexOf("\n            };", i));
+  assert.ok(body.length > 200 && body.length < 2500, "modelDown was not found whole: " + body.length);
+  // 5xx, ALWAYS. The customer's request was fine; ours failed, and a 4xx tells
+  // both them and any retry logic the opposite.
+  assert.match(body, /\{ status: 503 \}/, "our own outage must not be reported as the caller's mistake");
+  assert.ok(!/\{ status: 4\d\d \}/.test(body), "modelDown answers a 4xx: " + body.slice(-200));
+  assert.match(body, /upstreamKind\(/, "…without the provider's error type, a billing outage is invisible");
+  assert.match(body, /billing:/, "…and the one failure nothing retries past must be named");
+  assert.match(body, /cost: 0/, "our outage is our cost");
+});
+
+test("a `send` check hands off before its lane's own refusal", () => {
+  // The bug being prevented is a lane keeping its own quiet 4xx for our outage.
+  // WINDOWED TO THE `return` ON THE SAME LINE, not to a byte count: the first
+  // draft ran 400 characters past the check and matched the 409 in the branch
+  // BELOW it, reporting a false alarm on correct code — the overlapping-window
+  // bug this repo keeps recording, in the guard written to prevent a different
+  // one. Each `send` check returns immediately, so anything after that return
+  // belongs to a neighbour.
+  const checks = [...WORKER_SRC.matchAll(/reason === "send"\)[^\n]*/g)];
+  assert.ok(checks.length >= 4, "expected a send check in every lane: " + checks.length);
+  for (const m of checks) {
+    assert.match(m[0], /return modelDown\(/, "a send check that does not hand off: " + m[0].trim());
+    assert.ok(!/status: (4\d\d)/.test(m[0]), "a model outage answered with a 4xx: " + m[0].trim());
+  }
+});

@@ -16317,3 +16317,64 @@ It's instrumented now: if it happens again the reply says which.
 
 **Nothing more to run until the account is topped up.** Any further run just pays
 to read the same sentence back.
+
+---
+
+## I audited every route, and fixed the 14 things it found (2026-08-12)
+
+Eight passes over the ~62 API routes at once — who can reach them, who's allowed,
+what they charge, and whether the app and the server still agree about anything.
+Then a second round whose only job was to *disprove* each finding before I
+believed it. 14 survived. All 14 are fixed.
+
+**The theme, and it's uncomfortable: five separate features work perfectly on the
+server and cannot be reached from the app.**
+
+- **You could not roll back a build.** The whole version-history feature has been
+  live since the 8th — every publish archived, ten kept, restore working — and
+  the card was still switched off by a leftover note saying "no build history is
+  kept yet". Four lines under a comment telling us to remove exactly that note
+  the moment the feature exists.
+- **The Restore button people *could* reach was fake.** It said "↩ Restored to…"
+  and changed nothing published. So between the two, there was no working way to
+  undo a bad build anywhere in the product.
+- **The Members card opened the wrong window.** It promised "accounts that sign
+  up in your app" and showed form submissions instead. Everything to manage a
+  member — see them, make one an admin, suspend, remove — has been sitting on
+  the server unreachable. **There's a real Members panel now** (screenshot sent).
+- **"Take the logo off" answered "attach a logo."** The instruction was thrown
+  away one step before anything could act on it — the exact backwards answer the
+  feature was built the day before to avoid.
+- **New and deleted pages stopped showing up in the page list**, because the app
+  was still expecting the old filename format. Fifth time that same mismatch has
+  bitten; this was the copy running in the browser.
+
+**And five money problems, three of which cost you and two cost customers.**
+
+- **A Neon outage billed the customer for it.** If the database couldn't be
+  created, we kept the charge and they got nothing — during an outage that's
+  half a new account's free credits per attempt, for nothing.
+- **Every "add a page" overcharged by 1–2 credits**, by rounding twice instead of
+  once. Measured, not guessed.
+- **Photo edits generated real photographs and charged nobody.** About $0.15 each
+  of our money, ~19 credits when the same photo is made during a build. Harmless
+  today only because that balance is empty — the day it's topped up it's real
+  money walking out.
+- **Anyone signed in could create unlimited databases for free** by sending their
+  own data model. Those are capped at 100 across the whole platform, so it's not
+  just cost — it's a way to stop everyone else building.
+- **Game builds kept the charge when our container died**, with no way to refund
+  it. Same rule the site builder already follows, never applied here.
+
+**One line was a crash waiting to happen:** a variable used once in 12,600 lines
+and never defined anywhere. Every time a text edit failed to compile, the
+friendly "your site is untouched" message was a 500 instead.
+
+**The honest caveats.** The refuting pass agreed with *everything*, which is a
+reason to be suspicious rather than pleased — so I re-checked six by hand and all
+six held. My own fixes then failed their own tests five times, every one in the
+two files nothing can test directly. And two of my checks turned out to be
+checking themselves rather than the code; both re-anchored.
+
+2380 tests pass. **None of this is proven against the live site** — the model
+account is still empty.
