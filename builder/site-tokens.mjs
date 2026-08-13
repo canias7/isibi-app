@@ -420,8 +420,8 @@ export function tokensCss(tokens) {
  * list already says.
  */
 const SAID = Object.freeze({
-  background: "background", foreground: "text colour",
-  card: "cards", popover: "menus",
+  background: "page colour", foreground: "text colour",
+  card: "card colour", popover: "menus",
   primary: "button colour", secondary: "secondary buttons",
   accent: "highlights", muted: "quiet areas",
   border: "border colour", input: "input colour", ring: "focus outlines",

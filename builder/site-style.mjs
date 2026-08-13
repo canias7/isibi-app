@@ -45,6 +45,7 @@
 import {
   CORNERS, TYPE_SCALES, TRACKINGS, LEADINGS, WEIGHTS, DENSITIES, BORDERS,
   ICON_STROKES, SHADOWS, BUTTONS, INPUTS, DISPLAYS,
+  SURFACES, BACKDROPS, DECORS, AMBIENTS, SKINS,
   buttonsCss, inputsCss,
 } from "./site-theme.mjs";
 
@@ -65,13 +66,22 @@ import {
  * is "close — more on a screen, a working tool", which is right for somebody
  * choosing a theme and wrong for a sentence that has to say what just changed.
  *
- * DELIBERATELY NOT HERE — the five "world" axes (`surface`, `backdrop`, `decor`,
- * `ambient`, `skin`). They are the `--chart-1..5` argument: a set whose entire
- * job is being coherent with each other. `surfaceCss` re-declares palette tokens
- * with alpha and `worldCss` owns the body paint, so glass on a theme with no
- * backdrop has nothing to blur against — it does not break, it just looks
- * subtly wrong, which is the worst failure to ship. Changing the world is a
- * re-theme, and a re-theme is a rebuild.
+ * THE FIVE "WORLD" AXES ARE HERE TOO (owner's call), and they were excluded
+ * once on an argument that RENDERING disproved in four of five cases. The claim
+ * was that they only work as a set. Driven and looked at:
+ *
+ *   - `backdrop` alone — fine. Crisper, if anything.
+ *   - `decor` alone — fine, it is a texture on the paper.
+ *   - `skin` alone — fine, it is the card's own shape.
+ *   - `ambient` alone — motion over whatever is behind; nothing to couple to.
+ *   - `surface: glass` alone — THE CARDS DISAPPEAR. Not "subtly wrong", which
+ *     is what the exclusion claimed: `surfaceCss` sets `--card` to 0.5 alpha, so
+ *     with no wash behind it a half-transparent card sits on a plain page and
+ *     the card layer is gone. Same mechanism as the see-through-modals bug.
+ *
+ * So the dependency runs ONE WAY and only one axis has it. That is handled by
+ * `applyStyle` supplying what glass needs rather than by refusing it — see
+ * below.
  */
 export const AXES = Object.freeze({
   corner:   { options: CORNERS,      said: "corner shape" },
@@ -86,7 +96,26 @@ export const AXES = Object.freeze({
   buttons:  { options: BUTTONS,      said: "button shape" },
   inputs:   { options: INPUTS,       said: "input style" },
   display:  { options: DISPLAYS,     said: "heading colour" },
+  surface:  { options: SURFACES,     said: "panel style" },
+  backdrop: { options: BACKDROPS,    said: "background wash" },
+  decor:    { options: DECORS,       said: "page texture" },
+  ambient:  { options: AMBIENTS,     said: "background motion" },
+  skin:     { options: SKINS,        said: "card style" },
 });
+
+/**
+ * WHAT FROSTED PANELS NEED BEHIND THEM.
+ *
+ * `aurora`'s own label in the engine is "drifting colour washes — the glass
+ * canvas, for any surface", so this is the option that exists for exactly this.
+ */
+const GLASS_BACKDROP = "aurora";
+
+/** Is there anything painted behind the page for a translucent panel to sit on? */
+function hasBackdrop(t) {
+  const b = t && t.backdrop;
+  return typeof b === "string" && b !== "plain";
+}
 
 /** Every axis a caller may name. */
 export const ASKABLE = Object.freeze(Object.keys(AXES));
@@ -197,11 +226,31 @@ export function mergeStyle(prior, next) {
  * asked for one gets a byte-identical stylesheet to the build before this
  * existed. A missing theme stays missing — `writeTheme` fails soft on that and
  * inventing an object here would turn a fail-soft into a broken look.
+ *
+ * AND IT GIVES GLASS SOMETHING TO SIT ON, which is the only coupling among the
+ * seventeen and was MEASURED rather than reasoned. `surfaceCss` sets `--card` to
+ * 0.5 alpha; with a plain ground behind it a half-transparent card on a plain
+ * page is not a card at all — rendered, the panels simply vanish. So a customer
+ * who asks for frosted panels and nothing else gets a wash for them to be
+ * frosted against.
+ *
+ * DERIVED AT THE POINT OF USE, NEVER STORED — exactly where `withContrast` sits
+ * and for the same reason: what is kept is only ever what the customer actually
+ * asked for, and the supporting decision follows whatever the theme is at build
+ * time. It also means this cannot spend a slot of their `MAX_STYLE`.
+ *
+ * SILENTLY, like `withContrast`. This is not a second change made on their
+ * behalf — it is the change they asked for, working. "Frosted panels" with
+ * nothing to frost against is not a cheaper version of the request, it is the
+ * request failing.
  */
 export function applyStyle(theme, style) {
   if (!theme || typeof theme !== "object") return theme;
   const s = parseStyle(style).style;
-  return Object.keys(s).length ? { ...theme, ...s } : theme;
+  if (!Object.keys(s).length) return theme;
+  const out = { ...theme, ...s };
+  if (out.surface === "glass" && !hasBackdrop(out)) out.backdrop = GLASS_BACKDROP;
+  return out;
 }
 
 /**

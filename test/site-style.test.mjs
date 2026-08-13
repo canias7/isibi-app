@@ -236,6 +236,8 @@ test("EVERY AXIS IS THE ENGINE'S OWN LIST, in both directions", () => {
     corner: T.CORNERS, scale: T.TYPE_SCALES, tracking: T.TRACKINGS, leading: T.LEADINGS,
     weight: T.WEIGHTS, density: T.DENSITIES, border: T.BORDERS, icon: T.ICON_STROKES,
     shadow: T.SHADOWS, buttons: T.BUTTONS, inputs: T.INPUTS, display: T.DISPLAYS,
+    surface: T.SURFACES, backdrop: T.BACKDROPS, decor: T.DECORS,
+    ambient: T.AMBIENTS, skin: T.SKINS,
   };
   assert.deepEqual(ASKABLE.slice().sort(), Object.keys(byName).sort(),
     "AXES and this test disagree about which axes exist");
@@ -274,6 +276,17 @@ test("THE TWO VOCABULARIES CANNOT SAY THE SAME THING", () => {
     seen.set(name, "style:" + a);
   }
   assert.ok(seen.size >= TOKEN_NAMES.length + ASKABLE.length, "the scan lost entries");
+
+  // AND NOT A PREFIX OF EACH OTHER EITHER, which the equality check above
+  // cannot see. `background` beside `background wash` and `background motion`,
+  // and `cards` beside `card style`, are three pairs that read as the same
+  // thing in one note block — the exact clash one step quieter. Both were live
+  // the moment the world axes landed.
+  const all = [...TOKEN_NAMES.map(tokenSaid), ...ASKABLE.map(saidFor)];
+  for (const a of all) for (const b of all) {
+    if (a === b) continue;
+    assert.equal(b.startsWith(a + " "), false, "\"" + b + "\" reads as a variant of \"" + a + "\"");
+  }
 });
 
 test("A NAME ON BOTH LISTS SAYS WHICH SLOT IS WHICH", () => {
@@ -293,14 +306,69 @@ test("A NAME ON BOTH LISTS SAYS WHICH SLOT IS WHICH", () => {
   for (const t of twins) assert.equal(valueHint(t), "#rrggbb", t + " stopped being described as a colour");
 });
 
-test("THE WORLD AXES ARE DELIBERATELY ABSENT", () => {
-  // A set whose whole job is being coherent with each other — `surfaceCss`
-  // re-declares palette tokens with alpha and `worldCss` owns the body paint, so
-  // glass on a theme with no backdrop has nothing to blur against. Pinned
-  // because "we forgot it" and "we decided against it" look identical in a list
-  // of names a year later.
-  for (const a of ["surface", "backdrop", "decor", "ambient", "skin", "fonts", "radius"])
-    assert.equal(ASKABLE.includes(a), false, a + " is askable — that is a re-theme, or a token");
+test("GLASS IS GIVEN SOMETHING TO SIT ON", () => {
+  // THE ONLY COUPLING AMONG THE SEVENTEEN, and it was measured by rendering
+  // rather than reasoned. `surfaceCss` sets `--card` to 0.5 alpha; on a plain
+  // ground the cards do not look "subtly wrong", they VANISH. So a customer who
+  // asks for frosted panels and nothing else gets a wash to frost against.
+  const flat = T.THEMES.editorial || T.THEMES[Object.keys(T.THEMES)[0]];
+  assert.ok(!flat.backdrop || flat.backdrop === "plain", "the fixture theme already has a backdrop");
+  const out = applyStyle(flat, { surface: "glass" });
+  assert.equal(out.surface, "glass");
+  assert.ok(out.backdrop && out.backdrop !== "plain", "glass was left with nothing behind it");
+  assert.ok(Object.hasOwn(T.BACKDROPS, out.backdrop), "the supplied backdrop is not one the engine knows");
+});
+
+test("`plain` IS NOT A BACKDROP — it is the word for not having one", () => {
+  // FOUND BY MUTATION, and a real hole rather than a contrived one: `plain`'s
+  // own label in the engine is "nothing behind the page — the ordinary ground".
+  // Counted as a backdrop, a theme or a patch that names it explicitly leaves
+  // glass with nothing to frost against, which is the exact failure the
+  // coupling exists for. Every existing test used a theme whose backdrop is
+  // ABSENT, so the distinction was covered by nothing.
+  const flat = T.THEMES.editorial || T.THEMES[Object.keys(T.THEMES)[0]];
+  const declared = { ...flat, backdrop: "plain" };
+  const out = applyStyle(declared, { surface: "glass" });
+  assert.ok(out.backdrop && out.backdrop !== "plain",
+    "a theme declaring `plain` left glass with nothing behind it");
+  // AND WHEN THE CUSTOMER THEMSELVES ASKS FOR BOTH. That instruction is
+  // self-contradictory — frosted panels over nothing — and it resolves toward
+  // the page that works, because the alternative ships invisible cards over a
+  // request nobody could have known was impossible.
+  const both = applyStyle(flat, { surface: "glass", backdrop: "plain" });
+  assert.ok(both.backdrop && both.backdrop !== "plain", "glass + plain shipped invisible cards");
+});
+
+test("…but never over a backdrop they chose", () => {
+  // Explicit beats implicit, the rule already in force one function over.
+  const flat = T.THEMES.editorial || T.THEMES[Object.keys(T.THEMES)[0]];
+  assert.equal(applyStyle(flat, { surface: "glass", backdrop: "horizon" }).backdrop, "horizon");
+  // And a theme that already has one keeps it.
+  const glassy = { ...flat, backdrop: "glow" };
+  assert.equal(applyStyle(glassy, { surface: "glass" }).backdrop, "glow");
+});
+
+test("…and nothing else drags a partner in", () => {
+  // The coupling is ONE-DIRECTIONAL and one axis wide. A backdrop asked for
+  // alone must not turn the panels to glass — rendered, that direction is fine
+  // on its own and forcing it would be design nobody asked for.
+  const flat = T.THEMES.editorial || T.THEMES[Object.keys(T.THEMES)[0]];
+  for (const [a, o] of [["backdrop", "wash"], ["decor", "linen"], ["skin", "frame"], ["ambient", "drift"]]) {
+    const out = applyStyle(flat, { [a]: o });
+    assert.equal(out[a], o);
+    assert.equal(out.surface, flat.surface, "`" + a + "` changed the surface");
+    if (a !== "backdrop") assert.equal(out.backdrop, flat.backdrop, "`" + a + "` invented a backdrop");
+  }
+  // `solid` is not glass, so it earns nothing either.
+  assert.equal(applyStyle(flat, { surface: "solid" }).backdrop, flat.backdrop);
+});
+
+test("WHAT IS STILL OUT, and why", () => {
+  // `fonts` is on the look edit and moves through a different path; `radius` is
+  // a LENGTH and belongs to the colour patch's parser. Pinned because "we forgot
+  // it" and "we decided against it" look identical in a list of names a year on.
+  for (const a of ["fonts", "radius", "light", "dark"])
+    assert.equal(ASKABLE.includes(a), false, a + " is askable here — it belongs to another path");
 });
 
 /* -------------------------------------------------------------- the wiring */

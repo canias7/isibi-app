@@ -528,8 +528,8 @@ test("nothing unparseable can reach the stylesheet", () => {
 // ── the note ──────────────────────────────────────────────────────────────────
 
 test("the note names what changed in plain words", () => {
-  assert.equal(tokenNote({ background: "#ffcc00" }, []), "Changed the background.");
-  assert.match(tokenNote({ background: "#fff", primary: "#000" }, []), /background and button colour/);
+  assert.equal(tokenNote({ background: "#ffcc00" }, []), "Changed the page colour.");
+  assert.match(tokenNote({ background: "#fff", primary: "#000" }, []), /page colour and button colour/);
   assert.ok(!tokenNote({ primary: "#000" }, []).includes("primary"), "token names are not customer words");
   // AND IT SAYS COLOUR, because `site-style.mjs` composes a SECOND sentence into
   // the same note block and its words are about shape and weight. This said
