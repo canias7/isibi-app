@@ -48,7 +48,14 @@ export function CommandItem({ selected, onSelect, keys, icon, children, classNam
       {icon ? <span className="shrink-0 [&>svg]:size-4" aria-hidden>{icon}</span> : null}
       <span className="min-w-0 flex-1 truncate">{children}</span>
       {keys?.length ? (
-        <span className={cn("shrink-0", selected && "opacity-80")} aria-hidden>
+        // THE ROW INVERTS AND THE KEYS HAVE TO INVERT WITH IT. `ShortcutKeys`
+        // paints its own `<kbd>` in `text-muted-foreground` on `border-border`,
+        // which beats anything inherited — so on the selected row a mid grey sat
+        // on near-black (4.23:1) in light mode and on near-white (2.51:1) in
+        // dark. It also carried `opacity-80`, which softened the one thing
+        // already hardest to read; the colour flip is what "de-emphasised"
+        // should have meant, so the opacity is gone rather than stacked on top.
+        <span className={cn("shrink-0", selected && "[&_kbd]:border-background/40 [&_kbd]:text-background/80")} aria-hidden>
           <ShortcutKeys keys={keys} />
         </span>
       ) : null}

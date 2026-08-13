@@ -131,15 +131,38 @@
   --secondary: oklch(0.968 0.007 247.896);
   --secondary-foreground: oklch(0.208 0.042 265.755);
   --muted: oklch(0.968 0.007 247.896);
-  --muted-foreground: oklch(0.554 0.046 257.417);
+  /* 0.554 until 2026-08-13, which is shadcn's own value and measures 4.35:1 on
+     `--muted` — under AA, and this token is BOTH the ink on a muted panel and
+     the ink for every piece of secondary text in the kit, so it was the single
+     largest source of unreadable text (28 components). Darkened by the least
+     that clears the tinted panels it actually sits on. */
+  --muted-foreground: oklch(0.53 0.046 257.417);
   --accent: oklch(0.968 0.007 247.896);
   --accent-foreground: oklch(0.208 0.042 265.755);
-  --destructive: oklch(0.577 0.245 27.325);
+  /* THE STATUS COLOURS ARE INK AS WELL AS FILL, which is what set these.
+     `text-destructive` is on 55 call sites and `bg-destructive` on 25, so one
+     value has to serve both — and the two roles pull opposite ways: ink wants
+     dark, a fill with dark ink wants light. There IS a window that satisfies
+     both, but only with a LIGHT foreground, which is what these already have.
+     Set to the least darkening that clears 4.5:1 as ink on the tinted badge
+     backgrounds the kit pairs them with (`text-x` on `bg-x/N`), measured by
+     `kit-paint` rather than chosen. */
+  --destructive: oklch(0.53 0.245 27.325);
   --destructive-foreground: oklch(0.984 0.003 247.858);
-  --success: oklch(0.545 0.132 154.5);
+  --success: oklch(0.515 0.132 154.5);
   --success-foreground: oklch(0.984 0.003 247.858);
-  --warning: oklch(0.665 0.145 72);
-  --warning-foreground: oklch(0.21 0.006 285.885);
+  /* THE ONE VISIBLY DIFFERENT CHANGE, and it is a consistency fix as much as a
+     contrast one. Amber was `oklch(0.665 …)` with DARK ink until 2026-08-13 —
+     the odd one out in light mode, where `--destructive` and `--success` are
+     both dark fills carrying light ink. As a fill that was fine; as INK it
+     measured 3.15:1 on the page and 2.71:1 on the tinted badge the kit pairs
+     it with, and no single value can serve both roles with a dark foreground
+     (ink wants relative luminance <= 0.183, a fill under dark ink wants
+     >= 0.254 — there is no overlap). Matching its two siblings resolves it.
+     The badge goes from bright-amber-with-black-text to deep-amber-with-white,
+     which is what `bg-destructive` and `bg-success` already look like. */
+  --warning: oklch(0.53 0.145 72);
+  --warning-foreground: oklch(0.984 0.003 247.858);
   --border: oklch(0.929 0.013 255.508);
   --input: oklch(0.929 0.013 255.508);
   --ring: oklch(0.704 0.04 256.788);
@@ -174,7 +197,13 @@
   --accent: oklch(0.279 0.041 260.031);
   --accent-foreground: oklch(0.984 0.003 247.858);
   --destructive: oklch(0.704 0.191 22.216);
-  --destructive-foreground: oklch(0.984 0.003 247.858);
+  /* DARK INK, like its two siblings below — and it was near-white until
+     2026-08-13, which made `bg-destructive text-destructive-foreground` — the
+     pairing every generated page is told to write — measure 2.76:1. In dark
+     mode all three status fills are LIGHT (0.70/0.70/0.78), so all three need
+     dark ink; destructive alone kept the light-mode value and was the anomaly.
+     Found by `kit-paint`, which asks the palette rather than a component. */
+  --destructive-foreground: oklch(0.21 0.006 285.885);
   --success: oklch(0.696 0.146 154.5);
   --success-foreground: oklch(0.21 0.006 285.885);
   --warning: oklch(0.78 0.145 76);

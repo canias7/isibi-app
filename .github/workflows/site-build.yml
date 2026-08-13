@@ -21,6 +21,7 @@ on:
       - 'test/integration/kit-harness.mjs'
       - 'test/integration/kit-a11y.mjs'
       - 'test/integration/kit-effects.mjs'
+      - 'test/integration/kit-paint.mjs'
       - 'test/page-gen.test.mjs'
       - '.github/workflows/site-build.yml'
   workflow_dispatch:
@@ -98,6 +99,18 @@ jobs:
       # focus. It also drives the three listboxes whose arrow keys were written
       # and then verified by typechecking alone.
       - run: node test/integration/kit-effects.mjs
+
+      # CAN THE TEXT BE READ. Everything above checks the kit as STRUCTURE — it
+      # compiles, it renders, it mounts, its controls have names — and none of
+      # that can see a colour, which is where this codebase has been hurt worst:
+      # 70 charts rendered grey while typechecking perfectly, thirteen modal
+      # panels were see-through with the page's own headings legible through
+      # them, eight reference lines were red on a monochrome kit. Every one was
+      # found by a person looking, long afterwards, and every one is a number.
+      # Builds the REAL Tailwind stylesheet and measures the WCAG contrast of
+      # every piece of text in both modes, plus the kit's own bg/foreground
+      # token pairings. Needs the browser, so it sits after the install above.
+      - run: node test/integration/kit-paint.mjs
 
       # What a themed site LOOKS like. The seam test proves the CSS reaches the
       # dist; this proves the page is not blank, nothing throws, and the two
