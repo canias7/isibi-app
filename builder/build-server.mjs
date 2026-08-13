@@ -27,6 +27,7 @@ import { resolvePair, fontCss, fontImports } from "./site-fonts.mjs";
 import { themeCss } from "./site-theme.mjs";
 import { resolveTheme } from "./site-theme-registry.mjs";
 import { tokensCss, stripThemeRadius, validForWrite } from "./site-tokens.mjs";
+import { applyStyle, explicitRadiusCss } from "./site-style.mjs";
 import { applyIdentity, initialsMark, normalizeLang } from "./site-identity.mjs";
 import { exitReason } from "./exit-reason.mjs";
 
@@ -338,12 +339,18 @@ async function prerender() {
 // pages compiled should not be lost over decoration: an unknown name, an
 // unreadable stylesheet or a throwing engine all leave the template's own look
 // in place and say so in the notes.
-function writeTheme(name, { dropRadius = false } = {}) {
+function writeTheme(name, { dropRadius = false, style = null } = {}) {
   if (!name) return { applied: false, theme: null, notes: [] };
   const theme = resolveTheme(name);
   if (!theme) return { applied: false, theme: null, notes: [`No theme called "${String(name).slice(0, 40)}" — the site kept the default look.`] };
   let css;
-  try { css = themeCss(theme); }
+  // THE SITE'S OWN LOOK DECISIONS, merged into the theme BEFORE it is rendered
+  // rather than patched over it afterwards. Every axis emitter already reads its
+  // value off this object, so a merged theme generates the right CSS for all
+  // twelve — including the three that emit ordinary RULES rather than custom
+  // properties, which no later-wins patch could reach coherently. See
+  // builder/site-style.mjs for why that decided the shape.
+  try { css = themeCss(applyStyle(theme, style)); }
   catch { return { applied: false, theme: null, notes: ["The theme could not be rendered, so the site kept the default look."] }; }
   let base;
   try { base = fs.readFileSync(STYLES, "utf8"); }
@@ -353,7 +360,16 @@ function writeTheme(name, { dropRadius = false } = {}) {
   // override moved the cards and left every button square — a feature reported
   // as broken. When the customer has actually asked for a radius, the theme's
   // own corner rules give way to it; with no override nothing changes at all.
-  fs.writeFileSync(STYLES, base + "\n" + (dropRadius ? stripThemeRadius(css) : css) + "\n");
+  //
+  // AND THEN THE CUSTOMER'S OWN CORNER OPINIONS GO BACK, which is the one place
+  // the two patches interact. `stripThemeRadius` is a regex and cannot tell a
+  // theme's hard-set button radius from the one `buttons: "pill"` just asked
+  // for, so "rounder corners AND pill buttons" got the first and silently lost
+  // the second. The rule that resolves it is the one already in force here: an
+  // EXPLICIT corner opinion beats an implicit one. Empty unless those axes were
+  // named, so nothing changes for a patch that did not mention them.
+  const shaped = dropRadius ? stripThemeRadius(css) + explicitRadiusCss(style) : css;
+  fs.writeFileSync(STYLES, base + "\n" + shaped + "\n");
   return { applied: true, theme: name, notes: [] };
 }
 
@@ -451,7 +467,7 @@ const server = http.createServer((req, res) => {
       // ONE reading of the patch, shared: whether a radius was asked for decides
       // both that the theme's own corner rules give way and what is written.
       const wantsRadius = validForWrite(payload.tokens).radius !== undefined;
-      const themeUsed = writeTheme(payload.theme, { dropRadius: wantsRadius });
+      const themeUsed = writeTheme(payload.theme, { dropRadius: wantsRadius, style: payload.style });
       // AFTER the theme, never before — later wins, and that IS the override.
       const tokensUsed = writeTokens(payload.tokens);
       let wrote = 0;

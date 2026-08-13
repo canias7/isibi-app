@@ -283,10 +283,19 @@ test("the container asks ONE question about the radius", () => {
   // the theme's rules dropped for a radius that was never written.
   const server = fs.readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8");
   assert.match(server, /const wantsRadius = validForWrite\(payload\.tokens\)\.radius !== undefined;/);
-  assert.match(server, /writeTheme\(payload\.theme, \{ dropRadius: wantsRadius \}\)/);
+  // THE PROPERTY, NOT THE ARGUMENT LIST. This was pinned to the exact call
+  // `writeTheme(payload.theme, { dropRadius: wantsRadius })` and went red the
+  // day a second option was passed beside it — a test about word order failing
+  // a correct change. What it protects is that the ONE reading above is what
+  // decides the strip.
+  const call = /writeTheme\(payload\.theme,\s*\{([^}]*)\}\)/.exec(server);
+  assert.ok(call, "nothing calls writeTheme with the payload's theme");
+  assert.match(call[1], /dropRadius:\s*wantsRadius/, "the strip is decided by a second reading of the patch");
   const i = server.indexOf("function writeTheme(");
   const body = server.slice(i, server.indexOf("\n}", i));
-  assert.match(body, /dropRadius \? stripThemeRadius\(css\) : css/,
+  assert.match(body, /dropRadius \?[\s\S]{0,200}?stripThemeRadius\(css\)/,
+    "the strip no longer hangs off the one reading");
+  assert.match(body, /:\s*css;/,
     "with no override the theme's CSS must be written unchanged");
 });
 

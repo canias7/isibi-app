@@ -11555,7 +11555,11 @@ function editReply(e) {
     const SAY = { lang: 'language', brand: 'name', description: 'the description' };
     const moved = (Array.isArray(e.moved) ? e.moved : []).slice(0, 4);
     const tokens = (Array.isArray(e.tokens) ? e.tokens : []).slice(0, 4);
-    const bits = moved.map(function (k) { return SAY[k] || k; }).concat(tokens);
+    // ALREADY PLAIN NAMES when they arrive — the server maps the axis keys
+    // through `saidFor`, because this file cannot import the module that knows
+    // `display` means the heading colour.
+    const style = (Array.isArray(e.style) ? e.style : []).slice(0, 4);
+    const bits = moved.map(function (k) { return SAY[k] || k; }).concat(tokens, style);
     let out = '✅ Updated the look' + (bits.length ? ' — ' + bits.join(', ') : '') + '.';
     // A RENAME REACHES THE PAGES, and saying how far is the honest half. The
     // name is stored once and written into every page; the customer can check
@@ -11725,6 +11729,10 @@ function reactSend(site, t, origin, mode, imgs, finish, qa) {
       const note = [
         (d && typeof d.contextNote === 'string') ? d.contextNote.trim() : '',
         (d && typeof d.tokensNote === 'string') ? d.tokensNote.trim() : '',
+        // AND WHICH OF THE OTHER TWELVE LOOK DECISIONS MOVED, for the same
+        // reason and from the same kind of server-composed sentence: an axis we
+        // could not use is a request that silently did nothing.
+        (d && typeof d.styleNote === 'string') ? d.styleNote.trim() : '',
         (d && typeof d.imagesNote === 'string') ? d.imagesNote.trim() : '',
         // WHICH PAGE CAME BACK AS A STUB. There is now a middle outcome — the
         // site publishes with one page showing a placeholder — and this is the

@@ -275,7 +275,26 @@ test("BOTH PUBLISH PATHS CARRY THE STORED LOGO", () => {
   // send the stored value sends nothing — and nothing means empty. Without the
   // build half, a customer who attached a logo and then asked for any page
   // change would watch it disappear with no error and nothing to point at.
-  assert.match(worker, /site_look','site_tokens','site_logo'/, "recompile does not read the stored logo");
+  // ANCHORED ON THE KEY, NOT ON THE KEY LIST. This was pinned to the exact
+  // string `'site_look','site_tokens','site_logo'` and went red on a correct
+  // change the day a fourth stored look concern (`site_style`) was added beside
+  // it — a test about word order failing a feature it has no opinion about.
+  // What it actually protects is that every `_meta` read feeding a publish asks
+  // for the logo, so it is asserted of each of them.
+  //
+  // ASSERTED OF THE TWO PATHS THAT BUILD A CONTAINER PAYLOAD, and not of every
+  // `_meta` read — which is where two drafts of this went wrong in a way worth
+  // recording. Pinned to the exact key list, it went red the day `site_style`
+  // was added beside the logo: a test about word order failing a feature it has
+  // no opinion about. Widened to "every read naming site_look", it flagged the
+  // router's context read; widened to "every read naming site_tokens", it
+  // flagged the look-edit lane — and BOTH of those are correct code, because
+  // neither builds a payload: they store and then publish through
+  // `recompileAndPublish`, which does its own read. There is no precise textual
+  // discriminator for "this read reaches the container", so the guard is the
+  // pair of variables that actually carry it plus the two payloads below.
+  const logoRows = worker.match(/r\.k === "site_logo"/g) || [];
+  assert.equal(logoRows.length, 2, "expected exactly the two payload paths to read the logo row, found " + logoRows.length);
   assert.match(worker, /\n\s+logo,\n/, "recompileAndPublish does not send it to the container");
   assert.match(worker, /logo: priorLogo,/, "a revise does not carry the stored logo");
   assert.match(worker, /logo: logo \|\| "",/, "the build path does not send one");

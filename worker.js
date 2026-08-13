@@ -47,6 +47,7 @@ import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayou
 import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, MIN_CREDITS, IMAGE_USD as SITE_PHOTO_USD } from "./builder/publish-pages.mjs";
 import { imageBudget, budgetFor, imagesAffordable, planImages, applyImages, countImageSlots, imagePrompt, imageNote, IMAGE_ASPECT } from "./builder/site-images.mjs";
 import { ASKABLE as SITE_TOKEN_NAMES, valueHint as siteTokenHint, mergeTokens, parseTokens, withContrast, tokenNote } from "./builder/site-tokens.mjs";
+import { ASKABLE as SITE_STYLE_AXES, optionsFor as siteStyleOptions, axisHint as siteStyleHint, mergeStyle, parseStyle, styleNote, saidFor as styleSaid } from "./builder/site-style.mjs";
 import { extractText, applyEdits } from "./builder/site-text.mjs";
 import { runTextEdit, runDataEdit, renamePages, MAX_DATA_ROWS } from "./builder/site-apply.mjs";
 import { runRulesEdit } from "./builder/site-rules.mjs";
@@ -3499,6 +3500,33 @@ const SITE_SCHEMA_TOOL = {
           description: siteTokenHint(t),
         }])),
       },
+      // THE REST OF THE LOOK — the twelve decisions a theme makes that are not
+      // colours, and that until now no customer could reach. Ask for square
+      // buttons and one of two things happened: nothing, or the whole theme was
+      // swapped looking for one that has them, which changes the colours and the
+      // fonts and the spacing too — one thing asked for, a different site given.
+      //
+      // AN ENUM PER AXIS, not a free string, so an option the engine would
+      // refuse is impossible rather than merely dropped. The options and their
+      // descriptions are DERIVED from the theme engine's own constants (see
+      // builder/site-style.mjs): a restated list drifts, and the direction it
+      // drifts in is describing something to the model that is then refused and
+      // reported to the customer as a change that did not happen. ~508 tokens,
+      // in the cached block.
+      style: {
+        type: "object",
+        description:
+          "ONLY when the message asks for a specific LOOK change to an existing site that is not a colour — " +
+          "\"square buttons\", \"make it feel more spacious\", \"bigger text\", \"lose the shadows\", " +
+          "\"thinner icons\". Omit it entirely otherwise — on a first build the theme already decides all of " +
+          "these, and on any revise about content, pages or layout. Name only the axes the customer actually " +
+          "asked about; anything left out keeps whatever the site wears today.",
+        properties: Object.fromEntries(SITE_STYLE_AXES.map((a) => [a, {
+          type: "string",
+          enum: siteStyleOptions(a),
+          description: siteStyleHint(a),
+        }])),
+      },
       // The SHAPE. Distinct from the theme on purpose: a theme decides how a
       // site looks, a family decides what its pages ARE and in what order.
       family: {
@@ -5805,7 +5833,7 @@ function compileMsg(pub, theirs) {
 }
 
 async function recompileAndPublish(env, { slug, pages, label }) {
-  let look = null, tokens = null, logo = "";
+  let look = null, tokens = null, style = null, logo = "";
   try {
     // `siteBackendBySlug` RETURNS THE CONNECTION STRING, not a record. This read
     // `conn && conn.conn`, which is `undefined` for a string — so the `_meta`
@@ -5819,10 +5847,17 @@ async function recompileAndPublish(env, { slug, pages, label }) {
     // worse. Every other caller in this file uses the return value directly.
     const db = await siteBackendBySlug(env, slug);
     if (db) {
-      const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_logo')");
+      const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_style','site_logo')");
       for (const r of rows || []) {
         if (r.k === "site_look" && r.v) look = JSON.parse(r.v);
         if (r.k === "site_tokens" && r.v) tokens = JSON.parse(r.v);
+        // READ HERE OR EVERY RECOMPILE UNDOES IT, exactly as `site_logo` below.
+        // The container merges this into the theme on EVERY build — it has to,
+        // or one site's look decisions leak onto the next — so a path that does
+        // not send the stored patch sends nothing, and nothing means the theme's
+        // own defaults. A customer who asked for square buttons and then changed
+        // one word of copy would have watched them go round again.
+        if (r.k === "site_style" && r.v) style = JSON.parse(r.v);
         // ITS OWN KEY, NOT A FIELD ON `site_look`, and that is load-bearing.
         // `mergeLook` builds its output from `EDIT_FIELDS` alone, so anything
         // else stored on that object is DROPPED by the next look edit — a
@@ -5870,6 +5905,7 @@ async function recompileAndPublish(env, { slug, pages, label }) {
           fonts: { heading: pair.heading.id, body: pair.body.id },
           theme: (look && look.theme) || null,
           tokens: Object.keys(tokens || {}).length ? withContrast(tokens) : undefined,
+          style: Object.keys(style || {}).length ? style : undefined,
           fontFiles: Object.keys(fontFiles).length ? fontFiles : undefined,
         }),
       }));
@@ -5928,7 +5964,7 @@ async function siteOgImage(env, slug) {
   } catch (e) { console.error("og image lookup failed:", slug, e && e.message); return null; }
 }
 
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, ogImage, fonts, theme, tokens, family, structure, lang, logo, attachments, priorUsage, model, revise, changeNote, priorPages, mark }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, ogImage, fonts, theme, tokens, style, family, structure, lang, logo, attachments, priorUsage, model, revise, changeNote, priorPages, mark }) {
   // Resolved once, before any model call: the pair always lands on something
   // installed, so a build never waits on a font it cannot get.
   const fontPair = resolvePair(fonts || {});
@@ -6016,6 +6052,12 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
           // what is stored stays what the customer asked for and the readable
           // text colour follows whatever the surface currently is.
           tokens: Object.keys(tokens || {}).length ? withContrast(tokens) : undefined,
+          // THE REST OF THE LOOK, sent as the axes the customer named rather
+          // than as a resolved theme. The container merges them INTO the theme
+          // before rendering it — every axis emitter already reads its value off
+          // that object, so all twelve generate correctly, including the three
+          // that emit ordinary rules no later-wins patch could reach.
+          style: Object.keys(style || {}).length ? style : undefined,
           fontFiles: Object.keys(fontFiles).length ? fontFiles : undefined }),
       }));
       // THE STATUS AND THE BODY, NOT JUST "no JSON". Parsing straight to JSON and
@@ -9534,13 +9576,14 @@ async function handleRequest(request, env, ctx) {
       // goes. Best-effort in both directions — losing it re-rolls the look, which
       // is exactly today's behaviour, so it can never be worse than what it
       // replaces.
-      let priorLook = null, priorTokens = null, priorLogo = "";
+      let priorLook = null, priorTokens = null, priorStyle = null, priorLogo = "";
       if (priorBrief) {
         try {
-          const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_logo')");
+          const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_style','site_logo')");
           for (const r of rows || []) {
             if (r.k === "site_look" && r.v) priorLook = JSON.parse(r.v);
             if (r.k === "site_tokens" && r.v) priorTokens = JSON.parse(r.v);
+            if (r.k === "site_style" && r.v) priorStyle = JSON.parse(r.v);
             // READ HERE OR A REVISE TAKES THE LOGO OFF. The container writes
             // `site-brand.ts` on EVERY build — it has to, or one site's logo
             // leaks onto the next — so a build path that does not send the
@@ -9648,6 +9691,22 @@ async function handleRequest(request, env, ctx) {
         } catch (e) { console.error("token write failed:", slug, e && e.message); }
       }
 
+      // ── AND THE REST OF THE LOOK THEY ASKED TO CHANGE ──────────────────────
+      //
+      // Accumulated for the same reason and written the same way: square
+      // buttons asked for today and airy spacing tomorrow both have to survive.
+      // Its OWN `_meta` key rather than a field on `site_look`, because
+      // `mergeLook` rebuilds its output from `EDIT_FIELDS` alone and would drop
+      // anything else stored there — the reason `site_tokens` and `site_logo`
+      // are separate keys too.
+      const siteStyle = mergeStyle(priorStyle, designed && designed.style);
+      const styleAsk = parseStyle(designed && designed.style);
+      if (Object.keys(siteStyle).length) {
+        try {
+          await sqlQuery(db, "INSERT INTO _meta (k,v) VALUES ('site_style', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v", [JSON.stringify(siteStyle)]);
+        } catch (e) { console.error("style write failed:", slug, e && e.message); }
+      }
+
       tr.at("merge");
 
       // The research that has been running alongside every Neon call above.
@@ -9731,6 +9790,7 @@ async function handleRequest(request, env, ctx) {
             fonts: look.fonts,
             theme: look.theme,
             tokens: siteTokens,
+            style: siteStyle,
             family: look.family,
             structure: look.structure,
             // Out of the same merged look as the other five, so a revise that
@@ -9889,6 +9949,7 @@ async function handleRequest(request, env, ctx) {
         // the background" on a revise that only touched the text is worse than
         // saying nothing.
         tokensNote: tokenNote(tokenAsk.tokens, tokenAsk.dropped) || undefined,
+        styleNote: styleNote(styleAsk.style, styleAsk.dropped) || undefined,
         // WHICH PAGE CAME BACK AS A STUB. One bad file no longer costs the whole
         // site — it is replaced by a placeholder page and the rest publishes — so
         // there is now an outcome between "your site" and "the data model", and
@@ -10536,12 +10597,13 @@ async function handleRequest(request, env, ctx) {
               // where reading a `.conn` off it silently disabled the whole look.
               const edb = await siteBackendBySlug(env, ownerSlug);
               if (!edb) return escalate("no-backend");
-              let priorLook = null, priorTokens = null, eSchema = null;
+              let priorLook = null, priorTokens = null, priorStyle = null, eSchema = null;
               try {
-                const rows = await sqlQuery(edb, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','schema')");
+                const rows = await sqlQuery(edb, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_style','schema')");
                 for (const r of rows || []) {
                   if (r.k === "site_look" && r.v) priorLook = JSON.parse(r.v);
                   if (r.k === "site_tokens" && r.v) priorTokens = JSON.parse(r.v);
+                  if (r.k === "site_style" && r.v) priorStyle = JSON.parse(r.v);
                   if (r.k === "schema" && r.v) eSchema = JSON.parse(r.v);
                 }
               } catch (e) { console.error("edit look read failed:", ownerSlug, e && e.message); return escalate("no-meta"); }
@@ -10581,6 +10643,9 @@ async function handleRequest(request, env, ctx) {
               const moved = movedFields(priorLook, merged);
               const nextTokens = mergeTokens(priorTokens, designed && designed.tokens);
               const tokensMoved = JSON.stringify(nextTokens) !== JSON.stringify(priorTokens || {});
+              const nextStyle = mergeStyle(priorStyle, designed && designed.style);
+              const styleAsk = parseStyle(designed && designed.style);
+              const styleMoved = JSON.stringify(nextStyle) !== JSON.stringify(priorStyle || {});
 
               // WHAT THIS LANE CAN HONESTLY MOVE, AND WHAT IT ONLY APPEARS TO.
               //
@@ -10594,7 +10659,11 @@ async function handleRequest(request, env, ctx) {
               // it belongs one rung up, where pages are rewritten.
               const needsPages = moved.filter((k) => k === "family" || k === "structure");
               if (needsPages.length) return escalate("needs-pages", { moved: needsPages });
-              if (!moved.length && !tokensMoved) return escalate("no-change");
+              // COUNTED AS A CHANGE, or "square buttons" escalates to a ~27-credit
+              // page rewrite that cannot put square buttons on anything either —
+              // the rung above recompiles from the same stored look. The whole
+              // point of this lane is that a look change costs one cheap call.
+              if (!moved.length && !tokensMoved && !styleMoved) return escalate("no-change");
 
               try {
                 await sqlQuery(edb, "INSERT INTO _meta (k,v) VALUES ('site_look', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v",
@@ -10602,6 +10671,10 @@ async function handleRequest(request, env, ctx) {
                 if (Object.keys(nextTokens).length) {
                   await sqlQuery(edb, "INSERT INTO _meta (k,v) VALUES ('site_tokens', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v",
                     [JSON.stringify(nextTokens)]);
+                }
+                if (Object.keys(nextStyle).length) {
+                  await sqlQuery(edb, "INSERT INTO _meta (k,v) VALUES ('site_style', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v",
+                    [JSON.stringify(nextStyle)]);
                 }
               } catch (e) {
                 // Nothing has been published yet, so the site is exactly as it
@@ -10647,6 +10720,16 @@ async function handleRequest(request, env, ctx) {
               }
               return Response.json({
                 ok: true, layer: "look", moved, tokens: tokensMoved ? Object.keys(nextTokens) : [],
+                // PLAIN NAMES, not the axis keys. The client joins this straight
+                // into its sentence and cannot import the module that knows what
+                // `display` means, so raw keys would print "Updated the look —
+                // display" about a change to the heading colour.
+                style: styleMoved ? Object.keys(nextStyle).map(styleSaid) : [],
+                // AND WHAT WAS ASKED FOR AND REFUSED, which the list above cannot
+                // carry: an axis that was dropped moved nothing, so a customer
+                // told only what changed reads the silence as the builder being
+                // broken rather than as a request that did not land.
+                styleNote: styleNote(styleAsk.style, styleAsk.dropped) || undefined,
                 renamed, files: pub.files, cost: await eCharge(dUsage), usage: dUsage,
               });
             }
