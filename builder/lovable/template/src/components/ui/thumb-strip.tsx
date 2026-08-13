@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, scrollBehavior } from "@/lib/utils";
 /**
  * The row of thumbnails under a main image.
  *
@@ -29,7 +29,7 @@ export function ThumbStrip({ images, index, onSelect, className }: {
 }) {
   const refs = React.useRef<(HTMLButtonElement | null)[]>([]);
   React.useEffect(() => {
-    refs.current[index]?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
+    refs.current[index]?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: scrollBehavior() });
   }, [index]);
 
   return (

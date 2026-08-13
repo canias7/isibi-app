@@ -252,7 +252,19 @@ export function extract(source) {
       const d = defaults.get(key);
       props.push(`${key}${optional ? "?" : ""}: ${shortType(resolveLocalNames(part.slice(colon + 1), source))}${d ? ` = ${tidy(d)}` : ""}`);
     }
-    if (props.length) out.push({ name: m[1], props });
+    // RECORDED EVEN WITH NO PROPS. A component whose only prop is `className`
+    // ends up here with an empty list — `className` is dropped on purpose,
+    // stated once in the rules instead of 2,000 times — and skipping it removed
+    // the component from `COMPONENT_API` ALTOGETHER. Two consequences, both
+    // silent: `UI_EXPORTS` never learned its export name, so the import lint
+    // skips it; and the prompt's naming rule ("the export is the file name in
+    // PascalCase, exactly") is then the only thing the model has, and it is
+    // WRONG for `high-contrast` (`HighContrastToggle`) and `reduce-motion`
+    // (`ReduceMotionToggle`). TS2305, page refused, site the placeholder.
+    //
+    // A name with no props is still worth its four tokens: it says the
+    // component exists, what it is called, and that it takes nothing.
+    out.push({ name: m[1], props });
   }
   return out;
 }

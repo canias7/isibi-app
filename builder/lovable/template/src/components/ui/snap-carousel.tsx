@@ -1,6 +1,6 @@
 import * as React from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, scrollBehavior } from "@/lib/utils";
 /**
  * A horizontal carousel built on the browser's own scrolling.
  *
@@ -62,12 +62,12 @@ export function SnapCarousel({ children, label = "Carousel", showDots = true, cl
     if (!el) return;
     const kids = Array.from(el.children) as HTMLElement[];
     const next = kids[Math.max(0, Math.min(kids.length - 1, at + d))];
-    if (next) el.scrollTo({ left: next.offsetLeft, behavior: "smooth" });
+    if (next) el.scrollTo({ left: next.offsetLeft, behavior: scrollBehavior() });
   };
   const jump = (i: number) => {
     const el = box.current;
     const kid = (el?.children[i] as HTMLElement | undefined);
-    if (el && kid) el.scrollTo({ left: kid.offsetLeft, behavior: "smooth" });
+    if (el && kid) el.scrollTo({ left: kid.offsetLeft, behavior: scrollBehavior() });
   };
 
   return (

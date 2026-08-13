@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, scrollBehavior } from "@/lib/utils";
 /**
  * A table of contents that highlights the section you are reading.
  *
@@ -69,7 +69,7 @@ export function ScrollSpy({ sections, active, label = "On this page", className 
                 const el = document.getElementById(s.id);
                 if (!el) return;
                 e.preventDefault();
-                el.scrollIntoView({ behavior: "smooth", block: "start" });
+                el.scrollIntoView({ behavior: scrollBehavior(), block: "start" });
                 // Move focus, or the next Tab continues from the link.
                 el.setAttribute("tabindex", "-1");
                 el.focus({ preventScroll: true });

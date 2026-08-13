@@ -60,8 +60,17 @@ export function ProofUpload({ accepted = [], onFile, files = [], retention, busy
           ))}
         </ul>
       )}
+      {/* `disabled` REACHES A `<label>` HERE, where it means nothing — `asChild`
+          hands the Button's props to the child, and a label has no disabled
+          state and no `:disabled` for the Button's own styling to match. So
+          while busy the control still looked and behaved like a live button;
+          only the `<input>` inside it was actually inert, which is the worst
+          combination — it invites the click and then swallows it. The label now
+          carries the state itself. Same shape as `cart-summary`'s disabled
+          checkout link. */}
       <Button asChild variant="outline" size="sm" disabled={busy}>
-        <label className="cursor-pointer">
+        <label className={cn("cursor-pointer", busy && "pointer-events-none opacity-50")}
+          aria-disabled={busy || undefined}>
           {busy ? "Sending…" : "Choose a document"}
           <input type="file" accept={accept} className="sr-only" disabled={busy}
             onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); }} />

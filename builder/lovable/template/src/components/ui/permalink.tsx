@@ -20,6 +20,12 @@ import { cn } from "@/lib/utils";
  * The heading id has to exist. That is the caller's job and it is stated,
  * because a permalink to an id nothing carries is a link that lands at the top
  * of the page and looks like it did nothing.
+ *
+ * PUT `group` ON THE HEADING for the hover reveal to work — `group-hover:` needs
+ * an ancestor carrying it, and without one the link only ever appears on focus.
+ * Stated for the same reason the id is, and it is not load-bearing: focus and
+ * touch reveal it regardless, so forgetting costs the mouse reveal and not the
+ * control.
  */
 export function Permalink({ id, heading, baseUrl, className }: {
   id: string;
@@ -45,7 +51,13 @@ export function Permalink({ id, heading, baseUrl, className }: {
       aria-label={`Copy a link to ${heading}`}
       className={cn("ml-1.5 inline-flex cursor-pointer items-center rounded p-0.5 align-middle text-muted-foreground",
         // Focus, not only hover: this is the control a keyboard user wants.
-        "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-foreground",
+        // AND `pointer-coarse`, because the hover reveal needs two things this
+        // component does not control: an ancestor carrying `group`, which is
+        // the caller's markup, and a pointer that can hover, which a phone does
+        // not have. The doc above says hover-only would be "invisible on every
+        // touchscreen" and that is what it was — the promise was made and only
+        // half kept.
+        "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100 hover:text-foreground",
         className)}>
       {copied ? <Check aria-hidden className="size-3.5" /> : <Link2 aria-hidden className="size-3.5" />}
       <span aria-live="polite" className="sr-only">{copied ? "Link copied" : ""}</span>

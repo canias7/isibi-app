@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, scrollBehavior } from "@/lib/utils";
 /**
  * One line of a transcript: a timestamp, a speaker, and words you can click to
  * jump to.
@@ -34,7 +34,7 @@ export function TranscriptLine({
 }) {
   const ref = React.useRef<HTMLDivElement>(null);
   React.useEffect(() => {
-    if (active) ref.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    if (active) ref.current?.scrollIntoView({ block: "nearest", behavior: scrollBehavior() });
   }, [active]);
 
   const m = Math.floor(at / 60), s = Math.floor(at % 60);

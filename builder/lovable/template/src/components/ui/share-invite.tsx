@@ -94,7 +94,12 @@ export function ShareInvite({
           <Link2 aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
           {/* The level sits beside the copy button; it is the thing people miss. */}
           <label htmlFor="share-link" className="sr-only">Who can use the link</label>
-          <select id="share-link" value={linkAccess} onChange={(e) => onLinkAccess?.(e.target.value)}
+          {/* `?? "off"`: this block renders on `linkUrl` alone, and `linkAccess`
+              is its own optional prop — so passing one without the other gave
+              the select `value={undefined}`, which React treats as UNCONTROLLED.
+              It then warns, ignores the prop for the rest of its life, and the
+              dropdown stops reflecting the state it is supposed to show. */}
+          <select id="share-link" value={linkAccess ?? "off"} onChange={(e) => onLinkAccess?.(e.target.value)}
             className="h-8 cursor-pointer rounded-md border border-border bg-background px-2 text-xs">
             <option value="off">Only invited people</option>
             {roles.map((r) => (
