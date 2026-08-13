@@ -676,23 +676,40 @@ try {
       const homePrint = await fingerprint();
       let formRoute = ui.forms > 0 ? "index" : null;
       let formUi = ui;
+      // WHICH ROUTES WERE ACTUALLY LOOKED AT. The skip below is necessary and it
+      // was silent, so "the booking page has no form" and "we never examined the
+      // booking page" produced the identical failure line — measured 2026-08-13,
+      // where a real 4-page barber shop reported no form anywhere and the log
+      // could not say which of those two it was. A check that cannot describe
+      // its own coverage cannot be acted on.
+      const seen = [];
       for (const r of routes) {
         if (formRoute) break;
         if (r === "index") continue;
-        await pg.goto(new URL(asPath(r), SITE).href, { waitUntil: "networkidle", timeout: 45000 }).catch(() => {});
+        const nav = await pg.goto(new URL(asPath(r), SITE).href, { waitUntil: "networkidle", timeout: 45000 })
+          .then((res) => (res ? res.status() : 0)).catch(() => 0);
         await pg.waitForTimeout(1200);
         // A route that renders identically to home did not navigate. Skipping it
         // is what stops a silent SPA fallback being reported as "no form here".
-        if ((await fingerprint()) === homePrint) continue;
+        if ((await fingerprint()) === homePrint) { seen.push(r + ":same-as-home(" + nav + ")"); continue; }
         const u = await pg.evaluate(() => ({
           forms: document.querySelectorAll("form").length,
           controls: document.querySelectorAll("form input, form textarea, form button").length,
+          // The three things a booking page needs even when it is not a <form>:
+          // a page built out of buttons and a dialog is a real submit path, and
+          // reporting it as "no form" would send somebody hunting a bug that is
+          // a design choice. Counted, not asserted on — this line is here to
+          // make the failure DIAGNOSABLE, not to widen what passes.
+          inputs: document.querySelectorAll("input, textarea, select").length,
+          buttons: document.querySelectorAll("button").length,
         }));
+        seen.push(r + ":" + JSON.stringify(u));
         if (u.forms > 0) { formRoute = r; formUi = u; }
       }
       ok("the site rendered a form with real controls, on some page",
         !!formRoute && formUi.forms > 0 && formUi.controls > 1,
-        `routes=${JSON.stringify(routes)} home=${JSON.stringify(ui)} found=${formRoute} ${JSON.stringify(formUi)}`);
+        `routes=${JSON.stringify(routes)} home=${JSON.stringify(ui)} found=${formRoute} ${JSON.stringify(formUi)}`
+        + ` examined=[${seen.join(" | ")}]`);
       if (formRoute) console.log(`   the form lives on ${asPath(formRoute)}`);
 
       // The starter content actually reached the page. Without it a site is a

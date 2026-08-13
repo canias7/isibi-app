@@ -1596,3 +1596,37 @@ test("a SUCCESSFUL compile is never reclassified, whatever it says in error", ()
   assert.match(src, /if \(!bd\.ok && wasKilled\(bd\.error\)\)/,
     "reclassification must be gated on the build having FAILED");
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EVERY TIMING THE BUILD CARRIES CAN REACH THE TRACE.
+//
+// It could not. `tr.at("pages", …)` was a hand-written list of the fields
+// somebody remembered, and it drifted the first time a step was added:
+// `renderMs` and `routesMs` are carried from the container onto `pages` by the
+// loop in publish-pages.mjs, and neither appeared. Measured on a real build
+// 2026-08-13 — the only evidence the render check had run at all was ~46s of
+// unaccounted time inside `buildMs`, which is a guess, not a measurement.
+//
+// Derived from BOTH files, so a step added tomorrow is covered without anybody
+// editing this test.
+
+test("the pages trace can carry every timing the build reports", () => {
+  const pub = fs.readFileSync(new URL("../builder/publish-pages.mjs", import.meta.url), "utf8");
+  const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+
+  // The container's own split, read from the loop that copies it through.
+  const loop = pub.match(/for \(const k of (\[[^\]]*Ms"[^\]]*\])\)/);
+  assert.ok(loop, "the timing passthrough in publish-pages.mjs moved — retarget this guard");
+  const carried = JSON.parse(loop[1].replace(/'/g, '"'));
+  assert.ok(carried.length >= 3 && carried.includes("renderMs"),
+    "read " + JSON.stringify(carried) + " — the scan is not seeing the real list");
+
+  const at = worker.indexOf('tr.at("pages"');
+  assert.ok(at > 0, "the pages trace entry moved — retarget this guard");
+  const entry = worker.slice(at, at + 700);
+  for (const k of carried) {
+    assert.ok(entry.includes('"' + k + '"') || entry.includes(k + ":"),
+      "`" + k + "` is measured by the container, carried onto the build, and never reaches the trace — "
+      + "so that step cannot be observed on a real build");
+  }
+});

@@ -9873,14 +9873,23 @@ async function handleRequest(request, env, ctx) {
       // SPLIT, not one number. `pages` was the model call, the container compile
       // and ~20 R2 puts together — the majority of a build's wall clock with no
       // way to attribute it.
-      tr.at("pages", {
-        credits: pages.cost || 0,
-        genMs: pages.genMs || 0,
-        buildMs: pages.buildMs || 0,
-        tscMs: pages.tscMs || 0,
-        viteMs: pages.viteMs || 0,
-        publishMs: pages.publishMs || 0,
-      });
+      // DERIVED FROM WHAT THE BUILD REPORTS, not a hand-written list of the
+      // fields somebody remembered. It WAS that list, and it drifted the moment
+      // a step was added: `renderMs` and `routesMs` are carried all the way from
+      // the container onto `pages` and neither appeared here, so the render
+      // check could not be observed on a real build at all — measured
+      // 2026-08-13, where the only evidence it had run was 46s of unaccounted
+      // time inside `buildMs`.
+      //
+      // A step that cannot say it happened is indistinguishable from one that
+      // did not, which is this file's most-repeated failure. Now a timing the
+      // container starts reporting shows up here without anybody editing this.
+      tr.at("pages", Object.fromEntries([
+        ["credits", pages.cost || 0],
+        ...["genMs", "routesMs", "tscMs", "viteMs", "renderMs", "publishMs", "buildMs"]
+          .filter((k) => typeof pages[k] === "number")
+          .map((k) => [k, pages[k]]),
+      ]));
 
       // `schema` reports the access level chosen per table. It is what makes a
       // build verifiable from outside: a menu must come back `display` and an

@@ -127,9 +127,15 @@ test("the build route actually uses it", () => {
   assert.match(w, /^\s*mark,$/m, "the worker's wrapper takes a mark and never forwards it to the module");
   // THE PAGES CALL'S SPLIT. It was the model call, the container compile and ~20
   // R2 puts together.
-  for (const k of ["genMs: pages.genMs", "buildMs: pages.buildMs", "publishMs: pages.publishMs",
-                   "tscMs: pages.tscMs", "viteMs: pages.viteMs"]) {
-    assert.ok(w.includes(k), `the pages step does not report ${k.split(":")[0]}`);
+  // ANCHORED ON THE NAMES, not on `genMs: pages.genMs`. This pinned one exact
+  // spelling and went red on a CORRECT change: the entry is DERIVED from what
+  // the build reports now, precisely because the hand-written form it was
+  // guarding is what let `renderMs` and `routesMs` go missing. A test about word
+  // order failing a fix for the bug it describes is this repo's most-repeated
+  // own-goal — assert the property.
+  const pagesEntry = w.slice(w.indexOf('tr.at("pages"'), w.indexOf('tr.at("pages"') + 700);
+  for (const k of ["genMs", "buildMs", "publishMs", "tscMs", "viteMs", "renderMs"]) {
+    assert.ok(pagesEntry.includes(k), `the pages step does not report ${k}`);
   }
   // THE TRACE STARTS BEFORE authUser, which is a round trip to GoTrue. Below it,
   // that call sat outside `totalMs` entirely and the reported total was not the
