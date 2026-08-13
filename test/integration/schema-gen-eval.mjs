@@ -63,11 +63,12 @@ if (!KEY) { console.error("ANTHROPIC_API_KEY is required"); process.exit(1); }
  */
 async function readSchemaTool() {
   const src = fs.readFileSync(path.join(ROOT, "worker.js"), "utf8");
-  const [fonts, layouts, tokens, themes] = await Promise.all([
+  const [fonts, layouts, tokens, themes, style] = await Promise.all([
     import(path.join(ROOT, "builder", "site-fonts.mjs")),
     import(path.join(ROOT, "builder", "site-layouts.mjs")),
     import(path.join(ROOT, "builder", "site-tokens.mjs")),
     import(path.join(ROOT, "builder", "site-theme-registry.mjs")),
+    import(path.join(ROOT, "builder", "site-style.mjs")),
   ]);
   const scope = {
     SITE_FONT_IDS: fonts.SHORTLIST.map((f) => f.id),
@@ -79,6 +80,15 @@ async function readSchemaTool() {
     siteTokenHint: tokens.valueHint,
     THEME_SHORTLIST: themes.THEME_SHORTLIST,
     SITE_THEME_IDS: themes.THEME_SHORTLIST,
+    // The style axes. Added 2026-08-13, after this harness had been dead for a
+    // day: the axes landed in `design_schema` and nothing added them here, so
+    // every run since died on the line below with `SITE_STYLE_AXES is not
+    // defined`. A hand-maintained scope drifts the moment the tool grows, which
+    // is what `test/schema-eval-scope.test.mjs` now watches for — it fails in
+    // the unit suite rather than here, where nobody was looking.
+    SITE_STYLE_AXES: style.ASKABLE,
+    siteStyleOptions: style.optionsFor,
+    siteStyleHint: style.axisHint,
   };
   for (const [k, v] of Object.entries(scope)) globalThis[k] = v;
 

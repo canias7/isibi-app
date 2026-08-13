@@ -204,6 +204,39 @@ const BROKEN = INDEX.replace(
 const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), "isibi-site-build-"));
 let server = null;
 
+/**
+ * Which browser should the render check launch?
+ *
+ * `CHROMIUM_PATH` is what `render-check.mjs` reads, and in the image it is the
+ * distro browser at /usr/bin/chromium. Everywhere else it has to be worked out,
+ * and BOTH obvious answers are wrong — each was tried and measured:
+ *
+ *   Hardcode /opt/pw-browsers/chromium. That is this dev container's path and
+ *   exists on no CI runner, so the launch aimed at a file that was not there:
+ *   `site build` on main, 102 passed 6 failed, every one "Cannot find package"
+ *   or a missing executable.
+ *
+ *   Leave it unset and let playwright-core resolve. It resolves BY EXACT
+ *   REVISION, and the root playwright-core here (1.62.1) wants chromium 1234
+ *   while this container has 1194 — measured: "Executable doesn't exist at
+ *   .../chromium_headless_shell-1234/...". A resolver is only as good as the
+ *   version agreement behind it.
+ *
+ * So: use an explicit path when one is given, fall back to the container's
+ * revision-independent symlink ONLY IF IT IS REALLY THERE, and otherwise say
+ * nothing and let playwright resolve — which is correct on a runner, where the
+ * workflow pins playwright-core to the exact playwright that fetched the
+ * browser. Checking the file exists is the whole difference between this and
+ * the first version.
+ */
+function chromiumEnv() {
+  if (process.env.CHROMIUM_PATH) return {};                       // already in process.env
+  for (const p of ["/opt/pw-browsers/chromium", "/usr/bin/chromium"]) {
+    if (fs.existsSync(p)) return { CHROMIUM_PATH: p };
+  }
+  return {};
+}
+
 const post = async (payload) => {
   const r = await fetch(`http://127.0.0.1:${PORT}/build`, {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
@@ -228,12 +261,7 @@ try {
   fs.rmSync(path.join(sandbox, "src/routes/index.tsx"), { force: true });
 
   server = spawn("node", [path.join(ROOT, "builder", "build-server.mjs")], {
-    // CHROMIUM_PATH is what the render check reads, and in the image it is the
-    // distro browser at /usr/bin/chromium. Here it is Playwright's, so the check
-    // runs locally exactly as it does in the container. Left unset the check
-    // reports `ok:false` and every assertion below would skip rather than lie —
-    // but then it would be proving nothing, so it is set deliberately.
-    env: { ...process.env, APP_DIR: sandbox, PORT: String(PORT), NODE_ENV: "production", CHROMIUM_PATH: process.env.CHROMIUM_PATH || "/opt/pw-browsers/chromium" },
+    env: { ...process.env, APP_DIR: sandbox, PORT: String(PORT), NODE_ENV: "production", ...chromiumEnv() },
     stdio: ["ignore", "pipe", "pipe"],
   });
   server.stderr.on("data", (d) => process.stderr.write("  [build-service] " + d));
@@ -1139,9 +1167,16 @@ function P() {
     // specifically because of this bug, so an untouched panel must come back
     // clean — otherwise the check would flag the fix.
     const solid = await post({ files: { "index.tsx": sheetPage("") }, slug: "render-solid", title: "Sheet" });
+    // GATED ON THE CHECK HAVING RUN, and that is not belt-and-braces. This is
+    // the one assertion here whose pass condition is an ABSENCE, and `[].every()`
+    // is true — so with the browser missing it reported the kit's panel clean
+    // while the render check was returning `ok:false` two assertions above.
+    // Measured: it passed in CI on the run where nothing rendered at all.
+    // A negative assertion has to prove the observer was alive first.
     ok("…and the kit's own panel, which was FIXED to bg-popover, is reported clean",
-      ((solid.render && solid.render.findings) || []).every((f) => f.kind !== "seethrough"),
-      JSON.stringify((solid.render && solid.render.findings) || []).slice(0, 300));
+      !!(solid.render && solid.render.ok === true)
+        && (solid.render.findings || []).every((f) => f.kind !== "seethrough"),
+      JSON.stringify({ ok: solid.render && solid.render.ok, findings: (solid.render && solid.render.findings) || [] }).slice(0, 300));
   }
 
 } catch (e) {

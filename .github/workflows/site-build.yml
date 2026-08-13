@@ -51,19 +51,47 @@ jobs:
       # happens to import yet.
       - run: node test/integration/kit-typecheck.mjs
 
+      # THE RENDER CHECK'S DRIVER, AT THE REPO ROOT — not in the template.
+      # `builder/render-check.mjs` does `import("playwright-core")`, and Node
+      # resolves that from `builder/` upward, so the template's node_modules is
+      # never consulted. The image installs it into /app beside the build
+      # service; this is the runner's equivalent.
+      #
+      # It passed locally and failed here for exactly that reason: this repo's
+      # own root install has playwright-core, and THIS workflow never runs a root
+      # `npm ci`. Measured on the first run on main — 102 passed, 6 failed, all
+      # six `Cannot find package 'playwright-core'`.
+      #
+      # PINNED TO WHAT THE TEMPLATE ACTUALLY INSTALLED, not to a range. The
+      # browser is downloaded by the template's `playwright`, and playwright-core
+      # resolves it by an EXACT revision directory — so two copies a patch apart
+      # look for `chromium-1193` and `chromium-1194` and one of them is not
+      # there. A range on each side is two independent resolutions that agree
+      # today and need not tomorrow, and the failure reads as the render check
+      # being broken rather than as a version skew.
+      #
+      # `--no-save`, like the Dockerfile: a published customer site must never
+      # carry a browser driver in its dependency tree.
+      - name: playwright-core at the root, matching the template's playwright
+        run: |
+          V=$(node -p "require('./builder/lovable/template/node_modules/playwright/package.json').version")
+          echo "template playwright is $V"
+          npm i --no-save --no-audit --no-fund --loglevel=error "playwright-core@$V"
+
+      # BEFORE every browser step, which now starts with site-build. This
+      # container has /opt/pw-browsers pre-populated and a runner does not, so a
+      # browser step above this one passes locally and fails only in CI — which
+      # is what theme-render did on its first run on main, and then what the
+      # render check did when it landed above this line.
+      - run: npx playwright install --with-deps chromium
+        working-directory: builder/lovable/template
+
       - run: node test/integration/site-build.mjs
 
       # Does a theme reach the DIST? The response cannot answer that — the font
       # write shipped defaults while reporting the right choice, and a theme has
       # the same failure available to it.
       - run: node test/integration/theme-seam.mjs
-
-      # BEFORE both browser steps, not between them. This container has
-      # /opt/pw-browsers pre-populated and a runner does not, so a browser step
-      # placed above this one passes locally and fails only in CI — which is
-      # exactly what theme-render did on its first run on main.
-      - run: npx playwright install --with-deps chromium
-        working-directory: builder/lovable/template
 
       # What a themed site LOOKS like. The seam test proves the CSS reaches the
       # dist; this proves the page is not blank, nothing throws, and the two
