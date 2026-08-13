@@ -36,8 +36,13 @@ function Branch({ nodes, level, open, onToggle, value, onSelect }: {
           <li key={n.id} role="treeitem" aria-level={level} aria-selected={value === n.id}
             {...(kids.length ? { "aria-expanded": isOpen } : {})}>
             <span className="flex items-center" style={{ paddingLeft: (level - 1) * 16 }}>
+              {/* The toggle is NOT `tabIndex={-1}`. That is correct in a tree
+                  implementing the ARIA keyboard pattern — one tab stop, arrows to
+                  move — and this one has no key handling at all, so it only removed
+                  the control. The label beside it stays tabbable, so a keyboard user
+                  could select a category and never expand one. */}
               {kids.length > 0 ? (
-                <button type="button" onClick={() => onToggle(n.id)} tabIndex={-1}
+                <button type="button" onClick={() => onToggle(n.id)}
                   aria-label={`${isOpen ? "Collapse" : "Expand"} ${n.label}`}
                   className="shrink-0 p-1 text-muted-foreground">
                   <ChevronRight className={cn("size-3.5 transition-transform", isOpen && "rotate-90")} aria-hidden="true" />

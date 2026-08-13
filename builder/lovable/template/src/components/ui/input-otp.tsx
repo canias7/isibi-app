@@ -33,7 +33,14 @@ const InputOTPSlot = React.forwardRef<
   React.ComponentPropsWithoutRef<"div"> & { index: number }
 >(({ index, className, ...props }, ref) => {
   const inputOTPContext = React.useContext(OTPInputContext);
-  const { char, hasFakeCaret, isActive } = inputOTPContext.slots[index];
+  // A SLOT PAST THE END IS AN EMPTY SLOT, not a crash. Destructuring
+  // `slots[index]` directly throws on any index beyond `maxLength` — and
+  // rendering one more `<InputOTPSlot />` than the length allows is the obvious
+  // off-by-one for whoever writes the markup, page gone through the error
+  // boundary rather than one box looking wrong. Upstream shadcn does it the
+  // unguarded way; this is a deliberate divergence.
+  const slot = inputOTPContext?.slots?.[index];
+  const { char, hasFakeCaret, isActive } = slot ?? { char: null, hasFakeCaret: false, isActive: false };
 
   return (
     <div

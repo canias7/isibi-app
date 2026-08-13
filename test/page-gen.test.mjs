@@ -1570,9 +1570,18 @@ test("and the shape comes from THAT component's file, not a name lookup", () => 
 test("a type is read with balanced braces, not up to the first semicolon", () => {
   // These are object literals whose fields are semicolon-separated, so a lazy
   // match returns `Activity = { who: string` and looks like it worked.
+  //
+  // A TRAILING `[]` IS NOT BEING CUT OFF, it is the type. This asserted
+  // `endsWith("}")`, which is a description of the shapes that existed when it
+  // was written rather than of the property it names — and it went red on the
+  // fix for `QuoteFiles`, an array recorded as one of its items. What must hold
+  // is that the braces are balanced and nothing was truncated mid-object.
   for (const [, types] of Object.entries(COMPONENT_TYPES)) {
     for (const [name, body] of Object.entries(types)) {
-      assert.ok(body.startsWith("{") && body.endsWith("}"), `${name} was cut off: ${body}`);
+      assert.ok(body.startsWith("{"), `${name} does not start with a shape: ${body}`);
+      assert.ok(/\}(\[\])*$/.test(body), `${name} was cut off: ${body}`);
+      const opens = (body.match(/\{/g) || []).length, closes = (body.match(/\}/g) || []).length;
+      assert.equal(opens, closes, `${name} has unbalanced braces: ${body}`);
     }
   }
 });

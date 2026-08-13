@@ -2254,7 +2254,7 @@ export const COMPONENT_TYPES = {
   "query-builder": {"Field":"{ key: string; label: string; type: \"text\" | \"number\" | \"date\" | \"enum\"; values?: string[] }","Rule":"{ id: number; field: string; op: string; value: string }"},
   "quick-filters": {"QuickFilter":"{ id: string; label: string; count?: number }"},
   "quote-calculator": {"QuoteRates":"{ callOut: number; perRoom: number; perMile: number; freeMiles: number; perFlight: number; packingPerRoom: number; weekendUplift: number; monthEndUplift: number; }"},
-  "quote-request": {"QuoteFiles":"{ name: string; size: number }"},
+  "quote-request": {"QuoteFiles":"{ name: string; size: number }[]"},
   "rate-board": {"BoardRate":"{ code: string; name: string; sell: number; buy?: number | null; order?: boolean; note?: string | null; }"},
   "rate-card": {"Rate":"{ period: string; units: number; price: number; more?: number[]; note?: string | null; }"},
   "reaction-summary": {"Reaction":"{ emoji: string; label: string; by: string[]; mine?: boolean }"},
@@ -2376,7 +2376,7 @@ export const COMPONENT_TYPES = {
   "who-is-here": {"Present":"{ id: string; name: string; idle?: boolean }"},
   "workflow-map": {"Move":"{ from: string; to: string; label?: string }"},
   "working-hours-input": {"DayHours":"{ key: string; open: boolean; from: string; to: string }"},
-  "working-hours": {"DaySpans":"{ open: string; close: string }"},
+  "working-hours": {"DaySpans":"{ open: string; close: string }[]"},
   "write-queue": {"QueuedWrite":"{ key: string; what: string; failed?: boolean; attempts?: number }"},
   "zone-permission": {"ZoneGrant":"{ id: string; zone: string; until?: string; hours?: string; grantedBy?: string; timesUsed?: number; }"},
 };

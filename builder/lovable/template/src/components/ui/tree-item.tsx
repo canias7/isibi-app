@@ -23,8 +23,11 @@ export function TreeItem({ label, depth = 0, expanded, hasChildren, selected, ic
       aria-selected={selected}
       className={cn("flex items-center gap-1 rounded", selected ? "bg-muted" : "hover:bg-muted/60", className)}
       style={{ paddingLeft: depth * 16 }}>
+      {/* The toggle is NOT `tabIndex={-1}` — see category-tree. No arrow-key
+          navigation exists here either, so it removed the only control that
+          expands a branch. */}
       {hasChildren ? (
-        <button type="button" onClick={onToggle} tabIndex={-1}
+        <button type="button" onClick={onToggle}
           aria-label={expanded ? `Collapse ${typeof label === "string" ? label : ""}` : `Expand ${typeof label === "string" ? label : ""}`}
           className="shrink-0 cursor-pointer rounded p-1 hover:bg-background">
           <ChevronRight className={cn("size-3.5 transition-transform", expanded && "rotate-90")} />

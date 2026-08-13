@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { build, render, extract } from "../builder/gen-component-api.mjs";
-import { COMPONENT_API } from "../builder/component-api.mjs";
+import { COMPONENT_API, COMPONENT_TYPES } from "../builder/component-api.mjs";
 import { importedComponentApi, repairPrompt, pagesPrompt, UI_COMPONENTS } from "../builder/page-gen.mjs";
 
 const UI_DIR = "builder/lovable/template/src/components/ui";
@@ -106,6 +106,38 @@ test("no signature names a symbol that exists only inside the component file", (
   assert.deepEqual(unresolved, [],
     "the model is told to write one of these and cannot find out what they are:\n  " +
       unresolved.join("\n  "));
+});
+
+test("an array type is recorded as an array, not as one of its items", () => {
+  // `export type QuoteFiles = { name: string; size: number }[]` was recorded
+  // WITHOUT the `[]`, because the scan stopped at the closing brace. So the
+  // model was told a list was a single item and wrote `files: { name, size }`
+  // where the prop wants an array — a type error, page refused, whole site the
+  // placeholder. Derived from the source rather than listing the two that were
+  // wrong, since the next array-typed alias would be silently wrong too.
+  const dir = path.join(process.cwd(), UI_DIR);
+  const wrong = [];
+  for (const f of fs.readdirSync(dir).filter((n) => n.endsWith(".tsx"))) {
+    const mod = f.replace(/\.tsx$/, "");
+    const recorded = COMPONENT_TYPES[mod];
+    if (!recorded) continue;
+    const src = fs.readFileSync(path.join(dir, f), "utf8");
+    for (const name of Object.keys(recorded)) {
+      // Does the SOURCE end this alias with `[]`?
+      const m = new RegExp("export type " + name + "\\s*(?:<[^>]*>)?\\s*=\\s*\\{").exec(src);
+      if (!m) continue;
+      const body = braced(src, m.index + m[0].length - 1);
+      if (body == null) continue;
+      const after = src.slice(m.index + m[0].length + body.length + 1);
+      const isArray = /^\s*\[\]/.test(after);
+      if (isArray !== recorded[name].trim().endsWith("[]")) {
+        wrong.push(mod + "." + name + " — source " + (isArray ? "IS" : "is NOT") +
+          " an array, recorded as " + JSON.stringify(recorded[name].slice(-24)));
+      }
+    }
+  }
+  assert.deepEqual(wrong, [],
+    "the model is told the wrong shape for these:\n  " + wrong.join("\n  "));
 });
 
 test("no prop is declared in the type and left out of the destructuring", () => {

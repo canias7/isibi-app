@@ -346,7 +346,20 @@ export function extractTypes(src) {
     for (; i < src.length; i++) {
       const c = src[i];
       if (c === "{") depth++;
-      else if (c === "}") { depth--; if (depth === 0) { end = i + 1; break; } }
+      else if (c === "}") {
+        depth--;
+        if (depth === 0) {
+          end = i + 1;
+          // THE TRAILING `[]` IS PART OF THE TYPE. Stopping at the closing brace
+          // turned `export type QuoteFiles = { name: string; size: number }[]`
+          // into the OBJECT, so the model was told a list was a single item and
+          // wrote `files: { name, size }` where the prop wants an array — a type
+          // error, page refused, whole site the placeholder.
+          while (end < src.length && /\s/.test(src[end])) end++;
+          while (src.startsWith("[]", end)) { end += 2; while (end < src.length && /\s/.test(src[end])) end++; }
+          break;
+        }
+      }
       else if (c === ";" && depth === 0) { end = i; break; }
       else if (c === "\n" && depth === 0 && src[i + 1] === "\n") { end = i; break; }
     }

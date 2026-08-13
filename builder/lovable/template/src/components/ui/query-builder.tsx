@@ -102,11 +102,18 @@ export function QueryBuilder({ fields, rules, joiner, onRules, onJoiner, classNa
         );
       })}
 
-      <button type="button"
-        onClick={() => onRules([...rules, { id: next.current++, field: fields[0].key, op: OPS[fields[0].type][0].key, value: "" }])}
-        className="inline-flex cursor-pointer items-center gap-1 self-start rounded-md border border-border px-2 py-1 text-xs hover:bg-muted">
-        <Plus aria-hidden className="size-3" /> Add a filter
-      </button>
+      {/* NOT RENDERED WITH NO FIELDS. The handler reads `fields[0].key` and
+          `OPS[fields[0].type]`, so an empty list threw the moment somebody
+          pressed it — and a table with nothing filterable is an ordinary state,
+          not a strange one. Hiding it beats guarding the click: a button that
+          does nothing is a worse answer than no button. */}
+      {fields.length > 0 ? (
+        <button type="button"
+          onClick={() => onRules([...rules, { id: next.current++, field: fields[0].key, op: OPS[fields[0].type][0].key, value: "" }])}
+          className="inline-flex cursor-pointer items-center gap-1 self-start rounded-md border border-border px-2 py-1 text-xs hover:bg-muted">
+          <Plus aria-hidden className="size-3" /> Add a filter
+        </button>
+      ) : null}
       <p className="border-t border-border pt-2 text-xs text-muted-foreground">
         Showing rows where <strong className="font-medium text-foreground">{describeRules(rules, fields, joiner)}</strong>.
       </p>
