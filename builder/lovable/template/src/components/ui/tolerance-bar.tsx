@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, divide } from "@/lib/utils";
 /**
  * A measured value against its acceptable band.
  *
@@ -30,7 +30,7 @@ export function ToleranceBar({ value, min, max, unit, label, span, className }: 
   const lo = span?.[0] ?? min - (max - min) * 0.4;
   const hi = span?.[1] ??  max + (max - min) * 0.4;
   const width = hi - lo || 1;
-  const at = (n: number) => Math.max(0, Math.min(100, ((n - lo) / width) * 100));
+  const at = (n: number) => Math.max(0, Math.min(100, divide(n - lo, width) * 100));
   const inRange = value >= min && value <= max;
   const off = value < min ? min - value : value > max ? value - max : 0;
   const u = unit ? ` ${unit}` : "";

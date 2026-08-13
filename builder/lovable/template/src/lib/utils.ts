@@ -6,6 +6,26 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
+ * Divide, answering 0 rather than NaN or Infinity.
+ *
+ * ZERO IS THE ORDINARY DENOMINATOR HERE. A limit nobody has set, a total of an
+ * empty basket, a threshold on a plan with no cap, a max rating of 0 — every
+ * one of these is a fresh site rather than a strange input. Divided anyway,
+ * `0 / 0` is NaN and `1 / 0` is Infinity, and BOTH survive `Math.min` and
+ * `Math.max` untouched: `Math.min(100, NaN)` is NaN. So the guards that look
+ * like they clamp the result do not.
+ *
+ * Measured by rendering the whole kit with every number set to 0: fourteen
+ * components put NaN or Infinity into the page, ten of them inside a `style`
+ * attribute — `width: NaN%` on a progress bar, which the browser drops, so the
+ * bar silently renders empty rather than looking broken.
+ */
+export function divide(numerator: number, denominator: number): number {
+  const out = numerator / denominator;
+  return Number.isFinite(out) ? out : 0;
+}
+
+/**
  * Parse a date value, treating a bare `YYYY-MM-DD` as LOCAL midnight.
  *
  * A DATE-ONLY STRING IS UTC MIDNIGHT BY SPEC, and every component then reads it

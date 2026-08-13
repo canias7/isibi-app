@@ -47,8 +47,17 @@ export function SubjectList({
   className?: string;
 }) {
   if (!subjects.length) return null;
+  // A NON-FINITE RATE IS A DASH, NOT "£NaN". `rate: number` is required by the
+  // type, so this looks unreachable — and it is reachable in the one way that
+  // matters here: `Row` carries an index signature, so a page mapping a
+  // database row whose rate column the owner has not filled in passes
+  // `undefined` at runtime and still typechecks. Measured: `rate={undefined}`
+  // rendered `£NaN` on the price, which is the most conspicuous thing on the
+  // component.
   const money = (n: number) =>
-    new Intl.NumberFormat(locale, { style: "currency", currency, maximumFractionDigits: n % 1 ? 2 : 0 }).format(n);
+    Number.isFinite(n)
+      ? new Intl.NumberFormat(locale, { style: "currency", currency, maximumFractionDigits: n % 1 ? 2 : 0 }).format(n)
+      : "—";
   return (
     <div className={cn("space-y-10", className)}>
       {subjects.map((s) => (
