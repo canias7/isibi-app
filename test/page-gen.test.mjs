@@ -2785,3 +2785,36 @@ test("the designer is told to declare the amend function", () => {
   assert.match(desc, /giving up the slot before/i,
     "the COST of cancel-and-rebook is unstated, so the rule is one edit from being dropped");
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EVERY PAGE NEEDS ITS OWN `<h1>`, and the rules have to say so.
+//
+// Added 2026-08-13 after a real site shipped `/work` carrying the HOME page's
+// `<title>`. The platform derives a sub-page's title and share card from its
+// `<h1>` at publish time, and only 11 of the kit's ~2,000 components render one
+// against 49 that render an `<h2>` — so a page assembled from sections has none
+// and silently inherits the site's name.
+//
+// `site-meta.mjs` now falls back to `<h2>`, which fixes every existing site on
+// its next publish and is the load-bearing half. This rule is the other half,
+// and it is worth having on its own account: a document whose top heading is an
+// `<h2>` is malformed for a screen reader, which no title fallback repairs.
+//
+// Asserted because a prompt rule nobody holds is one a later edit drops without
+// anybody noticing — proved by mutation, where deleting it changed nothing.
+
+test("the rules require one h1 per page, and say why the section header is not it", () => {
+  assert.match(PAGE_RULES, /EVERY PAGE HAS EXACTLY ONE .?<h1>/,
+    "the rules no longer require a per-page h1 — a section-built page will inherit the site title");
+  const from = PAGE_RULES.indexOf("EVERY PAGE HAS EXACTLY ONE");
+  const win = PAGE_RULES.slice(from, PAGE_RULES.indexOf("A TABLE MARKED", from));
+  assert.ok(win.length > 200, "the h1 rule's window is empty — the anchor moved");
+  // The distinction that makes it actionable. Without it the model is told to
+  // add an h1 and has no idea why its SectionHeader does not count.
+  assert.match(win, /SectionHeader/, "the rule does not name the component that is NOT a page heading");
+  assert.match(win, /PageHeader|CollectionHeader|Hero/, "the rule names no component that DOES render an h1");
+  // Both reasons, because the accessibility one holds even if the title
+  // derivation is changed or removed later.
+  assert.match(win, /screen reader/i, "the rule gives no accessibility reason");
+  assert.match(win, /title|share/i, "the rule does not say the title is derived from it");
+});

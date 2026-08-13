@@ -308,3 +308,38 @@ test("a picker stored from the hours `auto` existed falls back", () => {
   // The two defaults must BE the same, not merely both look right.
   assert.ok(chat.includes("'" + DEFAULT_PICKER + "'"), "the composer never names the server's default");
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE JOURNEY, NOT THE STEP. `buildFloor <= FREE_GRANT` models the build in
+// isolation, and a real first build is not in isolation: the customer types a
+// brief, that goes through `/api/site/route` first, and a routing call rounds up
+// to the 1-credit floor however cheap the model is. So the balance the build
+// actually meets is the grant MINUS that.
+//
+// It is the difference between passing and failing right now. Measured
+// 2026-08-13 with the re-taken SCHEMA_PROFILE: the floor is exactly 20 against a
+// grant of exactly 20 — green with zero headroom — while a real new customer
+// arrives at the gate with 19 and is refused.
+const ROUTING_CREDITS = 1;
+
+test("a cold first build does NOT fit once the routing call is counted — pinned, not fixed", () => {
+  // RECORDED AS A FACT, deliberately, rather than asserted as a requirement.
+  //
+  // The requirement would be red today, and a permanently red suite is one
+  // people stop reading — which is how the schema eval sat dead for a day. The
+  // limitation is real and its fix is a decision about MONEY (raise the grant),
+  // not a number to correct in this file. So it is pinned in the direction it
+  // actually points, and the day somebody raises the grant this goes red and
+  // says so.
+  const need = buildFloor(modelsFor().design) + ROUTING_CREDITS;
+  assert.ok(need > FREE_GRANT,
+    "a cold first build now FITS (" + need + " <= " + FREE_GRANT + ") — the grant was raised or the "
+    + "schema call got cheaper. Delete this pin and tighten the guard above to include ROUTING_CREDITS.");
+  // What the shortfall IS, so the decision has a number attached rather than a
+  // direction. Bounded on both sides: a much larger gap means something else
+  // moved and the profile wants re-measuring, not the grant raising.
+  const short = need - FREE_GRANT;
+  assert.ok(short >= 1 && short <= 6,
+    "the cold-build shortfall is " + short + " credits, outside the range this pin was written against — "
+    + "re-measure SCHEMA_PROFILE before treating it as a grant question");
+});

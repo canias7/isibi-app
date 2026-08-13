@@ -7,7 +7,7 @@
 // got a bare URL.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { injectMeta, metaTags } from "../site-meta.mjs";
+import { injectMeta, metaTags, pageMeta } from "../site-meta.mjs";
 
 const PAGE = `<!doctype html><html lang="en"><head><meta charset="UTF-8" /><title>Sharp Fade</title><link rel="stylesheet" href="./a.css"></head><body><div id="root"></div></body></html>`;
 const META = { brand: "Sharp Fade Barbershop", description: "Skin fades and hot-towel shaves in Lisbon. Book online.", url: "https://gofarther.dev/s/sharp-fade/", image: "/u/sharp-fade/abc.png" };
@@ -113,4 +113,49 @@ test("the tags land inside the head, after the title", () => {
   const out = injectMeta(PAGE, META);
   assert.ok(out.indexOf("isibi:meta") > out.indexOf("</title>"));
   assert.ok(out.indexOf("isibi:meta") < out.indexOf("</head>"));
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A SUB-PAGE'S OWN TITLE, when the page has no `<h1>`.
+//
+// MEASURED ON A REAL SITE 2026-08-13: `/work` served the HOME page's title. The
+// cause is structural rather than bad luck — only 11 of the kit's components
+// render an `<h1>` and 49 render an `<h2>`, so a page assembled from SECTIONS
+// has none. That barber shop's work page was `SiteChrome > SectionHeader +
+// Gallery + CtaBand`, and `SectionHeader` is an `<h2>` on purpose.
+//
+// Confirmed independently against the generator's own committed output: of the
+// 9 real pages under docs/auth-audit/pages, the one with no `<h1>` source is
+// `work.tsx` — different site, different brief, same page.
+
+const BASE = { brand: "Fade & Co Barbershop", description: "A barber shop in Leeds." };
+const doc = (body) => "<html><body>" + body + "</body></html>";
+
+test("a page whose only heading is an h2 gets its own title", () => {
+  const work = doc("<h2>Our work</h2><p>A gallery of recent cuts and fades from the chair, updated weekly.</p>");
+  assert.equal(pageMeta(work, BASE).brand, "Our work · Fade & Co Barbershop",
+    "a section-built page still carries the site name as its title");
+});
+
+test("an h1 still wins over an h2 on the same page", () => {
+  // The fallback must not overtake the real thing: a page with both has the h1
+  // as its subject and the h2 as a section within it.
+  const both = doc("<h1>Book a chair</h1><h2>Available today</h2><p>Pick a time that suits you and we will hold it.</p>");
+  assert.match(pageMeta(both, BASE).brand, /^Book a chair/,
+    "the h2 fallback overtook a real h1");
+});
+
+test("a page with no heading at all is left alone, and so is home", () => {
+  // A no-op is the right answer for both — same rule as the tags. A page with a
+  // plain title is a far smaller problem than a broken one, and the home page
+  // keeps the site-level title the designer wrote for it.
+  assert.equal(pageMeta(doc("<div>no headings</div>"), BASE).brand, BASE.brand);
+  assert.equal(pageMeta(doc("<h2>Our work</h2>"), BASE, { home: true }).brand, BASE.brand,
+    "the home page picked up a section heading as its title");
+});
+
+test("the brand is not repeated when the heading already contains it", () => {
+  const h = doc("<h2>Fade &amp; Co Barbershop — the work</h2>");
+  const got = pageMeta(h, BASE).brand;
+  assert.ok(!/Barbershop[\s\S]*Barbershop/.test(got), "the site name appears twice: " + got);
 });

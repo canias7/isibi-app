@@ -160,14 +160,32 @@ export const MIN_CREDITS = 8;
 /**
  * What a COLD schema call really costs, measured.
  *
- * From `build smoke` 2026-08-08: `in 236 · out 1319 · cacheRead 0 ·
- * cacheWrite 13357`. A cold call rather than a warm one on purpose — this
+ * From `build smoke` 2026-08-13: `in 236 · out 1490 · cacheRead 0 ·
+ * cacheWrite 19008`. A cold call rather than a warm one on purpose — this
  * feeds a gate, and a gate that under-estimates takes the customer's money and
  * then refuses to finish, which is the exact bug it exists to stop. Over-
  * estimating costs an occasional "top up" to somebody who would just have
  * squeezed through on a warm cache; that is the cheap direction.
+ *
+ * RE-MEASURED 2026-08-13, AND IT HAD DRIFTED 42% ON THE TERM THAT DOMINATES.
+ * The 2026-08-08 figures were `out 1319 · cacheWrite 13357` → 9 credits, so
+ * `buildFloor` said 17 and a 20-credit grant sailed through; the call then cost
+ * 12 and left 7, under `MIN_CREDITS` 8. So the gate waved through a build that
+ * could not finish and the customer was charged 12 for a placeholder — the
+ * precise failure this constant exists to prevent, recurring because the number
+ * stopped being true. The schema prompt has grown since (the 17 style axes among
+ * other things) and this will drift again: it is a measurement, so re-take it
+ * when the tool changes rather than trusting the comment.
+ *
+ * THE CONSEQUENCE, STATED: `buildFloor` is now 20, which is exactly the new-
+ * account grant, so a cold first build is REFUSED UP FRONT — with a refund,
+ * having spent nothing. That is strictly better than the old behaviour, where
+ * the same customer was charged 12 credits and handed a placeholder. It is not
+ * a fix for the underlying limit: a new account still cannot get pages on a
+ * cold cache, and closing THAT means raising the grant, which is a decision
+ * about money rather than a number to correct here.
  */
-export const SCHEMA_PROFILE = { in: 236, out: 1319, cacheRead: 0, cacheWrite: 13357 };
+export const SCHEMA_PROFILE = { in: 236, out: 1490, cacheRead: 0, cacheWrite: 19008 };
 
 /**
  * The balance a build needs BEFORE it starts, for a given designer model.

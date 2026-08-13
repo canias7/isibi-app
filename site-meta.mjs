@@ -138,11 +138,35 @@ export function pageMeta(html, base, { home = false } = {}) {
     return m[1].replace(/<[^>]+>/g, " ").replace(/&[a-z]+;|&#\d+;/gi, " ").replace(/\s+/g, " ").trim();
   };
 
-  const h1 = textOf(/<h1[^>]*>([\s\S]{0,400}?)<\/h1>/i);
+  // THE PAGE'S OWN HEADING, falling back to `<h2>`.
+  //
+  // `<h1>` alone was not enough, and the reason is structural rather than bad
+  // luck: only 11 of the kit's components render an `<h1>` and 49 render an
+  // `<h2>`, so a page assembled from SECTIONS has none at all. Measured on a
+  // real build 2026-08-13 — a barber shop's `/work` is `SiteChrome >
+  // SectionHeader + Gallery + CtaBand`, `SectionHeader` is an `<h2>` (correctly,
+  // it heads a section), and the page therefore carried the HOME page's title.
+  // Confirmed independently against the generator's own committed output: of 9
+  // real pages, the one with no `<h1>` is `work.tsx`, on a different site.
+  //
+  // A gallery page's first `<h2>` is what that page is about, so it is a good
+  // title. The risk is a page with several sections, where the first heading is
+  // a sub-topic rather than the subject — still strictly better than repeating
+  // the site name on every page of the site, which is what happened before.
+  const h1 = textOf(/<h1[^>]*>([\s\S]{0,400}?)<\/h1>/i)
+    || textOf(/<h2[^>]*>([\s\S]{0,400}?)<\/h2>/i);
   // Suffixed with the brand rather than replacing it: a preview card reading
   // "Book a chair" alone does not say whose chair.
   if (h1 && h1.length <= 70) {
-    meta.brand = base && base.brand && !h1.toLowerCase().includes(String(base.brand).toLowerCase())
+    // COMPARED WITH THE ENTITIES ALREADY GONE FROM BOTH SIDES. `textOf` strips
+    // `&amp;` to a space, so a heading reading "Fade & Co Barbershop — the work"
+    // arrives as "Fade Co Barbershop — the work" and a plain `includes` of the
+    // raw brand "Fade & Co Barbershop" MISSES — the suffix is appended and the
+    // title says the business twice. An ampersand in a trading name is about as
+    // ordinary as it gets ("Smith & Sons"), and this was true of the `<h1>` path
+    // long before the `<h2>` fallback; the fallback is only what surfaced it.
+    const key = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    meta.brand = base && base.brand && !key(h1).includes(key(base.brand))
       ? h1 + " · " + base.brand
       : h1;
   }

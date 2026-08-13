@@ -2453,7 +2453,18 @@ ${UI_SHORTLIST_API()}
     The same applies to any column whose values are names rather than quantities: a status, a
     stage, a size, a day of the week. \`order\` by one only when alphabetical IS the answer.
 
-15. A TABLE MARKED \`PAID: YES\` IS BOUGHT, NOT SUBMITTED. The digest says so per table.
+15. EVERY PAGE HAS EXACTLY ONE \`<h1>\`, AND IT NAMES THAT PAGE. Not the site — the page.
+    A gallery page's is "Our work", a booking page's is "Book a chair".
+    Two things break without it, and neither is visible from the page itself.
+    A screen reader announces the page by its \`<h1>\` and lands on an \`<h2>\` with no
+    parent, which is a malformed document. And the platform derives the \`<title>\` and
+    the share card from it at publish time, so a page with none is pasted into WhatsApp
+    wearing the HOME page's name — measured on a real site, where \`/work\` was
+    \`SectionHeader + Gallery + CtaBand\` and every section heading is an \`<h2>\`.
+    \`<SectionHeader>\` heads a SECTION and is an \`<h2>\` on purpose. The page's own
+    heading is \`<PageHeader>\`, \`<CollectionHeader>\`, a \`<Hero>\`, or a plain \`<h1>\`.
+
+16. A TABLE MARKED \`PAID: YES\` IS BOUGHT, NOT SUBMITTED. The digest says so per table.
     \`useCreateRow\` on one returns 403 — a paid table has no public insert at all, which is
     exactly what stops a price being forged — so use \`useCheckout\` and let the server price it:
       const checkout = useCheckout("orders")
@@ -2481,7 +2492,7 @@ ${UI_SHORTLIST_API()}
     Show the error \`checkout.error\` carries rather than a generic one: it is written for
     the customer, and says so when the shop has not finished setting payments up.
 
-16. NO EXPLANATORY COMMENTS IN THE PAGES YOU WRITE. The examples above are commented
+17. NO EXPLANATORY COMMENTS IN THE PAGES YOU WRITE. The examples above are commented
     because they are teaching you; the files you return are a customer's website and
     nobody reads its source. Output costs five times what input costs, and comments are
     27% of the example set — so a comment is the single most expensive thing here, and
