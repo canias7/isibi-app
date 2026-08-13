@@ -40,7 +40,7 @@ export function RevisionSlider({ versions, index, onChange, className }: {
       <div className="flex items-baseline justify-between gap-3">
         <label htmlFor={id} className="text-sm font-medium">Version</label>
         <span className="text-sm text-muted-foreground">
-          <time dateTime={toDate(current.at).toISOString()}><DateFormat date={current.at} withTime /></time>
+          <DateFormat date={current.at} withTime />
         </span>
       </div>
       <input

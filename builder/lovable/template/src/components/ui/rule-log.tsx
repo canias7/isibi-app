@@ -1,4 +1,4 @@
-import { cn, toDate } from "@/lib/utils";
+import { cn, isoAttr, toDate } from "@/lib/utils";
 /**
  * Every time a rule ran, and whether it did anything.
  *
@@ -52,7 +52,7 @@ export function RuleLog({ runs, emptyNote = "This rule has not run yet", classNa
               {r.detail && <span className="block text-xs text-muted-foreground">{r.detail}</span>}
             </span>
             {ok && (
-              <time dateTime={d!.toISOString()} className="shrink-0 text-xs text-muted-foreground">
+              <time dateTime={isoAttr(d)} className="shrink-0 text-xs text-muted-foreground">
                 {d!.toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
               </time>
             )}

@@ -23,6 +23,31 @@ export function cn(...inputs: ClassValue[]) {
  * would have to render children to be right, and a name assembled from a
  * half-walked tree is a plausible sentence that is not what is on screen.
  */
+/**
+ * The machine-readable value for a `<time dateTime>`, or `undefined` when the
+ * date cannot be read.
+ *
+ * `new Date(x).toISOString()` THROWS on an unparseable value — RangeError,
+ * "Invalid time value" — and it throws during render, so the error boundary
+ * takes the whole page rather than the one timestamp. That is not a contrived
+ * input: `Row` carries an index signature, so a page writing
+ * `at={row.collected_at}` typechecks against any column, and an empty cell or a
+ * free-text one lands here.
+ *
+ * V8's parser is lenient enough to hide this, which is why it stayed. It reads
+ * "Sample 0" as the year 2000 and "Third entry 2" as February 2001 — so a test
+ * handing a component nonsense gets a valid Date most of the time, and the
+ * crash only appears for whichever nonsense happens not to parse.
+ *
+ * `undefined` OMITS the attribute rather than emitting an empty one: `<time>`
+ * with no `datetime` is valid HTML, `<time datetime="">` is not.
+ */
+export function isoAttr(value: string | number | Date | null | undefined): string | undefined {
+  if (value === null || value === undefined) return undefined;
+  const d = toDate(value);
+  return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
+}
+
 export function labelText(node: unknown): string {
   return typeof node === "string" || typeof node === "number" ? String(node) : "";
 }

@@ -1,4 +1,4 @@
-import { cn, toDate } from "@/lib/utils";
+import { cn, isoAttr, toDate } from "@/lib/utils";
 /**
  * What each sync run actually did — and what it skipped.
  *
@@ -62,7 +62,7 @@ export function IntegrationLog({ runs, emptyNote = "This has never run", classNa
             </span>
             <span className="shrink-0 text-right text-xs text-muted-foreground">
               {ok && (
-                <time dateTime={d!.toISOString()} className="block">
+                <time dateTime={isoAttr(d)} className="block">
                   {d!.toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
                 </time>
               )}

@@ -34,7 +34,7 @@ export function FileVersion({ label, by, at, size, current, onRestore, onDownloa
         </p>
         <p className="text-xs text-muted-foreground">
           {by ? `${by} · ` : ""}
-          <time dateTime={new Date(at).toISOString()}><DateFormat date={at} withTime /></time>
+          <DateFormat date={at} withTime />
           {size ? ` · ${size}` : ""}
         </p>
       </div>

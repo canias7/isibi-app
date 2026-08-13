@@ -1,5 +1,5 @@
 import { SafeImage } from "@/components/ui/safe-image";
-import { cn, toDate } from "@/lib/utils";
+import { cn, isoAttr, toDate } from "@/lib/utils";
 /**
  * Photos and documents attached to a record, with when each was taken.
  *
@@ -59,13 +59,13 @@ export function EvidenceList({ items, emptyNote = "Nothing attached", className 
               <span className="block truncate">{e.name}</span>
               <span className="block text-xs text-muted-foreground">
                 {taken
-                  ? <>Taken <time dateTime={taken.toISOString()}>{taken.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}</time></>
+                  ? <>Taken <time dateTime={isoAttr(taken)}>{taken.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}</time></>
                   : "Taken date unknown"}
                 {e.by && <span> · added by {e.by}</span>}
               </span>
               {gap && up && (
                 <span className="block text-xs text-muted-foreground">
-                  Uploaded <time dateTime={up.toISOString()}>{up.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}</time>
+                  Uploaded <time dateTime={isoAttr(up)}>{up.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}</time>
                 </span>
               )}
             </span>

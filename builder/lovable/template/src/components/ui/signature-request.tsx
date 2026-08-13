@@ -36,7 +36,7 @@ export function SignatureRequest({ signatories, onRemind, className }: {
               <span className="truncate">{s.name}</span>
               <span className="block text-xs text-muted-foreground">
                 {s.signedAt
-                  ? <>Signed <time dateTime={new Date(s.signedAt).toISOString()}><DateFormat date={s.signedAt} withTime /></time></>
+                  ? <>Signed <DateFormat date={s.signedAt} withTime /></>
                   : s.blockedBy ? `Waiting for ${s.blockedBy} first` : "Not signed yet"}
               </span>
             </span>

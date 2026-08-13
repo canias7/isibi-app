@@ -1,4 +1,4 @@
-import { cn, toDate } from "@/lib/utils";
+import { cn, isoAttr, toDate } from "@/lib/utils";
 /**
  * The earlier attempts, so a better one is not lost by regenerating past it.
  *
@@ -48,7 +48,7 @@ export function GenerationHistory({ items, currentId, onRestore, emptyNote = "No
               </span>
               <span className="text-xs text-muted-foreground">
                 {ok ? (
-                  <time dateTime={d!.toISOString()}>
+                  <time dateTime={isoAttr(d)}>
                     {d!.toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
                   </time>
                 ) : g.at}

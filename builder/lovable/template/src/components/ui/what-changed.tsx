@@ -31,7 +31,7 @@ export function WhatChanged({ items, since, allHref, max = 5, className }: {
         <h2 className="text-sm font-medium">New since you were last here</h2>
         {since && (
           <span className="text-xs text-muted-foreground">
-            <time dateTime={new Date(since).toISOString()}><DateFormat date={since} /></time>
+            <DateFormat date={since} />
           </span>
         )}
       </div>

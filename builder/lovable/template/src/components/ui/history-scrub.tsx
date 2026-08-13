@@ -1,4 +1,4 @@
-import { cn, toDate } from "@/lib/utils";
+import { cn, isoAttr, toDate } from "@/lib/utils";
 /**
  * A timeline you can click along, with the gaps to scale.
  *
@@ -48,8 +48,8 @@ export function HistoryScrub({ points, activeKey, onPick, className }: {
         })}
       </div>
       <div className="flex justify-between text-xs text-muted-foreground">
-        <time dateTime={toDate(min).toISOString()}>{toDate(min).toLocaleDateString()}</time>
-        <time dateTime={toDate(max).toISOString()}>{toDate(max).toLocaleDateString()}</time>
+        <time dateTime={isoAttr(min)}>{toDate(min).toLocaleDateString()}</time>
+        <time dateTime={isoAttr(max)}>{toDate(max).toLocaleDateString()}</time>
       </div>
     </div>
   );

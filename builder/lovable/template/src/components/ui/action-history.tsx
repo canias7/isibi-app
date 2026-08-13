@@ -42,7 +42,7 @@ export function ActionHistory({ entries, empty = "Nothing has happened yet.", cl
             </p>
             {e.detail && <p className="text-sm text-muted-foreground">{e.detail}</p>}
             <p className="text-xs text-muted-foreground">
-              <time dateTime={new Date(e.at).toISOString()}><DateFormat date={e.at} withTime /></time>
+              <DateFormat date={e.at} withTime />
             </p>
           </div>
         </li>

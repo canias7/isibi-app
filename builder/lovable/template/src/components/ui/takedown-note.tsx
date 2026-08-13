@@ -31,7 +31,7 @@ export function TakedownNote({ what = "This", rule, at, appealHref, byAuthor, cl
       </span>
       {!byAuthor && rule ? ` under ${rule}` : ""}
       {at && (
-        <> · <time dateTime={new Date(at).toISOString()}><DateFormat date={at} /></time></>
+        <> · <DateFormat date={at} /></>
       )}
       {appealHref && !byAuthor && (
         <> · <a href={appealHref} className="underline underline-offset-2">Appeal this</a></>

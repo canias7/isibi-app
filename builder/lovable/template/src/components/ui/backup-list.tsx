@@ -1,4 +1,4 @@
-import { cn, toDate } from "@/lib/utils";
+import { cn, isoAttr, toDate } from "@/lib/utils";
 /**
  * The backups that exist, with the one fact that decides their worth.
  *
@@ -62,7 +62,7 @@ export function BackupList({ backups, coversBackTo, emptyNote = "No backups yet"
               <span className="min-w-0 flex-1">
                 <span className={cn("block", b.state === "failed" && "font-medium")}>
                   {ok
-                    ? <time dateTime={d!.toISOString()}>
+                    ? <time dateTime={isoAttr(d)}>
                         {d!.toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
                       </time>
                     : "Unknown time"}

@@ -1,4 +1,4 @@
-import { cn, toDate } from "@/lib/utils";
+import { cn, isoAttr, toDate } from "@/lib/utils";
 /**
  * "You changed this from 2 to 4" — an edited rating, shown as edited.
  *
@@ -39,7 +39,7 @@ export function RatingChanged({ from, to, at, note, className }: {
       {ok && (
         <>
           {" · "}
-          <time dateTime={d!.toISOString()}>
+          <time dateTime={isoAttr(d)}>
             {d!.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}
           </time>
         </>

@@ -1,4 +1,4 @@
-import { cn, toDate } from "@/lib/utils";
+import { cn, isoAttr, toDate } from "@/lib/utils";
 /**
  * A standing instruction not to contact somebody, shown where it stops a call.
  *
@@ -45,7 +45,7 @@ export function DoNotContact({ scopes, setBy, at, reason, className }: {
           <span className="block">
             Set{setBy ? ` by ${setBy}` : ""}
             {ok && (
-              <> on <time dateTime={d!.toISOString().slice(0, 10)}>
+              <> on <time dateTime={isoAttr(d)?.slice(0, 10)}>
                 {d!.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}
               </time></>
             )}

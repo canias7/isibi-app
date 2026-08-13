@@ -1,4 +1,4 @@
-import { cn, toDate } from "@/lib/utils";
+import { cn, isoAttr, toDate } from "@/lib/utils";
 /**
  * One movement of stock — in, out, or between places — with who and why.
  *
@@ -49,7 +49,7 @@ export function StockMove({ kind, quantity, unit, reason, by, at, from, to, clas
           {by}
           {by && ok ? " · " : ""}
           {ok && (
-            <time dateTime={d!.toISOString()}>
+            <time dateTime={isoAttr(d)}>
               {d!.toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
             </time>
           )}

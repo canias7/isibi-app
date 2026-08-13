@@ -26,7 +26,7 @@ export function ExchangeRateNote({ from, to, rate, at, locked, className }: {
     <p className={cn("text-xs text-muted-foreground tabular-nums", className)}>
       1 {from} = {rate} {to}
       {at && (
-        <> · <time dateTime={new Date(at).toISOString()}><DateFormat date={at} withTime /></time></>
+        <> · <DateFormat date={at} withTime /></>
       )}
       {" · "}
       <span className={locked ? "font-medium text-foreground" : undefined}>

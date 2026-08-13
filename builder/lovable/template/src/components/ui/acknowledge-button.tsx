@@ -28,7 +28,7 @@ export function AcknowledgeButton({ acknowledgedAt, onAcknowledge, label = "I've
     return (
       <p className={cn("flex items-center gap-1.5 text-sm text-muted-foreground", className)}>
         <Check aria-hidden className="size-4 shrink-0" />
-        Read <time dateTime={new Date(acknowledgedAt).toISOString()}><DateFormat date={acknowledgedAt} withTime /></time>
+        Read <DateFormat date={acknowledgedAt} withTime />
       </p>
     );
   }

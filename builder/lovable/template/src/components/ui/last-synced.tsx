@@ -27,7 +27,7 @@ export function LastSynced({ at, syncing, onSyncNow, className }: {
         <span role="status">Syncing…</span>
       ) : at ? (
         <span>
-          Last synced <time dateTime={new Date(at).toISOString()}><DateFormat date={at} withTime /></time>
+          Last synced <DateFormat date={at} withTime />
         </span>
       ) : (
         <span>Not synced yet</span>

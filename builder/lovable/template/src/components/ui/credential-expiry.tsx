@@ -1,4 +1,4 @@
-import { cn, toDate } from "@/lib/utils";
+import { cn, isoAttr, toDate } from "@/lib/utils";
 /**
  * When a licence runs out, warning before it does rather than after.
  *
@@ -33,7 +33,7 @@ export function CredentialExpiry({ on, daysLeft, warnWithin = 60, neverExpires, 
   const d = toDate(on);
   const ok = !Number.isNaN(d.getTime());
   const date = ok
-    ? <time dateTime={d.toISOString().slice(0, 10)}>{d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}</time>
+    ? <time dateTime={isoAttr(d)?.slice(0, 10)}>{d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}</time>
     : on;
   const expired = daysLeft !== undefined && daysLeft < 0;
   const soon = daysLeft !== undefined && daysLeft >= 0 && daysLeft <= warnWithin;

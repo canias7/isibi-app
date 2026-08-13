@@ -1,4 +1,4 @@
-import { cn, toDate } from "@/lib/utils";
+import { cn, isoAttr, toDate } from "@/lib/utils";
 /**
  * What the reader has agreed to, in one place.
  *
@@ -46,7 +46,7 @@ export function ConsentSummary({ items, className }: { items: ConsentItem[]; cla
               </span>
               {c.required && <span className="block text-xs text-muted-foreground">needed to run the site</span>}
               {ok && !c.required && (
-                <time dateTime={d!.toISOString()} className="block text-xs text-muted-foreground">
+                <time dateTime={isoAttr(d)} className="block text-xs text-muted-foreground">
                   {d!.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}
                 </time>
               )}

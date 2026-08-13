@@ -34,7 +34,7 @@ export function RestorePoint({ label, at, willLose, onRestore, onDismiss, classN
       <div className="min-w-0">
         <p className="text-sm font-medium">{label}</p>
         <p className="text-sm text-muted-foreground">
-          Saved <time dateTime={new Date(at).toISOString()}><DateFormat date={at} withTime /></time>
+          Saved <DateFormat date={at} withTime />
           {willLose ? ` · Restoring discards ${willLose}` : ""}
         </p>
       </div>

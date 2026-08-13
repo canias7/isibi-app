@@ -1,5 +1,5 @@
 import { SafeImage } from "@/components/ui/safe-image";
-import { cn, toDate } from "@/lib/utils";
+import { cn, isoAttr, toDate } from "@/lib/utils";
 /**
  * A pair of photos taken at two moments, kept together and labelled.
  *
@@ -48,7 +48,7 @@ export function BeforeAfterUpload({ before, after, onPick, beforeLabel = "Before
           </div>
         )}
         {ok && (
-          <time dateTime={d!.toISOString()} className="mt-0.5 block text-xs text-muted-foreground">
+          <time dateTime={isoAttr(d)} className="mt-0.5 block text-xs text-muted-foreground">
             {d!.toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
           </time>
         )}

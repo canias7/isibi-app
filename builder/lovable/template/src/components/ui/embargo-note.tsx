@@ -33,7 +33,7 @@ export function EmbargoNote({ until, timezone, lifted, whoCanSee, className }: {
         <>
           <span className="font-medium">
             Under embargo until{" "}
-            <time dateTime={new Date(until).toISOString()}><DateFormat date={until} withTime /></time>
+            <DateFormat date={until} withTime />
             {timezone ? ` ${timezone}` : ""}
           </span>
           {whoCanSee && <span className="text-muted-foreground"> — {whoCanSee} only.</span>}

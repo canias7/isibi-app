@@ -1,5 +1,5 @@
 import { DateFormat } from "@/components/ui/date-format";
-import { cn, toDate } from "@/lib/utils";
+import { cn, isoAttr, toDate } from "@/lib/utils";
 /**
  * The automatic saves, newest first, each one openable.
  *
@@ -48,7 +48,7 @@ export function AutosaveHistory({ entries, onOpen, retentionNote, empty = "No au
               )}
               <button type="button" onClick={() => onOpen(e.key)}
                 className="flex w-full cursor-pointer items-baseline gap-3 px-3 py-2 text-left text-sm hover:bg-muted">
-                <time dateTime={d.toISOString()} className="tabular-nums">
+                <time dateTime={isoAttr(e.at)} className="tabular-nums">
                   {d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
                 </time>
                 {e.note && <span className="min-w-0 truncate text-muted-foreground">{e.note}</span>}

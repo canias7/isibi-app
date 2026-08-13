@@ -1,4 +1,4 @@
-import { cn, toDate } from "@/lib/utils";
+import { cn, isoAttr, toDate } from "@/lib/utils";
 /**
  * Whether a message has been read, and by whom.
  *
@@ -33,7 +33,7 @@ export function ReadReceipt({ state, readBy = [], unreadBy = [], at, className }
     <p className={cn("text-xs text-muted-foreground", className)}>
       <span className={cn(state === "read" && "text-foreground")}>{WORD[state]}</span>
       {ok && (
-        <> · <time dateTime={d!.toISOString()}>
+        <> · <time dateTime={isoAttr(d)}>
           {d!.toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
         </time></>
       )}

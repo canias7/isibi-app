@@ -46,7 +46,7 @@ export function SnapshotList({ snapshots, onRestore, onDelete, empty = "No snaps
               <span className="ml-2 font-normal text-muted-foreground">{s.auto ? "Automatic" : "Manual"}</span>
             </p>
             <p className="text-xs text-muted-foreground">
-              <time dateTime={new Date(s.at).toISOString()}><DateFormat date={s.at} withTime /></time>
+              <DateFormat date={s.at} withTime />
               {s.by ? ` · ${s.by}` : ""}{s.size ? ` · ${s.size}` : ""}
             </p>
           </div>

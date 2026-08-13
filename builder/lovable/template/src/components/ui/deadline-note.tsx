@@ -38,7 +38,7 @@ export function DeadlineNote({ due, soonWithinHours = 24, done, className }: {
       <span className={cn(overdue || soon ? "font-medium" : "text-muted-foreground")}>
         {done ? "Was due" : overdue ? "Overdue" : soon ? "Due soon" : "Due"}
       </span>{" "}
-      <time dateTime={new Date(at).toISOString()}><DateFormat date={at} withTime /></time>
+      <DateFormat date={at} withTime />
       {!done && (
         <span className="text-muted-foreground"> · <TimeSince at={at} /></span>
       )}

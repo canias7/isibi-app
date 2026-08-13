@@ -26,7 +26,22 @@ export function MultiSelect({ options, value, onChange, placeholder = "Select…
               : value.map((v) => (
                 <Badge key={v} variant="secondary" className="gap-1">
                   {label(v)}
-                  <span role="button" tabIndex={-1} aria-label={`Remove ${label(v)}`}
+                  {/* A MOUSE SHORTCUT, AND HIDDEN FROM ASSISTIVE TECH ON PURPOSE.
+                      This was `role="button"` with an `aria-label`, sitting
+                      inside the trigger `<button>` with `tabIndex={-1}` and no
+                      key handler — so it announced an operable control that no
+                      keyboard or screen-reader user could ever reach or fire,
+                      and it put an interactive role inside an interactive
+                      element, which ARIA does not allow.
+
+                      Removing is NOT lost: every option in the list below
+                      toggles, so deselecting is fully available through the
+                      combobox, which is where a keyboard user does it anyway.
+                      What went is a DUPLICATE control that was only ever
+                      announced, never operable. Giving it a real one means the
+                      trigger stops being a `<button>`, which is a change to how
+                      this component looks and behaves rather than a fix. */}
+                  <span aria-hidden className="cursor-pointer"
                     onClick={(e) => { e.stopPropagation(); toggle(v); }}><X className="size-3" /></span>
                 </Badge>
               ))}

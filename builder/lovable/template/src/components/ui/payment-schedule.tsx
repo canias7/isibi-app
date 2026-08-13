@@ -35,7 +35,7 @@ export function PaymentSchedule({ instalments, currency = "GBP", className }: {
           return (
             <li key={idx} className="flex items-baseline justify-between gap-3 px-3 py-2">
               <span className={cn("min-w-0", i.paid && "text-muted-foreground")}>
-                <time dateTime={new Date(t).toISOString()}><DateFormat date={t} /></time>
+                <DateFormat date={t} />
               </span>
               <span className="flex shrink-0 items-baseline gap-3 tabular-nums">
                 <span className={cn(overdue && "font-medium")}>

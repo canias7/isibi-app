@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn, toDate } from "@/lib/utils";
+import { cn, isoAttr, toDate } from "@/lib/utils";
 /**
  * "4 minutes ago", kept current.
  *
@@ -49,7 +49,7 @@ export function TimeSince({ at, className }: {
   const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
 
   return (
-    <time dateTime={toDate(target).toISOString()} title={toDate(target).toLocaleString()}
+    <time dateTime={isoAttr(target)} title={toDate(target).toLocaleString()}
       className={cn(className)}>
       {rtf.format(value, unit)}
     </time>

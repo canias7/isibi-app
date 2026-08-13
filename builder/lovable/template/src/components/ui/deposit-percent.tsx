@@ -47,11 +47,19 @@ export function DepositPercent({ deposit, price, bands = [5, 10, 15, 20, 25, 40]
       </p>
       {reached !== undefined ? (
         <p className="text-xs tabular-nums text-muted-foreground">Past the {reached}% mark.</p>
-      ) : (
+      ) : bands.length ? (
+        // `Math.min()` OF NOTHING IS `Infinity`, and this sentence is rendered
+        // straight to somebody about their own deposit: with `bands={[]}` it
+        // read "Below the smallest band most lenders price to (Infinity%)."
+        // `bands` has a default, so an empty one looks impossible — but the
+        // obvious call is `bands={rows.map((r) => r.pct)}`, which is `[]` before
+        // the query settles and on every site whose owner has not filled the
+        // table in. With no bands there is also no smallest band, so the claim
+        // is not one to make more carefully — it is one not to make.
         <p className="text-xs tabular-nums">
           Below the smallest band most lenders price to ({Math.min(...bands)}%).
         </p>
-      )}
+      ) : null}
       {next !== undefined && needed !== undefined && needed > 0 && (
         <p className="text-xs font-medium tabular-nums">
           {money(needed)} more takes you to {next}%, which is usually a step down in rate rather than a small one.

@@ -1,5 +1,5 @@
 import { Check, X, Clock } from "lucide-react";
-import { cn, toDate } from "@/lib/utils";
+import { cn, isoAttr, toDate } from "@/lib/utils";
 /**
  * One person's decision on one thing — name, verdict, when.
  *
@@ -45,7 +45,7 @@ export function SignOffRow({ name, role, state, at, note, className }: {
       <span className="shrink-0 text-right">
         <span className={cn("block text-xs", state === "waiting" ? "text-muted-foreground" : "font-medium")}>{word}</span>
         {ok && (
-          <time dateTime={d!.toISOString()} className="block text-xs text-muted-foreground">
+          <time dateTime={isoAttr(d)} className="block text-xs text-muted-foreground">
             {d!.toLocaleDateString(undefined, { day: "numeric", month: "short" })}
           </time>
         )}

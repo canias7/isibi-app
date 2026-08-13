@@ -1,4 +1,4 @@
-import { cn, toDate } from "@/lib/utils";
+import { cn, isoAttr, toDate } from "@/lib/utils";
 /**
  * One attempt to deliver an event — status, timing, and what comes next.
  *
@@ -45,7 +45,7 @@ export function DeliveryAttempt({ number, at, outcome, status, ms, body, nextRet
         {status !== undefined && <span className="text-xs tabular-nums text-muted-foreground">{status}</span>}
         {ms !== undefined && <span className="text-xs tabular-nums text-muted-foreground">{ms} ms</span>}
         {ok && (
-          <time dateTime={d!.toISOString()} className="ml-auto text-xs text-muted-foreground">
+          <time dateTime={isoAttr(d)} className="ml-auto text-xs text-muted-foreground">
             {d!.toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
           </time>
         )}

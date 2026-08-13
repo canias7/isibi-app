@@ -1,4 +1,4 @@
-import { cn, toDate } from "@/lib/utils";
+import { cn, isoAttr, toDate } from "@/lib/utils";
 /**
  * Everything that happened to a request, oldest first.
  *
@@ -52,7 +52,7 @@ export function ApprovalHistory({ events, className }: {
                 <span className="text-muted-foreground"> · {e.by}</span>
               </span>
               {ok && (
-                <time dateTime={d!.toISOString()} className="block text-xs text-muted-foreground">
+                <time dateTime={isoAttr(d)} className="block text-xs text-muted-foreground">
                   {d!.toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
                 </time>
               )}

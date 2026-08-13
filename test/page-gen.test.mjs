@@ -2732,6 +2732,143 @@ test("…and that scan can see one, and does not skip the guarded form", () => {
   assert.ok(!found.some((h) => h.includes("labelText(tag)")), "String(labelText(x)) is flagged, and it is already text");
 });
 
+/** Every JSX tag in a file, in order, with its full attribute text. Walks brace
+ *  depth so a nested `onKeyDown={(e) => { … }}` does not end the tag early — the
+ *  first version of this scan stopped at the first `>` and reported two
+ *  components for a handler that is written on the very element it was reading. */
+function jsxTags(src) {
+  const s = src.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+               .replace(/\/\/[^\n]*/g, (m) => " ".repeat(m.length));
+  const out = [];
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] !== "<") continue;
+    const m = /^<(\/?)([A-Za-z][\w.]*)/.exec(s.slice(i, i + 40));
+    if (!m) continue;
+    let j = i + m[0].length, d = 0, q = null;
+    for (; j < s.length; j++) {
+      const c = s[j];
+      if (q) { if (c === q && s[j - 1] !== "\\") q = null; continue; }
+      if (c === '"' || c === "'" || c === "`") { q = c; continue; }
+      if (c === "{") d++; else if (c === "}") d--;
+      else if (c === ">" && d === 0) break;
+    }
+    const attrs = s.slice(i + m[0].length, j);
+    out.push({ close: m[1] === "/", name: m[2], attrs, self: attrs.trimEnd().endsWith("/"),
+               line: s.slice(0, i).split("\n").length });
+    i = j;
+  }
+  return out;
+}
+
+/** Interactive content nested inside a `<button>` — which HTML's content model
+ *  forbids outright, in either direction it can be written. */
+function interactiveInsideAButton(sources) {
+  const IS_BUTTON = (t) => t.name === "button" || (t.name === "Button" && !/\basChild\b/.test(t.attrs));
+  const INTERACTIVE = (t) =>
+    /^(button|a|input|select|textarea)$/.test(t.name) || IS_BUTTON(t) ||
+    /role="(button|link|checkbox|switch|tab|option|menuitem|radio)"/.test(t.attrs);
+  const out = [];
+  for (const [f, src] of sources) {
+    const stack = [];
+    for (const t of jsxTags(src)) {
+      if (t.close) { for (let k = stack.length - 1; k >= 0; k--) if (stack[k].name === t.name) { stack.length = k; break; } continue; }
+      const outer = stack.find(IS_BUTTON);
+      if (outer && INTERACTIVE(t)) out.push(`${f}:${t.line}  <${t.name}> inside the <${outer.name}> on line ${outer.line}`);
+      if (!t.self) stack.push(t);
+    }
+  }
+  return out;
+}
+
+test("nothing interactive is nested inside a button", () => {
+  // `<button>`'s content model forbids interactive content, and the kit broke it
+  // twice: `drop-zone` put its `<input type="file">` inside the button that
+  // opens it, and `multi-select` put a `role="button"` remove control inside the
+  // trigger. It matters more here than in an ordinary React app because this
+  // template PRERENDERS every route — the invalid markup is in the HTML a
+  // browser parses, not only in a tree script builds.
+  //
+  // The ARIA half is the one that bit: a control nested inside another control
+  // is announced as something operable, and `multi-select`'s could not be
+  // reached by any keyboard or screen-reader user at all.
+  const offenders = interactiveInsideAButton(UI_SOURCES);
+  assert.deepEqual(offenders, [], "interactive content inside a button:\n  " + offenders.join("\n  "));
+});
+
+test("…and that nesting scan can see one, through a wrapper and a role alike", () => {
+  const found = interactiveInsideAButton([["fixture.tsx", `
+    <div>
+      <button type="button"><input type="file" /></button>
+      <Button><span role="button" onClick={(e) => { e.stopPropagation(); }}>x</span></Button>
+      <Button asChild><a href="/ok">fine</a></Button>
+      <button type="button"><span>plain</span></button>
+      <li role="option"><button type="button">also fine here</button></li>
+    </div>`]]);
+  assert.equal(found.length, 2, "the scan saw " + found.length + " of the 2: " + found.join(" | "));
+  assert.ok(found.some((h) => h.includes("<input>")), "a form control inside a button is not seen");
+  assert.ok(found.some((h) => h.includes("<span>")), "an interactive ROLE inside a button is not seen");
+  // `asChild` hands the props to the child, so the wrapper is not the button —
+  // flagging it would refuse the kit's own correct link-styled-as-button idiom.
+  assert.ok(!found.some((h) => h.includes("<a>")), "asChild is treated as a real button");
+});
+
+test("a date is never turned into an ISO attribute without a guard", () => {
+  // `new Date(x).toISOString()` throws RangeError on an unparseable value, DURING
+  // RENDER, so the error boundary takes the whole page rather than one
+  // timestamp — and `Row`'s index signature means `at={row.collected_at}`
+  // typechecks against any column at all. Forty sites had it.
+  //
+  // V8's parser is why it survived: it reads "Sample 0" as the year 2000, so
+  // even a test feeding a component nonsense gets a valid Date most of the time
+  // and the crash appears only for whichever nonsense happens not to parse.
+  // THE RULE IS ABOUT WHERE THE CONVERSION HAPPENS, not about which date it is:
+  // `.toISOString()` may not appear inside a `dateTime` attribute. Anything
+  // computed there has, by construction, not been checked — and the alternative
+  // shapes are already in the kit and already correct: `dateTime={isoAttr(x)}`,
+  // or a `const iso` computed once and rendered behind a ternary.
+  //
+  // A draft that judged a LOCAL by whether its file contained a NaN check went
+  // through three roundsn of tuning and still cried wolf on `iso ? <time
+  // dateTime={iso}>`, which is right. A rule being tuned to its corpus is a rule
+  // about the corpus.
+  const sites = [], bad = [];
+  for (const [f, src] of UI_SOURCES) {
+    src.split("\n").forEach((ln, i) => {
+      if (/^\s*(\/\/|\*)/.test(ln)) return;
+      for (const m of ln.matchAll(/dateTime=\{([^}]*)\}/g)) {
+        sites.push(`${f}:${i + 1}`);
+        // `date-format.tsx` is the one exemption and it earns it by returning
+        // early on an unreadable date — it is where the guard lives, so it
+        // cannot be asked to call the helper built out of it.
+        if (f === "date-format.tsx") continue;
+        if (/\.toISOString\(\)/.test(m[1])) bad.push(`${f}:${i + 1}  ${ln.trim().slice(0, 100)}`);
+      }
+    });
+  }
+  assert.deepEqual(bad, [], "these throw on a date they cannot read — use isoAttr():\n  " + bad.join("\n  "));
+  assert.ok(sites.length > 0, "nothing in the kit renders a <time dateTime> — the scan is asserting nothing");
+  const df = UI_SOURCES.find(([f]) => f === "date-format.tsx");
+  assert.ok(df && /Number\.isNaN\(d\.getTime\(\)\)/.test(df[1]),
+    "date-format.tsx is exempt because it guards, and that guard is gone");
+});
+
+test("a <time> never wraps a DateFormat, which is already a <time>", () => {
+  // `DateFormat` renders its OWN `<time dateTime>`, so
+  // `<time dateTime={…}><DateFormat/></time>` emitted a time inside a time —
+  // measured in the rendered output, 35 sites. Worse than redundant: the outer
+  // used `new Date()` and the inner uses `toDate()`, which disagree about a
+  // bare `YYYY-MM-DD` by the local UTC offset, so the two nested elements
+  // carried two different machine-readable instants for one date.
+  const bad = [];
+  for (const [f, src] of UI_SOURCES) {
+    for (const m of src.matchAll(/<time[^>]*>\s*<DateFormat/g)) {
+      bad.push(`${f}:${src.slice(0, m.index).split("\n").length}`);
+    }
+  }
+  assert.deepEqual(bad, [], "a <time> wrapping a <DateFormat>:\n  " + bad.join("\n  "));
+  assert.ok(UI_SOURCES.some(([f]) => f === "date-format.tsx"), "DateFormat is gone — this rule is about nothing");
+});
+
 test("no MODAL SURFACE paints itself with the page-root token", () => {
   // Found 2026-08-12 while fixing the floating-panel class above: four
   // `role="dialog"` surfaces were on `--background`, which 449 of the 500

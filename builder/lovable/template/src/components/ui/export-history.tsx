@@ -33,7 +33,7 @@ export function ExportHistory({ exports, empty = "Nothing has been exported.", c
               {typeof e.rows === "number" ? ` · ${e.rows.toLocaleString()} rows` : ""}
             </span>
             <span className="block text-xs text-muted-foreground">
-              <time dateTime={toDate(e.at).toISOString()}><DateFormat date={e.at} withTime /></time>
+              <DateFormat date={e.at} withTime />
             </span>
           </span>
           <span className="shrink-0 text-xs">

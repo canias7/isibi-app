@@ -1,4 +1,4 @@
-import { toDate } from "@/lib/utils";
+import { isoAttr, toDate } from "@/lib/utils";
 /**
  * "3 hours ago", in the visitor's own language.
  *
@@ -17,5 +17,5 @@ export function TimeAgo({ date, className }: { date: string | number | Date; cla
   for (const [unit, size] of units) {
     if (Math.abs(secs) >= size) { text = rtf.format(Math.round(secs / size), unit); break; }
   }
-  return <time dateTime={d.toISOString()} title={d.toLocaleString()} className={className}>{text}</time>;
+  return <time dateTime={isoAttr(d)} title={d.toLocaleString()} className={className}>{text}</time>;
 }

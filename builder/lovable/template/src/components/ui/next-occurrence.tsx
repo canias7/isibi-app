@@ -37,7 +37,7 @@ export function NextOccurrence({ at, rule, paused, pausedNote = "Paused — noth
       ) : (
         <p className="text-sm">
           <span className="font-medium">Next</span>{" "}
-          <time dateTime={new Date(at).toISOString()}><DateFormat date={at} withTime /></time>
+          <DateFormat date={at} withTime />
           <span className="text-muted-foreground"> · <TimeSince at={at} /></span>
         </p>
       )}

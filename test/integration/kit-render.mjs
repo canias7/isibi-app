@@ -1,4 +1,4 @@
-// RENDER every component in the kit, three ways, and read what came out.
+// RENDER every component in the kit, four ways, and read what came out.
 //
 // WHY THIS EXISTS. `kit-typecheck.mjs` next door proves the kit COMPILES, and
 // this repo has proven more times than it has fingers that compiling is not
@@ -14,7 +14,7 @@
 // It is also ~100x faster than driving 2,000 components through Chromium, which
 // is what makes running all of them on every change affordable.
 //
-// THE THREE PASSES, and each is a state a real site is really in:
+// THE FOUR PASSES, and each is a state a real site is really in:
 //   full  — realistic props. The ordinary page.
 //   empty — every array `[]`, every optional omitted. The FIRST render of every
 //           list, and the permanent state of a site whose owner has added
@@ -22,6 +22,14 @@
 //   zeros — every number 0. A limit nobody set, a threshold on a plan with no
 //           cap, a max of 0. `Math.min(100, NaN)` is NaN, so the guards that
 //           look like they clamp a division do not.
+//   blank — every array prop `[]` INCLUDING the optional and defaulted ones,
+//           with the other optionals filled in. `empty` omits an optional, so a
+//           prop with a default is never seen empty at all — and that is a real
+//           call: `bands` on `deposit-percent` defaults to six values and the
+//           obvious page passes `bands={rows.map((r) => r.pct)}`, which is `[]`
+//           until the query settles. That component rendered "Below the
+//           smallest band most lenders price to (Infinity%)" and no pass here
+//           could reach it.
 //
 // $0: no model call, no container, no Neon project.
 import fs from "node:fs";
@@ -112,12 +120,12 @@ function value(type, mode, types, depth = 0) {
     // `.name` off a character, and the harness reported a component that is
     // correct. Costs a little coverage four levels down; a false alarm costs
     // more than that.
-    if (mode === "empty" || depth >= 3) return "[]";
+    if (mode === "empty" || mode === "blank" || depth >= 3) return "[]";
     return "[" + [0, 1, 2].map(() => value(inner, mode, types, depth + 1)).join(", ") + "]";
   }
   if (/^(Array|ReadonlyArray)</.test(t)) {
     const inner = t.slice(t.indexOf("<") + 1, t.lastIndexOf(">"));
-    if (mode === "empty" || depth >= 3) return "[]";
+    if (mode === "empty" || mode === "blank" || depth >= 3) return "[]";
     return "[" + [0, 1].map(() => value(inner, mode, types, depth + 1)).join(", ") + "]";
   }
 
@@ -156,13 +164,28 @@ function value(type, mode, types, depth = 0) {
     case "React.ReactNode": case "ReactNode": case "React.ReactElement":
       // An ELEMENT, not a string — that is what the type permits, and it is the
       // shape that catches `String(label)` rendering "[object Object]".
-      return 'React.createElement("span", null, "Content")';
+      //
+      // WITH A KEY, because a `ReactNode[]` prop is a list the CALLER keys —
+      // `CommentThread({ replies })` renders them straight into a div, so
+      // keyless elements from here make React blame the component for the
+      // harness's own array. React ignores a key on a lone child, so this costs
+      // nothing anywhere else.
+      return `React.createElement("span", { key: ${counter++} }, "Content")`;
     case "object": return "{}";
     case "RegExp": return "/sample/g";
     case "HTMLElement": case "Element": return "null";
     default: break;
   }
   if (types && types[t]) return value(types[t], mode, types, depth + 1);
+  // A GENERIC ARGUMENT LIST DEFEATED THE LOOKUP, which is this repo's most
+  // repeated regex trap arriving in the synthesiser. `COMPONENT_TYPES` records
+  // `Column` with the parameter erased, so `columns: Column<T>[]` found nothing
+  // and every column became the string "Sample" — `c.key` was `undefined`, and
+  // React reported eight components for a missing `key` that is right there in
+  // their source. `Partial<X>` is unwrapped for the same reason: a partial of a
+  // shape is that shape with everything optional, which is a shape we have.
+  const bare = /^Partial<(.+)>$/.exec(t)?.[1] ?? t.replace(/<.*>$/, "");
+  if (types && bare !== t && types[bare]) return value(types[bare], mode, types, depth + 1);
   if (/^Record</.test(t)) return "{}";
   return '"Sample"';
 }
@@ -189,8 +212,56 @@ function byName(key, t) {
   return null;
 }
 
+/**
+ * The shapes a module can name — its own, plus the ones it IMPORTS.
+ *
+ * `COMPONENT_TYPES` is per-file, so `cart-summary`'s `lines: SummaryLine[]`
+ * resolved to nothing: `SummaryLine` is declared in `order-summary` and
+ * imported. Every such prop became the string "Sample", so `l.label` was
+ * undefined, so `key={l.label}` was undefined — and React reported six
+ * components for a missing `key` that is written correctly in all of them.
+ *
+ * FOLLOWED THROUGH THE IMPORT, not merged globally: two modules declare an
+ * `Activity` with different fields, and a flat merge would hand one of them the
+ * other's shape — a silent wrong answer in place of a visible missing one.
+ */
+function typesVisibleTo(mod) {
+  const own = COMPONENT_TYPES[mod] || {};
+  const src = fs.readFileSync(path.join(UI, mod + ".tsx"), "utf8");
+  const out = {};
+  for (const m of src.matchAll(/import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*"@\/components\/ui\/([\w-]+)"/g)) {
+    const from = COMPONENT_TYPES[m[2]];
+    if (!from) continue;
+    for (const part of m[1].split(",")) {
+      const name = part.trim().replace(/^type\s+/, "").split(/\s+as\s+/)[0].trim();
+      if (from[name]) out[name] = from[name];
+    }
+  }
+  return { ...out, ...own }; // a local declaration wins over an imported one
+}
+
+/**
+ * A component's own generic parameters, resolved to their CONSTRAINTS.
+ *
+ * `RecentlyViewed<T extends { id: string }>({ items }: { items: T[] })` is the
+ * shape every row-taking component in the kit has, and `T` resolves to nothing
+ * — so `items` became a list of strings, `i.id` was undefined, and `key={i.id}`
+ * was undefined. The constraint is exactly the information needed and it is
+ * written right there in the signature.
+ */
+function genericsOf(src, name) {
+  const m = new RegExp("export function " + name + "\\s*<((?:[^<>]|<[^<>]*>)*)>").exec(src);
+  if (!m) return {};
+  const out = {};
+  for (const part of splitTop(m[1], ",")) {
+    const ext = /^([A-Za-z_]\w*)\s+extends\s+([\s\S]+)$/.exec(part.trim());
+    if (ext) out[ext[1]] = ext[2].replace(/\s*=\s*[^=]*$/, "").trim();
+  }
+  return out;
+}
+
 function propsFor(comp, mod, mode) {
-  const types = COMPONENT_TYPES[mod] || {};
+  const types = { ...typesVisibleTo(mod), ...comp.generics };
   const out = [];
   for (const p of comp.props) {
     const eq = p.indexOf(" = ");
@@ -213,8 +284,9 @@ const files = fs.readdirSync(UI).filter((f) => f.endsWith(".tsx")).sort();
 const entries = [];
 for (const f of files) {
   const mod = f.replace(/\.tsx$/, "");
-  for (const comp of extract(fs.readFileSync(path.join(UI, f), "utf8"))) {
-    entries.push({ mod, name: comp.name, props: comp.props });
+  const raw = fs.readFileSync(path.join(UI, f), "utf8");
+  for (const comp of extract(raw)) {
+    entries.push({ mod, name: comp.name, props: comp.props, generics: genericsOf(raw, comp.name) });
   }
 }
 console.log(`kit render — ${entries.length} components across ${files.length} modules`);
@@ -227,7 +299,7 @@ else bad(`the catalogue collapsed to ${entries.length} components — the extrac
 
 // ---- render ----------------------------------------------------------------
 const require_ = createRequire(import.meta.url);
-const MODES = ["full", "empty", "zeros"];
+const MODES = ["full", "empty", "zeros", "blank"];
 const renderedClean = new Map(Object.keys(CANNOT_RENDER).map((k) => [k, new Set()]));
 
 function renderAll(mode) {
@@ -253,9 +325,14 @@ export function run() {
   const out: any[] = [];
   const realErr = console.error, realWarn = console.warn;
   for (const c of CASES) {
-    console.error = () => {}; console.warn = () => {};
-    try { out.push({ k: c.k, html: renderToString(React.createElement(c.C, c.props)) }); }
-    catch (e: any) { out.push({ k: c.k, error: String(e && e.message ? e.message : e) }); }
+    // CAPTURED, NOT DISCARDED. React itself reports invalid DOM nesting and a
+    // list with no keys through console.error, and silencing it threw away the
+    // one class of finding the renderer hands over for free.
+    const said: string[] = [];
+    const grab = (...a: any[]) => { said.push(a.map((x) => String(x)).join(" ")); };
+    console.error = grab; console.warn = grab;
+    try { out.push({ k: c.k, html: renderToString(React.createElement(c.C, c.props)), said }); }
+    catch (e: any) { out.push({ k: c.k, error: String(e && e.message ? e.message : e), said }); }
     finally { console.error = realErr; console.warn = realWarn; }
   }
   return out;
@@ -305,14 +382,35 @@ try {
 
     const html = results.filter((r) => r.html).map((r) => r);
 
-    if (mode === "zeros") {
-      // `Math.min` and `Math.max` pass NaN straight through, so a site that
-      // divides by a limit nobody set writes `width: NaN%` and the browser
-      // drops the declaration: the bar renders empty rather than broken.
-      const nan = html.filter((r) => /NaN|-?Infinity/.test(r.html));
-      if (nan.length === 0) ok("zeros: no NaN or Infinity reaches the page");
-      else bad(`zeros: ${nan.length} render NaN or Infinity`, nan.slice(0, 10).map((r) => "    " + r.k).join("\n"));
-    }
+    // EVERY PASS, not just `zeros`. `Math.min`/`Math.max` pass NaN straight
+    // through, so a site dividing by a limit nobody set writes `width: NaN%`
+    // and the browser drops the declaration — the bar renders empty rather than
+    // broken. But `zeros` is not where Infinity comes from: `Math.max(...xs)`
+    // on an EMPTY array is -Infinity, which is the `empty` pass, and gating the
+    // scan on one mode meant the check could not see the state it was named
+    // after. It cost nothing to run everywhere and was found by asking why it
+    // was gated at all.
+    const nan = html.filter((r) => /NaN|-?Infinity/.test(r.html));
+    if (nan.length === 0) ok(`${mode}: no NaN or Infinity reaches the page`);
+    else bad(`${mode}: ${nan.length} render NaN or Infinity`, nan.slice(0, 10).map((r) => "    " + r.k).join("\n"));
+
+    // WHAT REACT ITSELF SAID, which was being thrown away. A list rendered with
+    // no `key` gets index identity, so React reuses the wrong DOM node and the
+    // wrong state the moment the list reorders or filters — a checkbox stays
+    // ticked beside a different row, a half-typed input jumps. Nothing else in
+    // this repo looks for it.
+    //
+    // KEYS ONLY, and that is MEASURED rather than assumed. An earlier version
+    // of this also claimed invalid DOM nesting; driving `<div>` inside a `<p>`
+    // and `<button>` inside a `<button>` through `renderToString` on React
+    // 19.2.8 produced NOTHING — server rendering does not run
+    // `validateDOMNesting` at all. The nesting rules are checked statically in
+    // test/page-gen.test.mjs instead. A check whose name covers more than it
+    // can see reads as protection that is not there.
+    const complained = results.filter((r) => (r.said || []).some((m) => /unique "key"/i.test(m)));
+    if (complained.length === 0) ok(`${mode}: React reported no list rendered without keys`);
+    else bad(`${mode}: React complained about ${complained.length}`,
+      complained.slice(0, 12).map((r) => `    ${r.k} -> ${(r.said.find((m) => /key/i.test(m)) || "").replace(/\s+/g, " ").slice(0, 220)}`).join("\n"));
 
     if (mode === "full") {
       // `String(node)` on a prop typed `React.ReactNode` is "[object Object]",
@@ -332,6 +430,19 @@ try {
 
       const blank = html.filter((r) => r.html.length === 0);
       console.log(`  note ${blank.length} render nothing with props — conditional by design (a banner that is not showing)`);
+
+      // A PROGRESS BAR THAT WILL NOT SAY HOW FAR. `role="progressbar"` with no
+      // `aria-valuenow` announces "busy" and nothing else — which is what every
+      // bar in the kit did, because `progress.tsx` destructured `value` out and
+      // used it only in a CSS transform, so Radix was never told the number.
+      // Read off the rendered output rather than the source: the whole failure
+      // was that the value existed and did not travel.
+      const bars = html.filter((r) => /role="progressbar"/.test(r.html));
+      const mute = bars.filter((r) => !/aria-valuenow=/.test(r.html));
+      if (bars.length === 0) bad("full: no component rendered a progressbar — this check is asserting nothing");
+      else if (mute.length === 0) ok(`full: all ${bars.length} progress bars report a value`);
+      else bad(`full: ${mute.length} of ${bars.length} progress bars announce no value`,
+        mute.slice(0, 10).map((r) => "    " + r.k).join("\n"));
     }
   }
   const stale = [...renderedClean].filter(([, m]) => m.size === MODES.length).map(([k]) => k);

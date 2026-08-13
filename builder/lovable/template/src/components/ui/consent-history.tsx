@@ -1,4 +1,4 @@
-import { cn, toDate } from "@/lib/utils";
+import { cn, isoAttr, toDate } from "@/lib/utils";
 /**
  * Every time a consent changed, and which version of the policy it was.
  *
@@ -53,7 +53,7 @@ export function ConsentHistory({ changes, emptyNote = "Nothing has changed yet",
               </span>
             </span>
             {ok && (
-              <time dateTime={d!.toISOString()} className="shrink-0 text-xs text-muted-foreground">
+              <time dateTime={isoAttr(d)} className="shrink-0 text-xs text-muted-foreground">
                 {d!.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}
               </time>
             )}

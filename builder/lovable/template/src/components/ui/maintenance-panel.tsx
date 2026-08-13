@@ -29,7 +29,7 @@ export function MaintenancePanel({ until, what = "Scheduled maintenance", stillW
       <h2 className="text-lg font-semibold tracking-tight">{what}</h2>
       <p className="text-sm text-muted-foreground">
         {until
-          ? <>Back by <time dateTime={new Date(until).toISOString()}><DateFormat date={until} withTime /></time>.</>
+          ? <>Back by <DateFormat date={until} withTime />.</>
           : "We're working on it now."}
       </p>
       {stillWorks && <p className="text-sm">{stillWorks}</p>}
