@@ -32,6 +32,13 @@ on:
       - "builder/site-layouts.mjs"
       - "test/integration/schema-gen-eval.mjs"
       - "test/integration/schema-checks.mjs"
+      # ITS OWN CONFIG. Missing until 2026-08-13, and it bit immediately: the
+      # sample count was raised 1 -> 5 specifically to settle whether a failure
+      # was variance, the commit touched this file and nothing else, and the run
+      # that would have answered never fired. `site-build.yml` has always listed
+      # itself; this one did not, so a change to WHAT gets measured could not
+      # trigger the measurement.
+      - ".github/workflows/schema-gen-eval.yml"
   workflow_dispatch:
     inputs:
       samples:
