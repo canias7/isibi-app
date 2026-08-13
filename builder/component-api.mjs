@@ -2384,7 +2384,7 @@ export const COMPONENT_TYPES = {
   "who-is-here": {"Present":"{ id: string; name: string; idle?: boolean }"},
   "workflow-map": {"Move":"{ from: string; to: string; label?: string }"},
   "working-hours-input": {"DayHours":"{ key: string; open: boolean; from: string; to: string }"},
-  "working-hours": {"DaySpans":"{ open: string; close: string }[]"},
+  "working-hours": {"DaySpans":"{ open: string; close: string }[]","WeekHours":"DaySpans[]"},
   "write-queue": {"QueuedWrite":"{ key: string; what: string; failed?: boolean; attempts?: number }"},
   "zone-permission": {"ZoneGrant":"{ id: string; zone: string; until?: string; hours?: string; grantedBy?: string; timesUsed?: number; }"},
 };

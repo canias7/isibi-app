@@ -6,6 +6,28 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
+ * The text of a `ReactNode`, for an accessible name — "" when it has none.
+ *
+ * `String(node)` IS THE TRAP, and ten call sites had it. A prop typed
+ * `React.ReactNode` invites JSX, and `String(<span>Boxes</span>)` is
+ * "[object Object]" — so an icon button whose only name is
+ * `aria-label={`One fewer ${String(label)}`}` announces "One fewer object
+ * Object". Measured by rendering the kit with element labels, which is what
+ * the type says is allowed.
+ *
+ * IT ANSWERS "" RATHER THAN A PLACEHOLDER, so the caller's template degrades to
+ * "One fewer" — a name that is less specific and still true. "One fewer
+ * undefined" would be the same bug wearing a different word.
+ *
+ * A deep walk of the element tree is possible and deliberately not done: it
+ * would have to render children to be right, and a name assembled from a
+ * half-walked tree is a plausible sentence that is not what is on screen.
+ */
+export function labelText(node: unknown): string {
+  return typeof node === "string" || typeof node === "number" ? String(node) : "";
+}
+
+/**
  * Divide, answering 0 rather than NaN or Infinity.
  *
  * ZERO IS THE ORDINARY DENOMINATOR HERE. A limit nobody has set, a total of an

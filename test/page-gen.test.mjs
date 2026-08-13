@@ -439,12 +439,19 @@ test("SiteLink refuses to route a protocol-relative address", () => {
   // because the alternative is mounting React to assert one boolean; the
   // behaviour either side of it is covered by the click test in
   // test/integration/site-routing.mjs, which drives a real browser.
+  //
+  // ANCHORED ON THE PROPERTY, NOT ON THE VARIABLE NAME. This read `href.` and
+  // went red on a correct change: `href` is typed `string` and still arrives
+  // undefined from a database row (Row's index signature), so the component now
+  // reads it through a local that is guaranteed to be a string — at which point
+  // a guard naming `href` was a test about spelling. The backreference is what
+  // makes it exact: both halves must interrogate the SAME value, or one could
+  // check `to` while the other checks something else entirely.
   const src = fs.readFileSync(path.join(TEMPLATE, "src/components/ui/site-header.tsx"), "utf8");
   const i = src.indexOf("const internal =");
   assert.ok(i > 0, "SiteLink's internal check is gone");
   const line = src.slice(i, src.indexOf("\n", i));
-  assert.match(line, /startsWith\("\/"\)/, line);
-  assert.match(line, /!\s*href\.startsWith\("\/\/"\)/,
+  assert.match(line, /^const internal =\s*([A-Za-z_$][\w$]*)\.startsWith\("\/"\)\s*&&\s*!\s*\1\.startsWith\("\/\/"\)/,
     "a protocol-relative address would be routed as an internal path: " + line);
 });
 
@@ -1576,14 +1583,31 @@ test("a type is read with balanced braces, not up to the first semicolon", () =>
   // was written rather than of the property it names — and it went red on the
   // fix for `QuoteFiles`, an array recorded as one of its items. What must hold
   // is that the braces are balanced and nothing was truncated mid-object.
-  for (const [, types] of Object.entries(COMPONENT_TYPES)) {
+  // A LIST ALIAS IS THE OTHER LEGAL SHAPE. `WeekHours = DaySpans[]` carries the
+  // one fact a signature cannot — how many — and it has no braces at all, so a
+  // blanket `startsWith("{")` refuses the thing that was added to fix a real
+  // gap. It has to RESOLVE, though: an alias pointing at a name recorded nowhere
+  // leaves the model exactly where it started, reading a name it cannot look up.
+  let aliases = 0;
+  for (const [mod, types] of Object.entries(COMPONENT_TYPES)) {
     for (const [name, body] of Object.entries(types)) {
+      const alias = /^([A-Z][A-Za-z0-9]*)\[\]$/.exec(body);
+      if (alias) {
+        aliases++;
+        assert.ok(types[alias[1]],
+          `${mod}.${name} is an alias to ${alias[1]}, whose shape is recorded nowhere: ${body}`);
+        continue;
+      }
       assert.ok(body.startsWith("{"), `${name} does not start with a shape: ${body}`);
       assert.ok(/\}(\[\])*$/.test(body), `${name} was cut off: ${body}`);
       const opens = (body.match(/\{/g) || []).length, closes = (body.match(/\}/g) || []).length;
       assert.equal(opens, closes, `${name} has unbalanced braces: ${body}`);
     }
   }
+  // Or the alias branch above is a rule about nothing and the resolve check is
+  // vacuous — the shape this repo keeps recording as a guard that passes for the
+  // wrong reason.
+  assert.ok(aliases > 0, "no list alias is recorded — the alias branch checks nothing");
 });
 
 test("Row and PublicRow agree that a column value is a SCALAR", () => {
@@ -2605,6 +2629,108 @@ function dialogSurfacesPaintedWithThePageToken(token) {
   }
   return [...out];
 }
+
+/**
+ * Every place a file turns one of its OWN `React.ReactNode` props into a string
+ * with `String()`, ignoring the sites that narrow with `typeof x === "string"`
+ * first — those are the correct form and flagging them teaches the fix away.
+ *
+ * Returns `file:line  [field]  source` so a failure names the prop, not just
+ * the file. Takes the source map so a fixture can be driven through it.
+ */
+function reactNodesStringified(sources) {
+  const out = [];
+  for (const [f, src] of sources) {
+    const fields = new Set();
+    for (const m of src.matchAll(/([A-Za-z_]\w*)\s*\??\s*:\s*React\.ReactNode/g)) fields.add(m[1]);
+    if (!fields.size) continue;
+    // ONE HOP THROUGH A LOCAL, because a mutation walked straight past the scan
+    // without it: `const a = f.before ?? ""` and then `String(a)` is the same
+    // bug wearing a different name, and it is how the code reads once somebody
+    // pulls a repeated expression out. A local built by `labelText` or already
+    // narrowed to a string is NOT added — those are the correct forms, and
+    // flagging them teaches the fix away.
+    for (const m of src.matchAll(/\b(?:const|let)\s+([A-Za-z_]\w*)\s*=\s*([^;\n]+)/g)) {
+      const [, name, rhs] = m;
+      if (/labelText\s*\(|typeof\s|String\s*\(/.test(rhs)) continue;
+      if ([...fields].some((f) => new RegExp("\\b" + f + "\\b").test(rhs))) fields.add(name);
+    }
+    // A TYPE PREDICATE IS THE LANGUAGE'S OWN WAY OF SAYING "NARROWED", and a
+    // scan that ignores one reports correct code. `isText(a) && isText(b) ? …`
+    // is not a stringified node — after that guard TypeScript knows `a` is
+    // `string | number`. There are four of these in the whole kit, so honouring
+    // them is narrow rather than a licence.
+    const predicates = [];
+    for (const m of src.matchAll(/(?:const\s+([A-Za-z_]\w*)\s*=\s*(?:<[^>]*>)?\([^)]*\)|function\s+([A-Za-z_]\w*)\s*\([^)]*\))\s*:\s*\w+ is /g)) {
+      predicates.push(m[1] || m[2]);
+    }
+    src.split("\n").forEach((ln, i) => {
+      if (/^\s*(\/\/|\*|\/\*)/.test(ln)) return;
+      for (const fld of fields) {
+        // One level of nested parens inside the call, or `String(at.get(x)?.label)`
+        // — a real offender — walks straight past a `[^()]*` body.
+        if (!new RegExp("String\\((?:[^()]|\\([^()]*\\))*\\b" + fld + "\\b").test(ln)) continue;
+        if (new RegExp("typeof\\s+[^;]*\\b" + fld + "\\b[^;]*===\\s*\"string\"").test(ln)) continue;
+        if (predicates.some((p) => new RegExp("\\b" + p + "\\(\\s*" + fld + "\\s*\\)").test(ln))) continue;
+        out.push(`${f}:${i + 1}  [${fld}]  ${ln.trim().slice(0, 110)}`);
+      }
+    });
+  }
+  return out;
+}
+
+const UI_SOURCES = fs.readdirSync(path.join(TEMPLATE, "src/components/ui"))
+  .filter((f) => f.endsWith(".tsx"))
+  .map((f) => [f, fs.readFileSync(path.join(TEMPLATE, "src/components/ui", f), "utf8")]);
+
+test("no ReactNode prop is turned into a string with String()", () => {
+  // `String(<span>Boxes</span>)` is "[object Object]", and a prop typed
+  // `React.ReactNode` is an invitation to pass exactly that. Fourteen sites had
+  // it. Most were accessible names on icon buttons — the only name those have —
+  // but the expensive one was `compare-table`, which used it to decide whether a
+  // field had CHANGED: two completely different elements compared equal, so the
+  // row was hidden from a diff whose own doc calls it an "are you sure?" screen.
+  //
+  // THIS IS A SOURCE READ BECAUSE THE RENDER PASS CANNOT SEE IT.
+  // `test/integration/kit-render.mjs` checks the HTML for "[object Object]" and
+  // walked past all three of the last ones found: its synthesised props are not
+  // self-consistent, so `at.get(e.from)` finds no node and the `?? e.from`
+  // fallback hides it — and compare-table's bug makes the page render LESS, not
+  // wrong, so there is no bad string in the output to find. Two checks, two
+  // blind spots, and neither is the other's.
+  const offenders = reactNodesStringified(UI_SOURCES);
+  assert.deepEqual(offenders, [],
+    "these render \"[object Object]\" the moment a caller passes JSX:\n  " + offenders.join("\n  "));
+});
+
+test("…and that scan can see one, and does not skip the guarded form", () => {
+  // A scan that has stopped matching reports a clean kit — this repo's most
+  // repeated own-goal. Driven over a fixture rather than over the kit, because
+  // the kit is now clean and a check whose only evidence is an empty list is
+  // evidence of nothing.
+  const found = reactNodesStringified([["fixture.tsx", `
+    export function F({ label, title, note, tag }: { label: React.ReactNode; title: React.ReactNode; note: React.ReactNode; tag: React.ReactNode }) {
+      const isText = (v: React.ReactNode): v is string | number => typeof v === "string";
+      const a = String(label);
+      const b = String(rows.get(k)?.title ?? "");
+      const hop = note ?? "";
+      const c = String(hop);
+      const ok1 = typeof label === "string" ? label : "";
+      const ok2 = isText(tag) ? String(tag) : "";
+      const ok3 = String(labelText(tag));
+      return <p aria-label={a + b + c + ok1 + ok2 + ok3} />;
+    }`]]);
+  assert.equal(found.length, 3, "the scan saw " + found.length + " of the 3 offenders: " + found.join(" | "));
+  assert.ok(found.some((h) => h.includes("[label]")), "a bare String(prop) is not seen");
+  assert.ok(found.some((h) => h.includes("[title]")), "String() with a nested call inside is not seen");
+  // A MUTATION WALKED PAST THE SCAN THROUGH EXACTLY THIS. Pulling the value into
+  // a local is how the code reads once a repeated expression is factored out,
+  // and a name-based scan follows it or it does not cover the shape people write.
+  assert.ok(found.some((h) => h.includes("[hop]")), "a ReactNode reaching String() through a local is not seen");
+  assert.ok(!found.some((h) => h.includes("typeof label")), "the typeof-narrowed form is flagged, which teaches the fix away");
+  assert.ok(!found.some((h) => h.includes("isText(tag)")), "a type-predicate narrow is flagged — that IS the correct form");
+  assert.ok(!found.some((h) => h.includes("labelText(tag)")), "String(labelText(x)) is flagged, and it is already text");
+});
 
 test("no MODAL SURFACE paints itself with the page-root token", () => {
   // Found 2026-08-12 while fixing the floating-panel class above: four

@@ -1,6 +1,6 @@
 import * as React from "react";
 import { ChevronRight, MoreHorizontal } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, labelText } from "@/lib/utils";
 /**
  * A breadcrumb trail that folds its middle when there is no room.
  *
@@ -33,7 +33,7 @@ export function BreadcrumbCollapse({ items, maxVisible = 4, className }: {
   const hidden = items.length - head.length - tail.length;
 
   const crumb = (item: { label: React.ReactNode; href?: string }, last: boolean) => (
-    <li key={String(item.label)} className="flex min-w-0 items-center gap-1">
+    <li key={labelText(item.label)} className="flex min-w-0 items-center gap-1">
       {item.href && !last ? (
         <a href={item.href} className="truncate hover:underline">{item.label}</a>
       ) : (

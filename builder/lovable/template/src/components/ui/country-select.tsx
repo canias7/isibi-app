@@ -20,10 +20,17 @@ export function CountrySelect({ value, onChange, id, priority = ["GB", "US", "IE
   value: string; onChange: (code: string) => void; id?: string;
   priority?: string[]; className?: string;
 }) {
+  // THE TRY GUARDED THE CONSTRUCTOR AND NOT THE CALL. `dn.of()` throws
+  // RangeError on anything that is not a well-formed region code, and
+  // `priority` is a caller-supplied list — `priority={["UK"]}` is the obvious
+  // mistake, since the code for the United Kingdom is "GB". Undefended that
+  // throws during render and the error boundary takes the whole page, over one
+  // wrong two-letter string. The code itself is the honest fallback: it is what
+  // the caller asked for and it is at least recognisable.
   let nameOf: (c: string) => string;
   try {
     const dn = new Intl.DisplayNames(undefined, { type: "region" });
-    nameOf = (c) => dn.of(c) ?? c;
+    nameOf = (c) => { try { return dn.of(c) ?? c; } catch { return c; } };
   } catch { nameOf = (c) => c; }
   const all = CODES.map((c) => ({ code: c, label: nameOf(c) }))
     .sort((a, b) => a.label.localeCompare(b.label));

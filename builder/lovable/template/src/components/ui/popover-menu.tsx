@@ -1,7 +1,7 @@
 import * as React from "react";
 import { Check, ChevronRight } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { cn } from "@/lib/utils";
+import { cn, labelText } from "@/lib/utils";
 /**
  * A menu of actions, from a declarative list.
  *
@@ -52,7 +52,7 @@ export function PopoverMenu({ trigger, items, align = "end", className }: {
         type="button"
         disabled={i.disabled}
         title={i.disabled ? i.reason : undefined}
-        aria-label={i.disabled && i.reason && typeof i.label === "string" ? `${i.label} — ${i.reason}` : undefined}
+        aria-label={i.disabled && i.reason && typeof i.label === "string" ? `${labelText(i.label)} — ${i.reason}` : undefined}
         onClick={() => { if (!i.submenu) setOpen(false); i.onSelect?.(); }}
         className={cn("flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-muted",
           i.disabled && "cursor-default text-muted-foreground hover:bg-transparent",

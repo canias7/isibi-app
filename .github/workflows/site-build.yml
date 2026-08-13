@@ -17,6 +17,7 @@ on:
       - 'test/integration/theme-seam.mjs'
       - 'test/integration/theme-render.mjs'
       - 'test/integration/kit-typecheck.mjs'
+      - 'test/integration/kit-render.mjs'
       - 'test/page-gen.test.mjs'
       - '.github/workflows/site-build.yml'
   workflow_dispatch:
@@ -50,6 +51,16 @@ jobs:
       # only thing that would catch a break in a component no generated page
       # happens to import yet.
       - run: node test/integration/kit-typecheck.mjs
+
+      # And the step above is not enough, which is the whole reason this one
+      # exists. Compiling is not working: 158 chart components typechecked and
+      # threw on an empty array, 70 typechecked and rendered grey, and
+      # `message-scroller` typechecked, bundled and hard-crashed the page. Every
+      # one was found by a person looking at a render, long afterwards. This
+      # renders all ~2,000 through the same `renderToString` production
+      # prerenders with, three ways — realistic props, everything empty, every
+      # number zero — and reads what came out.
+      - run: node test/integration/kit-render.mjs
 
       - run: node test/integration/site-build.mjs
 

@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, labelText } from "@/lib/utils";
 /**
  * Columns of cards, dragged BETWEEN columns.
  *
@@ -83,15 +83,18 @@ export function KanbanBoard<T extends BoardCard>({
                           onDragStart={(e) => e.dataTransfer.setData("text/plain", card.id)}
                           className="rounded-md border border-border bg-card p-2 text-sm shadow-sm">
                           {renderCard(card)}
-                          {/* The accessible path: drag is the convenience. */}
+                          {/* The accessible path: drag is the convenience.
+                              A column's label is a ReactNode, so `String()`
+                              named these two buttons "Move to [object Object]"
+                              — and an arrow glyph has no other name. */}
                           <div className="mt-1.5 flex gap-1">
                             <button type="button" disabled={i <= 0}
                               onClick={() => onMove(card.id, columns[i - 1].key)}
-                              aria-label={`Move to ${String(columns[i - 1]?.label ?? "")}`}
+                              aria-label={`Move to ${labelText(columns[i - 1]?.label) || "the previous column"}`}
                               className="cursor-pointer rounded border border-border px-1 text-xs disabled:cursor-not-allowed disabled:opacity-30">←</button>
                             <button type="button" disabled={i >= columns.length - 1 || full(columns[i + 1], lane.key)}
                               onClick={() => onMove(card.id, columns[i + 1].key)}
-                              aria-label={`Move to ${String(columns[i + 1]?.label ?? "")}`}
+                              aria-label={`Move to ${labelText(columns[i + 1]?.label) || "the next column"}`}
                               className="cursor-pointer rounded border border-border px-1 text-xs disabled:cursor-not-allowed disabled:opacity-30">→</button>
                           </div>
                         </div>

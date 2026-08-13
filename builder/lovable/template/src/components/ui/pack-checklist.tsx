@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Check } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, labelText } from "@/lib/utils";
 /**
  * The packing bench list — tick each item as it goes in the box.
  *
@@ -41,10 +41,10 @@ export function PackChecklist({ lines, packed, onPack, onComplete, className }: 
               </span>
               <span className="flex shrink-0 items-center gap-1">
                 <button type="button" onClick={() => onPack(l.key, Math.max(0, n - 1))} disabled={n === 0}
-                  aria-label={`One fewer ${String(l.label)}`}
+                  aria-label={`One fewer ${labelText(l.label)}`.trim()}
                   className="size-9 cursor-pointer rounded-md border border-border text-lg disabled:cursor-not-allowed disabled:opacity-30">−</button>
                 <button type="button" onClick={() => onPack(l.key, n + 1)}
-                  aria-label={`One more ${String(l.label)}`}
+                  aria-label={`One more ${labelText(l.label)}`.trim()}
                   className="size-9 cursor-pointer rounded-md border border-border text-lg">+</button>
                 {done ? <Check className="size-5" aria-hidden /> : null}
               </span>
@@ -58,10 +58,10 @@ export function PackChecklist({ lines, packed, onPack, onComplete, className }: 
         Seal the box
       </button>
       {short.length ? (
-        <p className="text-xs font-medium">Still to pack: {short.map((l) => `${l.qty - (packed[l.key] ?? 0)} × ${String(l.label)}`).join(", ")}.</p>
+        <p className="text-xs font-medium">Still to pack: {short.map((l) => `${l.qty - (packed[l.key] ?? 0)} × ${labelText(l.label)}`).join(", ")}.</p>
       ) : null}
       {over.length ? (
-        <p className="text-xs font-medium">Too many in the box: {over.map((l) => String(l.label)).join(", ")}.</p>
+        <p className="text-xs font-medium">Too many in the box: {over.map((l) => labelText(l.label)).join(", ")}.</p>
       ) : null}
     </div>
   );

@@ -17,3 +17,7 @@ src/routeTree.gen.ts
 # here is in the build image too.
 __sweep/
 src/__all_entry.ts
+# test/integration/kit-render.mjs's entry point and bundle. Removed in a
+# `finally`, which a killed process skips — and `Dockerfile` does
+# `COPY lovable/template/ ./`, so a leftover would ride into the build image.
+.kitrender/

@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Check, Minus } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, labelText } from "@/lib/utils";
 /**
  * People against candidate slots — who can make which.
  *
@@ -65,7 +65,7 @@ export function MeetingPollGrid({ people, slots, votes, onVote, className }: {
                   <td key={s.key} className="p-0.5 text-center">
                     <button type="button" disabled={!onVote}
                       onClick={() => onVote?.(p.key, s.key, cycle[v ?? "maybe"])}
-                      aria-label={`${p.label} for ${String(s.label)}: ${v ?? "no answer"}`}
+                      aria-label={`${labelText(p.label)} for ${labelText(s.label)}: ${v ?? "no answer"}`}
                       className={cn("flex size-7 items-center justify-center rounded border",
                         v === "yes" ? "border-foreground bg-foreground text-background"
                         : v === "no" ? "border-foreground"
@@ -109,7 +109,7 @@ export function MeetingPollGrid({ people, slots, votes, onVote, className }: {
         })}
       </ul>
       {winners.length > 1 ? (
-        <p className="text-[11px] font-medium">Tied: {winners.map((w) => String(w.label)).join(" and ")}.</p>
+        <p className="text-[11px] font-medium">Tied: {winners.map((w) => labelText(w.label)).join(" and ")}.</p>
       ) : null}
     </div>
   );

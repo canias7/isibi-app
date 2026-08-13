@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Check, Minus, Lock } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, labelText } from "@/lib/utils";
 /**
  * Roles across the top, permissions down the side, a tick where they meet.
  *
@@ -38,7 +38,11 @@ export function PermissionMatrix({
     const v = value(role, perm);
     const locked = v === "locked-on" || v === "locked-off";
     const on = v === true || v === "locked-on";
-    const name = `${label} for ${roles.find((r) => r.key === role)?.label ?? role}`;
+    // BOTH halves, not just the first. `roles[].label` is a ReactNode too, so
+    // the role name went into this accessible name as "[object Object]" while
+    // the permission name beside it read correctly — the kind of half-fix that
+    // looks done from the diff.
+    const name = `${labelText(label)} for ${labelText(roles.find((r) => r.key === role)?.label) || role}`;
 
     if (readOnly || locked || !onToggle) {
       return (

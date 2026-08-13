@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, labelText } from "@/lib/utils";
 /**
  * Boxes joined by edges, positioned and pannable.
  *
@@ -81,8 +81,13 @@ export function NodeGraph({ nodes, edges, onPick, selected, className }: {
       <ul className="sr-only">
         {edges.map((e, i) => (
           <li key={i}>
-            {String(at.get(e.from)?.label ?? e.from)} leads to {String(at.get(e.to)?.label ?? e.to)}
-            {e.label ? ` (${e.label})` : ""}
+            {/* THE ID IS THE FALLBACK, not "[object Object]". A node's label is
+                a ReactNode, and this list is the whole screen-reader account of
+                a graph drawn as absolutely-positioned boxes — so an element
+                label made every sentence in it read "object Object leads to
+                object Object". The id is at least a handle somebody can find. */}
+            {labelText(at.get(e.from)?.label) || e.from} leads to {labelText(at.get(e.to)?.label) || e.to}
+            {e.label ? ` (${labelText(e.label)})` : ""}
           </li>
         ))}
       </ul>

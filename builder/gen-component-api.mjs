@@ -379,7 +379,16 @@ export function extractTypes(src) {
     const body = tidy(src.slice(m.index + m[0].length, end));
     // A union of other names or a bare alias says nothing the signature did
     // not; only a shape is worth the tokens.
-    if (!body.startsWith("{") || body.length > 400) continue;
+    //
+    // AN ALIAS TO A LIST OF ANOTHER SHAPE IS THE EXCEPTION, because it says the
+    // one thing the signature cannot: how MANY. `WorkingHours(week: WeekHours)`
+    // with `WeekHours = DaySpans[]` left the model reading a name whose body was
+    // recorded nowhere, so it had to guess whether a week is one day's spans or
+    // seven — and this component's whole contract is that index 0 is Sunday.
+    // Same class as `Column<T>` stopping at a name, which cost eight compile
+    // errors in one sample.
+    const listAlias = /^[A-Z][A-Za-z0-9]*\[\]$/.test(body);
+    if ((!body.startsWith("{") && !listAlias) || body.length > 400) continue;
     out[name] = body;
   }
   return out;
