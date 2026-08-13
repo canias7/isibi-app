@@ -183,16 +183,36 @@ try {
     if (checked > 3000) ok(`${mode}: read the contrast of ${checked} pieces of text (${exempt} exempt: decoration or an inactive control)`);
     else bad(`${mode}: only ${checked} pieces of text were measured — the render or the CSS is broken, not the kit`);
 
-    // CHART TEXT IS REPORTED, NOT ASSERTED, and the reason is a limit of the
-    // method rather than a judgement about the charts.
+    // CHART TEXT IS REPORTED, NOT ASSERTED — and the triage below is MEASURED,
+    // by screenshotting each chart with only its glyphs hidden and reading the
+    // real pixel painted under every label. 155 labels across 53 components
+    // came back short of the bar in light mode. They are three different
+    // things, and only the third is about the charts:
     //
-    // A chart label sits on marks the ancestor chain cannot see — an SVG shape
-    // paints with `fill`, has no `background-color`, and is a SIBLING of the
-    // label rather than a parent. Hit-testing the label's box was tried and is
-    // worse, because the box overlaps marks that are beside the glyphs. Until
-    // there is a method that can say what is behind a glyph, asserting here
-    // would fail correct components, which is the one thing this check may not
-    // do. The candidates are PRINTED so the tier is not silently uncovered.
+    // 1. THE BACKGROUND NEVER PAINTED — 64 labels, ink EXACTLY equal to the
+    //    ground. Our synthesised props out of domain, not a defect. Two proved
+    //    at source: `choropleth` takes `levels?: [string x 5]` and USES THEM AS
+    //    CSS COLOURS, so it got "Sample 1659"; `edu.GradebookHeat` wants a 0-1
+    //    fraction (`m > 0.55`, printed as `m * 100`) and got 3..11, making
+    //    `color-mix(... 368%, transparent)` invalid — its reported labels are
+    //    literally 400, 500, 600. Re-running with 0-1 numbers drops the total
+    //    155 -> 89, which is the confirmation.
+    // 2. THE LABEL SITS ON ITS OWN MARK — sampling one pixel at the centre of a
+    //    glyph plotted exactly on the thing it annotates. `health`'s audiogram
+    //    draws its O and X markers in `TONE` on a polyline stroked in `TONE`,
+    //    so the pixel under the glyph is the line. Ratios cluster at 1.0-1.2.
+    // 3. A REAL ONE, AND IT IS STRUCTURAL — 53 labels at 2.2-4.5:1, too much
+    //    contrast to be either artifact. A heat cell painted
+    //    `color-mix(in oklch, currentColor N%, transparent)` is a CONTINUOUS
+    //    ramp, while the ink on top is a BINARY threshold (`music2`:
+    //    `level / maxLevel > 0.55 ? background : foreground`). Mid-ramp the
+    //    cell is mid-grey and NEITHER choice reaches 4.5:1 — no threshold can
+    //    fix that, only a ramp that skips the middle or ink that carries its
+    //    own outline. Left for a decision rather than restyled here.
+    //
+    // So asserting would fail correct components on causes 1 and 2, which is
+    // the one thing this check may not do. The candidates are PRINTED so the
+    // tier is not silently uncovered.
     const isChart = (r) => CHART_KEYS.has(r.k);
 
     // THE CHARTS ARE REALLY IN THE PASS. Reporting-not-asserting a tier means
