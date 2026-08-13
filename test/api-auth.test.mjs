@@ -90,9 +90,44 @@ function nextDispatchAfter(i) {
   }
   return Infinity;
 }
+/**
+ * Is this line nothing but a comment?
+ *
+ * LINE-WISE AND CONSERVATIVE, never a whole-file blanker. worker.js is full of
+ * `https://` inside strings, and a stray `/*` in one of them makes a naive
+ * stripper eat 46% of the file — measured, and recorded in CLAUDE.md. Asking
+ * only "does this line START as a comment" needs no string parsing and cannot
+ * be wrong about code.
+ */
+const commentOnly = (l) => /^\s*(\/\/|\*|\/\*)/.test(l) || !l.trim();
+
+/**
+ * The code between a dispatch and its gate.
+ *
+ * COMMENT LINES DO NOT COUNT TOWARD THE WINDOW, and that is the point. `WINDOW`
+ * was raised 45 → 60 once already for exactly this reason — its own note says
+ * "the gate did not move; the declarations in front of it grew" — and a third
+ * raise would be treating the symptom again. Prose in front of a gate is not
+ * distance from it, so documenting a matcher must not be able to make a gated
+ * route report as open.
+ *
+ * The comment lines are DROPPED FROM THE MATCH TOO, which closes a second hole
+ * in the other direction: a comment merely MENTIONING `authUser(` would satisfy
+ * this check for a route that never calls it.
+ *
+ * Still capped by `nextDispatchAfter`, so nothing here can bleed into the next
+ * route's block — that cap is what makes the size safe, not the number.
+ */
 function blockOf(i) {
-  const end = Math.min(i + WINDOW, nextDispatchAfter(i));
-  return LINES.slice(i, Math.max(end, i + 1)).join("\n");
+  const stop = Math.min(LINES.length, nextDispatchAfter(i));
+  const out = [];
+  let code = 0;
+  for (let k = i; k < stop && code < WINDOW; k++) {
+    if (commentOnly(LINES[k])) continue;
+    out.push(LINES[k]);
+    code++;
+  }
+  return out.length ? out.join("\n") : (LINES[i] || "");
 }
 const gatesWithin = (i) => /authUser\(|UNAUTHED\(|bearerUser\(/.test(blockOf(i));
 

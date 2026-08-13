@@ -1,0 +1,162 @@
+// Can the owner tell what their scheduled work actually did?
+//
+// `runJob` has always computed an honest four-way outcome and every caller threw
+// it into a Cloudflare log, which is not a surface a small business has. So from
+// the owner's side "sent 14 reminders", "the SQL is broken", "you never pasted a
+// mail key" and "nothing was due" were ONE SILENCE — and for a reminder that is
+// the worst failure shape there is, because the customer does not know they were
+// meant to get one either. The only symptom is a no-show months later that looks
+// like ordinary business.
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import { jobOutcome, MAX_MESSAGES_PER_RUN } from "../site-jobs.mjs";
+
+const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+const chat = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+
+test("THE FOUR OUTCOMES DO NOT READ ALIKE — the whole requirement", () => {
+  const cases = {
+    nothingDue: { ok: true, sent: 0, dropped: 0 },
+    fnBroken: { ok: true, sent: 0, reason: "returned nothing" },
+    noKey: { ok: true, sent: 0, reason: "no provider key in Secrets" },
+    sent: { ok: true, sent: 12 },
+    threw: { ok: false, reason: "threw", error: "relation bookings does not exist" },
+  };
+  const said = Object.fromEntries(Object.entries(cases).map(([k, v]) => [k, jobOutcome(v)]));
+  const all = Object.values(said);
+  assert.equal(new Set(all).size, all.length, "two outcomes produce the same sentence: " + all.join(" | "));
+  for (const [k, v] of Object.entries(said)) assert.ok(v && v.length > 8, k + " said almost nothing: " + v);
+});
+
+test("a broken function is NOT reported as a quiet Tuesday", () => {
+  // The distinction that matters most. `returned nothing` means the model's SQL
+  // gave back null or a shape that is not a list — broken on every run — while
+  // an empty list is a genuine "nobody is due today".
+  const quiet = jobOutcome({ ok: true, sent: 0, dropped: 0 });
+  const broken = jobOutcome({ ok: true, sent: 0, reason: "returned nothing" });
+  assert.match(quiet, /Nothing to send/);
+  assert.match(broken, /didn’t return a list/);
+  assert.notEqual(quiet, broken);
+  // …and both spellings of broken say the same thing, since the customer does
+  // not care whether it was null or an object.
+  assert.equal(broken, jobOutcome({ ok: true, sent: 0, reason: "returned not a list" }));
+});
+
+test("A RUN THAT FAILED READS AS A FAILURE, not as nearly-working", () => {
+  // FOUND BY MUTATION, and distinctness alone could not see it. With the
+  // `ok === false` branch dead, a job that CRASHED falls through to the success
+  // path and comes out as "Ready to send, but threw." — a different sentence
+  // from every other outcome, so the "all five differ" check stayed green, and
+  // it reads like the mail-key case: one small thing away from working. It is
+  // not; the SQL is broken and nothing will ever be sent.
+  for (const out of [
+    { ok: false, reason: "threw", error: "relation bookings does not exist" },
+    { ok: false, reason: "no function" },
+  ]) {
+    const s2 = jobOutcome(out);
+    assert.match(s2, /^(Failed|Couldn’t run)/, "a failure does not announce itself: " + s2);
+    assert.equal(/Ready to send|Nothing to send/.test(s2), false,
+      "a failure reads as a working job: " + s2);
+  }
+  // And the reason survives, or the owner is told it broke and not how.
+  assert.match(jobOutcome({ ok: false, reason: "threw", error: "relation bookings does not exist" }),
+    /relation bookings does not exist/);
+});
+
+test("the mail-key gate says what to DO about it", () => {
+  // A site whose owner has pasted no provider key runs the job and sends
+  // nothing, by design. Reported as "nothing to send" that is indistinguishable
+  // from working.
+  const s = jobOutcome({ ok: true, sent: 0, reason: "no provider key in Secrets" });
+  assert.match(s, /Secrets/, "the sentence does not point at the thing to fix");
+  assert.match(s, /Ready to send/, "it reads as nothing being due rather than as a missing key");
+});
+
+test("a capped or partly-failed run says so", () => {
+  // Reported, never silent: a job quietly capped looks like a job that worked,
+  // and the hundred-and-first customer is the one with no reminder.
+  const over = jobOutcome({ ok: true, sent: MAX_MESSAGES_PER_RUN, overflow: 40 });
+  assert.match(over, new RegExp("40 more"), over);
+  assert.match(over, new RegExp(String(MAX_MESSAGES_PER_RUN) + "-per-run"), over);
+  assert.match(jobOutcome({ ok: true, sent: 9, failed: 3 }), /3 messages failed/);
+  assert.match(jobOutcome({ ok: true, sent: 0, dropped: 2 }), /missing an address/);
+});
+
+test("NO RECIPIENT EVER REACHES THE SENTENCE", () => {
+  // It is stored in a platform table beside every other site's. Counts and
+  // reasons carry what the owner needs; a customer's address in a second place
+  // is a worse problem than the one being solved. Same discipline as the audit
+  // log's allow-list.
+  const hostile = {
+    ok: true, sent: 1, to: "mrs.patel@example.com", subject: "Tomorrow at 2",
+    messages: [{ to: "mrs.patel@example.com" }], reason: "no provider key in Secrets",
+  };
+  const s = jobOutcome(hostile);
+  for (const secret of ["patel", "example.com", "Tomorrow at 2"])
+    assert.ok(!s.toLowerCase().includes(secret.toLowerCase()), "leaked: " + secret + " in " + s);
+});
+
+test("junk in cannot throw — this runs on a cron", () => {
+  for (const bad of [null, undefined, 7, "sent", [], {}])
+    assert.equal(typeof jobOutcome(bad), "string", "threw or answered oddly on " + JSON.stringify(bad));
+});
+
+test("IT IS RECORDED WHERE THE OWNER CAN REACH IT, after the run", () => {
+  // The stamp goes FIRST and must keep going first — stamped afterwards, a job
+  // that dies mid-send is due again on the next tick and mails everyone it
+  // already reached. Losing this note costs a line of history; moving the stamp
+  // costs somebody four copies of the same reminder.
+  const at = worker.indexOf("async function runScheduledSiteJobs");
+  assert.ok(at > 0, "the cron moved — retarget this");
+  const block = worker.slice(at, worker.indexOf("\n}", worker.indexOf("jobOutcome(out)", at)));
+  const stamp = block.indexOf("last_run");
+  const note = block.indexOf("last_result");
+  assert.ok(stamp > 0 && note > 0, "one of the two writes is gone");
+  assert.ok(stamp < note, "the outcome is written before the stamp — that ordering re-sends reminders");
+  assert.match(block, /jobOutcome\(out\)/, "the outcome is computed and discarded again");
+});
+
+test("THE OWNER'S ROUTE EXISTS, IS DISPATCHED, AND IS OWNER-GATED", () => {
+  // Three separate places, because this repo has shipped an owner route that
+  // was matched and never dispatched (`dm2`, custom domains — unreachable end
+  // to end while looking perfectly gated).
+  assert.match(worker, /const jb = url\.pathname\.match\(/, "no matcher");
+  assert.match(worker, /\|\| ad \|\| jb\) \{/, "the matcher is not in the dispatch condition");
+  assert.match(worker, /\|\| ad \|\| jb\)\[1\]\.toLowerCase\(\)/, "ownerSlug does not include it");
+  const at = worker.indexOf('} else if (jb) {');
+  assert.ok(at > 0, "no handler");
+  const h = worker.slice(at, at + 1800);
+  assert.match(h, /assertOwner\(ownerDeps, jslug, ou\.id\)/, "the handler does not check ownership");
+  assert.match(h, /method !== "GET"/, "a read-only panel accepts writes");
+  assert.match(h, /status: 503/, "an unreadable list answers as an empty one");
+});
+
+test("AN UNREADABLE LIST IS NOT AN EMPTY ONE, at both ends", () => {
+  // "No scheduled jobs" reads as the feature not existing and the owner stops
+  // looking — the one wrong answer here that costs something.
+  const at = worker.indexOf('} else if (jb) {');
+  const h = worker.slice(at, at + 1800);
+  assert.match(h, /if \(!q\.ok\) return Response\.json\(\{ error: "unavailable" \}/);
+  assert.match(h, /if \(!Array\.isArray\(jrows\)\)/, "a non-array body reads as zero jobs");
+  const c = chat.indexOf("async function siteFunctions(site)");
+  assert.ok(c > 0, "the panel is gone");
+  const panel = chat.slice(c, c + 4200);
+  assert.match(panel, /if \(!r\.ok\)/, "the client treats a failed load as an empty schedule");
+  assert.match(panel, /Hasn\\u2019t run yet|Hasn’t run yet/,
+    "a job that has never run is given an invented outcome");
+});
+
+test("THE PANEL IS REACHABLE — the card is not forced Off", () => {
+  // `versions` sat in DEAD_PANELS for four days after its route shipped, live on
+  // the server and unreachable in the product. The comment above that list says
+  // to flip a name out the moment its route exists; this is that.
+  assert.equal(/functions:\s*'/.test(chat), false, "the jobs card is still in DEAD_PANELS");
+  assert.match(chat, /'Scheduled jobs'/, "the card was not renamed off the deleted verb runner");
+  assert.match(chat, /'\/api\/site\/' \+ encodeURIComponent\(slug\) \+ '\/jobs'/, "the panel calls the wrong route");
+  // And nothing describes the eight-verb runner any more.
+  const c = chat.indexOf("async function siteFunctions(site)");
+  const panel = chat.slice(c, c + 4200);
+  for (const gone of ["spec.steps", "stepLabel", "fn-hook-url"])
+    assert.equal(panel.includes(gone), false, panel.slice(0, 0) + gone + " is a relic of the deleted runner");
+});

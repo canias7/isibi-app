@@ -10445,7 +10445,7 @@ function moreCloud(site) {
     // kept forcing the card to render Off and stripping its click handler. So
     // the feature was live end to end on the server and unreachable in the
     // product, which is precisely what the line above says to prevent.
-    functions: 'Set up by your app, nothing to configure', // jobs are declared in the schema, not here
+
     emails: 'Set up in Secrets — add your provider key',   // no route; the key lives under Secrets
   };
   const cards = [
@@ -10457,7 +10457,7 @@ function moreCloud(site) {
     ['download', 'Export data', dataLive ? 'Download everything your site has collected' : (isReact ? 'Add data to enable exports' : 'Publish to enable exports'), dataLive, 'backups'],
     ['history', 'Versions', (isReact && !!site.slug) ? 'Roll back to a previous build' : (isReact ? 'Publish to enable versions' : 'React sites only'), (isReact && !!site.slug), 'versions'],
     ['key', 'Secrets', isReact ? 'API keys for payments, email + integrations (kept server-side)' : 'Encrypted keys for server-side features', fnLive, 'secrets'],
-    ['zap', 'Edge functions', 'Custom server logic your app builds', fnLive, 'functions'],
+    ['history', 'Scheduled jobs', dataLive ? 'What your site does on a timer, and what it did' : (isReact ? 'Add data to your app to enable scheduled work' : 'Publish to enable scheduled work'), dataLive, 'functions'],
     ['mail', 'Emails', 'Send email from your own provider', auxLive, 'emails'],
     ['card', 'Payments', dataLive ? 'Sell with your own Stripe' : (isReact ? 'Publish your app to take payments' : 'Publish to take payments'), fnLive, 'payments'],
     ['image', 'Files', 'Pictures on your site — yours and your visitors\u2019', dataLive, 'files'],
@@ -12642,53 +12642,72 @@ async function siteDomains(site) {
 // third-party API with a saved secret, aggregate collection data, multi-step
 // flows). Read-only list + delete here; you add/change them by asking in the
 // builder. Owner-only, RLS-scoped.
+// Scheduled jobs — what the site does on a timer, and what it ACTUALLY DID.
+//
+// REWRITTEN 2026-08-13. The old panel rendered `spec.steps` from the eight-verb
+// runner (`read save fetch ai email notify checkout respond`), which was deleted
+// with the D1 runtime — so it described a feature that no longer exists, against
+// a route (`/api/site/functions`) that no longer exists, from a card forced Off
+// in DEAD_PANELS. Three layers of dead, and the comment above DEAD_PANELS warns
+// about exactly this: `versions` sat Off for four days after its route shipped.
+//
+// THE POINT OF THIS PANEL IS THE LAST LINE OF EACH ROW. `runJob` has always
+// computed an honest four-way outcome and every caller threw it into a
+// Cloudflare log, which is not a surface a small business has — so "sent 14
+// reminders", "your SQL is broken", "you never pasted a mail key" and "nothing
+// was due" were one silence. For a REMINDER that is the worst failure there is:
+// the customer does not know they were meant to get one either, and the only
+// symptom is a no-show months later that looks like ordinary business.
 async function siteFunctions(site) {
   const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
-  if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — then its functions show up here.'); return; }
+  if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — then its scheduled jobs show up here.'); return; }
   let box = document.getElementById('siteFnModal');
   if (box) box.remove();
   box = document.createElement('div');
   box.id = 'siteFnModal';
   box.className = 'si-modal';
-  box.innerHTML = '<div class="si-card"><div class="si-head"><b>Edge functions</b><button type="button" class="si-x" aria-label="Close">×</button></div><div class="si-body"><p class="sp-intro">Server-side logic your app builds from chat — calling an API with a saved secret, aggregating data, multi-step flows. Ask in the builder to add or change one.</p><div id="fnList">Loading…</div></div></div>';
+  box.innerHTML = '<div class="si-card"><div class="si-head"><b>Scheduled jobs</b><button type="button" class="si-x" aria-label="Close">×</button></div><div class="si-body"><p class="sp-intro">Work your site does on a timer with nobody there — reminding tomorrow\u2019s customers, a weekly summary. Ask in the builder to add or change one.</p><div id="fnList">Loading…</div></div></div>';
   document.body.appendChild(box);
   const close = () => box.remove();
   box.querySelector('.si-x').onclick = close;
   box.addEventListener('click', (e) => { if (e.target === box) close(); });
   const listEl = box.querySelector('#fnList');
-  const host = (u) => { try { return new URL(String(u).replace(/\{\{[^}]*\}\}/g, 'x')).hostname.replace(/^www\./, ''); } catch (e) { return 'an API'; } };
-  const stepLabel = (s) => {
-    if (!s || typeof s !== 'object') return '';
-    if (s.do === 'read') return 'read ' + esc(s.collection || 'data');
-    if (s.do === 'save') return 'save to ' + esc(s.collection || 'data');
-    if (s.do === 'fetch') return esc(s.method || 'GET') + ' ' + esc(host(s.url));
-    if (s.do === 'respond') return 'respond';
-    return esc(s.do || '');
+  const every = (m) => (m === 60 ? 'Hourly' : m === 1440 ? 'Daily' : m >= 1440 ? 'Every ' + Math.round(m / 1440) + ' days' : m >= 60 ? 'Every ' + Math.round(m / 60) + 'h' : 'Every ' + m + 'm');
+  const when = (iso) => {
+    const t = Date.parse(iso || '');
+    if (!Number.isFinite(t)) return '';
+    const mins = Math.round((Date.now() - t) / 60000);
+    if (mins < 2) return 'just now';
+    if (mins < 60) return mins + ' minutes ago';
+    if (mins < 48 * 60) return Math.round(mins / 60) + ' hours ago';
+    return Math.round(mins / 1440) + ' days ago';
   };
   const load = async () => {
     try {
-      const r = await apiFetch('/api/site/functions?slug=' + encodeURIComponent(slug));
-      const d = await r.json().catch(() => ({ functions: [] }));
-      const fns = Array.isArray(d.functions) ? d.functions : [];
-      if (!fns.length) { listEl.innerHTML = '<div class="si-empty">No functions yet. In the builder, describe the server logic you want (e.g. “when someone signs up, post it to my Slack webhook”) and it’ll appear here.</div>'; return; }
-      const schLabel = (m) => (m === 60 ? 'Hourly' : m === 1440 ? 'Daily' : 'Every ' + m + 'm');
-      listEl.innerHTML = fns.map((f) => {
-        const steps = (f.spec && Array.isArray(f.spec.steps)) ? f.spec.steps : [];
-        const chips = steps.map((s) => '<span class="fn-step">' + stepLabel(s) + '</span>').join('<span class="fn-arrow">→</span>');
-        const sm = parseInt(f.schedule_minutes, 10);
-        const schBadge = sm > 0 ? '<span class="fn-sch">' + ic('history', 12) + ' ' + esc(schLabel(sm)) + '</span>' : '';
-        const hookUrl = 'https://gofarther.dev/api/site/hook/' + slug + '/' + f.name;
-        return '<div class="fn-item"><div class="fn-top"><span class="fn-ic">' + ic('zap', 15) + '</span><b class="fn-name">' + esc(f.name) + '</b><span class="fn-trig">HTTP</span>' + schBadge + (f.enabled === false ? '<span class="st-badge-soon">Paused</span>' : '<span class="st-badge-live">Live</span>') + '<button type="button" class="sk-del" data-del="' + esc(f.name) + '" title="Delete">×</button></div><div class="fn-flow">' + (chips || '<span class="fn-step">no steps</span>') + '</div><div class="fn-hook"><span class="fn-hook-label">Webhook</span><code class="fn-hook-url">' + esc(hookUrl.replace(/^https:\/\//, '')) + '</code><button type="button" class="fn-hook-copy" data-hook="' + esc(hookUrl) + '">Copy</button></div></div>';
+      const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/jobs');
+      // AN UNREADABLE LIST IS NOT AN EMPTY ONE. "No scheduled jobs" reads as the
+      // feature not existing and the owner stops looking, which is the one wrong
+      // answer here that costs something.
+      if (!r.ok) { listEl.innerHTML = '<div class="si-empty">Couldn\u2019t load the schedule — try again.</div>'; return; }
+      const d = await r.json().catch(() => null);
+      const jobs = d && Array.isArray(d.jobs) ? d.jobs : null;
+      if (!jobs) { listEl.innerHTML = '<div class="si-empty">Couldn\u2019t load the schedule — try again.</div>'; return; }
+      if (!jobs.length) { listEl.innerHTML = '<div class="si-empty">No scheduled jobs. In the builder, say what you want to happen on a timer — e.g. “email people the day before their appointment”.</div>'; return; }
+      listEl.innerHTML = jobs.map((j) => {
+        const ran = j.lastRun ? when(j.lastRun) : '';
+        // NEVER RUN AND RAN-WITH-NOTHING-TO-DO ARE DIFFERENT FACTS. Inventing a
+        // cheerful line for the first is how a brand-new site reads as working
+        // before it ever has.
+        const result = j.lastResult
+          ? '<div class="fn-flow"><span class="fn-step">' + esc(j.lastResult) + '</span></div>'
+          : '<div class="fn-flow"><span class="fn-step">Hasn\u2019t run yet.</span></div>';
+        return '<div class="fn-item"><div class="fn-top"><span class="fn-ic">' + ic('history', 15) + '</span><b class="fn-name">' + esc(j.name) + '</b>' +
+          '<span class="fn-sch">' + esc(every(Number(j.everyMinutes) || 0)) + '</span>' +
+          (ran ? '<span class="fn-trig">ran ' + esc(ran) + '</span>' : '') +
+          (j.enabled === false ? '<span class="st-badge-soon">Paused</span>' : '<span class="st-badge-live">On</span>') +
+          '</div>' + result + '</div>';
       }).join('');
-      listEl.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => {
-        await apiFetch('/api/site/functions?slug=' + encodeURIComponent(slug) + '&name=' + encodeURIComponent(b.dataset.del), { method: 'DELETE' });
-        load();
-      });
-      listEl.querySelectorAll('[data-hook]').forEach((b) => b.onclick = () => {
-        try { navigator.clipboard.writeText(b.dataset.hook); } catch (e) {}
-        if (typeof sbToast === 'function') sbToast('Webhook URL copied — paste it into Stripe, Zapier, etc.');
-      });
-    } catch (e) { listEl.innerHTML = '<div class="si-empty">Couldn’t load functions — try again.</div>'; }
+    } catch (e) { listEl.innerHTML = '<div class="si-empty">Couldn\u2019t load the schedule — try again.</div>'; }
   };
   load();
 }

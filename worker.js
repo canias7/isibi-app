@@ -4,7 +4,7 @@
 import { PhotonImage, watermark, resize, SamplingFilter } from "@cf-wasm/photon";
 import { sendConfirmation, recipient, pickProvider } from "./site-mail.mjs";
 import { sendSms } from "./site-sms.mjs";
-import { dueJobs, runJob } from "./site-jobs.mjs";
+import { dueJobs, runJob, jobOutcome } from "./site-jobs.mjs";
 import { hostIsBlocked, blockedReason } from "./site-ssrf.mjs";
 import { deliverWebhook, firesFor, signPayload, MAX_PER_MINUTE as WEBHOOK_PER_MIN } from "./site-webhooks.mjs";
 import { takeToken, verify as turnstileVerify, TOKEN_FIELD as TURNSTILE_FIELD } from "./site-turnstile.mjs";
@@ -2543,6 +2543,23 @@ async function runScheduledSiteJobs(env, ctx) {
     } else if (out.sent) {
       console.log("job:", row.slug, out.name, "sent", out.sent);
     }
+
+    // AND WHERE THE OWNER CAN SEE IT, which is the half that was missing. A
+    // Cloudflare log is not a surface a small business has; without this row the
+    // four outcomes `runJob` carefully separates are one silence, and a reminder
+    // that never arrives is invisible to the customer AND to the owner.
+    //
+    // A SECOND WRITE, after the run rather than folded into `stamp`. That one
+    // goes FIRST on purpose (see runJob) and must keep going first; losing this
+    // note costs a line of history, while moving the stamp costs somebody four
+    // copies of the same reminder. Best-effort for the same reason — the tick
+    // must not fail over a diagnostic.
+    try {
+      await fetch(`${SUPABASE_URL}/rest/v1/site_functions?slug=eq.${encodeURIComponent(row.slug)}&name=eq.${encodeURIComponent(row.name)}`, {
+        method: "PATCH", headers: { ...svc, "Content-Type": "application/json", Prefer: "return=minimal" },
+        body: JSON.stringify({ last_result: jobOutcome(out).slice(0, 400) }), signal: AbortSignal.timeout(8000),
+      });
+    } catch (e) { console.error("job result write failed:", row.slug, out.name, e && e.message); }
   }
 }
 
@@ -10095,6 +10112,15 @@ async function handleRequest(request, env, ctx) {
       // does. Its own route for the same reason the edit lane has one: what a
       // rung may touch is worth being a property of the code path.
       const ad = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/addon$/i);
+      // WHAT THE SITE'S SCHEDULED WORK HAS ACTUALLY BEEN DOING.
+      //
+      // `runJob` has always computed an honest four-way outcome and every caller
+      // put it in a Cloudflare log, which is not a surface a small business has.
+      // So "sent 14 reminders", "your SQL is broken", "you never pasted a mail
+      // key" and "nothing was due" were one silence — and for a reminder that is
+      // the worst possible failure, because the customer does not know they were
+      // meant to get one either.
+      const jb = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/jobs$/i);
       // EVERY owner-scoped matcher above has to appear here, and `dm2` did not —
       // so `/api/site/<slug>/domains` was dispatched by nothing and fell through
       // to the 404 at the bottom of the router. Custom domains were unreachable
@@ -10106,10 +10132,10 @@ async function handleRequest(request, env, ctx) {
       // so from outside the two are indistinguishable — which is how this
       // survived a live probe until the dispatch was read.
       // `test/api-auth.test.mjs` holds the list against the matchers now.
-      if (om || mm || an || uf || xp || nt || lv || sk || dm2 || vr || tx || ed || ad) {
+      if (om || mm || an || uf || xp || nt || lv || sk || dm2 || vr || tx || ed || ad || jb) {
         const ou = await authUser(request);
         if (!ou) return UNAUTHED();
-        const ownerSlug = (om || mm || an || uf || xp || nt || lv || sk || dm2 || vr || tx || ed || ad)[1].toLowerCase();
+        const ownerSlug = (om || mm || an || uf || xp || nt || lv || sk || dm2 || vr || tx || ed || ad || jb)[1].toLowerCase();
         const ownerDeps = {
           ownerOf: async (s2) => {
             const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(s2)}&select=uid`, { headers: svcHeaders(env), signal: AbortSignal.timeout(12000) });
@@ -11528,6 +11554,37 @@ async function handleRequest(request, env, ctx) {
               ? await putBackOnline(liveDeps, { slug: lslug })
               : await takeOffline(liveDeps, { slug: lslug });
             return Response.json(out, { status: out.ok ? 200 : (out.reason === "no-way-back" ? 409 : 503) });
+          } else if (jb) {
+            // WHAT THE SCHEDULED WORK HAS BEEN DOING. Read-only: a job is
+            // declared by the model at build time and turning one off is a
+            // revise, so there is nothing to POST here and no second way to
+            // change what the schema says.
+            const jslug = jb[1].toLowerCase();
+            const g = await assertOwner(ownerDeps, jslug, ou.id);
+            if (g.error) return Response.json(g.error.body, { status: g.error.status });
+            if (request.method !== "GET") return Response.json({ error: "method not allowed" }, { status: 405 });
+            const q = await fetch(`${SUPABASE_URL}/rest/v1/site_functions?slug=eq.${encodeURIComponent(jslug)}&schedule_minutes=not.is.null&select=name,schedule_minutes,enabled,last_run,last_result&order=name.asc&limit=20`,
+              { headers: svcHeaders(env), signal: AbortSignal.timeout(10000) });
+            // A READ THAT FAILED IS NOT "THIS SITE HAS NO JOBS", which is the
+            // one wrong answer here that matters: it reads as the feature not
+            // existing, and the owner stops looking. Same call `analytics`
+            // makes — never zeros on an unreadable ledger.
+            if (!q.ok) return Response.json({ error: "unavailable" }, { status: 503 });
+            const jrows = await q.json().catch(() => null);
+            if (!Array.isArray(jrows)) return Response.json({ error: "unavailable" }, { status: 503 });
+            return Response.json({
+              jobs: jrows.map((j) => ({
+                name: String(j.name || ""),
+                everyMinutes: Number(j.schedule_minutes) || 0,
+                enabled: j.enabled !== false,
+                lastRun: j.last_run || null,
+                // NULL rather than a cheerful default. A job that has never run
+                // and a job whose last run sent nothing are different facts, and
+                // inventing a sentence for the first is how a brand-new site
+                // reads as working before it ever has.
+                lastResult: typeof j.last_result === "string" ? j.last_result : null,
+              })),
+            });
           } else if (nt) {
             // The off switch. Email the owner did not ask for, with no way to
             // stop it, is not something to ship.

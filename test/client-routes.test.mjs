@@ -31,9 +31,12 @@ const WORKER = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8")
  * (rebuild it, or take the panel away) rather than a quick route. They are NOT
  * an exemption for anything new.
  */
+// `/api/site/functions` LEFT THIS LIST 2026-08-13. The panel behind it was
+// rewritten to `/api/site/<slug>/jobs`, which exists — so the ratchet forced the
+// entry out rather than letting a fixed route sit here looking like debt. That
+// is the mechanism working: the list is only useful while it is exactly true.
 const KNOWN_DEAD = [
   "/api/site/collections", // the Database panel's collections card
-  "/api/site/functions",   // the site-functions panel, from the deleted verb menu
   "/api/site/preview",     // posts `html` — the D1 page format
   "/api/site/scan",        // posts `p.html` — same
 ];

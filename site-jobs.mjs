@@ -123,6 +123,54 @@ export function shapeMessages(out, recipientFn) {
 function safeJson(s) { try { return JSON.parse(s); } catch { return null; } }
 
 /**
+ * ONE PLAIN SENTENCE FOR WHAT A RUN ACTUALLY DID.
+ *
+ * WHY THIS EXISTS. `runJob` already computes an honest, four-way outcome — and
+ * every caller threw it into a `console.log` the site owner cannot read. So from
+ * the owner's side a reminder that never arrives is indistinguishable from a
+ * reminder that was never due, and the only symptom is a customer who does not
+ * turn up, months later, looking like ordinary business. That is the worst
+ * failure shape a scheduled job can have, and it is this repo's most-recorded
+ * one: a feature that works and cannot be seen working.
+ *
+ * THE FOUR OUTCOMES MUST NOT READ ALIKE. That is the whole requirement:
+ *
+ *   nothing was due          — the ordinary run, and NOT news
+ *   the function is broken   — returned null, or a shape that is not a list
+ *   rows came back, no key   — the owner has not pasted a mail key yet
+ *   it sent, or it threw     — the two that need a number and a reason
+ *
+ * NO RECIPIENT EVER APPEARS HERE. This is a platform table beside every other
+ * site's, and the messages are a customer's own name and address; counts and
+ * reasons carry everything the owner needs and nothing they should not have in
+ * two places. Same discipline as the audit log's allow-list.
+ */
+export function jobOutcome(out) {
+  if (!out || typeof out !== "object") return "Didn\u2019t run.";
+  if (out.ok === false) {
+    if (out.reason === "threw") return "Failed \u2014 " + String(out.error || "no reason given").slice(0, 160);
+    return "Couldn\u2019t run \u2014 " + String(out.reason || "no reason given").slice(0, 160);
+  }
+  const sent = Number(out.sent) || 0;
+  const bits = [];
+  if (sent) bits.push("Sent " + sent + (sent === 1 ? " message." : " messages."));
+  // A FUNCTION THAT RETURNED NULL IS NOT "NOTHING TO DO", and collapsing the two
+  // is exactly the confusion this function exists to end: one is a quiet Tuesday
+  // and the other is model-written SQL that is broken on every run.
+  else if (out.reason && /^returned /.test(String(out.reason))) {
+    bits.push("The function didn\u2019t return a list of messages \u2014 nothing could be sent.");
+  } else if (out.reason) bits.push("Ready to send, but " + String(out.reason).slice(0, 120) + ".");
+  else bits.push("Nothing to send this time.");
+
+  if (out.failed) bits.push(out.failed + (out.failed === 1 ? " message failed to send." : " messages failed to send."));
+  // Reported, never silent — a job quietly capped is a job that looks like it
+  // worked, and the hundred-and-first customer is the one with no reminder.
+  if (out.overflow) bits.push(out.overflow + " more were over the " + MAX_MESSAGES_PER_RUN + "-per-run cap and were not sent.");
+  if (out.dropped) bits.push(out.dropped + (out.dropped === 1 ? " was missing an address, subject or body." : " were missing an address, subject or body."));
+  return bits.join(" ");
+}
+
+/**
  * Run one site's due job. Injected deps, so every decision is testable with no
  * clock, no database and no network.
  *
