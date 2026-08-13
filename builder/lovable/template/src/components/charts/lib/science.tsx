@@ -117,7 +117,18 @@ export function Bifurcation({
     const r = from + ((to - from) * i) / (steps - 1);
     let x = 0.5;
     for (let k = 0; k < settle; k++) x = r * x * (1 - x);
-    for (let k = 0; k < keep; k++) { x = r * x * (1 - x); pts.push({ r, x }); }
+    // ONLY THE POINTS INSIDE THE ATTRACTOR. The logistic map is bounded in [0,1]
+    // for r <= 4 and DIVERGES
+    // above it, so a sweep whose range runs past 4 produced -Infinity and wrote
+    // `y="Infinity"` on every rect — invalid attributes the browser drops, so
+    // the plot collapses onto the origin rather than showing the part that is
+    // real. Mathematics rather than a mistake, and still not something to put
+    // in an SVG.
+    //
+    // THE RANGE AND NOT `Number.isFinite`, which was the first attempt and was
+    // not enough: the trajectory passes through enormous FINITE values on its
+    // way out, and `(1 - x) * 100` overflows to Infinity from one of those.
+    for (let k = 0; k < keep; k++) { x = r * x * (1 - x); if (x >= 0 && x <= 1) pts.push({ r, x }); }
   }
   return (
     <div className="w-full">

@@ -59,6 +59,14 @@ export function SellerCard({
 }) {
   const rated = typeof rating === "number" && typeof sales === "number" && sales > 0;
   const Wrap = href ? "a" : "article";
+  // CLAMPED, BECAUSE `String.repeat` THROWS ON A NEGATIVE COUNT and takes the
+  // whole page with it through the error boundary — `RangeError: Invalid count
+  // value: -2`, measured. A rating is meant to be 0-5 and nothing enforced it:
+  // `Row` carries an index signature, so `rating={row.score}` typechecks against
+  // a 0-10 column or a review COUNT, and five stars is what those should read as
+  // rather than a blank page.
+  const stars = Math.max(0, Math.min(5, Math.floor(rating ?? 0)));
+
   return (
     <Wrap {...(href ? { href } : {})} className={cn("group flex gap-4", className)}>
       {/* `self-start` is load bearing: a flex row stretches its children to the
@@ -80,7 +88,7 @@ export function SellerCard({
           {rated ? (
             <>
               <span aria-hidden="true" className="tracking-tight">
-                {"★".repeat(Math.floor(rating!))}{"☆".repeat(5 - Math.floor(rating!))}
+                {"★".repeat(stars)}{"☆".repeat(5 - stars)}
               </span>{" "}
               <span className="font-medium tabular-nums">{rating!.toFixed(1)}</span>{" "}
               {/* THE COUNT IS NEVER OPTIONAL BESIDE A RATING. 4.9 from three

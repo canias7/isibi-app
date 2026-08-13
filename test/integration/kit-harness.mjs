@@ -99,8 +99,22 @@ function value(type, mode, types, depth = 0) {
   if (/^\(.*\)\s*=>/.test(t) || (/=>/.test(t) && splitTop(t, ";").length === 1 && /^\(/.test(t))) {
     const ret = t.slice(t.indexOf("=>") + 2).trim();
     if (!ret || ret === "void" || ret === "unknown") return "() => {}";
+    // A KEY FUNCTION MUST ANSWER DIFFERENTLY FOR DIFFERENT ROWS. A stub
+    // returning one constant made `rowKey: (r, i) => RowId` hand the same key to
+    // every row, and React reported duplicate keys on components whose keys are
+    // fine with real data. Only for a scalar return — an object or an element
+    // has no sensible "next one", and a caller relying on identity there is
+    // relying on something a stub cannot provide either way.
+    const inner = value(ret, mode === "empty" ? "full" : mode, types, depth + 1);
+    if (/^"/.test(inner) || /^-?\d/.test(inner)) {
+      const n = "n" + counter++;
+      const varying = /^"/.test(inner)
+        ? inner.slice(0, -1) + ' " + ' + n + "++"     // "Sample 5 " + n0++
+        : inner + " + " + n + "++";                    // 3 + n0++
+      return `(() => { let ${n} = 0; return () => (${varying}); })()`;
+    }
     // A callback's return is never "the empty state" — that is about the DATA.
-    return "() => (" + value(ret, mode === "empty" ? "full" : mode, types, depth + 1) + ")";
+    return "() => (" + inner + ")";
   }
 
   // A TUPLE IS NOT A LIST. `supports: [number, number]` and `a: [string, string]`
@@ -164,7 +178,12 @@ function value(type, mode, types, depth = 0) {
     // answering a question nobody asks. Named like `BY_NAME` above, and for the
     // same reason: a prop whose own name says what it is should get a value its
     // component can survive.
-    case "number": return mode === "zeros" && !DIMENSION.test(lastKey) ? "0" : "3";
+    // A VARYING NUMBER, because a constant one makes every row's id identical.
+    // Every numeric field was 3, so `key={o.value}` on a list of three objects
+    // produced three children with the same key — React reported 60 components
+    // for a duplicate-key bug that is entirely the harness's. Strings already
+    // varied by the same counter; numbers did not.
+    case "number": return mode === "zeros" && !DIMENSION.test(lastKey) ? "0" : String(3 + (counter++ % 9));
     case "boolean": return "true";
     // A FIXED instant, never `Date.now()`: a moving clock makes a failure
     // unreproducible, and this has to be re-runnable to be worth anything.
@@ -214,17 +233,27 @@ const BY_NAME = [
   [/(^|[a-z])(timezone|timeZone|tz)$/i, '"Europe/London"'],
   [/^(country|countryCode)$/i, '"GB"'],
   [/(email|mailto)/i, '"someone@example.com"'],
-  [/(href|url|src|link|website|permalink)/i, '"https://example.com/page"'],
+  // VARYING, like the strings above. A constant made every item's href
+  // identical, so a list keyed on one reported duplicates that real data does
+  // not have.
+  [/(href|url|src|link|website|permalink)/i, () => `"https://example.com/page-${counter++}"`],
   [/(phone|tel|mobile)/i, '"+447700900000"'],
   [/(^|[a-z])(colour|color)$/i, '"#333333"'],
   // Anything time-shaped gets a real instant: `new Date("Sample")` is Invalid
   // Date and reading it throws RangeError.
-  [/(date|time|at$|^at|on$|when|deadline|expires|expiry|start|end|since|until|updated|created|published|due)/i,
-   '"2026-03-04T10:00:00.000Z"'],
+  // ANCHORED, because the loose form matched `on$` — and therefore `question`,
+  // `description`, `location`, `reason`, `caption`, `action`, `position`. 240 of
+  // the 447 prop names it matched were not dates at all, so each got the same
+  // fixed ISO string: nonsense in the slot, and IDENTICAL nonsense, which made
+  // React report duplicate keys on 40 components whose keys are perfectly
+  // unique with real text.
+  [/(date|time|deadline|expir|since|until|updated|created|published)/i, '"2026-03-04T10:00:00.000Z"'],
+  [/^(at|on|due|when|start|end|from|to)$/i, '"2026-03-04T10:00:00.000Z"'],
+  [/(At|On|Date|Time)$/, '"2026-03-04T10:00:00.000Z"'],
 ];
 function byName(key, t) {
   if (t !== "string" && t !== "number") return null;
-  for (const [re, v] of BY_NAME) if (re.test(key)) return t === "number" ? null : v;
+  for (const [re, v] of BY_NAME) if (re.test(key)) return t === "number" ? null : (typeof v === "function" ? v() : v);
   return null;
 }
 
@@ -388,19 +417,22 @@ export const chartFiles = charts.files;
 // ---- render ----------------------------------------------------------------
 const require_ = createRequire(import.meta.url);
 
-/** Components whose props could not be synthesised on the last renderAll. A
- *  harness fault, never a finding — the runner reports it as its own failure. */
+/** Components whose props could not be synthesised on the last build. A harness
+ *  fault, never a finding — the runner reports it as its own failure. */
 export const synthFailures = [];
 
-function renderAll(mode, list = entries) {
+/**
+ * Each component with the specifier that imports it and its props as SOURCE.
+ *
+ * Shared so that `kit-render.mjs` (server-renders the html) and
+ * `kit-effects.mjs` (mounts it in a browser) are talking about the same call.
+ * Two copies of the synthesis would mean one harness finding a defect the other
+ * cannot reproduce, and no way to tell which of them was wrong.
+ */
+export function casesFor(list, mode) {
   synthFailures.length = 0;
-  fs.rmSync(OUT, { recursive: true, force: true });
-  fs.mkdirSync(OUT, { recursive: true });
   counter = 0;
-
-  const imports = [], cases = [];
-  list.forEach((e, i) => {
-    imports.push(`import { ${e.name} as C${i} } from "${e.spec}";`);
+  return list.map((e) => {
     // NOT SWALLOWED. This was `catch { /* none */ }`, which sends a component
     // no props at all — so every required one is undefined and it throws, and
     // the report blames the component for a fault in the synthesiser. That is
@@ -408,8 +440,17 @@ function renderAll(mode, list = entries) {
     let props = "";
     try { props = propsFor(e, mode).map(([k, v]) => `${JSON.stringify(k)}: ${v}`).join(", "); }
     catch (err) { synthFailures.push(`${e.mod}.${e.name}: ${err.message}`); }
-    cases.push(`  { k: ${JSON.stringify(e.mod + "." + e.name)}, C: C${i}, props: { ${props} } },`);
+    return { k: e.mod + "." + e.name, name: e.name, spec: e.spec, props };
   });
+}
+
+function renderAll(mode, list = entries) {
+  fs.rmSync(OUT, { recursive: true, force: true });
+  fs.mkdirSync(OUT, { recursive: true });
+
+  const built = casesFor(list, mode);
+  const imports = built.map((c, i) => `import { ${c.name} as C${i} } from "${c.spec}";`);
+  const cases = built.map((c, i) => `  { k: ${JSON.stringify(c.k)}, C: C${i}, props: { ${c.props} } },`);
 
   fs.writeFileSync(path.join(OUT, "entry.tsx"), `import React from "react";
 import { renderToString } from "react-dom/server";

@@ -20,6 +20,7 @@ on:
       - 'test/integration/kit-render.mjs'
       - 'test/integration/kit-harness.mjs'
       - 'test/integration/kit-a11y.mjs'
+      - 'test/integration/kit-effects.mjs'
       - 'test/page-gen.test.mjs'
       - '.github/workflows/site-build.yml'
   workflow_dispatch:
@@ -87,6 +88,16 @@ jobs:
       # with nothing to attach it to, and three listboxes called "listbox".
       # Needs the browser, so it sits after the install above.
       - run: node test/integration/kit-a11y.mjs
+
+      # MOUNTED, then taken away again. `kit-render.mjs` above goes through
+      # `renderToString`, and server rendering NEVER RUNS AN EFFECT — so the
+      # whole effect layer of the kit was exercised by nothing. This mounts all
+      # ~2,000 in a real browser and unmounts each one, which is the only way to
+      # see an effect that throws, a listener or interval that is never given
+      # back, or a roving tabindex that sets `tabIndex` and forgets to move
+      # focus. It also drives the three listboxes whose arrow keys were written
+      # and then verified by typechecking alone.
+      - run: node test/integration/kit-effects.mjs
 
       # What a themed site LOOKS like. The seam test proves the CSS reaches the
       # dist; this proves the page is not blank, nothing throws, and the two
