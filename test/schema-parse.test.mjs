@@ -444,3 +444,54 @@ test("the args description states what a declared column REALLY is", () => {
   assert.match(desc, /`owner_id` and `team_id` are UUID/,
     "the only UUID columns on the platform are not named");
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A STRINGIFIED `tables`, recovered rather than dropped.
+//
+// Measured in `schema gen eval` 2026-08-13: 1 sample in 20 returned `tables` as
+// a STRING. `stop_reason: "tool_use"` and 1,680 output tokens, so the model
+// finished normally and wrote a full answer — it just serialised the array. It
+// matched neither branch of the dispatch and fell through to zero tables, which
+// the build route reports as "that brief didn't describe anything to store": a
+// 422 on a schema the model actually got right.
+
+test("a stringified list of tables is recovered, not dropped", () => {
+  const real = [
+    { name: "classes", access: "display", columns: [{ name: "title", type: "text" }] },
+    { name: "bookings", read: "none", write: "none", columns: [{ name: "who", type: "text" }] },
+  ];
+  const direct = normalizeSchema({ tables: real });
+  const viaString = normalizeSchema({ tables: JSON.stringify(real) });
+
+  assert.equal(direct.tables.length, 2, "the plain array stopped working");
+  assert.deepEqual(
+    viaString.tables.map((t) => t.name), direct.tables.map((t) => t.name),
+    "a stringified list must produce the same tables as the list itself");
+  // The ACCESS has to survive too, not just the names — a recovered table that
+  // lost its read/write pair would be a public table silently turned private,
+  // or worse.
+  assert.deepEqual(
+    viaString.tables.map((t) => t.access), direct.tables.map((t) => t.access),
+    "the recovered tables lost their access level");
+});
+
+test("a stringified MAP is recovered too, like the map form beside it", () => {
+  // The dispatch already accepts a name→definition map instead of a list, for
+  // the same class of model habit. A string wrapping one has to land in that
+  // branch rather than being handled only for arrays.
+  const out = normalizeSchema({ tables: JSON.stringify({ classes: { access: "display", columns: ["title"] } }) });
+  assert.equal(out.tables.length, 1, "a stringified map was dropped");
+  assert.equal(out.tables[0].name, "classes");
+});
+
+test("a string that is not JSON still yields nothing, and does not throw", () => {
+  // The honest answer. Recovering only what is really recoverable is what keeps
+  // this from papering over an answer that is genuinely broken — and it runs on
+  // model output, so throwing here would take the whole build down rather than
+  // reporting a bad schema.
+  for (const junk of ["classes and bookings", "", "{", "null", "12"]) {
+    let out;
+    assert.doesNotThrow(() => { out = normalizeSchema({ tables: junk }); }, "threw on " + JSON.stringify(junk));
+    assert.equal(out.tables.length, 0, "junk string produced tables: " + JSON.stringify(junk));
+  }
+});

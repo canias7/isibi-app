@@ -183,6 +183,32 @@ try {
     return want.length > 0 && want.every((n) => (d.seeded || {})[n] > 0);
   })(), "seeded=" + JSON.stringify(d.seeded || {}) + " schema=" + JSON.stringify(d.schema || []));
   console.log("   seeded:", JSON.stringify(d.seeded || {}));
+  // WHICH OF THE TWO SEEDED IT — the designer, or the net that catches it when
+  // it does not. The assertion above passes either way, and until now the run
+  // could not tell them apart: `seedTopUp` has been on the response since the
+  // net was built (2026-08-12) and was printed by nothing, so the one thing
+  // standing between a skipped `seed` and a café with a permanently empty menu
+  // had never been observed doing its job.
+  //
+  // MEASURED, so this is not hypothetical: `schema gen eval` at 5 samples put
+  // the designer's raw miss rate at 3 in 20 — once on a menu, twice on a salon,
+  // where an unseeded `services` table means the booking form's Service field
+  // has zero options and nobody can submit it at all.
+  //
+  // Printed rather than asserted, deliberately. A run where the designer got it
+  // right is the GOOD outcome and has no top-up to show; failing that would
+  // demand the model misbehave to go green. What is asserted is the property
+  // that matters: gaps the net found must be gaps the net filled.
+  if (d.seedTopUp) {
+    console.log("   seed top-up FIRED — designer missed:", JSON.stringify(d.seedTopUp.gaps),
+      "· filled:", JSON.stringify(d.seedTopUp.filled));
+    ok("the seed net filled every gap it found",
+      (d.seedTopUp.gaps || []).every((g) => (d.seedTopUp.filled || []).includes(g)),
+      JSON.stringify(d.seedTopUp));
+  } else {
+    console.log("   seed top-up: not needed — the designer seeded every display table itself");
+  }
+  if (d.seedSkipped) console.log("   seed skipped:", JSON.stringify(d.seedSkipped));
   console.log("   designed:", JSON.stringify(d.tables), "brand:", d.brand);
   console.log("   pages:", JSON.stringify(d.files), "→", d.page, d.buildMs ? "(" + d.buildMs + "ms)" : "");
   if (d.notes) console.log("   notes:", d.notes);

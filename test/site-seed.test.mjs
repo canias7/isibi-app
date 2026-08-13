@@ -292,3 +292,32 @@ test("the seed field states the consequence, not just the requirement", () => {
       + "this assertion can be satisfied from outside the seed field, so the window is decoration");
   }
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// IS THE NET OBSERVABLE? Both ends, because either alone passes while the wire
+// is cut — which is exactly the state this was in until 2026-08-13: the Worker
+// put `seedTopUp` on the response the day the net was built, and nothing ever
+// printed it, so the one thing standing between a skipped `seed` and a café
+// with a permanently empty menu had never been seen doing its job.
+
+test("the build response carries whether the seed net fired", () => {
+  const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  // The COMPUTATION and the RESPONSE are asserted apart. The first existed with
+  // the second missing once already, one field over, and a check that only sees
+  // the assignment reads as coverage while the caller learns nothing.
+  assert.match(worker, /seedTopUp\s*=\s*\{\s*gaps:/,
+    "nothing computes which tables the designer missed");
+  assert.match(worker, /seedTopUp:\s*seedTopUp\s*\|\|\s*undefined/,
+    "the build response does not carry seedTopUp — the net fires invisibly");
+});
+
+test("build smoke reads it, and separates the two ways a site gets seeded", () => {
+  const smoke = fs.readFileSync(new URL("./integration/build-smoke.mjs", import.meta.url), "utf8");
+  assert.match(smoke, /d\.seedTopUp/, "the smoke run never looks at seedTopUp");
+  // Both branches, not just the interesting one. Reporting only when the net
+  // fires leaves "the designer got it right" and "nobody looked" identical in
+  // the log — the same absence-reads-as-success shape as the render check
+  // reporting clean while its browser was missing.
+  assert.match(smoke, /top-up FIRED/, "a fired net is not called out");
+  assert.match(smoke, /not needed/, "a run where the designer seeded correctly says nothing at all");
+});

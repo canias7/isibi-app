@@ -80,6 +80,14 @@ export function emptyReason(input, called, stopReason, outTokens) {
   if (!called) return "the model never called the tool at all" + tail;
   if (!input || typeof input !== "object") return "the tool was called with no input object" + tail;
   if (!("tables" in input)) return "`tables` was MISSING — a required field the model skipped" + tail;
+  // A STRING that parses is now recovered by `normalizeSchema`, so reaching
+  // here with one means it did NOT parse — and those are different problems.
+  // Recovered: the model serialised a good answer, nothing is lost, and this
+  // function is never reached. Unparseable: the answer really is broken.
+  // Saying "not a list" for both would describe a fixed bug as a live one.
+  if (typeof input.tables === "string") {
+    return "`tables` was a string that is NOT valid JSON — a stringified list would have been recovered" + tail;
+  }
   if (!Array.isArray(input.tables)) return "`tables` came back as " + typeof input.tables + ", not a list" + tail;
   if (!input.tables.length) return "the model sent `tables: []` — it answered 'none' deliberately" + tail;
   return "";
