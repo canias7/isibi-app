@@ -123,7 +123,7 @@ async function readSchemaTool() {
   return { tool, system };
 }
 
-import { SCENARIOS, CHECKS, ALWAYS } from "./schema-checks.mjs";
+import { SCENARIOS, CHECKS, ALWAYS, emptyReason } from "./schema-checks.mjs";
 
 
 async function designOnce({ tool, system }, brief) {
@@ -150,6 +150,21 @@ async function designOnce({ tool, system }, brief) {
   const u = body.usage || {};
   return {
     input: call ? call.input : null,
+    // WHY AN ANSWER WAS EMPTY, kept rather than discarded.
+    //
+    // "no tables" had exactly one wording for four different failures — no tool
+    // call, a call with no `tables` key, a call with an empty one, and a reply
+    // cut off mid-sentence — so a real result could not be diagnosed without
+    // paying for another run. That is the `validatePages` lesson (2026-08-10),
+    // which separated the same four one layer over and put the output-token
+    // count on the message; this harness never got it.
+    //
+    // `stop_reason` is the one that cannot be inferred afterwards: "max_tokens"
+    // means WE cut the model off and the fix is ours, while "tool_use" means it
+    // finished and meant it. Those need opposite responses and look identical in
+    // a summary line.
+    called: !!call,
+    stopReason: String(body.stop_reason || "unknown"),
     usage: {
       in: u.input_tokens || 0, out: u.output_tokens || 0,
       cacheRead: u.cache_read_input_tokens || 0, cacheWrite: u.cache_creation_input_tokens || 0,
@@ -171,10 +186,19 @@ for (const sc of SCENARIOS) {
   for (let n = 1; n <= SAMPLES; n++) {
     const row = { key: sc.key, n, ok: false, checks: [], error: "" };
     try {
-      const { input, usage } = await designOnce(loaded, sc.brief);
+      const { input, usage, called, stopReason } = await designOnce(loaded, sc.brief);
       reachedModel = true;
       for (const k of ["in", "out", "cacheRead", "cacheWrite"]) totals[k] += usage[k];
-      if (!input) { row.error = "the model called the tool with nothing in it"; rows.push(row); continue; }
+      row.why = emptyReason(input, called, stopReason, usage.out);
+      if (!input) {
+        // The old wording here was "the model called the tool with nothing in
+        // it" — said of a reply where the tool was never called at all, which
+        // sends the reader looking for the wrong thing.
+        row.error = row.why;
+        rows.push(row);
+        console.log("  !! " + (sc.key + " " + n).padEnd(16) + row.error);
+        continue;
+      }
       const spec = normalizeSchema(input);
       for (const name of [...sc.expect, ...ALWAYS]) {
         const res = CHECKS[name](input, spec);
@@ -191,6 +215,9 @@ for (const sc of SCENARIOS) {
     console.log("  " + mark + " " + (sc.key + " " + n).padEnd(16)
       + (row.error || row.checks.map((c) => (c.ok === false ? "✗" : c.ok === null ? "–" : "✓") + c.name).join(" ")));
     for (const c of row.checks) if (c.ok === false) console.log("        " + c.name + ": " + c.why);
+    // The DIAGNOSIS, printed only when there is one — a clean run's output is
+    // byte-identical to before. `row.why` is empty whenever tables came back.
+    if (row.why) console.log("        why: " + row.why);
     if (row.tables) console.log("        " + row.family + " · " + row.tables.join("  "));
   }
 }
@@ -234,8 +261,12 @@ const md = [
   "",
   "## Samples",
   "",
+  // THE DIAGNOSIS TRAVELS INTO THE COMMITTED REPORT, not only the job log. A
+  // job log is gone in 90 days and nobody re-reads one; this file is the series
+  // somebody opens in a month asking "was this always broken?".
   ...rows.map((r) => "- **" + r.key + " " + r.n + "** — " + (r.error ? "ERROR " + r.error
-    : (r.ok ? "clean" : r.checks.filter((c) => c.ok === false).map((c) => c.name + " (" + c.why + ")").join("; ")))),
+    : (r.ok ? "clean" : r.checks.filter((c) => c.ok === false).map((c) => c.name + " (" + c.why + ")").join("; ")))
+    + (r.why && !r.error ? "\n  - why: " + r.why : "")),
   "",
 ].join("\n");
 

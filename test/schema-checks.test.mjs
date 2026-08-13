@@ -12,7 +12,7 @@
 // designer eval that can be verified today.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { CHECKS, SCENARIOS, ALWAYS } from "./integration/schema-checks.mjs";
+import { CHECKS, SCENARIOS, ALWAYS, emptyReason } from "./integration/schema-checks.mjs";
 import { normalizeSchema } from "../site-schema.mjs";
 
 /** An answer, scored the way the harness scores one: through the normaliser. */
@@ -141,4 +141,53 @@ test("the scenarios cover the failures that have actually shipped", () => {
   assert.ok(has("slotGuarded"), "no scenario checks the slot — two customers took the same 14:00");
   assert.ok(has("browsable"), "no scenario checks a browsable table — the marketplace shipped as a placeholder");
   assert.ok(has("capacityFn"), "no scenario checks capacity — the change made 2026-08-12 would go unmeasured");
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WHY an answer was empty. Added 2026-08-13 after a real failure could not be
+// diagnosed: the yoga sample reported "no tables" and that one sentence covered
+// four different causes with four different fixes.
+
+test("every way an answer can be empty gets its OWN sentence", () => {
+  const out = 1411;
+  const said = [
+    emptyReason(null, false, "end_turn", out),                   // never called
+    emptyReason({}, true, "tool_use", out),                      // no tables key
+    emptyReason({ tables: [] }, true, "tool_use", out),          // deliberate none
+    emptyReason({ tables: "nope" }, true, "tool_use", out),      // wrong type
+    emptyReason({}, true, "max_tokens", out),                    // cut off
+  ];
+  for (const s of said) assert.ok(s, "an empty answer must always say something");
+  assert.equal(new Set(said).size, said.length,
+    "two different causes share a sentence — which is the bug this replaces:\n" + said.join("\n"));
+});
+
+test("a truncated reply is named as OURS, ahead of the symptoms it causes", () => {
+  // A cut-off reply is ALSO missing its tool call and its `tables` key, so the
+  // order decides whether the report names the cause or a symptom. Getting this
+  // backwards sends somebody hunting the model for a budget bug of ours.
+  const cut = emptyReason(null, false, "max_tokens", 8000);
+  assert.match(cut, /CUT OFF at max_tokens/, "truncation must be reported ahead of the missing tool call");
+  assert.doesNotMatch(cut, /never called the tool/, "it named the symptom instead of the cause");
+});
+
+test("the output-token count is on every sentence", () => {
+  // The one number that separates "the model said almost nothing" from "it
+  // wrote a whole schema and we dropped it". Asserted on each branch, because
+  // it is exactly the branch somebody adds later that forgets it.
+  for (const [input, called, stop] of [
+    [null, false, "end_turn"], [{}, true, "tool_use"], [{ tables: [] }, true, "tool_use"],
+    [{ tables: 3 }, true, "tool_use"], [null, false, "max_tokens"],
+  ]) {
+    const s = emptyReason(input, called, stop, 42);
+    assert.match(s, /out=42 tok/, "no token count on: " + s);
+    assert.match(s, /stop=/, "no stop reason on: " + s);
+  }
+});
+
+test("an answer that really has tables says NOTHING", () => {
+  // Or every clean run grows a diagnosis line about a failure that did not
+  // happen — the `salvage: { reason: … }` mistake, which reads in a report as a
+  // build that nearly broke.
+  assert.equal(emptyReason({ tables: [{ name: "classes" }] }, true, "tool_use", 900), "");
 });

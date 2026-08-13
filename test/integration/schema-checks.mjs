@@ -49,6 +49,43 @@ export const SCENARIOS = [
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
+/**
+ * WHICH of the ways an answer can be useless was this one?
+ *
+ * FOUR OUTCOMES WORE ONE SENTENCE — "no tables" — and they need opposite fixes.
+ * Measured 2026-08-13: the yoga-studio sample failed, the report said "no
+ * tables", and the cause could not be established without paying for another
+ * run. That is the `validatePages` lesson (2026-08-10) — where an absent list,
+ * an empty one, a list of empty pages and a tool call that never happened all
+ * printed one line — and this harness never got it.
+ *
+ * `stop_reason` is the one that CANNOT be worked out afterwards: `max_tokens`
+ * means WE cut the model off and the budget is ours to fix, while `tool_use`
+ * means it finished and meant what it said. Opposite responses, identical
+ * summary line.
+ *
+ * The output-token count rides on every message, because it is the single
+ * number separating "the model said almost nothing" from "it wrote a whole
+ * schema and we dropped it".
+ *
+ * Returns "" when the answer really did carry tables — so a clean run's output
+ * is unchanged.
+ */
+export function emptyReason(input, called, stopReason, outTokens) {
+  const tail = " [stop=" + stopReason + ", out=" + outTokens + " tok]";
+  // FIRST, because a truncated reply can also be missing its tool call and its
+  // `tables` key — reporting either of those would name a symptom and hide the
+  // cause, which is ours.
+  if (stopReason === "max_tokens") return "the reply was CUT OFF at max_tokens — ours, not the model's" + tail;
+  if (!called) return "the model never called the tool at all" + tail;
+  if (!input || typeof input !== "object") return "the tool was called with no input object" + tail;
+  if (!("tables" in input)) return "`tables` was MISSING — a required field the model skipped" + tail;
+  if (!Array.isArray(input.tables)) return "`tables` came back as " + typeof input.tables + ", not a list" + tail;
+  if (!input.tables.length) return "the model sent `tables: []` — it answered 'none' deliberately" + tail;
+  return "";
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // THE CHECKS. Each is a property that is true or false, never a judgement.
 export const CHECKS = {
   seeded(out, spec) {
