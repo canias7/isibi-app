@@ -606,6 +606,87 @@ function Home() {
   ok("a colour-only change leaves the theme's corners alone",
     /border-radius/.test(baseCss), "the theme's corner rules vanished on a build that never asked");
 
+  // ── THE REST OF THE LOOK ─────────────────────────────────────────────────
+  //
+  // The twelve axes that are not colours, and the reason they cannot be a token
+  // patch: three of them emit ordinary CSS RULES rather than custom properties,
+  // and a rule cannot be overridden by writing `:root { --x: y }` after it. The
+  // patch merges into the THEME OBJECT instead, so the emitters generate it —
+  // which is a fact about the compiled bundle, not about the module.
+  //
+  // Everything here is measured against `broadsheet`, whose own answers are
+  // buttons:sharp icon:fine density:tight. The patch names the opposites, so
+  // nothing below can pass on a build where the patch did nothing.
+  console.log("\nbuilding with a style patch…");
+  const styled = await post({
+    files: { "index.tsx": INDEX, "menu.tsx": MENU },
+    slug: "fold-coffee", theme: "broadsheet",
+    style: { buttons: "pill", icon: "heavy", density: "airy" },
+  });
+  ok("a build with a style patch succeeds", styled.ok === true, JSON.stringify(styled).slice(0, 200));
+  {
+    const css = Object.entries(styled.files || {})
+      .filter(([k]) => k.endsWith(".css")).map(([, v]) => v.t || "").join("\n");
+    // THE RULE AXIS IS THE ONE THAT MATTERS. `.lucide { stroke-width }` is not a
+    // custom property, so its presence here is the whole argument for merging
+    // into the theme rather than patching after it.
+    ok("the bundled CSS carries a RULE the patch asked for",
+      /stroke-width\s*:\s*2\.5/.test(css), css.slice(0, 200));
+    ok("…and the theme's own answer for it is gone",
+      !/stroke-width\s*:\s*1\.25/.test(css) && /stroke-width\s*:\s*1\.25/.test(baseCss),
+      "the theme's own icon weight survived the override, or the control build never had it");
+    // And a custom-property axis, minified either way by lightningcss — the
+    // `#ffcc00` → `#fc0` trap one section up, in its leading-zero form.
+    ok("…and a custom PROPERTY the patch asked for",
+      /--spacing:\s*0?\.29rem/.test(css), css.slice(0, 200));
+  }
+
+  // THE ONE PLACE TWO PATCHES COLLIDE, and it was a live bug before this: the
+  // radius strip is a regex and cannot tell a theme's hard-set button radius
+  // from the one the customer just asked for, so "rounder corners AND pill
+  // buttons" got the first and silently lost the second.
+  //
+  // MEASURED AGAINST THE RADIUS-ONLY BUILD ABOVE rather than against a pattern.
+  // `9999px` can legitimately come from Tailwind's own `rounded-full` if a page
+  // happens to use it, which would make a bare match vacuous; the same build
+  // with and without the axis is coupled to nothing in the fixtures.
+  console.log("\nbuilding with a radius AND a corner axis…");
+  const collide = await post({
+    files: { "index.tsx": INDEX, "menu.tsx": MENU },
+    slug: "fold-coffee", theme: "broadsheet",
+    tokens: { radius: "1.5rem" }, style: { buttons: "pill" },
+  });
+  ok("a build asking for both succeeds", collide.ok === true, JSON.stringify(collide).slice(0, 200));
+  {
+    const css = Object.entries(collide.files || {})
+      .filter(([k]) => k.endsWith(".css")).map(([, v]) => v.t || "").join("\n");
+    const rounderCss = Object.entries(rounder.files || {})
+      .filter(([k]) => k.endsWith(".css")).map(([, v]) => v.t || "").join("\n");
+    const pills = (t) => (t.match(/9999px/g) || []).length;
+    ok("the radius still applied", /--radius:\s*1\.5rem/.test(css), css.slice(0, 200));
+    ok("AND the customer's own pill survived the strip",
+      pills(css) > pills(rounderCss),
+      `${pills(css)} with the axis, ${pills(rounderCss)} without — the strip ate it`);
+  }
+
+  // A patch that cannot be used must not fail a build that otherwise worked —
+  // and must not reach the stylesheet, which is the same discipline the colour
+  // parser follows for the same reason: this goes into CSS.
+  const badStyle = await post({
+    files: { "index.tsx": INDEX, "menu.tsx": MENU },
+    slug: "fold-coffee", theme: "broadsheet",
+    style: { buttons: "0; } body { display: none", nope: "pill", icon: ["heavy"] },
+  });
+  ok("an unusable style patch falls back instead of failing the build", badStyle.ok === true,
+    JSON.stringify(badStyle).slice(0, 200));
+  {
+    const css = Object.entries(badStyle.files || {})
+      .filter(([k]) => k.endsWith(".css")).map(([, v]) => v.t || "").join("\n");
+    ok("and nothing it contained reaches the stylesheet",
+      !/body\s*\{[^}]*display\s*:\s*none/.test(css) && /stroke-width\s*:\s*1\.25/.test(css),
+      "either the injection landed or the theme's own icon weight was replaced by junk");
+  }
+
   // A patch that cannot be used must not fail a build that otherwise worked.
   const badToken = await post({
     files: { "index.tsx": INDEX, "menu.tsx": MENU },
