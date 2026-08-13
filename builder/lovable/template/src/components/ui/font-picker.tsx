@@ -1,3 +1,4 @@
+import * as React from "react";
 import { cn } from "@/lib/utils";
 /**
  * Choose a typeface, shown IN ITSELF.
@@ -44,21 +45,56 @@ export const BUNDLED_FONTS = [
   { value: "JetBrains Mono", label: "JetBrains Mono", stack: '"JetBrains Mono Variable", monospace' },
   { value: "Geist Mono", label: "Geist Mono", stack: '"Geist Mono Variable", monospace' },
 ];
+/**
+ * ROVING TABINDEX, the same model `roving-list` documents.
+ *
+ * This is the one picker here with no text box above it, so it owns focus
+ * itself rather than announcing an active option to somebody typing. Every row
+ * used to be a `<button>` inside its `role="option"` — which ARIA forbids, and
+ * which made a list of 24 typefaces into 24 tab stops on the way to whatever
+ * comes after it.
+ *
+ * One row is `tabIndex=0` and the rest are `-1`; arrows move the zero and MOVE
+ * FOCUS with it. Setting tabIndex alone changes only what Tab would reach next
+ * and leaves the browser's focus where it was, so the arrow key appears to do
+ * nothing — the bug every hand-rolled version of this has.
+ */
 export function FontPicker({ value, onChange, families = BUNDLED_FONTS, sample = "The quick brown fox", className }: {
   value?: string | null; onChange: (v: string) => void;
   families?: { value: string; label: string; stack: string }[];
   sample?: string; className?: string;
 }) {
+  const refs = React.useRef<(HTMLLIElement | null)[]>([]);
+  const chosen = families.findIndex((f) => f.value === value);
+  // The chosen row is where the keyboard starts, so arrowing from a list you
+  // have already picked from continues from the choice rather than the top.
+  const [active, setActive] = React.useState(chosen < 0 ? 0 : chosen);
+  if (!families.length) return null;
+  const last = families.length - 1;
+  const at = Math.min(Math.max(active, 0), last);
+  const move = (i: number) => { setActive(i); refs.current[i]?.focus(); };
+
   return (
-    <ul className={cn("max-h-72 overflow-y-auto rounded-md border border-border", className)} role="listbox">
-      {families.map((f) => (
-        <li key={f.value} role="option" aria-selected={f.value === value}>
-          <button type="button" onClick={() => onChange(f.value)}
-            className={cn("flex w-full cursor-pointer flex-col items-start gap-0.5 border-b border-border px-3 py-2 text-left last:border-0",
-              f.value === value ? "bg-muted" : "hover:bg-muted/50")}>
-            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{f.label}</span>
-            <span className="text-lg leading-tight" style={{ fontFamily: f.stack }}>{sample}</span>
-          </button>
+    <ul className={cn("max-h-72 overflow-y-auto rounded-md border border-border", className)} role="listbox"
+      onKeyDown={(e) => {
+        if (e.key === "ArrowDown") { e.preventDefault(); move(at === last ? 0 : at + 1); }
+        else if (e.key === "ArrowUp") { e.preventDefault(); move(at === 0 ? last : at - 1); }
+        else if (e.key === "Home") { e.preventDefault(); move(0); }
+        else if (e.key === "End") { e.preventDefault(); move(last); }
+        else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onChange(families[at].value); }
+      }}>
+      {families.map((f, i) => (
+        <li key={f.value}
+          ref={(el) => { refs.current[i] = el; }}
+          role="option" aria-selected={f.value === value}
+          tabIndex={i === at ? 0 : -1}
+          onClick={() => { setActive(i); onChange(f.value); }}
+          onFocus={() => setActive(i)}
+          className={cn("flex cursor-pointer flex-col items-start gap-0.5 border-b border-border px-3 py-2 text-left outline-none last:border-0",
+            "focus-visible:ring-2 focus-visible:ring-ring/40",
+            f.value === value ? "bg-muted" : "hover:bg-muted/50")}>
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{f.label}</span>
+          <span className="text-lg leading-tight" style={{ fontFamily: f.stack }}>{sample}</span>
         </li>
       ))}
     </ul>

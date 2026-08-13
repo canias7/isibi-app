@@ -54,14 +54,17 @@ export function SearchSelect({ value, onChange, options, placeholder = "Choose�
           className="absolute z-30 mt-1 max-h-56 w-full overflow-y-auto rounded-md border border-border bg-popover py-1 shadow-md">
           {shown.length === 0 && <li className="px-3 py-2 text-sm text-muted-foreground">{empty}</li>}
           {shown.map((o, i) => (
-            <li key={o.value} id={`${id ?? "ss"}-${i}`} role="option" aria-selected={o.value === value}>
-              <button type="button" onMouseDown={(e) => { e.preventDefault(); onChange(o.value); setOpen(false); }}
-                className={cn("flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left text-sm",
-                  i === active ? "bg-muted" : "hover:bg-muted/60")}>
-                <Check className={cn("size-4 shrink-0", o.value === value ? "opacity-100" : "opacity-0")} />
-                <span className="min-w-0 flex-1 truncate"><HighlightMatch text={o.label} query={q} /></span>
-                {o.hint && <span className="shrink-0 text-xs text-muted-foreground">{o.hint}</span>}
-              </button>
+            // The option IS the clickable element. This one already had the
+            // whole keyboard model on the input above — arrows move `active`,
+            // `aria-activedescendant` announces it, Enter chooses it — so the
+            // nested button was surplus that only ever added a tab stop.
+            <li key={o.value} id={`${id ?? "ss"}-${i}`} role="option" aria-selected={o.value === value}
+              onMouseDown={(e) => { e.preventDefault(); onChange(o.value); setOpen(false); }}
+              className={cn("flex cursor-pointer items-center gap-2 px-3 py-1.5 text-left text-sm",
+                i === active ? "bg-muted" : "hover:bg-muted/60")}>
+              <Check className={cn("size-4 shrink-0", o.value === value ? "opacity-100" : "opacity-0")} />
+              <span className="min-w-0 flex-1 truncate"><HighlightMatch text={o.label} query={q} /></span>
+              {o.hint && <span className="shrink-0 text-xs text-muted-foreground">{o.hint}</span>}
             </li>
           ))}
         </ul>

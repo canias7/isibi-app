@@ -2760,25 +2760,103 @@ function jsxTags(src) {
   return out;
 }
 
-/** Interactive content nested inside a `<button>` — which HTML's content model
- *  forbids outright, in either direction it can be written. */
-function interactiveInsideAButton(sources) {
-  const IS_BUTTON = (t) => t.name === "button" || (t.name === "Button" && !/\basChild\b/.test(t.attrs));
-  const INTERACTIVE = (t) =>
-    /^(button|a|input|select|textarea)$/.test(t.name) || IS_BUTTON(t) ||
-    /role="(button|link|checkbox|switch|tab|option|menuitem|radio)"/.test(t.attrs);
+const IS_BUTTON = (t) => t.name === "button" || (t.name === "Button" && !/\basChild\b/.test(t.attrs));
+const IS_OPTION = (t) => /role="option"/.test(t.attrs);
+const INTERACTIVE = (t) =>
+  /^(button|a|input|select|textarea)$/.test(t.name) || IS_BUTTON(t) ||
+  /role="(button|link|checkbox|switch|tab|option|menuitem|radio)"/.test(t.attrs);
+
+/** Interactive content nested inside some container it may not be in. */
+function interactiveInside(sources, isContainer) {
   const out = [];
   for (const [f, src] of sources) {
     const stack = [];
     for (const t of jsxTags(src)) {
       if (t.close) { for (let k = stack.length - 1; k >= 0; k--) if (stack[k].name === t.name) { stack.length = k; break; } continue; }
-      const outer = stack.find(IS_BUTTON);
+      const outer = stack.find(isContainer);
       if (outer && INTERACTIVE(t)) out.push(`${f}:${t.line}  <${t.name}> inside the <${outer.name}> on line ${outer.line}`);
       if (!t.self) stack.push(t);
     }
   }
   return out;
 }
+const interactiveInsideAButton = (sources) => interactiveInside(sources, IS_BUTTON);
+
+test("nothing focusable is nested inside a role=\"option\"", () => {
+  // An option is CHOSEN THROUGH THE THING THAT OWNS FOCUS — a combobox input
+  // announcing it with `aria-activedescendant`, or the listbox itself under a
+  // roving tabindex. A focusable control inside one is not allowed, and the
+  // practical cost is that Tab walks through the whole popup instead of leaving
+  // the field: eight components wrapped every option in a `<button>`, so a
+  // 24-typeface list was 24 tab stops.
+  //
+  // Their own `onMouseDown` + `preventDefault` said the buttons were never
+  // meant to take focus — it exists to stop focus leaving the input — so they
+  // were tabbable purely by accident.
+  const offenders = interactiveInside(UI_SOURCES, IS_OPTION);
+  assert.deepEqual(offenders, [], "focusable content inside an option:\n  " + offenders.join("\n  "));
+});
+
+/**
+ * A listbox that handles its OWN arrow keys, and how its options can be reached.
+ *
+ * Two correct answers and no third: roving tabindex, where one option is
+ * `tabIndex={0}` and arrows move the zero; or `aria-activedescendant`, where
+ * focus stays on an input and the active option is named by id. A listbox with
+ * neither is operable by mouse only.
+ *
+ * Scoped to files that own their keys, because most of these listboxes are
+ * driven by a caller's input and correctly have no keyboard model of their own.
+ */
+function listboxesWithNoWayIn(sources) {
+  const out = [];
+  for (const [f, src] of sources) {
+    if (!/role="listbox"/.test(src)) continue;
+    if (!/onKeyDown/.test(src) || !/ArrowDown/.test(src)) continue;
+    if (/aria-activedescendant/.test(src)) continue;
+    // A roving tab stop: some option's tabIndex expression can produce 0.
+    const roving = jsxTags(src).some((t) => /role="option"/.test(t.attrs) && /tabIndex=\{[^}]*\b0\b/.test(t.attrs));
+    if (!roving) out.push(f);
+  }
+  return out;
+}
+
+test("a listbox that owns its arrow keys can be reached by a keyboard", () => {
+  // `font-picker` is why this exists. Converting its options from nested
+  // `<button>`s to real `role="option"` rows is right, and doing it without a
+  // roving tab stop would have left a list nothing can focus at all — mouse
+  // only, silently, with every other check in this repo still green. A mutation
+  // setting every row to `tabIndex={-1}` survived the whole suite until this.
+  const offenders = listboxesWithNoWayIn(UI_SOURCES);
+  assert.deepEqual(offenders, [], "these listboxes handle arrow keys and nothing can focus them:\n  " + offenders.join("\n  "));
+  // And the scan must still SEE the self-driving listboxes, or it is passing
+  // because its filter stopped matching anything.
+  const owning = UI_SOURCES.filter(([, s]) => /role="listbox"/.test(s) && /ArrowDown/.test(s));
+  assert.ok(owning.length >= 2, "only " + owning.length + " listboxes own their keys — the scan filtered everything out");
+});
+
+test("…and that reachability scan can see a listbox with no way in", () => {
+  const roving = `<ul role="listbox" onKeyDown={(e) => { if (e.key === "ArrowDown") move(1); }}>
+      <li role="option" tabIndex={i === at ? 0 : -1}>a</li></ul>`;
+  assert.deepEqual(listboxesWithNoWayIn([["ok.tsx", roving]]), [], "a roving tab stop is flagged, which is the correct pattern");
+  assert.deepEqual(listboxesWithNoWayIn([["bad.tsx", roving.replace("i === at ? 0 : -1", "-1")]]), ["bad.tsx"],
+    "a listbox whose every option is tabIndex={-1} is not seen");
+  const activedesc = `<input aria-activedescendant={id} onKeyDown={(e) => { if (e.key === "ArrowDown") next(); }} />
+      <ul role="listbox"><li role="option">a</li></ul>`;
+  assert.deepEqual(listboxesWithNoWayIn([["ok2.tsx", activedesc]]), [], "aria-activedescendant is flagged, which is the other correct pattern");
+});
+
+test("…and that option scan can see one, and does not flag the option itself", () => {
+  const found = interactiveInside([["fixture.tsx", `
+    <ul role="listbox">
+      <li role="option"><button type="button">nope</button></li>
+      <li role="option" tabIndex={0} onClick={pick}><span>fine — the option IS the control</span></li>
+      <li role="option"><a href="/x">also nope</a></li>
+    </ul>`]], IS_OPTION);
+  assert.equal(found.length, 2, "the scan saw " + found.length + " of the 2: " + found.join(" | "));
+  assert.ok(found.some((h) => h.includes("<button>")) && found.some((h) => h.includes("<a>")),
+    "the scan misses one of the two shapes: " + found.join(" | "));
+});
 
 test("nothing interactive is nested inside a button", () => {
   // `<button>`'s content model forbids interactive content, and the kit broke it

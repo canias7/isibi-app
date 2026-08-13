@@ -30,14 +30,16 @@ export function SlashMenu({ items, query = "", activeIndex = 0, onPick, classNam
     <ul role="listbox" aria-label="Insert"
       className={cn("max-h-64 overflow-y-auto rounded-md border border-border bg-popover py-1 shadow-md", className)}>
       {shown.map((it, i) => (
-        <li key={it.key} role="option" aria-selected={i === activeIndex}>
-          <button type="button" onMouseDown={(e) => { e.preventDefault(); onPick(it); }}
-            className={cn("flex w-full cursor-pointer items-center gap-2.5 px-3 py-1.5 text-left",
-              i === activeIndex ? "bg-muted" : "hover:bg-muted/60")}>
-            {it.icon && <span className="shrink-0 text-muted-foreground">{it.icon}</span>}
-            <span className="min-w-0 flex-1 truncate text-sm">{it.label}</span>
-            {it.hint && <span className="shrink-0 text-xs text-muted-foreground">{it.hint}</span>}
-          </button>
+        // The option IS the clickable element — see the note in
+        // `search-suggestions`. Focus stays in the editor, which is the whole
+        // point of a slash menu.
+        <li key={it.key} role="option" aria-selected={i === activeIndex}
+          onMouseDown={(e) => { e.preventDefault(); onPick(it); }}
+          className={cn("flex cursor-pointer items-center gap-2.5 px-3 py-1.5 text-left",
+            i === activeIndex ? "bg-muted" : "hover:bg-muted/60")}>
+          {it.icon && <span className="shrink-0 text-muted-foreground">{it.icon}</span>}
+          <span className="min-w-0 flex-1 truncate text-sm">{it.label}</span>
+          {it.hint && <span className="shrink-0 text-xs text-muted-foreground">{it.hint}</span>}
         </li>
       ))}
     </ul>
