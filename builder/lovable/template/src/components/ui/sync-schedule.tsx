@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { NativeSelect } from "@/components/ui/native-select";
 import { cn } from "@/lib/utils";
 /**
@@ -31,10 +32,15 @@ export function SyncSchedule({ options, value, onChange, nextRun, lastRun, runni
   running?: boolean;
   className?: string;
 }) {
+  // Unique per INSTANCE. These ids were literals, so a page rendering
+  // this component twice — two contact forms, one in a list — gave every
+  // field a duplicate id, and a `<label for>` then focuses the FIRST
+  // match. The second form's labels pointed at the first form's inputs.
+  const uid = useId();
   return (
     <div className={cn("space-y-1", className)}>
-      <label htmlFor="sync-freq" className="block text-sm font-medium">How often</label>
-      <NativeSelect id="sync-freq" value={value} className="w-auto" onChange={(e) => onChange(e.target.value)}>
+      <label htmlFor={uid + "-sync-freq"} className="block text-sm font-medium">How often</label>
+      <NativeSelect id={uid + "-sync-freq"} value={value} className="w-auto" onChange={(e) => onChange(e.target.value)}>
         <option value="">Only when I press the button</option>
         {options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
       </NativeSelect>

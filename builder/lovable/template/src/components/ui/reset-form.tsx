@@ -22,7 +22,7 @@ export function ResetForm({ onSubmit, busy, sent, backHref, className }: {
   return (
     <form className={className} onSubmit={(e) => { e.preventDefault(); onSubmit(email); }}>
       <div className="flex flex-col gap-4">
-        <FormRow label="Email" htmlFor="rs-email" hint="We'll send a link to set a new password.">
+        <FormRow label="Email" hint="We'll send a link to set a new password.">
           <EmailInput id="rs-email" value={email} onChange={setEmail} />
         </FormRow>
         <BusyButton type="submit" busy={busy} busyLabel="Sending…" className="w-full">Send reset link</BusyButton>

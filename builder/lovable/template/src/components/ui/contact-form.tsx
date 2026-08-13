@@ -33,20 +33,20 @@ export function ContactForm({ onSubmit, busy, error, sent, askPhone, className }
   return (
     <form className={cn("space-y-4", className)}
       onSubmit={(e) => { e.preventDefault(); onSubmit({ ...v, phone: askPhone ? v.phone : undefined }); }}>
-      <FormRow label="Your name" htmlFor="cf-name" required>
-        <Input id="cf-name" required autoComplete="name" value={v.name} onChange={set("name")} />
+      <FormRow label="Your name" required>
+        <Input required autoComplete="name" value={v.name} onChange={set("name")} />
       </FormRow>
-      <FormRow label="Email" htmlFor="cf-email" required>
-        <Input id="cf-email" type="email" required inputMode="email" autoComplete="email"
+      <FormRow label="Email" required>
+        <Input type="email" required inputMode="email" autoComplete="email"
           value={v.email} onChange={set("email")} />
       </FormRow>
       {askPhone && (
-        <FormRow label="Phone" htmlFor="cf-phone">
-          <Input id="cf-phone" type="tel" inputMode="tel" autoComplete="tel" value={v.phone} onChange={set("phone")} />
+        <FormRow label="Phone">
+          <Input type="tel" inputMode="tel" autoComplete="tel" value={v.phone} onChange={set("phone")} />
         </FormRow>
       )}
-      <FormRow label="Message" htmlFor="cf-message" required>
-        <Textarea id="cf-message" required rows={5} value={v.message} onChange={set("message")} />
+      <FormRow label="Message" required>
+        <Textarea required rows={5} value={v.message} onChange={set("message")} />
       </FormRow>
       <Honeypot />
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}

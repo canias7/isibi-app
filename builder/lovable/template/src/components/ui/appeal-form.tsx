@@ -30,6 +30,11 @@ export function AppealForm({ what, rule, decidedAt, reviewDays = 7, appealedAt, 
   onSubmit: (text: string) => void;
   className?: string;
 }) {
+  // Unique per INSTANCE. These ids were literals, so a page rendering
+  // this component twice — two contact forms, one in a list — gave every
+  // field a duplicate id, and a `<label for>` then focuses the FIRST
+  // match. The second form's labels pointed at the first form's inputs.
+  const uid = React.useId();
   const [text, setText] = React.useState("");
   const MAX = 1000;
 
@@ -50,8 +55,8 @@ export function AppealForm({ what, rule, decidedAt, reviewDays = 7, appealedAt, 
         </p>
       ) : (
         <form className="flex flex-col gap-2" onSubmit={(e) => { e.preventDefault(); if (text.trim()) onSubmit(text.trim()); }}>
-          <label className="text-xs text-muted-foreground" htmlFor="appeal-why">Why should this be reconsidered?</label>
-          <textarea id="appeal-why" value={text} onChange={(e) => setText(e.target.value.slice(0, MAX))}
+          <label className="text-xs text-muted-foreground" htmlFor={uid + "-appeal-why"}>Why should this be reconsidered?</label>
+          <textarea id={uid + "-appeal-why"} value={text} onChange={(e) => setText(e.target.value.slice(0, MAX))}
             rows={4}
             className="w-full resize-y rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring" />
           {MAX - text.length < 100 ? (

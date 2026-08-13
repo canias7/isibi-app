@@ -22,6 +22,11 @@ export function AiFeedback({ onRate, onComment, rated, className }: {
   rated?: "up" | "down" | null;
   className?: string;
 }) {
+  // Unique per INSTANCE. These ids were literals, so a page rendering
+  // this component twice — two contact forms, one in a list — gave every
+  // field a duplicate id, and a `<label for>` then focuses the FIRST
+  // match. The second form's labels pointed at the first form's inputs.
+  const uid = React.useId();
   const [local, setLocal] = React.useState<"up" | "down" | null>(rated ?? null);
   const [text, setText] = React.useState("");
   const [sent, setSent] = React.useState(false);
@@ -46,8 +51,8 @@ export function AiFeedback({ onRate, onComment, rated, className }: {
       </div>
       {state === "down" && onComment && (
         <div className="flex flex-col gap-1">
-          <label htmlFor="aif" className="text-xs text-muted-foreground">What was wrong with it?</label>
-          <textarea id="aif" rows={2} value={text} onChange={(e) => setText(e.target.value)}
+          <label htmlFor={uid + "-aif"} className="text-xs text-muted-foreground">What was wrong with it?</label>
+          <textarea id={uid + "-aif"} rows={2} value={text} onChange={(e) => setText(e.target.value)}
             className="rounded-md border border-input bg-transparent px-2 py-1 text-sm" />
           <button type="button" onClick={() => { onComment(text.trim()); setSent(true); }}
             className="w-fit cursor-pointer text-xs underline underline-offset-2">Send</button>

@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { NativeSelect } from "@/components/ui/native-select";
 import { cn } from "@/lib/utils";
 /**
@@ -31,19 +32,24 @@ export function UsageAlertRule({ metrics, metric, onMetricChange, threshold, onT
   thresholds?: number[];
   className?: string;
 }) {
+  // Unique per INSTANCE. These ids were literals, so a page rendering
+  // this component twice — two contact forms, one in a list — gave every
+  // field a duplicate id, and a `<label for>` then focuses the FIRST
+  // match. The second form's labels pointed at the first form's inputs.
+  const uid = useId();
   return (
     <div className={cn("space-y-2", className)}>
       <div className="flex flex-wrap items-end gap-2">
         <span className="space-y-1">
-          <label htmlFor="uar-metric" className="block text-sm font-medium">Tell me when</label>
-          <NativeSelect id="uar-metric" value={metric} className="h-9 w-auto text-sm"
+          <label htmlFor={uid + "-uar-metric"} className="block text-sm font-medium">Tell me when</label>
+          <NativeSelect id={uid + "-uar-metric"} value={metric} className="h-9 w-auto text-sm"
             onChange={(e) => onMetricChange(e.target.value)}>
             {metrics.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
           </NativeSelect>
         </span>
         <span className="space-y-1">
-          <label htmlFor="uar-threshold" className="block text-sm font-medium">passes</label>
-          <NativeSelect id="uar-threshold" value={String(threshold)} className="h-9 w-auto text-sm"
+          <label htmlFor={uid + "-uar-threshold"} className="block text-sm font-medium">passes</label>
+          <NativeSelect id={uid + "-uar-threshold"} value={String(threshold)} className="h-9 w-auto text-sm"
             onChange={(e) => onThresholdChange(Number(e.target.value))}>
             {thresholds.map((t) => <option key={t} value={t}>{t}%</option>)}
           </NativeSelect>
@@ -51,8 +57,8 @@ export function UsageAlertRule({ metrics, metric, onMetricChange, threshold, onT
       </div>
       {recipients && onRecipientsChange && (
         <div className="space-y-1">
-          <label htmlFor="uar-to" className="block text-sm font-medium">Send it to</label>
-          <input id="uar-to" value={recipients.join(", ")}
+          <label htmlFor={uid + "-uar-to"} className="block text-sm font-medium">Send it to</label>
+          <input id={uid + "-uar-to"} value={recipients.join(", ")}
             onChange={(e) => onRecipientsChange(e.target.value.split(",").map((s) => s.trim()).filter(Boolean))}
             className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm" />
           <p className="text-xs text-muted-foreground">

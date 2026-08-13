@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState , useId } from "react";
 import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/native-select";
 import { cn } from "@/lib/utils";
@@ -33,6 +33,11 @@ export function EscalateAction({ targets, reasons = [], onEscalate, onCancel, bu
   busy?: boolean;
   className?: string;
 }) {
+  // Unique per INSTANCE. These ids were literals, so a page rendering
+  // this component twice — two contact forms, one in a list — gave every
+  // field a duplicate id, and a `<label for>` then focuses the FIRST
+  // match. The second form's labels pointed at the first form's inputs.
+  const uid = useId();
   const [to, setTo] = useState(targets[0]?.id ?? "");
   const [reason, setReason] = useState("");
   const target = targets.find((t) => t.id === to);
@@ -42,8 +47,8 @@ export function EscalateAction({ targets, reasons = [], onEscalate, onCancel, bu
     <form className={cn("space-y-3", className)}
       onSubmit={(e) => { e.preventDefault(); if (ready) onEscalate({ to, reason: reason.trim() }); }}>
       <div className="space-y-1">
-        <label htmlFor="esc-to" className="block text-sm font-medium">Pass this to</label>
-        <NativeSelect id="esc-to" value={to} onChange={(e) => setTo(e.target.value)}>
+        <label htmlFor={uid + "-esc-to"} className="block text-sm font-medium">Pass this to</label>
+        <NativeSelect id={uid + "-esc-to"} value={to} onChange={(e) => setTo(e.target.value)}>
           {targets.map((t) => (
             <option key={t.id} value={t.id}>
               {t.name}{t.role ? ` — ${t.role}` : ""}{t.available === false ? " (not on shift)" : ""}
@@ -57,7 +62,7 @@ export function EscalateAction({ targets, reasons = [], onEscalate, onCancel, bu
         )}
       </div>
       <div className="space-y-1">
-        <label htmlFor="esc-why" className="block text-sm font-medium">Why are you passing it up?</label>
+        <label htmlFor={uid + "-esc-why"} className="block text-sm font-medium">Why are you passing it up?</label>
         {reasons.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
             {reasons.map((r) => (
@@ -69,7 +74,7 @@ export function EscalateAction({ targets, reasons = [], onEscalate, onCancel, bu
             ))}
           </div>
         )}
-        <textarea id="esc-why" rows={2} required value={reason} onChange={(e) => setReason(e.target.value)}
+        <textarea id={uid + "-esc-why"} rows={2} required value={reason} onChange={(e) => setReason(e.target.value)}
           className="w-full rounded-md border border-input bg-transparent px-2 py-1.5 text-sm" />
       </div>
       <div className="flex gap-2">

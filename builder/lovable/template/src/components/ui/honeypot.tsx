@@ -1,3 +1,4 @@
+import { useId } from "react";
 /**
  * A spam trap. A field a person never sees and a bot fills in.
  *
@@ -15,11 +16,17 @@
  * bot it was caught is how the next one gets past.
  */
 export function Honeypot({ name = "_gotcha" }: { name?: string }) {
+  // THE `name` IS THE CONTRACT AND THE `id` IS NOT. `_gotcha` is what the server
+  // looks for, so it stays fixed — but it was used as the id too, and two forms
+  // on one page then rendered the same id twice, with the first form's label
+  // pointing at both. Two forms on a page is the ordinary case: an enquiry form
+  // and a newsletter sign-up.
+  const uid = useId();
   return (
     <div aria-hidden="true"
       style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap" }}>
-      <label htmlFor={name}>Leave this field empty</label>
-      <input id={name} name={name} type="text" tabIndex={-1} autoComplete="off" defaultValue="" />
+      <label htmlFor={uid}>Leave this field empty</label>
+      <input id={uid} name={name} type="text" tabIndex={-1} autoComplete="off" defaultValue="" />
     </div>
   );
 }

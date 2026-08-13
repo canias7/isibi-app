@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState , useId } from "react";
 import { cn } from "@/lib/utils";
 /**
  * Typing a page number instead of clicking Next forty times.
@@ -26,6 +26,11 @@ export function JumpToPage({ page, pageCount, onJump, label = "Go to page", clas
   label?: string;
   className?: string;
 }) {
+  // Unique per INSTANCE. These ids were literals, so a page rendering
+  // this component twice — two contact forms, one in a list — gave every
+  // field a duplicate id, and a `<label for>` then focuses the FIRST
+  // match. The second form's labels pointed at the first form's inputs.
+  const uid = useId();
   const [draft, setDraft] = useState("");
   if (pageCount <= 1) return null;
   return (
@@ -37,8 +42,8 @@ export function JumpToPage({ page, pageCount, onJump, label = "Go to page", clas
         onJump(Math.min(pageCount, Math.max(1, Math.round(n))));
         setDraft("");
       }}>
-      <label htmlFor="jump-page" className="text-muted-foreground">{label}</label>
-      <input id="jump-page" type="number" inputMode="numeric" min={1} max={pageCount}
+      <label htmlFor={uid + "-jump-page"} className="text-muted-foreground">{label}</label>
+      <input id={uid + "-jump-page"} type="number" inputMode="numeric" min={1} max={pageCount}
         value={draft} placeholder={String(page)} onChange={(e) => setDraft(e.target.value)}
         className="h-8 w-16 rounded-md border border-input bg-transparent px-2 text-sm tabular-nums" />
       <span className="text-muted-foreground">of {pageCount.toLocaleString()}</span>

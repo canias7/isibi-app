@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { NativeSelect } from "@/components/ui/native-select";
 import { cn } from "@/lib/utils";
 /**
@@ -31,21 +32,26 @@ export function BackupSchedule({ frequencies, frequency, onFrequencyChange, rete
   storedWhere?: string;
   className?: string;
 }) {
+  // Unique per INSTANCE. These ids were literals, so a page rendering
+  // this component twice — two contact forms, one in a list — gave every
+  // field a duplicate id, and a `<label for>` then focuses the FIRST
+  // match. The second form's labels pointed at the first form's inputs.
+  const uid = useId();
   const f = frequencies.find((x) => x.id === frequency);
   const r = retentions.find((x) => x.id === retention);
   return (
     <div className={cn("space-y-3", className)}>
       <div className="space-y-1">
-        <label htmlFor="bs-freq" className="block text-sm font-medium">How often</label>
-        <NativeSelect id="bs-freq" value={frequency} className="w-auto"
+        <label htmlFor={uid + "-bs-freq"} className="block text-sm font-medium">How often</label>
+        <NativeSelect id={uid + "-bs-freq"} value={frequency} className="w-auto"
           onChange={(e) => onFrequencyChange(e.target.value)}>
           {frequencies.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
         </NativeSelect>
         {f && <p className="text-xs text-muted-foreground">If something goes wrong you lose {f.loses}.</p>}
       </div>
       <div className="space-y-1">
-        <label htmlFor="bs-ret" className="block text-sm font-medium">Kept for</label>
-        <NativeSelect id="bs-ret" value={retention} className="w-auto"
+        <label htmlFor={uid + "-bs-ret"} className="block text-sm font-medium">Kept for</label>
+        <NativeSelect id={uid + "-bs-ret"} value={retention} className="w-auto"
           onChange={(e) => onRetentionChange(e.target.value)}>
           {retentions.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
         </NativeSelect>

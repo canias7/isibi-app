@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -36,12 +37,17 @@ export function PinVersion({ versions, pinned, onChange, latest, pinnedSince, mi
   onUnpin?: () => void;
   className?: string;
 }) {
+  // Unique per INSTANCE. These ids were literals, so a page rendering
+  // this component twice — two contact forms, one in a list — gave every
+  // field a duplicate id, and a `<label for>` then focuses the FIRST
+  // match. The second form's labels pointed at the first form's inputs.
+  const uid = useId();
   const isPinned = pinned !== "";
   return (
     <div className={cn("space-y-1.5", className)}>
       <div className="space-y-1">
-        <label htmlFor="pin-version" className="block text-sm font-medium">Version</label>
-        <NativeSelect id="pin-version" value={pinned} className="w-auto" onChange={(e) => onChange(e.target.value)}>
+        <label htmlFor={uid + "-pin-version"} className="block text-sm font-medium">Version</label>
+        <NativeSelect id={uid + "-pin-version"} value={pinned} className="w-auto" onChange={(e) => onChange(e.target.value)}>
           <option value="">Always the latest{latest ? ` (now ${latest})` : ""}</option>
           {versions.map((v) => (
             <option key={v.id} value={v.id}>

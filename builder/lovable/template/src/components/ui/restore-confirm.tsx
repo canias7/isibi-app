@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState , useId } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
@@ -37,6 +37,11 @@ export function RestoreConfirm({ fromLabel, confirmText, lost, downtime, onResto
   busy?: boolean;
   className?: string;
 }) {
+  // Unique per INSTANCE. These ids were literals, so a page rendering
+  // this component twice — two contact forms, one in a list — gave every
+  // field a duplicate id, and a `<label for>` then focuses the FIRST
+  // match. The second form's labels pointed at the first form's inputs.
+  const uid = useId();
   const [typed, setTyped] = useState("");
   const [snapshot, setSnapshot] = useState(true);
   const want = confirmText ?? fromLabel;
@@ -60,10 +65,10 @@ export function RestoreConfirm({ fromLabel, confirmText, lost, downtime, onResto
         </span>
       </label>
       <div className="space-y-1">
-        <label htmlFor="rc-confirm" className="block text-sm">
+        <label htmlFor={uid + "-rc-confirm"} className="block text-sm">
           Type <span className="font-medium">{want}</span> to confirm
         </label>
-        <input id="rc-confirm" value={typed} autoComplete="off" onChange={(e) => setTyped(e.target.value)}
+        <input id={uid + "-rc-confirm"} value={typed} autoComplete="off" onChange={(e) => setTyped(e.target.value)}
           className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm" />
       </div>
       <div className="flex gap-2">

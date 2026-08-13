@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState , useId } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 /**
@@ -31,6 +31,11 @@ export function TagRename({ name, usageCount, existingNames = [], onRename, onCa
   busy?: boolean;
   className?: string;
 }) {
+  // Unique per INSTANCE. These ids were literals, so a page rendering
+  // this component twice — two contact forms, one in a list — gave every
+  // field a duplicate id, and a `<label for>` then focuses the FIRST
+  // match. The second form's labels pointed at the first form's inputs.
+  const uid = useId();
   const [next, setNext] = useState(name);
   const trimmed = next.trim();
   const changed = trimmed.length > 0 && trimmed !== name;
@@ -39,8 +44,8 @@ export function TagRename({ name, usageCount, existingNames = [], onRename, onCa
     <form className={cn("space-y-2", className)}
       onSubmit={(e) => { e.preventDefault(); if (changed) onRename(trimmed); }}>
       <div className="space-y-1">
-        <label htmlFor="tag-rename" className="block text-sm font-medium">Rename “{name}”</label>
-        <input id="tag-rename" value={next} autoFocus onFocus={(e) => e.currentTarget.select()}
+        <label htmlFor={uid + "-tag-rename"} className="block text-sm font-medium">Rename “{name}”</label>
+        <input id={uid + "-tag-rename"} value={next} autoFocus onFocus={(e) => e.currentTarget.select()}
           onChange={(e) => setNext(e.target.value)}
           className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm" />
       </div>

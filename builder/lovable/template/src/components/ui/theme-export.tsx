@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/native-select";
 import { cn } from "@/lib/utils";
@@ -33,12 +34,17 @@ export function ThemeExport({ formats, format, onFormatChange, onExport, exclude
   busy?: boolean;
   className?: string;
 }) {
+  // Unique per INSTANCE. These ids were literals, so a page rendering
+  // this component twice — two contact forms, one in a list — gave every
+  // field a duplicate id, and a `<label for>` then focuses the FIRST
+  // match. The second form's labels pointed at the first form's inputs.
+  const uid = useId();
   const chosen = formats.find((f) => f.id === format);
   return (
     <div className={cn("space-y-2", className)}>
       <div className="space-y-1">
-        <label htmlFor="te-format" className="block text-sm font-medium">Format</label>
-        <NativeSelect id="te-format" value={format} className="w-auto"
+        <label htmlFor={uid + "-te-format"} className="block text-sm font-medium">Format</label>
+        <NativeSelect id={uid + "-te-format"} value={format} className="w-auto"
           onChange={(e) => onFormatChange(e.target.value)}>
           {formats.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
         </NativeSelect>

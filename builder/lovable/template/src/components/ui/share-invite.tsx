@@ -39,6 +39,11 @@ export function ShareInvite({
   busy?: boolean;
   className?: string;
 }) {
+  // Unique per INSTANCE. These ids were literals, so a page rendering
+  // this component twice — two contact forms, one in a list — gave every
+  // field a duplicate id, and a `<label for>` then focuses the FIRST
+  // match. The second form's labels pointed at the first form's inputs.
+  const uid = React.useId();
   const [draft, setDraft] = React.useState("");
   const [copied, setCopied] = React.useState(false);
   const roleLabel = roles.find((r) => r.key === role)?.label ?? role;
@@ -78,8 +83,8 @@ export function ShareInvite({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <label htmlFor="share-role" className="sr-only">Role for new people</label>
-        <select id="share-role" value={role} onChange={(e) => onRole(e.target.value)}
+        <label htmlFor={uid + "-share-role"} className="sr-only">Role for new people</label>
+        <select id={uid + "-share-role"} value={role} onChange={(e) => onRole(e.target.value)}
           className="h-8 cursor-pointer rounded-md border border-border bg-background px-2 text-xs">
           {roles.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
         </select>
@@ -93,13 +98,13 @@ export function ShareInvite({
         <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
           <Link2 aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
           {/* The level sits beside the copy button; it is the thing people miss. */}
-          <label htmlFor="share-link" className="sr-only">Who can use the link</label>
+          <label htmlFor={uid + "-share-link"} className="sr-only">Who can use the link</label>
           {/* `?? "off"`: this block renders on `linkUrl` alone, and `linkAccess`
               is its own optional prop — so passing one without the other gave
               the select `value={undefined}`, which React treats as UNCONTROLLED.
               It then warns, ignores the prop for the rest of its life, and the
               dropdown stops reflecting the state it is supposed to show. */}
-          <select id="share-link" value={linkAccess ?? "off"} onChange={(e) => onLinkAccess?.(e.target.value)}
+          <select id={uid + "-share-link"} value={linkAccess ?? "off"} onChange={(e) => onLinkAccess?.(e.target.value)}
             className="h-8 cursor-pointer rounded-md border border-border bg-background px-2 text-xs">
             <option value="off">Only invited people</option>
             {roles.map((r) => (

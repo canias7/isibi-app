@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState , useId } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 /**
@@ -30,6 +30,11 @@ export function ReceiptUpload({ onSubmit, suggested, today, currencySymbol = "£
   busy?: boolean;
   className?: string;
 }) {
+  // Unique per INSTANCE. These ids were literals, so a page rendering
+  // this component twice — two contact forms, one in a list — gave every
+  // field a duplicate id, and a `<label for>` then focuses the FIRST
+  // match. The second form's labels pointed at the first form's inputs.
+  const uid = useId();
   const [file, setFile] = useState<File | null>(null);
   const [amount, setAmount] = useState<number | null>(null);
   const [date, setDate] = useState("");
@@ -40,8 +45,8 @@ export function ReceiptUpload({ onSubmit, suggested, today, currencySymbol = "£
     <form className={cn("space-y-3", className)}
       onSubmit={(e) => { e.preventDefault(); if (ready) onSubmit({ file, amount, date }); }}>
       <div className="space-y-1">
-        <label htmlFor="receipt-file" className="block text-sm font-medium">Photo of the receipt</label>
-        <input id="receipt-file" type="file" accept="image/*,application/pdf" required
+        <label htmlFor={uid + "-receipt-file"} className="block text-sm font-medium">Photo of the receipt</label>
+        <input id={uid + "-receipt-file"} type="file" accept="image/*,application/pdf" required
           onChange={(e) => setFile(e.target.files?.[0] ?? null)}
           className="block w-full text-sm file:mr-3 file:cursor-pointer file:rounded-md file:border file:border-border file:bg-transparent file:px-3 file:py-1.5 file:text-sm" />
       </div>
@@ -65,17 +70,17 @@ export function ReceiptUpload({ onSubmit, suggested, today, currencySymbol = "£
       )}
       <div className="flex flex-wrap gap-3">
         <div className="space-y-1">
-          <label htmlFor="receipt-amount" className="block text-sm font-medium">Amount</label>
+          <label htmlFor={uid + "-receipt-amount"} className="block text-sm font-medium">Amount</label>
           <span className="inline-flex items-center gap-1">
             <span className="text-sm text-muted-foreground">{currencySymbol}</span>
-            <input id="receipt-amount" type="number" inputMode="decimal" step="0.01" min={0} required
+            <input id={uid + "-receipt-amount"} type="number" inputMode="decimal" step="0.01" min={0} required
               value={amount ?? ""} onChange={(e) => setAmount(e.target.value === "" ? null : Number(e.target.value))}
               className="h-9 w-28 rounded-md border border-input bg-transparent px-2 text-sm tabular-nums" />
           </span>
         </div>
         <div className="space-y-1">
-          <label htmlFor="receipt-date" className="block text-sm font-medium">Date on the receipt</label>
-          <input id="receipt-date" type="date" required max={max} value={date}
+          <label htmlFor={uid + "-receipt-date"} className="block text-sm font-medium">Date on the receipt</label>
+          <input id={uid + "-receipt-date"} type="date" required max={max} value={date}
             onChange={(e) => setDate(e.target.value)}
             className="h-9 rounded-md border border-input bg-transparent px-2 text-sm" />
         </div>

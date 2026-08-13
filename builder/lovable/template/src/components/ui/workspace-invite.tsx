@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState , useId } from "react";
 import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/native-select";
 import { cn } from "@/lib/utils";
@@ -35,6 +35,11 @@ export function WorkspaceInvite({ roles, role, onRoleChange, onInvite, seatCost,
   busy?: boolean;
   className?: string;
 }) {
+  // Unique per INSTANCE. These ids were literals, so a page rendering
+  // this component twice — two contact forms, one in a list — gave every
+  // field a duplicate id, and a `<label for>` then focuses the FIRST
+  // match. The second form's labels pointed at the first form's inputs.
+  const uid = useId();
   const [text, setText] = useState("");
   const emails = text.split(/[\n,]/).map((s) => s.trim()).filter(Boolean);
   const outside = workspaceDomain
@@ -45,15 +50,15 @@ export function WorkspaceInvite({ roles, role, onRoleChange, onInvite, seatCost,
     <form className={cn("space-y-3", className)}
       onSubmit={(e) => { e.preventDefault(); if (emails.length) onInvite(emails); }}>
       <div className="space-y-1">
-        <label htmlFor="wi-emails" className="block text-sm font-medium">Email addresses</label>
-        <textarea id="wi-emails" rows={2} value={text} onChange={(e) => setText(e.target.value)}
+        <label htmlFor={uid + "-wi-emails"} className="block text-sm font-medium">Email addresses</label>
+        <textarea id={uid + "-wi-emails"} rows={2} value={text} onChange={(e) => setText(e.target.value)}
           placeholder="ada@example.com, kit@example.com"
           className="w-full rounded-md border border-input bg-transparent px-2 py-1.5 text-sm" />
         <p className="text-xs text-muted-foreground">One per line, or separated by commas.</p>
       </div>
       <div className="space-y-1">
-        <label htmlFor="wi-role" className="block text-sm font-medium">As</label>
-        <NativeSelect id="wi-role" value={role} className="w-auto" onChange={(e) => onRoleChange(e.target.value)}>
+        <label htmlFor={uid + "-wi-role"} className="block text-sm font-medium">As</label>
+        <NativeSelect id={uid + "-wi-role"} value={role} className="w-auto" onChange={(e) => onRoleChange(e.target.value)}>
           {roles.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
         </NativeSelect>
         <p className="text-xs text-muted-foreground">{roles.find((r) => r.id === role)?.can}</p>

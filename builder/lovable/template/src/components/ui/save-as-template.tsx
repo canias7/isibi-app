@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState , useId } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
@@ -30,6 +30,11 @@ export function SaveAsTemplate({ fields = [], onSave, onCancel, busy, className 
   busy?: boolean;
   className?: string;
 }) {
+  // Unique per INSTANCE. These ids were literals, so a page rendering
+  // this component twice — two contact forms, one in a list — gave every
+  // field a duplicate id, and a `<label for>` then focuses the FIRST
+  // match. The second form's labels pointed at the first form's inputs.
+  const uid = useId();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [keep, setKeep] = useState<string[]>([]);
@@ -38,15 +43,15 @@ export function SaveAsTemplate({ fields = [], onSave, onCancel, busy, className 
     <form className={cn("space-y-3", className)}
       onSubmit={(e) => { e.preventDefault(); if (ready) onSave({ name: name.trim(), description: description.trim() || undefined, keep }); }}>
       <div className="space-y-1">
-        <label htmlFor="tpl-name" className="block text-sm font-medium">Template name</label>
-        <input id="tpl-name" required value={name} onChange={(e) => setName(e.target.value)}
+        <label htmlFor={uid + "-tpl-name"} className="block text-sm font-medium">Template name</label>
+        <input id={uid + "-tpl-name"} required value={name} onChange={(e) => setName(e.target.value)}
           className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm" />
       </div>
       <div className="space-y-1">
-        <label htmlFor="tpl-desc" className="block text-sm font-medium">
+        <label htmlFor={uid + "-tpl-desc"} className="block text-sm font-medium">
           What is it for? <span className="font-normal text-muted-foreground">optional</span>
         </label>
-        <input id="tpl-desc" value={description} onChange={(e) => setDescription(e.target.value)}
+        <input id={uid + "-tpl-desc"} value={description} onChange={(e) => setDescription(e.target.value)}
           className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm" />
       </div>
       {fields.length > 0 && (

@@ -2383,6 +2383,36 @@ function floatingPanelsPaintedWithThePageToken(token) {
   return out;
 }
 
+test("no label is tied to a control by a hardcoded id", () => {
+  // An `id` written as a literal is the same id on EVERY instance, so a page
+  // rendering the component twice — an enquiry form and a newsletter sign-up,
+  // billing and delivery addresses, anything inside a `.map()` — gives every
+  // field a duplicate, and `<label for>` resolves to the FIRST match. The second
+  // form's labels then focus the first form's inputs.
+  //
+  // Measured before the fix by rendering `ContactForm` and `ShareInvite` twice
+  // each: 61 literal ids across 39 files, and the render came back with
+  // duplicates. `useId()` is what makes one per instance.
+  //
+  // ONLY THE LABEL-BOUND ONES. `id="main"` on a skip-link target is a page
+  // landmark and is meant to be a fixed name, and `name="_gotcha"` in the
+  // honeypot is a server contract — that one keeps its literal NAME and takes a
+  // generated id, which is the distinction this rule turns on.
+  const kit = path.join(import.meta.dirname, "..", "builder", "lovable", "template", "src", "components", "ui");
+  const literal = [];
+  for (const f of fs.readdirSync(kit).filter((n) => n.endsWith(".tsx"))) {
+    const src = fs.readFileSync(path.join(kit, f), "utf8");
+    for (const m of src.matchAll(/ id="([A-Za-z][A-Za-z0-9_-]*)"/g)) {
+      if (new RegExp('htmlFor="' + m[1].replace(/[-]/g, "\\$&") + '"').test(src)) {
+        literal.push(f + '  id="' + m[1] + '"');
+      }
+    }
+  }
+  assert.deepEqual(literal, [],
+    "these collide when the component is rendered twice on one page — use useId():\n  "
+      + literal.join("\n  "));
+});
+
 test("a date value read on the local clock is parsed with toDate", () => {
   // A bare `YYYY-MM-DD` is UTC midnight by spec, and `getDate()` /
   // `toLocaleDateString()` are local — so west of Greenwich the value is the

@@ -18,11 +18,11 @@ export function SignupForm({ onSubmit, busy, error, terms, loginHref, className 
     <form className={className} onSubmit={(e) => { e.preventDefault(); onSubmit({ name, email, password }); }}>
       <div className="flex flex-col gap-4">
         {error && <InlineAlert tone="error">{error}</InlineAlert>}
-        <FormRow label="Your name" htmlFor="su-name">
-          <Input id="su-name" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} />
+        <FormRow label="Your name">
+          <Input autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} />
         </FormRow>
-        <FormRow label="Email" htmlFor="su-email"><EmailInput id="su-email" value={email} onChange={setEmail} /></FormRow>
-        <FormRow label="Password" htmlFor="su-pw" hint="At least 8 characters.">
+        <FormRow label="Email"><EmailInput id="su-email" value={email} onChange={setEmail} /></FormRow>
+        <FormRow label="Password" hint="At least 8 characters.">
           <PasswordInput id="su-pw" value={password} onChange={setPassword} autoComplete="new-password" />
         </FormRow>
         <BusyButton type="submit" busy={busy} busyLabel="Creating…" className="w-full">Create account</BusyButton>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState , useId } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
@@ -33,6 +33,11 @@ export function Countersign({ signerName, firstSignedBy, statement, onSign, busy
   busy?: boolean;
   className?: string;
 }) {
+  // Unique per INSTANCE. These ids were literals, so a page rendering
+  // this component twice — two contact forms, one in a list — gave every
+  // field a duplicate id, and a `<label for>` then focuses the FIRST
+  // match. The second form's labels pointed at the first form's inputs.
+  const uid = useId();
   const [typed, setTyped] = useState("");
   const [read, setRead] = useState(false);
   const norm = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase();
@@ -49,10 +54,10 @@ export function Countersign({ signerName, firstSignedBy, statement, onSign, busy
         <span>I have read and understood the above.</span>
       </label>
       <div className="space-y-1">
-        <label htmlFor="countersign-name" className="block text-sm font-medium">
+        <label htmlFor={uid + "-countersign-name"} className="block text-sm font-medium">
           Type your full name to sign
         </label>
-        <input id="countersign-name" value={typed} onChange={(e) => setTyped(e.target.value)}
+        <input id={uid + "-countersign-name"} value={typed} onChange={(e) => setTyped(e.target.value)}
           autoComplete="off" placeholder={signerName}
           className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm" />
       </div>

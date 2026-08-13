@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState , useId } from "react";
 import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/native-select";
 import { cn } from "@/lib/utils";
@@ -32,6 +32,11 @@ export function ExportMyData({ parts, formats = ["json", "csv"], onExport, busy,
   estimate?: string;
   className?: string;
 }) {
+  // Unique per INSTANCE. These ids were literals, so a page rendering
+  // this component twice — two contact forms, one in a list — gave every
+  // field a duplicate id, and a `<label for>` then focuses the FIRST
+  // match. The second form's labels pointed at the first form's inputs.
+  const uid = useId();
   const available = parts.filter((p) => !p.unavailable);
   const [picked, setPicked] = useState<string[]>(available.map((p) => p.key));
   const [format, setFormat] = useState(formats[0] ?? "json");
@@ -56,8 +61,8 @@ export function ExportMyData({ parts, formats = ["json", "csv"], onExport, busy,
         ))}
       </fieldset>
       <div className="space-y-1">
-        <label htmlFor="export-format" className="block text-sm font-medium">Format</label>
-        <NativeSelect id="export-format" value={format} className="w-auto"
+        <label htmlFor={uid + "-export-format"} className="block text-sm font-medium">Format</label>
+        <NativeSelect id={uid + "-export-format"} value={format} className="w-auto"
           onChange={(e) => setFormat(e.target.value)}>
           {formats.map((f) => <option key={f} value={f}>{f.toUpperCase()}</option>)}
         </NativeSelect>

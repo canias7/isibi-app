@@ -19,6 +19,11 @@ import { cn } from "@/lib/utils";
 export function FindReplace({ value, onChange, className }: {
   value: string; onChange: (v: string) => void; className?: string;
 }) {
+  // Unique per INSTANCE. These ids were literals, so a page rendering
+  // this component twice — two contact forms, one in a list — gave every
+  // field a duplicate id, and a `<label for>` then focuses the FIRST
+  // match. The second form's labels pointed at the first form's inputs.
+  const uid = React.useId();
   const [find, setFind] = React.useState("");
   const [replace, setReplace] = React.useState("");
   const [matchCase, setMatchCase] = React.useState(false);
@@ -35,8 +40,8 @@ export function FindReplace({ value, onChange, className }: {
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <Checkbox id="fr-case" checked={matchCase} onCheckedChange={(v) => setMatchCase(v === true)} />
-          <Label htmlFor="fr-case" className="text-xs font-normal">Match case</Label>
+          <Checkbox id={uid + "-fr-case"} checked={matchCase} onCheckedChange={(v) => setMatchCase(v === true)} />
+          <Label htmlFor={uid + "-fr-case"} className="text-xs font-normal">Match case</Label>
         </div>
         <p className="text-xs tabular-nums text-muted-foreground" aria-live="polite">
           {find ? `${count} ${count === 1 ? "match" : "matches"}` : ""}
