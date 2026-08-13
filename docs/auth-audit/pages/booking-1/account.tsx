@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -30,11 +31,10 @@ type Announcement = Row & { title: string; body: string };
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "A quiet studio for a steady practice.",
+  tagline: "A calm, well-lit studio — five classes a day, every level welcome.",
   links: [
     { label: "Home", href: "/" },
-    { label: "Timetable", href: "/#timetable" },
-    { label: "Studio", href: "/work" },
+    { label: "Book", href: "/book" },
     { label: "Account", href: "/account" },
   ],
   action: { label: "Book now", href: "/book" },
@@ -89,7 +89,7 @@ function Account() {
           <>
             <h1 className="text-3xl font-semibold tracking-tight">Your account</h1>
             <p className="mt-2 text-muted-foreground">
-              Sign in to see studio announcements and keep your own practice notes.
+              Sign in to keep private notes about your practice, and to see studio announcements.
             </p>
 
             <Form {...form}>
@@ -143,8 +143,8 @@ function Account() {
 }
 
 function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) {
+  const notes = useRows<Note>("my_notes");
   const announcements = useRows<Announcement>("announcements");
-  const notes = useRows<Note>("my_notes", { order: "id", dir: "desc" });
   const create = useCreateRow<Note>("my_notes");
   const remove = useDeleteRow("my_notes");
 
@@ -177,18 +177,18 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
           <CardTitle className="text-base">Studio announcements</CardTitle>
         </CardHeader>
         <CardContent>
-          {announcements.isPending && <Skeleton className="h-20 rounded-lg" />}
+          {announcements.isPending && <Skeleton className="h-16 rounded-lg" />}
           {announcements.isError && (
             <p className="text-sm text-destructive">Couldn't load announcements. Refresh and try again.</p>
           )}
           {announcements.data?.length === 0 && (
-            <Empty title="Nothing posted yet" description="Studio news will show up here." />
+            <Empty title="Nothing posted yet" description="The studio hasn't shared any announcements." />
           )}
           {!!announcements.data?.length && (
-            <ul className="grid gap-3 motion-stagger">
+            <ul className="grid gap-4 motion-stagger">
               {announcements.data.map((a) => (
-                <li key={a.id} className="rounded-lg border border-border p-3">
-                  <p className="text-sm font-medium">{a.title}</p>
+                <li key={a.id} className="border-b border-border pb-3 last:border-0 last:pb-0">
+                  <p className="font-medium">{a.title}</p>
                   <p className="mt-1 text-sm text-muted-foreground">{a.body}</p>
                 </li>
               ))}
@@ -199,40 +199,25 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
 
       <Card className="mt-6">
         <CardHeader>
-          <CardTitle className="text-base">Your practice notes</CardTitle>
+          <CardTitle className="text-base">Your notes</CardTitle>
         </CardHeader>
         <CardContent>
-          {notes.isPending && (
-            <div className="grid gap-2">
-              <Skeleton className="h-16 rounded-lg" />
-              <Skeleton className="h-16 rounded-lg" />
-            </div>
-          )}
+          {notes.isPending && <Skeleton className="h-16 rounded-lg" />}
           {notes.isError && (
             <p className="text-sm text-destructive">Couldn't load your notes. Refresh and try again.</p>
           )}
           {notes.data?.length === 0 && (
-            <Empty title="No notes yet" description="Jot down how a class felt, or what to work on next time." />
+            <Empty title="No notes yet" description="Keep track of poses to work on, or how a class felt." />
           )}
           {!!notes.data?.length && (
-            <ul className="grid gap-3 motion-stagger">
+            <ul className="grid gap-4 motion-stagger">
               {notes.data.map((n) => (
-                <li key={n.id} className="flex items-start justify-between gap-3 rounded-lg border border-border p-3">
+                <li key={n.id} className="flex items-start justify-between gap-4 border-b border-border pb-3 last:border-0 last:pb-0">
                   <div>
-                    <p className="text-sm font-medium">{n.title}</p>
+                    <p className="font-medium">{n.title}</p>
                     <p className="mt-1 text-sm text-muted-foreground">{n.body}</p>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={remove.isPending}
-                    onClick={() =>
-                      remove.mutate(n.id, {
-                        onSuccess: () => toast.success("Note deleted"),
-                        onError: (e: Error) => toast.error(e.message),
-                      })
-                    }
-                  >
+                  <Button variant="ghost" size="sm" onClick={() => remove.mutate(n.id)}>
                     Delete
                   </Button>
                 </li>
@@ -241,7 +226,7 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
           )}
 
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="mt-5 grid gap-3 border-t border-border pt-5">
+            <form onSubmit={form.handleSubmit(onSubmit)} className="mt-6 grid gap-3 border-t border-border pt-6">
               <FormField
                 control={form.control}
                 name="title"
@@ -270,7 +255,7 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
               />
               <div>
                 <Button type="submit" className="motion-press" disabled={create.isPending}>
-                  {create.isPending ? "Saving…" : "Add note"}
+                  {create.isPending ? "Saving…" : "Save note"}
                 </Button>
               </div>
             </form>

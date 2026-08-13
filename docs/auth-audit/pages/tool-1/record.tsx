@@ -1,14 +1,22 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { useMember, useRows, useUpdateRow, useDeleteRow, type Row } from "@/lib/rows";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { SiteChrome } from "@/components/ui/site-chrome";
 import { RecordHeader } from "@/components/ui/record-header";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { ActivityFeed } from "@/components/ui/activity-feed";
+import { ActivityFeed, type Activity } from "@/components/ui/activity-feed";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 export const Route = createFileRoute("/record")({
   component: RecordPage,
@@ -17,7 +25,7 @@ export const Route = createFileRoute("/record")({
   }),
 });
 
-type Deal = Row & { title: string; value: string | null; stage: string | null };
+type Deal = Row & { title: string; value: string | null; stage: string | null; created_at: string; updated_at?: string };
 
 const STAGES = ["New", "Qualifying", "Proposal", "Negotiation", "Won", "Lost"];
 
@@ -28,201 +36,156 @@ function stageState(stage: string | null): "success" | "warning" | "danger" | "n
   return "neutral";
 }
 
+const CHROME = {
+  name: "Halyard",
+  tagline: "The team's deals and accounts, in one place.",
+};
+
 function RecordPage() {
-  const member = useMember();
   const { id } = Route.useSearch();
+  const member = useMember();
+  const navigate = useNavigate();
   const deals = useRows<Deal>("deals");
   const update = useUpdateRow<Deal>("deals");
   const remove = useDeleteRow("deals");
-  const [editing, setEditing] = useState(false);
+
+  const deal = deals.data?.find((d) => String(d.id) === id);
+
   const [title, setTitle] = useState("");
   const [value, setValue] = useState("");
+  const [stage, setStage] = useState("New");
 
-  if (member.isPending) {
+  useEffect(() => {
+    if (deal) {
+      setTitle(deal.title);
+      setValue(deal.value ?? "");
+      setStage(deal.stage ?? "New");
+    }
+  }, [deal?.id]);
+
+  if (member.isPending || deals.isPending) {
     return (
-      <div className="p-10">
-        <Skeleton className="h-64 rounded-xl" />
-      </div>
+      <SiteChrome {...CHROME}>
+        <div className="p-10"><Skeleton className="h-64 rounded-xl" /></div>
+      </SiteChrome>
     );
   }
 
   if (!member.data) {
     return (
-      <div className="mx-auto max-w-md px-6 py-24 text-center">
-        <h1 className="text-2xl font-semibold tracking-tight">Sign in required</h1>
-        <p className="mt-3 text-muted-foreground">Sign in to see this record.</p>
-        <Button asChild className="mt-6">
-          <Link to="/">Go to sign in</Link>
-        </Button>
-      </div>
-    );
-  }
-
-  if (!id) {
-    return (
-      <div className="mx-auto max-w-md px-6 py-24 text-center">
-        <h1 className="text-2xl font-semibold tracking-tight">No record chosen</h1>
-        <p className="mt-3 text-muted-foreground">Open a deal from the records list.</p>
-        <Button asChild className="mt-6">
-          <Link to="/records">Back to records</Link>
-        </Button>
-      </div>
-    );
-  }
-
-  if (deals.isPending) {
-    return (
-      <div className="p-10">
-        <Skeleton className="h-64 rounded-xl" />
-      </div>
+      <SiteChrome {...CHROME}>
+        <div className="mx-auto max-w-md px-6 py-24 text-center">
+          <h1 className="text-2xl font-semibold tracking-tight">Sign in to see this record</h1>
+          <p className="mt-3 text-muted-foreground">Deals are only visible to signed-in team members.</p>
+          <Button className="mt-6" onClick={() => navigate({ to: "/" })}>Go to sign in</Button>
+        </div>
+      </SiteChrome>
     );
   }
 
   if (deals.isError) {
     return (
-      <div className="mx-auto max-w-md px-6 py-24 text-center">
-        <p className="text-sm text-destructive">Couldn't load this record. Refresh and try again.</p>
-      </div>
+      <SiteChrome {...CHROME}>
+        <div className="mx-auto max-w-md px-6 py-24 text-center">
+          <p className="text-sm text-destructive">Couldn't load this deal. Refresh and try again.</p>
+        </div>
+      </SiteChrome>
     );
   }
-
-  const deal = deals.data?.find((r) => String(r.id) === id);
 
   if (!deal) {
     return (
-      <div className="mx-auto max-w-md px-6 py-24 text-center">
-        <h1 className="text-2xl font-semibold tracking-tight">Not found</h1>
-        <p className="mt-3 text-muted-foreground">
-          That record doesn't exist, or isn't one your team can see.
-        </p>
-        <Button asChild className="mt-6">
-          <Link to="/records">Back to records</Link>
-        </Button>
-      </div>
+      <SiteChrome {...CHROME}>
+        <div className="mx-auto max-w-md px-6 py-24 text-center">
+          <h1 className="text-2xl font-semibold tracking-tight">Deal not found</h1>
+          <p className="mt-3 text-muted-foreground">It may have been removed.</p>
+          <Button className="mt-6" asChild>
+            <Link to="/records">Back to records</Link>
+          </Button>
+        </div>
+      </SiteChrome>
     );
   }
 
-  const startEdit = () => {
-    setTitle(deal.title);
-    setValue(deal.value ?? "");
-    setEditing(true);
-  };
+  const activity: Activity[] = [
+    { who: "Team", what: "created this deal", at: deal.created_at },
+    ...(deal.updated_at && deal.updated_at !== deal.created_at
+      ? [{ who: "Team", what: "updated this deal", at: deal.updated_at }]
+      : []),
+  ];
 
-  const saveEdit = () => {
+  const onSave = () => {
     update.mutate(
-      { id: deal.id, title, value },
+      { id: deal.id, title, value, stage },
       {
-        onSuccess: () => {
-          toast.success("Saved");
-          setEditing(false);
-        },
-        onError: (e: Error) => toast.error(e.message),
-      },
-    );
-  };
-
-  const setStage = (stage: string) => {
-    update.mutate(
-      { id: deal.id, stage },
-      {
-        onSuccess: () => toast.success("Stage updated"),
-        onError: (e: Error) => toast.error(e.message),
+        onSuccess: () => toast.success("Saved"),
+        onError: (e) => toast.error(e.message),
       },
     );
   };
 
   const onDelete = () => {
     remove.mutate(deal.id, {
-      onSuccess: () => toast.success("Deleted"),
-      onError: (e: Error) => toast.error(e.message),
+      onSuccess: () => {
+        toast.success("Deal removed");
+        navigate({ to: "/records" });
+      },
+      onError: (e) => toast.error(e.message),
     });
   };
 
-  const trail = [
-    {
-      who: "Record",
-      what: "created",
-      at: deal.created_at,
-    },
-    ...(deal.updated_at && deal.updated_at !== deal.created_at
-      ? [{ who: "Record", what: "last updated", at: deal.updated_at }]
-      : []),
-  ];
-
   return (
-    <div className="mx-auto max-w-3xl px-6 py-10">
-      <RecordHeader
-        title={deal.title}
-        subtitle={deal.value ? `Worth ${deal.value}` : undefined}
-        status={<StatusBadge state={stageState(deal.stage)}>{deal.stage ?? "New"}</StatusBadge>}
-        actions={
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={editing ? saveEdit : startEdit} disabled={update.isPending}>
-              {editing ? (update.isPending ? "Saving…" : "Save") : "Edit"}
-            </Button>
-            <Button variant="destructive" onClick={onDelete} disabled={remove.isPending}>
-              {remove.isPending ? "Deleting…" : "Delete"}
-            </Button>
+    <SiteChrome {...CHROME}>
+      <div className="mx-auto max-w-3xl px-6 py-10">
+        <RecordHeader
+          title={deal.title}
+          subtitle={deal.value ?? "No value set"}
+          status={<StatusBadge state={stageState(deal.stage)}>{deal.stage ?? "New"}</StatusBadge>}
+          actions={
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={onSave} disabled={update.isPending}>
+                {update.isPending ? "Saving…" : "Save"}
+              </Button>
+              <Button variant="destructive" onClick={onDelete} disabled={remove.isPending}>
+                {remove.isPending ? "Removing…" : "Delete"}
+              </Button>
+            </div>
+          }
+        />
+
+        <div className="mt-8 grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-1.5">
+            <label className="text-sm text-muted-foreground">Title</label>
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} />
           </div>
-        }
-      />
-
-      <div className="mt-8 grid gap-6">
-        <div className="rounded-xl border border-border p-5">
-          <h2 className="text-sm font-medium text-muted-foreground">Fields</h2>
-          {editing ? (
-            <div className="mt-4 grid gap-3">
-              <label className="grid gap-1 text-sm">
-                <span className="text-muted-foreground">Title</span>
-                <Input value={title} onChange={(e) => setTitle(e.target.value)} />
-              </label>
-              <label className="grid gap-1 text-sm">
-                <span className="text-muted-foreground">Value</span>
-                <Input value={value} onChange={(e) => setValue(e.target.value)} />
-              </label>
-            </div>
-          ) : (
-            <dl className="mt-4 grid gap-3 text-sm">
-              <div className="flex justify-between">
-                <dt className="text-muted-foreground">Title</dt>
-                <dd>{deal.title}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-muted-foreground">Value</dt>
-                <dd>{deal.value ?? "—"}</dd>
-              </div>
-            </dl>
-          )}
-
-          <div className="mt-5">
-            <span className="text-sm text-muted-foreground">Stage</span>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {STAGES.map((s) => (
-                <button
-                  key={s}
-                  onClick={() => setStage(s)}
-                  className={`motion-press rounded-md px-3 py-1 text-xs ${
-                    deal.stage === s
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted text-muted-foreground"
-                  }`}
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
+          <div className="grid gap-1.5">
+            <label className="text-sm text-muted-foreground">Value</label>
+            <Input value={value} onChange={(e) => setValue(e.target.value)} placeholder="£5,000" />
+          </div>
+          <div className="grid gap-1.5 sm:col-span-2">
+            <label className="text-sm text-muted-foreground">Stage</label>
+            <Select value={stage} onValueChange={setStage}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {STAGES.map((s) => (
+                  <SelectItem key={s} value={s}>{s}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
 
-        <div className="rounded-xl border border-border p-5">
-          <h2 className="text-sm font-medium text-muted-foreground">Activity</h2>
-          <ActivityFeed className="mt-4" items={trail} empty="No activity yet" />
+        <div className="mt-10">
+          <h2 className="text-lg font-semibold tracking-tight">Activity</h2>
+          <ActivityFeed className="mt-4" items={activity} empty="Nothing yet" />
+        </div>
+
+        <div className="mt-8">
+          <Button variant="ghost" asChild>
+            <Link to="/records">Back to records</Link>
+          </Button>
         </div>
       </div>
-
-      <Button asChild variant="ghost" className="mt-6">
-        <Link to="/records">Back to records</Link>
-      </Button>
-    </div>
+    </SiteChrome>
   );
 }

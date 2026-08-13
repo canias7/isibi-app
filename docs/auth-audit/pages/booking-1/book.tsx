@@ -1,42 +1,41 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
-import { useState } from "react";
 
 import { useCreateRow, usePublicRows, type Row } from "@/lib/rows";
-import { SiteChrome } from "@/components/ui/site-chrome";
 import { AvailabilityGrid } from "@/components/ui/availability-grid";
 import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { SiteChrome } from "@/components/ui/site-chrome";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export const Route = createFileRoute("/book")({
   component: Book,
-  validateSearch: (search: Record<string, unknown>): { class?: string } => ({
+  validateSearch: (search: Record<string, unknown>): { class?: string; time?: string } => ({
     class: typeof search.class === "string" ? search.class : undefined,
+    time: typeof search.time === "string" ? search.time : undefined,
   }),
 });
 
-type Booking = Row;
+type Appointment = Row;
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "A quiet studio for a steady practice.",
+  tagline: "A calm, well-lit studio — five classes a day, every level welcome.",
   links: [
     { label: "Home", href: "/" },
-    { label: "Timetable", href: "/#timetable" },
-    { label: "Studio", href: "/work" },
+    { label: "Book", href: "/book" },
     { label: "Account", href: "/account" },
   ],
   action: { label: "Book now", href: "/book" },
 };
 
-const CLASS_NAMES = ["Morning Flow", "Slow & Steady", "Power Hour", "Restorative", "Weekend Flow"];
-
-const SLOTS = ["07:15", "10:00", "18:00", "19:30"];
+const CLASSES = ["Beginners Flow", "Vinyasa", "Restorative", "Hatha", "Candlelit Yin"];
+const SLOTS = ["07:00", "08:15", "09:30", "12:00", "17:30", "18:45", "20:00"];
 
 const booking = z.object({
   class_name: z.string().min(1, "Pick a class"),
@@ -46,31 +45,28 @@ const booking = z.object({
   slot_time: z.string().min(1, "Pick a time"),
 });
 
-type BookingForm = z.infer<typeof booking>;
+type Booking = z.infer<typeof booking>;
 
 function Book() {
-  const { class: preselected } = Route.useSearch();
-  const create = useCreateRow<Booking>("bookings");
+  const { class: preselected, time: preselectedTime } = Route.useSearch();
+  const create = useCreateRow<Appointment>("bookings");
   const [booked, setBooked] = useState(false);
 
-  const form = useForm<BookingForm>({
+  const form = useForm<Booking>({
     resolver: zodResolver(booking),
     defaultValues: {
       class_name: preselected ?? "",
       customer_name: "",
       customer_email: "",
       slot_date: "",
-      slot_time: "",
+      slot_time: preselectedTime ?? "",
     },
   });
 
   const slot_date = form.watch("slot_date");
-  const taken = usePublicRows<{ slot_date: string; slot_time: string }>(
-    "bookings",
-    slot_date ? { slot_date } : undefined,
-  );
+  const taken = usePublicRows<{ slot_date: string; slot_time: string }>("bookings", slot_date ? { slot_date } : undefined);
 
-  const onSubmit = (values: BookingForm) => {
+  const onSubmit = (values: Booking) => {
     create.mutate(values, {
       onSuccess: () => {
         toast.success("Booked — see you on the mat.");
@@ -87,10 +83,10 @@ function Book() {
         <div className="mx-auto max-w-lg px-6 py-20 text-center motion-enter">
           <h1 className="text-3xl font-semibold tracking-tight">You're booked</h1>
           <p className="mt-3 text-muted-foreground">
-            We'll email your confirmation shortly. Need to change or cancel it? Check the confirmation email for the link.
+            We've sent a confirmation to your email. See you on the mat.
           </p>
           <Button asChild variant="outline" className="mt-6">
-            <Link to="/">Back to the studio</Link>
+            <Link to="/">Back to Aurora Yoga</Link>
           </Button>
         </div>
       </SiteChrome>
@@ -101,7 +97,7 @@ function Book() {
     <SiteChrome {...CHROME}>
       <div className="mx-auto max-w-2xl px-6 py-14">
         <h1 className="text-3xl font-semibold tracking-tight">Book a class</h1>
-        <p className="mt-2 text-muted-foreground">We'll email your confirmation.</p>
+        <p className="mt-2 text-muted-foreground">We'll email a confirmation right away.</p>
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="mt-8 grid gap-4 sm:grid-cols-2">
@@ -118,10 +114,8 @@ function Book() {
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {CLASS_NAMES.map((c) => (
-                        <SelectItem key={c} value={c}>
-                          {c}
-                        </SelectItem>
+                      {CLASSES.map((c) => (
+                        <SelectItem key={c} value={c}>{c}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -181,7 +175,7 @@ function Book() {
                   <FormControl>
                     <AvailabilityGrid
                       slots={SLOTS}
-                      taken={taken.data?.map((t) => t.slot_time) ?? []}
+                      taken={taken.data?.filter((t) => t.slot_date === slot_date).map((t) => t.slot_time) ?? []}
                       value={field.value}
                       onSelect={field.onChange}
                     />
