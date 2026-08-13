@@ -10,7 +10,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
   VIEWPORTS, BLANK_TEXT_CHARS, MIN_CONTRAST, OVERFLOW_SLACK, MAX_FINDINGS,
-  probe, readPage, renderReport, renderNote, isSerious, SERIOUS,
+  OVERLAY_TRIGGERS, MAX_OPENS, MIN_PANEL_ALPHA,
+  probe, probeOverlay, readPage, readOverlay, renderReport, renderNote, isSerious, SERIOUS,
 } from "../builder/site-render.mjs";
 
 const clean = { route: "/", viewport: "phone", text: 900, images: 2, broken: [], overflow: 0, wide: [], contrast: [], pageErrors: [], consoleErrors: [] };
@@ -99,6 +100,121 @@ test("THE CONTRAST FLOOR IS 3, NOT 4.5 — deliberate muted text must not be fla
   // 3-4.5 band on purpose. Reporting at 4.5 would flag design on every page of
   // every site, which is the false alarm that discredits the whole check.
   assert.equal(MIN_CONTRAST, 3);
+});
+
+// ── overlays: what only a click can see ──────────────────────────────────────
+
+test("a see-through panel is reported, with how opaque it actually is", () => {
+  const f = readOverlay({ opened: true, alpha: 0.35, blurred: false, label: "Menu" });
+  assert.equal(f.kind, "seethrough");
+  assert.match(f.detail, /35%/);
+  assert.match(f.detail, /Menu/);
+});
+
+test("AN OPAQUE PANEL IS FINE, which is nearly every panel on nearly every site", () => {
+  assert.equal(readOverlay({ opened: true, alpha: 1, blurred: false }), null);
+  assert.equal(readOverlay({ opened: true, alpha: MIN_PANEL_ALPHA, blurred: false }), null);
+  // AND A HAIRLINE OF TRANSLUCENCY IS A DESIGN CHOICE, NOT A BUG. Pinned against
+  // the literal rather than against MIN_PANEL_ALPHA: a sweep moved the floor to
+  // 1 and every assertion above still passed, because two of them are written in
+  // terms of the constant being mutated. Only a fixed number discriminates.
+  assert.equal(readOverlay({ opened: true, alpha: 0.95, blurred: false }), null,
+    "a panel at 95% is a taste, and flagging it puts a false alarm on ordinary sites");
+});
+
+test("A DELIBERATELY GLASS PANEL IS EXEMPT — backdrop-blur is what makes it readable", () => {
+  // A glass theme makes every surface translucent on purpose and pairs it with a
+  // blur. Flagging those would report a fault on an entire family of themes
+  // working exactly as designed.
+  assert.equal(readOverlay({ opened: true, alpha: 0.4, blurred: true }), null);
+  assert.ok(readOverlay({ opened: true, alpha: 0.4, blurred: false }), "…and without the blur it is the bug");
+});
+
+test("a trigger that opened NOTHING is not a finding", () => {
+  // Far more often a control this harness could not drive — hover-only, needs
+  // focus first — than a broken button. Reporting it would put a false alarm on
+  // ordinary pages, which is the one thing this check may not do.
+  assert.equal(readOverlay({ opened: false }), null);
+  assert.equal(readOverlay(null), null);
+  assert.equal(readOverlay({}), null);
+  // WITH AN ALPHA ATTACHED, which is what makes this assertion discriminate.
+  // `probeOverlay` returns a bare `{opened:false}` today, so deleting the guard
+  // changed nothing any test could see — it survived a sweep on a technicality.
+  // The guard is about a probe that later reports both; drive that shape.
+  assert.equal(readOverlay({ opened: false, alpha: 0.2, blurred: false }), null,
+    "not opened is not see-through, whatever else came back with it");
+});
+
+test("the same header menu on six pages is reported once per page, not six times per page", () => {
+  const f = readPage({ ...clean, overlays: [
+    { opened: true, alpha: 0.3, blurred: false, label: "Menu" },
+    { opened: true, alpha: 0.3, blurred: false, label: "Menu" },
+  ] });
+  assert.equal(f.filter((x) => x.kind === "seethrough").length, 1);
+});
+
+test("a see-through menu is NOT serious — the page underneath is still readable", () => {
+  assert.equal(isSerious([{ kind: "seethrough" }]), false);
+});
+
+test("…and the customer is TOLD about it, which needs a word of its own", () => {
+  // `renderNote` skips any kind it has no wording for, so a site whose only
+  // fault is a see-through menu would get a silent, empty note — the finding
+  // computed, returned, and never said out loud. Found by a sweep.
+  const note = renderNote(renderReport([{ ...clean, overlays: [{ opened: true, alpha: 0.3, blurred: false, label: "Menu" }] }]));
+  assert.match(note, /see-through/i);
+});
+
+test("the overlay probe closes over nothing either", () => {
+  const src = probeOverlay.toString();
+  for (const name of ["MIN_PANEL_ALPHA", "OVERLAY_TRIGGERS", "MAX_OPENS", "clip"]) {
+    assert.doesNotMatch(src, new RegExp("\\b" + name + "\\b"), "probeOverlay() references " + name + ", which does not exist inside the page");
+  }
+});
+
+test("the triggers are ones the KIT renders, never a guess at the page's own markup", () => {
+  // Clicking arbitrary elements is unbounded and can submit a form or navigate
+  // away. Every selector has to be something Radix stamps on its own triggers.
+  assert.ok(OVERLAY_TRIGGERS.length >= 4);
+  for (const sel of OVERLAY_TRIGGERS) {
+    assert.match(sel, /^\[(data-slot|aria-haspopup)=/, "not a kit-owned trigger: " + sel);
+  }
+});
+
+test("WHICH SELECTORS CAN ACTUALLY FIRE, measured against the kit rather than assumed", () => {
+  // This template's overlays are raw Radix (`const SheetTrigger =
+  // SheetPrimitive.Trigger`), so it renders NO data-slot and the whole check
+  // rides on the two aria-haspopup lines. That is fine and it is written down —
+  // what is not fine is a list where most entries can never match while reading
+  // as though they cover five components. If a kit refresh starts stamping
+  // data-slot, this goes red and the comment in the module needs correcting.
+  const dir = new URL("../builder/lovable/template/src/components/ui/", import.meta.url);
+  const overlays = ["sheet.tsx", "dialog.tsx", "drawer.tsx", "dropdown-menu.tsx", "popover.tsx"];
+  const withSlot = overlays.filter((f) => {
+    try { return /data-slot=/.test(fs.readFileSync(new URL(f, dir), "utf8")); } catch { return false; }
+  });
+  assert.deepEqual(withSlot, [],
+    "the kit now stamps data-slot on " + withSlot.join(", ") + " — the module's comment says it does not");
+  // And the two that DO carry it must still be in the list, or the check is dead.
+  assert.ok(OVERLAY_TRIGGERS.includes('[aria-haspopup="dialog"]'), "the only selector a Sheet or Dialog trigger matches");
+  assert.ok(OVERLAY_TRIGGERS.includes('[aria-haspopup="menu"]'), "the only selector a DropdownMenu trigger matches");
+});
+
+test("the harness clicks, bounds how many, and treats a failure as nothing", () => {
+  const src = fs.readFileSync(new URL("../builder/render-check.mjs", import.meta.url), "utf8");
+  const fn = src.slice(src.indexOf("async function openOverlays"), src.indexOf("Look at every prerendered route"));
+  assert.ok(fn.length > 200, "openOverlays moved — the assertions below would pass vacuously");
+  assert.match(fn, /slice\(0, MAX_OPENS\)/, "unbounded clicking is real time on a clock the customer is watching");
+  assert.match(fn, /force: true/, "a trigger under a sticky header would otherwise time out on an ordinary page");
+  // ANCHORED ON THE CLICK LOOP'S OWN CATCH. `/catch \{/` alone matched the
+  // `page.$$` catch three lines above and a sweep replacing THIS one with a
+  // rethrow survived — a vacuous match on a sibling, which is the failure this
+  // repo keeps recording about its own guards.
+  assert.match(fn, /\} catch \{ \/\* a control we could not drive is not a finding \*\/ \}/,
+    "a control we could not drive must never become a finding, or an undriveable menu fails an ordinary page");
+  // PHONE ONLY, and asserted at the call site rather than inside the function.
+  assert.match(src, /vp\.name === "phone"\) obs\.overlays = await openOverlays/,
+    "doing it at both widths doubles the cost for a panel whose colours do not change with the width");
 });
 
 // ── caps ─────────────────────────────────────────────────────────────────────

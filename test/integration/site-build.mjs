@@ -1094,6 +1094,54 @@ function P() {
     ok("a page that throws only in the browser is caught, which nothing else in the pipeline can see",
       ((boom.render && boom.render.findings) || []).some((f) => f.kind === "threw" || f.kind === "logged"),
       JSON.stringify({ ok: boom.ok, stage: boom.stage, findings: (boom.render && boom.render.findings) || [] }).slice(0, 400));
+
+    // ── AND THE ONE THAT NEEDS A CLICK ───────────────────────────────────────
+    //
+    // The see-through modal shipped on EVERY site and was found by a person
+    // tapping a hamburger on a phone. A static render cannot see it — the panel
+    // does not exist until somebody opens it — so this is the only assertion in
+    // the repo that proves the overlay pass works end to end: a real kit Sheet,
+    // a real click on a real Radix trigger, and the panel measured after it
+    // opens. BOTH DIRECTIONS, because a check that only ever reports is
+    // indistinguishable from one that always reports.
+    const sheetPage = (bg) => `import { createFileRoute } from "@tanstack/react-router";
+import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+export const Route = createFileRoute("/")({ component: P });
+function P() {
+  return (
+    <div className="p-6">
+      <h1 className="text-2xl font-semibold">Sharp Fade Barbers</h1>
+      <p className="mt-2">Open Tuesday to Saturday for cuts, fades and beard trims in Leeds.</p>
+      <Sheet>
+        <SheetTrigger asChild><Button variant="outline" aria-label="Open menu">Menu</Button></SheetTrigger>
+        <SheetContent side="left"${bg}>
+          <SheetTitle>Menu</SheetTitle>
+          <nav className="mt-4 grid gap-2"><span>Home</span><span>Book</span></nav>
+        </SheetContent>
+      </Sheet>
+    </div>
+  );
+}
+`;
+    const glassy = await post({
+      files: { "index.tsx": sheetPage(' style={{ backgroundColor: "rgba(255,255,255,0.35)" }}') },
+      slug: "render-seethrough", title: "Sheet",
+    });
+    const seen = ((glassy.render && glassy.render.findings) || []).filter((f) => f.kind === "seethrough");
+    ok("A SEE-THROUGH MENU IS CAUGHT — which needs a real click, and nothing else in the pipeline clicks",
+      seen.length > 0,
+      JSON.stringify({ ok: glassy.ok, stage: glassy.stage, findings: (glassy.render && glassy.render.findings) || [] }).slice(0, 400));
+    ok("…and it says how see-through it actually is", seen.length > 0 && /\d+% opaque/.test(seen[0].detail),
+      seen.length ? seen[0].detail : "none");
+
+    // The SAME page with the kit's own styling. `sheet.tsx` uses `bg-popover`
+    // specifically because of this bug, so an untouched panel must come back
+    // clean — otherwise the check would flag the fix.
+    const solid = await post({ files: { "index.tsx": sheetPage("") }, slug: "render-solid", title: "Sheet" });
+    ok("…and the kit's own panel, which was FIXED to bg-popover, is reported clean",
+      ((solid.render && solid.render.findings) || []).every((f) => f.kind !== "seethrough"),
+      JSON.stringify((solid.render && solid.render.findings) || []).slice(0, 300));
   }
 
 } catch (e) {

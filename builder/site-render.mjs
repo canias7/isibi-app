@@ -77,6 +77,108 @@ const MAX_DETAIL = 160;
 const clip = (s, n = MAX_DETAIL) => String(s == null ? "" : s).replace(/\s+/g, " ").trim().slice(0, n);
 
 /**
+ * The things a visitor OPENS, and nothing else.
+ *
+ * WHY A LIST AND NOT "CLICK WHAT IS THERE". A generated page is arbitrary
+ * markup; clicking arbitrary elements is unbounded, and a stray click submits a
+ * form or navigates away — the check would be slow AND capable of doing
+ * something. Every selector here is a trigger the KIT renders, whose only job is
+ * to open an overlay, so the blast radius of a click is a panel appearing.
+ *
+ * WHICH OF THESE ACTUALLY FIRES WAS MEASURED, NOT ASSUMED, and only one pair
+ * does. This template's overlays are RAW RADIX primitives — `const SheetTrigger =
+ * SheetPrimitive.Trigger` — so nothing renders a `data-slot`, and the whole
+ * check rides on the two `aria-haspopup` lines. Radix emits those itself, which
+ * is why they work without the kit cooperating.
+ *
+ * The `data-slot` five are kept DELIBERATELY and said so here rather than left
+ * looking load-bearing: newer shadcn stamps them, so a kit refresh is the likely
+ * way this template grows them, and they cost one selector each. `test/
+ * site-render.test.mjs` measures the kit and fails if that stops being the
+ * story — a list where five of seven entries can never match is otherwise
+ * protection that reads real and is not.
+ */
+export const OVERLAY_TRIGGERS = [
+  // These two do all the work today. Proven live: a real Sheet opened by a real
+  // click, measured at 35% opaque — the recorded bug, caught.
+  '[aria-haspopup="dialog"]',
+  '[aria-haspopup="menu"]',
+  // Inert against this template, on purpose. See above.
+  '[data-slot="sheet-trigger"]',
+  '[data-slot="dialog-trigger"]',
+  '[data-slot="drawer-trigger"]',
+  '[data-slot="dropdown-menu-trigger"]',
+  '[data-slot="popover-trigger"]',
+];
+
+/** How many to open per page. A header menu plus a filter dropdown is the
+ *  ordinary case; past three is the same component repeated, and every open
+ *  costs real time on a clock the customer is watching. */
+export const MAX_OPENS = 3;
+
+/** A floating panel below this is see-through.
+ *
+ * 0.9 rather than 1, because a hairline of translucency is a design choice and
+ * only a genuinely transparent panel lets the page's own headings read straight
+ * through it — which is what was measured on a real published site: the page
+ * background token re-emitted at 0.35 alpha under a backdrop theme, on a
+ * component shadcn ships as `bg-background`. */
+export const MIN_PANEL_ALPHA = 0.9;
+
+/**
+ * Measure ONE open overlay. Runs in the page, like `probe`, and closes over
+ * nothing for the same reason.
+ *
+ * THE RULE IS INVERTED FROM THE CONTRAST ONE, deliberately. There a translucent
+ * chain is SKIPPED, because guessing what is behind it produces false alarms on
+ * a glass theme working as intended. Here translucency IS the fault — a modal
+ * exists to cover the page — so the panel's own alpha is the measurement, and a
+ * `backdrop-filter` is the exemption, because that is exactly what makes a
+ * deliberately glass panel readable.
+ */
+export function probeOverlay() {
+  const panel = document.querySelector('[role="dialog"][data-state="open"], [role="menu"][data-state="open"], [data-state="open"][data-slot$="-content"]');
+  if (!panel) return { opened: false };
+  const s = getComputedStyle(panel);
+  const cv = document.createElement("canvas");
+  cv.width = cv.height = 1;
+  const ctx = cv.getContext("2d", { willReadFrequently: true });
+  let alpha = 1;
+  if (ctx) {
+    ctx.clearRect(0, 0, 1, 1);
+    try { ctx.fillStyle = s.backgroundColor; } catch { return { opened: true, alpha: 1 }; }
+    ctx.fillRect(0, 0, 1, 1);
+    alpha = ctx.getImageData(0, 0, 1, 1).data[3] / 255;
+  }
+  const blur = s.backdropFilter || s.webkitBackdropFilter || "none";
+  const r = panel.getBoundingClientRect();
+  return {
+    opened: true,
+    alpha: Math.round(alpha * 100) / 100,
+    blurred: blur !== "none" && blur !== "",
+    width: Math.round(r.width), height: Math.round(r.height),
+    label: String(panel.getAttribute("aria-label") || (panel.textContent || "").replace(/\s+/g, " ").trim().slice(0, 40)),
+  };
+}
+
+/**
+ * What an opened panel says about itself.
+ *
+ * A trigger that opens NOTHING is deliberately not a finding. It is far more
+ * often a control the check could not drive — a hover-only menu, something that
+ * needs focus first — than a broken button, and reporting it would put a false
+ * alarm on ordinary pages, which is the one thing this check may not do.
+ */
+export function readOverlay(o) {
+  const x = o && typeof o === "object" ? o : {};
+  if (!x.opened) return null;
+  if (x.alpha != null && x.alpha < MIN_PANEL_ALPHA && !x.blurred) {
+    return { kind: "seethrough", detail: `an opened panel${x.label ? ` ("${x.label}")` : ""} is ${Math.round(x.alpha * 100)}% opaque — the page reads through it` };
+  }
+  return null;
+}
+
+/**
  * What to measure, run INSIDE the page.
  *
  * Self-contained by necessity: Playwright serialises this and evaluates it in
@@ -236,6 +338,19 @@ export function readPage(obs) {
   for (const c of (Array.isArray(o.contrast) ? o.contrast : []).slice(0, 3)) {
     found.push(at("contrast", `"${c.text}" is ${c.ratio}:1 against what is behind it`));
   }
+
+  // WHAT ONLY A CLICK CAN SEE. Everything above is true of the page as it
+  // loads; a modal is invisible until somebody opens it, which is why the
+  // see-through one shipped on every site and was found by a person tapping a
+  // hamburger. Deduped by detail, because the same header menu appears on every
+  // page of a site and reporting it six times reads as six problems.
+  const said = new Set();
+  for (const ov of (Array.isArray(o.overlays) ? o.overlays : [])) {
+    const f = readOverlay(ov);
+    if (!f || said.has(f.detail)) continue;
+    said.add(f.detail);
+    found.push(at(f.kind, f.detail));
+  }
   return found.slice(0, MAX_PER_PAGE);
 }
 
@@ -278,6 +393,7 @@ const WORD = {
   image: "has an image that did not load",
   overflow: "scrolls sideways",
   contrast: "has text that is nearly invisible",
+  seethrough: "has a see-through menu or dialog",
 };
 
 /**

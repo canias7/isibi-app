@@ -19,7 +19,7 @@
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
-import { VIEWPORTS, probe, renderReport } from "./site-render.mjs";
+import { VIEWPORTS, MAX_OPENS, OVERLAY_TRIGGERS, probe, probeOverlay, renderReport } from "./site-render.mjs";
 
 const MIME = {
   ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css",
@@ -100,6 +100,37 @@ function serveDist(dir) {
 }
 
 /**
+ * Open the overlays this page has, and measure each one.
+ *
+ * NEVER THROWS AND NEVER FAILS THE PAGE. A trigger that will not open, a click
+ * that misses, a panel that never appears — all of them return nothing rather
+ * than a finding, because the alternative is reporting a fault on every page
+ * with a control this harness happens not to be able to drive.
+ *
+ * `force` is deliberate: a trigger under a sticky header is covered at some
+ * scroll positions, and Playwright's actionability check would refuse the click
+ * and turn an ordinary page into a timeout.
+ */
+async function openOverlays(page) {
+  const out = [];
+  let handles = [];
+  try { handles = await page.$$(OVERLAY_TRIGGERS.join(", ")); } catch { return out; }
+  for (const h of handles.slice(0, MAX_OPENS)) {
+    try {
+      await h.click({ timeout: 1500, force: true });
+      await page.waitForTimeout(180);          // the open animation
+      out.push(await page.evaluate(probeOverlay));
+      // Escape, so the next trigger is not behind the panel just opened. If it
+      // does not close, the next measurement simply re-reads the same panel and
+      // `readPage` dedupes it — harmless either way.
+      await page.keyboard.press("Escape").catch(() => {});
+      await page.waitForTimeout(120);
+    } catch { /* a control we could not drive is not a finding */ }
+  }
+  return out;
+}
+
+/**
  * Look at every prerendered route at every width.
  *
  * `routes` is what `prerender()` actually wrote, so this checks the documents a
@@ -143,6 +174,13 @@ export async function checkRender(distDir, routes) {
             await page.waitForTimeout(SETTLE_MS);
             await page.evaluate(() => window.scrollTo(0, 0));
             Object.assign(obs, await page.evaluate(probe));
+            // AND THEN OPEN THINGS, which is the only way to see a modal at all.
+            // Same page, same browser — the static pass has already paid for the
+            // load, so this is a few hundred milliseconds rather than a second
+            // visit. PHONE ONLY: a hamburger sheet is the case, it is where the
+            // bug was found, and doing it twice doubles the cost for a panel
+            // whose colours do not change with the width.
+            if (vp.name === "phone") obs.overlays = await openOverlays(page);
           } catch (e) {
             obs.error = String((e && e.message) || e).slice(0, 200);
           }
