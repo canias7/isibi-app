@@ -60,11 +60,17 @@ jobs:
       - name: Sample the designer
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          # PER SCENARIO, and there are four. Raise it when chasing a
-          # regression: the same failure repeated across samples is what
-          # separates a systematic mismatch from variance, and one sample of
-          # four shapes cannot tell them apart.
-          EVAL_SAMPLES: ${{ github.event.inputs.samples || '1' }}
+          # PER SCENARIO, and there are four. The same failure repeated across
+          # samples is what separates a systematic mismatch from variance, and
+          # one sample of four shapes cannot tell them apart.
+          #
+          # RAISED 1 -> 5 ON 2026-08-13, owner's call, because one sample was
+          # measurably not enough: the capacity brief failed on one run and
+          # passed on the next, and there was no way to tell a coin flip from a
+          # broken feature. 20 samples costs ~0.9 credits — under a penny —
+          # against 0.18 for four, so the price of an answer is nothing and the
+          # price of not having one was a whole exchange of guessing.
+          EVAL_SAMPLES: ${{ github.event.inputs.samples || '5' }}
         run: node test/integration/schema-gen-eval.mjs
 
       - name: Commit the report
