@@ -3495,9 +3495,17 @@ const SITE_SCHEMA_TOOL = {
         // takes a LENGTH and every other name takes a colour; described as
         // "#rrggbb" it would be asked for in hex, refused by the parser, and
         // reported to the customer as a colour we could not use.
+        // AND WHERE A NAME MEANS TWO THINGS, SAY SO. `border` is on both this
+        // list and `style` below — here it is the line's COLOUR, there its
+        // weight — so "make the borders thicker" can land in the wrong slot,
+        // be refused for not being a colour, and come back to the customer as
+        // "ask again with a hex code", which is advice that cannot work.
+        // DERIVED from the overlap rather than naming `border`, so a name that
+        // gains a twin later is disambiguated without anybody remembering.
         properties: Object.fromEntries(SITE_TOKEN_NAMES.map((t) => [t, {
           type: "string",
-          description: siteTokenHint(t),
+          description: siteTokenHint(t)
+            + (SITE_STYLE_AXES.includes(t) ? " — the COLOUR only; for its weight or style use `style." + t + "`" : ""),
         }])),
       },
       // THE REST OF THE LOOK — the twelve decisions a theme makes that are not

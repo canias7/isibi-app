@@ -405,17 +405,40 @@ export function tokensCss(tokens) {
   return "/* site tokens */\n:root {\n" + decls + "\n}\n.dark {\n" + decls + "\n}\n";
 }
 
-/** Plain names for the tokens a customer might have asked about. */
+/**
+ * Plain names for the tokens a customer might have asked about.
+ *
+ * EVERY ONE HAS TO BE DISTINCT FROM `site-style.mjs`'s, and three were not.
+ * The two modules compose two SEPARATE sentences that land in the same note
+ * block, so a build changing the border colour and the border weight printed
+ * "Changed the borders." twice, about two different things. `primary` and
+ * `input` were the same trap one step quieter: "Changed the buttons." beside
+ * "Changed the button shape." reads as one sentence said twice.
+ *
+ * So a colour says it is a colour. Asserted across both modules by a derived
+ * test, because the next name added here has no way of knowing what the other
+ * list already says.
+ */
 const SAID = Object.freeze({
   background: "background", foreground: "text colour",
   card: "cards", popover: "menus",
-  primary: "buttons", secondary: "secondary buttons",
+  primary: "button colour", secondary: "secondary buttons",
   accent: "highlights", muted: "quiet areas",
-  border: "borders", input: "inputs", ring: "focus outlines",
+  border: "border colour", input: "input colour", ring: "focus outlines",
   destructive: "delete buttons",
   success: "success labels", warning: "warning labels",
   radius: "corner roundness",
 });
+
+/**
+ * What a customer calls this token.
+ *
+ * Exported to mirror `site-style.mjs`'s `saidFor`, so the guard that keeps the
+ * two vocabularies apart can read both directly instead of parsing a sentence.
+ */
+export function saidFor(token) {
+  return Object.hasOwn(SAID, token) ? SAID[token] : String(token || "");
+}
 
 /**
  * What was changed, and what was asked for and refused, in one sentence.

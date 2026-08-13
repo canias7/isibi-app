@@ -14,7 +14,7 @@ import {
   styleNote, saidFor, axisHint,
 } from "../builder/site-style.mjs";
 import * as T from "../builder/site-theme.mjs";
-import { stripThemeRadius } from "../builder/site-tokens.mjs";
+import { stripThemeRadius, ASKABLE as TOKEN_NAMES, saidFor as tokenSaid, valueHint } from "../builder/site-tokens.mjs";
 
 const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 const server = fs.readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8");
@@ -198,7 +198,7 @@ test("an axis nobody named re-emits NOTHING", () => {
 test("what changed is said in the customer's words, not ours", () => {
   assert.equal(styleNote({ display: "accent" }, []), "Changed the heading colour.");
   assert.match(styleNote({ buttons: "pill", density: "airy", icon: "heavy" }, []),
-    /button shape, spacing and icon weight/);
+    /button shape, overall spacing and icon weight/);
 });
 
 test("A REFUSED AXIS IS NAMED", () => {
@@ -255,6 +255,42 @@ test("every option carries a label, because the label IS the instruction", () =>
     assert.ok(axisHint(a).includes(optionsFor(a)[0]), a + "'s hint does not name its own first option");
   }
   assert.equal(axisHint("nope"), "", "an unknown axis produced a hint");
+});
+
+test("THE TWO VOCABULARIES CANNOT SAY THE SAME THING", () => {
+  // MEASURED, not hypothetical. `site-tokens.mjs` and this module compose two
+  // SEPARATE sentences that land in the same note block, and both called their
+  // thing "borders" — so a build that changed the border COLOUR and the border
+  // WEIGHT printed "Changed the borders." twice, about two different things.
+  // `primary`/`buttons` and `input`/`inputs` were the same trap one step
+  // quieter. Derived across both, because the next name added to either list
+  // has no way of knowing what the other one already says.
+  const seen = new Map();
+  for (const t of TOKEN_NAMES) seen.set(tokenSaid(t), "token:" + t);
+  for (const a of ASKABLE) {
+    const name = saidFor(a);
+    assert.equal(seen.has(name), false,
+      "`style:" + a + "` and `" + seen.get(name) + "` both say \"" + name + "\" to the customer");
+    seen.set(name, "style:" + a);
+  }
+  assert.ok(seen.size >= TOKEN_NAMES.length + ASKABLE.length, "the scan lost entries");
+});
+
+test("A NAME ON BOTH LISTS SAYS WHICH SLOT IS WHICH", () => {
+  // `border` is a colour here and a weight there. Without a pointer, "make the
+  // borders thicker" can land in the colour slot, be refused for not being a
+  // colour, and come back as "ask again with a hex code like #ffcc00" — advice
+  // that cannot work. Derived, so a name that gains a twin later is covered.
+  const twins = TOKEN_NAMES.filter((t) => ASKABLE.includes(t));
+  assert.ok(twins.length > 0, "no overlap at all — this guard has stopped meaning anything");
+  const at = worker.indexOf("properties: Object.fromEntries(SITE_TOKEN_NAMES.map(");
+  assert.ok(at > 0, "the tokens field moved — retarget this");
+  const block = worker.slice(at, worker.indexOf("},", at));
+  assert.match(block, /SITE_STYLE_AXES\.includes\(t\)/, "the overlap is not derived — or not disambiguated at all");
+  assert.match(block, /style\." \+ t/, "the pointer does not name the other slot");
+  // And the colour half is still described as a colour, or the fix broke the
+  // thing it was bolted onto.
+  for (const t of twins) assert.equal(valueHint(t), "#rrggbb", t + " stopped being described as a colour");
 });
 
 test("THE WORLD AXES ARE DELIBERATELY ABSENT", () => {

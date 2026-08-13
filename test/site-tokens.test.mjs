@@ -529,8 +529,16 @@ test("nothing unparseable can reach the stylesheet", () => {
 
 test("the note names what changed in plain words", () => {
   assert.equal(tokenNote({ background: "#ffcc00" }, []), "Changed the background.");
-  assert.match(tokenNote({ background: "#fff", primary: "#000" }, []), /background and buttons/);
+  assert.match(tokenNote({ background: "#fff", primary: "#000" }, []), /background and button colour/);
   assert.ok(!tokenNote({ primary: "#000" }, []).includes("primary"), "token names are not customer words");
+  // AND IT SAYS COLOUR, because `site-style.mjs` composes a SECOND sentence into
+  // the same note block and its words are about shape and weight. This said
+  // "buttons" and "borders", so a build that moved the border colour and the
+  // border weight printed "Changed the borders." twice about two different
+  // things. The cross-module guard lives in test/site-style.mjs; this pins the
+  // half that made the clash — a colour names itself as one.
+  assert.match(tokenNote({ primary: "#000", border: "#ccc", input: "#eee" }, []),
+    /button colour, border colour and input colour/);
 });
 
 test("a refused colour is NAMED, not swallowed", () => {

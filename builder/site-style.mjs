@@ -58,7 +58,10 @@ import {
  * did not happen.
  *
  * `said` is the only hand-written half, because it is the one thing the engine
- * does not know: what a customer calls this. A theme's own label for `density`
+ * does not know: what a customer calls this. It must also be distinct from
+ * every name `site-tokens.mjs` uses — the two compose SEPARATE sentences into
+ * the same note block, so "borders" on both sides printed the same line twice
+ * about two different things. Asserted by a derived test that reads both. A theme's own label for `density`
  * is "close — more on a screen, a working tool", which is right for somebody
  * choosing a theme and wrong for a sentence that has to say what just changed.
  *
@@ -76,8 +79,8 @@ export const AXES = Object.freeze({
   tracking: { options: TRACKINGS,    said: "letter spacing" },
   leading:  { options: LEADINGS,     said: "line spacing" },
   weight:   { options: WEIGHTS,      said: "font weight" },
-  density:  { options: DENSITIES,    said: "spacing" },
-  border:   { options: BORDERS,      said: "borders" },
+  density:  { options: DENSITIES,    said: "overall spacing" },
+  border:   { options: BORDERS,      said: "border weight" },
   icon:     { options: ICON_STROKES, said: "icon weight" },
   shadow:   { options: SHADOWS,      said: "shadows" },
   buttons:  { options: BUTTONS,      said: "button shape" },
