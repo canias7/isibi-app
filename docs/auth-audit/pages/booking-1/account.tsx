@@ -30,11 +30,11 @@ type Announcement = Row & { title: string; body: string };
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "A quiet studio, a full timetable.",
+  tagline: "A quiet studio for a steady practice.",
   links: [
     { label: "Home", href: "/" },
-    { label: "Book", href: "/book" },
-    { label: "The studio", href: "/work" },
+    { label: "Timetable", href: "/#timetable" },
+    { label: "Studio", href: "/work" },
     { label: "Account", href: "/account" },
   ],
   action: { label: "Book now", href: "/book" },
@@ -89,7 +89,7 @@ function Account() {
           <>
             <h1 className="text-3xl font-semibold tracking-tight">Your account</h1>
             <p className="mt-2 text-muted-foreground">
-              Sign in to keep your own notes and see studio announcements.
+              Sign in to see studio announcements and keep your own practice notes.
             </p>
 
             <Form {...form}>
@@ -143,8 +143,8 @@ function Account() {
 }
 
 function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) {
+  const announcements = useRows<Announcement>("announcements");
   const notes = useRows<Note>("my_notes", { order: "id", dir: "desc" });
-  const announcements = useRows<Announcement>("announcements", { order: "id", dir: "desc" });
   const create = useCreateRow<Note>("my_notes");
   const remove = useDeleteRow("my_notes");
 
@@ -177,12 +177,12 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
           <CardTitle className="text-base">Studio announcements</CardTitle>
         </CardHeader>
         <CardContent>
-          {announcements.isPending && <Skeleton className="h-16 rounded-lg" />}
+          {announcements.isPending && <Skeleton className="h-20 rounded-lg" />}
           {announcements.isError && (
-            <p className="text-sm text-destructive">Couldn't load announcements.</p>
+            <p className="text-sm text-destructive">Couldn't load announcements. Refresh and try again.</p>
           )}
           {announcements.data?.length === 0 && (
-            <Empty title="Nothing posted yet" description="Check back for studio news." />
+            <Empty title="Nothing posted yet" description="Studio news will show up here." />
           )}
           {!!announcements.data?.length && (
             <ul className="grid gap-3 motion-stagger">
@@ -199,13 +199,20 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
 
       <Card className="mt-6">
         <CardHeader>
-          <CardTitle className="text-base">Your notes</CardTitle>
+          <CardTitle className="text-base">Your practice notes</CardTitle>
         </CardHeader>
         <CardContent>
-          {notes.isPending && <Skeleton className="h-24 rounded-lg" />}
-          {notes.isError && <p className="text-sm text-destructive">Couldn't load your notes.</p>}
+          {notes.isPending && (
+            <div className="grid gap-2">
+              <Skeleton className="h-16 rounded-lg" />
+              <Skeleton className="h-16 rounded-lg" />
+            </div>
+          )}
+          {notes.isError && (
+            <p className="text-sm text-destructive">Couldn't load your notes. Refresh and try again.</p>
+          )}
           {notes.data?.length === 0 && (
-            <Empty title="No notes yet" description="Jot down anything you want to remember before your next class." />
+            <Empty title="No notes yet" description="Jot down how a class felt, or what to work on next time." />
           )}
           {!!notes.data?.length && (
             <ul className="grid gap-3 motion-stagger">
@@ -221,12 +228,12 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
                     disabled={remove.isPending}
                     onClick={() =>
                       remove.mutate(n.id, {
-                        onSuccess: () => toast.success("Note removed"),
+                        onSuccess: () => toast.success("Note deleted"),
                         onError: (e: Error) => toast.error(e.message),
                       })
                     }
                   >
-                    Remove
+                    Delete
                   </Button>
                 </li>
               ))}
@@ -234,7 +241,7 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
           )}
 
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="mt-6 grid gap-3">
+            <form onSubmit={form.handleSubmit(onSubmit)} className="mt-5 grid gap-3 border-t border-border pt-5">
               <FormField
                 control={form.control}
                 name="title"

@@ -1,10 +1,12 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
+
 import { useMember, useLogin, useSignup } from "@/lib/rows";
 import { LoginForm } from "@/components/ui/login-form";
 import { SignupForm } from "@/components/ui/signup-form";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { SafeImage } from "@/components/ui/safe-image";
 import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/")({ component: Home });
@@ -27,30 +29,31 @@ function Home() {
         <p className="text-lg font-semibold tracking-tight">Halyard</p>
         <div className="max-w-md py-12">
           <h1 className="text-3xl font-semibold tracking-tight text-balance">
-            One pipeline the whole sales team reads and edits together
+            Every deal your team is working, in one shared table
           </h1>
           <p className="mt-4 text-muted-foreground">
-            Halyard is where the team keeps its deals and accounts — no
-            spreadsheet, no separate inbox. Sign in and the team's work is
-            right there, one table, one record at a time.
+            Halyard is where the team keeps its pipeline — deals move through
+            stages, accounts are shared, and nobody has to ask "where are we
+            with this one" in a channel again.
           </p>
+          <SafeImage className="mt-8" src={null} alt="The team's deals, as a table" ratio="16/10" />
           <ul className="mt-8 space-y-4 text-sm">
             <li className="flex items-start gap-3">
               <StatusBadge state="success">live</StatusBadge>
-              <span>Every deal is shared with the team — nobody's pipeline is a silo</span>
+              <span>Deals the whole team can see, filter and move forward</span>
             </li>
             <li className="flex items-start gap-3">
               <StatusBadge state="success">live</StatusBadge>
-              <span>Accounts are one shared list, built up by whoever adds one</span>
+              <span>A shared list of accounts everyone on the team can read</span>
             </li>
             <li className="flex items-start gap-3">
-              <StatusBadge state="neutral">reference</StatusBadge>
-              <span>The team playbook sits alongside the records, kept up to date centrally</span>
+              <StatusBadge state="neutral">soon</StatusBadge>
+              <span>Playbook guidance surfaced right next to the record</span>
             </li>
           </ul>
         </div>
         <p className="text-xs text-muted-foreground">
-          Internal tool — sign in with your team account to see anything.
+          Internal tool — sign in with the account your manager set you up with.
         </p>
       </section>
 
@@ -59,22 +62,22 @@ function Home() {
           {mode === "login" ? (
             <LoginForm
               busy={login.isPending}
-              error={login.error?.message}
+              signupHref="#"
               onSubmit={(v) =>
                 login.mutate(v, {
                   onSuccess: () => navigate({ to: "/records" }),
-                  onError: (e) => toast.error(e.message),
+                  onError: (e: Error) => toast.error(e.message),
                 })
               }
             />
           ) : (
             <SignupForm
               busy={signup.isPending}
-              error={signup.error?.message}
+              loginHref="#"
               onSubmit={(v) =>
                 signup.mutate(v, {
                   onSuccess: () => navigate({ to: "/records" }),
-                  onError: (e) => toast.error(e.message),
+                  onError: (e: Error) => toast.error(e.message),
                 })
               }
             />
@@ -82,9 +85,9 @@ function Home() {
           <Button
             variant="ghost"
             className="mt-4 w-full"
-            onClick={() => setMode(mode === "login" ? "signup" : "login")}
+            onClick={() => setMode((m) => (m === "login" ? "signup" : "login"))}
           >
-            {mode === "login" ? "New to the team? Create an account" : "Already have an account? Sign in"}
+            {mode === "login" ? "Need an account? Sign up" : "Already have an account? Sign in"}
           </Button>
         </div>
       </section>
