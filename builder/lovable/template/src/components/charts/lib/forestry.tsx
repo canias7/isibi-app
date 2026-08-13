@@ -26,6 +26,13 @@ export function StandDensity({
   height?: number
   className?: string
 }) {
+  // NOTHING TO DRAW IS NOT A CHART OF NOTHING. An empty array made every
+  // scale here degenerate and wrote NaN into an SVG attribute, which the
+  // browser drops — so the chart rendered as a blank box rather than as the
+  // empty state the page around it is showing. `useRows` hands back `[]`
+  // before the query settles and on every site whose owner has added nothing.
+  if (!plots.length) return null
+
   const rows = plots.map((p) => {
     const basalArea = (p.stemsPerHa * Math.PI * (p.meanDbhCm / 200) ** 2)
     // Reineke: SDI = N × (Dq/25)^1.605
@@ -372,6 +379,13 @@ export function HarvestRotation({
   fromYear?: number
   className?: string
 }) {
+  // NOTHING TO DRAW IS NOT A CHART OF NOTHING. An empty array made every
+  // scale here degenerate and wrote NaN into an SVG attribute, which the
+  // browser drops — so the chart rendered as a blank box rather than as the
+  // empty state the page around it is showing. `useRows` hands back `[]`
+  // before the query settles and on every site whose owner has added nothing.
+  if (!compartments.length) return null
+
   const rows0 = compartments.map((c) => c.plantedYear + rotationYears)
   // The window has to cover the fellings it is drawn to show. Anchoring it to the
   // last planting put every felling of a long rotation off the right-hand edge.

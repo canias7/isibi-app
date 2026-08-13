@@ -136,6 +136,15 @@ export function SolarPath({
   const px = (h: number) => (h / 24) * 100
   const py = (a: number) => 100 - ((a + 10) / (maxAlt + 10)) * 100
   const dashes = ["", "4 2", "1 2", "6 2 1 2"]
+  // SEEDED WITH `curves[0]`, WHICH IS UNDEFINED WHEN THERE ARE NO DATES — and
+  // `dates={rows.map(...)}` is `[]` until the query settles, so reading `.name`
+  // off it threw during render and the error boundary took the whole page. The
+  // crash-on-an-empty-array shape, in a sentence rather than in a scale. It
+  // fired only when `obstructionAltitude` was also given, which is why it needed
+  // the pass that fills optionals AND empties arrays.
+  const worst = curves.length
+    ? curves.reduce((a, c) => (c.usableHours < a.usableHours ? c : a))
+    : null
 
   return (
     <div className={className}>
@@ -180,7 +189,7 @@ export function SolarPath({
       <p className="mt-1 text-[10px] text-muted-foreground tabular-nums">
         Computed for latitude {latitude.toFixed(1)}° from the solar declination, not tabulated ·{" "}
         {obstructionAltitude !== undefined
-          ? `the shaded band is everything below ${obstructionAltitude}°, which the building opposite takes — in ${curves.reduce((a, c) => (c.usableHours < a.usableHours ? c : a), curves[0]).name} that leaves ${curves.reduce((a, c) => (c.usableHours < a.usableHours ? c : a), curves[0]).usableHours.toFixed(1)} usable hours`
+          ? `the shaded band is everything below ${obstructionAltitude}°, which the building opposite takes${worst ? ` — in ${worst.name} that leaves ${worst.usableHours.toFixed(1)} usable hours` : ""}`
           : "no obstruction mask applied"}
       </p>
     </div>

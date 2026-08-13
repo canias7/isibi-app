@@ -97,20 +97,25 @@ export function splitProps(body) {
 }
 
 /** Shorten a type to something worth its tokens, keeping the shape. */
-function shortType(t) {
+function shortType(t, full = false) {
   // A newline INSIDE the type is a field separator too, so it becomes `; ` —
   // collapsing it to a space produced `{ name: string bookedHours: number }[]`,
   // which is not TypeScript anyone would write and reads as a typo.
   const s = t.replace(/[ \t]*\n[ \t]*/g, "; ").replace(/\s+/g, " ")
     .replace(/;\s*([;}])/g, "$1").replace(/\{\s*;/g, "{").trim().replace(/;$/, "");
-  if (s.length <= 90) return s;                    // the row shape is the point
+  // `full` is for a CALLER THAT HAS TO CONSTRUCT THE VALUE rather than read it —
+  // `test/integration/kit-harness.mjs` synthesises props from these types, and a
+  // truncated one loses the trailing `[]` as well as the fields, so an array prop
+  // is built as an object and every component reports `x.map is not a function`.
+  // The default is unchanged, so the generated prompt is byte-identical.
+  if (full || s.length <= 90) return s;            // the row shape is the point
   if (/^\{[\s\S]*\}\[\]$/.test(s)) return s.slice(0, 87) + "…]";
   if (/=>/.test(s)) return "function";
   return s.slice(0, 87) + "…";
 }
 
 /** One signature per exported component with inline prop types. */
-export function extractSignatures(rawSource) {
+export function extractSignatures(rawSource, { full = false } = {}) {
   // A LENGTH-PRESERVING blank of every comment, used for every scan. `balanced`
   // counts brackets, and a doc comment containing one throws the depth off — the
   // scan then runs past the end of one component into the next and reports a
@@ -144,7 +149,7 @@ export function extractSignatures(rawSource) {
       // `className` is on every one. Stated once in the rules, not 882 times.
       if (key === "className") continue;
       const d = defaults.get(key);
-      props.push(`${key}${raw.endsWith("?") ? "?" : ""}: ${shortType(part.slice(colon + 1))}` +
+      props.push(`${key}${raw.endsWith("?") ? "?" : ""}: ${shortType(part.slice(colon + 1), full)}` +
         (d ? ` = ${d.replace(/\s+/g, " ")}` : ""));
     }
     if (props.length) out.push({ name: m[1], props });

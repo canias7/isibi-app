@@ -100,6 +100,13 @@ export function RhCycling({
   height?: number
   className?: string
 }) {
+  // NOTHING TO DRAW IS NOT A CHART OF NOTHING. An empty array made every
+  // scale here degenerate and wrote NaN into an SVG attribute, which the
+  // browser drops — so the chart rendered as a blank box rather than as the
+  // empty state the page around it is showing. `useRows` hands back `[]`
+  // before the query settles and on every site whose owner has added nothing.
+  if (!trace.length) return null
+
   const mean = trace.reduce((a, v) => a + v, 0) / Math.max(trace.length, 1)
   const outside = trace.filter((v) => Math.abs(v - targetRh) > toleranceBand).length
   const rates = trace.map((v, i) => (i === 0 ? 0 : Math.abs(v - trace[i - 1]) / hoursPerSample))

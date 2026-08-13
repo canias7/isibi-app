@@ -127,7 +127,12 @@ export function VoronoiMap({
   width?: number; height?: number; grid?: number; label?: string;
 }) {
   if (!sites.length) return null;
-  const cols = Math.ceil(width / grid), rows = Math.ceil(height / grid);
+  // A `grid` OF ZERO IS `Math.ceil(width / 0)` = Infinity, and the two loops
+  // below then build cells until the process dies. Measured: it took this
+  // harness out with a heap-limit abort. A resolution of nought is meaningless,
+  // so it falls back to the component's own default rather than being drawn.
+  const step = Number.isFinite(grid) && grid > 0 ? grid : 3;
+  const cols = Math.ceil(width / step), rows = Math.ceil(height / step);
   const shade = (i: number) => `color-mix(in oklch, var(--foreground) ${8 + (i % 5) * 15}%, var(--muted))`;
   const cells: { x: number; y: number; s: number }[] = [];
   for (let r = 0; r < rows; r++) {

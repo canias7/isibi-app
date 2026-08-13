@@ -27,7 +27,15 @@ export function Renko({
   values: number[]; /** Price move per brick. */ brick?: number; height?: number; label?: string;
 }) {
   if (values.length < 2) return null;
-  const size = brick ?? ((Math.max(...values) - Math.min(...values)) / 18 || 1);
+  // A `brick` OF ZERO IS AN INFINITE LOOP. `??` only declines null and
+  // undefined, so an explicit 0 became the step and `while (v - base >= 0)
+  // { base += 0 }` never advances — it pushes bricks until the process runs out
+  // of memory, which is what it did to this harness. The derived branch has
+  // carried `|| 1` for exactly this since it was written: one branch guarded and
+  // the other not, the same shape as `matrix-table`'s `max`. A brick size is the
+  // kind of number that arrives from a settings field left empty.
+  const brickOk = brick != null && Number.isFinite(brick) && brick > 0;
+  const size = brickOk ? brick : ((Math.max(...values) - Math.min(...values)) / 18 || 1);
   const bricks: { from: number; to: number; up: boolean }[] = [];
   let base = values[0];
   for (const v of values) {
@@ -67,7 +75,11 @@ export function PointAndFigure({
   values: number[]; box?: number; reversal?: number; cell?: number; label?: string;
 }) {
   if (values.length < 2) return null;
-  const size = box ?? ((Math.max(...values) - Math.min(...values)) / 20 || 1);
+  // Same shape as `Renko` above, and it does not hang — `Math.floor(v / 0)` is
+  // ±Infinity, so every level is the same and the chart draws one meaningless
+  // column. A silent wrong answer rather than a crash.
+  const boxOk = box != null && Number.isFinite(box) && box > 0;
+  const size = boxOk ? box : ((Math.max(...values) - Math.min(...values)) / 20 || 1);
   const lvl = (v: number) => Math.floor(v / size);
   const cols: { up: boolean; from: number; to: number }[] = [];
   let dir: boolean | null = null;

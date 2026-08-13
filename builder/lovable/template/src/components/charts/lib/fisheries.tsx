@@ -290,6 +290,13 @@ export function GearSelectivity({
   className?: string
   height?: number
 }) {
+  // NOTHING TO DRAW IS NOT A CHART OF NOTHING. An empty array made every
+  // scale here degenerate and wrote NaN into an SVG attribute, which the
+  // browser drops — so the chart rendered as a blank box rather than as the
+  // empty state the page around it is showing. `useRows` hands back `[]`
+  // before the query settles and on every site whose owner has added nothing.
+  if (!gears.length) return null
+
   const rows = gears.map((g) => {
     const pts = [...g.points].sort((a, b) => a.cm - b.cm)
     const at = (p: number) => {

@@ -107,6 +107,11 @@ export function Bifurcation({
 }: {
   from?: number; to?: number; steps?: number; settle?: number; keep?: number; size?: number; label?: string;
 }) {
+  // `from === to` IS A ZERO-WIDTH SWEEP, and `0 / 0` is NaN — which reaches the
+  // page as `x="NaN"` on every rect, so the browser drops the attribute and the
+  // whole plot stacks at the origin. Both ends of a range arriving equal is what
+  // a settings form with two untouched number fields produces.
+  const span = (to - from) || 1;
   const pts: { r: number; x: number }[] = [];
   for (let i = 0; i < steps; i++) {
     const r = from + ((to - from) * i) / (steps - 1);
@@ -119,7 +124,7 @@ export function Bifurcation({
       <svg viewBox="0 0 100 100" width="100%" style={{ maxWidth: size }}
         role="img" aria-label={label ?? "Logistic map bifurcation"}>
         {pts.map((p, i) => (
-          <rect key={i} x={((p.r - from) / (to - from)) * 100} y={(1 - p.x) * 100} width={0.35} height={0.35} fill={TONE} fillOpacity={0.35} />
+          <rect key={i} x={((p.r - from) / span) * 100} y={(1 - p.x) * 100} width={0.35} height={0.35} fill={TONE} fillOpacity={0.35} />
         ))}
       </svg>
       <div className="mt-1 flex justify-between text-[10px] tabular-nums text-muted-foreground">

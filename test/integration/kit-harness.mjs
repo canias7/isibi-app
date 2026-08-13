@@ -18,14 +18,16 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
-import { extract } from "../../builder/gen-component-api.mjs";
+import { extract, extractTypes } from "../../builder/gen-component-api.mjs";
+import { extractSignatures, splitProps } from "../../builder/gen-chart-api.mjs";
 import { COMPONENT_TYPES } from "../../builder/component-api.mjs";
 
 const TEMPLATE = path.join(import.meta.dirname, "../../builder/lovable/template");
 const UI = path.join(TEMPLATE, "src/components/ui");
+const CHART_LIB = path.join(TEMPLATE, "src/components/charts/lib");
 const OUT = path.join(TEMPLATE, ".kitrender");
 
-export { TEMPLATE, UI, OUT };
+export { TEMPLATE, UI, CHART_LIB, OUT };
 
 /**
  * COMPONENTS THAT CANNOT BE RENDERED BY THIS HARNESS, with the reason each.
@@ -41,6 +43,11 @@ const CANNOT_RENDER = {
   // Both ARE driven for real there, in a real browser, at both mounts.
   "site-chrome.SiteChrome": "needs a RouterProvider",
   "site-header.SiteHeader": "needs a RouterProvider",
+  // A RECURSIVE PROP TYPE — `children?: Clade[]` on the thing being built — so
+  // the synthesiser bottoms out at its depth cap and hands over a tree that is
+  // not one. Real data renders it fine; there is no way to invent a tree from a
+  // type without deciding how deep it should be, and any answer is arbitrary.
+  "biolang.PhylogeneticTree": "prop type is recursive — no synthesised value is a real tree",
 };
 export { CANNOT_RENDER };
 
@@ -69,6 +76,10 @@ function splitTop(s, sep) {
 }
 
 const STR = ["Sample", "Second entry", "Third entry"];
+/** Props that describe the DRAWING rather than the data. */
+const DIMENSION = /^(height|width|size|radius|thickness|gap|padding|stroke|cellSize|barWidth)$/i;
+/** The prop name currently being built, so a scalar can be judged by it. */
+let lastKey = "";
 let counter = 0;
 
 function value(type, mode, types, depth = 0) {
@@ -90,6 +101,17 @@ function value(type, mode, types, depth = 0) {
     if (!ret || ret === "void" || ret === "unknown") return "() => {}";
     // A callback's return is never "the empty state" — that is about the DATA.
     return "() => (" + value(ret, mode === "empty" ? "full" : mode, types, depth + 1) + ")";
+  }
+
+  // A TUPLE IS NOT A LIST. `supports: [number, number]` and `a: [string, string]`
+  // have a fixed arity the component relies on — `b.map` on a string is what the
+  // harness reported for three of these — and they are NOT emptied by the empty
+  // passes, because a two-element tuple that arrives empty is a caller error
+  // rather than the state a fresh site is in.
+  if (/^\[.*\]$/.test(t) && !t.startsWith("[]")) {
+    const parts = splitTop(t.slice(1, -1), ",");
+    if (parts.length > 1 || (parts.length === 1 && !/\[\]$/.test(t.slice(1, -1))))
+      return "[" + parts.map((p) => value(p, mode === "empty" ? "full" : mode, types, depth + 1)).join(", ") + "]";
   }
 
   if (t.endsWith("[]")) {
@@ -121,6 +143,7 @@ function value(type, mode, types, depth = 0) {
       if (!/^[A-Za-z_]\w*$/.test(key)) continue;
       if (raw.endsWith("?") && mode === "empty") continue;
       const ft = f.slice(colon + 1).trim();
+      lastKey = key;
       out.push(JSON.stringify(key) + ": " + (byName(key, ft) || value(ft, mode, types, depth + 1)));
     }
     return "{ " + out.join(", ") + " }";
@@ -135,7 +158,13 @@ function value(type, mode, types, depth = 0) {
 
   switch (t) {
     case "string": { const n = counter++; return JSON.stringify(STR[n % STR.length] + " " + n); }
-    case "number": return mode === "zeros" ? "0" : "3";
+    // `zeros` IS ABOUT A LIMIT NOBODY SET, not about a chart being nought pixels
+    // tall. A `height`/`width`/`size` of 0 makes every scale in an SVG
+    // degenerate, so the pass reported 355 charts writing NaN — all of them
+    // answering a question nobody asks. Named like `BY_NAME` above, and for the
+    // same reason: a prop whose own name says what it is should get a value its
+    // component can survive.
+    case "number": return mode === "zeros" && !DIMENSION.test(lastKey) ? "0" : "3";
     case "boolean": return "true";
     // A FIXED instant, never `Date.now()`: a moving clock makes a failure
     // unreproducible, and this has to be re-runnable to be worth anything.
@@ -212,9 +241,49 @@ function byName(key, t) {
  * `Activity` with different fields, and a flat merge would hand one of them the
  * other's shape — a silent wrong answer in place of a visible missing one.
  */
-function typesVisibleTo(mod) {
-  const own = COMPONENT_TYPES[mod] || {};
-  const src = fs.readFileSync(path.join(UI, mod + ".tsx"), "utf8");
+/**
+ * `type X = { … }` in a file written WITHOUT semicolons, using the chart lib's
+ * own splitter so a newline counts as a field separator. Emitted in the
+ * `a: T; b: U` shape the synthesiser's object branch reads.
+ */
+function chartTypes(src) {
+  const out = {};
+  for (const m of src.matchAll(/(?:export )?type ([A-Z][A-Za-z0-9]*)\s*=\s*\{/g)) {
+    let i = m.index + m[0].length - 1, d = 0, end = -1;
+    for (; i < src.length; i++) {
+      if (src[i] === "{") d++;
+      else if (src[i] === "}") { d--; if (!d) { end = i; break; } }
+    }
+    if (end < 0) continue;
+    const body = src.slice(m.index + m[0].length, end).replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, "\n");
+    const fields = splitProps(body).map((p) => p.replace(/\s+/g, " ").trim());
+    if (fields.length) out[m[1]] = "{ " + fields.join("; ") + " }" + (src.slice(end + 1, end + 3) === "[]" ? "[]" : "");
+  }
+  return out;
+}
+
+function typesVisibleTo(e) {
+  // THE ENTRY'S OWN FILE, not a hardcoded directory. This read `UI/<mod>.tsx`
+  // unconditionally, so every one of the 854 chart primitives threw ENOENT here
+  // — and the caller swallowed it, sent no props at all, and reported 805
+  // components as crashing. A wall of false findings out of one wrong path.
+  const src = fs.readFileSync(e.file, "utf8");
+  // LOCAL TYPES TOO for a file with no recorded entry — a chart module
+  // declares `type PlanNode = {…}` unexported, and without it the prop is a
+  // string and the component reports a throw that is the harness's fault.
+  // THE COMPONENT EXTRACTOR SPLITS ON `;` AND THE CHART LIB HAS NONE, which is
+  // the same trap that required `gen-chart-api` to have its own reader in the
+  // first place. `export type WaterIons = { calcium: number\n magnesium: number }`
+  // came back as one field, so `source` was the string "Sample" and the chart
+  // rendered `SO₄:Cl NaN` — a harness fault reported as a defect.
+  //
+  // `COMPONENT_TYPES` is scoped to ui entries rather than looked up by bare
+  // module name: the two tiers are separate directories and nothing stops a
+  // `charts/lib/x.tsx` sharing a name with a `ui/x.tsx`, at which point the
+  // chart would silently be handed the other one's shapes.
+  const own = e.spec.startsWith("@/components/ui/")
+    ? (COMPONENT_TYPES[e.mod] || extractTypes(src, { exported: false }))
+    : chartTypes(src);
   const out = {};
   for (const m of src.matchAll(/import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*"@\/components\/ui\/([\w-]+)"/g)) {
     const from = COMPONENT_TYPES[m[2]];
@@ -247,8 +316,8 @@ function genericsOf(src, name) {
   return out;
 }
 
-function propsFor(comp, mod, mode) {
-  const types = { ...typesVisibleTo(mod), ...comp.generics };
+function propsFor(comp, mode) {
+  const types = { ...typesVisibleTo(comp), ...comp.generics };
   const out = [];
   for (const p of comp.props) {
     const eq = p.indexOf(" = ");
@@ -261,37 +330,84 @@ function propsFor(comp, mod, mode) {
     // narrowest legitimate call, and the one a page makes on a fresh site.
     if (raw.endsWith("?") && mode === "empty") continue;
     const t = decl.slice(colon + 1).trim();
+    lastKey = key;
     out.push([key, byName(key, t) || value(t, mode, types)]);
   }
   return out;
 }
 
 // ---- catalogue -------------------------------------------------------------
-const files = fs.readdirSync(UI).filter((f) => f.endsWith(".tsx")).sort();
-const entries = [];
-for (const f of files) {
-  const mod = f.replace(/\.tsx$/, "");
-  const raw = fs.readFileSync(path.join(UI, f), "utf8");
-  for (const comp of extract(raw)) {
-    entries.push({ mod, name: comp.name, props: comp.props, generics: genericsOf(raw, comp.name) });
+/**
+ * Every exported component in a directory, with the specifier that imports it.
+ *
+ * TWO EXTRACTORS, because the two tiers are written differently and one reader
+ * gets the other wrong. `gen-chart-api`'s is newline-aware for a reason already
+ * recorded in CLAUDE.md: the chart lib has no semicolons, so the component
+ * extractor's splitter collapses a whole prop block into one field typed
+ * `object`. Borrowing the wrong one produced exactly that, across all 141
+ * domains, the last time somebody tried.
+ */
+function catalogue(dir, spec, read) {
+  const files = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith(".tsx")).sort() : [];
+  const entries = [];
+  for (const f of files) {
+    const mod = f.replace(/\.tsx$/, "");
+    const raw = fs.readFileSync(path.join(dir, f), "utf8");
+    for (const comp of read(raw)) {
+      entries.push({
+        mod, name: comp.name, props: comp.props,
+        file: path.join(dir, f),
+        spec: `${spec}/${mod}`,
+        generics: genericsOf(raw, comp.name),
+        // A SIGNATURE THE EXTRACTOR CUT SHORT cannot be synthesised from: the
+        // `…]` means fields are missing, so the `full` pass would hand the
+        // component an object without a field it requires and report a throw
+        // that is the harness's fault. It still goes through the empty passes,
+        // where every array is `[]` and the missing fields are inside the array.
+        truncated: comp.props.some((p) => p.includes("…")),
+      });
+    }
   }
+  return { entries, files };
 }
 
-export { entries, files };
+const ui = catalogue(UI, "@/components/ui", extract);
+// FULL types, not the prompt's shortened ones: a truncated `{ … }[]` loses its
+// trailing `[]`, so the synthesiser builds an object where the component wants
+// an array and 66 of them report `x.map is not a function`.
+const charts = catalogue(CHART_LIB, "@/components/charts/lib", (raw) => extractSignatures(raw, { full: true }));
+const entries = ui.entries, files = ui.files;
+
+export { entries, files, catalogue };
+/** The 882 prop-driven primitives under `charts/lib`, which are what a generated
+ *  page imports — not the 1,140 `chart-*.tsx` demos, which take no props and
+ *  fabricate their own figures. */
+export const chartEntries = charts.entries;
+export const chartFiles = charts.files;
 
 // ---- render ----------------------------------------------------------------
 const require_ = createRequire(import.meta.url);
 
-function renderAll(mode) {
+/** Components whose props could not be synthesised on the last renderAll. A
+ *  harness fault, never a finding — the runner reports it as its own failure. */
+export const synthFailures = [];
+
+function renderAll(mode, list = entries) {
+  synthFailures.length = 0;
   fs.rmSync(OUT, { recursive: true, force: true });
   fs.mkdirSync(OUT, { recursive: true });
   counter = 0;
 
   const imports = [], cases = [];
-  entries.forEach((e, i) => {
-    imports.push(`import { ${e.name} as C${i} } from "@/components/ui/${e.mod}";`);
+  list.forEach((e, i) => {
+    imports.push(`import { ${e.name} as C${i} } from "${e.spec}";`);
+    // NOT SWALLOWED. This was `catch { /* none */ }`, which sends a component
+    // no props at all — so every required one is undefined and it throws, and
+    // the report blames the component for a fault in the synthesiser. That is
+    // precisely how one wrong path turned into 805 false findings.
     let props = "";
-    try { props = propsFor(e, e.mod, mode).map(([k, v]) => `${JSON.stringify(k)}: ${v}`).join(", "); } catch { /* none */ }
+    try { props = propsFor(e, mode).map(([k, v]) => `${JSON.stringify(k)}: ${v}`).join(", "); }
+    catch (err) { synthFailures.push(`${e.mod}.${e.name}: ${err.message}`); }
     cases.push(`  { k: ${JSON.stringify(e.mod + "." + e.name)}, C: C${i}, props: { ${props} } },`);
   });
 

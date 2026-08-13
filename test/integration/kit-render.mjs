@@ -32,7 +32,7 @@
 //           could reach it.
 //
 // $0: no model call, no container, no Neon project.
-import { CANNOT_RENDER, MODES, OUT, entries, files, renderAll } from "./kit-harness.mjs";
+import { CANNOT_RENDER, MODES, OUT, chartEntries, chartFiles, entries, files, renderAll, synthFailures } from "./kit-harness.mjs";
 import fs from "node:fs";
 
 let failed = 0;
@@ -52,6 +52,9 @@ const renderedClean = new Map(Object.keys(CANNOT_RENDER).map((k) => [k, new Set(
 try {
   for (const mode of MODES) {
     const results = renderAll(mode);
+
+    if (synthFailures.length) bad(`${mode}: ${synthFailures.length} could not be given props — the harness, not the kit`,
+      synthFailures.slice(0, 6).map((m) => "    " + m).join("\n"));
 
     const threw = results.filter((r) => r.error && !CANNOT_RENDER[r.k]);
     if (threw.length === 0) ok(`${mode}: nothing threw (${results.length} components)`);
@@ -141,6 +144,70 @@ try {
         mute.slice(0, 10).map((r) => "    " + r.k).join("\n"));
     }
   }
+  // ---- THE CHART PRIMITIVES ------------------------------------------------
+  //
+  // A SECOND CATALOGUE, and the one this whole harness was arguably written
+  // for. On 2026-07-31 a one-off sweep found 158 of these crashing on an empty
+  // array — `rows.reduce((a, r) => …, rows[0])` seeds with undefined, returns
+  // undefined, and the next property read throws — which React's error boundary
+  // turns into "This page didn't load" rather than a missing chart. That is the
+  // ORDINARY path, not an edge case: `useRows` hands back `[]` before the query
+  // settles and on every site whose owner has added nothing yet. The sweep that
+  // found them was never turned into a check, so nothing has stopped a 159th.
+  //
+  // `charts/lib` and not the 1,140 `chart-*.tsx` demos: a demo takes no props
+  // and fabricates its own figures, so it can only ever prove itself. These 882
+  // are what a generated page imports.
+  console.log(`\nchart primitives — ${chartEntries.length} across ${chartFiles.length} domains`);
+  if (chartEntries.length > chartFiles.length * 2) ok(`the chart catalogue covers ${chartEntries.length} components`);
+  else bad(`the chart catalogue collapsed to ${chartEntries.length} — the extractor is broken, not the charts`);
+
+  // ASSERTED ON THE EMPTY PASSES ONLY, and that is a scope rather than a
+  // convenience. `empty` and `blank` are the states `useRows` really produces —
+  // `[]` before the query settles, `[]` forever on a site whose owner has added
+  // nothing — which is exactly the case the 158 crashed on.
+  //
+  // `full` and `zeros` are REPORTED AND NOT ASSERTED, with the reason measured
+  // rather than assumed. `full` has to invent a value for every prop, and 15 of
+  // these take a recursive tree (`children?: Node[]` on the type being built),
+  // where any depth the synthesiser picks is arbitrary and several refuse an
+  // input that is physically impossible — `FlightEnvelope` correctly rejects a
+  // maximum speed below the stall speed. `zeros` hands a CHART a degenerate
+  // drawing: 344 of 854 wrote NaN, nearly all of them answering a question
+  // nobody asks. Asserting either would make this red on day one, and a check
+  // that is always red is a check nobody reads.
+  for (const mode of MODES) {
+    const assertive = mode === "empty" || mode === "blank";
+    // A truncated signature has fields the extractor cut off, so `full` would
+    // hand a component an object missing a field it requires — a throw that is
+    // the harness's fault. The empty passes fill every array with `[]`, where
+    // those missing fields live, so they are unaffected.
+    const list = mode === "full" ? chartEntries.filter((e) => !e.truncated) : chartEntries;
+    const results = renderAll(mode, list);
+    const say = assertive ? bad : (m, d) => console.log(`  note ${m}${d ? "\n" + d : ""}`);
+
+    // OURS BEFORE THEIRS. A component sent no props throws on the first required
+    // one, and reporting that as the component's fault is how a single wrong
+    // path in the synthesiser read as 805 broken charts.
+    if (synthFailures.length) bad(`charts ${mode}: ${synthFailures.length} could not be given props — the harness, not the charts`,
+      synthFailures.slice(0, 6).map((m) => "    " + m).join("\n"));
+
+    const threw = results.filter((r) => r.error && !CANNOT_RENDER[r.k]);
+    if (threw.length === 0) ok(`charts ${mode}: nothing threw (${results.length})`);
+    else say(`charts ${mode}: ${threw.length} threw`,
+      threw.slice(0, 12).map((r) => `    ${r.k} -> ${r.error}`).join("\n"));
+
+    const html = results.filter((r) => r.html);
+    const nan = html.filter((r) => /NaN|-?Infinity/.test(r.html));
+    if (nan.length === 0) ok(`charts ${mode}: no NaN or Infinity reaches the page`);
+    else say(`charts ${mode}: ${nan.length} render NaN or Infinity`, nan.slice(0, 10).map((r) => "    " + r.k).join("\n"));
+
+    const complained = results.filter((r) => !CANNOT_RENDER[r.k] && (r.said || []).length);
+    if (complained.length === 0) ok(`charts ${mode}: React reported nothing`);
+    else say(`charts ${mode}: React complained about ${complained.length}`,
+      complained.slice(0, 10).map((r) => `    ${r.k} -> ${(r.said[0] || "").replace(/\s+/g, " ").slice(0, 200)}`).join("\n"));
+  }
+
   const stale = [...renderedClean].filter(([, m]) => m.size === MODES.length).map(([k]) => k);
   if (stale.length) bad("allow-listed and renders fine in every pass — remove from CANNOT_RENDER", "    " + stale.join(", "));
   else ok(`the ${renderedClean.size} allow-listed components still cannot be driven here`);

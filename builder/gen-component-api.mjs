@@ -340,7 +340,7 @@ export function buildTypes() {
  * component in the kit has one. A guard that can only see today's files is not
  * guarding the rule, it is restating the kit.
  */
-export function extractTypes(src) {
+export function extractTypes(src, { exported = true } = {}) {
   const out = {};
   // A GENERIC TYPE PARAMETER DEFEATED THIS TOO — the third time in one session
   // that a regex written for the non-generic case silently skipped the thing
@@ -352,7 +352,14 @@ export function extractTypes(src) {
   //
   // `[^<>]` with one nested level, not `[^=]`: a default like `<T = Row>`
   // contains an `=` and would end the match in the wrong place.
-  for (const m of src.matchAll(/export type ([A-Z][A-Za-z0-9]*)(?:<(?:[^<>]|<[^<>]*>)*>)?\s*=\s*/g)) {
+  // `exported` is for a caller that has to CONSTRUCT a value of the type rather
+  // than describe it to a model: a local `type PlanNode = {…}` is not worth
+  // prompt tokens, and is exactly what `test/integration/kit-harness.mjs` needs
+  // to synthesise the prop it names. Default unchanged, so the generated file is
+  // byte-identical.
+  const decl = exported ? /export type ([A-Z][A-Za-z0-9]*)(?:<(?:[^<>]|<[^<>]*>)*>)?\s*=\s*/g
+    : /(?:export )?type ([A-Z][A-Za-z0-9]*)(?:<(?:[^<>]|<[^<>]*>)*>)?\s*=\s*/g;
+  for (const m of src.matchAll(decl)) {
     const name = m[1];
     let i = m.index + m[0].length, depth = 0, end = -1;
     for (; i < src.length; i++) {

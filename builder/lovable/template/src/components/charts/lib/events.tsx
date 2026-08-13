@@ -295,6 +295,13 @@ export function StaffingCurve({
   height?: number
   className?: string
 }) {
+  // NOTHING TO DRAW IS NOT A CHART OF NOTHING. An empty array made every
+  // scale here degenerate and wrote NaN into an SVG attribute, which the
+  // browser drops — so the chart rendered as a blank box rather than as the
+  // empty state the page around it is showing. `useRows` hands back `[]`
+  // before the query settles and on every site whose owner has added nothing.
+  if (!demand.length || !rostered.length) return null
+
   const perStaff = (servedPerStaffPerHour * minutesPerSample) / 60
   const required = demand.map((d) => Math.ceil(d / Math.max(perStaff, 1e-9)))
   const gaps = required.map((r, i) => r - (rostered[i] ?? 0))
@@ -371,6 +378,13 @@ export function BarSpend({
   height?: number
   className?: string
 }) {
+  // NOTHING TO DRAW IS NOT A CHART OF NOTHING. An empty array made every
+  // scale here degenerate and wrote NaN into an SVG attribute, which the
+  // browser drops — so the chart rendered as a blank box rather than as the
+  // empty state the page around it is showing. `useRows` hands back `[]`
+  // before the query settles and on every site whose owner has added nothing.
+  if (!observations.length) return null
+
   const n = observations.length || 1
   const mx = observations.reduce((a, o) => a + o.dwellMinutes, 0) / n
   const my = observations.reduce((a, o) => a + o.spend, 0) / n
@@ -545,6 +559,13 @@ export function WeatherContingency({
   premium?: number
   className?: string
 }) {
+  // NOTHING TO DRAW IS NOT A CHART OF NOTHING. An empty array made every
+  // scale here degenerate and wrote NaN into an SVG attribute, which the
+  // browser drops — so the chart rendered as a blank box rather than as the
+  // empty state the page around it is showing. `useRows` hands back `[]`
+  // before the query settles and on every site whose owner has added nothing.
+  if (!history.length) return null
+
   const sorted = [...history].sort((a, b) => a.rainfallMm - b.rainfallMm)
   const exceed = sorted.filter((h) => h.rainfallMm >= refundThresholdMm)
   const probability = exceed.length / Math.max(sorted.length, 1)
