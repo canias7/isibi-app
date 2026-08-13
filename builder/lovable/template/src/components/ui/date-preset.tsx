@@ -60,13 +60,21 @@ export function DatePreset({ value, onChange, className }: {
       </button>
       {custom ? (
         <span className="flex items-center gap-1.5 text-xs">
-          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)}
+          {/* NAMED. Two `<input type="date">` with no label announce as two
+              identical date fields, and which one is the start is the only
+              thing anybody needs to know about them. */}
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} aria-label="From"
             className="h-7 cursor-pointer rounded-md border border-input bg-background px-1.5 outline-none focus-visible:ring-2 focus-visible:ring-ring" />
           –
-          <input type="date" value={to} onChange={(e) => setTo(e.target.value)}
+          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} aria-label="To"
             className="h-7 cursor-pointer rounded-md border border-input bg-background px-1.5 outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+          {/* BOTH ENDS PARSE ON THE LOCAL CLOCK. `to` already appended a time and
+              `from` did not — and a bare `YYYY-MM-DD` is UTC midnight by spec —
+              so west of Greenwich the range STARTED a day early while ending
+              correctly. One expression, one end fixed, the asymmetry invisible
+              from either half. */}
           <button type="button" disabled={!from || !to}
-            onClick={() => onChange({ key: "custom", from: new Date(from), to: new Date(to + "T23:59:59") })}
+            onClick={() => onChange({ key: "custom", from: new Date(from + "T00:00:00"), to: new Date(to + "T23:59:59") })}
             className="cursor-pointer rounded-md border border-border px-2 py-1 disabled:cursor-not-allowed disabled:opacity-40">
             Apply
           </button>
