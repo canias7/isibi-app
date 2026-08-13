@@ -10,6 +10,21 @@ const InputOTP = React.forwardRef<
 >(({ className, containerClassName, ...props }, ref) => (
   <OTPInput
     ref={ref}
+    // A NAME AND THE RIGHT AUTOFILL, both defaulted here rather than asked of
+    // every caller.
+    //
+    // The visible boxes are `<div>`s; the real control is ONE input behind them,
+    // and it has no label and no text of its own — so Chromium's accessibility
+    // tree computed no name for it at all, on both components in this kit that
+    // use it. "Edit text, blank" is what a screen reader announces at the moment
+    // somebody is copying a code out of a text message.
+    //
+    // `one-time-code` is what lets iOS and Android offer the code from the SMS
+    // above the keyboard, which is the single thing that makes this control
+    // bearable on a phone. Both are `...props`-overridable, so a caller wanting
+    // "Authenticator code" still says so.
+    aria-label="One-time code"
+    autoComplete="one-time-code"
     containerClassName={cn(
       "flex items-center gap-2 has-[:disabled]:opacity-50",
       containerClassName,

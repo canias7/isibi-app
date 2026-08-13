@@ -19,7 +19,8 @@ export function SetupChecklist({ steps, title = "Get set up", className }: {
         <h3 className="text-sm font-medium">{title}</h3>
         <span className="text-xs tabular-nums text-muted-foreground">{done} of {steps.length}</span>
       </div>
-      <Progress value={(done / (steps.length || 1)) * 100} className="mt-2 h-1.5" />
+      <Progress value={(done / (steps.length || 1)) * 100} className="mt-2 h-1.5"
+        aria-label={`${title}: ${done} of ${steps.length} done`} />
       <ul className="mt-3 space-y-1">
         {steps.map((s) => (
           <li key={s.label} className="flex items-center gap-2.5 py-1.5 text-sm">

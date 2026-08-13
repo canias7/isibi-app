@@ -29,7 +29,8 @@ export function CourseCard({ title, teacher, lessons, duration, level, price, pr
         </p>
         {progress != null ? (
           <div className="space-y-1 pt-1">
-            <Progress value={Math.max(0, Math.min(100, progress))} className="h-1.5" />
+            <Progress value={Math.max(0, Math.min(100, progress))} className="h-1.5"
+              aria-label={`${title}: ${Math.round(progress)}% complete`} />
             <p className="text-xs tabular-nums text-muted-foreground">{Math.round(progress)}% complete</p>
           </div>
         ) : price ? <p className="pt-1 text-sm font-medium">{price}</p> : null}

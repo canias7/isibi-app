@@ -15,7 +15,7 @@ export function InviteForm({ roles = ["Member", "Admin"], onSubmit, busy, classN
       onSubmit={(e) => { e.preventDefault(); if (email) onSubmit({ email, role }); }}>
       <div className="min-w-48 flex-1"><EmailInput value={email} onChange={setEmail} placeholder="name@company.com" /></div>
       <Select value={role} onValueChange={setRole}>
-        <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
+        <SelectTrigger className="w-32" aria-label="Role"><SelectValue /></SelectTrigger>
         <SelectContent>{roles.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent>
       </Select>
       <BusyButton type="submit" busy={busy} busyLabel="Sending…" disabled={!email}>Invite</BusyButton>

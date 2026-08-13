@@ -29,7 +29,8 @@ export function BatchProgress({ done, total, label, failed = 0, onStop, classNam
         </p>
         {onStop && running && <Button size="sm" variant="ghost" onClick={onStop}>Stop</Button>}
       </div>
-      <Progress value={pct} className="h-1.5" />
+      <Progress value={pct} className="h-1.5"
+        aria-label={`${label ?? "Progress"}: ${done.toLocaleString()} of ${total.toLocaleString()} done`} />
       <p className="text-xs text-muted-foreground" aria-live="polite">
         {running ? `${Math.round(pct)}% done` : "Finished"}
         {failed > 0 && <span className="text-destructive"> · {failed.toLocaleString()} failed</span>}

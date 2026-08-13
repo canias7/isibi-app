@@ -38,7 +38,7 @@ export function StartupPage({ pages, value, onChange, className }: {
         <input type="radio" name={name} className={radio}
           checked={value.mode === "page"} onChange={() => onChange({ mode: "page", page: value.page ?? pages[0]?.key })} />
         <span>Always this page:</span>
-        <select
+        <select aria-label="Page to open"
           value={value.mode === "page" ? value.page : ""}
           onChange={(e) => onChange({ mode: "page", page: e.target.value })}
           className={cn("h-7 cursor-pointer rounded-md border border-input bg-background px-1.5 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring",

@@ -85,8 +85,11 @@ export function cleanEditorHtml(html: string): string {
  * library; this is the honest small version until then, and `markdown-editor`
  * is the alternative that needs none of it.
  */
-export function RichText({ defaultValue = "", onChange, placeholder, minHeight = 160, className }: {
+export function RichText({ defaultValue = "", onChange, label, placeholder, minHeight = 160, className }: {
   defaultValue?: string; onChange?: (html: string) => void;
+  /** What this editor is FOR. A placeholder is not a name — it is drawn by a
+   *  CSS `content:` rule and is not in the accessibility tree at all. */
+  label?: string;
   placeholder?: string; minHeight?: number; className?: string;
 }) {
   const ref = React.useRef<HTMLDivElement>(null);
@@ -127,6 +130,7 @@ export function RichText({ defaultValue = "", onChange, placeholder, minHeight =
       <FormatToolbar active={active} onCommand={run}
         only={["bold", "italic", "underline", "strike", "heading", "quote", "bullet", "ordered", "link"]} />
       <div ref={ref} contentEditable suppressContentEditableWarning role="textbox" aria-multiline="true"
+        aria-label={label ?? placeholder ?? "Rich text"}
         data-placeholder={placeholder} style={{ minHeight }}
         className="rounded-md border border-input px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 [&:empty::before]:text-muted-foreground [&:empty::before]:content-[attr(data-placeholder)] [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_h3]:text-base [&_h3]:font-semibold [&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5 [&_a]:underline"
         onInput={() => onChange?.(ref.current?.innerHTML ?? "")}

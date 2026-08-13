@@ -28,7 +28,8 @@ export function TypeaheadList({ items, activeIndex, onActiveIndexChange, onPick,
   return (
     <>
       <p role="status" className="sr-only tabular-nums">{items.length} suggestions</p>
-      <ul id={listId} role="listbox" className={cn("overflow-hidden rounded-md border border-border bg-background", className)}>
+      <ul id={listId} role="listbox" aria-label="Suggestions"
+        className={cn("overflow-hidden rounded-md border border-border bg-background", className)}>
         {items.map((it, i) => (
           <li key={it.key} id={`${listId}-${i}`} role="option" aria-selected={i === activeIndex}
             onMouseEnter={() => onActiveIndexChange(i)}

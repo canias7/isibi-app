@@ -36,7 +36,8 @@ export function MultiStepForm({ steps, current, onBack, onNext, onSubmit, nextLa
     <div className={cn("space-y-5", className)}>
       <div className="space-y-2">
         <p className="text-xs text-muted-foreground">Step {at + 1} of {steps.length}</p>
-        <Progress value={((at + 1) / steps.length) * 100} className="h-1.5" />
+        <Progress value={((at + 1) / steps.length) * 100} className="h-1.5"
+          aria-label={`Step ${at + 1} of ${steps.length}`} />
         <h2 ref={head} tabIndex={-1} className="text-lg font-semibold outline-none">{steps[at]}</h2>
       </div>
       <div>{children}</div>

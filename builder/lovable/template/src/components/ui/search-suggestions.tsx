@@ -14,7 +14,8 @@ export function SearchSuggestions({ items, query, activeIndex = -1, onSelect, cl
 }) {
   if (!items.length) return null;
   return (
-    <ul role="listbox" className={cn("overflow-hidden rounded-md border border-border bg-popover py-1 shadow-md", className)}>
+    <ul role="listbox" aria-label="Suggestions"
+      className={cn("overflow-hidden rounded-md border border-border bg-popover py-1 shadow-md", className)}>
       {items.map((it, i) => (
         // THE OPTION IS THE CLICKABLE THING, not a button inside it. ARIA does
         // not allow a focusable control inside a `role="option"` — an option is

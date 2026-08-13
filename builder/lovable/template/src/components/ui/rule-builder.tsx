@@ -56,7 +56,7 @@ export function RuleBuilder({ rule, onChange, triggers, fields, ops, actions, cl
     <div className={cn("flex flex-col gap-2 rounded-lg border border-border p-3", className)}>
       <div className="flex flex-wrap items-center gap-1.5 text-xs">
         <span className="font-medium">When</span>
-        <select value={rule.trigger} onChange={(e) => onChange({ ...rule, trigger: e.target.value })} className={sel}>
+        <select value={rule.trigger} aria-label="When" onChange={(e) => onChange({ ...rule, trigger: e.target.value })} className={sel}>
           {triggers.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
         </select>
       </div>
@@ -67,11 +67,11 @@ export function RuleBuilder({ rule, onChange, triggers, fields, ops, actions, cl
             <span className="w-10 text-muted-foreground">
               {i === 0 ? "if" : rule.joiner === "all" ? "and" : "or"}
             </span>
-            <select value={c.field} className={sel}
+            <select value={c.field} aria-label="Field" className={sel}
               onChange={(e) => onChange({ ...rule, conditions: rule.conditions.map((x, j) => j === i ? { ...x, field: e.target.value } : x) })}>
               {fields.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
             </select>
-            <select value={c.op} className={sel}
+            <select value={c.op} aria-label="Condition" className={sel}
               onChange={(e) => onChange({ ...rule, conditions: rule.conditions.map((x, j) => j === i ? { ...x, op: e.target.value } : x) })}>
               {ops.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
             </select>
