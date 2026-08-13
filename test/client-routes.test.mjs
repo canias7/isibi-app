@@ -19,6 +19,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { hit, isUnrouted } from "./fixtures/worker-harness.mjs";
 
 const CHAT = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
 const WORKER = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
@@ -93,6 +94,102 @@ test("the SLUG-SCOPED owner routes the app builds by concatenation all exist", (
     assert.ok(declared.test(WORKER) || WORKER.includes("/" + suffix + "$/i"),
       "the app calls /api/site/<slug>/" + suffix + " and the Worker declares no matcher for it");
   }
+});
+
+/* ---------------------------------------------------------------------------
+ * AND THE SAME QUESTION, ASKED OF THE RUNNING WORKER RATHER THAN OF ITS TEXT.
+ *
+ * Everything above is a source-read, and this file's own header says why that
+ * was the best available instrument: `chat.js` is a plain script no test
+ * imports, and `worker.js` was believed to be unimportable.
+ *
+ * IT IS NOT. Measured 2026-08-13: the only thing blocking it was ONE dependency
+ * shipping extensionless relative imports in its dist, which Node's resolver
+ * refuses and wrangler's bundler does not. Two symbols, one shim — see
+ * `test/fixtures/cf-containers.mjs`. So the real router can be driven with real
+ * requests, and `worker.js.includes("/api/x")` can stop standing in for it.
+ *
+ * WHY THAT IS STRICTLY STRONGER. A substring passes when the path appears in a
+ * COMMENT, when it is part of a longer route, or when the matcher exists inside
+ * a dispatch block the request can never enter — which is exactly the `dm2`
+ * failure, where the custom-domain API was declared, gated, correct, and
+ * unreachable, and a live probe could not tell either because `assertOwner`
+ * answers 404 for a slug that is not yours.
+ *
+ * Driving it separates the two for good: the router's own bottom answer is
+ * `404 {"error":"not found"}`, and a route that EXISTS answers 401.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Every call the client makes, WITH THE VERB IT USES.
+ *
+ * The verb is not a detail. `/api/game/delete` is DELETE-only, and a first draft
+ * that read every call as a GET reported it dead — a false alarm on a route that
+ * is perfectly fine, which is the one thing a check like this must not produce.
+ *
+ * Chunked by the NEXT `apiFetch(` rather than by a closing paren, because the
+ * first `)` in `encodeURIComponent(slug)` is not the end of the call. That is
+ * precisely how the verb was lost.
+ */
+function clientCalls() {
+  const chunks = code(CHAT).split(/apiFetch\(/).slice(1).map((s) => s.slice(0, 400));
+  const calls = new Map();
+  for (const ch of chunks) {
+    const verb = (/method:\s*'([A-Z]+)'/.exec(ch) || [, "GET"])[1];
+    const lit = /^\s*'(\/api\/[a-z0-9/_.-]+)/i.exec(ch);
+    const sub = /^\s*'\/api\/site\/'\s*\+[^;]{0,200}?\+\s*'\/([a-z][a-z0-9/-]{0,40})'/i.exec(ch);
+    // `/api/site/` alone is the concatenation's prefix, not a route — the
+    // slug-scoped form is what `sub` picks up.
+    const path = sub ? "/api/site/testslug/" + sub[1].split("/")[0].replace(/\?.*$/, "")
+      : (lit && lit[1] !== "/api/site/" ? lit[1] : null);
+    if (path) calls.set(path + " " + verb, { path, verb });
+  }
+  return [...calls.values()].sort((a, b) => (a.path + a.verb).localeCompare(b.path + b.verb));
+}
+
+const drive = ({ path, verb }) => hit(path, {
+  method: verb,
+  headers: { "content-type": "application/json" },
+  body: verb === "GET" ? undefined : "{}",
+});
+
+test("THE INSTRUMENT CAN FAIL — a route that does not exist really is unrouted", async () => {
+  // Without this the three assertions below pass on a Worker that answers 401 to
+  // absolutely everything, which is the vacuous shape this repo keeps recording.
+  const nowhere = await hit("/api/definitely-not-a-route-at-all");
+  assert.ok(isUnrouted(nowhere), "the router's bottom 404 no longer looks like this: " + nowhere.status + " " + nowhere.text.slice(0, 80));
+  const real = await hit("/api/credits");
+  assert.ok(!isUnrouted(real), "a route that certainly exists is reading as unrouted, so the check would pass on anything");
+  assert.equal(real.status, 401, "…and it should be refusing an unauthenticated caller");
+});
+
+test("the call scan finds the routes AND their verbs", async () => {
+  const calls = clientCalls();
+  assert.ok(calls.length > 30, "found only " + calls.length + " calls, so the scan has stopped matching");
+  const verbs = new Set(calls.map((c) => c.verb));
+  // If every call reads as GET the verb window has broken, and a DELETE-only
+  // route will be reported dead. That happened; it is why this line is here.
+  assert.ok(verbs.has("POST") && verbs.has("GET"), "the verb window is broken — found only " + [...verbs].join(","));
+  assert.ok(calls.some((c) => c.path === "/api/game/delete" && c.verb === "DELETE"),
+    "the DELETE-only route reads as something else, which reports a working route as dead");
+});
+
+test("EVERY ROUTE THE APP CALLS IS ACTUALLY REACHABLE IN THE RUNNING WORKER", async () => {
+  const dead = [];
+  for (const call of clientCalls()) if (isUnrouted(await drive(call))) dead.push(call.path);
+  const unexpected = dead.filter((p) => !KNOWN_DEAD.includes(p));
+  assert.deepEqual(unexpected, [],
+    "the app calls " + unexpected.join(", ") + " and the router has nothing for it — a button that 404s and tells the owner to try again");
+});
+
+test("…and the known-dead really are dead, driven rather than assumed", async () => {
+  // The other half of the ratchet, and the half a source-read cannot do: a route
+  // whose path merely APPEARS in worker.js would leave the list above while
+  // still being unreachable. Only driving it can say.
+  const dead = [];
+  for (const call of clientCalls()) if (isUnrouted(await drive(call))) dead.push(call.path);
+  const revived = KNOWN_DEAD.filter((p) => !dead.includes(p));
+  assert.deepEqual(revived, [], revived.join(", ") + " answers the router now — take it out of KNOWN_DEAD");
 });
 
 test("THE OFFLINE BUTTON IS WIRED TO THE ROUTE THAT EXISTS", () => {
