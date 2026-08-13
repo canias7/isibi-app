@@ -8,6 +8,8 @@
  * less than the occupancy it cost.
  */
 
+import { inkOn } from "./_ink";
+
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
 const money = (v: number) => "$" + Math.round(Math.abs(v)).toLocaleString("en-US")
 
@@ -395,7 +397,7 @@ export function LengthOfStay({
                         }}
                         title={`${a}, ${n} night${n === 1 ? "" : "s"}: ${v}${peak ? " — occupies a peak night" : ""}`}
                       >
-                        <span style={{ color: v / max > 0.55 ? "var(--background)" : undefined }}>{v || ""}</span>
+                        <span style={{ color: inkOn(Math.round((v / max) * 74)) }}>{v || ""}</span>
                       </div>
                     </td>
                   )

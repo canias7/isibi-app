@@ -1,5 +1,7 @@
 /** People: pay, structure, tenure and where the leavers go. */
 
+import { inkOn } from "./_ink";
+
 const TONE = "var(--foreground)";
 const money = (n: number, cur = "GBP") =>
   new Intl.NumberFormat(undefined, { style: "currency", currency: cur, maximumFractionDigits: 0 }).format(n);
@@ -38,7 +40,7 @@ export function NineBox({
             const heat = c.length / Math.max(1, people.length);
             return (
               <div key={`${p}-${q}`} className="aspect-[4/3] p-1"
-                style={{ background: `color-mix(in oklch, ${TONE} ${Math.round(6 + heat * 80)}%, transparent)`, color: heat > 0.4 ? "var(--background)" : "var(--foreground)" }}>
+                style={{ background: `color-mix(in oklch, ${TONE} ${Math.round(6 + heat * 80)}%, transparent)`, color: inkOn(Math.round(6 + heat * 80)) }}>
                 <div className="text-[8px] leading-tight opacity-75">{LABEL[q][p]}</div>
                 <div className="text-[15px] leading-none font-semibold">{c.length}</div>
               </div>

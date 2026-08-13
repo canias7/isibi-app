@@ -9,6 +9,8 @@
  * show how much of the price is interest and how much is longevity.
  */
 
+import { inkOn } from "./_ink";
+
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
 const money = (v: number) => "£" + Math.round(Math.abs(v)).toLocaleString("en-GB")
 
@@ -499,7 +501,7 @@ export function MorbidityIncidence({
                       style={{ background: `color-mix(in oklch, currentColor ${((rates[bi][ci] / max) * 74).toFixed(0)}%, transparent)` }}
                       title={`${b.name} · ${c}: ${claims[bi]?.[ci] ?? 0} claims from ${b.lives.toLocaleString()} lives`}
                     >
-                      <span style={{ color: rates[bi][ci] / max > 0.55 ? "var(--background)" : undefined }}>
+                      <span style={{ color: inkOn(Math.round(clamp((rates[bi][ci] / max) * 88, 4, 88))) }}>
                         {rates[bi][ci].toFixed(1)}
                       </span>
                     </div>

@@ -129,7 +129,11 @@ console.log(`      -> the fingerprint of a background that did not paint at all\
 console.log(`   genuine partial shortfalls: ${partial.length} (across ${new Set(partial.map(f=>f.k)).size} components)\n`);
 const band=findings.filter(f=>f.got>=2.2);
 console.log(`   PLAUSIBLE-REAL BAND (>=2.2:1 — too much contrast to be ink-on-its-own-mark): ${band.length} across ${new Set(band.map(f=>f.k)).size} components`);
-for(const f of band.slice(0,20)) console.log(`      ${f.got.toFixed(2)}:1 (needs ${f.need})  ${f.k.split(".")[0]}  ink ${f.ink} on ${f.bg}  "${f.text}"`);
+const byInk={}; for(const f of band)(byInk[f.ink]??=[]).push(f);
+for(const [ink,list] of Object.entries(byInk).sort((a,z)=>z[1].length-a[1].length))
+  console.log(`      ${String(list.length).padStart(3)}  ink ${ink}   ${[...new Set(list.map(x=>x.k.split(".")[0]))].slice(0,9).join(", ")}`);
+console.log("");
+for(const f of [].slice(0,0)) console.log(`      ${f.got.toFixed(2)}:1 (needs ${f.need})  ${f.k.split(".")[0]}  ink ${f.ink} on ${f.bg}  "${f.text}"`);
 console.log("");
 for(const f of [].slice(0,0)) console.log(`   ${f.got.toFixed(2)}:1 (needs ${f.need})  ${f.k.split(".")[0]}  ink ${f.ink} on ${f.bg}  "${f.text}"`);
 await b.close();

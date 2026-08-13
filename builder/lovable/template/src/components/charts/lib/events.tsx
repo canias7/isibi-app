@@ -223,7 +223,7 @@ export function RunOfShow({
               left: `${px(l.start)}%`,
               width: `${Math.max(0.6, px(l.end) - px(l.start))}%`,
               background: l.fixed ? "currentColor" : "color-mix(in oklch, currentColor 42%, transparent)",
-              color: l.fixed ? "var(--background)" : undefined,
+              color: l.fixed ? "var(--background)" : "var(--foreground)",
             }}
             title={`${l.name}: ${clock(l.start)}–${clock(l.end)}`}
           >

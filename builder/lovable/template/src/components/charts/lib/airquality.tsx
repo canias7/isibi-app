@@ -337,7 +337,7 @@ export function AqiBand({
           >
             {/* the label's colour goes on the child — on the parent it would
                 redefine currentColor for the parent's own background */}
-            <span style={{ color: i >= 4 ? "var(--background)" : undefined }}>{b.to}</span>
+            <span style={{ color: i >= 4 ? "var(--background)" : "var(--foreground)" }}>{b.to}</span>
           </div>
         ))}
       </div>

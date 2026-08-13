@@ -1,5 +1,7 @@
 /** Farming: rotations, soils, heat units and herds. */
 
+import { inkOn } from "./_ink";
+
 const TONE = "var(--foreground)";
 
 /* --------------------------------------------------------------- crop rotation */
@@ -45,7 +47,7 @@ export function CropRotation({
               const k = crops.indexOf(c) / Math.max(1, crops.length - 1);
               return (
                 <span key={String(y)} className="flex items-center justify-center px-1 py-1.5 text-[9px] leading-tight"
-                  style={{ background: tone(c), color: k > 0.55 ? "var(--background)" : "var(--foreground)" }}>
+                  style={{ background: tone(c), color: inkOn(Math.round(k * 92)) }}>
                   {c}
                 </span>
               );

@@ -9,6 +9,8 @@
  * commonest error in this whole subject, and computing it makes that visible.
  */
 
+import { inkOn } from "./_ink";
+
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
 
 const KCAL = { protein: 4, carbohydrate: 4, fat: 9, alcohol: 7, fibre: 2 } as const
@@ -159,7 +161,7 @@ export function NutrientDensity({
                     >
                       {/* colour on the child, or currentColor in the background
                           above resolves to it and the densest row goes blank */}
-                      <span style={{ color: p.riPer100kcal > 0.35 ? "var(--background)" : undefined }}>
+                      <span style={{ color: inkOn(Math.round(clamp(p.riPer100kcal * 180, 0, 82))) }}>
                         {(p.riPer100kcal * 100).toFixed(0)}
                       </span>
                     </div>

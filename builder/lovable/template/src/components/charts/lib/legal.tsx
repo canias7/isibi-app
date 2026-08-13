@@ -1,5 +1,7 @@
 /** Legal practice: dockets, authorities, clauses and caseload. */
 
+import { inkOn } from "./_ink";
+
 const TONE = "var(--foreground)";
 
 /* --------------------------------------------------------------- docket timeline */
@@ -164,7 +166,7 @@ export function ClauseComparison({
                 <span key={t} className="flex aspect-[5/2] items-center justify-center text-[9px]"
                   style={{
                     background: `color-mix(in oklch, ${TONE} ${Math.round(v * 92)}%, transparent)`,
-                    color: v > 0.55 ? "var(--background)" : "var(--foreground)",
+                    color: inkOn(Math.round(v * 92)),
                     outline: isOutlier ? `2px solid ${TONE}` : undefined, outlineOffset: -2,
                   }}>{Math.round(v * 100)}</span>
               );

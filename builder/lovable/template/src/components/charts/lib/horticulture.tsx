@@ -9,6 +9,8 @@
  * and growing degree days against each stage's threshold.
  */
 
+import { inkOn } from "./_ink";
+
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
 
 /* ------------------------------------------------------------------ *
@@ -320,7 +322,7 @@ export function GraftingSuccess({
                       >
                         {/* colour on the child: on this div it would redefine
                             currentColor for the background above and blank the cell */}
-                        <span style={{ color: v > 0.55 ? "var(--background)" : undefined }}>{(v * 100).toFixed(0)}</span>
+                        <span style={{ color: inkOn(Math.round(v * 92)) }}>{(v * 100).toFixed(0)}</span>
                       </div>
                     </td>
                   )

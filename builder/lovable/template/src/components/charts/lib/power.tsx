@@ -90,7 +90,7 @@ export function MeritOrder({
               }}
               title={`${b.name} · ${b.mw} MW at ${b.costPerMwh}/MWh`}>
               <span className="truncate px-0.5 pb-0.5 text-[8px]"
-                style={{ color: on ? "var(--background)" : "var(--muted-foreground)" }}>{b.name}</span>
+                style={{ color: on ? "var(--background)" : "var(--foreground)" }}>{b.name}</span>
             </div>
           );
         })}

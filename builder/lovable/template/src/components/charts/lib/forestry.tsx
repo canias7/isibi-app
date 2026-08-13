@@ -8,6 +8,8 @@
  * supplied — that is the entire decision the chart exists to inform.
  */
 
+import { inkOn } from "./_ink";
+
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
 
 /* ------------------------------------------------------------------ *
@@ -329,7 +331,7 @@ export function CanopyProfile({
               />
               <span
                 className="absolute top-1/2 left-1 -translate-y-1/2 text-[9px] whitespace-nowrap"
-                style={{ color: s.lai / maxLai > 0.6 ? "var(--background)" : "var(--muted-foreground)" }}
+                style={{ color: inkOn(Math.round((s.lai / maxLai) * 88)) }}
               >
                 {s.species ?? `${s.fromM}–${s.toM} m`} · {(s.intercepted * 100).toFixed(0)}% of light
               </span>

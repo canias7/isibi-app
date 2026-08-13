@@ -1,5 +1,7 @@
 /** Graph and hierarchy layouts, all deterministic. */
 
+import { inkOn } from "./_ink";
+
 const TONE = "var(--foreground)";
 
 /* -------------------------------------------------------------- hive plot */
@@ -203,7 +205,7 @@ export function FlameGraph({
             // grows upward from the entry point at the base.
             bottom: b.d * rowHeight, height: rowHeight - 2,
             background: `color-mix(in oklch, var(--foreground) ${Math.round(78 - b.d * 13)}%, var(--muted))`,
-            color: b.d < 3 ? "var(--background)" : "var(--foreground)",
+            color: inkOn(Math.round(78 - b.d * 13)),
           }}
           title={`${b.name}: ${b.v}`}>
           {b.w > 5 ? b.name : ""}
@@ -293,7 +295,7 @@ export function CoOccurrence({
                       style={{
                         width: cell, height: cell,
                         background: ri === ci ? "var(--muted)" : `color-mix(in oklch, var(--foreground) ${Math.round((v / hi) * 88)}%, var(--muted))`,
-                        color: v / hi > 0.45 && ri !== ci ? "var(--background)" : "var(--muted-foreground)",
+                        color: ri !== ci ? inkOn(Math.round((v / hi) * 92)) : "var(--foreground)",
                       }}
                       title={ri === ci ? r : `${r} + ${c}: ${format(v)}`}>
                       {ri === ci ? "" : format(v)}

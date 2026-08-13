@@ -1,5 +1,7 @@
 /** Publishing: paywalls, decay, cohorts and who is doing the writing. */
 
+import { inkOn } from "./_ink";
+
 const TONE = "var(--foreground)";
 
 /* ------------------------------------------------------------------ paywall funnel */
@@ -135,7 +137,7 @@ export function NewsletterCohort({
                 <span key={p} className="flex aspect-[3/2] items-center justify-center text-[9px]"
                   style={{
                     background: v == null ? "var(--background)" : `color-mix(in oklch, ${TONE} ${Math.round(v * 94)}%, transparent)`,
-                    color: v != null && v > 0.55 ? "var(--background)" : "var(--foreground)",
+                    color: v != null ? inkOn(Math.round(v * 94)) : "var(--foreground)",
                   }}>{v == null ? "" : Math.round(v * 100)}</span>
               );
             })}

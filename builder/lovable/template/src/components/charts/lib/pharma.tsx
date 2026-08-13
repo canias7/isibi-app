@@ -9,6 +9,8 @@
  * numbers refuse.
  */
 
+import { inkOn } from "./_ink";
+
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
 
 /* ------------------------------------------------------------------ *
@@ -357,7 +359,7 @@ export function DrugInteraction({
                         style={{ background: `color-mix(in oklch, currentColor ${LEVEL_FILL[level]}%, transparent)` }}
                         title={hit?.note ?? `${row} × ${col}: ${level}`}
                       >
-                        <span aria-hidden style={{ color: LEVEL_FILL[level] > 45 ? "var(--background)" : undefined }}>
+                        <span aria-hidden style={{ color: inkOn(LEVEL_FILL[level]) }}>
                           {LEVEL_GLYPH[level]}
                         </span>
                         <span className="sr-only">

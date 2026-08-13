@@ -1,5 +1,7 @@
 /** Music production: tempo, dynamics, tone, image and loudness. */
 
+import { inkOn } from "./_ink";
+
 const TONE = "var(--foreground)";
 
 /* ----------------------------------------------------------------------- tempo map */
@@ -180,7 +182,7 @@ export function StereoField({
                     goes INSIDE the bar instead. */}
                 {(((e.pan + 1) / 2) > 0.5 ? from : 100 - to) < 16 ? (
                   <span className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 px-1 text-[9px] whitespace-nowrap"
-                    style={{ color: e.level / maxLevel > 0.55 ? "var(--background)" : "var(--foreground)" }}>{e.name}</span>
+                    style={{ color: inkOn(Math.round((e.level / maxLevel) * 92)) }}>{e.name}</span>
                 ) : (
                   <span className="absolute top-1/2 -translate-y-1/2 text-[9px] whitespace-nowrap text-muted-foreground"
                     style={((e.pan + 1) / 2) > 0.5 ? { right: `${100 - from + 1.5}%` } : { left: `${to + 1.5}%` }}>{e.name}</span>
