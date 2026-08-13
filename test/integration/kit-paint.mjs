@@ -26,7 +26,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
-import { TEMPLATE, OUT, CANNOT_RENDER, entries, renderAll } from "./kit-harness.mjs";
+import { TEMPLATE, OUT, CANNOT_RENDER, chartEntries, entries, renderAll } from "./kit-harness.mjs";
 
 const { chromium } = createRequire(path.join(TEMPLATE, "package.json"))("playwright");
 
@@ -34,7 +34,7 @@ let failed = 0;
 const ok = (m) => console.log("  ok   " + m);
 const bad = (m, d) => { failed++; console.log("  FAIL " + m + (d ? "\n" + d : "")); };
 
-console.log(`kit paint — ${entries.length} components, light and dark`);
+console.log(`kit paint — ${entries.length} ui + ${chartEntries.length} chart components, light and dark`);
 
 // ---- the real stylesheet ---------------------------------------------------
 fs.rmSync(OUT, { recursive: true, force: true });
@@ -62,7 +62,21 @@ const css = fs.readFileSync(path.join(OUT, "css/assets", cssFile), "utf8");
 if (css.length > 50_000 && /--background/.test(css)) ok(`the real stylesheet built (${Math.round(css.length / 1024)} KB)`);
 else bad(`the stylesheet is ${css.length} bytes — every class below is inert, so nothing is being checked`);
 
-const rendered = renderAll("full").filter((r) => r.html && !CANNOT_RENDER[r.k]);
+// THE CHARTS ARE IN, and leaving them out was the wrong way round: the whole
+// reason this file exists is that all 70 charts once rendered GREY while
+// typechecking perfectly, because they asked for `hsl(var(--chart-1))` against
+// a v4 token that already holds a complete colour. `renderAll` defaults to the
+// ui list, so a first version of this checked 2,007 of the kit's 2,925
+// components and silently skipped the tier with the worst colour history.
+//
+// `truncated` signatures are dropped from the chart pass for the reason
+// `kit-render` drops them: an ellipsis makes the prop list look complete when
+// it is not, so the props synthesised for one are a guess.
+const rendered = [
+  ...renderAll("full"),
+  ...renderAll("full", chartEntries.filter((e) => !e.truncated)),
+].filter((r) => r.html && !CANNOT_RENDER[r.k]);
+const CHART_KEYS = new Set(chartEntries.map((e) => `${e.mod}.${e.name}`));
 
 // KNOWN ANSWERS, through the same code path as the kit.
 //
@@ -98,6 +112,14 @@ const CONTROLS = [
   // case that discriminates, and it is the ordinary shape of a real defect,
   // where one label in a working component is the unreadable one.
   { k: "control:one bad line among good", expect: "fail", html: `<div style="background:#fff;padding:4px"><p style="color:#000;font-size:14px">readable</p><p style="color:#999;font-size:14px">unreadable</p></div>` },
+  // AN SVG GLYPH IS PAINTED BY `fill`, NOT `color`. Dark `color`, white `fill`,
+  // on white: reading `color` scores 21:1 and passes, reading `fill` scores
+  // 1:1 and fails. So `expect: "fail"` is what holds the right property being
+  // read — and this is a real disagreement in this kit rather than a contrived
+  // one, since `lean` carries exactly that pair.
+  { k: "control:svg text is filled not coloured", expect: "fail", html: `<div style="background:#fff;padding:4px"><svg width="80" height="20"><text x="0" y="14" style="color:#000;fill:#fff;font-size:14px">svg</text></svg></div>` },
+  // `fill: none` paints no glyph, so there is nothing to judge.
+  { k: "control:svg fill none", expect: "exempt", html: `<div style="background:#fff;padding:4px"><svg width="80" height="20"><text x="0" y="14" style="color:#000;fill:none;font-size:14px">svg</text></svg></div>` },
   // The two exemptions, each way round.
   { k: "control:decoration", expect: "exempt", html: `<p aria-hidden="true" style="pointer-events:none;color:#eee;background:#fff;font-size:14px;padding:4px">ghost</p>` },
   { k: "control:hidden but clickable", expect: "fail", html: `<p aria-hidden="true" style="color:#eee;background:#fff;font-size:14px;padding:4px">hint</p>` },
@@ -161,8 +183,37 @@ try {
     if (checked > 3000) ok(`${mode}: read the contrast of ${checked} pieces of text (${exempt} exempt: decoration or an inactive control)`);
     else bad(`${mode}: only ${checked} pieces of text were measured — the render or the CSS is broken, not the kit`);
 
-    const failing = res.filter((r) => r.worst && r.worst.ratio < r.worst.need);
-    if (failing.length === 0) { ok(`${mode}: every piece of text clears the contrast its size requires`); continue; }
+    // CHART TEXT IS REPORTED, NOT ASSERTED, and the reason is a limit of the
+    // method rather than a judgement about the charts.
+    //
+    // A chart label sits on marks the ancestor chain cannot see — an SVG shape
+    // paints with `fill`, has no `background-color`, and is a SIBLING of the
+    // label rather than a parent. Hit-testing the label's box was tried and is
+    // worse, because the box overlaps marks that are beside the glyphs. Until
+    // there is a method that can say what is behind a glyph, asserting here
+    // would fail correct components, which is the one thing this check may not
+    // do. The candidates are PRINTED so the tier is not silently uncovered.
+    const isChart = (r) => CHART_KEYS.has(r.k);
+
+    // THE CHARTS ARE REALLY IN THE PASS. Reporting-not-asserting a tier means
+    // the tier stops being able to fail, so nothing else here would notice it
+    // silently dropping out — and it HAD silently dropped out, which is the
+    // whole reason for this round: `renderAll` defaults to the ui list, so a
+    // first version checked 2,007 of the kit's 2,925 components and skipped
+    // the tier with the worst colour history in this repo. A mutation deleting
+    // the chart render survived every other assertion in this file.
+    const chartsSeen = res.filter(isChart).length;
+    if (chartsSeen >= chartEntries.length / 2) ok(`${mode}: the pass included ${chartsSeen} chart components`);
+    else bad(`${mode}: only ${chartsSeen} of ${chartEntries.length} chart components reached the browser — the chart tier has dropped out of this check`);
+
+    const suspect = res.filter(isChart).filter((r) => r.worst && r.worst.ratio < r.worst.need);
+    if (suspect.length) {
+      console.log(`  note ${mode}: ${suspect.length} chart components have text this method reads as unreadable — ` +
+        `unverified, see the comment above (${[...new Set(suspect.map((r) => r.k.split(".")[0]))].slice(0, 8).join(", ")}…)`);
+    }
+
+    const failing = res.filter((r) => !isChart(r)).filter((r) => r.worst && r.worst.ratio < r.worst.need);
+    if (failing.length === 0) { ok(`${mode}: every piece of text in the ui kit clears the contrast its size requires`); continue; }
 
     // GROUPED BY THE INK, because that is the shape the answer takes. A colour
     // token used as text by fifty components fails in fifty places for ONE
@@ -243,7 +294,32 @@ function measure({ pairs, tokens }) {
     const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
     return (x + 0.05) / (y + 0.05);
   };
-  /** Everything painted behind this element, blended bottom-up. */
+  // WHAT ACTUALLY PAINTS THIS TEXT. An HTML element's ink is `color`; an SVG
+  // `<text>`'s is `fill`, and the two genuinely disagree in this kit — `lean`
+  // has a dark `color` and a WHITE `fill`, so reading `color` there measured a
+  // property nothing draws with.
+  //
+  // ONE LINE, because the two branches this started with were both measured to
+  // be inert and removed rather than left as protection that reads local and
+  // is not. A `currentColor` case: a COMPUTED `fill` is already resolved, so
+  // `fill: currentColor` over `color: #eee` reads back as `rgb(238, 238, 238)`
+  // and the keyword never arrives. A `none` case: `parse` already maps it to
+  // zero alpha, which the caller skips. Each survived its own mutation by
+  // changing nothing; the behaviour they described is still asserted by the
+  // controls, which is where it belongs.
+  const inkOf = (el, cs) => parse(el.closest("svg") ? cs.fill : cs.color);
+
+  /**
+   * Everything painted behind this element, blended bottom-up.
+   *
+   * THE ANCESTOR CHAIN, not a hit test, and that was measured rather than
+   * assumed: `elementsFromPoint` at the text's bounding-box centre was tried
+   * and made the chart results WORSE (24 flagged became 39), because a chart
+   * label's box overlaps marks that are beside its glyphs rather than under
+   * them. What is behind a glyph inside an SVG is decided by shape geometry,
+   * and neither method answers it — which is why chart text is reported below
+   * rather than asserted.
+   */
   const behind = (el) => {
     const stack = [];
     for (let n = el; n && n !== document.documentElement; n = n.parentElement) {
@@ -338,7 +414,7 @@ function measure({ pairs, tokens }) {
       const r = el.getBoundingClientRect();
       if (r.width <= 1 || r.height <= 1) continue;
       if (exemptReason(el)) { exempt++; continue; }
-      const fg = parse(cs.color);
+      const fg = inkOf(el, cs);
       if (!fg || fg.a === 0) continue;
       const bg = behind(el);
       const on = fg.a < 1 ? over(fg, bg) : fg;
