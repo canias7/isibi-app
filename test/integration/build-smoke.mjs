@@ -95,6 +95,49 @@ try {
   ok("signed in and got a session", !!jwt, JSON.stringify(sess).slice(0, 200));
   if (!jwt) throw new Error("cannot continue without a token");
 
+  // --- FUND THE FIRST BUILD (owner's call 2026-08-13) -----------------------
+  //
+  // The first build used to run on exactly the 20-credit grant a real new
+  // account gets, deliberately. That stopped working the moment SCHEMA_PROFILE
+  // was re-measured: `buildFloor` is now 20, the two routing calls above cost
+  // 1 credit each, so the build was refused at the gate with 18 and the whole
+  // run went 9 passed / 13 failed without ever building anything.
+  //
+  // THE REFUSAL IS CORRECT AND IT IS NOT A TEST PROBLEM — a new account really
+  // cannot finish a cold first build, and the honest fix is raising the grant,
+  // which is a decision about money. Funding the test instead was the owner's
+  // call, and the cost has to be stated rather than buried:
+  //
+  //   `build smoke` NO LONGER NOTICES THAT A NEW CUSTOMER CANNOT BUILD COLD.
+  //
+  // That failure did not go away; it stopped being CI's job to report it. The
+  // shortfall is one credit for a real customer (grant 20, one routing call,
+  // floor 20) and `test/build-models.test.mjs` pins it, so the day the grant
+  // moves that test goes red and says what to update.
+  //
+  // 40, not 60: enough to clear the floor and finish a build with margin, and
+  // low enough that the run does not fund a photograph spree. One image is ~19
+  // credits of real fal spend and `imagesAffordable` buys out of whatever the
+  // model calls leave behind, so the number here is an image budget as much as
+  // a build budget.
+  //
+  // A direct ledger write, not `add_credits`: that RPC is mint-key gated and
+  // writes a `purchases` row, which would make the account read as having paid
+  // and quietly change what is under test — watermarks, storage tier, is_paid().
+  const FIRST_BUILD_CREDITS = 40;
+  const fund = await fetch(`${SUPABASE_URL}/rest/v1/credits?on_conflict=user_id`, {
+    method: "POST",
+    headers: svc({ Prefer: "resolution=merge-duplicates,return=representation" }),
+    body: JSON.stringify([{ user_id: userId, balance: FIRST_BUILD_CREDITS }]),
+  });
+  const fj = await fund.json().catch(() => ({}));
+  // Asserted, not fired and forgotten. A top-up that silently did nothing looks
+  // exactly like the 402 it exists to prevent, and the next person reads a
+  // column of red lines about money and goes looking in the wrong file.
+  ok(`funded the first build with ${FIRST_BUILD_CREDITS} credits`,
+    fund.ok && Array.isArray(fj) && Number(fj[0] && fj[0].balance) === FIRST_BUILD_CREDITS,
+    fund.status + " " + JSON.stringify(fj).slice(0, 200));
+
   // --- does the builder still ask the right questions? ----------------------
   //
   // TWO MESSAGES, TWO WORDS READ, NOTHING BUILT. `/api/site/route` only decides
@@ -246,7 +289,15 @@ try {
   usage("pages call ", d.pagesUsage, ` → charged ${d.cost - (d.schemaCost || 0)} credits`);
   // A total, because two lines that must add up are easier to disbelieve than a
   // third that states what the customer was actually charged.
-  if (typeof d.cost === "number") console.log(`   total charged: ${d.cost} credits`);
+  //
+  // ONLY ON A BUILD THAT HAPPENED. A 402 refusal carries `cost` too, and there
+  // it means what the build WOULD need — so a run that was refused having spent
+  // nothing printed "total charged: 20 credits", which is the opposite of what
+  // occurred. Measured 2026-08-13, on the first run after the credit floor was
+  // corrected: the one line somebody reads to find out what a build cost said
+  // the customer had been billed for a build that never started.
+  if (typeof d.cost === "number" && d.ok) console.log(`   total charged: ${d.cost} credits`);
+  else if (typeof d.cost === "number") console.log(`   nothing charged — refused, needing ${d.cost} credits`);
   // A RETRIED CONTAINER, SAID OUT LOUD. A build that succeeded on its second
   // compile is indistinguishable from one that succeeded on its first unless
   // this is printed — and the whole point of the retry is that the failure it
@@ -871,7 +922,14 @@ try {
   // --- credits were actually charged --------------------------------------
   const bal = await fetch(`${BASE}/api/credits`, { headers: { Authorization: `Bearer ${jwt}` } });
   const bd = await bal.json().catch(() => ({}));
-  ok("caller was charged for the build", typeof bd.balance === "number" && bd.balance < 20, JSON.stringify(bd));
+  // AGAINST WHAT THE ACCOUNT WAS FUNDED WITH, not the literal 20 this used to
+  // compare to. That number was the free grant, and the moment the first build
+  // is funded to 40 the old check reads "22 < 20" and reports an unbilled build
+  // on a run that was billed perfectly — a guard failing on a constant it no
+  // longer describes, which is this repo's most-repeated own-goal.
+  ok("caller was charged for the build",
+    typeof bd.balance === "number" && bd.balance < FIRST_BUILD_CREDITS,
+    `balance ${JSON.stringify(bd)} vs funded ${FIRST_BUILD_CREDITS}`);
 
   // --- nothing is reachable without a session ------------------------------
   //
