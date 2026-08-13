@@ -2,6 +2,9 @@
 
 import { inkOn } from "./_ink";
 
+/** The ribbon's alternating tone, as a fill percentage. */
+const chordPct = (i: number) => Math.round((0.45 + (i % 3) * 0.2) * 100);
+
 const TONE = "var(--foreground)";
 
 /* ----------------------------------------------------------------------- tempo map */
@@ -281,11 +284,15 @@ export function ChordRibbon({
           <div key={i} className="flex flex-col items-center justify-center overflow-hidden"
             style={{
               width: `${(c.beats / total) * 100}%`,
-              background: TONE, opacity: 0.45 + (i % 3) * 0.2,
+              // The alternating tone rides in the FILL, not in element opacity:
+              // opacity fades the label with the block, so a pale bar carried
+              // pale white text (measured 3.27:1). As a percentage the ink can
+              // be chosen for the tone that results.
+              background: `color-mix(in oklch, ${TONE} ${chordPct(i)}%, transparent)`,
               borderRight: "1px solid var(--background)",
             }} title={`${c.symbol} · ${c.beats} beats`}>
-            <span className="text-[11px] font-semibold leading-none" style={{ color: "var(--background)" }}>{c.symbol}</span>
-            {c.degree ? <span className="text-[8px] leading-tight" style={{ color: "var(--background)", opacity: 0.8 }}>{c.degree}</span> : null}
+            <span className="text-[11px] font-semibold leading-none" style={{ color: inkOn(chordPct(i)) }}>{c.symbol}</span>
+            {c.degree ? <span className="text-[8px] leading-tight" style={{ color: inkOn(chordPct(i)) }}>{c.degree}</span> : null}
           </div>
         ))}
       </div>

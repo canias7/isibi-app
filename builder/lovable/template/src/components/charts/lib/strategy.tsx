@@ -1,5 +1,7 @@
 /** Roadmaps, radars and the graphs transport planners draw. */
 
+import { inkOn } from "./_ink";
+
 const TONE = "var(--foreground)";
 
 /* ---------------------------------------------------------------- tech radar */
@@ -106,7 +108,8 @@ export function NowNextLater({
         {cols.map((c) => (
           <div key={c.title}>
             <div className="flex items-baseline justify-between rounded-t-[4px] px-2 py-1"
-              style={{ background: TONE, color: "var(--background)", opacity: c.weight }}>
+              style={{ background: `color-mix(in oklch, ${TONE} ${Math.round(c.weight * 100)}%, transparent)`,
+                color: inkOn(Math.round(c.weight * 100)) }}>
               <span className="text-[11px] font-semibold">{c.title}</span>
               <span className="text-[10px] tabular-nums">{c.items.length}</span>
             </div>

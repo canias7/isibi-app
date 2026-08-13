@@ -1,5 +1,7 @@
 /** Ownership, debt and the ladders people are taxed and rated on. */
 
+import { inkOn } from "./_ink";
+
 const TONE = "var(--foreground)";
 const money = (n: number, cur = "USD") =>
   new Intl.NumberFormat(undefined, { style: "currency", currency: cur, maximumFractionDigits: 0 }).format(n);
@@ -219,7 +221,7 @@ export function TaxLadder({
                   style={{ width: "38%", background: `color-mix(in oklch, ${TONE} ${filled}%, transparent)` }} />
               ) : null}
               <span className="absolute top-0.5 left-1 text-[9px] font-medium"
-                style={{ color: filled > 55 && s.inBand > 0 ? "var(--background)" : "var(--foreground)" }}>
+                style={{ color: inkOn(band) }}>
                 {Math.round(s.rate * 100)}%
               </span>
             </div>

@@ -118,3 +118,24 @@ test("the shared ramp cannot emit a percentage CSS refuses", () => {
     assert.ok(Number.isFinite(pct) && pct >= 0 && pct <= 100, `shadePct(${t}) = ${pct}`);
   }
 });
+
+test("no chart fades a labelled block with element opacity", () => {
+  // ELEMENT OPACITY FADES THE INK WITH THE FILL. `strategy.NowNextLater` set
+  // `background: TONE, color: var(--background), opacity: c.weight` — at
+  // weight 0.25 the whole header, white text included, composited toward the
+  // page and measured 1.84:1. No ink choice can survive it, because the ink is
+  // faded by the same amount; weight has to be carried by the FILL percentage,
+  // where `inkOn` can then see it.
+  //
+  // Scoped to blocks that set a contrast ink: opacity on an unlabelled mark —
+  // a dot, a bar — is ordinary and correct, and 25 modules do it.
+  const bad = [];
+  for (const f of files) {
+    read(f).split("\n").forEach((line, i) => {
+      if (/opacity:/.test(line) && /color:\s*"var\(--background\)"/.test(line)) {
+        bad.push(`${f}:${i + 1}  ${line.trim().slice(0, 90)}`);
+      }
+    });
+  }
+  assert.deepEqual(bad, [], "a block fades its own ink along with its fill:\n" + bad.join("\n"));
+});
