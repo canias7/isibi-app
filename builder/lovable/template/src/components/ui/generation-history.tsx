@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn, toDate } from "@/lib/utils";
 /**
  * The earlier attempts, so a better one is not lost by regenerating past it.
  *
@@ -33,7 +33,7 @@ export function GenerationHistory({ items, currentId, onRestore, emptyNote = "No
     <ul className={cn("divide-y divide-border rounded-md border border-border", className)}>
       {items.map((g) => {
         const live = g.id === currentId;
-        const d = g.at ? new Date(g.at) : null;
+        const d = g.at ? toDate(g.at) : null;
         const ok = d && !Number.isNaN(d.getTime());
         return (
           <li key={g.id}>

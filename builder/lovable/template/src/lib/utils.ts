@@ -6,6 +6,59 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
+ * Parse a date value, treating a bare `YYYY-MM-DD` as LOCAL midnight.
+ *
+ * A DATE-ONLY STRING IS UTC MIDNIGHT BY SPEC, and every component then reads it
+ * back with local getters — `getDate()`, `toLocaleDateString()`. West of
+ * Greenwich that is the PREVIOUS DAY: measured in New York, `2026-03-04`
+ * rendered as March 3, and `date-badge` put that wrong day in its `dateTime`
+ * too, which is the half a crawler reads. A Postgres `date` column holds
+ * exactly this shape, so it is the ordinary input rather than a strange one.
+ *
+ * IT ONLY TOUCHES THAT ONE SHAPE. A full ISO timestamp carries its own zone and
+ * is passed through untouched, as is a number and a `Date` — so routing every
+ * parse through here cannot change a value that was already right.
+ *
+ * The bug is invisible in the UK, where the platform is, because UTC midnight
+ * and local midnight are the same instant in winter and an hour apart in
+ * summer — never a different day. That is why 78 call sites had it.
+ */
+export function toDate(value: string | number | Date): Date {
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) return new Date(`${value}T00:00:00`);
+  return new Date(value);
+}
+
+/**
+ * Money held in MINOR units, formatted for the visitor's locale.
+ *
+ * THE DIVISOR IS NOT 100. Eighteen components wrote
+ * `.format(m / 100)` with `currency` as a free-form prop, so every
+ * zero-decimal currency displayed at a HUNDREDTH of its value — ¥1,200 as ¥12 —
+ * and the three-decimal ones (KWD, BHD, OMR) at ten times. `site-payments.mjs`
+ * records the same constant on the CHARGING path: "a hardcoded x100 charges a
+ * hundred times the price". Intl already knows every currency's exponent, so it
+ * is asked rather than tabulated, and nothing here needs maintaining when a
+ * currency redenominates.
+ *
+ * AN UNKNOWN CODE MUST NOT TAKE THE PAGE DOWN. `Intl.NumberFormat` throws a
+ * RangeError on anything that is not ISO 4217, and an uncaught throw in render
+ * goes through the error boundary and blanks the whole page — over one typo in
+ * a currency column. The fallback shows the number and the code, which is
+ * wrong-looking and readable rather than correct-looking and absent.
+ */
+export function formatMinor(minor: number, currency = "GBP"): string {
+  try {
+    const nf = new Intl.NumberFormat(undefined, { style: "currency", currency });
+    // `maximumFractionDigits` IS the currency's exponent: 0 for JPY, 2 for GBP,
+    // 3 for KWD.
+    const digits = nf.resolvedOptions().maximumFractionDigits ?? 2;
+    return nf.format(minor / 10 ** digits);
+  } catch {
+    return `${(minor / 100).toFixed(2)} ${currency}`;
+  }
+}
+
+/**
  * The scroll behaviour to ask for, honouring `prefers-reduced-motion`.
  *
  * A SCRIPTED SCROLL IGNORES THE MEDIA QUERY. CSS `scroll-behavior: smooth` is

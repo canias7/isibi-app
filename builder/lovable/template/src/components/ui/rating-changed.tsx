@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn, toDate } from "@/lib/utils";
 /**
  * "You changed this from 2 to 4" — an edited rating, shown as edited.
  *
@@ -29,7 +29,7 @@ export function RatingChanged({ from, to, at, note, className }: {
 }) {
   if (from === to) return null;
   const up = to > from;
-  const d = at ? new Date(at) : null;
+  const d = at ? toDate(at) : null;
   const ok = d && !Number.isNaN(d.getTime());
   return (
     <p className={cn("text-xs text-muted-foreground", className)}>

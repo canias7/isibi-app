@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, formatMinor } from "@/lib/utils";
 /**
  * The last screen before paying — everything, with every part editable.
  *
@@ -21,7 +21,7 @@ export function OrderReview({ sections, lines, totalMinor, currency = "GBP", cla
   currency?: string;
   className?: string;
 }) {
-  const fmt = (m: number) => new Intl.NumberFormat(undefined, { style: "currency", currency }).format(m / 100);
+  const fmt = (m: number) => formatMinor(m, currency);
   const sum = lines.reduce((s, l) => s + l.amountMinor, 0);
   const mismatch = sum !== totalMinor;
 

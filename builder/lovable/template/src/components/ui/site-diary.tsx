@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn, toDate } from "@/lib/utils";
 /**
  * A day on site — weather, who was there, what happened.
  *
@@ -35,7 +35,7 @@ export function SiteDiary({ date, weather, temperature, trades = [], work, delay
   by?: string;
   className?: string;
 }) {
-  const d = new Date(date);
+  const d = toDate(date);
   const ok = !Number.isNaN(d.getTime());
   const total = trades.reduce((n, t) => n + t.people, 0);
   return (

@@ -1,6 +1,6 @@
 import * as React from "react";
 import { DateFormat } from "@/components/ui/date-format";
-import { cn } from "@/lib/utils";
+import { cn, toDate } from "@/lib/utils";
 /**
  * Drag back through the versions of something.
  *
@@ -33,14 +33,14 @@ export function RevisionSlider({ versions, index, onChange, className }: {
   const current = versions[Math.min(Math.max(index, 0), last)];
   // Oldest sits at the left of the track, so the slider value is the mirror.
   const sliderValue = last - Math.min(Math.max(index, 0), last);
-  const text = current.label ?? new Date(current.at).toLocaleString();
+  const text = current.label ?? toDate(current.at).toLocaleString();
 
   return (
     <div className={cn("flex flex-col gap-2", className)}>
       <div className="flex items-baseline justify-between gap-3">
         <label htmlFor={id} className="text-sm font-medium">Version</label>
         <span className="text-sm text-muted-foreground">
-          <time dateTime={new Date(current.at).toISOString()}><DateFormat date={current.at} withTime /></time>
+          <time dateTime={toDate(current.at).toISOString()}><DateFormat date={current.at} withTime /></time>
         </span>
       </div>
       <input

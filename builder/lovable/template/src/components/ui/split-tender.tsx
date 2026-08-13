@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, formatMinor } from "@/lib/utils";
 /**
  * Part cash, part card, part voucher — with the remainder falling as you go.
  *
@@ -31,7 +31,7 @@ export function SplitTender({ total, tenders, methods, onAdd, onRemove, currency
   currency?: string;
   className?: string;
 }) {
-  const fmt = (m: number) => new Intl.NumberFormat(undefined, { style: "currency", currency }).format(m / 100);
+  const fmt = (m: number) => formatMinor(m, currency);
   const paid = tenders.reduce((s, t) => s + t.amount, 0);
   const remaining = Math.max(0, total - paid);
   const change = Math.max(0, paid - total);

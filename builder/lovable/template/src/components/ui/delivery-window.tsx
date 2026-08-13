@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, formatMinor } from "@/lib/utils";
 /**
  * Pick a delivery slot — full ones stay visible.
  *
@@ -21,7 +21,7 @@ export function DeliveryWindow({ days, value, onChange, currency = "GBP", classN
   currency?: string;
   className?: string;
 }) {
-  const fmt = (m: number) => new Intl.NumberFormat(undefined, { style: "currency", currency }).format(m / 100);
+  const fmt = (m: number) => formatMinor(m, currency);
   return (
     <div className={cn("flex flex-col gap-3", className)}>
       {days.map((d) => (

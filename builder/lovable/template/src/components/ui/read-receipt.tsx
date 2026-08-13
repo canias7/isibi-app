@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn, toDate } from "@/lib/utils";
 /**
  * Whether a message has been read, and by whom.
  *
@@ -26,7 +26,7 @@ export function ReadReceipt({ state, readBy = [], unreadBy = [], at, className }
   at?: string;
   className?: string;
 }) {
-  const d = at ? new Date(at) : null;
+  const d = at ? toDate(at) : null;
   const ok = d && !Number.isNaN(d.getTime());
   const WORD = { sent: "Sent", delivered: "Delivered", read: "Read", unknown: "No read receipt" } as const;
   return (

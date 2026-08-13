@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn, toDate } from "@/lib/utils";
 /**
  * What the reader has agreed to, in one place.
  *
@@ -32,7 +32,7 @@ export function ConsentSummary({ items, className }: { items: ConsentItem[]; cla
   return (
     <dl className={cn("divide-y divide-border rounded-md border border-border text-sm", className)}>
       {items.map((c) => {
-        const d = c.at ? new Date(c.at) : null;
+        const d = c.at ? toDate(c.at) : null;
         const ok = d && !Number.isNaN(d.getTime());
         return (
           <div key={c.id} className="flex items-start gap-3 px-3 py-2">

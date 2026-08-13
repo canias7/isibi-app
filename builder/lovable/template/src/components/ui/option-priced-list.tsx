@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, formatMinor } from "@/lib/utils";
 /**
  * Options that each move the price, with the total live.
  *
@@ -30,7 +30,7 @@ export function OptionPricedList({ options, selected, onChange, basePrice = 0, b
   currency?: string;
   className?: string;
 }) {
-  const fmt = (m: number) => new Intl.NumberFormat(undefined, { style: "currency", currency }).format(m / 100);
+  const fmt = (m: number) => formatMinor(m, currency);
   const chosen = new Set(selected);
   const isBundle = bundlePrice != null && pick != null;
   const full = isBundle && selected.length >= pick!;

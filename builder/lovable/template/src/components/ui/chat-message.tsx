@@ -1,6 +1,6 @@
 import * as React from "react";
 import { AvatarName } from "@/components/ui/avatar-name";
-import { cn } from "@/lib/utils";
+import { cn, toDate } from "@/lib/utils";
 /**
  * One message in a conversation.
  *
@@ -13,8 +13,8 @@ export function ChatMessage({ body, own, author, at, avatar, status, className }
   at?: string | number | Date; avatar?: string | null;
   status?: React.ReactNode; className?: string;
 }) {
-  const time = at != null && !Number.isNaN(new Date(at).getTime())
-    ? new Date(at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : null;
+  const time = at != null && !Number.isNaN(toDate(at).getTime())
+    ? toDate(at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : null;
   return (
     <div className={cn("flex gap-2", own ? "flex-row-reverse" : "flex-row", className)}>
       {!own && author && <AvatarName name={author} src={avatar} size="sm" avatarOnly />}

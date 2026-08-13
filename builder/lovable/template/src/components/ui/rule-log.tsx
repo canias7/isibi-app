@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn, toDate } from "@/lib/utils";
 /**
  * Every time a rule ran, and whether it did anything.
  *
@@ -40,7 +40,7 @@ export function RuleLog({ runs, emptyNote = "This rule has not run yet", classNa
   return (
     <ul className={cn("divide-y divide-border rounded-md border border-border text-sm", className)}>
       {runs.map((r) => {
-        const d = r.at ? new Date(r.at) : null;
+        const d = r.at ? toDate(r.at) : null;
         const ok = d && !Number.isNaN(d.getTime());
         return (
           <li key={r.id} className="flex items-start gap-3 px-3 py-2">

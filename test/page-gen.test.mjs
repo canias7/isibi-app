@@ -2383,6 +2383,71 @@ function floatingPanelsPaintedWithThePageToken(token) {
   return out;
 }
 
+test("a date value read on the local clock is parsed with toDate", () => {
+  // A bare `YYYY-MM-DD` is UTC midnight by spec, and `getDate()` /
+  // `toLocaleDateString()` are local — so west of Greenwich the value is the
+  // PREVIOUS DAY. Measured in New York: `2026-03-04` rendered as March 3.
+  // A Postgres `date` column holds exactly that shape.
+  //
+  // INVISIBLE FROM THE UK, where the platform is: UTC midnight and local
+  // midnight are the same instant in winter and an hour apart in summer, never
+  // a different day. That is why 78 call sites across 52 files had it.
+  //
+  // Scoped to files that actually READ on the local clock, and to an argument
+  // shaped like a value rather than an expression — `new Date(Date.now() + ms)`
+  // and `new Date(y, m, d)` cannot receive a date string and are left alone.
+  const kit = path.join(import.meta.dirname, "..", "builder", "lovable", "template", "src", "components", "ui");
+  const raw = [];
+  for (const f of fs.readdirSync(kit).filter((n) => n.endsWith(".tsx"))) {
+    const code = fs.readFileSync(path.join(kit, f), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+      .replace(/^\s*\/\/.*$/gm, "");
+    if (!/getDate\(\)|getDay\(\)|getMonth\(\)|getFullYear\(\)|getHours\(\)|toLocale(Date|Time)?String/.test(code)) continue;
+    for (const m of code.matchAll(/new Date\(([^)]*)\)/g)) {
+      const arg = m[1].trim();
+      if (!arg || arg.includes(",") || /[+\-*/]/.test(arg) || /^[\d_]+$/.test(arg)) continue;
+      if (!/^[A-Za-z_$][\w$.?[\]]*$/.test(arg)) continue;
+      // ALREADY A DATE. `const deadline = new Date(start)` where `start` came
+      // from `toDate(...)` is a CLONE, not a parse, and cloning is the one
+      // honest use of the constructor left in these files. Derived from the
+      // binding rather than allow-listed by file and line, which would go stale
+      // the first time somebody added a line above it.
+      if (new RegExp("(?:const|let)\\s+" + arg.replace(/[.?[\]]/g, "\\$&") + "\\s*=\\s*toDate\\(").test(code)) continue;
+      raw.push(f + ":" + (code.slice(0, m.index).split("\n").length) + "  new Date(" + arg + ")");
+    }
+  }
+  assert.deepEqual(raw, [],
+    "these show the previous day west of Greenwich — parse with toDate():\n  " + raw.join("\n  "));
+});
+
+test("money in minor units is never divided by a hardcoded 100", () => {
+  // Eighteen components wrote `.format(m / 100)` with `currency` as a free-form
+  // prop, so every zero-decimal currency displayed at a HUNDREDTH of its value
+  // — ¥1,200 as ¥12 — and the three-decimal ones at ten times.
+  // `site-payments.mjs` records the same constant on the CHARGING path: "a
+  // hardcoded x100 charges a hundred times the price."
+  //
+  // Scoped to a CURRENCY formatter on purpose. `/ 100` is also how a percentage
+  // is turned into a fraction, which is correct and appears in these same files
+  // — `discount-input` and `split-tender` each carry one of each — so a blanket
+  // ban on the constant would flag correct arithmetic.
+  const kit = path.join(import.meta.dirname, "..", "builder", "lovable", "template", "src", "components", "ui");
+  const offenders = [];
+  for (const f of fs.readdirSync(kit).filter((n) => n.endsWith(".tsx"))) {
+    const code = fs.readFileSync(path.join(kit, f), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+      .replace(/^\s*\/\/.*$/gm, "");
+    code.split("\n").forEach((line, i) => {
+      if (/style:\s*"currency"[\s\S]*\.format\([^)]*\/\s*10{2,}\s*\)/.test(line)) {
+        offenders.push(f + ":" + (i + 1) + "  " + line.trim().slice(0, 90));
+      }
+    });
+  }
+  assert.deepEqual(offenders, [],
+    "these show a zero-decimal currency at a hundredth of its value — use formatMinor():\n  "
+      + offenders.join("\n  "));
+});
+
 test("no effect depends on a callback PROP", () => {
   // An inline `onDone={() => …}` is a NEW function on every parent render, so a
   // callback in a dependency array re-runs the effect every time anything above

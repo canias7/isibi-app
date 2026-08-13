@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, formatMinor } from "@/lib/utils";
 /**
  * One photo, several products, each pinned to where it appears.
  *
@@ -22,7 +22,7 @@ export function ShopTheLook({ image, alt = "", items, currency = "GBP", classNam
   className?: string;
 }) {
   const [active, setActive] = React.useState<string | null>(null);
-  const fmt = (m: number) => new Intl.NumberFormat(undefined, { style: "currency", currency }).format(m / 100);
+  const fmt = (m: number) => formatMinor(m, currency);
   return (
     <div className={cn("flex flex-col gap-3 sm:flex-row", className)}>
       <div className="relative min-w-0 flex-1">

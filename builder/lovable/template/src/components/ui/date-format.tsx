@@ -1,3 +1,4 @@
+import { toDate } from "@/lib/utils";
 /**
  * A date, localised, inside a real <time>.
  *
@@ -8,7 +9,7 @@
 export function DateFormat({ date, style = "medium", withTime, className }: {
   date: string | number | Date; style?: "short" | "medium" | "long"; withTime?: boolean; className?: string;
 }) {
-  const d = new Date(date);
+  const d = toDate(date);
   if (Number.isNaN(d.getTime())) return null;
   const opts: Intl.DateTimeFormatOptions =
     style === "short" ? { day: "numeric", month: "numeric", year: "2-digit" }

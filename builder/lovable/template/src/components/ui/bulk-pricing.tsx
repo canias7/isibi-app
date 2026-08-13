@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, formatMinor } from "@/lib/utils";
 /**
  * Buy more, pay less per item — with the NEXT tier always in view.
  *
@@ -21,7 +21,7 @@ export function BulkPricing({ tiers, quantity, currency = "GBP", className }: {
   className?: string;
 }) {
   const sorted = [...tiers].sort((a, b) => a.min - b.min);
-  const fmt = (m: number) => new Intl.NumberFormat(undefined, { style: "currency", currency }).format(m / 100);
+  const fmt = (m: number) => formatMinor(m, currency);
   const activeIdx = sorted.reduce((best, t, i) => (quantity >= t.min ? i : best), -1);
   const next = sorted[activeIdx + 1];
 

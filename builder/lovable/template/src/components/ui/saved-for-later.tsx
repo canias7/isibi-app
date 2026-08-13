@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, formatMinor } from "@/lib/utils";
 /**
  * Things moved out of the basket but not given up on.
  *
@@ -20,7 +20,7 @@ export function SavedForLater({ items, onMoveToCart, onRemove, currency = "GBP",
   className?: string;
 }) {
   if (!items.length) return null;
-  const fmt = (m: number) => new Intl.NumberFormat(undefined, { style: "currency", currency }).format(m / 100);
+  const fmt = (m: number) => formatMinor(m, currency);
   return (
     <section className={cn("flex flex-col gap-2", className)}>
       <h2 className="text-sm font-semibold">Saved for later <span className="font-normal text-muted-foreground">({items.length})</span></h2>

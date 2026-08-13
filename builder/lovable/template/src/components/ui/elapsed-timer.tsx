@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, toDate } from "@/lib/utils";
 /**
  * "Started 14:02 · 23 min" — elapsed time that cannot drift.
  *
@@ -22,7 +22,7 @@ export function ElapsedTimer({ since, prefix = "Started", className }: {
   prefix?: React.ReactNode;
   className?: string;
 }) {
-  const start = React.useMemo(() => new Date(since), [since]);
+  const start = React.useMemo(() => toDate(since), [since]);
   const [, tick] = React.useReducer((n: number) => n + 1, 0);
   React.useEffect(() => {
     const id = setInterval(tick, 30_000);

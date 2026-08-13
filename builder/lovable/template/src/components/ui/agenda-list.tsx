@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, toDate } from "@/lib/utils";
 /**
  * A day's schedule, grouped under date headings.
  *
@@ -13,8 +13,8 @@ export function AgendaList({ items, empty = "Nothing scheduled.", className }: {
   empty?: string; className?: string;
 }) {
   const groups: { key: string; label: string; items: typeof items }[] = [];
-  for (const it of [...items].sort((a, b) => +new Date(a.at) - +new Date(b.at))) {
-    const d = new Date(it.at);
+  for (const it of [...items].sort((a, b) => +toDate(a.at) - +toDate(b.at))) {
+    const d = toDate(it.at);
     if (Number.isNaN(d.getTime())) continue;
     const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
     let g = groups.find((x) => x.key === key);
@@ -37,7 +37,7 @@ export function AgendaList({ items, empty = "Nothing scheduled.", className }: {
                     broke onto two lines at w-16 and knocked the whole row out of
                     line for every locale that is not 24-hour. */}
                 <span className="w-20 shrink-0 whitespace-nowrap tabular-nums text-muted-foreground">
-                  {new Date(it.at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                  {toDate(it.at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block">{it.title}</span>

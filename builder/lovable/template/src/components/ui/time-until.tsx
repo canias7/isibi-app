@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, toDate } from "@/lib/utils";
 /**
  * A live count to a moment — "in 2h 14m", ticking.
  *
@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils";
 export function TimeUntil({ date, past = "now", className }: {
   date: string | number | Date; past?: string; className?: string;
 }) {
-  const target = new Date(date);
+  const target = toDate(date);
   const valid = !Number.isNaN(target.getTime());
   const [, tick] = React.useState(0);
   const left = valid ? target.getTime() - Date.now() : 0;

@@ -1,5 +1,5 @@
 import { Check, X, Clock } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, toDate } from "@/lib/utils";
 /**
  * One person's decision on one thing — name, verdict, when.
  *
@@ -30,7 +30,7 @@ export function SignOffRow({ name, role, state, at, note, className }: {
 }) {
   const Icon = state === "approved" ? Check : state === "rejected" ? X : Clock;
   const word = state === "approved" ? "Approved" : state === "rejected" ? "Rejected" : "Waiting";
-  const d = at ? new Date(at) : null;
+  const d = at ? toDate(at) : null;
   const ok = d && !Number.isNaN(d.getTime());
   return (
     <li className={cn("flex items-start gap-3 px-3 py-2 text-sm", className)}>

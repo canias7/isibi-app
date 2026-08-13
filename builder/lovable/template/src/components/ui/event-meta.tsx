@@ -1,5 +1,5 @@
 import { Calendar, Clock, MapPin, Users, Ticket } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, toDate } from "@/lib/utils";
 /**
  * The facts line under an event title.
  *
@@ -11,8 +11,8 @@ export function EventMeta({ start, end, venue, capacity, price, className }: {
   start?: string | number | Date; end?: string | number | Date | null;
   venue?: string; capacity?: string; price?: string; className?: string;
 }) {
-  const s = start != null ? new Date(start) : null;
-  const e = end != null ? new Date(end) : null;
+  const s = start != null ? toDate(start) : null;
+  const e = end != null ? toDate(end) : null;
   const ok = (d: Date | null): d is Date => !!d && !Number.isNaN(d.getTime());
   const sameDay = ok(s) && ok(e) && s.toDateString() === e.toDateString();
   const time = ok(s)

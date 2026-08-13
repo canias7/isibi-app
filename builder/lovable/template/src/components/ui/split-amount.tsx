@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, formatMinor } from "@/lib/utils";
 /**
  * Divide a total among people — and the pennies SUM EXACTLY.
  *
@@ -36,7 +36,7 @@ export function SplitAmount({ totalMinor, people, currency = "GBP", className }:
   currency?: string;
   className?: string;
 }) {
-  const fmt = (m: number) => new Intl.NumberFormat(undefined, { style: "currency", currency }).format(m / 100);
+  const fmt = (m: number) => formatMinor(m, currency);
   const parts = splitMinor(totalMinor, people.length);
   const uneven = new Set(parts).size > 1;
   return (

@@ -1,7 +1,7 @@
 import * as React from "react";
 import { Clock, ChevronDown } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { cn } from "@/lib/utils";
+import { cn, toDate } from "@/lib/utils";
 /**
  * "Remind me later" — with times that mean something.
  *
@@ -21,12 +21,12 @@ import { cn } from "@/lib/utils";
  */
 export function snoozeOptions(now = new Date()) {
   const at = (d: Date, h: number, m = 0) => {
-    const x = new Date(d);
+    const x = toDate(d);
     x.setHours(h, m, 0, 0);
     return x;
   };
-  const tomorrow = new Date(now); tomorrow.setDate(now.getDate() + 1);
-  const monday = new Date(now); monday.setDate(now.getDate() + ((8 - now.getDay()) % 7 || 7));
+  const tomorrow = toDate(now); tomorrow.setDate(now.getDate() + 1);
+  const monday = toDate(now); monday.setDate(now.getDate() + ((8 - now.getDay()) % 7 || 7));
   const fmt = (d: Date) => d.toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" });
 
   return [

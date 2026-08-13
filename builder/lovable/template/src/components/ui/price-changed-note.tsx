@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, formatMinor } from "@/lib/utils";
 /**
  * "Two things changed price while this sat in your basket."
  *
@@ -22,7 +22,7 @@ export function PriceChangedNote({ changes, currency = "GBP", onAccept, classNam
   className?: string;
 }) {
   if (!changes.length) return null;
-  const fmt = (m: number) => new Intl.NumberFormat(undefined, { style: "currency", currency }).format(m / 100);
+  const fmt = (m: number) => formatMinor(m, currency);
   const net = changes.reduce((s, c) => s + (c.nowMinor - c.wasMinor), 0);
   return (
     <div role="status" className={cn("flex flex-col gap-1.5 rounded-lg border-2 border-foreground p-3", className)}>

@@ -1,5 +1,5 @@
 import { DateFormat } from "@/components/ui/date-format";
-import { cn } from "@/lib/utils";
+import { cn, toDate } from "@/lib/utils";
 /**
  * The automatic saves, newest first, each one openable.
  *
@@ -35,7 +35,7 @@ export function AutosaveHistory({ entries, onOpen, retentionNote, empty = "No au
     <div className={cn("flex flex-col gap-2", className)}>
       <ol className="divide-y divide-border rounded-md border border-border">
         {entries.map((e) => {
-          const d = new Date(e.at);
+          const d = toDate(e.at);
           const day = d.toDateString();
           const newDay = day !== lastDay;
           lastDay = day;

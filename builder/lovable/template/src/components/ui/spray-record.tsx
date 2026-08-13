@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn, toDate } from "@/lib/utils";
 /**
  * A pesticide application — the legally required record, in the required shape.
  *
@@ -39,7 +39,7 @@ export function SprayRecord({ product, rate, parcel, area, unit = "ha", date, op
   harvestFrom?: string;
   className?: string;
 }) {
-  const d = date ? new Date(date) : null;
+  const d = date ? toDate(date) : null;
   const ok = d && !Number.isNaN(d.getTime());
   return (
     <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>

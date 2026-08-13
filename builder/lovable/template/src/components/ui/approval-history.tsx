@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn, toDate } from "@/lib/utils";
 /**
  * Everything that happened to a request, oldest first.
  *
@@ -37,7 +37,7 @@ export function ApprovalHistory({ events, className }: {
   return (
     <ol className={cn("space-y-0", className)}>
       {events.map((e, i) => {
-        const d = e.at ? new Date(e.at) : null;
+        const d = e.at ? toDate(e.at) : null;
         const ok = d && !Number.isNaN(d.getTime());
         return (
           <li key={e.id} className="flex gap-3">

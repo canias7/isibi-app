@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, formatMinor } from "@/lib/utils";
 /**
  * The pay button — stuck to the bottom, and unpressable twice.
  *
@@ -26,7 +26,7 @@ export function PlaceOrderBar({ totalMinor, onPlace, disabled, note, currency = 
   className?: string;
 }) {
   const [busy, setBusy] = React.useState(false);
-  const fmt = (m: number) => new Intl.NumberFormat(undefined, { style: "currency", currency }).format(m / 100);
+  const fmt = (m: number) => formatMinor(m, currency);
   return (
     <div style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
       className={cn("sticky bottom-0 flex flex-col gap-1 border-t border-border bg-background px-4 pt-3", className)}>

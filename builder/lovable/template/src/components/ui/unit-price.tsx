@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, formatMinor } from "@/lib/utils";
 /**
  * The price per litre, kilo or item — the only way to compare packs.
  *
@@ -23,7 +23,7 @@ export function UnitPrice({ priceMinor, quantity, unit, currency = "GBP", classN
 }) {
   if (!quantity) return null;
   const per = Math.ceil(priceMinor / quantity);
-  const fmt = (m: number) => new Intl.NumberFormat(undefined, { style: "currency", currency }).format(m / 100);
+  const fmt = (m: number) => formatMinor(m, currency);
   return (
     <p className={cn("text-xs tabular-nums text-muted-foreground", className)}>
       {fmt(per)} per {unit}

@@ -1,5 +1,5 @@
 import { Wrench } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, toDate } from "@/lib/utils";
 /**
  * The whole site is down on purpose.
  *
@@ -12,7 +12,7 @@ export function MaintenancePage({ backAt, body, contact, className }: {
   backAt?: string | number | Date; body?: string;
   contact?: { label: string; href: string }; className?: string;
 }) {
-  const d = backAt != null ? new Date(backAt) : null;
+  const d = backAt != null ? toDate(backAt) : null;
   const ok = d && !Number.isNaN(d.getTime());
   return (
     <div className={cn("mx-auto flex max-w-md flex-col items-center gap-4 px-6 py-20 text-center", className)}>

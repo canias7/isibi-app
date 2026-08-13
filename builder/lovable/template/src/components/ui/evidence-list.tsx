@@ -1,5 +1,5 @@
 import { SafeImage } from "@/components/ui/safe-image";
-import { cn } from "@/lib/utils";
+import { cn, toDate } from "@/lib/utils";
 /**
  * Photos and documents attached to a record, with when each was taken.
  *
@@ -41,7 +41,7 @@ export function EvidenceList({ items, emptyNote = "Nothing attached", className 
   if (!items.length) return <p className={cn("text-sm text-muted-foreground", className)}>{emptyNote}</p>;
   const fmt = (s?: string) => {
     if (!s) return null;
-    const d = new Date(s);
+    const d = toDate(s);
     return Number.isNaN(d.getTime()) ? null : d;
   };
   return (

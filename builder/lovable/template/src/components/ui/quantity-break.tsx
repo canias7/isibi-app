@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, formatMinor } from "@/lib/utils";
 /**
  * The single "you are N away from a cheaper price" line, on its own.
  *
@@ -21,7 +21,7 @@ export function QuantityBreak({ quantity, nextAt, nextPriceMinor, currency = "GB
 }) {
   if (nextAt == null || nextPriceMinor == null || quantity >= nextAt) return null;
   const need = nextAt - quantity;
-  const fmt = (m: number) => new Intl.NumberFormat(undefined, { style: "currency", currency }).format(m / 100);
+  const fmt = (m: number) => formatMinor(m, currency);
   return (
     <p className={cn("text-xs", className)}>
       Add <b className="tabular-nums">{need}</b> more for <b className="tabular-nums">{fmt(nextPriceMinor)}</b> each

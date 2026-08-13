@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn, toDate } from "@/lib/utils";
 /**
  * One movement of stock — in, out, or between places — with who and why.
  *
@@ -31,7 +31,7 @@ export function StockMove({ kind, quantity, unit, reason, by, at, from, to, clas
   to?: string;
   className?: string;
 }) {
-  const d = at ? new Date(at) : null;
+  const d = at ? toDate(at) : null;
   const ok = d && !Number.isNaN(d.getTime());
   const sign = kind === "in" ? "+" : kind === "out" ? "−" : "";
   const word = kind === "in" ? "In" : kind === "out" ? "Out" : "Moved";

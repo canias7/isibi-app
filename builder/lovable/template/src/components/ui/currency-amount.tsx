@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, formatMinor } from "@/lib/utils";
 /**
  * Money DISPLAYED from minor units — the other half of amount-input.
  *
@@ -27,26 +27,6 @@ import { cn } from "@/lib/utils";
  * redenominates.
  */
 
-/**
- * The formatter and its minor-unit exponent, or null if the code is not one
- * Intl recognises.
- *
- * An unknown code THROWS out of `Intl.NumberFormat`, and an uncaught throw in
- * render takes the whole page down through the error boundary — a blank site
- * because one row had a typo in a currency column. The caller falls back to
- * showing the number and the code, which is wrong-looking and readable, rather
- * than correct-looking and absent.
- */
-function currencyParts(currency: string) {
-  try {
-    const nf = new Intl.NumberFormat(undefined, { style: "currency", currency });
-    // `maximumFractionDigits` is the currency's own exponent: 0 for JPY, 2 for
-    // GBP, 3 for KWD.
-    return { nf, digits: nf.resolvedOptions().maximumFractionDigits ?? 2 };
-  } catch {
-    return null;
-  }
-}
 export function CurrencyAmount({ minor, currency = "GBP", zeroAs, parentheses, className }: {
   minor: number;
   currency?: string;
@@ -57,10 +37,9 @@ export function CurrencyAmount({ minor, currency = "GBP", zeroAs, parentheses, c
   if (minor === 0 && zeroAs === "free") {
     return <span className={cn("font-medium", className)}>Free</span>;
   }
-  const parts = currencyParts(currency);
-  const abs = parts
-    ? parts.nf.format(Math.abs(minor) / 10 ** parts.digits)
-    : `${(Math.abs(minor) / 100).toFixed(2)} ${currency}`;
+  // Shared with the eighteen other components that display minor units, so the
+  // exponent is worked out in ONE place rather than nineteen.
+  const abs = formatMinor(Math.abs(minor), currency);
   if (minor < 0) {
     return (
       <span className={cn("tabular-nums", className)}>

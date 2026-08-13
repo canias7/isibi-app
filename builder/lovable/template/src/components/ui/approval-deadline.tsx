@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn, toDate } from "@/lib/utils";
 /**
  * When an approval is due, and what happens if nobody acts.
  *
@@ -27,7 +27,7 @@ export function ApprovalDeadline({ due, daysLeft, onExpiry = "nothing", classNam
   onExpiry?: "nothing" | "approve" | "reject" | "escalate";
   className?: string;
 }) {
-  const d = new Date(due);
+  const d = toDate(due);
   const ok = !Number.isNaN(d.getTime());
   const over = daysLeft !== undefined && daysLeft < 0;
   const soon = daysLeft !== undefined && daysLeft >= 0 && daysLeft <= 1;

@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn, toDate } from "@/lib/utils";
 /**
  * One attempt to deliver an event — status, timing, and what comes next.
  *
@@ -33,7 +33,7 @@ export function DeliveryAttempt({ number, at, outcome, status, ms, body, nextRet
   nextRetry?: string;
   className?: string;
 }) {
-  const d = at ? new Date(at) : null;
+  const d = at ? toDate(at) : null;
   const ok = d && !Number.isNaN(d.getTime());
   const WORD = { ok: "Delivered", error: "Rejected", timeout: "Timed out", refused: "Could not connect" } as const;
   const failed = outcome !== "ok";
