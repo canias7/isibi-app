@@ -46,6 +46,7 @@ import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayou
 // it at deploy time and the deploy is the first thing that ever sees it.
 import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, MIN_CREDITS, IMAGE_USD as SITE_PHOTO_USD } from "./builder/publish-pages.mjs";
 import { imageBudget, budgetFor, imagesAffordable, planImages, applyImages, countImageSlots, imagePrompt, imageNote, IMAGE_ASPECT } from "./builder/site-images.mjs";
+import { renderNote } from "./builder/site-render.mjs";
 import { ASKABLE as SITE_TOKEN_NAMES, valueHint as siteTokenHint, mergeTokens, parseTokens, withContrast, tokenNote } from "./builder/site-tokens.mjs";
 import { ASKABLE as SITE_STYLE_AXES, optionsFor as siteStyleOptions, axisHint as siteStyleHint, mergeStyle, parseStyle, styleNote, saidFor as styleSaid } from "./builder/site-style.mjs";
 import { extractText, applyEdits } from "./builder/site-text.mjs";
@@ -9982,6 +9983,20 @@ async function handleRequest(request, env, ctx) {
         // same reason as the three above.
         salvageNote: pages.salvageNote || undefined,
         salvaged: (pages.salvaged && pages.salvaged.length) ? pages.salvaged : undefined,
+        // WHAT THE PAGES LOOK LIKE, which nothing else in this response can say.
+        // Every other check is textual — a real page can be blank, throw on load
+        // or paint text nobody can read and pass all of them. Reporting only: it
+        // never refuses a publish, so a site with findings is a site that is
+        // live and has something worth a second look.
+        //
+        // Omitted when the check found nothing, so a clean build's response is
+        // byte-identical to what it was before this existed — and kept when it
+        // could not RUN (`ok:false`), because a harness that silently reports
+        // nothing reads exactly like a site with nothing wrong.
+        render: (pages.render && (pages.render.ok === false || (pages.render.findings || []).length)) ? pages.render : undefined,
+        // …and the same thing as a sentence, composed in the module for the
+        // reason all four notes above it are.
+        renderNote: renderNote(pages.render) || undefined,
         // WHY it fell back, when it did. publish-pages.mjs has returned these
         // since it was extracted and nothing passed them on, so a build that
         // published the placeholder said only "placeholder" — the caller (and

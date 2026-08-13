@@ -11739,6 +11739,13 @@ function reactSend(site, t, origin, mode, imgs, finish, qa) {
         // only thing that names it. In the note block rather than glued to
         // `notes`, or it reads mid-paragraph the way contextNote once did.
         (d && typeof d.salvageNote === 'string') ? d.salvageNote.trim() : '',
+        // AND WHAT THE FINISHED PAGES ACTUALLY LOOK LIKE. The one check in the
+        // whole build path that opens the site in a browser — every other one is
+        // textual, so a page that renders blank, throws on load or paints text
+        // nobody can read passes all of them and publishes. Reporting only, so
+        // this sentence sits beside a site that IS live: it says "worth a second
+        // look", never "we stopped".
+        (d && typeof d.renderNote === 'string') ? d.renderNote.trim() : '',
       ].filter(Boolean).join('\n');
       // THE MODEL'S OWN SUMMARY, which the builder has always written and always
       // discarded — `notes` came back on every response and nothing rendered it,

@@ -30,6 +30,7 @@ import { tokensCss, stripThemeRadius, validForWrite } from "./site-tokens.mjs";
 import { applyStyle, explicitRadiusCss } from "./site-style.mjs";
 import { applyIdentity, initialsMark, normalizeLang } from "./site-identity.mjs";
 import { exitReason } from "./exit-reason.mjs";
+import { checkRender } from "./render-check.mjs";
 
 const APP = process.env.APP_DIR || "/app";
 const ROUTES = path.join(APP, "src", "routes");
@@ -528,9 +529,26 @@ const server = http.createServer((req, res) => {
       // having and is never worth failing a build for.
       const pre = await timed("preMs", null, null, () => prerender());
 
+      // THE ONLY STEP THAT EVER LOOKS AT THE SITE. Everything above is textual —
+      // is it a file, does it name real things, does it compile, does it bundle —
+      // and none of that can see a page that renders blank, throws on load, or
+      // paints text nobody can read. Every visual failure this platform has
+      // recorded got through all four and was found by a person looking.
+      //
+      // Fed the routes `prerender` ACTUALLY wrote, so it inspects the documents a
+      // visitor really gets rather than a list of what ought to exist.
+      //
+      // Best-effort by construction, exactly like the prerender above it:
+      // `checkRender` has a try around everything and reports rather than
+      // throwing, so a browser that will not start costs a report and never a
+      // build. Reporting only — nothing here refuses a publish.
+      const render = pre.done.length
+        ? await timed("renderMs", null, null, () => checkRender(DIST, pre.done))
+        : null;
+
       const dist = collectDist();
       if (!dist["index.html"]) return send(res, 200, { ok: false, stage: "build", error: "build produced no index.html", ms: Date.now() - t0, ...times });
-      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, fonts: fontsUsed, theme: themeUsed, tokens: tokensUsed, identity: identityUsed, brand: logoUsed, prerendered: pre.done, prerenderSkipped: pre.skipped });
+      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, fonts: fontsUsed, theme: themeUsed, tokens: tokensUsed, identity: identityUsed, brand: logoUsed, prerendered: pre.done, prerenderSkipped: pre.skipped, render });
     } catch (e) {
       return send(res, 200, { ok: false, stage: "build", error: String((e && e.message) || e).slice(0, 2000), ms: Date.now() - t0, ...times });
     }

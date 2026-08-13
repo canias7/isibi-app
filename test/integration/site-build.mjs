@@ -228,7 +228,12 @@ try {
   fs.rmSync(path.join(sandbox, "src/routes/index.tsx"), { force: true });
 
   server = spawn("node", [path.join(ROOT, "builder", "build-server.mjs")], {
-    env: { ...process.env, APP_DIR: sandbox, PORT: String(PORT), NODE_ENV: "production" },
+    // CHROMIUM_PATH is what the render check reads, and in the image it is the
+    // distro browser at /usr/bin/chromium. Here it is Playwright's, so the check
+    // runs locally exactly as it does in the container. Left unset the check
+    // reports `ok:false` and every assertion below would skip rather than lie —
+    // but then it would be proving nothing, so it is set deliberately.
+    env: { ...process.env, APP_DIR: sandbox, PORT: String(PORT), NODE_ENV: "production", CHROMIUM_PATH: process.env.CHROMIUM_PATH || "/opt/pw-browsers/chromium" },
     stdio: ["ignore", "pipe", "pipe"],
   });
   server.stderr.on("data", (d) => process.stderr.write("  [build-service] " + d));
@@ -1017,6 +1022,78 @@ function P() {
         /isn't finished yet|isn&#x27;t finished yet|isn&apos;t finished yet/.test(html),
         html.slice(0, 300));
     }
+  }
+
+  /* ---------------------------------------- 1.t: the check that LOOKS at it */
+  //
+  // THE ONLY THING THAT CAN VALIDATE THE PROBE. `test/site-render.test.mjs`
+  // drives the judgement with literal objects and proves every threshold; it
+  // cannot prove that a real browser on a real page produces those numbers at
+  // all. This can, and it is $0 — no model call, no Neon project, no publish.
+  //
+  // THE FIRST ASSERTION IS THE IMPORTANT ONE. A check that flags a good page is
+  // strictly worse than no check, because it teaches everyone to ignore it — so
+  // the page we hold up as correct has to come back with NOTHING. The three
+  // below it then prove the check can still fail, or a clean run means nothing.
+  {
+    // BOTH PAGES, and posting INDEX alone is a trap this repo has already
+    // recorded and I walked straight back into: its `<Link to="/menu">` is typed
+    // against the generated route tree, so on its own the build dies at the
+    // TYPECHECK and never reaches a browser at all. The failure then reads as
+    // "the render check did not run", which sends the reader at the wrong layer.
+    const good = await post({ files: { "index.tsx": INDEX, "menu.tsx": MENU }, slug: "render-good", title: "Render" });
+    const r = good.render;
+    // NAMES THE STAGE. The first draft of this line said only "no render report
+    // on the response" and cost a hunt through the harness for a fixture bug.
+    ok("the render check ran at all", r && r.ok === true,
+      r ? `ok=${r.ok} ${String(r.error || "")}`
+        : `no render report — build ${good.ok ? "ok" : "failed at " + good.stage}: ${String(good.error || "").slice(0, 200)}`);
+    if (r && r.ok) {
+      ok("…and looked at both widths", r.checked >= 2, `checked ${r.checked}`);
+      // Named individually, because "it found 3 things" is not diagnosable and
+      // the whole point of this run is to calibrate against a page we believe in.
+      ok("A GOOD PAGE IS REPORTED CLEAN — no false alarms on the reference page",
+        (r.findings || []).length === 0,
+        (r.findings || []).map((f) => `${f.route}@${f.viewport} ${f.kind}: ${f.detail}`).join(" | "));
+    }
+
+    // Blank: renders a valid, empty document. Compiles, bundles, publishes —
+    // and is exactly the site nothing else in the pipeline has an opinion about.
+    const blank = await post({
+      files: { "index.tsx": `import { createFileRoute } from "@tanstack/react-router";\nexport const Route = createFileRoute("/")({ component: B });\nfunction B() { return <div />; }\n` },
+      slug: "render-blank", title: "Blank",
+    });
+    // A page with no words does not survive the PRERENDER either (it refuses to
+    // snapshot a body with no text), so either layer catching it is the right
+    // outcome — what must never happen is a blank site reported as fine.
+    const blankCaught = (blank.render && (blank.render.findings || []).some((f) => f.kind === "blank"))
+      || (blank.prerenderSkipped || []).some((s) => /rendered no text/.test(s));
+    ok("a page that renders nothing is caught rather than published silently", blankCaught,
+      JSON.stringify({ findings: (blank.render && blank.render.findings) || [], skipped: blank.prerenderSkipped || [] }).slice(0, 300));
+
+    // Overflow at 375, which is the width nothing in this pipeline had ever
+    // rendered — and the width most of a barber shop's visitors are on.
+    const wide = await post({
+      files: { "index.tsx": `import { createFileRoute } from "@tanstack/react-router";\nexport const Route = createFileRoute("/")({ component: W });\nfunction W() { return <div><h1>Our services and prices</h1><div style={{ width: 900 }}>A table of prices that is far too wide for a phone screen to hold</div></div>; }\n` },
+      slug: "render-wide", title: "Wide",
+    });
+    const spill = ((wide.render && wide.render.findings) || []).filter((f) => f.kind === "overflow");
+    ok("a page that scrolls sideways on a phone is caught", spill.length > 0,
+      JSON.stringify((wide.render && wide.render.findings) || []).slice(0, 300));
+    ok("…and only on the phone, because 900px fits a desktop perfectly well",
+      spill.length > 0 && spill.every((f) => f.viewport === "phone"),
+      spill.map((f) => f.viewport).join(",") || "none");
+
+    // A throw AFTER hydration: the server render succeeds, the page publishes,
+    // and it breaks in front of a visitor. Nothing else in the build path can
+    // see this — it typechecks, it bundles, and the prerender is clean.
+    const boom = await post({
+      files: { "index.tsx": `import { createFileRoute } from "@tanstack/react-router";\nimport { useEffect } from "react";\nexport const Route = createFileRoute("/")({ component: E });\nfunction E() { useEffect(() => { throw new Error("kaboom from the client"); }, []); return <div><h1>Sharp Fade Barbers</h1><p>We are open Tuesday to Saturday for cuts and beard trims.</p></div>; }\n` },
+      slug: "render-throw", title: "Throw",
+    });
+    ok("a page that throws only in the browser is caught, which nothing else in the pipeline can see",
+      ((boom.render && boom.render.findings) || []).some((f) => f.kind === "threw" || f.kind === "logged"),
+      JSON.stringify({ ok: boom.ok, stage: boom.stage, findings: (boom.render && boom.render.findings) || [] }).slice(0, 400));
   }
 
 } catch (e) {

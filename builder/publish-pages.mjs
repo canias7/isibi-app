@@ -544,9 +544,17 @@ export async function publishPages(deps, { spec, slug, priorUsage } = {}) {
     // these say where the time went inside it. Kept on the FAILURE path too — a
     // build that died in typecheck still spent that time, and a slow typecheck is
     // the symptom that says the kit has grown, not the site.
-    if (bd) for (const k of ["routesMs", "tscMs", "viteMs"]) {
+    if (bd) for (const k of ["routesMs", "tscMs", "viteMs", "renderMs"]) {
       if (typeof bd[k] === "number") out[k] = (out[k] || 0) + bd[k];
     }
+    // WHAT THE BROWSER SAW, from the compile that produced the files being kept.
+    //
+    // ASSIGNED rather than accumulated, unlike the timings beside it, and the
+    // difference matters on a salvaged build: `compile` runs again with the bad
+    // page stubbed, and it is that second run whose pages get published. Merging
+    // the two would report findings about a file the customer never receives.
+    // A failed compile never reaches the render step at all, so it carries none.
+    if (bd && bd.render && typeof bd.render === "object") out.render = bd.render;
     // WHICH TEMPLATE BUILT THIS. Cloudflare rolls a container image out
     // asynchronously, so a build minutes after a deploy can still be served by
     // the previous image — and its published bundle is that older code. Carried

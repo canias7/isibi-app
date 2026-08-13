@@ -1502,11 +1502,29 @@ test("the salvage note reaches the response and the note block, not just the mod
   const c = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
   assert.match(c, /typeof d\.salvageNote === 'string'/,
     "the client never renders the note the route returned");
-  // In the NOTE block beside the other three, not appended to the model's summary.
-  const at = c.indexOf("const note = [");
-  const block = c.slice(at, c.indexOf("].filter(Boolean).join('\\n');", at));
-  assert.ok(block.length > 100 && block.length < 1400, "the note block moved — window is " + block.length);
+  // In the NOTE block beside the others, not appended to the model's summary.
+  //
+  // BOUNDED BY ITS SHAPE, NOT BY ITS BYTE COUNT. This read `block.length < 1400`
+  // and went red the moment a SIXTH note was added — a guard about how much
+  // reasoning is written in the comments, failing a correct change. That is this
+  // repo's most-repeated own-goal and it has now cost a red run three times.
+  // What it actually wants to know is that the anchors found the right region
+  // and that the region is a list of note entries rather than half the file.
+  const open = c.indexOf("const note = [");
+  const close = c.indexOf("].filter(Boolean).join('\\n');", open);
+  assert.ok(open > 0 && close > open, "the note block's anchors moved — a window nothing matched would pass every assertion below vacuously");
+  const block = c.slice(open, close);
   assert.match(block, /salvageNote/, "it landed somewhere other than the note block");
+  // Every line of CODE in there is one note entry. A block that had swallowed
+  // something else would fail this however long it happened to be.
+  const code = block.split("\n").slice(1)
+    .map((l) => l.replace(/\/\/.*$/, "").trim())
+    .filter(Boolean);
+  assert.ok(code.length >= 4 && code.length <= 12, "the note block holds " + code.length + " entries");
+  for (const line of code) {
+    assert.match(line, /^\(d && typeof d\.\w+Note === 'string'\) \? d\.\w+Note\.trim\(\) : '',$/,
+      "not a note entry: " + line);
+  }
 });
 
 /* ------------------------------------------- a killed step is ours, not theirs */
