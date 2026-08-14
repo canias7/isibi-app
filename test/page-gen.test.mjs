@@ -3650,3 +3650,140 @@ test("both partial lanes hand validate the stored site's routes", () => {
     assert.match(c, /routeOf\(/, "knownRoutes is not derived from the stored pages:\n" + c.slice(0, 200));
   }
 });
+
+// ── A LINK WRITTEN AS A PLAIN ANCHOR ────────────────────────────────────────
+//
+// The dangling-link rewrite covers `to=`/`to:` only — the TYPED forms, where a
+// route that does not exist is a TS2322 and the build dies. A plain
+// `<a href="/quote">` compiles, bundles and publishes, and lands the visitor on
+// the router's not-found page. Nobody gets a signal: not the owner, not us.
+
+test("a href to a page that was never written is REPORTED", () => {
+  const p = (path, body) => ({ path, source:
+    'import { createFileRoute } from "@tanstack/react-router";\n' +
+    'export const Route = createFileRoute("/x")({});\n' +
+    "function P() { return <div>" + (body || "") + "</div>; }" });
+  const dead = (body, extra = []) => validatePages({ pages: [p("index.tsx", body), ...extra] })
+    .problems.filter((x) => x.includes("not found"));
+
+  assert.equal(dead('<a href="/quote">Get a quote</a>').length, 1);
+  assert.match(dead('<a href="/quote">x</a>')[0], /\/quote/);
+  assert.deepEqual(dead('<a href="/book">Book</a>', [p("book.tsx")]), [], "a live route was called dead");
+});
+
+test("…and REPORTED rather than rewritten, unlike the typed form", () => {
+  // The asymmetry is deliberate. The `to=` rewrite exists because the
+  // alternative is losing the whole site to a failed compile; there is no build
+  // to save here. And an href may legitimately hold a non-route path, where a
+  // wrong exemption in a REWRITE breaks a working link and a wrong exemption in
+  // a REPORT costs one noisy sentence.
+  const src = 'import { createFileRoute } from "@tanstack/react-router";\n' +
+    'export const Route = createFileRoute("/x")({});\n' +
+    'function P() { return <a href="/quote">x</a>; }';
+  const out = validatePages({ pages: [{ path: "index.tsx", source: src }] });
+  assert.match(out.pages[0].source, /href="\/quote"/, "the href was rewritten — a typed-form remedy on an untyped link");
+});
+
+test("the exemptions hold, because a wrong one breaks a working link", () => {
+  const p = (path, body) => ({ path, source:
+    'import { createFileRoute } from "@tanstack/react-router";\n' +
+    'export const Route = createFileRoute("/x")({});\n' +
+    "function P() { return <div>" + (body || "") + "</div>; }" });
+  const dead = (body, extra = []) => validatePages({ pages: [p("index.tsx", body), ...extra] })
+    .problems.filter((x) => x.includes("not found"));
+
+  for (const [what, body] of [
+    ["an upload", '<a href="/u/slug/menu.pdf">Menu</a>'],
+    ["the data API", '<a href="/api/db/x/data/y">x</a>'],
+    ["the internal mount", '<a href="/s/other/">x</a>'],
+    ["a published file", '<a href="/sitemap.xml">map</a>'],
+    ["an external link", '<a href="https://instagram.com/x">IG</a>'],
+    ["an in-page anchor", '<a href="#prices">Prices</a>'],
+  ]) {
+    assert.deepEqual(dead(body), [], what + " was reported as a dead page link");
+  }
+  // The query and the fragment are not part of the route, and a trailing slash
+  // is the same address.
+  assert.deepEqual(dead('<a href="/book?svc=cut#top">Book</a>', [p("book.tsx")]), []);
+  assert.deepEqual(dead('<a href="/book/">Book</a>', [p("book.tsx")]), []);
+});
+
+test("ZERO FALSE ALARMS ON THE CORPUS THE MODEL COPIES — measured, not assumed", () => {
+  // THE MEASUREMENT THAT DECIDES WHETHER THIS CHECK CAN EXIST. A rule that cries
+  // wolf teaches the model away from an idiom that is perfectly correct, which
+  // is strictly worse than the miss it prevents — the same bar `lintPages` had
+  // to clear over its 328 pages.
+  //
+  // Driven through the REAL `validatePages`, one family at a time, exactly as if
+  // the model had returned that family's pages. 500 route hrefs across 324
+  // exemplar files, and this must stay at zero.
+  const base = path.join(import.meta.dirname, "../builder/lovable/template/src/family-pages");
+  const fams = fs.readdirSync(base).filter((n) => fs.statSync(path.join(base, n)).isDirectory());
+  assert.ok(fams.length >= 90, "only " + fams.length + " families found — the scan stopped working");
+  let hrefs = 0;
+  const flagged = [];
+  for (const fam of fams) {
+    const d = path.join(base, fam);
+    const files = fs.readdirSync(d).filter((n) => n.endsWith(".tsx"));
+    const pages = files.map((n) => ({ path: n, source: fs.readFileSync(path.join(d, n), "utf8") }));
+    for (const p of pages) hrefs += (p.source.match(/\bhref\s*=\s*["']\//g) || []).length;
+    for (const x of validatePages({ pages }).problems) if (x.includes("not found")) flagged.push(fam + ": " + x);
+  }
+  assert.ok(hrefs >= 400, "only " + hrefs + " route hrefs in the corpus — this stopped being the dominant idiom, " +
+    "so the zero below no longer means what it says");
+  assert.deepEqual(flagged, [], "the dead-link check fires on the house style itself");
+});
+
+test("validatePages asks the SHARED route mapping, not a fifth private copy", () => {
+  // This file kept its own, and the class of bug it produced has been found here
+  // TWICE: `menu/index.tsx` derived as `/menu/index`, and `about.team.tsx` as
+  // `/about.team` where TanStack routes it at `/about/team`. Both are shapes
+  // `cleanPath`'s SAFE_PATH admits, so both are reachable output.
+  //
+  // The dot case got WORSE when the container and the published manifest were
+  // corrected to the real mapping (2026-08-14): before that every reader agreed
+  // on the wrong answer, and afterwards a `<Link to="/about/team">` that
+  // `tsr generate` really accepts was the one this rewrote away.
+  const src = fs.readFileSync(new URL("../builder/page-gen.mjs", import.meta.url), "utf8");
+  assert.match(src, /import \{ routeOf \} from "\.\/site-addon\.mjs"/, "the shared mapping is not imported");
+  assert.ok(!/const routeOf = \(path\) =>/.test(src), "a private copy of the mapping is back");
+
+  // DRIVEN, both shapes, because an import that is never called reads the same.
+  const p = (path, body) => ({ path, source:
+    'import { createFileRoute, Link } from "@tanstack/react-router";\n' +
+    'export const Route = createFileRoute("/x")({});\n' +
+    "function P() { return <div>" + (body || "") + "</div>; }" });
+  for (const [file, route] of [["about.team.tsx", "/about/team"], ["menu/index.tsx", "/menu"]]) {
+    const out = validatePages({ pages: [p("index.tsx", '<Link to="' + route + '">go</Link>'), p(file)] });
+    assert.deepEqual(out.problems, [], file + " -> " + route + " was called dangling");
+    assert.match(out.pages[0].source, new RegExp('to="' + route + '"'),
+      "a correct link to " + route + " was rewritten to the home page");
+  }
+});
+
+test("A PARTIAL SET WITH NO KNOWN ROUTES DOES NOT JUDGE AN HREF EITHER", () => {
+  // The exact failure `canJudge` was added for, one link idiom over. The edit
+  // and addon lanes return only what the model WROTE, so every unchanged page
+  // of the site reads as nonexistent — reproduced by the 2026-08-13 audit for
+  // `to=`, where a one-page edit's correct `<Link to="/book">` was rewritten and
+  // problems[] told the customer their live booking page did not exist.
+  //
+  // For an href it would be a false problem on EVERY cheap edit, since
+  // PAGE_RULES teaches in-body links and the exemplars are full of them. A
+  // genuinely dead href still cannot hide: the lanes compile the changed pages
+  // together with the stored site.
+  const one = { pages: [{ path: "manage.tsx", source:
+    'import { createFileRoute } from "@tanstack/react-router";\n' +
+    'export const Route = createFileRoute("/manage")({});\n' +
+    'function P() { return <a href="/book">Book</a>; }' }] };
+  const blind = validatePages(one, { partial: true });
+  assert.deepEqual(blind.problems.filter((x) => x.includes("not found")), [],
+    "a partial set with no knownRoutes judged an href on a guess — every cheap edit gains a false problem");
+
+  // …and WITH the site's routes it judges properly, in both directions.
+  assert.deepEqual(validatePages(one, { partial: true, knownRoutes: ["/", "/book"] })
+    .problems.filter((x) => x.includes("not found")), []);
+  assert.equal(validatePages(one, { partial: true, knownRoutes: ["/"] })
+    .problems.filter((x) => x.includes("not found")).length, 1,
+    "with the site's real routes in hand a genuinely dead href must still be reported");
+});

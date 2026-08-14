@@ -21,6 +21,10 @@ import { FAMILIES, layoutDirective } from "./site-layouts.mjs";
 import { imageDirective } from "./site-images.mjs";
 import { FAMILY_EXEMPLARS } from "./family-exemplars.mjs";
 import { modelsFor } from "./build-models.mjs";
+// The ONE reading of a page file's URL, shared with the addon lane, the
+// container's prerender and the published route manifest. This file kept a
+// private copy and it was wrong twice — see the note at `live` below.
+import { routeOf } from "./site-addon.mjs";
 // One worked call per primitive, mined out of the demos by
 // builder/gen-chart-usage.mjs. This is what the 1,140 demo files are FOR: they
 // are the only place in the repo these APIs are called, and they compile, so
@@ -3265,16 +3269,22 @@ export function validatePages(input, { partial = false, knownRoutes = null } = {
   // so the site builds and one link goes somewhere sensible instead of nowhere —
   // which beats losing every page over a single href. The rewrite is reported,
   // so it is visible rather than silent.
-  // A DIRECTORY INDEX ROUTES AT ITS DIRECTORY. `menu/index.tsx` is `/menu` to
-  // TanStack, and this used to derive `/menu/index` — so a page written in the
-  // directory form had its route recorded under a name nothing links to, and
-  // every CORRECT `<Link to="/menu">` was rewritten to "/" as dangling. The page
-  // existed at /menu, nothing reached it, and a false problem was reported on a
-  // site that published. `cleanPath`'s SAFE_PATH allows directories, so this is
-  // reachable output, not a hypothetical — reproduced before it was fixed.
-  const routeOf = (path) =>
-    path === "index.tsx" ? "/" : "/" + path.replace(/\.tsx$/, "").replace(/\/index$/, "");
-  const live = new Set(pages.map((p) => routeOf(p.path)));
+  // THE MAPPING IS `routeOf`, IMPORTED. This was a fifth private copy of it,
+  // and the class of bug it produced has now been found here TWICE: first
+  // `menu/index.tsx` derived as `/menu/index`, so every correct
+  // `<Link to="/menu">` was rewritten to "/" as dangling and a false problem was
+  // reported on a site that published; then `about.team.tsx` derived as
+  // `/about.team`, where TanStack's flat-route convention routes it at
+  // `/about/team`. `cleanPath`'s SAFE_PATH allows both forms, so both are
+  // reachable output rather than hypotheticals — each reproduced by execution.
+  //
+  // The dot case got WORSE when the container and the published manifest were
+  // corrected to the real mapping (2026-08-14): before that every reader agreed
+  // on the wrong answer, and afterwards a `<Link to="/about/team">` that
+  // `tsr generate` really accepts was the one this rewrote away. Two readings of
+  // one mapping is the repo's "path-shape mismatch" family, and the answer is
+  // never a second correct copy.
+  const live = new Set(pages.map((p) => routeOf(p.path)).filter(Boolean));
   // THE SITE'S OTHER PAGES, on a partial set. The rewrite judges a link against
   // `live`, and on the edit and addon lanes `pages` is only what the model
   // RETURNED — so every unchanged page of the site read as nonexistent.
@@ -3306,6 +3316,47 @@ export function validatePages(input, { partial = false, knownRoutes = null } = {
   if (dangling.size) {
     problems.push("These pages were linked to and do not exist, so the links were pointed at the home page instead: " +
       [...dangling].slice(0, 6).join(", ") + ".");
+  }
+
+  // ── AND THE SAME LINK WRITTEN AS A PLAIN ANCHOR ────────────────────────────
+  //
+  // The rewrite above covers `to=`/`to:` only — the TYPED forms, where a route
+  // that does not exist is a `TS2322` and the build dies. A plain
+  // `<a href="/quote">` compiles, bundles and publishes, and lands the visitor
+  // on the router's not-found page when they click it. Nobody gets a signal:
+  // not the owner, not the platform.
+  //
+  // It is not a rare idiom. **500 route hrefs across the 324 family exemplars**,
+  // which are what the model copies — measured, along with the fact that
+  // **zero of those 500 are dangling**, so the house style never produces one
+  // and a check here has no false alarms on the corpus the generator learns
+  // from. That measurement is the whole reason this can exist.
+  //
+  // REPORTED, NEVER REWRITTEN, and the asymmetry with `to=` above is deliberate.
+  // That rewrite exists because the alternative is losing the whole site to a
+  // failed compile; there is no build to save here, the page publishes either
+  // way. And an `href` may legitimately hold a non-route path — `/u/` uploads,
+  // `/api/` calls, `/sitemap.xml` — where a wrong exemption in a REWRITE breaks
+  // a working link, while a wrong exemption in a REPORT costs one noisy
+  // sentence. The corpus offers no evidence about those cases at all (0 of 500
+  // use them), which is exactly where a false alarm would come from.
+  const deadHrefs = new Set();
+  if (canJudge) {
+    for (const p of pages) {
+      for (const m of p.source.matchAll(/\bhref\s*=\s*(["'])(\/[^"'\s]*)\1/g)) {
+        // The fragment and the query are not part of the route; a bare `#top`
+        // never reaches here because the path must start with `/`.
+        const target = m[2].split("#")[0].split("?")[0].replace(/\/(?=$)/, "") || "/";
+        if (/^\/(u|api|s)\//.test(target)) continue;      // uploads, the data API, the internal mount
+        if (/\.[a-z0-9]{1,8}$/i.test(target)) continue;   // sitemap.xml, robots.txt, a download
+        if (live.has(target)) continue;
+        deadHrefs.add(target);
+      }
+    }
+  }
+  if (deadHrefs.size) {
+    problems.push("These links go to pages that do not exist, so a visitor clicking them lands on \"not found\": " +
+      [...deadHrefs].slice(0, 6).join(", ") + ".");
   }
 
   const notes = (input && typeof input.notes === "string") ? input.notes.trim().slice(0, 600) : "";
