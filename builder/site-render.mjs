@@ -362,8 +362,16 @@ export function readPage(obs) {
  * which has to be distinguishable from "we looked and the site was fine", or a
  * broken harness reads for ever as a clean bill of health. That is the mistake
  * this repo has already made three times with silent skips.
+ *
+ * `partial` IS THE SAME DISTINCTION ONE STEP IN. The loop stops at a time
+ * budget, and a run that stopped early produced findings from the pages it
+ * reached and a report otherwise byte-identical to a full clean pass — so
+ * "nothing wrong" was said about pages nobody opened. Not `ok: false`: what did
+ * run really did run and its findings are real. Omitted rather than `false` when
+ * the run was complete, so an untruncated report is byte-identical to what it
+ * was before this existed.
  */
-export function renderReport(observations, { ok = true, error = "" } = {}) {
+export function renderReport(observations, { ok = true, error = "", cut = false } = {}) {
   const list = Array.isArray(observations) ? observations : [];
   const findings = [];
   for (const o of list) for (const f of readPage(o)) findings.push(f);
@@ -376,6 +384,7 @@ export function renderReport(observations, { ok = true, error = "" } = {}) {
     findings: findings.slice(0, MAX_FINDINGS),
   };
   if (findings.length > MAX_FINDINGS) report.more = findings.length - MAX_FINDINGS;
+  if (cut) report.partial = true;
   if (error) report.error = clip(error, 200);
   return report;
 }

@@ -11400,9 +11400,12 @@ function sitePathOf(file) {
   const m = String(file || '').match(/^(?:src\/routes\/)?(.+)\.tsx$/i);
   if (!m) return '';
   const rel = m[1];
-  if (rel === 'index') return '/';
-  if (rel.endsWith('/index')) return '/' + rel.slice(0, -'/index'.length);
-  return '/' + rel;
+  const cut = rel.lastIndexOf('/');
+  const dir = cut < 0 ? '' : rel.slice(0, cut + 1);
+  const segs = (cut < 0 ? rel : rel.slice(cut + 1)).split('.').filter(Boolean).map((s) => s.replace(/_$/, ''));
+  if (segs.some((s) => s.charAt(0) === '_')) return '';
+  if (segs[segs.length - 1] === 'index') segs.pop();
+  return '/' + (dir + segs.join('/')).replace(/\/$/, '');
 }
 // What the addon did, naming the pages — including the one they did not ask
 // about. The nav link is a page this lane touches on its own, and not saying so

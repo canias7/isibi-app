@@ -583,6 +583,15 @@ export async function publishPages(deps, { spec, slug, priorUsage } = {}) {
     if (bd && Array.isArray(bd.prerenderSkipped) && bd.prerenderSkipped.length) {
       out.prerenderSkipped = bd.prerenderSkipped.slice(0, 6).map((s) => String(s).slice(0, 200));
     }
+    // WAS THE RENDER SANDBOXED. The prerender executes model-written page code,
+    // and it is dropped to an unprivileged user so it cannot write to the shared
+    // container — but the drop needs the service to be running as root and needs
+    // that user to exist, neither of which the code can guarantee. So the answer
+    // is reported rather than assumed: "we thought this was sandboxed" is a
+    // worse position than knowing it is not. Carried only when it is FALSE, so
+    // the ordinary response is byte-identical and the field's presence is
+    // itself the alarm.
+    if (bd && bd.prerenderUnprivileged === false) out.prerenderUnprivileged = false;
     // WHICH TEMPLATE BUILT THIS. Cloudflare rolls a container image out
     // asynchronously, so a build minutes after a deploy can still be served by
     // the previous image — and its published bundle is that older code. Carried

@@ -297,7 +297,20 @@ test("the client's route-path reader agrees with the module's", () => {
   assert.ok(to > from, "could not find the end of sitePathOf");
   // eslint-disable-next-line no-new-func
   const clientPathOf = new Function("return (" + CHAT.slice(from, to + 2).replace(/^function sitePathOf/, "function") + ")")();
-  for (const f of ["src/routes/index.tsx", "src/routes/gallery.tsx", "src/routes/shop/index.tsx", "src/routes/shop/item.tsx", "nonsense", ""]) {
+  // THE FIXTURE LIST IS THE WHOLE STRENGTH OF THIS TEST, and it had six entries
+  // that all happened to be the simple shapes. TanStack's flat form
+  // (`about.team.tsx` → `/about/team`) and its two underscore conventions were
+  // in none of them, so when `routeOf` learned them this agreement check stayed
+  // green while the client answered `/about.team` for a page really served at
+  // `/about/team` — a fourth reading of one mapping, silently disagreeing. Every
+  // shape `safeRoute` admits belongs here, including the ones nobody has seen a
+  // model emit yet.
+  for (const f of [
+    "src/routes/index.tsx", "src/routes/gallery.tsx", "src/routes/shop/index.tsx", "src/routes/shop/item.tsx",
+    "about.team.tsx", "src/routes/about.team.tsx", "about.index.tsx", "about_.team.tsx",
+    "_layout.tsx", "__root.tsx", "shop/$id.tsx", "shop/about.team.tsx",
+    "nonsense", "",
+  ]) {
     assert.equal(clientPathOf(f), routeOf(f), "the two readers disagree about " + JSON.stringify(f));
   }
 });

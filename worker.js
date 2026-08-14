@@ -10537,6 +10537,12 @@ async function handleRequest(request, env, ctx) {
         // absent on a clean build, carried when a page lost its snapshot —
         // which used to be invisible in production (2026-08-13 audit).
         prerenderSkipped: pages.prerenderSkipped || undefined,
+        // AND WHETHER THE RENDER RAN SANDBOXED. Only ever present as `false` —
+        // the prerender executes model-written page code and is dropped to an
+        // unprivileged user, so the ordinary answer is silence and the field's
+        // presence is the alarm. Reported rather than assumed, because the drop
+        // depends on the container running as root and on that user existing.
+        prerenderUnprivileged: pages.prerenderUnprivileged === false ? false : undefined,
         // WHY it fell back, when it did. publish-pages.mjs has returned these
         // since it was extracted and nothing passed them on, so a build that
         // published the placeholder said only "placeholder" — the caller (and

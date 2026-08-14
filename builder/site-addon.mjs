@@ -295,12 +295,35 @@ export function unlinkedPages(pages, added) {
 }
 
 /**
- * The URL a generated route file answers on.
+ * The URL a generated route file answers on. THE ONE READING OF THIS MAPPING.
  *
- * `src/routes/index.tsx` is `/`, `src/routes/gallery.tsx` is `/gallery`. Only
- * used to look for a link, so an unrecognised shape answers "" and is skipped
- * rather than guessed at — a wrong route here would report a linked page as
- * orphaned.
+ * `src/routes/index.tsx` is `/`, `src/routes/gallery.tsx` is `/gallery`. An
+ * unrecognised shape answers "" and is skipped rather than guessed at — a wrong
+ * route here would report a linked page as orphaned.
+ *
+ * FOUR CALLERS NOW, and that is the point rather than an accident: the page-edit
+ * layer finds a page by it, the addon lane looks for links by it, `siteRoutes`
+ * builds the published manifest and sitemap from it, and the container's
+ * `routePaths()` decides what to prerender by it. The container used to compute
+ * its own, and the two agreed only by coincidence — which is this repo's
+ * "path-shape mismatch" family, and correcting one alone would have been a NEW
+ * instance rather than a fix: with the manifest saying `/about.team` and the
+ * router serving `/about/team`, Round 7's fallback answers 404 for a page that
+ * used to load. One function, so they cannot disagree.
+ *
+ * THE DOT IS A DIRECTORY SEPARATOR. TanStack's flat-route convention reads
+ * `about.team.tsx` as `/about/team`; `safeRoute` admits dots in a stem and the
+ * form is the dominant one in TanStack's own documentation, so it is what
+ * training data teaches. A trailing `_` opts a segment out of nesting and is not
+ * part of the URL. A LEADING `_` is a pathless layout, which has no address at
+ * all — so it is not a page to route to, list in a sitemap, or prerender, and ""
+ * is the honest answer for every caller. `__root` falls out of that same rule.
+ *
+ * A `$` PASSES STRAIGHT THROUGH, deliberately. It is not a shape this function
+ * can resolve, and the two callers that care need different things from it:
+ * `siteRoutes` reads it as "this site is dynamic, publish no route list", and
+ * `routePaths` skips the file. Swallowing it here would silently turn a dynamic
+ * site's manifest into a confident, wrong list of static routes.
  */
 export function routeOf(path) {
   // THE PREFIX IS OPTIONAL BECAUSE STORED PAGES DO NOT HAVE IT, and requiring it
@@ -323,9 +346,12 @@ export function routeOf(path) {
   const m = String(path || "").match(/^(?:src\/routes\/)?(.+)\.tsx$/i);
   if (!m) return "";
   const rel = m[1];
-  if (rel === "index") return "/";
-  if (rel.endsWith("/index")) return "/" + rel.slice(0, -"/index".length);
-  return "/" + rel;
+  const cut = rel.lastIndexOf("/");
+  const dir = cut < 0 ? "" : rel.slice(0, cut + 1);
+  const segs = (cut < 0 ? rel : rel.slice(cut + 1)).split(".").filter(Boolean).map((s) => s.replace(/_$/, ""));
+  if (segs.some((s) => s.startsWith("_"))) return "";
+  if (segs[segs.length - 1] === "index") segs.pop();
+  return "/" + (dir + segs.join("/")).replace(/\/$/, "");
 }
 
 /**

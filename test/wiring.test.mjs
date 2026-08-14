@@ -671,10 +671,24 @@ test("every build output is wiped before the next build starts", () => {
     assert.match(body, re, `resetRoutes no longer clears ${what} — the previous build's output survives into this one`);
   }
 
-  // And the import that reads it must stay cache-busted, or the FIRST site built
-  // after a container start is the one every later site gets snapshotted as.
-  assert.match(src, /entry-server\.js"\)\)\.href \+ "\?v=" \+ Date\.now\(\)/,
-    "the SSR bundle is imported without a cache buster — every build would reuse the first one");
+  // AND THE ONE THING THAT REALLY STOPS THE FIRST SITE BECOMING EVERY LATER
+  // SITE'S SNAPSHOT: the bundle is loaded in a process that did not exist a
+  // moment ago. This used to assert a cache-buster on an in-process `import()`
+  // in THIS file, which was the correct guard while the render ran here — it now
+  // runs in `prerender-child.mjs`, whose module registry starts empty, so a
+  // fresh process is the mechanism and the buster is belt-and-braces beside it.
+  //
+  // Asserted at both ends, because either alone passes while the other is
+  // broken: the parent must spawn a child per build, and the child must be the
+  // only thing that loads the bundle.
+  assert.match(src, /run\(process\.execPath, \[PRERENDER_CHILD,/,
+    "the prerender no longer runs as its own process — model-written code is back in the build server's event loop");
+  assert.ok(!/import\([^)]*entry-server\.js/.test(src),
+    "build-server.mjs imports the SSR bundle itself again — that is the in-process execution the child exists to end");
+
+  const child = fs.readFileSync(new URL("../builder/prerender-child.mjs", import.meta.url), "utf8");
+  assert.match(child, /"\?v=" \+ Date\.now\(\)/,
+    "the child's import lost its cache buster — harmless today, and the guard against this ever moving back in-process");
 });
 
 // ── THE PLATFORM MUST SAY WHY A BUILD FAILED ────────────────────────────────

@@ -72,7 +72,21 @@ export function fileForRoute(route) {
 function serveDist(dir) {
   return http.createServer((req, res) => {
     const raw = String(req.url || "/");
-    const p = decodeURIComponent(raw.split("?")[0]);
+    // `decodeURIComponent` THROWS ON A MALFORMED PERCENT-SEQUENCE, and an
+    // uncaught throw in a Node request handler does not 500 — it kills the
+    // process. That is the whole build service, mid-build, for every customer
+    // queued behind it, and Cloudflare reports the restart as "the container is
+    // not running": the two-messages-one-cause misdiagnosis the Dockerfile warns
+    // reads as flaky infrastructure. The input is a model-written href or `src`
+    // — `/services/50%-off` is enough, and the WHATWG URL parser hands the `%`
+    // through untouched — so it is deterministic for that site: every rebuild
+    // kills the container again and the site can never be built.
+    //
+    // The raw path is the right fallback: a path we cannot decode is served as
+    // written, which 404s honestly instead of taking everything down.
+    const bare = raw.split("?")[0];
+    let p;
+    try { p = decodeURIComponent(bare); } catch { p = bare; }
 
     if (p.startsWith("/api/")) {
       const body = /\/auth\//.test(p) ? '{"error":"signed out"}' : "[]";
@@ -140,7 +154,7 @@ export async function checkRender(distDir, routes) {
   const list = (Array.isArray(routes) ? routes : []).filter(Boolean);
   if (!list.length) return renderReport([], { ok: false, error: "no prerendered routes to look at" });
 
-  let server = null, browser = null;
+  let server = null, browser = null, cut = false;
   const seen = [];
   try {
     server = serveDist(distDir);
@@ -157,7 +171,15 @@ export async function checkRender(distDir, routes) {
       const ctx = await browser.newContext({ viewport: { width: vp.width, height: vp.height }, deviceScaleFactor: 1 });
       try {
         for (const route of list) {
-          if (Date.now() > until) break;
+          // OUT OF TIME IS RECORDED, NOT JUST OBEYED. Without `cut`, a run that
+          // stopped at the budget produced findings from the pages it reached
+          // and a report byte-identical to one that looked at everything and
+          // found nothing — "we checked and it was fine" said about pages
+          // nobody opened. Live renderMs sits at ~30s against a 25s loop
+          // budget, so real multi-page sites reach this: it is the ordinary
+          // path, not the edge. Phone runs first, so what truncation costs is
+          // desktop coverage first, and the report says so.
+          if (Date.now() > until) { cut = true; break; }
           const page = await ctx.newPage();
           const pageErrors = [], consoleErrors = [];
           page.on("pageerror", (e) => pageErrors.push(String((e && e.message) || e).slice(0, 200)));
@@ -191,12 +213,12 @@ export async function checkRender(distDir, routes) {
         }
       } finally { await ctx.close().catch(() => {}); }
     }
-    return renderReport(seen);
+    return renderReport(seen, { cut });
   } catch (e) {
     // The check could not run. Reported as such rather than as a clean pass —
     // a broken harness that reads as "we looked and it was fine" is the silent
     // skip this codebase has already been bitten by three times.
-    return renderReport(seen, { ok: false, error: String((e && e.message) || e) });
+    return renderReport(seen, { ok: false, error: String((e && e.message) || e), cut });
   } finally {
     if (browser) await browser.close().catch(() => {});
     if (server) await new Promise((r) => server.close(r));

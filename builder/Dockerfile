@@ -73,8 +73,29 @@ RUN mkdir -p /app/.routes-base \
 # anything being added here. `test/dockerfile.test.mjs` walks the imports from
 # build-server.mjs and fails if one is not copied, so the warning is enforced
 # rather than written down.
-COPY build-server.mjs exit-reason.mjs site-fonts.mjs font-index.json site-theme.mjs site-theme-registry.mjs site-tokens.mjs site-style.mjs site-identity.mjs render-check.mjs site-render.mjs ./
+# `prerender-child.mjs` IS SPAWNED, NOT IMPORTED, so the import walk in
+# test/dockerfile.test.mjs cannot see it — a missing COPY here would not fail
+# that guard, it would fail every build's prerender at runtime with MODULE_NOT_FOUND
+# and publish every site with the home page's snapshot at every address. It has
+# its own assertion in that file for exactly that reason.
+COPY build-server.mjs prerender-child.mjs exit-reason.mjs site-addon.mjs site-fonts.mjs font-index.json site-theme.mjs site-theme-registry.mjs site-tokens.mjs site-style.mjs site-identity.mjs render-check.mjs site-render.mjs ./
 COPY theme-candidates/ ./theme-candidates/
+
+# WHO THE PRERENDER RUNS AS. `node:22-slim` ships an unprivileged `node` user
+# (uid 1000) and everything in /app is copied as root, so a render dropped to it
+# can READ the bundle and node_modules and WRITE NOTHING — which is the whole
+# protection, since the child is handed model-written code and this container is
+# long-lived and shared by every customer on the platform.
+#
+# The image is NOT switched to that user with `USER`: the build service itself
+# writes src/routes, dist and the generated tree on every build, and dropping the
+# whole process would break all of it. Root is what makes the per-render drop
+# possible at all — only root can hand a subprocess a different uid.
+#
+# Asserted rather than assumed: test/dockerfile.test.mjs requires this file to
+# name a user, and build-server.mjs reports `prerenderUnprivileged` on every
+# build, because "we thought this was sandboxed" is worse than knowing it is not.
+ENV PRERENDER_USER=node
 
 ENV NODE_ENV=production
 EXPOSE 8080

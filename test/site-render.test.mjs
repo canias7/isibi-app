@@ -342,7 +342,14 @@ test("the container RUNS the check and puts it on its response", () => {
   const src = fs.readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8");
   assert.match(src, /import \{ checkRender \}/, "build-server must import it");
   assert.match(src, /checkRender\(DIST, pre\.done\)/, "fed the routes prerender actually wrote");
-  assert.match(src, /prerenderSkipped: pre\.skipped, render/, "and carried out on the ok:true response");
+  // ON THE ok:true RESPONSE — asserted as a property of that literal, not as an
+  // adjacency. This read `prerenderSkipped: pre\.skipped, render` and went red
+  // the moment a field was added between them: a guard about word order, failing
+  // a correct change, which this repo has now recorded four times.
+  const okLine = src.slice(src.indexOf("{ ok: true, files: dist"));
+  const lit = okLine.slice(0, okLine.indexOf("\n"));
+  assert.ok(/\bok: true\b/.test(lit), "the ok:true response literal moved — rescope this");
+  assert.ok(/(^|[{,]\s*)render\b/.test(lit), "the render report is not carried out on the ok:true response");
 });
 
 test("THE CHECK RUNS AFTER THE PRERENDER, because there is nothing to look at before it", () => {

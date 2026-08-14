@@ -194,6 +194,36 @@ function Menu() {
 }
 `;
 
+// TANSTACK'S FLAT ROUTE FORM — a dot in the filename is a DIRECTORY SEPARATOR,
+// so this file answers on `/about/team`.
+//
+// It is here because the mapping was read twice and the two readings diverged.
+// The container computed its own file-to-URL rule and treated the dot as a
+// literal character, so a page written this way was prerendered to `/about.team`
+// — an address no route matches, meaning the real page got no snapshot and a
+// junk file was written where nothing could reach it. Zero of the 318 family
+// exemplars use the form, which is why it had never been seen rather than why it
+// could not happen: it is the dominant shape in TanStack's own documentation, so
+// it is what training data teaches.
+//
+// ONLY A REAL BUILD CAN PROVE THIS. `tsr generate` decides the actual route and
+// `routeOf` decides what we prerender and publish in the manifest; a unit test
+// can only check one of them against a fixture somebody wrote by hand, which is
+// exactly how two readings agree with each other and with neither reality.
+const TEAM = `import { createFileRoute } from "@tanstack/react-router";
+
+export const Route = createFileRoute("/about/team")({ component: Team });
+
+function Team() {
+  return (
+    <main className="mx-auto max-w-2xl px-6 py-16">
+      <h1 className="text-3xl font-semibold tracking-tight">The people behind the counter</h1>
+      <p className="mt-4 text-muted-foreground">Everyone here has pulled a shot before eight in the morning.</p>
+    </main>
+  );
+}
+`;
+
 // The same page with one wrong type. tsc must refuse it; vite alone would not.
 const BROKEN = INDEX.replace(
   'const drinks = useRows<Drink>("drinks", { order: "price", dir: "asc", limit: 20 });',
@@ -202,6 +232,14 @@ const BROKEN = INDEX.replace(
 
 // ── a sandbox that looks like the container's /app ────────────────────────────
 const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), "isibi-site-build-"));
+// WORLD-READABLE, LIKE /app REALLY IS. `mkdtemp` gives 0700, and the image's
+// /app is 0755 root-owned — so a sandbox left at 0700 is the one difference
+// that makes the prerender's privilege drop untestable here: the dropped child
+// cannot even READ the bundle, and the failure looks like the drop breaking the
+// render rather than like a permission on a temp directory. A fixture LESS
+// capable than the thing it stands in for hides bugs exactly as one that is
+// more capable does.
+fs.chmodSync(sandbox, 0o755);
 let server = null;
 
 /**
@@ -280,7 +318,7 @@ try {
   // `lang` rides on the main build rather than costing its own: it is a
   // property of the document every page's head is derived from, so the site
   // that is already being built is the honest place to read it back.
-  const built = await post({ files: { "index.tsx": INDEX, "menu.tsx": MENU }, slug: "fold-coffee", title: "Fold Coffee", lang: "pt-BR", logo: "/u/fold-coffee/logo.png" });
+  const built = await post({ files: { "index.tsx": INDEX, "menu.tsx": MENU, "about.team.tsx": TEAM }, slug: "fold-coffee", title: "Fold Coffee", lang: "pt-BR", logo: "/u/fold-coffee/logo.png" });
   console.log(`  (${Math.round((Date.now() - t0) / 1000)}s)`);
 
   ok("the build succeeds", built.ok === true, built.stage + ": " + built.error);
@@ -311,6 +349,36 @@ try {
   console.log(`  prerender ${built.preMs}ms → ${JSON.stringify(built.prerendered)}${(built.prerenderSkipped || []).length ? " skipped " + JSON.stringify(built.prerenderSkipped) : ""}`);
   ok("both routes were prerendered", Array.isArray(built.prerendered) && ["/", "/menu"].every((p) => built.prerendered.includes(p)),
     JSON.stringify({ done: built.prerendered, skipped: built.prerenderSkipped }));
+
+  // ── THE FLAT FORM, AGAINST THE THING THAT DECIDES ─────────────────────────
+  //
+  // `about.team.tsx` is `/about/team`. What makes this worth a real container
+  // is that `tsr generate` is the authority on the route and `routeOf` is the
+  // authority on what we prerender and publish — so this is the only place the
+  // two are made to agree rather than assumed to. It fails BOTH ways: read the
+  // dot as a literal and the snapshot lands at `/about.team`, which is not in
+  // this list; break `routeOf` the other way and the file below is missing.
+  ok("a route written in TanStack's flat form is prerendered at its REAL address",
+    Array.isArray(built.prerendered) && built.prerendered.includes("/about/team"),
+    JSON.stringify({ done: built.prerendered, skipped: built.prerenderSkipped }));
+  if (built.ok && built.files) {
+    ok("…and its snapshot is a real document with the page's own words",
+      /counter/.test((built.files["about/team.html"] || {}).t || ""),
+      Object.keys(built.files).filter((n) => n.endsWith(".html")).join(", "));
+    ok("…and nothing was written at the literal-dot address",
+      !built.files["about.team.html"],
+      "about.team.html exists — the dot was read as a character, so this file is at an address no route matches");
+  }
+
+  // WHETHER THE RENDER WAS SANDBOXED, reported on every build rather than
+  // assumed. The drop needs root and needs the user to exist, neither of which
+  // the code can guarantee — and "we thought this was sandboxed" is worse than
+  // knowing it is not. NOT asserted true: this harness runs as whoever invoked
+  // it, and in CI that is not root, so the honest expectation here is a boolean
+  // that is present and correctly false.
+  console.log(`  prerender sandbox: ${built.prerenderUnprivileged ? "dropped to an unprivileged user" : "same user (not root, or no such user)"}`);
+  ok("the build says whether the render ran unprivileged", typeof built.prerenderUnprivileged === "boolean",
+    JSON.stringify(built.prerenderUnprivileged));
   if (built.ok && built.files) {
     const home = (built.files["index.html"] || {}).t || "";
     const menu = (built.files["menu.html"] || {}).t || "";
