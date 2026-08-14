@@ -219,6 +219,36 @@ test("the build route runs the top-up and settles ONE deposit against both calls
   assert.match(settle[1], /seedUsage/, "the settlement does not include what the top-up cost");
 });
 
+test("the build lane does not buy rows for a table the site already has", () => {
+  // THE SAME NARROWING THE ADDON LANE ALREADY HAS, and for the same reason.
+  // `EDIT_RULE` invites a revise to name an existing table — to add a column, or
+  // to make it payable — and `access` is compelled, so `services` arrives
+  // looking like an unfilled display table. `seedGaps` asks about access,
+  // columns and the seed, never Postgres, so it buys rows that `seedSiteRows`
+  // then discards for a table that already has some.
+  //
+  // FROM NAMES ALREADY IN HAND. The filter reads `editState.tables`, which comes
+  // from a `_meta` read a few statements above, so it costs no round trip — the
+  // alternative was up to six sequential probes in front of a model call.
+  const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const at = worker.indexOf("const knownTables = new Set(");
+  assert.ok(at > 0, "the build lane no longer narrows the seed net to tables the site lacks");
+  assert.match(worker.slice(at, at + 200), /editState && editState\.tables/,
+    "the known-table set is not read from the state already in hand");
+
+  const call = worker.match(/const top = await topUpSeed\(([\s\S]{0,600}?)\n {12}\);/);
+  assert.ok(call, "the build lane's top-up call moved — rescope this");
+  assert.match(call[1], /knownTables\.has\(String\(t\.name\)\.toLowerCase\(\)\)/,
+    "the net is not narrowed to tables the site does not already have");
+
+  // AN EMPTY SET MUST PASS THE SPEC THROUGH UNCHANGED — a first build, and an
+  // `editState` read that failed. Without that this filters on a set that is
+  // empty for a different reason and a first build stops seeding entirely,
+  // which is the failure the whole net exists to prevent.
+  assert.match(call[1], /knownTables\.size\s*\n?\s*\?/,
+    "the filter is unconditional, so a first build (empty known set) is filtered against nothing");
+});
+
 test("the response says whether the designer had to be covered for", () => {
   const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   assert.match(worker, /seedTopUp: seedTopUp \|\| undefined/,

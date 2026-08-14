@@ -6339,7 +6339,7 @@ async function siteOgImage(env, slug) {
   } catch (e) { console.error("og image lookup failed:", slug, e && e.message); return null; }
 }
 
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, ogImage, fonts, theme, tokens, style, family, structure, lang, logo, attachments, priorUsage, model, revise, changeNote, priorPages, mark }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, fonts, theme, tokens, style, family, structure, lang, logo, attachments, priorUsage, model, revise, changeNote, priorPages, mark }) {
   // Resolved once, before any model call: the pair always lands on something
   // installed, so a build never waits on a font it cannot get.
   const fontPair = resolvePair(fonts || {});
@@ -6462,7 +6462,23 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       }
     },
     publish: async (dist, pages) => {
+      const ogImage = await siteOgImage(env, slug);
+      // THE `og` MARK MOVED WITH THE WORK IT TIMES. It used to sit before the
+      // build; the lookup is the same R2 list, it just happens after the
+      // photographs exist now, so leaving the mark behind would have timed
+      // nothing and named a step that no longer runs there.
+      try { mark?.("og"); } catch { /* a trace must never break a build */ }
       const wrote = await writeSiteDistToR2(env, slug, dist, {
+        // RESOLVED AT PUBLISH TIME, not before the build — byte-identical to the
+        // cheap-edit spine's line, so the answer is derived in ONE place.
+        //
+        // It used to be captured before `buildAndPublishPages` ran, and
+        // PHOTOGRAPHS ARE BOUGHT IN BETWEEN: `deps.images` writes them to
+        // `uploads/<slug>/`, which is exactly the prefix `siteOgImage` scans. So a
+        // build that generated its own pictures published with NO og:image at all
+        // and every share of it degraded to a small card — self-healing only on
+        // the owner's next edit, which is the one thing they have no reason to do
+        // after a build that looked fine.
         brand, description: siteDescription, image: ogImage,
         // THE PUBLIC ADDRESS, which is what a link preview and a search result
         // show — so it has to be the one a customer would hand out, not the one
@@ -9705,13 +9721,34 @@ async function handleRequest(request, env, ctx) {
         // the call returns, `schemaSettlement` trues it up against what the call
         // really consumed: the fee is a gate, the usage is the bill. Refunded in
         // full if the call produces nothing usable, exactly as before.
+        //
+        // HOISTED ABOVE THE DEPOSIT because both refusals below quote it. A pure
+        // call — `models` is in scope and `buildFloor` is imported — so no I/O
+        // and no new failure mode.
+        const floor = buildFloor(models.design);
         let balanceAfter;
         try {
           balanceAfter = await useCredits(request.headers.get("Authorization") || "", SITE_BUILD_FEE);
         } catch {
           return Response.json({ ok: false, msg: "Credits check failed — try again in a moment." }, { status: 503 });
         }
-        if (!(balanceAfter >= 0)) return Response.json({ ok: false, error: "not enough credits", need: "credits", cost: SITE_BUILD_FEE }, { status: 402 });
+        // `cost` IS WHAT A BUILD NEEDS, on this branch as on the one below. It
+        // used to be `SITE_BUILD_FEE` — so the same field meant the 2-credit
+        // deposit here and the whole build's 20 one line down, which is a number
+        // nobody could act on. And this branch carried no `msg` at all, while the
+        // client renders `d.msg` and falls back to a generic sentence with no
+        // figure in it.
+        //
+        // NO BALANCE CLAUSE, unlike the branch below: `use_credits` answers -1
+        // for "the bill is larger than the balance" AND this is where an
+        // unparseable RPC answer lands, so quoting a figure would sometimes be a
+        // claim we cannot support.
+        if (!(balanceAfter >= 0)) {
+          return Response.json({
+            ok: false, error: "not enough credits", need: "credits", cost: floor,
+            msg: "A build needs about " + floor + " credits.",
+          }, { status: 402 });
+        }
         // ENOUGH FOR THE WHOLE BUILD, not just for the deposit — the gap the
         // Builder picker fell straight into. `use_credits` returns the balance
         // AFTER taking the fee, so this is the real ledger value and needs no
@@ -9721,7 +9758,6 @@ async function handleRequest(request, env, ctx) {
         // Refunds the deposit, because nothing has been spent yet: this is a
         // refusal, not a failure. The message names the cheaper picker, since
         // "top up" is not the only way out and is the less useful one.
-        const floor = buildFloor(models.design);
         if (balanceAfter + SITE_BUILD_FEE < floor) {
           await creditBack(env, bu.id, SITE_BUILD_FEE);
           return Response.json({
@@ -9793,13 +9829,38 @@ async function handleRequest(request, env, ctx) {
           // settlement, so the one deposit trues up against BOTH calls instead
           // of a second charge with its own rounding; and it is before
           // provisioning, so a build that never gets a database has not paid for
-          // rows it will not use. `designed.tables` is the right thing to read
-          // even on a revise — a revise declares only what it is changing, which
-          // is exactly the set that could contain a new unfilled table.
+          // rows it will not use.
+          //
+          // NARROWED TO TABLES THE SITE DOES NOT ALREADY HAVE, which the addon
+          // lane already does and this one did not. A revise declares only what
+          // it is changing — but `EDIT_RULE` invites it to NAME AN EXISTING TABLE
+          // (to add a column, or to make it payable or publish a `publicView`),
+          // and `access` is compelled on every table, so `services` arrives
+          // looking like an unfilled display table. `seedGaps` cannot tell:
+          // it asks about access, columns and the seed, never Postgres. The rows
+          // were then bought and thrown away — `seedSiteRows` skips any table
+          // that already has any.
+          //
+          // FROM NAMES ALREADY IN HAND, at zero I/O: `editState.tables` comes
+          // from the `_meta` read three statements above. Probing Postgres per
+          // table would put up to six round trips on the critical path in front
+          // of a model call, and duplicate a question the seeder asks anyway.
+          //
+          // AN EMPTY SET KEEPS TODAY'S BEHAVIOUR BYTE-IDENTICALLY — a first
+          // build, or an `editState` read that failed — so it fails toward
+          // buying, which is the safe direction: a wasted Haiku call against an
+          // empty price list that nobody can order from.
+          const knownTables = new Set(((editState && editState.tables) || []).map((n) => String(n).toLowerCase()));
           if (designed) {
             const top = await topUpSeed(
               { send: (req) => anthropicMessages(env, req) },
-              { brief: briefWithLinks, spec: designed, seed: designed.seed },
+              {
+                brief: briefWithLinks,
+                spec: knownTables.size
+                  ? { ...designed, tables: (designed.tables || []).filter((t) => t && !knownTables.has(String(t.name).toLowerCase())) }
+                  : designed,
+                seed: designed.seed,
+              },
             );
             if (top.gaps.length) {
               seedTopUp = { gaps: top.gaps, filled: Object.keys(top.rows) };
@@ -10366,10 +10427,6 @@ async function handleRequest(request, env, ctx) {
           // preview out of the instruction. `priorBrief` stays as the last
           // resort for sites built before the description was ever stored.
           const siteDescription = String(look.description || body.description || priorBrief || brief || "").slice(0, 300);
-          // A picture for the link preview: the first thing the owner uploaded,
-          // if anything. Best-effort — a missing one just means a small card.
-          const ogImage = await siteOgImage(env, slug);
-          tr.at("og");
           pages = await buildAndPublishPages(env, {
             // The linked pages and the researched facts ride on the brief, which
             // both model calls already take — so neither had to learn a new
@@ -10404,7 +10461,7 @@ async function handleRequest(request, env, ctx) {
             // and the change is buried in the middle of it. This is the raw
             // sentence, which is the only thing that names the build usefully.
             changeNote: brief,
-            siteDescription, ogImage,
+            siteDescription,
             attachments: attached.blocks,
             priorUsage: (researched && researched.usage) || null,
             model: models.pages,

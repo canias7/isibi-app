@@ -249,7 +249,16 @@ test("the whole build is affordable before anything is spent", () => {
   // BEFORE the schema call, or it is the same bug with an extra number in it.
   const design = w.indexOf("designSiteSchema(env, briefWithLinks");
   assert.ok(design > 0 && i < design, "the affordability check runs after the model call it is meant to gate");
-  const block = w.slice(i, i + 900);
+  // ANCHORED ON A LANDMARK, not on a byte count. This was `w.slice(i, i + 900)`
+  // and went red on a correct change: `floor` moved a few lines up so BOTH credit
+  // refusals could quote it, which pushed `creditBack` to exactly +900 —
+  // excluded by the slice — and `Sonnet 5` to +1290. A window sized in bytes is a
+  // test about how much comment sits inside it, which is this repo's
+  // most-recorded own-goal.
+  const end = w.indexOf('tr.at("gate")', i);
+  assert.ok(end > i, "the gate mark moved — rescope this");
+  const block = w.slice(i, end);
+  assert.ok(block.length > 400, "the affordability window is empty — rescope this");
   // Off the ledger value the deposit returned, not a second read that could race.
   assert.match(block, /balanceAfter \+ SITE_BUILD_FEE < floor/, "the floor is compared against something else");
   // The deposit comes BACK — nothing was spent, so this is a refusal and not a
@@ -259,6 +268,51 @@ test("the whole build is affordable before anything is spent", () => {
   // And it names the way out that is not "give us money" — the customer picking
   // Opus with 20 credits can simply pick Sonnet.
   assert.match(block, /Sonnet 5/, "an Opus refusal does not mention the option that would work");
+});
+
+test("`cost` means the same thing on both of the route's credit refusals", () => {
+  // IT MEANT TWO THINGS ONE LINE APART. The deposit refusal answered
+  // `cost: SITE_BUILD_FEE` (2 — what was being taken) and the floor refusal
+  // `cost: floor` (20 — what a build needs), on consecutive branches of the same
+  // route, so a caller reading the field could not act on it. Introduced by the
+  // floor branch being inserted directly below a pre-existing refusal.
+  //
+  // AND THE DEPOSIT BRANCH CARRIED NO `msg`, while `public/chat.js` renders
+  // `d.msg` and falls back to a sentence with no figure in it — so the customer
+  // most likely to be short was the one told the least.
+  // ANCHORED ON CODE, NOT ON A COMMENT. `workerCode` is comment-stripped, so a
+  // first draft anchored on the prose above the deposit found nothing, indexOf
+  // answered -1, and the window opened at the GAME route's `let balanceAfter;`
+  // — sweeping in refusals that have nothing to do with this one. The vacuous
+  // window, in the test written to fix a different one.
+  const w = workerCode;
+  const at = w.indexOf("const floor = buildFloor(models.design);");
+  assert.ok(at > 0, "the affordability gate moved — rescope this");
+  const block = w.slice(at, w.indexOf('tr.at("gate")', at));
+  assert.ok(block.length > 400, "the credit-refusal window is empty — rescope this");
+
+  const costs = [...block.matchAll(/cost: (\w+)/g)].map((m) => m[1]);
+  assert.ok(costs.length >= 2, `only ${costs.length} credit refusals found — the scan stopped matching`);
+  assert.deepEqual([...new Set(costs)], ["floor"],
+    "the route's credit refusals disagree about what `cost` means: " + costs.join(", "));
+
+  // EACH BRANCH SAYS SOMETHING, asserted per branch rather than by counting.
+  // A count over the whole window passed with the deposit's `msg` deleted,
+  // because the neighbouring 503's own `msg` kept the total up — a mutation
+  // proved it. What matters is that THIS refusal speaks, not that the region
+  // contains enough colons.
+  const dep = block.slice(0, block.indexOf("balanceAfter + SITE_BUILD_FEE < floor"));
+  assert.ok(dep.length > 100, "the deposit refusal moved — rescope this");
+  const depRefusal = dep.slice(dep.indexOf("not enough credits"));
+  assert.ok(depRefusal.length > 40, "the deposit refusal is gone — rescope this");
+  assert.match(depRefusal, /msg:/,
+    "the deposit refusal carries no msg, so the customer sees the generic sentence with no figure in it");
+  assert.match(depRefusal, /floor/, "the deposit refusal does not quote what a build actually needs");
+
+  // …and it quotes NO balance, deliberately: `use_credits` answers -1 for "the
+  // bill exceeds the balance" and that is also where an unparseable RPC answer
+  // lands, so a figure there is a claim we cannot support.
+  assert.doesNotMatch(dep, /and you have/, "the deposit refusal quotes a balance it may not know");
 });
 
 test("the floor is derived from the price table, not a number somebody typed", () => {

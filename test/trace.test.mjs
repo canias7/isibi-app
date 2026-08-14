@@ -112,8 +112,15 @@ test("the build route actually uses it", () => {
   // NAMED, not counted. A `>= 6` floor with seven marks present survives one
   // being deleted — proved by mutation. These are the steps whose duration is
   // the actual question ("which one was slow"), so each is asserted by name.
+  // `og` is NOT here any more, and that is the fix rather than an omission: the
+  // link-preview image is resolved at PUBLISH time now, because photographs are
+  // bought after the route's old capture point and land in the very prefix it
+  // scans — so a build that made its own pictures published with no og:image at
+  // all. It is timed one level down through `mark`, like `fonts`, and asserted
+  // there. Route-level marks only, so a step that moved is caught rather than
+  // matched by its new home.
   for (const step of ["auth", "body", "gate", "owner", "design", "normalize", "provision",
-                      "schema", "seed", "merge", "og", "pages"]) {
+                      "schema", "seed", "merge", "pages"]) {
     assert.match(w, new RegExp('tr\\.at\\("' + step + '"'), `the route stopped recording "${step}"`);
   }
   // PROVISIONING IS SIX CALLS, not one step. A cold provision (create the Neon
@@ -154,6 +161,17 @@ test("the build route actually uses it", () => {
   // function that does it.
   assert.match(w, /mark: \(n\) => tr\.at\(n\)/, "buildAndPublishPages is given no way to report its own steps");
   assert.match(w, /mark\?\.\("fonts"\)/, "the font download is untimed again");
+  assert.match(w, /mark\?\.\("og"\)/, "the link-preview lookup is untimed again");
+  // AND IT IS RESOLVED WHERE IT IS TIMED. The image must come from inside the
+  // publish closure — captured before the build, it predates the photographs
+  // `deps.images` writes into the same prefix, and every share of a
+  // picture-led site degrades to a small card.
+  const pub = w.indexOf("publish: async (dist, pages) => {");
+  assert.ok(pub > 0, "the publish closure moved — rescope this");
+  const body = w.slice(pub, w.indexOf("writeSiteDistToR2(env, slug, dist", pub));
+  assert.ok(body.length > 40, "the publish window is empty — rescope this");
+  assert.match(body, /await siteOgImage\(env, slug\)/,
+    "the link-preview image is resolved before the build again, so a build that generates photographs has none");
   assert.match(w, /mark\?\.\("route"\)/, "the KV route write is untimed again");
   assert.match(w, /pagesUsage: pages\.usage \|\| undefined/,
     "the pages call is metered on four token kinds and reports none of them");
