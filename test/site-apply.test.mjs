@@ -394,12 +394,20 @@ test("the tool tells the model to change only what was asked, and to change ALL 
 const WORKER = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 
 /** The edit handler's own block, so a claim about it cannot be satisfied by the build path. */
+// COMMENTS BLANKED, and this is not tidiness: the assertions below COUNT
+// things, and this file's own subject — "a compile failure must tell the
+// customer their site survived" — is a sentence the code comments quote while
+// explaining why. A rollback comment reading `repeating "your site is
+// untouched" is the one answer that makes it undiagnosable` added a sixth match
+// against five branches and failed a correct change. Same class as the absence
+// guards in `site-meta` and `prerender`: prose explaining a bug contains the
+// bug's spelling. Blanked rather than removed, so every offset stays put.
 function editBlock() {
   const from = WORKER.indexOf("\n          if (ed) {");
   assert.ok(from > 0, "the edit handler is gone or renamed — every assertion below would pass vacuously");
   const to = WORKER.indexOf("\n          if (ad) {", from);
   assert.ok(to > from, "could not find the end of the edit handler");
-  return WORKER.slice(from, to);
+  return WORKER.slice(from, to).replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m) => m.replace(/[^\n]/g, " "));
 }
 
 test("the route exists, is dispatched, and reaches the module", () => {
@@ -1504,4 +1512,51 @@ test("a data-lane throw is reported the same way as a text-lane one", async () =
   assert.equal(r.reason, "send");
   assert.equal(r.error, boom);
   assert.equal(r.usage, null);
+});
+
+test("A FAILED LOOK COMPILE PUTS THE STORED LOOK BACK", () => {
+  // "Your site is untouched" was true of the PUBLISHED site and false of the
+  // stored state. The look is written to `_meta` before the recompile because
+  // `recompileAndPublish` reads it from there — and so does every other publish
+  // path, so a failed compile left the change waiting for the customer's next
+  // unrelated edit to apply it silently, under a version label naming only the
+  // typo they were fixing.
+  //
+  // The worst shape is a rename: the rewritten pages are discarded with the
+  // failed build while the stored brand is new, so the next publish gives the
+  // tab and the link preview one name and every heading another — the exact
+  // disagreement `renamePages` exists to prevent, arriving through the failure
+  // path.
+  // SCOPED TO THE LOOK LANE. The first `error: "compile"` in the edit block
+  // belongs to the TEXT layer, so an unscoped window asserts about the wrong
+  // branch and passes or fails for reasons unrelated to the look.
+  const b = editBlock();
+  const from = b.indexOf('if (eLayer === "look") {');
+  assert.ok(from > 0, "the look lane moved — rescope this");
+  const at = b.indexOf('error: "compile"', from);
+  assert.ok(at > from, "the look lane has no compile-failure branch");
+  const before = b.slice(from, at);
+  assert.match(before, /INSERT INTO _meta \(k,v\) VALUES \('site_look', \?\)[^;]*\[JSON\.stringify\(priorLook\)\]/,
+    "a failed look compile no longer restores the stored look");
+  // AND THE TWO PATCHES WITH IT. They are separate `_meta` keys precisely so a
+  // colour change cannot lose a logo, which means a rollback that puts only the
+  // look back leaves the colours and the axes moved.
+  assert.match(before, /\["site_tokens", priorTokens\], \["site_style", priorStyle\]/,
+    "the token and style patches are not rolled back with the look");
+  // ABSENT MEANS DELETED, not an empty object. A site that had no tokens must
+  // not gain a `{}` row that later reads as "a patch exists".
+  assert.match(before, /DELETE FROM _meta WHERE k = \?/,
+    "a site that had no patch gains an empty one on every failed look edit");
+});
+
+test("…and says so honestly when the rollback ITSELF fails", () => {
+  // A restore that failed leaves the state exactly where the bug used to leave
+  // it, and repeating "your site is untouched" is the one answer that makes it
+  // undiagnosable when it lands on the customer's next edit.
+  const b = editBlock();
+  assert.match(b, /restored = false/, "a failed rollback is not recorded");
+  assert.match(b, /msg: compileMsg\(pub, restored/,
+    "the message does not depend on whether the rollback worked");
+  assert.match(b, /the new look is saved/,
+    "a failed rollback still tells the customer their stored look is untouched");
 });

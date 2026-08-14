@@ -781,3 +781,22 @@ test("an apply that declares nothing cannot erase the stored schema", () => {
     "the two halves are ANDed — either can be empty on a legitimate apply, so " +
     "requiring both skips writes that must happen");
 });
+
+test("THE CAP DROPS EXACTLY WHAT IT HAS TO, AND NOT ONE MORE", () => {
+  // The identical slice-before-dedup bug `mergeStyle` carried, one module over.
+  // `[...Object.keys(b), ...keys]` lists a RESTATED colour twice — once from the
+  // edit, once from the merge — so slicing before the Set let a duplicate occupy
+  // a slot and the kept set came out short. A customer with a full patch lost an
+  // extra earlier colour they never asked to change, silently.
+  const names = ASKABLE.slice(0, MAX_TOKENS);
+  assert.equal(names.length, MAX_TOKENS, "not enough askable tokens to fill the cap");
+  const prior = Object.fromEntries(names.map((n) => [n, "#101010"]));
+  // Restate one, add one that is not already stored.
+  const extra = ASKABLE[MAX_TOKENS];
+  assert.ok(extra, "the cap is the whole askable list — this case cannot arise");
+  const out = mergeTokens(prior, { [names[0]]: "#ffcc00", [extra]: "#00ccff" });
+  assert.equal(Object.keys(out).length, MAX_TOKENS,
+    "the cap allows " + MAX_TOKENS + " and the merge kept " + Object.keys(out).length);
+  assert.equal(out[names[0]], "#ffcc00", "the restated colour kept its OLD value");
+  assert.equal(out[extra], "#00ccff", "the new colour was dropped");
+});

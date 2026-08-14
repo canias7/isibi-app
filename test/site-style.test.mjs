@@ -498,8 +498,38 @@ test("A LOOK EDIT COUNTS IT AS A CHANGE", () => {
   // from the same stored look. The whole point of the lane is that a look change
   // costs one cheap call.
   assert.match(worker, /const styleMoved = JSON\.stringify\(nextStyle\) !== JSON\.stringify\(priorStyle \|\| \{\}\)/);
-  assert.match(worker, /if \(!moved\.length && !tokensMoved && !styleMoved\) return escalate\("no-change"\)/,
-    "a style-only edit escalates as though nothing had been asked for");
+  // THE PROPERTY, NOT THE SPELLING. This pinned the whole one-line
+  // `if (…) return escalate("no-change")` and went red when that became a block
+  // — a test about statement shape failing a correct change, for the fifth time
+  // in this repo. What must hold is that `styleMoved` is one of the three things
+  // the nothing-moved test asks about, whatever the branch below it does.
+  assert.match(worker, /if \(!moved\.length && !tokensMoved && !styleMoved\)/,
+    "a style-only edit is no longer counted as a change, so it escalates as though nothing had been asked for");
+});
+
+test("AN ASK THAT IS ALREADY SATISFIED IS ANSWERED, NOT ESCALATED", () => {
+  // Every escalation falls through to the full revise by contract, so a customer
+  // repeating an instruction that already applied — the ordinary result of a
+  // stale preview — bought a ~21-27-credit rebuild that regenerated every page
+  // and published a byte-identical site. The cheap lane was holding the answer.
+  //
+  // The discriminator is whether the model NAMED anything: fields that all equal
+  // what is stored is "you already have that"; naming nothing at all is "I could
+  // not express this", which is what the escalation was written for and must
+  // stay. Both halves asserted, because keeping only the first turns every
+  // unexpressible look ask into a dead end.
+  const at = worker.indexOf("if (!moved.length && !tokensMoved && !styleMoved)");
+  assert.ok(at > 0, "the nothing-moved branch moved — rescope this");
+  const block = worker.slice(at, worker.indexOf("\n              try {", at));
+  assert.match(block, /const named = EDIT_FIELDS\.some\(\(k\) => designed && hasValue\(designed\[k\]\)\)/,
+    "nothing distinguishes 'already applied' from 'could not express it'");
+  assert.match(block, /hasValue\(designed && designed\.tokens\) \|\| hasValue\(designed && designed\.style\)/,
+    "a colour-only or axis-only ask is not counted as the model having named something");
+  assert.match(block, /if \(!named\) return escalate\("no-change"\)/,
+    "an ask the model could not express no longer escalates — it is a dead end now");
+  assert.match(block, /lookNote: "Your site already looks like that/,
+    "an already-satisfied ask says nothing to the customer");
+  assert.ok(/ok: true/.test(block), "an already-satisfied ask is not reported as a success");
 });
 
 test("THE CUSTOMER IS TOLD, at both ends of the wire", () => {
@@ -509,10 +539,71 @@ test("THE CUSTOMER IS TOLD, at both ends of the wire", () => {
   assert.equal((worker.match(/styleNote: styleNote\(/g) || []).length, 2,
     "the build path and the look edit must both say what happened");
   assert.match(chat, /d\.styleNote === 'string'/, "the client never renders the sentence");
+
+  // SCOPED TO THE LOOK BRANCH, and it was not. That match above is satisfied by
+  // the BUILD reply's note block, which is a different code path — so this test
+  // said "at both ends of the wire" while the look lane's own `styleNote` was
+  // returned by the server and rendered by NOTHING, and `tokenNote` was not
+  // computed there at all. A customer asking for two colours and getting one
+  // was told about the one, in the one lane every colour change is routed to
+  // first. Vacuous-by-scope, which is this repo's most-recorded test failure.
+  const at = chat.indexOf("if (e.layer === 'look') {");
+  assert.ok(at > 0, "the look reply moved — rescope this");
+  const lookReply = chat.slice(at, chat.indexOf("\n  return '✅ Done.';", at));
+  assert.ok(lookReply.length > 200, "the look reply window came out empty");
+  // AND THE NOTHING-TO-DO ANSWER, which the sweep proved was guarded at the
+  // server end only: the route composed `lookNote` and the client rendered it
+  // nowhere, so an already-satisfied ask would have printed "✅ Updated the
+  // look." with an empty list — which reads as a change that silently failed,
+  // and is the precise thing the answer exists to avoid. The layer below the
+  // break, again.
+  assert.match(lookReply, /e\.lookNote/, "the look reply never renders the nothing-to-do answer");
+  const noteAt = lookReply.indexOf("e.lookNote");
+  assert.ok(noteAt < lookReply.indexOf("const moved ="),
+    "the nothing-to-do answer is composed after the change list, so the empty list wins");
+  assert.match(lookReply, /e\.styleNote/, "the look reply never renders which axis was refused");
+  assert.match(lookReply, /e\.tokenNote/, "the look reply never renders which colour was refused");
+  assert.match(worker, /tokenNote: tokenNote\(null, tokenAsk\.dropped\) \|\| undefined/,
+    "the look lane computes no refused-colour sentence");
+
   // The look lane's own reply joins a list of names, and they arrive already
   // plain — raw keys would print "Updated the look — display" about the heading
-  // colour.
+  // colour, or "popover" about the card colour.
   assert.match(worker, /Object\.keys\(nextStyle\)\.map\(styleSaid\)/,
     "the look lane sends raw axis keys to a client that cannot translate them");
+  assert.match(worker, /Object\.keys\(nextTokens\)\.map\(\(k\) => tokenSaid\(k\)\)/,
+    "the look lane sends raw token keys — one reply would name two changes two different ways");
   assert.match(chat, /concat\(tokens, style\)/, "the client drops the style names from its sentence");
+});
+
+test("THE CAP DROPS EXACTLY WHAT IT HAS TO, AND NOT ONE MORE", () => {
+  // `[...Object.keys(b), ...keys]` lists every key the edit RESTATES twice —
+  // once from the edit, once from the merge — so slicing that list before
+  // deduping let a duplicate occupy a slot and the kept Set came out SHORT.
+  //
+  // Measured through the real module before the fix: six stored axes plus an
+  // edit restating one and adding one merges to seven, the cap allows six, and
+  // it kept FIVE. The customer lost an extra earlier instruction they never
+  // asked to change, with nothing reported — the exact "first instruction being
+  // forgotten" failure the merge exists to prevent, arriving through the
+  // mechanism meant to prevent it.
+  const prior = { corner: "bevel", weight: "uniform", density: "airy", icon: "heavy", border: "bold", inputs: "underline" };
+  const out = mergeStyle(prior, { corner: "round", ambient: "drift" });
+  assert.equal(Object.keys(out).length, MAX_STYLE,
+    "the cap allows " + MAX_STYLE + " and the merge kept " + Object.keys(out).length);
+  assert.equal(out.corner, "round", "the restated axis kept its OLD value");
+  assert.equal(out.ambient, "drift", "the new instruction was dropped");
+  // And the one that legitimately goes is the OLDEST, because the customer's
+  // most recent instruction is the one they are looking at the result of.
+  assert.equal(out.border, "bold");
+  assert.equal(out.inputs, undefined, "the cap dropped the wrong end");
+});
+
+test("…and an over-cap merge with no overlap is unchanged", () => {
+  // The regime the existing tests already covered. It must answer exactly what
+  // it did, or the fix moved a case nobody asked it to.
+  const prior = { corner: "bevel", weight: "uniform", density: "airy", icon: "heavy", border: "bold", inputs: "underline" };
+  const out = mergeStyle(prior, { ambient: "drift" });
+  assert.equal(Object.keys(out).length, MAX_STYLE);
+  assert.equal(out.ambient, "drift", "the newest instruction must survive");
 });

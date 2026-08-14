@@ -848,3 +848,40 @@ test("why salvage could not rescue a build reaches the caller", () => {
   assert.ok(!/because the eval reads\s*\n?\s*\*?\s*it/.test(pub),
     "the false claim that the eval reads `foreign` is back");
 });
+
+test("a look that failed SOFT reaches the caller instead of publishing silently", () => {
+  // `writeTheme` and `writeFonts` never fail a build — a site whose data layer
+  // is live must not be lost over a typeface — so they answer `applied:false`
+  // with a sentence instead. Both were reported by the container on every build
+  // and forwarded by NOTHING, so the failure they exist to describe was
+  // invisible at every layer above.
+  //
+  // Latent today and the class is not: a stored `site_look.theme` naming a theme
+  // later REMOVED from the registry — a deletion this repo performs regularly —
+  // would make every subsequent publish of that site ship the default look while
+  // reporting success, for ever.
+  const container = fs.readFileSync(path.join(ROOT, "builder/build-server.mjs"), "utf8");
+  assert.match(container, /applied: false/, "the container no longer reports a soft failure at all");
+  assert.match(container, /theme: themeUsed, /, "the container stopped carrying its theme result");
+
+  const pub = fs.readFileSync(path.join(ROOT, "builder/publish-pages.mjs"), "utf8");
+  assert.match(pub, /\[\["theme", bd && bd\.theme\], \["fonts", bd && bd\.fonts\]\]/,
+    "publish-pages drops the container's applied-flags");
+  assert.match(pub, /r\.applied !== false/,
+    "a soft failure is judged by something other than the container's own flag");
+  assert.match(pub, /if \(soft\.length\) out\.lookSoft = soft;/,
+    "the soft-failure list is computed and dropped");
+
+  // BOTH PUBLISH PATHS. Every cheap edit republishes through
+  // `recompileAndPublish`, so a build-path-only fix leaves a text fix, a colour
+  // change and a picture swap all shipping the default look in silence.
+  assert.match(worker, /lookSoft: pages\.lookSoft \|\| undefined,/, "the build route drops it");
+  assert.match(worker, /lookSoft: lookSoft\.length \? lookSoft : undefined \}/,
+    "recompileAndPublish drops it, so every cheap edit is silent about it");
+
+  // CARRIED ONLY WHEN SOMETHING WENT WRONG, at both layers: a build where the
+  // theme and the fonts both applied must be byte-identical on the wire, so the
+  // field's PRESENCE is the signal rather than its contents.
+  assert.ok(!/lookSoft: soft,/.test(pub) && !/lookSoft: lookSoft,/.test(worker),
+    "the soft-failure list is now on every response — a field nobody reads is not a warning");
+});

@@ -209,7 +209,21 @@ export function mergeStyle(prior, next) {
   const merged = { ...a, ...b };
   const keys = Object.keys(merged);
   if (keys.length <= MAX_STYLE) return merged;
-  const keep = new Set([...Object.keys(b), ...keys].slice(0, MAX_STYLE));
+  // DEDUPED BEFORE THE CAP IS APPLIED, and slicing first was a real loss.
+  // `[...Object.keys(b), ...keys]` lists every key the edit named TWICE when it
+  // restates one the site already had — once from `b`, once from `merged` — so
+  // slicing that list let a duplicate occupy a slot and the Set came out SHORT.
+  // Measured through the real module: six stored axes plus an edit restating one
+  // and adding one merges to seven, the cap allows six, and it kept FIVE. The
+  // customer lost an extra earlier instruction they never asked to change, with
+  // nothing reported — precisely the "first instruction being forgotten" failure
+  // the paragraph above promises to avoid, arriving through the mechanism meant
+  // to prevent it.
+  const keep = new Set();
+  for (const k of [...Object.keys(b), ...keys]) {
+    if (keep.size >= MAX_STYLE) break;
+    keep.add(k);
+  }
   return Object.fromEntries(keys.filter((k) => keep.has(k)).map((k) => [k, merged[k]]));
 }
 

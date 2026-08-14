@@ -11574,6 +11574,12 @@ function editReply(e) {
     // called "brand". Anything unmapped falls through unchanged, so a field
     // added later reads no worse than it does today.
     const SAY = { lang: 'language', brand: 'name', description: 'the description' };
+    // NOTHING TO DO IS ITS OWN ANSWER, and it has to come before the sentence
+    // below: an ask that was already satisfied moves nothing, so "✅ Updated the
+    // look." with no list reads as a change that silently failed. The server
+    // composes the words because it is the side that knows the difference
+    // between "you already have that" and "I could not do it".
+    if (typeof e.lookNote === 'string' && e.lookNote.trim()) return '✅ ' + e.lookNote.trim();
     const moved = (Array.isArray(e.moved) ? e.moved : []).slice(0, 4);
     const tokens = (Array.isArray(e.tokens) ? e.tokens : []).slice(0, 4);
     // ALREADY PLAIN NAMES when they arrive — the server maps the axis keys
@@ -11591,6 +11597,17 @@ function editReply(e) {
       out += n
         ? ' Changed the name in ' + n + (n === 1 ? ' place' : ' places') + ' on the pages too.'
         : ' The title and link preview now use it, but I couldn’t find the old name written on any page — check the headings.';
+    }
+    // AND WHAT WAS ASKED FOR AND REFUSED. `style` above lists what LANDED, so
+    // an axis or a colour the engine could not use moved nothing and appeared
+    // nowhere: "make the background yellow and the buttons cornflower" answered
+    // "✅ Updated the look — page colour." with total silence about the buttons.
+    // A silent partial reads as the builder being broken rather than as a
+    // request that did not land, which is why `site-tokens.mjs`'s own doc says a
+    // dropped token must be NAMED. Both sentences are composed server-side, for
+    // the reason every other note here is.
+    for (const n of [e.styleNote, e.tokenNote]) {
+      if (typeof n === 'string' && n.trim()) out += ' ' + n.trim();
     }
     return out + problemNote(e.problems);
   }

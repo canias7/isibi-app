@@ -49,7 +49,7 @@ import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayou
 import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, MIN_CREDITS, IMAGE_USD as SITE_PHOTO_USD } from "./builder/publish-pages.mjs";
 import { imageBudget, budgetFor, imagesAffordable, planImages, applyImages, countImageSlots, imagePrompt, imageNote, IMAGE_ASPECT } from "./builder/site-images.mjs";
 import { renderNote } from "./builder/site-render.mjs";
-import { ASKABLE as SITE_TOKEN_NAMES, valueHint as siteTokenHint, mergeTokens, parseTokens, withContrast, tokenNote } from "./builder/site-tokens.mjs";
+import { ASKABLE as SITE_TOKEN_NAMES, valueHint as siteTokenHint, mergeTokens, parseTokens, withContrast, tokenNote, saidFor as tokenSaid } from "./builder/site-tokens.mjs";
 import { ASKABLE as SITE_STYLE_AXES, optionsFor as siteStyleOptions, axisHint as siteStyleHint, mergeStyle, parseStyle, styleNote, saidFor as styleSaid } from "./builder/site-style.mjs";
 import { extractText, applyEdits } from "./builder/site-text.mjs";
 import { runTextEdit, runDataEdit, renamePages, MAX_DATA_ROWS } from "./builder/site-apply.mjs";
@@ -77,7 +77,7 @@ import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis
 import { parseGeneratedFiles as parseGameFiles, GAME_RULES, GAME_ASSET_RULES, GAME_REVISE_RULES, gameFixRules, parseSpriteTokens, GAME_3D_RULES, game3DFixRules } from "./builder-game/game-gen.mjs";
 import { SHORTLIST, resolvePair } from "./builder/site-fonts.mjs";
 import { THEME_SHORTLIST, themeFontPair } from "./builder/site-theme-registry.mjs";
-import { currentStateNote, EDIT_RULE, EDIT_REQUIRED, mergeLook, movedFields } from "./builder/site-edit.mjs";
+import { currentStateNote, EDIT_RULE, EDIT_REQUIRED, EDIT_FIELDS, hasValue, mergeLook, movedFields } from "./builder/site-edit.mjs";
 import { READY_FAMILIES, STRUCTURE_NAMES, familiesForPrompt, structuresForPrompt } from "./builder/site-layouts.mjs";
 
 // Game build-service container (Phase 3). The image (./builder-game/Dockerfile)
@@ -6281,7 +6281,18 @@ async function recompileAndPublish(env, { slug, pages, label }) {
   // found something (a clean render is silence on the wire), and the note is
   // the human sentence beside it.
   const render = (built.render && (built.render.ok === false || (built.render.findings || []).length)) ? built.render : undefined;
-  return { ok: true, files: wrote, look, render, renderNote: renderNote(built.render) || undefined };
+  // AND THE LOOK THAT FAILED SOFT, on the lane where it matters most: every
+  // cheap edit republishes through here, so a stored theme that no longer
+  // resolves would silently ship the default look on a text fix, a colour
+  // change and a picture swap alike — reporting success each time. Derived
+  // from the container's own `applied:false`, not re-judged here.
+  const lookSoft = [];
+  for (const [what, r] of [["theme", built.theme], ["fonts", built.fonts]]) {
+    if (!r || typeof r !== "object" || r.applied !== false) continue;
+    lookSoft.push({ what, notes: (Array.isArray(r.notes) ? r.notes : []).slice(0, 2).map((x) => String(x).slice(0, 160)) });
+  }
+  return { ok: true, files: wrote, look, render, renderNote: renderNote(built.render) || undefined,
+    lookSoft: lookSoft.length ? lookSoft : undefined };
 }
 
 async function siteOgImage(env, slug) {
@@ -10562,6 +10573,13 @@ async function handleRequest(request, env, ctx) {
         // presence is the alarm. Reported rather than assumed, because the drop
         // depends on the container running as root and on that user existing.
         prerenderUnprivileged: pages.prerenderUnprivileged === false ? false : undefined,
+        // THE LOOK THAT FAILED SOFT. `writeTheme`/`writeFonts` never fail a
+        // build — a site whose data layer is live must not be lost over a
+        // typeface — so they answer `applied:false` with a sentence instead,
+        // and both were reported on every build and forwarded by nothing. A
+        // stored theme LATER REMOVED from the registry would make every
+        // publish of that site ship the default look while reporting success.
+        lookSoft: pages.lookSoft || undefined,
         // WHY it fell back, when it did. publish-pages.mjs has returned these
         // since it was extracted and nothing passed them on, so a build that
         // published the placeholder said only "placeholder" — the caller (and
@@ -11287,6 +11305,7 @@ async function handleRequest(request, env, ctx) {
               const tokensMoved = JSON.stringify(nextTokens) !== JSON.stringify(priorTokens || {});
               const nextStyle = mergeStyle(priorStyle, designed && designed.style);
               const styleAsk = parseStyle(designed && designed.style);
+              const tokenAsk = parseTokens(designed && designed.tokens);
               const styleMoved = JSON.stringify(nextStyle) !== JSON.stringify(priorStyle || {});
 
               // WHAT THIS LANE CAN HONESTLY MOVE, AND WHAT IT ONLY APPEARS TO.
@@ -11305,7 +11324,33 @@ async function handleRequest(request, env, ctx) {
               // page rewrite that cannot put square buttons on anything either —
               // the rung above recompiles from the same stored look. The whole
               // point of this lane is that a look change costs one cheap call.
-              if (!moved.length && !tokensMoved && !styleMoved) return escalate("no-change");
+              if (!moved.length && !tokensMoved && !styleMoved) {
+                // NOTHING MOVED HAS TWO CAUSES AND ONLY ONE OF THEM IS AN
+                // ESCALATION, which is what this used to miss. Every escalation
+                // falls through to the full revise by contract, so an ask that
+                // is ALREADY SATISFIED — a customer repeating an instruction
+                // after a stale preview, the ordinary trigger — bought a
+                // ~21-27-credit rebuild that regenerated every page and
+                // published a byte-identical site. The cheap lane is holding the
+                // answer.
+                //
+                // The discriminator is whether the model NAMED anything. Fields
+                // that all equal what is stored is "you already have that";
+                // naming nothing at all is "I could not express this", which is
+                // the case the escalation was written for and is left exactly
+                // as it was.
+                const named = EDIT_FIELDS.some((k) => designed && hasValue(designed[k]))
+                  || hasValue(designed && designed.tokens) || hasValue(designed && designed.style);
+                if (!named) return escalate("no-change");
+                return Response.json({
+                  ok: true, layer: "look", moved: [], tokens: [], style: [], renamed: 0,
+                  // Its own field, not `moved`: the client's sentence is built
+                  // from the lists, and an empty list plus this note reads as
+                  // "nothing to do" rather than as a change that failed.
+                  lookNote: "Your site already looks like that — nothing to change.",
+                  cost: await eCharge(dUsage), usage: dUsage,
+                });
+              }
 
               try {
                 await sqlQuery(edb, "INSERT INTO _meta (k,v) VALUES ('site_look', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v",
@@ -11354,14 +11399,58 @@ async function handleRequest(request, env, ctx) {
                 label: versionLabel({ revise: true, changeNote: eInstruction }),
               });
               if (!pub.ok) {
+                // "YOUR SITE IS UNTOUCHED" WAS TRUE OF THE PUBLISHED SITE AND
+                // FALSE OF THE STORED STATE. The look is written to `_meta`
+                // above because `recompileAndPublish` reads it from there — and
+                // EVERY publish path reads it from there, so a failed compile
+                // left the change sitting in storage waiting for the customer's
+                // next unrelated edit to apply it silently, under a version
+                // label naming only the typo they were fixing.
+                //
+                // The worst shape is a rename: the pages keep the old name (the
+                // rewritten source was discarded with the failed build) while
+                // the stored brand is new, so the next publish gives the tab and
+                // the link preview one name and every heading another — the
+                // exact tab-versus-page disagreement `renamePages` exists to
+                // prevent, arriving through the failure path.
+                //
+                // Put back to exactly what was read, key by key. `null` where
+                // there was no row, so a site that had no tokens does not gain
+                // an empty object that later reads as "a patch exists".
+                let restored = true;
+                try {
+                  await sqlQuery(edb, "INSERT INTO _meta (k,v) VALUES ('site_look', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v",
+                    [JSON.stringify(priorLook)]);
+                  for (const [k, v] of [["site_tokens", priorTokens], ["site_style", priorStyle]]) {
+                    if (v && Object.keys(v).length) {
+                      await sqlQuery(edb, "INSERT INTO _meta (k,v) VALUES (?, ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v", [k, JSON.stringify(v)]);
+                    } else {
+                      await sqlQuery(edb, "DELETE FROM _meta WHERE k = ?", [k]);
+                    }
+                  }
+                } catch (e) {
+                  // SAID OUT LOUD RATHER THAN CLAIMED. A restore that failed
+                  // leaves the state exactly where the bug used to leave it, and
+                  // repeating "your site is untouched" is the one answer that
+                  // makes it undiagnosable when it lands on the next edit.
+                  restored = false;
+                  console.error("look rollback failed:", ownerSlug, e && e.message);
+                }
                 return Response.json({
                   ok: false, error: "compile", cost: 0,
-                  msg: compileMsg(pub, "That look didn't compile, so your site is untouched."),
+                  msg: compileMsg(pub, restored
+                    ? "That look didn't compile, so your site is untouched."
+                    : "That look didn't compile. Your site is still live and unchanged, but the new look is saved — ask for it again and I'll try to apply it."),
                   detail: pub.detail,
                 }, { status: 422 });
               }
               return Response.json({
-                ok: true, layer: "look", moved, tokens: tokensMoved ? Object.keys(nextTokens) : [],
+                ok: true, layer: "look", moved,
+                // PLAIN NAMES HERE TOO. These were raw token keys while the
+                // style names one line down arrived mapped, so one reply could
+                // say "Updated the look — popover, heading colour" about two
+                // changes described the same way.
+                tokens: tokensMoved ? Object.keys(nextTokens).map((k) => tokenSaid(k)) : [],
                 // PLAIN NAMES, not the axis keys. The client joins this straight
                 // into its sentence and cannot import the module that knows what
                 // `display` means, so raw keys would print "Updated the look —
@@ -11372,6 +11461,20 @@ async function handleRequest(request, env, ctx) {
                 // told only what changed reads the silence as the builder being
                 // broken rather than as a request that did not land.
                 styleNote: styleNote(styleAsk.style, styleAsk.dropped) || undefined,
+                // AND THE SAME FOR A COLOUR, which this lane could not report at
+                // all. `site-tokens.mjs`'s own doc says "A DROPPED TOKEN IS
+                // NAMED", the full build path does name it — and the one lane
+                // every colour change is routed to FIRST was the one that could
+                // not. Ask for "the background yellow and the buttons
+                // cornflower" and, if the model emits something unparseable for
+                // the buttons, the reply was "✅ Updated the look — background."
+                // and total silence about the rest: a silent partial, which is
+                // the failure that reads as the builder being broken.
+                //
+                // Only the REFUSALS, because `tokenNote` also restates what was
+                // applied and `tokens` above already carries that — printing it
+                // twice in one sentence is how a note stops being read.
+                tokenNote: tokenNote(null, tokenAsk.dropped) || undefined,
                 renamed, files: pub.files, render: pub.render, renderNote: pub.renderNote, cost: await eCharge(dUsage), usage: dUsage,
               });
             }

@@ -620,6 +620,27 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages } =
     if (bd && Array.isArray(bd.prerenderSkipped) && bd.prerenderSkipped.length) {
       out.prerenderSkipped = bd.prerenderSkipped.slice(0, 6).map((s) => String(s).slice(0, 200));
     }
+    // THE LOOK THAT FAILED SOFT. `writeTheme` and `writeFonts` never fail a
+    // build — a site whose data layer is live must not be lost over a typeface —
+    // so they return `applied:false` with a sentence saying what happened
+    // instead. Both were reported on every build and forwarded by nothing, so
+    // the failure they exist to describe was invisible everywhere.
+    //
+    // Latent today, and the class is not: `themeCss` was executed over all 500
+    // registry themes with 0 nulls and 0 throws, but a stored `site_look.theme`
+    // naming a theme LATER REMOVED from the registry — a deletion this repo
+    // performs regularly — would make every subsequent publish of that site
+    // ship the default look while reporting success, for ever.
+    //
+    // Carried only when something went wrong, so a build where both applied is
+    // byte-identical on the wire and the field's presence is the signal.
+    const soft = [];
+    for (const [what, r] of [["theme", bd && bd.theme], ["fonts", bd && bd.fonts]]) {
+      if (!r || typeof r !== "object" || r.applied !== false) continue;
+      const said = (Array.isArray(r.notes) ? r.notes : []).map((s) => String(s).slice(0, 160));
+      soft.push({ what, notes: said.slice(0, 2) });
+    }
+    if (soft.length) out.lookSoft = soft;
     // WAS THE RENDER SANDBOXED. The prerender executes model-written page code,
     // and it is dropped to an unprivileged user so it cannot write to the shared
     // container — but the drop needs the service to be running as root and needs
