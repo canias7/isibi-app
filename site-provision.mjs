@@ -36,6 +36,10 @@
  *                                                  same contract as saveProject
  *   connFor(projectConn, dbName)→ conn
  *   dbNameFor(slug)             → dbName
+ *   missingServices(conn)       → ["auth"|"data"]  OPTIONAL — which _meta service endpoints
+ *                                                  the site lacks, asked through the same
+ *                                                  reader the proxy uses; drives the reuse-
+ *                                                  path heal and nothing else
  */
 export async function ensureSiteBackend(deps, { slug, uid }) {
   // OPTIONAL, like `deps.warn`. Provisioning is six Neon/Supabase calls behind
@@ -61,6 +65,46 @@ export async function ensureSiteBackend(deps, { slug, uid }) {
   if (existing && existing.conn) {
     if (existing.uid && existing.uid !== uid) {
       throw Object.assign(new Error("that name is taken"), { stage: "owner", conflict: true });
+    }
+    // HEAL THE SERVICE ENDPOINTS, on the one path every recorded site takes.
+    //
+    // `auth_info` and `data_api` are written exactly once each, on the
+    // non-reuse path, and both saves are best-effort — so a transient blip
+    // during either one used to yield a build that answered ok:true over a
+    // site whose every visitor read, form and sign-in answers 501, FOREVER:
+    // this reuse path called zero deps, so no rebuild ever re-ran the enables
+    // or the saves, while the 501's own copy promised a rebuild would fix it
+    // (2026-08-14 audit). Now it does. `missingServices` asks the SAME reader
+    // the proxy uses, so the heal and the 501 cannot disagree about what
+    // "recorded" means.
+    //
+    // BEST-EFFORT END TO END, in both directions. A reader that cannot tell
+    // answers nothing — a database blip must not read as "missing" and spend
+    // Neon API calls on every build of every healthy site — and a heal that
+    // fails must not fail a text edit that never needed the endpoint; the
+    // next build retries it. An enable answering `info: null` saves nothing,
+    // because overwriting a stored endpoint with null is the one way this
+    // could make a site worse.
+    if (deps.missingServices) {
+      let missing = [];
+      try { missing = (await deps.missingServices(existing.conn)) || []; } catch { missing = []; }
+      if (Array.isArray(missing) && missing.length) {
+        try {
+          const proj = await deps.lookupProject(slug);
+          if (proj) {
+            const dbName = deps.dbNameFor(slug);
+            if (missing.includes("auth") && deps.enableAuth) {
+              const a = await deps.enableAuth(proj, dbName);
+              if (a && a.info && deps.saveAuthInfo) await deps.saveAuthInfo(dbName, a.info);
+            }
+            if (missing.includes("data") && deps.enableData) {
+              const d2 = await deps.enableData(proj, dbName);
+              if (d2 && d2.info && deps.saveDataInfo) await deps.saveDataInfo(dbName, d2.info);
+            }
+            mark("heal");
+          }
+        } catch (e) { deps.warn?.("service heal failed for " + slug + ": " + ((e && e.message) || e)); }
+      }
     }
     mark("reuse");
     return existing.conn;

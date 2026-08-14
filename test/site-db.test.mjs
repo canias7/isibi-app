@@ -305,16 +305,80 @@ test("the save deps read the column the project row actually has", () => {
 
 test("a failed endpoint save is logged, not swallowed", () => {
   // A bare `catch {}` is what let a one-word bug live: it threw on every build
-  // of every site and nothing anywhere said so.
+  // of every site and nothing anywhere said so. EVERY call site now, not the
+  // first — the reuse-path heal added a second pair (2026-08-14) and the
+  // first-match window stopped covering the pair it was written for. Each
+  // call's NEXT catch must warn; the heal's two saves share one catch, and
+  // the non-reuse pair each have their own.
   const prov = fs.readFileSync(new URL("../site-provision.mjs", import.meta.url), "utf8");
   for (const dep of ["saveAuthInfo", "saveDataInfo"]) {
-    const i = prov.indexOf("deps." + dep + "(");
-    assert.ok(i > 0, `${dep} is no longer called`);
-    const after = prov.slice(i, i + 240);
-    assert.match(after, /catch \(e\)[^}]*warn/, `${dep}'s failure is swallowed with no log`);
+    const sites = [...prov.matchAll(new RegExp("deps\\." + dep + "\\(", "g"))];
+    assert.ok(sites.length >= 2, dep + " lost a call site — the heal or the first-build save is gone");
+    for (const m of sites) {
+      const at = prov.indexOf("catch", m.index);
+      assert.ok(at > m.index, dep + " has a call site with no catch after it (offset " + m.index + ")");
+      assert.match(prov.slice(at, at + 200), /warn/,
+        dep + "'s failure is swallowed with no log (call at offset " + m.index + ")");
+    }
   }
   const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   assert.match(worker, /warn:\s*\(m\)\s*=>\s*console\.error\(m\)/, "the worker supplies no warn, so the log goes nowhere");
+});
+
+test("an already-enabled Neon Auth still returns its config", async () => {
+  // The recovery path, mirrored from the Data API's (2026-08-14 audit) — the
+  // asymmetry was the bug: `info: null` on the already-branch meant a site
+  // whose first auth_info save failed could NEVER recover, because every later
+  // build lands here and null is the one answer the caller refuses to store.
+  const db = await import("../site-db.mjs");
+  const calls = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (u, init) => {
+    calls.push(((init && init.method) || "GET") + " " + String(u));
+    if ((init && init.method) === "POST") {
+      return { ok: false, status: 409, text: async () => JSON.stringify({ message: "already enabled" }) };
+    }
+    return { ok: true, status: 200, text: async () => JSON.stringify({ url: "https://ep-x.neon.tech/auth" }) };
+  };
+  try {
+    const r = await db.enableNeonAuth({ NEON_API_KEY: "k" }, "p", "b", "site_x");
+    assert.equal(r.already, true);
+    assert.ok(r.info && /^https:\/\//.test(r.info.url), "the config must be re-fetched, not left null");
+    assert.ok(calls.some((c) => c.startsWith("GET ") && c.includes("/auth")), "it never went back for the config");
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test("an auth re-fetch that fails leaves info null and does not throw", async () => {
+  // Best-effort on top of best-effort — the GET's path is the one thing not
+  // measured against a real project, so a 404 there must behave exactly as the
+  // pre-fix code did: already-enabled IS success.
+  const db = await import("../site-db.mjs");
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (u, init) => {
+    if ((init && init.method) === "POST") {
+      return { ok: false, status: 409, text: async () => JSON.stringify({ message: "already enabled" }) };
+    }
+    return { ok: false, status: 404, text: async () => "not found" };
+  };
+  try {
+    const r = await db.enableNeonAuth({ NEON_API_KEY: "k" }, "p", "b", "site_x");
+    assert.equal(r.already, true);
+    assert.equal(r.info, null);
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test("THE HEAL AND THE PROXY ASK ONE READER — worker's missingServices goes through siteServiceBase", () => {
+  // Two readers of one _meta are two things that can disagree about what
+  // "recorded" means — the vault lesson, one store over. The heal must ask
+  // for BOTH keys through the same function the 501 decision reads.
+  const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const at = worker.indexOf("missingServices: async");
+  assert.ok(at > 0, "the worker no longer supplies missingServices — the heal is dead again");
+  const block = worker.slice(at, worker.indexOf("},", at));
+  assert.match(block, /siteServiceBase\(conn2, "auth_info"\)/, "auth is not asked through the shared reader");
+  assert.match(block, /siteServiceBase\(conn2, "data_api"\)/, "data is not asked through the shared reader");
+  assert.equal(/siteAuthBase|siteDataBase/.test(block), false,
+    "the heal reads the memoized caches — a stale null decides whether to heal");
 });
 
 test("an already-enabled Data API still returns its url", async () => {

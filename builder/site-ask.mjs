@@ -425,7 +425,14 @@ export function askRequest({ message, site, canClarify = false, brief = "", qa =
           asked.map((p) => "- " + String(p.q).trim() + " -> " + String(p.a).trim()).join("\n") + "\n"
         : "") +
       "THE BRIEF THEY STARTED WITH\n" + String(brief || "").trim().slice(0, MAX_MESSAGE)
-    : "\n\nBEFORE THE BUILD\nQuestions are closed for this message — answer \"build\" or \"ask\" only, never \"clarify\".";
+    // NO WORK-INTENT ENUMERATION HERE, deliberately. This sentence read
+    // `answer "build" or "ask" only` until 2026-08-14 — written when those were
+    // the only intents, never updated for the escalation ladder — so every
+    // message about a LIVE site carried two contradictory instructions: the
+    // state block saying "edit or addon, never build" and this one pointing at
+    // the ~25-credit rebuild. The state block is the ONE place legal answers
+    // are named; this block owns exactly one fact, that clarify is over.
+    : "\n\nQUESTIONS\nQuestions are closed for this message — never answer \"clarify\".";
   return {
     model: ASK_MODEL,
     max_tokens: ASK_MAX_TOKENS,

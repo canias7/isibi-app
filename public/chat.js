@@ -11369,6 +11369,13 @@ function siteAddon(site, instruction, origin, finish, fallback) {
       if (removed.length && Array.isArray(s.pages)) {
         s.pages = s.pages.filter((q) => !(q && removed.indexOf(q.path) >= 0));
       }
+      // A NEW TABLE HAS TO REACH THE ROUTER'S DIGEST the same way a new page
+      // reaches the picker — the addon is the lane that ADDS tables, and a
+      // digest that never learns them keeps routing "where do my bookings
+      // go?" blind. Union like the build path: the response names what this
+      // addon touched, not the whole site.
+      const tnames = (Array.isArray(a.tables) ? a.tables : []).filter((x) => typeof x === 'string' && x);
+      if (tnames.length) s.tables = [...new Set([...(Array.isArray(s.tables) ? s.tables : []), ...tnames])].slice(0, 48);
       sitesSave();
     }
     finish(addonReplyText(a));
@@ -11700,6 +11707,20 @@ function reactSend(site, t, origin, mode, imgs, finish, qa) {
         // single Home entry.
         if (d.page !== 'placeholder' && routed.length) s.pages = routed;
         else if (!Array.isArray(s.pages) || !s.pages.length) s.pages = [{ path: '/', name: 'Home', html: '' }];
+        // THE TABLE NAMES, for the router's digest. Nothing ever stored these,
+        // so the digest at the top of siteSend sent `tables: []` on every
+        // message of every site — while the routing tool's own tie-break and
+        // its cheapest "data" layer are both conditioned on "the tables it has
+        // are named above". The router was deciding blind on the one fact that
+        // separates a free data edit from a ~25-credit addon (2026-08-14
+        // audit). `d.schema` is the MERGED spec's [{name, access}] and is
+        // preferred; `d.tables` is what THIS apply touched, which on a revise
+        // is the delta only — either way it is a UNION into what is already
+        // known, never a replace, so a delta cannot erase the rest. Names
+        // only, same rule as the digest itself.
+        const tnames = (Array.isArray(d.schema) ? d.schema.map((x) => x && x.name) : (Array.isArray(d.tables) ? d.tables : []))
+          .filter((x) => typeof x === 'string' && x);
+        if (tnames.length) s.tables = [...new Set([...(Array.isArray(s.tables) ? s.tables : []), ...tnames])].slice(0, 48);
         s.active = '/'; delete s.html;
         s.previewV = (s.previewV || 0) + 1; // cache-bust the preview iframe on revise
         siteSnap(s, t);

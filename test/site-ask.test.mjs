@@ -394,6 +394,41 @@ test("the digest the client sends is names only", () => {
   }
 });
 
+test("THE DIGEST'S TABLE LIST IS FED — the client stores what the responses name", () => {
+  // The routing tool conditions its edit-vs-addon tie-break and its cheapest
+  // "data" layer on "the tables it has are named above" — and nothing in the
+  // client ever WROTE site.tables, so the digest sent `tables: []` on every
+  // message of every site and the router decided blind on the one fact that
+  // separates a free data edit from a ~25-credit addon (2026-08-14 audit).
+  // Invisible to edit-smoke, whose digest is built from the build response's
+  // own tables field — a fixture more capable than reality.
+  const src = chat();
+  // The digest reads site.tables (the consumer)…
+  const i = src.indexOf("const digest = {");
+  const dig = src.slice(i, src.indexOf("};", i));
+  assert.match(dig, /site\.tables/, "the digest no longer reads site.tables");
+  // …and BOTH producers write it: the build finish handler and the addon
+  // handler. A UNION, never a replace — a revise's response names the DELTA
+  // the apply touched, and replacing would erase the rest of the site's list.
+  const fin = src.indexOf("if (r.ok && d && d.error !== true && d.slug) {");
+  assert.ok(fin > 0, "the build finish handler moved — rescope this");
+  // COMMENTS BLANKED before judging. The comment explaining this very fix
+  // names `d.schema`, so an unblanked match passed while the code read only
+  // `d.tables` — a mutant proved it, and it is the recorded shape (the og
+  // guard's comment match): prose explaining a fix contains the fix's
+  // spelling. Line comments only; the window holds no block comments and a
+  // whole-file blanker on chat.js has its own recorded hazards.
+  const finBlock = src.slice(fin, src.indexOf("siteSnap(s, t);", fin)).replace(/\/\/[^\n]*/g, "");
+  assert.match(finBlock, /s\.tables = \[\.\.\.new Set\(\[\.\.\.\(Array\.isArray\(s\.tables\) \? s\.tables : \[\]\), \.\.\.tnames\]\)\]/,
+    "the build response's table names are not merged into the site record");
+  assert.match(finBlock, /d\.schema/, "the merged spec (d.schema) is not consulted — d.tables alone is the revise delta");
+  const add = src.indexOf("function siteAddon(");
+  assert.ok(add > 0, "siteAddon moved — rescope this");
+  const addBlock = src.slice(add, src.indexOf("function sitePathOf(", add));
+  assert.match(addBlock, /s\.tables = \[\.\.\.new Set\(/,
+    "the addon lane adds tables and never tells the digest about them");
+});
+
 // ── what a build cost goes to the meter, not into the sentence ───────────────
 
 test("no builder reply states what it cost", () => {
@@ -596,6 +631,32 @@ test("the request tells the model where it is in the round", () => {
   assert.match(closed, /Questions are closed/);
   assert.ok(!closed.includes("secret brief"));
   assert.ok(!/already asked/i.test(closed));
+});
+
+test("THE CLOSED-QUESTIONS BLOCK NAMES NO WORK INTENT — one enumeration, not two", () => {
+  // The 2026-08-14 audit: this sentence read `answer "build" or "ask" only` —
+  // written when those were the only intents, never updated for the escalation
+  // ladder — so every message about a LIVE site carried two contradictory
+  // instructions, and the stale one pointed at the ~25-credit rebuild. The
+  // state block is the ONE place legal answers are enumerated; the closed
+  // block owns exactly one fact, that clarify is over. Derived over the
+  // tool's own intent enum, so a sixth intent added later is covered too.
+  const live = String(askRequest({ message: "make it blue", canClarify: false, hasSite: true,
+    site: { slug: "s", pages: ["/"], tables: ["bookings"] } }).messages[0].content);
+  const at = live.indexOf("Questions are closed");
+  assert.ok(at > 0, "the closed sentence is gone — rescope this");
+  const msgAt = live.indexOf("THEIR MESSAGE", at);
+  assert.ok(msgAt > at, "the message section moved — rescope this");
+  const closedBlock = live.slice(at, msgAt);
+  for (const intent of ASK_TOOL.input_schema.properties.intent.enum) {
+    if (intent === "clarify") continue;
+    assert.equal(closedBlock.includes('"' + intent + '"'), false,
+      "the closed block enumerates work intents again — it said \"" + intent + "\", " +
+      "and a second list is what went stale last time");
+  }
+  assert.match(closedBlock, /never answer "clarify"/, "the one fact this block owns is missing");
+  // And the state block still forbids the rebuild on a live site, unshadowed.
+  assert.match(live, /never "build"/, "the live-site state block lost its never-build rule");
 });
 
 test("the tool offers every intent and describes the question", () => {

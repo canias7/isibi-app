@@ -109,6 +109,36 @@ funded**, so every `SafeImage` on every published site is drawing its placeholde
 and no photograph has ever been generated. The upload half needs no image model
 and is what works today — which is why the tool prefers it.
 
+## 2026-08-14 — Round 4: the router sees the tables, and a broken site can heal
+
+Fourth fix round from the 30-step audit. Four things:
+
+- **The router finally knows which tables a site has.** The chat's routing call
+  has always sent an empty table list — the client never stored the names — so
+  "where do my bookings go?" got "I don't know" about a table the site really
+  has, and ambiguous change requests were routed toward the expensive rebuild
+  lane instead of the free data edit. The names are stored from every build and
+  addon now.
+- **A contradictory instruction to the router is gone.** Every message about a
+  live site told the model both "never answer build" and "answer build or ask
+  only" — the second sentence predated the edit/addon lanes and pointed at the
+  ~25-credit path on exactly the ambiguous cases. It now says only what it
+  owns: questions are closed.
+- **"Add a specials menu" can't produce an empty menu any more.** The addon
+  lane got the same safety net the first build has: if the designer forgets the
+  starter rows, a cheap follow-up call writes them, and the response now says
+  what was seeded and why anything was skipped.
+- **A site broken by one unlucky blip during its first build can heal.** Before
+  this, if the moment that records a site's auth/data endpoints failed, the
+  site answered 501 on every read, form and sign-in forever — and the error
+  message falsely told people a rebuild would fix it. Now any later build or
+  edit of that site re-records the missing endpoints, so a rebuild really does
+  fix it.
+
+22/22 mutation checks from a green baseline (one survivor was my own guard
+matching its comment — fixed and re-proven). Not proven live — the Anthropic
+account is still empty.
+
 ## 2026-08-14 — Scheduled jobs got an off switch, and cannot double-mail
 
 Third fix round from the 30-step audit (rounds 1–2 are in CLAUDE.md's 2026-08-14

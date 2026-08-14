@@ -258,7 +258,19 @@ export async function enableNeonAuth(env, projectId, branchId, dbName) {
   } catch (e) {
     const already = e && (e.status === 409 || /already/i.test(String(e.detail || e.message || "")));
     if (!already) throw e;
-    return { enabled: true, already: true, info: null };
+    // ALREADY ON: FETCH THE CONFIG RATHER THAN ANSWERING null — the same
+    // recovery `enableDataApi`'s already-branch grew on 2026-08-04, and the
+    // asymmetry was the bug (2026-08-14 audit): a site whose first auth_info
+    // save failed could NEVER recover, because every later build lands here
+    // and null is the one answer the caller refuses to store. Best-effort on
+    // top of best-effort — the GET's path is the one thing not measured
+    // against a real project, so a 404/405 leaves info null exactly as
+    // before, and a failed re-read must not turn a working retry into a
+    // failed build.
+    let info = null;
+    try { info = await neonApi(env, `/projects/${projectId}/branches/${branchId}/auth`); }
+    catch { /* the endpoint stays unknown until the next build tries again */ }
+    return { enabled: true, already: true, info };
   }
   // Enabling auth is an async project operation like every other one — the
   // schema is still being created when the call returns, and a schema apply

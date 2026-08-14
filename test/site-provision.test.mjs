@@ -68,6 +68,85 @@ test("an existing site is reused, nothing is provisioned", async () => {
   assert.equal(await run(deps), "postgres://u:p@h/site_cafe");
   assert.equal(calls.createProject, 0);
   assert.deepEqual(calls.createDatabase, [], "a rebuild must not re-provision");
+  // An old dep set — no missingServices — is exactly the pre-heal behaviour:
+  // no enables, no heal mark. The heal is opt-in by supplying the reader.
+  assert.equal(calls.enableAuth.length, 0);
+  assert.equal(calls.enableData.length, 0);
+  assert.ok(!calls.marks.includes("heal"));
+});
+
+// -------------------------------------------------- the reuse-path heal
+//
+// `auth_info` and `data_api` are written exactly once each, on the non-reuse
+// path, best-effort — so one transient blip during a first build used to be a
+// site whose every visitor read, form and sign-in answers 501 FOREVER: the
+// reuse path called zero deps, no rebuild ever re-ran the enables, and the
+// 501's own copy falsely promised a rebuild would fix it (2026-08-14 audit).
+
+const REUSED = { conn: "postgres://u:p@h/site_cafe", uid: "u1" };
+
+test("A REUSED SITE MISSING ITS ENDPOINTS IS HEALED — both enables run, both saves land", async () => {
+  const { deps, calls } = harness({ lookupSite: async () => REUSED });
+  const saved = { auth: [], data: [] };
+  const d2 = {
+    ...deps,
+    missingServices: async (conn) => { assert.equal(conn, REUSED.conn, "the reader must be asked about THIS site"); return ["auth", "data"]; },
+    enableAuth: async (p, db) => { calls.enableAuth.push({ project: p && p.neon_project, db }); return { enabled: true, already: true, info: { url: "https://a" } }; },
+    enableData: async (p, db) => { calls.enableData.push({ project: p && p.neon_project, db }); return { enabled: true, already: true, info: { url: "https://d" } }; },
+    saveAuthInfo: async (db, info) => saved.auth.push({ db, info }),
+    saveDataInfo: async (db, info) => saved.data.push({ db, info }),
+  };
+  assert.equal(await ensureSiteBackend(d2, { slug: "cafe", uid: "u1" }), REUSED.conn, "the heal must not change what is returned");
+  assert.deepEqual(calls.enableAuth, [{ project: "p1", db: "site_cafe" }]);
+  assert.deepEqual(calls.enableData, [{ project: "p1", db: "site_cafe" }]);
+  assert.deepEqual(saved.auth, [{ db: "site_cafe", info: { url: "https://a" } }]);
+  assert.deepEqual(saved.data, [{ db: "site_cafe", info: { url: "https://d" } }]);
+  assert.ok(calls.marks.includes("heal"), "a heal that happened must be visible in the trace");
+});
+
+test("only the missing half is healed", async () => {
+  const { deps, calls } = harness({ lookupSite: async () => REUSED });
+  const d2 = { ...deps, missingServices: async () => ["data"], saveAuthInfo: async () => { throw new Error("must not run"); }, saveDataInfo: async () => {} };
+  await ensureSiteBackend(d2, { slug: "cafe", uid: "u1" });
+  assert.equal(calls.enableAuth.length, 0, "auth was healthy and was healed anyway");
+  assert.equal(calls.enableData.length, 1);
+});
+
+test("a healthy reused site does no extra work — one question, no project lookup", async () => {
+  // The warm path is every revise of every healthy site; the heal must cost it
+  // exactly one read of the site's own _meta and nothing else.
+  const { deps, calls } = harness({ lookupSite: async () => REUSED });
+  let asked = 0, projLookups = 0;
+  const d2 = { ...deps, missingServices: async () => { asked++; return []; }, lookupProject: async () => { projLookups++; return PROJ; } };
+  assert.equal(await ensureSiteBackend(d2, { slug: "cafe", uid: "u1" }), REUSED.conn);
+  assert.equal(asked, 1);
+  assert.equal(projLookups, 0, "a healthy site must not cost a project lookup per build");
+  assert.equal(calls.enableAuth.length + calls.enableData.length, 0);
+  assert.ok(!calls.marks.includes("heal"));
+});
+
+test("a reader that cannot tell heals nothing — a blip must not read as missing", async () => {
+  const { deps, calls } = harness({ lookupSite: async () => REUSED });
+  const d2 = { ...deps, missingServices: async () => { throw new Error("db blip"); } };
+  assert.equal(await ensureSiteBackend(d2, { slug: "cafe", uid: "u1" }), REUSED.conn);
+  assert.equal(calls.enableAuth.length + calls.enableData.length, 0);
+});
+
+test("a failing heal never fails the reuse — warned, and the next build retries", async () => {
+  const warned = [];
+  const { deps } = harness({ lookupSite: async () => REUSED });
+  const d2 = { ...deps, warn: (m) => warned.push(m), missingServices: async () => ["auth"], enableAuth: async () => { throw new Error("neon down"); } };
+  assert.equal(await ensureSiteBackend(d2, { slug: "cafe", uid: "u1" }), REUSED.conn,
+    "a text edit that never needed the endpoint must not fail over the heal");
+  assert.ok(warned.some((m) => /heal/.test(m)), "a swallowed heal failure is the original bug again");
+});
+
+test("an enable answering info:null saves nothing — no null overwrite", async () => {
+  const { deps } = harness({ lookupSite: async () => REUSED });
+  let saves = 0;
+  const d2 = { ...deps, missingServices: async () => ["auth"], enableAuth: async () => ({ enabled: true, already: true, info: null }), saveAuthInfo: async () => { saves++; } };
+  assert.equal(await ensureSiteBackend(d2, { slug: "cafe", uid: "u1" }), REUSED.conn);
+  assert.equal(saves, 0, "a null endpoint must never be written over a stored one");
 });
 
 // -------------------------------------------------- the cross-account write

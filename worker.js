@@ -4341,6 +4341,19 @@ async function ensureSiteBackend(env, slug, uid, brief, mark) {
     saveBackend: (s2, u, db) => claim("site_backends", { slug: s2, uid: u, neon_db: db, brief: String(brief || "").slice(0, 4000) || null }),
     connFor: connForDatabase,
     dbNameFor: dbNameForSite,
+    // WHICH SERVICE ENDPOINTS THE SITE LACKS, asked through the SAME reader
+    // the proxy uses (`siteServiceBase`) — the heal and the 501 must not be
+    // two opinions about what "recorded" means. Deliberately NOT the memoized
+    // caches (`siteAuthBase`/`siteDataBase`): those can hold a stale null for
+    // ten minutes, and the write path deciding whether to heal must read the
+    // truth. A read that throws is caught in the module and heals nothing —
+    // a database blip must not read as "missing".
+    missingServices: async (conn2) => {
+      const out = [];
+      if (!(await siteServiceBase(conn2, "auth_info"))) out.push("auth");
+      if (!(await siteServiceBase(conn2, "data_api"))) out.push("data");
+      return out;
+    },
   }, { slug, uid });
   // Publish the route so the first visitor read never touches Supabase. Purely
   // an optimisation — the lookup backfills on a miss anyway — so a failure here
@@ -4624,7 +4637,11 @@ async function proxySiteService(env, request, url, slug, path, which, ctx) {
   catch { return Response.json({ error: "couldn't reach that just now" }, { status: 503 }); }
   // Not configured is 501 and not 500: the site was built before its auth
   // endpoint was recorded, which a rebuild fixes, and saying so is more use than
-  // a generic failure.
+  // a generic failure. "A rebuild fixes it" was FALSE until 2026-08-14 — the
+  // reuse path called zero deps, so no rebuild ever re-ran the enables or the
+  // saves — and is true now because ensureSiteBackend heals missing endpoints
+  // on that path, asking this same reader (`siteServiceBase`) whether one is
+  // missing.
   if (!base) return Response.json({ error: "this site's backend is not set up yet", code: "no_backend" }, { status: 501 });
 
   const target = base + "/" + path + (url.search || "");
@@ -11146,7 +11163,7 @@ async function handleRequest(request, env, ctx) {
             // database adds what is new and leaves what is there. Seeding is
             // best-effort and skips a table that already has rows, exactly as
             // it does on a revise.
-            let aTables = [], aAltered = [];
+            let aTables = [], aAltered = [], aSeeded = null, aSeedUsage = null, aSeedTopUp = null;
             if (aDesigned && Array.isArray(aDesigned.tables) && aDesigned.tables.length) {
               // A TABLE THE SITE ALREADY HAS CAN NOW BE ALTERED, narrowly. The
               // concat this replaces fed `normalizeSchema`, whose dedup is
@@ -11164,6 +11181,27 @@ async function handleRequest(request, env, ctx) {
               const folded = mergeAddonSchema(aSpec.tables || [], aDesigned);
               aAltered = folded.altered;
               const merged = normalizeSchema(folded.spec);
+              // THE SEED NET, on the lane that ADDS display tables to LIVE
+              // sites. The build path grew this on 2026-08-12 (the designer
+              // omits its own required `seed` — measured twice) and this lane
+              // was left one step short of the same promise: a customer asking
+              // "add a specials menu" paid ~25 credits for a page over a
+              // permanently-empty table, reported as success (2026-08-14
+              // audit). NARROWED TO THE TABLES THIS ADDON ADDED — a
+              // re-declared existing table is skipped by seedSiteRows when it
+              // already has rows, so buying rows for one spends a Haiku call
+              // on rows that are immediately discarded.
+              let aSeed = aDesigned.seed;
+              const aTop = await topUpSeed(
+                { send: (req) => anthropicMessages(env, req) },
+                { brief: aInstruction, spec: { ...aDesigned, tables: (aDesigned.tables || []).filter((t) => t && folded.added.includes(t.name)) }, seed: aSeed },
+              );
+              if (aTop.gaps.length) {
+                aSeedTopUp = { gaps: aTop.gaps, filled: Object.keys(aTop.rows) };
+                console.log("addon seed top-up:", ownerSlug, JSON.stringify(aSeedTopUp));
+              }
+              if (Object.keys(aTop.rows).length) aSeed = mergeSeed(aSeed, aTop.rows);
+              aSeedUsage = aTop.usage;
               try {
                 await applySiteSchema(adb, merged);
                 // WHAT WAS CREATED, not what was NAMED. This read every table
@@ -11177,7 +11215,11 @@ async function handleRequest(request, env, ctx) {
                 console.error("addon schema apply failed:", ownerSlug, e && (e.detail || e.message));
                 return Response.json({ ok: false, error: "schema", cost: 0, msg: "That change needed a new table and it couldn't be created — your site is untouched." }, { status: 502 });
               }
-              try { await seedSiteRows(adb, merged, aDesigned.seed); }
+              // THE REPORT IS KEPT, not discarded — `{seeded, skipped}` is the
+              // only thing that can say why a new table arrived empty, and the
+              // old bare `await` threw it away, so the failure could not name
+              // itself here any more than it could on the build path.
+              try { aSeeded = await seedSiteRows(adb, merged, aSeed); }
               catch (e) { console.error("addon seeding failed:", ownerSlug, e && e.message); }
             }
 
@@ -11277,7 +11319,10 @@ async function handleRequest(request, env, ctx) {
               // Haiku-design + Sonnet-pages pair billed 20 summed against 19
               // priced together, and two tiny calls billed 2 against 1. Every
               // addon on the platform overpaid one to two credits.
-              const bill = pageCredits(aDesignUsage, aGen && aGen.usage);
+              // The seed top-up rides the same variadic call: one bill, one
+              // rounding, one floor — a third separately-rounded charge is the
+              // exact overbilling this call was rewritten to end.
+              const bill = pageCredits(aDesignUsage, aGen && aGen.usage, aSeedUsage);
               aCost = await collectCredits(aAuth, bill);
             } catch { aCost = 0; }
             return Response.json({
@@ -11286,6 +11331,14 @@ async function handleRequest(request, env, ctx) {
               reverted: aMerge.reverted,
               photos: aSlots,
               tables: aTables, altered: aAltered,
+              // What the seeding DID, the build response's own three fields:
+              // rows per table, why a table was passed over, and whether the
+              // net had to buy rows the designer omitted. Absent when the
+              // addon declared no tables, so an ordinary page addon's response
+              // is byte-identical to before.
+              seeded: aSeeded ? aSeeded.seeded : undefined,
+              seedSkipped: (aSeeded && aSeeded.skipped && aSeeded.skipped.length) ? aSeeded.skipped.slice(0, 6) : undefined,
+              seedTopUp: aSeedTopUp || undefined,
               unlinked: unlinkedPages(aMerge.pages, aMerge.added),
               problems: aProblems.slice(0, 4),
               files: aPub.files, cost: aCost,

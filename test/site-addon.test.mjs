@@ -892,6 +892,54 @@ test("THE ROUTE USES THE MERGE, and reports what it CREATED rather than what was
     "a call to a name that was never imported is a ReferenceError on the build path");
 });
 
+test("THE ADDON LANE HAS THE SEED NET, keeps the report, and bills the top-up on the one call", () => {
+  // The build path grew the net on 2026-08-12 (the designer omits its own
+  // required `seed` — measured twice) and this lane was left one step short of
+  // the same promise: "add a specials menu" paid ~25 credits for a page over a
+  // permanently-empty table, reported as success, with the seeding report
+  // discarded so the failure could not name itself (2026-08-14 audit).
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const at = w.indexOf("const folded = mergeAddonSchema(");
+  assert.ok(at > 0, "the addon schema block moved — rescope this");
+  const end = w.indexOf("unlinkedPages(", at);
+  assert.ok(end > at, "the addon response moved — rescope this");
+  const lane = w.slice(at, end);
+
+  // The net, NARROWED to the tables this addon ADDED — a re-declared existing
+  // table is skipped by seedSiteRows when it already has rows, so buying rows
+  // for one spends a Haiku call on rows that are immediately discarded.
+  assert.match(lane, /const aTop = await topUpSeed\(/, "the seed net is gone from the addon lane");
+  assert.match(lane, /folded\.added\.includes\(t\.name\)/, "the net is not narrowed to the added tables");
+  // The bought rows must reach the seeding — merged into what is planted, and
+  // the report kept rather than thrown away.
+  assert.match(lane, /aSeed = mergeSeed\(aSeed, aTop\.rows\)/, "the bought rows never reach the seed");
+  assert.match(lane, /aSeeded = await seedSiteRows\(adb, merged, aSeed\)/,
+    "the seeding runs on the un-topped seed, or its report is discarded again");
+  // ORDER, with both anchors proven first — indexOf(a) < indexOf(b) passes
+  // vacuously when either is missing.
+  const topAt = lane.indexOf("await topUpSeed(");
+  const seedAt = lane.indexOf("seedSiteRows(");
+  assert.ok(topAt > 0 && seedAt > 0, "one of the two seed steps is gone");
+  assert.ok(topAt < seedAt, "the net runs after the planting — its rows arrive too late to be planted");
+
+  // Billed on the SAME variadic call as the design and pages usages: one bill,
+  // one rounding, one floor — a third separately-rounded charge is the exact
+  // overbilling that call was rewritten to end.
+  assert.match(w, /pageCredits\(aDesignUsage, aGen && aGen\.usage, aSeedUsage\)/,
+    "the top-up's usage is not billed, or is billed on its own rounding");
+
+  // And the response says what happened — the build response's own three
+  // fields, so an empty new table can name its cause without Cloudflare logs.
+  // Anchored on the response object's own first field, not on `unlinkedPages`
+  // — the seed fields sit above it in the literal.
+  const respAt = w.indexOf("added: aMerge.added", at);
+  assert.ok(respAt > 0, "the addon response literal moved — rescope this");
+  const resp = w.slice(respAt, respAt + 1400);
+  assert.match(resp, /seeded: aSeeded \? aSeeded\.seeded : undefined/, "the response drops the row counts");
+  assert.match(resp, /seedSkipped:/, "the response drops the skip reasons");
+  assert.match(resp, /seedTopUp: aSeedTopUp \|\| undefined/, "the response cannot say the net fired");
+});
+
 test("the designer is TOLD it may name an existing table, and told access is discarded", () => {
   // Without this the capability exists and nothing can ask for it — the dead
   // feature shape this repo has recorded ten times. The access half matters
