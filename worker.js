@@ -5956,27 +5956,43 @@ async function recompileAndPublish(env, { slug, pages, label }) {
     // of the published meta, and one wrong property access put it straight back,
     // worse. Every other caller in this file uses the return value directly.
     const db = await siteBackendBySlug(env, slug);
-    if (db) {
-      const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_style','site_logo')");
-      for (const r of rows || []) {
-        if (r.k === "site_look" && r.v) look = JSON.parse(r.v);
-        if (r.k === "site_tokens" && r.v) tokens = JSON.parse(r.v);
-        // READ HERE OR EVERY RECOMPILE UNDOES IT, exactly as `site_logo` below.
-        // The container merges this into the theme on EVERY build — it has to,
-        // or one site's look decisions leak onto the next — so a path that does
-        // not send the stored patch sends nothing, and nothing means the theme's
-        // own defaults. A customer who asked for square buttons and then changed
-        // one word of copy would have watched them go round again.
-        if (r.k === "site_style" && r.v) style = JSON.parse(r.v);
-        // ITS OWN KEY, NOT A FIELD ON `site_look`, and that is load-bearing.
-        // `mergeLook` builds its output from `EDIT_FIELDS` alone, so anything
-        // else stored on that object is DROPPED by the next look edit — a
-        // customer changing a colour would silently lose their logo. Stored
-        // beside `site_tokens`, which is a separate concern for the same reason.
-        if (r.k === "site_logo" && typeof r.v === "string") logo = r.v;
-      }
+    // NO BACKEND IS A REFUSAL, NOT A DEFAULT. Falling through with look=null
+    // publishes the site stripped of its theme, brand, colours and logo —
+    // reported as success, and archived to version history — for a site that
+    // is deleted or unresolvable. Same rule as the catch below.
+    if (!db) return { ok: false, error: "read", ours: true, detail: "no backend recorded for " + slug + " — the stored look could not be read" };
+    const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_style','site_logo')");
+    for (const r of rows || []) {
+      if (r.k === "site_look" && r.v) look = JSON.parse(r.v);
+      if (r.k === "site_tokens" && r.v) tokens = JSON.parse(r.v);
+      // READ HERE OR EVERY RECOMPILE UNDOES IT, exactly as `site_logo` below.
+      // The container merges this into the theme on EVERY build — it has to,
+      // or one site's look decisions leak onto the next — so a path that does
+      // not send the stored patch sends nothing, and nothing means the theme's
+      // own defaults. A customer who asked for square buttons and then changed
+      // one word of copy would have watched them go round again.
+      if (r.k === "site_style" && r.v) style = JSON.parse(r.v);
+      // ITS OWN KEY, NOT A FIELD ON `site_look`, and that is load-bearing.
+      // `mergeLook` builds its output from `EDIT_FIELDS` alone, so anything
+      // else stored on that object is DROPPED by the next look edit — a
+      // customer changing a colour would silently lose their logo. Stored
+      // beside `site_tokens`, which is a separate concern for the same reason.
+      if (r.k === "site_logo" && typeof r.v === "string") logo = r.v;
     }
-  } catch (e) { console.error("recompile look read failed:", slug, e && e.message); }
+  } catch (e) {
+    // A THROWING READ FAILS THE EDIT — it does not publish the site stripped.
+    // This catch used to console.error and fall through, so a transient
+    // Supabase/Neon blip during ANY cheap edit shipped the live site with no
+    // theme, no colour overrides, the default fonts and its SLUG as its title,
+    // told the customer the edit succeeded, and even archived the stripped
+    // version to history (2026-08-14 audit). A site with genuinely nothing
+    // stored still proceeds — the read SUCCEEDING with no rows is the legit
+    // pre-look-era state — so only the cannot-tell case refuses. `ours: true`
+    // routes every lane's compileMsg to the honest sentence: our side, try
+    // again, nothing was charged.
+    console.error("recompile look read failed:", slug, e && e.message);
+    return { ok: false, error: "read", ours: true, detail: "couldn't read the site's stored look — nothing was changed" };
+  }
 
   const pair = resolvePair((look && look.fonts) || {});
   const fontFiles = await fetchSiteFonts(pair);
@@ -6061,7 +6077,15 @@ async function recompileAndPublish(env, { slug, pages, label }) {
   // writing it before the compile is proved would hand the next edit a version
   // that does not build.
   await saveSiteSource(env, slug, pages);
-  return { ok: true, files: wrote, look };
+  // THE RENDER REPORT REACHES THE CALLER. Every edit lane pays ~6s for the
+  // check inside the container and used to throw the result away (2026-08-14
+  // audit) — so a cheap edit that turned the site blank or unreadable
+  // reported success with the one instrument that saw it discarded. Same
+  // contract as the build response: the report rides only when it FAILED or
+  // found something (a clean render is silence on the wire), and the note is
+  // the human sentence beside it.
+  const render = (built.render && (built.render.ok === false || (built.render.findings || []).length)) ? built.render : undefined;
+  return { ok: true, files: wrote, look, render, renderNote: renderNote(built.render) || undefined };
 }
 
 async function siteOgImage(env, slug) {
@@ -10693,7 +10717,7 @@ async function handleRequest(request, env, ctx) {
               const pImages = pOut.made.length ? { images: pOut.made.length } : null;
               return Response.json({
                 ok: true, layer: "picture", msg: pOut.msg,
-                changed: pOut.changed, files: pPub.files,
+                changed: pOut.changed, files: pPub.files, render: pPub.render, renderNote: pPub.renderNote,
                 used: pOut.used.length, made: pOut.made.length, failed: pOut.failed,
                 cost: await eCharge(pOut.usage, pImages), usage: pOut.usage,
               });
@@ -10796,7 +10820,7 @@ async function handleRequest(request, env, ctx) {
                 }, { status: 422 });
               }
               return Response.json({
-                ok: true, layer: "text", applied: out.applied, files: pub.files,
+                ok: true, layer: "text", applied: out.applied, files: pub.files, render: pub.render, renderNote: pub.renderNote,
                 changed: out.edits.map((e) => e.to).slice(0, 8),
                 cost: await eCharge(out.usage), usage: out.usage,
               });
@@ -10940,7 +10964,7 @@ async function handleRequest(request, env, ctx) {
                 // told only what changed reads the silence as the builder being
                 // broken rather than as a request that did not land.
                 styleNote: styleNote(styleAsk.style, styleAsk.dropped) || undefined,
-                renamed, files: pub.files, cost: await eCharge(dUsage), usage: dUsage,
+                renamed, files: pub.files, render: pub.render, renderNote: pub.renderNote, cost: await eCharge(dUsage), usage: dUsage,
               });
             }
 
@@ -11010,7 +11034,7 @@ async function handleRequest(request, env, ctx) {
                 // decided this was already charged where every routing call is.
                 return Response.json({
                   ok: true, layer: "page", page: wantRoute, removed: cut.removed,
-                  files: cutPub.files, cost: 0,
+                  files: cutPub.files, render: cutPub.render, renderNote: cutPub.renderNote, cost: 0,
                 });
               }
 
@@ -11084,7 +11108,7 @@ async function handleRequest(request, env, ctx) {
                 photos: pSlots,
                 ignored: (pValid.pages || []).filter((p) => p.path !== target.path).map((p) => p.path).slice(0, 4),
                 problems: pProblems.slice(0, 4),
-                files: pPub.files, cost: await eCharge(eGen && eGen.usage), usage: eGen && eGen.usage,
+                files: pPub.files, render: pPub.render, renderNote: pPub.renderNote, cost: await eCharge(eGen && eGen.usage), usage: eGen && eGen.usage,
               });
             }
 
@@ -11341,7 +11365,7 @@ async function handleRequest(request, env, ctx) {
               seedTopUp: aSeedTopUp || undefined,
               unlinked: unlinkedPages(aMerge.pages, aMerge.added),
               problems: aProblems.slice(0, 4),
-              files: aPub.files, cost: aCost,
+              files: aPub.files, render: aPub.render, renderNote: aPub.renderNote, cost: aCost,
             });
           }
           if (tx) {
@@ -11401,7 +11425,7 @@ async function handleRequest(request, env, ctx) {
               }, { status: 422 });
             }
 
-            return Response.json({ ok: true, applied: ed.applied, files: out.files, cost: 0 });
+            return Response.json({ ok: true, applied: ed.applied, files: out.files, render: out.render, renderNote: out.renderNote, cost: 0 });
           }
           if (vr) {
             if (!env.SITES_BUCKET) return Response.json({ ok: false, error: "storage not configured" }, { status: 501 });

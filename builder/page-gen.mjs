@@ -2872,17 +2872,26 @@ export function schemaDigest(spec) {
         ? "  usePublicRows: YES — anyone may read " + t.publicView.columns.join(", ") + " from this table"
         : "  usePublicRows: NO — this table has no public view; calling it is a 404, so build the page without it");
     }
-    // Stated for EVERY collect table, YES or NO, never omitted. An absent line
-    // reads as an omission rather than an answer — the exact failure that made
-    // a whole site come out as the placeholder when `publicView` was declarable,
-    // enforced, and never mentioned in this digest.
-    if (access === "collect") {
-      const pay = normalizePayment(t);
-      lines.push(pay
-        ? "  PAID: YES — the visitor pays by card. Do NOT call useCreateRow on this table; it has no public insert and would 403. "
-          + "Use useCheckout(\"" + t.name + "\") with the rows they chose from " + pay.from + ", priced in " + pay.currency.toUpperCase() + ". "
-          + "The page sends only { id, qty } per line — never a price, total or currency — plus the customer's own declared fields."
-        : "  PAID: NO — this is an ordinary form. Submit it with useCreateRow; there is no payment on this table.");
+    // Stated for every table a public page can SUBMIT to, YES or NO, never
+    // omitted — an absent line reads as an omission rather than an answer, the
+    // exact failure that made a whole site come out as the placeholder when
+    // `publicView` was declarable, enforced, and never mentioned here.
+    //
+    // GATED ON THE RESOLVED PAIR, not the raw preset string (2026-08-14 audit,
+    // confirmed by executing this function). `normalizeSchema` stamps
+    // access:"collect" on every pair-declared table, so `access === "collect"`
+    // printed "PAID: NO — submit it with useCreateRow" for a {read:"public",
+    // write:"none"} menu, DIRECTLY UNDER the pair note saying nobody writes to
+    // it — a prompt that both forbids and prescribes the form. And a payable
+    // table gets its do-NOT-useCreateRow warning whatever access it wears:
+    // the payment is the fact that decides, not the preset name.
+    const pay = normalizePayment(t);
+    if (pay) {
+      lines.push("  PAID: YES — the visitor pays by card. Do NOT call useCreateRow on this table; it has no public insert and would 403. "
+        + "Use useCheckout(\"" + t.name + "\") with the rows they chose from " + pay.from + ", priced in " + pay.currency.toUpperCase() + ". "
+        + "The page sends only { id, qty } per line — never a price, total or currency — plus the customer's own declared fields.");
+    } else if (canWriteAccess(t)) {
+      lines.push("  PAID: NO — this is an ordinary form. Submit it with useCreateRow; there is no payment on this table.");
     }
     return lines.join("\n");
   }).join("\n\n");
@@ -3825,8 +3834,19 @@ export function lintPages(pages, spec) {
         if (!/\buseMember\b/.test(code)) {
           say(path, 'writes to "' + m[1] + '" (access "' + accessLabel(t) + '") without useMember(). Signed out that returns 401, so the form must be behind a sign-in.');
         }
-      } else if (!canWriteAccess(t.access)) {
-        say(path, 'submits to "' + m[1] + '", which is access "' + accessLabel(t) + '" — writing to it returns 403. Only a `collect` table accepts a write from a published site.');
+      } else if (!canWriteAccess(t)) {
+        // THE WHOLE TABLE, not `t.access` — one token, and it decided both
+        // directions (2026-08-14 audit, both confirmed by execution).
+        // `normalizeSchema` stamps access:"collect" on every pair-declared
+        // table, so passing the string made this gate blind exactly where the
+        // digest misleads: useCreateRow against {read:"public", write:"none"}
+        // returned ZERO problems — a form that 403s for every visitor on a
+        // published site, the precise class this lint documents itself as
+        // existing for — while {access:"display", write:"anyone"} was falsely
+        // flagged, with the flag's own message printing the correctly-resolved
+        // label. Every neighbouring check already passes the table; this one
+        // was the CRIT-D fix stopping one expression short.
+        say(path, 'submits to "' + m[1] + '", which is access "' + accessLabel(t) + '" — writing to it returns 403. Only a table whose write side is open to anyone accepts a form from a published site.');
       }
     }
   }

@@ -109,6 +109,34 @@ funded**, so every `SafeImage` on every published site is drawing its placeholde
 and no photograph has ever been generated. The upload half needs no image model
 and is what works today — which is why the tool prefers it.
 
+## 2026-08-14 — Round 5: the last of the audit's straight fixes
+
+Fifth and final round of the no-decision-needed audit findings. Four things:
+
+- **A menu declared the flexible way can't be told to grow a form any more.**
+  Two gates still read the old five-name vocabulary instead of the read/write
+  pair, so a public-read/no-writes table was simultaneously forbidden AND
+  prescribed a submit form in the generator's instructions, and the lint was
+  blind to a form that 403s for every visitor while crying wolf on a legal
+  one. Both one-token fixes, both proven by executing the real functions.
+- **A database blip during a cheap edit can't strip your site any more.**
+  Before: fix a typo during a transient outage and the site republished with
+  no theme, no colours, default fonts and its web-address as its title —
+  reported as success. Now the edit refuses with "our side, try again,
+  nothing was charged".
+- **Re-describing a table can't quietly drop its safety rules.** A revise
+  that mentioned an existing table without restating its flags rebuilt that
+  table's row-visibility policy bare: team members lost sight of each other's
+  records, expired offers reappeared, scheduled posts went public early.
+  The stored answer now stands unless the change explicitly says otherwise.
+- **The render check's verdict reaches you on edits too.** Every edit already
+  paid for the open-it-in-a-browser check; the result was thrown away. Now
+  "worth a second look" sentences show up under edit replies the same way
+  they do under builds — only when something was actually found.
+
+2588 tests green; mutation sweep from a green baseline (results in the commit
+message). Not proven live — the Anthropic account is still empty.
+
 ## 2026-08-14 — Round 4: the router sees the tables, and a broken site can heal
 
 Fourth fix round from the 30-step audit. Four things:

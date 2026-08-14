@@ -413,3 +413,40 @@ test("the image carries the browser AND installs it apart from the template", ()
   // walks the import graph — this only pins the reason it is a build-service
   // dependency rather than a template one.
 });
+
+test("EVERY EDIT LANE FORWARDS THE RENDER REPORT it paid for", () => {
+  // The check runs inside the container on every compile — ~6s a build — and
+  // every edit lane used to throw the result away (2026-08-14 audit): a cheap
+  // edit that turned the site blank or unreadable reported success with the
+  // one instrument that saw it discarded.
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  // The spine returns it, under the build response's own noteworthy contract —
+  // the report rides only when it FAILED or found something, so a clean
+  // render stays silence on the wire and no clean edit's response changes.
+  const at = w.indexOf("async function recompileAndPublish(env, {");
+  assert.ok(at > 0, "the spine is gone — rescope this");
+  const spine = w.slice(at, w.indexOf("\nasync function siteOgImage(", at));
+  assert.match(spine, /built\.render && \(built\.render\.ok === false \|\| \(built\.render\.findings \|\| \[\]\)\.length\)/,
+    "the spine drops the container's render report again, or lost the noteworthy gate");
+  assert.match(spine, /renderNote: renderNote\(built\.render\) \|\| undefined/,
+    "the human sentence beside the report is gone");
+  // …and every call site forwards it. DERIVED from the call sites themselves,
+  // so an eighth lane added later is covered without anybody remembering this
+  // file. (The live on/off lane returns the spine's whole result and needs no
+  // per-field forward — it has no `const X = await` capture, so the loop
+  // correctly skips it.)
+  const sites = [...w.matchAll(/const (\w+) = await recompileAndPublish\(env/g)].map((m) => m[1]);
+  assert.ok(sites.length >= 6, "the spine's call sites moved — rescope this");
+  for (const v of new Set(sites)) {
+    assert.ok(new RegExp("render: " + v + "\\.render").test(w),
+      v + " pays for the render check and discards the result again");
+    assert.ok(new RegExp("renderNote: " + v + "\\.renderNote").test(w),
+      v + " forwards the report but drops its sentence");
+  }
+  // …and the CLIENT says it. A note carried to a response nothing displays is
+  // the works-but-cannot-say-so disease stopped one layer short.
+  const chat = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+  assert.match(chat, /finish\(editReply\(e\) \+ renderTail\(e\)\)/, "the edit reply drops the render sentence");
+  assert.match(chat, /finish\(addonReplyText\(a\) \+ renderTail\(a\)\)/, "the addon reply drops the render sentence");
+  assert.match(chat, /function renderTail\(d\)[\s\S]{0,900}?renderNote/, "renderTail no longer reads renderNote");
+});

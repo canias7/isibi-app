@@ -1877,6 +1877,61 @@ test("the digest names the catalogue and the currency, so the model cannot guess
   assert.match(d, /useCheckout\("orders"\)/);
 });
 
+test("THE PAID GATE RESOLVES THE PAIR — a write-none menu is not told to submit itself", () => {
+  // 2026-08-14 audit, confirmed by executing this function. normalizeSchema
+  // stamps access:"collect" on every pair-declared table, so the raw-string
+  // gate printed "PAID: NO — submit it with useCreateRow" for {read:"public",
+  // write:"none"} DIRECTLY UNDER the pair note saying "no form, no
+  // useCreateRow" — a prompt that both forbids and prescribes the form.
+  const spec = { tables: [
+    { name: "services", access: "collect", read: "public", write: "none", columns: [{ name: "name" }] },
+  ] };
+  const d = schemaDigest(spec);
+  // The FORBIDDING mention in the pair note stays; the PRESCRIPTIVE sentence
+  // must not appear.
+  assert.equal(/PAID: NO/.test(d), false, "a write-none table is told it is an ordinary form: " + d);
+  assert.equal(/Submit it with useCreateRow/.test(d), false, "the digest prescribes the form the pair note forbids");
+  // The write question is still ANSWERED — the header states the resolved
+  // pair and its note — so the absent PAID line is not an unanswered
+  // question, which is the publicView failure this digest exists to prevent.
+  assert.match(d, /write "none"/);
+  assert.match(d, /no form, no useCreateRow/);
+});
+
+test("…and a payable table is warned off useCreateRow WHATEVER access it wears", () => {
+  // The other direction of the same gate: the payment is the fact that
+  // decides, not the preset name — a payable table wearing `user` never got
+  // its do-NOT-useCreateRow warning at all.
+  const d = schemaDigest({ tables: [
+    { name: "products", access: "display", columns: [{ name: "name" }, { name: "price" }] },
+    { name: "orders", access: "user", payment: { from: "products", price: "price", currency: "gbp" }, columns: [{ name: "email" }] },
+  ] });
+  assert.match(d, /PAID: YES/);
+  assert.match(d, /Do NOT call useCreateRow/);
+  assert.match(d, /useCheckout\("orders"\)/);
+});
+
+test("LINT: the write gate resolves the pair — the blind spot and the false alarm, both directions", () => {
+  // One token (`canWriteAccess(t.access)` → `canWriteAccess(t)`), both
+  // directions confirmed by execution (2026-08-14 audit). The CRIT-D fix
+  // updated accessLabel and every neighbouring check to pass the table, and
+  // stopped one expression short of this gate.
+  const spec = { tables: [
+    { name: "services", access: "collect", read: "public", write: "none", columns: [{ name: "name" }] },
+    { name: "wall", access: "display", write: "anyone", columns: [{ name: "msg" }] },
+  ] };
+  // The blind spot: a form against a write-none pair passed CLEAN — a form
+  // that 403s for every visitor on a published site, the exact class this
+  // lint documents itself as existing for.
+  const bad = lintPages(page('const c = useCreateRow("services");'), spec);
+  assert.equal(bad.length, 1, JSON.stringify(bad));
+  assert.match(bad[0], /403/);
+  // The false alarm: a legal write against display+write:anyone was flagged,
+  // with the flag's own message printing the correctly-resolved label. This
+  // repo's own bar says the false-alarm direction is the worse one.
+  assert.deepEqual(lintPages(page('const c = useCreateRow("wall");'), spec), []);
+});
+
 test("LINT: useCreateRow on a paid table is refused", () => {
   const out = lintPages(page('const c = useCreateRow("orders");'), PAID_SPEC);
   assert.equal(out.length, 1, JSON.stringify(out));

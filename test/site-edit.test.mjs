@@ -307,6 +307,35 @@ test("a text edit keeps the site's name, description and preview image", () => {
     "the stored look does not carry the name and description the recompile reads");
 });
 
+test("A FAILED LOOK READ FAILS THE EDIT — never a stripped publish reported as success", () => {
+  // 2026-08-14 audit: this read was wrapped in a catch that only
+  // console.error'd, and a null db was equally silent — so a transient
+  // Supabase/Neon blip during ANY cheap edit published the live site with no
+  // theme, no colour overrides, default fonts and its SLUG as its title, told
+  // the customer the edit succeeded, and archived the stripped version to
+  // history. Self-healing only on the next successful publish.
+  const i = worker.indexOf("async function recompileAndPublish(env, {");
+  assert.ok(i > 0, "the shared spine is gone");
+  const block = worker.slice(i, worker.indexOf("\nasync function siteOgImage(", i));
+  // A null backend refuses — a deleted site's edit must not publish stripped.
+  assert.match(block, /if \(!db\) return \{ ok: false, error: "read", ours: true/,
+    "a null backend proceeds to a stripped publish");
+  // The look-read catch refuses rather than falling through. Landmark-bounded
+  // to the catch's own end (`resolvePair` is the first statement after it),
+  // never a byte count.
+  const readCatch = block.indexOf("} catch (e) {", block.indexOf("sqlQuery(db,"));
+  const catchEnd = block.indexOf("const pair = resolvePair(", readCatch);
+  assert.ok(readCatch > 0 && catchEnd > readCatch, "the look-read catch moved — rescope this");
+  assert.match(block.slice(readCatch, catchEnd), /return \{ ok: false, error: "read", ours: true/,
+    "the look-read catch falls through to a stripped publish again");
+  // `ours: true` is load-bearing: it routes every lane's compileMsg to the
+  // honest sentence — our side, try again, nothing was charged — instead of
+  // blaming the customer's change for our database blip.
+  // And the legit pre-look-era state still proceeds: a read that SUCCEEDS
+  // with no rows keeps its cheap edits, so only cannot-tell refuses.
+  assert.match(block, /for \(const r of rows \|\| \[\]\)/, "the legit no-rows path is gone");
+});
+
 test("the preview image is derived in ONE place, for both publish paths", () => {
   // The divergence that caused it: a build derived the image inline and the text
   // edit did not. Two implementations of "publish this site" is how the second

@@ -11322,7 +11322,7 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs) {
       else if (rows.some((r) => r && r.id === undefined)) s.undoRows = null;
       sitesSave();
     }
-    finish(editReply(e));
+    finish(editReply(e) + renderTail(e));
   }).catch(fallback);
 }
 // The middle rung: add a page or a table, keep everything else.
@@ -11378,7 +11378,7 @@ function siteAddon(site, instruction, origin, finish, fallback) {
       if (tnames.length) s.tables = [...new Set([...(Array.isArray(s.tables) ? s.tables : []), ...tnames])].slice(0, 48);
       sitesSave();
     }
-    finish(addonReplyText(a));
+    finish(addonReplyText(a) + renderTail(a));
   }).catch(fallback);
 }
 // `src/routes/gallery.tsx` OR a bare `gallery.tsx` → `/gallery`. Kept in step
@@ -11449,6 +11449,15 @@ function addonReplyText(a) {
 //
 // ONE helper, used by both replies. Two copies drift into one lane reporting and
 // the other not, which is the shape this session keeps finding.
+// The render check's sentence, when the container found something worth a
+// look. Appended at the CALL sites so every layer's reply carries it without
+// touching each return — reporting only, beside an edit that IS live: it says
+// "worth a second look", never "we stopped". Same contract as the build
+// path's note block (2026-08-14 audit — the lanes paid for the check and
+// discarded the result).
+function renderTail(d) {
+  return (d && typeof d.renderNote === 'string' && d.renderNote.trim()) ? '\n' + d.renderNote.trim() : '';
+}
 function problemNote(list) {
   const p = (Array.isArray(list) ? list : []).filter((x) => typeof x === 'string' && x.trim()).slice(0, 3);
   if (!p.length) return '';

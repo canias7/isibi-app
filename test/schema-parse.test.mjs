@@ -116,8 +116,79 @@ test("boolean feature flags survive", () => {
   assert.equal(one({ fts: true }).fts, true);
   assert.equal(one({ timestamps: true }).timestamps, true);
   assert.equal(one({ ordered: true }).ordered, true);
-  assert.equal(one({}).trash, false);
   assert.equal(one({}).fts, null);
+});
+
+test("THE POLICY FLAGS TELL ABSENT FROM EXPLICITLY-OFF — retiredOf's contract, generalised", () => {
+  // 2026-08-14 audit. `!!()` collapsed an OMITTED flag to `false`, and `false`
+  // is a value the absent-means-unchanged merge keeps — so a build-revise
+  // re-declaring a table without restating expires/scheduled/teamScope/trash
+  // recorded them as CLEARED and rebuilt the read policy without their
+  // clauses: team members lost each other's rows, expired offers reappeared,
+  // scheduled posts went public early.
+  for (const flag of ["trash", "expires", "scheduled", "teamScope"]) {
+    assert.equal(one({ [flag]: true })[flag], true, flag);
+    // An explicit false still clears — that IS the removal verb, exactly
+    // `retired`'s contract.
+    assert.equal(one({ [flag]: false })[flag], false, flag + " explicit false must survive as false");
+    // Absent is UNDEFINED, so the merge can read silence as silence. Every
+    // consumer tests these by truthiness, so undefined behaves as false
+    // everywhere else.
+    assert.equal(one({})[flag], undefined, flag + " absent must be undefined, not false");
+  }
+  // The aliases carry the same distinction — an aliased declaration is a
+  // declaration.
+  assert.equal(one({ ttl: true }).expires, true);
+  assert.equal(one({ publishable: false }).scheduled, false);
+});
+
+test("A BARE RE-DECLARATION KEEPS ITS POLICY CLAUSES — proven through the real policiesFor", async () => {
+  // The whole chain, by composition, because applySiteSchema needs a live
+  // database: the stored table fills the bare re-declaration's silences, and
+  // the REAL policy emitter then keeps every clause the delta omitted. Before
+  // the fill the audit's exact failure reproduces — a teamScope+expires+
+  // scheduled+trash `deals` re-declared bare emits USING(owner_id=...) alone.
+  const { policiesFor } = await import("../site-rls.mjs");
+  const { fillFromStored } = await import("../site-schema.mjs");
+  const stored = normalizeSchema({ tables: [{ name: "deals", access: "user", teamScope: true, expires: true, scheduled: true, trash: true, columns: ["title"] }] }).tables[0];
+  const bare = normalizeSchema({ tables: [{ name: "deals", access: "user", columns: ["title", "stage"] }] }).tables[0];
+  const before = policiesFor({ ...bare, access: "user" }).join("\n");
+  const CLAUSES = { app_team_id: "team members lose each other's rows", expires_at: "expired rows reappear", publish_at: "scheduled rows go public early", deleted_at: "trashed rows come back" };
+  for (const tok of Object.keys(CLAUSES)) {
+    assert.equal(before.includes(tok), false,
+      tok + " already present on the bare table — this test stopped reproducing the failure it guards");
+  }
+  fillFromStored(bare, stored);
+  const after = policiesFor({ ...bare, access: "user" }).join("\n");
+  for (const [tok, cost] of Object.entries(CLAUSES)) {
+    assert.ok(after.includes(tok), tok + " clause lost on a bare re-declaration — " + cost);
+  }
+  // An EXPLICIT false still clears — that is the removal verb, and filling
+  // over it would make the flags un-turn-off-able forever.
+  const cleared = normalizeSchema({ tables: [{ name: "deals", access: "user", expires: false, columns: ["title"] }] }).tables[0];
+  fillFromStored(cleared, stored);
+  assert.equal(cleared.expires, false, "an explicit false was overwritten by the stored true");
+});
+
+test("the fill runs BEFORE the DDL and the policies, and the merge reuses its read", () => {
+  // The wiring half — the helper is correct in isolation and worthless if
+  // applySiteSchema still emits policies from the unfilled delta, which is the
+  // guard-watching-the-layer-below failure this repo has recorded twelve
+  // times. Ordering with both anchors proven, never a vacuous indexOf pair.
+  const src = fs.readFileSync(new URL("../site-schema.mjs", import.meta.url), "utf8");
+  const at = src.indexOf("export async function applySiteSchema");
+  assert.ok(at > 0, "applySiteSchema moved — rescope this");
+  const body = src.slice(at);
+  const fill = body.indexOf("fillFromStored(t, prevT)");
+  const pol = body.indexOf("policiesFor(");
+  assert.ok(fill > 0, "the pre-DDL fill is gone from applySiteSchema");
+  assert.ok(pol > 0, "the policy emit is gone — rescope this");
+  assert.ok(fill < pol, "the fill runs after the policies are emitted — the delta decides the policy again");
+  // ONE read of the stored schema, shared by the fill and the late merge — two
+  // reads of one schema are two chances to disagree about what is stored.
+  const loads = [...body.matchAll(/await loadSiteSchema\(uuid\)/g)];
+  assert.equal(loads.length, 1, "the fill and the merge read the schema separately");
+  assert.match(body, /const prev = prevStored;/, "the late merge no longer reuses the fill's read");
 });
 
 test("fts accepts a column list as well as a flag", () => {
