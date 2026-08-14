@@ -2840,20 +2840,26 @@ async function genSitePhoto(env, prompt) {
 async function makeSitePhoto(env, slug, prompt) {
   try {
     const p = imagePrompt(prompt);
-    if (!p) return null;
+    // AN EMPTY PROMPT IS SILENT, and that asymmetry is deliberate: a token with no
+    // description was never going to become a picture, and reporting it would set
+    // `images.error` on builds where nothing failed.
+    if (!p) return { url: null };
     const bytes = await genSitePhoto(env, p);
+    // The same sniff the upload route runs, on bytes we did not choose either:
+    // what comes back is whatever the image model sent, and the stored
+    // content-type has to be the truth about it rather than what we asked for.
     const kind = sniffImage(bytes);
-    if (!kind) return null;
-    if (bytes.length > MAX_UPLOAD_BYTES) return null;
+    if (!kind) return { url: null, error: "not a picture" };
+    if (bytes.length > MAX_UPLOAD_BYTES) return { url: null, error: "too big" };
     const digest = await crypto.subtle.digest("SHA-256", bytes);
     const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
     const name = uploadName(hex, kind.ext);
-    if (!name) return null;
+    if (!name) return { url: null, error: "bad name" };
     await env.SITES_BUCKET.put(uploadKey(slug, name), bytes, { httpMetadata: { contentType: kind.mime } });
-    return uploadUrl(slug, name);
+    return { url: uploadUrl(slug, name) };
   } catch (e) {
     console.error("photo failed:", slug, e && e.message);
-    return null;
+    return { url: null, error: String((e && e.message) || e).slice(0, 120) };
   }
 }
 
@@ -2904,26 +2910,29 @@ async function buySitePhotos(env, { slug, pages, budget, balance, reserve }) {
   const urls = new Map();
   let failed = "";
   await Promise.all(plan.shots.map(async ({ token, prompt }) => {
+    // THROUGH THE SHARED READER, which is what makes `makeSitePhoto`'s own
+    // "EXTRACTED SO THERE IS ONE COPY" comment true. It was written the day that
+    // function shipped and was false from the first line: the generate → sniff →
+    // hash → put chain was duplicated here verbatim, and the sniff is the only
+    // thing between an image model's answer and an SVG served inline from our own
+    // origin, so a second copy that forgets it is a stored XSS.
     try {
-      const p = imagePrompt(prompt);
-      if (!p) return;
-      const bytes = await genSitePhoto(env, p);
-      // The same sniff the upload route runs, on bytes we did not choose either:
-      // what comes back is whatever the image model sent, and the stored
-      // content-type has to be the truth about it rather than what we asked for.
-      const kind = sniffImage(bytes);
-      if (!kind) throw new Error("not a picture");
-      if (bytes.length > MAX_UPLOAD_BYTES) throw new Error("too big");
-      const digest = await crypto.subtle.digest("SHA-256", bytes);
-      const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-      const name = uploadName(hex, kind.ext);
-      if (!name) throw new Error("bad name");
-      await env.SITES_BUCKET.put(uploadKey(slug, name), bytes, { httpMetadata: { contentType: kind.mime } });
-      urls.set(token, uploadUrl(slug, name));
-    } catch (e) {
+      const { url, error } = await makeSitePhoto(env, slug, prompt);
+      if (url) urls.set(token, url);
       // Kept, not thrown. The build carries on with a placeholder for this one,
       // and the reason reaches the response — a site quietly missing its
       // pictures looks exactly like a site that was never meant to have any.
+      else if (error) failed = error;
+    } catch (e) {
+      // BELT AND BRACES, AND IT STAYS. `makeSitePhoto` does not throw today, so
+      // this cannot fire — but it holds by a property of a function one edit away
+      // from changing, and `Promise.all` REJECTS if any element does. That
+      // rejection propagates out of here into `publishPages`, where `applyImages`
+      // never runs and the raw `@@IMG:…@@` tokens ship into the bundle: a truthy
+      // src, a broken-image glyph on the published page, and the exact failure
+      // the neighbouring sweep guard was written after a red `build smoke` and a
+      // screenshot. This function's own header promises every failure is
+      // per-picture; deleting this would make that promise false.
       failed = String((e && e.message) || e).slice(0, 120);
     }
   }));
@@ -11327,7 +11336,7 @@ async function handleRequest(request, env, ctx) {
                 // of three must buy the two, and the third is reported.
                 generate: async (describe) => {
                   if (!imagesAffordable(1, { balance, usd: SITE_PHOTO_USD })) return null;
-                  const made = await makeSitePhoto(env, ownerSlug, describe);
+                  const { url: made } = await makeSitePhoto(env, ownerSlug, describe);
                   // Only a photograph that really landed costs anything, so the
                   // working balance moves on success and not on the attempt —
                   // the same rule the build path's `made` count follows.

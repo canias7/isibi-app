@@ -336,12 +336,22 @@ test("the build both ASKS for photographs and BUYS them", () => {
     "and the dep that buys them is supplied to publishPages");
 });
 
+// The generate -> sniff -> hash -> put chain, wherever it lives. It was inline in
+// `buySitePhotos` AND in `makeSitePhoto`, which claims in its own header to be the
+// one copy — false from the day it was written. There is one now, and these guards
+// read it rather than a window that happened to contain it.
+const photoChain = () => {
+  const at = worker.indexOf("async function makeSitePhoto");
+  const fn = worker.slice(at, worker.indexOf("\nasync function buySitePhotos", at));
+  assert.ok(fn.length > 400, "makeSitePhoto moved — rescope these guards");
+  return fn;
+};
+
 test("a generated photograph is stored where /u/ actually looks for it", () => {
   // A second copy of `uploads/<slug>/` is a picture written where the serving
   // route does not look — a 404 the bundle compiles perfectly around, so
   // nothing else in the pipeline can catch it.
-  const fn = worker.slice(worker.indexOf("async function buySitePhotos"), worker.indexOf("// Resolve @@SPRITE"));
-  assert.ok(fn.length > 400, "found the function, not an empty window");
+  const fn = photoChain();
   assert.match(fn, /uploadKey\(slug, name\)/);
   assert.match(fn, /uploadUrl\(slug, name\)/);
   assert.ok(!/["']uploads\//.test(fn), "it must not spell the prefix itself");
@@ -349,7 +359,7 @@ test("a generated photograph is stored where /u/ actually looks for it", () => {
 });
 
 test("the bytes are sniffed and named by content, exactly like an owner upload", () => {
-  const fn = worker.slice(worker.indexOf("async function buySitePhotos"), worker.indexOf("// Resolve @@SPRITE"));
+  const fn = photoChain();
   assert.match(fn, /sniffImage\(bytes\)/, "the declared type is what the image model sent, not what we asked for");
   assert.match(fn, /uploadName\(hex, kind\.ext\)/, "content hash, so /u/ can honestly serve it immutable");
   assert.match(fn, /MAX_UPLOAD_BYTES/, "the same size cap the upload route enforces");
@@ -366,7 +376,10 @@ test("what is BILLED is what was stored, not what was planned", () => {
 test("one failed picture does not cost the others, or the build", () => {
   const fn = worker.slice(worker.indexOf("async function buySitePhotos"), worker.indexOf("// Resolve @@SPRITE"));
   // Per-shot try/catch inside the Promise.all, so a rejection cannot take the
-  // whole batch down with it.
+  // whole batch down with it. KEPT even though `makeSitePhoto` does not throw:
+  // `Promise.all` REJECTS if any element does, and that rejection propagates into
+  // `publishPages` where `applyImages` never runs and the raw `@@IMG:…@@` tokens
+  // ship — a truthy src and a broken-image glyph on the published page.
   // `lastIndexOf`, because there is an EARLY `return {` above the Promise.all
   // for the nothing-to-buy case — `indexOf` finds that one and slices an empty
   // window, which then matches nothing and reports a gap that is not there.
@@ -374,7 +387,12 @@ test("one failed picture does not cost the others, or the build", () => {
   assert.ok(inMap.length > 200, "found the loop body, not an empty window");
   assert.match(inMap, /try \{/);
   assert.match(inMap, /\} catch \(e\) \{/);
-  assert.ok(!/throw /.test(inMap.slice(inMap.indexOf("} catch"))), "the catch must not rethrow");
+  // COMMENTS BLANKED BEFORE THE ABSENCE IS JUDGED. This went red on a correct
+  // change because the catch's own comment explains that `makeSitePhoto` "does
+  // not throw today" — prose about the bug containing the bug's spelling, which
+  // is the fourth time this class has bitten in this repo.
+  const code = inMap.slice(inMap.indexOf("} catch")).replace(/^[ \t]*\/\/.*$/gm, "");
+  assert.ok(!/throw /.test(code), "the catch must not rethrow");
 });
 
 test("the photograph sentence reaches the chat", () => {
@@ -969,4 +987,65 @@ test("one customer's theme cannot survive into the next customer's stylesheet", 
   assert.deepEqual(run(body.replace(/try \{ fs\.copyFileSync\(STYLES_BASE, STYLES\); \} catch \{\}/, "")),
     [[1], [1, 2], [1, 2, 3]],
     "the harness does not reproduce the leak, so a green run above proves nothing");
+});
+
+test("there is ONE generate → sniff → hash → put chain, and buySitePhotos goes through it", () => {
+  // `makeSitePhoto`'s own header says "EXTRACTED SO THERE IS ONE COPY … the sniff
+  // is the only thing standing between an image model's answer and an SVG served
+  // inline from our own origin, so a second copy that forgets it is a stored
+  // XSS." It was written the day that function shipped and was FALSE from the
+  // first line: `buySitePhotos` kept the identical chain inline, and the guards
+  // above were sliced from the duplicate rather than from the shared reader —
+  // so they held the copy and said nothing about the original.
+  //
+  // KEYED ON THE IMAGE-MODEL CALL, not on the put. A first draft counted
+  // `SITES_BUCKET.put(uploadKey(` and went red at 2 — the second is the LOGO
+  // store, which writes bytes the OWNER attached and were sniffed by
+  // `runLogoEdit` before they got there. A correct, separate path: exactly the
+  // false alarm on correct code this comment was already warning about, produced
+  // by the check written to prevent it. What must not be duplicated is the chain
+  // that handles bytes an IMAGE MODEL sent, so that is what is counted.
+  const code = worker.replace(/^[ \t]*\/\/.*$/gm, "");
+  const gens = [...code.matchAll(/= await genSitePhoto\(/g)];
+  assert.equal(gens.length, 1,
+    `${gens.length} places take an image model's bytes — the sniff is the only thing between one of those and a stored XSS, and it can drift between copies`);
+
+  // …and the caller reaches it, rather than having grown its own again.
+  const fn = worker.slice(worker.indexOf("async function buySitePhotos"), worker.indexOf("// Resolve @@SPRITE"));
+  assert.match(fn, /await makeSitePhoto\(env, slug, prompt\)/, "buySitePhotos no longer goes through the shared reader");
+  assert.ok(!/genSitePhoto\(env, p\)/.test(fn), "buySitePhotos has its own copy of the chain again");
+
+  // BOTH CALL SITES READ THE OBJECT. `makeSitePhoto` answers `{url, error}`, and
+  // a caller that kept `if (made)` would be truthy for `{ url: null }` — charging
+  // for a photograph that was never made and handing a page `[object Object]` in
+  // a `src`, which `SafeImage` paints as a broken image.
+  for (const m of worker.matchAll(/(?:const|let) ([^=]+)= await makeSitePhoto\(/g)) {
+    assert.match(m[1], /\{/, "a caller takes makeSitePhoto's answer as a bare value: " + m[0]);
+  }
+});
+
+test("a picture that could not be made says WHY, and the caller carries it", () => {
+  // "A site quietly missing its pictures looks exactly like a site that was never
+  // meant to have any" — `buySitePhotos`' own words for why the reason exists. It
+  // reaches `out.images.error` and rides the build response, and TWO mutations
+  // proved nothing held it: dropping the reason from a refusal, and destructuring
+  // only `url` at the call site, both passed the whole suite.
+  const at = worker.indexOf("async function makeSitePhoto");
+  const fn = worker.slice(at, worker.indexOf("\nasync function buySitePhotos", at));
+  assert.ok(fn.length > 400, "makeSitePhoto moved — rescope this");
+
+  const exits = [...fn.matchAll(/return \{ url: null[^}]*\}/g)].map((m) => m[0]);
+  assert.ok(exits.length >= 4, `only ${exits.length} failure exits found — the scan stopped matching`);
+  const silent = exits.filter((e) => !/error:/.test(e));
+  // EXACTLY ONE IS SILENT, and it is the empty-prompt case: a token with no
+  // description was never going to become a picture, so reporting it would set
+  // `images.error` on builds where nothing failed.
+  assert.equal(silent.length, 1, "a failure exit reports no reason: " + silent.join(" | "));
+  assert.match(fn.slice(0, fn.indexOf(silent[0])), /imagePrompt\(prompt\)/,
+    "the one silent exit is not the empty-prompt case any more");
+
+  // …AND THE CALLER READS IT. Computed and dropped is the shape of a dead field.
+  const buy = worker.slice(worker.indexOf("async function buySitePhotos"), worker.indexOf("// Resolve @@SPRITE"));
+  assert.match(buy, /const \{ url, error \} = await makeSitePhoto\(/, "the per-shot reason is destructured away");
+  assert.match(buy, /else if \(error\) failed = error;/, "the reason is read and then not kept");
 });

@@ -1072,6 +1072,18 @@ Postgres side: `public.use_quota(p_kind, p_limit)` (SECURITY DEFINER, atomic che
 
 Auth config (set 2026-07-03 via Management API): Site URL `https://isibi.ai`, redirect allow-list `https://isibi.ai/**, https://www.isibi.ai/**`, email rate limit 100/hour.
 
+## The comment said ONE COPY and there were two (2026-08-14)
+
+**Round 17.** `makeSitePhoto`'s own header reads *"EXTRACTED SO THERE IS ONE COPY… the sniff is the only thing standing between an image model's answer and an SVG served inline from our own origin, so a second copy that forgets it is a stored XSS."* It was written the day that function shipped and was **false from the first line** — `buySitePhotos` kept the identical generate → sniff → hash → put chain inline, and `makeSitePhoto` had exactly one caller elsewhere. An extraction parked directly above its intended caller and never wired in.
+
+- **THE FIX IS THE WIRING, AND THE `try` STAYS.** An earlier attempt deleted the per-shot `try`/`catch` on the grounds that a never-throwing reader makes it dead — which is wrong twice over. `Promise.all` **rejects** if any element does, and that rejection propagates into `publishPages` where `applyImages` never runs and the raw `@@IMG:…@@` tokens ship: a truthy `src` and a broken-image glyph on the published page, which is the live failure the neighbouring sweep guard was written after. It is belt-and-braces held by a property of a function one edit away from changing — kept, and **said so in the source**, which is this repo's own convention for that case.
+- **BOTH CALL SITES IN ONE COMMIT, because the return shape changed.** `makeSitePhoto` answers `{url, error}` now, and a caller still reading `if (made)` is truthy for `{url: null}` — charging for a photograph that was never made and handing a page `[object Object]` in a `src`. Asserted over every `= await makeSitePhoto(` in the file rather than the two known today.
+- **THREE GUARDS WERE HOLDING THE DUPLICATE, NOT THE ORIGINAL.** They sliced `buySitePhotos` and matched the inline chain, so they described the copy and said nothing about the function whose comment claims to be the only one. They read the shared chain now.
+- **MY OWN ONE-COPY CHECK FALSE-ALARMED ON CORRECT CODE, in the check written to prevent exactly that.** Counting `SITES_BUCKET.put(uploadKey(` gives 2 — the second is the LOGO store, which writes bytes the OWNER attached and `runLogoEdit` already sniffed. A legitimately separate path. Keyed on `genSitePhoto(` instead: what must never be duplicated is the chain handling bytes an image MODEL sent.
+- **AN ABSENCE GUARD MATCHED ITS OWN FIX'S COMMENT, for the fourth time this session.** *"the catch must not rethrow"* went red because the new catch explains that `makeSitePhoto` "does not throw today". Comments blanked before the absence is judged.
+- **TWO MUTANTS PROVED THE PER-PICTURE REASON WAS HELD BY NOTHING** — dropping it from a refusal, and destructuring only `url` at the call site, both passed the entire suite. That field is the difference between a reported failure and a site quietly missing its pictures. Guarded as a property: every failure exit reports a reason except the empty-prompt one, which must stay silent so a token nobody described does not set `images.error` on a build where nothing failed.
+- 2786 tests, `site build` 117/117, **7/7 mutations caught** from a verified-green baseline. **Nothing here has ever run** — the fal balance is empty, so no photograph has been generated.
+
 ## Four things the build knew and would not say (2026-08-14)
 
 **Round 16 — the works-but-cannot-say-so disease, four more instances, and one operational lesson that cost the whole batch once.**
