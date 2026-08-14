@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn, toDate } from "@/lib/utils";
 /**
  * A site safety briefing — topic, who attended, and who did not.
  *
@@ -31,7 +31,7 @@ export function ToolboxTalk({ topic, date, by, attended = [], absent = [], langu
   languages?: string[];
   className?: string;
 }) {
-  const d = date ? new Date(date) : null;
+  const d = date ? toDate(date) : null;
   const ok = d && !Number.isNaN(d.getTime());
   return (
     <article className={cn("space-y-1 rounded-md border border-border p-3 text-sm", className)}>

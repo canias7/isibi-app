@@ -29,7 +29,7 @@ export function WhoChanged({ by, at, action = "Edited", className }: {
     <p className={cn("text-xs text-muted-foreground", className)}>
       {action} by <span className="font-medium text-foreground">{by}</span>
       {" · "}
-      <time dateTime={new Date(at).toISOString()}><DateFormat date={at} withTime /></time>
+      <DateFormat date={at} withTime />
     </p>
   );
 }

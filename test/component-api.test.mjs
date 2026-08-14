@@ -10,10 +10,44 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { build, render, extract } from "../builder/gen-component-api.mjs";
-import { COMPONENT_API } from "../builder/component-api.mjs";
+import { COMPONENT_API, COMPONENT_TYPES } from "../builder/component-api.mjs";
 import { importedComponentApi, repairPrompt, pagesPrompt, UI_COMPONENTS } from "../builder/page-gen.mjs";
 
 const UI_DIR = "builder/lovable/template/src/components/ui";
+
+/** The contents of the `{…}` opening at `open`, exclusive. */
+function braced(src, open) {
+  let depth = 0;
+  for (let i = open; i < src.length; i++) {
+    if (src[i] === "{") depth++;
+    else if (src[i] === "}") { depth--; if (depth === 0) return src.slice(open + 1, i); }
+  }
+  return null;
+}
+
+/**
+ * Split on a separator that is not nested. A FLAT split reads
+ * `items: { href?: string }[]` as a prop called `href` — this repo has written
+ * a flat splitter and regretted it four times, and the one over the TYPE block
+ * is safe from the regex-literal trap because a type annotation has no
+ * regex literals in it.
+ */
+function splitTopLevel(s, sep) {
+  const parts = [];
+  let depth = 0, quote = null, start = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (quote) { if (c === quote && s[i - 1] !== "\\") quote = null; continue; }
+    if (c === '"' || c === "'" || c === "`") { quote = c; continue; }
+    if ("([{<".includes(c)) depth++;
+    // `=>` is not a closing bracket: without this a function-typed prop drives
+    // the depth negative and every field after it disappears.
+    else if (">)]}".includes(c)) { if (!(c === ">" && s[i - 1] === "=")) depth = Math.max(0, depth - 1); }
+    else if (c === sep && depth === 0) { parts.push(s.slice(start, i)); start = i + 1; }
+  }
+  parts.push(s.slice(start));
+  return parts;
+}
 
 test("the committed notes match what the components actually take", () => {
   // The whole point. Re-derive from the files and require byte equality with
@@ -23,6 +57,132 @@ test("the committed notes match what the components actually take", () => {
   const committed = fs.readFileSync("builder/component-api.mjs", "utf8");
   assert.equal(fresh, committed,
     "builder/component-api.mjs is stale — run `node builder/gen-component-api.mjs`");
+});
+
+test("no signature names a symbol that exists only inside the component file", () => {
+  // THE MODEL IS HANDED THE SIGNATURE AND NOTHING ELSE. It cannot open the file,
+  // so `model: keyof typeof MODELS` names something it has no way to look up —
+  // and the guesses it makes from the prop name are exactly the ones TypeScript
+  // refuses. Measured 2026-08-12 by compiling them: `model="last_click"` against
+  // `"last-click"` is TS2820, `basis="legitimate-interest"` against
+  // `"legitimate"` is TS2322. Not a runtime bug — the page fails to COMPILE, so
+  // it is stubbed and the customer is billed for the build.
+  //
+  // DERIVED FROM THE KIT, not a list of the nine that shipped one: the pattern
+  // is ordinary TypeScript and idiomatic, so the tenth is a matter of time.
+  //
+  // The exemption is real and is the reason this asks the SOURCE rather than
+  // just grepping the signatures: `const X: Record<string, T> = {…}` has a
+  // `keyof` of `string`, so resolving it would tell the model that the keys it
+  // happens to hold are the only ones allowed. `care-icons` is that case, and
+  // leaving its name unresolved is correct.
+  const dir = path.join(process.cwd(), UI_DIR);
+  const unresolved = [];
+  for (const f of fs.readdirSync(dir).filter((n) => n.endsWith(".tsx"))) {
+    const mod = f.replace(/\.tsx$/, "");
+    const sig = COMPONENT_API[mod];
+    if (!sig) continue;
+    const src = fs.readFileSync(path.join(dir, f), "utf8");
+    for (const m of sig.matchAll(/keyof typeof (\w+)/g)) {
+      // Unannotated const -> TypeScript infers literal keys -> resolvable, so
+      // the generator should have resolved it and something is wrong.
+      if (new RegExp("\\bconst\\s+" + m[1] + "\\s*=\\s*\\{").test(src)) {
+        unresolved.push(mod + ": " + sig.slice(0, 90));
+      }
+    }
+    // A local `type X = "a" | "b"` (or an alias to a keyof) is the same failure
+    // wearing a name — `tag-scope` was two hops from anything readable.
+    for (const m of src.matchAll(/\btype\s+([A-Z][A-Za-z0-9]*)\s*=\s*([^;\n]+)/g)) {
+      const body = m[2].replace(/keyof typeof (\w+)/g, (w, n) => {
+        const c = new RegExp("\\bconst\\s+" + n + "\\s*=\\s*\\{").test(src);
+        return c ? '"x" | "y"' : w;
+      });
+      if (!/^(?:"[^"]*"\s*\|\s*)+"[^"]*"$/.test(body.trim())) continue;
+      if (new RegExp("\\b" + m[1] + "\\b").test(sig)) {
+        unresolved.push(mod + ": names the local alias " + m[1]);
+      }
+    }
+  }
+  assert.deepEqual(unresolved, [],
+    "the model is told to write one of these and cannot find out what they are:\n  " +
+      unresolved.join("\n  "));
+});
+
+test("an array type is recorded as an array, not as one of its items", () => {
+  // `export type QuoteFiles = { name: string; size: number }[]` was recorded
+  // WITHOUT the `[]`, because the scan stopped at the closing brace. So the
+  // model was told a list was a single item and wrote `files: { name, size }`
+  // where the prop wants an array — a type error, page refused, whole site the
+  // placeholder. Derived from the source rather than listing the two that were
+  // wrong, since the next array-typed alias would be silently wrong too.
+  const dir = path.join(process.cwd(), UI_DIR);
+  const wrong = [];
+  for (const f of fs.readdirSync(dir).filter((n) => n.endsWith(".tsx"))) {
+    const mod = f.replace(/\.tsx$/, "");
+    const recorded = COMPONENT_TYPES[mod];
+    if (!recorded) continue;
+    const src = fs.readFileSync(path.join(dir, f), "utf8");
+    for (const name of Object.keys(recorded)) {
+      // Does the SOURCE end this alias with `[]`?
+      const m = new RegExp("export type " + name + "\\s*(?:<[^>]*>)?\\s*=\\s*\\{").exec(src);
+      if (!m) continue;
+      const body = braced(src, m.index + m[0].length - 1);
+      if (body == null) continue;
+      const after = src.slice(m.index + m[0].length + body.length + 1);
+      const isArray = /^\s*\[\]/.test(after);
+      if (isArray !== recorded[name].trim().endsWith("[]")) {
+        wrong.push(mod + "." + name + " — source " + (isArray ? "IS" : "is NOT") +
+          " an array, recorded as " + JSON.stringify(recorded[name].slice(-24)));
+      }
+    }
+  }
+  assert.deepEqual(wrong, [],
+    "the model is told the wrong shape for these:\n  " + wrong.join("\n  "));
+});
+
+test("no prop is declared in the type and left out of the destructuring", () => {
+  // `ClickCollect` declared `currency?: string` and never destructured it, so
+  // the formatter named "GBP" outright and a euro shop that set the prop
+  // correctly still priced every line in pounds. The prop is published in the
+  // generated signature, so the model sets it and nothing happens — the worst
+  // shape of wrong, because from the outside it looks handled.
+  //
+  // BOUND IS TESTED BY THE NAME APPEARING ANYWHERE in the destructuring text,
+  // not by splitting it. Crude, and crude in the SAFE direction: it can only
+  // miss a real one, never invent one. Splitting mis-parsed
+  // `allow = /^[A-Za-z0-9 .,'&-]*$/` on the apostrophe inside the character
+  // class and accused `personalisation-field`, which destructures `className`
+  // perfectly well — a false alarm on correct code, which is the failure this
+  // repo treats as worse than the miss.
+  const dir = path.join(process.cwd(), UI_DIR);
+  const unreadable = [];
+  for (const f of fs.readdirSync(dir).filter((n) => n.endsWith(".tsx"))) {
+    const src = fs.readFileSync(path.join(dir, f), "utf8");
+    const re = /export function (\w+)\s*(?:<(?:[^<>()]|<[^<>()]*>)*>)?\s*\(\s*\{/g;
+    let m;
+    while ((m = re.exec(src))) {
+      const dOpen = m.index + m[0].length - 1;
+      const destruct = braced(src, dOpen);
+      if (destruct == null) continue;
+      const after = src.slice(dOpen + destruct.length + 2);
+      const t = after.match(/^\s*:\s*\{/);
+      if (!t) continue;
+      const types = braced(src, dOpen + destruct.length + 2 + t[0].length - 1);
+      if (types == null) continue;
+      for (const part of splitTopLevel(types, ";")) {
+        const name = (part.match(/^\s*([A-Za-z_$][\w$]*)\??\s*:/) || [])[1];
+        if (!name) continue;
+        // `x?: never` is a deliberate "you may not pass this" device — it is
+        // there to refuse a wrong prop NAME, and has no value to destructure.
+        if (/:\s*never\b/.test(part)) continue;
+        if (!new RegExp("\\b" + name + "\\b").test(destruct)) {
+          unreadable.push(f + "  " + m[1] + "(" + name + ")");
+        }
+      }
+    }
+  }
+  assert.deepEqual(unreadable, [],
+    "the signature offers these and the component cannot read them:\n  " + unreadable.join("\n  "));
 });
 
 test("every documented component is a real one, and the count is sane", () => {

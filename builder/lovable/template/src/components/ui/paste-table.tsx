@@ -16,6 +16,11 @@ import { cn } from "@/lib/utils";
 export function PasteTable({ onRows, label = "Paste your rows", rows: rowsProp = 8, className }: {
   onRows: (rows: string[][]) => void; label?: string; rows?: number; className?: string;
 }) {
+  // Unique per INSTANCE. These ids were literals, so a page rendering
+  // this component twice — two contact forms, one in a list — gave every
+  // field a duplicate id, and a `<label for>` then focuses the FIRST
+  // match. The second form's labels pointed at the first form's inputs.
+  const uid = React.useId();
   const [text, setText] = React.useState("");
   const parsed = React.useMemo(() => text.split(/\r?\n/)
     .filter((l) => l.trim() !== "")
@@ -24,8 +29,8 @@ export function PasteTable({ onRows, label = "Paste your rows", rows: rowsProp =
   const cols = parsed.length ? Math.max(...parsed.map((r) => r.length)) : 0;
   return (
     <div className={cn("space-y-1.5", className)}>
-      <Label htmlFor="paste-table">{label}</Label>
-      <Textarea id="paste-table" rows={rowsProp} value={text} spellCheck={false}
+      <Label htmlFor={uid + "-paste-table"}>{label}</Label>
+      <Textarea id={uid + "-paste-table"} rows={rowsProp} value={text} spellCheck={false}
         className="font-mono text-xs" placeholder="Copy the cells in your spreadsheet and paste them here"
         onChange={(e) => setText(e.target.value)} />
       <p className="text-xs tabular-nums text-muted-foreground" aria-live="polite">

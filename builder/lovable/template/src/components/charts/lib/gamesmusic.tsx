@@ -1,5 +1,7 @@
 /** Games and music theory — boards, ratings, wheels and fretboards. */
 
+import { inkOn } from "./_ink";
+
 const TONE = "var(--foreground)";
 
 /* ----------------------------------------------------------------- chess heat */
@@ -38,7 +40,7 @@ export function ChessHeat({
                 fill={TONE} fillOpacity={k * 0.92} rx={0.8} />
               {v > 0 ? (
                 <text x={f * 12.5 + 6.25} y={r * 12.5 + 7.6} fontSize={3.6} textAnchor="middle"
-                  fill={k > 0.5 ? "var(--background)" : "var(--foreground)"}>{v}</text>
+                  fill={inkOn(Math.round(k * 92))}>{v}</text>
               ) : null}
             </g>
           );
@@ -328,7 +330,7 @@ export function CircleOfFifths({
                 fill={kOn ? "var(--background)" : "var(--foreground)"}>{k}</text>
               <circle cx={q.x} cy={q.y} r={5} fill={mOn ? TONE : "var(--background)"} stroke={TONE} strokeWidth={0.5} strokeOpacity={0.7} />
               <text x={q.x} y={q.y + 1.2} fontSize={3.4} textAnchor="middle"
-                fill={mOn ? "var(--background)" : "var(--muted-foreground)"}>{MINOR[i]}</text>
+                fill={mOn ? "var(--background)" : "var(--foreground)"}>{MINOR[i]}</text>
             </g>
           );
         })}
@@ -434,7 +436,7 @@ export function ScaleWheel({
               <circle cx={p.x} cy={p.y} r={isRoot ? 7 : 6}
                 fill={isOn ? TONE : "var(--background)"} stroke={TONE} strokeWidth={isRoot ? 1.6 : 0.6} />
               <text x={p.x} y={p.y + 1.6} fontSize={4.4} textAnchor="middle" fontWeight={isRoot ? 700 : 500}
-                fill={isOn ? "var(--background)" : "var(--muted-foreground)"}>{nt}</text>
+                fill={isOn ? "var(--background)" : "var(--foreground)"}>{nt}</text>
             </g>
           );
         })}

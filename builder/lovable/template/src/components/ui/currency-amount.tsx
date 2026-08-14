@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, formatMinor } from "@/lib/utils";
 /**
  * Money DISPLAYED from minor units — the other half of amount-input.
  *
@@ -16,7 +16,17 @@ import { cn } from "@/lib/utils";
  * the sr-only text says "minus", because a bare "−" glyph is skipped by
  * some screen readers and a refund read as a charge is the worst
  * possible misreading.
+ *
+ * THE DIVISOR IS NOT 100. It was, while `currency` is a free-form prop, so a
+ * zero-decimal currency was shown at a HUNDREDTH of its value: ¥1,200 rendered
+ * as ¥12. Three-decimal currencies (KWD, BHD, OMR) went the other way by ten.
+ * `site-payments.mjs` records exactly this on the charging path — "a hardcoded
+ * ×100 charges a hundred times the price" — and the display half had the same
+ * constant. Intl already knows every currency's exponent, so it is asked
+ * rather than tabulated: nothing here needs maintaining when a currency
+ * redenominates.
  */
+
 export function CurrencyAmount({ minor, currency = "GBP", zeroAs, parentheses, className }: {
   minor: number;
   currency?: string;
@@ -27,7 +37,9 @@ export function CurrencyAmount({ minor, currency = "GBP", zeroAs, parentheses, c
   if (minor === 0 && zeroAs === "free") {
     return <span className={cn("font-medium", className)}>Free</span>;
   }
-  const abs = new Intl.NumberFormat(undefined, { style: "currency", currency }).format(Math.abs(minor) / 100);
+  // Shared with the eighteen other components that display minor units, so the
+  // exponent is worked out in ONE place rather than nineteen.
+  const abs = formatMinor(Math.abs(minor), currency);
   if (minor < 0) {
     return (
       <span className={cn("tabular-nums", className)}>

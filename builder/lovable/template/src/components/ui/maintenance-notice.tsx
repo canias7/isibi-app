@@ -1,5 +1,5 @@
 import { Wrench } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, toDate } from "@/lib/utils";
 /**
  * Planned downtime, with the window in the reader's own timezone.
  *
@@ -11,7 +11,7 @@ export function MaintenanceNotice({ start, end, body, className }: {
   start: string | number | Date; end?: string | number | Date | null;
   body?: string; className?: string;
 }) {
-  const s = new Date(start), e = end ? new Date(end) : null;
+  const s = toDate(start), e = end ? toDate(end) : null;
   if (Number.isNaN(s.getTime())) return null;
   const fmt = (d: Date) => d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
   return (

@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, labelText } from "@/lib/utils";
 /**
  * Days across, rows down, hours typed in the cells, totals on both edges.
  *
@@ -63,7 +63,7 @@ export function TimesheetGrid({ rows, days, values, onChange, expectedPerDay = 8
                       const n = Number(raw);
                       if (!Number.isNaN(n) && n >= 0) onChange?.(key, n);
                     }}
-                    aria-label={`${String(r.label)} on ${String(d.label)}`}
+                    aria-label={`${labelText(r.label)} on ${labelText(d.label)}`.trim()}
                     className="h-7 w-12 rounded border border-input bg-background text-center tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   />
                 </td>

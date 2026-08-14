@@ -29,8 +29,16 @@ export function TipPicker({ subtotal, options = [10, 12.5, 15], value, onChange,
   return (
     <fieldset className={cn("flex flex-col gap-2", className)}>
       <legend className="text-sm font-medium">Add a tip</legend>
+      {/* DEDUPED, because every id and every key here is the PERCENTAGE. `0` is
+          appended unconditionally, so `options={[0, 10, 15]}` — an ordinary way
+          to write "no tip, 10%, 15%" — rendered "No tip" twice with the same
+          `id`, and a `<label for>` points at the FIRST match: pressing the
+          second did nothing. A repeated value from a database column
+          (`options={rows.map((r) => r.pct)}`) does the same. Offering one
+          percentage twice is wrong on its own, so deduping is the fix rather
+          than making the ids unique. `Set` keeps the caller's order. */}
       <div role="radiogroup" aria-label="Add a tip" className="flex flex-wrap gap-2">
-        {[...options, 0].map((pct) => (
+        {[...new Set([...options, 0])].map((pct) => (
           <label key={pct} htmlFor={`${id}-${pct}`}
             className={cn("flex cursor-pointer flex-col items-center rounded-md border px-3 py-2 text-sm",
               value === pct ? "border-foreground font-medium" : "border-border")}>

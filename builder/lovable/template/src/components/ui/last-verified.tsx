@@ -27,7 +27,7 @@ export function LastVerified({ at, staleAfterDays = 365, onVerify, className }: 
       <span className={cn(stale || t === null ? "font-medium" : "text-muted-foreground")}>
         {t === null
           ? "Never checked"
-          : <>{stale ? "Last checked" : "Checked"} <time dateTime={new Date(t).toISOString()}><DateFormat date={t} /></time></>}
+          : <>{stale ? "Last checked" : "Checked"} <DateFormat date={t} /></>}
       </span>
       {(stale || t === null) && onVerify && (
         <button type="button" onClick={onVerify} className="cursor-pointer underline underline-offset-2">

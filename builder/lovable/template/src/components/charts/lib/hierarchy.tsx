@@ -1,7 +1,10 @@
 /** Part-to-whole and hierarchy charts with no recharts equivalent. */
 
 const TONE = "var(--foreground)";
-const SHADE = (i: number, of = 5) => `color-mix(in oklch, var(--foreground) ${Math.round(94 - (i / Math.max(1, of)) * 78)}%, transparent)`;
+import { inkOn } from "./_ink";
+
+const SHADE_PCT = (i: number, of = 5) => Math.round(94 - (i / Math.max(1, of)) * 78);
+const SHADE = (i: number, of = 5) => `color-mix(in oklch, var(--foreground) ${SHADE_PCT(i, of)}%, transparent)`;
 
 export type TreeNode = { name: string; value?: number; children?: TreeNode[] };
 
@@ -196,7 +199,7 @@ export function Icicle({ root, height = 220, label }: { root: TreeNode; height?:
           className="absolute overflow-hidden rounded-[2px] border border-background px-1 text-[10px] leading-none"
           style={{
             left: `${b.x}%`, width: `${b.w}%`, top: b.d * rowH, height: rowH - 2,
-            background: SHADE(b.d, levels), color: b.d < 2 ? "var(--background)" : "var(--foreground)",
+            background: SHADE(b.d, levels), color: inkOn(SHADE_PCT(b.d, levels)),
             display: "flex", alignItems: "center",
           }}
           title={`${b.name}: ${b.v}`}>

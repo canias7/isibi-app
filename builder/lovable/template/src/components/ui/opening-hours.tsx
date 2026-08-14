@@ -46,7 +46,7 @@ export function OpeningHours({ days, now, className }: {
         <tbody>
           {days.map((x) => (
             <tr key={x.day} className={cn("border-b border-border last:border-0", x.day === today && "font-medium")}>
-              <th scope="row" className="py-1.5 text-left font-inherit">{x.label}</th>
+              <th scope="row" className="py-1.5 text-left font-normal">{x.label}</th>
               <td className="py-1.5 text-right tabular-nums text-muted-foreground">
                 {x.open && x.close ? `${x.open} – ${x.close}` : "Closed"}
               </td>

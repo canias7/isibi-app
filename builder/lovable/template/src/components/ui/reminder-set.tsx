@@ -25,7 +25,7 @@ export function ReminderSet({ at, channel, onCancel, className }: {
   return (
     <p role="status" className={cn("flex flex-wrap items-baseline gap-x-2 text-xs text-muted-foreground", className)}>
       <span>
-        Reminder <time dateTime={new Date(at).toISOString()}><DateFormat date={at} withTime /></time>
+        Reminder <DateFormat date={at} withTime />
         {channel ? ` ${channel}` : ""}
       </span>
       {onCancel && (

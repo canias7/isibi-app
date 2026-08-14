@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, isoAttr, toDate } from "@/lib/utils";
 /**
  * "Started 14:02 · 23 min" — elapsed time that cannot drift.
  *
@@ -22,7 +22,7 @@ export function ElapsedTimer({ since, prefix = "Started", className }: {
   prefix?: React.ReactNode;
   className?: string;
 }) {
-  const start = React.useMemo(() => new Date(since), [since]);
+  const start = React.useMemo(() => toDate(since), [since]);
   const [, tick] = React.useReducer((n: number) => n + 1, 0);
   React.useEffect(() => {
     const id = setInterval(tick, 30_000);
@@ -34,7 +34,7 @@ export function ElapsedTimer({ since, prefix = "Started", className }: {
   return (
     <span className={cn("inline-flex items-baseline gap-1.5 text-sm", className)}>
       <span className="text-xs text-muted-foreground">
-        {prefix} <time dateTime={start.toISOString()}>{start.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}</time>
+        {prefix} <time dateTime={isoAttr(start)}>{start.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}</time>
       </span>
       <span className="font-medium tabular-nums">{words}</span>
     </span>

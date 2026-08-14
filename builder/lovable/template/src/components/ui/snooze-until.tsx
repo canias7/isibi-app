@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, toDate } from "@/lib/utils";
 /**
  * A form control whose VALUE is "when this comes back".
  *
@@ -71,8 +71,8 @@ export function SnoozeUntil({ value, onChange, className }: {
               <input type="datetime-local" value={custom} onChange={(e) => setCustom(e.target.value)}
                 className="h-7 cursor-pointer rounded-md border border-input bg-background px-1.5 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring" />
               <button type="button"
-                disabled={!custom || new Date(custom).getTime() <= Date.now()}
-                onClick={() => { onChange(new Date(custom)); setOpen(false); setCusting(false); }}
+                disabled={!custom || toDate(custom).getTime() <= Date.now()}
+                onClick={() => { onChange(toDate(custom)); setOpen(false); setCusting(false); }}
                 className="cursor-pointer rounded-md border border-border px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-40">
                 Set
               </button>

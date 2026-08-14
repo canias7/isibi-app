@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn, isoAttr, toDate } from "@/lib/utils";
 /**
  * Which system produced this, in the smallest honest amount of space.
  *
@@ -30,10 +30,10 @@ export function ModelNote({ model, version, knowledgeTo, generatedAt, className 
   if (model) parts.push(<span key="m">{model}{version ? ` ${version}` : ""}</span>);
   if (knowledgeTo) parts.push(<span key="k">knowledge to {knowledgeTo}</span>);
   if (generatedAt) {
-    const d = new Date(generatedAt);
+    const d = toDate(generatedAt);
     const ok = !Number.isNaN(d.getTime());
     parts.push(
-      <time key="g" dateTime={ok ? d.toISOString() : undefined}>
+      <time key="g" dateTime={isoAttr(generatedAt)}>
         {ok ? d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : generatedAt}
       </time>,
     );

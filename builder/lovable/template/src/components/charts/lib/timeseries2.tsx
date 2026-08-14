@@ -1,5 +1,7 @@
 /** A second batch of time-series charts. */
 
+import { inkOn, shadePct } from "./_ink";
+
 const TONE = "var(--foreground)";
 const SHADE = (t: number) => `color-mix(in oklch, var(--foreground) ${Math.round(8 + t * 84)}%, var(--muted))`;
 
@@ -361,7 +363,7 @@ export function MonthCalendar({
           const t = v / hi;
           return (
             <div key={d} className="flex flex-col items-center justify-center rounded-[3px] text-[10px]"
-              style={{ height: cell, background: SHADE(t), color: t > 0.5 ? "var(--background)" : "var(--foreground)" }}
+              style={{ height: cell, background: SHADE(t), color: inkOn(shadePct(t)) }}
               title={`${d}: ${format(v)}`}>
               <span className="opacity-70">{d}</span>
               {v ? <span className="text-[9px] tabular-nums">{format(v)}</span> : null}

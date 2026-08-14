@@ -23,7 +23,11 @@ export function ScoreBreakdown({ lines, className }: {
   if (!lines.length) return null;
   const weighted = lines.some((l) => typeof l.weight === "number");
   const total = weighted
-    ? lines.reduce((s, l) => s + (l.score / l.outOf) * (l.weight ?? 0), 0)
+    // `outOf` of 0 is an unfilled or not-applicable criterion, and it is the
+    // ordinary state of a half-filled rubric. Undivided it yields Infinity or
+    // NaN, which propagates through the sum and renders the TOTAL — the one
+    // number anybody reads — as "NaN".
+    ? lines.reduce((s, l) => s + (l.outOf > 0 ? l.score / l.outOf : 0) * (l.weight ?? 0), 0)
     : lines.reduce((s, l) => s + l.score, 0);
   const outOf = weighted ? lines.reduce((s, l) => s + (l.weight ?? 0), 0) : lines.reduce((s, l) => s + l.outOf, 0);
   return (

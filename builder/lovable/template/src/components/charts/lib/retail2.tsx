@@ -1,5 +1,7 @@
 /** The shop floor: shelves, baskets, cover and markdowns. */
 
+import { inkOn } from "./_ink";
+
 const TONE = "var(--foreground)";
 const money = (n: number, cur = "GBP") =>
   new Intl.NumberFormat(undefined, { style: "currency", currency: cur, maximumFractionDigits: n < 100 ? 2 : 0 }).format(n);
@@ -302,9 +304,9 @@ export function AssortmentGrid({
                   ) : (
                     <>
                       <span className="text-[12px] font-semibold leading-none"
-                        style={{ color: k > 0.5 ? "var(--background)" : "var(--foreground)" }}>{cell.lines}</span>
+                        style={{ color: inkOn(Math.round(k * 92)) }}>{cell.lines}</span>
                       <span className="text-[8px] leading-tight"
-                        style={{ color: k > 0.5 ? "var(--background)" : "var(--muted-foreground)" }}>lines</span>
+                        style={{ color: inkOn(Math.round(k * 92)) }}>lines</span>
                     </>
                   )}
                 </div>

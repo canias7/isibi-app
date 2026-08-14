@@ -27,7 +27,32 @@ export function CompareTable({
   className?: string;
 }) {
   const [all, setAll] = React.useState(!!showUnchanged);
-  const changed = (f: (typeof fields)[number]) => String(f.before ?? "") !== String(f.after ?? "");
+  /**
+   * TWO REACT NODES ARE NOT COMPARED WITH `String()`, AND THIS TABLE IS THE
+   * WORST PLACE TO GET THAT WRONG. Both sides are typed `React.ReactNode` — a
+   * price rendered as `<Money/>`, a status as a `<Badge/>` — and every element
+   * stringifies to "[object Object]", so `String(a) !== String(b)` answered
+   * FALSE for two values that are completely different. Three things followed,
+   * all silent: the row was filtered out of the default view, it was counted in
+   * "N unchanged fields", and a table where every field is an element rendered
+   * "Nothing changed." This component's own doc calls it an "are you sure?"
+   * screen — so somebody approves a change they were shown as not being one.
+   *
+   * IT FAILS TOWARD "CHANGED", deliberately. Text is compared as text; anything
+   * else falls back to identity, so the same node handed to both sides is still
+   * correctly unchanged, and two separately-built but identical elements are
+   * reported as a change. That costs one extra visible row. Being wrong the
+   * other way costs an approval.
+   */
+  // A TYPE PREDICATE, not a plain boolean: after `isText(a)` TypeScript knows
+  // `a` is `string | number`, so the comparison below is over text rather than
+  // over a node that merely happens to be one.
+  const isText = (v: React.ReactNode): v is string | number =>
+    typeof v === "string" || typeof v === "number";
+  const changed = (f: (typeof fields)[number]) => {
+    const a = f.before ?? "", b = f.after ?? "";
+    return isText(a) && isText(b) ? String(a) !== String(b) : !Object.is(a, b);
+  };
   const shown = all ? fields : fields.filter(changed);
   const same = fields.length - fields.filter(changed).length;
   const blank = <span className="text-muted-foreground italic">not set</span>;

@@ -31,6 +31,13 @@ export function BodyCondition({
   height?: number
   className?: string
 }) {
+  // NOTHING TO DRAW IS NOT A CHART OF NOTHING. An empty array made every
+  // scale here degenerate and wrote NaN into an SVG attribute, which the
+  // browser drops — so the chart rendered as a blank box rather than as the
+  // empty state the page around it is showing. `useRows` hands back `[]`
+  // before the query settles and on every site whose owner has added nothing.
+  if (!cows.length || !target.length) return null
+
   const rows = cows.map((c) => {
     const sorted = [...c.scores].sort((a, b) => a.dim - b.dim)
     const atCalving = sorted[0]?.bcs ?? 0
@@ -275,6 +282,13 @@ export function SomaticCell({
   height?: number
   className?: string
 }) {
+  // NOTHING TO DRAW IS NOT A CHART OF NOTHING. An empty array made every
+  // scale here degenerate and wrote NaN into an SVG attribute, which the
+  // browser drops — so the chart rendered as a blank box rather than as the
+  // empty state the page around it is showing. `useRows` hands back `[]`
+  // before the query settles and on every site whose owner has added nothing.
+  if (!cows.length) return null
+
   const totalLitres = cows.reduce((a, c) => a + c.litres, 0)
   const bulk = cows.reduce((a, c) => a + c.sccThousand * c.litres, 0) / Math.max(totalLitres, 1)
   // Share of the TANK's cell load. Dividing by litres alone leaves a

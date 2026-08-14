@@ -439,12 +439,19 @@ test("SiteLink refuses to route a protocol-relative address", () => {
   // because the alternative is mounting React to assert one boolean; the
   // behaviour either side of it is covered by the click test in
   // test/integration/site-routing.mjs, which drives a real browser.
+  //
+  // ANCHORED ON THE PROPERTY, NOT ON THE VARIABLE NAME. This read `href.` and
+  // went red on a correct change: `href` is typed `string` and still arrives
+  // undefined from a database row (Row's index signature), so the component now
+  // reads it through a local that is guaranteed to be a string — at which point
+  // a guard naming `href` was a test about spelling. The backreference is what
+  // makes it exact: both halves must interrogate the SAME value, or one could
+  // check `to` while the other checks something else entirely.
   const src = fs.readFileSync(path.join(TEMPLATE, "src/components/ui/site-header.tsx"), "utf8");
   const i = src.indexOf("const internal =");
   assert.ok(i > 0, "SiteLink's internal check is gone");
   const line = src.slice(i, src.indexOf("\n", i));
-  assert.match(line, /startsWith\("\/"\)/, line);
-  assert.match(line, /!\s*href\.startsWith\("\/\/"\)/,
+  assert.match(line, /^const internal =\s*([A-Za-z_$][\w$]*)\.startsWith\("\/"\)\s*&&\s*!\s*\1\.startsWith\("\/\/"\)/,
     "a protocol-relative address would be routed as an internal path: " + line);
 });
 
@@ -1570,11 +1577,37 @@ test("and the shape comes from THAT component's file, not a name lookup", () => 
 test("a type is read with balanced braces, not up to the first semicolon", () => {
   // These are object literals whose fields are semicolon-separated, so a lazy
   // match returns `Activity = { who: string` and looks like it worked.
-  for (const [, types] of Object.entries(COMPONENT_TYPES)) {
+  //
+  // A TRAILING `[]` IS NOT BEING CUT OFF, it is the type. This asserted
+  // `endsWith("}")`, which is a description of the shapes that existed when it
+  // was written rather than of the property it names — and it went red on the
+  // fix for `QuoteFiles`, an array recorded as one of its items. What must hold
+  // is that the braces are balanced and nothing was truncated mid-object.
+  // A LIST ALIAS IS THE OTHER LEGAL SHAPE. `WeekHours = DaySpans[]` carries the
+  // one fact a signature cannot — how many — and it has no braces at all, so a
+  // blanket `startsWith("{")` refuses the thing that was added to fix a real
+  // gap. It has to RESOLVE, though: an alias pointing at a name recorded nowhere
+  // leaves the model exactly where it started, reading a name it cannot look up.
+  let aliases = 0;
+  for (const [mod, types] of Object.entries(COMPONENT_TYPES)) {
     for (const [name, body] of Object.entries(types)) {
-      assert.ok(body.startsWith("{") && body.endsWith("}"), `${name} was cut off: ${body}`);
+      const alias = /^([A-Z][A-Za-z0-9]*)\[\]$/.exec(body);
+      if (alias) {
+        aliases++;
+        assert.ok(types[alias[1]],
+          `${mod}.${name} is an alias to ${alias[1]}, whose shape is recorded nowhere: ${body}`);
+        continue;
+      }
+      assert.ok(body.startsWith("{"), `${name} does not start with a shape: ${body}`);
+      assert.ok(/\}(\[\])*$/.test(body), `${name} was cut off: ${body}`);
+      const opens = (body.match(/\{/g) || []).length, closes = (body.match(/\}/g) || []).length;
+      assert.equal(opens, closes, `${name} has unbalanced braces: ${body}`);
     }
   }
+  // Or the alias branch above is a rule about nothing and the resolve check is
+  // vacuous — the shape this repo keeps recording as a guard that passes for the
+  // wrong reason.
+  assert.ok(aliases > 0, "no list alias is recorded — the alias branch checks nothing");
 });
 
 test("Row and PublicRow agree that a column value is a SCALAR", () => {
@@ -2419,6 +2452,629 @@ test("the rules are numbered 1..N with no gaps and no duplicates", () => {
     "the rules are numbered " + nums.join(",") + " — expected 1.." + nums.length);
 });
 
+/**
+ * Every element in the kit that FLOATS over page content and paints itself with
+ * `token`. Both tests below ask through this one function: two copies of the
+ * predicate is how the scan and the proof-it-fires drift apart, and then the
+ * proof passes against a scan that has stopped matching anything.
+ *
+ * WHAT IT DELIBERATELY DOES NOT SEE: an unpositioned element that floats only
+ * because its PARENT is positioned — `loading-overlay`'s chip sits inside an
+ * `absolute inset-0` wrapper and was fixed by hand. Catching those needs to
+ * follow the JSX tree, and every cheap approximation of it flags each of the
+ * many correct children of an absolute container. A narrow check with a stated
+ * hole beats a broad one nobody trusts.
+ */
+function floatingPanelsPaintedWithThePageToken(token) {
+  const kit = path.join(import.meta.dirname, "..", "builder", "lovable", "template", "src", "components", "ui");
+  const out = [];
+  for (const f of fs.readdirSync(kit).filter((n) => n.endsWith(".tsx"))) {
+    // Blank comments rather than delete them, so the line numbers reported here
+    // are the real ones — and so the paragraph explaining this rule is not a hit.
+    const code = fs.readFileSync(path.join(kit, f), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+      .replace(/^\s*\/\/.*$/gm, "");
+    const lines = code.split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      if (!lines[i].includes(token)) continue;
+      // `sticky` is IN the page flow — headers and pinned table columns are
+      // painted with the page token on purpose, and always were.
+      if (/\bsticky\b/.test(lines[i])) continue;
+      // An explicit alpha is a deliberate scrim over an image (`/60`, `/85`),
+      // not a panel that was meant to be opaque.
+      if (new RegExp(token.replace(/[-/]/g, "\\$&") + "\\/\\d").test(lines[i])) continue;
+      // Only this element's own class list: a wrapped `cn(...)` string counts,
+      // a sibling element's does not.
+      const win = [lines[i]];
+      for (let j = i + 1; j < Math.min(lines.length, i + 3); j++) {
+        if (lines[j].includes("<")) break;          // a new element begins
+        win.push(lines[j]);
+        if (lines[j].includes(">")) break;          // this one closed
+      }
+      const cls = win.join(" ");
+      // Positioned, with or without a responsive prefix (`md:absolute`) — OR
+      // `pointer-events-auto`, which is only ever written on the surface INSIDE
+      // a `pointer-events-none` floating layer: that is how a toast or a nudge
+      // floats without swallowing clicks on the page beneath. Both instances in
+      // the kit (`toast-stack`, `nudge-bubble`) are positioned by a parent, so
+      // nothing about their own class list says they float.
+      const positioned = /(?:^|[\s"'`])(?:[a-z]+:)?(?:fixed|absolute)\b/.test(cls)
+        || /\bpointer-events-auto\b/.test(cls);
+      if (!positioned) continue;
+      // Casting a shadow is what separates a panel from the things CORRECTLY
+      // painted with the page token: a 1px divider drawn to look like a seam, a
+      // full-bleed veil over a photo, and the page root itself. `shadow-none`
+      // is not a shadow, and matching it flags an ordinary sidebar input.
+      if (!/\bshadow(-|\b)/.test(cls) || /\bshadow-none\b/.test(cls)) continue;
+      out.push(f + ":" + (i + 1) + "  " + lines[i].trim().slice(0, 90));
+    }
+  }
+  return out;
+}
+
+test("no label is tied to a control by a hardcoded id", () => {
+  // An `id` written as a literal is the same id on EVERY instance, so a page
+  // rendering the component twice — an enquiry form and a newsletter sign-up,
+  // billing and delivery addresses, anything inside a `.map()` — gives every
+  // field a duplicate, and `<label for>` resolves to the FIRST match. The second
+  // form's labels then focus the first form's inputs.
+  //
+  // Measured before the fix by rendering `ContactForm` and `ShareInvite` twice
+  // each: 61 literal ids across 39 files, and the render came back with
+  // duplicates. `useId()` is what makes one per instance.
+  //
+  // ONLY THE LABEL-BOUND ONES. `id="main"` on a skip-link target is a page
+  // landmark and is meant to be a fixed name, and `name="_gotcha"` in the
+  // honeypot is a server contract — that one keeps its literal NAME and takes a
+  // generated id, which is the distinction this rule turns on.
+  const kit = path.join(import.meta.dirname, "..", "builder", "lovable", "template", "src", "components", "ui");
+  const literal = [];
+  for (const f of fs.readdirSync(kit).filter((n) => n.endsWith(".tsx"))) {
+    const src = fs.readFileSync(path.join(kit, f), "utf8");
+    for (const m of src.matchAll(/ id="([A-Za-z][A-Za-z0-9_-]*)"/g)) {
+      if (new RegExp('htmlFor="' + m[1].replace(/[-]/g, "\\$&") + '"').test(src)) {
+        literal.push(f + '  id="' + m[1] + '"');
+      }
+    }
+  }
+  assert.deepEqual(literal, [],
+    "these collide when the component is rendered twice on one page — use useId():\n  "
+      + literal.join("\n  "));
+});
+
+test("a date value read on the local clock is parsed with toDate", () => {
+  // A bare `YYYY-MM-DD` is UTC midnight by spec, and `getDate()` /
+  // `toLocaleDateString()` are local — so west of Greenwich the value is the
+  // PREVIOUS DAY. Measured in New York: `2026-03-04` rendered as March 3.
+  // A Postgres `date` column holds exactly that shape.
+  //
+  // INVISIBLE FROM THE UK, where the platform is: UTC midnight and local
+  // midnight are the same instant in winter and an hour apart in summer, never
+  // a different day. That is why 78 call sites across 52 files had it.
+  //
+  // Scoped to files that actually READ on the local clock, and to an argument
+  // shaped like a value rather than an expression — `new Date(Date.now() + ms)`
+  // and `new Date(y, m, d)` cannot receive a date string and are left alone.
+  const kit = path.join(import.meta.dirname, "..", "builder", "lovable", "template", "src", "components", "ui");
+  const raw = [];
+  for (const f of fs.readdirSync(kit).filter((n) => n.endsWith(".tsx"))) {
+    const code = fs.readFileSync(path.join(kit, f), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+      .replace(/^\s*\/\/.*$/gm, "");
+    if (!/getDate\(\)|getDay\(\)|getMonth\(\)|getFullYear\(\)|getHours\(\)|toLocale(Date|Time)?String/.test(code)) continue;
+    for (const m of code.matchAll(/new Date\(([^)]*)\)/g)) {
+      const arg = m[1].trim();
+      if (!arg || arg.includes(",") || /[+\-*/]/.test(arg) || /^[\d_]+$/.test(arg)) continue;
+      if (!/^[A-Za-z_$][\w$.?[\]]*$/.test(arg)) continue;
+      // ALREADY A DATE. `const deadline = new Date(start)` where `start` came
+      // from `toDate(...)` is a CLONE, not a parse, and cloning is the one
+      // honest use of the constructor left in these files. Derived from the
+      // binding rather than allow-listed by file and line, which would go stale
+      // the first time somebody added a line above it.
+      if (new RegExp("(?:const|let)\\s+" + arg.replace(/[.?[\]]/g, "\\$&") + "\\s*=\\s*toDate\\(").test(code)) continue;
+      raw.push(f + ":" + (code.slice(0, m.index).split("\n").length) + "  new Date(" + arg + ")");
+    }
+  }
+  assert.deepEqual(raw, [],
+    "these show the previous day west of Greenwich — parse with toDate():\n  " + raw.join("\n  "));
+});
+
+test("money in minor units is never divided by a hardcoded 100", () => {
+  // Eighteen components wrote `.format(m / 100)` with `currency` as a free-form
+  // prop, so every zero-decimal currency displayed at a HUNDREDTH of its value
+  // — ¥1,200 as ¥12 — and the three-decimal ones at ten times.
+  // `site-payments.mjs` records the same constant on the CHARGING path: "a
+  // hardcoded x100 charges a hundred times the price."
+  //
+  // Scoped to a CURRENCY formatter on purpose. `/ 100` is also how a percentage
+  // is turned into a fraction, which is correct and appears in these same files
+  // — `discount-input` and `split-tender` each carry one of each — so a blanket
+  // ban on the constant would flag correct arithmetic.
+  const kit = path.join(import.meta.dirname, "..", "builder", "lovable", "template", "src", "components", "ui");
+  const offenders = [];
+  for (const f of fs.readdirSync(kit).filter((n) => n.endsWith(".tsx"))) {
+    const code = fs.readFileSync(path.join(kit, f), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+      .replace(/^\s*\/\/.*$/gm, "");
+    code.split("\n").forEach((line, i) => {
+      if (/style:\s*"currency"[\s\S]*\.format\([^)]*\/\s*10{2,}\s*\)/.test(line)) {
+        offenders.push(f + ":" + (i + 1) + "  " + line.trim().slice(0, 90));
+      }
+    });
+  }
+  assert.deepEqual(offenders, [],
+    "these show a zero-decimal currency at a hundredth of its value — use formatMinor():\n  "
+      + offenders.join("\n  "));
+});
+
+test("no effect depends on a callback PROP", () => {
+  // An inline `onDone={() => …}` is a NEW function on every parent render, so a
+  // callback in a dependency array re-runs the effect every time anything above
+  // the component re-renders. What that costs depends on the body, and in this
+  // kit it cost real behaviour: `typewriter` opened with `setN(0)` and restarted
+  // its typing from the first character; `snackbar`, `toast-stack` and
+  // `progress-toast` re-armed their auto-dismiss timeouts, so a toast could sit
+  // on the page indefinitely; `blocking-overlay` re-armed the timer that reveals
+  // its Cancel button, on an overlay whose parent is re-rendering by definition.
+  //
+  // The component cannot know whether its caller memoised the function, so the
+  // answer is always the same: hold the latest one in a ref and call through it.
+  // `click-outside`, `infinite-sentinel` and `key-sequence` already did.
+  // Where only the PRESENCE of the callback matters, a `!!fn` boolean is the
+  // honest dependency — that is `blocking-overlay`.
+  const kit = path.join(import.meta.dirname, "..", "builder", "lovable", "template", "src", "components", "ui");
+  const offenders = [];
+  for (const f of fs.readdirSync(kit).filter((n) => n.endsWith(".tsx"))) {
+    const code = fs.readFileSync(path.join(kit, f), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+      .replace(/^\s*\/\/.*$/gm, "");
+    // PROPS ONLY. An internal `const onSelect = React.useCallback(…)` is stable
+    // by construction and belongs in the deps — `carousel` has exactly that, and
+    // a rule matching every `on*` identifier accused it of the opposite of what
+    // it does. The names are collected from the destructuring patterns, so what
+    // is flagged is a function the CALLER hands in.
+    const props = new Set();
+    for (const m of code.matchAll(/(?:export )?function \w+\s*\(\s*\{([^}]*)\}/g)) {
+      for (const part of m[1].split(",")) {
+        const name = (part.match(/^\s*(?:\.\.\.)?([A-Za-z_$][\w$]*)/) || [])[1];
+        if (name) props.add(name);
+      }
+    }
+    // A POSITIONAL parameter is caller-supplied too, and a hook is where they
+    // turn up: `useCommandShortcut(onOpen: () => void)` re-bound a document
+    // keydown listener on every render of whatever called it. Reading only
+    // destructured props missed that entirely.
+    for (const m of code.matchAll(/(?:export )?function \w+\s*\(\s*([A-Za-z_$][\w$]*)\s*:/g)) props.add(m[1]);
+    code.split("\n").forEach((line, i) => {
+      // The closing line of a hook's dependency array.
+      const m = line.match(/^\s*\}, \[([^\]]*)\]/);
+      if (!m) return;
+      for (const dep of m[1].split(",").map((d) => d.trim())) {
+        if (/^on[A-Z][A-Za-z0-9]*$/.test(dep) && props.has(dep)) {
+          offenders.push(f + ":" + (i + 1) + "  depends on " + dep);
+        }
+      }
+    });
+  }
+  assert.deepEqual(offenders, [],
+    "these re-run whenever the parent re-renders, because an inline callback is a new function each time:\n  "
+      + offenders.join("\n  "));
+});
+
+test("nothing in the kit puts an unsanitised value into the DOM as HTML", () => {
+  // `rich-text` assigned its `defaultValue` prop straight to `.innerHTML`, and
+  // the signature says `defaultValue?: string` — which reads exactly like an
+  // `<input defaultValue>`. React makes you type `dangerouslySetInnerHTML` so
+  // the danger is visible at the call site; assigning `.innerHTML` by hand is
+  // the same act with the warning removed, and `markdown-preview` in this kit
+  // refuses to do it in as many words.
+  //
+  // Proven by execution, not by reading: mounted in a real browser with
+  // `<img src=x onerror=…>` as the prop, the handler FIRED. On a generated site
+  // that value is a row a visitor typed, opened by the owner in an editor.
+  const kit = path.join(import.meta.dirname, "..", "builder", "lovable", "template", "src", "components", "ui");
+  const raw = [];
+  const undocumented = [];
+  // Two `dangerouslySetInnerHTML` uses are deliberate and both are reasoned in
+  // their own source. This is a REVIEW GATE rather than a scan: a third one is
+  // a decision somebody should have to make on purpose.
+  const ALLOWED_DANGEROUS = new Set(["chart.tsx", "seo-jsonld.tsx"]);
+  for (const f of fs.readdirSync(kit).filter((n) => n.endsWith(".tsx"))) {
+    const src = fs.readFileSync(path.join(kit, f), "utf8");
+    const code = src.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " ")).replace(/^\s*\/\/.*$/gm, "");
+    for (const m of code.matchAll(/\.innerHTML\s*=\s*([A-Za-z_$][\w$]*)/g)) {
+      // The assigned name must be the OUTPUT of the cleaner, in this same file.
+      if (!new RegExp("(?:const|let)\\s+" + m[1] + "\\s*=\\s*cleanEditorHtml\\(").test(code)) {
+        raw.push(f + ": .innerHTML = " + m[1] + " — not the output of cleanEditorHtml()");
+      }
+    }
+    if (/dangerouslySetInnerHTML/.test(code) && !ALLOWED_DANGEROUS.has(f)) undocumented.push(f);
+  }
+  assert.deepEqual(raw, [],
+    "these put a value into the DOM as HTML without cleaning it:\n  " + raw.join("\n  "));
+  assert.deepEqual(undocumented, [],
+    "new dangerouslySetInnerHTML — is the value author-written (chart config) or could a " +
+    "visitor reach it? Say which in the source, then add it here:\n  " + undocumented.join("\n  "));
+});
+
+/**
+ * Every MODAL SURFACE painted with `token`.
+ *
+ * A second rule rather than a widening of the first, because the property is
+ * different and so is the evidence for it. The first asks whether an element
+ * POSITIONS itself over the page; three real dialogs do not — the full-bleed
+ * wrapper is positioned and the surface is a plain `relative` child of it, so
+ * a same-element check cannot see any of them. `role="dialog"` says what the
+ * element IS, which is the thing that actually decides this: whatever a modal
+ * is layered over, you must not be able to read the page through it.
+ *
+ * An indentation-based ancestor walk was tried first and is not what this is.
+ * It misses `modal-stack`, whose wrapper `className` sits at the SAME
+ * indentation as the child it wraps, and it flagged a hairline divider and a
+ * tab chip that are both correct.
+ */
+function dialogSurfacesPaintedWithThePageToken(token) {
+  const kit = path.join(import.meta.dirname, "..", "builder", "lovable", "template", "src", "components", "ui");
+  const out = new Set();
+  for (const f of fs.readdirSync(kit).filter((n) => n.endsWith(".tsx"))) {
+    const lines = fs.readFileSync(path.join(kit, f), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+      .replace(/^\s*\/\/.*$/gm, "")
+      .split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      if (!/role="dialog"|aria-modal/.test(lines[i])) continue;
+      // The dialog's own tag AND the panel just inside it.
+      for (let j = i; j < Math.min(lines.length, i + 16); j++) {
+        if (!lines[j].includes(token)) continue;
+        if (new RegExp(token.replace(/[-/]/g, "\\$&") + "\\/\\d").test(lines[j])) continue;
+        out.add(f + ":" + (j + 1) + "  " + lines[j].trim().slice(0, 90));
+        break;
+      }
+    }
+  }
+  return [...out];
+}
+
+/**
+ * Every place a file turns one of its OWN `React.ReactNode` props into a string
+ * with `String()`, ignoring the sites that narrow with `typeof x === "string"`
+ * first — those are the correct form and flagging them teaches the fix away.
+ *
+ * Returns `file:line  [field]  source` so a failure names the prop, not just
+ * the file. Takes the source map so a fixture can be driven through it.
+ */
+function reactNodesStringified(sources) {
+  const out = [];
+  for (const [f, src] of sources) {
+    const fields = new Set();
+    for (const m of src.matchAll(/([A-Za-z_]\w*)\s*\??\s*:\s*React\.ReactNode/g)) fields.add(m[1]);
+    if (!fields.size) continue;
+    // ONE HOP THROUGH A LOCAL, because a mutation walked straight past the scan
+    // without it: `const a = f.before ?? ""` and then `String(a)` is the same
+    // bug wearing a different name, and it is how the code reads once somebody
+    // pulls a repeated expression out. A local built by `labelText` or already
+    // narrowed to a string is NOT added — those are the correct forms, and
+    // flagging them teaches the fix away.
+    for (const m of src.matchAll(/\b(?:const|let)\s+([A-Za-z_]\w*)\s*=\s*([^;\n]+)/g)) {
+      const [, name, rhs] = m;
+      if (/labelText\s*\(|typeof\s|String\s*\(/.test(rhs)) continue;
+      if ([...fields].some((f) => new RegExp("\\b" + f + "\\b").test(rhs))) fields.add(name);
+    }
+    // A TYPE PREDICATE IS THE LANGUAGE'S OWN WAY OF SAYING "NARROWED", and a
+    // scan that ignores one reports correct code. `isText(a) && isText(b) ? …`
+    // is not a stringified node — after that guard TypeScript knows `a` is
+    // `string | number`. There are four of these in the whole kit, so honouring
+    // them is narrow rather than a licence.
+    const predicates = [];
+    for (const m of src.matchAll(/(?:const\s+([A-Za-z_]\w*)\s*=\s*(?:<[^>]*>)?\([^)]*\)|function\s+([A-Za-z_]\w*)\s*\([^)]*\))\s*:\s*\w+ is /g)) {
+      predicates.push(m[1] || m[2]);
+    }
+    src.split("\n").forEach((ln, i) => {
+      if (/^\s*(\/\/|\*|\/\*)/.test(ln)) return;
+      for (const fld of fields) {
+        // One level of nested parens inside the call, or `String(at.get(x)?.label)`
+        // — a real offender — walks straight past a `[^()]*` body.
+        if (!new RegExp("String\\((?:[^()]|\\([^()]*\\))*\\b" + fld + "\\b").test(ln)) continue;
+        if (new RegExp("typeof\\s+[^;]*\\b" + fld + "\\b[^;]*===\\s*\"string\"").test(ln)) continue;
+        if (predicates.some((p) => new RegExp("\\b" + p + "\\(\\s*" + fld + "\\s*\\)").test(ln))) continue;
+        out.push(`${f}:${i + 1}  [${fld}]  ${ln.trim().slice(0, 110)}`);
+      }
+    });
+  }
+  return out;
+}
+
+const UI_SOURCES = fs.readdirSync(path.join(TEMPLATE, "src/components/ui"))
+  .filter((f) => f.endsWith(".tsx"))
+  .map((f) => [f, fs.readFileSync(path.join(TEMPLATE, "src/components/ui", f), "utf8")]);
+
+test("no ReactNode prop is turned into a string with String()", () => {
+  // `String(<span>Boxes</span>)` is "[object Object]", and a prop typed
+  // `React.ReactNode` is an invitation to pass exactly that. Fourteen sites had
+  // it. Most were accessible names on icon buttons — the only name those have —
+  // but the expensive one was `compare-table`, which used it to decide whether a
+  // field had CHANGED: two completely different elements compared equal, so the
+  // row was hidden from a diff whose own doc calls it an "are you sure?" screen.
+  //
+  // THIS IS A SOURCE READ BECAUSE THE RENDER PASS CANNOT SEE IT.
+  // `test/integration/kit-render.mjs` checks the HTML for "[object Object]" and
+  // walked past all three of the last ones found: its synthesised props are not
+  // self-consistent, so `at.get(e.from)` finds no node and the `?? e.from`
+  // fallback hides it — and compare-table's bug makes the page render LESS, not
+  // wrong, so there is no bad string in the output to find. Two checks, two
+  // blind spots, and neither is the other's.
+  const offenders = reactNodesStringified(UI_SOURCES);
+  assert.deepEqual(offenders, [],
+    "these render \"[object Object]\" the moment a caller passes JSX:\n  " + offenders.join("\n  "));
+});
+
+test("…and that scan can see one, and does not skip the guarded form", () => {
+  // A scan that has stopped matching reports a clean kit — this repo's most
+  // repeated own-goal. Driven over a fixture rather than over the kit, because
+  // the kit is now clean and a check whose only evidence is an empty list is
+  // evidence of nothing.
+  const found = reactNodesStringified([["fixture.tsx", `
+    export function F({ label, title, note, tag }: { label: React.ReactNode; title: React.ReactNode; note: React.ReactNode; tag: React.ReactNode }) {
+      const isText = (v: React.ReactNode): v is string | number => typeof v === "string";
+      const a = String(label);
+      const b = String(rows.get(k)?.title ?? "");
+      const hop = note ?? "";
+      const c = String(hop);
+      const ok1 = typeof label === "string" ? label : "";
+      const ok2 = isText(tag) ? String(tag) : "";
+      const ok3 = String(labelText(tag));
+      return <p aria-label={a + b + c + ok1 + ok2 + ok3} />;
+    }`]]);
+  assert.equal(found.length, 3, "the scan saw " + found.length + " of the 3 offenders: " + found.join(" | "));
+  assert.ok(found.some((h) => h.includes("[label]")), "a bare String(prop) is not seen");
+  assert.ok(found.some((h) => h.includes("[title]")), "String() with a nested call inside is not seen");
+  // A MUTATION WALKED PAST THE SCAN THROUGH EXACTLY THIS. Pulling the value into
+  // a local is how the code reads once a repeated expression is factored out,
+  // and a name-based scan follows it or it does not cover the shape people write.
+  assert.ok(found.some((h) => h.includes("[hop]")), "a ReactNode reaching String() through a local is not seen");
+  assert.ok(!found.some((h) => h.includes("typeof label")), "the typeof-narrowed form is flagged, which teaches the fix away");
+  assert.ok(!found.some((h) => h.includes("isText(tag)")), "a type-predicate narrow is flagged — that IS the correct form");
+  assert.ok(!found.some((h) => h.includes("labelText(tag)")), "String(labelText(x)) is flagged, and it is already text");
+});
+
+/** Every JSX tag in a file, in order, with its full attribute text. Walks brace
+ *  depth so a nested `onKeyDown={(e) => { … }}` does not end the tag early — the
+ *  first version of this scan stopped at the first `>` and reported two
+ *  components for a handler that is written on the very element it was reading. */
+function jsxTags(src) {
+  const s = src.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+               .replace(/\/\/[^\n]*/g, (m) => " ".repeat(m.length));
+  const out = [];
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] !== "<") continue;
+    const m = /^<(\/?)([A-Za-z][\w.]*)/.exec(s.slice(i, i + 40));
+    if (!m) continue;
+    let j = i + m[0].length, d = 0, q = null;
+    for (; j < s.length; j++) {
+      const c = s[j];
+      if (q) { if (c === q && s[j - 1] !== "\\") q = null; continue; }
+      if (c === '"' || c === "'" || c === "`") { q = c; continue; }
+      if (c === "{") d++; else if (c === "}") d--;
+      else if (c === ">" && d === 0) break;
+    }
+    const attrs = s.slice(i + m[0].length, j);
+    out.push({ close: m[1] === "/", name: m[2], attrs, self: attrs.trimEnd().endsWith("/"),
+               line: s.slice(0, i).split("\n").length });
+    i = j;
+  }
+  return out;
+}
+
+const IS_BUTTON = (t) => t.name === "button" || (t.name === "Button" && !/\basChild\b/.test(t.attrs));
+const IS_OPTION = (t) => /role="option"/.test(t.attrs);
+const INTERACTIVE = (t) =>
+  /^(button|a|input|select|textarea)$/.test(t.name) || IS_BUTTON(t) ||
+  /role="(button|link|checkbox|switch|tab|option|menuitem|radio)"/.test(t.attrs);
+
+/** Interactive content nested inside some container it may not be in. */
+function interactiveInside(sources, isContainer) {
+  const out = [];
+  for (const [f, src] of sources) {
+    const stack = [];
+    for (const t of jsxTags(src)) {
+      if (t.close) { for (let k = stack.length - 1; k >= 0; k--) if (stack[k].name === t.name) { stack.length = k; break; } continue; }
+      const outer = stack.find(isContainer);
+      if (outer && INTERACTIVE(t)) out.push(`${f}:${t.line}  <${t.name}> inside the <${outer.name}> on line ${outer.line}`);
+      if (!t.self) stack.push(t);
+    }
+  }
+  return out;
+}
+const interactiveInsideAButton = (sources) => interactiveInside(sources, IS_BUTTON);
+
+test("nothing focusable is nested inside a role=\"option\"", () => {
+  // An option is CHOSEN THROUGH THE THING THAT OWNS FOCUS — a combobox input
+  // announcing it with `aria-activedescendant`, or the listbox itself under a
+  // roving tabindex. A focusable control inside one is not allowed, and the
+  // practical cost is that Tab walks through the whole popup instead of leaving
+  // the field: eight components wrapped every option in a `<button>`, so a
+  // 24-typeface list was 24 tab stops.
+  //
+  // Their own `onMouseDown` + `preventDefault` said the buttons were never
+  // meant to take focus — it exists to stop focus leaving the input — so they
+  // were tabbable purely by accident.
+  const offenders = interactiveInside(UI_SOURCES, IS_OPTION);
+  assert.deepEqual(offenders, [], "focusable content inside an option:\n  " + offenders.join("\n  "));
+});
+
+/**
+ * A listbox that handles its OWN arrow keys, and how its options can be reached.
+ *
+ * Two correct answers and no third: roving tabindex, where one option is
+ * `tabIndex={0}` and arrows move the zero; or `aria-activedescendant`, where
+ * focus stays on an input and the active option is named by id. A listbox with
+ * neither is operable by mouse only.
+ *
+ * Scoped to files that own their keys, because most of these listboxes are
+ * driven by a caller's input and correctly have no keyboard model of their own.
+ */
+function listboxesWithNoWayIn(sources) {
+  const out = [];
+  for (const [f, src] of sources) {
+    if (!/role="listbox"/.test(src)) continue;
+    if (!/onKeyDown/.test(src) || !/ArrowDown/.test(src)) continue;
+    if (/aria-activedescendant/.test(src)) continue;
+    // A roving tab stop: some option's tabIndex expression can produce 0.
+    const roving = jsxTags(src).some((t) => /role="option"/.test(t.attrs) && /tabIndex=\{[^}]*\b0\b/.test(t.attrs));
+    if (!roving) out.push(f);
+  }
+  return out;
+}
+
+test("a listbox that owns its arrow keys can be reached by a keyboard", () => {
+  // `font-picker` is why this exists. Converting its options from nested
+  // `<button>`s to real `role="option"` rows is right, and doing it without a
+  // roving tab stop would have left a list nothing can focus at all — mouse
+  // only, silently, with every other check in this repo still green. A mutation
+  // setting every row to `tabIndex={-1}` survived the whole suite until this.
+  const offenders = listboxesWithNoWayIn(UI_SOURCES);
+  assert.deepEqual(offenders, [], "these listboxes handle arrow keys and nothing can focus them:\n  " + offenders.join("\n  "));
+  // And the scan must still SEE the self-driving listboxes, or it is passing
+  // because its filter stopped matching anything.
+  const owning = UI_SOURCES.filter(([, s]) => /role="listbox"/.test(s) && /ArrowDown/.test(s));
+  assert.ok(owning.length >= 2, "only " + owning.length + " listboxes own their keys — the scan filtered everything out");
+});
+
+test("…and that reachability scan can see a listbox with no way in", () => {
+  const roving = `<ul role="listbox" onKeyDown={(e) => { if (e.key === "ArrowDown") move(1); }}>
+      <li role="option" tabIndex={i === at ? 0 : -1}>a</li></ul>`;
+  assert.deepEqual(listboxesWithNoWayIn([["ok.tsx", roving]]), [], "a roving tab stop is flagged, which is the correct pattern");
+  assert.deepEqual(listboxesWithNoWayIn([["bad.tsx", roving.replace("i === at ? 0 : -1", "-1")]]), ["bad.tsx"],
+    "a listbox whose every option is tabIndex={-1} is not seen");
+  const activedesc = `<input aria-activedescendant={id} onKeyDown={(e) => { if (e.key === "ArrowDown") next(); }} />
+      <ul role="listbox"><li role="option">a</li></ul>`;
+  assert.deepEqual(listboxesWithNoWayIn([["ok2.tsx", activedesc]]), [], "aria-activedescendant is flagged, which is the other correct pattern");
+});
+
+test("…and that option scan can see one, and does not flag the option itself", () => {
+  const found = interactiveInside([["fixture.tsx", `
+    <ul role="listbox">
+      <li role="option"><button type="button">nope</button></li>
+      <li role="option" tabIndex={0} onClick={pick}><span>fine — the option IS the control</span></li>
+      <li role="option"><a href="/x">also nope</a></li>
+    </ul>`]], IS_OPTION);
+  assert.equal(found.length, 2, "the scan saw " + found.length + " of the 2: " + found.join(" | "));
+  assert.ok(found.some((h) => h.includes("<button>")) && found.some((h) => h.includes("<a>")),
+    "the scan misses one of the two shapes: " + found.join(" | "));
+});
+
+test("nothing interactive is nested inside a button", () => {
+  // `<button>`'s content model forbids interactive content, and the kit broke it
+  // twice: `drop-zone` put its `<input type="file">` inside the button that
+  // opens it, and `multi-select` put a `role="button"` remove control inside the
+  // trigger. It matters more here than in an ordinary React app because this
+  // template PRERENDERS every route — the invalid markup is in the HTML a
+  // browser parses, not only in a tree script builds.
+  //
+  // The ARIA half is the one that bit: a control nested inside another control
+  // is announced as something operable, and `multi-select`'s could not be
+  // reached by any keyboard or screen-reader user at all.
+  const offenders = interactiveInsideAButton(UI_SOURCES);
+  assert.deepEqual(offenders, [], "interactive content inside a button:\n  " + offenders.join("\n  "));
+});
+
+test("…and that nesting scan can see one, through a wrapper and a role alike", () => {
+  const found = interactiveInsideAButton([["fixture.tsx", `
+    <div>
+      <button type="button"><input type="file" /></button>
+      <Button><span role="button" onClick={(e) => { e.stopPropagation(); }}>x</span></Button>
+      <Button asChild><a href="/ok">fine</a></Button>
+      <button type="button"><span>plain</span></button>
+      <li role="option"><button type="button">also fine here</button></li>
+    </div>`]]);
+  assert.equal(found.length, 2, "the scan saw " + found.length + " of the 2: " + found.join(" | "));
+  assert.ok(found.some((h) => h.includes("<input>")), "a form control inside a button is not seen");
+  assert.ok(found.some((h) => h.includes("<span>")), "an interactive ROLE inside a button is not seen");
+  // `asChild` hands the props to the child, so the wrapper is not the button —
+  // flagging it would refuse the kit's own correct link-styled-as-button idiom.
+  assert.ok(!found.some((h) => h.includes("<a>")), "asChild is treated as a real button");
+});
+
+test("a date is never turned into an ISO attribute without a guard", () => {
+  // `new Date(x).toISOString()` throws RangeError on an unparseable value, DURING
+  // RENDER, so the error boundary takes the whole page rather than one
+  // timestamp — and `Row`'s index signature means `at={row.collected_at}`
+  // typechecks against any column at all. Forty sites had it.
+  //
+  // V8's parser is why it survived: it reads "Sample 0" as the year 2000, so
+  // even a test feeding a component nonsense gets a valid Date most of the time
+  // and the crash appears only for whichever nonsense happens not to parse.
+  // THE RULE IS ABOUT WHERE THE CONVERSION HAPPENS, not about which date it is:
+  // `.toISOString()` may not appear inside a `dateTime` attribute. Anything
+  // computed there has, by construction, not been checked — and the alternative
+  // shapes are already in the kit and already correct: `dateTime={isoAttr(x)}`,
+  // or a `const iso` computed once and rendered behind a ternary.
+  //
+  // A draft that judged a LOCAL by whether its file contained a NaN check went
+  // through three roundsn of tuning and still cried wolf on `iso ? <time
+  // dateTime={iso}>`, which is right. A rule being tuned to its corpus is a rule
+  // about the corpus.
+  const sites = [], bad = [];
+  for (const [f, src] of UI_SOURCES) {
+    src.split("\n").forEach((ln, i) => {
+      if (/^\s*(\/\/|\*)/.test(ln)) return;
+      for (const m of ln.matchAll(/dateTime=\{([^}]*)\}/g)) {
+        sites.push(`${f}:${i + 1}`);
+        // `date-format.tsx` is the one exemption and it earns it by returning
+        // early on an unreadable date — it is where the guard lives, so it
+        // cannot be asked to call the helper built out of it.
+        if (f === "date-format.tsx") continue;
+        if (/\.toISOString\(\)/.test(m[1])) bad.push(`${f}:${i + 1}  ${ln.trim().slice(0, 100)}`);
+      }
+    });
+  }
+  assert.deepEqual(bad, [], "these throw on a date they cannot read — use isoAttr():\n  " + bad.join("\n  "));
+  assert.ok(sites.length > 0, "nothing in the kit renders a <time dateTime> — the scan is asserting nothing");
+  const df = UI_SOURCES.find(([f]) => f === "date-format.tsx");
+  assert.ok(df && /Number\.isNaN\(d\.getTime\(\)\)/.test(df[1]),
+    "date-format.tsx is exempt because it guards, and that guard is gone");
+});
+
+test("a <time> never wraps a DateFormat, which is already a <time>", () => {
+  // `DateFormat` renders its OWN `<time dateTime>`, so
+  // `<time dateTime={…}><DateFormat/></time>` emitted a time inside a time —
+  // measured in the rendered output, 35 sites. Worse than redundant: the outer
+  // used `new Date()` and the inner uses `toDate()`, which disagree about a
+  // bare `YYYY-MM-DD` by the local UTC offset, so the two nested elements
+  // carried two different machine-readable instants for one date.
+  const bad = [];
+  for (const [f, src] of UI_SOURCES) {
+    for (const m of src.matchAll(/<time[^>]*>\s*<DateFormat/g)) {
+      bad.push(`${f}:${src.slice(0, m.index).split("\n").length}`);
+    }
+  }
+  assert.deepEqual(bad, [], "a <time> wrapping a <DateFormat>:\n  " + bad.join("\n  "));
+  assert.ok(UI_SOURCES.some(([f]) => f === "date-format.tsx"), "DateFormat is gone — this rule is about nothing");
+});
+
+test("no MODAL SURFACE paints itself with the page-root token", () => {
+  // Found 2026-08-12 while fixing the floating-panel class above: four
+  // `role="dialog"` surfaces were on `--background`, which 449 of the 500
+  // themes re-emit with alpha. A dialog is the worst possible thing to be able
+  // to read the page through, and shadcn's own `dialog`/`alert-dialog` in this
+  // same kit have used `bg-popover` throughout.
+  const offenders = dialogSurfacesPaintedWithThePageToken("bg-background");
+  assert.deepEqual(offenders, [],
+    "a visitor can read the page through these dialogs:\n  " + offenders.join("\n  "));
+});
+
+test("…and the dialog check can see one, and is not just matching nothing", () => {
+  // A rule that has stopped matching reports a clean kit. Reading the SAME
+  // predicate back for the token the correct dialogs use proves it still finds
+  // dialog surfaces at all — 14 of them, including the four just fixed.
+  const correct = dialogSurfacesPaintedWithThePageToken("bg-popover");
+  assert.ok(correct.length >= 10,
+    "the dialog scan found only " + correct.length + " surfaces — it has stopped matching");
+  for (const f of ["modal-stack.tsx", "filter-drawer.tsx", "shortcut-overlay.tsx", "guided-step.tsx"]) {
+    assert.ok(correct.some((c) => c.startsWith(f)), "the scan no longer sees " + f);
+  }
+});
+
 test("no FLOATING panel paints itself with the page-root token", () => {
   // A theme with a decorative backdrop re-emits `--background` at 35% alpha on
   // purpose — every generated page's root div carries `bg-background`, and an
@@ -2430,28 +3086,38 @@ test("no FLOATING panel paints itself with the page-root token", () => {
   // DERIVED, not a list of the four known today: a fifth overlay added later
   // would inherit the same bug, and upstream shadcn says `bg-background` on all
   // of them, so a component refresh is the likely way it comes back.
-  const kit = path.join(import.meta.dirname, "..", "builder", "lovable", "template", "src", "components", "ui");
-  const offenders = [];
-  for (const f of fs.readdirSync(kit).filter((n) => n.endsWith(".tsx"))) {
-    const src = fs.readFileSync(path.join(kit, f), "utf8");
-    // Strip comments, or the paragraph explaining this rule counts as a hit.
-    const code = src.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " ")).replace(/^\s*\/\/.*$/gm, "");
-    for (const line of code.split("\n")) {
-      if (!/bg-background/.test(line)) continue;
-      // A floating surface is the one that is `fixed` AND stacked above the page.
-      if (/\bfixed\b/.test(line) && /\bz-\d/.test(line)) offenders.push(f + ": " + line.trim().slice(0, 90));
-    }
-  }
+  //
+  // IT CAME BACK, and this predicate is the second attempt (2026-08-12). The
+  // first asked for `fixed` AND `z-\d` ON ONE LINE, which is a description of
+  // the four it was written for rather than of the bug. Eleven components had
+  // reintroduced it and it saw none of them, in three different ways:
+  //   - `absolute` panels (rich-tooltip, share-sheet, whats-new-dot, slide-over,
+  //     snap-carousel, node-graph) — a tooltip floats every bit as much as a
+  //     sheet, and `fixed` was never the property that mattered;
+  //   - `fixed` panels whose stacking is in `style={{ zIndex }}` rather than a
+  //     class (drawer-stack, sheet-stack), so no `z-N` was ever on the line;
+  //   - a class list that WRAPS, carrying `md:absolute` onto the next string
+  //     inside the same `cn(...)` (mega-menu).
+  // Measured at the time: 449 of the 500 themes re-emit `--background` with
+  // alpha, 295 of them at 0.35. Assert the property, not the spelling.
+  const offenders = floatingPanelsPaintedWithThePageToken("bg-background");
   assert.deepEqual(offenders, [],
     "these float over the page and would be translucent on a backdrop theme:\n  " + offenders.join("\n  "));
 });
 
-test("…and the check can actually see a violation", () => {
-  // The scan above returning [] is only worth something if it would find one.
-  // Same shape as the sheet's own class string, which is what it must catch.
-  const line = '  "fixed z-50 gap-4 bg-background p-6 shadow-lg transition"';
-  assert.ok(/bg-background/.test(line) && /\bfixed\b/.test(line) && /\bz-\d/.test(line),
-    "the predicate no longer matches the exact string this bug was made of");
+test("…and the check can actually see a violation — in all three shapes it once missed", () => {
+  // The scan returning [] is worth something only if it would find one. Reading
+  // the kit back for `bg-popover` puts the ELEVEN fixed components in front of
+  // the predicate exactly as they were when they were broken, so this cannot
+  // rot into a check on a hand-typed string that no longer resembles the bug.
+  const caught = floatingPanelsPaintedWithThePageToken("bg-popover").join("\n");
+  for (const [file, shape] of [
+    ["rich-tooltip.tsx", "an `absolute` panel"],
+    ["drawer-stack.tsx", "a `fixed` panel whose zIndex is in style={{}}"],
+    ["mega-menu.tsx", "a class list that wraps onto the next line"],
+  ]) {
+    assert.ok(caught.includes(file), "the predicate stopped seeing " + shape + " (" + file + ")");
+  }
 });
 
 test("the rules show an UPDATE call, not just the hook's name", () => {

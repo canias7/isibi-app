@@ -42,7 +42,7 @@ export function RevertPanel({ versions, currentKey, onRevert, className }: {
               </p>
               <p className="text-xs text-muted-foreground">
                 {v.by ? `${v.by} · ` : ""}
-                <time dateTime={new Date(v.at).toISOString()}><DateFormat date={v.at} withTime /></time>
+                <DateFormat date={v.at} withTime />
               </p>
             </div>
             {!current && (

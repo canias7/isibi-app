@@ -46,7 +46,15 @@ export function DropZone({ accept, multiple = true, onFiles, label = "Drop files
     onFiles(multiple ? files : files.slice(0, 1), all.filter((f) => !matches(f)));
   };
 
+  // THE FILE INPUT IS A SIBLING, NOT A CHILD OF THE BUTTON. `<button>`'s
+  // content model forbids interactive content, and an `<input>` is exactly
+  // that — so the markup was invalid, which matters more here than in an
+  // ordinary React app because this template PRERENDERS every route: the
+  // invalid construct is in the HTML a browser parses, not just in a tree
+  // script builds. Nothing about the behaviour changes — the ref is what the
+  // click goes through, and `sr-only` takes it out of flow either way.
   return (
+    <>
     <button
       type="button"
       onClick={() => input.current?.click()}
@@ -62,8 +70,9 @@ export function DropZone({ accept, multiple = true, onFiles, label = "Drop files
     >
       {label}
       {accept ? <span className="text-[11px] text-muted-foreground">{accept}</span> : null}
-      <input ref={input} type="file" accept={accept} multiple={multiple} className="sr-only" tabIndex={-1}
-        onChange={(e) => { take(e.target.files); e.target.value = ""; }} />
     </button>
+    <input ref={input} type="file" accept={accept} multiple={multiple} className="sr-only" tabIndex={-1}
+      onChange={(e) => { take(e.target.files); e.target.value = ""; }} />
+    </>
   );
 }

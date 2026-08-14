@@ -31,13 +31,17 @@ export function Celebration({ show, message, onDone, pieces = 14, duration = 140
   className?: string;
 }) {
   const [alive, setAlive] = React.useState(false);
+  // Out of the deps: an inline `onDone` re-armed the timeout on every
+  // parent render, so the celebration could run past its own duration.
+  const doneRef = React.useRef(onDone);
+  doneRef.current = onDone;
 
   React.useEffect(() => {
     if (!show) return;
     setAlive(true);
-    const t = setTimeout(() => { setAlive(false); onDone?.(); }, duration);
+    const t = setTimeout(() => { setAlive(false); doneRef.current?.(); }, duration);
     return () => clearTimeout(t);
-  }, [show, duration, onDone]);
+  }, [show, duration]);
 
   if (!show) return null;
 

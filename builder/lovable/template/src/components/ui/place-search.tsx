@@ -58,14 +58,18 @@ export function PlaceSearch({ search, onPick, placeholder = "Search places", cla
           {results && q.trim() ? (
             results.length ? (
               <ul role="listbox" className="divide-y divide-border rounded-md border border-border">
+                {/* THE `<li>` CARRIES THE ROLE. It was on the `<button>` inside,
+                    which left the listbox's own children roleless — a
+                    `role="listbox"` owns `role="option"` children, and an
+                    intervening element with no role breaks that relationship —
+                    and made every result a tab stop in a popup the input is
+                    supposed to keep focus for. */}
                 {results.map((p) => (
-                  <li key={p.id}>
-                    <button type="button" role="option" aria-selected={false}
-                      onClick={() => { setPicked(p); onPick(p); }}
-                      className="w-full cursor-pointer px-2.5 py-1.5 text-left hover:bg-muted">
-                      <span className="block truncate text-sm">{p.name}</span>
-                      {p.address ? <span className="block truncate text-xs text-muted-foreground">{p.address}</span> : null}
-                    </button>
+                  <li key={p.id} role="option" aria-selected={false}
+                    onClick={() => { setPicked(p); onPick(p); }}
+                    className="cursor-pointer px-2.5 py-1.5 text-left hover:bg-muted">
+                    <span className="block truncate text-sm">{p.name}</span>
+                    {p.address ? <span className="block truncate text-xs text-muted-foreground">{p.address}</span> : null}
                   </li>
                 ))}
               </ul>

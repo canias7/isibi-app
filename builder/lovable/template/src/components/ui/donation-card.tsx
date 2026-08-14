@@ -24,7 +24,8 @@ export function DonationCard({ title, raised, goal, currency = "£", presets = [
       <h3 className="text-sm font-medium">{title}</h3>
       {pct != null && (
         <div className="space-y-1.5">
-          <Progress value={pct} className="h-2" />
+          <Progress value={pct} className="h-2"
+            aria-label={`${title}: ${Math.round(pct)}% of the goal raised`} />
           <p className="text-sm tabular-nums text-muted-foreground">
             <strong className="text-foreground">{currency}{(raised ?? 0).toLocaleString()}</strong>
             {" "}of {currency}{goal?.toLocaleString()}

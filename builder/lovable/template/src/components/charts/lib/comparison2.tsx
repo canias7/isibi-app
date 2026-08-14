@@ -1,7 +1,7 @@
 /** Comparison charts and statistical diagnostics. */
 
 const TONE = "var(--foreground)";
-const SHADE = (t: number) => `color-mix(in oklch, var(--foreground) ${Math.round(8 + t * 84)}%, var(--muted))`;
+import { SHADE, inkOn, shadePct } from "./_ink";
 
 /* -------------------------------------------------------- Cleveland dots */
 /** A dot plot: less ink than a bar and no baseline to anchor to zero. */

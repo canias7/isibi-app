@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, formatMinor } from "@/lib/utils";
 /**
  * What this actually cost over time — the honest version of "was £80".
  *
@@ -29,7 +29,7 @@ export function PriceHistory({ points, currency = "GBP", windowDays = 30, classN
   className?: string;
 }) {
   if (!points.length) return null;
-  const fmt = (m: number) => new Intl.NumberFormat(undefined, { style: "currency", currency }).format(m / 100);
+  const fmt = (m: number) => formatMinor(m, currency);
   const current = points[points.length - 1].priceMinor;
   const cutoff = Date.now() - windowDays * 864e5;
   // Prior prices only: today's price cannot be its own reference.

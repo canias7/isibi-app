@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn, divide } from "@/lib/utils";
 /**
  * The limit on an "unlimited" plan, stated as a number.
  *
@@ -42,7 +42,7 @@ export function FairUseNote({ thresholdGb, usedGb, consequence = "slowed", busyH
       </div>
     );
   }
-  const pct = usedGb !== undefined ? Math.min(100, (usedGb / thresholdGb) * 100) : undefined;
+  const pct = usedGb !== undefined ? Math.min(100, divide(usedGb, thresholdGb) * 100) : undefined;
   const close = pct !== undefined && pct >= 80;
   return (
     <div className={cn("space-y-1 text-sm", className)}>

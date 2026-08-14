@@ -32,11 +32,11 @@ export function AppealStatus({ state, submittedAt, decidedAt, reason, expectedWi
       <p className="font-medium">{WORD[state]}</p>
       <p className="text-xs text-muted-foreground">
         {submittedAt && (
-          <>Submitted <time dateTime={new Date(submittedAt).toISOString()}><DateFormat date={submittedAt} /></time></>
+          <>Submitted <DateFormat date={submittedAt} /></>
         )}
         {state === "pending" && expectedWithin ? ` · usually decided within ${expectedWithin}` : ""}
         {decidedAt && (
-          <> · decided <time dateTime={new Date(decidedAt).toISOString()}><DateFormat date={decidedAt} /></time></>
+          <> · decided <DateFormat date={decidedAt} /></>
         )}
       </p>
       {reason && <p className="text-muted-foreground">{reason}</p>}

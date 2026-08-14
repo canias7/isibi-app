@@ -41,7 +41,7 @@ export function BlurSensitive({ label = "Sensitive image", children, className }
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
           <p className="rounded-md bg-background/80 px-2 py-0.5 text-xs font-medium">{label}</p>
           <button type="button" onClick={() => setShown(true)}
-            className="cursor-pointer rounded-md border border-border bg-background px-3 py-1 text-xs font-medium shadow-sm hover:bg-muted">
+            className="cursor-pointer rounded-md border border-border bg-popover px-3 py-1 text-xs font-medium shadow-sm hover:bg-muted">
             Show
           </button>
         </div>

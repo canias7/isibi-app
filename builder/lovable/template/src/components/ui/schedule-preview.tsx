@@ -1,5 +1,5 @@
 import { DateFormat } from "@/components/ui/date-format";
-import { cn } from "@/lib/utils";
+import { cn, isoAttr } from "@/lib/utils";
 /**
  * The next several runs, listed, so a recurrence rule can be checked.
  *
@@ -38,10 +38,13 @@ export function SchedulePreview({ occurrences, total, className }: {
       <ol className="flex flex-col gap-1 text-sm">
         {occurrences.map((o, i) => (
           <li key={i} className="flex flex-wrap items-baseline gap-x-2">
-            <time dateTime={new Date(o.at).toISOString()}
-              className={cn("tabular-nums", o.skipped && "text-muted-foreground line-through")}>
-              <DateFormat date={o.at} withTime />
-            </time>
+            {/* `DateFormat` IS the `<time>`, so wrapping it in one nested a
+                time inside a time — and the outer carried its own `dateTime`,
+                parsed by `new Date` where the inner uses `toDate`, which
+                disagree about a bare `YYYY-MM-DD` by the local UTC offset. The
+                className moves onto the element that survives. */}
+            <DateFormat date={o.at} withTime
+              className={cn("tabular-nums", o.skipped && "text-muted-foreground line-through")} />
             {o.skipped && <span className="text-xs text-muted-foreground">skipped — {o.skipped}</span>}
           </li>
         ))}

@@ -460,6 +460,13 @@ export function LegacyProjection({
   yearsAhead?: number
   className?: string
 }) {
+  // NOTHING TO DRAW IS NOT A CHART OF NOTHING. An empty array made every
+  // scale here degenerate and wrote NaN into an SVG attribute, which the
+  // browser drops — so the chart rendered as a blank box rather than as the
+  // empty state the page around it is showing. `useRows` hands back `[]`
+  // before the query settles and on every site whose owner has added nothing.
+  if (!pledges.length) return null
+
   // a coarse mortality table is enough here and is stated as such
   const qx = (age: number) => clamp(0.00008 * Math.pow(1.093, age), 0, 0.5)
   const rows = pledges.map((p) => {

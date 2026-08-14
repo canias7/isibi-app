@@ -15,12 +15,19 @@ export function SliderInput({ value, onChange, min = 0, max = 100, step = 1, lab
   min?: number; max?: number; step?: number; label?: string; unit?: string;
   id?: string; className?: string;
 }) {
-  const clamp = (n: number) => Math.min(max, Math.max(min, n));
+  // A RANGE OF ZERO WIDTH DIVIDES BY ZERO INSIDE THE SLIDER. Radix positions the
+  // thumb with `(value - min) / (max - min)`, so `max === min` is NaN and the
+  // filled track renders `right: NaN%`, which the browser drops. Reachable
+  // without anybody writing nonsense: `max={rows.length}` on an empty list is 0.
+  // Widening by one keeps a degenerate slider drawable and pinned at its single
+  // value, rather than drawing nothing.
+  const hi = max > min ? max : min + 1;
+  const clamp = (n: number) => Math.min(hi, Math.max(min, n));
   return (
     <div className={cn("space-y-2", className)}>
       {label && <Label htmlFor={`${id}-num`} className="text-sm">{label}</Label>}
       <div className="flex items-center gap-3">
-        <Slider value={[value]} min={min} max={max} step={step} aria-label={label}
+        <Slider value={[value]} min={min} max={hi} step={step} aria-label={label}
           className="min-w-0 flex-1" onValueChange={([n]) => onChange(n)} />
         <div className="flex shrink-0 items-center gap-1">
           <Input id={`${id}-num`} inputMode="decimal" value={String(value)}

@@ -28,9 +28,11 @@ export function RefreshPill({ count, noun = "item", onShow, atTop, className }: 
   className?: string;
 }) {
   // Already at the newest end: apply without asking, nothing shifts under anyone.
+  const showRef = React.useRef(onShow);
+  showRef.current = onShow;
   React.useEffect(() => {
-    if (atTop && count > 0) onShow();
-  }, [atTop, count, onShow]);
+    if (atTop && count > 0) showRef.current();
+  }, [atTop, count]);
 
   if (count === 0 || atTop) return null;
   return (

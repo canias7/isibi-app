@@ -1,5 +1,10 @@
 /** Music production: tempo, dynamics, tone, image and loudness. */
 
+import { inkOn } from "./_ink";
+
+/** The ribbon's alternating tone, as a fill percentage. */
+const chordPct = (i: number) => Math.round((0.45 + (i % 3) * 0.2) * 100);
+
 const TONE = "var(--foreground)";
 
 /* ----------------------------------------------------------------------- tempo map */
@@ -180,7 +185,7 @@ export function StereoField({
                     goes INSIDE the bar instead. */}
                 {(((e.pan + 1) / 2) > 0.5 ? from : 100 - to) < 16 ? (
                   <span className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 px-1 text-[9px] whitespace-nowrap"
-                    style={{ color: e.level / maxLevel > 0.55 ? "var(--background)" : "var(--foreground)" }}>{e.name}</span>
+                    style={{ color: inkOn(Math.round((e.level / maxLevel) * 92)) }}>{e.name}</span>
                 ) : (
                   <span className="absolute top-1/2 -translate-y-1/2 text-[9px] whitespace-nowrap text-muted-foreground"
                     style={((e.pan + 1) / 2) > 0.5 ? { right: `${100 - from + 1.5}%` } : { left: `${to + 1.5}%` }}>{e.name}</span>
@@ -279,11 +284,15 @@ export function ChordRibbon({
           <div key={i} className="flex flex-col items-center justify-center overflow-hidden"
             style={{
               width: `${(c.beats / total) * 100}%`,
-              background: TONE, opacity: 0.45 + (i % 3) * 0.2,
+              // The alternating tone rides in the FILL, not in element opacity:
+              // opacity fades the label with the block, so a pale bar carried
+              // pale white text (measured 3.27:1). As a percentage the ink can
+              // be chosen for the tone that results.
+              background: `color-mix(in oklch, ${TONE} ${chordPct(i)}%, transparent)`,
               borderRight: "1px solid var(--background)",
             }} title={`${c.symbol} · ${c.beats} beats`}>
-            <span className="text-[11px] font-semibold leading-none" style={{ color: "var(--background)" }}>{c.symbol}</span>
-            {c.degree ? <span className="text-[8px] leading-tight" style={{ color: "var(--background)", opacity: 0.8 }}>{c.degree}</span> : null}
+            <span className="text-[11px] font-semibold leading-none" style={{ color: inkOn(chordPct(i)) }}>{c.symbol}</span>
+            {c.degree ? <span className="text-[8px] leading-tight" style={{ color: inkOn(chordPct(i)) }}>{c.degree}</span> : null}
           </div>
         ))}
       </div>

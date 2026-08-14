@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, toDate } from "@/lib/utils";
 /**
  * "3 minutes ago" — that stops being relative when relative stops helping.
  *
@@ -38,7 +38,7 @@ export function RelativeDate({ date, thresholdDays = 7, className }: {
   thresholdDays?: number;
   className?: string;
 }) {
-  const d = React.useMemo(() => new Date(date), [date]);
+  const d = React.useMemo(() => toDate(date), [date]);
   const [, tick] = React.useReducer((n: number) => n + 1, 0);
 
   React.useEffect(() => {

@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, toDate } from "@/lib/utils";
 /**
  * How long is left to send it back — counted from the right date.
  *
@@ -23,8 +23,14 @@ export function ReturnWindow({ deliveredOn, days = 14, now, faultyNote = true, c
   faultyNote?: boolean;
   className?: string;
 }) {
-  const start = new Date(deliveredOn);
-  const deadline = new Date(start.getTime() + days * 864e5);
+  const start = toDate(deliveredOn);
+  // CALENDAR DAYS, not 24-hour blocks. Adding `days * 864e5` is an hour out
+  // across a DST boundary, and for a delivery timestamped near midnight that
+  // hour moves the deadline onto the previous or the next DAY — a return
+  // window a business would have to honour, stated wrongly. `setDate` is the
+  // one arithmetic that stays on the same local clock time.
+  const deadline = new Date(start);
+  deadline.setDate(deadline.getDate() + days);
   const at = now ?? new Date();
   const left = Math.ceil((deadline.getTime() - at.getTime()) / 864e5);
   const fmt = (d: Date) => d.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" });

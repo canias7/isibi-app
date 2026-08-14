@@ -31,7 +31,7 @@ export function WriteBlocked({ reason, until, onRetry, className }: {
       <p className="text-sm font-medium">Changes can&apos;t be saved right now</p>
       <p className="text-sm text-muted-foreground">
         {reason}
-        {until ? <> Until <time dateTime={new Date(until).toISOString()}><DateFormat date={until} withTime /></time>.</> : null}
+        {until ? <> Until <DateFormat date={until} withTime />.</> : null}
       </p>
       {onRetry && (
         <div><Button size="sm" variant="outline" onClick={onRetry}>Try again</Button></div>

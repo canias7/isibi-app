@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, isoAttr } from "@/lib/utils";
 /**
  * When this data last updated — against when it SHOULD.
  *
@@ -40,8 +40,8 @@ export function DataFreshness({ updatedAt, cadenceMs, cadenceLabel, className }:
   return (
     <p className={cn("text-xs tabular-nums", late ? "font-medium" : "text-muted-foreground", className)}>
       {late
-        ? <>Expected an update {ago(age - cadenceMs)} ago — last one <time dateTime={at.toISOString()}>{ago(age)} back</time>.</>
-        : <>Updated <time dateTime={at.toISOString()}>{ago(age)} ago</time> · {cadenceLabel}</>}
+        ? <>Expected an update {ago(age - cadenceMs)} ago — last one <time dateTime={isoAttr(at)}>{ago(age)} back</time>.</>
+        : <>Updated <time dateTime={isoAttr(at)}>{ago(age)} ago</time> · {cadenceLabel}</>}
     </p>
   );
 }

@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, divide } from "@/lib/utils";
 /**
  * Choose the part of a photograph that gets used.
  *
@@ -53,10 +53,10 @@ export function ImageCrop({ src, alt = "", aspect = 1, value, onChange, classNam
 
   // Height as a fraction is width × aspect corrected for the box's own shape,
   // so a square crop stays square whatever the container is.
-  const h = value.w * (size.w / size.h) / aspect;
+  const h = divide(value.w * divide(size.w, size.h), aspect);
   const clamp = (c: Crop): Crop => {
     const w = Math.min(1, Math.max(0.1, c.w));
-    const hh = w * (size.w / size.h) / aspect;
+    const hh = divide(w * divide(size.w, size.h), aspect);
     return { w, x: Math.min(1 - w, Math.max(0, c.x)), y: Math.min(1 - Math.min(1, hh), Math.max(0, c.y)) };
   };
 

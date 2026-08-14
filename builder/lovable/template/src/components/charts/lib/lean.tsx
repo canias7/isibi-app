@@ -1,7 +1,7 @@
 /** Lean, operations and people diagrams. */
 
 const TONE = "var(--foreground)";
-const SHADE = (t: number) => `color-mix(in oklch, var(--foreground) ${Math.round(8 + t * 84)}%, var(--muted))`;
+import { SHADE, inkOn, shadePct } from "./_ink";
 
 /* ---------------------------------------------------------------- yamazumi */
 /**
@@ -175,7 +175,7 @@ export function RaciMatrix({
                       style={{
                         width: cell, height: cell,
                         background: a ? SHADE(weight[a] ?? 0.2) : "var(--muted)",
-                        color: (weight[a] ?? 0) > 0.5 ? "var(--background)" : "var(--foreground)",
+                        color: a ? inkOn(shadePct(weight[a] ?? 0.2)) : "var(--foreground)",
                       }} title={`${t} · ${p}: ${a || "—"}`}>{a}</div>
                   </td>
                 );
@@ -347,7 +347,7 @@ export function DefectConcentration({
         {grid.map((r, ri) =>
           r.map((v, ci) => (
             <div key={`${ri}-${ci}`} className="absolute flex items-center justify-center text-[9px] tabular-nums"
-              style={{ left: ci * cw, top: ri * ch, width: cw, height: ch, background: SHADE(v / hi), color: v / hi > 0.5 ? "var(--background)" : "var(--muted-foreground)" }}
+              style={{ left: ci * cw, top: ri * ch, width: cw, height: ch, background: SHADE(v / hi), color: inkOn(shadePct(v / hi)) }}
               title={`${v} defects`}>{v || ""}</div>
           ))
         )}

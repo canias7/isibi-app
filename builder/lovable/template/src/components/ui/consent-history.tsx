@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn, isoAttr, toDate } from "@/lib/utils";
 /**
  * Every time a consent changed, and which version of the policy it was.
  *
@@ -38,7 +38,7 @@ export function ConsentHistory({ changes, emptyNote = "Nothing has changed yet",
   return (
     <ul className={cn("divide-y divide-border rounded-md border border-border text-sm", className)}>
       {changes.map((c) => {
-        const d = c.at ? new Date(c.at) : null;
+        const d = c.at ? toDate(c.at) : null;
         const ok = d && !Number.isNaN(d.getTime());
         return (
           <li key={c.id} className="flex items-start gap-3 px-3 py-2">
@@ -53,7 +53,7 @@ export function ConsentHistory({ changes, emptyNote = "Nothing has changed yet",
               </span>
             </span>
             {ok && (
-              <time dateTime={d!.toISOString()} className="shrink-0 text-xs text-muted-foreground">
+              <time dateTime={isoAttr(d)} className="shrink-0 text-xs text-muted-foreground">
                 {d!.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}
               </time>
             )}

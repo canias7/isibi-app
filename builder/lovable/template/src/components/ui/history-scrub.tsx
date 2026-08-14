@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn, isoAttr, toDate } from "@/lib/utils";
 /**
  * A timeline you can click along, with the gaps to scale.
  *
@@ -24,7 +24,7 @@ export function HistoryScrub({ points, activeKey, onPick, className }: {
   className?: string;
 }) {
   if (!points.length) return null;
-  const times = points.map((p) => new Date(p.at).getTime());
+  const times = points.map((p) => toDate(p.at).getTime());
   const min = Math.min(...times), max = Math.max(...times);
   const span = max - min;
 
@@ -37,7 +37,7 @@ export function HistoryScrub({ points, activeKey, onPick, className }: {
           const active = p.key === activeKey;
           return (
             <button key={p.key} type="button" onClick={() => onPick(p.key)}
-              aria-label={p.label ?? new Date(p.at).toLocaleString()}
+              aria-label={p.label ?? toDate(p.at).toLocaleString()}
               aria-current={active ? "true" : undefined}
               style={{ left: `${pos}%` }}
               className={cn(
@@ -48,8 +48,8 @@ export function HistoryScrub({ points, activeKey, onPick, className }: {
         })}
       </div>
       <div className="flex justify-between text-xs text-muted-foreground">
-        <time dateTime={new Date(min).toISOString()}>{new Date(min).toLocaleDateString()}</time>
-        <time dateTime={new Date(max).toISOString()}>{new Date(max).toLocaleDateString()}</time>
+        <time dateTime={isoAttr(min)}>{toDate(min).toLocaleDateString()}</time>
+        <time dateTime={isoAttr(max)}>{toDate(max).toLocaleDateString()}</time>
       </div>
     </div>
   );

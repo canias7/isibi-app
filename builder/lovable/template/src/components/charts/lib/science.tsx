@@ -107,19 +107,35 @@ export function Bifurcation({
 }: {
   from?: number; to?: number; steps?: number; settle?: number; keep?: number; size?: number; label?: string;
 }) {
+  // `from === to` IS A ZERO-WIDTH SWEEP, and `0 / 0` is NaN — which reaches the
+  // page as `x="NaN"` on every rect, so the browser drops the attribute and the
+  // whole plot stacks at the origin. Both ends of a range arriving equal is what
+  // a settings form with two untouched number fields produces.
+  const span = (to - from) || 1;
   const pts: { r: number; x: number }[] = [];
   for (let i = 0; i < steps; i++) {
     const r = from + ((to - from) * i) / (steps - 1);
     let x = 0.5;
     for (let k = 0; k < settle; k++) x = r * x * (1 - x);
-    for (let k = 0; k < keep; k++) { x = r * x * (1 - x); pts.push({ r, x }); }
+    // ONLY THE POINTS INSIDE THE ATTRACTOR. The logistic map is bounded in [0,1]
+    // for r <= 4 and DIVERGES
+    // above it, so a sweep whose range runs past 4 produced -Infinity and wrote
+    // `y="Infinity"` on every rect — invalid attributes the browser drops, so
+    // the plot collapses onto the origin rather than showing the part that is
+    // real. Mathematics rather than a mistake, and still not something to put
+    // in an SVG.
+    //
+    // THE RANGE AND NOT `Number.isFinite`, which was the first attempt and was
+    // not enough: the trajectory passes through enormous FINITE values on its
+    // way out, and `(1 - x) * 100` overflows to Infinity from one of those.
+    for (let k = 0; k < keep; k++) { x = r * x * (1 - x); if (x >= 0 && x <= 1) pts.push({ r, x }); }
   }
   return (
     <div className="w-full">
       <svg viewBox="0 0 100 100" width="100%" style={{ maxWidth: size }}
         role="img" aria-label={label ?? "Logistic map bifurcation"}>
         {pts.map((p, i) => (
-          <rect key={i} x={((p.r - from) / (to - from)) * 100} y={(1 - p.x) * 100} width={0.35} height={0.35} fill={TONE} fillOpacity={0.35} />
+          <rect key={i} x={((p.r - from) / span) * 100} y={(1 - p.x) * 100} width={0.35} height={0.35} fill={TONE} fillOpacity={0.35} />
         ))}
       </svg>
       <div className="mt-1 flex justify-between text-[10px] tabular-nums text-muted-foreground">

@@ -1,5 +1,7 @@
 /** Chemistry and physics: the plots those fields actually draw. */
 
+import { inkOn } from "./_ink";
+
 const TONE = "var(--foreground)";
 
 /* ----------------------------------------------------------- periodic grid */
@@ -37,7 +39,7 @@ export function PeriodicGrid({
               <rect x={x + 0.25} y={y + 0.25} width={cw - 0.5} height={cw - 0.5}
                 fill={TONE} fillOpacity={k} rx={0.5} />
               <text x={x + cw / 2} y={y + cw * 0.64} fontSize={2.7} textAnchor="middle"
-                fill={k > 0.5 ? "var(--background)" : "var(--foreground)"}>{e.symbol}</text>
+                fill={inkOn(Math.round(k * 92))}>{e.symbol}</text>
             </g>
           );
         })}

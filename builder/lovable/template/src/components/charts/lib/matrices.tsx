@@ -1,7 +1,7 @@
 /** 2x2 grids, matrices and tabular charts. */
 
 const TONE = "var(--foreground)";
-const SHADE = (t: number) => `color-mix(in oklch, var(--foreground) ${Math.round(8 + t * 84)}%, var(--muted))`;
+import { SHADE, inkOn, shadePct } from "./_ink";
 
 /* ------------------------------------------------------------- quadrant */
 /**
@@ -96,7 +96,7 @@ export function RiskMatrix({
                   return (
                     <td key={imp} className="p-0 align-top">
                       <div className="overflow-hidden rounded-[3px] p-1 text-[9px] leading-tight"
-                        style={{ width: cell, height: cell, background: SHADE(t), color: t > 0.45 ? "var(--background)" : "var(--foreground)" }}>
+                        style={{ width: cell, height: cell, background: SHADE(t), color: inkOn(shadePct(t)) }}>
                         {(grid[`${like}:${imp}`] ?? []).map((l) => <div key={l} className="truncate">{l}</div>)}
                       </div>
                     </td>
@@ -168,7 +168,7 @@ export function CorrelationMatrix({
                         width: cell, height: cell,
                         background: r >= 0 ? SHADE(mag) : "var(--muted)",
                         border: r < 0 ? `${Math.max(1, mag * 5)}px solid ${TONE}` : undefined,
-                        color: r >= 0 && mag > 0.45 ? "var(--background)" : "var(--foreground)",
+                        color: r >= 0 ? inkOn(shadePct(mag)) : "var(--foreground)",
                       }}
                       title={`${a} vs ${b}: ${r.toFixed(2)}`}>
                       {r.toFixed(1)}

@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, formatMinor } from "@/lib/utils";
 /**
  * Delivery or collection — with what each actually costs in TIME.
  *
@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
  * store, or with hours that end before the person finishes work, is the
  * complaint this component exists to prevent.
  */
-export function ClickCollect({ value, onChange, delivery, collect, className }: {
+export function ClickCollect({ value, onChange, delivery, collect, currency = "GBP", className }: {
   value: "delivery" | "collect";
   onChange: (v: "delivery" | "collect") => void;
   delivery: { priceMinor: number; when: string };
@@ -20,7 +20,12 @@ export function ClickCollect({ value, onChange, delivery, collect, className }: 
   currency?: string;
   className?: string;
 }) {
-  const fmt = (m: number) => new Intl.NumberFormat(undefined, { style: "currency", currency: "GBP" }).format(m / 100);
+  // `currency` was declared in the props TYPE and never destructured, so it
+  // could not be read even in principle and the formatter named "GBP" outright:
+  // a euro shop that set the prop correctly still priced every line in pounds.
+  // It is published in the generated signature, so the model sets it and
+  // nothing happens — the worst shape of wrong, because it looks handled.
+  const fmt = (m: number) => formatMinor(m, currency);
   const rows = [
     { key: "delivery" as const, title: "Delivery", price: delivery.priceMinor, when: delivery.when, sub: null as React.ReactNode },
     { key: "collect" as const, title: `Collect from ${collect.place}`, price: collect.priceMinor ?? 0, when: collect.when, sub: collect.hours },

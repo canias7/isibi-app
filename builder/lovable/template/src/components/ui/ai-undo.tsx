@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Undo2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 /**
@@ -36,9 +36,14 @@ export function AiUndo({ message = "Applied", onUndo, seconds = 10, onExpire, cl
     const t = setInterval(() => setLeft((n) => (n > 0 ? n - 1 : 0)), 1000);
     return () => clearInterval(t);
   }, [seconds]);
+  // Out of the deps, and this one really fired twice: with `onExpire` in the
+  // list, every parent render re-ran an effect whose condition was still
+  // true, so the caller was told the undo had expired again and again.
+  const expireRef = useRef(onExpire);
+  expireRef.current = onExpire;
   useEffect(() => {
-    if (seconds && left === 0) onExpire?.();
-  }, [left, seconds, onExpire]);
+    if (seconds && left === 0) expireRef.current?.();
+  }, [left, seconds]);
   const done = Boolean(seconds) && left === 0;
   return (
     <div role="status"

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 /**
@@ -34,20 +34,22 @@ export function FilterDrawer({ open, onClose, onApply, onClear, resultCount, act
   children: React.ReactNode;
   className?: string;
 }) {
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
   useEffect(() => {
     if (!open) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeRef.current(); };
     document.addEventListener("keydown", onKey);
     return () => { document.body.style.overflow = prev; document.removeEventListener("keydown", onKey); };
-  }, [open, onClose]);
+  }, [open]);
   if (!open) return null;
   return (
     <div className={cn("fixed inset-0 z-50 flex", className)}>
       <div className="absolute inset-0 bg-foreground/40" onClick={onClose} aria-hidden="true" />
       <div role="dialog" aria-modal="true" aria-label={title}
-        className="relative ml-auto flex h-full w-full max-w-sm flex-col bg-background shadow-lg">
+        className="relative ml-auto flex h-full w-full max-w-sm flex-col bg-popover shadow-lg">
         <div className="flex items-center gap-2 border-b border-border px-4 py-3">
           <h2 className="text-sm font-medium">{title}</h2>
           {activeCount > 0 && (

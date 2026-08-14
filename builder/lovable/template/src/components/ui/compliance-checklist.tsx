@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn, toDate } from "@/lib/utils";
 /**
  * What has to be in place, with evidence and who signed it off.
  *
@@ -46,7 +46,7 @@ export function ComplianceChecklist({ items, className }: { items: ComplianceIte
       </p>
       <ul className="divide-y divide-border rounded-md border border-border text-sm">
         {items.map((i) => {
-          const d = i.at ? new Date(i.at) : null;
+          const d = i.at ? toDate(i.at) : null;
           const ok = d && !Number.isNaN(d.getTime());
           return (
             <li key={i.id} className="flex items-start gap-3 px-3 py-2">

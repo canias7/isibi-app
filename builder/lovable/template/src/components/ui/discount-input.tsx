@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, formatMinor } from "@/lib/utils";
 /**
  * A discount — percent or fixed — with the OUTCOME in view.
  *
@@ -31,7 +31,7 @@ export function DiscountInput({ totalMinor, kind, value, onChange, currency = "G
   currency?: string;
   className?: string;
 }) {
-  const fmt = (m: number) => new Intl.NumberFormat(undefined, { style: "currency", currency }).format(m / 100);
+  const fmt = (m: number) => formatMinor(m, currency);
   const { off, after } = discountResult(totalMinor, kind, value || 0);
   return (
     <div className={cn("flex flex-col gap-1.5", className)}>

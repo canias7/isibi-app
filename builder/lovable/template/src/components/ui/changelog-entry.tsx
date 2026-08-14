@@ -1,5 +1,5 @@
 import { StatusBadge } from "@/components/ui/status-badge";
-import { cn } from "@/lib/utils";
+import { cn, isoAttr, toDate } from "@/lib/utils";
 /** One release. The date is a real <time>, so it is machine-readable. */
 export function ChangelogEntry({ version, date, tag, children, className }: {
   version: string; date?: string | number | Date;
@@ -13,8 +13,8 @@ export function ChangelogEntry({ version, date, tag, children, className }: {
         <h3 className="font-medium tabular-nums">{version}</h3>
         {badge && <StatusBadge state={badge}>{tag}</StatusBadge>}
         {date && (
-          <time dateTime={new Date(date).toISOString()} className="text-sm text-muted-foreground">
-            {new Date(date).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}
+          <time dateTime={isoAttr(date)} className="text-sm text-muted-foreground">
+            {toDate(date).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}
           </time>
         )}
       </div>

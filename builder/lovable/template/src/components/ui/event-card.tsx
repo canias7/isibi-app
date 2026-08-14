@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { SafeImage } from "@/components/ui/safe-image";
 import { Badge } from "@/components/ui/badge";
 import { MapPin, Calendar } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, toDate } from "@/lib/utils";
 /**
  * One event.
  *
@@ -14,7 +14,7 @@ export function EventCard({ title, start, venue, image, price, soldOut, href, on
   title: string; start: string | number | Date; venue?: string; image?: string | null;
   price?: string; soldOut?: boolean; href?: string; onBook?: () => void; className?: string;
 }) {
-  const d = new Date(start);
+  const d = toDate(start);
   const valid = !Number.isNaN(d.getTime());
   return (
     <article className={cn("flex gap-4 rounded-lg border border-border p-3", className)}>

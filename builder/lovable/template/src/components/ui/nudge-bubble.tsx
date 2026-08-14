@@ -58,7 +58,7 @@ export function NudgeBubble({
       className={cn("motion-enter pointer-events-none absolute left-0 z-40 w-56",
         side === "bottom" ? "top-full mt-2" : "bottom-full mb-2", className)}
     >
-      <span className="pointer-events-auto flex items-start gap-2 rounded-lg border border-border bg-background p-2.5 shadow-lg">
+      <span className="pointer-events-auto flex items-start gap-2 rounded-lg border border-border bg-popover p-2.5 shadow-lg">
         <span className="min-w-0 flex-1 text-xs">{children}</span>
         <button type="button" onClick={close} aria-label="Got it"
           className="shrink-0 cursor-pointer rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground">

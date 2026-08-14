@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState , useId } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
@@ -36,6 +36,11 @@ export function DuplicateOptions({ originalName, parts, defaultParts, onDuplicat
   suffix?: string;
   className?: string;
 }) {
+  // Unique per INSTANCE. These ids were literals, so a page rendering
+  // this component twice — two contact forms, one in a list — gave every
+  // field a duplicate id, and a `<label for>` then focuses the FIRST
+  // match. The second form's labels pointed at the first form's inputs.
+  const uid = useId();
   const [name, setName] = useState(`${originalName} ${suffix}`);
   const [picked, setPicked] = useState<string[]>(
     defaultParts ?? parts.filter((p) => !p.disabled).map((p) => p.key),
@@ -45,8 +50,8 @@ export function DuplicateOptions({ originalName, parts, defaultParts, onDuplicat
     <form className={cn("space-y-3", className)}
       onSubmit={(e) => { e.preventDefault(); if (ready) onDuplicate({ name: name.trim(), parts: picked }); }}>
       <div className="space-y-1">
-        <label htmlFor="dup-name" className="block text-sm font-medium">Name of the copy</label>
-        <input id="dup-name" required value={name} onChange={(e) => setName(e.target.value)}
+        <label htmlFor={uid + "-dup-name"} className="block text-sm font-medium">Name of the copy</label>
+        <input id={uid + "-dup-name"} required value={name} onChange={(e) => setName(e.target.value)}
           onFocus={(e) => e.currentTarget.select()}
           className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm" />
       </div>

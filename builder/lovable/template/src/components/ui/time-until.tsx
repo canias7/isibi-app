@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, isoAttr, toDate } from "@/lib/utils";
 /**
  * A live count to a moment — "in 2h 14m", ticking.
  *
@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils";
 export function TimeUntil({ date, past = "now", className }: {
   date: string | number | Date; past?: string; className?: string;
 }) {
-  const target = new Date(date);
+  const target = toDate(date);
   const valid = !Number.isNaN(target.getTime());
   const [, tick] = React.useState(0);
   const left = valid ? target.getTime() - Date.now() : 0;
@@ -32,7 +32,7 @@ export function TimeUntil({ date, past = "now", className }: {
   const s = Math.floor(left / 1000), m = Math.floor(s / 60), h = Math.floor(m / 60), d = Math.floor(h / 24);
   const text = d > 0 ? `${d}d ${h % 24}h` : h > 0 ? `${h}h ${m % 60}m` : m > 0 ? `${m}m` : `${s}s`;
   return (
-    <time dateTime={target.toISOString()} title={target.toLocaleString()}
+    <time dateTime={isoAttr(target)} title={target.toLocaleString()}
       className={cn("tabular-nums", className)}>in {text}</time>
   );
 }

@@ -114,9 +114,7 @@ export function BidBox({
 
       {endsAt && (
         <p className="text-xs text-muted-foreground">
-          {ended ? "Ended" : "Ends"} <time dateTime={new Date(endsAt).toISOString()}>
-            <DateFormat date={endsAt} withTime />
-          </time>
+          {ended ? "Ended" : "Ends"} <DateFormat date={endsAt} withTime />
         </p>
       )}
     </section>

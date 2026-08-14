@@ -22,8 +22,8 @@ export function LoginForm({ onSubmit, busy, error, forgotHref, signupHref, class
     <form className={className} onSubmit={(e) => { e.preventDefault(); onSubmit({ email, password }); }}>
       <div className="flex flex-col gap-4">
         {error && <InlineAlert tone="error">{error}</InlineAlert>}
-        <FormRow label="Email" htmlFor="li-email"><EmailInput id="li-email" value={email} onChange={setEmail} /></FormRow>
-        <FormRow label="Password" htmlFor="li-pw">
+        <FormRow label="Email"><EmailInput id="li-email" value={email} onChange={setEmail} /></FormRow>
+        <FormRow label="Password">
           <PasswordInput id="li-pw" value={password} onChange={setPassword} autoComplete="current-password" />
         </FormRow>
         <BusyButton type="submit" busy={busy} busyLabel="Signing in…" className="w-full">Sign in</BusyButton>

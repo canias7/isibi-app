@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState , useId } from "react";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -29,6 +29,11 @@ export function DelegateApproval({ people, onDelegate, onCancel, today, busy, cl
   busy?: boolean;
   className?: string;
 }) {
+  // Unique per INSTANCE. These ids were literals, so a page rendering
+  // this component twice — two contact forms, one in a list — gave every
+  // field a duplicate id, and a `<label for>` then focuses the FIRST
+  // match. The second form's labels pointed at the first form's inputs.
+  const uid = useId();
   const [to, setTo] = useState(people[0]?.id ?? "");
   const [until, setUntil] = useState("");
   const [note, setNote] = useState("");
@@ -38,19 +43,19 @@ export function DelegateApproval({ people, onDelegate, onCancel, today, busy, cl
     <form className={cn("space-y-3", className)}
       onSubmit={(e) => { e.preventDefault(); if (ready) onDelegate({ to, until, note: note.trim() || undefined }); }}>
       <div className="space-y-1">
-        <label htmlFor="del-to" className="block text-sm font-medium">Send my approvals to</label>
-        <NativeSelect id="del-to" value={to} onChange={(e) => setTo(e.target.value)}>
+        <label htmlFor={uid + "-del-to"} className="block text-sm font-medium">Send my approvals to</label>
+        <NativeSelect id={uid + "-del-to"} value={to} onChange={(e) => setTo(e.target.value)}>
           {people.map((p) => <option key={p.id} value={p.id}>{p.name}{p.role ? ` — ${p.role}` : ""}</option>)}
         </NativeSelect>
       </div>
       <div className="space-y-1">
-        <label htmlFor="del-until" className="block text-sm font-medium">Until</label>
-        <input id="del-until" type="date" required min={min} value={until} onChange={(e) => setUntil(e.target.value)}
+        <label htmlFor={uid + "-del-until"} className="block text-sm font-medium">Until</label>
+        <input id={uid + "-del-until"} type="date" required min={min} value={until} onChange={(e) => setUntil(e.target.value)}
           className="h-9 rounded-md border border-input bg-transparent px-2 text-sm" />
       </div>
       <div className="space-y-1">
-        <label htmlFor="del-note" className="block text-sm font-medium">Note <span className="font-normal text-muted-foreground">optional</span></label>
-        <input id="del-note" value={note} onChange={(e) => setNote(e.target.value)}
+        <label htmlFor={uid + "-del-note"} className="block text-sm font-medium">Note <span className="font-normal text-muted-foreground">optional</span></label>
+        <input id={uid + "-del-note"} value={note} onChange={(e) => setNote(e.target.value)}
           className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm" />
       </div>
       <p className="text-xs text-muted-foreground">You stay accountable for anything approved in your name.</p>

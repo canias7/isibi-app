@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, divide } from "@/lib/utils";
 /**
  * How full the conversation's context window is.
  *
@@ -38,7 +38,7 @@ export function ContextMeter({ segments, limit, showAbove = 0.5, onNewChat, clas
       <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-muted" aria-hidden>
         {segments.map((s, i) => (
           <div key={s.key}
-            style={{ width: `${Math.min(100, (Math.max(0, s.tokens) / limit) * 100)}%` }}
+            style={{ width: `${Math.min(100, divide(Math.max(0, s.tokens), limit) * 100)}%` }}
             className={cn("h-full", i % 2 === 0 ? "bg-foreground" : "bg-muted-foreground")} />
         ))}
       </div>

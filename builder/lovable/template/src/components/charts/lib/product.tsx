@@ -1,7 +1,7 @@
 /** Product and web analytics charts. */
 
 const TONE = "var(--foreground)";
-const SHADE = (t: number) => `color-mix(in oklch, var(--foreground) ${Math.round(8 + t * 84)}%, var(--muted))`;
+import { SHADE, inkOn, shadePct } from "./_ink";
 
 /* ------------------------------------------------------- network waterfall */
 /**
@@ -77,7 +77,7 @@ export function ScrollDepth({
       <div className="relative" style={{ height }}>
         {buckets.map((b, i) => (
           <div key={i} className="absolute left-0 flex items-center rounded-r-[2px] pl-2 text-[9px]"
-            style={{ top: i * rowH, height: rowH - 1, width: `${b * 100}%`, background: SHADE(b), color: b > 0.5 ? "var(--background)" : "var(--foreground)" }}
+            style={{ top: i * rowH, height: rowH - 1, width: `${b * 100}%`, background: SHADE(b), color: inkOn(shadePct(b)) }}
             title={`${Math.round(((i + 1) / buckets.length) * 100)}% down: ${Math.round(b * 100)}% still here`}>
             {Math.round(((i + 1) / buckets.length) * 100)}%
           </div>
@@ -279,7 +279,7 @@ export function EngagementMatrix({
                 return (
                   <td key={c} className="p-0">
                     <div className="flex flex-col items-center justify-center rounded-[3px] leading-none"
-                      style={{ width: cell, height: cell, background: SHADE(v / hi), color: v / hi > 0.45 ? "var(--background)" : "var(--foreground)" }}
+                      style={{ width: cell, height: cell, background: SHADE(v / hi), color: inkOn(shadePct(v / hi)) }}
                       title={`${r} · ${c}: ${v}`}>
                       <span className="text-[10px] tabular-nums">{v}</span>
                       <span className="text-[8px] opacity-70">{Math.round((v / total) * 100)}%</span>

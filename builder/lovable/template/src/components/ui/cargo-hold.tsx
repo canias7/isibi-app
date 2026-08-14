@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn, divide } from "@/lib/utils";
 /**
  * How a hold is loaded — against weight, volume and the balance limits.
  *
@@ -60,7 +60,7 @@ export function CargoHold({ hold, weightKg, weightLimitKg, volumeM3, volumeLimit
               {weightKg.toLocaleString()} of {weightLimitKg.toLocaleString()} kg
             </span>
           </p>
-          {bar(weightKg / weightLimitKg, overWeight)}
+          {bar(divide(weightKg, weightLimitKg), overWeight)}
         </div>
       )}
       {volumeM3 !== undefined && volumeLimitM3 !== undefined && (
@@ -71,7 +71,7 @@ export function CargoHold({ hold, weightKg, weightLimitKg, volumeM3, volumeLimit
               {volumeM3} of {volumeLimitM3} m³
             </span>
           </p>
-          {bar(volumeM3 / volumeLimitM3, overVolume)}
+          {bar(divide(volumeM3, volumeLimitM3), overVolume)}
         </div>
       )}
       {overWeight && weightKg !== undefined && weightLimitKg !== undefined && (

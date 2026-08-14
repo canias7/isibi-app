@@ -33,7 +33,7 @@ export function VersionConflict({ by, at, onCompare, onReload, onOverwrite, clas
         <p className="text-sm font-medium">This was changed somewhere else</p>
         <p className="text-sm text-muted-foreground">
           {by ? `${by} saved a newer version` : "A newer version was saved"}
-          {at ? <> <time dateTime={new Date(at).toISOString()}><DateFormat date={at} withTime /></time></> : null}
+          {at ? <> <DateFormat date={at} withTime /></> : null}
           . Saving now would replace it.
         </p>
       </div>

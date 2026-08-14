@@ -32,10 +32,10 @@ export function SlippageNote({ was, now, className }: {
   return (
     <p className={cn("text-sm", className)}>
       <span className="text-muted-foreground line-through">
-        <time dateTime={new Date(a).toISOString()}><DateFormat date={a} /></time>
+        <DateFormat date={a} />
       </span>{" "}
       <span className="font-medium">
-        <time dateTime={new Date(b).toISOString()}><DateFormat date={b} /></time>
+        <DateFormat date={b} />
       </span>{" "}
       <span className="text-muted-foreground tabular-nums">
         — {Math.abs(days)} {Math.abs(days) === 1 ? "day" : "days"} {days > 0 ? "later" : "earlier"}

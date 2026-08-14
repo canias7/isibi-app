@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, formatMinor } from "@/lib/utils";
 /**
  * Show prices with or without the tax — the STORED price never moves.
  *
@@ -31,7 +31,7 @@ export function TaxToggle({ minor, rate, storedIncludes = true, currency = "GBP"
   className?: string;
 }) {
   const { inc, ex } = taxDerive(minor, rate, storedIncludes);
-  const fmt = (m: number) => new Intl.NumberFormat(undefined, { style: "currency", currency }).format(m / 100);
+  const fmt = (m: number) => formatMinor(m, currency);
   return (
     <div className={cn("flex flex-col gap-1", className)}>
       <label className="flex cursor-pointer items-center gap-2 text-sm">

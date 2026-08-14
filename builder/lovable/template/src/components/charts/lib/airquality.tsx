@@ -127,6 +127,13 @@ export function ExceedanceDays({
   height?: number
   className?: string
 }) {
+  // NOTHING TO DRAW IS NOT A CHART OF NOTHING. An empty array made every
+  // scale here degenerate and wrote NaN into an SVG attribute, which the
+  // browser drops — so the chart rendered as a blank box rather than as the
+  // empty state the page around it is showing. `useRows` hands back `[]`
+  // before the query settles and on every site whose owner has added nothing.
+  if (!daily.length) return null
+
   const exceed = daily.map((v, i) => ({ v, i })).filter((d) => d.v > limit)
   const usedByDay = daily.map((_, i) => exceed.filter((e) => e.i <= i).length)
   const breachDay = usedByDay.findIndex((c) => c > allowedExceedances)
@@ -330,7 +337,7 @@ export function AqiBand({
           >
             {/* the label's colour goes on the child — on the parent it would
                 redefine currentColor for the parent's own background */}
-            <span style={{ color: i >= 4 ? "var(--background)" : undefined }}>{b.to}</span>
+            <span style={{ color: i >= 4 ? "var(--background)" : "var(--foreground)" }}>{b.to}</span>
           </div>
         ))}
       </div>

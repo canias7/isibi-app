@@ -32,7 +32,7 @@ export function DraftRecovery({ savedAt, preview, onRestore, onDiscard, classNam
       <div>
         <p className="text-sm font-medium">You have an unsaved draft</p>
         <p className="text-sm text-muted-foreground">
-          Saved <time dateTime={new Date(savedAt).toISOString()}><DateFormat date={savedAt} withTime /></time>
+          Saved <DateFormat date={savedAt} withTime />
         </p>
       </div>
       {preview && (

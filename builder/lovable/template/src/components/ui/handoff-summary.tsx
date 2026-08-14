@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn, isoAttr, toDate } from "@/lib/utils";
 /**
  * What the next person needs to know, in the three parts that matter.
  *
@@ -30,7 +30,7 @@ export function HandoffSummary({ outstanding = [], watch = [], done = [], by, at
   at?: string;
   className?: string;
 }) {
-  const d = at ? new Date(at) : null;
+  const d = at ? toDate(at) : null;
   const ok = d && !Number.isNaN(d.getTime());
   const section = (title: string, items: string[], empty?: string, strong?: boolean) => (
     <div>
@@ -55,7 +55,7 @@ export function HandoffSummary({ outstanding = [], watch = [], done = [], by, at
         <p className="border-t border-border pt-2 text-xs text-muted-foreground">
           Handed over by {by ?? "someone"}
           {ok && (
-            <> at <time dateTime={d!.toISOString()}>
+            <> at <time dateTime={isoAttr(d)}>
               {d!.toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
             </time></>
           )}

@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn, toDate } from "@/lib/utils";
 /**
  * Says a repeating rule in words — "every 2 weeks on Tuesday and Thursday,
  * until 14 August".
@@ -27,8 +27,8 @@ export function RecurrenceSummary({ freq, interval = 1, days, until, count, clas
     : `Every ${interval} ${freq}s`;
   const on = freq === "week" && days?.length
     ? ` on ${list([...days].sort((a, b) => a - b).map(dayName))}` : "";
-  const end = until && !Number.isNaN(new Date(until).getTime())
-    ? `, until ${new Date(until).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" })}`
+  const end = until && !Number.isNaN(toDate(until).getTime())
+    ? `, until ${toDate(until).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" })}`
     : count != null && count > 0 ? `, ${count} times` : "";
   return <p className={cn("text-sm text-muted-foreground", className)}>{every}{on}{end}</p>;
 }

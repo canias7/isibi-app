@@ -1,7 +1,10 @@
 /** Time-use, media and planning charts. */
 
 const TONE = "var(--foreground)";
-const SHADE = (t: number) => `color-mix(in oklch, var(--foreground) ${Math.round(10 + t * 78)}%, var(--muted))`;
+import { inkOn } from "./_ink";
+
+const SHADE_PCT = (t: number) => Math.round(10 + Math.min(1, Math.max(0, t)) * 78);
+const SHADE = (t: number) => `color-mix(in oklch, var(--foreground) ${SHADE_PCT(t)}%, var(--muted))`;
 
 /* ------------------------------------------------------------------ piano roll */
 /** Notes as bars: pitch up, time across, the C rows ruled. */
@@ -111,7 +114,7 @@ export function DayStrip({
       <div className="relative w-full overflow-hidden rounded-[3px] bg-muted" style={{ height }}>
         {segments.map((s, i) => (
           <div key={`${s.label}-${i}`} className="absolute top-0 bottom-0 flex items-center justify-center overflow-hidden border-r border-background text-[9px]"
-            style={{ left: `${X(s.from)}%`, width: `${X(s.to - s.from)}%`, background: SHADE(s.tone ?? 0.4), color: (s.tone ?? 0.4) > 0.5 ? "var(--background)" : "var(--foreground)" }}
+            style={{ left: `${X(s.from)}%`, width: `${X(s.to - s.from)}%`, background: SHADE(s.tone ?? 0.4), color: inkOn(SHADE_PCT(s.tone ?? 0.4)) }}
             title={`${s.label} ${s.from}:00–${s.to}:00`}>
             <span className="truncate px-1">{s.to - s.from >= 2 ? s.label : ""}</span>
           </div>

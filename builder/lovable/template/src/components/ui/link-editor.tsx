@@ -21,6 +21,11 @@ export function LinkEditor({ href, text, onSave, onRemove, className }: {
   onSave: (v: { href: string; text: string; newTab: boolean }) => void;
   onRemove?: () => void; className?: string;
 }) {
+  // Unique per INSTANCE. These ids were literals, so a page rendering
+  // this component twice — two contact forms, one in a list — gave every
+  // field a duplicate id, and a `<label for>` then focuses the FIRST
+  // match. The second form's labels pointed at the first form's inputs.
+  const uid = React.useId();
   const [url, setUrl] = React.useState(href ?? "");
   const [label, setLabel] = React.useState(text ?? "");
   const [newTab, setNewTab] = React.useState(false);
@@ -31,18 +36,18 @@ export function LinkEditor({ href, text, onSave, onRemove, className }: {
   return (
     <div className={cn("w-72 space-y-3 rounded-md border border-border bg-popover p-3 shadow-md", className)}>
       <div className="space-y-1.5">
-        <Label htmlFor="le-url" className="text-xs">Link to</Label>
-        <Input id="le-url" value={url} placeholder="example.com" aria-invalid={unsafe} className="h-8"
+        <Label htmlFor={uid + "-le-url"} className="text-xs">Link to</Label>
+        <Input id={uid + "-le-url"} value={url} placeholder="example.com" aria-invalid={unsafe} className="h-8"
           onChange={(e) => setUrl(e.target.value)} />
         {unsafe && <p role="alert" className="text-xs text-destructive">That kind of link isn't allowed.</p>}
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor="le-text" className="text-xs">Text</Label>
-        <Input id="le-text" value={label} className="h-8" onChange={(e) => setLabel(e.target.value)} />
+        <Label htmlFor={uid + "-le-text"} className="text-xs">Text</Label>
+        <Input id={uid + "-le-text"} value={label} className="h-8" onChange={(e) => setLabel(e.target.value)} />
       </div>
       <div className="flex items-center gap-2">
-        <Checkbox id="le-tab" checked={newTab} onCheckedChange={(v) => setNewTab(v === true)} />
-        <Label htmlFor="le-tab" className="flex items-center gap-1 text-xs font-normal">
+        <Checkbox id={uid + "-le-tab"} checked={newTab} onCheckedChange={(v) => setNewTab(v === true)} />
+        <Label htmlFor={uid + "-le-tab"} className="flex items-center gap-1 text-xs font-normal">
           Open in a new tab <ExternalLink className="size-3" />
         </Label>
       </div>

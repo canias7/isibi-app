@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState , useId } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 /**
@@ -34,14 +34,19 @@ export function FreeTextFollowup({ score, askFor, prompts, onSubmit, onSkip, pla
   busy?: boolean;
   className?: string;
 }) {
+  // Unique per INSTANCE. These ids were literals, so a page rendering
+  // this component twice — two contact forms, one in a list — gave every
+  // field a duplicate id, and a `<label for>` then focuses the FIRST
+  // match. The second form's labels pointed at the first form's inputs.
+  const uid = useId();
   const [text, setText] = useState("");
   if (score === null || !askFor.includes(score)) return null;
   const question = prompts?.[score] ?? "Would you tell us a bit more?";
   return (
     <form className={cn("space-y-2", className)}
       onSubmit={(e) => { e.preventDefault(); if (text.trim()) onSubmit(text.trim()); }}>
-      <label htmlFor="ftf" className="block text-sm font-medium">{question}</label>
-      <textarea id="ftf" rows={3} value={text} placeholder={placeholder}
+      <label htmlFor={uid + "-ftf"} className="block text-sm font-medium">{question}</label>
+      <textarea id={uid + "-ftf"} rows={3} value={text} placeholder={placeholder}
         onChange={(e) => setText(e.target.value)}
         className="w-full rounded-md border border-input bg-transparent px-2 py-1.5 text-sm" />
       <div className="flex flex-wrap items-center gap-2">

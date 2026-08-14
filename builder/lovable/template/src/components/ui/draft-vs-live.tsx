@@ -41,13 +41,13 @@ export function DraftVsLive({
       <dl className="grid gap-px overflow-hidden rounded-md border border-border bg-border sm:grid-cols-2">
         <div className="bg-background p-3">
           <dt className="text-xs font-medium text-muted-foreground">
-            Live{liveAt ? <> · <time dateTime={new Date(liveAt).toISOString()}><DateFormat date={liveAt} /></time></> : null}
+            Live{liveAt ? <> · <DateFormat date={liveAt} /></> : null}
           </dt>
           <dd className="mt-1 text-sm">{live}</dd>
         </div>
         <div className="bg-background p-3">
           <dt className="text-xs font-medium text-muted-foreground">
-            Draft{draftAt ? <> · <time dateTime={new Date(draftAt).toISOString()}><DateFormat date={draftAt} /></time></> : null}
+            Draft{draftAt ? <> · <DateFormat date={draftAt} /></> : null}
           </dt>
           <dd className="mt-1 text-sm">
             {draft ?? <span className="text-muted-foreground">No unpublished changes</span>}

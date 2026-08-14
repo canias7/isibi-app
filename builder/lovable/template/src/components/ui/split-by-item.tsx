@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, formatMinor } from "@/lib/utils";
 /**
  * Assign each line of a bill to a person, and total per person.
  *
@@ -34,7 +34,7 @@ export function SplitByItem({ lines, people, assignment, onAssign, currency = "G
   currency?: string;
   className?: string;
 }) {
-  const fmt = (m: number) => new Intl.NumberFormat(undefined, { style: "currency", currency }).format(m / 100);
+  const fmt = (m: number) => formatMinor(m, currency);
   const totals: Record<string, number> = Object.fromEntries(people.map((p) => [p.key, 0]));
   let unassigned = 0;
   for (const line of lines) {

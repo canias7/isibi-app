@@ -28,6 +28,13 @@ export function SlottingAbc({
   labourCostPerHour?: number
   className?: string
 }) {
+  // NOTHING TO DRAW IS NOT A CHART OF NOTHING. An empty array made every
+  // scale here degenerate and wrote NaN into an SVG attribute, which the
+  // browser drops — so the chart rendered as a blank box rather than as the
+  // empty state the page around it is showing. `useRows` hands back `[]`
+  // before the query settles and on every site whose owner has added nothing.
+  if (!lines.length) return null
+
   // classify by cumulative pick share rather than trusting the stored label —
   // an ABC field is set once and the demand moves every quarter
   const sorted = [...lines].sort((a, b) => b.picksPerWeek - a.picksPerWeek)

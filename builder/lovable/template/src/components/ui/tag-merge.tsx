@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState , useId } from "react";
 import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/native-select";
 import { cn } from "@/lib/utils";
@@ -31,6 +31,11 @@ export function TagMerge({ tags, onMerge, onCancel, busy, className }: {
   busy?: boolean;
   className?: string;
 }) {
+  // Unique per INSTANCE. These ids were literals, so a page rendering
+  // this component twice — two contact forms, one in a list — gave every
+  // field a duplicate id, and a `<label for>` then focuses the FIRST
+  // match. The second form's labels pointed at the first form's inputs.
+  const uid = useId();
   const [keep, setKeep] = useState(tags[0]?.id ?? "");
   const [remove, setRemove] = useState<string[]>([]);
   const sources = tags.filter((t) => t.id !== keep);
@@ -40,8 +45,8 @@ export function TagMerge({ tags, onMerge, onCancel, busy, className }: {
   return (
     <div className={cn("space-y-3", className)}>
       <div className="space-y-1">
-        <label htmlFor="merge-keep" className="block text-sm font-medium">Keep this one</label>
-        <NativeSelect id="merge-keep" value={keep} onChange={(e) => setKeep(e.target.value)}>
+        <label htmlFor={uid + "-merge-keep"} className="block text-sm font-medium">Keep this one</label>
+        <NativeSelect id={uid + "-merge-keep"} value={keep} onChange={(e) => setKeep(e.target.value)}>
           {tags.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
         </NativeSelect>
       </div>

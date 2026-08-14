@@ -1,3 +1,4 @@
+import { isoAttr, toDate } from "@/lib/utils";
 /**
  * "3 hours ago", in the visitor's own language.
  *
@@ -6,7 +7,7 @@
  * moment is available on hover and to a machine reading the page.
  */
 export function TimeAgo({ date, className }: { date: string | number | Date; className?: string }) {
-  const d = new Date(date);
+  const d = toDate(date);
   if (Number.isNaN(d.getTime())) return null;
   const secs = Math.round((d.getTime() - Date.now()) / 1000);
   const units: [Intl.RelativeTimeFormatUnit, number][] =
@@ -16,5 +17,5 @@ export function TimeAgo({ date, className }: { date: string | number | Date; cla
   for (const [unit, size] of units) {
     if (Math.abs(secs) >= size) { text = rtf.format(Math.round(secs / size), unit); break; }
   }
-  return <time dateTime={d.toISOString()} title={d.toLocaleString()} className={className}>{text}</time>;
+  return <time dateTime={isoAttr(d)} title={d.toLocaleString()} className={className}>{text}</time>;
 }

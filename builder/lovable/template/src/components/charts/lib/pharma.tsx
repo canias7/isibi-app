@@ -9,6 +9,8 @@
  * numbers refuse.
  */
 
+import { inkOn } from "./_ink";
+
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
 
 /* ------------------------------------------------------------------ *
@@ -26,6 +28,13 @@ export function PlasmaConcentration({
   height?: number
   className?: string
 }) {
+  // NOTHING TO DRAW IS NOT A CHART OF NOTHING. An empty array made every
+  // scale here degenerate and wrote NaN into an SVG attribute, which the
+  // browser drops — so the chart rendered as a blank box rather than as the
+  // empty state the page around it is showing. `useRows` hands back `[]`
+  // before the query settles and on every site whose owner has added nothing.
+  if (!points.length) return null
+
   const sorted = [...points].sort((a, b) => a.hours - b.hours)
   const cmax = Math.max(...sorted.map((p) => p.concentration))
   const tmax = sorted.find((p) => p.concentration === cmax)?.hours ?? 0
@@ -212,6 +221,13 @@ export function DoseTitration({
   height?: number
   className?: string
 }) {
+  // NOTHING TO DRAW IS NOT A CHART OF NOTHING. An empty array made every
+  // scale here degenerate and wrote NaN into an SVG attribute, which the
+  // browser drops — so the chart rendered as a blank box rather than as the
+  // empty state the page around it is showing. `useRows` hands back `[]`
+  // before the query settles and on every site whose owner has added nothing.
+  if (!steps.length) return null
+
   const rows = [...steps]
     .sort((a, b) => a.dose - b.dose)
     .map((s) => ({ ...s, response: s.responders / Math.max(1, s.n), harm: s.adverse / Math.max(1, s.n) }))
@@ -343,7 +359,7 @@ export function DrugInteraction({
                         style={{ background: `color-mix(in oklch, currentColor ${LEVEL_FILL[level]}%, transparent)` }}
                         title={hit?.note ?? `${row} × ${col}: ${level}`}
                       >
-                        <span aria-hidden style={{ color: LEVEL_FILL[level] > 45 ? "var(--background)" : undefined }}>
+                        <span aria-hidden style={{ color: inkOn(LEVEL_FILL[level]) }}>
                           {LEVEL_GLYPH[level]}
                         </span>
                         <span className="sr-only">

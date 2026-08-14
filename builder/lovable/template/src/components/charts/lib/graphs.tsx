@@ -1,5 +1,7 @@
 /** Graph and hierarchy layouts, all deterministic. */
 
+import { inkOn } from "./_ink";
+
 const TONE = "var(--foreground)";
 
 /* -------------------------------------------------------------- hive plot */
@@ -127,7 +129,12 @@ export function VoronoiMap({
   width?: number; height?: number; grid?: number; label?: string;
 }) {
   if (!sites.length) return null;
-  const cols = Math.ceil(width / grid), rows = Math.ceil(height / grid);
+  // A `grid` OF ZERO IS `Math.ceil(width / 0)` = Infinity, and the two loops
+  // below then build cells until the process dies. Measured: it took this
+  // harness out with a heap-limit abort. A resolution of nought is meaningless,
+  // so it falls back to the component's own default rather than being drawn.
+  const step = Number.isFinite(grid) && grid > 0 ? grid : 3;
+  const cols = Math.ceil(width / step), rows = Math.ceil(height / step);
   const shade = (i: number) => `color-mix(in oklch, var(--foreground) ${8 + (i % 5) * 15}%, var(--muted))`;
   const cells: { x: number; y: number; s: number }[] = [];
   for (let r = 0; r < rows; r++) {
@@ -198,7 +205,7 @@ export function FlameGraph({
             // grows upward from the entry point at the base.
             bottom: b.d * rowHeight, height: rowHeight - 2,
             background: `color-mix(in oklch, var(--foreground) ${Math.round(78 - b.d * 13)}%, var(--muted))`,
-            color: b.d < 3 ? "var(--background)" : "var(--foreground)",
+            color: inkOn(Math.round(78 - b.d * 13)),
           }}
           title={`${b.name}: ${b.v}`}>
           {b.w > 5 ? b.name : ""}
@@ -288,7 +295,7 @@ export function CoOccurrence({
                       style={{
                         width: cell, height: cell,
                         background: ri === ci ? "var(--muted)" : `color-mix(in oklch, var(--foreground) ${Math.round((v / hi) * 88)}%, var(--muted))`,
-                        color: v / hi > 0.45 && ri !== ci ? "var(--background)" : "var(--muted-foreground)",
+                        color: ri !== ci ? inkOn(Math.round((v / hi) * 92)) : "var(--foreground)",
                       }}
                       title={ri === ci ? r : `${r} + ${c}: ${format(v)}`}>
                       {ri === ci ? "" : format(v)}

@@ -38,7 +38,19 @@ export function MatrixTable({
   className?: string;
 }) {
   const top = React.useMemo(() => {
-    if (max != null) return max;
+    // A `max` OF ZERO IS A REAL CALL, AND IT USED TO PAINT EVERY CELL `NaN`.
+    // The obvious page writes `max={plan.capacity}` or `max={Math.max(...counts)}`,
+    // and both are 0 on a fresh site with nothing in it — then `v / top` is
+    // `0 / 0`, and `Math.min(1, Math.max(0, NaN))` is NaN, because both of those
+    // pass NaN straight through rather than clamping it. What reaches the page is
+    // `color-mix(… NaN%, transparent)`, which the browser drops entirely: the
+    // whole grid renders unshaded and looks like a table nobody filled in.
+    //
+    // The derived branch below already knew this — `m || 1` is the same guard —
+    // so it was one branch protected and the other not. A non-positive or
+    // unreadable `max` falls through to the derivation, which answers with the
+    // real ceiling of the data when there is one and 1 when there is not.
+    if (max != null && Number.isFinite(max) && max > 0) return max;
     let m = 0;
     for (const r of rows) for (const c of columns) {
       const v = value(r, c);

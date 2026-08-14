@@ -10,6 +10,21 @@ const InputOTP = React.forwardRef<
 >(({ className, containerClassName, ...props }, ref) => (
   <OTPInput
     ref={ref}
+    // A NAME AND THE RIGHT AUTOFILL, both defaulted here rather than asked of
+    // every caller.
+    //
+    // The visible boxes are `<div>`s; the real control is ONE input behind them,
+    // and it has no label and no text of its own — so Chromium's accessibility
+    // tree computed no name for it at all, on both components in this kit that
+    // use it. "Edit text, blank" is what a screen reader announces at the moment
+    // somebody is copying a code out of a text message.
+    //
+    // `one-time-code` is what lets iOS and Android offer the code from the SMS
+    // above the keyboard, which is the single thing that makes this control
+    // bearable on a phone. Both are `...props`-overridable, so a caller wanting
+    // "Authenticator code" still says so.
+    aria-label="One-time code"
+    autoComplete="one-time-code"
     containerClassName={cn(
       "flex items-center gap-2 has-[:disabled]:opacity-50",
       containerClassName,
@@ -33,7 +48,14 @@ const InputOTPSlot = React.forwardRef<
   React.ComponentPropsWithoutRef<"div"> & { index: number }
 >(({ index, className, ...props }, ref) => {
   const inputOTPContext = React.useContext(OTPInputContext);
-  const { char, hasFakeCaret, isActive } = inputOTPContext.slots[index];
+  // A SLOT PAST THE END IS AN EMPTY SLOT, not a crash. Destructuring
+  // `slots[index]` directly throws on any index beyond `maxLength` — and
+  // rendering one more `<InputOTPSlot />` than the length allows is the obvious
+  // off-by-one for whoever writes the markup, page gone through the error
+  // boundary rather than one box looking wrong. Upstream shadcn does it the
+  // unguarded way; this is a deliberate divergence.
+  const slot = inputOTPContext?.slots?.[index];
+  const { char, hasFakeCaret, isActive } = slot ?? { char: null, hasFakeCaret: false, isActive: false };
 
   return (
     <div

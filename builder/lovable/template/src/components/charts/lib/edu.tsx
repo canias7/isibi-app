@@ -1,5 +1,7 @@
 /** Teaching: marks, mastery, attendance and what a question actually measured. */
 
+import { inkOn } from "./_ink";
+
 const TONE = "var(--foreground)";
 
 /* ----------------------------------------------------------------- gradebook */
@@ -44,7 +46,7 @@ export function GradebookHeat({
                 <span key={a} className="flex aspect-square items-center justify-center text-[9px]"
                   style={{
                     background: m == null ? "var(--background)" : `color-mix(in oklch, ${TONE} ${Math.round(m * 92)}%, transparent)`,
-                    color: m != null && m > 0.55 ? "var(--background)" : "var(--foreground)",
+                    color: m != null ? inkOn(Math.round(m * 92)) : "var(--foreground)",
                     outline: m == null ? `1px dashed ${TONE}` : undefined, outlineOffset: -1,
                   }} title={`${s} · ${a}`}>
                   {m == null ? "" : Math.round(m * 100)}
@@ -255,7 +257,7 @@ export function CohortProgression({
                   style={{
                     height: `${(v / (totals[yi] || 1)) * 100}%`,
                     background: `color-mix(in oklch, ${TONE} ${Math.round(12 + (bi / Math.max(1, bands.length - 1)) * 80)}%, transparent)`,
-                    color: bi / Math.max(1, bands.length - 1) > 0.55 ? "var(--background)" : "var(--foreground)",
+                    color: inkOn(Math.round(12 + (bi / Math.max(1, bands.length - 1)) * 80)),
                     borderTop: "1px solid var(--background)",
                   }} title={`${years[yi]} · ${bands[bi]}: ${v}`}>
                   {v / (totals[yi] || 1) > 0.08 ? Math.round((v / (totals[yi] || 1)) * 100) + "%" : ""}

@@ -30,12 +30,14 @@ export function DrawerStack({ sheets, onBack, onCloseAll, className }: {
   const start = React.useRef<number | null>(null);
   const top = sheets.length - 1;
 
+  const backRef = React.useRef(onBack);
+  backRef.current = onBack;
   React.useEffect(() => {
     if (sheets.length === 0) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); onBack(); } };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); backRef.current(); } };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [sheets.length, onBack]);
+  }, [sheets.length]);
 
   if (sheets.length === 0) return null;
 
@@ -53,7 +55,7 @@ export function DrawerStack({ sheets, onBack, onCloseAll, className }: {
             zIndex: 41 + i,
             transform: i === top ? `translateY(${drag}px)` : `translateY(${(top - i) * -8}px) scale(${1 - (top - i) * 0.02})`,
           }}
-          className={cn("fixed inset-x-0 bottom-0 flex max-h-[85vh] flex-col rounded-t-2xl border-t border-border bg-background shadow-xl",
+          className={cn("fixed inset-x-0 bottom-0 flex max-h-[85vh] flex-col rounded-t-2xl border-t border-border bg-popover shadow-xl",
             i !== top && "opacity-70", drag === 0 && "transition-transform", className)}
         >
           <button

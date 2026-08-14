@@ -1,7 +1,7 @@
 import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, toDate } from "@/lib/utils";
 /**
  * Pick a week, shown as its date range.
  *
@@ -22,7 +22,7 @@ function isoWeek(d: Date) {
 }
 function mondayOf(year: number, week: number) {
   const jan4 = new Date(Date.UTC(year, 0, 4));
-  const monday = new Date(jan4);
+  const monday = toDate(jan4);
   monday.setUTCDate(jan4.getUTCDate() - ((jan4.getUTCDay() || 7) - 1) + (week - 1) * 7);
   return monday;
 }
@@ -49,7 +49,7 @@ export function WeekPicker({ value, onChange, className }: {
         {weeks.map((w) => {
           const k = `${year}-W${String(w).padStart(2, "0")}`;
           const mon = mondayOf(year, w);
-          const sun = new Date(mon); sun.setUTCDate(mon.getUTCDate() + 6);
+          const sun = toDate(mon); sun.setUTCDate(mon.getUTCDate() + 6);
           return (
             <li key={w}>
               <button type="button" aria-pressed={k === value} onClick={() => onChange(k)}

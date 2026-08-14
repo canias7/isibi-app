@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, divide } from "@/lib/utils";
 /**
  * A ring emptying toward a moment — "starts in 4:32".
  *
@@ -37,12 +37,14 @@ export function CountdownRing({ to, total, label, onDone, className }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [left <= 36e5, left <= 864e5, left <= 0]);
 
+  const doneRef = React.useRef(onDone);
+  doneRef.current = onDone;
   React.useEffect(() => {
-    if (left <= 0 && !doneFired.current) { doneFired.current = true; onDone?.(); }
-  }, [left, onDone]);
+    if (left <= 0 && !doneFired.current) { doneFired.current = true; doneRef.current?.(); }
+  }, [left]);
 
   const span = total ?? Math.max(1, to.getTime() - mounted.current);
-  const frac = Math.min(1, Math.max(0, left / span));
+  const frac = Math.min(1, Math.max(0, divide(left, span)));
   const r = 15.9, c = 2 * Math.PI * r;
   const words = left <= 0 ? "now"
     : left <= 36e5 ? `${String(Math.floor(left / 6e4)).padStart(2, "0")}:${String(Math.floor((left % 6e4) / 1000)).padStart(2, "0")}`

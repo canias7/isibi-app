@@ -24,6 +24,13 @@ export function SpeciesAccumulation({
   height?: number
   className?: string
 }) {
+  // NOTHING TO DRAW IS NOT A CHART OF NOTHING. An empty array made every
+  // scale here degenerate and wrote NaN into an SVG attribute, which the
+  // browser drops — so the chart rendered as a blank box rather than as the
+  // empty state the page around it is showing. `useRows` hands back `[]`
+  // before the query settles and on every site whose owner has added nothing.
+  if (!samples.length) return null
+
   const n = samples.length
   const observed = samples[n - 1] ?? 0
 
@@ -381,6 +388,13 @@ export function Rarefaction({
   height?: number
   className?: string
 }) {
+  // NOTHING TO DRAW IS NOT A CHART OF NOTHING. An empty array made every
+  // scale here degenerate and wrote NaN into an SVG attribute, which the
+  // browser drops — so the chart rendered as a blank box rather than as the
+  // empty state the page around it is showing. `useRows` hands back `[]`
+  // before the query settles and on every site whose owner has added nothing.
+  if (!abundances.length) return null
+
   const N = abundances.reduce((a, v) => a + v, 0)
   // E[S_n] = S − Σ_i C(N−N_i, n) / C(N, n), computed in log space for stability
   const lnFact: number[] = [0]

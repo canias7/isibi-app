@@ -53,6 +53,15 @@ function shortType(t) {
   // characters, against ~9,000 tokens for the entire shortlist, and it rides in
   // the cached block.
   if (/^(?:"[^"]*"\s*\|\s*)+"[^"]*"$/.test(s)) return s;
+  // A union that MIXES literals with a shape is the same contract as either
+  // half and was being cut at the join. `source-label` resolved to
+  // `"owner" | "member" | "imported" | "ai" | { label: string; meaning?: string }`
+  // and printed as `"owner" | "member" | "imported" | "ai" | { …` — so the
+  // alternative that is NOT one of the four words, the one a caller reaches for
+  // precisely when none of them fits, was the part hidden. Bounded like the
+  // object rule rather than kept without limit, since only one member has to be
+  // a literal to land here.
+  if (/"[^"]*"\s*\|/.test(s) && s.length <= 200) return s;
   if (s.length <= 46) return s;
   // AN INLINE OBJECT LITERAL IS THE SAME CONTRACT AS A STRING UNION, and it was
   // being collapsed for the same reason the union used to be truncated: it
@@ -105,6 +114,92 @@ function keysOnly(s) {
   return keys.length ? `{ ${keys.join("; ")} }${arr ? "[]" : ""}` : (arr ? "object[]" : "object");
 }
 
+/**
+ * The literal keys of a module-private `const X = { … }`, as a union.
+ *
+ * DELIBERATELY ONLY THE UNANNOTATED FORM. `const X = {…}` is what makes
+ * TypeScript infer literal keys; `const X: Record<string, T> = {…}` has
+ * `keyof` of `string`, so listing its keys would tell the model that the
+ * twenty it happens to hold are the only ones allowed when in fact any string
+ * is. `care-icons` is that case — narrowing it would be a worse lie than the
+ * unresolved name, and this regex declines it by construction.
+ */
+function constKeyUnion(source, name) {
+  const m = new RegExp("\\bconst\\s+" + name + "\\s*=\\s*\\{").exec(source);
+  if (!m) return null;
+  const body = block(source, m.index + m[0].length - 1);
+  if (body == null) return null;
+  const keys = [];
+  for (const part of splitTop(tidy(body), ",")) {
+    const colon = part.indexOf(":");
+    if (colon <= 0) continue;
+    let k = part.slice(0, colon).trim();
+    if (/^["'].*["']$/.test(k)) k = k.slice(1, -1);
+    if (!/^[A-Za-z0-9_-]+$/.test(k)) continue;
+    keys.push('"' + k + '"');
+  }
+  return keys.length ? keys.join(" | ") : null;
+}
+
+/**
+ * A `type X = "a" | "b"` alias, but ONLY when every member is a string literal.
+ *
+ * The body is put through the keyof resolution FIRST, because the alias is
+ * routinely a name for one: `tag-scope` declares
+ * `export type TagScopeValue = keyof typeof SCOPES`, which is two hops from
+ * anything the model can read and was the last of the nine still opaque after
+ * the direct case was fixed.
+ */
+function aliasUnion(source, name) {
+  const m = new RegExp("\\btype\\s+" + name + "\\s*=\\s*([^;\\n]+)").exec(source);
+  if (!m) return null;
+  const body = resolveKeyof(tidy(m[1]), source);
+  return /^(?:"[^"]*"\s*\|\s*)+"[^"]*"$/.test(body) ? body : null;
+}
+
+/** `keyof typeof X` -> the literal keys of X, wherever it appears in a type. */
+function resolveKeyof(text, source) {
+  return text.replace(/keyof typeof (\w+)/g, (whole, name) =>
+    constKeyUnion(source, name) || whole);
+}
+
+/**
+ * Resolve the names that exist only INSIDE the component file.
+ *
+ * THIS IS THE THIRD TIME THIS FILE HAS LEARNED THE SAME LESSON, and the two
+ * comments in `shortType` are the first two: a union of string literals is
+ * never truncated, an inline object shape is never collapsed, because those
+ * values ARE the contract and a caller has to write one of them exactly.
+ * `keyof typeof MODELS` is the same failure wearing a name — worse, in fact,
+ * because it does not merely hide the values, it names a symbol the model has
+ * no way to look up. `MODELS` is a module-private const; the page generator is
+ * handed the signature and nothing else.
+ *
+ * Measured 2026-08-12: nine components shipped one, and the guesses a model
+ * makes from the prop name are exactly the ones TypeScript refuses —
+ * `AttributionNote model="last_click"` against `"last-click"` is TS2820, and
+ * `LawfulBasisNote basis="legitimate-interest"` against `"legitimate"` is
+ * TS2322. Neither is a runtime bug: the page fails to COMPILE, so it is stubbed
+ * and the customer is billed for the build that produced it.
+ *
+ * A string-literal ALIAS goes the same way. `extractTypes` drops one on the
+ * stated grounds that "a union of other names or a bare alias says nothing the
+ * signature did not" — true of a union of NAMES and false of a union of
+ * LITERALS, which says all of it. `tag-scope` was the instance.
+ *
+ * Resolved here rather than in `shortType` because only this function holds the
+ * source, and it runs BEFORE it so the union lands under the never-truncate
+ * rule that already exists.
+ */
+function resolveLocalNames(type, source) {
+  const out = resolveKeyof(tidy(type), source);
+  // Safe to sweep every capitalised name: `aliasUnion` answers null for
+  // anything that is not a local string-literal union, so `React`, `Date` and
+  // every exported shape in COMPONENT_TYPES pass through untouched.
+  return out.replace(/\b([A-Z][A-Za-z0-9]*)\b/g, (whole, name) =>
+    aliasUnion(source, name) || whole);
+}
+
 export function extract(source) {
   const out = [];
   // export function Name({ a, b = 1 }: { a: T; b?: U }) {
@@ -155,9 +250,21 @@ export function extract(source) {
       if (key === "className") continue;
       const optional = nameRaw.endsWith("?");
       const d = defaults.get(key);
-      props.push(`${key}${optional ? "?" : ""}: ${shortType(part.slice(colon + 1))}${d ? ` = ${tidy(d)}` : ""}`);
+      props.push(`${key}${optional ? "?" : ""}: ${shortType(resolveLocalNames(part.slice(colon + 1), source))}${d ? ` = ${tidy(d)}` : ""}`);
     }
-    if (props.length) out.push({ name: m[1], props });
+    // RECORDED EVEN WITH NO PROPS. A component whose only prop is `className`
+    // ends up here with an empty list — `className` is dropped on purpose,
+    // stated once in the rules instead of 2,000 times — and skipping it removed
+    // the component from `COMPONENT_API` ALTOGETHER. Two consequences, both
+    // silent: `UI_EXPORTS` never learned its export name, so the import lint
+    // skips it; and the prompt's naming rule ("the export is the file name in
+    // PascalCase, exactly") is then the only thing the model has, and it is
+    // WRONG for `high-contrast` (`HighContrastToggle`) and `reduce-motion`
+    // (`ReduceMotionToggle`). TS2305, page refused, site the placeholder.
+    //
+    // A name with no props is still worth its four tokens: it says the
+    // component exists, what it is called, and that it takes nothing.
+    out.push({ name: m[1], props });
   }
   return out;
 }
@@ -233,7 +340,7 @@ export function buildTypes() {
  * component in the kit has one. A guard that can only see today's files is not
  * guarding the rule, it is restating the kit.
  */
-export function extractTypes(src) {
+export function extractTypes(src, { exported = true } = {}) {
   const out = {};
   // A GENERIC TYPE PARAMETER DEFEATED THIS TOO — the third time in one session
   // that a regex written for the non-generic case silently skipped the thing
@@ -245,13 +352,33 @@ export function extractTypes(src) {
   //
   // `[^<>]` with one nested level, not `[^=]`: a default like `<T = Row>`
   // contains an `=` and would end the match in the wrong place.
-  for (const m of src.matchAll(/export type ([A-Z][A-Za-z0-9]*)(?:<(?:[^<>]|<[^<>]*>)*>)?\s*=\s*/g)) {
+  // `exported` is for a caller that has to CONSTRUCT a value of the type rather
+  // than describe it to a model: a local `type PlanNode = {…}` is not worth
+  // prompt tokens, and is exactly what `test/integration/kit-harness.mjs` needs
+  // to synthesise the prop it names. Default unchanged, so the generated file is
+  // byte-identical.
+  const decl = exported ? /export type ([A-Z][A-Za-z0-9]*)(?:<(?:[^<>]|<[^<>]*>)*>)?\s*=\s*/g
+    : /(?:export )?type ([A-Z][A-Za-z0-9]*)(?:<(?:[^<>]|<[^<>]*>)*>)?\s*=\s*/g;
+  for (const m of src.matchAll(decl)) {
     const name = m[1];
     let i = m.index + m[0].length, depth = 0, end = -1;
     for (; i < src.length; i++) {
       const c = src[i];
       if (c === "{") depth++;
-      else if (c === "}") { depth--; if (depth === 0) { end = i + 1; break; } }
+      else if (c === "}") {
+        depth--;
+        if (depth === 0) {
+          end = i + 1;
+          // THE TRAILING `[]` IS PART OF THE TYPE. Stopping at the closing brace
+          // turned `export type QuoteFiles = { name: string; size: number }[]`
+          // into the OBJECT, so the model was told a list was a single item and
+          // wrote `files: { name, size }` where the prop wants an array — a type
+          // error, page refused, whole site the placeholder.
+          while (end < src.length && /\s/.test(src[end])) end++;
+          while (src.startsWith("[]", end)) { end += 2; while (end < src.length && /\s/.test(src[end])) end++; }
+          break;
+        }
+      }
       else if (c === ";" && depth === 0) { end = i; break; }
       else if (c === "\n" && depth === 0 && src[i + 1] === "\n") { end = i; break; }
     }
@@ -259,7 +386,16 @@ export function extractTypes(src) {
     const body = tidy(src.slice(m.index + m[0].length, end));
     // A union of other names or a bare alias says nothing the signature did
     // not; only a shape is worth the tokens.
-    if (!body.startsWith("{") || body.length > 400) continue;
+    //
+    // AN ALIAS TO A LIST OF ANOTHER SHAPE IS THE EXCEPTION, because it says the
+    // one thing the signature cannot: how MANY. `WorkingHours(week: WeekHours)`
+    // with `WeekHours = DaySpans[]` left the model reading a name whose body was
+    // recorded nowhere, so it had to guess whether a week is one day's spans or
+    // seven — and this component's whole contract is that index 0 is Sunday.
+    // Same class as `Column<T>` stopping at a name, which cost eight compile
+    // errors in one sample.
+    const listAlias = /^[A-Z][A-Za-z0-9]*\[\]$/.test(body);
+    if ((!body.startsWith("{") && !listAlias) || body.length > 400) continue;
     out[name] = body;
   }
   return out;

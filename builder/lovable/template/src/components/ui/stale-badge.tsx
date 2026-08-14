@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, toDate } from "@/lib/utils";
 /**
  * "As of 11:40" — data that is being shown from an earlier fetch.
  *
@@ -33,11 +33,11 @@ export function StaleBadge({ asOf, staleAfter = 300, onRefresh, className }: {
 
   const mins = Math.round(age / 60);
   const label = mins < 60 ? `${mins} min ago` : `${Math.round(mins / 60)} h ago`;
-  const iso = new Date(at).toISOString();
+  const iso = toDate(at).toISOString();
 
   return (
     <span role="status" className={cn("inline-flex items-center gap-1.5 text-xs text-muted-foreground", className)}>
-      as of <time dateTime={iso} title={new Date(at).toLocaleString()}>{label}</time>
+      as of <time dateTime={iso} title={toDate(at).toLocaleString()}>{label}</time>
       {onRefresh ? (
         <button type="button" onClick={onRefresh}
           className="cursor-pointer underline underline-offset-2 hover:text-foreground">refresh</button>

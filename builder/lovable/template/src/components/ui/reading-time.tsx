@@ -1,5 +1,5 @@
 import { Clock } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, divide } from "@/lib/utils";
 /**
  * How long it takes to read.
  *
@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 export function ReadingTime({ words, wpm = 200, showIcon = true, className }: {
   words: number; wpm?: number; showIcon?: boolean; className?: string;
 }) {
-  const mins = Math.max(1, Math.round(words / wpm));
+  const mins = Math.max(1, Math.round(divide(words, wpm)));
   return (
     <span className={cn("inline-flex items-center gap-1.5 text-sm text-muted-foreground", className)}>
       {showIcon && <Clock className="size-3.5" />}{mins} min read

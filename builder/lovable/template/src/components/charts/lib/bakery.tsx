@@ -455,6 +455,13 @@ export function StalingCurve({
   height?: number
   className?: string
 }) {
+  // NOTHING TO DRAW IS NOT A CHART OF NOTHING. An empty array made every
+  // scale here degenerate and wrote NaN into an SVG attribute, which the
+  // browser drops — so the chart rendered as a blank box rather than as the
+  // empty state the page around it is showing. `useRows` hands back `[]`
+  // before the query settles and on every site whose owner has added nothing.
+  if (!products.length) return null
+
   const rows = products.map((p) => {
     const pts = [...p.firmness].sort((a, b) => a.day - b.day)
     let crossed: number | null = null

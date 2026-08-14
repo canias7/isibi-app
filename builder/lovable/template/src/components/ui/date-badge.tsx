@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn, toDate } from "@/lib/utils";
 /**
  * The calendar-tile date — big day over small month.
  *
@@ -12,7 +12,11 @@ import { cn } from "@/lib/utils";
 export function DateBadge({ date, size = "md", className }: {
   date: string | number | Date; size?: "sm" | "md" | "lg"; className?: string;
 }) {
-  const d = new Date(date);
+  // `toDate`, not `new Date`: every getter below is a LOCAL one, and a bare
+  // `YYYY-MM-DD` parses as UTC midnight, so west of Greenwich this badge showed
+  // the previous day — and put that day in `dateTime` too, which is the half a
+  // crawler reads.
+  const d = toDate(date);
   if (Number.isNaN(d.getTime())) return null;
   const box = { sm: "size-12", md: "size-16", lg: "size-20" }[size];
   const num = { sm: "text-base", md: "text-2xl", lg: "text-3xl" }[size];

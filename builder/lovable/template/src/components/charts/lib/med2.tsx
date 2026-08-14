@@ -1,5 +1,7 @@
 /** Clinical charts — the ones drawn on paper in a consulting room. */
 
+import { inkOn } from "./_ink";
+
 const TONE = "var(--foreground)";
 
 /* --------------------------------------------------------------- pedigree */
@@ -163,7 +165,7 @@ export function VisualField({
               <rect x={px(p.x) - 3.2} y={py(p.y) - 3.2} width={6.4} height={6.4} rx={0.6}
                 fill={TONE} fillOpacity={k * 0.95} />
               <text x={px(p.x)} y={py(p.y) + 1.6} fontSize={3.2} textAnchor="middle"
-                fill={k > 0.5 ? "var(--background)" : "var(--foreground)"}>{p.db}</text>
+                fill={inkOn(Math.round(k * 92))}>{p.db}</text>
             </g>
           );
         })}

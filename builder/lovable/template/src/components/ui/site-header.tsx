@@ -42,20 +42,29 @@ export function SiteLink({
   className?: string;
   children: React.ReactNode;
 }) {
-  const internal = href.startsWith("/") && !href.startsWith("//");
+  // `href` IS REQUIRED AND CAN STILL ARRIVE EMPTY, which is why this reads it
+  // defensively. `Row` carries an index signature, so a page building nav from
+  // database rows — `links={rows.map((r) => ({ label: r.name, href: r.slug }))}`
+  // — passes `undefined` for a column the owner has not filled in, and still
+  // typechecks. Undefended, `href.startsWith` throws during render, and this
+  // component is in the header AND the footer of every generated page: one
+  // empty slug takes the whole site down through the error boundary, not just
+  // the link.
+  const to = typeof href === "string" ? href : "";
+  const internal = to.startsWith("/") && !to.startsWith("//");
   if (internal) {
     return (
-      <Link to={href} className={className}>
+      <Link to={to} className={className}>
         {children}
       </Link>
     );
   }
   // `rel="noreferrer"` on anything leaving the site: without it the page we
   // open can reach back through `window.opener`.
-  const offsite = /^[a-z][a-z0-9+.-]*:/i.test(href) && !/^(mailto|tel):/i.test(href);
+  const offsite = /^[a-z][a-z0-9+.-]*:/i.test(to) && !/^(mailto|tel):/i.test(to);
   return (
     <a
-      href={href}
+      href={to}
       className={className}
       {...(offsite ? { target: "_blank", rel: "noreferrer" } : {})}
     >

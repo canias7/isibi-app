@@ -377,6 +377,13 @@ export function InverterClipping({
   height?: number
   className?: string
 }) {
+  // NOTHING TO DRAW IS NOT A CHART OF NOTHING. An empty array made every
+  // scale here degenerate and wrote NaN into an SVG attribute, which the
+  // browser drops — so the chart rendered as a blank box rather than as the
+  // empty state the page around it is showing. `useRows` hands back `[]`
+  // before the query settles and on every site whose owner has added nothing.
+  if (!hours.length) return null
+
   const rows = hours.map((h) => ({ ...h, ac: Math.min(h.dcKw, inverterKw), clipped: Math.max(0, h.dcKw - inverterKw) }))
   const dcTotal = rows.reduce((a, r) => a + r.dcKw, 0)
   const clipped = rows.reduce((a, r) => a + r.clipped, 0)
@@ -462,6 +469,13 @@ export function TiltYield({
   roof?: { tilt: number; azimuth: number }
   className?: string
 }) {
+  // NOTHING TO DRAW IS NOT A CHART OF NOTHING. An empty array made every
+  // scale here degenerate and wrote NaN into an SVG attribute, which the
+  // browser drops — so the chart rendered as a blank box rather than as the
+  // empty state the page around it is showing. `useRows` hands back `[]`
+  // before the query settles and on every site whose owner has added nothing.
+  if (!tilts.length || !azimuths.length || !yields.length) return null
+
   const flat = yields.flat()
   const best = Math.max(...flat)
   const bestIdx = flat.indexOf(best)

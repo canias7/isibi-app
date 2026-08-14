@@ -1,6 +1,6 @@
 import { DateFormat } from "@/components/ui/date-format";
 import { X } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, toDate } from "@/lib/utils";
 /**
  * Days nothing can be booked on — holidays, a deep clean, someone away.
  *
@@ -17,7 +17,7 @@ export function BlackoutDates({ dates, onRemove, empty = "No dates blocked.", cl
   empty?: string; className?: string;
 }) {
   const days = dates
-    .map((d) => new Date(d))
+    .map((d) => toDate(d))
     .filter((d) => !Number.isNaN(d.getTime()))
     .map((d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()))
     .sort((a, b) => +a - +b);

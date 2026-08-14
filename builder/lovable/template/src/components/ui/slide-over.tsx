@@ -40,20 +40,22 @@ export function SlideOver({ open, onClose, title, description, children, footer,
   const panel = React.useRef<HTMLDivElement>(null);
   const opener = React.useRef<HTMLElement | null>(null);
 
+  const closeRef = React.useRef(onClose);
+  closeRef.current = onClose;
   React.useEffect(() => {
     if (!open) return;
     opener.current = document.activeElement as HTMLElement | null;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     panel.current?.querySelector<HTMLElement>("button, a, input, select, textarea, [tabindex]")?.focus();
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeRef.current(); };
     document.addEventListener("keydown", onKey);
     return () => {
       document.body.style.overflow = prev;
       document.removeEventListener("keydown", onKey);
       opener.current?.focus();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 
@@ -67,7 +69,7 @@ export function SlideOver({ open, onClose, title, description, children, footer,
         aria-modal="true"
         aria-label={typeof title === "string" ? title : undefined}
         className={cn(
-          "absolute flex flex-col border-border bg-background shadow-xl",
+          "absolute flex flex-col border-border bg-popover shadow-xl",
           // A drawer on a phone is a bottom sheet; a 28rem panel is the whole screen.
           "inset-x-0 bottom-0 max-h-[85vh] rounded-t-2xl border-t",
           "sm:inset-x-auto sm:inset-y-0 sm:max-h-none sm:w-[28rem] sm:max-w-[calc(100vw-3rem)] sm:rounded-none sm:border-t-0",

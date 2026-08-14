@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn, divide } from "@/lib/utils";
 /**
  * Choose an image shape — square, portrait, widescreen.
  *
@@ -26,7 +26,7 @@ export function AspectPicker({ value, onChange, options = RATIOS, className }: {
   return (
     <div className={cn("flex flex-wrap gap-2", className)} role="group" aria-label="Aspect ratio">
       {options.map((o) => {
-        const scale = Math.sqrt(area / (o.w * o.h));
+        const scale = Math.sqrt(divide(area, o.w * o.h));
         return (
           <button key={o.value} type="button" aria-pressed={o.value === value} onClick={() => onChange(o.value)}
             className={cn("flex w-20 cursor-pointer flex-col items-center gap-1.5 rounded-md border p-2",

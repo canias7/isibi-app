@@ -1,7 +1,10 @@
 /** Time-and-sequence charts with no recharts equivalent. */
 
 const TONE = "var(--foreground)";
-const RAMP = (i: number, of = 4) => `color-mix(in oklch, var(--foreground) ${12 + (i / of) * 78}%, var(--muted))`;
+import { inkOn } from "./_ink";
+
+const RAMP_PCT = (i: number, of = 4) => 12 + (i / of) * 78;
+const RAMP = (i: number, of = 4) => `color-mix(in oklch, var(--foreground) ${RAMP_PCT(i, of)}%, var(--muted))`;
 
 /* ----------------------------------------------------------------- horizon */
 /**
@@ -142,7 +145,7 @@ export function CohortGrid({
                         // Flips at 0.35, not 0.55. RAMP is already ~40% ink at
                         // that point, and muted-foreground on a mid grey is
                         // unreadable — measured: the 45% cells came out blank.
-                        color: pct > 0.35 ? "var(--background)" : "var(--foreground)",
+                        color: inkOn(RAMP_PCT(pct * 4, 4)),
                       }}
                       title={`${c.label} · M${i}: ${Math.round(pct * 100)}%`}>
                       {Math.round(pct * 100)}%

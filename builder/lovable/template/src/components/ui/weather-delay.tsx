@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn, toDate } from "@/lib/utils";
 /**
  * Weather that stopped work — recorded as a claim, not a complaint.
  *
@@ -32,7 +32,7 @@ export function WeatherDelay({ date, condition, measured, stopped = [], hoursLos
   claimReference?: string;
   className?: string;
 }) {
-  const d = new Date(date);
+  const d = toDate(date);
   const ok = !Number.isNaN(d.getTime());
   return (
     <li className={cn("space-y-0.5 px-3 py-2 text-sm", className)}>

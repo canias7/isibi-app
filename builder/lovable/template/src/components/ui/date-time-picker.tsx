@@ -30,6 +30,11 @@ export function DateTimePicker({
   timeLabel?: string;
   className?: string;
 }) {
+  // Unique per INSTANCE. These ids were literals, so a page rendering
+  // this component twice — two contact forms, one in a list — gave every
+  // field a duplicate id, and a `<label for>` then focuses the FIRST
+  // match. The second form's labels pointed at the first form's inputs.
+  const uid = React.useId();
   const selected = date ? new Date(date + "T00:00:00") : undefined;
   const floor = minDate ?? new Date(new Date().setHours(0, 0, 0, 0));
   return (
@@ -51,8 +56,8 @@ export function DateTimePicker({
         </Popover>
       </div>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="dtp-time">{timeLabel}</Label>
-        <Input id="dtp-time" type="time" value={time ?? ""} onChange={(e) => onTimeChange(e.target.value)} />
+        <Label htmlFor={uid + "-dtp-time"}>{timeLabel}</Label>
+        <Input id={uid + "-dtp-time"} type="time" value={time ?? ""} onChange={(e) => onTimeChange(e.target.value)} />
       </div>
     </div>
   );

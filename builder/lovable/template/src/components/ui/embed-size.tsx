@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { NativeSelect } from "@/components/ui/native-select";
 import { cn } from "@/lib/utils";
 /**
@@ -28,11 +29,16 @@ export function EmbedSize({ mode, onModeChange, height, onHeightChange, minHeigh
   minHeight?: number;
   className?: string;
 }) {
+  // Unique per INSTANCE. These ids were literals, so a page rendering
+  // this component twice — two contact forms, one in a list — gave every
+  // field a duplicate id, and a `<label for>` then focuses the FIRST
+  // match. The second form's labels pointed at the first form's inputs.
+  const uid = useId();
   return (
     <div className={cn("space-y-2", className)}>
       <div className="space-y-1">
-        <label htmlFor="es-mode" className="block text-sm font-medium">Height</label>
-        <NativeSelect id="es-mode" value={mode} className="w-auto"
+        <label htmlFor={uid + "-es-mode"} className="block text-sm font-medium">Height</label>
+        <NativeSelect id={uid + "-es-mode"} value={mode} className="w-auto"
           onChange={(e) => onModeChange(e.target.value as "auto" | "fixed")}>
           <option value="auto">Grows to fit the content</option>
           <option value="fixed">A fixed height</option>
@@ -40,8 +46,8 @@ export function EmbedSize({ mode, onModeChange, height, onHeightChange, minHeigh
       </div>
       {mode === "fixed" && (
         <div className="space-y-1">
-          <label htmlFor="es-height" className="block text-sm font-medium">Pixels</label>
-          <input id="es-height" type="number" inputMode="numeric" min={minHeight} value={height}
+          <label htmlFor={uid + "-es-height"} className="block text-sm font-medium">Pixels</label>
+          <input id={uid + "-es-height"} type="number" inputMode="numeric" min={minHeight} value={height}
             onChange={(e) => onHeightChange(Number(e.target.value))}
             className="h-9 w-28 rounded-md border border-input bg-transparent px-2 text-sm tabular-nums" />
           <p className="text-xs text-muted-foreground">

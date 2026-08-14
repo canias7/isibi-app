@@ -22,7 +22,8 @@ export function SeatUsage({ used, total, onAdd, className }: {
         </p>
         {onAdd && <Button size="sm" variant="outline" onClick={onAdd}>Add seats</Button>}
       </div>
-      <Progress value={Math.min(100, pct)} className="h-1.5" />
+      <Progress value={Math.min(100, pct)} className="h-1.5"
+        aria-label={`Seats: ${used.toLocaleString()} of ${total.toLocaleString()} used`} />
       {over && <p className="text-xs text-destructive">Over the limit — {(used - total).toLocaleString()} more than this plan allows.</p>}
     </div>
   );

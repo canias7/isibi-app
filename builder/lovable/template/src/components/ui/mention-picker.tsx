@@ -23,17 +23,18 @@ export function MentionPicker({ people, query, activeIndex = 0, onPick, classNam
     <ul role="listbox" aria-label="People"
       className={cn("max-h-56 overflow-y-auto rounded-md border border-border bg-popover py-1 shadow-md", className)}>
       {people.map((p, i) => (
-        <li key={p.id} role="option" aria-selected={i === activeIndex}>
-          <button type="button"
-            onMouseDown={(e) => { e.preventDefault(); onPick(p); }}
-            className={cn("flex w-full cursor-pointer items-center gap-2 px-2 py-1.5 text-left",
-              i === activeIndex ? "bg-muted" : "hover:bg-muted/60")}>
-            <AvatarName name={p.name} src={p.avatar} size="sm" avatarOnly />
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm"><HighlightMatch text={p.name} query={query ?? ""} /></span>
-              {p.role && <span className="block truncate text-xs text-muted-foreground">{p.role}</span>}
-            </span>
-          </button>
+        // The option IS the clickable element — a focusable control inside a
+        // `role="option"` is not allowed, and makes Tab walk into the popup
+        // rather than leaving focus on the editor the caller is driving.
+        <li key={p.id} role="option" aria-selected={i === activeIndex}
+          onMouseDown={(e) => { e.preventDefault(); onPick(p); }}
+          className={cn("flex cursor-pointer items-center gap-2 px-2 py-1.5 text-left",
+            i === activeIndex ? "bg-muted" : "hover:bg-muted/60")}>
+          <AvatarName name={p.name} src={p.avatar} size="sm" avatarOnly />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm"><HighlightMatch text={p.name} query={query ?? ""} /></span>
+            {p.role && <span className="block truncate text-xs text-muted-foreground">{p.role}</span>}
+          </span>
         </li>
       ))}
     </ul>

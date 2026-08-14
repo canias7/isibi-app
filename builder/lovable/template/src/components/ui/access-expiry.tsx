@@ -33,7 +33,7 @@ export function AccessExpiry({ at, soonWithinDays = 7, onExtend, className }: {
     <p className={cn("flex flex-wrap items-center gap-x-2 text-xs", expired || soon ? "font-medium" : "text-muted-foreground", className)}>
       <span>
         {expired ? "Access ended " : "Access ends "}
-        <time dateTime={new Date(t).toISOString()}><DateFormat date={t} /></time>
+        <DateFormat date={t} />
       </span>
       {onExtend && (
         <button type="button" onClick={onExtend} className="cursor-pointer underline underline-offset-2">Extend</button>

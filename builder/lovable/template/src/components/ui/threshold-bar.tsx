@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, divide } from "@/lib/utils";
 /**
  * A value against the line where something happens — free postage, an
  * overdraft, a rate limit.
@@ -31,7 +31,7 @@ export function ThresholdBar({ value, threshold, consequence, goodWhenOver = tru
 }) {
   const fmt = format ?? ((n: number) => n.toLocaleString());
   const top = max ?? Math.max(threshold * 1.25, value);
-  const at = (n: number) => Math.max(0, Math.min(100, (n / top) * 100));
+  const at = (n: number) => Math.max(0, Math.min(100, divide(n, top) * 100));
   const over = value >= threshold;
   const away = threshold - value;
 

@@ -31,7 +31,7 @@ export function AggregatePicker({ columns, fn, column, onChange, className }: {
   const needsColumn = AGGREGATES.find((a) => a.key === fn)?.needsColumn ?? true;
   return (
     <div className={cn("flex flex-wrap items-center gap-1.5", className)}>
-      <select value={fn}
+      <select value={fn} aria-label="Calculation"
         onChange={(e) => {
           const nf = e.target.value;
           const needs = AGGREGATES.find((a) => a.key === nf)?.needsColumn;
@@ -41,7 +41,7 @@ export function AggregatePicker({ columns, fn, column, onChange, className }: {
         {AGGREGATES.map((a) => <option key={a.key} value={a.key}>{a.label}</option>)}
       </select>
       <span className="text-xs text-muted-foreground">of</span>
-      <select value={needsColumn ? (column ?? "") : ""} disabled={!needsColumn}
+      <select value={needsColumn ? (column ?? "") : ""} disabled={!needsColumn} aria-label="Column"
         onChange={(e) => onChange({ fn, column: e.target.value })}
         className="h-7 cursor-pointer rounded-md border border-input bg-background px-1.5 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:text-muted-foreground">
         {!needsColumn ? <option value="">every row</option> : null}

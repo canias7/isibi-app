@@ -22,6 +22,8 @@ import { cn } from "@/lib/utils";
  * reads twice.
  */
 export function useShortcutSheet(onOpen: () => void, key = "?") {
+  const openRef = React.useRef(onOpen);
+  openRef.current = onOpen;
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== key || e.metaKey || e.ctrlKey || e.altKey) return;
@@ -29,11 +31,11 @@ export function useShortcutSheet(onOpen: () => void, key = "?") {
       const el = e.target as HTMLElement | null;
       if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
       e.preventDefault();
-      onOpen();
+      openRef.current();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [onOpen, key]);
+  }, [key]);
 }
 
 const MAC_GLYPH: Record<string, string> = { mod: "⌘", alt: "⌥", shift: "⇧", enter: "↵", esc: "esc" };
@@ -66,12 +68,14 @@ export function ShortcutOverlay({ open, onClose, groups, className }: {
   groups: { key: string; title: React.ReactNode; shortcuts: { keys: string[]; label: React.ReactNode }[] }[];
   className?: string;
 }) {
+  const closeRef = React.useRef(onClose);
+  closeRef.current = onClose;
   React.useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeRef.current(); };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
   return (
@@ -79,7 +83,7 @@ export function ShortcutOverlay({ open, onClose, groups, className }: {
       <button type="button" onClick={onClose} aria-label="Close"
         className="absolute inset-0 cursor-default bg-foreground/50" />
       <div role="dialog" aria-modal="true" aria-label="Keyboard shortcuts"
-        className={cn("relative flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden rounded-xl border border-border bg-background shadow-xl", className)}>
+        className={cn("relative flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden rounded-xl border border-border bg-popover shadow-xl", className)}>
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <h2 className="text-base font-semibold">Keyboard shortcuts</h2>
           <button type="button" onClick={onClose} aria-label="Close"

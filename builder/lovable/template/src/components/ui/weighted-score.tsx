@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, divide } from "@/lib/utils";
 /**
  * A total where the criteria carry different weights.
  *
@@ -35,7 +35,7 @@ export function WeightedScore({ criteria, scale = 5, className }: {
       <ul className="flex flex-col gap-1.5">
         {criteria.map((c) => {
           const share = totalWeight > 0 ? Math.max(0, c.weight) / totalWeight : 0;
-          const contribution = typeof c.score === "number" ? (c.score / scale) * share : null;
+          const contribution = typeof c.score === "number" ? divide(c.score, scale) * share : null;
           return (
             <li key={c.key} className={cn("flex items-baseline gap-2 text-sm", c.weight <= 0 && "text-muted-foreground")}>
               <span className="min-w-0 flex-1 truncate">{c.label}</span>

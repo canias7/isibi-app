@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn, isoAttr, toDate } from "@/lib/utils";
 /**
  * When an approval is due, and what happens if nobody acts.
  *
@@ -27,7 +27,7 @@ export function ApprovalDeadline({ due, daysLeft, onExpiry = "nothing", classNam
   onExpiry?: "nothing" | "approve" | "reject" | "escalate";
   className?: string;
 }) {
-  const d = new Date(due);
+  const d = toDate(due);
   const ok = !Number.isNaN(d.getTime());
   const over = daysLeft !== undefined && daysLeft < 0;
   const soon = daysLeft !== undefined && daysLeft >= 0 && daysLeft <= 1;
@@ -42,7 +42,7 @@ export function ApprovalDeadline({ due, daysLeft, onExpiry = "nothing", classNam
       <span className={cn((over || soon) && "font-medium")}>
         {over ? "Overdue since " : "Due "}
         {ok ? (
-          <time dateTime={d.toISOString().slice(0, 10)}>
+          <time dateTime={isoAttr(d)?.slice(0, 10)}>
             {d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })}
           </time>
         ) : due}

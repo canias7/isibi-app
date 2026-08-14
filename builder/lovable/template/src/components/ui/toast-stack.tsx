@@ -36,14 +36,18 @@ export function useToasts(max = 3) {
 
 function Item({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }) {
   const [paused, setPaused] = React.useState(false);
+  // Out of the deps: an inline `onDismiss` restarted the timer on every
+  // parent render, so a toast could sit on the page indefinitely.
+  const dismissRef = React.useRef(onDismiss);
+  dismissRef.current = onDismiss;
   // Anything with an action waits for a decision.
   const ms = toast.action ? 0 : (toast.duration ?? 5000);
 
   React.useEffect(() => {
     if (!ms || paused) return;
-    const t = setTimeout(onDismiss, ms);
+    const t = setTimeout(() => dismissRef.current?.(), ms);
     return () => clearTimeout(t);
-  }, [ms, paused, onDismiss]);
+  }, [ms, paused]);
 
   return (
     <li
@@ -51,7 +55,7 @@ function Item({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }) {
       onMouseLeave={() => setPaused(false)}
       onFocus={() => setPaused(true)}
       onBlur={() => setPaused(false)}
-      className="motion-enter pointer-events-auto flex items-start gap-3 rounded-lg border border-border bg-background p-3 shadow-lg"
+      className="motion-enter pointer-events-auto flex items-start gap-3 rounded-lg border border-border bg-popover p-3 shadow-lg"
     >
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium">{toast.title}</p>

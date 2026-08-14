@@ -32,7 +32,7 @@ export function FieldHistory({ entries, max = 5, className }: {
           <span className={cn("tabular-nums", i > 0 && "text-muted-foreground line-through")}>{e.value}</span>
           <span className="text-muted-foreground">
             {e.by ? `${e.by} · ` : ""}
-            <time dateTime={new Date(e.at).toISOString()}><DateFormat date={e.at} /></time>
+            <DateFormat date={e.at} />
           </span>
         </li>
       ))}

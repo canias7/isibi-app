@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn, toDate } from "@/lib/utils";
 /**
  * A meeting, and whether its papers are actually out yet.
  *
@@ -59,18 +59,18 @@ export function MeetingPapers({
   const midnight = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
   const fmt = (d: Date) => d.toLocaleDateString(locale, { weekday: "short", day: "numeric", month: "long" });
   const sorted = [...meetings]
-    .filter((m) => !Number.isNaN(new Date(m.date).getTime()))
-    .sort((a, b) => +new Date(b.date) - +new Date(a.date));
+    .filter((m) => !Number.isNaN(toDate(m.date).getTime()))
+    .sort((a, b) => +toDate(b.date) - +toDate(a.date));
   return (
     <div className={cn("", className)}>
       <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground">{heading}</h2>
       <ul className="mt-3 divide-y divide-border border-y border-border">
         {sorted.map((m) => {
-          const when = new Date(m.date);
+          const when = toDate(m.date);
           const past = when.getTime() < midnight;
           // DERIVED, not stored — a stored due date drifts the moment a meeting
           // is moved, which is precisely when somebody is relying on it.
-          const due = new Date(when);
+          const due = toDate(when);
           due.setDate(due.getDate() - (noticeDays + 1));
           const overdue = !m.agendaHref && !past && due.getTime() < midnight;
           return (

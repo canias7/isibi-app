@@ -1,6 +1,6 @@
 import * as React from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, scrollBehavior } from "@/lib/utils";
 /**
  * A horizontal carousel built on the browser's own scrolling.
  *
@@ -62,12 +62,12 @@ export function SnapCarousel({ children, label = "Carousel", showDots = true, cl
     if (!el) return;
     const kids = Array.from(el.children) as HTMLElement[];
     const next = kids[Math.max(0, Math.min(kids.length - 1, at + d))];
-    if (next) el.scrollTo({ left: next.offsetLeft, behavior: "smooth" });
+    if (next) el.scrollTo({ left: next.offsetLeft, behavior: scrollBehavior() });
   };
   const jump = (i: number) => {
     const el = box.current;
     const kid = (el?.children[i] as HTMLElement | undefined);
-    if (el && kid) el.scrollTo({ left: kid.offsetLeft, behavior: "smooth" });
+    if (el && kid) el.scrollTo({ left: kid.offsetLeft, behavior: scrollBehavior() });
   };
 
   return (
@@ -78,11 +78,11 @@ export function SnapCarousel({ children, label = "Carousel", showDots = true, cl
           {children}
         </div>
         <button type="button" onClick={() => go(-1)} disabled={ends.start} aria-label="Previous"
-          className="absolute top-1/2 left-1 grid size-7 -translate-y-1/2 cursor-pointer place-items-center rounded-full border border-border bg-background shadow-sm hover:bg-muted disabled:pointer-events-none disabled:opacity-0">
+          className="absolute top-1/2 left-1 grid size-7 -translate-y-1/2 cursor-pointer place-items-center rounded-full border border-border bg-popover shadow-sm hover:bg-muted disabled:pointer-events-none disabled:opacity-0">
           <ChevronLeft aria-hidden className="size-4" />
         </button>
         <button type="button" onClick={() => go(1)} disabled={ends.end} aria-label="Next"
-          className="absolute top-1/2 right-1 grid size-7 -translate-y-1/2 cursor-pointer place-items-center rounded-full border border-border bg-background shadow-sm hover:bg-muted disabled:pointer-events-none disabled:opacity-0">
+          className="absolute top-1/2 right-1 grid size-7 -translate-y-1/2 cursor-pointer place-items-center rounded-full border border-border bg-popover shadow-sm hover:bg-muted disabled:pointer-events-none disabled:opacity-0">
           <ChevronRight aria-hidden className="size-4" />
         </button>
       </div>

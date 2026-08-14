@@ -27,13 +27,17 @@ export function Snackbar({ message, action, onDismiss, duration = 5000, classNam
   className?: string;
 }) {
   const [paused, setPaused] = React.useState(false);
+  // Out of the deps: an inline `onDismiss` restarted the auto-dismiss
+  // timeout on every parent render, so the snackbar never went away.
+  const dismissRef = React.useRef(onDismiss);
+  dismissRef.current = onDismiss;
   const ms = action ? 0 : duration;
 
   React.useEffect(() => {
     if (!ms || paused || !onDismiss) return;
-    const t = setTimeout(onDismiss, ms);
+    const t = setTimeout(() => dismissRef.current?.(), ms);
     return () => clearTimeout(t);
-  }, [ms, paused, onDismiss, message]);
+  }, [ms, paused, message]);
 
   if (!message) return null;
   return (

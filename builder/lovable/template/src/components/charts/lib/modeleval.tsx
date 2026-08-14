@@ -1,7 +1,7 @@
 /** Model-evaluation charts. Everything deterministic. */
 
 const TONE = "var(--foreground)";
-const SHADE = (t: number) => `color-mix(in oklch, var(--foreground) ${Math.round(8 + t * 84)}%, var(--muted))`;
+import { SHADE, inkOn, shadePct } from "./_ink";
 
 const frame = (children: React.ReactNode, height: number, aria: string) => (
   <div className="relative w-full" style={{ height }} role="img" aria-label={aria}>{children}</div>
@@ -114,7 +114,7 @@ export function ConfusionMatrix({
                 return (
                   <td key={pcls} className="p-0">
                     <div className="flex flex-col items-center justify-center rounded-[3px] leading-tight"
-                      style={{ width: cell, height: cell, background: SHADE(share), color: share > 0.45 ? "var(--background)" : "var(--foreground)" }}
+                      style={{ width: cell, height: cell, background: SHADE(share), color: inkOn(shadePct(share)) }}
                       title={`Actual ${a}, predicted ${pcls}: ${v}`}>
                       <span className="text-[12px] font-medium tabular-nums">{v}</span>
                       <span className="text-[9px] opacity-75 tabular-nums">{Math.round(share * 100)}%</span>

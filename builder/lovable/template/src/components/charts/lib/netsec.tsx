@@ -315,7 +315,7 @@ export function PortScan({
                 <span key={p} className="flex aspect-square items-center justify-center text-[11px]"
                   style={{
                     background: v === "open" ? TONE : v === "filtered" ? "var(--muted)" : "var(--background)",
-                    color: v === "open" ? "var(--background)" : "var(--muted-foreground)",
+                    color: v === "open" ? "var(--background)" : "var(--foreground)",
                     outline: "1px solid var(--border)", outlineOffset: -1,
                   }}
                   title={`${h}:${p} ${v}`}>{GLYPH[v]}</span>

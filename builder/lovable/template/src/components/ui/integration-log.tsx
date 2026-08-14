@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn, isoAttr, toDate } from "@/lib/utils";
 /**
  * What each sync run actually did — and what it skipped.
  *
@@ -43,7 +43,7 @@ export function IntegrationLog({ runs, emptyNote = "This has never run", classNa
   return (
     <ul className={cn("divide-y divide-border rounded-md border border-border text-sm", className)}>
       {runs.map((r) => {
-        const d = r.at ? new Date(r.at) : null;
+        const d = r.at ? toDate(r.at) : null;
         const ok = d && !Number.isNaN(d.getTime());
         return (
           <li key={r.id} className="flex items-start gap-3 px-3 py-2">
@@ -62,7 +62,7 @@ export function IntegrationLog({ runs, emptyNote = "This has never run", classNa
             </span>
             <span className="shrink-0 text-right text-xs text-muted-foreground">
               {ok && (
-                <time dateTime={d!.toISOString()} className="block">
+                <time dateTime={isoAttr(d)} className="block">
                   {d!.toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
                 </time>
               )}

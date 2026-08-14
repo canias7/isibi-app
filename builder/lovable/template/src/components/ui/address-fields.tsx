@@ -16,17 +16,17 @@ export function AddressFields({ value, onChange, className }: {
     onChange({ ...value, [k]: e.target.value });
   return (
     <div className={cn("grid gap-4 sm:grid-cols-2", className)}>
-      <FormRow label="Address" htmlFor="addr1" className="sm:col-span-2">
-        <Input id="addr1" autoComplete="address-line1" value={value.line1} onChange={set("line1")} />
+      <FormRow label="Address" className="sm:col-span-2">
+        <Input autoComplete="address-line1" value={value.line1} onChange={set("line1")} />
       </FormRow>
-      <FormRow label="Address line 2" htmlFor="addr2" className="sm:col-span-2">
-        <Input id="addr2" autoComplete="address-line2" value={value.line2 ?? ""} onChange={set("line2")} />
+      <FormRow label="Address line 2" className="sm:col-span-2">
+        <Input autoComplete="address-line2" value={value.line2 ?? ""} onChange={set("line2")} />
       </FormRow>
-      <FormRow label="Town or city" htmlFor="addrCity">
-        <Input id="addrCity" autoComplete="address-level2" value={value.city} onChange={set("city")} />
+      <FormRow label="Town or city">
+        <Input autoComplete="address-level2" value={value.city} onChange={set("city")} />
       </FormRow>
-      <FormRow label="Postcode" htmlFor="addrPost">
-        <Input id="addrPost" autoComplete="postal-code" autoCapitalize="characters"
+      <FormRow label="Postcode">
+        <Input autoComplete="postal-code" autoCapitalize="characters"
           value={value.postcode} onChange={set("postcode")} />
       </FormRow>
     </div>

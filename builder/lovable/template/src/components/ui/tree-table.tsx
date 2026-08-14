@@ -1,6 +1,6 @@
 import * as React from "react";
 import { ChevronRight } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, labelText } from "@/lib/utils";
 /**
  * A hierarchy AND columns at once.
  *
@@ -52,7 +52,7 @@ export function TreeTable({ nodes, columns, format, aggregate, defaultOpen = [],
           <td className="py-1" style={{ paddingLeft: `${depth * 16}px` }}>
             <span className="flex items-center gap-1">
               {kids.length ? (
-                <button type="button" aria-label={`${isOpen ? "Collapse" : "Expand"} ${String(n.label)}`}
+                <button type="button" aria-label={`${isOpen ? "Collapse" : "Expand"} ${labelText(n.label)}`.trim()}
                   onClick={() => setOpen((s) => { const x = new Set(s); x.has(n.id) ? x.delete(n.id) : x.add(n.id); return x; })}
                   className="cursor-pointer p-0.5">
                   <ChevronRight className={cn("size-3.5 transition-transform", isOpen && "rotate-90")} aria-hidden />

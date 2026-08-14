@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/native-select";
 import { cn } from "@/lib/utils";
@@ -30,12 +31,17 @@ export function WebhookTest({ events, value, onChange, onSend, sending, result, 
   result?: { status?: number; ms?: number; body?: string; error?: string };
   className?: string;
 }) {
+  // Unique per INSTANCE. These ids were literals, so a page rendering
+  // this component twice — two contact forms, one in a list — gave every
+  // field a duplicate id, and a `<label for>` then focuses the FIRST
+  // match. The second form's labels pointed at the first form's inputs.
+  const uid = useId();
   return (
     <div className={cn("space-y-2", className)}>
       <div className="flex flex-wrap items-end gap-2">
         <span className="space-y-1">
-          <label htmlFor="wt-event" className="block text-sm font-medium">Send a test</label>
-          <NativeSelect id="wt-event" value={value} className="h-9 w-auto text-sm"
+          <label htmlFor={uid + "-wt-event"} className="block text-sm font-medium">Send a test</label>
+          <NativeSelect id={uid + "-wt-event"} value={value} className="h-9 w-auto text-sm"
             onChange={(e) => onChange(e.target.value)}>
             {events.map((e) => <option key={e.id} value={e.id}>{e.label}</option>)}
           </NativeSelect>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState , useId } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 /**
@@ -35,6 +35,11 @@ export function TenantDelete({ name, memberCount, recordCounts = [], graceDays, 
   busy?: boolean;
   className?: string;
 }) {
+  // Unique per INSTANCE. These ids were literals, so a page rendering
+  // this component twice — two contact forms, one in a list — gave every
+  // field a duplicate id, and a `<label for>` then focuses the FIRST
+  // match. The second form's labels pointed at the first form's inputs.
+  const uid = useId();
   const [typed, setTyped] = useState("");
   const ready = typed.trim().toLowerCase() === name.trim().toLowerCase();
   return (
@@ -63,10 +68,10 @@ export function TenantDelete({ name, memberCount, recordCounts = [], graceDays, 
           : " The address is kept and cannot be taken by anyone else."}
       </p>
       <div className="space-y-1">
-        <label htmlFor="td-confirm" className="block text-sm">
+        <label htmlFor={uid + "-td-confirm"} className="block text-sm">
           Type <span className="font-medium">{name}</span> to confirm
         </label>
-        <input id="td-confirm" value={typed} autoComplete="off" onChange={(e) => setTyped(e.target.value)}
+        <input id={uid + "-td-confirm"} value={typed} autoComplete="off" onChange={(e) => setTyped(e.target.value)}
           className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm" />
       </div>
       <div className="flex gap-2">

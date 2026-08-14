@@ -60,7 +60,7 @@ export function RichTooltip({ content, children, openDelay = 300, closeDelay = 1
           // here reachable at all.
           onMouseEnter={() => schedule(true, 0)}
           onMouseLeave={() => schedule(false, closeDelay)}
-          className={cn("absolute left-1/2 z-50 w-64 -translate-x-1/2 rounded-lg border border-border bg-background p-3 text-xs shadow-lg",
+          className={cn("absolute left-1/2 z-50 w-64 -translate-x-1/2 rounded-lg border border-border bg-popover p-3 text-xs shadow-lg",
             side === "top" ? "bottom-full mb-2" : "top-full mt-2", className)}
         >
           {content}

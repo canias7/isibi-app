@@ -1,5 +1,5 @@
 import { Star } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, divide } from "@/lib/utils";
 
 /** A rating out of five. Announced to screen readers as a sentence, not as icons. */
 export function ReviewStars({ value, count, max = 5, className }: {
@@ -22,7 +22,7 @@ export function ReviewStars({ value, count, max = 5, className }: {
           <Star key={i} className="size-4 text-muted-foreground/40" />
         ))}
         <span className="absolute inset-y-0 left-0 flex overflow-hidden"
-          style={{ width: `${(v / max) * 100}%` }}>
+          style={{ width: `${divide(v, max) * 100}%` }}>
           {Array.from({ length: max }, (_, i) => (
             <Star key={i} className="size-4 shrink-0 fill-foreground text-foreground" />
           ))}

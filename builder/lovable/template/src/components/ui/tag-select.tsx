@@ -15,6 +15,13 @@ import { cn } from "@/lib/utils";
  * tries first. An already-chosen option stays in the list, greyed and
  * disabled, rather than vanishing — a list that reshuffles as you pick makes
  * the next option you were reaching for jump.
+ *
+ * ARROW KEYS AND `aria-activedescendant`. Focus stays in the text box and the
+ * active option is announced by id; the options are not focusable, because a
+ * focusable control inside a `role="option"` is not allowed and put every
+ * suggestion in the tab order — so Tab walked the whole dropdown instead of
+ * leaving the field. Arrows SKIP an option that is already taken: stopping on
+ * one that cannot be chosen is a dead press with nothing to explain it.
  */
 export function TagSelect({ value, onChange, options, placeholder = "Add…", max, id, className }: {
   value: string[]; onChange: (v: string[]) => void;
@@ -23,9 +30,18 @@ export function TagSelect({ value, onChange, options, placeholder = "Add…", ma
 }) {
   const [q, setQ] = React.useState("");
   const [open, setOpen] = React.useState(false);
+  const [active, setActive] = React.useState(0);
+  const listId = React.useId();
   const label = (v: string) => options.find((o) => o.value === v)?.label ?? v;
   const full = max != null && value.length >= max;
   const shown = options.filter((o) => o.label.toLowerCase().includes(q.toLowerCase()));
+  const pickable = (i: number) => shown[i] && !value.includes(shown[i].value) && !full;
+  /** The next option that can actually be chosen, or where we already are. */
+  const step = (from: number, by: 1 | -1) => {
+    for (let i = from + by; i >= 0 && i < shown.length; i += by) if (pickable(i)) return i;
+    return from;
+  };
+  const add = (v: string) => { onChange([...value, v]); setQ(""); setActive(0); };
   return (
     <div className={cn("relative", className)}>
       <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-input px-2 py-1.5 focus-within:ring-2 focus-within:ring-ring/40">
@@ -39,27 +55,35 @@ export function TagSelect({ value, onChange, options, placeholder = "Add…", ma
           </span>
         ))}
         <input id={id} value={q} disabled={full}
+          role="combobox" aria-expanded={open} aria-controls={listId}
+          aria-activedescendant={open && shown[active] ? `${listId}-${active}` : undefined}
           placeholder={full ? `${max} is the limit` : placeholder}
           className="min-w-24 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
           onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 120)}
-          onChange={(e) => { setQ(e.target.value); setOpen(true); }}
+          onChange={(e) => { setQ(e.target.value); setActive(0); setOpen(true); }}
           onKeyDown={(e) => {
             if (e.key === "Backspace" && !q && value.length) onChange(value.slice(0, -1));
-            if (e.key === "Escape") setOpen(false);
+            else if (e.key === "Escape") setOpen(false);
+            else if (e.key === "ArrowDown") { e.preventDefault(); setOpen(true); setActive((i) => step(i, 1)); }
+            else if (e.key === "ArrowUp") { e.preventDefault(); setActive((i) => step(i, -1)); }
+            else if (e.key === "Enter" && open && pickable(active)) { e.preventDefault(); add(shown[active].value); }
           }} />
       </div>
       {open && shown.length > 0 && (
-        <ul role="listbox" className="absolute z-30 mt-1 max-h-48 w-full overflow-y-auto rounded-md border border-border bg-popover py-1 shadow-md">
-          {shown.map((o) => {
+        <ul id={listId} role="listbox" className="absolute z-30 mt-1 max-h-48 w-full overflow-y-auto rounded-md border border-border bg-popover py-1 shadow-md">
+          {shown.map((o, i) => {
             const taken = value.includes(o.value);
             return (
-              <li key={o.value} role="option" aria-selected={taken}>
-                <button type="button" disabled={taken || full}
-                  onMouseDown={(e) => { e.preventDefault(); onChange([...value, o.value]); setQ(""); }}
-                  className={cn("w-full px-3 py-1.5 text-left text-sm",
-                    taken ? "cursor-default text-muted-foreground line-through" : "cursor-pointer hover:bg-muted")}>
-                  <HighlightMatch text={o.label} query={q} />
-                </button>
+              // `aria-disabled`, not `disabled` — an `<li>` has no disabled
+              // attribute, and the guard that matters is the handler refusing
+              // rather than the element being inert.
+              <li key={o.value} id={`${listId}-${i}`} role="option" aria-selected={taken}
+                aria-disabled={taken || full || undefined}
+                onMouseDown={(e) => { e.preventDefault(); if (!taken && !full) add(o.value); }}
+                className={cn("px-3 py-1.5 text-left text-sm",
+                  taken || full ? "cursor-default text-muted-foreground line-through"
+                    : cn("cursor-pointer", i === active ? "bg-muted" : "hover:bg-muted/60"))}>
+                <HighlightMatch text={o.label} query={q} />
               </li>
             );
           })}

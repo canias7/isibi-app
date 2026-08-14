@@ -9,7 +9,7 @@ export function WaitlistForm({ onSubmit, busy, note = "We'll email you if someth
   const [email, setEmail] = React.useState("");
   return (
     <form className={className} onSubmit={(e) => { e.preventDefault(); if (email) onSubmit(email); }}>
-      <FormRow label="Join the waiting list" htmlFor="wl-email" hint={note}>
+      <FormRow label="Join the waiting list" hint={note}>
         <div className="flex gap-2">
           <EmailInput id="wl-email" value={email} onChange={setEmail} />
           <BusyButton type="submit" busy={busy} busyLabel="Adding…" disabled={!email}>Join</BusyButton>

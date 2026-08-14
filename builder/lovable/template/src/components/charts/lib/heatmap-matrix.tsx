@@ -72,7 +72,7 @@ export function HeatmapMatrix({
                         background: ramp[level(v)],
                         // Above the midpoint the cell is dark, so the label has
                         // to flip or it disappears into its own background.
-                        color: level(v) >= 3 ? "var(--background)" : "var(--muted-foreground)",
+                        color: level(v) >= 3 ? "var(--background)" : "var(--foreground)",
                       }}
                       title={`${r} · ${c}: ${format(v)}`}
                     >

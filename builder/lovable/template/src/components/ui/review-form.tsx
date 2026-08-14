@@ -13,7 +13,7 @@ export function ReviewForm({ onSubmit, busy, className }: {
     <form className={className} onSubmit={(e) => { e.preventDefault(); if (rating) onSubmit({ rating, body }); }}>
       <div className="flex flex-col gap-4">
         <FormRow label="Your rating" required><RatingInput value={rating} onChange={setRating} /></FormRow>
-        <FormRow label="Anything to add?" htmlFor="rv-body">
+        <FormRow label="Anything to add?">
           <TextareaCount id="rv-body" value={body} onChange={setBody} max={600} />
         </FormRow>
         <BusyButton type="submit" busy={busy} busyLabel="Posting…" disabled={!rating} className="w-fit">

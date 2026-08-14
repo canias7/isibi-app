@@ -9,24 +9,46 @@ import { cn } from "@/lib/utils";
  * Pick several. Built on `command` inside a `popover`, which is how shadcn does
  * a searchable select — there is no multi-select primitive.
  */
-export function MultiSelect({ options, value, onChange, placeholder = "Select…", className }: {
+export function MultiSelect({ options, value, onChange, label, placeholder = "Select…", className }: {
   options: { value: string; label: string }[];
-  value: string[]; onChange: (v: string[]) => void; placeholder?: string; className?: string;
+  value: string[]; onChange: (v: string[]) => void;
+  /** What is being chosen. A `role="combobox"` takes its name from a label and
+   *  NEVER from its own contents — the contents are the VALUE — so without this
+   *  the trigger announced as "combobox" and nothing else, and there is no `id`
+   *  here for a caller to point a `<label for>` at. */
+  label?: string;
+  placeholder?: string; className?: string;
 }) {
   const [open, setOpen] = React.useState(false);
   const toggle = (v: string) => onChange(value.includes(v) ? value.filter((x) => x !== v) : [...value, v]);
-  const label = (v: string) => options.find((o) => o.value === v)?.label ?? v;
+  const labelOf = (v: string) => options.find((o) => o.value === v)?.label ?? v;
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button type="button" variant="outline" role="combobox" aria-expanded={open}
+          aria-label={label ?? placeholder}
           className={cn("h-auto min-h-9 w-full justify-between font-normal", className)}>
           <span className="flex flex-wrap gap-1">
             {value.length === 0 ? <span className="text-muted-foreground">{placeholder}</span>
               : value.map((v) => (
                 <Badge key={v} variant="secondary" className="gap-1">
-                  {label(v)}
-                  <span role="button" tabIndex={-1} aria-label={`Remove ${label(v)}`}
+                  {labelOf(v)}
+                  {/* A MOUSE SHORTCUT, AND HIDDEN FROM ASSISTIVE TECH ON PURPOSE.
+                      This was `role="button"` with an `aria-label`, sitting
+                      inside the trigger `<button>` with `tabIndex={-1}` and no
+                      key handler — so it announced an operable control that no
+                      keyboard or screen-reader user could ever reach or fire,
+                      and it put an interactive role inside an interactive
+                      element, which ARIA does not allow.
+
+                      Removing is NOT lost: every option in the list below
+                      toggles, so deselecting is fully available through the
+                      combobox, which is where a keyboard user does it anyway.
+                      What went is a DUPLICATE control that was only ever
+                      announced, never operable. Giving it a real one means the
+                      trigger stops being a `<button>`, which is a change to how
+                      this component looks and behaves rather than a fix. */}
+                  <span aria-hidden className="cursor-pointer"
                     onClick={(e) => { e.stopPropagation(); toggle(v); }}><X className="size-3" /></span>
                 </Badge>
               ))}

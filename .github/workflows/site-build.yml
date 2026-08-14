@@ -17,6 +17,11 @@ on:
       - 'test/integration/theme-seam.mjs'
       - 'test/integration/theme-render.mjs'
       - 'test/integration/kit-typecheck.mjs'
+      - 'test/integration/kit-render.mjs'
+      - 'test/integration/kit-harness.mjs'
+      - 'test/integration/kit-a11y.mjs'
+      - 'test/integration/kit-effects.mjs'
+      - 'test/integration/kit-paint.mjs'
       - 'test/page-gen.test.mjs'
       - '.github/workflows/site-build.yml'
   workflow_dispatch:
@@ -50,6 +55,16 @@ jobs:
       # only thing that would catch a break in a component no generated page
       # happens to import yet.
       - run: node test/integration/kit-typecheck.mjs
+
+      # And the step above is not enough, which is the whole reason this one
+      # exists. Compiling is not working: 158 chart components typechecked and
+      # threw on an empty array, 70 typechecked and rendered grey, and
+      # `message-scroller` typechecked, bundled and hard-crashed the page. Every
+      # one was found by a person looking at a render, long afterwards. This
+      # renders all ~2,000 through the same `renderToString` production
+      # prerenders with, four ways — realistic props, everything empty, every
+      # number zero, every list empty — and reads what came out.
+      - run: node test/integration/kit-render.mjs
 
       # THE RENDER CHECK'S DRIVER, AT THE REPO ROOT — not in the template.
       # `builder/render-check.mjs` does `import("playwright-core")`, and Node
@@ -92,6 +107,38 @@ jobs:
       # write shipped defaults while reporting the right choice, and a theme has
       # the same failure available to it.
       - run: node test/integration/theme-seam.mjs
+
+      # WHAT EACH CONTROL IS CALLED, asked of Chromium's own accessibility tree
+      # rather than guessed from the source. A name can come from six different
+      # places and the rules differ by role, so a scan of the markup is not able
+      # to answer it: a hand-written one reported 152 controls with no name and
+      # the first two checked were fine. This found a one-time-code input that
+      # announces as "edit text, blank", six progress bars reporting a number
+      # with nothing to attach it to, and three listboxes called "listbox".
+      # Needs the browser, so it sits after the install above.
+      - run: node test/integration/kit-a11y.mjs
+
+      # MOUNTED, then taken away again. `kit-render.mjs` above goes through
+      # `renderToString`, and server rendering NEVER RUNS AN EFFECT — so the
+      # whole effect layer of the kit was exercised by nothing. This mounts all
+      # ~2,000 in a real browser and unmounts each one, which is the only way to
+      # see an effect that throws, a listener or interval that is never given
+      # back, or a roving tabindex that sets `tabIndex` and forgets to move
+      # focus. It also drives the three listboxes whose arrow keys were written
+      # and then verified by typechecking alone.
+      - run: node test/integration/kit-effects.mjs
+
+      # CAN THE TEXT BE READ. Everything above checks the kit as STRUCTURE — it
+      # compiles, it renders, it mounts, its controls have names — and none of
+      # that can see a colour, which is where this codebase has been hurt worst:
+      # 70 charts rendered grey while typechecking perfectly, thirteen modal
+      # panels were see-through with the page's own headings legible through
+      # them, eight reference lines were red on a monochrome kit. Every one was
+      # found by a person looking, long afterwards, and every one is a number.
+      # Builds the REAL Tailwind stylesheet and measures the WCAG contrast of
+      # every piece of text in both modes, plus the kit's own bg/foreground
+      # token pairings. Needs the browser, so it sits after the install above.
+      - run: node test/integration/kit-paint.mjs
 
       # What a themed site LOOKS like. The seam test proves the CSS reaches the
       # dist; this proves the page is not blank, nothing throws, and the two

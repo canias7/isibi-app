@@ -12,7 +12,10 @@ export function StatusBadge({ state = "neutral", className, children }: {
 }) {
   const v = {
     success: "border-success/30 bg-success/10 text-success",
-    warning: "border-warning/35 bg-warning/15 text-warning",
+    // /10 and /30 like its three siblings — it was /15 and /35 to make the old
+    // bright amber visible at all, and a heavier tint under the same ink is
+    // what took this one badge under 4.5:1 while the others cleared it.
+    warning: "border-warning/30 bg-warning/10 text-warning",
     danger: "border-destructive/30 bg-destructive/10 text-destructive",
     neutral: "border-transparent bg-secondary text-secondary-foreground",
     quiet: "border-border text-muted-foreground",

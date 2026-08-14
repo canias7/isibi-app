@@ -62,9 +62,7 @@ export function TourDates({
           <li key={d.key} className="flex flex-wrap items-center justify-between gap-3 py-3">
             <div className="min-w-0">
               <p className={cn("font-medium", off && "text-muted-foreground")}>
-                <time dateTime={new Date(d.at).toISOString()}>
-                  <DateFormat date={d.at} />
-                </time>
+                <DateFormat date={d.at} />
               </p>
               <p className={cn("text-sm text-muted-foreground", d.status === "cancelled" && "line-through")}>
                 {d.city}{d.venue ? ` · ${d.venue}` : ""}{d.country ? ` · ${d.country}` : ""}

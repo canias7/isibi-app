@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, formatMinor } from "@/lib/utils";
 /**
  * A discount code box that says WHY a code did not work.
  *
@@ -25,7 +25,7 @@ export function PromoField({ applied, onApply, onRemove, currency = "GBP", class
   const [code, setCode] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [reason, setReason] = React.useState<string | null>(null);
-  const fmt = (m: number) => new Intl.NumberFormat(undefined, { style: "currency", currency }).format(m / 100);
+  const fmt = (m: number) => formatMinor(m, currency);
 
   if (applied) {
     return (

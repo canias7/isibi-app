@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, scrollBehavior } from "@/lib/utils";
 /**
  * A scrolling conversation that follows new messages — unless you have scrolled
  * up.
@@ -66,7 +66,7 @@ export function TranscriptView({ children, deps = [], className }: {
           type="button"
           onClick={() => {
             const el = ref.current;
-            if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+            if (el) el.scrollTo({ top: el.scrollHeight, behavior: scrollBehavior() });
             setFollow(true);
             setMissed(0);
           }}

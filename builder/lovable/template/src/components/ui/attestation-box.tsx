@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState , useId } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
@@ -33,6 +33,11 @@ export function AttestationBox({ statements, consequence, signerName, onSubmit, 
   submitLabel?: string;
   className?: string;
 }) {
+  // Unique per INSTANCE. These ids were literals, so a page rendering
+  // this component twice — two contact forms, one in a list — gave every
+  // field a duplicate id, and a `<label for>` then focuses the FIRST
+  // match. The second form's labels pointed at the first form's inputs.
+  const uid = useId();
   const [agreed, setAgreed] = useState<string[]>([]);
   const [typed, setTyped] = useState("");
   const norm = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase();
@@ -52,8 +57,8 @@ export function AttestationBox({ statements, consequence, signerName, onSubmit, 
       </div>
       {consequence && <p className="text-xs text-muted-foreground">{consequence}</p>}
       <div className="space-y-1">
-        <label htmlFor="att-name" className="block text-sm font-medium">Type your full name</label>
-        <input id="att-name" value={typed} autoComplete="off" placeholder={signerName}
+        <label htmlFor={uid + "-att-name"} className="block text-sm font-medium">Type your full name</label>
+        <input id={uid + "-att-name"} value={typed} autoComplete="off" placeholder={signerName}
           onChange={(e) => setTyped(e.target.value)}
           className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm" />
       </div>

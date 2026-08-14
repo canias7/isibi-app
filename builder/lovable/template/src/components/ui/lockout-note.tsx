@@ -37,10 +37,12 @@ export function LockoutNote({ until, attempts, onExpire, className }: {
     return () => clearInterval(t);
   }, [until]);
   const left = Math.max(0, Math.ceil((until - now) / 1000));
+  const expireRef = React.useRef(onExpire);
+  expireRef.current = onExpire;
   React.useEffect(() => {
-    if (left === 0 && !fired.current) { fired.current = true; onExpire?.(); }
+    if (left === 0 && !fired.current) { fired.current = true; expireRef.current?.(); }
     if (left > 0) fired.current = false;
-  }, [left, onExpire]);
+  }, [left]);
 
   if (left === 0) return null;
   const mins = Math.floor(left / 60), secs = left % 60;

@@ -1,5 +1,5 @@
 import * as React from "react";
-import { SearchX } from "lucide-react";
+import { SearchX, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 /**
  * "Nothing matches" — and what to do about it.
@@ -56,6 +56,18 @@ export function SearchEmpty({
               <React.Fragment key={f.key}>
                 {i > 0 ? ", " : ""}
                 <span className="text-foreground">{f.label}</span>
+                {/* The per-filter `onRemove` was in the type and called by
+                    nothing, so the only way out was "Clear the filters" — all
+                    of them. Removing one at a time is the whole point of
+                    listing them individually, and it is what `filter-bar`
+                    already does with its chips. `key` is the accessible name
+                    because `label` is a ReactNode and may not be text at all. */}
+                {f.onRemove ? (
+                  <button type="button" onClick={f.onRemove} aria-label={`Remove the ${f.key} filter`}
+                    className="ml-0.5 cursor-pointer align-middle text-muted-foreground hover:text-foreground">
+                    <X aria-hidden className="inline size-3" />
+                  </button>
+                ) : null}
               </React.Fragment>
             ))}
           </p>

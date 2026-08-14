@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn, isoAttr, toDate } from "@/lib/utils";
 /**
  * Everything that happened to a request, oldest first.
  *
@@ -37,7 +37,7 @@ export function ApprovalHistory({ events, className }: {
   return (
     <ol className={cn("space-y-0", className)}>
       {events.map((e, i) => {
-        const d = e.at ? new Date(e.at) : null;
+        const d = e.at ? toDate(e.at) : null;
         const ok = d && !Number.isNaN(d.getTime());
         return (
           <li key={e.id} className="flex gap-3">
@@ -52,7 +52,7 @@ export function ApprovalHistory({ events, className }: {
                 <span className="text-muted-foreground"> · {e.by}</span>
               </span>
               {ok && (
-                <time dateTime={d!.toISOString()} className="block text-xs text-muted-foreground">
+                <time dateTime={isoAttr(d)} className="block text-xs text-muted-foreground">
                   {d!.toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
                 </time>
               )}

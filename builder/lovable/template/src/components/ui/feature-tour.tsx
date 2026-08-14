@@ -27,10 +27,12 @@ export function FeatureTour({ steps, storageKey = "feature-tour", open, onClose 
   const [i, setI] = React.useState(0);
   React.useEffect(() => { if (open) setI(0); }, [open]);
 
+  const closeRef = React.useRef(onClose);
+  closeRef.current = onClose;
   const finish = React.useCallback(() => {
     try { localStorage.setItem(storageKey, "done"); } catch { /* private mode */ }
-    onClose();
-  }, [storageKey, onClose]);
+    closeRef.current();
+  }, [storageKey]);
 
   React.useEffect(() => {
     if (!open) return;

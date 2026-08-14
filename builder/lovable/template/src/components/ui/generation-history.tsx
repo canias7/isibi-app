@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn, isoAttr, toDate } from "@/lib/utils";
 /**
  * The earlier attempts, so a better one is not lost by regenerating past it.
  *
@@ -33,7 +33,7 @@ export function GenerationHistory({ items, currentId, onRestore, emptyNote = "No
     <ul className={cn("divide-y divide-border rounded-md border border-border", className)}>
       {items.map((g) => {
         const live = g.id === currentId;
-        const d = g.at ? new Date(g.at) : null;
+        const d = g.at ? toDate(g.at) : null;
         const ok = d && !Number.isNaN(d.getTime());
         return (
           <li key={g.id}>
@@ -48,7 +48,7 @@ export function GenerationHistory({ items, currentId, onRestore, emptyNote = "No
               </span>
               <span className="text-xs text-muted-foreground">
                 {ok ? (
-                  <time dateTime={d!.toISOString()}>
+                  <time dateTime={isoAttr(d)}>
                     {d!.toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
                   </time>
                 ) : g.at}

@@ -1,5 +1,5 @@
 import { DateFormat } from "@/components/ui/date-format";
-import { cn } from "@/lib/utils";
+import { cn, toDate } from "@/lib/utils";
 /**
  * What has been exported, by whom, and whether the link still works.
  *
@@ -33,7 +33,7 @@ export function ExportHistory({ exports, empty = "Nothing has been exported.", c
               {typeof e.rows === "number" ? ` · ${e.rows.toLocaleString()} rows` : ""}
             </span>
             <span className="block text-xs text-muted-foreground">
-              <time dateTime={new Date(e.at).toISOString()}><DateFormat date={e.at} withTime /></time>
+              <DateFormat date={e.at} withTime />
             </span>
           </span>
           <span className="shrink-0 text-xs">

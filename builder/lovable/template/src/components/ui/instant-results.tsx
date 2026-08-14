@@ -71,11 +71,13 @@ export function InstantResults({ results, loading, query, activeIndex, onActiveC
           {loading ? "Searching…" : `Nothing matches “${query}”.`}
         </li>
       ) : results.map((r, i) => (
-        <li key={r.key} id={`${id}-${i}`} role="option" aria-selected={i === activeIndex}>
-          <button type="button" onMouseEnter={() => onActiveChange(i)} onClick={() => onPick(r.key)}
-            className={cn("w-full cursor-pointer rounded px-2 py-1.5 text-left text-sm", i === activeIndex && "bg-muted")}>
-            {renderItem(r, i)}
-          </button>
+        // The option IS the clickable element — a focusable control inside a
+        // `role="option"` is not allowed, and put every result in the tab order
+        // of a search box the caller drives with `activeIndex`.
+        <li key={r.key} id={`${id}-${i}`} role="option" aria-selected={i === activeIndex}
+          onMouseEnter={() => onActiveChange(i)} onClick={() => onPick(r.key)}
+          className={cn("cursor-pointer rounded px-2 py-1.5 text-left text-sm", i === activeIndex && "bg-muted")}>
+          {renderItem(r, i)}
         </li>
       ))}
     </ul>

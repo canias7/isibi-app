@@ -1,6 +1,6 @@
 import { AvatarName } from "@/components/ui/avatar-name";
 import { Phone } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, toDate } from "@/lib/utils";
 /**
  * Who is covering right now, and until when.
  *
@@ -20,7 +20,7 @@ export function OnCall({ name, role, phone, until, avatar, empty = "Nobody is on
   if (!name) {
     return <p className={cn("rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm", className)}>{empty}</p>;
   }
-  const d = until != null ? new Date(until) : null;
+  const d = until != null ? toDate(until) : null;
   const ok = d && !Number.isNaN(d.getTime());
   return (
     <div className={cn("flex flex-wrap items-center gap-3 rounded-md border border-border p-3", className)}>

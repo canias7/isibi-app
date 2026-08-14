@@ -39,7 +39,7 @@ export function BalanceDue({ amount, due, currency = "GBP", className }: {
       {due && (
         <span className={cn("text-muted-foreground", overdue && "font-medium text-foreground")}>
           {" "}{overdue ? "— overdue since " : "by "}
-          <time dateTime={new Date(due).toISOString()}><DateFormat date={due} /></time>
+          <DateFormat date={due} />
         </span>
       )}
     </p>

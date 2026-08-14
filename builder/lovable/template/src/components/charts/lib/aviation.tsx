@@ -256,6 +256,13 @@ export function WeightBalance({
   height?: number
   className?: string
 }) {
+  // NOTHING TO DRAW IS NOT A CHART OF NOTHING. An empty array made every
+  // scale here degenerate and wrote NaN into an SVG attribute, which the
+  // browser drops — so the chart rendered as a blank box rather than as the
+  // empty state the page around it is showing. `useRows` hands back `[]`
+  // before the query settles and on every site whose owner has added nothing.
+  if (!items.length || !envelope.length) return null
+
   const totalKg = items.reduce((a, i) => a + i.kg, 0)
   const totalMoment = items.reduce((a, i) => a + i.kg * i.armM, 0)
   const cg = totalMoment / Math.max(totalKg, 1e-9)
@@ -441,6 +448,13 @@ export function TurnaroundGantt({
   scheduledMinutes: number
   className?: string
 }) {
+  // NOTHING TO DRAW IS NOT A CHART OF NOTHING. An empty array made every
+  // scale here degenerate and wrote NaN into an SVG attribute, which the
+  // browser drops — so the chart rendered as a blank box rather than as the
+  // empty state the page around it is showing. `useRows` hands back `[]`
+  // before the query settles and on every site whose owner has added nothing.
+  if (!tasks.length) return null
+
   const byName = new Map(tasks.map((t) => [t.name, t]))
   const memo = new Map<string, number>()
   const earliestStart = (name: string, seen: Set<string> = new Set()): number => {

@@ -1,5 +1,7 @@
 /** Moving goods: stowage, docks, rounds and how full the box actually is. */
 
+import { inkOn } from "./_ink";
+
 const TONE = "var(--foreground)";
 
 /* --------------------------------------------------------------------- bay plan */
@@ -40,7 +42,7 @@ export function BayPlan({
                 <span key={r} className="flex aspect-[4/3] items-center justify-center text-[8px]"
                   style={{
                     background: s ? `color-mix(in oklch, ${TONE} ${Math.round(20 + (s.tonnes / maxT) * 74)}%, transparent)` : "var(--background)",
-                    color: s && s.tonnes / maxT > 0.5 ? "var(--background)" : "var(--foreground)",
+                    color: s ? inkOn(Math.round((s.tonnes / maxT) * 88)) : "var(--foreground)",
                     outline: s ? undefined : "1px dashed var(--border)", outlineOffset: -1,
                     boxShadow: s?.reefer ? `inset 0 0 0 1.5px var(--background)` : undefined,
                   }} title={s ? `${s.id} · ${s.tonnes} t${s.reefer ? " · reefer" : ""}` : "empty"}>
