@@ -55,6 +55,7 @@ import { runRulesEdit } from "./builder/site-rules.mjs";
 import { runPictureEdit } from "./builder/site-picture.mjs";
 import { runLogoEdit } from "./builder/site-logo.mjs";
 import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
+import { runNightlyBackups, dumpSite, backupKey, backupListing, backupDayParam, BACKUP_META_KEYS } from "./site-backup.mjs";
 import { resolveAccess, ACCESS_PRESETS, unguardedBookings } from "./site-access.mjs";
 // The pair a `display` table resolves to. Named once, from the presets, so the
 // data layer's gate cannot drift from the vocabulary again — it was compared
@@ -2095,6 +2096,10 @@ export default {
   async scheduled(event, env, ctx) {
     ctx.waitUntil(runAutoReply(env));
     ctx.waitUntil(runScheduledSiteJobs(env, ctx));
+    // The nightly second copy of every site's customer data. A no-op outside
+    // the night window, idempotent per day by the object key, and never allowed
+    // to throw — see site-backup.mjs for every one of those decisions.
+    ctx.waitUntil(runNightlyBackups(backupDeps(env)));
     // Drain the Neon teardown queue. This side is the ONLY one that can: the
     // rows are written by a Postgres trigger as a project's record disappears,
     // and Postgres cannot call the Neon API.
@@ -2478,6 +2483,51 @@ async function persistSiteJobs(env, ownerId, slug, jobs) {
 // different SQL. It replaces the eight-verb runner (`read save fetch ai email
 // notify checkout respond`), which is deleted: a fixed menu means the model can
 // only ever do what was imagined in advance.
+// The real store and database behind the nightly backups. All the decisions —
+// the night window, the per-tick bound, idempotency by key, retention only
+// after a successful put — live in site-backup.mjs where they are tested with
+// no R2 and no Neon; this supplies nothing but the wiring.
+function backupDeps(env) {
+  return {
+    hour: () => new Date().getUTCHours(),
+    now: () => Date.now(),
+    listSites: async () => {
+      if (!env.SUPABASE_SERVICE_KEY || !env.SITES_BUCKET) return [];
+      const r = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?select=slug&limit=200`, { headers: svcHeaders(env), signal: AbortSignal.timeout(10000) });
+      const rows = await r.json().catch(() => []);
+      return Array.isArray(rows) ? rows : [];
+    },
+    exists: async (key) => !!(await env.SITES_BUCKET.head(key)),
+    put: (key, json) => env.SITES_BUCKET.put(key, json, { httpMetadata: { contentType: "application/json" } }),
+    list: async (prefix) => {
+      const got = await env.SITES_BUCKET.list({ prefix, limit: 100 });
+      return ((got && got.objects) || []).map((o) => o.key);
+    },
+    remove: (key) => env.SITES_BUCKET.delete(key),
+    dump: async (slug) => {
+      const conn = await siteBackendBySlug(env, slug);
+      if (!conn) throw new Error("no backend connection");
+      return dumpSite({
+        loadSchema: () => loadSiteSchema(conn),
+        // The module hands over a NAME it has already refused underscores and
+        // illegal characters on, and the quoting is sqlIdent's — the same pair
+        // of hands every other model-adjacent identifier goes through. ORDER BY
+        // id so a truncated dump keeps the OLDEST rows: the newest are the ones
+        // still visible in the owner's panel, the oldest are the ones only a
+        // backup still has.
+        readTable: (name, n) => sqlQuery(conn, "SELECT * FROM " + sqlIdent(name) + " ORDER BY id ASC LIMIT " + Math.max(1, parseInt(n, 10) || 1)),
+        readMeta: async (keys) => {
+          const rows = await sqlQuery(conn, "SELECT k, v FROM _meta WHERE k IN (" + keys.map(() => "?").join(",") + ")", keys);
+          const out = {};
+          for (const r of rows || []) { try { out[r.k] = JSON.parse(r.v); } catch { out[r.k] = r.v; } }
+          return out;
+        },
+      }, { slug, now: Date.now() });
+    },
+    warn: (m) => console.error(m),
+  };
+}
+
 async function runScheduledSiteJobs(env, ctx) {
   if (!env.SUPABASE_SERVICE_KEY) return;
   const svc = { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY };
@@ -6374,6 +6424,23 @@ async function deleteSiteFor(env, uid, dslug) {
       if (env.SITES_BUCKET) versionsRemoved = await deleteAllVersions(versionDeps(env), { slug: dslug });
     } catch (e) { console.error("site versions delete failed:", dslug, e && e.message); }
 
+    // THE NIGHTLY BACKUPS GO WITH THE SITE. They are a second copy of the
+    // customers' own data, and a deleted site keeping one in R2 forever is a
+    // retention liability nobody agreed to — the owner asked for the site
+    // GONE. Cursor-followed like every other prefix sweep, best-effort for
+    // the same reason versions are: the site itself is already down by here.
+    let backupsRemoved = 0;
+    try {
+      if (env.SITES_BUCKET) {
+        let bCursor;
+        do {
+          const got = await env.SITES_BUCKET.list({ prefix: "backups/" + dslug + "/", cursor: bCursor, limit: 500 });
+          for (const o of (got && got.objects) || []) { await env.SITES_BUCKET.delete(o.key); backupsRemoved++; }
+          bCursor = (got && got.truncated) ? got.cursor : undefined;
+        } while (bCursor);
+      }
+    } catch (e) { console.error("site backups delete failed:", dslug, e && e.message); }
+
     // THE SITE'S SCHEDULED JOBS. Left behind, each one is a ZOMBIE the cron
     // picks up forever: a stamp write, a project lookup and a last_result
     // write per period, for a site that no longer exists (2026-08-13 audit —
@@ -6435,7 +6502,7 @@ async function deleteSiteFor(env, uid, dslug) {
       }
     } catch (e) { console.error("domain release failed:", dslug, e && e.message); }
 
-    return Response.json({ ok: true, slug: dslug, removed, versionsRemoved, projectDropped, domainsReleased });
+    return Response.json({ ok: true, slug: dslug, removed, versionsRemoved, backupsRemoved, projectDropped, domainsReleased });
 }
 
 async function handleRequest(request, env, ctx) {
@@ -10321,6 +10388,10 @@ async function handleRequest(request, env, ctx) {
       // the worst possible failure, because the customer does not know they were
       // meant to get one either.
       const jb = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/jobs$/i);
+      // THE NIGHTLY COPIES. List, and download one day — read-only, and the
+      // day in the path is matched with the exact shape the backup key mints,
+      // so nothing else can even reach the handler.
+      const bk = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/backups(?:\/(\d{4}-\d{2}-\d{2}))?$/i);
       // EVERY owner-scoped matcher above has to appear here, and `dm2` did not —
       // so `/api/site/<slug>/domains` was dispatched by nothing and fell through
       // to the 404 at the bottom of the router. Custom domains were unreachable
@@ -10332,10 +10403,10 @@ async function handleRequest(request, env, ctx) {
       // so from outside the two are indistinguishable — which is how this
       // survived a live probe until the dispatch was read.
       // `test/api-auth.test.mjs` holds the list against the matchers now.
-      if (om || mm || an || uf || xp || nt || lv || sk || dm2 || vr || tx || ed || ad || jb) {
+      if (om || mm || an || uf || xp || nt || lv || sk || dm2 || vr || tx || ed || ad || jb || bk) {
         const ou = await authUser(request);
         if (!ou) return UNAUTHED();
-        const ownerSlug = (om || mm || an || uf || xp || nt || lv || sk || dm2 || vr || tx || ed || ad || jb)[1].toLowerCase();
+        const ownerSlug = (om || mm || an || uf || xp || nt || lv || sk || dm2 || vr || tx || ed || ad || jb || bk)[1].toLowerCase();
         const ownerDeps = {
           ownerOf: async (s2) => {
             const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(s2)}&select=uid`, { headers: svcHeaders(env), signal: AbortSignal.timeout(12000) });
@@ -11864,6 +11935,36 @@ async function handleRequest(request, env, ctx) {
                 lastResult: typeof j.last_result === "string" ? j.last_result : null,
               })),
             });
+          } else if (bk) {
+            // THE NIGHTLY COPIES — list them, download one. Read-only by
+            // design: a backup an owner could DELETE is a backup an attacker
+            // with a stolen session could delete, and the whole point of a
+            // second copy is surviving exactly that kind of moment. Retention
+            // is the cron's job. No restore-in-place either — restoring rows
+            // over a live table is a merge-vs-replace decision nobody has
+            // made, and the download gives the owner everything.
+            const bslug = bk[1].toLowerCase();
+            const gB = await assertOwner(ownerDeps, bslug, ou.id);
+            if (gB.error) return Response.json(gB.error.body, { status: gB.error.status });
+            if (request.method !== "GET") return Response.json({ error: "method not allowed" }, { status: 405 });
+            if (!env.SITES_BUCKET) return Response.json({ error: "unavailable" }, { status: 501 });
+            if (bk[2]) {
+              const bDay = backupDayParam(bk[2]);
+              if (!bDay) return Response.json({ error: "bad day" }, { status: 400 });
+              const obj = await env.SITES_BUCKET.get(backupKey(bslug, bDay));
+              if (!obj) return Response.json({ error: "no such backup" }, { status: 404 });
+              // ATTACHMENT, never inline — this is a file of customer data the
+              // owner saves, and the export route's own rule applies: owner-
+              // held text must not render as a document on our origin.
+              return new Response(obj.body, {
+                headers: {
+                  "content-type": "application/json",
+                  "content-disposition": 'attachment; filename="' + bslug + "-" + bDay + '.json"',
+                },
+              });
+            }
+            const gotB = await env.SITES_BUCKET.list({ prefix: "backups/" + bslug + "/", limit: 100 });
+            return Response.json({ backups: backupListing((gotB && gotB.objects) || []) });
           } else if (nt) {
             // The off switch. Email the owner did not ask for, with no way to
             // stop it, is not something to ship.

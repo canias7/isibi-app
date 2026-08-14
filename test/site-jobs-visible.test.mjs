@@ -130,8 +130,11 @@ test("IT IS RECORDED WHERE THE OWNER CAN REACH IT, after the run", () => {
 const jbBlock = () => {
   const at = worker.indexOf('} else if (jb) {');
   assert.ok(at > 0, "no handler");
-  const end = worker.indexOf("} else if (nt) {", at);
-  assert.ok(end > at, "the nt landmark after the jb handler is gone — rescope this");
+  // To the NEXT branch, whichever it is — this was pinned to `nt` and went red
+  // the day the backups branch landed between them: a landmark that names its
+  // neighbour is a fact about ordering, the renumbering trap one shape over.
+  const end = worker.indexOf("} else if (", at + 1);
+  assert.ok(end > at, "no branch after the jb handler — rescope this");
   return worker.slice(at, end);
 };
 
@@ -140,8 +143,11 @@ test("THE OWNER'S ROUTE EXISTS, IS DISPATCHED, AND IS OWNER-GATED", () => {
   // was matched and never dispatched (`dm2`, custom domains — unreachable end
   // to end while looking perfectly gated).
   assert.match(worker, /const jb = url\.pathname\.match\(/, "no matcher");
-  assert.match(worker, /\|\| ad \|\| jb\) \{/, "the matcher is not in the dispatch condition");
-  assert.match(worker, /\|\| ad \|\| jb\)\[1\]\.toLowerCase\(\)/, "ownerSlug does not include it");
+  // MEMBERSHIP, not position — these pinned `jb` as the LAST entry and went
+  // red when the backups matcher joined the list after it. A pin on where a
+  // name sits in a list is a fact about ordering, the renumbering trap.
+  assert.match(worker, /\|\| jb\b[^)\n]*\) \{/, "the matcher is not in the dispatch condition");
+  assert.match(worker, /\|\| jb\b[^)\n]*\)\[1\]\.toLowerCase\(\)/, "ownerSlug does not include it");
   const h = jbBlock();
   assert.match(h, /assertOwner\(ownerDeps, jslug, ou\.id\)/, "the handler does not check ownership");
   assert.match(h, /method !== "GET"/, "an unrecognised method must be refused, not read as the list");

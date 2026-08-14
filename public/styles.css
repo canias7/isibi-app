@@ -5832,6 +5832,10 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
 .bk-dl{border:1px solid var(--line-2);background:var(--bg);color:var(--text);border-radius:8px;
   padding:.3rem .6rem;font-size:.74rem;font-weight:600;cursor:pointer}
 .bk-dl:hover{background:var(--panel)}
+/* The two halves of Backups & export — the nightly whole-site copies above,
+   the per-table export below. A heading each, so neither reads as the other. */
+.bk-sec{margin-bottom:1.1rem}
+.bk-h{display:block;font-size:.68rem;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin:0 0 .45rem}
 
 .fl-bar{display:flex;align-items:baseline;gap:.75rem;margin:0 0 .75rem;font-size:.8rem;color:var(--text)}
 .fl-bar span{margin-left:auto;color:var(--muted);font-size:.75rem}

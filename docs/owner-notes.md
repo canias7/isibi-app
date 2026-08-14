@@ -109,6 +109,30 @@ funded**, so every `SafeImage` on every published site is drawing its placeholde
 and no photograph has ever been generated. The upload half needs no image model
 and is what works today — which is why the tool prefers it.
 
+## 2026-08-14 — Your customers' data has a second copy now
+
+The audit's biggest gap, closed. Until today a site's booking list existed in
+exactly one place — its own database — so one bad bug or one wrong delete
+erased every customer and appointment permanently. Now:
+
+- **Every night we keep a copy** of each site's data (bookings, orders,
+  messages, plus the site's shape) — the last **7 days**, each downloadable.
+- **Cloud → Backups & export** shows them: pick a day, press Download, and
+  you have everything as one file. The per-table CSV/JSON export is still
+  there below it.
+- **Deliberately read-only.** You can't delete a backup from the panel, and
+  neither can anyone who steals a login — surviving that moment is what a
+  second copy is FOR. Old days age out on their own.
+- **No restore button yet, on purpose.** Putting old rows back over live ones
+  is a decision (merge? replace?) worth making properly rather than guessing;
+  the download means nothing is ever lost while we do.
+- Deleting a site deletes its backups too — we don't keep your customers'
+  data after you've asked for the site to be gone.
+
+Costs nothing extra to run (it uses storage we already pay for). The first
+copies appear after tonight, 03:00 UTC onwards. Not proven live yet — that
+first night is the proof.
+
 ## 2026-08-14 — Round 5: the last of the audit's straight fixes
 
 Fifth and final round of the no-decision-needed audit findings. Four things:

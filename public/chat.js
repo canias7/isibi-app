@@ -10454,7 +10454,7 @@ function moreCloud(site) {
     ['inbox', 'Submissions', dataLive ? 'Form entries from your visitors' : (isReact ? 'Add a form to your app to collect entries' : 'Publish to collect submissions'), dataLive, 'inbox'],
     ['database', 'Database', dataLive ? 'Your app’s tables + rows' : (isReact ? 'Add data to your app to see it here' : 'Publish to enable collections'), dataLive, 'database'],
     ['chart', 'Insights', dataLive ? 'Traffic, top pages + error rate' : (isReact ? 'Add data/traffic to see insights' : 'Publish to see insights'), dataLive, 'insights'],
-    ['download', 'Export data', dataLive ? 'Download everything your site has collected' : (isReact ? 'Add data to enable exports' : 'Publish to enable exports'), dataLive, 'backups'],
+    ['download', 'Backups & export', dataLive ? 'A nightly copy of your data, kept 7 days — download any day' : (isReact ? 'Add data to enable backups' : 'Publish to enable backups'), dataLive, 'backups'],
     ['history', 'Versions', (isReact && !!site.slug) ? 'Roll back to a previous build' : (isReact ? 'Publish to enable versions' : 'React sites only'), (isReact && !!site.slug), 'versions'],
     ['key', 'Secrets', isReact ? 'API keys for payments, email + integrations (kept server-side)' : 'Encrypted keys for server-side features', fnLive, 'secrets'],
     ['history', 'Scheduled jobs', dataLive ? 'What your site does on a timer, and what it did' : (isReact ? 'Add data to your app to enable scheduled work' : 'Publish to enable scheduled work'), dataLive, 'functions'],
@@ -12217,8 +12217,37 @@ async function siteBackups(site) {
   // deletes data believing they can put it back.
   const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
   if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — then you can export your data.'); return; }
-  const { bodyEl } = stCloudModal('siteBackupsModal', 'Export data');
-  bodyEl.innerHTML = '<p class="sp-intro">Download a copy of everything your site has collected. CSV opens in a spreadsheet; JSON is for moving it somewhere else.</p><div id="bkList">Loading…</div>';
+  const { bodyEl } = stCloudModal('siteBackupsModal', 'Backups & export');
+  bodyEl.innerHTML = '<p class="sp-intro">Every night we keep a copy of everything your site has collected — bookings, orders, messages — for the last 7 days. Download any day, or export one table below.</p>' +
+    '<div class="bk-sec"><b class="bk-h">Nightly copies</b><div id="bkNightly">Loading…</div></div>' +
+    '<div class="bk-sec"><b class="bk-h">Export one table</b><div id="bkList">Loading…</div></div>';
+
+  // The nightly list. An unreadable list is NOT an empty one — "no backups"
+  // reads as the feature not existing, the jobs panel's own rule.
+  const kb = (n) => (n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
+  apiFetch('/api/site/' + encodeURIComponent(slug) + '/backups')
+    .then(async (r) => {
+      const d = await r.json().catch(() => null);
+      const box = document.getElementById('bkNightly'); if (!box) return;
+      if (!r.ok || !d || !Array.isArray(d.backups)) { box.innerHTML = '<div class="st-sec-empty"><b>Couldn’t load the backups</b><span>Try again in a moment.</span></div>'; return; }
+      if (!d.backups.length) { box.innerHTML = '<div class="st-sec-empty"><b>No copies yet</b><span>The first nightly copy is made tonight, and each is kept for 7 days.</span></div>'; return; }
+      box.innerHTML = '<div class="bk-rows">' + d.backups.map((b2) =>
+        '<div class="bk-row"><div class="bk-tx"><b>' + esc(b2.day) + '</b><span>' + kb(Number(b2.size) || 0) + '</span></div>' +
+        '<div class="bk-btns"><button type="button" class="bk-dl" data-day="' + esc(b2.day) + '">Download</button></div></div>').join('') + '</div>';
+      box.querySelectorAll('.bk-dl').forEach((b2) => b2.onclick = async () => {
+        try {
+          const rr = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/backups/' + encodeURIComponent(b2.getAttribute('data-day')));
+          if (!rr.ok) { if (typeof sbToast === 'function') sbToast('Download failed — try again.'); return; }
+          const blob = await rr.blob();
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = slug + '-backup-' + b2.getAttribute('data-day') + '.json';
+          document.body.appendChild(a); a.click(); a.remove();
+          setTimeout(() => URL.revokeObjectURL(a.href), 1500);
+        } catch (e) { if (typeof sbToast === 'function') sbToast('Download failed — try again.'); }
+      });
+    })
+    .catch(() => { const box = document.getElementById('bkNightly'); if (box) box.innerHTML = '<div class="st-sec-empty"><b>Lost the connection</b><span>Try again.</span></div>'; });
 
   // Authed download → blob. A plain <a href> cannot send the Bearer token.
   const dl = async (table, fmt) => {
