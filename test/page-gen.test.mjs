@@ -14,7 +14,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   REFERENCE_PAGE, REFERENCE_PAGES, UI_COMPONENTS, UI_SHORTLIST, UI_SHORTLIST_API, PAGE_RULES, SITE_PAGES_TOOL, MAX_PAGES, MANAGED_COLUMNS,
-  schemaDigest, pagesPrompt, repairPrompt, validatePages, lintPages, briefForPages, ACCESS_NOTE, propsOf } from "../builder/page-gen.mjs";
+  schemaDigest, pagesPrompt, repairPrompt, validatePages, lintPages, briefForPages, ACCESS_NOTE, propsOf, UI_EXPORTS } from "../builder/page-gen.mjs";
 import { COMPONENT_API, COMPONENT_TYPES } from "../builder/component-api.mjs";
 import { build as buildApi, render as renderApi, extract as extractApi, buildTypes as buildTypesApi, extractTypes as extractTypesApi } from "../builder/gen-component-api.mjs";
 import * as api from "../builder/page-gen.mjs";
@@ -3180,13 +3180,107 @@ test("…and never flags a correct page", () => {
   } };
   for (const r of roots) if (fs.existsSync(r)) walk(r);
   assert.ok(files.length > 300, "the corpus scan found only " + files.length + " pages — it has drifted");
+  // JUDGED BY ROOT, and the split is required rather than tidy.
+  //
+  // A family exemplar is presentational by design — `family-pages.test.mjs`
+  // asserts none of them imports `@/lib/rows` or calls `fetch` — so `{tables: []}`
+  // is the TRUTHFUL spec for one and every rule's answer about it is meaningful.
+  // The reference pages are wired to data, so the same empty spec makes them
+  // report table-not-declared for tables that really exist; their unfiltered
+  // coverage lives at the REFERENCE_SPEC sweep near the top of this file, which
+  // is the only spec that makes them honest.
+  //
+  // So the 324 exemplars go through the WHOLE lint. Filtering to the rule family
+  // a test was written for is how ~18 of the ~20 rules ended up swept by nothing
+  // — and the first unfiltered run found 4 pages flagged for
+  // `import { X, type Y }`, the idiom these very exemplars teach.
+  const fam = [];
   const bad = [];
   for (const f of files) {
-    const out = lintPages([{ path: "x.tsx", source: fs.readFileSync(f, "utf8") }], { tables: [] })
-      .filter((x) => /not part of that shape|does not take/.test(x));
-    if (out.length) bad.push(path.basename(path.dirname(f)) + "/" + path.basename(f) + ": " + out[0]);
+    const all = lintPages([{ path: "x.tsx", source: fs.readFileSync(f, "utf8") }], { tables: [] });
+    const where = f.includes("family-pages") ? fam : bad;
+    const out = where === fam ? all : all.filter((x) => /not part of that shape|does not take/.test(x));
+    if (out.length) where.push(path.basename(path.dirname(f)) + "/" + path.basename(f) + ": " + out[0]);
   }
   assert.deepEqual(bad, [], "the prop lint flags known-good pages:\n  " + bad.slice(0, 8).join("\n  "));
+  assert.deepEqual(fam, [], "the FULL lint flags known-good family exemplars:\n  " + fam.slice(0, 8).join("\n  "));
+});
+
+test("a TYPE import is not judged against the export list", () => {
+  // MEASURED: this was the entire output of the full lint over the 324 family
+  // exemplars — 4 pages, all correct, all this shape. `UI_EXPORTS` records value
+  // exports plus only the shapes `extractTypes` kept, so it has no opinion about
+  // a string union; stripping the `type ` and judging the name anyway is the
+  // guess the skip-an-unknown-module rule beside it exists to refuse.
+  //
+  // Driven with a REAL pair off the kit, so the case cannot rot into fiction.
+  const ui = path.join(import.meta.dirname, "..", "builder", "lovable", "template", "src", "components", "ui", "rsvp-buttons.tsx");
+  const kit = fs.readFileSync(ui, "utf8");
+  assert.match(kit, /export type Rsvp\b/, "rsvp-buttons no longer exports the type this case is built on");
+  assert.match(kit, /export function RsvpButtons\b/, "rsvp-buttons no longer exports the component this case is built on");
+
+  const lint = (src) => lintPages([{ path: "x.tsx", source: src }], { tables: [] })
+    .filter((x) => /does not export it/.test(x));
+
+  assert.deepEqual(lint('import { RsvpButtons, type Rsvp } from "@/components/ui/rsvp-buttons";'), [],
+    "an inline type specifier is judged against a list that does not know the kit's unions");
+  assert.deepEqual(lint('import type { Rsvp } from "@/components/ui/rsvp-buttons";'), [],
+    "a whole-clause type import is judged against a list that does not know the kit's unions");
+
+  // AND `type` IS NOT A PASSWORD. Skipping type specifiers was the first fix and
+  // is strictly worse: an invented type is a real TS2305, and with an honest
+  // export list it is catchable. Measured, the skip also changed no answer —
+  // dropping the `type ` strip made the name fail the capital-initial test one
+  // line down, so it was inert protection reading as real.
+  assert.equal(lint('import { RsvpButtons, type Invented } from "@/components/ui/rsvp-buttons";').length, 1,
+    "an invented TYPE is not caught — the rule is skipping instead of judging");
+  assert.equal(lint('import type { Invented } from "@/components/ui/rsvp-buttons";').length, 1,
+    "an invented type in a whole-clause import is not caught");
+
+  // AND THE UN-PREFIXED FORM IS CLEAN TOO, which is a fact about the EXPORT LIST
+  // rather than about this rule. `verbatimModuleSyntax` is false in the template
+  // (builder/lovable/template/tsconfig.json), so `import { RsvpButtons, Rsvp }`
+  // compiles — and skipping only the `type`-prefixed form would still have
+  // refused it, on 30 modules whose one exported type is a string union that
+  // `COMPONENT_TYPES` drops by design. `COMPONENT_TYPE_NAMES` is what makes the
+  // list honest; without it this line reports and the message lists the exports
+  // without the name it just refused.
+  assert.deepEqual(lint('import { RsvpButtons, Rsvp } from "@/components/ui/rsvp-buttons";'), [],
+    "a union type imported without the keyword is refused — UI_EXPORTS does not know the kit's type exports");
+  assert.deepEqual(lint('import { DateEnquiry, DateStatus } from "@/components/ui/date-enquiry";'), [],
+    "same, on the module the gap was measured against");
+
+  // AND THE PROTECTION IS UNTOUCHED — the failure this rule was written for.
+  assert.equal(lint('import { FaqAccordion } from "@/components/ui/faq";').length, 1,
+    "an invented component name is no longer caught");
+  assert.equal(lint('import { DateEnquiry, Invented } from "@/components/ui/date-enquiry";').length, 1,
+    "an invented name beside a real one is no longer caught");
+});
+
+test("UI_EXPORTS knows every type the kit exports, not only the shaped ones", () => {
+  // DERIVED FROM THE KIT, both directions, because the failure it prevents is
+  // silent: a name missing here is a false alarm on a page that compiles, and
+  // the message helpfully lists the exports without the one it just refused.
+  //
+  // `COMPONENT_TYPES` cannot answer this on its own — `extractTypes` walks braces
+  // and keeps only object shapes, so a string union has no entry. Asserted as a
+  // sweep rather than as a list of the 30 known today, so a 31st union added
+  // tomorrow is covered without anybody remembering this file.
+  const dir = path.join(import.meta.dirname, "..", "builder", "lovable", "template", "src", "components", "ui");
+  const gaps = [];
+  let seen = 0;
+  for (const f of fs.readdirSync(dir).filter((n) => n.endsWith(".tsx"))) {
+    const mod = f.replace(/\.tsx$/, "");
+    const known = UI_EXPORTS[mod];
+    if (!known) continue;
+    for (const m of fs.readFileSync(path.join(dir, f), "utf8").matchAll(/^export\s+(?:type|interface)\s+([A-Z][A-Za-z0-9]*)/gm)) {
+      seen++;
+      if (!known.has(m[1])) gaps.push(mod + "." + m[1]);
+    }
+  }
+  // A scan that silently stopped matching would report a perfect kit.
+  assert.ok(seen > 300, `only ${seen} exported types found across the kit — the scan has drifted`);
+  assert.deepEqual(gaps, [], "UI_EXPORTS does not know these exported types, so importing one is falsely refused:\n  " + gaps.slice(0, 10).join("\n  "));
 });
 
 test("aria-* and data-* are DOM passthrough, never a signature miss", () => {

@@ -691,7 +691,22 @@ test("worker.js injects into every html page and nothing else", async () => {
   assert.match(src, /v\.t = injectMeta\(v\.t, [^;]*\bpm\b[^;]*\);/);
   // The home page keeps the designer's site-level description; the rest derive
   // their own from what they rendered, and get their own <title> with it.
-  assert.match(src, /pageMeta\(v\.t, meta, \{ home \}\)/, "per-page meta is not derived");
+  // ANCHORED ON THE PROPERTY, not the argument literal. This pinned `{ home }`
+  // exactly and went red the moment `route` joined it — a correct change failing
+  // a test about word order, which is this repo's most-recorded own-goal.
+  assert.match(src, /pageMeta\(v\.t, meta, \{ home[,}]/, "per-page meta is not derived");
+  assert.match(src, /route: routeByFile\.get\(/, "og:url no longer moves with the page");
+  // AND THE MAP IS ACTUALLY BUILT. A mutation deleting its construction survived
+  // the whole suite: `routeByFile` stays an empty Map, every `.get` misses, and
+  // every page silently falls back to the site URL — which is exactly the bug,
+  // with the call site still reading as fixed.
+  assert.match(src, /routeByFile = new Map\(\(man\.routes \|\| \[\]\)\.map\(\(r\) => \[fileForRoute\(r\), r\]\)\)/,
+    "the file->route map is never populated, so every page keeps the site URL");
+  // Declared OUTSIDE the try, or an unreadable previous manifest silently puts
+  // every page's share link back on the home page for one publish.
+  const decl = src.indexOf("let routeByFile = new Map();");
+  const tryAt = src.indexOf("const man = siteRoutes(pages);");
+  assert.ok(decl > 0 && tryAt > decl, "routeByFile is no longer declared before the manifest try");
   assert.match(src, /if \(!home\) v\.t = setTitle\(v\.t, pm\.brand\)/,
     "a prerendered page keeps the shell's title — one tab name for every page");
 });

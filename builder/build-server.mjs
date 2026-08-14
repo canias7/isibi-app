@@ -31,7 +31,7 @@ import { applyStyle, explicitRadiusCss } from "./site-style.mjs";
 import { applyIdentity, initialsMark, normalizeLang } from "./site-identity.mjs";
 import { exitReason } from "./exit-reason.mjs";
 import { checkRender } from "./render-check.mjs";
-import { routeOf } from "./site-addon.mjs";
+import { routeOf, fileForRoute } from "./site-addon.mjs";
 
 const APP = process.env.APP_DIR || "/app";
 const ROUTES = path.join(APP, "src", "routes");
@@ -81,6 +81,25 @@ function resetRoutes() {
   // one build's files leaking into the next — has happened here before, and it
   // is cheaper to delete than to reason about.
   try { fs.rmSync(path.join(APP, SSR_DIR), { recursive: true, force: true }); } catch {}
+  // AND THE STYLESHEET, which was the one build output nothing reset.
+  //
+  // `writeTheme` and `writeTokens` both APPEND to whatever `src/styles.css`
+  // currently holds, and the only thing that ever put it back was a side effect
+  // of `writeFonts` — its `if (applied)` write, gated on TWO conditions that can
+  // independently be false (a readable pristine base, and an `@theme` block to
+  // match). When either failed, the fallback read `src/styles.css` itself, i.e.
+  // THE PREVIOUS CUSTOMER'S SHEET, and appended to it.
+  //
+  // MEASURED over three builds with the base missing: 28031 → 32506 → 39145
+  // bytes, `:root` blocks 16 → 23 → 32, and every earlier build's font marker
+  // still present. So one customer's theme rules were being served inside the
+  // next customer's site — the same one-build-leaks-into-the-next class as the
+  // stale `dist-ssr` above, which is why it belongs here rather than there.
+  //
+  // SOFT, deliberately: an older image or a sandbox that never made the copy
+  // must behave exactly as it does today rather than losing every build to a
+  // missing dotfile. `writeFonts`' own restore then becomes belt-and-braces.
+  try { fs.copyFileSync(STYLES_BASE, STYLES); } catch {}
 }
 
 // The published tab: the business's name, its language, and its own mark.
@@ -149,8 +168,9 @@ function writeFonts(fonts, fontFiles) {
     written[id] = `/fonts/${id}.woff2`;
   }
 
-  // The values go into styles.css's own @theme block, restored from a pristine
-  // copy each build the way index.html is.
+  // The values go into styles.css's own @theme block. That file is restored from
+  // a pristine copy each build the way index.html is — in `resetRoutes`, not
+  // here; see the note on `base` below for why that moved.
   //
   // The obvious approach — a separate fonts.css imported after styles.css —
   // silently produced NOTHING. Measured: the chosen family appeared nowhere in
@@ -167,6 +187,16 @@ function writeFonts(fonts, fontFiles) {
   // and take the whole build with it — trading every site for a typeface, which
   // is backwards from every other decision in this file. Found by a probe that
   // forgot the copy: the build returned ENOENT instead of a site.
+  //
+  // THIS IS NO LONGER WHAT RESETS THE SHEET, and believing it was is what let one
+  // customer's theme rules survive into the next customer's site. `resetRoutes`
+  // now restores `src/styles.css` unconditionally, the way it already wipes the
+  // dist and the route tree, so by the time this runs the file is pristine and
+  // both branches below are belt-and-braces rather than the only reset there is.
+  // The second arm — reading `STYLES` when the base is unreadable — is kept
+  // because it is correct in a fresh sandbox, and it is no longer the previous
+  // build's sheet in the image, because the Dockerfile is now asserted to bake
+  // the base (test/dockerfile.test.mjs).
   let base = null;
   try { base = fs.readFileSync(STYLES_BASE, "utf8"); }
   catch { try { base = fs.readFileSync(STYLES, "utf8"); } catch { base = null; } }
@@ -394,7 +424,7 @@ async function prerender() {
     // cannot be got wrong by the code running beside the model's.
     if (/Switched to client rendering/.test(body)) { skipped.push(msg.p + ": render errored (client fallback)"); continue; }
     if (!/>[^<>]*[A-Za-z]{3,}/.test(body)) { skipped.push(msg.p + ": rendered no text"); continue; }
-    const file = msg.p === "/" ? "index.html" : msg.p.replace(/^\//, "") + ".html";
+    const file = fileForRoute(msg.p);
     const full = path.join(DIST, file);
     try {
       fs.mkdirSync(path.dirname(full), { recursive: true });
@@ -414,12 +444,6 @@ async function prerender() {
   return { done, skipped, unprivileged: !!PRERENDER_AS };
 }
 
-// One build at a time. Not an optimisation — a correctness requirement.
-//
-// `getContainer(env.SITE_BUILD_CONTAINER)` is called with no id, so EVERY build
-// on the platform lands in this one container, and a build wipes a shared
-// src/routes (and dist, and the generated route tree) before writing its own
-// pages. Two arriving together destroy each other: observed 2026-07-29 with two
 // The theme's own CSS, appended to whatever writeFonts left behind.
 //
 // AFTER writeFonts, NEVER BEFORE, and the ordering is the whole correctness
@@ -492,6 +516,12 @@ function writeTokens(tokens) {
   return { applied: true, notes: [] };
 }
 
+// One build at a time. Not an optimisation — a correctness requirement.
+//
+// `getContainer(env.SITE_BUILD_CONTAINER)` is called with no id, so EVERY build
+// on the platform lands in this one container, and a build wipes a shared
+// src/routes (and dist, and the generated route tree) before writing its own
+// pages. Two arriving together destroy each other: observed 2026-07-29 with two
 // real builds a second apart — one returned a build failure with no files, the
 // other returned a bundle containing neither site's content, and a third run had
 // one customer's pages published to another customer's slug.

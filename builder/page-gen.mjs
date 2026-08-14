@@ -13,7 +13,7 @@
 
 // Generated from the component files by builder/gen-component-api.mjs. Kept in
 // step by test/component-api.test.mjs, which regenerates and compares.
-import { COMPONENT_API, COMPONENT_TYPES } from "./component-api.mjs";
+import { COMPONENT_API, COMPONENT_TYPES, COMPONENT_TYPE_NAMES } from "./component-api.mjs";
 // The chart half, generated from src/components/charts/lib by
 // builder/gen-chart-api.mjs and kept in step by test/chart-api.test.mjs.
 import { CHART_COMPONENTS, CHART_API } from "./chart-api.mjs";
@@ -78,6 +78,17 @@ const CHART_NAME_COUNT = Object.values(CHART_COMPONENTS).reduce((n, v) => n + v.
  * Derived from `COMPONENT_API`, which already carries the names (a module with
  * several exports lists them all, separated by `·`), so this costs no new
  * generated file and cannot drift from it.
+ *
+ * `COMPONENT_TYPES` ALONE WAS NOT THE WHOLE TYPE STORY, and believing it was
+ * refused correct code (2026-08-14). That map answers "what SHAPE is this", so
+ * `extractTypes` walks braces and keeps only types with an object body — which
+ * silently drops every string union. 30 kit modules export exactly one type and
+ * it is a union: `date-enquiry.DateStatus`, `alarm-state.AlarmMode`,
+ * `density-toggle.Density`. The template sets `verbatimModuleSyntax: false`, so
+ * `import { DateEnquiry, DateStatus }` compiles perfectly and the lint told the
+ * page the module does not export it — listing the exports without it.
+ * `COMPONENT_TYPE_NAMES` is the names-only scan, unioned in here so the lint and
+ * the prompt keep asking ONE question.
  */
 export const UI_EXPORTS = (() => {
   const out = {};
@@ -85,6 +96,7 @@ export const UI_EXPORTS = (() => {
     const names = new Set();
     for (const m of String(sig).matchAll(/([A-Z][A-Za-z0-9]*)\s*\(/g)) names.add(m[1]);
     for (const t of Object.keys(COMPONENT_TYPES[mod] || {})) names.add(t);
+    for (const t of COMPONENT_TYPE_NAMES[mod] || []) names.add(t);
     if (names.size) out[mod] = names;
   }
   return out;
@@ -3626,7 +3638,26 @@ export function lintPages(pages, spec) {
       const known = UI_EXPORTS[m[2].toLowerCase()];
       if (!known) continue;
       for (const raw of m[1].split(",")) {
-        // `type X`, `X as Y` — the imported NAME is what has to exist.
+        // A TYPE IS JUDGED LIKE ANYTHING ELSE, and the fix was to the LIST rather
+        // than to this loop.
+        //
+        // Skipping type specifiers was tried first and is strictly worse: with an
+        // honest export list, `import { DateEnquiry, type Invented }` is a real
+        // `TS2305` that skipping lets through — and measured, the skip changed no
+        // answer at all, because dropping the `type ` strip made the name fail the
+        // capital-initial test one line down. Inert protection reading as real.
+        //
+        // What was actually broken is that `UI_EXPORTS` did not know the kit's
+        // string unions: `COMPONENT_TYPES` keeps only types with an object body,
+        // so 30 modules whose one exported type is a union looked as though they
+        // exported nothing of the sort. MEASURED over the 324 family exemplars —
+        // the corpus the model learns the kit from — that was the WHOLE of the
+        // full lint's output: 4 correct pages told off, e.g.
+        // `import { RepairStatus, type RepairStage }` against a file whose line 33
+        // is `export type RepairStage`. `COMPONENT_TYPE_NAMES` closed it, and a
+        // derived test now holds the list at zero gaps.
+        //
+        // `type X` and `X as Y` both name the thing that has to exist.
         const name = raw.trim().replace(/^type\s+/, "").split(/\s+as\s+/)[0].trim();
         if (!name || !/^[A-Za-z_$]/.test(name)) continue;
         // ONLY A CAPITAL-INITIAL NAME, because that is the only class this list

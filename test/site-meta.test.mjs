@@ -8,6 +8,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { injectMeta, metaTags, pageMeta, setTitle } from "../site-meta.mjs";
+import { routeOf, fileForRoute } from "../builder/site-addon.mjs";
 
 const PAGE = `<!doctype html><html lang="en"><head><meta charset="UTF-8" /><title>Sharp Fade</title><link rel="stylesheet" href="./a.css"></head><body><div id="root"></div></body></html>`;
 const META = { brand: "Sharp Fade Barbershop", description: "Skin fades and hot-towel shaves in Lisbon. Book online.", url: "https://gofarther.dev/s/sharp-fade/", image: "/u/sharp-fade/abc.png" };
@@ -179,5 +180,50 @@ test("setTitle survives every $-sequence a trading name can carry", () => {
     const back = got.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">");
     assert.equal(back, t, JSON.stringify(t) + " came out as " + JSON.stringify(got));
     assert.ok(!out.includes("Old"), "the old title leaked back into the page for " + JSON.stringify(t));
+  }
+});
+
+test("og:url names the page, not the site's home page", () => {
+  // A REPEAT FINDING: raised 2026-08-09 and still true five days later. Every
+  // prerendered page of every published site carried the site's own root as its
+  // og:url — so a booking page shared into WhatsApp previewed with the right
+  // title and description over an address pointing somewhere else, and a crawler
+  // was told two addresses are one page.
+  const base = { brand: "Sharp Fade Barbershop", description: "A barber shop in Leeds.", url: "https://sharp-fade.gofarther.app/" };
+  const html = "<h1>Book a chair</h1><p>Walk in or book a chair online today, seven days a week at our Leeds shop.</p>";
+
+  assert.equal(pageMeta(html, base, { home: false, route: "/book" }).url,
+    "https://sharp-fade.gofarther.app/book");
+  assert.equal(pageMeta(html, base, { home: false, route: "/about/team" }).url,
+    "https://sharp-fade.gofarther.app/about/team", "a nested route loses its path");
+
+  // THE HOME PAGE KEEPS THE SITE URL, and it must — appending "/" to a base that
+  // already ends in one would give a second slash on the one address everybody
+  // shares.
+  assert.equal(pageMeta(html, base, { home: true, route: "/" }).url, base.url);
+
+  // AN UNKNOWN ROUTE IS TODAY'S BEHAVIOUR, never a wrong per-page claim. This is
+  // reachable: `routeOf` does not lowercase and `siteRoutes` does, so a
+  // mixed-case page path misses the lookup — the safe direction, deliberately.
+  assert.equal(pageMeta(html, base, { home: false }).url, base.url, "a page with no route gets a made-up URL");
+  assert.equal(pageMeta(html, base, { home: false, route: undefined }).url, base.url);
+
+  // A base with no url stays without one rather than gaining "undefined/book".
+  assert.equal(pageMeta(html, { brand: "X" }, { home: false, route: "/book" }).url, undefined);
+
+  // AND IT REACHES THE TAG — the module is correct and unread if metaTags drops it.
+  assert.match(metaTags(pageMeta(html, base, { home: false, route: "/book" })),
+    /<meta property="og:url" content="https:\/\/sharp-fade\.gofarther\.app\/book">/);
+});
+
+test("the mapping the publish path keys on is the one the container writes", () => {
+  // Two readings of one mapping is this repo's "path-shape mismatch" family, and
+  // it has already shipped a bug twice. `fileForRoute` is the inverse of
+  // `routeOf` and lives beside it; this drives the real pair round-trip so a
+  // future edit to either cannot silently stop them agreeing.
+  for (const [file, route] of [["index.tsx", "/"], ["book.tsx", "/book"], ["about.team.tsx", "/about/team"]]) {
+    assert.equal(routeOf(file), route, `routeOf(${file})`);
+    assert.equal(fileForRoute(route), route === "/" ? "index.html" : file.replace(/\.tsx$/, "").replace(/\./g, "/") + ".html",
+      `fileForRoute(${route})`);
   }
 });

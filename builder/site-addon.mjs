@@ -355,6 +355,23 @@ export function routeOf(path) {
 }
 
 /**
+ * The file a route was prerendered to — `routeOf` run backwards.
+ *
+ * LIVES BESIDE ITS INVERSE, because a mapping and its inverse drifting apart is
+ * the same failure as two copies of the mapping. There were already TWO copies
+ * of this — `render-check.mjs` and an inline expression in the container's
+ * prerender loop — and the last commit before this one exists solely because a
+ * fifth private copy of `routeOf` shipped a bug. Both now import this.
+ *
+ * The publish path is the third caller: it needs to know WHICH route produced a
+ * given `.html` so `og:url` can name that page instead of the site's home page.
+ */
+export function fileForRoute(route) {
+  const r = String(route || "/");
+  return r === "/" ? "index.html" : r.replace(/^\//, "") + ".html";
+}
+
+/**
  * What the customer is told, in one line.
  *
  * NAMES THE PAGES. "Done" tells somebody nothing they can check, and this lane

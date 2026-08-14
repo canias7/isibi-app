@@ -178,7 +178,7 @@ test("EVERY exit from prerender() says whether it was sandboxed", () => {
   // A field carried on some returns and not others reads as "not sandboxed" on
   // the paths that omit it — which is the alarming answer, given for free by an
   // early return that has nothing to do with privileges.
-  const body = SERVER.slice(SERVER.indexOf("async function prerender()"), SERVER.indexOf("\n// One build at a time"));
+  const body = SERVER.slice(SERVER.indexOf("async function prerender()"), SERVER.indexOf("\nfunction writeTheme("));
   assert.ok(body.length > 500, "prerender() moved — rescope this");
   const returns = body.match(/return \{[^}]*done[^}]*\}/g) || [];
   assert.ok(returns.length >= 4, "only " + returns.length + " returns found — the scan stopped working");
@@ -194,8 +194,9 @@ test("the SSR build failure carries the compiler's own reason", () => {
   // test proved why by failing against the fix: the comment explaining the bug
   // contains the bug's own spelling. Blanked rather than removed, so every
   // offset the assertions below rely on stays where it is.
-  const body = SERVER.slice(SERVER.indexOf("async function prerender()"), SERVER.indexOf("\n// One build at a time"))
+  const body = SERVER.slice(SERVER.indexOf("async function prerender()"), SERVER.indexOf("\nfunction writeTheme("))
     .replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m) => m.replace(/[^\n]/g, " "));
+  assert.ok(body.length > 500, "prerender() moved — rescope this");
   assert.ok(!/ssr build failed/.test(body), "the four-word non-reason is back");
   assert.match(body, /exitReason\("the ssr build", ssr\)/, "the ssr failure no longer reports why");
   assert.match(body, /exitReason\("the renderer", child\)/, "a killed renderer no longer reports why");
@@ -205,7 +206,8 @@ test("a route the renderer never reached is named, with its reason", () => {
   // Named individually rather than as one "*: killed" line: the question a
   // reader has is which pages lost their snapshot — and with the reason
   // attached, so a kill is not read as the page having rendered nothing.
-  const body = SERVER.slice(SERVER.indexOf("async function prerender()"), SERVER.indexOf("\n// One build at a time"));
+  const body = SERVER.slice(SERVER.indexOf("async function prerender()"), SERVER.indexOf("\nfunction writeTheme("));
+  assert.ok(body.length > 500, "prerender() moved — rescope this");
   assert.match(body, /for \(const p of routes\) if \(!seen\.has\(p\)\)/,
     "routes the child never answered for are silently dropped");
 });
@@ -219,7 +221,10 @@ test("the container asks routeOf rather than keeping a copy", () => {
   // makes Round 7's fallback answer 404 for a page that used to load through
   // the SPA path. Two readings of one mapping is the repo's "path-shape
   // mismatch" family; the answer is one function, not two that agree.
-  assert.match(SERVER, /import \{ routeOf \} from "\.\/site-addon\.mjs"/,
+  // The IMPORT, not its exact member list: `fileForRoute` joined it when the
+  // publish path needed the same mapping, and a pin on the one name would have
+  // made that correct change arrive as a red test.
+  assert.match(SERVER, /import \{[^}]*\brouteOf\b[^}]*\} from "\.\/site-addon\.mjs"/,
     "build-server.mjs no longer imports the shared mapping");
   const fn = SERVER.slice(SERVER.indexOf("function routePaths()"), SERVER.indexOf("\n// WHO THE PRERENDER RUNS AS"));
   assert.ok(fn.length > 100, "routePaths moved — rescope this");

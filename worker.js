@@ -25,7 +25,7 @@ import { makeLimiter, bucketKey, tooMany, WINDOW_MS } from "./rate-limit.mjs";
 import { ensureSiteBackend as ensureSiteBackendPure } from "./site-provision.mjs";
 import { lookupRoute, saveRoute, dropRoute } from "./site-routing.mjs";
 import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerMembers, handleOwnerAnalytics, assertOwner } from "./site-owner.mjs";
-import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload, MAX_UPLOAD_BYTES, MAX_VISITOR_UPLOAD_BYTES, sniffImage, uploadName, uploadKey, uploadUrl, uploadFileName } from "./site-uploads.mjs";
+import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload, MAX_UPLOAD_BYTES, MAX_VISITOR_UPLOAD_BYTES, MAX_FILES_PER_SITE, sniffImage, uploadName, uploadKey, uploadUrl, uploadFileName } from "./site-uploads.mjs";
 import { handleOwnerExport } from "./site-export.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
 import { makeTrace } from "./builder/trace.mjs";
@@ -63,7 +63,7 @@ import { resolveAccess, ACCESS_PRESETS, unguardedBookings } from "./site-access.
 // data layer's gate cannot drift from the vocabulary again — it was compared
 // against "anyone", which is a WRITE level, and matched nothing on any site.
 const DISPLAY_PAIR = ACCESS_PRESETS.display;
-import { mergeAddonPages, mergeAddonSchema, unlinkedPages, routeOf } from "./builder/site-addon.mjs";
+import { mergeAddonPages, mergeAddonSchema, unlinkedPages, routeOf, fileForRoute } from "./builder/site-addon.mjs";
 import { archiveVersion, listVersions, rollbackVersion, deleteAllVersions, versionId, versionLabel } from "./site-versions.mjs";
 import { takeOffline, putBackOnline } from "./site-live.mjs";
 import { readLinkedPages, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, attachments, MAX_QUERIES } from "./builder/site-context.mjs";
@@ -2811,11 +2811,19 @@ async function buySitePhotos(env, { slug, pages, budget, balance, reserve }) {
   //
   // Best-effort: an unreadable listing does NOT block the build (the pictures are
   // the decoration, the site is the product), it just skips the trim.
+  //
+  // THE ERROR'S CLASS IS LOGGED, NOT JUST ITS MESSAGE. This trim never once ran:
+  // `MAX_FILES_PER_SITE` was read here and imported nowhere, so every build threw
+  // a ReferenceError into this catch and the allowance went unenforced from the
+  // day it was written (found 2026-08-14). The log said "upload headroom check
+  // failed", which reads as R2 being unavailable — so the one trace it left
+  // pointed away from the cause. A `ReferenceError` is ours; anything else is the
+  // listing.
   try {
     const objs = await siteUploadList(env, slug);
     const room = Math.max(0, MAX_FILES_PER_SITE - objs.length);
     if (room < affordable) affordable = room;
-  } catch (e) { console.error("upload headroom check failed:", slug, e && e.message); }
+  } catch (e) { console.error("upload headroom check failed:", slug, e && e.name, e && e.message); }
   const plan = planImages(pages, affordable);
   // `planned` is what the FAMILY asked for and `budget` is what the balance left
   // — they have to travel separately, or a site that could not afford its
@@ -5925,9 +5933,22 @@ async function writeSiteDistToR2(env, slug, dist, meta, pages) {
   // Best-effort to the bone: a site published without a sitemap is a far
   // smaller problem than one not published.
   let manifest = null;
+  // WHICH ROUTE PRODUCED EACH `.html`, so `og:url` can name that page.
+  //
+  // DECLARED OUTSIDE THE TRY on purpose: `manifest` is deliberately nulled when
+  // the PREVIOUS publish's copy could not be read, and this map has nothing to
+  // do with that — sharing its fate would silently put every page's share link
+  // back on the home page for one publish.
+  //
+  // Keyed on the container's file name, which `routeOf` does NOT lowercase while
+  // `siteRoutes` does — so a mixed-case page path simply misses the map and keeps
+  // the site-level URL, which is today's behaviour and never a wrong per-page
+  // claim. Do not "fix" that by lowercasing `rel`: a miss is the safe direction.
+  let routeByFile = new Map();
   if (meta && Array.isArray(pages) && pages.length && dist) {
     try {
       const man = siteRoutes(pages);
+      routeByFile = new Map((man.routes || []).map((r) => [fileForRoute(r), r]));
       let prev = null;
       // A READ THAT FAILED IS NOT A SITE WITH NO HISTORY, and conflating them
       // converts every accumulated redirect into a hard 404 in one publish.
@@ -5991,14 +6012,18 @@ async function writeSiteDistToR2(env, slug, dist, meta, pages) {
     // a page which site's API to talk to — leave it off a prerendered page and a
     // visitor landing directly on /book reads a DIFFERENT site's data, silently.
     //
-    // Per-page title and description come from what the page itself rendered
-    // (`pageMeta`), so a booking page pasted into WhatsApp previews as the
-    // booking page. The home page keeps the site-level description, which the
-    // designer wrote for exactly this purpose.
+    // Per-page title, description AND URL come from what the page itself
+    // rendered (`pageMeta`), so a booking page pasted into WhatsApp previews as
+    // the booking page, at the booking page's own address. The home page keeps
+    // the site-level description, which the designer wrote for exactly this
+    // purpose. `og:url` named the HOME page on every prerendered page of every
+    // published site until 2026-08-14 — raised in an audit five days earlier and
+    // still true, so a share preview claimed the right page at the wrong URL and
+    // a crawler was told two addresses were one page.
     if (/\.html$/i.test(String(rel)) && v && typeof v.t === "string" && meta) {
       const home = /^index\.html$/i.test(String(rel));
       try {
-        const pm = pageMeta(v.t, meta, { home });
+        const pm = pageMeta(v.t, meta, { home, route: routeByFile.get(String(rel)) });
         // The manifest rides the HOME page only — index.html is the one file
         // the SPA fallback reads, and a copy on every prerendered page would be
         // bytes nothing ever parses.

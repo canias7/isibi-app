@@ -141,6 +141,36 @@ test(`the ${svc.name} spawned-sibling scan can still see one`, () => {
   }
 });
 
+test(`the ${svc.name} image bakes every pristine base the service restores from`, () => {
+  // THE FAILURE IS SILENT AND CROSS-TENANT. `.routes-base` and `.index-base.html`
+  // are read with no catch, so a missing one kills the first build loudly.
+  // `.styles-base.css` is the ONLY base whose absence is deliberately soft — and
+  // soft here meant `src/styles.css` fell back to ITSELF, i.e. the previous
+  // customer's sheet, and every later build appended to it. Measured over three
+  // builds with the base missing: 16 → 23 → 32 `:root` blocks, every earlier
+  // theme still in the file.
+  //
+  // Deleting the two `cp` lines from the Dockerfile and running every
+  // Dockerfile-reading test in the repo was 150 pass, 0 fail — nothing asserted
+  // either path.
+  //
+  // DERIVED FROM THE SERVICE'S OWN CONSTANTS, so a fourth base is covered without
+  // anybody remembering this file. Anchored on the `_BASE` NAMING rather than on
+  // "a dotfile under APP": a runtime scratch dir written by the server is also a
+  // dotfile, and demanding the image bake one would be a red test on a correct
+  // image — which this repo rates worse than the miss.
+  const src = fs.readFileSync(path.join(svc.dir, "build-server.mjs"), "utf8");
+  const bases = [...src.matchAll(/const\s+\w*_BASE\s*=\s*path\.join\(APP,\s*"([^"]+)"\)/g)].map((m) => m[1]);
+  if (!bases.length) return;                       // the game service restores from none
+  assert.ok(bases.length >= 3, `only ${bases.length} pristine bases found — the scan stopped matching`);
+  const df = fs.readFileSync(path.join(svc.dir, "Dockerfile"), "utf8");
+  for (const b of bases) {
+    assert.ok(df.includes("/app/" + b),
+      `build-server.mjs restores from ${b} and the image never creates it — ` +
+      "a build then falls back to the PREVIOUS customer's file");
+  }
+});
+
 test(`the ${svc.name} container class agrees with the image's port`, () => {
   // A mismatch here has the SAME SYMPTOM as a missing module — Cloudflare cannot
   // reach the port and reports a start failure — so it is worth pinning next to

@@ -331,6 +331,35 @@ export function buildTypes() {
 }
 
 /**
+ * Every exported TYPE NAME per module — the names alone, no shapes.
+ *
+ * A DIFFERENT QUESTION FROM `buildTypes`, which is why it is a different scan.
+ * That one answers "what shape is this", so it deliberately keeps only types
+ * with an object body — `extractTypes` walks braces and drops anything without
+ * them. The lint asks "does this module export this name", and for that a string
+ * union counts every bit as much as a shape.
+ *
+ * MEASURED: 30 kit modules export a capital-initial type `UI_EXPORTS` did not
+ * know, every one of them a string union — `date-enquiry.DateStatus`,
+ * `alarm-state.AlarmMode`, `density-toggle.Density`. Since
+ * `verbatimModuleSyntax` is false in the template, `import { DateEnquiry,
+ * DateStatus }` compiles perfectly, and the lint told a page writing it that the
+ * module does not export it — while listing the exports without it. That is the
+ * false alarm the member rule's own comment calls worse than the miss.
+ *
+ * `interface` as well as `type`, because the kit uses both.
+ */
+export function buildTypeNames() {
+  const out = {};
+  for (const file of fs.readdirSync(UI_DIR).filter((f) => f.endsWith(".tsx")).sort()) {
+    const src = fs.readFileSync(path.join(UI_DIR, file), "utf8");
+    const names = [...src.matchAll(/^export\s+(?:type|interface)\s+([A-Z][A-Za-z0-9]*)/gm)].map((m) => m[1]);
+    if (names.length) out[file.replace(/\.tsx$/, "")] = [...new Set(names)];
+  }
+  return out;
+}
+
+/**
  * The exported shapes in ONE source, split out so it can be driven with a string.
  *
  * `extract` has taken a source since it was written and `buildTypes` read the
@@ -401,7 +430,7 @@ export function extractTypes(src, { exported = true } = {}) {
   return out;
 }
 
-export function render(api, types = buildTypes()) {
+export function render(api, types = buildTypes(), typeNames = buildTypeNames()) {
   const typeEntries = Object.entries(types)
     .map(([k, v]) => `  ${JSON.stringify(k)}: ${JSON.stringify(v)},`).join("\n");
   const entries = Object.entries(api)
@@ -426,6 +455,14 @@ ${entries}
 // The shapes those signatures stop at — see buildTypes().
 export const COMPONENT_TYPES = {
 ${typeEntries}
+};
+
+// Every exported TYPE NAME, shapes and string unions alike — see buildTypeNames().
+// NOT for the prompt: this exists so the member-import lint can answer "does this
+// module export this name" without being wrong about the 30 modules whose only
+// exported type is a union, which COMPONENT_TYPES drops by design.
+export const COMPONENT_TYPE_NAMES = {
+${Object.entries(typeNames).map(([k, v]) => `  ${JSON.stringify(k)}: ${JSON.stringify(v)},`).join("\n")}
 };
 `;
 }

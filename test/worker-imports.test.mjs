@@ -26,10 +26,42 @@ const worker = readFileSync(new URL("worker.js", root), "utf8");
  * Comments BLANKED, not removed, so offsets stay valid against the real text —
  * this repo's standing rule. Needed because the modules explain themselves at
  * length and prose mentions plenty of exported names.
+ *
+ * LINE COMMENTS FIRST, AND BLOCK OPENERS ONLY AT THE START OF A LINE. Both
+ * halves are load-bearing, and the naive order was a live hole (found
+ * 2026-08-14): `// \`/api/*\` IS DELIBERATELY LEFT ALONE` at worker.js:6689 is a
+ * LINE comment whose text contains `/*`, so a block-first blanker read it as an
+ * opener and ran to the next real `*​/` — **2,592 lines away**, at 9281.
+ *
+ * MEASURED: of the 115,502 non-space characters in that span, the old order left
+ * ONE visible. So the guard written after the `OWN_ZONES` outage — the one whose
+ * whole job is catching a name used without being imported — could not see the
+ * serve path, the SPA fallback, the uploads routes or the Turnstile config at
+ * all, while reporting a clean file.
+ *
+ * Blanking line comments first removes that opener. Anchoring the block opener
+ * at line-start removes the second one, `"https://*.supabase.co"` in the CSP
+ * (57,001 more characters) — a `/*` that has bitten here has always been
+ * mid-line inside a string, and a real block comment always starts its own line.
+ * After both, the largest block match is 1,594 characters and is a real JSDoc.
  */
 const blank = (src) => src
-  .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
-  .replace(/^[ \t]*\/\/.*$/gm, (m) => " ".repeat(m.length));
+  .replace(/^[ \t]*\/\/.*$/gm, (m) => " ".repeat(m.length))
+  .replace(/^[ \t]*\/\*[\s\S]*?\*\//gm, (m) => m.replace(/[^\n]/g, " "));
+
+/**
+ * Does this source USE this name — the one reading, shared by the check and by
+ * the test that drives it.
+ *
+ * A CALL OR AN INDEX for any name; a BARE READ as well when the name is
+ * UPPER_SNAKE. The narrowing is what makes the bare form affordable: worker.js
+ * carries thousands of lines of model prompts, and an English sentence does not
+ * contain `MAX_FILES_PER_SITE`. Measured over the 235 UPPER_SNAKE exports the
+ * scan sees, against comment-blanked source: zero false alarms.
+ */
+const usesName = (name, src) =>
+  new RegExp(`(^|[^.\\w$])${name}\\s*[[(]`, "m").test(src) ||
+  (/^[A-Z][A-Z0-9_]*$/.test(name) && new RegExp(`(^|[^.\\w$])${name}\\b`, "m").test(src));
 
 /** Import statements name things; they do not USE them. */
 const stripImports = (src) => src.replace(/^import .*$/gm, (m) => " ".repeat(m.length));
@@ -69,6 +101,65 @@ function inScope(src) {
   return names;
 }
 
+test("a BARE read of an UPPER_SNAKE constant counts as using it", () => {
+  // DRIVEN, because the check above cannot exercise this on its own: every name
+  // it would catch this way is now imported, so it `continue`s before reaching
+  // the widened branch. A mutation proved that — replacing the bare arm with
+  // `false` passed the entire suite, so the fix for the bug that motivated it
+  // was held by nothing.
+  //
+  // The narrowing to UPPER_SNAKE is what makes it affordable, and it is measured
+  // rather than assumed: worker.js carries thousands of lines of model prompts,
+  // and an English sentence does not contain `MAX_FILES_PER_SITE`.
+  // DRIVES THE REAL `usesName`, never a copy of it. A restated rule is a second
+  // reader that agrees today and diverges silently — a mutation proved exactly
+  // that: replacing the widened arm in the check left this test green, because
+  // it was asserting its own copy.
+  const bareUsed = usesName;
+  // The exact shape that was live and unseen for the life of the code.
+  assert.ok(bareUsed("MAX_FILES_PER_SITE", "const room = Math.max(0, MAX_FILES_PER_SITE - objs.length);"),
+    "the arithmetic read that was a caught ReferenceError still does not count as usage");
+  assert.ok(bareUsed("OWN_ZONES", "const z = OWN_ZONES[0];"), "the call/index form regressed");
+  // A camelCase name keeps the narrow rule — that is where the prose lives.
+  assert.ok(!bareUsed("normalizeHostname", "// normalizeHostname explains itself here"),
+    "a camelCase name is matched bare, which is what the prose narrowing forbids");
+  // A property access is not a free variable.
+  assert.ok(!bareUsed("MAX_UPLOAD_BYTES", "const n = limits.MAX_UPLOAD_BYTES;"),
+    "a property of the same name reads as a bare global");
+});
+
+test("the comment blanker does not eat the file it is meant to read", () => {
+  // THE FAILURE THIS EXISTS FOR IS SILENT AND TOTAL: an over-blanking scanner
+  // hides real code, so every assertion below it passes against a file nobody
+  // read. It happened here — 2,592 lines of the serve path were blanked to a
+  // single character and the suite stayed green for as long as that lasted.
+  //
+  // Asserted on the PROPERTY (how much survives, and how large the largest
+  // single blank is), not on the spelling of the regexes, so a future rewrite of
+  // the blanker is judged by whether it works rather than by how it is written.
+  const kept = code.replace(/\s/g, "").length / worker.replace(/\s/g, "").length;
+  assert.ok(kept > 0.45, `the blanker kept only ${(kept * 100).toFixed(1)}% of worker.js — it is eating real code`);
+
+  // A RUNAWAY IS ONE ENORMOUS MATCH, which is the shape that distinguishes it
+  // from a file that is simply well commented. The largest legitimate block
+  // comment in this repo is a JSDoc header of ~1.6k characters.
+  let biggest = 0;
+  for (const m of worker.replace(/^[ \t]*\/\/.*$/gm, (x) => " ".repeat(x.length)).matchAll(/^[ \t]*\/\*[\s\S]*?\*\//gm)) {
+    biggest = Math.max(biggest, m[0].length);
+  }
+  assert.ok(biggest < 8000, `a single block-comment match spans ${biggest} characters — a \`/*\` inside a string has opened a runaway`);
+
+  // AND THE TWO KNOWN OPENERS ARE STILL IN THE FILE, so this test cannot pass
+  // by them having been edited away rather than by the blanker being correct.
+  assert.match(worker, /`\/api\/\*` IS DELIBERATELY LEFT ALONE/,
+    "the line comment that caused the runaway is gone — re-point this test at whatever replaced it");
+  assert.ok(worker.includes("/*.supabase.co"), "the CSP wildcard that caused the second runaway is gone — re-point this test");
+
+  // The span they used to swallow must be readable.
+  assert.ok(code.includes("servedAtRoot(url.pathname)"), "the hostname-rewrite guard is invisible to the scan");
+  assert.ok(code.includes("MAX_FILES_PER_SITE - objs.length"), "the upload-headroom trim is invisible to the scan");
+});
+
 test("the scan can see worker.js and the site modules at all", () => {
   // Every assertion below is trivially true against an empty scan, which is the
   // failure this repo keeps recording. Anchored on facts that are true today
@@ -99,13 +190,26 @@ test("worker.js imports every site-module export it references", () => {
     // a scanner that over-blanks HIDES real code, which is the direction that
     // costs a bug rather than a false alarm.
     //
-    // What this trades away, stated because a silent gap is the thing this file
-    // is about: a bare read like `const x = MAX_BODY;` is not matched. Every
-    // failure seen so far has been a call or an index — `OWN_ZONES[0]` is the
-    // one this test was written for — and a guard that fires on real bugs beats
-    // a wider one that gets switched off for crying wolf.
-    const used = new RegExp(`(^|[^.\\w$])${name}\\s*[[(]`, "m").test(code);
-    if (used) missing.push(`${name} (exported by ${mod})`);
+    // THE GAP THAT USED TO BE STATED HERE WAS A LIVE BUG, found 2026-08-14.
+    // The note read: "a bare read like `const x = MAX_BODY;` is not matched.
+    // Every failure seen so far has been a call or an index." By then
+    // `MAX_FILES_PER_SITE - objs.length` was already in `buySitePhotos`,
+    // unimported — a ReferenceError inside a try whose catch logs "upload
+    // headroom check failed", so the owner's 200-file allowance had NEVER once
+    // been enforced against generated photographs and the only trace was a log
+    // line that reads like R2 being unavailable.
+    //
+    // A BARE READ COUNTS WHEN THE NAME IS UPPER_SNAKE, which is exactly the
+    // narrowing that makes it affordable: the prose problem above is real, and
+    // an English sentence does not contain `MAX_FILES_PER_SITE`. Same trick the
+    // block-scope scan uses one test over (`if (!/[a-z][A-Z]/.test(name))`).
+    //
+    // MEASURED before widening, because a false alarm here is worse than the
+    // miss: over the 235 UPPER_SNAKE exports the scan sees, the bare form flags
+    // EIGHT — and all eight are the name appearing in a `//` or JSDoc comment
+    // ABOUT that constant, none in prompt prose. With comment-opening lines
+    // blanked it is ZERO, and removing the real import still reports the bug.
+    if (usesName(name, code)) missing.push(`${name} (exported by ${mod})`);
   }
   assert.deepEqual(missing, [],
     "worker.js references these without importing them — a ReferenceError the moment that line runs");
@@ -453,4 +557,44 @@ test("the integration scope scan fires on the shape it was written for", () => {
   // The same shape with a REAL out-of-scope read still reports.
   const real = quoted.replace('  post({ files: { "index.tsx": INDEX, "menu.tsx": MENU } });', "  use(menu.length);");
   assert.equal(outOfScopeReads(real).length, 1, "narrowed so far it no longer catches the real thing");
+});
+
+test("nothing re-exports a name it also uses — that binds nothing", () => {
+  // `export { X } from "./y.mjs"` FORWARDS X and creates NO local binding, so a
+  // call to `X(...)` in the same file is a ReferenceError at runtime. Nothing
+  // static catches it: `node --check` passes, esbuild bundles it, and every one
+  // of this repo's 2,766 unit tests stayed green while the build service died at
+  // the first prerender of every build (found 2026-08-14, by the container
+  // harness, on a re-export added the same hour).
+  //
+  // The fix is always the two-line form — `import { X } …; export { X };` — which
+  // binds AND forwards. Derived over every module rather than pinned to the one
+  // that broke.
+  const files = [];
+  for (const d of [new URL("./", root), new URL("./builder/", root)]) {
+    for (const f of readdirSync(d)) if (f.endsWith(".mjs")) files.push(new URL(f, d));
+  }
+  assert.ok(files.length > 20, `only ${files.length} modules scanned — the walk broke`);
+
+  let seen = 0;
+  const bad = [];
+  for (const f of files) {
+    const src = blank(readFileSync(f, "utf8"));
+    for (const m of src.matchAll(/^export\s*\{([^}]*)\}\s*from\s*["'][^"']+["'];?/gm)) {
+      seen++;
+      const rest = src.slice(0, m.index) + src.slice(m.index + m[0].length);
+      for (const raw of m[1].split(",")) {
+        const name = raw.trim().split(/\s+as\s+/)[0].trim();
+        // Used as a value — called, or opened as a JSX/generic — anywhere else.
+        if (name && new RegExp(`(^|[^.\\w$])${name}\\s*[(<]`, "m").test(rest)) {
+          bad.push(String(f).split("/").pop() + " re-exports " + name + " and calls it — that is a ReferenceError");
+        }
+      }
+    }
+  }
+  // A scan that stops matching reports a clean repo. There is at least one such
+  // statement today (render-check.mjs forwards fileForRoute); if that stops being
+  // true this check is free, and should be re-pointed rather than left looking busy.
+  assert.ok(seen >= 1, "no `export { … } from` statements found at all — the scan has drifted");
+  assert.deepEqual(bad, [], bad.join("\n  "));
 });

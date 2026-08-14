@@ -133,10 +133,22 @@ export function injectMeta(html, meta) {
  * hero. Anything this cannot work out falls back to the site-level values, so
  * the worst case is what every page had before.
  */
-export function pageMeta(html, base, { home = false } = {}) {
+export function pageMeta(html, base, { home = false, route } = {}) {
   const meta = { ...(base || {}) };
   if (home) return meta;
   const src = String(html == null ? "" : html);
+
+  // AND `og:url` MOVES WITH THE PAGE. It did not, and every prerendered page on
+  // every published site named the site's HOME page — a repeat finding, raised
+  // 2026-08-09 and still true five days later. So a booking page shared into
+  // WhatsApp carried the right title and description over a URL pointing
+  // somewhere else, and a crawler was told two addresses are one page.
+  //
+  // `base.url` is the site's own origin-plus-mount, whatever that is on this
+  // publish (the app zone, the subdomain, the owner's own domain), so appending
+  // the route is right on all three. An unknown route leaves it exactly as it is
+  // today — the absent-means-today's-behaviour rule the manifest already uses.
+  if (route && base && base.url) meta.url = String(base.url).replace(/\/+$/, "") + route;
 
   // The words inside a tag, with markup and entities that would read as noise
   // removed. Anything left containing a `<` is not text we understand.

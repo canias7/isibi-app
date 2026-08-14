@@ -40,11 +40,15 @@ const NAV_MS = 6000;
 // Scrolling to the bottom and back is what makes the check reach the whole page.
 const SETTLE_MS = 250;
 
-/** The file a route was prerendered to — the same name `prerender()` writes. */
-export function fileForRoute(route) {
-  const r = String(route || "/");
-  return r === "/" ? "index.html" : r.replace(/^\//, "") + ".html";
-}
+// The file a route was prerendered to. IMPORTED, not redeclared: it is the
+// inverse of `routeOf` and lives beside it, so the two cannot drift.
+//
+// IMPORTED AND RE-EXPORTED, never `export { X } from` alone — that form creates
+// NO local binding, so `fileForRoute(p)` below is a ReferenceError. It took the
+// real container to say so: every unit test passed and the build service died at
+// the first prerender.
+import { fileForRoute } from "./site-addon.mjs";
+export { fileForRoute };
 
 /**
  * The dist, served the way the Worker serves a published site.

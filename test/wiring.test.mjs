@@ -14,6 +14,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 
 import { THEME_IDS, THEME_SHORTLIST, ALL_THEMES, resolveTheme } from "../builder/site-theme-registry.mjs";
 import { budgetFor, imageBudget } from "../builder/site-images.mjs";
@@ -667,6 +668,7 @@ test("every build output is wiped before the next build starts", () => {
     ["the generated route tree", /rmSync\(GEN,/],
     ["the client dist", /rmSync\(DIST,/],
     ["the server bundle (dist-ssr)", /rmSync\(path\.join\(APP, SSR_DIR\)/],
+    ["the stylesheet", /copyFileSync\(STYLES_BASE, STYLES\)/],
   ]) {
     assert.match(body, re, `resetRoutes no longer clears ${what} — the previous build's output survives into this one`);
   }
@@ -914,4 +916,57 @@ test("a refused guarantee and a refused table name both reach the caller", () =>
   assert.ok(at > 0 && to > at, "the reach/refuse block moved — rescope this");
   assert.match(worker.slice(at, to), /refusedFields\(body\.schema \|\| designed \|\| \{\}\)/,
     "the two readers disagree about which spec they are judging");
+});
+
+test("one customer's theme cannot survive into the next customer's stylesheet", () => {
+  // THE TITLE ABOVE WAS FALSE FOR AS LONG AS `styles.css` WAS MISSING FROM THAT
+  // LIST, and a source-read alone would not have caught it — `writeTheme` and
+  // `writeTokens` both APPEND, and the only thing that ever put the sheet back
+  // was a side effect of `writeFonts`, gated on two conditions that can each be
+  // false. When either was, the fallback read `src/styles.css` ITSELF — the
+  // previous customer's sheet — and appended to that.
+  //
+  // Driven rather than read: the real `resetRoutes` body is lifted out and run
+  // against a sandbox, three builds in a row, each appending a distinct marker
+  // the way a theme write does. Measured before the fix: 94 → 120 → 146 bytes
+  // with markers accumulating 1 → 1,2 → 1,2,3.
+  const src = fs.readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8");
+  const at = src.indexOf("function resetRoutes()");
+  assert.ok(at > 0, "resetRoutes moved — rescope this");
+  const body = src.slice(at, src.indexOf("\n}", at) + 2);
+  assert.ok(body.length > 400, "the resetRoutes window is empty — rescope this");
+
+  const run = (fnBody) => {
+    const app = fs.mkdtempSync(path.join(os.tmpdir(), "resetroutes-"));
+    fs.mkdirSync(path.join(app, "src", "routes"), { recursive: true });
+    fs.mkdirSync(path.join(app, ".routes-base"), { recursive: true });
+    fs.writeFileSync(path.join(app, ".routes-base", "__root.tsx"), "//root\n");
+    const pristine = "@theme {\n  --font-sans: system-ui;\n}\n:root { --background: white; }\n";
+    fs.writeFileSync(path.join(app, ".styles-base.css"), pristine);
+    const styles = path.join(app, "src", "styles.css");
+    fs.writeFileSync(styles, pristine);
+    const reset = new Function("fs", "path", "APP", "ROUTES", "ROUTES_BASE", "GEN", "DIST", "SSR_DIR", "STYLES", "STYLES_BASE",
+      fnBody + "\nreturn resetRoutes;")(fs, path, app,
+      path.join(app, "src", "routes"), path.join(app, ".routes-base"),
+      path.join(app, "src", "routeTree.gen.ts"), path.join(app, "dist"), "dist-ssr",
+      styles, path.join(app, ".styles-base.css"));
+    const seen = [];
+    for (const n of [1, 2, 3]) {
+      reset();
+      fs.writeFileSync(styles, fs.readFileSync(styles, "utf8") + `\n:root { --marker-${n}: 1; }\n`);
+      const s = fs.readFileSync(styles, "utf8");
+      seen.push([1, 2, 3].filter((k) => s.includes("--marker-" + k)));
+    }
+    fs.rmSync(app, { recursive: true, force: true });
+    return seen;
+  };
+
+  assert.deepEqual(run(body), [[1], [2], [3]],
+    "a previous build's theme rules are still in the stylesheet the next build appends to");
+
+  // AND IT DISCRIMINATES — without the restore the markers accumulate, so this
+  // test cannot be passing because the harness never writes anything.
+  assert.deepEqual(run(body.replace(/try \{ fs\.copyFileSync\(STYLES_BASE, STYLES\); \} catch \{\}/, "")),
+    [[1], [1, 2], [1, 2, 3]],
+    "the harness does not reproduce the leak, so a green run above proves nothing");
 });
