@@ -2494,38 +2494,66 @@ async function runScheduledSiteJobs(env, ctx) {
       // after sending, a job that dies mid-batch is due again on the next tick
       // and mails everyone it already reached. Losing a run is recoverable;
       // sending a reminder four times is not.
+      // A CONDITIONAL CLAIM, exactly the notify-cooldown pattern: one caller
+      // wins the window, decided by the database rather than by two ticks
+      // agreeing not to overlap. The WHERE re-states dueness (never run, or
+      // last_run older than the schedule minus the 30s slack dueJobs allows),
+      // so an overlapping tick that reads the same row as due loses here and
+      // sends nothing. OWNER-SCOPED like every filter on this table now: slug
+      // alone crosses tenants the day a freed slug is re-claimed and the model
+      // reuses a job name. And r.ok is CHECKED — the old write was not, so a
+      // Supabase in read-only mode (reads fine, writes 5xx) let the send
+      // proceed unstamped and re-mail the whole batch every tick until writes
+      // recovered. A claim that cannot be recorded is a claim lost.
       stamp: async (r2) => {
-        await fetch(`${SUPABASE_URL}/rest/v1/site_functions?slug=eq.${encodeURIComponent(r2.slug)}&name=eq.${encodeURIComponent(r2.name)}`, {
-          method: "PATCH", headers: { ...svc, "Content-Type": "application/json", Prefer: "return=minimal" },
-          body: JSON.stringify({ last_run: new Date().toISOString() }), signal: AbortSignal.timeout(8000),
-        });
+        const mins = parseInt(r2.schedule_minutes, 10) || 0;
+        const cutoff = new Date(Date.now() - Math.max(0, mins * 60000 - 30000)).toISOString();
+        try {
+          const r = await fetch(`${SUPABASE_URL}/rest/v1/site_functions?owner_id=eq.${encodeURIComponent(r2.owner_id)}&slug=eq.${encodeURIComponent(r2.slug)}&name=eq.${encodeURIComponent(r2.name)}&or=(last_run.is.null,last_run.lt.${encodeURIComponent(cutoff)})`, {
+            method: "PATCH", headers: { ...svc, "Content-Type": "application/json", Prefer: "return=representation" },
+            body: JSON.stringify({ last_run: new Date().toISOString() }), signal: AbortSignal.timeout(8000),
+          });
+          if (!r.ok) return { won: false };
+          const got = await r.json().catch(() => null);
+          return { won: Array.isArray(got) && got.length > 0 };
+        } catch { return { won: false }; }
       },
       // Re-read the SITE'S OWN schema rather than trusting the registry row.
       // Nothing auto-deletes a job, so a revise that drops one leaves the row
       // behind; the schema is what the site actually declares today, and a job
       // it no longer declares must stop running.
+      // NAMED CAUSES, never a bare null. Three different situations used to
+      // shape to null and all three wore the broken-SQL sentence in the
+      // owner's panel — "the function didn't return a list" said of a database
+      // that was unreachable, of a job a revise had dropped, and of a bad
+      // name. And the JSON parse is fenced with a FIXED sentence: V8's
+      // SyntaxError quotes ~26 characters of the input, so a malformed result
+      // beginning with recipient data would have put a fragment of a
+      // customer's address into last_result — a platform table (2026-08-13
+      // audit). No error message from the parse ever leaves this function.
       callFn: async (fn) => {
         const conn = await siteNeonProject(env, row.slug);
-        if (!conn) return null;
+        if (!conn) return { jobsSkip: "the site's database is unreachable" };
         const spec = await loadSiteSchema(conn);
         const declared = (spec && Array.isArray(spec.jobs) ? spec.jobs : []).some((j) => j && j.name === row.name && j.fn === fn);
-        if (!declared) return null;
-        if (!/^[a-z][a-z0-9_]{0,40}$/.test(String(fn))) return null;
+        if (!declared) return { jobsSkip: "this job is no longer part of the site" };
+        if (!/^[a-z][a-z0-9_]{0,40}$/.test(String(fn))) return { jobsSkip: "the function has an unusable name" };
         const got = await sqlQuery(conn, "SELECT " + sqlIdent(fn) + "() AS out");
         const v = got && got[0] && got[0].out;
-        return typeof v === "string" ? JSON.parse(v) : v;
+        if (typeof v !== "string") return v;
+        try { return JSON.parse(v); } catch { return { jobsSkip: "the function returned text that is not valid JSON" }; }
       },
+      // ONE VAULT READER, SHARED. This was a hand-rolled third copy of
+      // siteMailSecrets — same four names, same loop — and the shared
+      // function's own header says why that must not exist: two readers of one
+      // vault written out twice are two things that can disagree about which
+      // key is live. A provider added there and forgotten here would tell an
+      // owner "no provider key in Secrets" while their confirmations sent
+      // fine on the same key (2026-08-13 audit).
       credentials: async () => {
         const conn = await siteNeonProject(env, row.slug);
         if (!conn) return null;
-        const get = async (_s, name) => {
-          const r2 = await sqlQuery(conn, "SELECT cipher FROM _secrets WHERE name=?", [name]);
-          return (r2 && r2[0] && r2[0].cipher) || null;
-        };
-        const secrets = {};
-        for (const name of ["RESEND_KEY", "SENDGRID_KEY", "POSTMARK_KEY", "EMAIL_FROM"]) {
-          try { const v = await readSecret({ get }, env, { slug: row.slug, name }); if (v) secrets[name] = v; } catch { /* skip */ }
-        }
+        const secrets = await siteMailSecrets(env, conn, row.slug)();
         const picked = pickProvider(secrets);
         // Bring-your-own: no key and no from address means no send, quietly.
         // Our own sender is never substituted — see site-mail.mjs.
@@ -2555,8 +2583,14 @@ async function runScheduledSiteJobs(env, ctx) {
     // note costs a line of history, while moving the stamp costs somebody four
     // copies of the same reminder. Best-effort for the same reason — the tick
     // must not fail over a diagnostic.
+    // A LOST CLAIM WRITES NOTHING: the winning tick's outcome is the run's
+    // record, and overwriting it with "skipped" every overlap would bury the
+    // one line the owner reads. Owner-scoped like the stamp, or a freed slug
+    // re-claimed by another account gets its history written by a stranger's
+    // zombie row.
+    if (out.skipped) continue;
     try {
-      await fetch(`${SUPABASE_URL}/rest/v1/site_functions?slug=eq.${encodeURIComponent(row.slug)}&name=eq.${encodeURIComponent(row.name)}`, {
+      await fetch(`${SUPABASE_URL}/rest/v1/site_functions?owner_id=eq.${encodeURIComponent(row.owner_id)}&slug=eq.${encodeURIComponent(row.slug)}&name=eq.${encodeURIComponent(row.name)}`, {
         method: "PATCH", headers: { ...svc, "Content-Type": "application/json", Prefer: "return=minimal" },
         body: JSON.stringify({ last_result: jobOutcome(out).slice(0, 400) }), signal: AbortSignal.timeout(8000),
       });
@@ -6298,6 +6332,26 @@ async function deleteSiteFor(env, uid, dslug) {
     try {
       if (env.SITES_BUCKET) versionsRemoved = await deleteAllVersions(versionDeps(env), { slug: dslug });
     } catch (e) { console.error("site versions delete failed:", dslug, e && e.message); }
+
+    // THE SITE'S SCHEDULED JOBS. Left behind, each one is a ZOMBIE the cron
+    // picks up forever: a stamp write, a project lookup and a last_result
+    // write per period, for a site that no longer exists (2026-08-13 audit —
+    // nothing else deletes these rows; they are keyed by slug, not by uid, so
+    // they do not cascade with the account either). BEFORE the registration
+    // row, deliberately: if this delete fails the site still exists and the
+    // owner's retry of the whole route runs it again, whereas after the row
+    // is gone a failed cleanup is permanent — `DELETE /api/site/<slug>`
+    // answers 404 with no row to authorise against. By slug alone, not
+    // owner+slug: any row wearing this slug is a zombie once the site is
+    // gone, whoever wrote it.
+    let jobsRemoved = 0;
+    try {
+      const jr = await fetch(`${SUPABASE_URL}/rest/v1/site_functions?slug=eq.${encodeURIComponent(dslug)}`, {
+        method: "DELETE", headers: svcHeaders(env, { Prefer: "return=representation" }), signal: AbortSignal.timeout(10000),
+      });
+      const jrows = await jr.json().catch(() => null);
+      jobsRemoved = Array.isArray(jrows) ? jrows.length : 0;
+    } catch (e) { console.error("site jobs delete failed:", dslug, e && e.message); }
 
     // Registration goes last. While it exists the site is still findable and
     // still owned, so a failure above leaves something to retry against rather
@@ -11674,13 +11728,42 @@ async function handleRequest(request, env, ctx) {
               : await takeOffline(liveDeps, { slug: lslug });
             return Response.json(out, { status: out.ok ? 200 : (out.reason === "no-way-back" ? 409 : 503) });
           } else if (jb) {
-            // WHAT THE SCHEDULED WORK HAS BEEN DOING. Read-only: a job is
-            // declared by the model at build time and turning one off is a
-            // revise, so there is nothing to POST here and no second way to
-            // change what the schema says.
+            // WHAT THE SCHEDULED WORK HAS BEEN DOING — and the OFF SWITCH.
+            // This used to be read-only, its comment claiming "turning one off
+            // is a revise"; the 2026-08-13 audit proved no revise can do it:
+            // _meta.jobs is a union-merge nothing ever removes an entry from,
+            // the rules lane's CLEARABLE is exactly confirm/sms, and nothing
+            // anywhere wrote enabled:false — so an owner asking "stop the
+            // weekly digest" had NO path that did not also kill their booking
+            // confirmations or the whole site. The runner has filtered
+            // `enabled=is.true` all along; this is the one write that flag was
+            // waiting for. POST {name, enabled} — owner-gated, owner-scoped,
+            // and honest about a name that matches nothing.
             const jslug = jb[1].toLowerCase();
             const g = await assertOwner(ownerDeps, jslug, ou.id);
             if (g.error) return Response.json(g.error.body, { status: g.error.status });
+            if (request.method === "POST") {
+              let jbody = {};
+              try { jbody = await request.json(); } catch { jbody = {}; }
+              const jname = String((jbody && jbody.name) || "");
+              if (!/^[a-z][a-z0-9_]{0,60}$/i.test(jname)) return Response.json({ error: "bad name" }, { status: 400 });
+              // A REAL BOOLEAN, nothing merely truthy — `enabled: "false"`
+              // would switch a job ON while the owner was switching it off,
+              // the normalizeRole lesson on the field that sends mail.
+              if (typeof (jbody && jbody.enabled) !== "boolean") return Response.json({ error: "bad enabled" }, { status: 400 });
+              const w = await fetch(`${SUPABASE_URL}/rest/v1/site_functions?owner_id=eq.${encodeURIComponent(ou.id)}&slug=eq.${encodeURIComponent(jslug)}&name=eq.${encodeURIComponent(jname)}&schedule_minutes=not.is.null`, {
+                method: "PATCH", headers: svcHeaders(env, { "content-type": "application/json", Prefer: "return=representation" }),
+                body: JSON.stringify({ enabled: jbody.enabled }), signal: AbortSignal.timeout(10000),
+              });
+              if (!w.ok) return Response.json({ error: "unavailable" }, { status: 503 });
+              const wr = await w.json().catch(() => null);
+              // Zero rows matched = no such scheduled job on this site. Saying
+              // ok would be a toggle that reports success while switching
+              // nothing — this file's most-recorded failure, on the one
+              // control whose whole point is stopping mail.
+              if (!Array.isArray(wr) || !wr.length) return Response.json({ error: "no such job" }, { status: 404 });
+              return Response.json({ ok: true, name: jname, enabled: jbody.enabled === true });
+            }
             if (request.method !== "GET") return Response.json({ error: "method not allowed" }, { status: 405 });
             const q = await fetch(`${SUPABASE_URL}/rest/v1/site_functions?slug=eq.${encodeURIComponent(jslug)}&schedule_minutes=not.is.null&select=name,schedule_minutes,enabled,last_run,last_result&order=name.asc&limit=20`,
               { headers: svcHeaders(env), signal: AbortSignal.timeout(10000) });

@@ -22,11 +22,17 @@ test("THE FOUR OUTCOMES DO NOT READ ALIKE — the whole requirement", () => {
     noKey: { ok: true, sent: 0, reason: "no provider key in Secrets" },
     sent: { ok: true, sent: 12 },
     threw: { ok: false, reason: "threw", error: "relation bookings does not exist" },
+    // A lost overlap claim. The runner never stores this one (the winner's
+    // outcome is the record), but if it is ever shown it must read as the
+    // system working — not as a failure, and not as a quiet Tuesday.
+    skipped: { ok: true, skipped: true },
   };
   const said = Object.fromEntries(Object.entries(cases).map(([k, v]) => [k, jobOutcome(v)]));
   const all = Object.values(said);
   assert.equal(new Set(all).size, all.length, "two outcomes produce the same sentence: " + all.join(" | "));
   for (const [k, v] of Object.entries(said)) assert.ok(v && v.length > 8, k + " said almost nothing: " + v);
+  assert.equal(/Failed|Couldn’t run|Nothing to send/.test(said.skipped), false,
+    "a lost claim reads as a failure or a quiet day: " + said.skipped);
 });
 
 test("a broken function is NOT reported as a quiet Tuesday", () => {
@@ -117,6 +123,18 @@ test("IT IS RECORDED WHERE THE OWNER CAN REACH IT, after the run", () => {
   assert.match(block, /jobOutcome\(out\)/, "the outcome is computed and discarded again");
 });
 
+// The jb handler, landmark-bounded — never a byte count. Both of these windows
+// were `at + 1800` and went red the day the handler grew a POST branch: the
+// gate had not moved, the declarations in front of it had (this file's
+// recurring own-goal, recorded against api-auth twice already).
+const jbBlock = () => {
+  const at = worker.indexOf('} else if (jb) {');
+  assert.ok(at > 0, "no handler");
+  const end = worker.indexOf("} else if (nt) {", at);
+  assert.ok(end > at, "the nt landmark after the jb handler is gone — rescope this");
+  return worker.slice(at, end);
+};
+
 test("THE OWNER'S ROUTE EXISTS, IS DISPATCHED, AND IS OWNER-GATED", () => {
   // Three separate places, because this repo has shipped an owner route that
   // was matched and never dispatched (`dm2`, custom domains — unreachable end
@@ -124,27 +142,67 @@ test("THE OWNER'S ROUTE EXISTS, IS DISPATCHED, AND IS OWNER-GATED", () => {
   assert.match(worker, /const jb = url\.pathname\.match\(/, "no matcher");
   assert.match(worker, /\|\| ad \|\| jb\) \{/, "the matcher is not in the dispatch condition");
   assert.match(worker, /\|\| ad \|\| jb\)\[1\]\.toLowerCase\(\)/, "ownerSlug does not include it");
-  const at = worker.indexOf('} else if (jb) {');
-  assert.ok(at > 0, "no handler");
-  const h = worker.slice(at, at + 1800);
+  const h = jbBlock();
   assert.match(h, /assertOwner\(ownerDeps, jslug, ou\.id\)/, "the handler does not check ownership");
-  assert.match(h, /method !== "GET"/, "a read-only panel accepts writes");
+  assert.match(h, /method !== "GET"/, "an unrecognised method must be refused, not read as the list");
   assert.match(h, /status: 503/, "an unreadable list answers as an empty one");
 });
 
 test("AN UNREADABLE LIST IS NOT AN EMPTY ONE, at both ends", () => {
   // "No scheduled jobs" reads as the feature not existing and the owner stops
   // looking — the one wrong answer here that costs something.
-  const at = worker.indexOf('} else if (jb) {');
-  const h = worker.slice(at, at + 1800);
+  const h = jbBlock();
   assert.match(h, /if \(!q\.ok\) return Response\.json\(\{ error: "unavailable" \}/);
   assert.match(h, /if \(!Array\.isArray\(jrows\)\)/, "a non-array body reads as zero jobs");
   const c = chat.indexOf("async function siteFunctions(site)");
   assert.ok(c > 0, "the panel is gone");
-  const panel = chat.slice(c, c + 4200);
+  const panel = chat.slice(c, c + 6400);
   assert.match(panel, /if \(!r\.ok\)/, "the client treats a failed load as an empty schedule");
   assert.match(panel, /Hasn\\u2019t run yet|Hasn’t run yet/,
     "a job that has never run is given an invented outcome");
+});
+
+test("THE OFF SWITCH: POST {name, enabled} exists, refuses junk, and cannot lie", () => {
+  // The audit's finding was not that the toggle was missing a nicety — it was
+  // that NO path in the product could stop a scheduled job: _meta.jobs is a
+  // union-merge nothing removes an entry from, the rules lane's CLEARABLE is
+  // exactly confirm/sms, and nothing anywhere wrote enabled:false. The runner
+  // has filtered `enabled=is.true` all along; this is the write that flag was
+  // waiting for.
+  const h = jbBlock();
+  // A REAL BOOLEAN, nothing merely truthy — `enabled: "false"` would switch a
+  // job ON while the owner was switching it off (the normalizeRole lesson, on
+  // the field that sends mail).
+  assert.match(h, /typeof \(jbody && jbody\.enabled\) !== "boolean"/, "enabled is accepted truthy");
+  // Owner-scoped AND schedule-scoped: slug alone crosses tenants the day a
+  // freed slug is re-claimed, and a row with no schedule is not a job.
+  assert.match(h, /site_functions\?owner_id=eq\.[^`]*&name=eq\.[^`]*&schedule_minutes=not\.is\.null/,
+    "the toggle's filter lost a scope");
+  // Zero rows matched must be a 404, not an ok — a toggle that reports success
+  // while switching nothing is this file's most-recorded failure, on the one
+  // control whose whole point is stopping mail.
+  assert.match(h, /Prefer: "return=representation"/, "the PATCH cannot see whether it matched anything");
+  assert.match(h, /if \(!Array\.isArray\(wr\) \|\| !wr\.length\) return Response\.json\(\{ error: "no such job" \}, \{ status: 404 \}\)/,
+    "a name matching nothing reports success");
+
+  // And the client half: the badge IS the button, it posts the OPPOSITE of the
+  // server's last answer, and it repaints by reloading rather than optimism.
+  const c = chat.indexOf("async function siteFunctions(site)");
+  const panel = chat.slice(c, c + 6400);
+  assert.match(panel, /fn-tgl/, "the switch is gone from the panel");
+  assert.match(panel, /method: 'POST'[^}]*\/jobs'|\/jobs',\s*\{ method: 'POST'/, "nothing posts to the jobs route");
+  assert.match(panel, /JSON\.stringify\(\{ name: b\.dataset\.job, enabled: next \}\)/, "the toggle does not send name+enabled");
+  // The OPPOSITE of the server's last answer. A spelling pin, deliberately:
+  // an inversion here is pure semantics a derived read cannot hold, and the
+  // render harness that drives the click is not in `npm test`.
+  assert.match(panel, /const next = b\.dataset\.on !== '1';/, "the toggle sends the state it already has");
+  assert.match(panel, /if \(!r\.ok\)[^\n]*sbToast/, "a refused toggle is silent");
+  // The RELOAD after a successful toggle — anchored on `return; }` so the
+  // panel's own initial `load();` (inside this same window) cannot satisfy it.
+  assert.match(panel, /return; \}\s*\n\s*load\(\);/, "the panel does not repaint from the server's answer");
+  // And the two states carry the dataset the handler reads.
+  assert.match(panel, /fn-tgl fn-off" data-job="[^"]*" data-on=""/, "the paused state lost its dataset");
+  assert.match(panel, /fn-tgl" data-job="[^"]*" data-on="1"/, "the running state lost its dataset");
 });
 
 test("THE PANEL IS REACHABLE — the card is not forced Off", () => {

@@ -12708,12 +12708,34 @@ async function siteFunctions(site) {
         const result = j.lastResult
           ? '<div class="fn-flow"><span class="fn-step">' + esc(j.lastResult) + '</span></div>'
           : '<div class="fn-flow"><span class="fn-step">Hasn\u2019t run yet.</span></div>';
+        // THE BADGE IS THE OFF SWITCH now, not a label. It reads the state
+        // ("On"/"Paused") and clicking it flips it — the one write this panel
+        // has, wired to POST /jobs {name, enabled}. Before this the only path
+        // to "stop the weekly digest" was asking the builder, which has no
+        // lane that can do it (the 2026-08-13 audit) — so the switch lives
+        // where the owner is already looking at what the job did.
         return '<div class="fn-item"><div class="fn-top"><span class="fn-ic">' + ic('history', 15) + '</span><b class="fn-name">' + esc(j.name) + '</b>' +
           '<span class="fn-sch">' + esc(every(Number(j.everyMinutes) || 0)) + '</span>' +
           (ran ? '<span class="fn-trig">ran ' + esc(ran) + '</span>' : '') +
-          (j.enabled === false ? '<span class="st-badge-soon">Paused</span>' : '<span class="st-badge-live">On</span>') +
+          (j.enabled === false
+            ? '<button type="button" class="fn-tgl fn-off" data-job="' + esc(j.name) + '" data-on="" title="Paused — click to resume">Paused</button>'
+            : '<button type="button" class="fn-tgl" data-job="' + esc(j.name) + '" data-on="1" title="Running on schedule — click to pause">On</button>') +
           '</div>' + result + '</div>';
       }).join('');
+      listEl.querySelectorAll('.fn-tgl').forEach((b) => b.onclick = async () => {
+        // The next state is the opposite of what the server last said, read
+        // off the button — the notify toggle's idiom, including repainting
+        // from the server's stored answer (a reload) rather than optimism.
+        const next = b.dataset.on !== '1';
+        b.disabled = true;
+        try {
+          const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: b.dataset.job, enabled: next }) });
+          const d = await r.json().catch(() => ({}));
+          if (!r.ok) { if (typeof sbToast === 'function') sbToast(d.error === 'no such job' ? 'That job isn’t on the schedule any more.' : 'Couldn’t change that — try again.'); return; }
+          load();
+        } catch (e) { if (typeof sbToast === 'function') sbToast('Couldn’t change that — check your connection.'); }
+        finally { b.disabled = false; }
+      });
     } catch (e) { listEl.innerHTML = '<div class="si-empty">Couldn\u2019t load the schedule — try again.</div>'; }
   };
   load();

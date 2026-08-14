@@ -151,6 +151,10 @@ export function jobOutcome(out) {
     if (out.reason === "threw") return "Failed \u2014 " + String(out.error || "no reason given").slice(0, 160);
     return "Couldn\u2019t run \u2014 " + String(out.reason || "no reason given").slice(0, 160);
   }
+  // An overlapping tick losing the claim is the SYSTEM WORKING, not news — but
+  // if it is ever shown it must not read like a failure or like a quiet
+  // Tuesday. The runner skips the last_result write for this outcome entirely.
+  if (out.skipped) return "Skipped \u2014 another run had already picked this up.";
   const sent = Number(out.sent) || 0;
   const bits = [];
   if (sent) bits.push("Sent " + sent + (sent === 1 ? " message." : " messages."));
@@ -189,9 +193,29 @@ export async function runJob(deps, row) {
     const fn = spec && typeof spec.fn === "string" ? spec.fn : null;
     if (!fn || !/^[a-z][a-z0-9_]{0,40}$/.test(fn)) return { ok: false, name, reason: "no function" };
 
-    await deps.stamp(row);
+    // THE STAMP IS A CLAIM NOW, not a fire-and-forget write (2026-08-13 audit).
+    // Cloudflare cron ticks OVERLAP when a tick outlasts its 2-minute interval
+    // — 25 jobs of up to 100 sequential provider sends can take many minutes —
+    // so two ticks could both read a job as due and both mail its whole batch:
+    // the exact double-send the stamp-first ordering exists to prevent, open
+    // through a different door. And the old write was never checked, so an
+    // HTTP-level failure (Supabase read-only, where reads keep working) let
+    // the send proceed unstamped and re-mail everyone every tick until writes
+    // recovered. `{won:false}` means another tick claimed this run OR the
+    // claim could not be recorded — either way nothing may be sent. Strictly
+    // `=== false`: a dep that cannot say (older fakes) behaves as before.
+    const claimed = await deps.stamp(row);
+    if (claimed && claimed.won === false) return { ok: true, name, skipped: true };
 
     const raw = await deps.callFn(fn);
+    // A NULL-SHAPED ANSWER WITH A NAMED CAUSE. `callFn` used to return bare
+    // null for three different situations — database unreachable, job no
+    // longer declared, unusable function name — and all three wore the
+    // broken-SQL sentence, against this module's own four-outcomes bar. The
+    // caller names the cause now; the sentence carries it.
+    if (raw && typeof raw === "object" && typeof raw.jobsSkip === "string") {
+      return { ok: true, name, sent: 0, reason: String(raw.jobsSkip).slice(0, 120) };
+    }
     const shaped = shapeMessages(raw, deps.recipient);
     if (shaped.bad) return { ok: true, name, sent: 0, reason: "returned " + shaped.bad };
     if (!shaped.messages.length) return { ok: true, name, sent: 0, dropped: shaped.dropped };

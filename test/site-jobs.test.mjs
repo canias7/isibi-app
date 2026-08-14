@@ -9,7 +9,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { normalizeJob, dueJobs, shapeMessages, runJob,
+import { normalizeJob, dueJobs, shapeMessages, runJob, jobOutcome,
          MIN_EVERY_MINUTES, MAX_MESSAGES_PER_RUN, MAX_JOBS_PER_TICK } from "../site-jobs.mjs";
 import { recipient } from "../site-mail.mjs";
 import { normalizeSchema } from "../site-schema.mjs";
@@ -192,6 +192,72 @@ test("a spec with no function sends nothing and is not stamped", async () => {
   assert.equal(sent.length, 0);
 });
 
+// ── the stamp is a CLAIM (2026-08-13 audit) ──────────────────────────────────
+
+test("A LOST CLAIM SENDS NOTHING — not even the function is called", async () => {
+  // Cloudflare cron ticks OVERLAP when one outlasts its 2-minute interval, and
+  // 25 jobs of up to 100 sequential provider sends can take many minutes — so
+  // two ticks both read a job as due. The database decides which one runs;
+  // the loser must not touch the site's database, the vault or the wire.
+  let called = 0;
+  const { sent, d } = deps({
+    stamp: async () => ({ won: false }),
+    callFn: async () => { called++; return [MSG]; },
+  });
+  const out = await runJob(d, JOB);
+  assert.equal(out.ok, true, "losing a race is the system working, not a failure");
+  assert.equal(out.skipped, true);
+  assert.equal(called, 0, "the loser still ran the model's SQL");
+  assert.equal(sent.length, 0, "the loser still sent — the double-mail this claim exists to stop");
+});
+
+test("a won claim proceeds, and a dep that cannot say behaves as before", async () => {
+  // Strictly `=== false`: the worker's stamp answers {won}, but older fakes and
+  // any future dep that returns nothing must keep the pre-claim behaviour —
+  // treating "cannot tell" as "lost" would silently stop every send the day a
+  // dep forgot the field.
+  for (const stamp of [async () => ({ won: true }), async () => undefined, async () => ({})]) {
+    const { sent, d } = deps({ stamp });
+    const out = await runJob(d, JOB);
+    assert.equal(out.sent, 1, "a claim answering " + JSON.stringify(await stamp()) + " blocked the send");
+    assert.equal(sent.length, 1);
+  }
+});
+
+test("a named skip from callFn wears its OWN sentence, never the broken-SQL one", async () => {
+  // Three different situations used to shape to null and all three wore "the
+  // function didn't return a list" in the owner's panel — said of a database
+  // that was unreachable, of a job a revise had dropped, and of a bad name.
+  const causes = [
+    "the site's database is unreachable",
+    "this job is no longer part of the site",
+    "the function has an unusable name",
+    "the function returned text that is not valid JSON",
+  ];
+  const brokenSql = jobOutcome({ ok: true, sent: 0, reason: "returned nothing" });
+  for (const cause of causes) {
+    const { sent, d } = deps({ callFn: async () => ({ jobsSkip: cause }) });
+    const out = await runJob(d, JOB);
+    assert.equal(out.ok, true);
+    assert.equal(out.sent, 0);
+    assert.equal(sent.length, 0, "a skip still sent mail");
+    const said = jobOutcome(out);
+    assert.ok(said.includes(cause), "the cause was dropped from the sentence: " + said);
+    assert.notEqual(said, brokenSql, "a named cause reads as broken SQL: " + said);
+  }
+});
+
+test("jobsSkip is not a magic value a model's rows can fake into silence", async () => {
+  // The sentinel is an OBJECT property, and shapeMessages only reads arrays —
+  // a LIST whose first row carries jobsSkip is just a list of bad messages,
+  // dropped one by one, never a skip. Only callFn (our code) can produce the
+  // bare-object shape.
+  const { d } = deps({ callFn: async () => [{ jobsSkip: "x" }, MSG] });
+  const out = await runJob(d, JOB);
+  assert.equal(out.sent, 1, "a row wearing the sentinel name silenced the whole run");
+  assert.equal(out.dropped, 1);
+});
+
 // ── reachable, end to end ────────────────────────────────────────────────────
 
 test("THE CHAIN: a job is declarable and reaches the runner", () => {
@@ -239,6 +305,82 @@ test("the runner re-reads the SCHEMA, not just the registry row", () => {
   const fn = worker.slice(worker.indexOf("async function runScheduledSiteJobs"), worker.indexOf("// ── Website Builder"));
   assert.match(fn, /loadSiteSchema\(conn\)/, "it must read the site's own schema");
   assert.match(fn, /declared/, "and skip a job the schema no longer declares");
+});
+
+test("THE RUNNER'S STAMP IS A CONDITIONAL CLAIM, and a failed write is a lost claim", () => {
+  const worker = fs.readFileSync(path.join(import.meta.dirname, "..", "worker.js"), "utf8");
+  const fn = worker.slice(worker.indexOf("async function runScheduledSiteJobs"), worker.indexOf("// ── Website Builder"));
+  // Landmark-bounded: the stamp dep runs to the next dep key, never a byte
+  // count (this repo's recurring own-goal).
+  const stAt = fn.indexOf("stamp:"), cfAt = fn.indexOf("callFn:");
+  assert.ok(stAt > 0 && cfAt > stAt, "the runner's deps moved — rescope this");
+  const st = fn.slice(stAt, cfAt);
+  // The WHERE re-states dueness, so an overlapping tick that read the same row
+  // as due loses HERE — decided by the database, not by two ticks agreeing not
+  // to overlap. Owner-scoped like every other filter on this table now.
+  assert.match(st, /site_functions\?owner_id=eq\.[^`]*&slug=eq\.[^`]*&name=eq\.[^`]*&or=\(last_run\.is\.null,last_run\.lt\./,
+    "the stamp lost its claim condition or a scope");
+  // Judged by REPRESENTATION — a row back means we won; empty means we lost.
+  assert.match(st, /Prefer: "return=representation"/, "the stamp cannot see whether it matched anything");
+  // r.ok CHECKED. The old write was fire-and-forget, so Supabase in read-only
+  // mode (reads fine, writes 5xx) let the send proceed unstamped and re-mail
+  // the whole batch every tick until writes recovered.
+  assert.match(st, /if \(!r\.ok\) return \{ won: false \}/, "an HTTP-level stamp failure reads as a won claim");
+  // The claim's window mirrors dueJobs' 30s slack, or the claim refuses runs
+  // dueJobs correctly offered whenever the ticks land badly.
+  assert.match(st, /mins \* 60000 - 30000/, "the claim window and dueJobs disagree about the slack");
+
+  // A lost claim writes no last_result — the winning tick's outcome is the
+  // record, and overwriting it with "skipped" every overlap buries the one
+  // line the owner reads.
+  assert.match(fn, /if \(out\.skipped\) continue;/, "a lost claim overwrites the winning run's outcome");
+  // And every WRITE to the registry is owner-scoped: the stamp and the result
+  // note. (The tick's scan is the one legitimately unscoped read.)
+  assert.equal([...fn.matchAll(/site_functions\?owner_id=eq\./g)].length, 2,
+    "one of the runner's two registry writes lost its owner scope");
+  assert.match(fn, /last_run: new Date/, "the stamp no longer writes last_run");
+  assert.match(fn, /last_result: jobOutcome\(out\)/, "the result note no longer writes the outcome");
+});
+
+test("callFn names its causes and NEVER quotes the parse error", () => {
+  const worker = fs.readFileSync(path.join(import.meta.dirname, "..", "worker.js"), "utf8");
+  const fn = worker.slice(worker.indexOf("async function runScheduledSiteJobs"), worker.indexOf("// ── Website Builder"));
+  const cfAt = fn.indexOf("callFn:"), crAt = fn.indexOf("credentials:");
+  assert.ok(cfAt > 0 && crAt > cfAt, "the runner's deps moved — rescope this");
+  const cf = fn.slice(cfAt, crAt);
+  // Three situations that used to shape to bare null, all three wearing the
+  // broken-SQL sentence in the owner's panel.
+  for (const cause of ["the site's database is unreachable", "this job is no longer part of the site", "the function has an unusable name"])
+    assert.ok(cf.includes('"' + cause + '"'), "a bare null came back: " + cause);
+  // V8's SyntaxError quotes ~26 characters of the INPUT, and a malformed result
+  // can begin with a customer's address — so the parse failure is a FIXED
+  // sentence and the catch binds no error at all.
+  assert.match(cf, /catch \{ return \{ jobsSkip: "the function returned text that is not valid JSON" \}/,
+    "the JSON parse can leak its input into last_result");
+  assert.equal(/JSON\.parse[\s\S]{0,160}?catch \(/.test(cf), false,
+    "the parse catch binds the error — one step from quoting a recipient");
+});
+
+test("deleting a site deletes its jobs — before the row a retry needs", () => {
+  // Left behind, each job row is a ZOMBIE the cron picks up forever: a stamp
+  // write, a project lookup and a last_result write per period, for a site
+  // that no longer exists (2026-08-13 audit). They are keyed by slug, not by
+  // uid, so they do not cascade with the account either — this is the only
+  // path that removes them.
+  const worker = fs.readFileSync(path.join(import.meta.dirname, "..", "worker.js"), "utf8");
+  const del = worker.indexOf("async function deleteSiteFor");
+  assert.ok(del > 0, "deleteSiteFor moved — rescope this");
+  const body = worker.slice(del, worker.indexOf("\n}", worker.indexOf("domainsReleased", del)));
+  const jobs = body.search(/site_functions\?slug=eq\.\$\{encodeURIComponent\(dslug\)\}`, \{\s*method: "DELETE"/);
+  assert.ok(jobs > 0, "the zombie-jobs cleanup is gone from deleteSiteFor");
+  // BEFORE the registration delete, and both anchors proven to exist first —
+  // `indexOf(a) < indexOf(b)` passes vacuously when either is missing. If the
+  // jobs delete fails the site still exists and the owner's retry runs it
+  // again; after the row is gone a failed cleanup is permanent, because
+  // `DELETE /api/site/<slug>` answers 404 with no row to authorise against.
+  const row = body.indexOf('site_backends?slug=eq.${encodeURIComponent(dslug)}`, { method: "DELETE"');
+  assert.ok(row > 0, "the registration delete moved — rescope this");
+  assert.ok(jobs < row, "the jobs cleanup runs after the row delete — a failure there is unretryable");
 });
 
 test("THE EIGHT-VERB RUNNER IS GONE, and stays gone", () => {

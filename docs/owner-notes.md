@@ -109,6 +109,31 @@ funded**, so every `SafeImage` on every published site is drawing its placeholde
 and no photograph has ever been generated. The upload half needs no image model
 and is what works today — which is why the tool prefers it.
 
+## 2026-08-14 — Scheduled jobs got an off switch, and cannot double-mail
+
+Third fix round from the 30-step audit (rounds 1–2 are in CLAUDE.md's 2026-08-14
+entry). Four things, all on the jobs tier:
+
+- **You can pause a job now.** In Cloud → Scheduled jobs, the On/Paused badge IS
+  the switch — click it. Before this there was NO way to stop a weekly digest
+  short of deleting the whole site: no lane of the builder could do it either
+  (that was an audit finding, not an oversight in the panel). Toggling a job
+  that no longer exists says so instead of pretending it worked.
+- **Two overlapping cron ticks can no longer both mail a job's batch.** The
+  run-stamp is an atomic claim in the database now; the losing tick sends
+  nothing and doesn't overwrite the winning run's outcome line. The same fix
+  covers Supabase write outages, which used to re-mail the batch every 2
+  minutes until writes recovered.
+- **The panel's last-run line stopped lying.** "Database unreachable", "this
+  job is no longer part of the site" and "bad function name" each say so now —
+  all three used to wear the broken-SQL sentence. And a malformed function
+  result can never quote a customer's address into that line.
+- **Deleting a site deletes its scheduled jobs.** They were keyed by slug and
+  cascaded with nothing, so each one kept the cron doing busywork forever.
+
+17/17 mutation checks from a green baseline. Not proven live — the Anthropic
+account is still empty, and the cron path needs a site with a real job on it.
+
 ## THE BUILD-vs-EDIT GAP AUDIT (2026-08-12) — what the chat still cannot do
 
 **Asked "what else needs adding to edit that's on build" and ran it as a 24-agent

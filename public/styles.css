@@ -1910,6 +1910,16 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .fn-arrow { color: var(--muted); font-size: .72rem; }
 .fn-sch { display: inline-flex; align-items: center; gap: .25rem; flex: none; font-size: .64rem; letter-spacing: .04em; text-transform: uppercase; color: var(--amber, #000000); border: 1px solid rgba(0,0,0, .35); border-radius: 999px; padding: .12rem .45rem; }
 .fn-sch svg { width: 12px; height: 12px; }
+/* The On/Paused switch on a scheduled job — a BUTTON wearing the badge's
+   clothes, because the state and the control are the same thing here. Pushed
+   to the row's right edge; the two states keep the badge pair's visual
+   weight (filled = running, outline = paused) so the row reads at a glance
+   in greyscale too. */
+.fn-tgl { flex: none; margin-left: auto; cursor: pointer; font-size: .6rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--on-accent); background: var(--split); border: 1px solid transparent; border-radius: 999px; padding: .12rem .5rem; }
+.fn-tgl.fn-off { font-weight: 700; color: var(--muted); background: none; border-color: var(--line-2); }
+.fn-tgl:hover:not(:disabled) { filter: brightness(1.12); }
+.fn-tgl.fn-off:hover:not(:disabled) { color: var(--text); border-color: var(--text); filter: none; }
+.fn-tgl:disabled { opacity: .55; cursor: default; }
 .fn-hook { display: flex; align-items: center; gap: .5rem; margin-top: .55rem; padding-top: .55rem; border-top: 1px solid var(--line); }
 .fn-hook-label { font-size: .64rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); flex: none; }
 /* FULL-STRENGTH INK. `--dim` is not defined anywhere, so this fell through to a

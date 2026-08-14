@@ -290,6 +290,32 @@ test("nothing on a published site's path can reach OUR sender", async () => {
   const conf = worker.slice(worker.indexOf("function confirmSubmitter("), worker.indexOf("function confirmSubmitter(") + 1200);
   assert.match(conf, /loadSecrets: siteMailSecrets\(/,
     "the confirmation stopped using the shared vault reader — now there are two");
+
+  // AND THE JOBS RUNNER, which was the hand-rolled THIRD copy (2026-08-13
+  // audit): same four names, same loop, one provider away from telling an
+  // owner "no key in Secrets" while their confirmations sent fine on that
+  // key. Landmark-bounded, never a byte count — the window runs to the next
+  // top-level declaration, so comments added above `credentials` cannot push
+  // it out of range (this file's recurring own-goal).
+  const rStart = worker.indexOf("async function runScheduledSiteJobs(");
+  assert.ok(rStart > 0, "runScheduledSiteJobs moved — rescope this");
+  const rTail = worker.slice(rStart + 10);
+  const rEnd = rTail.search(/\n(?:async )?function |\nconst [A-Z]/);
+  assert.ok(rEnd > 0, "no landmark after the runner — the window is unbounded");
+  const runner = worker.slice(rStart, rStart + 10 + rEnd);
+  assert.match(runner, /credentials: async \(\) => \{[^}]*siteMailSecrets\(/,
+    "the jobs runner's credentials dep must read the vault through the shared reader");
+
+  // The strongest form: the four vault names are enumerated ONCE in the whole
+  // Worker — inside siteMailSecrets — so a fourth copy added anywhere fails
+  // here whatever the function around it is called.
+  const enumerations = [...worker.matchAll(/"RESEND_KEY"/g)];
+  assert.equal(enumerations.length, 1,
+    "the mail-vault names are enumerated more than once in worker.js — a second reader has appeared");
+  const readerAt = worker.indexOf("function siteMailSecrets(");
+  assert.ok(readerAt > 0, "siteMailSecrets moved — rescope this");
+  assert.ok(enumerations[0].index > readerAt && enumerations[0].index < readerAt + 2000,
+    "the one enumeration of the vault names is not inside siteMailSecrets");
 });
 
 test("wrangler declares the binding the Worker calls", async () => {
