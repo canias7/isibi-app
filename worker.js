@@ -867,19 +867,62 @@ async function falUpload(dataUri, env) {
 }
 
 // Resolve the caller's Supabase access token to a user, or null if missing/invalid.
+/**
+ * Requests whose sign-in could not be CHECKED, as opposed to refused.
+ *
+ * "CANNOT TELL" IS NOT "NO", and this was the last gate in the file still
+ * reading them as one. `authUser` collapsed a GoTrue outage, a timeout and a
+ * network throw into the same `null` as a bad token, with no log line anywhere
+ * — so support had nothing, and the customer had worse: `apiFetch` calls
+ * `showAuthGate()` on ANY 401, and that sets `shell.inert = true`. A provider
+ * blip therefore threw a modal sign-in screen over a live session, made the whole
+ * app non-interactive, and invited a retry against the same down provider.
+ *
+ * The same bug class is already fixed twice in this codebase one layer down — the
+ * ledger read ("a zero balance and an unreadable one are different answers") and
+ * `assertOwner` ("cannot tell" is 503, "not yours" is 404).
+ *
+ * A SIDE CHANNEL, NOT A RETURN VALUE, and that is non-negotiable: 39 call sites
+ * read `authUser`'s answer as a user, so ANY truthy sentinel is an authenticated
+ * caller at every one of them. Keyed on the request object, so there is no
+ * cross-request race in a shared isolate and the entry is collected with the
+ * request.
+ *
+ * READ IN `harden`, which already takes the same request for every `/api/` path
+ * (`servedAtRoot` keeps those off both hostname rewrites, so the object is never
+ * replaced). One touch instead of threading `request` through 38 refusals — a
+ * guard every caller must remember is one a caller will eventually forget.
+ */
+const authDown = new WeakSet();
+
 async function authUser(request) {
   const header = request.headers.get("Authorization") || "";
   const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+  // NOT FLAGGED: no token at all is the ordinary signed-out case, and a 401/403
+  // from GoTrue is a real refusal. Only "we could not ask" counts.
   if (!token) return null;
   try {
     const r = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
       headers: { Authorization: `Bearer ${token}`, apikey: SUPABASE_ANON_KEY },
       signal: AbortSignal.timeout(10000),
     });
-    if (!r.ok) return null;
+    if (!r.ok) {
+      // 429 COUNTS AS CANNOT-TELL, deliberately: it means the provider would not
+      // look, not that the token is bad, and telling somebody to sign in again is
+      // the one instruction guaranteed to make rate limiting worse.
+      if (r.status >= 500 || r.status === 429) {
+        authDown.add(request);
+        console.error("auth provider answered", r.status);
+      }
+      return null;
+    }
     const user = await r.json();
     return user && user.id ? user : null;
-  } catch {
+  } catch (e) {
+    // A network throw and the 10s AbortSignal both land here, and both used to be
+    // silent — no distinct status, no log, nothing for anyone to go on.
+    authDown.add(request);
+    console.error("auth provider unreachable:", e && e.name, e && e.message);
     return null;
   }
 }
@@ -995,6 +1038,20 @@ function upstreamKind(detail) {
 }
 
 function harden(res, request) {
+  // A REFUSAL WE COULD NOT MAKE IS NOT A REFUSAL. If `authUser` never got an
+  // answer out of the provider (see `authDown`), the 401 below it means "we
+  // could not check", and 401 is the one status the client reacts to by throwing
+  // a modal sign-in over a live session and setting `shell.inert = true`. 503
+  // says the honest thing, is already handled distinctly by the client, and
+  // invites the retry that might actually work.
+  //
+  // HERE RATHER THAN AT 39 CALL SITES: every one of them returns immediately on
+  // a null user, so a flagged request cannot reach this point carrying a 401 that
+  // means anything else — and a refusal added later is covered without anybody
+  // remembering to pass the request to it.
+  if (res && res.status === 401 && authDown.has(request)) {
+    res = Response.json({ error: "sign-in check unavailable — try again in a moment" }, { status: 503 });
+  }
   const h = new Headers(res.headers);
   // The vendored marketing demos under /mkt/demo* are self-contained pages the
   // landing embeds in an <iframe> (demo carousel). Two relaxations for those
@@ -9442,10 +9499,19 @@ async function handleRequest(request, env, ctx) {
     // "every time a model is used, charge for it" rule, and a routing call is
     // not exempt from it for being cheap. ~0.3 credits.
     //
-    // NEVER 5xx. A failure here answers `intent: "build"` with a 200, so the
-    // client proceeds down the path that already works. This route is an
+    // NEVER 5xx OF ITS OWN. A failure here answers `intent: "build"` with a 200,
+    // so the client proceeds down the path that already works. This route is an
     // optimisation in front of a working pipeline and must not become a way for
     // the pipeline to stop running.
+    //
+    // ONE EXCEPTION, AND IT IS NOT THIS ROUTE'S: `harden` turns the 401 below
+    // into a 503 when the auth provider could not be REACHED, because a 401 makes
+    // the client throw a sign-in gate over a live session. The rule's intent is
+    // untouched — `public/chat.js` reads this route's answer as
+    // `if (!r.ok || !d) return go();`, so a 503 and a 401 both fall through to the
+    // build exactly as before. Said out loud because an unqualified "never 5xx"
+    // one line above a response that can now be 503 is a comment somebody will
+    // believe.
     if (url.pathname === "/api/site/route" && request.method === "POST") {
       const ru = await authUser(request, env);
       if (!ru) return Response.json({ ok: false, error: "unauthorized" }, { status: 401 });

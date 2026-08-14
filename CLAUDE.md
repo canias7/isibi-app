@@ -1072,6 +1072,18 @@ Postgres side: `public.use_quota(p_kind, p_limit)` (SECURITY DEFINER, atomic che
 
 Auth config (set 2026-07-03 via Management API): Site URL `https://isibi.ai`, redirect allow-list `https://isibi.ai/**, https://www.isibi.ai/**`, email rate limit 100/hour.
 
+## An auth blip locked the app, and the gate could not tell (2026-08-14)
+
+**Round 15. `authUser` was the last gate in the file still reading "cannot tell" as "no", and this codebase had already fixed that exact class twice one layer down** — the ledger read ("a zero balance and an unreadable one are different answers") and `assertOwner` ("cannot tell" is 503, "not yours" is 404).
+
+- **THE CUSTOMER-FACING HALF IS NOT SUBTLE.** `apiFetch` calls `showAuthGate()` on ANY 401, and `showAuthGate` sets `shell.inert = true`. So a GoTrue outage, a timeout or a network throw threw a **modal sign-in screen over a live session, made the whole app non-interactive, and invited a retry against the same down provider.** Silently: no distinct status, and not one `console.error`, so support had nothing to go on either.
+- **A SIDE CHANNEL, NOT A RETURN VALUE, and that is the non-negotiable part.** 39 call sites read `authUser`'s answer AS A USER, so any truthy sentinel is an authenticated caller at every one of them — the obvious refactor (`return { down: true }`) is a total authentication bypass that reads as an improvement. A `WeakSet` keyed on the request object: no cross-request race in a shared isolate, collected with the request, and **asserted** — a test reads every `return` in the function and requires it to be `null` or the user.
+- **READ IN `harden`, WHICH ALREADY TAKES THE SAME REQUEST.** Three lines, not forty: `servedAtRoot` keeps `/api/` off both hostname rewrites, so the object `harden(res, request)` gets is the one `authUser` saw. Threading `request` through 38 refusals would be the `safe-image` failure in test form — a guard every caller must remember is one a caller eventually forgets — and it covers any auth refusal added later for free.
+- **429 IS CANNOT-TELL, decided explicitly rather than left in the 401 bucket.** It means the provider would not look, not that the token is bad, and telling somebody to sign in again is the one instruction guaranteed to make rate limiting worse. **Not flagged:** no token at all (the ordinary signed-out case, which never reaches the provider) and a real 401/403.
+- **IT MAKES ONE COMMENT PARTLY FALSE AND SAYS SO.** `/api/site/route`'s header reads "NEVER 5xx", and `harden` can now answer 503 there. The rule's INTENT is untouched — the client reads that route as `if (!r.ok || !d) return go();`, so a 503 and a 401 both fall through to the build exactly as before — but an unqualified "never 5xx" one line above a response that can now be 503 is a comment somebody will believe.
+- **DRIVEN THROUGH THE REAL ROUTER, not read.** The flag is set in `authUser` and acted on in `harden`, ~1,100 lines apart with the request object as the only thing joining them — the wiring layer where this repo has recorded twelve dead features. `test/auth-tristate.test.mjs` stubs the global fetch (GoTrue is its only caller here) and drives 500/502/503/429, a throw, a timeout, a real 401, an anonymous request, and **a second request after an outage** — because a module-level boolean would have turned one blip into 503 for everybody until the isolate recycled. 11 checks; reverting the `harden` upgrade turns 7 of them red, un-flagging the 5xx branch 5, un-flagging the throw 10.
+- 2780 tests, `site build` 117/117.
+
 ## A build that made its own photographs had no link preview (2026-08-14)
 
 **Round 14 — three audit findings whose fixes were all CORRECTED by the skeptic before landing, and the corrections are the useful part.**
