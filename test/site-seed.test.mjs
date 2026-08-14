@@ -321,3 +321,58 @@ test("build smoke reads it, and separates the two ways a site gets seeded", () =
   assert.match(smoke, /top-up FIRED/, "a fired net is not called out");
   assert.match(smoke, /not needed/, "a run where the designer seeded correctly says nothing at all");
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE NET MUST SURVIVE THE MODEL'S OWN TABLE SHAPES, found by the 2026-08-13
+// audit. `seedGaps` reads the RAW designer output — the shapes `normalizeSchema`
+// deliberately tolerates arrive here FIRST, and it ran outside topUpSeed's try:
+// a map-shaped `tables` threw `object is not iterable` and crashed the build on
+// exactly the branch the module exists to rescue; a string-shaped one silently
+// reported no gaps on a schema that had them.
+
+const GAP_TABLE = { name: "services", access: "display", columns: [{ name: "title", type: "text" }] };
+
+test("seedGaps finds the gap whatever shape `tables` arrives in", () => {
+  const asArray = seedGaps({ tables: [GAP_TABLE] }, {});
+  assert.equal(asArray.length, 1, "the plain array stopped working");
+  const asMap = seedGaps({ tables: { services: { access: "display", columns: [{ name: "title", type: "text" }] } } }, {});
+  assert.equal(asMap.length, 1, "a map-shaped tables must yield the same gap, not a TypeError");
+  assert.equal(asMap[0].name, "services");
+  const asString = seedGaps({ tables: JSON.stringify([GAP_TABLE]) }, {});
+  assert.equal(asString.length, 1, "a stringified list must be recovered, not silently read as no gaps");
+});
+
+test("junk `tables` shapes yield no gaps and never throw", () => {
+  for (const junk of ["not json", "", 7, true, null, [null, 3, "x"]]) {
+    let out;
+    assert.doesNotThrow(() => { out = seedGaps({ tables: junk }, {}); }, "threw on " + JSON.stringify(junk));
+    assert.deepEqual(out, [], "junk produced gaps: " + JSON.stringify(junk));
+  }
+});
+
+test("topUpSeed keeps its own contract — it cannot fail a build, on any shape", async () => {
+  // The contract is the module's stated reason to exist, and the map-shape crash
+  // voided it: seedGaps runs BEFORE the try around the send. Drive the whole
+  // entry point with every shape; a throw here is a failed customer build.
+  const deps = { send: async () => ({ content: [], usage: {} }) };
+  for (const tables of [{ services: { access: "display", columns: ["title"] } }, "junk", 7, [GAP_TABLE]]) {
+    await assert.doesNotReject(
+      () => topUpSeed(deps, { brief: "x", spec: { tables }, seed: null }),
+      "topUpSeed threw on tables shape: " + JSON.stringify(tables).slice(0, 60));
+  }
+});
+
+test("the worker's seed top-up log cannot reach for the route's own `slug`", () => {
+  // The TDZ: `const slug` is declared ~140 lines below the topUpSeed block, so a
+  // bare `slug` in that window is a ReferenceError on the first build where the
+  // net fires. Guarded as a window property: from the topUpSeed call to the slug
+  // declaration, no BARE `slug` identifier (property reads like `body.slug` and
+  // `designed.slug` are exactly what the fix uses, and stay legal).
+  const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const from = worker.indexOf("await topUpSeed(");
+  const to = worker.indexOf("const slug =", from);
+  assert.ok(from > 0 && to > from, "the window's anchors moved — retarget this guard");
+  const win = worker.slice(from, to).replace(/\/\/[^\n]*/g, "");
+  const bare = win.match(/(?<![.\w"'`])slug\b\s*(?!:)/g) || [];
+  assert.deepEqual(bare, [], "a bare `slug` read sits before its declaration — the TDZ crash is back");
+});

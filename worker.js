@@ -9015,6 +9015,15 @@ async function handleRequest(request, env, ctx) {
         question: routed.intent === "clarify" ? routed.question : undefined,
         cost: rCost,
         usage: routed.usage || undefined,
+        // WAS THIS A DECISION OR A FALLBACK? `routeMessage` computes failed:true
+        // when the routing model itself threw, and this response dropped it — so
+        // an Anthropic outage answered {ok:true, intent:"addon"} wearing the
+        // exact costume of a real routing answer, and CLAUDE.md records the
+        // diagnosis cost of exactly that (2026-08-12: a billing outage read as a
+        // router bug). This route never 5xxs by design, which makes a response
+        // field the ONLY possible signal. Absent on success, so a working
+        // route's response is byte-identical to before (2026-08-13 audit).
+        failed: routed.failed === true || undefined,
       });
     }
 
@@ -9232,7 +9241,14 @@ async function handleRequest(request, env, ctx) {
             );
             if (top.gaps.length) {
               seedTopUp = { gaps: top.gaps, filled: Object.keys(top.rows) };
-              console.log("seed top-up:", slug, JSON.stringify(seedTopUp));
+              // NOT the route's `slug` — that const is declared ~140 lines
+              // below, so naming it here is a temporal-dead-zone ReferenceError
+              // thrown on EXACTLY the branch this module exists for (a build
+              // whose designer skipped the seed), landing in the design catch
+              // as a 503 wearing a model-outage message. Found by the
+              // 2026-08-13 audit; it had never fired live only because no run
+              // yet had a gap. The log names the site from what is in hand.
+              console.log("seed top-up:", (body && body.slug) || (designed && designed.slug) || "?", JSON.stringify(seedTopUp));
             }
             if (Object.keys(top.rows).length) designed = { ...designed, seed: mergeSeed(designed.seed, top.rows) };
             seedUsage = top.usage;
@@ -9873,21 +9889,20 @@ async function handleRequest(request, env, ctx) {
       // SPLIT, not one number. `pages` was the model call, the container compile
       // and ~20 R2 puts together — the majority of a build's wall clock with no
       // way to attribute it.
-      // DERIVED FROM WHAT THE BUILD REPORTS, not a hand-written list of the
-      // fields somebody remembered. It WAS that list, and it drifted the moment
-      // a step was added: `renderMs` and `routesMs` are carried all the way from
-      // the container onto `pages` and neither appeared here, so the render
-      // check could not be observed on a real build at all — measured
-      // 2026-08-13, where the only evidence it had run was 46s of unaccounted
-      // time inside `buildMs`.
+      // DERIVED FROM WHAT THE BUILD REPORTS — actually derived now. The first
+      // "derived" version was still a hand-picked name list, and the 2026-08-13
+      // audit caught it already missing a field that existed the day it was
+      // written (`preMs`): its own comment promised "a timing the container
+      // starts reporting shows up here without anybody editing this", and that
+      // was false. The rule is now the SHAPE — any numeric `*Ms` field on the
+      // build result is a timing and is traced — so the promise finally holds.
       //
       // A step that cannot say it happened is indistinguishable from one that
-      // did not, which is this file's most-repeated failure. Now a timing the
-      // container starts reporting shows up here without anybody editing this.
+      // did not, which is this file's most-repeated failure.
       tr.at("pages", Object.fromEntries([
         ["credits", pages.cost || 0],
-        ...["genMs", "routesMs", "tscMs", "viteMs", "renderMs", "publishMs", "buildMs"]
-          .filter((k) => typeof pages[k] === "number")
+        ...Object.keys(pages)
+          .filter((k) => /Ms$/.test(k) && typeof pages[k] === "number")
           .map((k) => [k, pages[k]]),
       ]));
 
@@ -10006,6 +10021,10 @@ async function handleRequest(request, env, ctx) {
         // …and the same thing as a sentence, composed in the module for the
         // reason all four notes above it are.
         renderNote: renderNote(pages.render) || undefined,
+        // Per-route prerender skips, same discipline as `render` one line up:
+        // absent on a clean build, carried when a page lost its snapshot —
+        // which used to be invisible in production (2026-08-13 audit).
+        prerenderSkipped: pages.prerenderSkipped || undefined,
         // WHY it fell back, when it did. publish-pages.mjs has returned these
         // since it was extracted and nothing passed them on, so a build that
         // published the placeholder said only "placeholder" — the caller (and
@@ -10013,13 +10032,21 @@ async function handleRequest(request, env, ctx) {
         // from a credit floor. It is the owner's own build; there is nothing
         // here they should not see.
         stage: pages.page === "app" ? undefined : (pages.stage || undefined),
-        error: pages.page === "app" ? undefined : (pages.error ? String(pages.error).slice(0, 300) : undefined),
+        // `error`/`cited` survive a SALVAGED build too. The module keeps the
+        // first failure's error and cited lines precisely because they are "the
+        // only record of what the generator got wrong" — and this gate then
+        // stripped both on every salvaged build, because a salvage answers
+        // page === "app" (2026-08-13 audit). The pages are gone the moment the
+        // build returns, so without these the stubbed page's actual failure is
+        // undiagnosable. `stage` stays outcome-only: a salvaged build did not
+        // END at the typecheck.
+        error: (pages.page === "app" && !pages.salvageNote) ? undefined : (pages.error ? String(pages.error).slice(0, 300) : undefined),
         // The SOURCE LINES that error points at. `error` is `file(line,col)` and
         // a message, and the pages themselves are gone the moment the build
         // returns — only the eval saves them — so a compile failure could only
         // be diagnosed by guessing what the model wrote at that line. A whole
         // round went on inferring one TS2344 from its file and column.
-        cited: pages.page === "app" || !(pages.cited && pages.cited.length) ? undefined : pages.cited,
+        cited: ((pages.page === "app" && !pages.salvageNote) || !(pages.cited && pages.cited.length)) ? undefined : pages.cited,
         cost: schemaCost + pages.cost, buildMs: pages.buildMs || undefined,
         // WHAT THE BUILD ACTUALLY DID, step by step, with the time each took.
         //
@@ -10892,7 +10919,15 @@ async function handleRequest(request, env, ctx) {
                 }, { status: 503 });
               }
 
-              const pValid = validatePages(eGen && eGen.input, { partial: true });
+              // `knownRoutes`: the site's own stored pages, so the dangling-link
+              // rewrite stops treating every UNCHANGED page as nonexistent — a
+              // one-page edit used to have its correct <Link to="/book"> pointed
+              // at "/" and the customer told their live page did not exist
+              // (2026-08-13 audit, reproduced with the real module).
+              const pValid = validatePages(eGen && eGen.input, {
+                partial: true,
+                knownRoutes: (eSrc || []).map((p) => routeOf(p && p.path)).filter(Boolean),
+              });
               const pSlots = countImageSlots(pValid.pages);
               pValid.pages = applyImages(pValid.pages, {});
               // Same as the addon lane: the shape check is not the lint, and the
@@ -11064,7 +11099,13 @@ async function handleRequest(request, env, ctx) {
               }, { status: 503 });
             }
 
-            const aValid = validatePages(aGen && aGen.input, { partial: true });
+            // `knownRoutes` for the same reason as the page-edit lane: without
+            // the stored site's routes, every unchanged page reads as
+            // nonexistent and correct links into them are rewritten to "/".
+            const aValid = validatePages(aGen && aGen.input, {
+              partial: true,
+              knownRoutes: (aSrc || []).map((p) => routeOf(p && p.path)).filter(Boolean),
+            });
             // AND SWEPT ANYWAY, belt and braces. The directive is what SHOULD stop a
             // token being written; this is what stops one reaching a customer's site
             // if it is written regardless. The build path has both, and the one time

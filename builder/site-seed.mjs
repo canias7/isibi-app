@@ -63,7 +63,26 @@ export function seedGaps(spec, seed) {
     if (Array.isArray(v) && v.some((r) => r && typeof r === "object" && !Array.isArray(r))) filled.add(String(k).toLowerCase());
   }
   const out = [];
-  for (const t of ((spec && spec.tables) || [])) {
+  // THE SAME TOLERANCE `normalizeSchema` HAS, because this reads the RAW tool
+  // input and the model's habits arrive here first. A map-shaped `tables`
+  // (`{services: {...}}` — a form the normaliser deliberately ACCEPTS) made the
+  // bare for..of throw `object is not iterable`, and seedGaps runs OUTSIDE
+  // topUpSeed's try — so the net built to rescue a build crashed it instead,
+  // voiding this module's own "it can never fail a build" contract. Found by
+  // the 2026-08-13 audit, never fired live only because every run so far had no
+  // gap to find. A string-shaped list (the a4fa208 recovery's exact case) was
+  // one notch quieter: for..of iterates the CHARACTERS, none has `.name`, and
+  // the net silently reports no gaps on a schema that has them.
+  let src = (spec && spec.tables) || [];
+  if (typeof src === "string") {
+    try { const p = JSON.parse(src); src = (p && typeof p === "object") ? p : []; } catch { src = []; }
+  }
+  if (!Array.isArray(src)) {
+    src = (src && typeof src === "object")
+      ? Object.entries(src).map(([name, def]) => ({ name, ...(def && typeof def === "object" && !Array.isArray(def) ? def : {}) }))
+      : [];
+  }
+  for (const t of src) {
     if (!t || !t.name) continue;
     if (accessNameFor(resolveAccess(t)) !== "display") continue;
     if (filled.has(String(t.name).toLowerCase())) continue;

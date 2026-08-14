@@ -133,10 +133,17 @@ test("the build route actually uses it", () => {
   // guarding is what let `renderMs` and `routesMs` go missing. A test about word
   // order failing a fix for the bug it describes is this repo's most-repeated
   // own-goal — assert the property.
+  // DERIVED BY SHAPE, third form of this assertion and the reason is the
+  // history: the name-spelling form failed a correct change, the name-list form
+  // was caught by the 2026-08-13 audit already missing `preMs` — a hand list is
+  // exactly how renderMs went missing before it. The entry now traces any
+  // numeric `*Ms` key off the build result, so what is asserted is that
+  // derivation, and publish-pages.test.mjs holds the passthrough list that
+  // feeds it.
   const pagesEntry = w.slice(w.indexOf('tr.at("pages"'), w.indexOf('tr.at("pages"') + 700);
-  for (const k of ["genMs", "buildMs", "publishMs", "tscMs", "viteMs", "renderMs"]) {
-    assert.ok(pagesEntry.includes(k), `the pages step does not report ${k}`);
-  }
+  assert.ok(/Object\.keys\(pages\)/.test(pagesEntry) && /Ms\$\//.test(pagesEntry),
+    "the pages step no longer derives its timings from the build result");
+  assert.ok(pagesEntry.includes("credits"), "the pages step stopped reporting its credit cost");
   // THE TRACE STARTS BEFORE authUser, which is a round trip to GoTrue. Below it,
   // that call sat outside `totalMs` entirely and the reported total was not the
   // time the caller waited.

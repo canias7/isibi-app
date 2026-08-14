@@ -542,9 +542,16 @@ const server = http.createServer((req, res) => {
       // `checkRender` has a try around everything and reports rather than
       // throwing, so a browser that will not start costs a report and never a
       // build. Reporting only — nothing here refuses a publish.
-      const render = pre.done.length
-        ? await timed("renderMs", null, null, () => checkRender(DIST, pre.done))
-        : null;
+      // UNGATED on prerender having produced anything. It was `pre.done.length
+      // ? checkRender(...) : null`, and that gate meant the one failure mode
+      // that loses EVERY snapshot — a total prerender failure — also switched
+      // off the only check that would have said so: checkRender's own first
+      // line already answers an empty list with {ok:false, error:"no
+      // prerendered routes to look at"}, before any browser is launched, and
+      // the gate prevented that honest report from ever being produced
+      // (2026-08-13 audit). A harness that silently reports nothing reads
+      // exactly like a site with nothing wrong.
+      const render = await timed("renderMs", null, null, () => checkRender(DIST, pre.done));
 
       const dist = collectDist();
       if (!dist["index.html"]) return send(res, 200, { ok: false, stage: "build", error: "build produced no index.html", ms: Date.now() - t0, ...times });

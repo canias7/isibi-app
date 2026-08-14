@@ -2818,3 +2818,64 @@ test("the rules require one h1 per page, and say why the section header is not i
   assert.match(win, /screen reader/i, "the rule gives no accessibility reason");
   assert.match(win, /title|share/i, "the rule does not say the title is derived from it");
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PARTIAL VALIDATE AND THE SITE IT CANNOT SEE. Found by the 2026-08-13 audit and
+// reproduced with this module: the dangling-link rewrite judged links against
+// only the pages POSTED, and the edit/addon lanes post only what the model
+// returned — so a one-page edit with a correct <Link to="/book"> published with
+// the link pointed at "/", and problems[] told the customer their live booking
+// page did not exist. A false report AND a silently broken CTA, on the cheap
+// lanes specifically built to touch one page.
+
+const EDIT_PAGE = {
+  pages: [{ path: "manage.tsx", source: 'import { createFileRoute, Link } from "@tanstack/react-router";\nexport const Route = createFileRoute("/manage")({ component: M });\nfunction M() { return <div><Link to="/book">Back to booking</Link><Link to="/nowhere">gone</Link></div>; }\n' }],
+};
+
+test("partial validate keeps links into the site's OWN live pages", () => {
+  const v = validatePages(structuredClone(EDIT_PAGE), { partial: true, knownRoutes: ["/", "/book", "/work"] });
+  assert.match(v.pages[0].source, /to="\/book"/, "a correct link into an unchanged live page was rewritten");
+  assert.ok(!v.problems.some((p) => /\/book/.test(p)), "a live page was reported as nonexistent: " + JSON.stringify(v.problems));
+  // And a link to a route that exists NOWHERE — posted or stored — is still
+  // caught, or the fix traded a false alarm for a dead build.
+  assert.match(v.pages[0].source, /to="\/">gone/, "a genuinely dangling link stopped being rewritten");
+  assert.ok(v.problems.some((p) => /\/nowhere/.test(p)), "the genuinely dangling link went unreported");
+});
+
+test("partial validate with NO knownRoutes does not judge links at all", () => {
+  // Rewriting on a guess is what broke working pages. Without the site's routes
+  // the rewrite cannot tell live from dangling, so it must leave the source
+  // alone — a genuinely dangling link is still refused downstream, because the
+  // lanes compile changed pages together with the stored site and TanStack's
+  // route union makes it a type error.
+  const v = validatePages(structuredClone(EDIT_PAGE), { partial: true });
+  assert.match(v.pages[0].source, /to="\/book"/, "a link was rewritten with nothing to judge it against");
+  assert.match(v.pages[0].source, /to="\/nowhere"/, "a link was rewritten with nothing to judge it against");
+  assert.ok(!v.problems.some((p) => /linked to and do not exist/.test(p)),
+    "a dangling-link problem was reported from a partial view that cannot know");
+});
+
+test("the full build's rewrite is unchanged by the knownRoutes option", () => {
+  const v = validatePages(structuredClone(EDIT_PAGE));
+  assert.match(v.pages[0].source, /to="\/">Back to booking/, "the full-build rewrite of a dangling link stopped working");
+});
+
+test("both partial lanes hand validate the stored site's routes", () => {
+  // The module fix is nothing if the lanes do not pass what they know — the
+  // wiring layer, this repo's most-recorded failure. Both call sites must carry
+  // knownRoutes derived from their stored-page list.
+  // Windowed, not regex-matched to the closing paren: a first draft used
+  // `[^;]*?\)` and the match ended at the `)` inside `(eSrc || [])`, cutting the
+  // window short of the very line it asserts — a guard that could only fail.
+  const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const wins = [];
+  for (let i = worker.indexOf("validatePages("); i >= 0; i = worker.indexOf("validatePages(", i + 1)) {
+    const win = worker.slice(i, i + 400);
+    if (/partial:\s*true/.test(win)) wins.push(win);
+  }
+  assert.equal(wins.length, 2, "expected the two partial lanes, found " + wins.length);
+  for (const c of wins) {
+    assert.match(c, /knownRoutes:/, "a partial lane calls validate without the site's own routes:\n" + c.slice(0, 200));
+    assert.match(c, /routeOf\(/, "knownRoutes is not derived from the stored pages:\n" + c.slice(0, 200));
+  }
+});

@@ -562,7 +562,7 @@ export async function publishPages(deps, { spec, slug, priorUsage } = {}) {
     // these say where the time went inside it. Kept on the FAILURE path too — a
     // build that died in typecheck still spent that time, and a slow typecheck is
     // the symptom that says the kit has grown, not the site.
-    if (bd) for (const k of ["routesMs", "tscMs", "viteMs", "renderMs"]) {
+    if (bd) for (const k of ["routesMs", "tscMs", "viteMs", "preMs", "renderMs"]) {
       if (typeof bd[k] === "number") out[k] = (out[k] || 0) + bd[k];
     }
     // WHAT THE BROWSER SAW, from the compile that produced the files being kept.
@@ -573,6 +573,16 @@ export async function publishPages(deps, { spec, slug, priorUsage } = {}) {
     // the two would report findings about a file the customer never receives.
     // A failed compile never reaches the render step at all, so it carries none.
     if (bd && bd.render && typeof bd.render === "object") out.render = bd.render;
+    // WHY A PAGE HAS NO SNAPSHOT. The container reports per-route prerender
+    // skips ("rendered no text", a throw during SSR) on every build, and
+    // nothing in production carried them (2026-08-13 audit) — so a page whose
+    // snapshot silently failed was indistinguishable from one that never had a
+    // problem, until a link preview showed an empty card. Assigned like
+    // `render`, from the compile whose files are kept; bounded, because it is
+    // a diagnosis and not a transcript.
+    if (bd && Array.isArray(bd.prerenderSkipped) && bd.prerenderSkipped.length) {
+      out.prerenderSkipped = bd.prerenderSkipped.slice(0, 6).map((s) => String(s).slice(0, 200));
+    }
     // WHICH TEMPLATE BUILT THIS. Cloudflare rolls a container image out
     // asynchronously, so a build minutes after a deploy can still be served by
     // the previous image — and its published bundle is that older code. Carried

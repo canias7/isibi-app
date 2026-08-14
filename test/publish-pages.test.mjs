@@ -1621,12 +1621,51 @@ test("the pages trace can carry every timing the build reports", () => {
   assert.ok(carried.length >= 3 && carried.includes("renderMs"),
     "read " + JSON.stringify(carried) + " — the scan is not seeing the real list");
 
+  // The passthrough must include preMs too — the 2026-08-13 audit caught the
+  // list already missing a field that existed the day the first guard was
+  // written, which is what "hand-picked" means as a failure mode.
+  assert.ok(carried.includes("preMs"),
+    "the passthrough dropped preMs — prerender is invisible on production builds again");
+
+  // THE TRACE ENTRY IS DERIVED BY SHAPE NOW (any numeric `*Ms` key), not by a
+  // name list — that is the only form whose "new timings show up by themselves"
+  // promise can hold, and the first version of this guard proved it by matching
+  // names that a truly derived entry no longer contains. What is asserted is
+  // the derivation itself: the /Ms$/ filter over the build's own keys.
   const at = worker.indexOf('tr.at("pages"');
   assert.ok(at > 0, "the pages trace entry moved — retarget this guard");
   const entry = worker.slice(at, at + 700);
-  for (const k of carried) {
-    assert.ok(entry.includes('"' + k + '"') || entry.includes(k + ":"),
-      "`" + k + "` is measured by the container, carried onto the build, and never reaches the trace — "
-      + "so that step cannot be observed on a real build");
-  }
+  assert.ok(/Object\.keys\(pages\)/.test(entry) && /Ms\$\//.test(entry),
+    "the pages trace stopped deriving timings from the build result — a hand list is how preMs and renderMs went missing");
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PRERENDER'S DIAGNOSIS REACHES THE CALLER (2026-08-13 audit: the container
+// reported per-route skips on every build and nothing in production carried
+// them, so a page that lost its snapshot was indistinguishable from one that
+// never had a problem). Both ends, because either alone passes with the wire
+// cut — the module must carry it off the build result, and the worker must
+// forward it on the response.
+test("prerender skips are carried by the module and forwarded by the worker", () => {
+  const pub = fs.readFileSync(new URL("../builder/publish-pages.mjs", import.meta.url), "utf8");
+  assert.match(pub, /out\.prerenderSkipped = bd\.prerenderSkipped/,
+    "publish-pages no longer carries the container's prerender skips");
+  const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(worker, /prerenderSkipped:\s*pages\.prerenderSkipped \|\| undefined/,
+    "the worker response drops prerender skips — a lost snapshot is invisible again");
+});
+
+// A SALVAGED BUILD KEEPS ITS FIRST FAILURE'S RECORD. The module preserves
+// `error` and `cited` on a successful salvage because they are the only record
+// of what the generator got wrong — and the worker's gate `page === "app"`
+// stripped both on every salvaged build, since a salvage answers "app"
+// (2026-08-13 audit). The gate has to except the salvage case.
+test("the worker's error/cited gate excepts a salvaged build", () => {
+  const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const at = worker.indexOf("error: (pages.page === ");
+  assert.ok(at > 0, "the error gate moved — retarget this guard");
+  const win = worker.slice(at, at + 600);
+  assert.match(win, /salvageNote/, "the error gate no longer excepts salvage — a stubbed page's failure is unrecorded");
+  assert.ok(/cited: \(\(pages\.page === "app" && !pages\.salvageNote\)/.test(win),
+    "the cited gate no longer excepts salvage");
 });

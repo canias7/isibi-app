@@ -3183,7 +3183,7 @@ function cleanPath(raw) {
  * Structural check on the tool's output: real paths, real source, an index.
  * Returns the files worth trying to compile plus everything wrong with them.
  */
-export function validatePages(input, { partial = false } = {}) {
+export function validatePages(input, { partial = false, knownRoutes = null } = {}) {
   const problems = [];
   const pages = [];
   const seen = new Set();
@@ -3244,13 +3244,33 @@ export function validatePages(input, { partial = false } = {}) {
   const routeOf = (path) =>
     path === "index.tsx" ? "/" : "/" + path.replace(/\.tsx$/, "").replace(/\/index$/, "");
   const live = new Set(pages.map((p) => routeOf(p.path)));
+  // THE SITE'S OTHER PAGES, on a partial set. The rewrite judges a link against
+  // `live`, and on the edit and addon lanes `pages` is only what the model
+  // RETURNED — so every unchanged page of the site read as nonexistent.
+  // Reproduced by the 2026-08-13 audit with this real module: a one-page edit
+  // returning manage.tsx with its correct `<Link to="/book">` published with
+  // that link pointed at "/", and problems[] told the customer their live
+  // booking page did not exist. The caller passes what it knows is live;
+  // PAGE_RULES teaches `<Link to="/menu">` in page bodies, so returned pages
+  // routinely carry exactly these links.
+  for (const r of (Array.isArray(knownRoutes) ? knownRoutes : [])) {
+    if (typeof r === "string" && r.startsWith("/")) live.add(r);
+  }
+  // A PARTIAL SET WITH NO `knownRoutes` CANNOT JUDGE A LINK AT ALL, so it does
+  // not try: rewriting on a guess is what broke working pages, and a genuinely
+  // dangling link still cannot ship — the lanes compile changed pages TOGETHER
+  // with the stored site, and TanStack's generated route union makes a link to
+  // a route that exists nowhere a TS2322 the typecheck refuses.
+  const canJudge = !partial || Array.isArray(knownRoutes);
   const dangling = new Set();
-  for (const p of pages) {
-    p.source = p.source.replace(/(\bto\s*[=:]\s*)(["'])(\/[A-Za-z0-9/_-]*)\2/g, (m, lead, quote, target) => {
-      if (live.has(target)) return m;
-      dangling.add(target);
-      return lead + quote + "/" + quote;
-    });
+  if (canJudge) {
+    for (const p of pages) {
+      p.source = p.source.replace(/(\bto\s*[=:]\s*)(["'])(\/[A-Za-z0-9/_-]*)\2/g, (m, lead, quote, target) => {
+        if (live.has(target)) return m;
+        dangling.add(target);
+        return lead + quote + "/" + quote;
+      });
+    }
   }
   if (dangling.size) {
     problems.push("These pages were linked to and do not exist, so the links were pointed at the home page instead: " +

@@ -1550,3 +1550,23 @@ test("the tool description asks for `remove` on exactly the removable layers", (
     assert.ok(desc.includes('"' + layer + '"'), "the remove field never mentions layer " + layer);
   }
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A FALLBACK MUST SAY IT IS ONE. `routeMessage` computes failed:true when the
+// routing model itself threw, and the worker dropped it — so an Anthropic
+// outage answered {ok:true, intent:"addon"} wearing the costume of a real
+// routing decision, on the one route whose never-5xx design makes a response
+// field the only possible signal (2026-08-13 audit; the 2026-08-12 billing
+// outage cost a whole diagnosis for exactly this reason).
+test("the route response carries `failed` when the routing model threw", () => {
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  // Windowed to the NEXT feature's landmark, not a byte count — a byte window
+  // here was 3k short on its first run because the handler is well-commented,
+  // which is this repo's recorded overlapping-window trap.
+  const at = w.indexOf('"/api/site/route"');
+  const end = w.indexOf("Website builder — provision this site's database", at);
+  assert.ok(at > 0 && end > at, "the route handler's anchors moved — retarget this guard");
+  const win = w.slice(at, end);
+  assert.match(win, /failed:\s*routed\.failed === true \|\| undefined/,
+    "the routing fallback flag is dropped again — an outage reads as a decision");
+});

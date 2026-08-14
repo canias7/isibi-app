@@ -351,13 +351,20 @@ test("THE CHECK RUNS AFTER THE PRERENDER, because there is nothing to look at be
   const chk = src.indexOf("checkRender(DIST");
   assert.ok(pre > 0 && chk > 0, "both anchors must exist or this passes vacuously");
   assert.ok(pre < chk, "the per-route HTML has to exist before a browser can open it");
-  // AND THE GUARD IS NOT INVERTED. A sweep mutant flipped it to `!pre.done.length`
-  // — the check then runs only when there is nothing to look at, and every
-  // successful build reports no render at all. The integration run catches that
-  // (a good build must come back `render.ok === true`), and it is worth one cheap
-  // line here too, because the wiring layer is the one that keeps going quiet.
-  assert.match(src, /const render = pre\.done\.length\s*\n?\s*\?\s*await timed\("renderMs"/,
-    "checkRender must sit on the TRUE branch of `pre.done.length`");
+  // AND THE CALL IS UNGATED. This used to assert the opposite — that checkRender
+  // sat on the true branch of `pre.done.length` — and the 2026-08-13 audit
+  // showed that gate was itself the bug: a TOTAL prerender failure, the one
+  // mode that loses every snapshot, also switched off the only check that
+  // would have said so. checkRender's own first line answers an empty list
+  // with {ok:false, error:"no prerendered routes to look at"} before any
+  // browser launches, so the honest report needs the call to happen
+  // unconditionally. Guarded as the ABSENCE of a conditional between prerender
+  // and the check.
+  const win = src.slice(pre, chk);
+  assert.ok(!/pre\.done\.length\s*\?/.test(win),
+    "checkRender is gated on prerender output again — a total prerender failure silences the render report");
+  assert.match(src, /const render = await timed\("renderMs"/,
+    "the render check is no longer called unconditionally");
 });
 
 test("publish-pages carries the report through, and ASSIGNS rather than accumulates", () => {
