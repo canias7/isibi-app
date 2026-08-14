@@ -37,7 +37,7 @@ import { normalizePayment, parseCart, priceCart, checkoutSessionArgs, formEncode
 import { rescopeCookie } from "./site-cookie.mjs";
 import { drainTeardown } from "./site-teardown.mjs";
 import { scrubSecrets, neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteProject, enableNeonAuth, enableDataApi, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
-import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlIdent, seedSiteRows, droppedFields } from "./site-schema.mjs";
+import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlIdent, seedSiteRows, droppedFields, refusedFields } from "./site-schema.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
 import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, lintPages, SITE_PAGES_MAX_TOKENS } from "./builder/page-gen.mjs";
@@ -9987,6 +9987,22 @@ async function handleRequest(request, env, ctx) {
       // there is nothing left to read. Names only, never values.
       const reached = droppedFields(body.schema || designed || {});
       if (reached.length) console.warn("designer reached for:", slug, reached.join(","));
+      // AND WHAT IT DECLARED THAT WE REFUSED. The exact inverse, and the gap
+      // `droppedFields` creates by design: it skips `TOOL_TABLE_FIELDS`, so a
+      // guarantee the tool DOES offer that fails its shape check was nulled
+      // with no trace on the response. A `publicView` whose every column is
+      // stripped as PII leaves a marketplace with no browsable listing and
+      // nothing saying the projection was refused — discoverable in a log or
+      // by the incident. Names only, like `reached`, and never values.
+      const refused = refusedFields(body.schema || designed || {});
+      if (refused.length) console.warn("declared and refused:", slug, refused.join(","));
+      // A TABLE NAME THE ENGINE COULD NOT USE. `normalizeSchema` used to let
+      // any truthy name through and `sqlIdent` threw on it at apply time,
+      // OUTSIDE any per-table try — so one over-long or odd name from the
+      // designer 502'd the WHOLE build and took the customer's good tables
+      // with it. It loses one table now, and this is what says which.
+      const badNames = Array.isArray(spec && spec.refusedTables) ? spec.refusedTables : [];
+      if (badNames.length) console.warn("refused table names:", slug, badNames.join(","));
       // NO TABLES IS ONLY AN ERROR ON A FIRST BUILD.
       //
       // This refusal used to sit before the ownership lookup, where `existing`
@@ -10498,6 +10514,13 @@ async function handleRequest(request, env, ctx) {
         // instead of an opinion. Undefined when clean, so a build where the
         // designer stayed inside the tool answers as it did before.
         reached: reached.length ? reached : undefined,
+        // …AND WHAT IT DECLARED THAT WE REFUSED. Same discipline as `reached`
+        // beside it: names only, present only when there is something to say,
+        // so an ordinary build's response is byte-identical.
+        refused: refused.length ? refused : undefined,
+        // …AND A TABLE NAME THE ENGINE COULD NOT USE, which used to take the
+        // whole build down instead of one table.
+        refusedTables: badNames.length ? badNames : undefined,
         // WHAT WAS READ FOR THIS BUILD, and what could not be. The whole reason
         // link-reading exists is that the old behaviour — a URL in the brief
         // that nothing fetched — was invisible: the model inferred a business

@@ -15,7 +15,7 @@
 // injection.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { normalizeSchema, sqlIdent } from "../site-schema.mjs";
+import { normalizeSchema, sqlIdent, looksLikeTable, refusedFields, TOOL_TABLE_FIELDS } from "../site-schema.mjs";
 import fs from "node:fs";
 
 const one = (def) => normalizeSchema({ tables: [{ name: "t", ...def }] }).tables[0];
@@ -565,4 +565,142 @@ test("a string that is not JSON still yields nothing, and does not throw", () =>
     assert.doesNotThrow(() => { out = normalizeSchema({ tables: junk }); }, "threw on " + JSON.stringify(junk));
     assert.equal(out.tables.length, 0, "junk string produced tables: " + JSON.stringify(junk));
   }
+});
+
+// ── A BAD TABLE NAME COSTS ONE TABLE, NOT THE BUILD ─────────────────────────
+
+test("a name the engine cannot use is refused HERE, where losing it is cheap", () => {
+  // Every other identifier in `coerceTable` is regex-checked and the NAME was
+  // not: any truthy value survived — `a"; drop--` and a 60-character name were
+  // both measured through. It was judged for the first time at
+  // `applySiteSchema`'s `sqlIdent`, which throws OUTSIDE any per-table try, so
+  // the route's catch turned ONE bad name into a 502 for the WHOLE build. The
+  // customer's good tables died with the bad one and the refund booked it as
+  // our fault, when the cause was model output.
+  const out = normalizeSchema({ tables: [
+    { name: 'a"; drop--', columns: ["x"] },
+    { name: "b".repeat(60), columns: ["x"] },
+    { name: "bookings", columns: ["x"] },
+  ] });
+  assert.deepEqual(out.tables.map((t) => t.name), ["bookings"], "a bad name took the good tables with it");
+  // AND IT SAYS WHICH. A table that quietly is not there is the failure this
+  // whole file exists to stop being silent about.
+  assert.equal(out.refusedTables.length, 2);
+  assert.ok(out.refusedTables.some((n) => n.includes("drop")), JSON.stringify(out.refusedTables));
+});
+
+test("…and every name the engine CAN use still passes", () => {
+  // The direction that matters for false alarms: this runs on every build, and
+  // refusing a legal name loses a table for nothing.
+  for (const n of ["bookings", "_meta_ish", "b1", "Order_Items", "a".repeat(41)]) {
+    const out = normalizeSchema({ tables: [{ name: n, columns: ["x"] }] });
+    assert.equal(out.tables.length, 1, "a legal name was refused: " + n);
+    assert.equal(out.refusedTables, undefined, "a clean spec gained a field: " + n);
+  }
+  // The boundary itself, so the cap is not off by one against `sqlIdent`.
+  assert.equal(normalizeSchema({ tables: [{ name: "a".repeat(42), columns: ["x"] }] }).tables.length, 0);
+  // And it agrees with the function that would have thrown.
+  assert.throws(() => sqlIdent("a".repeat(42)));
+  assert.doesNotThrow(() => sqlIdent("a".repeat(41)));
+});
+
+// ── THE BARE MAP IS A FEATURE, AND IT SWALLOWED THE WHOLE SPEC ──────────────
+
+test("a tables-less spec does not mint junk tables out of its own config keys", () => {
+  // `spec.tables || spec` treated EVERY top-level key as a table with no
+  // `tables` key. Measured: three zero-column `collect` tables named
+  // `functions`, `fonts` and `seed`, which passed the "did it describe
+  // anything" refusal, were CREATEd in the caller's own database, landed in
+  // `_meta`, and were described to the page generator.
+  const out = normalizeSchema({ functions: [{ name: "f" }], fonts: { heading: "x" }, seed: { bookings: [] } });
+  assert.deepEqual(out.tables.map((t) => t.name), []);
+});
+
+test("…while the bare map itself still works, EMPTY definitions included", () => {
+  // The documented feature, and the first draft of the fix broke it: requiring
+  // evidence refused `{a:{}, b:{}}`, which is exactly the shape the bare-map
+  // path exists to accept. An entry with NO keys is an under-specified table;
+  // an entry with keys that are none of a table's is not a table at all.
+  assert.deepEqual(normalizeSchema({ a: {}, b: {} }).tables.map((t) => t.name), ["a", "b"]);
+  assert.deepEqual(normalizeSchema({ bookings: { columns: ["name"] } }).tables.map((t) => t.name), ["bookings"]);
+  // A guarantee with no columns yet is evidence too.
+  assert.deepEqual(normalizeSchema({ bookings: { access: "collect" } }).tables.map((t) => t.name), ["bookings"]);
+  assert.deepEqual(normalizeSchema({ bookings: { fts: true } }).tables.map((t) => t.name), ["bookings"]);
+});
+
+test("the explicit `tables` path is untouched by any of it", () => {
+  // The shape test applies to the BARE map only. On the `tables` path the model
+  // said the word, so an empty or odd table is a model mistake worth carrying
+  // through rather than something to second-guess.
+  assert.deepEqual(normalizeSchema({ tables: { a: {}, b: {} } }).tables.map((t) => t.name), ["a", "b"]);
+  assert.deepEqual(normalizeSchema({ tables: [{ name: "a" }] }).tables.map((t) => t.name), ["a"]);
+  // THE CASE THAT DISCRIMINATES, found by a mutation that survived: an entry
+  // whose keys are none of a table's is refused on the BARE map and kept here.
+  // Without this the two paths were only ever driven with shapes that answer
+  // the same either way, so widening the test to both changed nothing visible.
+  assert.deepEqual(normalizeSchema({ tables: { cfg: { someKey: 1 } } }).tables.map((t) => t.name), ["cfg"],
+    "the shape test leaked onto the explicit tables path — a model mistake is now silently dropped");
+  assert.deepEqual(normalizeSchema({ cfg: { someKey: 1 } }).tables.map((t) => t.name), [],
+    "…and the bare map stopped refusing it");
+});
+
+test("looksLikeTable does not throw on anything a spec can hold", () => {
+  for (const bad of [null, undefined, 7, "x", [], [1, 2], () => {}, new Date()]) {
+    assert.equal(typeof looksLikeTable(bad), "boolean", JSON.stringify(bad));
+  }
+});
+
+// ── A GUARANTEE DECLARED AND REFUSED IS SAID OUT LOUD ───────────────────────
+
+test("refusedFields names a guarantee the shape check binned", () => {
+  // `droppedFields` deliberately skips `TOOL_TABLE_FIELDS`, so a field the tool
+  // DOES offer that fails its own check was nulled with no trace anywhere. A
+  // marketplace owner whose designer emitted `publicView {columns:["id",
+  // "owner_id"]}` — both stripped, because a projection may carry neither —
+  // gets a site with no browsable listing and nothing saying so.
+  assert.deepEqual(refusedFields({ tables: [{ name: "b", columns: ["x"], publicView: { columns: ["id", "owner_id"] } }] }),
+    ["publicView"]);
+  assert.deepEqual(refusedFields({ tables: [{ name: "b", columns: ["at"], noOverlap: { start: "at", end: "at" } }] }),
+    ["noOverlap"]);
+  assert.deepEqual(refusedFields({ tables: [{ name: "b", columns: ["x"], fts: ["!!"] }] }), ["fts"]);
+});
+
+test("…and a GOOD table reports nothing, which is what stops it crying wolf", () => {
+  // The measurement that decides whether a check like this can exist at all.
+  // Everything here is declared correctly and survives normalisation, so a
+  // single name in this list is a false alarm on a perfectly good site.
+  const good = {
+    name: "bookings", access: "collect", columns: ["name", "at", "fin"],
+    fts: true, timestamps: true, maxRows: 50, unique: ["at"], oncePerUser: true,
+    enforceRefs: true, expires: true, scheduled: true, teamScope: true,
+    noOverlap: { start: "at", end: "fin" }, publicView: { columns: ["at"] },
+  };
+  assert.deepEqual(refusedFields({ tables: [good] }), []);
+  // A falsy or empty declaration is absence, not a refusal — otherwise every
+  // table carrying `fts: false` reports one.
+  assert.deepEqual(refusedFields({ tables: [{ name: "b", columns: ["x"], fts: false, publicView: {}, maxRows: 0 }] }), []);
+});
+
+test("refusedFields covers only what the tool offers, and only guarantees", () => {
+  // Anything outside the tool is `droppedFields`' job, and the two must not
+  // both report the same name — one says "we do not have this", the other says
+  // "we have it and your declaration was wrong".
+  assert.deepEqual(refusedFields({ tables: [{ name: "b", columns: ["x"], somethingWeNeverOffered: { a: 1 } }] }), []);
+  // `read`/`write` pass through unnormalised on purpose so `resolveAccess` can
+  // be the one place that decides what a missing half means; reporting them
+  // would flag every pair-declared table.
+  assert.deepEqual(refusedFields({ tables: [{ name: "b", columns: ["x"], read: "public", write: "none" }] }), []);
+  assert.ok(TOOL_TABLE_FIELDS.has("publicView"), "the field list this is scoped to no longer carries the measured case");
+});
+
+test("a table whose every column was refused says so", () => {
+  // The case a mutation found nothing covering: `coerceCol` returns null for a
+  // non-string, non-named entry, so `[null, 7]` normalises to an EMPTY array —
+  // declared truthy, arrived empty. Without treating an empty array as dead the
+  // table publishes with no columns and the response says nothing, which is the
+  // most complete version of the silent subtraction this reader exists to stop.
+  assert.deepEqual(normalizeSchema({ tables: [{ name: "b", columns: [null, 7] }] }).tables[0].columns, []);
+  assert.deepEqual(refusedFields({ tables: [{ name: "b", columns: [null, 7] }] }), ["columns"]);
+  // And a table with real columns is still silent about them.
+  assert.deepEqual(refusedFields({ tables: [{ name: "b", columns: ["x"] }] }), []);
 });

@@ -85,9 +85,46 @@ function slugify(s) {
 // Restoring it means building the enforcement first;
 // test/declarable-enforced.test.mjs fails if the declaration comes back alone.
 
+/**
+ * Does this value describe a TABLE, as opposed to something else at the top of a
+ * spec?
+ *
+ * Used only on the bare-map path, where `spec` itself is being read as the table
+ * map. It asks for evidence rather than excluding names: a table declares
+ * columns under one of the four aliases `coerceTable` reads, or names an access
+ * level. `functions`, `apis`, `jobs`, `fonts`, `seed` and the rest carry
+ * neither, and a key added beside them tomorrow carries neither either — which
+ * is the whole reason this is a shape test and not a deny-list.
+ *
+ * AN EMPTY OBJECT IS A TABLE — an under-specified one — and that is not a
+ * loophole, it is the documented feature. `{a: {}, b: {}}` is the shape the
+ * bare-map path exists to accept and has a test of its own; refusing it was the
+ * first draft of this function and it broke the thing it was protecting.
+ *
+ * So the rule is narrower and the distinction is real: an entry with NO keys is
+ * a table nobody filled in, and an entry with keys that are none of a table's is
+ * not a table at all. `{functions: [...]}` is an array, `{fonts: {heading}}` and
+ * `{seed: {…}}` carry keys that describe something else — all three refused,
+ * while `{}` and every genuinely declared table pass.
+ */
+export function looksLikeTable(def) {
+  if (!def || typeof def !== "object" || Array.isArray(def)) return false;
+  if (!Object.keys(def).length) return true;
+  for (const k of ["columns", "fields", "cols", "schema"]) {
+    const v = def[k];
+    if (Array.isArray(v) ? v.length : (v && typeof v === "object" && Object.keys(v).length)) return true;
+  }
+  // Any per-table field the tool offers is evidence too, so a table declared
+  // with a guarantee and no columns yet is not mistaken for config.
+  return [...TOOL_TABLE_FIELDS].some((k) => k !== "name" && def[k] !== undefined);
+}
+
 export function normalizeSchema(spec) {
   if (!spec || typeof spec !== "object") return { tables: [] };
   const out = [];
+  // Names this refused, so the caller can say which table went rather than
+  // leaving the customer with a site quietly missing one.
+  const refusedNames = [];
   const coerceCol = (c) => {
     if (typeof c === "string") return { name: c, type: "text" };
     if (c && typeof c === "object" && c.name) return { name: c.name, type: c.type || c.dataType || "text", pk: c.pk || c.primary, notnull: c.notnull || c.required || c.notNull, unique: c.unique, ref: c.ref || c.references || c.foreignKey || c.fk, max: (c.max !== undefined ? c.max : (c.maxLength !== undefined ? c.maxLength : c.maxlength)), min: (c.min !== undefined ? c.min : c.minLength), format: c.format, enum: c.enum || c.oneOf || c.values, pattern: c.pattern || c.regex, default: (c.default !== undefined ? c.default : c.defaultValue), immutable: !!(c.immutable || c.readonly || c.readOnly || c.writeOnce), onDelete: (() => { const m = String(c.onDelete || c.on_delete || c.onDeleteAction || "").toLowerCase().replace(/[^a-z]/g, ""); return (m === "setnull" || m === "cascade" || m === "restrict") ? m : null; })() };
@@ -95,6 +132,21 @@ export function normalizeSchema(spec) {
   };
   const coerceTable = (name, def) => {
     if (!name || !def || typeof def !== "object") return;
+    // THE NAME IS JUDGED HERE, WHERE LOSING IT COSTS ONE TABLE.
+    //
+    // Every other identifier in this function is regex-checked and this one was
+    // not: any truthy value survived — `a"; drop--` and a 60-character name were
+    // both measured through. The name was then judged for the first time at
+    // `applySiteSchema`'s `sqlIdent`, which throws OUTSIDE any per-table try, so
+    // the route's catch turned ONE bad table name into a 502 for the WHOLE
+    // build. The customer's good tables died with the bad one, the refund booked
+    // it as our fault, and the log read as the schema engine failing when the
+    // cause was model output.
+    //
+    // No safety hole either way — `sqlIdent` is the boundary and it holds — so
+    // this is purely about the shape of the failure: lose one table, not the
+    // site. Refusing here is also what makes `refusedTables` able to SAY so.
+    if (!SAFE_IDENT.test(String(name))) { refusedNames.push(String(name).slice(0, 60)); return; }
     const access = ["collect", "display", "user", "feed", "admin"].includes(def.access) ? def.access : "collect";
     const src = def.columns || def.fields || def.cols || def.schema;
     let cols = [];
@@ -138,7 +190,34 @@ export function normalizeSchema(spec) {
     } catch { /* not JSON — falls through to no tables, which is the honest answer */ }
   }
   if (Array.isArray(t)) t.forEach((tb) => tb && coerceTable(tb.name, tb));
-  else if (t && typeof t === "object") Object.entries(t).forEach(([n, def]) => coerceTable(n, def));
+  // THE BARE MAP IS A REAL FEATURE AND IT SWALLOWED THE WHOLE SPEC.
+  //
+  // `spec.tables || spec` is deliberate — a name→definition map instead of a
+  // list is a model habit this boundary is tolerant of by design — but with no
+  // `tables` key it treated EVERY top-level key as a table. Measured:
+  // `{functions:[…], fonts:{…}, seed:{…}}` yielded three zero-column `collect`
+  // tables called `functions`, `fonts` and `seed`, which then passed the
+  // "did it describe anything" refusal, were CREATEd in the caller's own Neon
+  // database, landed in `_meta`, and were described to the page generator.
+  //
+  // Unreachable from the designer (the tool requires `tables`, and `[]` is
+  // truthy so an empty list does not fall through) and from the addon lane,
+  // which always constructs `{tables}` — so it needs a caller posting their own
+  // tables-less schema, or a stringified `tables` that parses to something else.
+  // The damage is confined to that caller's own site, which is why it stayed
+  // low; it is still a gap between a feature and the keys this function itself
+  // consumes.
+  //
+  // The discriminator is what a TABLE looks like rather than a list of the
+  // top-level names to skip: a list has to be kept in step with every key added
+  // beside it, and the day it is not is the day the junk table comes back.
+  else if (t && typeof t === "object") {
+    const bare = t !== spec.tables;
+    Object.entries(t).forEach(([n, def]) => {
+      if (bare && !looksLikeTable(def)) return;
+      coerceTable(n, def);
+    });
+  }
 
   // TWO TABLES WITH THE SAME NAME BOTH SURVIVED, and the second silently
   // destroyed the first. `applySiteSchema` walks this list in order and, per
@@ -351,6 +430,10 @@ export function normalizeSchema(spec) {
   if (functions.length) extra.functions = functions;
   if (jobs.length) extra.jobs = jobs;
   if (apis.length) extra.apis = apis;
+  // A REFUSED NAME IS A FACT ON THE WAY OUT, not a table that quietly is not
+  // there. Only when there is one, so every ordinary spec returns exactly the
+  // shape it did before this existed.
+  if (refusedNames.length) extra.refusedTables = refusedNames.slice(0, 6);
   return { tables: out, ...extra };
 }
 
@@ -1444,6 +1527,69 @@ export const TOOL_TABLE_FIELDS = new Set([
   "expires", "scheduled", "columns", "timestamps", "fts", "unique", "uniqueCI",
   "maxRows", "teamScope", "publicView", "noOverlap", "confirm", "sms", "payment",
 ]);
+
+/**
+ * The per-table guarantees that were DECLARED and REFUSED.
+ *
+ * The exact inverse of `droppedFields`, and the gap it closes is the one that
+ * function creates by design: it deliberately skips `TOOL_TABLE_FIELDS`, so a
+ * field the tool DOES offer that fails its own shape check is nulled with no
+ * trace anywhere. Measured cases: a `noOverlap` whose start and end name the
+ * same column, a `publicView` whose every column is refused as PII, an `fts`
+ * list with no usable column name.
+ *
+ * WHO THAT COSTS: a marketplace owner whose designer emitted
+ * `publicView: {columns: ["id", "owner_id"]}` — both stripped, because a
+ * projection may never carry either — gets a site with no browsable listing and
+ * nothing on the response saying the projection was refused. Discoverable in
+ * Cloudflare logs or by the incident.
+ *
+ * DECLARED-TRUTHY AND NORMALISED-FALSY is the whole test, which is what keeps it
+ * from crying wolf: a boolean flag declared `true` comes out `true`, an absent
+ * field is never declared, and `access` defaults to something truthy. Only a
+ * shape check that binned the value can produce the pair.
+ *
+ * `name`, `access`, `read` and `write` are excluded: they are not guarantees,
+ * and the last two pass through unnormalised on purpose so `resolveAccess` can
+ * be the one place that decides what a missing half means.
+ *
+ * THAT EXCLUSION CANNOT FIRE TODAY, and it is kept rather than deleted or
+ * falsely asserted. All four survive normalisation whatever they are declared
+ * as — `name` comes back as itself, `access` defaults to a truthy `"collect"`,
+ * and `read`/`write` are copied through untouched — so declared-truthy and
+ * normalised-falsy is unreachable for them and removing this Set changes no
+ * output. Proven by a mutation that survived the whole suite. It is worth
+ * keeping because it holds by a property of FOUR OTHER LINES, each one edit
+ * from changing: the day `read` gains a validator, this is the difference
+ * between a correct refusal report and one that flags every pair-declared table
+ * on the platform.
+ */
+const NOT_A_GUARANTEE = new Set(["name", "access", "read", "write"]);
+
+export function refusedFields(spec) {
+  if (!spec || typeof spec !== "object") return [];
+  const raw = Array.isArray(spec.tables) ? spec.tables
+    : (spec.tables && typeof spec.tables === "object") ? Object.values(spec.tables) : [];
+  const seen = new Set();
+  for (const def of raw) {
+    if (!def || typeof def !== "object" || Array.isArray(def)) continue;
+    const kept = normalizeSchema({ tables: [def] }).tables[0];
+    if (!kept) continue;
+    for (const key of Object.keys(def)) {
+      if (seen.size >= MAX_DROPPED) return [...seen].sort();
+      if (!TOOL_TABLE_FIELDS.has(key) || NOT_A_GUARANTEE.has(key)) continue;
+      const v = def[key];
+      // A falsy or empty declaration is the same as absence — reporting those
+      // would put `fts: false` on the response of every table that has one.
+      if (!v) continue;
+      if (Array.isArray(v) ? !v.length : (typeof v === "object" && !Object.keys(v).length)) continue;
+      const got = kept[key];
+      const alive = Array.isArray(got) ? got.length : (got && typeof got === "object" ? Object.keys(got).length : !!got);
+      if (!alive) seen.add(key);
+    }
+  }
+  return [...seen].sort();
+}
 
 export function droppedFields(spec) {
   if (!spec || typeof spec !== "object") return [];

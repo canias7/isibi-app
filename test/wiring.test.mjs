@@ -885,3 +885,33 @@ test("a look that failed SOFT reaches the caller instead of publishing silently"
   assert.ok(!/lookSoft: soft,/.test(pub) && !/lookSoft: lookSoft,/.test(worker),
     "the soft-failure list is now on every response — a field nobody reads is not a warning");
 });
+
+test("a refused guarantee and a refused table name both reach the caller", () => {
+  // Both were computed by nothing and both are the same class: a silent
+  // subtraction from the customer's site. `refusedFields` did not exist, and a
+  // bad table name did not survive normalisation at all — it 502'd the whole
+  // build at `sqlIdent`.
+  assert.match(worker, /import \{[^}]*refusedFields[^}]*\} from "\.\/site-schema\.mjs"/,
+    "the route cannot see the refused-guarantee reader");
+  assert.match(worker, /const refused = refusedFields\(body\.schema \|\| designed \|\| \{\}\)/,
+    "the route never asks which declared guarantee was refused");
+  assert.match(worker, /refused: refused\.length \? refused : undefined,/,
+    "the refused list is computed and dropped");
+  assert.match(worker, /const badNames = Array\.isArray\(spec && spec\.refusedTables\)/,
+    "the route never reads which table name the engine refused");
+  assert.match(worker, /refusedTables: badNames\.length \? badNames : undefined,/,
+    "the refused table names are read and dropped");
+
+  // PRESENT ONLY WHEN THERE IS SOMETHING TO SAY, at both, so an ordinary
+  // build's response is byte-identical to what it was.
+  assert.ok(!/refused: refused,/.test(worker) && !/refusedTables: badNames,/.test(worker),
+    "a field carried on every build is not a warning");
+
+  // AND THE SAME SOURCE AS `reached`, which is the raw answer before the
+  // allow-list — after it there is nothing left to read.
+  const at = worker.indexOf("const reached = droppedFields(");
+  const to = worker.indexOf("const badNames =", at);
+  assert.ok(at > 0 && to > at, "the reach/refuse block moved — rescope this");
+  assert.match(worker.slice(at, to), /refusedFields\(body\.schema \|\| designed \|\| \{\}\)/,
+    "the two readers disagree about which spec they are judging");
+});
