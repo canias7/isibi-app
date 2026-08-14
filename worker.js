@@ -4188,6 +4188,28 @@ async function ensureSiteBackend(env, slug, uid, brief, mark) {
     // project or database that nothing recorded.
     return r.ok ? { ok: true } : { ok: false, detail: (await r.text().catch(() => "")).slice(0, 300) };
   };
+  // CLAIMS, not upserts, for the two slug-keyed tables. merge-duplicates is
+  // what made the slug race silent (2026-08-13 audit): two overlapping first
+  // builds of one free name both passed the pre-check, both created a Neon
+  // project, and the second saveProject UPSERT overwrote the winner's
+  // connection row — the winner's live site then pointed at the loser's
+  // project, and the loser's project was orphaned with no teardown entry (the
+  // queue trigger is BEFORE DELETE; an upsert UPDATE never fires it).
+  // ignore-duplicates + return=representation makes the insert atomic on the
+  // PK: a full representation means the row is ours, an empty one means
+  // somebody else already holds the slug. site-provision.mjs decides what
+  // losing means at each site — converge at the project, refuse at the slug.
+  const claim = async (table, body) => {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+      method: "POST",
+      headers: svcHeaders(env, { "content-type": "application/json", Prefer: "resolution=ignore-duplicates,return=representation" }),
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!r.ok) return { ok: false, detail: (await r.text().catch(() => "")).slice(0, 300) };
+    const rows = await r.json().catch(() => null);
+    return { ok: true, claimed: Array.isArray(rows) && rows.length > 0 };
+  };
   // A REAL BINDING, not just a property on the deps object.
   //
   // `saveAuthInfo` and `saveDataInfo` call `lookupProject(slug)` in their
@@ -4265,13 +4287,24 @@ async function ensureSiteBackend(env, slug, uid, brief, mark) {
       console.error("dropping unrecorded neon project:", id);
       return dropUserProject(env, id);
     },
-    saveProject: (s2, u, proj) => write("site_project", { slug: s2, uid: u, ...proj }),
+    // CLAIMS, not upserts. Both tables are keyed by slug, and merge-duplicates
+    // is what made the slug race silent (2026-08-13 audit): two overlapping
+    // first builds of one free name both passed the pre-check, both created a
+    // Neon project, and the second saveProject UPSERT overwrote the winner's
+    // connection row — so the winner's live site pointed at the loser's
+    // project, and the loser's project was orphaned with no teardown entry
+    // (the queue trigger is BEFORE DELETE; an upsert UPDATE never fires it).
+    // ignore-duplicates + return=representation makes the insert atomic on the
+    // PK: a full representation means the row is ours, an empty one means
+    // somebody else already holds the slug — and site-provision.mjs decides
+    // what losing means at each of the two sites.
+    saveProject: (s2, u, proj) => claim("site_project", { slug: s2, uid: u, ...proj }),
     createDatabase: (proj, s2) => createSiteDatabase(env, proj.neon_project, proj.neon_branch, proj.neon_role, s2),
     // The brief rides along on the row that claims the slug. ensureSiteBackend
     // returns early when the slug already has a database, so saveBackend runs
     // exactly once per site — which is what keeps a revise's one-line
     // instruction from overwriting the brief the site was built from.
-    saveBackend: (s2, u, db) => write("site_backends", { slug: s2, uid: u, neon_db: db, brief: String(brief || "").slice(0, 4000) || null }),
+    saveBackend: (s2, u, db) => claim("site_backends", { slug: s2, uid: u, neon_db: db, brief: String(brief || "").slice(0, 4000) || null }),
     connFor: connForDatabase,
     dbNameFor: dbNameForSite,
   }, { slug, uid });
@@ -5984,7 +6017,16 @@ async function siteOgImage(env, slug) {
   try {
     if (!env.SITES_BUCKET) return null;
     const objs = await siteUploadList(env, slug);
-    const first = objs.find((o) => o && !o.visitor) || objs[0];
+    // OWNER UPLOADS ONLY — no `|| objs[0]` fallback. That fallback fired
+    // exactly when the library held ONLY visitor uploads, which is a common
+    // state (no photograph has ever been generated and most owners upload
+    // nothing) — so on any site whose form accepts a picture, a stranger's
+    // upload became the business's WhatsApp/Slack/Facebook preview image on
+    // the next publish (2026-08-13 audit). The `.find` shows owner-preference
+    // was the intent; the fallback silently undid it in the one case where it
+    // mattered. No image beats an uncurated stranger's image: the card
+    // degrades to `summary`, which site-meta already handles.
+    const first = objs.find((o) => o && !o.visitor);
     if (!first) return null;
     return siteOrigin(slug, "https://" + APP_ZONE) + "/u/" + slug + "/" + first.key.split("/").pop();
   } catch (e) { console.error("og image lookup failed:", slug, e && e.message); return null; }
@@ -8883,6 +8925,10 @@ async function handleRequest(request, env, ctx) {
     if (url.pathname === "/api/site/route" && request.method === "POST") {
       const ru = await authUser(request, env);
       if (!ru) return Response.json({ ok: false, error: "unauthorized" }, { status: 401 });
+      // Same backstop as the build route, sized for what this carries: a
+      // message, a brief, a names-only digest and a QA list. 2MB is ~50x the
+      // largest real payload seen.
+      { const tlR2 = tooLargeBody(request, 2_000_000); if (tlR2) return tlR2; }
       let rb = {};
       try { rb = await request.json(); } catch { rb = {}; }
       const auth = request.headers.get("Authorization") || "";
@@ -9053,6 +9099,14 @@ async function handleRequest(request, env, ctx) {
       if (!siteDbConfigured(env)) return Response.json({ ok: false, error: "site database not configured", need: "NEON_API_KEY" }, { status: 501 });
       if (!env.SUPABASE_SERVICE_KEY) return Response.json({ ok: false, error: "service key not configured" }, { status: 501 });
       if (!env.ANTHROPIC_API_KEY) return Response.json({ ok: false, error: "generator not configured" }, { status: 501 });
+      // CAPPED BEFORE BUFFERING, like every other body-taking route — this one
+      // was the exception (2026-08-13 audit): /api/direct, /api/save and even
+      // the unauthenticated visitor upload all check Content-Length first,
+      // while the priciest route on the platform buffered and JSON-parsed
+      // whatever arrived, up to the plan limit, inside a 128MB isolate whose
+      // other occupants are other customers' requests. Legitimate build
+      // payloads top out ~12MB (three images and a PDF); 24MB is double that.
+      { const tlB = tooLargeBody(request, 24_000_000); if (tlB) return tlB; }
       tr.at("auth");
       const body = await request.json().catch(() => ({}));
       tr.at("body");
@@ -9414,7 +9468,7 @@ async function handleRequest(request, env, ctx) {
           // charged. Same reasoning as the no-tables path: this returns before
           // anything is provisioned, so they are left with literally nothing.
           await refundCredits(env, bu.id, Math.max(0, schemaCost));
-          return Response.json({ ok: false, error: "that name is taken", cost: 0 }, { status: 409 });
+          return Response.json({ ok: false, error: "that name is taken", cost: 0, msg: "That site name is taken by another account. Say a different name in your next message — e.g. \"call it sunset-cuts\" — and I\u2019ll build it under that." }, { status: 409 });
         }
         // Free — this lookup already happens for the ownership check.
         existing = !!(owner && owner.uid);
@@ -9484,7 +9538,7 @@ async function handleRequest(request, env, ctx) {
       } catch (e) {
         if (e && e.conflict) {
           await refundCredits(env, bu.id, Math.max(0, schemaCost));
-          return Response.json({ ok: false, error: "that name is taken", cost: 0 }, { status: 409 });
+          return Response.json({ ok: false, error: "that name is taken", cost: 0, msg: "That site name is taken by another account. Say a different name in your next message — e.g. \"call it sunset-cuts\" — and I\u2019ll build it under that." }, { status: 409 });
         }
         console.error("site provision failed:", slug, e && e.status, e && (e.detail || e.message));
         // REFUNDED, BECAUSE THIS FAILURE IS OURS AND THEY ARE LEFT WITH NOTHING.

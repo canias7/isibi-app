@@ -196,5 +196,12 @@ export function setTitle(html, title) {
   const t = String(title == null ? "" : title).replace(/\s+/g, " ").trim().slice(0, 70);
   if (!t || !/<title[^>]*>[\s\S]*?<\/title\s*>/i.test(src)) return src;
   const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-  return src.replace(/<title[^>]*>[\s\S]*?<\/title\s*>/i, "<title>" + esc(t) + "</title>");
+  // A FUNCTION REPLACER, never a concatenated string. String.replace treats
+  // `$$`, `$&` and `$'` in the replacement as PATTERNS — so a title reading
+  // "Win $$$ prizes" published as "Win $$ prizes", `$&` re-inserted the old
+  // title inside the new one, and "Mo$'s Cuts" — an ordinary stylised trading
+  // name — spliced everything after the old title back into the document,
+  // doubling the head (2026-08-13 audit, each verified with this module). A
+  // function's return value is inserted VERBATIM, which closes the whole class.
+  return src.replace(/<title[^>]*>[\s\S]*?<\/title\s*>/i, () => "<title>" + esc(t) + "</title>");
 }

@@ -1669,3 +1669,49 @@ test("the worker's error/cited gate excepts a salvaged build", () => {
   assert.ok(/cited: \(\(pages\.page === "app" && !pages\.salvageNote\)/.test(win),
     "the cited gate no longer excepts salvage");
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ROUND-2 AUDIT SINGLES, each a source-read on the worker because each is one
+// line whose absence is silent.
+
+test("both build-adjacent routes cap the body before parsing it", () => {
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  // react-build: the priciest route on the platform buffered whatever arrived
+  // (2026-08-13 audit) while /api/direct, /api/save and even the visitor upload
+  // all capped on Content-Length first.
+  const b = w.indexOf('"/api/site/react-build"');
+  assert.ok(b > 0, "the build route moved");
+  const bWin = w.slice(b, w.indexOf("request.json()", b));
+  assert.match(bWin, /tooLargeBody\(request,\s*24_000_000\)/, "the build route parses an uncapped body again");
+  // /api/site/route: hit on EVERY builder message.
+  const r = w.indexOf('"/api/site/route"');
+  const rWin = w.slice(r, w.indexOf("request.json()", r));
+  assert.match(rWin, /tooLargeBody\(request,\s*2_000_000\)/, "the router parses an uncapped body again");
+});
+
+test("a stranger's upload can never be the og image", () => {
+  // siteOgImage preferred owner uploads and then fell back to objs[0] — which
+  // fired exactly when the library held ONLY visitor uploads, so anyone posting
+  // a picture through a site's form could become its WhatsApp preview image on
+  // the next publish (2026-08-13 audit). The property is the ABSENCE of the
+  // fallback: owner uploads or nothing.
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const fn = w.match(/async function siteOgImage[\s\S]*?\n\}/);
+  assert.ok(fn, "siteOgImage moved");
+  // COMMENTS BLANKED before the absence check — the fix's own comment names the
+  // forbidden spelling as history, and an absence asserted over prose matches
+  // the explanation of the bug rather than the bug.
+  const code = fn[0].replace(/\/\/[^\n]*/g, "");
+  assert.match(code, /objs\.find\(\(o\) => o && !o\.visitor\)/, "the owner-only preference is gone");
+  assert.ok(!/\|\|\s*objs\[0\]/.test(code), "the visitor fallback is back — a stranger's picture can be the preview again");
+});
+
+test("the name-taken 409 says so to the customer", () => {
+  // Both 409s carried error but no msg, and the client renders only msg — so
+  // the customer saw "try again in a moment", retried into the same 409
+  // forever (the designer re-proposes the same name), and concluded the
+  // builder was broken (2026-08-13 audit).
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const hits = w.match(/error: "that name is taken", cost: 0, msg: "That site name is taken by another account/g) || [];
+  assert.equal(hits.length, 2, "expected both 409s to carry the customer message, found " + hits.length);
+});

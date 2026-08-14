@@ -278,7 +278,11 @@ test("the connection string is never selected from, or written to, site_backends
   for (const m of WORKER.matchAll(/site_backends\?[^`"']*select=([^&`"']*)/g)) {
     assert.ok(!/conn/.test(m[1]), "site_backends is client-readable — it must not carry a connection string: " + m[1]);
   }
-  const writes = [...WORKER.matchAll(/write\("site_backends",\s*\{([^}]*)\}/g)].map((m) => m[1]);
+  // BOTH VERBS. The write became an atomic claim() when the slug race was
+  // fixed (2026-08-13), and this guard was pinned to the verb rather than the
+  // property — the property is that no connection string reaches a
+  // client-readable table, however the row gets there.
+  const writes = [...WORKER.matchAll(/(?:write|claim)\("site_backends",\s*\{([^}]*)\}/g)].map((m) => m[1]);
   assert.ok(writes.length > 0, "the site_backends write was not found");
   for (const w of writes) assert.ok(!/conn/.test(w), "a connection string is being written to a client-readable table: " + w);
 });
@@ -540,4 +544,82 @@ test("a failed Data API enable FAILS the build and names its stage", async () =>
   // The exact shape of the 2026-08-04 outage: a wrong path answered 404 and the
   // failure could not name which of the two enable endpoints it was.
   await assert.rejects(run(deps), (e) => e.stage === "enable_data_api" && e.status === 404);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE SLUG RACE (2026-08-13 audit). Both slug-keyed writes used to be UPSERTS,
+// so two overlapping first builds of one free name both "succeeded": the second
+// saveProject overwrote the winner's connection row (the winner's live site
+// then pointed at the loser's project), and the loser's project was orphaned
+// with no teardown entry — the queue trigger is BEFORE DELETE, and an upsert
+// UPDATE never fires it. The deps are atomic claims now: claimed:false means
+// the row already existed, and the module decides what losing means at each of
+// the two sites — CONVERGE at the project, REFUSE at the slug.
+
+const WINNER = { neon_project: "p-winner", neon_branch: "br-w", neon_role: "owner", neon_conn: "postgres://w:w@win/neondb" };
+
+test("losing the PROJECT claim converges on the winner's project, orphaning nothing", async () => {
+  let lookups = 0;
+  const { deps, calls } = harness({
+    // First lookup: nothing (we are first, we create). Second lookup, after the
+    // lost claim: the winner's row is there.
+    lookupProject: async () => (++lookups === 1 ? null : WINNER),
+    saveProject: async () => ({ ok: true, claimed: false }),
+  });
+  const conn = await run(deps);
+  // The loser's own project is destroyed — the orphan that billed forever.
+  assert.deepEqual(calls.dropProject, ["p1"], "the losing racer's project was not cleaned up");
+  // And the build CONTINUES on the winner's project rather than failing: the
+  // database create is idempotent, so both racers land on one project and the
+  // customer still gets a site.
+  assert.equal(lookups, 2, "the winner's project was never read back");
+  assert.match(conn, /@win\//, "the build did not continue on the winner's connection");
+});
+
+test("losing the project claim with no winner readable is a save_project failure", async () => {
+  let lookups = 0;
+  const { deps, calls } = harness({
+    lookupProject: async () => (++lookups === 1 ? null : null),
+    saveProject: async () => ({ ok: true, claimed: false }),
+  });
+  await assert.rejects(run(deps), (e) => e.stage === "save_project" && /could not be read back/.test(e.detail));
+  assert.deepEqual(calls.dropProject, ["p1"], "the loser's project must still be destroyed on this path");
+});
+
+test("losing the SLUG claim is the same 409 as a name taken before the build", async () => {
+  const { deps, calls } = harness({
+    saveBackend: async () => ({ ok: true, claimed: false }),
+  });
+  // conflict:true is what the route maps to 409-with-refund; anything else here
+  // and the loser's customer sees a 502 "provision failed" for a name problem.
+  await assert.rejects(run(deps), (e) => e.conflict === true && /taken/.test(e.message));
+  // Nothing is dropped on this path: the project is recorded and the claim
+  // above converged both racers onto one project — it is the winner's now.
+  assert.deepEqual(calls.dropProject, [], "refusing the slug must not destroy the shared project");
+});
+
+test("a dep that cannot say `claimed` behaves exactly as before", async () => {
+  // Strictly === false. Every fake above this block returns bare {ok:true},
+  // and every pre-existing test in this file passing IS the compat proof —
+  // this one just states the contract where somebody will read it.
+  const { deps } = harness({ saveProject: async () => ({ ok: true }), saveBackend: async () => ({ ok: true }) });
+  await assert.doesNotReject(run(deps));
+});
+
+test("the worker's two slug-keyed writes are CLAIMS, not upserts", () => {
+  // The module fix is nothing if the real deps still upsert — the wiring
+  // layer, as always. Both must go through claim(), and claim() must send
+  // ignore-duplicates with a representation to read the answer from.
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(w, /saveProject: \(s2, u, proj\) => claim\("site_project"/,
+    "saveProject went back to the upserting write() — the slug race is silent again");
+  assert.match(w, /saveBackend: \(s2, u, db\) => claim\("site_backends"/,
+    "saveBackend went back to the upserting write()");
+  const at = w.indexOf("const claim = async (table, body)");
+  assert.ok(at > 0, "the claim helper is gone");
+  const body = w.slice(at, at + 900);
+  assert.match(body, /ignore-duplicates,return=representation/,
+    "claim() no longer sends ignore-duplicates + representation — it cannot tell winning from losing");
+  assert.match(body, /claimed: Array\.isArray\(rows\) && rows\.length > 0/,
+    "claim() no longer derives `claimed` from the representation");
 });

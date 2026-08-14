@@ -7,7 +7,7 @@
 // got a bare URL.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { injectMeta, metaTags, pageMeta } from "../site-meta.mjs";
+import { injectMeta, metaTags, pageMeta, setTitle } from "../site-meta.mjs";
 
 const PAGE = `<!doctype html><html lang="en"><head><meta charset="UTF-8" /><title>Sharp Fade</title><link rel="stylesheet" href="./a.css"></head><body><div id="root"></div></body></html>`;
 const META = { brand: "Sharp Fade Barbershop", description: "Skin fades and hot-towel shaves in Lisbon. Book online.", url: "https://gofarther.dev/s/sharp-fade/", image: "/u/sharp-fade/abc.png" };
@@ -158,4 +158,26 @@ test("the brand is not repeated when the heading already contains it", () => {
   const h = doc("<h2>Fade &amp; Co Barbershop — the work</h2>");
   const got = pageMeta(h, BASE).brand;
   assert.ok(!/Barbershop[\s\S]*Barbershop/.test(got), "the site name appears twice: " + got);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STRING.REPLACE'S $-PATTERNS ARE NOT PART OF A TITLE (2026-08-13 audit, each
+// case verified against this module before the fix): "Win $$$ prizes" published
+// as "Win $$ prizes", `$&` re-inserted the old title inside the new one, and
+// "Mo$'s Cuts" — an ordinary stylised trading name — spliced everything after
+// the old title back into the head, doubling it. A function replacer inserts
+// its return verbatim, which closes the whole class.
+test("setTitle survives every $-sequence a trading name can carry", () => {
+  const page = "<html><head><title>Old</title><meta name=x></head><body>tail</body></html>";
+  for (const t of ["Win $$$ prizes", "Mo$'s Cuts", "A $& B", "$` before"]) {
+    const out = setTitle(page, t);
+    const tags = out.match(/<title>/g) || [];
+    assert.equal(tags.length, 1, JSON.stringify(t) + " produced " + tags.length + " title tags");
+    const got = (out.match(/<title>([^<]*)<\/title>/) || [])[1] || "";
+    // Unescape the entities the escaper legitimately makes, then demand the
+    // dollars survived byte-for-byte.
+    const back = got.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+    assert.equal(back, t, JSON.stringify(t) + " came out as " + JSON.stringify(got));
+    assert.ok(!out.includes("Old"), "the old title leaked back into the page for " + JSON.stringify(t));
+  }
 });

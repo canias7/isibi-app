@@ -26,10 +26,14 @@
  *   lookupProject(slug)         → proj | null      does this SITE already have a Neon project
  *   createProject(slug)         → {projectId, branchId, roleName, conn}
  *   dropProject(projectId)      → void             cleanup for a project we failed to record
- *   saveProject(slug, uid, proj)→ {ok}             write the site_project row
+ *   saveProject(slug, uid, proj)→ {ok, claimed?}   ATOMIC insert of the site_project row —
+ *                                                  claimed:false = the slug's row already existed
+ *                                                  (another racer got there first); absent = the
+ *                                                  dep cannot tell, treated as claimed
  *   enableAuth(proj, dbName)    → void             turn Neon Auth on; idempotent
  *   createDatabase(proj, slug)  → dbName
- *   saveBackend(slug, uid, db)  → {ok}             write the site_backends row
+ *   saveBackend(slug, uid, db)  → {ok, claimed?}   ATOMIC insert of the site_backends row —
+ *                                                  same contract as saveProject
  *   connFor(projectConn, dbName)→ conn
  *   dbNameFor(slug)             → dbName
  */
@@ -87,6 +91,31 @@ export async function ensureSiteBackend(deps, { slug, uid }) {
         detail: String((saved && saved.detail) || (saved && saved.error && saved.error.message) || "").slice(0, 300),
         stage: "save_project",
       });
+    }
+    // LOST THE SLUG RACE — CONVERGE, DO NOT ORPHAN. `claimed === false` means
+    // the row already existed: another build of this same free name got its
+    // project recorded between our lookup and our write (2026-08-13 audit —
+    // both racers used to succeed via upsert, the second overwriting the
+    // first's connection row, so the winner's live site pointed at the loser's
+    // project and the loser's project billed forever with no teardown entry).
+    // The losing racer destroys its own just-created project and CONTINUES on
+    // the winner's — the database create below is idempotent ("already
+    // exists" is the one recoverable error) and every later step is too.
+    // Strictly `=== false`: an older dep that cannot tell reports nothing and
+    // behaves exactly as before.
+    //
+    // A retried build after a crash can NEVER land here on its own stale row:
+    // `lookupProject` runs before `createProject`, so its own earlier row is
+    // found and reused — losing the claim always means a LIVE competitor.
+    if (saved.claimed === false) {
+      try { await deps.dropProject(made.projectId); } catch { /* best effort; logged by the caller */ }
+      proj = await deps.lookupProject(slug);
+      if (!proj) {
+        throw Object.assign(new Error("could not record the Neon project"), {
+          detail: "lost the slug race and the winner's project could not be read back",
+          stage: "save_project",
+        });
+      }
     }
     mark("project");
   }
@@ -182,6 +211,18 @@ export async function ensureSiteBackend(deps, { slug, uid }) {
       detail: String((backend && backend.detail) || (backend && backend.error && backend.error.message) || "").slice(0, 300),
       stage: "save_backend",
     });
+  }
+  // THE SLUG BELONGS TO WHOEVER RECORDED IT FIRST — enforced here, not merely
+  // stated. Under the old upsert, two racers both "succeeded" and the LAST
+  // writer owned the slug, silently unseating a build that had already
+  // reported success. `claimed === false` means another build recorded this
+  // slug while ours was provisioning; the honest answer is the same 409 the
+  // route already gives a name that was taken before the build began — with a
+  // refund and the message naming the cause. Nothing is orphaned by refusing:
+  // the project is recorded in site_project (the claim above converged us onto
+  // one project), and the winner is building on it.
+  if (backend.claimed === false) {
+    throw Object.assign(new Error("that name is taken"), { stage: "save_backend", conflict: true });
   }
 
   mark("record");

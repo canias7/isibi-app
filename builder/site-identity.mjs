@@ -198,7 +198,10 @@ export function applyIdentity(html, { title, lang, icon } = {}) {
   let out = String(html == null ? "" : html);
 
   const t = String(title || "").trim().slice(0, 70);
-  if (t) out = out.replace(/<title>[\s\S]*?<\/title>/i, "<title>" + esc(t) + "</title>");
+  // Function replacer for the same reason as `setTitle` in site-meta.mjs: a
+  // brand containing `$$`/`$&`/`$'` is a replacement PATTERN to String.replace,
+  // and this is the customer's own trading name going into the tag.
+  if (t) out = out.replace(/<title>[\s\S]*?<\/title>/i, () => "<title>" + esc(t) + "</title>");
 
   const l = normalizeLang(lang);
   if (l) {
