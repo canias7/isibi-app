@@ -1718,3 +1718,111 @@ test("the name-taken 409 says so to the customer", () => {
   const hits = w.match(/error: "that name is taken", cost: 0, msg: "That site name is taken by another account/g) || [];
   assert.equal(hits.length, 2, "expected both 409s to carry the customer message, found " + hits.length);
 });
+
+// ── A PUBLISH MUST NOT DAMAGE A SITE THAT ALREADY WORKS ─────────────────────
+//
+// Salvage was written for FIRST builds, where the alternative to a stubbed page
+// is nothing at all. On a revise the alternative is the customer's old working
+// site: pre-salvage, a revise whose pages failed to compile deliberately left
+// the published site untouched, so "change the phone number in the header"
+// could not cost them anything. `livePages` is what puts that back.
+
+test("SALVAGE REFUSES A PAGE THE SITE IS ALREADY SERVING", () => {
+  const pages = [good(), good("menu.tsx")];
+  const p = salvagePlan('src/routes/menu.tsx(9,10): error TS2305: x', pages, ["menu.tsx"]);
+  assert.deepEqual(p.stub, [], "a live, working page would have been replaced with an apology");
+  assert.deepEqual(p.kept, ["menu.tsx"]);
+  assert.match(p.reason, /already serving/);
+});
+
+test("…and refuses WHOLESALE, never partially", () => {
+  // Stubbing the new page and leaving the live one broken publishes a site that
+  // is worse than either outcome: the change is half-landed AND a page they had
+  // is still failing. The caller's fallback — leave the published site exactly
+  // as it is — is the answer they had before salvage existed.
+  const pages = [good(), good("menu.tsx"), good("offers.tsx")];
+  const p = salvagePlan(
+    'src/routes/menu.tsx(9,10): error TS2305: x\nsrc/routes/offers.tsx(2,1): error TS1005: y',
+    pages, ["menu.tsx"]);
+  assert.deepEqual(p.stub, [], "a partial salvage published a half-landed change over a broken page");
+  assert.deepEqual(p.kept, ["menu.tsx"]);
+});
+
+test("a NEW page that fails is still stubbed, even on a site with live pages", () => {
+  // The rule is about what would be DESTROYED, not about build vs revise —
+  // otherwise the feature stops working for exactly the case it is best at:
+  // a page that was never on the site, where a placeholder beats losing the
+  // whole build.
+  const pages = [good(), good("menu.tsx"), good("offers.tsx")];
+  const p = salvagePlan('src/routes/offers.tsx(2,1): error TS1005: y', pages, ["index.tsx", "menu.tsx"]);
+  assert.deepEqual(p.stub, ["offers.tsx"]);
+  assert.deepEqual(p.kept, []);
+});
+
+test("a first build behaves EXACTLY as it did before this existed", () => {
+  // Every site published before `livePages` passes nothing, and so does every
+  // first build. Driven three ways, because the safe direction here is the one
+  // that silently disables the protection.
+  const pages = [good(), good("menu.tsx")];
+  const err = 'src/routes/menu.tsx(9,10): error TS2305: x';
+  for (const live of [undefined, null, [], new Set()]) {
+    const p = salvagePlan(err, pages, live);
+    assert.deepEqual(p.stub, ["menu.tsx"], "live=" + JSON.stringify(live) + " changed the answer");
+    assert.deepEqual(p.kept, []);
+  }
+});
+
+test("a Set is accepted as well as a list", () => {
+  const pages = [good(), good("menu.tsx")];
+  const p = salvagePlan('src/routes/menu.tsx(9,10): error TS2305: x', pages, new Set(["menu.tsx"]));
+  assert.deepEqual(p.kept, ["menu.tsx"], "the caller's natural shape was ignored");
+});
+
+test("a kit file still wins over a live page — it is the more useful diagnosis", () => {
+  // `foreign` means no amount of stubbing helps, which is a fact about US
+  // shipping something broken. Reporting "the page is live" instead would send
+  // the reader looking at the customer's site for a bug in our kit.
+  const pages = [good(), good("menu.tsx")];
+  const p = salvagePlan(
+    'src/components/ui/faq.tsx(3,1): error TS1005: x\nsrc/routes/menu.tsx(9,1): error TS2305: y',
+    pages, ["menu.tsx"]);
+  assert.deepEqual(p.foreign, ["src/components/ui/faq.tsx"]);
+  assert.deepEqual(p.kept, []);
+});
+
+test("livePages reaches salvagePlan, and a live page's failure leaves the site alone", async () => {
+  // AT THE DEP BOUNDARY, because the module can be perfectly right about the
+  // rule while nothing hands it the fact — which is how twelve features in this
+  // repo shipped dead.
+  const { deps, calls } = harness({
+    generate: async () => gen([good(), good("menu.tsx")]),
+    compile: async () => ({ ok: false, stage: "typecheck", error: "src/routes/menu.tsx(4,1): error TS2322: x" }),
+  });
+  const out = await publishPages(deps, { spec: SPEC, slug: "x", livePages: ["menu.tsx"] });
+  assert.equal(out.page, "placeholder", "a live page was replaced with the stub");
+  assert.equal(calls.compile.length, 1, "a refused salvage must not buy a container run");
+  assert.equal(calls.publish.length, 0, "the published site must be left exactly as it was");
+  assert.deepEqual(out.salvage.kept, ["menu.tsx"]);
+  assert.equal(out.salvaged, undefined);
+});
+
+test("THE SALVAGE RECOMPILE IS RETRIED WHEN THE CONTAINER IS DRAINED", async () => {
+  // The second compile was a bare `compile`, so a container drained mid-recompile
+  // — the exact race the retry wrapper was built for, measured live twice —
+  // silently downgraded a salvageable site to the data-model placeholder for a
+  // reason that had nothing to do with the customer's pages.
+  let n = 0;
+  const { deps, calls } = harness({
+    generate: async () => gen([good(), good("menu.tsx")]),
+    compile: async (pages) => {
+      n++;
+      if (n === 1) return { ok: false, stage: "typecheck", error: "src/routes/menu.tsx(4,1): error TS2322: x" };
+      if (n === 2) return { ok: false, stage: "build", error: "vite build was killed by SIGTERM (no output)" };
+      return { ok: true, files: { "index.html": { t: "<ok>" } } };
+    },
+  });
+  const out = await publishPages(deps, { spec: SPEC, slug: "x" });
+  assert.equal(out.page, "app", "a drained recompile lost a site that was salvageable");
+  assert.deepEqual(out.salvaged, ["menu.tsx"]);
+  assert.equal(calls.compile.length, 3, "the recompile was not retried");
+});

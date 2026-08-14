@@ -140,8 +140,14 @@ export async function listVersions(deps, { slug } = {}) {
  *
  * SAME WRITE-THEN-SWEEP AS A PUBLISH, and for the same reason: copy every file
  * of the version in first, then remove what the live prefix has that the version
- * does not. `index.html` is copied LAST so a visitor never sees a pointer to a
- * bundle that is not fully there yet.
+ * does not. EVERY DOCUMENT is copied LAST — not just `index.html` — so a visitor
+ * never sees a pointer to a bundle that is not fully there yet.
+ *
+ * It was `index.html` alone, which was the whole truth exactly while a site was
+ * one HTML file plus a bundle. Each route is prerendered to its own document
+ * now, and those have stable names, so `book.html` copied before the assets it
+ * names is a blank page at a public URL for the length of the restore. Same
+ * one-file sort, same fix, as the publish path this mirrors.
  */
 export async function rollbackVersion(deps, { slug, id } = {}) {
   if (!isVersionId(id)) return { ok: false, error: "no such version", status: 404 };
@@ -152,7 +158,7 @@ export async function rollbackVersion(deps, { slug, id } = {}) {
   if (!names.length) return { ok: false, error: "no such version", status: 404 };
 
   const ordered = names.slice().sort((a, b) =>
-    (/^index\.html$/i.test(a) ? 1 : 0) - (/^index\.html$/i.test(b) ? 1 : 0));
+    (/\.html$/i.test(a) ? 1 : 0) - (/\.html$/i.test(b) ? 1 : 0));
   for (const rel of ordered) await deps.copy(src + rel, P_SITE(slug) + rel);
 
   const keep = new Set(names);

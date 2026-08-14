@@ -778,3 +778,73 @@ test("a failed build's own diagnosis reaches the screen", () => {
   assert.match(css, /\.st-why \{[^}]*monospace/, ".st-why is not monospace — source lines lose their shape");
   assert.match(css, /\.st-note \{[^}]*white-space: pre-line/, ".st-note runs its separate notes together again");
 });
+
+// ── A PUBLISH MUST NOT DAMAGE A SITE THAT ALREADY WORKS ─────────────────────
+
+test("the Worker tells publishPages which pages the site is already serving", () => {
+  // `salvagePlan` can be perfectly right about "never stub a page that works"
+  // while nothing hands it the fact — the wiring layer, for the thirteenth
+  // recorded time. Both ends: the value is DERIVED from the prior source, and
+  // it is PASSED.
+  const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(src, /const livePages = \(Array\.isArray\(priorPages\) \? priorPages : \[\]\)/,
+    "livePages is no longer derived from the site's stored source");
+  assert.match(src, /\{ spec, slug, priorUsage, livePages \}/,
+    "livePages is computed and never handed to publishPages");
+  // It must be the PATHS. Handing over the page objects would make
+  // `published.has(bare)` false for every one of them, which reads exactly like
+  // a first build and silently switches the protection off.
+  const at = src.indexOf("const livePages =");
+  assert.match(src.slice(at, at + 220), /\.map\(\(p\) => p && p\.path\)/,
+    "livePages carries page objects rather than paths — every lookup would miss");
+});
+
+test("EVERY prerendered document is written after the assets it names", () => {
+  // This sorted `index.html` alone, which was the whole truth exactly while a
+  // site was one HTML file plus a bundle. Each route is prerendered to its own
+  // document now — stable names, written in readdir order — so `book.html` PUT
+  // before the hashed chunks it references is a blank page at a public URL for
+  // the seconds of a republish.
+  const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const at = src.indexOf("const entries = Object.entries(dist || {})");
+  assert.ok(at > 0, "the publish ordering moved — rescope this");
+  const sortExpr = src.slice(at, src.indexOf(";", at));
+  assert.ok(!/\^index\\\.html\$/.test(sortExpr),
+    "only index.html is ordered last again — every other prerendered page can point at unwritten assets");
+
+  // DRIVEN, not only read: a sort that matches the right pattern and compares
+  // the wrong way round reads identically.
+  // eslint-disable-next-line no-new-func
+  const cmp = new Function("return (" + /\.sort\((\(a, b\) => [^;]+)\)/.exec(sortExpr)[1] + ")")();
+  const order = ["index.html", "assets/app-abc.js", "book.html", "assets/x.css", "work.html"]
+    .map((n) => [n, {}]).sort(cmp).map(([n]) => n);
+  const firstHtml = order.findIndex((n) => /\.html$/.test(n));
+  const lastAsset = order.map((n) => /\.html$/.test(n)).lastIndexOf(false);
+  assert.ok(firstHtml > lastAsset,
+    "a document is written before an asset: " + JSON.stringify(order));
+});
+
+test("a restore orders its documents the same way", () => {
+  // Same one-file sort, same failure: a version's `book.html` copied in before
+  // the assets it names is a blank page for the length of the rollback.
+  const src = fs.readFileSync(new URL("../site-versions.mjs", import.meta.url), "utf8");
+  const at = src.indexOf("const ordered = names.slice().sort(");
+  assert.ok(at > 0, "the rollback ordering moved — rescope this");
+  assert.ok(!/\^index\\\.html\$/.test(src.slice(at, src.indexOf(";", at))),
+    "rollbackVersion orders only index.html last again");
+});
+
+test("why salvage could not rescue a build reaches the caller", () => {
+  // `salvagePlan` has always computed this and the module has always returned
+  // it, and NOTHING forwarded it — while a comment in that file claimed the eval
+  // read `foreign`, and the eval never calls publishPages at all. So the signal
+  // designed to catch "we shipped a broken kit component" died in the return.
+  const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(src, /salvage: \(pages\.salvage && pages\.salvage\.reason\) \? pages\.salvage : undefined,/,
+    "the salvage plan is computed and dropped at the route");
+  // And the comment that was false is gone: a claim about a consumer that does
+  // not exist is what gets believed next time somebody edits the line.
+  const pub = fs.readFileSync(new URL("../builder/publish-pages.mjs", import.meta.url), "utf8");
+  assert.ok(!/because the eval reads\s*\n?\s*\*?\s*it/.test(pub),
+    "the false claim that the eval reads `foreign` is back");
+});

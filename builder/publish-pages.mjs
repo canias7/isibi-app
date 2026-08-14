@@ -393,28 +393,59 @@ function Unfinished() {
  *     no amount of stubbing pages will fix it.
  *   - NOTHING NAMED means the compiler failed somewhere with no file citation,
  *     which is not a page problem either.
+ *   - A PAGE THAT ALREADY WORKS is not one to replace with an apology. See
+ *     `live` below: this is the refusal that keeps salvage from being a
+ *     regression on every site that already exists.
  *
- * `foreign` is returned rather than folded into `reason`, because the eval reads
- * it: a kit file turning up in these is us shipping something broken, and it
- * should be findable without re-running a build.
+ * `live` IS WHAT THE SITE IS SERVING RIGHT NOW, and without it this feature was
+ * only ever right about first builds. The framing — "their site with one page
+ * reading 'this page isn't finished yet', instead of nothing" — is true when the
+ * alternative is nothing. On a REVISE the alternative is their old working site:
+ * pre-salvage, a revise whose pages failed to compile deliberately left the
+ * published site untouched, so "change the phone number in the header" could not
+ * cost them anything. With salvage and no `live`, one page failing to compile
+ * publishes a stub OVER a live, working menu — the customer asked for a phone
+ * number and lost a page. Recoverable by asking again or restoring a version,
+ * and still not a trade anybody chose.
+ *
+ * A NEW page that fails is still stubbed, which is the whole value: it was never
+ * on the site, so a placeholder is strictly better than the whole build falling
+ * back. The rule is therefore about what would be DESTROYED, not about build vs
+ * revise — a first build passes an empty `live` and behaves exactly as before.
+ *
+ * `foreign` is returned rather than folded into `reason` because a kit file
+ * turning up here is US shipping something broken — `fallbackSeed`, `require()`
+ * and `FaqAccordion` all really happened — and that has to be findable without
+ * re-running a build. It is carried out on the response for that reason; the
+ * comment here used to claim the eval read it, and nothing did.
  */
-export function salvagePlan(error, pages) {
+export function salvagePlan(error, pages, live) {
   const known = new Set((pages || []).map((p) => p.path));
+  const published = live instanceof Set ? live : new Set(Array.isArray(live) ? live : []);
   const stub = new Set();
   const foreign = new Set();
+  const kept = new Set();
   for (const m of String(error || "").matchAll(/((?:[\w.$-]+\/)*[\w.$-]+\.tsx?)\((\d+),(\d+)\)/g)) {
     const cited = m[1];
     const bare = cited.replace(/^(?:src\/)?routes\//, "");
     // A path is OURS only when stripping the routes prefix lands on a page this
     // build actually wrote. `src/components/ui/faq.tsx` never will, which is what
     // separates a page mistake from a kit one.
-    if (known.has(bare)) stub.add(bare);
-    else foreign.add(cited);
+    if (!known.has(bare)) { foreign.add(cited); continue; }
+    if (published.has(bare)) kept.add(bare); else stub.add(bare);
   }
-  if (foreign.size) return { stub: [], foreign: [...foreign], reason: "the error is in a file the build didn't write" };
-  if (!stub.size) return { stub: [], foreign: [], reason: "the error names no page" };
-  if (stub.has("index.tsx")) return { stub: [], foreign: [], reason: "the home page is the one that failed" };
-  return { stub: [...stub].sort(), foreign: [], reason: "" };
+  if (foreign.size) return { stub: [], foreign: [...foreign], kept: [], reason: "the error is in a file the build didn't write" };
+  if (kept.size) {
+    // REFUSED WHOLESALE, not partially. Stubbing the new pages and leaving the
+    // working one broken publishes a site that is worse than either outcome: the
+    // customer's change is half-landed and a page they had is still failing. The
+    // caller's fallback — leave the published site exactly as it is — is the
+    // answer they had before salvage existed, and it is the safe one.
+    return { stub: [], foreign: [], kept: [...kept].sort(), reason: "the page that failed is one the site is already serving" };
+  }
+  if (!stub.size) return { stub: [], foreign: [], kept: [], reason: "the error names no page" };
+  if (stub.has("index.tsx")) return { stub: [], foreign: [], kept: [], reason: "the home page is the one that failed" };
+  return { stub: [...stub].sort(), foreign: [], kept: [], reason: "" };
 }
 
 /**
@@ -479,6 +510,12 @@ export function salvageNote(stubbed) {
  *                     the real thing, and that is how this shipped charging
  *                     nothing while reporting `charged: true`.
  *
+ * `livePages` is what this slug is SERVING right now — the paths of the pages a
+ * visitor can load today, empty on a first build. It exists for exactly one
+ * decision, in `salvagePlan`: a page that already works is never replaced with
+ * an apology, because the alternative on a revise is the customer's old working
+ * site rather than nothing.
+ *
  * `priorUsage` is what an EARLIER model call in this same build already spent —
  * today that is the web-research step, which runs before page generation. It is
  * carried here rather than billed where it happens so that it obeys the same
@@ -487,7 +524,7 @@ export function salvageNote(stubbed) {
  * mean a build that searched the web and then failed to publish took credits for
  * nothing, which is precisely the outcome this function was rewritten to stop.
  */
-export async function publishPages(deps, { spec, slug, priorUsage } = {}) {
+export async function publishPages(deps, { spec, slug, priorUsage, livePages } = {}) {
   const out = { page: "placeholder", files: [], notes: "", problems: [], cost: 0, buildMs: 0 };
 
   // Fails CLOSED: if the ledger cannot be read we do not generate. A caller who
@@ -877,8 +914,8 @@ export async function publishPages(deps, { spec, slug, priorUsage } = {}) {
    * whose site publishes has been served better than one whose site did not.
    */
   if (!built.ok && built.stage === "typecheck") {
-    const plan = salvagePlan(built.error, pages);
-    out.salvage = { stubbed: plan.stub, foreign: plan.foreign, reason: plan.reason };
+    const plan = salvagePlan(built.error, pages, livePages);
+    out.salvage = { stubbed: plan.stub, foreign: plan.foreign, kept: plan.kept, reason: plan.reason };
     if (plan.stub.length) {
       // THE FIRST FAILURE IS WHAT GETS DIAGNOSED, not the second. A salvaged build
       // returns `ok`, so without keeping these the error that actually happened is
@@ -889,7 +926,13 @@ export async function publishPages(deps, { spec, slug, priorUsage } = {}) {
       out.cited = citedLines(built.error, pages);
       const bad = new Set(plan.stub);
       const patched = pages.map((p) => (bad.has(p.path) ? { ...p, source: stubPage(p.path) } : p));
-      const second = await compile(patched);
+      // THE RETRY WRAPPER, not the bare compile. A container drained mid-build
+      // is the exact race `compileWithRetry` exists for — measured live twice —
+      // and this call had no second attempt, so unlucky rollout timing turned a
+      // salvageable site into the data-model placeholder for a reason that had
+      // nothing to do with the customer's pages. The money is unaffected either
+      // way; what was lost was the outcome.
+      const second = await compileWithRetry(patched);
       out.builds = (out.builds || 0) + 1;
       if (second.ok) {
         built = second;

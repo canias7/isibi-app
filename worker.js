@@ -5962,10 +5962,22 @@ async function writeSiteDistToR2(env, slug, dist, meta, pages) {
       }
     } catch (e) { console.error("seo manifest failed:", slug, e && e.message); }
   }
-  // index.html last: it names the new bundle, so nothing may see it until the
-  // bundle it points at is fully written.
+  // EVERY DOCUMENT LAST, not just index.html. A page names the new hashed
+  // bundle, so nothing may see it until the bundle it points at is fully
+  // written — and this sorted only `index.html`, which was the whole truth
+  // exactly while a site was one HTML file plus a bundle.
+  //
+  // Since each route is prerendered to its own document, `book.html` has a
+  // STABLE name and is written in `collectDist`'s readdir order, which does not
+  // promise to put `assets/` first. So a visitor deep-linking to /book during
+  // the seconds of a republish could get HTML whose module script 404s: a blank
+  // page on a public URL, and the exact failure the write-then-sweep ordering
+  // was introduced to end — reopened one file type down by the prerender.
+  //
+  // The docstring's "atomic from a visitor's side" was therefore true of the
+  // home page and of nothing else.
   const entries = Object.entries(dist || {})
-    .sort((a, b) => (/^index\.html$/i.test(a[0]) ? 1 : 0) - (/^index\.html$/i.test(b[0]) ? 1 : 0));
+    .sort((a, b) => (/\.html$/i.test(a[0]) ? 1 : 0) - (/\.html$/i.test(b[0]) ? 1 : 0));
   for (const [rel, v] of entries) {
     // The head belongs to the built dist, which the model never sees, so the
     // share tags go in here. Only ever a no-op on anything unexpected — a site
@@ -6327,6 +6339,13 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
   // `budgetFor` asks the honest question instead, off the prior pages that are
   // already loaded here.
   const imgBudget = budgetFor(family, { revise, priorPages, slug });
+  // WHAT THE SITE IS SERVING RIGHT NOW, for the one decision in `salvagePlan`:
+  // a page that already works is never replaced with the "not finished yet"
+  // stub. `priorPages` is the stored source of the LAST successful publish and
+  // is already loaded here for the image budget and for the edit prompt, so
+  // this costs no read; a first build has none and behaves exactly as before.
+  const livePages = (Array.isArray(priorPages) ? priorPages : [])
+    .map((p) => p && p.path).filter((x) => typeof x === "string");
   const out = await publishPages({
     // Throws on failure, and the route logs it. There is no second attempt to
     // swallow one, so nothing needs logging here.
@@ -6452,7 +6471,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
     // What the web-research step already spent, so it is billed by the same rule
     // as generation: charged when a real app publishes, free when the customer
     // ends up with the placeholder.
-  }, { spec, slug, priorUsage });
+  }, { spec, slug, priorUsage, livePages });
   if (out.page !== "app" && out.error) console.error("site page build failed:", slug, out.stage, out.error);
   return out;
 }
@@ -10565,6 +10584,21 @@ async function handleRequest(request, env, ctx) {
         // be diagnosed by guessing what the model wrote at that line. A whole
         // round went on inferring one TS2344 from its file and column.
         cited: ((pages.page === "app" && !pages.salvageNote) || !(pages.cited && pages.cited.length)) ? undefined : pages.cited,
+        // WHY SALVAGE DID NOT HAPPEN — the three refusals, out where somebody
+        // can read them. `salvagePlan` has always computed this and the module
+        // has always returned it, and NOTHING forwarded it: a comment in that
+        // file claimed the eval read `foreign`, and the eval never calls
+        // publishPages at all (2026-08-13 audit). So the signal designed to
+        // catch "we shipped a broken kit component" — `fallbackSeed`,
+        // `require()`, `FaqAccordion`, all of which really happened — died in
+        // the module return.
+        //
+        // Carried only when it explains something: a build that salvaged
+        // cleanly says so through `salvaged`/`salvageNote` already, and a
+        // build that never reached the typecheck has no plan to report. So the
+        // ordinary response is unchanged and the field's presence means the
+        // compile failed and here is why nothing could be rescued.
+        salvage: (pages.salvage && pages.salvage.reason) ? pages.salvage : undefined,
         cost: schemaCost + pages.cost, buildMs: pages.buildMs || undefined,
         // WHAT THE BUILD ACTUALLY DID, step by step, with the time each took.
         //
