@@ -685,7 +685,10 @@ test("worker.js injects into every html page and nothing else", async () => {
     "the injection must be gated on the extension — never applied to a bundle");
   assert.ok(!/if \(\/\^index\\\.html\$\/i\.test\(String\(rel\)\).*injectMeta/s.test(src.slice(0, src.indexOf("SITES_BUCKET.put"))),
     "injection is gated on index.html again — every other page loses its slug tag");
-  assert.match(src, /injectMeta\(v\.t, pm\)/);
+  // pm-DERIVED meta, whatever else rides along — the home page additionally
+  // carries the seo manifest (site-seo.mjs), and the guard's concern is only
+  // that the raw `meta` never reaches injectMeta unprocessed.
+  assert.match(src, /v\.t = injectMeta\(v\.t, [^;]*\bpm\b[^;]*\);/);
   // The home page keeps the designer's site-level description; the rest derive
   // their own from what they rendered, and get their own <title> with it.
   assert.match(src, /pageMeta\(v\.t, meta, \{ home \}\)/, "per-page meta is not derived");

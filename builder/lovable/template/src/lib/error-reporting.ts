@@ -11,8 +11,18 @@
 // to report the error itself, which is why reportAppError is called from there rather than relied on
 // being picked up globally.
 
+import { siteSlug } from "./rows";
+
 const CAUSE_DEPTH_LIMIT = 5;
 const DESCRIPTION_LENGTH_LIMIT = 8_000;
+/**
+ * At most this many reports leave one page load. A render loop throws the same
+ * error hundreds of times a second; the first few say everything the owner can
+ * act on, and the rest are a flood aimed at our own endpoint. The server rate
+ * limit exists too — this is the polite half.
+ */
+const MAX_REPORTS_PER_LOAD = 5;
+let sentReports = 0;
 
 declare global {
   interface Window {
@@ -67,9 +77,32 @@ function messageFor(error: unknown): string {
   return String(error);
 }
 
-/** The current route, hash history included — `#/book` is the part that identifies the page. */
-const currentRoute = () =>
-  typeof window === "undefined" ? "" : window.location.hash.slice(1) || window.location.pathname;
+/**
+ * WHICH PAGE BROKE — the path, and only then the fragment.
+ *
+ * This preferred `location.hash` and its comment said "`#/book` is the part that
+ * identifies the page". True under `createHashHistory()`; the router moved to
+ * browser history on 2026-08-09 and the hash stopped being a route. It is an
+ * ordinary in-page anchor now — PAGE_RULES blesses `#prices`, the lint exempts
+ * it, and the reference page puts three of them in the SITE HEADER, so they are
+ * on every page of a reference-shaped site.
+ *
+ * Harmless while this value only reached the console. Round 7 made it the ONE
+ * field telling the owner where their site broke, and persists it — so a
+ * visitor who had clicked "Prices" and then hit a throw was reported as
+ * `route: "prices"`, a section anchor that is not a page, looking plausible
+ * enough that nobody could tell it was wrong.
+ *
+ * The mount prefix is stripped, or the same fault reads `/book` on the
+ * customer's domain and `/s/<slug>/book` in the workspace. The fragment is kept
+ * as a SUFFIX: which section they were on is real information, it just is not
+ * the page.
+ */
+const currentRoute = () => {
+  if (typeof window === "undefined") return "";
+  const path = window.location.pathname.replace(/^\/s\/[a-z0-9][a-z0-9-]*/i, "") || "/";
+  return path + (window.location.hash || "");
+};
 
 export function reportAppError(error: unknown, source: ErrorReport["source"] = "error_boundary") {
   if (typeof window === "undefined") return;
@@ -93,6 +126,32 @@ export function reportAppError(error: unknown, source: ErrorReport["source"] = "
     window.parent?.postMessage({ type: "isibi:runtime-error", report }, "*");
   } catch {
     /* cross-origin */
+  }
+  // AND THE PLATFORM, which is the half that was missing (2026-08-14 audit): on a
+  // published site the report used to go to the visitor's console and die, so the
+  // owner learned their booking form was broken only when customers stopped
+  // coming. Same-origin POST — the slug comes from where the page is served, the
+  // way every data call already finds its API — fire-and-forget with `keepalive`
+  // so a report survives the navigation the error often causes. Clipped here as
+  // well as server-side, because an 8KB stack is the payload and not the point.
+  try {
+    const slug = siteSlug();
+    if (slug && slug !== "preview" && sentReports < MAX_REPORTS_PER_LOAD) {
+      sentReports++;
+      void fetch(`/api/db/${slug}/error`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        keepalive: true,
+        body: JSON.stringify({
+          message: report.message.slice(0, 300),
+          stack: report.stack?.slice(0, 2000),
+          route: report.route.slice(0, 200),
+          source: report.source,
+        }),
+      }).catch(() => {});
+    }
+  } catch {
+    /* reporting must never throw */
   }
 }
 

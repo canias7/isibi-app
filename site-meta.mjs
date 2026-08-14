@@ -31,7 +31,7 @@ export function metaTags(meta) {
   // `= {}` only defaults `undefined`, not `null` — and a caller with nothing to
   // say passes null far more naturally than it omits the argument. Destructuring
   // it directly threw.
-  const { brand, description, url, image, slug } = meta || {};
+  const { brand, description, url, image, slug, routesCsv, redirectsCsv } = meta || {};
   const title = String(brand || "").trim().slice(0, MAX_TITLE);
   // Collapse whitespace: a description written across lines becomes one line in
   // a preview anyway, and a raw newline inside an attribute is a broken tag.
@@ -53,6 +53,14 @@ export function metaTags(meta) {
   // then address a DIFFERENT site's API. Injected here because this is the one
   // place that rewrites the built head, which the model never sees.
   if (site) t.push(`<meta name="site-slug" content="${esc(site)}">`);
+  // THE SITE'S OWN MANIFEST — the route list and the redirect map, read back by
+  // the Worker's SPA fallback (site-seo.mjs composes and parses both). They ride
+  // in this fenced block so a republish REPLACES them: a manifest that stacked
+  // would keep answering for routes deleted two publishes ago. Home page only —
+  // the fallback reads index.html and nothing else — pre-encoded by the caller
+  // because this module is a leaf and stays one.
+  if (typeof routesCsv === "string" && routesCsv) t.push(`<meta name="site-routes" content="${esc(routesCsv)}">`);
+  if (typeof redirectsCsv === "string" && redirectsCsv) t.push(`<meta name="site-redirects" content="${esc(redirectsCsv)}">`);
   if (desc) t.push(`<meta name="description" content="${esc(desc)}">`);
   if (title) t.push(`<meta property="og:title" content="${esc(title)}">`);
   if (desc) t.push(`<meta property="og:description" content="${esc(desc)}">`);

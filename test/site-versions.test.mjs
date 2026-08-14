@@ -582,7 +582,12 @@ test("an extensionless path falls back to the app shell, and an asset never does
   assert.match(block.slice(0, 60), /rest !== ""/, "the root's own miss falls back to itself");
 
   // And the traffic log gets the REAL path, which is the whole reason per-page
-  // analytics were impossible rather than merely unbuilt.
-  assert.match(w.slice(miss, miss + 500), /logSiteHit\(env, ctx, slug, "\/" \+ rest, request\)/,
+  // analytics were impossible rather than merely unbuilt. The window runs to a
+  // LANDMARK (the response body assembly), not a byte count — the comment above
+  // the log line grew once and a fixed 500 stopped covering the thing this
+  // asserts (the repo's own recurring window bug).
+  const servedAt = w.indexOf("let served = obj.body", miss);
+  assert.ok(servedAt > miss, "the response assembly moved — the log window has no end");
+  assert.match(w.slice(miss, servedAt), /logSiteHit\(env, ctx, slug, "\/" \+ rest, request\)/,
     "the hit log stopped recording the path it was served");
 });

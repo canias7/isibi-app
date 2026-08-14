@@ -30,6 +30,8 @@ import { handleOwnerExport } from "./site-export.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
 import { makeTrace } from "./builder/trace.mjs";
 import { injectMeta, pageMeta, setTitle } from "./site-meta.mjs";
+import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, mergeRedirects, decideFallback } from "./site-seo.mjs";
+import { readJsonBody } from "./request-limits.mjs";
 import { listSecrets, addSecret, deleteSecret, readSecret } from "./site-secrets.mjs";
 import { normalizePayment, parseCart, priceCart, checkoutSessionArgs, formEncode, paidFromEvent } from "./site-payments.mjs";
 import { rescopeCookie } from "./site-cookie.mjs";
@@ -3970,8 +3972,16 @@ async function siteReadUrl(url) {
  * Never throws. Research is an enhancement to a build that can succeed without
  * it, and the lesson this codebase keeps relearning is that losing the whole
  * thing over one optional step is the more expensive failure.
+ *
+ * EXPORTED so a test can actually RUN it (2026-08-14 audit): this was the one
+ * paid executor in the build no test had ever driven — the pause_turn
+ * continuation, the source dedup and the usage accumulation the bill depends on
+ * were all asserted by nothing, and its designed failure mode is silence, so a
+ * provider changing the response shape would ship undetected. The tests stub
+ * `globalThis.fetch`; nothing else about the function changed to make it
+ * drivable.
  */
-async function siteWebResearch(env, brief, queries) {
+export async function siteWebResearch(env, brief, queries) {
   const empty = { facts: "", sources: [], usage: null, searches: 0 };
   const qs = normalizeQueries(queries);
   if (!qs.length || !env.ANTHROPIC_API_KEY) return empty;
@@ -4000,7 +4010,52 @@ async function siteWebResearch(env, brief, queries) {
 
   // The server-side search loop can pause mid-run (stop_reason "pause_turn");
   // the continuation is the assistant turn resent unchanged.
+  //
+  // THE SEARCH BUDGET IS PER BUILD, NOT PER REQUEST. `max_uses` bounds one API
+  // request, and this loop makes up to four — so a flat `MAX_QUERIES + 1` on
+  // every round re-granted the allowance each time a paused turn continued, and
+  // one research call could legitimately run ~16 searches where everything
+  // customer-facing promises ~3 (2026-08-14 audit). Each round now asks for
+  // only what is LEFT of the build's budget, measured from the API's own count
+  // of searches already performed, and a paused turn with nothing left is not
+  // continued at all.
+  const searchBudget = MAX_QUERIES + 1;
+  // ONE ROUND OF OVERTIME once the budget is spent, and it is not slack.
+  //
+  // `pause_turn` means the server-side tool loop was cut MID-TURN, and the model
+  // writes its factual brief AFTER it has finished searching — so "paused with
+  // the budget spent" is precisely the round that was about to produce the
+  // answer. Breaking there spends every search and returns `facts: ""`: the
+  // build pays for the lookup, page generation gets nothing, and the customer
+  // is told "Looked up current details on the web" over a site written from
+  // training data. That is worse than the overspend it was meant to prevent.
+  //
+  // So the loop continues once more and then stops, which bounds a build at
+  // `searchBudget` + the one-search floor below rather than at the 16 a flat
+  // per-request cap allowed. The tool stays in the request on that last round
+  // rather than being omitted: the conversation already carries
+  // `web_search_tool_result` blocks, and whether the API accepts a continuation
+  // that drops their tool definition is untested here — losing the answer
+  // outright is a worse failure than one more search.
+  //
+  // AND THE CAP DOES NOT RELY ON THE PROVIDER'S OWN COUNT, because the bill
+  // already does. `usage.searches` comes from `server_tool_use`, and if that
+  // field is ever renamed or dropped the two failures COMPOUND rather than one
+  // catching the other: the grant below never shrinks (4 rounds × a full
+  // allowance = 16 searches of real spend) and `pageCost` multiplies
+  // SEARCH_USD by the same zeroed count, so we pay for them and charge nothing.
+  // `granted` is our own tally of what we ASKED for, and the budget is measured
+  // against whichever number is higher — so a silent provider is assumed to
+  // have spent what it was allowed, which is the conservative direction.
+  // `reported` goes false the moment a round comes back without the field —
+  // which is the honest discriminator, because an ABSENT count and a genuine
+  // zero are the same value after the `|| 0` below. While the provider reports,
+  // its number is the accurate one and is used; the tally is the fallback, not
+  // a second opinion.
+  let granted = 0, reported = true;
+  let overtime = false;
   for (let round = 0; round < 4; round++) {
+    const spent = reported ? usage.searches : Math.max(usage.searches, granted);
     let r;
     try {
       r = await fetch("https://api.anthropic.com/v1/messages", {
@@ -4010,12 +4065,13 @@ async function siteWebResearch(env, brief, queries) {
           model: RESEARCH_MODEL,
           max_tokens: 1200,
           system,
-          tools: [{ type: "web_search_20250305", name: "web_search", max_uses: MAX_QUERIES + 1 }],
+          tools: [{ type: "web_search_20250305", name: "web_search", max_uses: Math.max(1, searchBudget - spent) }],
           messages: msgs,
         }),
         signal: AbortSignal.timeout(120000),
       });
     } catch { break; }
+    granted += Math.max(1, searchBudget - spent);
     if (!r.ok) break;
     const j = await r.json().catch(() => null);
     if (!j) break;
@@ -4027,6 +4083,15 @@ async function siteWebResearch(env, brief, queries) {
     // THE API'S OWN COUNT of searches actually performed. A search is $0.01 and
     // is invisible in the token numbers, so without this a searching build
     // under-reports its cost by more than the tokens came to.
+    // AND WHETHER IT WAS REPORTED AT ALL, which the coalesce below cannot say:
+    // an absent field and a genuine zero are the same number afterwards, and
+    // the cap above needs to tell them apart. Logged loudly rather than
+    // absorbed — a provider that stops reporting is spending our money and
+    // billing the customer nothing, and this is the line that names it.
+    if (!u.server_tool_use || typeof u.server_tool_use.web_search_requests !== "number") {
+      if (reported) console.error("web search count missing from usage — the cap is falling back to what we granted");
+      reported = false;
+    }
     usage.searches += (u.server_tool_use && u.server_tool_use.web_search_requests) || 0;
     const content = Array.isArray(j.content) ? j.content : [];
     for (const c of content) {
@@ -4039,7 +4104,16 @@ async function siteWebResearch(env, brief, queries) {
         }
       }
     }
-    if (j.stop_reason === "pause_turn") { msgs = msgs.concat([{ role: "assistant", content }]); continue; }
+    if (j.stop_reason === "pause_turn") {
+      // Already had the extra round — stop rather than paying for a third.
+      if (overtime) break;
+      // The SAME conservative figure the grant uses, or a provider that stops
+      // reporting never trips the overtime and the loop runs its full four
+      // rounds at a full allowance apiece.
+      if (Math.max(usage.searches, granted) >= searchBudget) overtime = true;
+      msgs = msgs.concat([{ role: "assistant", content }]);
+      continue;
+    }
     break;
   }
 
@@ -4436,6 +4510,10 @@ const CHECKOUT_PER_MIN = 6;
 // this is generous — the budget it protects is Neon compute, and RLS is what
 // protects the rows.
 const DATA_PROXY_PER_MIN = 300;
+// Error reports from a published page's own browser. Tight, because it is a
+// public endpoint that wakes the site's database: a render loop throws hundreds
+// of identical errors a second, and the first few say everything.
+const SITE_ERROR_PER_MIN = 6;
 
 // The signing key for claim tokens, from the site's own per-site secret in
 // `_meta`. It was shared with session tokens until 2026-07-30; sessions are Neon
@@ -5829,8 +5907,61 @@ function versionDeps(env) {
  * assets exist is what makes the switch atomic from a visitor's side. Then the
  * sweep removes whatever the new build does not use.
  */
-async function writeSiteDistToR2(env, slug, dist, meta) {
+async function writeSiteDistToR2(env, slug, dist, meta, pages) {
   const wrote = new Set();
+  // ── WHAT THIS PUBLISH TELLS A SEARCH ENGINE (site-seo.mjs) ────────────────
+  //
+  // The route list becomes three things at once: `sitemap.xml` + a `robots.txt`
+  // that declares it (both carrying SITE_ORIGIN_TOKEN — the serve path puts the
+  // real origin in, because the same bytes serve on three different hosts), and
+  // a manifest in index.html's head that lets the SPA fallback tell a real
+  // route from a junk address. The redirect map is derived by DIFFING against
+  // the PREVIOUS publish's manifest — read here, before anything is
+  // overwritten — so deleting a page automatically leaves a 301 where it was,
+  // with no lane anywhere having to remember to say so.
+  //
+  // Written into `dist` itself so the entries are swept-proof (`wrote` carries
+  // them), the version archive lists them, and a restore restores them.
+  // Best-effort to the bone: a site published without a sitemap is a far
+  // smaller problem than one not published.
+  let manifest = null;
+  if (meta && Array.isArray(pages) && pages.length && dist) {
+    try {
+      const man = siteRoutes(pages);
+      let prev = null;
+      // A READ THAT FAILED IS NOT A SITE WITH NO HISTORY, and conflating them
+      // converts every accumulated redirect into a hard 404 in one publish.
+      // `prev` stays null either way, so the redirect map comes out empty — but
+      // the ROUTE LIST is still written, and a manifest with routes and no
+      // redirects makes `decideFallback` answer `notfound` for exactly the old
+      // addresses that were 301ing a moment ago. Google drops them instead of
+      // consolidating them, and a customer following a link from last month
+      // gets the not-found page. So a throw suppresses the whole manifest and
+      // the site falls open to 200, the same rule every other unknown here
+      // takes. A missing object is different and safe: a site with no previous
+      // publish has no old addresses to protect.
+      let prevUnreadable = false;
+      try {
+        const po = await env.SITES_BUCKET.get("sites/" + slug + "/index.html");
+        if (po) prev = parseSiteManifest(await po.text());
+      } catch (e) {
+        prevUnreadable = true;
+        console.error("previous manifest unreadable:", slug, e && e.message);
+      }
+      const redirects = mergeRedirects(prev, man.routes);
+      manifest = prevUnreadable ? null : { routesCsv: routesContent(man), redirectsCsv: redirectsContent(redirects) };
+      // NO ROUTES MEANS NO SITEMAP, rather than an empty one. A site whose every
+      // page is a dynamic segment yields an empty list here, and publishing
+      // `<urlset></urlset>` with robots.txt pointing at it tells a crawler the
+      // site HAS no pages — a worse answer than staying quiet and letting it
+      // find them by following links. robots.txt goes with it, since its only
+      // added value over the template's own file is the Sitemap: line.
+      if (man.routes.length) {
+        dist["sitemap.xml"] = { t: sitemapXml(man.routes, new Date().toISOString().slice(0, 10)) };
+        dist["robots.txt"] = { t: robotsTxt() };
+      }
+    } catch (e) { console.error("seo manifest failed:", slug, e && e.message); }
+  }
   // index.html last: it names the new bundle, so nothing may see it until the
   // bundle it points at is fully written.
   const entries = Object.entries(dist || {})
@@ -5856,7 +5987,10 @@ async function writeSiteDistToR2(env, slug, dist, meta) {
       const home = /^index\.html$/i.test(String(rel));
       try {
         const pm = pageMeta(v.t, meta, { home });
-        v.t = injectMeta(v.t, pm);
+        // The manifest rides the HOME page only — index.html is the one file
+        // the SPA fallback reads, and a copy on every prerendered page would be
+        // bytes nothing ever parses.
+        v.t = injectMeta(v.t, home && manifest ? { ...pm, ...manifest } : pm);
         if (!home) v.t = setTitle(v.t, pm.brand);
       } catch (e) { console.error("meta inject failed:", slug, rel, e && e.message); }
     }
@@ -6114,7 +6248,7 @@ async function recompileAndPublish(env, { slug, pages, label }) {
     image: await siteOgImage(env, slug),
     url: siteUrlFor(slug, "https://" + APP_ZONE),
     slug,
-  });
+  }, pages);
   try {
     await archiveVersion(versionDeps(env), {
       slug,
@@ -6284,7 +6418,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
         // WHICH SITE THIS IS, so the bundle can address its own API from a custom
         // domain — where there is no `/s/<slug>/` in the path to read it from.
         slug,
-      });
+      }, pages);
       // ARCHIVE THE BUILD THAT JUST WENT LIVE, so it can be rolled back to.
       //
       // AFTER the publish and never allowed to fail it: the site is already up
@@ -6683,16 +6817,64 @@ async function handleRequest(request, env, ctx) {
         //
         // A site that does not exist still 404s: the fallback is the app shell,
         // so with no shell there is nothing to fall back TO.
+        let status = 200;
+        let shellText = null;
         if (!obj && !ext && rest !== "") {
           obj = await env.SITES_BUCKET.get("sites/" + slug + "/index.html");
-          if (obj) { ctype = "text/html; charset=utf-8"; immutable = false; }
+          if (obj) {
+            ctype = "text/html; charset=utf-8"; immutable = false;
+            // ── THE FALLBACK HAS AN OPINION NOW (site-seo.mjs) ──────────────
+            //
+            // It used to answer 200 with the shell for EVERY unknown address —
+            // a soft-404, so a crawler indexed junk paths as pages, and a
+            // deleted page's old link served the bare not-found text with a
+            // status saying it was fine. The shell's own head carries the
+            // site's route list and redirect map (written at publish, inside
+            // the isibi:meta fence), and the shell is being buffered here
+            // ANYWAY, so the verdict costs no extra read on any path:
+            //
+            //   redirect — the page moved or was deleted; 301 to where it went,
+            //              mount-prefixed like every other absolute path here.
+            //   notfound — the manifest knows the routes and this is not one:
+            //              serve the shell (the branded 404 renders) with HTTP
+            //              404 so search engines drop the address.
+            //   ok       — a real route, or NO manifest: every site published
+            //              before the manifest existed keeps today's 200, so
+            //              one deploy cannot change what an old site serves.
+            try {
+              shellText = await obj.text();
+              const verdict = decideFallback(parseSiteManifest(shellText), "/" + rest);
+              if (verdict.kind === "redirect") {
+                const mount = isAppHostname(url.hostname) ? "/s/" + slug : "";
+                // 301 WITH AN EXPLICIT LIFETIME, and the lifetime is the whole
+                // point. `Response.redirect` sends `location` and nothing else,
+                // and a 301 with no freshness is heuristically cached by
+                // browsers effectively forever — it survives a restart. That
+                // defeats this feature's own contract one file over, where
+                // `mergeRedirects` deliberately drops an entry whose source is
+                // a live route again *because "a re-added page must serve
+                // itself"*: dropping it from the manifest is necessary and not
+                // sufficient, since every browser that already followed the old
+                // 301 never asks us again. Ten minutes keeps the consolidation
+                // a 301 buys from a search engine (Google honours the status,
+                // not the cache header) while making a re-added page reachable
+                // to real visitors almost at once.
+                return new Response(null, {
+                  status: 301,
+                  headers: { location: url.origin + mount + verdict.to + url.search, "cache-control": "public, max-age=600" },
+                });
+              }
+              if (verdict.kind === "notfound") status = 404;
+            } catch (e) { console.error("fallback verdict failed:", slug, e && e.message); }
+          }
         }
         if (!obj) return new Response("Not found", { status: 404 });
         // The REAL path, which is the point: served through the fallback this is
         // `/book` rather than `/`, so per-page traffic becomes measurable for the
         // first time — the analytics panel needed no change, it was being fed one
-        // value forever.
-        if (request.method === "GET" && ctype.startsWith("text/html")) logSiteHit(env, ctx, slug, "/" + rest, request); // count real page views (not assets)
+        // value forever. A 404 is deliberately NOT a page view: junk addresses
+        // counted as traffic is the analytics half of the soft-404 bug.
+        if (request.method === "GET" && status === 200 && ctype.startsWith("text/html")) logSiteHit(env, ctx, slug, "/" + rest, request); // count real page views (not assets)
 
         // ── WHERE THE APP'S ASSETS REALLY ARE ────────────────────────────────
         //
@@ -6725,9 +6907,26 @@ async function handleRequest(request, env, ctx) {
           // script and stylesheet on every site on the new zone would 404.
           // Only the workspace serves a site under a path.
           const mountRoot = isAppHostname(url.hostname) ? "/s/" + slug + "/" : "/";
-          served = (await obj.text()).replace(/(\s(?:src|href))="\.\//g, '$1="' + mountRoot);
+          // The fallback branch buffered the shell already — a body reads once,
+          // so reusing it is correctness, not thrift.
+          served = (shellText !== null ? shellText : await obj.text()).replace(/(\s(?:src|href))="\.\//g, '$1="' + mountRoot);
+        } else if (rest === "robots.txt" || rest === "sitemap.xml") {
+          // ── THE ORIGIN GOES IN AT SERVE TIME (site-seo.mjs) ───────────────
+          //
+          // Both files are published carrying SITE_ORIGIN_TOKEN, because the
+          // same bytes serve at `<slug>.gofarther.app`, at
+          // `gofarther.dev/s/<slug>/` and on the owner's custom domain — a host
+          // baked at publish is wrong on two of the three, and on a custom
+          // domain it is OUR domain in the owner's sitemap, the exact leak the
+          // `.dev`/`.app` line exists to stop. Same mount logic as the `./`
+          // asset rewrite above, same reason it can only live in the Worker.
+          // NOT immutable: a republished sitemap must not be cached for a year.
+          const base = (isAppHostname(url.hostname) ? url.origin + "/s/" + slug : url.origin);
+          served = substituteOrigin(await obj.text(), base);
+          immutable = false;
         }
         return new Response(served, {
+          status,
           headers: {
             "content-type": ctype,
             "cache-control": immutable ? "public, max-age=31536000, immutable" : "public, max-age=60",
@@ -8926,6 +9125,98 @@ async function handleRequest(request, env, ctx) {
       }
     }
 
+    // A PUBLISHED PAGE TELLING US IT BROKE, so the owner can be told.
+    //
+    // The template has captured and packaged runtime errors since the preview
+    // shell existed, and on a live site they went to the visitor's console and
+    // died (2026-08-14 audit) — the owner learned their booking form was dead
+    // when customers stopped coming. This is the delivery half: the page POSTs
+    // the report same-origin, it lands in the site's own `_errors` table
+    // (created by every build beside `_secrets`, reachable by no Data API
+    // role), and the owner reads it in Cloud → Errors.
+    //
+    // ALWAYS 204, whatever happened. The sender is fire-and-forget telemetry —
+    // an error response would only produce a second console error about
+    // reporting the first — and a distinct status for "no such site" or "table
+    // missing" would let a stranger probe which slugs exist through an
+    // unauthenticated endpoint. The write itself rides `ctx.waitUntil` (the
+    // audit-log lesson: a detached promise nobody holds is cancelled with the
+    // request), so the visitor's tab never waits on Postgres.
+    if (url.pathname.startsWith("/api/db/") && url.pathname.endsWith("/error")) {
+      const erm = url.pathname.match(/^\/api\/db\/([a-z0-9][a-z0-9-]{0,80})\/error$/i);
+      if (erm) {
+        if (request.method !== "POST") return Response.json({ error: "method not allowed" }, { status: 405 });
+        const slug = erm[1].toLowerCase();
+        // Rate limit BEFORE any lookup, CF-Connecting-IP only — the
+        // X-Forwarded-For fallback is client-settable and would mint a fresh
+        // bucket per request. A limited caller still gets 204: dropping is the
+        // behaviour, not a negotiation.
+        const ehit = _dataLimiter.hit(
+          bucketKey({ ip: request.headers.get("CF-Connecting-IP") || "", slug, table: "err", method: "POST" }),
+          SITE_ERROR_PER_MIN,
+        );
+        if (!ehit.ok) return new Response(null, { status: 204 });
+        const eb = await readJsonBody(request, { max: 16 * 1024 });
+        const body = (eb && eb.ok && eb.body) || {};
+        // An allow-list of the reporter's own shape, clipped server-side even
+        // though the sender clips too — the sender is anyone with curl.
+        const msg = String(body.message || "").slice(0, 300).trim();
+        const src = ["error_boundary", "onerror", "unhandledrejection"].includes(body.source) ? body.source : "onerror";
+        const stack = typeof body.stack === "string" ? body.stack.slice(0, 2000) : null;
+        const route = String(body.route || "").slice(0, 200);
+        if (msg) {
+          ctx.waitUntil((async () => {
+            try {
+              const conn = await siteBackendBySlug(env, slug);
+              if (!conn) return;
+              const insert = () => sqlExec(conn,
+                "INSERT INTO _errors (at, message, stack, route, source) VALUES (to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS'), ?, ?, ?, ?)",
+                [msg, stack, route, src]);
+              try {
+                await insert();
+              } catch (e) {
+                // THE TABLE HEALS ITSELF ON FIRST USE, and without this the
+                // feature is dead on every site that already exists.
+                //
+                // `_errors` is created by `applySiteSchema`, which only the
+                // build, addon and rules lanes run — the cheap edit lanes
+                // (text, look, picture, logo, data) publish through
+                // `recompileAndPublish` and never apply a schema. So an owner
+                // who has only ever changed wording and colours never gets the
+                // table, every report throws `relation "_errors" does not
+                // exist` into this catch, and the panel tells them **"Nothing
+                // has gone wrong"** — the exact failure this feature exists to
+                // prevent, wearing a reassuring sentence. The `_sessions`
+                // lesson: a table must exist wherever the feature fires.
+                //
+                // Create-and-retry rather than create-first, so the ordinary
+                // path stays ONE statement and the extra round trip is paid
+                // only once per site, ever.
+                // THE SQLSTATE AS WELL AS THE WORDS. `42P01` is
+                // undefined_table and is the thing Postgres actually promises;
+                // the message is English and could be localised or reworded by
+                // a driver upgrade. Matching only the prose would leave the
+                // heal silently dead on every existing site — which is exactly
+                // the state this branch exists to end — and there is no live
+                // database here to find that out on.
+                const miss = /does not exist/i.test(String((e && e.message) || "")) || (e && e.code) === "42P01";
+                if (!miss) throw e;
+                await sqlExec(conn, "CREATE TABLE IF NOT EXISTS _errors (id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, at TEXT, message TEXT, stack TEXT, route TEXT, source TEXT)");
+                await insert();
+              }
+              // Prune on the WRITE, roughly one in twenty, for the audit-log
+              // reason: a table only trimmed when somebody opens the panel
+              // grows without bound on every site nobody looks at.
+              if (Math.random() < 0.05) {
+                await sqlExec(conn, "DELETE FROM _errors WHERE id NOT IN (SELECT id FROM _errors ORDER BY id DESC LIMIT 500)");
+              }
+            } catch (e) { console.error("site error store failed:", slug, e && e.message); }
+          })());
+        }
+        return new Response(null, { status: 204 });
+      }
+    }
+
     // THE ONE PART OF SPAM PROTECTION THAT IS MEANT TO BE PUBLIC.
     //
     // Turnstile's SITE key belongs in the page — that is how the widget is
@@ -9983,6 +10274,11 @@ async function handleRequest(request, env, ctx) {
         searches: (researched && researched.searches) || 0,
         skipped: attached.skipped,
         converted: attached.converted,
+        // A research promise EXISTED means the designer said the pages need
+        // current facts — so a zero-search outcome here is a failed lookup the
+        // customer must be told about, not an ordinary build that never needed
+        // one. The summary makes that distinction; without this flag it cannot.
+        searchWanted: !!researchPromise,
       });
 
       let pages = { page: "placeholder", files: [], notes: "", problems: [], cost: 0, buildMs: 0 };
@@ -10392,6 +10688,7 @@ async function handleRequest(request, env, ctx) {
       // day in the path is matched with the exact shape the backup key mints,
       // so nothing else can even reach the handler.
       const bk = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/backups(?:\/(\d{4}-\d{2}-\d{2}))?$/i);
+      const er = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/errors$/i);
       // EVERY owner-scoped matcher above has to appear here, and `dm2` did not —
       // so `/api/site/<slug>/domains` was dispatched by nothing and fell through
       // to the 404 at the bottom of the router. Custom domains were unreachable
@@ -10403,10 +10700,10 @@ async function handleRequest(request, env, ctx) {
       // so from outside the two are indistinguishable — which is how this
       // survived a live probe until the dispatch was read.
       // `test/api-auth.test.mjs` holds the list against the matchers now.
-      if (om || mm || an || uf || xp || nt || lv || sk || dm2 || vr || tx || ed || ad || jb || bk) {
+      if (om || mm || an || uf || xp || nt || lv || sk || dm2 || vr || tx || ed || ad || jb || bk || er) {
         const ou = await authUser(request);
         if (!ou) return UNAUTHED();
-        const ownerSlug = (om || mm || an || uf || xp || nt || lv || sk || dm2 || vr || tx || ed || ad || jb || bk)[1].toLowerCase();
+        const ownerSlug = (om || mm || an || uf || xp || nt || lv || sk || dm2 || vr || tx || ed || ad || jb || bk || er)[1].toLowerCase();
         const ownerDeps = {
           ownerOf: async (s2) => {
             const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(s2)}&select=uid`, { headers: svcHeaders(env), signal: AbortSignal.timeout(12000) });
@@ -11965,6 +12262,29 @@ async function handleRequest(request, env, ctx) {
             }
             const gotB = await env.SITES_BUCKET.list({ prefix: "backups/" + bslug + "/", limit: 100 });
             return Response.json({ backups: backupListing((gotB && gotB.objects) || []) });
+          } else if (er) {
+            // WHAT BROKE IN VISITORS' BROWSERS — the read half of the runtime
+            // error reports the published page POSTs to /api/db/<slug>/error.
+            // GET only; the write side is the public route, and this one is the
+            // owner's window onto it. A site built before `_errors` existed
+            // answers an empty list rather than a 500 — "nothing reported" and
+            // "nothing reportable yet" are the same fact to the owner, and the
+            // table arrives with their next build either way.
+            const eslug = er[1].toLowerCase();
+            const gE = await assertOwner(ownerDeps, eslug, ou.id);
+            if (gE.error) return Response.json(gE.error.body, { status: gE.error.status });
+            if (request.method !== "GET") return Response.json({ error: "method not allowed" }, { status: 405 });
+            const econn = await siteBackendBySlug(env, eslug);
+            if (!econn) return Response.json({ ok: true, errors: [] });
+            try {
+              const rows = await sqlQuery(econn,
+                "SELECT id, at, message, route, source, LEFT(stack, 400) AS stack FROM _errors ORDER BY id DESC LIMIT 50");
+              return Response.json({ ok: true, errors: Array.isArray(rows) ? rows : [] });
+            } catch (e) {
+              if (/does not exist/i.test(String((e && e.message) || "")) || (e && e.code) === "42P01") return Response.json({ ok: true, errors: [] });
+              console.error("site errors read failed:", eslug, e && e.message);
+              return Response.json({ ok: false, error: "couldn't read the error log just now" }, { status: 503 });
+            }
           } else if (nt) {
             // The off switch. Email the owner did not ask for, with no way to
             // stop it, is not something to ship.

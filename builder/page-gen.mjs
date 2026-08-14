@@ -2500,6 +2500,28 @@ ${UI_SHORTLIST_API()}
     line that stops the next person breaking something non-obvious ("cancelled bookings
     still hold the slot"); if it only restates what the line under it does, leave it out.
 
+18. THE HOME PAGE CARRIES THE BUSINESS'S STRUCTURED DATA when the brief states real
+    contact facts — it is what puts the shop's hours, address and phone straight into a
+    search result instead of just a blue link. Once, on the home page only, EXACTLY this
+    shape — \`address\` is an OBJECT and \`openingHours\` is an ARRAY OF STRINGS:
+
+    \`\`\`tsx
+    import { SeoJsonLd, localBusinessJsonLd } from "@/components/ui/seo-jsonld";
+
+    <SeoJsonLd data={localBusinessJsonLd({
+      name: "Sharp Fade Barbers",
+      telephone: "0113 496 0000",
+      address: { street: "42 High Street", city: "Leeds", postcode: "LS1 4AB", country: "GB" },
+      openingHours: ["Tu-Sa 09:00-18:00"],
+    })} />
+    \`\`\`
+
+    Every field except \`name\` is optional, and \`url\`, \`image\` and \`priceRange\` are
+    accepted too. ONLY facts the brief actually states: a made-up address or phone number
+    in structured data is what gets a site's rich results switched off entirely, so a
+    field the brief does not supply is a field you leave out, and a brief that states none
+    of them means no \`SeoJsonLd\` at all.
+
 ## Reading rows
 
 \`useRows<T>(table, params)\` → a TanStack Query result whose \`.data\` is the rows.
@@ -3556,6 +3578,26 @@ export function lintPages(pages, spec) {
         // `type X`, `X as Y` — the imported NAME is what has to exist.
         const name = raw.trim().replace(/^type\s+/, "").split(/\s+as\s+/)[0].trim();
         if (!name || !/^[A-Za-z_$]/.test(name)) continue;
+        // ONLY A CAPITAL-INITIAL NAME, because that is the only class this list
+        // actually covers — and believing otherwise made the check refuse real
+        // code (2026-08-14).
+        //
+        // `UI_EXPORTS` is derived from `COMPONENT_API`, whose extractor matches
+        // `export function Name({ … })` — a destructured props object, i.e. a
+        // COMPONENT — and then harvests names with `/[A-Z][A-Za-z0-9]*\(/`. So a
+        // lowercase helper exported beside a component is invisible to it twice
+        // over. Measured across the kit: **108 modules export 130+ of them** —
+        // `useUndoRedo`, `formatBytes`, `luhn`, `parseCsv`, `localBusinessJsonLd`
+        // — and an import of ANY of them was reported as a member the module
+        // does not have. Every one of those false alarms teaches the model away
+        // from a helper that is perfectly real, which is the failure this
+        // check's own comment says is worse than the miss.
+        //
+        // The FaqAccordion protection is untouched: an invented component name
+        // is capital-initial by React's own rule, so it still gets caught. What
+        // is given up is a mistyped lowercase helper, which `tsc` refuses
+        // anyway — the same trade the skip-an-unknown-module rule above makes.
+        if (!/^[A-Z]/.test(name)) continue;
         if (!known.has(name)) {
           say(path, 'imports { ' + name + ' } from "@/components/ui/' + m[2] + '", which does not export it. ' +
             "That module exports: " + [...known].join(", ") + ".");

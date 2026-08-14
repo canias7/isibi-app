@@ -5835,6 +5835,9 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
 /* The two halves of Backups & export — the nightly whole-site copies above,
    the per-table export below. A heading each, so neither reads as the other. */
 .bk-sec{margin-bottom:1.1rem}
+/* An error message is a sentence, not a filename — it wraps rather than being
+   cut to an ellipsis that hides the part naming the fault. */
+.er-row .bk-tx b{white-space:normal;overflow:visible;text-overflow:clip;line-height:1.35}
 .bk-h{display:block;font-size:.68rem;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin:0 0 .45rem}
 
 .fl-bar{display:flex;align-items:baseline;gap:.75rem;margin:0 0 .75rem;font-size:.8rem;color:var(--text)}

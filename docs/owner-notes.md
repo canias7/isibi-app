@@ -109,6 +109,41 @@ funded**, so every `SafeImage` on every published site is drawing its placeholde
 and no photograph has ever been generated. The upload half needs no image model
 and is what works today — which is why the tool prefers it.
 
+## 2026-08-14 — Google can find every page now, and a broken page tells you
+
+Round 7, the last of the audit's buildable gaps. Four things, all of them
+POST-publish — the half of the platform that was thinnest.
+
+**Search engines could not tell your site's real pages from junk.** There was no
+sitemap and no robots declaration, and the server answered "200 OK, here is the
+page" for *any* address anybody typed — so a crawler could not tell `/menu` from
+`/menuu`, and neither could Google. Now every publish writes a **sitemap** listing
+your real pages, a **robots.txt** that points at it, and the server answers an
+honest **404** for an address that is not a page.
+
+**A renamed or deleted page no longer breaks every link to it.** Delete a page and
+the old address now **redirects to your home page** instead of dying — so the link
+Google indexed, and the one somebody sent on WhatsApp last month, still land
+somewhere. It works itself out: we compare each publish against the last one.
+
+**The "not found" page is yours now.** It used to be a white page reading *Not
+Found* in black text — no shop name, no menu, no way back. It is your site's own
+404 page, with your header and a way home.
+
+**When a page breaks in a customer's browser, you hear about it.** The site has
+always noticed — it just told nobody, so the only symptom was customers quietly
+not coming back. **Cloud → Errors** now lists what broke, on which page, when, and
+whether the visitor saw a broken page or just something failing in the background.
+Screenshot in the chat.
+
+**Also:** when the builder needs to look something up on the web and the lookup
+fails, it now SAYS so instead of quietly writing from memory — and a lookup can no
+longer run four times the searches it promised (that was costing more than it
+should on the rare builds that search).
+
+Nothing here is proven live yet — it takes effect on the next publish of each
+site, and the model account is still empty so no build has run against it.
+
 ## 2026-08-14 — Your customers' data has a second copy now
 
 The audit's biggest gap, closed. Until today a site's booking list existed in

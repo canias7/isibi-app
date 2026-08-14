@@ -2327,6 +2327,56 @@ test("a module with no known export list is skipped, not guessed at", () => {
   assert.deepEqual(lintPages(page('import { Whatever } from "@/components/ui/button";'), SPEC).filter((x) => /does not export it/.test(x)), []);
 });
 
+test("A LOWERCASE HELPER IS NEVER REFUSED — the export list only covers components", () => {
+  // FOUND 2026-08-14, and it was live from the day this check shipped. The list
+  // is derived from COMPONENT_API, whose extractor matches
+  // `export function Name({ … })` — a destructured props object, i.e. a
+  // COMPONENT — and then harvests names with /[A-Z][A-Za-z0-9]*\(/. So a
+  // lowercase helper exported beside a component is invisible to it TWICE, and
+  // an import of one was reported as a member the module does not have.
+  //
+  // Driven over the REAL KIT rather than a fixture, because the point is how
+  // many legitimate imports this refused. Every module here is one a page can
+  // import from today.
+  const dir = new URL("../builder/lovable/template/src/components/ui/", import.meta.url);
+  const helpers = [];
+  for (const f of fs.readdirSync(dir).filter((x) => x.endsWith(".tsx"))) {
+    const src = fs.readFileSync(new URL(f, dir), "utf8");
+    for (const m of src.matchAll(/export (?:function|const) ([a-z][A-Za-z0-9]*)/g)) {
+      helpers.push({ mod: f.replace(/\.tsx$/, ""), name: m[1] });
+    }
+  }
+  // A SCAN THAT SILENTLY STOPPED MATCHING would report a clean kit and prove
+  // nothing — the vacuous-guard failure this repo keeps recording.
+  assert.ok(helpers.length > 50,
+    "the helper scan found only " + helpers.length + " — it has stopped matching the kit");
+
+  const flagged = [];
+  for (const h of helpers) {
+    const out = lintPages(page('import { ' + h.name + ' } from "@/components/ui/' + h.mod + '";'), SPEC)
+      .filter((x) => /does not export it/.test(x));
+    if (out.length) flagged.push(h.mod + "." + h.name);
+  }
+  assert.deepEqual(flagged, [],
+    "the lint refuses " + flagged.length + " REAL kit helpers, e.g. " + flagged.slice(0, 5).join(", ") +
+    " — every one teaches the model away from something that exists");
+
+  // And the thing rule 18 actually tells the model to write.
+  assert.deepEqual(
+    lintPages(page('import { SeoJsonLd, localBusinessJsonLd } from "@/components/ui/seo-jsonld";'), SPEC),
+    [], "a page obeying rule 18 exactly is reported as broken");
+});
+
+test("…and an invented COMPONENT name is still refused", () => {
+  // The narrowing must not cost the FaqAccordion protection: an invented
+  // component name is capital-initial by React's own rule, so it stays in
+  // range. Asserted beside the fix, because a narrowing that quietly disabled
+  // the whole check would pass the test above perfectly.
+  const p = lintPages(page('import { SeoJsonLdCard } from "@/components/ui/seo-jsonld";'), SPEC);
+  assert.match(p.join(" "), /does not export it/,
+    "the narrowing disabled the check it was meant to keep");
+});
+
 test("the naming law and its exceptions are in the prompt", () => {
   // The lint reports; it does not block publishing, so it cannot save the build
   // on its own. What stops the error happening is the model knowing the rule.

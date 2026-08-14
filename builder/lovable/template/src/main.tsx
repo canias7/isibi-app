@@ -5,6 +5,7 @@ import { RouterProvider, createRouter } from "@tanstack/react-router";
 import { routeTree } from "./routeTree.gen";
 import { ErrorPage } from "./lib/error-page";
 import { installErrorReporting } from "./lib/error-reporting";
+import { NotFound } from "@/components/ui/not-found";
 import "./styles.css";
 // The site's typeface. Generated per build — see build-server.mjs writeFonts().
 import "./fonts";
@@ -74,6 +75,16 @@ const router = createRouter({
   context: { queryClient },
   scrollRestoration: true,
   defaultErrorComponent: ErrorPage,
+  // Without this TanStack renders its own bare "Not Found" text — nine
+  // characters on a white page, no site name, no way back (the render check
+  // literally measured it as `blank: only 9 characters`). The kit has had a
+  // proper not-found page all along; this is the one line that had never
+  // mounted it. `homeHref` carries the basepath because the same bundle serves
+  // at `/s/<slug>/` and at `/` — a bare "/" would send a workspace-mounted
+  // visitor to the platform's root instead of the site's.
+  defaultNotFoundComponent: () => (
+    <NotFound homeHref={basepath.endsWith("/") ? basepath : basepath + "/"} />
+  ),
 });
 
 declare module "@tanstack/react-router" {

@@ -341,10 +341,26 @@ export function contextBrief(brief, { pages = [], facts = "", sources = [], file
  * half that makes a failed read a fact rather than an invisible degradation, so
  * it reports the failures as plainly as the successes.
  */
-export function contextSummary({ pages = [], facts = "", sources = [], searches = 0, skipped = [], converted = [] } = {}) {
+export function contextSummary({ pages = [], facts = "", sources = [], searches = 0, skipped = [], converted = [], searchWanted = false } = {}) {
   const read = pages.filter((p) => p && p.ok).map((p) => ({ url: p.url, title: p.title || "" }));
   const failed = pages.filter((p) => p && !p.ok).map((p) => ({ url: p.url, reason: p.reason || "we couldn't read it" }));
   const out = { read, failed, searched: !!searches, searches: searches || 0 };
+  // RESEARCH THAT PRODUCED NO FACTS IS A FAILURE, however many searches ran.
+  //
+  // The discriminator is the FACTS, and a first draft keyed on the searches —
+  // `!searches && !facts` — which quietly excluded the half that costs money.
+  // The expensive failure is: the searches ran, the round that writes the brief
+  // was lost, `facts` comes back empty. That has `searches > 0`, so the flag
+  // stayed unset while `searched: true` made `contextSentence` say **"Looked up
+  // current details on the web"** — the customer affirmatively told their site
+  // reflects current facts while `contextBrief` added no CURRENT FACTS section
+  // at all and page generation ran on training data, AND they are billed for
+  // the searches (~5 credits at four). Precisely the class this flag exists to
+  // make loud, with the cheap half of it selected.
+  //
+  // Facts with no searches still stays quiet: the model answered from what it
+  // knew, which is degraded rather than empty-handed.
+  if (searchWanted && !String(facts || "").trim()) out.searchFailed = true;
   // An attachment we could not use travels the same way a link we could not
   // read does — dropping a file somebody deliberately attached, in silence, is
   // the same failure this whole module exists to stop.
@@ -371,7 +387,16 @@ export function contextSentence(summary) {
     bits.push(summary.failed.map((p) => "Couldn't read " + host(p.url) + " — " + p.reason).join("; ") +
       ", so I built from your description instead.");
   }
-  if (summary.searched) bits.push("Looked up current details on the web.");
+  // NEVER BOTH. `searched` says searches RAN, which is true even when they came
+  // back with nothing — and "Looked up current details on the web" is exactly
+  // the claim that must not be made about a lookup that produced no facts.
+  if (summary.searched && !summary.searchFailed) bits.push("Looked up current details on the web.");
+  // The failed-search sentence mirrors the failed-link one directly above it:
+  // plain about what did not happen, plain about what was done instead. It goes
+  // to the CUSTOMER only — contextBrief deliberately says nothing to the model,
+  // for the same reason it stays quiet about a failed link: telling it invites
+  // an apology written into the site.
+  if (summary.searchFailed) bits.push("Couldn't look up current details on the web just now, so I wrote from your description.");
   if (summary.converted && summary.converted.length) {
     bits.push(summary.converted.map((a) => "Used " + a.as + " from " + a.name).join("; ") + ".");
   }

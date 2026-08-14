@@ -10461,6 +10461,7 @@ function moreCloud(site) {
     ['mail', 'Emails', 'Send email from your own provider', auxLive, 'emails'],
     ['card', 'Payments', dataLive ? 'Sell with your own Stripe' : (isReact ? 'Publish your app to take payments' : 'Publish to take payments'), fnLive, 'payments'],
     ['image', 'Files', 'Pictures on your site — yours and your visitors\u2019', dataLive, 'files'],
+    ['alert', 'Errors', dataLive ? 'Problems visitors hit on your live site' : (isReact ? 'Add data to enable error reports' : 'Publish to enable error reports'), dataLive, 'errors'],
     // Needs only a PUBLISHED site, not a backend: a brochure site with no data
     // wants its own domain just as much as an app does, and gating this on
     // `dataLive` would hide it from exactly those owners.
@@ -10820,6 +10821,7 @@ function renderSiteWorkspace(view, site) {
     if (b.dataset.cloud === 'database') siteDatabase(site);
     else if (b.dataset.cloud === 'insights') siteInsights(site);
     else if (b.dataset.cloud === 'backups') siteBackups(site);
+    else if (b.dataset.cloud === 'errors') siteErrors(site);
     else if (b.dataset.cloud === 'versions') siteVersions(site);
     else if (b.dataset.cloud === 'secrets') siteSecrets(site);
     else if (b.dataset.cloud === 'functions') siteFunctions(site);
@@ -12205,6 +12207,43 @@ async function siteInsights(site) {
       '<div class="si-panel-sub">Last 7 days</div>' + chart +
       '<div class="si-note">A visitor is counted once a day. Bots are not counted.</div>';
   } catch (e) { bodyEl.innerHTML = '<div class="si-empty">Couldn\u2019t load insights just now — try again.</div>'; }
+}
+
+async function siteErrors(site) {
+  // The read half of runtime error reporting. The template has captured and
+  // packaged every error a visitor's browser hits since the preview shell
+  // existed — and on a live site the report went to the visitor's console and
+  // died. Now the page POSTs it to the platform and this panel is where the
+  // owner reads it. List only, newest first: there is nothing to configure and
+  // nothing to press, because the useful action — fix the page — happens in
+  // the chat, not here.
+  const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
+  if (typeof sbToast === 'function' && !slug) { sbToast('Publish the site first — then it can report problems here.'); return; }
+  if (!slug) return;
+  const { bodyEl } = stCloudModal('siteErrorsModal', 'Errors');
+  bodyEl.innerHTML = '<p class="sp-intro">When a page breaks in a visitor’s browser, the site reports it here — so you hear about it from us, not from customers going quiet.</p>' +
+    '<div id="erList">Loading…</div>';
+  // An unreadable log is NOT an empty one — "no errors" reads as "all is
+  // well", which is the one wrong answer this panel can give.
+  apiFetch('/api/site/' + encodeURIComponent(slug) + '/errors')
+    .then(async (r) => {
+      const d = await r.json().catch(() => null);
+      const box = document.getElementById('erList'); if (!box) return;
+      if (!r.ok || !d || !Array.isArray(d.errors)) { box.innerHTML = '<div class="st-sec-empty"><b>Couldn’t load the error log</b><span>Try again in a moment.</span></div>'; return; }
+      if (!d.errors.length) { box.innerHTML = '<div class="st-sec-empty"><b>No errors reported</b><span>Nothing has gone wrong in a visitor’s browser. New reports appear here on their own.</span></div>'; return; }
+      // WHAT IT COST THE VISITOR, in words, leading the line. `source` is the
+      // one field that separates "they saw a broken page" from "something
+      // failed in the background they may never have noticed" — which is the
+      // only severity signal there is here, and the owner's first question.
+      // Never the raw enum: "unhandledrejection" is jargon that tells a barber
+      // nothing. An unknown value degrades to the vaguest true sentence rather
+      // than being printed raw.
+      const felt = { error_boundary: 'The page didn’t load', onerror: 'Something broke on the page', unhandledrejection: 'A background request failed' };
+      box.innerHTML = '<div class="bk-rows">' + d.errors.map((e2) =>
+        '<div class="bk-row er-row"><div class="bk-tx"><b>' + esc(String(e2.message || '').slice(0, 160)) + '</b>' +
+        '<span>' + esc(felt[e2.source] || 'Something went wrong') + ' · ' + esc(String(e2.route || '/')) + ' · ' + esc(String(e2.at || '')) + ' UTC</span></div></div>').join('') + '</div>';
+    })
+    .catch(() => { const box = document.getElementById('erList'); if (box) box.innerHTML = '<div class="st-sec-empty"><b>Lost the connection</b><span>Try again.</span></div>'; });
 }
 
 async function siteBackups(site) {

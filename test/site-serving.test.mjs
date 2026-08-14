@@ -136,7 +136,10 @@ test("html is rewritten to the mount it is actually being served from", () => {
 
   // And the rewrite itself. Removing it left every test green while deep links
   // at depth 2 lost their assets.
-  assert.match(siteBranch, /\(await obj\.text\(\)\)\.replace\(/,
+  // The fallback path buffers the shell to read its manifest (site-seo.mjs),
+  // and a body reads ONCE — so the rewrite must reuse that buffer rather than
+  // call .text() a second time, which throws on exactly the fallback path.
+  assert.match(siteBranch, /\(shellText !== null \? shellText : await obj\.text\(\)\)\.replace\(/,
     "the relative-root rewrite is gone; a nested route's assets will 404");
   assert.match(siteBranch, /\$1="' \+ mountRoot\)/,
     "the rewrite no longer substitutes the mount root");
@@ -144,7 +147,7 @@ test("html is rewritten to the mount it is actually being served from", () => {
   // HTML ONLY. Running it over a bundle would corrupt JavaScript that happens to
   // contain the same characters, and it costs a full read of every asset.
   const guard = siteBranch.indexOf('ctype.startsWith("text/html")', siteBranch.indexOf("let served"));
-  const rewrite = siteBranch.indexOf("(await obj.text()).replace(");
+  const rewrite = siteBranch.indexOf("(shellText !== null ? shellText : await obj.text()).replace(");
   assert.ok(guard > 0 && rewrite > guard,
     "the rewrite is not gated on html — it would run over every asset served");
 });

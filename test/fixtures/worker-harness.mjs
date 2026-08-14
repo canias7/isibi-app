@@ -28,13 +28,21 @@ import { register } from "node:module";
 
 let cached = null;
 
-/** The Worker's default export — `{ fetch(request, env, ctx) }` — loaded once. */
-export async function loadWorker() {
+/**
+ * The whole worker MODULE, for tests that drive an exported function directly
+ * — `siteWebResearch` was the first: the one paid executor in the build no
+ * test had ever run, because only `default` was surfaced here.
+ */
+export async function loadWorkerModule() {
   if (cached) return cached;
   register(new URL("./worker-loader.mjs", import.meta.url), import.meta.url);
-  const mod = await import(new URL("../../worker.js", import.meta.url).href);
-  cached = mod.default;
+  cached = await import(new URL("../../worker.js", import.meta.url).href);
   return cached;
+}
+
+/** The Worker's default export — `{ fetch(request, env, ctx) }` — loaded once. */
+export async function loadWorker() {
+  return (await loadWorkerModule()).default;
 }
 
 /** A `ctx` with the two methods the Worker uses. `waitUntil` keeps the promise
