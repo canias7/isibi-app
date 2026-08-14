@@ -406,3 +406,56 @@ test("the worker's seed top-up log cannot reach for the route's own `slug`", () 
   const bare = win.match(/(?<![.\w"'`])slug\b\s*(?!:)/g) || [];
   assert.deepEqual(bare, [], "a bare `slug` read sits before its declaration — the TDZ crash is back");
 });
+
+test("a dead provider and a junk answer are not the same message on the wire", () => {
+  // `failed` is the ONLY discriminator. The module sets it when the model CALL
+  // threw; a call that RETURNED junk answers with the same empty `rows` and the
+  // same `gaps`, so both lanes' responses were byte-identical — and the customer's
+  // site has an empty price list either way, so nobody could say which happened.
+  const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const carried = [...worker.matchAll(/[aA]?[sS]eedTopUp = \{ gaps: [\s\S]{0,240}?\};/g)].map((m) => m[0]);
+  assert.equal(carried.length, 2, `found ${carried.length} seed-top-up reports, expected the build lane and the addon lane`);
+  for (const c of carried) {
+    assert.match(c, /failed === true \? \{ failed: true \} : \{\}/,
+      "a lane drops the flag, so a provider outage and a junk answer read identically: " + c.slice(0, 90));
+  }
+});
+
+test("the flag is strictly true, never merely truthy", () => {
+  // This file's standing rule. `top.failed || undefined` would raise the flag for
+  // any truthy value the module might grow later, which is how a report starts
+  // claiming an outage that did not happen.
+  const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.doesNotMatch(worker, /failed: *\w+\.failed *\|\|/, "the flag is raised by anything truthy");
+});
+
+test("an empty schema names WHICH of its four causes it was", () => {
+  // ONE SENTENCE FOR FOUR CAUSES, with nothing logged: a model that made no tool
+  // call, one that called it and declared nothing, one whose answer would not
+  // parse, and one whose every table NAME was refused. `designSiteSchema` had
+  // `use`, `stop_reason` and the block list all in scope and threw them away, so
+  // by the time anyone read the 422 the shape was gone — a real generator outage
+  // was indistinguishable from a brief that genuinely described nothing.
+  const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+
+  // The designer reports the shape…
+  const ret = worker.slice(worker.indexOf("async function designSiteSchema"));
+  const shape = ret.slice(ret.indexOf("shape: {"), ret.indexOf("usage: {", ret.indexOf("shape: {")));
+  assert.ok(shape.length > 40, "designSiteSchema no longer reports why its answer was empty");
+  for (const field of ["tool", "stop", "blocks"]) {
+    assert.match(shape, new RegExp("\\b" + field + ":"), `the shape drops ${field}`);
+  }
+  // …AND NEVER THE CONTENT. `use.input` echoes the customer's brief back, and this
+  // rides on a log line.
+  assert.doesNotMatch(shape, /use\.input|\bbrief\b/, "the shape carries request content into a log");
+
+  // …and the refusal actually reads it. Computed-and-dropped is the shape of a
+  // dead diagnostic, which this repo has recorded repeatedly.
+  // ANCHORED AT THE START OF THE STATEMENT. A substring match is satisfied by
+  // `if (false) console.warn(…)` — a mutation proved it — so the diagnostic can
+  // be switched off while the guard stays green.
+  assert.match(worker, /\n\s*console\.warn\("schema declared no tables:"[\s\S]{0,400}?designedShape/,
+    "the refusal still says one thing for every cause, or the warning is gated off");
+  assert.match(worker, /designedShape = \(dz && dz\.shape\) \|\| null/,
+    "the shape is never captured, so the warning above it can only ever print the fallback");
+});

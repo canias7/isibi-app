@@ -58,7 +58,7 @@ import { runPictureEdit } from "./builder/site-picture.mjs";
 import { runLogoEdit } from "./builder/site-logo.mjs";
 import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
 import { runNightlyBackups, dumpSite, backupKey, backupListing, backupDayParam, BACKUP_META_KEYS } from "./site-backup.mjs";
-import { resolveAccess, ACCESS_PRESETS, unguardedBookings } from "./site-access.mjs";
+import { resolveAccess, accessLabel, ACCESS_PRESETS, unguardedBookings } from "./site-access.mjs";
 // The pair a `display` table resolves to. Named once, from the presets, so the
 // data layer's gate cannot drift from the vocabulary again — it was compared
 // against "anyone", which is a WRITE level, and matched nothing on any site.
@@ -3958,6 +3958,22 @@ async function designSiteSchema(env, brief, model = modelsFor().design, current 
   const u = (j && j.usage) || {};
   return {
     input: (use && use.input) || null,
+    // WHY THE ANSWER WAS EMPTY, which this call used to discard entirely.
+    //
+    // `input: null` comes from a model that made no tool call at all, `{tables: []}`
+    // from one that called the tool and declared nothing — and the route refuses
+    // both with one sentence. `use`, `j.stop_reason` and the block list were all in
+    // scope here and thrown away, so by the time anyone reads the 422 the shape is
+    // gone and a real generator failure cannot be told from a brief that genuinely
+    // described nothing. Sixth recorded failure that could not name itself.
+    //
+    // A SHAPE, NEVER CONTENT: block types and the stop reason, both fixed tokens.
+    // `use.input` echoes the brief back, and this rides on a log line.
+    shape: {
+      tool: !!use,
+      stop: String((j && j.stop_reason) || ""),
+      blocks: (Array.isArray(j.content) ? j.content : []).map((b) => String((b && b.type) || "?")).slice(0, 8),
+    },
     usage: {
       in: u.input_tokens || 0,
       out: u.output_tokens || 0,
@@ -6157,7 +6173,24 @@ async function fetchSiteFonts(pair) {
 // injected function so they can be driven against fakes in test/publish-pages.test.mjs.
 // This is only the wiring that supplies the real ones.
 /**
- * The picture a link preview shows: the first thing the owner uploaded.
+ * The picture a link preview shows: one of the owner's own uploads.
+ *
+ * "THE FIRST THING THE OWNER UPLOADED" IS WHAT THIS SAID, AND IT IS NOT TRUE.
+ * `siteUploadList` does not sort and never projects R2's `uploaded` timestamp, so
+ * the objects arrive in lexicographic KEY order — and a key is a SHA-256 of the
+ * file's own bytes. The pick is therefore the smallest hash among the owner's
+ * objects: stable for a given set of files, and otherwise arbitrary. The pool also
+ * holds photographs the platform bought and the owner's logo, since neither put
+ * stamps `customMetadata.visitor`.
+ *
+ * NOT REORDERED, DELIBERATELY (owner-triaged — the residue is that you cannot
+ * CHOOSE which). Sorting by upload time would silently swap the social card of
+ * every live site holding two or more eligible objects, which nobody asked for —
+ * and it would be worse than arbitrary rather than better: a first build's bought
+ * photographs and the logo are the EARLIEST objects, so they would win permanently
+ * over any picture the owner uploads afterwards. Arbitrary-but-neutral beats
+ * systematically-wrong. The real answer is letting the owner pick, which is a
+ * feature and not an ordering.
  *
  * EXTRACTED BECAUSE THERE ARE TWO PUBLISH PATHS AND ONLY ONE HAD IT. A build
  * derived this inline; the free text edit — which recompiles and republishes the
@@ -9775,6 +9808,10 @@ async function handleRequest(request, env, ctx) {
       // should not quietly become a price change) and the measurement is what
       // made the decision possible.
       let schemaUsage = null;
+      // WHY the designer's answer was empty, kept for the refusal below — which
+      // cannot otherwise tell "no tool call" from "declared nothing" from "would
+      // not parse". Shape only, never content.
+      let designedShape = null;
       // What the schema step actually took, after settling the deposit below.
       // Reported separately from the pages cost because they are different calls
       // to different models, and one number cannot answer which one moved.
@@ -9883,6 +9920,7 @@ async function handleRequest(request, env, ctx) {
           const dz = await designSiteSchema(env, briefWithLinks, models.design, editState, attached.blocks);
           designed = dz && dz.input;
           schemaUsage = (dz && dz.usage) || null;
+          designedShape = (dz && dz.shape) || null;
           tr.at("design", schemaUsage ? { out: schemaUsage.out, in: schemaUsage.in } : undefined);
           // STARTER ROWS THE DESIGNER DID NOT WRITE. `seed` is a required field
           // on its tool and the model omits it anyway — measured on two
@@ -9929,7 +9967,14 @@ async function handleRequest(request, env, ctx) {
               },
             );
             if (top.gaps.length) {
-              seedTopUp = { gaps: top.gaps, filled: Object.keys(top.rows) };
+              // `failed` IS THE ONLY THING SEPARATING TWO OUTCOMES. The module sets
+              // it when the model CALL threw; a call that returned junk answers with
+              // the same empty `rows` and the same `gaps`, so without it the wire
+              // cannot tell "the provider was down" from "the provider answered
+              // nonsense" — and the customer's site has an empty price list either
+              // way. STRICTLY `=== true`: nothing merely truthy raises a flag here.
+              // Omitted when false, so a working build's response is unchanged.
+              seedTopUp = { gaps: top.gaps, filled: Object.keys(top.rows), ...(top.failed === true ? { failed: true } : {}) };
               // NOT the route's `slug` — that const is declared ~140 lines
               // below, so naming it here is a temporal-dead-zone ReferenceError
               // thrown on EXACTLY the branch this module exists for (a build
@@ -10175,6 +10220,16 @@ async function handleRequest(request, env, ctx) {
       // settlement on a build that 422s.
       if (!spec.tables.length && !existing) {
         await refundCredits(env, bu.id, Math.max(0, schemaCost));
+        // AND SAY WHICH OF THE FOUR IT WAS. This refusal reads identically for a
+        // model that made no tool call, one that called it and declared nothing,
+        // one whose answer would not parse, and one whose every table NAME was
+        // refused — and the four warnings above report other things, so a real
+        // generator outage left no trace at all. The customer's sentence is
+        // unchanged; this is for whoever has to answer "why did my build fail".
+        console.warn("schema declared no tables:", slug, designedShape
+          ? "tool=" + designedShape.tool + " stop=" + designedShape.stop + " blocks=" + designedShape.blocks.join(",")
+          : (body.schema ? "caller-supplied schema" : "no designer answer at all"),
+          "refused=" + (badNames.length ? badNames.join(",") : "none"));
         // A caller that sent its own schema gets the machine answer; a customer
         // whose brief the designer could make nothing of gets the sentence.
         return body.schema
@@ -10621,7 +10676,14 @@ async function handleRequest(request, env, ctx) {
       // One line, once, so a build's shape is visible in the log too. Bounded to
       // 900 characters by `line()`.
       console.log("build trace", slug, traced.totalMs + "ms", "|", tr.line());
-      const levels = (pageSpec.tables || spec.tables || []).map((t) => ({ name: t.name, access: t.access }));
+      // RESOLVED, not the raw field. `normalizeSchema` STAMPS `access: "collect"`
+      // on any table that did not declare one of the five preset names — and the
+      // design tool tells the model to leave `access` OUT when it sets a
+      // `read`/`write` pair instead. So a public menu declared as a pair was
+      // reported to every reader of this response as "collect", which is the
+      // opposite of what it does. The same misread has already been fixed in the
+      // lint, the digest, the seeder and the owner routes; this was the last copy.
+      const levels = (pageSpec.tables || spec.tables || []).map((t) => ({ name: t.name, access: accessLabel(t) }));
       return Response.json({
         ok: true, slug, url: "/s/" + slug + "/", backend: true, brand, tables: made, schema: levels,
         // Read off the array explicitly: JSON.stringify would drop them from
@@ -11903,7 +11965,9 @@ async function handleRequest(request, env, ctx) {
                 { brief: aInstruction, spec: { ...aDesigned, tables: (aDesigned.tables || []).filter((t) => t && folded.added.includes(t.name)) }, seed: aSeed },
               );
               if (aTop.gaps.length) {
-                aSeedTopUp = { gaps: aTop.gaps, filled: Object.keys(aTop.rows) };
+                // Same as the build lane: without `failed` a dead provider and a
+                // junk answer are one message. See the note there.
+                aSeedTopUp = { gaps: aTop.gaps, filled: Object.keys(aTop.rows), ...(aTop.failed === true ? { failed: true } : {}) };
                 console.log("addon seed top-up:", ownerSlug, JSON.stringify(aSeedTopUp));
               }
               if (Object.keys(aTop.rows).length) aSeed = mergeSeed(aSeed, aTop.rows);

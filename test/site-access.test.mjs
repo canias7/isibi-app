@@ -6,6 +6,7 @@
 import { test } from "node:test";
 import { lintPages } from "../builder/page-gen.mjs";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   resolveAccess, ACCESS_PRESETS, READ_LEVELS, WRITE_LEVELS,
   MANAGED_COLUMNS, isManagedColumn, ACCESS_LEVELS, normalizeAccess,
@@ -322,4 +323,26 @@ test("it reads the whole spec and returns names, never a sentence", () => {
 test("junk in cannot throw — this runs on every build", () => {
   for (const bad of [null, undefined, {}, { tables: null }, { tables: [null, 7, "x"] }])
     assert.deepEqual(unguardedBookings(bad), [], "threw or answered oddly on " + JSON.stringify(bad));
+});
+
+test("the build response reports the RESOLVED access level, not the stamped one", () => {
+  // `normalizeSchema` stamps `access: "collect"` on any table that did not declare
+  // one of the five preset names, and the design tool tells the model to leave
+  // `access` OUT when it sets a read/write pair instead. So a public menu declared
+  // as a pair was reported as "collect" — the opposite of what it does — to every
+  // reader of the build response, including `build smoke`'s own access assertions.
+  //
+  // The same misread has been fixed in the lint, the digest, the seeder and the
+  // owner routes. This was the last copy; there is one question now.
+  const worker = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(worker, /import \{[^}]*\baccessLabel\b[^}]*\} from "\.\/site-access\.mjs"/,
+    "a call to a name that was never imported is a ReferenceError on the build path");
+  assert.match(worker, /const levels = \([^)]*\)\.map\(\(t\) => \(\{ name: t\.name, access: accessLabel\(t\) \}\)\)/,
+    "the build response reports the raw `access` field again");
+
+  // AND IT REALLY DIFFERS — driven, so this cannot pass because the two answers
+  // happen to agree today.
+  const pair = { name: "menu", access: "collect", read: "public", write: "none" };
+  assert.equal(pair.access, "collect", "fixture drifted");
+  assert.equal(accessLabel(pair), "display", "a pair-declared display table no longer resolves");
 });
