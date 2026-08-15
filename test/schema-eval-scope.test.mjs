@@ -139,6 +139,69 @@ test("every identifier design_schema references is in the eval's scope", () => {
   }
 });
 
+/**
+ * `strict: true` IS THE OBVIOUS FIX FOR THE SEEDING MISS AND IT CANNOT BE USED.
+ *
+ * MEASURED 2026-08-15, three eval runs: the designer omits `seed` — a field its
+ * own tool marks REQUIRED — on a growing share of samples (14/15 → 12/15 →
+ * 10/14 clean), and the shape is "no `seed` key at all" in every failure. Tool
+ * `required` is advisory unless strict validation is on, so `strict: true` is
+ * exactly the mechanism that would enforce it. That is the reasoning anybody
+ * looking at this will reach, and it is why this guard exists rather than a
+ * comment nobody reads.
+ *
+ * THE API FORBIDS IT FOR THIS SCHEMA. Structured outputs require
+ * `additionalProperties: false` on every object and reject it set to anything
+ * else — and `seed` is `additionalProperties: {type: "array", …}`, a map keyed
+ * by TABLE NAME, which cannot be enumerated in advance because the tables are
+ * what this very call is inventing. Shipping `strict: true` would 400 every
+ * build on the platform.
+ *
+ * AND RESHAPING IT INTO SOMETHING STRICT CAN EXPRESS COSTS MORE THAN THE MISS.
+ * Seed rows are column→value objects, so a strict encoding needs a fixed
+ * envelope (`{column, value}` pairs) — roughly 3-4× the tokens on a field that
+ * is already ~41% of the designer's output, on EVERY build. Against a miss that
+ * `topUpSeed` already catches with one Haiku call on a minority of builds, that
+ * is an order of magnitude the wrong way.
+ *
+ * SO THE GUARD FORBIDS THE COMBINATION, NOT THE IMPROVEMENT. The day `seed`
+ * becomes strict-expressible, this goes green with `strict` on.
+ */
+test("design_schema is not marked strict while its schema cannot be", () => {
+  const names = scopeNames();
+  const ctx = vm.createContext(Object.fromEntries(names.map((n) => [n, stub()])));
+  const tool = vm.runInContext("(" + toolBlock() + ")", ctx, { timeout: 5000 });
+
+  // Every object node whose `additionalProperties` is present and not `false` —
+  // the exact thing structured outputs reject. Walked rather than listed, so a
+  // second dynamic map added tomorrow is covered.
+  const offenders = [];
+  const walk = (node, path) => {
+    if (!node || typeof node !== "object") return;
+    if (Object.hasOwn(node, "additionalProperties") && node.additionalProperties !== false) {
+      offenders.push(path || "(root)");
+    }
+    for (const [k, v] of Object.entries(node)) {
+      if (v && typeof v === "object") walk(v, path ? path + "." + k : k);
+    }
+  };
+  walk(tool.input_schema, "");
+
+  // Asserted BEFORE anything is concluded from it. With the walk broken this
+  // finds nothing, reports the schema as strict-ready, and the guard passes on
+  // a Worker one edit away from 400-ing every build.
+  assert.ok(offenders.length > 0,
+    "no non-false additionalProperties found — either the schema became strict-expressible "
+    + "(good: enable strict and delete this) or the walk stopped working");
+  assert.ok(offenders.some((p) => /\bseed\b/.test(p)),
+    `the walk no longer sees \`seed\`, which is the measured case: found ${offenders.join(", ")}`);
+
+  assert.notEqual(tool.strict, true,
+    "design_schema is marked strict while " + offenders.join(", ") + " use a non-false "
+    + "`additionalProperties`, which structured outputs reject — this would 400 EVERY build. "
+    + "Enforcing the required `seed` field is worth wanting, but not this way: see the comment above.");
+});
+
 test("a name the scope does not define really is caught", () => {
   // The check above passes vacuously if a ReferenceError cannot reach it — so
   // drop a name the tool genuinely uses and require the failure.
