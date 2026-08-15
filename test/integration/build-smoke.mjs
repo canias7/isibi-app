@@ -332,6 +332,31 @@ try {
   if (d.notes) console.log("   notes:", d.notes);
   if (d.problems) console.log("   problems:", JSON.stringify(d.problems));
 
+  // --- WHAT THE PAGE LOOKED LIKE, WHICH NOTHING HERE HAD EVER PRINTED -------
+  //
+  // The build response carries `render`, `renderNote`, `prerenderSkipped` and
+  // `prerenderUnprivileged`, all under the same noteworthy contract: absent on
+  // a clean build, present when there is something to say. This run threw all
+  // four away — so the ONE check in the pipeline that opens a browser and looks
+  // at the page could report an invisible heading or a see-through modal on a
+  // real customer-shaped site and the log would be byte-identical to a clean
+  // run. The signal-computed-and-discarded failure this repo keeps recording,
+  // in the harness whose whole job is reporting.
+  //
+  // PRINTED, NOT ASSERTED, and that is deliberate rather than timid: the render
+  // check is reporting-only by design until its false-alarm rate has been
+  // measured on real sites, and this is the first run that can measure it. A
+  // gate here would fail a build over a check nobody has calibrated yet.
+  if (d.renderNote) console.log("   render:", d.renderNote);
+  if (d.render) console.log("   render detail:", JSON.stringify(d.render).slice(0, 600));
+  if (d.prerenderSkipped) console.log("   prerender SKIPPED for:", JSON.stringify(d.prerenderSkipped));
+  // Only ever present as `false`: the prerender executes model-written page
+  // code, and whether it was dropped to an unprivileged user is a fact about
+  // production worth reading rather than assuming. Expected false today — the
+  // build service runs as root and the fix is a Dockerfile change — so it is
+  // reported rather than asserted, or the run goes red for a known reason.
+  if (d.prerenderUnprivileged === false) console.log("   NOTE: the prerender ran UNSANDBOXED (build service is root)");
+
   // --- WHAT THE BUILD ACTUALLY DID ----------------------------------------
   // The build's own account of itself, printed rather than asserted. A duration
   // is not a pass/fail — a slow build is still a correct one — but a run that
