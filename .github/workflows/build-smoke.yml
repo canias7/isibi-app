@@ -1,5 +1,11 @@
 # Production smoke test for the builder send path. Drives the deployed Worker
-# over HTTP with a throwaway user, then removes the user and its Neon project.
+# over HTTP and removes the site's Neon project when it is done.
+#
+# The account it builds as is either a throwaway this run creates and deletes,
+# or — when SMOKE_EMAIL/SMOKE_PASSWORD are set — a real one that brings its own
+# credits, which is never created, never funded and never deleted. That gate is
+# asserted in test/build-smoke-safety.test.mjs, because the teardown's user
+# delete cascades and there is no undo.
 #
 # Runs after every successful deploy to main, and on demand. It spends two real
 # Sonnet calls per run (the schema, then the pages) — worth it: both bugs found
@@ -72,6 +78,24 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          # RUN AS A REAL ACCOUNT (owner's call). `buildFloor` reached 20 against
+          # a 20-credit grant and the routing call spends 1 before the gate, so a
+          # throwaway account cannot finish a cold first build. The answer is not
+          # to raise the free grant — it is to run as an account that brings its
+          # own credits.
+          #
+          # BOTH OR NEITHER: with one half set the run reads as NOT supplied and
+          # creates a throwaway, which is the safe direction. Unset entirely,
+          # everything behaves exactly as it did before this existed.
+          #
+          # No fallback value, deliberately. `test/deploy-secrets.test.mjs`
+          # records why an optional secret usually needs one — an empty value in
+          # wrangler-action's `secrets:` list fails the whole deploy — but that
+          # is about uploading secrets to the Worker. Here the name is only read
+          # by a test script that treats an empty string as "not supplied", so a
+          # fallback would invent a credential rather than prevent a failure.
+          SMOKE_EMAIL: ${{ secrets.SMOKE_EMAIL }}
+          SMOKE_PASSWORD: ${{ secrets.SMOKE_PASSWORD }}
         run: node test/integration/build-smoke.mjs
 
       # What the site actually looked like to a visitor, kept whether or not the

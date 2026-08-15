@@ -75,23 +75,90 @@ let userId = null, slug = null, projectId = null, jwt = null;
 // the moment the public address changed.
 let SITE = "";
 
-try {
-  // --- a throwaway, already-confirmed user -------------------------------
-  const mk = await fetch(`${SUPABASE_URL}/auth/v1/admin/users`, {
-    method: "POST", headers: svc(),
-    body: JSON.stringify({ email, password, email_confirm: true }),
+// RUNNING AS A REAL ACCOUNT, and everything about the shape of this file below
+// keys off it.
+//
+// `buildFloor` reached 20 against a 20-credit grant, and the routing call spends
+// 1 before the gate — so a throwaway account cannot finish a first build and
+// this run had to fund one artificially. The owner's call is NOT to raise the
+// grant but to run against a real account with its own credits.
+//
+// `createdUser` IS THE SAFETY PROPERTY, not a convenience flag. The teardown
+// below ends with `DELETE /auth/v1/admin/users/<id>`, which cascades: chats,
+// credits, purchases, storage rows, every `user_site_project` record. Pointed at
+// a real account that is not a cleanup, it is the account gone — so the
+// destructive half runs ONLY for a user this run created, gated in code and
+// asserted in `test/build-smoke-safety.test.mjs` rather than remembered.
+const SUPPLIED_EMAIL = String(env.SMOKE_EMAIL || "").trim();
+const SUPPLIED_PASSWORD = String(env.SMOKE_PASSWORD || "");
+const useSupplied = !!(SUPPLIED_EMAIL && SUPPLIED_PASSWORD);
+let createdUser = false;
+
+// EVERY LEDGER WRITE GOES THROUGH HERE, AND IT REFUSES FOR A SUPPLIED ACCOUNT.
+//
+// This run tops the account up twice — once to clear the build floor, once to
+// pay for the revise — and both SET the balance rather than adding to it. That
+// is right for a throwaway and catastrophic for a real one: `balance: 60`
+// against an account holding 500 credits is not funding a test, it is taking
+// 440 credits off somebody. The whole reason to run as a real account is that
+// it brings its OWN credits, which is the owner's answer to the build floor
+// instead of raising the free grant.
+//
+// ONE FUNCTION RATHER THAN A GUARD AT EACH CALL SITE. Two copies of a rule
+// drift, and the direction this one drifts in is a customer's ledger — a third
+// top-up added later is covered by construction rather than by remembering.
+// `test/build-smoke-safety.test.mjs` asserts the ledger is written in exactly
+// one place and that the place is behind this refusal.
+async function fundAccount(to, label) {
+  if (useSupplied) {
+    const bal = await fetch(`${BASE}/api/credits`, { headers: { Authorization: `Bearer ${jwt}` } });
+    const bj = await bal.json().catch(() => ({}));
+    // Reported, not asserted against a number: what this account happens to
+    // hold is the owner's business, and a run that cannot afford a step says so
+    // at the gate with a message naming the shortfall.
+    console.log(`  ${label}: the supplied account holds ${JSON.stringify(bj)} — nothing was written to it`);
+    return;
+  }
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/credits?on_conflict=user_id`, {
+    method: "POST",
+    headers: svc({ Prefer: "resolution=merge-duplicates,return=representation" }),
+    body: JSON.stringify([{ user_id: userId, balance: to }]),
   });
-  const made = await mk.json().catch(() => ({}));
-  userId = made && made.id;
-  ok("created a throwaway user", !!userId, JSON.stringify(made));
-  if (!userId) throw new Error("cannot continue without a user");
+  const j = await r.json().catch(() => ({}));
+  // Asserted, not fired and forgotten. A top-up that silently did nothing looks
+  // exactly like the 402 it exists to prevent, and the next person reads a
+  // column of red lines about money and goes looking in the wrong file.
+  ok(`${label} — ${to} credits`,
+    r.ok && Array.isArray(j) && Number(j[0] && j[0].balance) === to,
+    r.status + " " + JSON.stringify(j).slice(0, 200));
+}
+
+try {
+  // --- the account this run builds as ------------------------------------
+  if (useSupplied) {
+    console.log(`running as the supplied account ${SUPPLIED_EMAIL} — no user is created and none is deleted`);
+  } else {
+    const mk = await fetch(`${SUPABASE_URL}/auth/v1/admin/users`, {
+      method: "POST", headers: svc(),
+      body: JSON.stringify({ email, password, email_confirm: true }),
+    });
+    const made = await mk.json().catch(() => ({}));
+    userId = made && made.id;
+    createdUser = !!userId;
+    ok("created a throwaway user", !!userId, JSON.stringify(made));
+    if (!userId) throw new Error("cannot continue without a user");
+  }
 
   const si = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
     method: "POST", headers: { apikey: ANON, "content-type": "application/json" },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({
+      email: useSupplied ? SUPPLIED_EMAIL : email,
+      password: useSupplied ? SUPPLIED_PASSWORD : password,
+    }),
   });
   const sess = await si.json().catch(() => ({}));
   jwt = sess && sess.access_token;
+  if (useSupplied) userId = (sess && sess.user && sess.user.id) || null;
   ok("signed in and got a session", !!jwt, JSON.stringify(sess).slice(0, 200));
   if (!jwt) throw new Error("cannot continue without a token");
 
@@ -124,19 +191,11 @@ try {
   // A direct ledger write, not `add_credits`: that RPC is mint-key gated and
   // writes a `purchases` row, which would make the account read as having paid
   // and quietly change what is under test — watermarks, storage tier, is_paid().
+  //
+  // NEVER FOR A SUPPLIED ACCOUNT — `fundAccount` refuses, and the refusal lives
+  // there rather than here so both top-ups in this run obey one rule.
   const FIRST_BUILD_CREDITS = 40;
-  const fund = await fetch(`${SUPABASE_URL}/rest/v1/credits?on_conflict=user_id`, {
-    method: "POST",
-    headers: svc({ Prefer: "resolution=merge-duplicates,return=representation" }),
-    body: JSON.stringify([{ user_id: userId, balance: FIRST_BUILD_CREDITS }]),
-  });
-  const fj = await fund.json().catch(() => ({}));
-  // Asserted, not fired and forgotten. A top-up that silently did nothing looks
-  // exactly like the 402 it exists to prevent, and the next person reads a
-  // column of red lines about money and goes looking in the wrong file.
-  ok(`funded the first build with ${FIRST_BUILD_CREDITS} credits`,
-    fund.ok && Array.isArray(fj) && Number(fj[0] && fj[0].balance) === FIRST_BUILD_CREDITS,
-    fund.status + " " + JSON.stringify(fj).slice(0, 200));
+  await fundAccount(FIRST_BUILD_CREDITS, "funded the first build");
 
   // --- does the builder still ask the right questions? ----------------------
   //
@@ -206,7 +265,23 @@ try {
   // 2026-07-28 against `sharp-fade-barbershop`. A test must not depend on a
   // global namespace it does not control.
   const runSlug = "smoke-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 7);
-  console.log("posting a real build…", runSlug);
+
+  // WHAT THE ACCOUNT HOLDS IMMEDIATELY BEFORE THE BUILD — read HERE, not at
+  // sign-in, and the position is the whole assertion.
+  //
+  // The two routing calls above cost a credit each, so a reading taken before
+  // them falls whether or not the build charges anything: "the balance went
+  // down" would then be true of a run that billed the build at zero, which is
+  // the vacuous assertion this file keeps recording. Taken here, the only thing
+  // between the two readings is the build.
+  const pre = await fetch(`${BASE}/api/credits`, { headers: { Authorization: `Bearer ${jwt}` } });
+  const pj = await pre.json().catch(() => ({}));
+  const startBalance = typeof pj.balance === "number" ? pj.balance : null;
+  // Asserted, because the charge check below compares against this number and a
+  // reading that never happened makes it meaningless rather than false.
+  ok("read the balance the build starts from", typeof startBalance === "number", JSON.stringify(pj));
+
+  console.log("posting a real build…", runSlug, `(balance ${startBalance})`);
   const r = await fetch(`${BASE}/api/site/react-build`, {
     method: "POST",
     headers: { Authorization: `Bearer ${jwt}`, "content-type": "application/json" },
@@ -922,14 +997,17 @@ try {
   // --- credits were actually charged --------------------------------------
   const bal = await fetch(`${BASE}/api/credits`, { headers: { Authorization: `Bearer ${jwt}` } });
   const bd = await bal.json().catch(() => ({}));
-  // AGAINST WHAT THE ACCOUNT WAS FUNDED WITH, not the literal 20 this used to
-  // compare to. That number was the free grant, and the moment the first build
-  // is funded to 40 the old check reads "22 < 20" and reports an unbilled build
-  // on a run that was billed perfectly — a guard failing on a constant it no
-  // longer describes, which is this repo's most-repeated own-goal.
+  // AGAINST WHAT THIS ACCOUNT HELD BEFORE THE BUILD — measured, not a constant.
+  //
+  // It compared to the literal 20 (the free grant), which broke the moment the
+  // first build was funded to 40: "22 < 20" reported an unbilled build on a run
+  // that billed perfectly. Comparing to `FIRST_BUILD_CREDITS` fixed that and is
+  // still a constant, so it says nothing about a SUPPLIED account, whose balance
+  // is whatever the owner has. A before/after reading depends on no number at
+  // all and is the thing the assertion is actually about.
   ok("caller was charged for the build",
-    typeof bd.balance === "number" && bd.balance < FIRST_BUILD_CREDITS,
-    `balance ${JSON.stringify(bd)} vs funded ${FIRST_BUILD_CREDITS}`);
+    typeof bd.balance === "number" && typeof startBalance === "number" && bd.balance < startBalance,
+    `balance ${JSON.stringify(bd)} vs ${startBalance} before the build`);
 
   // --- nothing is reachable without a session ------------------------------
   //
@@ -1031,19 +1109,12 @@ try {
     // secret this workflow does not carry) and writes a `purchases` row, which
     // would make the throwaway account read as having paid and quietly change
     // what is under test — watermarks, storage tier, `is_paid()`.
+    //
+    // AND IT SETS THE BALANCE RATHER THAN ADDING TO IT, which is why it goes
+    // through `fundAccount`: against a real account holding more than this, the
+    // write is a deduction. That refusal is one function for both top-ups.
     const TOPUP = 60;
-    const tu = await fetch(`${SUPABASE_URL}/rest/v1/credits?on_conflict=user_id`, {
-      method: "POST",
-      headers: svc({ Prefer: "resolution=merge-duplicates,return=representation" }),
-      body: JSON.stringify([{ user_id: userId, balance: TOPUP }]),
-    });
-    const tj = await tu.json().catch(() => ({}));
-    // Asserted rather than fired and forgotten: a top-up that silently did
-    // nothing looks exactly like the 402 it is here to prevent, and the next
-    // person reads four red lines and goes looking in the wrong file.
-    ok(`topped the account up to ${TOPUP} credits for the revise`,
-      tu.ok && Array.isArray(tj) && Number(tj[0] && tj[0].balance) === TOPUP,
-      tu.status + " " + JSON.stringify(tj).slice(0, 200));
+    await fundAccount(TOPUP, "topped the account up for the revise");
 
     // ── THE PUBLISH GAP ──────────────────────────────────────────────────
     //
@@ -1347,12 +1418,35 @@ try {
   if (slug) {
     try { await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(slug)}`, { method: "DELETE", headers: svc() }); } catch {}
   }
-  if (userId) {
+  // THE DESTRUCTIVE HALF, AND IT RUNS ONLY FOR A USER THIS RUN CREATED.
+  //
+  // `DELETE /auth/v1/admin/users/<id>` cascades — chats, credits, purchases,
+  // storage rows, every `user_site_project` record. Pointed at the account the
+  // owner asked this run to use, that is not a cleanup, it is the account gone.
+  //
+  // THE GATE IS `createdUser`, WHICH IS SET IN EXACTLY ONE PLACE: the admin
+  // create above, from the id it returned. It is never read from configuration,
+  // so "did this run make this user" cannot be answered by anything except
+  // having made them — a mis-set secret can leave the run signed in as a real
+  // account, and none of that reaches here.
+  //
+  // The `user_site_project` wipe is on the SAME gate, and not merely out of
+  // caution: that table is the only record of an account's Neon projects, and
+  // deleting the row does not delete the projects. It makes every one of them
+  // invisible and billing forever — the exact leak `site-teardown.mjs` exists
+  // to stop, arriving through a test. This run's own project is dropped by slug
+  // a few lines up, which is what makes leaving the table alone safe.
+  //
+  // Asserted structurally in `test/build-smoke-safety.test.mjs` rather than
+  // remembered, because a gate somebody has to remember is one somebody drops.
+  if (userId && createdUser) {
     try {
       await fetch(`${SUPABASE_URL}/rest/v1/user_site_project?uid=eq.${userId}`, { method: "DELETE", headers: svc() });
       await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${userId}`, { method: "DELETE", headers: svc() });
       console.log("  removed the throwaway user");
     } catch { console.log("  WARNING: could not remove user " + userId); }
+  } else if (userId) {
+    console.log("  left the supplied account alone — no user delete, no project-record wipe");
   }
 }
 
