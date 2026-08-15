@@ -443,7 +443,11 @@ test("the restore route rolls back the version the CALLER named", () => {
   // Worth having: a mutant hardcoding an id survived the entire suite, and an
   // id that ignores the request body is a Restore button that always restores
   // the same build.
-  const i = worker.indexOf("rollbackVersion(versionDeps(env)");
+  // ANCHORED ON THE CALL, NOT ON THE DEPS IT IS HANDED. This named
+  // `rollbackVersion(versionDeps(env)` exactly, and went red on a correct change
+  // the moment a rollback started getting the sweep — a test about word order,
+  // which is this repo's most repeated own-goal.
+  const i = worker.indexOf("const rb = await rollbackVersion(");
   assert.ok(i > 0, "the restore route is gone — re-point this guard");
   const call = worker.slice(i, worker.indexOf(")", worker.indexOf("{", i)) + 1);
   assert.match(call, /slug:\s*ownerSlug/, "the slug comes from the authorised route, never the body");
@@ -460,7 +464,8 @@ test("the restore route's id is shape-checked exactly once", () => {
   const mod = fs.readFileSync(new URL("../site-versions.mjs", import.meta.url), "utf8");
   assert.match(mod, /export async function rollbackVersion[\s\S]{0,200}if \(!isVersionId\(id\)\)/,
     "the module must refuse a bad id before it touches a key");
-  const i = worker.indexOf("rollbackVersion(versionDeps(env)");
+  const i = worker.indexOf("const rb = await rollbackVersion(");
+  assert.ok(i > 0, "the restore route is gone — re-point this guard");
   const route = worker.slice(Math.max(0, i - 1200), i);
   assert.ok(!/if \(!isVersionId\(/.test(route),
     "a second copy of the check drifts from the first — the module is the one place");

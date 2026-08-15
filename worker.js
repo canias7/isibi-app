@@ -65,6 +65,7 @@ import { resolveAccess, accessLabel, ACCESS_PRESETS, unguardedBookings } from ".
 const DISPLAY_PAIR = ACCESS_PRESETS.display;
 import { mergeAddonPages, mergeAddonSchema, unlinkedPages, routeOf, fileForRoute } from "./builder/site-addon.mjs";
 import { archiveVersion, listVersions, rollbackVersion, deleteAllVersions, versionId, versionLabel } from "./site-versions.mjs";
+import { sweepAfterPublish, P_ORPHANS } from "./site-sweep.mjs";
 import { takeOffline, putBackOnline } from "./site-live.mjs";
 import { readLinkedPages, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, attachments, MAX_QUERIES } from "./builder/site-context.mjs";
 import { routeMessage, clarifiedBrief } from "./builder/site-ask.mjs";
@@ -5929,21 +5930,24 @@ async function writeGameDistToR2(env, slug, dist) {
   }
 }
 
-// Every object a site has published. R2's list() returns at most 1000 keys per
-// call, so this follows the cursor rather than stopping at the first page — a
-// React dist is only a handful of objects, but a half-deleted site serves a
-// shell whose assets 404, which is worse than not deleting at all.
-async function deleteSitePrefix(env, slug, keep) {
-  const spare = keep instanceof Set ? keep : null;
+// EVERY object a site has published — the FULL wipe, for taking a site down.
+//
+// It used to take a `keep` set and double as the publish sweep, and that half
+// moved to `site-sweep.mjs` when a publish stopped deleting the previous build
+// immediately. The parameter is gone rather than left unused: both remaining
+// callers are total wipes, so a `keep` nothing passes reads as a protection this
+// function offers and does not.
+//
+// R2's list() returns at most 1000 keys per call, so this follows the cursor
+// rather than stopping at the first page — a React dist is only a handful of
+// objects, but a half-deleted site serves a shell whose assets 404, which is
+// worse than not deleting at all.
+async function deleteSitePrefix(env, slug) {
   const prefix = "sites/" + slug + "/";
   let cursor, removed = 0;
   for (;;) {
     const page = await env.SITES_BUCKET.list({ prefix, cursor });
     for (const o of (page.objects || [])) {
-      // `keep` is what the build just wrote. Sweeping everything else is how a
-      // republish drops the previous build's hashed assets without there ever
-      // being a moment when the site is not fully published.
-      if (spare && spare.has(o.key.slice(prefix.length))) continue;
       await env.SITES_BUCKET.delete(o.key); removed++;
     }
     // Stopping when there is no cursor as well as when the page is not truncated
@@ -6021,6 +6025,33 @@ function versionDeps(env) {
     put: (key, text, ct) => env.SITES_BUCKET.put(key, text, { httpMetadata: { contentType: ct } }),
     read: async (key) => { const o = await env.SITES_BUCKET.get(key); return o ? await o.text() : null; },
   };
+}
+
+/**
+ * The four R2 calls `site-sweep.mjs` needs, built on `versionDeps` rather than
+ * beside it — two listings of one bucket is two things that can disagree about
+ * whether a page cursor was followed, and the sweep's correctness rests on
+ * seeing EVERY object under the prefix.
+ */
+function sweepDeps(env) {
+  const v = versionDeps(env);
+  return {
+    list: v.list,
+    read: v.read,
+    remove: v.remove,
+    write: (key, text) => env.SITES_BUCKET.put(key, text, { httpMetadata: { contentType: "application/json" } }),
+    now: () => new Date().toISOString(),
+  };
+}
+
+/**
+ * `versionDeps` plus the sweep, so a ROLLBACK gets the same one-publish grace an
+ * ordinary publish does. Wired here rather than inside `site-versions.mjs` so
+ * that module stays driveable with nothing but a fake store.
+ */
+function versionDepsWithSweep(env) {
+  const v = versionDeps(env);
+  return { ...v, sweep: ({ slug, wrote }) => sweepAfterPublish(sweepDeps(env), { slug, wrote }) };
 }
 
 /**
@@ -6169,10 +6200,22 @@ async function writeSiteDistToR2(env, slug, dist, meta, pages) {
     await env.SITES_BUCKET.put("sites/" + slug + "/" + safeRel, bodyOut, { httpMetadata: { contentType: ct } });
     wrote.add(safeRel);
   }
-  // AND ONLY NOW the previous build's leftovers. Best-effort: a failed sweep
-  // costs storage, while a failed write would cost the site — so this can never
-  // be allowed to throw past a publish that has already succeeded.
-  try { await deleteSitePrefix(env, slug, wrote); } catch (e) { console.error("sweep failed:", slug, e && e.message); }
+  // AND ONLY NOW the previous build's leftovers — DEFERRED ONE PUBLISH.
+  //
+  // Write-then-sweep fixed the click-through 404 for a visitor ARRIVING during a
+  // republish and not for one already there: a generated site is code-split one
+  // chunk per route with content-hashed names, so somebody who had the page open
+  // still holds the old document and clicking to a route they have not visited
+  // asks for a chunk this sweep had just deleted. On every republish — every
+  // revise, text fix, colour change and picture swap.
+  //
+  // `sweepAfterPublish` deletes what the LAST publish marked and marks what this
+  // one orphaned, so a chunk outlives the build that replaced it by one publish.
+  // Self-healing: the deferred list is recomputed from a live listing every time,
+  // so a lost marker costs one round of cleanup and never a leak. Best-effort for
+  // the reason the old call was: the site is already published by the time this
+  // runs, and a failed sweep must never cost the response.
+  try { await sweepAfterPublish(sweepDeps(env), { slug, wrote }); } catch (e) { console.error("sweep failed:", slug, e && e.message); }
   return wrote.size;
 }
 
@@ -6773,6 +6816,14 @@ async function deleteSiteFor(env, uid, dslug) {
     try {
       if (env.SITES_BUCKET) versionsRemoved = await deleteAllVersions(versionDeps(env), { slug: dslug });
     } catch (e) { console.error("site versions delete failed:", dslug, e && e.message); }
+
+    // AND THE ORPHAN MARKER, which lives OUTSIDE `sites/<slug>/` precisely so the
+    // served prefix cannot expose it — and therefore is not touched by the sweep
+    // above. One tiny object, but it is keyed by slug and nothing else would ever
+    // find it again: the same class as the Neon projects and the version archive,
+    // and the reason both of those have their own line here.
+    try { if (env.SITES_BUCKET) await env.SITES_BUCKET.delete(P_ORPHANS(dslug)); }
+    catch (e) { console.error("orphan marker delete failed:", dslug, e && e.message); }
 
     // THE NIGHTLY BACKUPS GO WITH THE SITE. They are a second copy of the
     // customers' own data, and a deleted site keeping one in R2 forever is a
@@ -12330,7 +12381,7 @@ async function handleRequest(request, env, ctx) {
               // here changed nothing observable, which is what an inert guard
               // looks like. `isVersionId` is still imported and used by the
               // module; `id` reaches it as whatever the caller sent.
-              const rb = await rollbackVersion(versionDeps(env), { slug: ownerSlug, id: vb && vb.id });
+              const rb = await rollbackVersion(versionDepsWithSweep(env), { slug: ownerSlug, id: vb && vb.id });
               if (!rb.ok) return Response.json({ ok: false, error: rb.error || "rollback failed" }, { status: rb.status || 500 });
               return Response.json({ ok: true, id: rb.id, files: rb.files, swept: rb.swept, url: "/s/" + ownerSlug + "/" });
             }
@@ -12673,7 +12724,7 @@ async function handleRequest(request, env, ctx) {
                 return !!(src && src.length);
               },
               wipe: ({ slug }) => deleteSitePrefix(env, slug),
-              rollback: ({ slug, id }) => rollbackVersion(versionDeps(env), { slug, id }),
+              rollback: ({ slug, id }) => rollbackVersion(versionDepsWithSweep(env), { slug, id }),
               recompile: async ({ slug }) => {
                 const src = await loadSiteSource(env, slug).catch(() => null);
                 if (!src || !src.length) return { ok: false };

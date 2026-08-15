@@ -162,6 +162,27 @@ export async function rollbackVersion(deps, { slug, id } = {}) {
   for (const rel of ordered) await deps.copy(src + rel, P_SITE(slug) + rel);
 
   const keep = new Set(names);
+
+  // THE SAME ONE-PUBLISH GRACE THE ORDINARY PUBLISH GETS, when the caller wires
+  // it. A rollback IS a publish — it writes a full dist and orphans whatever the
+  // build it replaced was using — so sweeping immediately here reopens exactly
+  // the in-session 404 `sweepAfterPublish` closes, on the one action somebody
+  // takes when their site is already visibly wrong.
+  //
+  // AND IT IS THE CASE THAT MAKES THE SWEEP'S SAFETY RULE LOAD-BEARING: a
+  // rollback republishes an OLD build, so keys the previous publish marked as
+  // orphaned are live again. "Never delete what this publish just wrote" is what
+  // stops the marker deleting the site it has just restored.
+  //
+  // Injected rather than imported so this module stays driveable with nothing but
+  // a fake store, and OPTIONAL so a caller that has not wired it behaves exactly
+  // as this did before — which is what keeps the fallback below honest rather
+  // than dead.
+  if (typeof deps.sweep === "function") {
+    const s = await deps.sweep({ slug, wrote: keep });
+    return { ok: true, id, files: names.length, swept: (s && s.removed) || 0, deferred: (s && s.deferred) || 0 };
+  }
+
   let swept = 0;
   for (const o of (await deps.list(P_SITE(slug))) || []) {
     const rel = String((o && o.key) || "").slice(P_SITE(slug).length);
