@@ -45,6 +45,28 @@ on:
         description: "Samples per scenario (1-10)"
         required: false
         default: "1"
+      # WHICH MODEL DESIGNS THE SCHEMA, so "would Opus do better?" is a button
+      # rather than an argument.
+      #
+      # The question is live: the designer omits `seed` — a field its own tool
+      # marks required — on a minority of samples, and every other measured
+      # property sits at ceiling. `strict: true` cannot enforce it (the API
+      # rejects the dynamic `seed` map), so the model itself is the remaining
+      # lever.
+      #
+      # DISPATCH ONLY, never on push. A permanent second model doubles the cost
+      # of every designer-touching commit to answer a one-off question, and this
+      # eval's whole job is to be cheap enough to run when something changes.
+      #
+      # BEFORE SPENDING IT, READ THE ECONOMICS in CLAUDE.md: a cold Opus schema
+      # call is ~1.67x a Sonnet one, so a perfect result still costs ~8 extra
+      # credits on EVERY build to avoid a ~0.4-credit Haiku top-up on a minority
+      # of them. A good result here is an argument for the picker, not for the
+      # default.
+      model:
+        description: "Model id for the designer (default claude-sonnet-5)"
+        required: false
+        default: "claude-sonnet-5"
 
 permissions:
   contents: write
@@ -78,6 +100,9 @@ jobs:
           # against 0.18 for four, so the price of an answer is nothing and the
           # price of not having one was a whole exchange of guessing.
           EVAL_SAMPLES: ${{ github.event.inputs.samples || '5' }}
+          # Empty on a push, so an ordinary run is byte-identical to before this
+          # existed and the script's own `claude-sonnet-5` default decides.
+          EVAL_MODEL: ${{ github.event.inputs.model }}
         run: node test/integration/schema-gen-eval.mjs
 
       - name: Commit the report
