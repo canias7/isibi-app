@@ -452,6 +452,40 @@ test("…and worker.js asks that question rather than keeping its own copy", () 
   assert.match(w, /isPublishedSiteRequest/, "the helper is not imported into worker.js");
 });
 
+test("the edge-injected analytics beacon is allowed, both halves of it", () => {
+  // CLOUDFLARE INJECTS THIS AND WE CANNOT STOP IT. Measured live 2026-08-15 on
+  // a real customer site: `forno-and-co.gofarther.app` serves a
+  // `static.cloudflareinsights.com/beacon.min.js` tag with a site token,
+  // inserted at the edge AFTER the Worker responds, while `gofarther.dev`
+  // serves none — so it is a property of the `.app` zone, not of us.
+  //
+  // AND THERE IS NO SETTING TO TURN IT OFF: the zone's Web Analytics page reads
+  // "No data available — Enable RUM for free", i.e. it offers to turn RUM ON.
+  // Refusing it in the CSP therefore bought nothing except a console error on
+  // every page view of every published site.
+  const w = read("worker.js");
+  const at = w.indexOf('h.set("Content-Security-Policy", [\n      "default-src \'self\'"');
+  assert.ok(at > 0, "the published-site CSP block moved — rescope this");
+  const block = w.slice(at, w.indexOf('"base-uri', at));
+  assert.ok(block.length > 200, "the CSP window is empty — rescope this");
+
+  // BOTH HOSTS, and they are DIFFERENT hosts. The beacon loads from
+  // `static.cloudflareinsights.com` and POSTs its measurements to
+  // `cloudflareinsights.com` with no `static.` — so allowing only the script
+  // moves the error instead of removing it: the load succeeds and the send is
+  // refused. Asserted per directive, because one regex over the whole block
+  // passes when both names land on the same line.
+  const scriptSrc = (block.match(/"script-src[^"]*"/) || [""])[0];
+  const connectSrc = (block.match(/"connect-src[^"]*"/) || [""])[0];
+  assert.match(scriptSrc, /https:\/\/static\.cloudflareinsights\.com/,
+    "the beacon SCRIPT is refused again — a console error on every page view of every published site");
+  assert.match(connectSrc, /https:\/\/cloudflareinsights\.com/,
+    "the beacon's POST target is refused — the script loads and the send fails, which is the same error one step later");
+  // …and the send target is not the static host wearing the wrong name.
+  assert.doesNotMatch(connectSrc, /static\.cloudflareinsights/,
+    "connect-src names the CDN host, not the host the beacon actually posts to");
+});
+
 test("a customer's site can be framed by the builder and by nobody else", () => {
   // `frame-ancestors 'self'` was written when a site was same-origin with the
   // workspace framing it. A site is on its own registrable domain now, so

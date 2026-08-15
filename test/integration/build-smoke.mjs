@@ -746,27 +746,35 @@ try {
       const mounted = await pg.evaluate(() => (document.querySelector("#root")?.childElementCount || 0) > 0);
       ok("the app mounted — React rendered into #root", mounted);
       ok("nothing threw during render", pageErrors.length === 0, pageErrors.join(" | "));
-      // THE SITE'S OWN ERRORS, separated from one the edge injects.
+      // THE SITE'S OWN ERRORS, separated from the one the edge injects.
       //
-      // Cloudflare adds its Web Analytics beacon to HTML on a proxied zone — for
-      // browser-like requests only, which is why curl does not show it — and the
-      // published site's CSP is `script-src 'self'`, so the browser refuses it and
-      // logs a violation on EVERY page view of EVERY customer site. It is not the
-      // generated page's doing and no change to this repo can stop it; the switch
-      // is a Cloudflare zone setting.
+      // Cloudflare adds its beacon to HTML on this zone — for browser-like
+      // requests only, which is why curl with a default Accept does not show
+      // it — and it is inserted AFTER this Worker responds, so there is nothing
+      // to strip. Refusing it in the CSP cost a console error on EVERY page
+      // view of EVERY customer site, which is how this was found.
       //
-      // Reported as its own loud line rather than folded in here, both ways round:
-      // failing the run on it permanently would train everybody to ignore a red
-      // `build smoke`, and swallowing it inside "no console errors" would let a
-      // real page error hide behind a known one.
+      // TWO CLAIMS THAT USED TO BE HERE WERE BOTH FALSE, and they are the
+      // reason it sat unfixed: "no change to this repo can stop it" (the CSP
+      // stops it) and "the switch is a Cloudflare zone setting" (there is no
+      // such switch — the zone's Web Analytics page offers to turn RUM ON, so
+      // nothing is configured and nothing can be un-configured). Measured
+      // 2026-08-15 against the live dashboard and a real customer site.
+      //
+      // ASSERTED NOW RATHER THAN WARNED ABOUT. While it was unfixable a red run
+      // would have trained everybody to ignore `build smoke`; now that the CSP
+      // names both hosts, a violation means either the allow-list regressed or
+      // Cloudflare moved the beacon — and both of those put the error back on
+      // every published site, which is exactly what this run exists to catch.
+      // Kept SEPARATE from the site's own errors either way, so a real page
+      // error can never hide behind a known one.
       const edgeInjected = consoleErrors.filter((e) => /cloudflareinsights\.com/.test(e));
       const ownErrors = consoleErrors.filter((e) => !/cloudflareinsights\.com/.test(e));
       ok("no console errors from the site's own code", ownErrors.length === 0, ownErrors.join(" | "));
-      if (edgeInjected.length) {
-        console.log("   WARNING: Cloudflare injects its analytics beacon on this zone and the site's CSP");
-        console.log("            refuses it — a console error on every page view, and no analytics either.");
-        console.log("            Turn off Web Analytics auto-injection for gofarther.app, or allow the host.");
-      }
+      ok("the edge-injected beacon is not refused by the site's CSP",
+        edgeInjected.length === 0,
+        "the CSP allow-list no longer covers the beacon — check whether Cloudflare moved the host: "
+          + edgeInjected.join(" | "));
 
       const text = (await pg.evaluate(() => document.body.innerText || "")).trim();
       ok("the page rendered real content, not an empty shell", text.length > 60, `${text.length} chars: ${text.slice(0, 120)}`);

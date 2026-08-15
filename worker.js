@@ -1116,11 +1116,38 @@ function harden(res, request) {
   if (publishedSite) {
     h.set("Content-Security-Policy", [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline'",
+      // CLOUDFLARE INJECTS ITS OWN BEACON ON THIS ZONE AND WE CANNOT STOP IT.
+      //
+      // Measured live 2026-08-15 on a real customer site: `forno-and-co` serves
+      // `<script src="https://static.cloudflareinsights.com/beacon.min.js/…">`
+      // with a site token, injected at the edge AFTER this Worker responds — so
+      // there is nothing here to strip. `gofarther.dev` serves none, which is
+      // what proves it is a property of the `.app` zone rather than of us.
+      //
+      // THE DASHBOARD HAS NO SWITCH FOR IT. The zone's Web Analytics page reads
+      // "No data available — Enable RUM for free", i.e. it is offering to turn
+      // RUM ON; it is not on. So the beacon is not something anybody configured
+      // and not something anybody can un-configure, and refusing it bought
+      // exactly one thing: a console error on EVERY page view of EVERY
+      // published site, found by `build smoke`'s browser step.
+      //
+      // NAMING IT IS THEREFORE NOT A DECISION ABOUT A CUSTOMER'S DATA. With RUM
+      // off nothing is collected either way — the only difference is whether
+      // the browser complains about a script Cloudflare inserts regardless.
+      // Should RUM ever be enabled deliberately, that is the moment to weigh
+      // it, and this line will already be right.
+      //
+      // BOTH DIRECTIVES OR NEITHER. The beacon loads a script and then POSTs
+      // its measurements back to a DIFFERENT host (`cloudflareinsights.com`,
+      // no `static.`), so allowing only the script moves the error rather than
+      // removing it — the load succeeds and the send is refused. Same class as
+      // the map/video `frame-src` fix below, where one of two hosts on the list
+      // would have left `VideoEmbed` rendering nothing.
+      "script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com",
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' https://fonts.gstatic.com https://fonts.googleapis.com",
       "img-src 'self' data: blob: https://*.supabase.co",
-      "connect-src 'self'",
+      "connect-src 'self' https://cloudflareinsights.com",
       // Live map embeds (OpenStreetMap / Google Maps) — no API key, real interactive
       // maps. Without this, default-src 'self' would block the map iframe on publish.
       // Maps AND video. `VideoEmbed` is in the generator's component list and has
