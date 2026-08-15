@@ -101,7 +101,45 @@ export const CHECKS = {
     if (!display.length) return { ok: null, why: "no display table to seed" };
     const seed = (out && out.seed) || {};
     const empty = display.filter((t) => !Array.isArray(seed[t.name]) || !seed[t.name].length);
-    return { ok: !empty.length, why: empty.length ? "unseeded: " + empty.map((t) => t.name).join(",") : "" };
+    if (!empty.length) return { ok: true, why: "" };
+
+    // WHICH SILENT SHAPE, because "unseeded: a,b" is true of five different
+    // answers that need different fixes — and this harness has already paid
+    // for that once, in `whyNoTables` above, for exactly the same reason.
+    //
+    // Measured 2026-08-15: the café brief came back unseeded on 3 of 5
+    // samples, and every one of them had declared TWO display tables and
+    // seeded NEITHER — which is not "forgot the second", it is "produced no
+    // seed at all". That distinction decides whether the fix is a prompt
+    // change or a key mismatch, and the report could not make it.
+    //
+    // The field's own tool description names three of these shapes (absent,
+    // `{}`, an empty array). The one it does NOT name is the interesting one:
+    // a `seed` full of rows under keys that are not table names, which reads
+    // in the report as identical to not answering and is a completely
+    // different bug. So the KEYS ARE PRINTED whenever there are any.
+    const raw = out && out.seed;
+    let shape;
+    if (raw === undefined) shape = "no `seed` key at all";
+    else if (raw === null) shape = "`seed` was null";
+    else if (Array.isArray(raw)) shape = "`seed` came back as a LIST, not an object keyed by table";
+    else if (typeof raw !== "object") shape = "`seed` came back as " + typeof raw;
+    else {
+      const keys = Object.keys(raw);
+      if (!keys.length) shape = "`seed: {}` — the key was there and empty";
+      else {
+        // Named apart, because "the key is missing" and "the key is there
+        // holding nothing" are a prompt problem and a truncation problem.
+        const named = empty.map((t) => {
+          const v = raw[t.name];
+          if (v === undefined) return t.name + "=missing";
+          if (Array.isArray(v)) return t.name + "=[] empty";
+          return t.name + "=" + (v === null ? "null" : typeof v);
+        });
+        shape = named.join(" ") + " · seed keys present: " + keys.join(",");
+      }
+    }
+    return { ok: false, why: "unseeded: " + empty.map((t) => t.name).join(",") + " — " + shape };
   },
   slotGuarded(out, spec) {
     const bad = unguardedBookings(spec);

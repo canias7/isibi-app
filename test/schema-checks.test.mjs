@@ -37,6 +37,47 @@ test("seeded — catches the failure it was written for", () => {
   }
 });
 
+test("seeded — the report names WHICH silent shape it was", () => {
+  // "unseeded: a,b" is true of five different answers that need different
+  // fixes, and the report could not tell them apart. Measured 2026-08-15: the
+  // café brief failed on 3 of 5 samples, every failure had TWO display tables
+  // and seeded NEITHER, and whether that is a prompt problem or a key mismatch
+  // could not be established from the report at any price.
+  //
+  // The rule this enforces is the one the harness already applies to
+  // `whyNoTables` one function up: a failure that cannot name itself sends the
+  // next reader looking in the wrong file.
+  const two = {
+    tables: [
+      { name: "dishes", access: "display", columns: col("name", "price") },
+      { name: "opening_hours", access: "display", columns: col("day", "hours") },
+    ],
+  };
+  const shapes = [
+    [undefined, /no `seed` key at all/],
+    [null, /`seed` was null/],
+    [[], /came back as a LIST/],
+    ["dishes", /came back as string/],
+    [{}, /`seed: \{\}`/],
+    [{ dishes: [{ name: "Soup" }] }, /opening_hours=missing/],
+    [{ dishes: [], opening_hours: [] }, /dishes=\[\] empty/],
+  ];
+  for (const [seed, want] of shapes) {
+    const r = score("seeded", { ...two, seed });
+    assert.equal(r.ok, false, "shape passed that should not: " + JSON.stringify(seed));
+    assert.match(r.why, want, "the report cannot name the shape " + JSON.stringify(seed));
+  }
+
+  // THE SHAPE THE TOOL DESCRIPTION DOES NOT NAME, and the one that would change
+  // the diagnosis completely: rows really were written, under keys that are not
+  // table names. Indistinguishable from "did not answer" before this, and a
+  // completely different bug — so the keys it DID use are printed.
+  const wrongKeys = score("seeded", { ...two, seed: { menu: [{ name: "Soup" }], hours: [{ day: "Mon" }] } });
+  assert.equal(wrongKeys.ok, false);
+  assert.match(wrongKeys.why, /seed keys present: menu,hours/,
+    "a seed full of rows under the wrong keys reads as an empty answer");
+});
+
 test("seeded — skips rather than failing when there is nothing to seed", () => {
   // A site with no display table cannot fail this, and reporting it as a failure
   // would make every contact-form-only brief look broken. `null` is the harness's
