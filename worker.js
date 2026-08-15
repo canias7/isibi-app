@@ -10804,6 +10804,14 @@ async function handleRequest(request, env, ctx) {
         // is still empty in. Undefined when there were no gaps, so a build the
         // designer got right answers exactly as it did before.
         seedTopUp: seedTopUp || undefined,
+        // WHAT THE TOP-UP COST, itemised. `schemaCost` folds it in and
+        // `schemaCredits` does not, which is the whole reason those two
+        // legitimately diverge on a top-up build — so without this the response
+        // states a difference and cannot account for it, and an operator has to
+        // reconstruct the number from the trace's token counts. A second model
+        // call is a second bill; this is the same reasoning that keeps
+        // `pagesUsage` and `schemaUsage` apart.
+        seedUsage: seedUsage || undefined,
         // A BOOKING TABLE ANYONE CAN DOUBLE-BOOK. Not fatal and deliberately
         // not a refusal: the site works, and for a business that genuinely
         // takes unlimited sign-ups this is the right schema. It is here so the

@@ -160,6 +160,13 @@ test("the schema-cost comment no longer claims the three fields agree", () => {
   assert.ok(note.length > 400, "the schema-cost note is gone — rescope this");
   assert.match(note, /seedUsage/, "the note does not mention the seed call, which is what makes them differ");
   assert.doesNotMatch(note, /They agree today/, "the stale claim is back");
+
+  // …AND THE DIFFERENCE IS ACCOUNTABLE. Explaining the divergence in a comment
+  // is only half of it: the response states a difference between two numbers and
+  // has to carry the third that accounts for it, or an operator reconstructs the
+  // seed call's cost from the trace's token counts by hand.
+  assert.match(seg, /seedUsage: seedUsage \|\| undefined/,
+    "the top-up's cost is not itemised, so the schemaCost/schemaCredits gap cannot be accounted for");
 });
 
 test("the photograph clamps are told apart at the point they are applied", () => {
