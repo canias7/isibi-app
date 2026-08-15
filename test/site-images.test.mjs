@@ -366,6 +366,52 @@ test("the failure sentence says the site is otherwise fine", () => {
   assert.match(imageNote({ made: 0, planned: 1, budget: 1 }), /the site is otherwise fine/);
 });
 
+test("FOUR causes, four sentences — none of them wears another's", () => {
+  // `imageNote` is the ONE field built to separate the causes of an identical
+  // placeholder, and two pairs of them were collapsed.
+  //
+  // A FULL IMAGE LIBRARY IS NOT A SHORTAGE OF CREDITS. Both clamp `budget` to
+  // zero, and the credit sentence was the only answer for both — so an owner at
+  // the 200-file cap was told to buy credits that cannot possibly help, on the
+  // one build where the fix is to delete a few uploads.
+  //
+  // AND NOBODY DESCRIBING THE PICTURES IS NOT US FAILING TO MAKE THEM. A
+  // `@@IMG:@@` token with an empty prompt is DROPPED rather than sent — a
+  // deliberate refusal to pay $0.15 to see what an image model does with
+  // nothing — and the customer was told "couldn't make the photographs", which
+  // blames us for something never attempted and gives them nothing to do.
+  const notes = {
+    broke: imageNote({ made: 0, planned: 3, budget: 0 }),
+    full: imageNote({ made: 0, planned: 3, budget: 0, full: true }),
+    empty: imageNote({ made: 0, planned: 3, budget: 3, empty: 2 }),
+    failed: imageNote({ made: 0, planned: 3, budget: 3, error: "photo 500" }),
+  };
+  assert.match(notes.broke, /Not enough credits/);
+  assert.match(notes.full, /library is full/);
+  assert.match(notes.empty, /weren't described/);
+  assert.match(notes.failed, /Couldn't make the photographs/);
+  assert.equal(new Set(Object.values(notes)).size, 4, "two causes still wear one sentence: " + JSON.stringify(notes));
+  // Each names something the customer can do about it, which is the point of
+  // telling them apart at all.
+  assert.match(notes.full, /delete a few uploads/i);
+  assert.match(notes.empty, /tell me what each one should show/i);
+});
+
+test("a REAL failure keeps its own sentence even when a token was also empty", () => {
+  // The discriminator has to be `error` and not the empty count, or a page that
+  // wrote one described picture and one bare token would report the model's
+  // omission while OUR image call was the thing that failed.
+  assert.match(imageNote({ made: 0, planned: 3, budget: 3, empty: 1, error: "photo 500" }),
+    /Couldn't make the photographs/);
+});
+
+test("an unreadable upload listing keeps the credit sentence, not the library one", () => {
+  // `full` is set by the caller only when the library is REALLY what took the
+  // budget to zero. Saying "your library is full" because we could not look is
+  // an instruction to delete photographs that may not need deleting.
+  assert.match(imageNote({ made: 0, planned: 3, budget: 0, full: false }), /Not enough credits/);
+});
+
 /* ------------------------------------------------------ the rules and lint */
 
 test("the rules point the model at SafeImage for a photograph token", () => {

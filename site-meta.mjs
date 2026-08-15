@@ -211,10 +211,26 @@ export function pageMeta(html, base, { home = false, route } = {}) {
  * A no-op when there is no title element or nothing to say — the same rule as
  * the tags: a page with a plain title is a far smaller problem than a broken one.
  */
+// ONE PATTERN, TWO USES. It was written out twice — once to ask whether there
+// is a title and once to replace it — and while the two literals agree, the
+// presence check below CANNOT change the answer: `String.replace` with no match
+// returns the string unchanged, so both paths give back `src`.
+//
+// Measured, not assumed: a mutation deleting the check survives every
+// behavioural test there is, and none could ever catch it, because nothing
+// observable separates "returned early" from "replaced nothing". Kept rather
+// than deleted — it holds by the two patterns being identical, which is exactly
+// one edit away from being false, and a broader test than replace is how a page
+// would gain a `<title>` somewhere nobody wanted one. Sharing the constant is
+// what makes that guarantee real instead of a coincidence between two literals,
+// and `test/site-meta.test.mjs` holds the sharing STRUCTURALLY for the same
+// reason: it is the only kind of assertion this property admits.
+const TITLE_TAG = /<title[^>]*>[\s\S]*?<\/title\s*>/i;
+
 export function setTitle(html, title) {
   const src = String(html == null ? "" : html);
   const t = String(title == null ? "" : title).replace(/\s+/g, " ").trim().slice(0, 70);
-  if (!t || !/<title[^>]*>[\s\S]*?<\/title\s*>/i.test(src)) return src;
+  if (!t || !TITLE_TAG.test(src)) return src;
   const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   // A FUNCTION REPLACER, never a concatenated string. String.replace treats
   // `$$`, `$&` and `$'` in the replacement as PATTERNS — so a title reading
@@ -223,5 +239,5 @@ export function setTitle(html, title) {
   // name — spliced everything after the old title back into the document,
   // doubling the head (2026-08-13 audit, each verified with this module). A
   // function's return value is inserted VERBATIM, which closes the whole class.
-  return src.replace(/<title[^>]*>[\s\S]*?<\/title\s*>/i, () => "<title>" + esc(t) + "</title>");
+  return src.replace(TITLE_TAG, () => "<title>" + esc(t) + "</title>");
 }

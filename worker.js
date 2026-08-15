@@ -694,10 +694,23 @@ async function collectCredits(authHeader, cost) {
 // EXECUTE is service_role-only and hard-caps the per-call amount, so this can
 // never become a client-reachable mint. Best-effort — a failed reversal is
 // logged nowhere and simply stands as the (tiny) original charge.
+/**
+ * A REVERSAL THAT FAILS IS MONEY THE CUSTOMER KEEPS BEING CHARGED, so it says
+ * so. This swallowed a throw AND ignored a non-ok response, which meant a failed
+ * refund was indistinguishable from a successful one at all thirteen call sites
+ * — the customer is charged up to the full fee more than the response reports,
+ * with nothing anywhere to say it happened.
+ *
+ * Returns whether the credits really went back. Nothing is FAILED over it — a
+ * refund is the recovery path, and turning a failure to refund into a failure of
+ * the whole request would take the customer's site as well as their credits —
+ * but the answer is now available to a caller that wants to report it, and every
+ * caller gets the log for free.
+ */
 async function creditBack(env, userId, amount) {
-  if (!env.SUPABASE_SERVICE_KEY || !userId || !(amount > 0)) return;
+  if (!env.SUPABASE_SERVICE_KEY || !userId || !(amount > 0)) return false;
   try {
-    await fetch(`${SUPABASE_URL}/rest/v1/rpc/credit_back`, {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/credit_back`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -707,7 +720,12 @@ async function creditBack(env, userId, amount) {
       body: JSON.stringify({ target: userId, amount }),
       signal: AbortSignal.timeout(8000),
     });
-  } catch {}
+    // The RPC hard-caps one call at 10 credits, so a caller that has not gone
+    // through `refundCredits` can be refused here — which is exactly the shape
+    // that used to be invisible.
+    if (!r.ok) { console.error("credit_back refused:", r.status, "amount", amount); return false; }
+    return true;
+  } catch (e) { console.error("credit_back failed:", amount, e && e.message); return false; }
 }
 
 /**
@@ -725,11 +743,16 @@ async function creditBack(env, userId, amount) {
  */
 async function refundCredits(env, userId, amount) {
   let left = Math.max(0, Number(amount) || 0);
+  let allBack = true;
   for (let i = 0; i < 5 && left > 0; i++) {
     const chunk = Math.min(10, left);
-    await creditBack(env, userId, chunk);
+    // EVERY CHUNK COUNTS, and a failed one does not stop the rest: a partial
+    // refund is strictly better for the customer than abandoning the remainder
+    // because one call was refused.
+    if (!await creditBack(env, userId, chunk)) allBack = false;
     left -= chunk;
   }
+  return allBack;
 }
 
 // Read the caller's balance without deducting (used to reject a broke user
@@ -2882,11 +2905,24 @@ async function buySitePhotos(env, { slug, pages, budget, balance, reserve }) {
   // failed", which reads as R2 being unavailable — so the one trace it left
   // pointed away from the cause. A `ReferenceError` is ours; anything else is the
   // listing.
+  //
+  // AND WHICH CONSTRAINT BOUND IT IS CARRIED, because the two produce the same
+  // zero and need opposite instructions. `imageNote` read `budget === 0` as "not
+  // enough credits" — true of the credit clamp above and FALSE here, so an owner
+  // whose library is full was told to buy credits that would not help, on a
+  // build where the answer is to delete a few uploads.
+  const afterCredits = affordable;
+  let libraryRoom = null;
   try {
     const objs = await siteUploadList(env, slug);
     const room = Math.max(0, MAX_FILES_PER_SITE - objs.length);
+    libraryRoom = room;
     if (room < affordable) affordable = room;
   } catch (e) { console.error("upload headroom check failed:", slug, e && e.name, e && e.message); }
+  // Only when the library is what took it to zero — an unreadable listing leaves
+  // `libraryRoom` null and says nothing, which is the credit sentence's own
+  // fallback and the honest answer when we could not look.
+  const libraryFull = affordable === 0 && libraryRoom === 0 && afterCredits > 0;
   const plan = planImages(pages, affordable);
   // `planned` is what the FAMILY asked for and `budget` is what the balance left
   // — they have to travel separately, or a site that could not afford its
@@ -2905,7 +2941,17 @@ async function buySitePhotos(env, { slug, pages, budget, balance, reserve }) {
   // Measured, not reasoned: `build smoke` went red on "no console errors" and
   // the screenshot showed it. Nothing in the unit suite could — `applyImages`
   // was tested directly and correctly, and the bug was in not calling it.
-  const done = (urls, rest) => ({ pages: applyImages(pages, urls), planned, budget: affordable, overflow: plan.overflow, ...rest });
+  // `empty` and `full` ride with the rest because they are the two facts that
+  // separate causes which otherwise wear each other's sentence: a model that
+  // wrote `@@IMG:@@` with nothing inside it, and a library with no room. Both
+  // were computed and dropped — `planImages` has returned `empty` since it was
+  // written and no caller had ever read it.
+  const done = (urls, rest) => ({
+    pages: applyImages(pages, urls), planned, budget: affordable, overflow: plan.overflow,
+    ...(plan.empty ? { empty: plan.empty } : {}),
+    ...(libraryFull ? { full: true } : {}),
+    ...rest,
+  });
   if (!plan.shots.length) return done(new Map(), { made: 0 });
   const urls = new Map();
   let failed = "";
@@ -9740,8 +9786,39 @@ async function handleRequest(request, env, ctx) {
       // payloads top out ~12MB (three images and a PDF); 24MB is double that.
       { const tlB = tooLargeBody(request, 24_000_000); if (tlB) return tlB; }
       tr.at("auth");
-      const body = await request.json().catch(() => ({}));
+      // A BROKEN BODY IS ITS OWN ANSWER, not "no brief". This was
+      // `.catch(() => ({}))`, so invalid JSON became an empty object and then
+      // failed a thousand lines later as `no brief` — a failure wearing another
+      // failure's message, which is the defect class this file has litigated
+      // more than any other. An integrator with a trailing comma was told the
+      // one field they had definitely sent was missing.
+      //
+      // The shape check is the same refusal for the same reason: `null` and `[]`
+      // are both valid JSON and neither has a `.brief`, and reading through one
+      // of them is a TypeError rather than a 400.
+      let body;
+      try { body = await request.json(); }
+      catch { return Response.json({ ok: false, error: "body is not valid JSON" }, { status: 400 }); }
+      if (!body || typeof body !== "object" || Array.isArray(body)) {
+        return Response.json({ ok: false, error: "body must be a JSON object" }, { status: 400 });
+      }
       tr.at("body");
+      // ONE READING OF "WHICH SITE IS THIS", and there were two. `editSlug`
+      // below was trimmed and lowercased; the claim further down was ALSO
+      // stripped to [a-z0-9-] and capped at 60 — so a body slug carrying a
+      // strippable character, or one over 60 characters, read the edit state
+      // under one name and built under another. Silent by construction: the
+      // `_meta` read simply misses, `editState` stays null, and the designer is
+      // never told to edit only what was asked. Reachable today only by a
+      // hand-written API call, because the client sends back the clean slug off
+      // the build response — which is exactly the point at which a second
+      // reading of one question stops being theoretical. Same rule as
+      // `validForWrite` one module over: one expression, both readers.
+      //
+      // A NON-STRING IS NOT COERCED. `String(["a","b"])` is `"a,b"`, which
+      // strips to a real slug nobody asked for — the coercion bug already
+      // recorded for `normalizeRole` and for a table's `access`.
+      const cleanSlug = (v) => (typeof v === "string" ? v : "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 60);
       // Revise sends {slug, instruction} for an existing site; build sends
       // {brief}. Re-applying a schema is safe (all its DDL is additive or
       // IF NOT EXISTS), so both take the same path.
@@ -9825,6 +9902,9 @@ async function handleRequest(request, env, ctx) {
       // Reported separately from the pages cost because they are different calls
       // to different models, and one number cannot answer which one moved.
       let schemaCost = 0;
+      // Whether a reversal we tried to make did not land — see the negative
+      // settle below. Declared out here so the response literal can read it.
+      let refundShort = false;
       if (!body.schema) {
         if (!brief) return Response.json({ ok: false, error: "no brief" }, { status: 400 });
         // A DEPOSIT, NOT THE PRICE. Taken before the call because `use_credits`
@@ -9903,7 +9983,7 @@ async function handleRequest(request, env, ctx) {
         // Neon blip degrades to exactly the behaviour that shipped before this,
         // rather than to a designer that was never told to omit and whose answer
         // now wins. The interlock is the point; see site-edit.mjs.
-        const editSlug = typeof body.slug === "string" ? body.slug.trim().toLowerCase() : "";
+        const editSlug = cleanSlug(body.slug);
         if (editSlug) {
           try {
             const conn = await siteNeonProject(env, editSlug);
@@ -10013,7 +10093,13 @@ async function handleRequest(request, env, ctx) {
             try { schemaCost = SITE_BUILD_FEE + await collectCredits(request.headers.get("Authorization") || "", settle); }
             catch { schemaCost = SITE_BUILD_FEE; /* keep the build */ }
           } else if (settle < 0) {
-            await creditBack(env, bu.id, Math.min(SITE_BUILD_FEE, -settle));
+            // A REFUND THAT DID NOT LAND LEAVES `schemaCost` OVERSTATING WHAT
+            // WAS TAKEN, in the direction the customer pays for. Silent before
+            // this: `creditBack` swallowed both a throw and a refusal, so the
+            // ledger and this number disagreed by up to the whole fee with
+            // nothing anywhere recording it. Not fatal — the build is fine and
+            // the deposit is small — but it is now on the response.
+            if (!await creditBack(env, bu.id, Math.min(SITE_BUILD_FEE, -settle))) refundShort = true;
           }
         } catch (e) {
           await creditBack(env, bu.id, SITE_BUILD_FEE);
@@ -10131,7 +10217,7 @@ async function handleRequest(request, env, ctx) {
           })
         : null;
 
-      const slug = String(body.slug || (designed && designed.slug) || "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 60)
+      const slug = cleanSlug(body.slug) || cleanSlug(designed && designed.slug)
         || ("site-" + Math.random().toString(36).slice(2, 8));
 
       // A site's slug is claimed by whoever built it first; a second user cannot
@@ -10874,13 +10960,46 @@ async function handleRequest(request, env, ctx) {
         // THE SCHEMA CALL'S REAL COST, which is now also what it is billed. The
         // three fields are kept apart on purpose: `schemaUsage` is the four token
         // kinds, `schemaCredits` is what they price to, and `schemaCost` is what
-        // was actually taken after the deposit settled. They agree today and the
-        // point of reporting all three is that a disagreement is visible — a
-        // settlement that silently failed shows up as the last two diverging
-        // rather than as nothing at all.
+        // was actually taken after the deposit settled. A disagreement between
+        // the last two is meant to be visible — a settlement that silently
+        // failed shows up as a divergence rather than as nothing at all.
+        //
+        // THEY DO NOT SIMPLY "AGREE TODAY", AND THIS COMMENT SAID THEY DID.
+        // `schemaCredits` prices `schemaUsage` alone while `schemaCost` settles
+        // against `pageCredits(schemaUsage, seedUsage)` — so EVERY build where
+        // the seed top-up fired (a common path: it exists because the designer
+        // omitted `seed` on consecutive real builds) shows `schemaCost` above
+        // `schemaCredits` with everything working perfectly. The DIRECTION still
+        // discriminates — a failed settlement diverges downward — and
+        // `seedTopUp` plus the trace's `seedrows` mark say which happened, but a
+        // diagnostic claim that is false on a common path is the class this file
+        // records as dangerous. Stated rather than "fixed" by folding the seed
+        // in: these are the SCHEMA call's numbers, and burying a second call's
+        // tokens inside them is how `sumUsage` came to charge one model at
+        // another's rate.
         schemaUsage: schemaUsage || undefined,
         schemaCredits: schemaUsage ? pageCredits(schemaUsage) : undefined,
         schemaCost: designed ? schemaCost : undefined,
+        // WHAT THE PAGES CALL COST AGAINST WHAT WE MANAGED TO TAKE.
+        // `publishPages` computes `billed` precisely so "the shortfall stays
+        // visible instead of vanishing" — and the route dropped it, so a build
+        // that billed 21 and collected 4 reported `cost: 4, charged: true` with
+        // the gap readable by nobody: not the caller, not the smoke test, not
+        // anyone reading the response afterwards. `use_credits` is a gate rather
+        // than a till, so that shortfall is the ORDINARY outcome on a
+        // low-balance account, which makes systematic under-collection a revenue
+        // number this platform could not read off any response.
+        //
+        // Customer-facing honesty is untouched either way — `cost` is what
+        // really left their ledger and `charged` follows it — so this is
+        // reported for us. OMITTED when it agrees with what was taken, so an
+        // ordinary build's response is byte-identical and the field's PRESENCE
+        // is the signal.
+        pagesBilled: (typeof pages.billed === "number" && pages.billed !== pages.cost) ? pages.billed : undefined,
+        // A reversal that did not go back. Omitted when it did, so its presence
+        // is the whole signal — `schemaCost` overstates what really left the
+        // ledger by up to `SITE_BUILD_FEE`.
+        refundShort: refundShort || undefined,
         // Whether the pages call was billed, and — when it was not — that this
         // was because the failure was ours rather than because the rule is
         // "placeholders are free". A caller cannot infer it from `cost`, since a

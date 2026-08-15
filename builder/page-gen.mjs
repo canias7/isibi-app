@@ -102,6 +102,24 @@ export const UI_EXPORTS = (() => {
   return out;
 })();
 
+/** `open-now` → `OpenNow`. The rule the prompt states, as the one expression. */
+const pascalOf = (mod) => mod.replace(/(^|-)([a-z0-9])/g, (_, __, c) => c.toUpperCase());
+
+/**
+ * The modules whose export name is NOT its file name in PascalCase.
+ *
+ * ONE EXPRESSION, TWO READERS. Rule 3 lists these AND states how many modules
+ * follow the rule, and the count used to be prose: "2,026 of the 2,042", written
+ * once and never re-measured while the kit grew past 2,100. So the list beside
+ * it was derived and correct and the sentence introducing it was two kit
+ * generations out of date — in the highest-leverage prompt on the platform,
+ * where a stale claim is read by a model rather than by somebody who might
+ * notice. Both halves come from here now, so neither can drift from the other or
+ * from the kit.
+ */
+export const UI_EXPORT_EXCEPTIONS = Object.entries(UI_EXPORTS)
+  .filter(([mod, names]) => !names.has(pascalOf(mod)));
+
 /** Every component in src/components/ui. An import of anything else does not resolve. */
 /**
  * The kit components that draw their picture THROUGH `SafeImage` — so an empty
@@ -2320,11 +2338,11 @@ or an access level — anything not in the schema below does not exist.
 
    THE EXPORT NAME IS THE FILE NAME IN PascalCase, EXACTLY — no embellishment.
    \`@/components/ui/faq\` exports \`Faq\`, not \`FaqAccordion\`; \`open-now\` exports
-   \`OpenNow\`. That holds for 2,026 of the 2,042 modules, and guessing a longer,
+   \`OpenNow\`. That holds for ${(Object.keys(UI_EXPORTS).length - UI_EXPORT_EXCEPTIONS.length).toLocaleString("en-GB")} of the ${Object.keys(UI_EXPORTS).length.toLocaleString("en-GB")} modules, and guessing a longer,
    more descriptive name is a compile error that costs the whole site — measured
    live, it is one of the three commonest failures there are. The exceptions,
    which are the only modules where the name is not deducible:
-   ${Object.entries(UI_EXPORTS).filter(([m, n]) => !n.has(m.replace(/(^|-)([a-z0-9])/g, (_, a2, b2) => b2.toUpperCase()))).map(([m, n]) => m + " → " + [...n].join(", ")).join("; ")}.
+   ${UI_EXPORT_EXCEPTIONS.map(([m, n]) => m + " → " + [...n].join(", ")).join("; ")}.
 
    THEIR EXACT PROPS — check every call against this rather than guessing. A prop
    that does not exist, or a state value outside the union shown, is a compile error
@@ -4125,16 +4143,26 @@ export const SITE_PAGES_MAX_TOKENS = 30000;
  * asserts worker.js calls this rather than rebuilding the body.
  *
  * THE SYSTEM BLOCK IS CACHED, and that is the whole reason it is an array here
- * rather than the plain string it used to be. `PAGE_RULES` is ~7,000 tokens and
- * is byte-identical on every generation on the platform — it does not vary with
- * the brief, the schema or the brand, all of which live in the user message. So
- * it was being paid for in full, every build, forever.
+ * rather than the plain string it used to be. `PAGE_RULES` is byte-identical on
+ * every generation on the platform — it does not vary with the brief, the
+ * schema or the brand, all of which live in the user message. So it was being
+ * paid for in full, every build, forever.
  *
- * Measured: input goes 7,523 -> 1,148 tokens per build in the steady state, an
- * 85% cut. The first call in a cache window pays a 1.25x write premium (9,294),
- * so it breaks even on the second build. That break-even used to be reached
- * inside a single build, because the repair pass re-sent this exact block; with
- * the repair gone it takes a second BUILD in the cache window.
+ * Measured when this landed: input goes 7,523 -> 1,148 tokens per build in the
+ * steady state, an 85% cut. The first call in a cache window pays a 1.25x write
+ * premium (9,294), so it breaks even on the second build. That break-even used
+ * to be reached inside a single build, because the repair pass re-sent this
+ * exact block; with the repair gone it takes a second BUILD in the cache window.
+ *
+ * THOSE ARE THE ORIGINAL FIGURES AND THE BLOCK HAS GROWN FIVEFOLD SINCE — this
+ * said "`PAGE_RULES` is ~7,000 tokens" as a present-tense fact while the string
+ * was ~33,000. The conclusion is unchanged and stronger (a bigger cached block
+ * saves more), but the write premium a reader would compute off the old number
+ * is out by 5x, and this file's own doctrine is that a stale claim in a comment
+ * is what gets believed next time somebody edits the line. Kept as history
+ * rather than re-measured into a number that goes stale the same way: the ONE
+ * place a live token count belongs is a test that measures it, and the ratios
+ * above are what the decision actually rested on.
  *
  * The consequence to know about: a cache entry is keyed on the bytes, so ANY
  * edit to PAGE_RULES — including adding a component name — invalidates it and

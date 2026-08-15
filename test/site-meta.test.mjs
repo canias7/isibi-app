@@ -7,6 +7,7 @@
 // got a bare URL.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import { injectMeta, metaTags, pageMeta, setTitle } from "../site-meta.mjs";
 import { routeOf, fileForRoute } from "../builder/site-addon.mjs";
 
@@ -226,4 +227,92 @@ test("the mapping the publish path keys on is the one the container writes", () 
     assert.equal(fileForRoute(route), route === "/" ? "index.html" : file.replace(/\.tsx$/, "").replace(/\./g, "/") + ".html",
       `fileForRoute(${route})`);
   }
+});
+
+// ── setTitle ────────────────────────────────────────────────────────────────
+//
+// THE ONE EXPORT IN THIS MODULE THAT HAD NO BEHAVIOURAL TEST, and it is where
+// the medium-severity corruption bug sat. Its only guard anywhere was a
+// source-read in `publish-pages.test.mjs` asserting the Worker CALLS it — the
+// wiring layer watching the layer below the break, which is this repo's most
+// recorded failure. Its escaping, its no-op rule, its truncation and its
+// replacement were asserted by nothing.
+test("setTitle replaces the title and escapes what goes in it", () => {
+  const html = `<!doctype html><html><head><title>Old</title></head><body>x</body></html>`;
+  assert.match(setTitle(html, "Sharp Fade"), /<title>Sharp Fade<\/title>/);
+  assert.doesNotMatch(setTitle(html, "Sharp Fade"), /<title>Old<\/title>/);
+  // A brand is model-written and lands between two tags, so the four characters
+  // that can close one are escaped.
+  assert.match(setTitle(html, `A & B <script> "x"`), /<title>A &amp; B &lt;script&gt; &quot;x&quot;<\/title>/);
+  // Whitespace is collapsed — a newline inside a tag is a title nobody can read
+  // in a browser tab and a difference between two otherwise identical pages.
+  assert.match(setTitle(html, "  Sharp\n\tFade  "), /<title>Sharp Fade<\/title>/);
+  assert.ok(setTitle(html, "x".repeat(200)).match(/<title>(x+)<\/title>/)[1].length === 70,
+    "a title is capped at 70");
+});
+
+test("setTitle is a NO-OP rather than a guess when there is nothing to replace", () => {
+  // Both directions matter: an empty title must not blank a real one, and a
+  // document with no <title> must not gain one in the wrong place. This runs on
+  // every prerendered page of every published site, so "do nothing" is the only
+  // safe answer to an input it was not built for.
+  const html = `<!doctype html><html><head><title>Old</title></head><body>x</body></html>`;
+  for (const bad of ["", "   ", null, undefined]) assert.equal(setTitle(html, bad), html, JSON.stringify(bad));
+  const noTitle = `<!doctype html><html><head><meta charset="utf-8"></head><body>x</body></html>`;
+  assert.equal(setTitle(noTitle, "Sharp Fade"), noTitle);
+  assert.equal(setTitle(null, "Sharp Fade"), "");
+  assert.equal(setTitle(undefined, "Sharp Fade"), "");
+});
+
+test("a $ in the brand does not corrupt the page — the replacement is VERBATIM", () => {
+  // THE BUG THIS MODULE ACTUALLY HAD (2026-08-13 audit). `String.replace` reads
+  // `$$`, `$&`, `$'` and `` $` `` in a REPLACEMENT STRING as patterns, so:
+  //   "Win $$$ prizes"  published as "Win $$ prizes"
+  //   "$& Cuts"         re-inserted the OLD title inside the new one
+  //   "Mo$'s Cuts"      spliced everything after the old title back in, DOUBLING
+  //                     the head of the document
+  // Each is an ordinary stylised trading name, and each was verified against
+  // this module. A function replacer inserts its return value literally, which
+  // closes the whole class — so these assert the class, not the three spellings.
+  //
+  // Compared through an UNESCAPE rather than against the raw name: `$&` contains
+  // an ampersand, which `setTitle` correctly turns into `&amp;`, and asserting
+  // the raw string would fail on the escaping this test is not about. Four
+  // entities, written as the inverse of the thing under test rather than as a
+  // copy of it.
+  const unesc = (s) => s.replace(/&(amp|lt|gt|quot);/g, (_, e) => ({ amp: "&", lt: "<", gt: ">", quot: '"' }[e]));
+  const html = `<!doctype html><html><head><title>Old</title></head><body>tail</body></html>`;
+  for (const name of ["Win $$$ prizes", "$& Cuts", "Mo$'s Cuts", "Back$` Bar", "A $1 haircut"]) {
+    const out = setTitle(html, name);
+    const titles = out.match(/<title>/g) || [];
+    assert.equal(titles.length, 1, `${name} produced ${titles.length} titles`);
+    assert.equal(unesc(out.match(/<title>([\s\S]*?)<\/title>/)[1]), name, `${name} round-trips verbatim`);
+    // The rest of the document is untouched — the `$'` case used to duplicate it.
+    assert.equal((out.match(/tail/g) || []).length, 1, `${name} duplicated the body`);
+    assert.doesNotMatch(out, /Old/, `${name} left the old title in the document`);
+  }
+});
+
+test("the title pattern is written ONCE, which is what makes the presence check honest", () => {
+  // The check that there IS a title cannot change the ANSWER — `String.replace`
+  // with no match returns the string unchanged, so both paths give back `src`.
+  // Measured by mutation: deleting it survives every behavioural test there is,
+  // and no behavioural test could ever catch it, because nothing observable
+  // separates "returned early" from "replaced nothing".
+  //
+  // So it is held STRUCTURALLY instead of being deleted or pretended-to-be-tested
+  // — the repo's own treatment for a guard that holds by an emergent property.
+  // The property is that the tested pattern and the replaced pattern are the SAME
+  // one: two literals that happen to agree is a coincidence one edit away from
+  // ending, and what it would produce is a page gaining a `<title>` somewhere
+  // nobody wanted one. This assertion covers both — a broader test pattern and a
+  // deleted check each leave the count wrong.
+  const src = fs.readFileSync(new URL("../site-meta.mjs", import.meta.url), "utf8");
+  const at = src.indexOf("export function setTitle(");
+  assert.ok(at > 0, "setTitle moved — rescope this");
+  const body = src.slice(at, src.indexOf("\n}", at));
+  assert.ok(body.length > 300, "the setTitle window is empty — rescope this");
+  assert.equal((body.match(/<title\[\^>\]\*>/g) || []).length, 0,
+    "setTitle writes the title pattern inline again — the presence check is now a coincidence");
+  assert.equal((body.match(/TITLE_TAG/g) || []).length, 2, "both uses must go through the one pattern");
 });

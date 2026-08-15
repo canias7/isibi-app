@@ -3881,3 +3881,37 @@ test("A PARTIAL SET WITH NO KNOWN ROUTES DOES NOT JUDGE AN HREF EITHER", () => {
     .problems.filter((x) => x.includes("not found")).length, 1,
     "with the site's real routes in hand a genuinely dead href must still be reported");
 });
+
+test("the export-name rule states a count it can still count", async () => {
+  // A STALE NUMBER IN THE HIGHEST-LEVERAGE PROMPT ON THE PLATFORM. Rule 3 said
+  // "That holds for 2,026 of the 2,042 modules" as prose — written once, never
+  // re-measured — directly above a DERIVED list of the exceptions. So the list
+  // was correct and the sentence introducing it was two kit generations out of
+  // date, in a document read by a model rather than by somebody who might notice.
+  //
+  // Both halves come from one expression now. This asserts they still agree with
+  // the kit, which is the only thing that makes the sentence worth printing.
+  const { UI_EXPORT_EXCEPTIONS } = await import("../builder/page-gen.mjs");
+  const total = Object.keys(UI_EXPORTS).length;
+  const m = PAGE_RULES.match(/That holds for ([\d,]+) of the ([\d,]+) modules/);
+  assert.ok(m, "the export-name rule no longer states a count — rescope this");
+  const [, deducible, stated] = m.map((x) => String(x).replace(/,/g, ""));
+  assert.equal(Number(stated), total, "the prompt's module count disagrees with the kit");
+  assert.equal(Number(deducible), total - UI_EXPORT_EXCEPTIONS.length,
+    "the prompt's deducible count disagrees with the exceptions listed beside it");
+
+  // THE EXCEPTIONS LIST IS THE OTHER HALF and must be the same set — a count that
+  // agrees with a list nobody printed is a different lie. Every module named as
+  // an exception must really not export its own PascalCase name, and every module
+  // that does must be absent.
+  assert.ok(UI_EXPORT_EXCEPTIONS.length > 0 && UI_EXPORT_EXCEPTIONS.length < total / 10,
+    `${UI_EXPORT_EXCEPTIONS.length} exceptions — the derivation has stopped discriminating`);
+  const named = new Set(UI_EXPORT_EXCEPTIONS.map(([mod]) => mod));
+  for (const [mod, names] of Object.entries(UI_EXPORTS)) {
+    const pascal = mod.replace(/(^|-)([a-z0-9])/g, (_, __, c) => c.toUpperCase());
+    assert.equal(named.has(mod), !names.has(pascal), mod + " is on the wrong side of the exception list");
+  }
+  for (const [mod] of UI_EXPORT_EXCEPTIONS) {
+    assert.ok(PAGE_RULES.includes(mod + " →"), mod + " is an exception the prompt never names");
+  }
+});

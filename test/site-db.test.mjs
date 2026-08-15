@@ -571,3 +571,68 @@ test("an anonymous token is never cached as a failure, and says why", () => {
   const ttl = /makeCache\(\{ ttlMs: (\d+)/.exec(src.slice(src.indexOf("_siteAnonToken")));
   assert.ok(ttl && Number(ttl[1]) <= 300_000, `anon token TTL is ${ttl && ttl[1]}ms — too long for a short-lived token`);
 });
+
+// ------------------------------------------------------- the org id, cached
+
+test("a Neon blip is not cached as 'this key has no org'", async () => {
+  // `neonOrgId` swallowed EVERY error and wrote `_orgId = null` — a value that
+  // means one specific thing: "this key cannot address /users/me, so it is
+  // org-scoped and needs no org id". So one 5xx or dropped connection during a
+  // first provision made every LATER build in that isolate create its Neon
+  // project in the personal account instead of the org. It succeeds, it is
+  // recorded, the site works — it just bills the wrong home and counts against
+  // the wrong project cap, with nothing logged. Per-isolate, so it heals on
+  // recycle, which is also why nobody would ever catch it.
+  const { neonOrgId, _resetNeonOrgCache } = await import("../site-db.mjs");
+  const real = globalThis.fetch;
+  const env = { NEON_API_KEY: "k" };
+  const quiet = console.error;
+  try {
+    console.error = () => {};
+
+    // A 5xx must NOT stick: the next call asks again and gets the real answer.
+    _resetNeonOrgCache();
+    let calls = 0;
+    globalThis.fetch = async () => {
+      calls++;
+      return calls === 1
+        ? new Response("upstream", { status: 502 })
+        : new Response(JSON.stringify({ organizations: [{ id: "org-real" }] }), { status: 200 });
+    };
+    assert.equal(await neonOrgId(env), null, "a blip should answer null for THIS call");
+    assert.equal(await neonOrgId(env), "org-real", "the blip was cached — every later build bills the wrong account");
+    assert.equal(calls, 2, "the second call did not re-ask");
+
+    // A network throw is the same class as a 5xx and must behave identically.
+    _resetNeonOrgCache();
+    calls = 0;
+    globalThis.fetch = async () => {
+      calls++;
+      if (calls === 1) throw new TypeError("fetch failed");
+      return new Response(JSON.stringify({ organizations: [{ id: "org-real" }] }), { status: 200 });
+    };
+    assert.equal(await neonOrgId(env), null);
+    assert.equal(await neonOrgId(env), "org-real", "a throw was cached");
+
+    // A 4xx DOES stick — that is the case the null was written for, and caching
+    // it is what stops every provision re-asking a question with a fixed answer.
+    _resetNeonOrgCache();
+    calls = 0;
+    globalThis.fetch = async () => { calls++; return new Response("nope", { status: 403 }); };
+    assert.equal(await neonOrgId(env), null);
+    assert.equal(await neonOrgId(env), null);
+    assert.equal(calls, 1, "an org-scoped key re-asks on every provision");
+
+    // And a real org is cached too, or the same round trip runs on every build.
+    _resetNeonOrgCache();
+    calls = 0;
+    globalThis.fetch = async () => { calls++; return new Response(JSON.stringify({ organizations: [{ id: "org-x" }] }), { status: 200 }); };
+    assert.equal(await neonOrgId(env), "org-x");
+    assert.equal(await neonOrgId(env), "org-x");
+    assert.equal(calls, 1);
+  } finally {
+    globalThis.fetch = real;
+    console.error = quiet;
+    (await import("../site-db.mjs"))._resetNeonOrgCache();
+  }
+});

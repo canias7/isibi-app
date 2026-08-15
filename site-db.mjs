@@ -69,6 +69,21 @@ export function scrubSecrets(s) {
 // An org-scoped API key infers its org, a personal key must name one. Resolve it
 // once per isolate and remember the answer (including "none", so a personal key
 // on a personal account doesn't re-ask on every provision).
+//
+// A BLIP IS NOT AN ANSWER, AND THIS CACHED IT AS ONE. The catch swallowed every
+// error and wrote `_orgId = null` — a value that means one specific thing, "this
+// key cannot address /users/me, so it is org-scoped and needs no org id" — so a
+// single 5xx or dropped connection during a first provision made every later
+// build in that isolate create its Neon project in the PERSONAL account instead
+// of the org. It succeeds, it is recorded, the site works: the project simply
+// bills the wrong home and counts against the wrong project cap, with nothing
+// logged. Per-isolate, so it heals on recycle, which is also why nobody would
+// ever catch it.
+//
+// So a 4xx is cached and nothing else is. Only the client-error statuses mean
+// "you may not ask this question"; a 5xx, a timeout and a network fault all mean
+// "ask again", and the caller gets null for THIS call without that becoming a
+// fact about the key.
 let _orgId;
 export async function neonOrgId(env) {
   if (_orgId !== undefined) return _orgId;
@@ -76,11 +91,20 @@ export async function neonOrgId(env) {
     const d = await neonApi(env, "/users/me/organizations");
     const orgs = (d && d.organizations) || [];
     _orgId = orgs.length ? orgs[0].id : null;
-  } catch {
-    _orgId = null; // org-scoped key: /users/me is not addressable, and not needed
+  } catch (e) {
+    const st = e && e.status;
+    if (st >= 400 && st < 500) {
+      _orgId = null; // org-scoped key: /users/me is not addressable, and not needed
+    } else {
+      console.error("neon org lookup failed, not caching:", st || (e && e.message));
+      return null; // transient — leave `_orgId` unset so the next build re-asks
+    }
   }
   return _orgId;
 }
+
+/** Test seam: forget the resolved org so a case can drive the lookup again. */
+export function _resetNeonOrgCache() { _orgId = undefined; }
 
 // ------------------------------------------------------------- provisioning
 

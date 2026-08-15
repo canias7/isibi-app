@@ -401,10 +401,35 @@ export function imageNote(images) {
       (over ? "; the other " + over + " " + (over === 1 ? "picture is a placeholder" : "pictures are placeholders") + "." : ".");
   }
   if (!budget) {
+    // TWO CLAMPS PRODUCE THIS ZERO AND THEY NEED OPPOSITE INSTRUCTIONS. The
+    // balance is one; the owner's 200-file upload library being full is the
+    // other, and this sentence used to be the only answer for both — telling
+    // somebody to buy credits that cannot possibly help, when what they need is
+    // to delete a few uploads. `full` is set by the caller only when the library
+    // is what took it to zero, so an unreadable listing keeps the credit
+    // sentence, which is the honest answer when we could not look.
+    if (i.full) {
+      return "Your image library is full, so the new pictures are placeholders — delete a few uploads and ask again.";
+    }
     // The affordability clamp, said plainly. Not an error — a build the customer
     // could not otherwise have had is the whole reason it degrades instead of
     // refusing — but silence here reads as the feature being broken.
     return "Not enough credits left over for photographs, so the pictures are placeholders for now.";
+  }
+  // NOBODY DESCRIBED THEM, WHICH IS NOT THE SAME AS OUR FAILING TO MAKE THEM.
+  // A `@@IMG:@@` token with nothing inside it is dropped rather than sent — a
+  // deliberate refusal to pay $0.15 to find out what an image model does with an
+  // empty prompt — and until now the customer was told "couldn't make the
+  // photographs", which blames us for something we chose not to attempt and
+  // gives them nothing to do about it.
+  //
+  // `error` is the discriminator and it cannot be faked: it is set by the caller
+  // whenever a shot was ATTEMPTED and did not land, and every shot that reaches
+  // the image model has a non-empty prompt by construction. So no error plus an
+  // empty count means nothing was tried, and a real failure keeps its own
+  // sentence.
+  if (!i.error && Math.max(0, Number(i.empty) || 0) > 0) {
+    return "The pictures weren't described, so they're placeholders — tell me what each one should show.";
   }
   return "Couldn't make the photographs this time, so the pictures are placeholders — the site is otherwise fine.";
 }

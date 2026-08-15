@@ -221,6 +221,14 @@ test("worker.js keeps NO second copy of the host guard", () => {
   assert.equal(/function ipv4Blocked\s*\(/.test(worker), false);
   assert.match(worker, /import \{[^}]*hostIsBlocked[^}]*\} from "\.\/site-ssrf\.mjs"/);
   // …and still USES it, or the import is decoration and safeFetch checks nothing.
+  //
+  // THIS IS THE WEAK HALF AND IT SAYS SO. Any single call site satisfies it, so
+  // it cannot see the property that actually makes `safeFetch` safe: the check
+  // runs on EVERY redirect hop, not just the first. A refactor validating only
+  // the entry URL passes this and the whole suite — and that is not hypothetical,
+  // the 2026-08-08 audit confirmed exactly that shape in `callApi`. What holds
+  // the loop is `test/safe-fetch-redirects.test.mjs`, which drives real requests
+  // through a real route and asserts on the addresses actually requested.
   assert.match(worker, /hostIsBlocked\(/, "safeFetch must still call it");
 });
 
