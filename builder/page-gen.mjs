@@ -3939,11 +3939,18 @@ export function lintPages(pages, spec) {
         say(path, 'calls usePublicRows("' + m[1] + '"), but that table declares no publicView — the request is a 404. Build the page without the taken-slots hint; the server still refuses a taken slot on submit.');
       }
     }
+    // AN UNDECLARED TABLE IS REPORTED HERE TOO. This loop had no `!t` branch
+    // while `useRows` and `usePublicRows` directly above both have one, so
+    // `useRow("ghost", id)` against a table the schema never declared was the one
+    // table-name typo the lint stayed silent about — and it is the same
+    // compiles-then-404s class as its two siblings: `tsc` sees a string, vite
+    // bundles it, the site publishes, and the page 404s in front of a visitor.
     for (const m of code.matchAll(/\buseRow\s*(?:<[^>]*>)?\s*\(\s*"([^"]+)"/g)) {
       const t = tables.get(m[1].toLowerCase());
-      if (t && readNeedsMember(t) && !/\buseMember\b/.test(code)) {
+      if (!t) say(path, 'reads one row of table "' + m[1] + '", which the schema does not declare.');
+      else if (readNeedsMember(t) && !/\buseMember\b/.test(code)) {
         say(path, 'reads one row of "' + m[1] + '" (access "' + accessLabel(t) + '") without useMember(). Signed out that returns 401.');
-      } else if (t && !canReadAccess(t) && !readNeedsMember(t)) {
+      } else if (!canReadAccess(t) && !readNeedsMember(t)) {
         say(path, 'reads one row of "' + m[1] + '", which is access "' + accessLabel(t) + '" — reading it returns 403: ' + whyNotReadable(t) + '.');
       }
     }

@@ -150,12 +150,41 @@ export function pageMeta(html, base, { home = false, route } = {}) {
   // today — the absent-means-today's-behaviour rule the manifest already uses.
   if (route && base && base.url) meta.url = String(base.url).replace(/\/+$/, "") + route;
 
-  // The words inside a tag, with markup and entities that would read as noise
-  // removed. Anything left containing a `<` is not text we understand.
+  // The words inside a tag, with markup removed and character references
+  // DECODED rather than deleted.
+  //
+  // IT STRIPPED THEM, AND THAT WAS WRONG TWICE OVER. The old rule was
+  // `/&[a-z]+;|&#\d+;/gi` → a space, which mangled the entities it matched and
+  // missed the one that matters most:
+  //
+  //   - HEX REFERENCES WERE NOT MATCHED AT ALL, and `&#x27;` is exactly what the
+  //     prerenderer emits for a straight apostrophe. Measured against this
+  //     template's own React: `renderToString` turns "Mo's Cuts & the barber's
+  //     chair" into `Mo&#x27;s Cuts &amp; the barber&#x27;s chair`. So every
+  //     share preview and every per-page title derived from prerendered text
+  //     carried a literal `&#x27;` where an apostrophe belonged — visible
+  //     garbage in a WhatsApp card, on any business with a possessive in its
+  //     name.
+  //   - THE ONES IT DID MATCH BECAME A SPACE, so "Mo&#39;s Cuts" read as
+  //     "Mo s Cuts" — a different mangling of the same name.
+  //
+  // Decoding is the correct layering and is safe by construction: every value
+  // this returns goes out through `esc` (or `setTitle`'s own escaper), so a `<`
+  // or `&` recovered here is re-escaped at the boundary. Decode at the reader,
+  // escape at the writer.
+  //
+  // A numeric reference outside Unicode is left exactly as it was rather than
+  // throwing — `String.fromCodePoint` raises on an invalid code point, and a
+  // malformed page must cost its own meta at most.
+  const NAMED = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
+  const decode = (s) => s
+    .replace(/&#x([0-9a-f]+);/gi, (m, h) => { const n = parseInt(h, 16); return n <= 0x10ffff ? String.fromCodePoint(n) : m; })
+    .replace(/&#(\d+);/g, (m, d) => { const n = parseInt(d, 10); return n <= 0x10ffff ? String.fromCodePoint(n) : m; })
+    .replace(/&([a-z]+);/gi, (m, n) => (Object.hasOwn(NAMED, n.toLowerCase()) ? NAMED[n.toLowerCase()] : m));
   const textOf = (re) => {
     const m = src.match(re);
     if (!m) return "";
-    return m[1].replace(/<[^>]+>/g, " ").replace(/&[a-z]+;|&#\d+;/gi, " ").replace(/\s+/g, " ").trim();
+    return decode(m[1].replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
   };
 
   // THE PAGE'S OWN HEADING, falling back to `<h2>`.
@@ -178,13 +207,15 @@ export function pageMeta(html, base, { home = false, route } = {}) {
   // Suffixed with the brand rather than replacing it: a preview card reading
   // "Book a chair" alone does not say whose chair.
   if (h1 && h1.length <= 70) {
-    // COMPARED WITH THE ENTITIES ALREADY GONE FROM BOTH SIDES. `textOf` strips
-    // `&amp;` to a space, so a heading reading "Fade & Co Barbershop — the work"
-    // arrives as "Fade Co Barbershop — the work" and a plain `includes` of the
-    // raw brand "Fade & Co Barbershop" MISSES — the suffix is appended and the
-    // title says the business twice. An ampersand in a trading name is about as
-    // ordinary as it gets ("Smith & Sons"), and this was true of the `<h1>` path
-    // long before the `<h2>` fallback; the fallback is only what surfaced it.
+    // COMPARED ON WORDS, WITH PUNCTUATION NORMALISED OUT OF BOTH SIDES.
+    //
+    // This was written when `textOf` STRIPPED `&amp;` to a space, so a heading
+    // reading "Fade & Co Barbershop — the work" arrived as "Fade Co Barbershop
+    // — the work" and a plain `includes` of the raw brand MISSED, appending the
+    // suffix and saying the business twice. `textOf` decodes now, so the two
+    // sides agree on the ampersand as well — but the normalisation stays and is
+    // still what does the work: a heading and a brand can differ by a dash, a
+    // comma or a curly apostrophe and still be the same name.
     const key = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
     meta.brand = base && base.brand && !key(h1).includes(key(base.brand))
       ? h1 + " · " + base.brand

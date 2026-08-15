@@ -77,6 +77,15 @@ export function normalizeJob(raw) {
  */
 export function dueJobs(rows, now) {
   const t = Number(now);
+  // How long this job has been waiting, for the ordering below. A job that has
+  // never run, or whose stamp cannot be read, has waited longest — the same
+  // rows the dueness filter treats as "run, do not strand".
+  const waited = (r) => {
+    if (!r || !r.last_run) return Infinity;
+    const last = Date.parse(r.last_run);
+    if (!Number.isFinite(last)) return Infinity;
+    return t - last;
+  };
   return (Array.isArray(rows) ? rows : []).filter((r) => {
     if (!r || r.enabled === false) return false;
     const mins = parseInt(r.schedule_minutes, 10);
@@ -88,7 +97,24 @@ export function dueJobs(rows, now) {
     // park the job until real time caught up, which for a monthly job is weeks.
     if (last > t) return true;
     return (t - last) >= (mins * 60000 - 30000);
-  }).slice(0, MAX_JOBS_PER_TICK);
+  })
+    // STALEST FIRST, AND THE CAP IS WHY THIS MATTERS. The filter can return more
+    // than `MAX_JOBS_PER_TICK` and the slice below takes a fixed number — so in
+    // READ ORDER the same first 25 win every tick and everything behind them
+    // starves permanently, however long it has been waiting. Nothing announces
+    // that: each tick reports a healthy run, and the jobs nobody sees simply
+    // never fire.
+    //
+    // Sorting by how long each has waited makes the rotation fall out on its
+    // own: a job that runs has its stamp refreshed and goes to the back, so over
+    // a few ticks everything due gets a turn. It also puts a never-run job — a
+    // site that has just been built — at the front, which is where it belongs.
+    //
+    // Held HERE rather than left to the caller's query string, because this is
+    // the module that decides which jobs run and a property the caller happens
+    // to supply is one a later edit drops silently.
+    .sort((a, b) => waited(b) - waited(a))
+    .slice(0, MAX_JOBS_PER_TICK);
 }
 
 /**

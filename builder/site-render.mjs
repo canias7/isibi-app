@@ -424,7 +424,7 @@ export function readPage(obs) {
  * the run was complete, so an untruncated report is byte-identical to what it
  * was before this existed.
  */
-export function renderReport(observations, { ok = true, error = "", cut = false } = {}) {
+export function renderReport(observations, { ok = true, error = "", cut = false, sandboxed = true } = {}) {
   const list = Array.isArray(observations) ? observations : [];
   const findings = [];
   for (const o of list) for (const f of readPage(o)) findings.push(f);
@@ -438,6 +438,14 @@ export function renderReport(observations, { ok = true, error = "", cut = false 
   };
   if (findings.length > MAX_FINDINGS) report.more = findings.length - MAX_FINDINGS;
   if (cut) report.partial = true;
+  // WHETHER THE BROWSER CONFINED THE MODEL'S CODE, carried only when it did NOT
+  // — the `prerenderUnprivileged` rule, so an ordinary report is unchanged and
+  // the field's PRESENCE is the alarm. This loads the model's full CLIENT bundle
+  // in a real browser inside the shared build container, which the SSR
+  // sandboxing does not cover: two execution surfaces, and only one of them was
+  // addressed. "We thought this was sandboxed" is a worse position than knowing
+  // it is not.
+  if (sandboxed === false) report.sandboxed = false;
   if (error) report.error = clip(error, 200);
   return report;
 }

@@ -12,7 +12,7 @@
 //
 // Injected like the rest, so every decision here runs without R2 or a Worker.
 
-import { isImageColumn } from "./site-access.mjs";
+import { isImageColumn, canWriteAccess, canMemberWrite } from "./site-access.mjs";
 
 const json = (body, status = 200) => ({ status, body });
 
@@ -191,11 +191,25 @@ export const MAX_VISITOR_BYTES = 25_000_000;
  *
  * This is what keeps the endpoint from being open image hosting for anyone who
  * knows a slug.
+ *
+ * IT ASKED THE PRESET NAME, WHICH IS THE PAIR BUG — the fourth reader to have
+ * it, after the lint's write gate, the digest's PAID line and the response's
+ * `schema` field. `normalizeSchema` STAMPS `access: "collect"` on any table that
+ * did not name one of the five presets, and `design_schema` tells the model to
+ * leave `access` out when it declares a `read`/`write` pair instead — so a table
+ * declared as a pair arrived here wearing a name nobody wrote, and the answer
+ * was whatever that stamp happened to be. Both directions were wrong: a
+ * pair-declared table with no writes at all read as `collect` and accepted
+ * files, and one declared `{read:"public", write:"own"}` — a members' gallery,
+ * exactly the shape this feature is for — was refused.
+ *
+ * `site-access.mjs` answers the access question and this file does not re-derive
+ * it: the two named predicates between them are "write is not `none`", which is
+ * precisely the set the preset list was reaching for.
  */
 export function acceptsVisitorUploads(def) {
   if (!def) return false;
-  const access = String(def.access || "").toLowerCase();
-  if (!["collect", "user", "feed"].includes(access)) return false;
+  if (!canWriteAccess(def) && !canMemberWrite(def)) return false;
   return (Array.isArray(def.columns) ? def.columns : [])
     .map((c) => String(typeof c === "string" ? c : (c && c.name) || ""))
     .some(isImageColumn);

@@ -2616,7 +2616,14 @@ async function runScheduledSiteJobs(env, ctx) {
   const svc = { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY };
   let rows = [];
   try {
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/site_functions?enabled=is.true&schedule_minutes=not.is.null&select=owner_id,slug,name,spec,schedule_minutes,last_run&limit=200`, { headers: svc, signal: AbortSignal.timeout(10000) });
+    // ORDERED, and the `limit` is why. Unordered, the 200 rows this fetches are
+    // whatever Postgres happens to return — so past 200 registered jobs across
+    // the platform, some are never even LOOKED at, and `dueJobs`'s cap then
+    // takes a fixed slice out of that arbitrary window. Stalest first (a
+    // never-run job ahead of everything) makes the window itself the 200 rows
+    // most in need of running, which is the same order `dueJobs` sorts by — so
+    // the read and the selection agree rather than fighting each other.
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/site_functions?enabled=is.true&schedule_minutes=not.is.null&select=owner_id,slug,name,spec,schedule_minutes,last_run&order=last_run.asc.nullsfirst&limit=200`, { headers: svc, signal: AbortSignal.timeout(10000) });
     rows = await r.json().catch(() => []);
   } catch { return; }
   if (!Array.isArray(rows)) return;

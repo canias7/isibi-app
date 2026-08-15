@@ -292,9 +292,17 @@ test("the loop actually sets it when it stops early", () => {
   const src = fs.readFileSync(new URL("../builder/render-check.mjs", import.meta.url), "utf8");
   assert.match(src, /if \(Date\.now\(\) > until\) \{ cut = true; break; \}/,
     "the time-budget break no longer records that it fired");
-  assert.match(src, /renderReport\(seen, \{ cut \}\)/, "the clean return drops the truncation flag");
-  assert.match(src, /error: String\(\(e && e\.message\) \|\| e\), cut \}/,
-    "the error return drops it, so a run that both truncated and failed loses one of the two facts");
+  // ANCHORED ON THE PROPERTY, NOT THE ARGUMENT LIST. This named
+  // `renderReport(seen, { cut })` exactly and went red the moment a second
+  // honest field was added beside it — a test about word order, which is this
+  // repo's most repeated own-goal. What has to hold is that EVERY report this
+  // function returns carries the flag: a run that both truncated and failed
+  // otherwise loses one of the two facts.
+  const returns = [...src.matchAll(/renderReport\(seen, \{([^}]*)\}\)/g)].map((m) => m[1]);
+  assert.ok(returns.length >= 2, `only ${returns.length} report returns found — the scan stopped matching`);
+  for (const args of returns) {
+    assert.match(args, /\bcut\b/, "a report return drops the truncation flag: {" + args + "}");
+  }
 });
 
 test("A MALFORMED URL CANNOT KILL THE BUILD SERVICE", () => {

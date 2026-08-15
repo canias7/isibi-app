@@ -748,8 +748,21 @@ export async function applySiteSchema(uuid, spec) {
     // schema is re-applied without a flag it previously had. Each conditional block below
     // recreates its trigger only when the flag is still set. (Names are fixed per table; the
     // per-column enforceRefs triggers are left alone — columns are never dropped.)
+    //
+    // `ON <table>` IS NOT OPTIONAL, AND WITHOUT IT THIS LOOP NEVER RAN. Postgres
+    // requires `DROP TRIGGER [IF EXISTS] name ON table` — the table-less form is
+    // SQLite's — so every statement here was a syntax error swallowed by the bare
+    // catch, and the whole hygiene step above has been dead since the Postgres
+    // migration. `pgTrigger` twenty lines up gets it right, which is why the
+    // trigger CREATE path works and only the removal was broken.
+    //
+    // What that cost is exactly what the comment above describes: turning `audit`
+    // or `history` off on a revise left its AFTER trigger standing, firing into a
+    // side table on every write. The catch stays — a drop that fails must not
+    // fail the build — but it is now catching real failures rather than our own
+    // malformed SQL.
     for (const suf of ["_del", "_pos", "_max", "_aud_i", "_aud_u", "_aud_d", "_hist"]) {
-      try { await sqlQuery(uuid, "DROP TRIGGER IF EXISTS " + sqlIdent("trg_" + t.name + suf)); } catch {}
+      try { await sqlQuery(uuid, "DROP TRIGGER IF EXISTS " + sqlIdent("trg_" + t.name + suf) + " ON " + tn); } catch {}
     }
     // Sync (offline-first) — record deletes as tombstones so a client can pull edits AND
     // deletes since a timestamp via /changes?sync=. `updated_at` (above) covers inserts+edits.

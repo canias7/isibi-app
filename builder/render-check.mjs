@@ -28,6 +28,12 @@ const MIME = {
   ".woff": "font/woff", ".woff2": "font/woff2", ".ttf": "font/ttf", ".map": "application/json",
 };
 
+/** One opaque mid-grey pixel — what an upload stands in as. See the `/u/` branch. */
+const ONE_PIXEL = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+  "base64",
+);
+
 // The whole check, worst case. A build is 20-40s and this normally costs ~6, but
 // one page that never settles must not be able to double the wait a customer is
 // sitting through — so the loop stops and reports what it has rather than
@@ -98,6 +104,27 @@ function serveDist(dir) {
       res.end(body);
       return;
     }
+    // AN UPLOAD IS SERVED, NOT 404'd, and it is the same argument as the `/api/`
+    // stub above: those files live in R2 under `uploads/<slug>/` and there is no
+    // R2 near this container, so a page referencing one is CORRECT and would be
+    // reported broken. `/u/…` carries an extension, so without this it fell
+    // through to the asset branch and 404'd out of the dist — a console error
+    // and a broken image on every picture-led site, in a verdict that goes to
+    // the customer. A false alarm this repo rates strictly worse than the miss.
+    //
+    // It reaches the logo too, which the container bakes as `/u/<slug>/…`, so
+    // this was every site with a logo as well as every site with a photograph.
+    //
+    // A REAL IMAGE RATHER THAN A 204: the contrast pass added in Round 18 asks
+    // whether text sits over a picture, and a body-less response leaves nothing
+    // for it to see — so the scrim-over-photo hero would go back to being
+    // measured against whatever is behind it. One opaque pixel, stretched by the
+    // kit's own `object-cover`, is exactly the solid block a photograph will be.
+    if (p.startsWith("/u/")) {
+      res.writeHead(200, { "content-type": "image/png" });
+      res.end(ONE_PIXEL);
+      return;
+    }
     // The browser asks for this on every load whether or not the site has one;
     // a 404 here would be reported as a console error on every page.
     if (p === "/favicon.ico" && !fs.existsSync(path.join(dir, "favicon.ico"))) { res.writeHead(204); res.end(); return; }
@@ -149,6 +176,40 @@ async function openOverlays(page) {
 }
 
 /**
+ * Is Chromium's own sandbox actually confining the model's code?
+ *
+ * THE ROOT CHECK IS THE WHOLE ANSWER, and finding that out is the point of this
+ * function existing at all. Chromium refuses to run as root with its sandbox on,
+ * and **Playwright silently adds `--no-sandbox` for you when the parent process
+ * is root** — so a launch that omits the flag and SUCCEEDS proves nothing.
+ *
+ * Measured here, against a real browser: launching with no `--no-sandbox` in the
+ * arguments came back happy, reported itself sandboxed, rendered a page — and
+ * the spawned process's real argv contained `--no-sandbox` all along. A first
+ * draft of this shipped exactly that as a security improvement: an unsandboxed
+ * browser wearing `sandboxed: true`, which is strictly worse than the honest
+ * `--no-sandbox` it replaced. (And the measurement that caught it needed two
+ * attempts — the first `ps` pattern matched this very node process. A harness
+ * that cannot fail honestly is worse than none, one layer up.)
+ *
+ * So the verdict is derived from the condition that decides it rather than from
+ * a launch outcome, and the flag is passed explicitly when we are root — which
+ * is what Playwright would do anyway, so no behaviour changes and nothing new
+ * can fail. It flips to `true` on its own the day the build service runs as a
+ * non-root user, which is the real fix and is a Dockerfile change.
+ */
+export function chromiumSandboxed() {
+  return typeof process.getuid === "function" ? process.getuid() !== 0 : false;
+}
+
+export async function launchChromium(chromium) {
+  const sandboxed = chromiumSandboxed();
+  const args = sandboxed ? ["--disable-dev-shm-usage"] : ["--no-sandbox", "--disable-dev-shm-usage"];
+  const opts = process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {};
+  return { browser: await chromium.launch({ ...opts, args }), sandboxed };
+}
+
+/**
  * Look at every prerendered route at every width.
  *
  * `routes` is what `prerender()` actually wrote, so this checks the documents a
@@ -158,7 +219,7 @@ export async function checkRender(distDir, routes) {
   const list = (Array.isArray(routes) ? routes : []).filter(Boolean);
   if (!list.length) return renderReport([], { ok: false, error: "no prerendered routes to look at" });
 
-  let server = null, browser = null, cut = false;
+  let server = null, browser = null, cut = false, sandboxed = true;
   const seen = [];
   try {
     server = serveDist(distDir);
@@ -166,9 +227,9 @@ export async function checkRender(distDir, routes) {
     const port = server.address().port;
 
     const { chromium } = await import("playwright-core");
-    const opts = { args: ["--no-sandbox", "--disable-dev-shm-usage"] };
-    if (process.env.CHROMIUM_PATH) opts.executablePath = process.env.CHROMIUM_PATH;
-    browser = await chromium.launch(opts);
+    const launched = await launchChromium(chromium);
+    browser = launched.browser;
+    sandboxed = launched.sandboxed;
 
     const until = Date.now() + TOTAL_MS;
     for (const vp of VIEWPORTS) {
@@ -217,12 +278,12 @@ export async function checkRender(distDir, routes) {
         }
       } finally { await ctx.close().catch(() => {}); }
     }
-    return renderReport(seen, { cut });
+    return renderReport(seen, { cut, sandboxed });
   } catch (e) {
     // The check could not run. Reported as such rather than as a clean pass —
     // a broken harness that reads as "we looked and it was fine" is the silent
     // skip this codebase has already been bitten by three times.
-    return renderReport(seen, { ok: false, error: String((e && e.message) || e), cut });
+    return renderReport(seen, { ok: false, error: String((e && e.message) || e), cut, sandboxed });
   } finally {
     if (browser) await browser.close().catch(() => {});
     if (server) await new Promise((r) => server.close(r));
