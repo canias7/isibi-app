@@ -6657,11 +6657,24 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       }
     },
     publish: async (dist, pages) => {
+      // THE CONTAINER'S WHOLE TURN, closed HERE and not at `pages` — because
+      // this dep runs INSIDE `publishPages`, so a mark taken here is the first
+      // one since `fonts` and its delta covers generate + typecheck + vite +
+      // prerender + render.
+      //
+      // WITHOUT IT THAT TIME LANDS ON `og`, WHICH IS A LIE THE TRACE TELLS
+      // CONFIDENTLY. Measured on the first green production run (2026-08-15):
+      // `og 165294ms` on a 214s build — reading as the R2 lookup being 77% of
+      // the build, when it is one list call on one prefix. Anyone triaging a
+      // slow build off that trace optimises the wrong thing. `pages` below
+      // carries the real breakdown in its extras.
+      try { mark?.("container"); } catch { /* a trace must never break a build */ }
       const ogImage = await siteOgImage(env, slug);
       // THE `og` MARK MOVED WITH THE WORK IT TIMES. It used to sit before the
       // build; the lookup is the same R2 list, it just happens after the
       // photographs exist now, so leaving the mark behind would have timed
-      // nothing and named a step that no longer runs there.
+      // nothing and named a step that no longer runs there. With `container`
+      // above it, this delta is finally the lookup and nothing else.
       try { mark?.("og"); } catch { /* a trace must never break a build */ }
       const wrote = await writeSiteDistToR2(env, slug, dist, {
         // RESOLVED AT PUBLISH TIME, not before the build — byte-identical to the

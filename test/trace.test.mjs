@@ -172,6 +172,23 @@ test("the build route actually uses it", () => {
   assert.ok(body.length > 40, "the publish window is empty — rescope this");
   assert.match(body, /await siteOgImage\(env, slug\)/,
     "the link-preview image is resolved before the build again, so a build that generates photographs has none");
+  // …AND THE MARK BEFORE IT IS WHAT MAKES `og` MEAN THE LOOKUP.
+  //
+  // This closure runs INSIDE publishPages, so without a mark ahead of the
+  // lookup the `og` delta is the first one since `fonts` and swallows generate
+  // + typecheck + vite + prerender + render. Measured on the first green
+  // production run: `og 165294ms` on a 214s build, i.e. the trace reporting one
+  // R2 list call as 77% of the work. A number that reads as the wrong thing is
+  // worse than an absent one, because somebody acts on it.
+  //
+  // Asserted as the ORDER inside the closure rather than on the mark's
+  // presence: a `container` mark that lands after the lookup fixes nothing, and
+  // matching the string alone would pass on exactly that.
+  const cAt = body.indexOf('mark?.("container")');
+  const ogAt = body.indexOf("await siteOgImage(env, slug)");
+  assert.ok(cAt >= 0, "nothing closes the container's turn, so `og` times the whole build again");
+  assert.ok(cAt < ogAt,
+    "the container mark is taken AFTER the og lookup, so `og` still swallows generate and compile");
   assert.match(w, /mark\?\.\("route"\)/, "the KV route write is untimed again");
   assert.match(w, /pagesUsage: pages\.usage \|\| undefined/,
     "the pages call is metered on four token kinds and reports none of them");

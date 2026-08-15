@@ -1435,8 +1435,29 @@ try {
     }
   }
   if (projectId && env.NEON_API_KEY) {
+    // ALREADY-GONE IS THE NORMAL CASE HERE, and reporting it as a failure is
+    // what made the first green run read as though it had leaked a project.
+    //
+    // The delete route above drops the project inline, so by the time this runs
+    // Neon answers 404 — and `dropUserProject` throws on any non-ok, so the run
+    // printed `WARNING: could not remove Neon project …` on a project that had
+    // been removed correctly seconds earlier. A Neon project is a capped,
+    // billed resource whose only record is a Supabase row, so a warning that
+    // says one leaked is one somebody has to go and check.
+    //
+    // `site-teardown.mjs` already settled this exact question — "404 is DONE,
+    // 401/403 is NEVER done" — and this cleanup is the one place that had not
+    // learned it. Anything else still warns, because anything else really can
+    // leave a project running.
     try { await dropUserProject(env, projectId); console.log("  removed the Neon project"); }
-    catch { console.log("  WARNING: could not remove Neon project " + projectId); }
+    // Read off `e.status`, which `neonApi` sets deliberately ("the STATUS is
+    // what separates the causes"), never off the message — a substring match
+    // for "404" also hits a project id or a body that happens to contain it.
+    catch (e) {
+      if (e && e.status === 404) console.log("  the Neon project was already gone — the delete route had it");
+      else console.log("  WARNING: could not remove Neon project " + projectId
+        + " -> " + String(e && (e.status || e.message)).slice(0, 160));
+    }
   }
   // Belt and braces: the delete above already removes this row, but it must go
   // even when that call failed, or the slug stays claimed forever.
