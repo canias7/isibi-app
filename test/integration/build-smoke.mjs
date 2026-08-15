@@ -1003,19 +1003,29 @@ try {
 
     // ── FUNDING THE SECOND TURN ───────────────────────────────────────────
     //
-    // A new account is granted 20 credits, and the first build above spends all
-    // of them — measured on this run: 9 for the schema and 20 for the pages, of
-    // which the ledger could only hand over what was there. So the revise
-    // answered 402 `not enough credits` and everything below it was skipped,
-    // reporting four failures that were about money and not about the code.
+    // The first build spends most of what it is given — measured: 9 for the
+    // schema and 20 for the pages, of which the ledger hands over what is there.
+    // Before this top-up the revise answered 402 `not enough credits` and
+    // everything below it was skipped, reporting four failures that were about
+    // money and not about the code.
     //
-    // Topped up HERE rather than at sign-up, on two counts. The first build then
-    // runs on exactly the grant a real new account has, which is what "caller
-    // was charged for the build" asserts above and what a real first build is.
-    // And it keeps that build UNABLE TO AFFORD PHOTOGRAPHS — one image is ~19
-    // credits of real fal spend, and `imagesAffordable` buys out of whatever the
-    // model calls left behind. A revise buys none, so funding this one cannot
-    // start that.
+    // TWO CLAIMS THAT USED TO BE HERE ARE GONE BECAUSE BOTH WENT STALE, and
+    // both were about not spending real money:
+    //
+    //   - "the first build runs on exactly the grant a real new account has" —
+    //     it does not, and has not since the block at the top of this file:
+    //     `buildFloor` reached 20, so the first build is funded to 40 and this
+    //     run stopped being able to notice that a new customer cannot build cold.
+    //   - "A REVISE BUYS NONE, so funding this one cannot start that" — false
+    //     since `budgetFor` replaced the flat `revise ? 0` rule. A revise on a
+    //     site that shows NO photograph buys them, which is exactly a smoke site
+    //     whose first build could not afford any. So this number is a photograph
+    //     budget as much as a build budget: at ~19 credits of real fal spend per
+    //     image, 60 buys up to three.
+    //
+    // Latent only while the fal balance is empty. Keep it in mind before raising
+    // this number — a stale guarantee in a comment is what gets believed, and
+    // the thing it was guarding here is a bill.
     //
     // A direct ledger write, not `add_credits`: that RPC is mint-key gated (a
     // secret this workflow does not carry) and writes a `purchases` row, which

@@ -1293,9 +1293,16 @@ export async function loadSiteSchema(uuid) {
 
 // Starter content for the tables a visitor READS.
 //
-// Without this every generated site launches empty and stays that way: writes to
-// a `display` table are 403 for every caller including the owner, and no
-// owner-write route exists. So the menu says "Nothing listed yet." forever — and
+// Without this every generated site launches EMPTY: writes to a `display` table
+// are 403 for every visitor, so nothing on the published site can fill it.
+//
+// The owner CAN fill one by hand now — `handleOwnerWrite` in `site-owner.mjs`
+// closed that gap, and its own docstring says so. This said "no owner-write
+// route exists", which was true when it was written and is the premise, not the
+// conclusion: seeding is what makes a site usable ON ARRIVAL, and requiring a
+// café to type its whole menu into a data panel before the site is worth
+// showing anybody is not a launch. So the menu would say "Nothing listed yet."
+// on the day it is published — and
 // worse, a booking form whose required Service field is a Select fed by that
 // table renders with zero options, so no visitor can submit anything. Measured
 // live on 2026-07-28: every site the builder produced was a brochure with a dead

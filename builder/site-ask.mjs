@@ -475,9 +475,16 @@ export function readRouting(reply, { canClarify = false, answering = false, atta
 
   // CLARIFY IS GATED BY THE CALLER, NOT BY THE MODEL. `canClarify` is false on
   // every revise and the moment the question budget is spent, and a model that
-  // answers "clarify" anyway is simply overruled into a build. The alternative —
-  // trusting the enum to be honoured — is how a revise ends up being interviewed
-  // about its own colour scheme.
+  // answers "clarify" anyway is overruled into WORK — falling through to the
+  // ladder below and out to `fallback`. The alternative — trusting the enum to
+  // be honoured — is how a revise ends up being interviewed about its own
+  // colour scheme.
+  //
+  // "Overruled into a BUILD" is what this said, and that stopped being true when
+  // the ladder landed: `FALLBACK_WITH_SITE` is `addon`, so on an existing site —
+  // which is every revise, i.e. exactly where the gate is closed — the answer is
+  // an addon and not a build. Right either way (both are work, never a
+  // paragraph), and the sentence named the one it is not.
   if (input.intent === "clarify" && canClarify) {
     const q = readQuestion(input.question);
     // A CLARIFY WITH NO USABLE QUESTION IS A BUILD, for exactly the reason an

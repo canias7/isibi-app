@@ -2871,7 +2871,13 @@ export function schemaDigest(spec) {
       }).join("\n")
     : "";
   const tableLines = tables.map((t) => {
-    const access = String(t.access || "collect").toLowerCase();
+    // THE STAMPED NAME IS NOT BOUND HERE AT ALL, and that is the fix rather than
+    // a tidy-up. `const access = String(t.access || "collect")` sat in this scope
+    // and every gate that reached for it got the pair bug — six instances across
+    // the file before the last two went. A variable holding the preset a table
+    // never declared, in the one scope that describes tables to the model, is a
+    // trap that has been fallen into once per reader. `rw` is the pair and
+    // `presetName` is the resolved shorthand; there is nothing else to reach for.
     const rw = resolveAccess(t);
     const presetName = accessNameFor(rw);
     // Columns arrive in two shapes and BOTH must work. normalizeSchema produces
@@ -2917,10 +2923,21 @@ export function schemaDigest(spec) {
     // `user` normally means private-to-me. `teamScope` changes that to
     // "ours", and a page that says "your notes" on a shared team table is
     // describing something the API does not do.
-    if (t.teamScope && access === "user") {
+    //
+    // THE RESOLVED PAIR, NOT THE STAMPED NAME — the pair bug, in the last two
+    // readers in this file. `normalizeSchema` stamps `access: "collect"` on any
+    // table that did not name a preset, and the design tool tells the model to
+    // leave `access` out when it declares a pair. So a team table spelled
+    // `{read:"own", write:"own"}` arrived here wearing "collect", this line was
+    // NEVER printed, and the generator wrote "your notes" on a table the whole
+    // team shares. The line below had it too: a pair-declared display table was
+    // stamped "collect" and got a `usePublicRows` line its preset-declared twin
+    // does not, so one fact was stated inconsistently depending on how the
+    // designer happened to spell the same access.
+    if (t.teamScope && presetName === "user") {
       lines.push("  SHARED WITH THE TEAM: everyone in this member's team reads and edits the same rows. Say \"our\"/\"the team's\", not \"your\".");
     }
-    if (access !== "display") {
+    if (presetName !== "display") {
       // `hasPublicView` decides, not a shape test written here — the data path
       // answers 404 on exactly this question, and a second copy of the rule
       // drifts into a digest that promises a read the API refuses.

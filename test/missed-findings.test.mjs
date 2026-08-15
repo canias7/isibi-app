@@ -278,3 +278,94 @@ test("both report returns carry the sandbox verdict", () => {
     assert.match(args, /\bsandboxed\b/, "a report return drops the sandbox verdict: {" + args + "}");
   }
 });
+
+// ── the last two raw-access reads in schemaDigest ───────────────────────────
+
+test("a team table declared as a PAIR is still described as shared", async () => {
+  // THE PAIR BUG, fifth instance and the consequential one. `normalizeSchema`
+  // stamps `access: "collect"` on any table that did not name a preset, and the
+  // design tool tells the model to leave `access` out when it declares a pair —
+  // so a team table spelled `{read:"own", write:"own"}` arrived at this gate
+  // wearing "collect", the SHARED WITH THE TEAM line was never printed, and the
+  // generator wrote "your notes" on a table the whole team reads and edits.
+  const { schemaDigest } = await import("../builder/page-gen.mjs");
+  const table = { name: "notes", columns: [{ name: "body" }], teamScope: true };
+  const asPreset = schemaDigest({ tables: [{ ...table, access: "user" }] });
+  const asPair = schemaDigest({ tables: [{ ...table, access: "collect", read: "own", write: "own" }] });
+  assert.match(asPreset, /SHARED WITH THE TEAM/, "the preset form stopped saying it");
+  assert.match(asPair, /SHARED WITH THE TEAM/, "a pair-declared team table is described as private");
+});
+
+test("one fact is stated the same way however the access was spelled", async () => {
+  // The line below the team one had it too: a pair-declared display table was
+  // stamped "collect" and got a `usePublicRows` line its preset-declared twin
+  // does not. Harmless in itself and exactly the inconsistency that makes a
+  // digest untrustworthy — the model is told a different thing about two tables
+  // that behave identically.
+  const { schemaDigest } = await import("../builder/page-gen.mjs");
+  const table = { name: "menu", columns: [{ name: "dish" }] };
+  const asPreset = schemaDigest({ tables: [{ ...table, access: "display" }] });
+  const asPair = schemaDigest({ tables: [{ ...table, access: "collect", read: "public", write: "none" }] });
+  assert.equal(/usePublicRows:/.test(asPreset), /usePublicRows:/.test(asPair),
+    "the same table described two ways depending on how it was spelled");
+});
+
+test("the stamped preset is not even bound in the digest's scope", () => {
+  // THE FIX, rather than a tidy-up. A variable holding the preset a table never
+  // declared, in the one function that describes tables to the model, is a trap
+  // that has been fallen into once per reader — six times across this file. With
+  // nothing to reach for, the mistake cannot be made here again.
+  //
+  // ANCHORED AT THE TOP OF THE CALLBACK, not at `const rw`. Sliced from `rw` the
+  // window opens BELOW the line a re-binding would be inserted on, so the mutant
+  // that puts `const access` back sat outside it and survived — my own
+  // overlapping-window bug, in the guard written to stop the thing it missed.
+  const src = read("../builder/page-gen.mjs");
+  const at = src.indexOf("const tableLines = tables.map((t) => {");
+  assert.ok(at > 0, "the digest's table loop moved — rescope this");
+  const body = src.slice(at, src.indexOf("return lines", at));
+  assert.ok(body.length > 2000, "the digest window is small — rescope this");
+  const code = body.replace(/\/\/[^\n]*/g, (m) => " ".repeat(m.length));
+  assert.doesNotMatch(code, /const access\s*=/, "the stamped preset is bound in this scope again");
+  assert.doesNotMatch(code, /(?<![.\w$])access\s*===/, "a gate reads the stamped preset again");
+});
+
+// ── the three stale claims ──────────────────────────────────────────────────
+
+test("the clarify gate's comment names the intent it actually resolves to", async () => {
+  // `FALLBACK_WITH_SITE` is `addon`, so a gated clarify on an existing site —
+  // which is every revise, i.e. exactly where the gate is closed — is overruled
+  // into an ADDON, not a build. Right either way (both are work, never a
+  // paragraph); the sentence named the one it is not.
+  const { FALLBACK_WITH_SITE, readRouting } = await import("../builder/site-ask.mjs");
+  const reply = { content: [{ type: "tool_use", input: { intent: "clarify", question: { text: "?", options: ["a", "b"] } } }] };
+  assert.equal(readRouting(reply, { canClarify: false, hasSite: true }).intent, FALLBACK_WITH_SITE);
+  assert.equal(FALLBACK_WITH_SITE, "addon", "the fallback moved — re-read the comment beside the gate");
+  const src = read("../builder/site-ask.mjs");
+  const at = src.indexOf("CLARIFY IS GATED BY THE CALLER");
+  assert.ok(at > 0, "the gate comment is gone — rescope this");
+  const note = src.slice(at, src.indexOf("if (input.intent === \"clarify\"", at));
+  assert.doesNotMatch(note, /simply overruled into a build/, "the stale claim is back");
+});
+
+test("the seeding note no longer says an owner-write route does not exist", () => {
+  // It does — `handleOwnerWrite`, whose own docstring says it closes exactly
+  // that gap. The seeding CONCLUSION is untouched and still right: a café should
+  // not have to type its whole menu into a data panel before the site is worth
+  // showing anybody.
+  const schema = read("../site-schema.mjs");
+  const owner = read("../site-owner.mjs");
+  assert.match(owner, /export async function handleOwnerWrite/, "the owner-write route is gone — the old note was right after all");
+  assert.doesNotMatch(schema, /no\s*\n?\/\/ owner-write route exists|no owner-write route exists/,
+    "the seeding note claims a route that exists does not");
+  assert.match(schema, /Starter content for the tables a visitor READS/, "the seeding note is gone — rescope this");
+});
+
+test("build-smoke does not promise that a revise buys no photographs", () => {
+  // `budgetFor` replaced the flat `revise ? 0` rule: a revise on a site that
+  // shows NO photograph buys them, which is exactly a smoke site whose first
+  // build could not afford any. The comment guarded a real fal bill.
+  const src = read("../test/integration/build-smoke.mjs");
+  assert.doesNotMatch(src, /A revise buys none, so funding this one cannot/, "the stale guarantee is back");
+  assert.match(src, /budgetFor/, "the note no longer says what replaced the old rule");
+});
