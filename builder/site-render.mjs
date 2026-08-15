@@ -248,11 +248,33 @@ export function probe() {
   // rather than composited: a glass theme makes every surface translucent on
   // purpose, and guessing what is behind it is exactly the guess that produces a
   // false alarm on a design that is working as intended.
+  // A PICTURE IN THE WAY IS THE SAME ANSWER AS A TRANSLUCENT LAYER: do not guess.
+  //
+  // This read `backgroundColor` only, so a hero with a photograph, a
+  // `from-black/60` scrim and white text walked past both — a gradient sets no
+  // background COLOUR — reached `body`, and measured white on white.
+  // MEASURED IN A REAL BROWSER: 1:1, which becomes "has text that is nearly
+  // invisible" and ships to the customer on the build and on every edit lane.
+  // A false alarm on the single most common hero there is, and the colour lint
+  // cannot catch it either (`TAILWIND_PALETTE` lists no `white` or `black`).
+  //
+  // ORDERING IS LOAD-BEARING. The colour branches come FIRST so a gloss theme
+  // keeps working: `.bg-primary` is an opaque `--primary` with a gradient laid
+  // over it, so the colour is the honest answer and the true positive survives.
+  //
+  // NOT REDUNDANT WITH `coveredByPicture` BELOW, though it looks it — the two
+  // shapes this was written for are both caught by that instead, and a mutation
+  // removing this line passed all seven of them. What it alone catches is a
+  // picture-backed ancestor with NO BOX of its own (`display: contents`, which
+  // Tailwind spells `contents`): it never enters `painted`, so only the walk can
+  // see it. Measured — without this line that page reports 1:1.
   const solidBehind = (el) => {
     for (let n = el; n && n !== document.documentElement.parentNode; n = n.parentElement) {
-      const c = rgba(getComputedStyle(n).backgroundColor);
+      const cs = getComputedStyle(n);
+      const c = rgba(cs.backgroundColor);
       if (c && c.a >= 0.95) return c;
       if (c && c.a > 0.05) return null; // translucent layer in the way — do not guess
+      if (cs.backgroundImage && cs.backgroundImage !== "none") return null; // painted, colour unreadable
     }
     const html = rgba(getComputedStyle(document.documentElement).backgroundColor);
     return html && html.a >= 0.95 ? html : { r: 255, g: 255, b: 255, a: 1 };
@@ -260,6 +282,31 @@ export function probe() {
 
   const seen = new Set();
   const all = Array.from(document.body ? document.body.querySelectorAll("*") : []).slice(0, 1500);
+
+  // AND THE PICTURE THAT IS A SIBLING, which the ancestor walk never visits.
+  // The kit's own `CoverImage` is `<SafeImage/>`, then an absolutely-positioned
+  // scrim, then the caption — three siblings — so an ancestor-only fix covers
+  // only half the shape. Measured: the ancestor form and the sibling form both
+  // reported 1:1 before this, and both are correct pages.
+  //
+  // Built ONCE from the array already collected, not a second querySelectorAll.
+  // An `<img>` counts unconditionally; anything else needs a background image
+  // AND no opaque colour of its own — an image over an opaque colour means that
+  // colour is still the honest answer, which is what keeps the gloss-button true
+  // positive alive.
+  const painted = [];
+  for (const el of all) {
+    if (el.tagName !== "IMG") {
+      const cs = getComputedStyle(el);
+      if (!cs.backgroundImage || cs.backgroundImage === "none") continue;
+      const bc = rgba(cs.backgroundColor);
+      if (bc && bc.a >= 0.95) continue;
+    }
+    const pr = el.getBoundingClientRect();
+    if (pr.width > 0 && pr.height > 0) painted.push(pr);
+  }
+  const coveredByPicture = (r) => painted.some((p) =>
+    p.left <= r.left + 1 && p.right >= r.right - 1 && p.top <= r.top + 1 && p.bottom >= r.bottom - 1);
   for (const el of all) {
     if (out.contrast.length >= 8) break;
     // Only elements holding their OWN words. A wrapper inherits its child's text
@@ -282,6 +329,12 @@ export function probe() {
     if (!fg || fg.a < 0.5) continue;                     // deliberately faint
     const bg = solidBehind(el);
     if (!bg) continue;
+    // OVER-SKIP, AND IT IS A REAL COST, stated rather than left implicit: text
+    // over a photograph with NO scrim stops being reported. Defensible only
+    // because the answer here was 1:1 regardless of what the photograph actually
+    // looks like — right by accident at best — and because this check's charter
+    // prefers a miss to a false alarm.
+    if (coveredByPicture(r)) continue;
     const cr = ratio(fg, bg);
     if (cr >= 3) continue;
     const key = s.color + "|" + own.slice(0, 20);

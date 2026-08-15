@@ -1245,6 +1245,60 @@ function P() {
       !!(solid.render && solid.render.ok === true)
         && (solid.render.findings || []).every((f) => f.kind !== "seethrough"),
       JSON.stringify({ ok: solid.render && solid.render.ok, findings: (solid.render && solid.render.findings) || [] }).slice(0, 300));
+
+    // ── TEXT OVER A PHOTOGRAPH ───────────────────────────────────────────────
+    //
+    // The contrast pass read `backgroundColor` only, so a hero with a picture, a
+    // `from-black/60` scrim and white text walked past both — a gradient sets no
+    // background COLOUR — reached `body`, and measured white on white.
+    // MEASURED IN A REAL BROWSER before the fix: 1:1 on the single most common
+    // hero there is, reported to the customer as text that is nearly invisible,
+    // on the build and on every edit lane. The colour lint cannot see it either
+    // (`TAILWIND_PALETTE` lists no `white` or `black`).
+    //
+    // BOTH SHAPES, because the ancestor fix covers only half: the kit's own
+    // `CoverImage` puts the scrim and the caption as SIBLINGS, and the family
+    // exemplars nest the caption inside the gradient. Measured, each reported
+    // 1:1 independently.
+    const heroPage = (wrap) => `import { createFileRoute } from "@tanstack/react-router";
+export const Route = createFileRoute("/")({ component: P });
+function P() {
+  return (
+    <div className="relative h-80 overflow-hidden">
+      <div className="absolute inset-0 bg-[url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%228%22 height=%228%22><rect width=%228%22 height=%228%22 fill=%22%23888%22/></svg>')] bg-cover" />
+      ${wrap}
+    </div>
+  );
+}
+`;
+    const caption = '<div className="absolute left-6 bottom-6 text-white"><h1 className="text-4xl font-semibold">Sharp Fade Barbers</h1><p className="mt-2">Walk in or book a chair online today, seven days a week.</p></div>';
+    const nested = await post({
+      files: { "index.tsx": heroPage('<div className="absolute inset-0 bg-gradient-to-t from-black/60">' + caption + "</div>") },
+      slug: "render-hero-nested", title: "Hero",
+    });
+    const flat = await post({
+      files: { "index.tsx": heroPage('<div className="absolute inset-0 bg-gradient-to-t from-black/60" />' + caption) },
+      slug: "render-hero-sibling", title: "Hero",
+    });
+    // GATED ON THE CHECK HAVING RUN — the same reason the panel assertion above
+    // is. This pass condition is an ABSENCE, and with no browser it is trivially
+    // satisfied while the check reports nothing at all.
+    for (const [what, r] of [["nested in the scrim", nested], ["a sibling of the scrim", flat]]) {
+      const bad = ((r.render && r.render.findings) || []).filter((f) => f.kind === "contrast");
+      ok(`white hero text over a photograph is NOT reported (${what})`,
+        !!(r.render && r.render.ok === true) && bad.length === 0,
+        JSON.stringify({ ok: r.ok, render: r.render && r.render.ok, findings: bad }).slice(0, 300));
+    }
+
+    // …AND THE CHECK STILL REPORTS TEXT NOBODY CAN READ. Without this the fix
+    // above is indistinguishable from switching the contrast pass off.
+    const faint = await post({
+      files: { "index.tsx": `import { createFileRoute } from "@tanstack/react-router";\nexport const Route = createFileRoute("/")({ component: P });\nfunction P() { return <div className="bg-white p-10"><p className="text-[#ededed] text-base">Walk in or book a chair online today, seven days a week at our Leeds shop.</p></div>; }\n` },
+      slug: "render-faint", title: "Faint",
+    });
+    ok("…and text nobody can read is STILL reported, so the fix is not the check switched off",
+      ((faint.render && faint.render.findings) || []).some((f) => f.kind === "contrast"),
+      JSON.stringify((faint.render && faint.render.findings) || []).slice(0, 300));
   }
 
 } catch (e) {

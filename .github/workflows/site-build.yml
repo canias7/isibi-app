@@ -22,6 +22,7 @@ on:
       - 'test/integration/kit-a11y.mjs'
       - 'test/integration/kit-effects.mjs'
       - 'test/integration/kit-paint.mjs'
+      - 'test/integration/contrast-cases.mjs'
       - 'test/page-gen.test.mjs'
       - '.github/workflows/site-build.yml'
   workflow_dispatch:
@@ -102,6 +103,20 @@ jobs:
         working-directory: builder/lovable/template
 
       - run: node test/integration/site-build.mjs
+
+      # THE FALSE-ALARM RATE OF THE CONTRAST CHECK, which is the number that
+      # decides whether that check may exist at all: its verdict goes to the
+      # CUSTOMER, on the build and on every edit lane, as "has text that is
+      # nearly invisible". It read `backgroundColor` only — a gradient sets no
+      # background COLOUR — so a photograph with a scrim and white text measured
+      # white on white at 1:1, on the most common hero there is.
+      #
+      # Separate from site-build because it needs no container and no dist: a
+      # static page and the real `probe()`, about two seconds, so it can afford
+      # the cases that PIN the boundary (the ordering that keeps a gloss button
+      # checked, the ancestor with no box) rather than only the two shapes a
+      # compiled site can show.
+      - run: node test/integration/contrast-cases.mjs
 
       # Does a theme reach the DIST? The response cannot answer that — the font
       # write shipped defaults while reporting the right choice, and a theme has
