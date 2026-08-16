@@ -4692,6 +4692,33 @@ async function siteBackendBySlugFresh(env, slug) {
   return (r && r.conn) || null;
 }
 
+// WHO OWNS A SLUG, cached, for the one read path that needs it.
+//
+// The third-party API cache keys on the owner (`cacheKey`) because a slug is
+// re-claimable: delete a site and the name is free, so a key without it serves
+// an answer fetched with one account's credential to whoever takes the slug
+// next. That path is public and unauthenticated, so it cannot afford
+// `siteBackendRowFresh` — two Supabase round trips, uncached, per visitor read.
+//
+// ONE COLUMN, memoized for the same five minutes and by the same reasoning as
+// the connection lookup beside it: a slug's owner is fixed for the life of the
+// site, and only a delete changes it — at which point the entry is stale for at
+// most five minutes and the worst it can do is keep a cache warm for a site
+// that has gone.
+//
+// A FAILURE ANSWERS null AND THE CACHE IS SKIPPED, never shared. Uncached is
+// slower; a key without an owner is somebody else's data.
+const _ownerCache = makeCache({ ttlMs: SITE_CONN_TTL_MS, max: 500 });
+const siteOwnerBySlug = memoize(_ownerCache, async (slug, env) => {
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(slug)}&select=uid&limit=1`,
+      { headers: svcHeaders(env), signal: AbortSignal.timeout(8000) });
+    if (!r.ok) return null;
+    const rows = await r.json().catch(() => null);
+    return (Array.isArray(rows) && rows[0] && rows[0].uid) || null;
+  } catch { return null; }
+});
+
 // The same lookup, keeping the OWNER. Everything that writes needs this: a
 // connection string alone cannot answer "is this site mine?". Throws rather
 // than returning null when the lookup itself fails, so a caller cannot mistake
@@ -5712,10 +5739,12 @@ async function siteApiDeps(env, slug, db, api) {
     // isolate has already fetched; KV is the shared layer and costs a read. A KV
     // hit warms memory on the way back, so a busy isolate asks once.
     //
-    // KV IS OPTIONAL AND ITS ABSENCE IS SILENT. `env.SITE_API_CACHE` is not
-    // bound today — there is no `kv_namespaces` in wrangler.jsonc at all — so
-    // every branch below degrades to exactly the behaviour that shipped before
-    // this, which is what makes it safe to land before the namespace exists.
+    // KV IS OPTIONAL AND ITS ABSENCE IS SILENT. The namespace was created and
+    // bound on 2026-08-16; before that every branch below degraded to exactly
+    // the behaviour that shipped without it, which is what made this safe to
+    // land first. The fallback stays for the same reason it was written: an
+    // unbound binding, a namespace deleted by hand, or a KV outage costs the
+    // owner an upstream call and never a broken page.
     cacheGet: async (k) => {
       const e = siteApiCache.get(k);
       if (e && e.until > Date.now()) return e.v;
@@ -9805,7 +9834,14 @@ async function handleRequest(request, env, ctx) {
         const api = apiFor(spec, aname);
         if (!api) return Response.json({ error: "no such connection" }, { status: 404 });
         const params = takeParams(api, url.searchParams);
-        const out = await callApi(await siteApiDeps(env, slug, adb, api), { slug, api, params });
+        // THE OWNER IS PART OF THE CACHE KEY, not part of the authorisation —
+        // this route is public by design. A slug is re-claimable, so without it
+        // an answer fetched with one account's API key is served to whoever
+        // takes the slug next. Memoized, so it is one Supabase read per slug per
+        // five minutes on a path that then makes a third-party call anyway; a
+        // failure answers null and `callApi` simply does not cache.
+        const aowner = await siteOwnerBySlug(slug, env);
+        const out = await callApi(await siteApiDeps(env, slug, adb, api), { ownerId: aowner, slug, api, params });
         // The owner's half of the story goes to the log, never to the visitor:
         // `missing` names a secret and `refused` names a destination.
         if (out.missing || out.refused) console.error("site api:", slug, aname, out.missing || out.refused);

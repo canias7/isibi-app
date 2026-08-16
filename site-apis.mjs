@@ -151,10 +151,82 @@ export function takeParams(api, search) {
   return out;
 }
 
-/** What distinguishes one cached answer from another. */
-export function cacheKey(slug, api, params) {
-  const parts = (api.params || []).map((p) => p + "=" + (params[p] == null ? "" : params[p]));
-  return slug + "|" + api.name + "|" + parts.join("&");
+/**
+ * Everything about a declaration that decides WHAT REQUEST IS MADE.
+ *
+ * This is the half of the cache key nothing had before, and its absence was a
+ * live bug rather than an omission: the key was `slug|name|params`, so changing
+ * a declaration's URL, method, headers or body left the key untouched and the
+ * site kept serving answers from the OLD endpoint for as long as the window
+ * lasted — up to an hour. Change a courier's endpoint or rotate onto a different
+ * pricing feed and the page shows the previous service's data, with nothing to
+ * explain it and nothing the owner can do but wait.
+ *
+ * `ttl` IS IN IT, and that is a decision rather than an oversight. Shortening
+ * `cacheSeconds` is what an owner does when they discover the data moves faster
+ * than they thought, and honouring the old window for the rest of it is exactly
+ * the thing they were trying to stop. The cost is that a cache-window tweak
+ * drops the entries, which is one extra upstream call.
+ *
+ * CANONICAL, so a cosmetic edit is not a cache flush: header names are compared
+ * case-insensitively (`Authorization` and `authorization` are one header on the
+ * wire) and both headers and parameters are sorted, so reordering them in the
+ * declaration changes nothing. And it is JSON rather than a joined string —
+ * escaping makes it injective, so no body containing a separator can be made to
+ * look like a different declaration.
+ */
+export function declFingerprint(api) {
+  const h = Object.keys(api.headers || {})
+    .map((k) => [String(k).toLowerCase(), api.headers[k]])
+    .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : (a[1] < b[1] ? -1 : 1)));
+  return JSON.stringify([api.method, api.url, h, api.body || "", [...(api.params || [])].sort(), api.ttl]);
+}
+
+async function sha256Hex(c, s) {
+  const buf = await c.digest("SHA-256", new TextEncoder().encode(s));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * What distinguishes one cached answer from another.
+ *
+ * SIX THINGS, and every one of them earns its place:
+ *
+ *   ownerId    A SLUG IS RE-CLAIMABLE. Delete a site and the name is free, so
+ *              without this a cached answer fetched with one account's API key
+ *              is served to whoever takes the slug next. The same window the
+ *              webhook queue's `sameOwner` closes, one feature over.
+ *   slug       two sites of one owner are two sites.
+ *   name       the declaration being called.
+ *   method     REDUNDANT AND KEPT, and it says so rather than looking
+ *              load-bearing: the fingerprint already carries the method, so a
+ *              mutation removing this field changes no answer — measured, not
+ *              assumed. It stays because a GET and a POST answering from one
+ *              entry is the most surprising thing this cache could do, and the
+ *              only other place that is ruled out is inside an opaque digest.
+ *              A key somebody can read beats a byte saved.
+ *   decl       the fingerprint above — a changed configuration never answers
+ *              from the old one.
+ *   params     the caller's own values, which is all a visitor may decide.
+ *
+ * The declaration is HASHED and nothing else is: it is up to ~11 KB (a 1 KB
+ * URL, twelve 500-byte headers, a 4 KB body) and this key is held in memory for
+ * up to 2,000 entries. The rest stays legible, which is what makes a key
+ * debuggable at all.
+ *
+ * ANSWERS `null` WHEN IT CANNOT BUILD A SAFE KEY — no owner, or no WebCrypto —
+ * and `callApi` then skips the cache entirely. That is the only fail-safe
+ * direction: falling back to a shorter key would be a shared key, which is the
+ * exact leak the owner is in here to prevent. Uncached is slower; shared is
+ * somebody else's data.
+ */
+export async function cacheKey({ ownerId, slug, api, params }, subtle) {
+  const c = subtle || (globalThis.crypto && globalThis.crypto.subtle);
+  if (!c || !ownerId) return null;
+  const decl = await sha256Hex(c, declFingerprint(api));
+  const vals = [...(api.params || [])].sort()
+    .map((p) => p + "=" + (params && params[p] != null ? params[p] : ""));
+  return [String(ownerId), slug, api.name, api.method, decl, vals.join("&")].join("|");
 }
 
 /**
@@ -165,13 +237,15 @@ export function cacheKey(slug, api, params) {
  * the key back in a rate-limit or debug header — the credential leaving by the
  * door it came in through.
  */
-export async function callApi(deps, { slug, api, params, now }) {
-  const key = cacheKey(slug, api, params);
-  if (api.ttl > 0 && deps.cacheGet) {
+export async function callApi(deps, { ownerId, slug, api, params, now }) {
+  // `null` when the owner is unknown or WebCrypto is missing, and then nothing
+  // is read from the cache and nothing is written to it — see `cacheKey`. The
+  // read still works; it just costs the owner an upstream call.
+  const key = await cacheKey({ ownerId, slug, api, params }, deps.subtle);
+  if (key && api.ttl > 0 && deps.cacheGet) {
     const hit = await deps.cacheGet(key);
-    // A cached answer is served whole, including a cached 4xx: a page asking
-    // the same wrong question sixty times a second should not become sixty
-    // calls on the owner's quota.
+    // Whole, and only ever a 2xx — nothing else is written (see below), so an
+    // error is never served from here however many times a page asks.
     if (hit) return { ...hit, cached: true };
   }
 
@@ -239,7 +313,7 @@ export async function callApi(deps, { slug, api, params, now }) {
   // thirty-second blip into an hour of a broken page, and there is nothing the
   // owner can do about it but wait. A 4xx is not cached either — that is
   // usually a key that has just been fixed.
-  if (api.ttl > 0 && deps.cacheSet && res.status >= 200 && res.status < 300) {
+  if (key && api.ttl > 0 && deps.cacheSet && res.status >= 200 && res.status < 300) {
     await deps.cacheSet(key, out, api.ttl * 1000, now);
   }
   return out;

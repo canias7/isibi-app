@@ -1,8 +1,10 @@
 # One-shot: create the KV namespaces the Worker reads at the edge.
 #
-# TWO OF THEM, and neither is bound today — `wrangler.jsonc` has no
-# `kv_namespaces` block at all, so both features below are running on their
-# fallback right now and have been since they shipped.
+# TWO OF THEM. Both were created by this workflow on 2026-08-16 and both are
+# bound in `wrangler.jsonc` now — so this is kept as the way to recreate one,
+# not as a pending step. Each feature still carries the fallback it shipped
+# with, described below, because an unbound binding must cost speed and never
+# correctness.
 #
 #   SITE_ROUTES      slug -> connection string, so a visitor read never makes
 #                    the two cross-region Supabase calls that answer a question
@@ -14,8 +16,8 @@
 #                    low-traffic site is close to uncached and the owner's
 #                    third-party quota is spent once per isolate per window.
 #
-# BOTH ARE SAFE TO CREATE AND SAFE TO LEAVE UNBOUND. The code ships without the
-# bindings and degrades to the fallbacks, which is what made both changes safe
+# BOTH WERE SAFE TO CREATE AND SAFE TO LEAVE UNBOUND. The code shipped without the
+# bindings and degraded to the fallbacks, which is what made both changes safe
 # to land before this ever ran. Nothing breaks if you create the namespaces and
 # never add the bindings; nothing breaks if you add them either.
 #
