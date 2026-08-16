@@ -184,7 +184,16 @@ const q = (name) => '"' + String(name).replace(/"/g, '""') + '"';
  *             the database has been told about.
  */
 export function policiesFor(t) {
-  const access = String((t && t.access) || "collect").toLowerCase();
+  // NOTHING HERE READS `t.access`, and the absence is the point. Every decision
+  // below composes from `resolveAccess(t)` — the pair — because `access` is a
+  // SHORTHAND that `normalizeSchema` also STAMPS onto any table that declared a
+  // read/write pair instead, so the raw field names a preset the designer never
+  // wrote. Five separate readers have made that mistake (the lint's write gate,
+  // the digest's PAID line, the seeder, the owner-write member gate,
+  // `acceptsVisitorUploads`), and this function held a `const access` binding of
+  // exactly that shape, declared and never used, until 2026-08-16. It was inert;
+  // it was also a loaded gun in the one function that decides who may read a
+  // customer's data. With nothing to reach for, the mistake cannot be made here.
   const tn = q(t.name);
   const p = (suffix) => q(POLICY_PREFIX + t.name + "_" + suffix);
   const out = [`ALTER TABLE ${tn} ENABLE ROW LEVEL SECURITY;`];

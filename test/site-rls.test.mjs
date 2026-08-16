@@ -222,6 +222,32 @@ test("teamScope on a non-user table is ignored, as it is everywhere else", () =>
   assert.match(norm(policyCond), /read === "own"/, "the policy widens on something other than an own-scoped read");
 });
 
+test("policiesFor never reads the raw `access` field — only the resolved pair", () => {
+  // THE PAIR BUG, GUARDED AT THE ONE PLACE IT WOULD COST THE MOST. `access` is a
+  // shorthand AND a field `normalizeSchema` stamps onto every table that declared
+  // a read/write pair instead — so the raw value names a preset the designer
+  // never wrote. Five readers have already made that mistake; this function held
+  // a `const access` binding of exactly that shape, declared and never used,
+  // until it was deleted. The invariant is that the binding cannot come back.
+  const rls = fs.readFileSync(new URL("../site-rls.mjs", import.meta.url), "utf8");
+  const at = rls.indexOf("export function policiesFor");
+  assert.ok(at > 0, "policiesFor could not be found — retarget this guard");
+  const end = rls.indexOf("\nexport ", at + 10);
+  assert.ok(end > at, "the end of policiesFor could not be found — retarget this guard");
+  // COMMENTS BLANKED BEFORE JUDGING, and this is not optional: the comment that
+  // now sits at the top of that function explains the bug by NAMING `t.access`,
+  // so an absence guard reading raw source fails against its own fix. Blanked
+  // rather than removed, so nothing else here shifts.
+  const code = rls.slice(at, end)
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+    .replace(/\/\/[^\n]*/g, (m) => m.replace(/[^\n]/g, " "));
+  // The floor first — a slice that stopped matching would report a clean
+  // function and prove nothing.
+  assert.match(code, /resolveAccess\(t\)/, "policiesFor no longer resolves the pair at all");
+  assert.doesNotMatch(code, /\.access\b/,
+    "policiesFor reads the raw `access` field again — decide from resolveAccess(t) instead");
+});
+
 // --------------------------------------------------------------- trash
 
 test("a soft-deleted row is invisible to a reader, not just to the Worker", () => {
