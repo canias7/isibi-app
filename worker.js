@@ -3613,6 +3613,30 @@ const SITE_SCHEMA_TOOL = {
                 body: { type: "string", description: "Short plain-text message. {column} is replaced from the submitted row." },
               },
             },
+            // OUTBOUND WEBHOOKS, DECLARABLE AT LAST. Every layer below this one
+            // has been complete since the feature shipped — `coerceTable` parses
+            // it, `firesFor` reads it, `emitWebhook` fires on the write path with
+            // HMAC signing, SSRF checks and a rate cap — and no tool anywhere
+            // offered the field, so no model on any path could ever ask for it.
+            // The declared-and-dead shape this file records over and over,
+            // sitting on a finished feature.
+            //
+            // AN ARRAY, NOT `true`-OR-ARRAY. `coerceTable` accepts a boolean and
+            // still does, so anything sending one keeps working — but this tool
+            // has ZERO uses of `anyOf`/`oneOf`, and a union here would be an
+            // untested JSON Schema construct in the one tool whose rejection
+            // 400s every build on the platform. Listing all three events is what
+            // `true` means, so nothing is lost but a spelling.
+            webhooks: {
+              type: "array",
+              items: { type: "string", enum: ["created", "updated", "deleted"] },
+              description:
+                "OPTIONAL, and OFF unless the brief asks for it. Tell another system when a row here changes — a booking into a CRM, an order into a warehouse, an enquiry into Slack. " +
+                "List the events that should fire: [\"created\"] for new rows only, or all three for everything. Most sites declare this on nothing at all. " +
+                "Declare it ONLY when the brief names another system that should hear about this data; a site that just emails the owner does NOT need it — that already happens. " +
+                "The site owner pastes the destination into Secrets as WEBHOOK_URL (or WEBHOOK_URL_<TABLE> to send one table somewhere of its own), and until they do nothing is sent and the form works normally. " +
+                "The platform signs each delivery and never sends owner_id or any claim token.",
+            },
             payment: {
               type: "object",
               description:

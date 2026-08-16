@@ -84,7 +84,13 @@ function enforcementSource() {
   // Each file listed here is a place a declared feature can genuinely be READ;
   // adding one is how a new KIND of enforcement joins, and leaving it out is
   // what made this test fail the first time `confirm` existed.
-  return [src, blankComments(read("site-rls.mjs")), blankComments(read("site-mail.mjs"))].join("\n");
+  // `site-webhooks.mjs` is the third KIND, joining for exactly the reason the
+  // paragraph above describes: `firesFor` reads `def.webhooks` on the write
+  // path and turns it into an outbound POST — no column, no policy, no trigger,
+  // and nothing in the schema or RLS files to find. Left out, this guard would
+  // correctly report a feature that works as dead.
+  return [src, blankComments(read("site-rls.mjs")), blankComments(read("site-mail.mjs")),
+    blankComments(read("site-webhooks.mjs"))].join("\n");
 }
 
 test("the design_schema tool offers a list this test can read", () => {

@@ -452,3 +452,84 @@ test("A MISS IS NEVER CACHED, and a write invalidates", () => {
   assert.match(code, /deleteSecret\([\s\S]{0,600}?if \(d && d\.ok\) forgetSiteConfig\(sslug\)/,
     "deleting a secret must invalidate as well");
 });
+
+// ── DECLARABLE AT LAST ─────────────────────────────────────────────────────
+//
+// Everything below `firesFor` has been complete since this feature shipped and
+// no tool anywhere offered the field, so no model on any path could turn it on.
+// These are the guards on the declaration chain rather than on the delivery.
+
+test("the design tool offers webhooks, and its events are exactly the ones we deliver", () => {
+  const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const at = worker.indexOf('name: "design_schema"');
+  const end = worker.indexOf('tool_choice: { type: "tool", name: "design_schema" }');
+  assert.ok(at > 0 && end > at, "design_schema could not be read — retarget this guard");
+  const tool = worker.slice(at, end);
+  const decl = tool.indexOf("webhooks: {");
+  assert.ok(decl > 0, "design_schema does not offer `webhooks` — the feature is undeclarable again");
+
+  // DERIVED FROM THE DELIVERER, not restated. A tool offering an event
+  // `firesFor` ignores is a rule the customer is told they have and does not.
+  const mod = fs.readFileSync(new URL("../site-webhooks.mjs", import.meta.url), "utf8");
+  const acts = (mod.match(/const ACTIONS = new Set\(\[([^\]]*)\]\)/) || [])[1];
+  assert.ok(acts, "the deliverer's ACTIONS could not be read — retarget this guard");
+  const want = acts.split(",").map((s) => s.trim().replace(/^"|"$/g, "")).filter(Boolean).sort();
+  assert.deepEqual(want, ["created", "deleted", "updated"], "the deliverer's events moved");
+
+  const offered = (tool.slice(decl, decl + 400).match(/enum: \[([^\]]*)\]/) || [])[1];
+  assert.ok(offered, "the webhooks field declares no enum — an invalid event would reach the normaliser");
+  assert.deepEqual(
+    offered.split(",").map((s) => s.trim().replace(/^"|"$/g, "")).filter(Boolean).sort(),
+    want,
+    "the tool offers different events than the deliverer acts on",
+  );
+});
+
+test("a declared table reaches firesFor — true, a list, and off by default", async () => {
+  const { normalizeSchema } = await import("../site-schema.mjs");
+  const one = (over) => {
+    const spec = normalizeSchema({ tables: [{ name: "bookings", access: "collect", columns: [{ name: "who", type: "text" }], ...over }] });
+    return spec.tables.find((t) => t.name === "bookings");
+  };
+
+  // OFF BY DEFAULT, which is the requirement rather than a nicety: this posts a
+  // customer's submission to a third party, so silence is the only safe absence.
+  const bare = one({});
+  for (const a of ["created", "updated", "deleted"]) {
+    assert.equal(firesFor(bare, a), false, "a table that declared nothing must not emit " + a);
+  }
+
+  const all = one({ webhooks: true });
+  for (const a of ["created", "updated", "deleted"]) {
+    assert.equal(firesFor(all, a), true, "`true` must emit " + a);
+  }
+
+  const some = one({ webhooks: ["created"] });
+  assert.equal(firesFor(some, "created"), true, "a declared event must fire");
+  assert.equal(firesFor(some, "updated"), false, "an undeclared event must not fire");
+  assert.equal(firesFor(some, "deleted"), false, "an undeclared event must not fire");
+});
+
+test("an invalid event is dropped, and a list of only invalid events is silence", async () => {
+  const { normalizeSchema } = await import("../site-schema.mjs");
+  const one = (webhooks) => normalizeSchema({ tables: [{ name: "t", access: "collect", columns: [{ name: "a", type: "text" }], webhooks }] })
+    .tables.find((t) => t.name === "t");
+
+  const mixed = one(["created", "exfiltrated", "DELETED", "created"]);
+  // Case-folded and de-duplicated on the way in, junk dropped.
+  assert.deepEqual(mixed.webhooks, ["created", "deleted"], "valid events survive, invalid ones do not");
+  assert.equal(firesFor(mixed, "exfiltrated"), false, "an invented event can never fire");
+
+  // A LIST THAT SURVIVES NOTHING IS OFF, not an empty list that reads as "on".
+  for (const junk of [["nonsense"], [], ["created "], [42], [null]]) {
+    const t = one(junk);
+    assert.equal(t.webhooks, null, "an unusable list must normalise to off: " + JSON.stringify(junk));
+    assert.equal(firesFor(t, "created"), false, "and must not fire");
+  }
+
+  // Not-a-list, not-a-boolean.
+  for (const junk of ["created", { created: true }, 0, "true"]) {
+    const t = one(junk);
+    assert.equal(firesFor(t, "created"), false, "a non-list non-true must not emit: " + JSON.stringify(junk));
+  }
+});
