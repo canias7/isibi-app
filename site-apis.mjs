@@ -48,12 +48,13 @@ export const kvEligible = (ttl) => Number(ttl) >= KV_MIN_TTL;
 /**
  * The KV key for a cached answer.
  *
- * HASHED, and not to be tidy. `cacheKey` carries the slug, the name and up to 8
- * parameters of 200 characters each — comfortably past KV's 512-byte key limit,
- * where a write simply fails and the cache silently never works. And it is
- * SHA-256 rather than something cheap: a collision here does not lose a cache
- * entry, it serves ONE SITE'S third-party data to ANOTHER, so the hash has to be
- * one where collisions are not merely unlikely but unconstructable.
+ * HASHED, and not to be tidy. `cacheKey` carries an owner id, a slug, a name, a
+ * method, a 64-character declaration digest and up to 8 parameters of 200
+ * characters each — comfortably past KV's 512-byte key limit, where a write
+ * simply fails and the cache silently never works. And it is SHA-256 rather
+ * than something cheap: a collision here does not lose a cache entry, it serves
+ * ONE SITE'S third-party data to ANOTHER, so the hash has to be one where
+ * collisions are not merely unlikely but unconstructable.
  *
  * The `api:` prefix keeps this namespace apart from `route:` in the same store.
  */
