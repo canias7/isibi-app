@@ -403,9 +403,20 @@ test("THE CACHE IS KEYED ON THE SITE, or one site's destination serves them all"
   const def = worker.match(/memoize\(webhookCfg, async \(([^)]*)\)/);
   assert.ok(def, "the webhook config must still be memoized");
   assert.equal(def[1].split(",")[0].trim(), "slug", "the cache key must be the site");
-  const call = worker.match(/webhookSecrets\(([^)]*)\)/);
-  assert.ok(call);
-  assert.equal(call[1].split(",")[0].trim(), "slug", "and the call must pass it first");
+  // EVERY CALL SITE, and the PROPERTY rather than the spelling. This read
+  // `worker.match(...)` — the FIRST occurrence — and asserted the literal
+  // `slug`, which was exact and correct while there was one caller. The queue
+  // drain added a second that passes `row.slug`: the same site identity, a
+  // different set of characters, and the guard went red on correct code. The
+  // durable invariant is that no caller keys the cache on something that is not
+  // a site, and `env` is the way that goes wrong.
+  const calls = [...worker.matchAll(/webhookSecrets\(([^)]*)\)/g)];
+  assert.ok(calls.length >= 2, "the scan must still find every caller, or this passes vacuously");
+  for (const c of calls) {
+    const first = c[1].split(",")[0].trim();
+    assert.match(first, /slug/, "every call must key on a site: " + c[0]);
+    assert.notEqual(first, "env", "and never on env: " + c[0]);
+  }
 
   // Derived rather than special-cased: EVERY memoized helper here takes an
   // identity-bearing first argument, and `env` is never one.

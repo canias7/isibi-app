@@ -568,5 +568,19 @@ test("a half-configured site sends what it can and does not report the rest as f
 
   assert.equal(out.sent, 1, "the email went");
   assert.equal(out.failed, 0, "and the text is NOT a failure — nothing broke");
-  assert.equal(out.skipped, 1, "it is waiting on a credential, which is a different thing");
+  assert.equal(out.unsent, 1, "it is waiting on a credential, which is a different thing");
+  assert.equal(out.skipped, undefined, "and it is NOT `skipped`, which means the claim was lost");
+
+  // THE COLLISION THIS NAME EXISTS TO AVOID, asserted directly. `skipped: true`
+  // is a boolean meaning "another tick claimed this run" and `jobOutcome`
+  // branches on it FIRST, so a count in the same field made a run that sent an
+  // email report "Skipped — another run had already picked this up" — and
+  // `runScheduledSiteJobs` skips the last_result write on the same flag, so the
+  // owner's panel kept the previous run's line for ever.
+  const half = jobOutcome({ ok: true, sent: 1, unsent: 1 });
+  assert.match(half, /Sent 1 message/, "a run that sent must say so");
+  assert.match(half, /waiting on a provider key/, "and must name what did not go");
+  assert.doesNotMatch(half, /another run had already/, "a half-configured run is NOT a lost claim");
+  assert.match(jobOutcome({ ok: true, skipped: true }), /another run had already/,
+    "while a genuinely lost claim still says exactly that");
 });

@@ -214,6 +214,13 @@ export function jobOutcome(out) {
   else bits.push("Nothing to send this time.");
 
   if (out.failed) bits.push(out.failed + (out.failed === 1 ? " message failed to send." : " messages failed to send."));
+  // NOT A FAILURE, AND NOT SILENCE EITHER. These are texts on a site with no
+  // SMS key pasted yet (or the reverse) — nothing broke, and the owner still
+  // needs to know some of what the job produced is waiting on them.
+  if (out.unsent) {
+    bits.push(out.unsent + (out.unsent === 1 ? " message is" : " messages are")
+      + " waiting on a provider key in Secrets.");
+  }
   // Reported, never silent — a job quietly capped is a job that looks like it
   // worked, and the hundred-and-first customer is the one with no reminder.
   if (out.overflow) bits.push(out.overflow + " more were over the " + MAX_MESSAGES_PER_RUN + "-per-run cap and were not sent.");
@@ -284,19 +291,27 @@ export async function runJob(deps, row) {
     if (wants("sms") && !smsCreds && !wants("email")) return { ok: true, name, sent: 0, reason: "no SMS provider key in Secrets" };
     if (!creds && !smsCreds) return { ok: true, name, sent: 0, reason: "no provider key in Secrets" };
 
-    let sent = 0, failed = 0, skipped = 0;
+    // `unsent`, NOT `skipped`. `skipped: true` already means "another tick had
+    // claimed this run" — a BOOLEAN — and `jobOutcome` branches on it before it
+    // reads anything else. A COUNT in the same field is truthy, so a run that
+    // sent an email and could not send a text reported "Skipped — another run
+    // had already picked this up", which is a flat lie about a run that did
+    // work; and `runScheduledSiteJobs` skips the `last_result` write on that
+    // same flag, so the owner's panel kept the PREVIOUS run's line for ever.
+    // Two bugs out of one overloaded name.
+    let sent = 0, failed = 0, unsent = 0;
     for (const m of shaped.messages) {
       const use = m.channel === "sms" ? smsCreds : creds;
       // A MESSAGE WHOSE CHANNEL HAS NO KEY IS NOT A FAILURE. Counting it as one
       // makes a half-configured site look broken every run, when what is true is
       // that the emails went and the texts are waiting on a credential.
-      if (!use) { skipped++; continue; }
+      if (!use) { unsent++; continue; }
       const r = m.channel === "sms"
         ? await deps.sendSms({ ...use, to: m.to, body: m.body })
         : await deps.send({ ...use, to: m.to, subject: m.subject, html: m.html });
       if (r && r.ok) sent++; else failed++;
     }
-    return { ok: true, name, sent, failed, dropped: shaped.dropped, overflow: shaped.overflow, skipped };
+    return { ok: true, name, sent, failed, dropped: shaped.dropped, overflow: shaped.overflow, unsent };
   } catch (e) {
     return { ok: false, name, reason: "threw", error: String((e && e.message) || e).slice(0, 200) };
   }

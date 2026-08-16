@@ -6,7 +6,8 @@ import { sendConfirmation, recipient, pickProvider } from "./site-mail.mjs";
 import { sendSms, pickSmsProvider, toE164, SMS_SECRET_NAMES } from "./site-sms.mjs";
 import { dueJobs, runJob, jobOutcome } from "./site-jobs.mjs";
 import { hostIsBlocked, blockedReason } from "./site-ssrf.mjs";
-import { deliverWebhook, firesFor, signPayload, MAX_PER_MINUTE as WEBHOOK_PER_MIN } from "./site-webhooks.mjs";
+import { deliverWebhook, firesFor, signPayload, retryable as webhookRetryable, MAX_PER_MINUTE as WEBHOOK_PER_MIN } from "./site-webhooks.mjs";
+import { drainQueue, enqueueRow, sameOwner, queueFull, retentionCutoffs, LEASE_MS as WEBHOOK_LEASE_MS, MAX_PENDING_PER_SITE } from "./site-webhook-queue.mjs";
 import { takeToken, verify as turnstileVerify, TOKEN_FIELD as TURNSTILE_FIELD } from "./site-turnstile.mjs";
 import { handleInbound, MAX_BODY as INBOUND_MAX_BODY, MAX_PER_MINUTE as INBOUND_PER_MIN } from "./site-inbound.mjs";
 // `OWN_ZONES` is imported because `cfZoneId` reads it — it was not, and that is
@@ -2218,6 +2219,12 @@ export default {
     // tick; the only side that can, since Cloudflare's certificate status is an
     // API call and nothing else in the system polls it.
     ctx.waitUntil(runDomainWatch(env));
+    // Finish outbound webhooks the in-request ladder could not. The ladder runs
+    // inside the waitUntil of the write that produced the event, so an evicted
+    // isolate or a receiver down for minutes loses it outright; this side is the
+    // only one that can pick that up, for the same reason the teardown queue
+    // above is drained here.
+    ctx.waitUntil(runWebhookQueue(env));
   },
 };
 
@@ -2636,6 +2643,153 @@ function backupDeps(env) {
     },
     warn: (m) => console.error(m),
   };
+}
+
+/**
+ * Drain the outbound-webhook queue.
+ *
+ * Every decision — backoff, jitter, dead-lettering, whether a claim is stale —
+ * lives in site-webhook-queue.mjs where it is tested with no database and no
+ * clock. This supplies nothing but the four side effects.
+ */
+async function runWebhookQueue(env) {
+  if (!env.SUPABASE_SERVICE_KEY) return;
+  const svc = { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY };
+  const json = { ...svc, "Content-Type": "application/json" };
+  const iso = (ms) => new Date(ms).toISOString();
+
+  const out = await drainQueue({
+    // DUE MEANS EITHER WAY IN: a pending row whose time has come, or a
+    // `delivering` row whose claim went stale because the worker holding it
+    // died. Ordered oldest-first so a burst cannot starve the rows behind it —
+    // the same reason the jobs query orders by last_run.
+    due: async (now, max) => {
+      const stale = iso(now - WEBHOOK_LEASE_MS);
+      const url = `${SUPABASE_URL}/rest/v1/webhook_queue`
+        + `?or=(and(status.eq.pending,next_attempt_at.lte.${encodeURIComponent(iso(now))})`
+        + `,and(status.eq.delivering,claimed_at.lt.${encodeURIComponent(stale)}))`
+        // `owner_id` IS SELECTED, not merely stored. It is what every write
+        // below is scoped on and what `sameOwner` checks before a byte goes
+        // anywhere; a row read without it arrives unable to prove who it
+        // belongs to, and `fairSlice` would file two accounts' rows on one
+        // slug as a single site.
+        + `&select=event_id,owner_id,slug,table_name,action,body,status,attempts,next_attempt_at,claimed_at`
+        // `max` ARRIVES ALREADY WIDENED by DUE_READ_MULTIPLE — the drain asks for
+        // more than it will process so the fairness pass has other sites' rows
+        // to interleave. Limiting to the tick's budget here would quietly undo
+        // it: one site with a backlog would own every row returned.
+        + `&order=next_attempt_at.asc&limit=${Math.max(1, max)}`;
+      const r = await fetch(url, { headers: svc, signal: AbortSignal.timeout(10000) });
+      if (!r.ok) throw new Error("queue read " + r.status);
+      const rows = await r.json().catch(() => []);
+      return Array.isArray(rows) ? rows : [];
+    },
+    // THE ATOMIC CLAIM, and it is the only thing between two overlapping cron
+    // ticks and a double delivery. The WHERE re-states the state this tick
+    // believes the row is in, so of two ticks that both read it as due exactly
+    // one gets a representation back. `!r.ok` and a throw both read as LOST —
+    // a claim that cannot be recorded is a claim lost, the jobs-runner rule.
+    claim: async (row, now) => {
+      const stale = iso(now - WEBHOOK_LEASE_MS);
+      const url = `${SUPABASE_URL}/rest/v1/webhook_queue`
+        + `?event_id=eq.${encodeURIComponent(row.event_id)}`
+        // OWNER- AND SLUG-SCOPED, exactly like the jobs runner's claim, and for
+        // the same reason: every write to this table names the tenant it
+        // believes it is acting for, so a row that has somehow moved between
+        // the read and the write is not silently updated by the wrong drain.
+        // The event id is the primary key and would match alone; that is what
+        // makes this cheap to keep and worthless to leave out.
+        + `&owner_id=eq.${encodeURIComponent(row.owner_id || "")}`
+        + `&slug=eq.${encodeURIComponent(row.slug || "")}`
+        + `&or=(status.eq.pending,and(status.eq.delivering,claimed_at.lt.${encodeURIComponent(stale)}))`;
+      const r = await fetch(url, {
+        method: "PATCH", headers: { ...json, Prefer: "return=representation" },
+        body: JSON.stringify({ status: "delivering", claimed_at: iso(now), updated_at: iso(now) }),
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!r.ok) return false;
+      const got = await r.json().catch(() => null);
+      return Array.isArray(got) && got.length > 0;
+    },
+    // The stored bytes, re-signed with a fresh timestamp. `body` is passed
+    // through so nothing is rebuilt — see deliverWebhook.
+    deliver: async (row) => {
+      // FRESH, AND KEEPING THE OWNER. `siteBackendBySlug` caches for five
+      // minutes and answers a connection string alone, which cannot answer the
+      // only question that matters here. This is a cron draining at most a
+      // handful of rows, so the uncached lookup costs nothing worth having.
+      //
+      // It THROWS when the lookup itself fails, which is the right direction:
+      // "Supabase is down" becomes a retryable delivery failure rather than
+      // either "nobody owns this" (dead-letter, event lost) or "the owner
+      // matches" (delivered to whoever holds the slug now).
+      const site = await siteBackendRowFresh(env, row.slug);
+      // A site that has gone leaves rows nothing can deliver. Reported as a
+      // permanent refusal so it dead-letters rather than retrying for a day.
+      if (!site || !site.conn) return { sent: false, status: 410, error: "site no longer exists" };
+      // THE CROSS-TENANT CHECK, AND IT COMES BEFORE THE VAULT IS OPENED.
+      //
+      // A slug is freed by a delete and claimable by anyone. Both the
+      // destination URL and the signing secret below are read out of whichever
+      // site holds the slug NOW — so without this line a row queued by one
+      // account is eventually POSTed, correctly signed, to a different
+      // account's endpoint. Permanent (410): the site this row was addressed
+      // to does not exist any more, and no number of retries changes that.
+      if (!sameOwner(row, site.uid)) {
+        return { sent: false, status: 410, error: "slug now belongs to another account" };
+      }
+      const db = site.conn;
+      return deliverWebhook({
+        firesFor: () => true,           // it fired once already; that is settled
+        loadSecrets: () => webhookSecrets(row.slug, env, db),
+        blockedReason: (u) => blockedReason(u),
+        sign: (secret, body, ts) => signPayload(secret, body, ts),
+        post: (url, init) => fetch(url, { ...init, redirect: "manual", signal: AbortSignal.timeout(5000) }),
+      }, {
+        slug: row.slug, table: row.table_name, action: row.action,
+        row: null, now: Date.now(), eventId: row.event_id, body: row.body,
+      });
+    },
+    finish: async (row, patch) => {
+      const url = `${SUPABASE_URL}/rest/v1/webhook_queue`
+        + `?event_id=eq.${encodeURIComponent(row.event_id)}`
+        + `&owner_id=eq.${encodeURIComponent(row.owner_id || "")}`
+        + `&slug=eq.${encodeURIComponent(row.slug || "")}`;
+      const r = await fetch(url, {
+        method: "PATCH", headers: { ...json, Prefer: "return=minimal" },
+        body: JSON.stringify({ ...patch, claimed_at: null, updated_at: new Date().toISOString() }),
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!r.ok) throw new Error("queue write " + r.status);
+    },
+    retryable: (status) => webhookRetryable(status),
+  }, { now: Date.now() });
+
+  // RETENTION, on the same tick and after the drain.
+  //
+  // ONE REQUEST WITH TWO CUTOFFS rather than two requests, mirroring the `due`
+  // query's own shape — `done` receipts go after three days, `dead` rows after
+  // thirty, for the reason stated on the two constants. Both statuses are
+  // terminal, so nothing eligible here is still owed to anybody: the partial
+  // index `webhook_queue_settled` is on exactly this pair of conditions.
+  //
+  // AFTER the drain and in its own try, deliberately. A sweep that throws must
+  // not cost the deliveries this tick already made, and it is the lower-value
+  // half of the two by a long way.
+  try {
+    const cut = retentionCutoffs(Date.now());
+    const url = `${SUPABASE_URL}/rest/v1/webhook_queue`
+      + `?or=(and(status.eq.done,updated_at.lt.${encodeURIComponent(cut.done)})`
+      + `,and(status.eq.dead,updated_at.lt.${encodeURIComponent(cut.dead)}))`;
+    const r = await fetch(url, { method: "DELETE", headers: { ...json, Prefer: "return=minimal" }, signal: AbortSignal.timeout(10000) });
+    if (!r.ok) out.sweepFailed = r.status;
+  } catch (e) {
+    out.sweepFailed = String((e && e.message) || e).slice(0, 120);
+  }
+
+  if (out.delivered || out.dead || out.retried || out.error || out.sweepFailed) {
+    console.log("webhook queue:", JSON.stringify(out).slice(0, 300));
+  }
 }
 
 async function runScheduledSiteJobs(env, ctx) {
@@ -5819,6 +5973,43 @@ async function turnstileGate(env, request, { slug, db, path, sent }) {
 }
 
 /**
+ * How many deliveries one site already has waiting.
+ *
+ * `count=exact` with `limit=1` — PostgREST reports the total in `content-range`
+ * and the body is one row, so this costs a single index probe rather than
+ * fetching five hundred ids to measure their length. Scoped on
+ * `(owner_id, slug, status)`, which is exactly the `webhook_queue_site` index.
+ *
+ * `pending` AND `delivering`: a row being attempted this second is still owed,
+ * and counting only `pending` would let a stuck delivery slip past the cap.
+ *
+ * ANSWERS `null` RATHER THAN A NUMBER when it cannot tell, so `queueFull` sees
+ * an unreadable count and fails open. A guess in either direction is worse than
+ * an honest absence: too high drops a customer's event on a blip, too low
+ * defeats the cap.
+ *
+ * That `null` is INERT AGAINST TODAY'S ONLY READER and is kept anyway: `queueFull`
+ * answers false for `null` and for `0` alike, so a mutation returning `0` here
+ * changes nothing observable — measured, not assumed. It stays because the two
+ * values mean different things ("we could not look" against "there is nothing
+ * waiting") and the next reader of this number may be one that can tell them
+ * apart, at which point `0` would be a lie rather than a shortcut.
+ */
+async function pendingWebhooks(env, ownerId, slug) {
+  try {
+    const url = `${SUPABASE_URL}/rest/v1/webhook_queue`
+      + `?owner_id=eq.${encodeURIComponent(ownerId)}`
+      + `&slug=eq.${encodeURIComponent(slug)}`
+      + `&status=in.(pending,delivering)&select=event_id&limit=1`;
+    const r = await fetch(url, { headers: { ...svcHeaders(env), Prefer: "count=exact" }, signal: AbortSignal.timeout(8000) });
+    if (!r.ok) return null;
+    // "0-0/512", or "*/0" when nothing matched.
+    const total = parseInt(String(r.headers.get("content-range") || "").split("/")[1], 10);
+    return Number.isFinite(total) ? total : null;
+  } catch { return null; }
+}
+
+/**
  * Fire the site's declared webhook. Detached, never awaited by the response —
  * a receiver being slow must not be something a customer waits on.
  *
@@ -5847,7 +6038,14 @@ function emitWebhook(env, ctx, { slug, db, def, table, action, row }) {
       // `redirect: "manual"` so a 3xx is a result rather than another hop —
       // following one would reopen the host question after it was answered.
       post: (url, init) => fetch(url, { ...init, redirect: "manual", signal: AbortSignal.timeout(5000) }),
-    }, { slug, table, action, row, now: Date.now() });
+      // THE STABLE ID, minted once here and never again. It goes inside the
+      // signed body, into the header, and — if this fails retryably — becomes
+      // the queue's primary key, so every later attempt carries the same value
+      // and a receiver deduplicating on it is safe to accept at-least-once
+      // delivery. Minted before the attempt rather than at enqueue time, or the
+      // body the first attempt sent and the body the queue stores would differ
+      // by exactly this field and the signature would not match.
+    }, { slug, table, action, row, now: Date.now(), eventId: crypto.randomUUID() });
     // RECORDED, not only logged.
     //
     // Everything about a webhook is invisible from outside: it runs detached, so
@@ -5873,6 +6071,78 @@ function emitWebhook(env, ctx, { slug, db, def, table, action, row }) {
     // looks identical to one that never set one. Only "this table does not emit"
     // is skipped now, which is the genuine resting state of the platform and the
     // one that would put a write on every insert everywhere.
+    // WRITTEN DOWN IF IT COULD STILL SUCCEED. The ladder above has already
+    // spent its three attempts inside this request; a receiver that is merely
+    // slow to come back needs somebody to try later, and nothing in a request
+    // that is about to end can be that somebody.
+    //
+    // ONLY A RETRYABLE FAILURE IS QUEUED. A 404 or a 401 is the receiver
+    // refusing this delivery for good, and a queue full of rows that can never
+    // succeed is a queue nobody reads. "No WEBHOOK_URL" is not queued either —
+    // there is nothing to retry against.
+    let queued = null;
+    if (!out.sent && out.body && webhookRetryable(out.status)) {
+      try {
+        // THE OWNER, RESOLVED HERE AND NOWHERE EARLIER.
+        //
+        // This request has the slug and the connection and never needed the
+        // account behind them, and adding a lookup to the write path of every
+        // published site to serve the rare branch below would be paying on
+        // every insert on the platform for something that happens when a
+        // receiver is down. So it is resolved lazily, on the enqueue branch
+        // only, out of the same fresh row every write path uses.
+        const owner = (await siteBackendRowFresh(env, slug).catch(() => null)) || {};
+        // NO OWNER, NO ROW. A queued delivery is addressed to an account, and
+        // `sameOwner` refuses an empty one at delivery time by design — so
+        // writing the row anyway would produce something that can only ever
+        // dead-letter, while looking to anybody reading the table like a
+        // delivery still in flight. The event is lost either way; this way it
+        // says so.
+        //
+        // BELT AND BRACES, AND IT SAYS SO RATHER THAN LOOKING LOAD-BEARING: a
+        // mutation to `if (false)` survives the suite, because `enqueueRow`
+        // throws on an owner-less call and the catch below reports it as not
+        // queued either way. What this branch buys is the two things that
+        // refusal cannot — it names the actual cause instead of an internal
+        // invariant, and it skips a Supabase count keyed on `undefined`, which
+        // is a 400 against a uuid column. It holds by a property of a function
+        // one edit away from changing, which is exactly when a stated guard
+        // beats an implied one.
+        if (!owner.uid) {
+          queued = "not queued: could not establish the site's owner";
+        } else if (queueFull(await pendingWebhooks(env, owner.uid, slug))) {
+          // THE CAP, AND IT IS REPORTED RATHER THAN SILENT. A busy form
+          // pointed at a dead endpoint queues a row per submission for as long
+          // as the endpoint stays dead; past the cap the event is dropped, and
+          // the owner's one window into webhooks says which of the two
+          // happened. Counted over `pending` AND `delivering` — a row being
+          // attempted right now is still owed.
+          queued = "not queued: this site already has " + MAX_PENDING_PER_SITE + " deliveries waiting";
+          console.error("webhook queue full:", slug, table);
+        } else {
+          // The EXACT bytes the ladder sent, and the id that is inside them.
+          const row = enqueueRow({
+            ownerId: owner.uid, eventId: out.eventId, slug, table, action, body: out.body,
+            status: out.status, error: out.error || out.reason, attempts: out.attempts || 1,
+            now: Date.now(),
+          });
+          // `ignore-duplicates`: the id is the primary key, so a redelivery of an
+          // event already queued is a no-op rather than an error.
+          const w = await fetch(`${SUPABASE_URL}/rest/v1/webhook_queue`, {
+            method: "POST",
+            headers: { ...svcHeaders(env), "Content-Type": "application/json", Prefer: "resolution=ignore-duplicates,return=minimal" },
+            body: JSON.stringify(row), signal: AbortSignal.timeout(8000),
+          });
+          queued = w.ok ? "queued for retry" : "not queued: queue write " + w.status;
+        }
+      } catch (e) {
+        // The delivery already failed; failing to write it down must not become
+        // a second failure on the customer's write path.
+        queued = "not queued: " + String((e && e.message) || e).slice(0, 120);
+        console.error("webhook queue write:", slug, table, e && e.message);
+      }
+    }
+
     if (out.reason !== "table does not emit this action") {
       if (!out.sent) console.error("webhook:", slug, table, action, out.reason || "", out.status || "");
       // Best-effort, and it must not throw: the delivery already happened or
@@ -5891,6 +6161,14 @@ function emitWebhook(env, ctx, { slug, db, def, table, action, row }) {
             // to tell a retry ladder that is working from one that is not
             // running at all.
             attempts: out.attempts || 0,
+            // WHAT HAPPENED TO THE EVENT AFTER THE LADDER GAVE UP, which is the
+            // one thing an owner cannot infer from anything else here. "Failed
+            // with a 502 and is being retried" and "failed with a 502 and was
+            // dropped because your queue is full" are the same red line without
+            // it, and only the second is something they can act on. `null` on
+            // every delivery that succeeded or was refused permanently — there
+            // was nothing to queue.
+            queued,
             // Which WEBHOOK* names the vault returned — the difference between
             // "never configured", "read came back empty" and "would not decrypt".
             found: out.found || null,

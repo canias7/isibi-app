@@ -99,7 +99,7 @@ export function firesFor(def, action) {
  * `id` is KEPT, unlike in the owner email, because it is the whole point: the
  * receiver needs a reference it can use to fetch or reconcile the record.
  */
-export function shapePayload({ slug, table, action, row, at }) {
+export function shapePayload({ slug, table, action, row, at, id }) {
   const src = row && typeof row === "object" && !Array.isArray(row) ? row : {};
   const data = {};
   let n = 0;
@@ -114,7 +114,13 @@ export function shapePayload({ slug, table, action, row, at }) {
     data[key] = String(s == null ? "" : s).slice(0, MAX_VALUE_CHARS);
     n++;
   }
-  return { site: slug, table, action, at, data };
+  // `id` IS IN THE BODY, not only in a header, and that is what makes
+  // at-least-once delivery safe for a receiver to accept: the HMAC is computed
+  // over the body, so an id carried beside it could be altered in transit and a
+  // receiver deduplicating on it would be trusting an unsigned field. Omitted
+  // when absent so a caller that never queues produces the byte-identical body
+  // it produced before this existed.
+  return id ? { id: String(id), site: slug, table, action, at, data } : { site: slug, table, action, at, data };
 }
 
 /**
@@ -143,7 +149,7 @@ export async function signPayload(secret, body, timestamp, subtle) {
  * a failed booking. Every failure comes back as a reason instead, and the caller
  * logs it, because this runs detached and the reason would otherwise vanish.
  */
-export async function deliverWebhook(deps, { slug, table, action, row, now }) {
+export async function deliverWebhook(deps, { slug, table, action, row, now, eventId, body: storedBody }) {
   try {
     if (!deps.firesFor(action)) return { sent: false, reason: "table does not emit this action" };
 
@@ -194,7 +200,16 @@ export async function deliverWebhook(deps, { slug, table, action, row, now }) {
     const bad = deps.blockedReason(url);
     if (bad) return { sent: false, reason: "destination refused: " + bad };
 
-    const body = JSON.stringify(shapePayload({ slug, table, action, row, at: new Date(now).toISOString() }));
+    // A RETRY RE-SENDS THE STORED BYTES, never a rebuild. Re-serialising would
+    // change key order and number formatting, and the signature is over these
+    // exact characters — the receiver would reject a delivery that is otherwise
+    // perfectly correct, and every test with a hand-built payload would pass.
+    const body = typeof storedBody === "string" && storedBody
+      ? storedBody
+      : JSON.stringify(shapePayload({ slug, table, action, row, at: new Date(now).toISOString(), id: eventId }));
+    // RECOMPUTED PER ATTEMPT, deliberately, and the body is not. The timestamp
+    // is signed ALONGSIDE the body so a receiver can refuse a stale replay;
+    // freezing it would make every retry look like one.
     const ts = Math.floor(now / 1000);
 
     // SIGNED WHEN A SECRET EXISTS, AND UNSIGNED IS A DELIBERATE ALLOWANCE.
@@ -217,6 +232,9 @@ export async function deliverWebhook(deps, { slug, table, action, row, now }) {
       "x-gofarther-timestamp": String(ts),
     };
     if (sig) headers["x-gofarther-signature"] = "v1=" + sig;
+    // Also as a header, for receivers that log or route on it without parsing
+    // the body. The signed copy inside the body is the authoritative one.
+    if (eventId) headers["x-gofarther-event-id"] = String(eventId);
 
     // THE ATTEMPT LOOP. Each pass is one whole POST; only a receiver that
     // failed to ANSWER buys another. See MAX_ATTEMPTS for why the ladder is
@@ -249,7 +267,7 @@ export async function deliverWebhook(deps, { slug, table, action, row, now }) {
         threw = String((e && e.message) || e).slice(0, 200);
       }
       if (status !== null && status >= 200 && status < 300) {
-        return { sent: true, status, signed: !!sig, attempts };
+        return { sent: true, status, signed: !!sig, attempts, body, eventId };
       }
       if (!retryable(status)) break;
     }
@@ -258,9 +276,12 @@ export async function deliverWebhook(deps, { slug, table, action, row, now }) {
     // the third try and one that answers first time are the same line in the
     // owner's log, and "your integration is flapping" is a thing they can only
     // act on if somebody counted.
+    // `body` RIDES ON THE FAILURE TOO — it is the thing the queue has to store,
+    // and a caller that has to rebuild it to enqueue it has already lost the
+    // byte-for-byte guarantee the signature depends on.
     return threw !== null
-      ? { sent: false, reason: "threw", error: threw, attempts, signed: !!sig }
-      : { sent: false, reason: "receiver refused", status, signed: !!sig, attempts };
+      ? { sent: false, reason: "threw", error: threw, attempts, signed: !!sig, body, eventId, status: null }
+      : { sent: false, reason: "receiver refused", status, signed: !!sig, attempts, body, eventId };
   } catch (e) {
     return { sent: false, reason: "threw", error: String((e && e.message) || e).slice(0, 200), attempts: 0 };
   }
