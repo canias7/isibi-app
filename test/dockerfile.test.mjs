@@ -141,6 +141,40 @@ test(`the ${svc.name} spawned-sibling scan can still see one`, () => {
   }
 });
 
+test(`the ${svc.name} image carries every file the service COPIES into the template`, () => {
+  // THE THIRD BLIND SPOT, after imports and spawned siblings. `packageWorker`
+  // reads `site-worker/entry.js` off disk with `fs.copyFileSync` and writes it
+  // into `src/` for vite to bundle — no import names it and nothing spawns it,
+  // so neither of the two checks above can see it.
+  //
+  // A missing COPY here fails differently from both, and more quietly: the
+  // service starts fine, every ordinary build is unaffected, and only a build
+  // that ASKED for a worker comes back "could not stage the worker entry". A
+  // feature that silently never works rather than a container that will not
+  // boot — which is the harder one to notice, because nothing is red until
+  // somebody goes looking for why no site is being served from a script.
+  //
+  // DERIVED from the entrypoint's own path joins, not a list, so a second file
+  // staged this way tomorrow is covered without anybody remembering this test.
+  const entry = fs.readFileSync(path.join(svc.dir, "build-server.mjs"), "utf8");
+  const df = fs.readFileSync(path.join(svc.dir, "Dockerfile"), "utf8");
+  const staged = [...entry.matchAll(/path\.join\(path\.dirname\(fileURLToPath\(import\.meta\.url\)\),\s*"([^"]+)"\s*,\s*"([^"]+)"\s*\)/g)]
+    .map((m) => m[1] + "/" + m[2])
+    .filter((rel) => fs.existsSync(path.join(svc.dir, rel)));
+  for (const rel of staged) {
+    const dir = rel.split("/")[0];
+    assert.ok(new RegExp("^COPY\\s+(?:[^\\n]*\\s)?" + dir + "/", "m").test(df),
+      `${svc.name}'s build-server stages ${rel} into the template and the image does not carry ${dir}/ — ` +
+      "every build that asks for a worker would fail to stage it, silently, while everything else stays green");
+  }
+  // The scan must still SEE one, or this passes vacuously on an image missing
+  // everything — the failure this file exists to stop, one level up.
+  if (svc.name === "site") {
+    assert.ok(staged.includes("site-worker/entry.js"),
+      "the worker entry is no longer staged from build-server.mjs — either packaging changed or this scan stopped matching");
+  }
+});
+
 test(`the ${svc.name} image bakes every pristine base the service restores from`, () => {
   // THE FAILURE IS SILENT AND CROSS-TENANT. `.routes-base` and `.index-base.html`
   // are read with no catch, so a missing one kills the first build loudly.

@@ -22,7 +22,11 @@
 // was asked for" is impossible, and that is what forces a script per site and
 // therefore the dispatch namespace. Stated because it is the first design
 // somebody reaches for and the runtime refuses it, not our architecture.
-import { render } from "./entry-server.js";
+// EXTENSIONLESS, so vite resolves `entry-server.tsx` — the SOURCE — and the
+// whole Worker is one build pass. Pointing at the already-built SSR output
+// instead would need two passes and would make the Worker's contents depend on
+// which of them ran last.
+import { render } from "./entry-server";
 import { SHELL, SLUG, ROUTES } from "./site-config.js";
 
 // THE SHELL IS BAKED IN, NOT FETCHED. It is byte-identical for every request

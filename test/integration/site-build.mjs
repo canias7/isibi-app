@@ -370,6 +370,60 @@ try {
       "about.team.html exists — the dot was read as a character, so this file is at an address no route matches");
   }
 
+  // ─────────────────────────────────────────── the site packaged as a Worker
+  //
+  // OFF BY DEFAULT, asserted first. Packaging is a second vite pass, and until
+  // a dispatch namespace exists the script has nowhere to go — so a build that
+  // did not ask for one must be byte-for-byte the build it was before. This is
+  // the assertion that keeps landing it early honest.
+  ok("a build that did not ask for a worker does not pay for one",
+    built.worker == null && built.workerMs === undefined,
+    JSON.stringify({ worker: built.worker, workerMs: built.workerMs }));
+
+  // AND THEN THE REAL THING, through the real container. The whole point of
+  // this file is that a bundler either produces a script or it does not, and
+  // no amount of unit testing the packaging function can say which — the SSR
+  // entry pulls in React, TanStack Router and every kit component a page
+  // imports, and whether that survives one vite pass into a single file is a
+  // fact about the bundler.
+  const wpack = await post({
+    files: { "index.tsx": INDEX, "menu.tsx": MENU, "about.team.tsx": TEAM },
+    slug: "fold-coffee", title: "Fold Coffee", worker: true,
+  });
+  const w = wpack.worker || {};
+  ok("the site packages into a worker script", wpack.ok && w.ok === true, JSON.stringify({ ok: wpack.ok, why: w.why, stage: wpack.stage, error: String(wpack.error || "").slice(0, 300) }));
+  if (w.ok) {
+    // ONE FILE. A script that imports a sibling at runtime cannot be uploaded —
+    // the Workers runtime has no loader — so "it bundled" and "it bundled into
+    // ONE thing" are different claims and only the second one is deployable.
+    ok("…as a single self-contained script", !/\bfrom\s*["']\.\//.test(w.code) && !/\brequire\(["']\.\//.test(w.code),
+      (w.code.match(/from\s*["']\.[^"']*["']/g) || []).slice(0, 3).join(" · "));
+    // THE CONFIG IS REALLY BAKED IN. The slug decides which R2 prefix the
+    // script serves assets from, so a bundle that dropped it is a site whose
+    // every stylesheet 404s — and it would still "package successfully".
+    ok("…carrying its own slug", w.code.includes("fold-coffee"), "the slug is the asset prefix; without it every asset 404s");
+    ok("…and its own route list", w.code.includes("/about/team") && w.code.includes("/menu"),
+      "routes decide 200-vs-404; a bundle without them cannot tell a real page from a typo");
+    // THE SHELL, which is what the rendered markup gets injected into. Present
+    // in the source and absent from the bundle is a script that serves nothing.
+    ok("…and the HTML shell to render into", w.code.includes('<div id="root">'), "no shell means nothing to inject the render into");
+    ok("…and it is a plausible size for a bundled React app", w.bytes > 100_000 && w.bytes < 10_000_000, String(w.bytes) + " bytes");
+    // THE WORKER BUILD IS NOT PUBLISHED. `collectDist` ships everything under
+    // `dist` wholesale, so an output directory inside it would put a copy of
+    // every site's server code in the public bucket.
+    ok("…and the worker build is not in the published files",
+      !Object.keys(wpack.files || {}).some((n) => n.startsWith("dist-worker") || n.includes("site-worker-entry")),
+      Object.keys(wpack.files || {}).filter((n) => /worker/i.test(n)).join(", "));
+  }
+
+  // REFUSED WITHOUT A SLUG rather than packaged with an empty one — a script
+  // that cannot find its own assets renders a page and then looks broken,
+  // which is worse than the static path it would have replaced.
+  const noSlug = await post({ files: { "index.tsx": INDEX }, worker: true });
+  ok("a worker is refused when there is no slug to serve assets from",
+    noSlug.ok && noSlug.worker && noSlug.worker.ok === false && /slug/i.test(noSlug.worker.why || ""),
+    JSON.stringify(noSlug.worker));
+
   // WHETHER THE RENDER WAS SANDBOXED, reported on every build rather than
   // assumed. The drop needs root and needs the user to exist, neither of which
   // the code can guarantee — and "we thought this was sandboxed" is worse than

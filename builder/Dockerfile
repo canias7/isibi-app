@@ -78,8 +78,16 @@ RUN mkdir -p /app/.routes-base \
 # that guard, it would fail every build's prerender at runtime with MODULE_NOT_FOUND
 # and publish every site with the home page's snapshot at every address. It has
 # its own assertion in that file for exactly that reason.
-COPY build-server.mjs prerender-child.mjs exit-reason.mjs site-addon.mjs site-fonts.mjs font-index.json site-theme.mjs site-theme-registry.mjs site-tokens.mjs site-style.mjs site-identity.mjs render-check.mjs site-render.mjs ./
+COPY build-server.mjs prerender-child.mjs exit-reason.mjs site-addon.mjs site-fonts.mjs font-index.json site-theme.mjs site-theme-registry.mjs site-tokens.mjs site-style.mjs site-identity.mjs render-check.mjs site-render.mjs site-worker.mjs ./
 COPY theme-candidates/ ./theme-candidates/
+# `site-worker/entry.js` IS COPIED INTO THE TEMPLATE, NOT IMPORTED — the same
+# blind spot as `prerender-child.mjs` one line up, and with the same shape of
+# failure. `packageWorker` reads it off disk and writes it into `src/` for vite
+# to bundle, so the import walk cannot see it; a missing COPY would leave the
+# packaging step returning "could not stage the worker entry" on every build
+# that asked for one, which is a feature that silently never works rather than
+# a service that fails to start. It has its own assertion for that reason.
+COPY site-worker/ ./site-worker/
 
 # WHO THE PRERENDER RUNS AS. `node:22-slim` ships an unprivileged `node` user
 # (uid 1000) and everything in /app is copied as root, so a render dropped to it

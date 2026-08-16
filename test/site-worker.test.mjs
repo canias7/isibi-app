@@ -102,7 +102,7 @@ async function loadEntry({ shell = SHELL, slug = "s", routes = [], render } = {}
   const ssr = "data:text/javascript," + encodeURIComponent(
     "export const render = " + String(render || (async () => "<h1>page</h1>")) + ";");
   const patched = src
-    .replace('from "./entry-server.js"', 'from "' + ssr + '"')
+    .replace('from "./entry-server"', 'from "' + ssr + '"')
     .replace('from "./site-config.js"', 'from "' + cfg + '"');
   return import("data:text/javascript," + encodeURIComponent(patched));
 }
