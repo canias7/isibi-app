@@ -32,6 +32,7 @@ import { applyIdentity, initialsMark, normalizeLang } from "./site-identity.mjs"
 import { exitReason } from "./exit-reason.mjs";
 import { checkRender } from "./render-check.mjs";
 import { routeOf, fileForRoute } from "./site-addon.mjs";
+import { siteConfigModule } from "./site-worker.mjs";
 
 const APP = process.env.APP_DIR || "/app";
 const ROUTES = path.join(APP, "src", "routes");
@@ -49,6 +50,15 @@ const SSR_DIR = "dist-ssr";
 // which is `/app` in the image and the repo's `builder/` when the harness runs
 // it from a sandbox copy. Joining it to APP would work in exactly one of those.
 const PRERENDER_CHILD = path.join(path.dirname(fileURLToPath(import.meta.url)), "prerender-child.mjs");
+// Same rule as the prerender child: part of the build SERVICE, not of the
+// template, so it resolves from this file rather than from APP or the cwd.
+const WORKER_ENTRY = path.join(path.dirname(fileURLToPath(import.meta.url)), "site-worker", "entry.js");
+const WORKER_CONFIG = path.join(path.dirname(fileURLToPath(import.meta.url)), "site-worker", "vite.worker.config.mjs");
+// Its own output directory, kept OUT of `dist` for the reason `dist-ssr` is:
+// `collectDist` publishes everything under `dist` wholesale, and the Worker
+// script is uploaded rather than served — shipping it to R2 would put a copy of
+// every site's server code in the public bucket.
+const WORKER_DIR = "dist-worker";
 const GEN = path.join(APP, "src", "routeTree.gen.ts");
 const MAX_BODY = 4 * 1024 * 1024;
 const STEP_TIMEOUT = 150_000;
@@ -81,6 +91,13 @@ function resetRoutes() {
   // one build's files leaking into the next — has happened here before, and it
   // is cheaper to delete than to reason about.
   try { fs.rmSync(path.join(APP, SSR_DIR), { recursive: true, force: true }); } catch {}
+  // AND THE WORKER BUILD, for the same reason one line up: a script left by a
+  // failed build is one site's pages waiting to be uploaded under another
+  // site's name. `site-config.js` goes with it — it is generated per site and
+  // carries the slug, so a stale one is the same leak wearing a smaller file.
+  try { fs.rmSync(path.join(APP, WORKER_DIR), { recursive: true, force: true }); } catch {}
+  try { fs.rmSync(path.join(APP, "src", "site-config.js"), { force: true }); } catch {}
+  try { fs.rmSync(path.join(APP, "vite.worker.config.mjs"), { force: true }); } catch {}
   // AND THE STYLESHEET, which was the one build output nothing reset.
   //
   // `writeTheme` and `writeTokens` both APPEND to whatever `src/styles.css`
@@ -361,6 +378,79 @@ const PRERENDER_AS = (() => {
     return Number.isInteger(uid) && uid > 0 && Number.isInteger(gid) ? { uid, gid } : null;
   } catch { return null; }
 })();
+
+/**
+ * Package this build as a Worker that renders per request.
+ *
+ * THE SAME `render()` THE PRERENDER USES, run at request time instead of build
+ * time. `entry-server.tsx` has exported it since the prerender shipped, so
+ * nothing about the template, the routes or the generated pages changes — what
+ * is new is a small `fetch` handler around it, bundled into one script.
+ *
+ * WHY, and it is the failure this step exists to end: the prerender is
+ * best-effort by design, and on 2026-08-16 it produced nothing on a real build
+ * — killed by SIGTERM 4.4s in, no output on either stream — so the site
+ * published blank to anything that does not run JavaScript, and NOTHING
+ * FAILED. Rendering per request removes the artefact that can be missing.
+ *
+ * ONE VITE PASS, from source. The entry imports `./entry-server` without an
+ * extension so vite resolves the TSX rather than the built SSR output; pointing
+ * at the output would need the SSR build to have run first and would make the
+ * Worker's contents depend on step order.
+ *
+ * BEST-EFFORT, LIKE EVERY STEP AROUND IT. A failure here returns no script and
+ * the caller publishes static files exactly as it does today. A site is never
+ * lost to this, which is what makes it safe to add before anything can serve it.
+ */
+async function packageWorker(slug, shell) {
+  // REFUSED WITHOUT A SLUG rather than packaged with an empty one. The slug is
+  // the R2 key prefix the Worker serves its own assets from, so a script
+  // without it answers 404 to every stylesheet and bundle on the site — a page
+  // that renders and then looks broken, which is worse than the static path it
+  // would have replaced.
+  if (!String(slug || "")) return { ok: false, why: "no slug — a worker cannot find its own assets without one" };
+
+  // THE SITE'S OWN ROUTES, read the way the prerender reads them, so the two
+  // cannot disagree about what a route is. `routePaths` is the one place that
+  // knows the file-to-URL conventions (a trailing `_`, a leading `_`, a dot as
+  // a separator); a second reading here is the class of bug that put `/about.team`
+  // in a manifest for a page really served at `/about/team`.
+  const routes = routePaths();
+  const src = path.join(APP, "src");
+  try {
+    fs.writeFileSync(path.join(src, "site-config.js"), siteConfigModule({ shell, slug, routes }));
+    fs.copyFileSync(WORKER_ENTRY, path.join(src, "site-worker-entry.js"));
+    // THE CONFIG IS COPIED IN TOO, and it has to be. Vite loads a config by
+    // writing a temp module next to the config file's own root — so one living
+    // in the build service resolves `vite` and `@vitejs/plugin-react` from
+    // THERE, where neither is installed. Measured: "Cannot find package 'vite'
+    // imported from node_modules/.vite-temp/…". Inside the template it
+    // resolves like any other import.
+    fs.copyFileSync(WORKER_CONFIG, path.join(APP, "vite.worker.config.mjs"));
+  } catch (e) {
+    return { ok: false, why: "could not stage the worker entry: " + String((e && e.message) || e) };
+  }
+
+  // Wiped first for the reason `dist-ssr` is: this container is long-lived and
+  // serves every build on the platform, so a script left behind by a failed
+  // build is one site's pages waiting to be uploaded under another site's name.
+  try { fs.rmSync(path.join(APP, WORKER_DIR), { recursive: true, force: true }); } catch {}
+
+  // ITS OWN CONFIG, and that is not tidiness. `vite build --ssr` externalises
+  // dependencies by default — right for the prerender, which runs in Node with
+  // `node_modules` beside it, and fatally wrong here: the Workers runtime has
+  // no loader. Measured on the first real container run, the plain flag
+  // produced 17,647 bytes importing React from a bare specifier, which is not
+  // a bundled app and could never have been uploaded.
+  const r = await run("npx", ["vite", "build", "--config", "vite.worker.config.mjs",
+    "--ssr", "src/site-worker-entry.js", "--outDir", WORKER_DIR, "--logLevel", "error"], {});
+  if (r.code !== 0) return { ok: false, why: exitReason("the worker build", r) };
+
+  let code = "";
+  try { code = fs.readFileSync(path.join(APP, WORKER_DIR, "site-worker-entry.js"), "utf8"); } catch {}
+  if (!code) return { ok: false, why: "the worker build wrote no script" };
+  return { ok: true, why: "", code, bytes: Buffer.byteLength(code) };
+}
 
 async function prerender() {
   const done = [], skipped = [];
@@ -679,7 +769,27 @@ const server = http.createServer((req, res) => {
 
       const dist = collectDist();
       if (!dist["index.html"]) return send(res, 200, { ok: false, stage: "build", error: "build produced no index.html", ms: Date.now() - t0, ...times });
-      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, fonts: fontsUsed, theme: themeUsed, tokens: tokensUsed, identity: identityUsed, brand: logoUsed, prerendered: pre.done, prerenderSkipped: pre.skipped, prerenderUnprivileged: !!pre.unprivileged, render });
+
+      // OFF UNLESS ASKED FOR, and that is the whole reason it is safe to land
+      // before anything can serve it. Packaging is a second vite pass — real
+      // seconds on every build — and until a dispatch namespace exists the
+      // script it produces has nowhere to go, so running it by default would
+      // be pure cost on every customer's build for an artefact nobody reads.
+      //
+      // Requested per build rather than by an env var, because the decision is
+      // per site once this is live (an owner on the static path and an owner on
+      // the rendered path can coexist) and a container-wide switch cannot
+      // express that.
+      // `payload`, NOT `body` — `body` is the raw request string, so `body.worker`
+      // is undefined for every request and the step would never have run. A
+      // silent no-op behind a flag reads exactly like a feature that is switched
+      // off, which is the shape this repo keeps paying for.
+      let worker = null;
+      if (payload.worker) {
+        worker = await timed("workerMs", null, null, () => packageWorker(payload.slug, dist["index.html"]));
+      }
+
+      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, fonts: fontsUsed, theme: themeUsed, tokens: tokensUsed, identity: identityUsed, brand: logoUsed, prerendered: pre.done, prerenderSkipped: pre.skipped, prerenderUnprivileged: !!pre.unprivileged, render, worker });
     } catch (e) {
       return send(res, 200, { ok: false, stage: "build", error: String((e && e.message) || e).slice(0, 2000), ms: Date.now() - t0, ...times });
     }
