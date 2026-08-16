@@ -75,6 +75,13 @@ jobs:
       - name: build smoke
         env:
           SMOKE_BASE_URL: ${{ inputs.base_url || 'https://gofarther.dev' }}
+          # ONE-SHOT, revert after the run: a menu with COURSES. That shape has
+          # never been built live and it is where two recorded bugs live — a
+          # menu that came out in alphabetical order (Dessert, Pizza, Starters),
+          # which is what `defaultSort` was wired for and has never run on a
+          # real build; and the designer omitting `seed` on a menu, measured
+          # twice, which leaves an empty price list and a dead form.
+          SMOKE_BRIEF: "A pizzeria in Bristol called Forno. The menu has starters, pizzas and desserts with prices, and people book a table through a form."
           # SMOKE_BRIEF overrides the brief in build-smoke.mjs. Left unset here
           # on purpose: the default is the one every assertion below it was
           # calibrated against — a trade with a list to READ and a form to
