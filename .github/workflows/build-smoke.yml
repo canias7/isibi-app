@@ -75,6 +75,10 @@ jobs:
       - name: build smoke
         env:
           SMOKE_BASE_URL: ${{ inputs.base_url || 'https://gofarther.dev' }}
+          # ONE-SHOT: a different trade, to see what the builder makes of it.
+          # Revert to empty after the run — the default in build-smoke.mjs is
+          # the brief every assertion below it was calibrated against.
+          SMOKE_BRIEF: "A photography studio in Manchester. People send an enquiry about a shoot through a form, and there is a list of packages with prices."
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
