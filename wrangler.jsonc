@@ -71,6 +71,28 @@
   "r2_buckets": [
     { "binding": "SITES_BUCKET", "bucket_name": "isibi-sites" }
   ],
+  // Two edge caches, created 2026-08-16. BOTH ARE OPTIONAL BY CONSTRUCTION —
+  // every reader checks the binding and falls back — which is what let the code
+  // for each ship long before the namespace existed.
+  //
+  //   SITE_ROUTES     slug -> connection string. Without it, answering "which
+  //                   Neon database is this slug?" costs TWO cross-region
+  //                   Supabase calls on every visitor read, for a value written
+  //                   once at build time. Measured before KV: 0.27-2.00s,
+  //                   median 1.05s, with only 3 of 12 requests warm.
+  //   SITE_API_CACHE  a published site's third-party API answers. Without it a
+  //                   declared `cacheSeconds: 3600` is honoured PER ISOLATE, so
+  //                   a low-traffic site is close to uncached and the OWNER'S
+  //                   third-party quota is spent once per isolate per window.
+  //
+  // Only the connection string and the API answer live here, never a schema: KV
+  // is eventually consistent, which is harmless for a value fixed at build time
+  // and a real bug for one a revise changes — a stale schema 404s a site's own
+  // new tables. The schema keeps its 15s in-isolate cache and its `_meta` read.
+  "kv_namespaces": [
+    { "binding": "SITE_ROUTES", "id": "5fdb805d4ead430cbb5b8824f766a76b" },
+    { "binding": "SITE_API_CACHE", "id": "d1f7c9b6ecce4231a3733f4a95dc7d6f" }
+  ],
   // Outbound mail. Cloudflare Email Service, from 2026-07-30 — the previous
   // provider was stopped.
   //
