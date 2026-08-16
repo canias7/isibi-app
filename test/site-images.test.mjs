@@ -429,6 +429,68 @@ test("the lint refuses a token in a bare <img>, which is the one that really bre
   assert.match(bad[0], /bare <img> draws as a broken image/);
 });
 
+test("the refusal SAYS what it saw, because one message covers two opposite failures", () => {
+  // Measured live 2026-08-16: a photography studio's home page reported
+  // "writes a @@IMG:@@ token outside any tag" and the source went with the
+  // site, so nobody could tell which of these it was:
+  //
+  //   (a) the token is loose in the page — the picture really is lost
+  //   (b) `const HERO = "@@IMG:…@@"` used later in a SafeImage — which WORKS,
+  //       because applyImages substitutes by a plain text replace over the
+  //       whole file, so this rule refused a correct page
+  //
+  // Those need opposite fixes — a worked example, or narrowing the lint — and
+  // a false alarm is worse than the miss here, so the message has to separate
+  // them. Asserted on both shapes, or a snippet that only ever showed one
+  // would read as a diagnostic and answer nothing.
+  const asConst = lintPages([page("index.tsx", 'const HERO = "@@IMG:the studio@@";')], { tables: [] })
+    .filter((x) => /@@IMG/.test(x));
+  assert.equal(asConst.length, 1);
+  assert.match(asConst[0], /outside any tag/);
+  assert.match(asConst[0], /saw: "…const HERO = "/, "a constant must be recognisable from the message alone");
+
+  const inProse = lintPages([page("index.tsx", "<p>Our studio @@IMG:the studio@@ in Manchester</p>")], { tables: [] })
+    .filter((x) => /@@IMG/.test(x));
+  assert.equal(inProse.length, 1);
+  assert.match(inProse[0], /saw: "…/);
+  assert.ok(!/const/.test(inProse[0]), "prose must not read as a constant");
+
+  // The snippet is CLIPPED and whitespace-collapsed — a multi-line hero would
+  // otherwise fill the reply the customer reads.
+  //
+  // TWO THINGS THIS FIXTURE HAS TO AVOID, both found by a mutation surviving.
+  //
+  // No QUOTE before the token: a first draft used `<img\n src="@@IMG:a@@" />`
+  // and read the snippet with /saw: "…([^"]*)/, which stops at the `src="`
+  // quote that shape always carries — so the capture was short whatever the
+  // clip did. Asserts on a MARKER not reaching the message now, not a length
+  // off a fragile capture.
+  //
+  // And the long run is in real JSX text, not a COMMENT: the lint blanks
+  // comments before it scans, so a `// qqq…` prefix collapses to spaces and
+  // the snippet came back as `<p>` however long the run was.
+  // THE LINE BREAKS HAVE TO BE INSIDE THE WINDOW, not in front of the token.
+  // `.trim()` already eats trailing whitespace, so a fixture whose only
+  // newlines sit between the run and the token exercises nothing and the
+  // collapse mutation survived twice. This one puts real text across several
+  // lines in the last 60 characters, and a run long enough that an unclipped
+  // snippet would carry 70 of them.
+  const long = lintPages([page("index.tsx", "<p>" + "q".repeat(300) + "\nand\nmore\n@@IMG:a@@</p>")], { tables: [] })
+    .filter((x) => /@@IMG/.test(x));
+  assert.equal(long.length, 1);
+  assert.ok(!/q{70}/.test(long[0]), "the snippet must be clipped, not the whole file");
+  assert.match(long[0], /saw: "…[^\n]*"\)/, "collapsed to one line");
+});
+
+test("a token with nothing before it does not print an empty snippet", () => {
+  // The first thing in the file. `slice` returns "" and an ' (saw: "…")' with
+  // nothing in it reads as a diagnostic that ran and found nothing, which is
+  // the reassuring way to say the opposite of what happened.
+  const out = lintPages([page("index.tsx", "@@IMG:a@@")], { tables: [] }).filter((x) => /@@IMG/.test(x));
+  assert.equal(out.length, 1);
+  assert.ok(!/saw:/.test(out[0]), out[0]);
+});
+
 test("the lint passes a token in ANY component that draws through SafeImage", () => {
   // SafeImage alone was too narrow — measured on the first live build, which
   // put one in <Gallery> and was told off for doing the right thing. Refusing
