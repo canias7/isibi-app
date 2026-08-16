@@ -1546,6 +1546,7 @@ export const TOOL_TABLE_FIELDS = new Set([
   "name", "retired", "access", "read", "write", "oncePerUser", "enforceRefs",
   "expires", "scheduled", "columns", "timestamps", "fts", "unique", "uniqueCI",
   "maxRows", "teamScope", "publicView", "noOverlap", "confirm", "sms", "payment",
+  "webhooks",
 ]);
 
 /**

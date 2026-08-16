@@ -446,3 +446,127 @@ test("the build hands persistSiteJobs an owner id that the route actually binds"
   assert.ok(start !== -1 && end > start, "the route must precede the call it makes");
   assert.match(worker.slice(start, end), /\bconst bu\b\s*=/, "the route must bind `bu` before using bu.id");
 });
+
+// ── the second channel ─────────────────────────────────────────────────────
+//
+// The tool's headline case is "reminding tomorrow's customers today, so they
+// turn up" — which for a barber, a garage or a restaurant is a TEXT, because a
+// text is read and an email is not. The whole tier could only email until now:
+// `send` was hardcoded to the mail sender, so `sendSms` sat one file over and no
+// scheduled job could reach it.
+
+const email = (m, k) => (m && typeof m[k] === "string" && m[k].includes("@") ? m[k] : null);
+const phone = (v) => (/^\+[0-9]{8,15}$/.test(String(v || "")) ? String(v) : null);
+
+test("a message says which channel it is, and email is the default", () => {
+  const out = shapeMessages([
+    { to: "a@b.com", subject: "Tomorrow", body: "See you at 9." },
+    { channel: "sms", to: "+447700900000", body: "See you at 9." },
+    { channel: "SMS", to: "+447700900001", body: "And you at 10." },
+  ], email, phone);
+  assert.equal(out.messages.length, 3);
+  assert.equal(out.messages[0].channel, "email", "no channel means email");
+  assert.equal(out.messages[0].html, "See you at 9.", "email still carries html + subject");
+  assert.equal(out.messages[1].channel, "sms");
+  assert.equal(out.messages[1].body, "See you at 9.");
+  assert.equal(out.messages[1].subject, undefined, "a text has no subject to put on the wire");
+  assert.equal(out.messages[2].channel, "sms", "the channel is case-insensitive");
+});
+
+test("a missing subject is a DROPPED email, never a silent text", () => {
+  // The tempting shortcut is "no subject means text it" — which turns a function
+  // that forgot a subject into a message to somebody's phone at the owner's
+  // expense, instead of a drop they can see in the panel.
+  const out = shapeMessages([{ to: "a@b.com", body: "no subject here" }], email, phone);
+  assert.deepEqual(out.messages, []);
+  assert.equal(out.dropped, 1, "it must be dropped, not re-routed");
+
+  // THE CASE THAT ACTUALLY DISCRIMINATES, and the one above does not: with an
+  // EMAIL in `to`, an infer-from-subject rule drops it anyway because the phone
+  // parser refuses the address — so the assertion held while the rule was
+  // wrong. A PHONE NUMBER and no subject is the shape that separates them, and
+  // it is also the real-world shape: a function that has the customer's mobile
+  // and forgot the subject line. Inferred, that is a text somebody pays for.
+  const sneaky = shapeMessages([{ to: "+447700900000", body: "no subject, real number" }], email, phone);
+  assert.deepEqual(sneaky.messages, [], "an unlabelled message must never become a text");
+  assert.equal(sneaky.dropped, 1, "it is a malformed email, not a valid sms");
+});
+
+test("a text's number goes through the same parser the write path uses", () => {
+  const out = shapeMessages([
+    { channel: "sms", to: "07700 900000", body: "local format" },
+    { channel: "sms", to: "+447700900000", body: "international" },
+    { channel: "sms", to: "+447700900000", body: "" },
+    { channel: "sms", body: "no number at all" },
+  ], email, phone);
+  assert.equal(out.messages.length, 1, "only the sendable one survives");
+  assert.equal(out.messages[0].body, "international");
+  assert.equal(out.dropped, 3);
+});
+
+test("with no phone parser wired, an sms message is dropped rather than emailed", () => {
+  // Belt and braces against the worst possible fallback: a phone number in the
+  // `to` of an email.
+  const out = shapeMessages([{ channel: "sms", to: "+447700900000", body: "hi" }], email, null);
+  assert.deepEqual(out.messages, []);
+  assert.equal(out.dropped, 1);
+});
+
+test("runJob sends each message on its own channel, and reads only the vaults it needs", async () => {
+  const sentMail = [], sentSms = [];
+  let mailReads = 0, smsReads = 0;
+  const deps = (over = {}) => ({
+    stamp: async () => ({ won: true }),
+    callFn: async () => ([
+      { to: "a@b.com", subject: "Digest", body: "<p>hi</p>" },
+      { channel: "sms", to: "+447700900000", body: "Tomorrow at 9." },
+    ]),
+    recipient: email,
+    phone,
+    credentials: async () => { mailReads++; return { provider: "resend", key: "k", from: "s@b.com" }; },
+    smsCredentials: async () => { smsReads++; return { provider: "twilio", key: "sid", secret: "tok", from: "+15550000000" }; },
+    send: async (m) => { sentMail.push(m); return { ok: true }; },
+    sendSms: async (m) => { sentSms.push(m); return { ok: true }; },
+    ...over,
+  });
+
+  const out = await runJob(deps(), { name: "remind", spec: { fn: "due_tomorrow" } });
+  assert.equal(out.sent, 2, "both channels sent");
+  assert.equal(sentMail.length, 1);
+  assert.equal(sentSms.length, 1);
+  assert.equal(sentSms[0].to, "+447700900000");
+  assert.equal(sentSms[0].body, "Tomorrow at 9.");
+  assert.equal(sentSms[0].from, "+15550000000", "the owner's own sender");
+
+  // ONE DECRYPT PER CHANNEL PER RUN, not per message.
+  assert.equal(mailReads, 1);
+  assert.equal(smsReads, 1);
+
+  // AN EMAIL-ONLY JOB MUST NOT TOUCH THE SMS VAULT — every email-only site on
+  // the platform would otherwise pay a decrypt per tick for a feature it never
+  // declared.
+  smsReads = 0;
+  await runJob(deps({ callFn: async () => ([{ to: "a@b.com", subject: "s", body: "b" }]) }), { name: "j", spec: { fn: "f" } });
+  assert.equal(smsReads, 0, "no texts means no SMS vault read at all");
+});
+
+test("a half-configured site sends what it can and does not report the rest as failed", async () => {
+  const sentMail = [];
+  const out = await runJob({
+    stamp: async () => ({ won: true }),
+    callFn: async () => ([
+      { to: "a@b.com", subject: "Digest", body: "<p>hi</p>" },
+      { channel: "sms", to: "+447700900000", body: "Tomorrow at 9." },
+    ]),
+    recipient: email,
+    phone,
+    credentials: async () => ({ provider: "resend", key: "k", from: "s@b.com" }),
+    smsCredentials: async () => null,          // no Twilio key pasted yet
+    send: async (m) => { sentMail.push(m); return { ok: true }; },
+    sendSms: async () => { throw new Error("must not be called"); },
+  }, { name: "remind", spec: { fn: "f" } });
+
+  assert.equal(out.sent, 1, "the email went");
+  assert.equal(out.failed, 0, "and the text is NOT a failure — nothing broke");
+  assert.equal(out.skipped, 1, "it is waiting on a credential, which is a different thing");
+});

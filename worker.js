@@ -3,7 +3,7 @@
 // call. Bundled by wrangler at deploy (see package.json).
 import { PhotonImage, watermark, resize, SamplingFilter } from "@cf-wasm/photon";
 import { sendConfirmation, recipient, pickProvider } from "./site-mail.mjs";
-import { sendSms } from "./site-sms.mjs";
+import { sendSms, pickSmsProvider, toE164, SMS_SECRET_NAMES } from "./site-sms.mjs";
 import { dueJobs, runJob, jobOutcome } from "./site-jobs.mjs";
 import { hostIsBlocked, blockedReason } from "./site-ssrf.mjs";
 import { deliverWebhook, firesFor, signPayload, MAX_PER_MINUTE as WEBHOOK_PER_MIN } from "./site-webhooks.mjs";
@@ -18,7 +18,7 @@ import { OWN_ZONES, APP_ZONE, SITE_ZONE, normalizeHostname, isOwnHostname, isApp
 import { checkDns, dnsSentence } from "./site-dns.mjs";
 import { detectProvider, providerSentence } from "./site-registrar.mjs";
 import { offerFor as dcOfferFor, applyUrl as dcApplyUrl, signQuery as dcSign, rsaSigner as dcSigner } from "./site-domain-connect.mjs";
-import { callApi, apiFor, secretsNeeded, takeParams, MAX_PER_MINUTE as SITE_API_PER_MIN, MAX_TTL as SITE_API_MAX_TTL } from "./site-apis.mjs";
+import { callApi, apiFor, secretsNeeded, takeParams, MAX_PER_MINUTE as SITE_API_PER_MIN, MAX_TTL as SITE_API_MAX_TTL , kvKeyFor, kvEligible, KV_MIN_TTL } from "./site-apis.mjs";
 import { Container, getContainer } from "@cloudflare/containers";
 import { makeCache, memoize } from "./ttl-cache.mjs";
 import { makeLimiter, bucketKey, tooMany, WINDOW_MS } from "./rate-limit.mjs";
@@ -2728,6 +2728,35 @@ async function runScheduledSiteJobs(env, ctx) {
         return { provider: picked.provider, key: picked.key, from: secrets.EMAIL_FROM };
       },
       send: ({ provider, key, from, to, subject, html }) => postProviderEmail(provider, key, from, to, subject, html),
+      // THE SECOND CHANNEL, and the one the jobs tool's own headline case wants.
+      // Its description opens with "reminding tomorrow's customers today, so
+      // they turn up" — which for a barber, a garage or a restaurant is a text,
+      // because a text is read and an email is not. The whole tier could only
+      // ever email until now: `send` was hardcoded to `postProviderEmail`, so
+      // `sendSms` existed one file over and no scheduled job could reach it.
+      //
+      // The SAME vault, the SAME provider picker and the SAME wire function the
+      // write path uses. A second reader of one vault is two things that can
+      // disagree about which key is live — the lesson `siteMailSecrets` already
+      // carries, applied one channel over.
+      smsCredentials: async () => {
+        const conn = await siteNeonProject(env, row.slug);
+        if (!conn) return null;
+        const secrets = await siteSmsSecrets(env, conn, row.slug)();
+        const picked = pickSmsProvider(secrets);
+        const from = String((secrets && secrets.SMS_FROM) || "").trim();
+        if (!picked || !from) return null;
+        // The sender is validated HERE rather than per message: an alphanumeric
+        // id is legal where a plain number is, and a hundred reminders must not
+        // re-answer that question a hundred times.
+        const sender = toE164(from) || (/^[A-Za-z0-9 ]{1,11}$/.test(from) ? from : null);
+        if (!sender) return null;
+        return { provider: picked.provider, key: picked.key, secret: picked.secret, from: sender };
+      },
+      sendSms: ({ provider, key, secret, from, to, body }) => postProviderSms(provider, key, secret, from, to, body),
+      // The write path's own parser, so "07700 900000" out of model-written SQL
+      // is refused in exactly the same place and for exactly the same reason.
+      phone: (v) => toE164(v),
       recipient,
     }, row);
 
@@ -3167,7 +3196,9 @@ const SITE_SCHEMA_TOOL = {
           "Each job names a function you ALSO declare in `functions` with `internal: true`, taking NO arguments and returning `json` — an ARRAY of " +
           "{to, subject, body}, one per message to send. Return an empty array when there is nothing to do, which is most runs. " +
           "The function is ordinary SQL, so decide whatever you like inside it: who is due, what it says, joined to anything on the site. " +
-          "The site owner pastes their own email provider key in Settings; until they do, the job runs and sends nothing. " +
+          "EACH MESSAGE MAY BE AN EMAIL OR A TEXT: add \"channel\":\"sms\" to one and give it `to` (a full international number, +44…) and `body` and NO subject. " +
+          "A text is what gets read for a day-before reminder from a barber, a garage or a restaurant; an email is right for a digest or anything long. Leave `channel` out for email. " +
+          "The site owner pastes their own provider key in Settings — an email one, an SMS one, or both; until they do, that channel sends nothing and the other still goes. " +
           "Minimum interval is 15 minutes and anything shorter is rounded up to it — for a day-before reminder use 1440.",
         items: {
           type: "object",
@@ -3613,6 +3644,30 @@ const SITE_SCHEMA_TOOL = {
                 body: { type: "string", description: "Short plain-text message. {column} is replaced from the submitted row." },
               },
             },
+            // OUTBOUND WEBHOOKS, DECLARABLE AT LAST. Every layer below this one
+            // has been complete since the feature shipped — `coerceTable` parses
+            // it, `firesFor` reads it, `emitWebhook` fires on the write path with
+            // HMAC signing, SSRF checks and a rate cap — and no tool anywhere
+            // offered the field, so no model on any path could ever ask for it.
+            // The declared-and-dead shape this file records over and over,
+            // sitting on a finished feature.
+            //
+            // AN ARRAY, NOT `true`-OR-ARRAY. `coerceTable` accepts a boolean and
+            // still does, so anything sending one keeps working — but this tool
+            // has ZERO uses of `anyOf`/`oneOf`, and a union here would be an
+            // untested JSON Schema construct in the one tool whose rejection
+            // 400s every build on the platform. Listing all three events is what
+            // `true` means, so nothing is lost but a spelling.
+            webhooks: {
+              type: "array",
+              items: { type: "string", enum: ["created", "updated", "deleted"] },
+              description:
+                "OPTIONAL, and OFF unless the brief asks for it. Tell another system when a row here changes — a booking into a CRM, an order into a warehouse, an enquiry into Slack. " +
+                "List the events that should fire: [\"created\"] for new rows only, or all three for everything. Most sites declare this on nothing at all. " +
+                "Declare it ONLY when the brief names another system that should hear about this data; a site that just emails the owner does NOT need it — that already happens. " +
+                "The site owner pastes the destination into Secrets as WEBHOOK_URL (or WEBHOOK_URL_<TABLE> to send one table somewhere of its own), and until they do nothing is sent and the form works normally. " +
+                "The platform signs each delivery and never sends owner_id or any claim token.",
+            },
             payment: {
               type: "object",
               description:
@@ -3892,8 +3947,28 @@ const SITE_SCHEMA_TOOL = {
  * `thinking` is omitted, and max_tokens caps thinking AND the response together,
  * so part of that budget is spent before a single row is written. Same reasoning
  * as SITE_PAGES_MAX_TOKENS below, which was sized for it and this was not.
+ *
+ * 8000 -> 16000 (2026-08-16, owner's call). THIS COSTS NOTHING ON AN ORDINARY
+ * BUILD: max_tokens is a ceiling, not a purchase, and billing is on tokens
+ * actually generated — a build that spends 1,103 is charged for 1,103 whichever
+ * number sits here. So the only thing it changes is which answers are allowed to
+ * finish.
+ *
+ * What it buys, stated honestly: headroom, not a fix for anything measured. The
+ * last instrumented eval run put output at ~1,576 tokens and the last live build
+ * at 1,103, so truncation is NOT the current failure — the missing `seed` field
+ * comes back absent, not cut off, and `topUpSeed` is what answers that. What
+ * this covers is the large-schema case the average hides: four display tables at
+ * six seed rows each is several thousand tokens of content before thinking takes
+ * its share, and the adaptive-thinking spend above is invisible in the output
+ * count, so the real headroom was always less than 8000 looked.
+ *
+ * The cost of being wrong is bounded and one-sided. A runaway can now generate
+ * 16000 output tokens instead of 8000 — roughly 5 credits more at Sonnet's
+ * output rate, on a call that has never come close — against a truncation, which
+ * throws, refunds, and leaves the customer with nothing at all.
  */
-const SITE_SCHEMA_MAX_TOKENS = 8000;
+const SITE_SCHEMA_MAX_TOKENS = 16000;
 
 /**
  * One Messages API call, body in, parsed response out.
@@ -5470,14 +5545,57 @@ async function siteApiDeps(env, slug, db, api) {
     secrets,
     fetch: (u, init) => fetch(u, init),
     blockedReason: (u) => blockedReason(u),
+    // TWO LAYERS, AND THE SECOND IS THE POINT.
+    //
+    // This was the per-isolate cache alone, which meant a declared
+    // `cacheSeconds: 3600` was honoured PER ISOLATE. Cloudflare runs many per
+    // PoP and evicts idle ones, so a low-traffic site was close to uncached and
+    // the owner's third-party quota was spent once per isolate per window
+    // instead of once per window — the same measurement that moved slug lookups
+    // to KV (median 1.05s, 3 of 12 requests warm).
+    //
+    // MEMORY FIRST, THEN KV. Memory is free and correct for whatever this
+    // isolate has already fetched; KV is the shared layer and costs a read. A KV
+    // hit warms memory on the way back, so a busy isolate asks once.
+    //
+    // KV IS OPTIONAL AND ITS ABSENCE IS SILENT. `env.SITE_API_CACHE` is not
+    // bound today — there is no `kv_namespaces` in wrangler.jsonc at all — so
+    // every branch below degrades to exactly the behaviour that shipped before
+    // this, which is what makes it safe to land before the namespace exists.
     cacheGet: async (k) => {
       const e = siteApiCache.get(k);
-      return e && e.until > Date.now() ? e.v : null;
+      if (e && e.until > Date.now()) return e.v;
+      const kv = env.SITE_API_CACHE;
+      if (!kv) return null;
+      try {
+        const id = await kvKeyFor(k);
+        if (!id) return null;
+        // `cacheTtl` lets the edge hold it too; 60 is KV's own floor.
+        const raw = await kv.get(id, { type: "json", cacheTtl: 60 });
+        if (!raw) return null;
+        // Warm the isolate so the next read on this one costs nothing. The
+        // remaining window is unknown here, so it is capped at KV's floor
+        // rather than guessed at — a wrong guess would hold an answer past the
+        // window the declaration asked for.
+        siteApiCache.set(k, { v: raw, until: Date.now() + KV_MIN_TTL * 1000 });
+        return raw;
+      } catch { return null; }
     },
     // The declaration's TTL, not the cache's: a rate that is good for an hour
     // and a stock level that is good for ten seconds are the same feature, and
     // only the declaration knows which this is.
-    cacheSet: async (k, v, ms) => { siteApiCache.set(k, { v, until: Date.now() + ms }); },
+    cacheSet: async (k, v, ms) => {
+      siteApiCache.set(k, { v, until: Date.now() + ms });
+      const kv = env.SITE_API_CACHE;
+      const ttl = Math.floor(ms / 1000);
+      // Under KV's 60s floor this stays in memory alone, where the exact window
+      // can actually be honoured — see KV_MIN_TTL.
+      if (!kv || !kvEligible(ttl)) return;
+      try {
+        const id = await kvKeyFor(k);
+        if (id) await kv.put(id, JSON.stringify(v), { expirationTtl: ttl });
+      } catch { /* a cache that cannot be written is still a working read */ }
+    },
   };
 }
 
@@ -5766,6 +5884,13 @@ function emitWebhook(env, ctx, { slug, db, def, table, action, row }) {
             at: new Date().toISOString(), table, action,
             ok: !!out.sent, status: out.status || 0,
             reason: out.reason || null, signed: !!out.signed,
+            // HOW MANY TIMES WE HAD TO ASK. A receiver that answers on the third
+            // attempt and one that answers first time are the same green tick
+            // without this, and "your integration is flapping" is a thing an
+            // owner can only act on if somebody counted. It is also the only way
+            // to tell a retry ladder that is working from one that is not
+            // running at all.
+            attempts: out.attempts || 0,
             // Which WEBHOOK* names the vault returned — the difference between
             // "never configured", "read came back empty" and "would not decrypt".
             found: out.found || null,
@@ -5837,17 +5962,7 @@ function smsSubmitter(env, ctx, { slug, db, def, row }) {
       // Only the names this channel needs, decrypted lazily and never returned
       // to a caller — the same door the mail key and the Stripe key come
       // through.
-      loadSecrets: async () => {
-        const get = async (_s, name) => {
-          const rows = await sqlQuery(db, "SELECT cipher FROM _secrets WHERE name=?", [name]);
-          return (rows && rows[0] && rows[0].cipher) || null;
-        };
-        const map = {};
-        for (const name of ["TWILIO_SID", "TWILIO_TOKEN", "MESSAGEBIRD_KEY", "VONAGE_KEY", "VONAGE_SECRET", "SMS_FROM"]) {
-          try { const v = await readSecret({ get }, env, { slug, name }); if (v) map[name] = v; } catch { /* skip */ }
-        }
-        return map;
-      },
+      loadSecrets: siteSmsSecrets(env, db, slug),
       send: ({ provider, key, secret, from, to, body }) => postProviderSms(provider, key, secret, from, to, body),
       // A SEPARATE COOLDOWN LEDGER from the mail one, and deliberately: they are
       // keyed by recipient, and an address and a phone number are different
@@ -5887,6 +6002,29 @@ function smsSubmitter(env, ctx, { slug, db, def, row }) {
 // Only the four names that matter are decrypted; the rest of the vault is never
 // touched. A key that will not decrypt is skipped rather than thrown on — one
 // unreadable row must not stop the others being found.
+// The SMS half of the same door, and ONE reader like its sibling.
+//
+// `smsSubmitter` hand-rolled this list inline and the jobs runner needed the
+// same six names — which is exactly how `siteMailSecrets` came to exist: two
+// copies of one vault read are two things that can disagree about which key is
+// live, and the failure is an owner told "no provider key in Secrets" while
+// their booking confirmations text fine on the same key. The names come from
+// `SMS_SECRET_NAMES`, derived from the provider table, so a fourth provider is
+// read by both callers without anybody editing this.
+function siteSmsSecrets(env, db, slug) {
+  return async () => {
+    const get = async (_s, name) => {
+      const rows = await sqlQuery(db, "SELECT cipher FROM _secrets WHERE name=?", [name]);
+      return (rows && rows[0] && rows[0].cipher) || null;
+    };
+    const map = {};
+    for (const name of SMS_SECRET_NAMES) {
+      try { const v = await readSecret({ get }, env, { slug, name }); if (v) map[name] = v; } catch { /* skip */ }
+    }
+    return map;
+  };
+}
+
 function siteMailSecrets(env, db, slug) {
   return async () => {
     const get = async (_s, name) => {

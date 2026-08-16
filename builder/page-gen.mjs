@@ -2966,6 +2966,20 @@ export function schemaDigest(spec) {
     } else if (canWriteAccess(t)) {
       lines.push("  PAID: NO — this is an ordinary form. Submit it with useCreateRow; there is no payment on this table.");
     }
+    // STATED ONLY WHEN IT IS ON, unlike `usePublicRows` directly above. That one
+    // prints YES *and* NO because a page has to DECIDE something and an absent
+    // line would read as an omission rather than an answer. Nothing on a page
+    // changes because a table emits webhooks — the platform fires them on the
+    // data path, after the write — so the line exists to stop the model
+    // hand-rolling a notification that already exists, and a "WEBHOOKS: NO" on
+    // every table of every site would be ~30 tokens of cached prompt saying
+    // nothing anybody acts on.
+    const fires = t.webhooks === true ? ["created", "updated", "deleted"]
+      : (Array.isArray(t.webhooks) ? t.webhooks : []);
+    if (fires.length) {
+      lines.push("  SENDS ELSEWHERE: this table already posts to the owner's own system on " + fires.join(", ")
+        + ". The platform does it after the write — do not build any notification, polling or forwarding for it.");
+    }
     return lines.join("\n");
   }).join("\n\n");
   // THE AGGREGATE, WHICH NO PER-TABLE LINE CAN STATE.

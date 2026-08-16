@@ -3915,3 +3915,28 @@ test("the export-name rule states a count it can still count", async () => {
     assert.ok(PAGE_RULES.includes(mod + " →"), mod + " is an exception the prompt never names");
   }
 });
+
+test("the digest says a table sends elsewhere, and stays silent when it does not", () => {
+  const T = (webhooks) => ({ tables: [{ name: "bookings", access: "collect", columns: [{ name: "who", type: "text" }], ...(webhooks === undefined ? {} : { webhooks }) }] });
+
+  // SILENT WHEN OFF, unlike `usePublicRows` which prints YES *and* NO. Nothing
+  // on a page changes because a table emits, so a "WEBHOOKS: NO" on every table
+  // of every site is cached prompt saying nothing anybody acts on.
+  assert.doesNotMatch(schemaDigest(T(undefined)), /SENDS ELSEWHERE/,
+    "a table with no webhooks must not be described as sending anywhere");
+  assert.doesNotMatch(schemaDigest(T(null)), /SENDS ELSEWHERE/, "and neither must an explicit off");
+
+  // THE POINT OF SAYING IT AT ALL: stop the model hand-rolling a notification
+  // for something the platform already does after the write.
+  const all = schemaDigest(T(true));
+  assert.match(all, /SENDS ELSEWHERE/, "`true` must be stated");
+  for (const a of ["created", "updated", "deleted"]) {
+    assert.ok(all.includes(a), "`true` must name " + a);
+  }
+  assert.match(all, /do not build any notification/i, "and must say not to rebuild it");
+
+  const one = schemaDigest(T(["created"]));
+  assert.match(one, /SENDS ELSEWHERE: this table already posts .* on created\./,
+    "a narrowed list must name only what it declared");
+  assert.ok(!/updated/.test(one.split("SENDS ELSEWHERE")[1] || ""), "and must not claim events it does not emit");
+});

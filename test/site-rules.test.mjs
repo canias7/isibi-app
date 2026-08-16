@@ -415,3 +415,64 @@ test("the tool's own read/write enums come from site-access.mjs rather than a co
   assert.match(src, /enum:\s*WRITE_LEVELS/);
   assert.ok(!/enum:\s*\[\s*"none"/.test(src), "a second list of access levels is two things that can disagree");
 });
+
+// ── webhooks, the sixth thing this lane can change ─────────────────────────
+//
+// It belongs HERE and not in the addon lane: that one may touch an existing
+// table only for payments and a public view, because both need a PAGE as well
+// as a schema change. A webhook needs no page — it fires on the data path after
+// the write — so it lives with the other no-page rules, in the one lane that
+// can also turn it off again.
+
+test("the rules lane can switch webhooks on, narrow them, and clear them", () => {
+  const spec = { tables: [{ name: "bookings", access: "collect", columns: [{ name: "who", type: "text" }] }] };
+
+  const on = mergeRules(spec, [{ table: "bookings", webhooks: ["created"] }]);
+  assert.deepEqual(on.spec.tables[0].webhooks, ["created"], "the declaration must reach the table");
+  assert.deepEqual(on.applied, [{ table: "bookings", fields: ["webhooks"] }], "and be reported");
+
+  const widened = mergeRules(on.spec, [{ table: "bookings", webhooks: ["created", "updated", "deleted"] }]);
+  assert.deepEqual(widened.spec.tables[0].webhooks, ["created", "updated", "deleted"], "a later change replaces it");
+
+  const off = mergeRules(widened.spec, [{ table: "bookings", clear: ["webhooks"] }]);
+  assert.equal(off.spec.tables[0].webhooks, null, "clearing must switch it off");
+  assert.deepEqual(off.applied, [{ table: "bookings", fields: ["cleared webhooks"] }], "and say so");
+
+  // UNTOUCHED IS UNTOUCHED. A rules change about something else must not switch
+  // a customer's integration on or off as a side effect.
+  const other = mergeRules(on.spec, [{ table: "bookings", maxRows: 20 }]);
+  assert.deepEqual(other.spec.tables[0].webhooks, ["created"], "an unrelated change must leave it alone");
+});
+
+test("webhooks is clearable, and the tool says every clearable name", () => {
+  // CLEARABLE because it is read out of `_meta` on the write path, so dropping
+  // the declaration really stops the sending — unlike the constraints, which are
+  // additive DDL that would stand in Postgres while `_meta` said they were gone.
+  assert.ok(CLEARABLE.includes("webhooks"), "webhooks must be switchable off");
+  for (const k of NOT_CLEARABLE) {
+    assert.ok(!CLEARABLE.includes(k), k + " must not have become clearable");
+  }
+  // The enum is derived from CLEARABLE, so this asserts the DESCRIPTION keeps up
+  // — a name the model can send and is never told about is one it will not use.
+  const clear = RULES_TOOL.input_schema.properties.tables.items.properties.clear;
+  assert.deepEqual([...clear.items.enum].sort(), [...CLEARABLE].sort(), "the enum must be the clearable set");
+  for (const k of CLEARABLE) {
+    assert.match(clear.description, new RegExp('"' + k + '"'), "the clear description must name " + k);
+  }
+});
+
+test("the rules tool's webhook events match the deliverer's, and survive the normaliser", () => {
+  const w = RULES_TOOL.input_schema.properties.tables.items.properties.webhooks;
+  assert.ok(w, "the rules lane cannot declare webhooks");
+  assert.deepEqual([...w.items.enum].sort(), ["created", "deleted", "updated"], "the events must be the three real ones");
+
+  // THE WHOLE CHAIN, because this lane's output goes through `normalizeSchema`
+  // before `applySiteSchema` — so an invalid event the model sends anyway is
+  // filtered there rather than reaching `_meta`.
+  const merged = mergeRules(
+    { tables: [{ name: "t", access: "collect", columns: [{ name: "a", type: "text" }] }] },
+    [{ table: "t", webhooks: ["created", "nonsense"] }],
+  );
+  const normalised = normalizeSchema(merged.spec).tables.find((t) => t.name === "t");
+  assert.deepEqual(normalised.webhooks, ["created"], "the normaliser must drop the invented event");
+});

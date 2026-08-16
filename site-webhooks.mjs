@@ -27,7 +27,46 @@ export const MAX_VALUE_CHARS = 1000;
 export const TIMEOUT_MS = 5000;
 export const MAX_PER_MINUTE = 60;
 
+/**
+ * Retries, and the two questions that decide them: how many, and on what.
+ *
+ * ON WHAT is the half that matters. A 4xx is the receiver deliberately refusing
+ * this delivery — a bad path, a rejected shape, a revoked hook — and repeating
+ * it changes nothing while spending our egress and their patience. A 5xx, a 429
+ * or a network fault is the receiver failing to ANSWER, which is exactly the
+ * case that a second attempt half a second later usually resolves. Retrying
+ * everything is how a misconfigured URL becomes three times the load.
+ *
+ * HOW MANY is bounded by where this runs: inside a `waitUntil` on the write
+ * path, not in a durable queue. Two extra attempts at 5s timeout plus the
+ * backoff is ~13s worst case, which fits; a longer ladder would sit past the
+ * point Cloudflare is willing to keep the context alive, and an attempt that is
+ * cut off mid-flight is indistinguishable from one that never happened.
+ *
+ * WHAT THIS DOES NOT SURVIVE, stated because the gap is real: an isolate being
+ * evicted, or a receiver down for minutes rather than seconds. Those need the
+ * delivery to outlive the request, which means a queue table and the cron — the
+ * `neon_teardown` shape. This closes the transient case, which is the common
+ * one, and does not pretend to be at-least-once.
+ */
+export const MAX_ATTEMPTS = 3;
+export const RETRY_BACKOFF_MS = [400, 1600];
+
 const ACTIONS = new Set(["created", "updated", "deleted"]);
+
+/**
+ * Is this outcome worth trying again?
+ *
+ * `null` status means the post threw or timed out — no answer at all, which is
+ * the most retryable thing there is. 408 is in for the same reason as 429: the
+ * receiver named a timing problem rather than a problem with the delivery.
+ */
+export function retryable(status) {
+  if (status === null || status === undefined || status === 0) return true;
+  const n = Number(status);
+  if (!Number.isFinite(n)) return true;
+  return n === 408 || n === 429 || (n >= 500 && n < 600);
+}
 
 // Columns a receiver must never be handed. `_fts` is a search vector — noise.
 // `owner_id` is a MEMBER'S identity on this site, and a booking notification is
@@ -179,16 +218,50 @@ export async function deliverWebhook(deps, { slug, table, action, row, now }) {
     };
     if (sig) headers["x-gofarther-signature"] = "v1=" + sig;
 
-    const res = await deps.post(url, { method: "POST", headers, body });
-    // A 3xx is NOT followed. For a POST that is both safer and more correct:
-    // redirect handling would reopen the SSRF question one hop later, and 301/302
-    // may legally drop the method and body anyway. It reads as a failure the
-    // owner can see and fix.
-    const status = (res && res.status) || 0;
-    return status >= 200 && status < 300
-      ? { sent: true, status, signed: !!sig }
-      : { sent: false, reason: "receiver refused", status, signed: !!sig };
+    // THE ATTEMPT LOOP. Each pass is one whole POST; only a receiver that
+    // failed to ANSWER buys another. See MAX_ATTEMPTS for why the ladder is
+    // short and why a 4xx ends it immediately.
+    //
+    // The sleep is INJECTED, so the tests drive three attempts and two backoffs
+    // in no time at all — a retry test that really waits two seconds is a test
+    // somebody eventually deletes.
+    const sleep = deps.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
+    let status = null, threw = null, attempts = 0;
+
+    for (let i = 0; i < MAX_ATTEMPTS; i++) {
+      if (i > 0) await sleep(RETRY_BACKOFF_MS[i - 1] ?? RETRY_BACKOFF_MS[RETRY_BACKOFF_MS.length - 1]);
+      attempts++;
+      try {
+        const res = await deps.post(url, { method: "POST", headers, body });
+        // A 3xx is NOT followed. For a POST that is both safer and more correct:
+        // redirect handling would reopen the SSRF question one hop later, and
+        // 301/302 may legally drop the method and body anyway. It reads as a
+        // failure the owner can see and fix — and `retryable` says no to it, so
+        // a misconfigured redirect is not hammered three times.
+        status = (res && res.status) || 0;
+        threw = null;
+      } catch (e) {
+        // A THROW IS AN ATTEMPT, NOT AN ABORT, and that is the shape change
+        // here: this used to fall straight out of the function, so the single
+        // most retryable outcome there is — no answer at all — was the one
+        // outcome that could never be retried.
+        status = null;
+        threw = String((e && e.message) || e).slice(0, 200);
+      }
+      if (status !== null && status >= 200 && status < 300) {
+        return { sent: true, status, signed: !!sig, attempts };
+      }
+      if (!retryable(status)) break;
+    }
+
+    // `attempts` rides on BOTH outcomes. Without it a receiver that answers on
+    // the third try and one that answers first time are the same line in the
+    // owner's log, and "your integration is flapping" is a thing they can only
+    // act on if somebody counted.
+    return threw !== null
+      ? { sent: false, reason: "threw", error: threw, attempts, signed: !!sig }
+      : { sent: false, reason: "receiver refused", status, signed: !!sig, attempts };
   } catch (e) {
-    return { sent: false, reason: "threw", error: String((e && e.message) || e).slice(0, 200) };
+    return { sent: false, reason: "threw", error: String((e && e.message) || e).slice(0, 200), attempts: 0 };
   }
 }

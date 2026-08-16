@@ -522,6 +522,48 @@ try {
   ok("but may NOT select the table it reads from", canRead[0].sel === false, JSON.stringify(canRead[0]));
   ok("and may still submit the form", canRead[0].ins === true, JSON.stringify(canRead[0]));
 
+  // ── IS THE UNPINNED search_path ON MODEL FUNCTIONS REACHABLE? ─────────────
+  //
+  // `app_user_id()` and `app_team_id()` are declared `SET search_path =
+  // pg_catalog` with every name qualified, and the comment in site-rls.mjs says
+  // why: "a role able to create a schema ahead of it can hijack an unqualified
+  // call". `functionSql` pins NOTHING on the functions the MODEL writes, and
+  // those are SECURITY DEFINER — they run as the database owner and bypass RLS.
+  //
+  // The escalation needs BOTH halves, and only Postgres can answer either:
+  //   1. a caller can put a schema of their own ahead of `public`, and
+  //   2. they can create an object in it to shadow the real table.
+  // Reasoning says no on both (PG15+ revoked CREATE on `public` from PUBLIC, and
+  // we never grant CREATE anywhere) — but that is exactly the sort of "probably"
+  // that this file exists to replace with a measurement, and the two functions
+  // above were pinned on the strength of the same argument in reverse.
+  //
+  // MEASURED RATHER THAN ASSUMED, and it is REPORTED both ways: if a role can
+  // create, the finding is real and the fix is to pin `search_path` on every
+  // model function; if it cannot, this records that the gap is unreachable and
+  // nobody has to re-derive it.
+  const creates = await sqlQuery(db,
+    "SELECT has_database_privilege('anonymous', current_database(), 'CREATE') AS anon_db, " +
+    "has_database_privilege('authenticated', current_database(), 'CREATE') AS auth_db, " +
+    "has_schema_privilege('anonymous', 'public', 'CREATE') AS anon_public, " +
+    "has_schema_privilege('authenticated', 'public', 'CREATE') AS auth_public");
+  const c = creates[0] || {};
+  ok("anonymous cannot create a schema to hide in", c.anon_db === false, JSON.stringify(c));
+  ok("authenticated cannot create a schema to hide in", c.auth_db === false, JSON.stringify(c));
+  ok("anonymous cannot create an object in public", c.anon_public === false, JSON.stringify(c));
+  ok("authenticated cannot create an object in public", c.auth_public === false, JSON.stringify(c));
+  // The premise of the whole question, stated separately so a future reader can
+  // see WHICH half held. If model functions are ever pinned, this check becomes
+  // belt-and-braces rather than the only thing standing there.
+  const pinned = await sqlQuery(db,
+    "SELECT proname, proconfig FROM pg_proc WHERE proname IN ('enquiry_by_claim','app_user_id') ORDER BY proname");
+  const byName = Object.fromEntries((pinned || []).map((r) => [r.proname, r.proconfig]));
+  ok("the engine's own helper pins search_path", Array.isArray(byName.app_user_id)
+    && byName.app_user_id.some((s) => /^search_path=/.test(s)), JSON.stringify(byName));
+  ok("a model function does NOT — recorded, and safe only while the four checks above hold",
+    !byName.enquiry_by_claim || !byName.enquiry_by_claim.some((s) => /^search_path=/.test(s)),
+    JSON.stringify(byName));
+
   // ── `internal: true` withholds the grant ─────────────────────────────────
   //
   // The confirmation-email function. It exists and the platform calls it on the

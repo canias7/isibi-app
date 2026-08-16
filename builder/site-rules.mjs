@@ -57,7 +57,11 @@ export const MAX_RULE_TABLES = 4;
  * which is the worst shape a failure can take here. It is refused with a reason
  * instead, and dropping them properly is its own piece of work.
  */
-export const CLEARABLE = ["confirm", "sms"];
+// `webhooks` joins them for exactly the same reason and no other: it is read out
+// of `_meta` on the write path by `firesFor`, so dropping the declaration really
+// does stop the sending. Nothing in Postgres holds it, so there is no additive
+// DDL to leave standing behind a rule reported as removed.
+export const CLEARABLE = ["confirm", "sms", "webhooks"];
 
 /** Named so the refusal can say WHICH rule it could not take away. */
 export const NOT_CLEARABLE = ["unique", "uniqueci", "nooverlap", "onceperuser", "maxrows"];
@@ -161,12 +165,28 @@ export const RULES_TOOL = {
                 "\"we're fully booked\", \"close the form\".\n" +
                 "FALSE reopens one that was closed.",
             },
+            // THE RIGHT LANE FOR THIS, and the addon lane is deliberately not.
+            // That one may touch an existing table for exactly two things —
+            // payments and a public view — because both need a PAGE as well as a
+            // schema change. A webhook needs no page at all: it fires on the data
+            // path when a row moves. So it belongs where the other no-page rules
+            // live, which is also the lane that can turn it off again.
+            webhooks: {
+              type: "array",
+              items: { type: "string", enum: ["created", "updated", "deleted"] },
+              description:
+                "SEND THIS TABLE'S ENTRIES TO ANOTHER SYSTEM as they happen — a CRM, a warehouse, a Slack channel. " +
+                "List which events should fire: [\"created\"] for new entries only, or all three to include edits and " +
+                "deletions. The owner sets the destination in Secrets as WEBHOOK_URL; until they do, nothing is sent. " +
+                "Use \"clear\" with \"webhooks\" to stop them.",
+            },
             clear: {
               type: "array",
               items: { type: "string", enum: CLEARABLE },
               description:
-                "TURN A RULE OFF: \"confirm\" stops the email to the customer, \"sms\" stops the text. Only these two " +
-                "can be switched off; anything else is left alone and they are told so.",
+                "TURN A RULE OFF: \"confirm\" stops the email to the customer, \"sms\" stops the text, \"webhooks\" stops " +
+                "sending entries to the other system. Only these can be switched off; anything else is left alone and " +
+                "they are told so.",
             },
           },
           required: ["table"],
@@ -381,7 +401,7 @@ export function mergeRules(spec, changes) {
     const t = byName.get(String(c && c.table || "").toLowerCase());
     if (!t) continue;
     const fields = [];
-    for (const k of ["read", "write", "confirm", "sms", "unique", "oncePerUser", "noOverlap", "maxRows", "retired"]) {
+    for (const k of ["read", "write", "confirm", "sms", "webhooks", "unique", "oncePerUser", "noOverlap", "maxRows", "retired"]) {
       if (c[k] === undefined) continue;
       t[k] = c[k];
       fields.push(k);
@@ -414,8 +434,10 @@ const SAYS = {
   noOverlap: "the no-double-booking rule",
   maxRows: "the limit on how many",
   retired: "whether it's open",
+  webhooks: "sending entries to your other system",
   "cleared confirm": "the confirmation email, now off",
   "cleared sms": "the text message, now off",
+  "cleared webhooks": "sending entries to your other system, now off",
 };
 
 const WHY = {
