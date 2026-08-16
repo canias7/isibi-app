@@ -6,7 +6,8 @@ import { sendConfirmation, recipient, pickProvider } from "./site-mail.mjs";
 import { sendSms, pickSmsProvider, toE164, SMS_SECRET_NAMES } from "./site-sms.mjs";
 import { dueJobs, runJob, jobOutcome } from "./site-jobs.mjs";
 import { hostIsBlocked, blockedReason } from "./site-ssrf.mjs";
-import { deliverWebhook, firesFor, signPayload, MAX_PER_MINUTE as WEBHOOK_PER_MIN } from "./site-webhooks.mjs";
+import { deliverWebhook, firesFor, signPayload, retryable as webhookRetryable, MAX_PER_MINUTE as WEBHOOK_PER_MIN } from "./site-webhooks.mjs";
+import { drainQueue, enqueueRow, LEASE_MS as WEBHOOK_LEASE_MS } from "./site-webhook-queue.mjs";
 import { takeToken, verify as turnstileVerify, TOKEN_FIELD as TURNSTILE_FIELD } from "./site-turnstile.mjs";
 import { handleInbound, MAX_BODY as INBOUND_MAX_BODY, MAX_PER_MINUTE as INBOUND_PER_MIN } from "./site-inbound.mjs";
 // `OWN_ZONES` is imported because `cfZoneId` reads it — it was not, and that is
@@ -2218,6 +2219,12 @@ export default {
     // tick; the only side that can, since Cloudflare's certificate status is an
     // API call and nothing else in the system polls it.
     ctx.waitUntil(runDomainWatch(env));
+    // Finish outbound webhooks the in-request ladder could not. The ladder runs
+    // inside the waitUntil of the write that produced the event, so an evicted
+    // isolate or a receiver down for minutes loses it outright; this side is the
+    // only one that can pick that up, for the same reason the teardown queue
+    // above is drained here.
+    ctx.waitUntil(runWebhookQueue(env));
   },
 };
 
@@ -2636,6 +2643,89 @@ function backupDeps(env) {
     },
     warn: (m) => console.error(m),
   };
+}
+
+/**
+ * Drain the outbound-webhook queue.
+ *
+ * Every decision — backoff, jitter, dead-lettering, whether a claim is stale —
+ * lives in site-webhook-queue.mjs where it is tested with no database and no
+ * clock. This supplies nothing but the four side effects.
+ */
+async function runWebhookQueue(env) {
+  if (!env.SUPABASE_SERVICE_KEY) return;
+  const svc = { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY };
+  const json = { ...svc, "Content-Type": "application/json" };
+  const iso = (ms) => new Date(ms).toISOString();
+
+  const out = await drainQueue({
+    // DUE MEANS EITHER WAY IN: a pending row whose time has come, or a
+    // `delivering` row whose claim went stale because the worker holding it
+    // died. Ordered oldest-first so a burst cannot starve the rows behind it —
+    // the same reason the jobs query orders by last_run.
+    due: async (now, max) => {
+      const stale = iso(now - WEBHOOK_LEASE_MS);
+      const url = `${SUPABASE_URL}/rest/v1/webhook_queue`
+        + `?or=(and(status.eq.pending,next_attempt_at.lte.${encodeURIComponent(iso(now))})`
+        + `,and(status.eq.delivering,claimed_at.lt.${encodeURIComponent(stale)}))`
+        + `&select=event_id,slug,table_name,action,body,status,attempts,next_attempt_at,claimed_at`
+        + `&order=next_attempt_at.asc&limit=${Math.max(1, max)}`;
+      const r = await fetch(url, { headers: svc, signal: AbortSignal.timeout(10000) });
+      if (!r.ok) throw new Error("queue read " + r.status);
+      const rows = await r.json().catch(() => []);
+      return Array.isArray(rows) ? rows : [];
+    },
+    // THE ATOMIC CLAIM, and it is the only thing between two overlapping cron
+    // ticks and a double delivery. The WHERE re-states the state this tick
+    // believes the row is in, so of two ticks that both read it as due exactly
+    // one gets a representation back. `!r.ok` and a throw both read as LOST —
+    // a claim that cannot be recorded is a claim lost, the jobs-runner rule.
+    claim: async (row, now) => {
+      const stale = iso(now - WEBHOOK_LEASE_MS);
+      const url = `${SUPABASE_URL}/rest/v1/webhook_queue`
+        + `?event_id=eq.${encodeURIComponent(row.event_id)}`
+        + `&or=(status.eq.pending,and(status.eq.delivering,claimed_at.lt.${encodeURIComponent(stale)}))`;
+      const r = await fetch(url, {
+        method: "PATCH", headers: { ...json, Prefer: "return=representation" },
+        body: JSON.stringify({ status: "delivering", claimed_at: iso(now), updated_at: iso(now) }),
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!r.ok) return false;
+      const got = await r.json().catch(() => null);
+      return Array.isArray(got) && got.length > 0;
+    },
+    // The stored bytes, re-signed with a fresh timestamp. `body` is passed
+    // through so nothing is rebuilt — see deliverWebhook.
+    deliver: async (row) => {
+      const db = await siteBackendBySlug(env, row.slug);
+      // A site that has gone leaves rows nothing can deliver. Reported as a
+      // permanent refusal so it dead-letters rather than retrying for a day.
+      if (!db) return { sent: false, status: 410, error: "site no longer exists" };
+      return deliverWebhook({
+        firesFor: () => true,           // it fired once already; that is settled
+        loadSecrets: () => webhookSecrets(row.slug, env, db),
+        blockedReason: (u) => blockedReason(u),
+        sign: (secret, body, ts) => signPayload(secret, body, ts),
+        post: (url, init) => fetch(url, { ...init, redirect: "manual", signal: AbortSignal.timeout(5000) }),
+      }, {
+        slug: row.slug, table: row.table_name, action: row.action,
+        row: null, now: Date.now(), eventId: row.event_id, body: row.body,
+      });
+    },
+    finish: async (row, patch) => {
+      const r = await fetch(`${SUPABASE_URL}/rest/v1/webhook_queue?event_id=eq.${encodeURIComponent(row.event_id)}`, {
+        method: "PATCH", headers: { ...json, Prefer: "return=minimal" },
+        body: JSON.stringify({ ...patch, claimed_at: null, updated_at: new Date().toISOString() }),
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!r.ok) throw new Error("queue write " + r.status);
+    },
+    retryable: (status) => webhookRetryable(status),
+  }, { now: Date.now() });
+
+  if (out.delivered || out.dead || out.retried || out.error) {
+    console.log("webhook queue:", JSON.stringify(out).slice(0, 300));
+  }
 }
 
 async function runScheduledSiteJobs(env, ctx) {
@@ -5847,7 +5937,14 @@ function emitWebhook(env, ctx, { slug, db, def, table, action, row }) {
       // `redirect: "manual"` so a 3xx is a result rather than another hop —
       // following one would reopen the host question after it was answered.
       post: (url, init) => fetch(url, { ...init, redirect: "manual", signal: AbortSignal.timeout(5000) }),
-    }, { slug, table, action, row, now: Date.now() });
+      // THE STABLE ID, minted once here and never again. It goes inside the
+      // signed body, into the header, and — if this fails retryably — becomes
+      // the queue's primary key, so every later attempt carries the same value
+      // and a receiver deduplicating on it is safe to accept at-least-once
+      // delivery. Minted before the attempt rather than at enqueue time, or the
+      // body the first attempt sent and the body the queue stores would differ
+      // by exactly this field and the signature would not match.
+    }, { slug, table, action, row, now: Date.now(), eventId: crypto.randomUUID() });
     // RECORDED, not only logged.
     //
     // Everything about a webhook is invisible from outside: it runs detached, so
@@ -5873,6 +5970,37 @@ function emitWebhook(env, ctx, { slug, db, def, table, action, row }) {
     // looks identical to one that never set one. Only "this table does not emit"
     // is skipped now, which is the genuine resting state of the platform and the
     // one that would put a write on every insert everywhere.
+    // WRITTEN DOWN IF IT COULD STILL SUCCEED. The ladder above has already
+    // spent its three attempts inside this request; a receiver that is merely
+    // slow to come back needs somebody to try later, and nothing in a request
+    // that is about to end can be that somebody.
+    //
+    // ONLY A RETRYABLE FAILURE IS QUEUED. A 404 or a 401 is the receiver
+    // refusing this delivery for good, and a queue full of rows that can never
+    // succeed is a queue nobody reads. "No WEBHOOK_URL" is not queued either —
+    // there is nothing to retry against.
+    if (!out.sent && out.body && webhookRetryable(out.status)) {
+      try {
+        // The EXACT bytes the ladder sent, and the id that is inside them.
+        const row = enqueueRow({
+          eventId: out.eventId, slug, table, action, body: out.body,
+          status: out.status, error: out.error || out.reason, attempts: out.attempts || 1,
+          now: Date.now(),
+        });
+        // `ignore-duplicates`: the id is the primary key, so a redelivery of an
+        // event already queued is a no-op rather than an error.
+        await fetch(`${SUPABASE_URL}/rest/v1/webhook_queue`, {
+          method: "POST",
+          headers: { ...svcHeaders(env), "Content-Type": "application/json", Prefer: "resolution=ignore-duplicates,return=minimal" },
+          body: JSON.stringify(row), signal: AbortSignal.timeout(8000),
+        });
+      } catch (e) {
+        // The delivery already failed; failing to write it down must not become
+        // a second failure on the customer's write path.
+        console.error("webhook queue write:", slug, table, e && e.message);
+      }
+    }
+
     if (out.reason !== "table does not emit this action") {
       if (!out.sent) console.error("webhook:", slug, table, action, out.reason || "", out.status || "");
       // Best-effort, and it must not throw: the delivery already happened or
