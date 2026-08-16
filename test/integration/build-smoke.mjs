@@ -253,7 +253,14 @@ try {
     `both came back ${thin.intent} — the router is stuck, whichever way it is stuck`);
 
   // --- the actual build ---------------------------------------------------
-  const brief = "A small barber shop site. Visitors book an appointment by picking a date and time, and can see the list of services with prices.";
+  // THE BRIEF IS OVERRIDABLE, and the default is the one every assertion below
+  // was calibrated against — a trade with a list to READ and a form to WRITE,
+  // which is what "the seeded content is on the page" and "the site has a form
+  // a visitor can submit" both depend on. A brief of a different SHAPE (a
+  // brochure with no form, a members-only tool) can fail those honestly, so an
+  // override is for looking at what the builder produces, not for CI.
+  const brief = process.env.SMOKE_BRIEF
+    || "A small barber shop site. Visitors book an appointment by picking a date and time, and can see the list of services with prices.";
 
   // The slug is CHOSEN here, not left to the designer.
   //
@@ -649,7 +656,12 @@ try {
       ok("a shared link has a description", /<meta name="description" content="[^"]{10,}"/.test(html), html.slice(0, 400));
       ok("and an Open Graph title", /<meta property="og:title" content="[^"]{2,}"/.test(html), html.slice(0, 400));
       ok("and a twitter card, exactly one", (html.match(/twitter:card/g) || []).length === 1, String((html.match(/twitter:card/g) || []).length));
-      ok("the description is not the raw brief", !/A small barber shop site\. Visitors book/.test(html),
+      // DERIVED FROM THE BRIEF, not a literal copy of it. Pinned to the barber
+      // wording this passed vacuously the moment the brief was overridden — the
+      // string it looks for is simply not in the page, so a designer echoing a
+      // DIFFERENT prompt verbatim would have been reported as writing its own
+      // sentence. Assert the property, not the spelling.
+      ok("the description is not the raw brief", !html.includes(brief.slice(0, 40)),
         "the designer should write a customer-facing sentence, not echo the prompt");
       // The shell is a root div — the table names live in the bundle, which is
       // also the only proof the pages actually talk to the database that was
