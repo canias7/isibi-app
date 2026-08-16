@@ -587,6 +587,20 @@ export function publicViewSql(t, columns, tableNames) {
 //
 // `$isibi$` and not `$$`: the body is written by a model, and a `$$` inside it
 // would end the literal early and turn the remainder into top-level syntax.
+//
+// THIS EMITS `CREATE FUNCTION` AND NOTHING ELSE — no `ALTER TABLE`, no
+// `CREATE TRIGGER`, no `CREATE INDEX`. Stated because the conclusion drawn from
+// "the model can write its own Postgres" is easy to overextend: it CANNOT add a
+// constraint, a trigger or a generated column, so the schema engine's words for
+// those (`checks`, `computed`, `transitions`, `timestamps`, `enforceRefs`) are
+// not shorthands the model could write out longhand instead. They are the ONLY
+// route to those features, and deleting one deletes the capability rather than
+// pushing it down a layer. Reasoned wrongly about exactly this on 2026-08-16,
+// one step away from removing five live words on the strength of it.
+//
+// A `plpgsql` body could of course EXECUTE DDL when somebody calls it — but
+// nothing calls a declared function at build time, so a constraint written that
+// way is never created.
 export function functionSql(f) {
   const args = (f.args || []).map((a) => q(a.name) + " " + a.type).join(", ");
   const argTypes = (f.args || []).map((a) => a.type).join(", ");
