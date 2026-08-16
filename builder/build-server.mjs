@@ -53,6 +53,7 @@ const PRERENDER_CHILD = path.join(path.dirname(fileURLToPath(import.meta.url)), 
 // Same rule as the prerender child: part of the build SERVICE, not of the
 // template, so it resolves from this file rather than from APP or the cwd.
 const WORKER_ENTRY = path.join(path.dirname(fileURLToPath(import.meta.url)), "site-worker", "entry.js");
+const WORKER_CONFIG = path.join(path.dirname(fileURLToPath(import.meta.url)), "site-worker", "vite.worker.config.mjs");
 // Its own output directory, kept OUT of `dist` for the reason `dist-ssr` is:
 // `collectDist` publishes everything under `dist` wholesale, and the Worker
 // script is uploaded rather than served — shipping it to R2 would put a copy of
@@ -427,8 +428,14 @@ async function packageWorker(slug, shell) {
   // build is one site's pages waiting to be uploaded under another site's name.
   try { fs.rmSync(path.join(APP, WORKER_DIR), { recursive: true, force: true }); } catch {}
 
-  const r = await run("npx", ["vite", "build", "--ssr", "src/site-worker-entry.js",
-    "--outDir", WORKER_DIR, "--logLevel", "error"], {});
+  // ITS OWN CONFIG, and that is not tidiness. `vite build --ssr` externalises
+  // dependencies by default — right for the prerender, which runs in Node with
+  // `node_modules` beside it, and fatally wrong here: the Workers runtime has
+  // no loader. Measured on the first real container run, the plain flag
+  // produced 17,647 bytes importing React from a bare specifier, which is not
+  // a bundled app and could never have been uploaded.
+  const r = await run("npx", ["vite", "build", "--config", WORKER_CONFIG,
+    "--ssr", "src/site-worker-entry.js", "--outDir", WORKER_DIR, "--logLevel", "error"], {});
   if (r.code !== 0) return { ok: false, why: exitReason("the worker build", r) };
 
   let code = "";

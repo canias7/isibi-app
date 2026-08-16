@@ -393,11 +393,21 @@ try {
   const w = wpack.worker || {};
   ok("the site packages into a worker script", wpack.ok && w.ok === true, JSON.stringify({ ok: wpack.ok, why: w.why, stage: wpack.stage, error: String(wpack.error || "").slice(0, 300) }));
   if (w.ok) {
-    // ONE FILE. A script that imports a sibling at runtime cannot be uploaded —
-    // the Workers runtime has no loader — so "it bundled" and "it bundled into
-    // ONE thing" are different claims and only the second one is deployable.
-    ok("…as a single self-contained script", !/\bfrom\s*["']\.\//.test(w.code) && !/\brequire\(["']\.\//.test(w.code),
-      (w.code.match(/from\s*["']\.[^"']*["']/g) || []).slice(0, 3).join(" · "));
+    // ONE FILE, AND NOTHING IMPORTED FROM OUTSIDE IT. The Workers runtime has
+    // no loader, so any surviving import — relative OR bare — is a script that
+    // cannot run.
+    //
+    // THE BARE HALF IS THE ONE THAT MATTERED. A first draft checked relative
+    // imports only, and `vite build --ssr` externalises dependencies by
+    // default, so the script came out importing React and TanStack from bare
+    // specifiers and this assertion passed on a bundle that could never have
+    // been uploaded. Caught by the SIZE check below, not by this one — a
+    // number wrong by an order of magnitude is harder to satisfy by accident
+    // than a pattern is.
+    const imports = (w.code.match(/^\s*import[^;]*from\s*["'][^"']+["']/gm) || [])
+      .concat(w.code.match(/\brequire\(["'][^"']+["']\)/g) || []);
+    ok("…as a single self-contained script, with nothing left to resolve",
+      imports.length === 0, imports.slice(0, 4).join(" · "));
     // THE CONFIG IS REALLY BAKED IN. The slug decides which R2 prefix the
     // script serves assets from, so a bundle that dropped it is a site whose
     // every stylesheet 404s — and it would still "package successfully".
@@ -407,7 +417,14 @@ try {
     // THE SHELL, which is what the rendered markup gets injected into. Present
     // in the source and absent from the bundle is a script that serves nothing.
     ok("…and the HTML shell to render into", w.code.includes('<div id="root">'), "no shell means nothing to inject the render into");
-    ok("…and it is a plausible size for a bundled React app", w.bytes > 100_000 && w.bytes < 10_000_000, String(w.bytes) + " bytes");
+    // THE CHECK THAT ACTUALLY CAUGHT THE EXTERNALS BUG. React, TanStack Router,
+    // TanStack Query and every kit component a page imports cannot add up to a
+    // small file — 17,647 bytes was the measured symptom of a bundle that
+    // resolved none of them. The upper bound is the Workers script limit, so a
+    // build that starts inlining something enormous is refused rather than
+    // discovered at upload.
+    ok("…and it is a plausible size for a bundled React app", w.bytes > 300_000 && w.bytes < 9_000_000,
+      String(w.bytes) + " bytes — under 300k means the dependencies were externalised and it cannot run");
     // THE WORKER BUILD IS NOT PUBLISHED. `collectDist` ships everything under
     // `dist` wholesale, so an output directory inside it would put a copy of
     // every site's server code in the public bucket.
@@ -419,7 +436,12 @@ try {
   // REFUSED WITHOUT A SLUG rather than packaged with an empty one — a script
   // that cannot find its own assets renders a page and then looks broken,
   // which is worse than the static path it would have replaced.
-  const noSlug = await post({ files: { "index.tsx": INDEX }, worker: true });
+  // THE FULL PAGE SET, not `index.tsx` alone. This file already records the
+  // trap and I walked back into it: INDEX carries `<Link to="/menu">`, so
+  // posting it by itself fails the TYPECHECK on a route that does not exist —
+  // the build never reaches the worker step and the refusal being asserted
+  // never happens. The assertion then reads as the refusal being broken.
+  const noSlug = await post({ files: { "index.tsx": INDEX, "menu.tsx": MENU, "about.team.tsx": TEAM }, worker: true });
   ok("a worker is refused when there is no slug to serve assets from",
     noSlug.ok && noSlug.worker && noSlug.worker.ok === false && /slug/i.test(noSlug.worker.why || ""),
     JSON.stringify(noSlug.worker));
