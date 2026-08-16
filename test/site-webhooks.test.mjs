@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { firesFor, shapePayload, signPayload, deliverWebhook, MAX_FIELDS, MAX_VALUE_CHARS, MAX_PER_MINUTE } from "../site-webhooks.mjs";
+import { firesFor, shapePayload, signPayload, deliverWebhook, retryable, MAX_ATTEMPTS, RETRY_BACKOFF_MS, MAX_FIELDS, MAX_VALUE_CHARS, MAX_PER_MINUTE } from "../site-webhooks.mjs";
 import { hostIsBlocked, blockedReason } from "../site-ssrf.mjs";
 
 const NOW = 1786070000000;
@@ -185,12 +185,18 @@ test("NOTHING THROWS — the row is already written", async () => {
 });
 
 test("a receiver that refuses is reported, not retried", async () => {
-  for (const status of [301, 302, 400, 401, 404, 410, 500, 503]) {
-    const d = deps({ status });
+  // 500 AND 503 WERE IN THIS LIST until retries landed, and their removal is the
+  // change rather than an accommodation of it: this test was pinning the ABSENCE
+  // of a retry ladder, which was the honest state of the world when it was
+  // written. What survives is the half that is still true and still load-bearing
+  // — a deliberate refusal is answered once. The transient statuses are asserted
+  // in the retry block below, where they are now posted MAX_ATTEMPTS times.
+  for (const status of [301, 302, 400, 401, 404, 410, 422]) {
+    const d = deps({ status, sleep: async () => {} });
     const out = await fire(d);
     assert.equal(out.sent, false, "status " + status);
     assert.equal(out.status, status);
-    assert.equal(d.calls.length, 1, "exactly one attempt — there is no retry queue");
+    assert.equal(d.calls.length, 1, "a refusal is answered once — repeating it changes nothing");
   }
 });
 
@@ -532,4 +538,104 @@ test("an invalid event is dropped, and a list of only invalid events is silence"
     const t = one(junk);
     assert.equal(firesFor(t, "created"), false, "a non-list non-true must not emit: " + JSON.stringify(junk));
   }
+});
+
+// ── retries ────────────────────────────────────────────────────────────────
+
+const RETRY_BASE = {
+  firesFor: () => true,
+  loadSecrets: async () => ({ WEBHOOK_URL: "https://hook.example.com/x" }),
+  blockedReason: () => null,
+  sign: async () => "sig",
+  sleep: async () => {},   // no real time, or this file takes seconds
+};
+const deliverN = (statuses, over) => {
+  const seen = [];
+  const post = async () => {
+    const s = statuses[Math.min(seen.length, statuses.length - 1)];
+    seen.push(s);
+    if (s === "throw") throw new Error("connect ECONNREFUSED");
+    return { status: s };
+  };
+  return deliverWebhook({ ...RETRY_BASE, post, ...over }, { slug: "s", table: "t", action: "created", row: { id: 1 }, now: 1 })
+    .then((out) => ({ out, seen }));
+};
+
+test("a receiver that fails to answer gets another go, and success stops the loop", async () => {
+  const first = await deliverN([200]);
+  assert.equal(first.out.sent, true);
+  assert.equal(first.out.attempts, 1, "a receiver that answers must not be posted to twice");
+
+  for (const transient of [500, 502, 503, 429, 408, "throw"]) {
+    const r = await deliverN([transient, 200]);
+    assert.equal(r.out.sent, true, transient + " must be retried");
+    assert.equal(r.out.attempts, 2, transient + " must succeed on the second attempt");
+  }
+
+  // The ladder is BOUNDED — a receiver that is simply down does not get posted
+  // to forever inside a waitUntil.
+  const dead = await deliverN([503]);
+  assert.equal(dead.out.sent, false);
+  assert.equal(dead.out.attempts, MAX_ATTEMPTS, "a permanently failing receiver stops at the cap");
+  assert.equal(dead.seen.length, MAX_ATTEMPTS, "and is posted to exactly that many times");
+});
+
+test("a receiver that REFUSES is not asked again", async () => {
+  // The whole point of the split: a 4xx is a deliberate rejection, and repeating
+  // it changes nothing while spending our egress and their patience.
+  for (const refusal of [400, 401, 403, 404, 410, 422]) {
+    const r = await deliverN([refusal, 200]);
+    assert.equal(r.out.sent, false, refusal + " must not be retried into a false success");
+    assert.equal(r.out.attempts, 1, refusal + " must be posted exactly once");
+    assert.equal(r.out.status, refusal, "and the status must survive to the owner");
+  }
+  // A redirect is refused rather than followed, and must not be hammered either.
+  const red = await deliverN([302, 200]);
+  assert.equal(red.out.attempts, 1, "a redirect must not be retried");
+  assert.equal(red.out.sent, false, "and must still read as a failure");
+});
+
+test("retryable() splits answered from unanswered", () => {
+  for (const s of [null, undefined, 0, 408, 429, 500, 599]) assert.equal(retryable(s), true, s + " should be retryable");
+  for (const s of [200, 201, 204, 301, 302, 400, 404, 422, 451]) assert.equal(retryable(s), false, s + " should not be");
+});
+
+test("the backoff grows, and is only paid BETWEEN attempts", async () => {
+  const slept = [];
+  await deliverN([503], { sleep: async (ms) => { slept.push(ms); } });
+  assert.equal(slept.length, MAX_ATTEMPTS - 1, "one sleep between each pair of attempts, never before the first");
+  for (let i = 1; i < slept.length; i++) {
+    assert.ok(slept[i] > slept[i - 1], "each wait must be longer than the last");
+  }
+  // A receiver that answers first time waits for nothing at all.
+  const quick = [];
+  await deliverN([200], { sleep: async (ms) => { quick.push(ms); } });
+  assert.deepEqual(quick, [], "a successful first attempt must not sleep");
+});
+
+test("a throw is an attempt rather than an abort", async () => {
+  // This is the shape change. It used to fall straight out of the function, so
+  // the single most retryable outcome there is — no answer at all — was the one
+  // that could never be retried.
+  const r = await deliverN(["throw"]);
+  assert.equal(r.out.sent, false);
+  assert.equal(r.out.reason, "threw");
+  assert.equal(r.out.attempts, MAX_ATTEMPTS, "a throwing receiver must be retried, not abandoned");
+  assert.match(r.out.error, /ECONNREFUSED/, "and the reason must survive");
+});
+
+test("nothing before the post is retried", async () => {
+  // A refused destination and a missing URL are decisions, not failures to
+  // answer — retrying them is three times nothing.
+  let posts = 0;
+  const count = { post: async () => { posts++; return { status: 200 }; } };
+  const blocked = await deliverWebhook({ ...RETRY_BASE, ...count, blockedReason: () => "private address" },
+    { slug: "s", table: "t", action: "created", row: {}, now: 1 });
+  assert.equal(blocked.sent, false);
+  assert.equal(posts, 0, "a blocked destination must never be posted to");
+
+  const none = await deliverWebhook({ ...RETRY_BASE, ...count, loadSecrets: async () => ({}) },
+    { slug: "s", table: "t", action: "created", row: {}, now: 1 });
+  assert.equal(none.sent, false);
+  assert.equal(posts, 0, "no URL means no attempts at all");
 });

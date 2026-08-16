@@ -31,6 +31,39 @@ export const TIMEOUT_MS = 8000;
 /** A declared cache window is clamped into this. */
 export const MIN_TTL = 0, MAX_TTL = 3600;
 
+/**
+ * Cloudflare KV refuses an `expirationTtl` under 60 seconds.
+ *
+ * That is not a rounding problem, it is a correctness one: a stock level
+ * declared good for 30 seconds held in KV for 60 is a page showing a quantity
+ * that has already changed, and the declaration is the only thing that knows
+ * which of those matters. Anything under the floor stays on the per-isolate
+ * cache alone, where the exact window CAN be honoured.
+ */
+export const KV_MIN_TTL = 60;
+
+/** Whether this declaration's window can be expressed in KV at all. */
+export const kvEligible = (ttl) => Number(ttl) >= KV_MIN_TTL;
+
+/**
+ * The KV key for a cached answer.
+ *
+ * HASHED, and not to be tidy. `cacheKey` carries the slug, the name and up to 8
+ * parameters of 200 characters each — comfortably past KV's 512-byte key limit,
+ * where a write simply fails and the cache silently never works. And it is
+ * SHA-256 rather than something cheap: a collision here does not lose a cache
+ * entry, it serves ONE SITE'S third-party data to ANOTHER, so the hash has to be
+ * one where collisions are not merely unlikely but unconstructable.
+ *
+ * The `api:` prefix keeps this namespace apart from `route:` in the same store.
+ */
+export async function kvKeyFor(key, subtle) {
+  const c = subtle || (globalThis.crypto && globalThis.crypto.subtle);
+  if (!c) return null;
+  const buf = await c.digest("SHA-256", new TextEncoder().encode(String(key)));
+  return "api:" + [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 const SECRET_RE = /\{\{\s*([A-Z][A-Z0-9_]{0,60})\s*\}\}/g;
 const PARAM_RE = /\{\{\s*param\.([a-z][a-z0-9_]{0,40})\s*\}\}/gi;
 

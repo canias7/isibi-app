@@ -126,7 +126,7 @@ export function dueJobs(rows, now) {
  * SAME `recipient` the write path uses, because "a@b.com, evil@x.com" is header
  * injection whoever produced it.
  */
-export function shapeMessages(out, recipientFn) {
+export function shapeMessages(out, recipientFn, phoneFn) {
   const raw = typeof out === "string" ? safeJson(out) : out;
   const list = Array.isArray(raw) ? raw : (raw && Array.isArray(raw.messages) ? raw.messages : null);
   if (!list) return { messages: [], dropped: 0, overflow: 0, bad: raw == null ? "nothing" : "not a list" };
@@ -134,11 +134,32 @@ export function shapeMessages(out, recipientFn) {
   const messages = [];
   let dropped = 0;
   for (const m of list.slice(0, MAX_MESSAGES_PER_RUN)) {
+    // WHICH CHANNEL, DECLARED RATHER THAN INFERRED. The tempting shortcut is
+    // "no subject means text it" — and that turns a function that forgot a
+    // subject into a text message to somebody's phone, at the owner's expense,
+    // instead of a dropped message they can see in the panel. An unrecognised
+    // channel is email, because email is the one that costs nothing per send.
+    const channel = String((m && m.channel) || "email").toLowerCase() === "sms" ? "sms" : "email";
+    const body = String((m && m.body) == null ? "" : m.body).slice(0, MAX_BODY);
+
+    if (channel === "sms") {
+      // THE NUMBER GOES THROUGH THE SAME PARSER THE WRITE PATH USES. A job's
+      // recipients come out of model-written SQL, so "07700 900000" and
+      // "+44 7700 900000" both turn up — and only one of them can be sent to.
+      // Without `phoneFn` the caller has not wired SMS at all, and a message
+      // asking for it is dropped rather than quietly emailed to a phone number.
+      const to = phoneFn && m && typeof m === "object" ? phoneFn(m.to) : null;
+      if (!to || !body.trim()) { dropped++; continue; }
+      // No subject: a text has none, and carrying one would put it on the wire
+      // as part of the body on some providers.
+      messages.push({ channel, to, body });
+      continue;
+    }
+
     const to = m && typeof m === "object" ? recipientFn(m, "to") : null;
     const subject = String((m && m.subject) == null ? "" : m.subject).slice(0, MAX_SUBJECT);
-    const html = String((m && m.body) == null ? "" : m.body).slice(0, MAX_BODY);
-    if (!to || !subject || !html) { dropped++; continue; }
-    messages.push({ to, subject, html });
+    if (!to || !subject || !body) { dropped++; continue; }
+    messages.push({ channel, to, subject, html: body });
   }
   // Overflow is REPORTED, never silent. A job quietly capped at 100 looks like a
   // job that worked, and the hundred-and-first customer is the one who turns up
@@ -242,21 +263,40 @@ export async function runJob(deps, row) {
     if (raw && typeof raw === "object" && typeof raw.jobsSkip === "string") {
       return { ok: true, name, sent: 0, reason: String(raw.jobsSkip).slice(0, 120) };
     }
-    const shaped = shapeMessages(raw, deps.recipient);
+    const shaped = shapeMessages(raw, deps.recipient, deps.phone);
     if (shaped.bad) return { ok: true, name, sent: 0, reason: "returned " + shaped.bad };
     if (!shaped.messages.length) return { ok: true, name, sent: 0, dropped: shaped.dropped };
 
-    // The key is resolved ONCE for the whole batch, not per message: a hundred
-    // reminders must not be a hundred decryptions.
-    const creds = await deps.credentials();
-    if (!creds) return { ok: true, name, sent: 0, reason: "no provider key in Secrets" };
+    // EACH CHANNEL'S KEY IS RESOLVED ONCE, AND ONLY IF THAT CHANNEL IS USED.
+    // A hundred reminders must not be a hundred decryptions — and a job that
+    // sends no texts must not read the SMS vault at all, or every email-only
+    // site on the platform pays a decrypt per tick for a feature it never
+    // declared.
+    const wants = (c) => shaped.messages.some((m) => m.channel === c);
+    const creds = wants("email") ? await deps.credentials() : null;
+    const smsCreds = wants("sms") && deps.smsCredentials ? await deps.smsCredentials() : null;
 
-    let sent = 0, failed = 0;
+    // NAMED PER CHANNEL, because "no provider key in Secrets" said of a job that
+    // sends both is a sentence the owner cannot act on: they have pasted one key
+    // and are missing the other, and the panel would tell them to paste the one
+    // they already have.
+    if (wants("email") && !creds && !wants("sms")) return { ok: true, name, sent: 0, reason: "no email provider key in Secrets" };
+    if (wants("sms") && !smsCreds && !wants("email")) return { ok: true, name, sent: 0, reason: "no SMS provider key in Secrets" };
+    if (!creds && !smsCreds) return { ok: true, name, sent: 0, reason: "no provider key in Secrets" };
+
+    let sent = 0, failed = 0, skipped = 0;
     for (const m of shaped.messages) {
-      const r = await deps.send({ ...creds, to: m.to, subject: m.subject, html: m.html });
+      const use = m.channel === "sms" ? smsCreds : creds;
+      // A MESSAGE WHOSE CHANNEL HAS NO KEY IS NOT A FAILURE. Counting it as one
+      // makes a half-configured site look broken every run, when what is true is
+      // that the emails went and the texts are waiting on a credential.
+      if (!use) { skipped++; continue; }
+      const r = m.channel === "sms"
+        ? await deps.sendSms({ ...use, to: m.to, body: m.body })
+        : await deps.send({ ...use, to: m.to, subject: m.subject, html: m.html });
       if (r && r.ok) sent++; else failed++;
     }
-    return { ok: true, name, sent, failed, dropped: shaped.dropped, overflow: shaped.overflow };
+    return { ok: true, name, sent, failed, dropped: shaped.dropped, overflow: shaped.overflow, skipped };
   } catch (e) {
     return { ok: false, name, reason: "threw", error: String((e && e.message) || e).slice(0, 200) };
   }

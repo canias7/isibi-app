@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
   normalizeApi, secretsNeeded, fill, takeParams, cacheKey, callApi, apiFor,
-  MAX_RESPONSE, MAX_PER_MINUTE, TIMEOUT_MS, MAX_TTL,
+  MAX_RESPONSE, MAX_PER_MINUTE, TIMEOUT_MS, MAX_TTL, kvKeyFor, kvEligible, KV_MIN_TTL,
 } from "../site-apis.mjs";
 
 const DECL = {
@@ -356,4 +356,47 @@ test("the tool tells the model a POST here must not DO anything", () => {
   // nowhere to go.
   assert.match(desc, /function/i,
     "nothing points at where an outbound action does belong");
+});
+
+// ── the shared cache layer ─────────────────────────────────────────────────
+
+test("a window KV cannot express stays in memory alone", () => {
+  // KV refuses an expirationTtl under 60s. Rounding a 30-second stock level up
+  // to 60 is a page showing a quantity that has already changed — and only the
+  // declaration knows which windows matter.
+  for (const t of [0, 1, 30, 59]) assert.equal(kvEligible(t), false, t + "s must not go to KV");
+  for (const t of [60, 61, 3600]) assert.equal(kvEligible(t), true, t + "s may");
+  assert.equal(KV_MIN_TTL, 60, "the floor is KV's own");
+});
+
+test("the KV key is hashed, namespaced, and separates what cacheKey separates", async () => {
+  // cacheKey carries a slug, a name and up to 8 params of 200 chars — past KV's
+  // 512-byte key limit, where a write just fails and the cache silently never
+  // works.
+  const long = cacheKey("s".repeat(80), { name: "n".repeat(40), params: ["a", "b", "c", "d", "e", "f", "g", "h"] },
+    Object.fromEntries("abcdefgh".split("").map((k) => [k, "v".repeat(200)])));
+  const id = await kvKeyFor(long);
+  assert.ok(id.length < 512, "the key must fit in KV");
+  assert.match(id, /^api:[0-9a-f]{64}$/, "namespaced apart from route:, and a real digest");
+
+  // A COLLISION HERE SERVES ONE SITE'S DATA TO ANOTHER, so the inputs that must
+  // differ must produce different keys.
+  const a = await kvKeyFor(cacheKey("barber", { name: "rates", params: ["base"] }, { base: "GBP" }));
+  const b = await kvKeyFor(cacheKey("cafe", { name: "rates", params: ["base"] }, { base: "GBP" }));
+  const c = await kvKeyFor(cacheKey("barber", { name: "rates", params: ["base"] }, { base: "EUR" }));
+  assert.notEqual(a, b, "two sites must not share an entry");
+  assert.notEqual(a, c, "two parameter sets must not share an entry");
+  assert.equal(a, await kvKeyFor(cacheKey("barber", { name: "rates", params: ["base"] }, { base: "GBP" })),
+    "and the same question must hit the same entry");
+});
+
+test("callApi still works with no cache wired at all", async () => {
+  // The whole KV layer is optional — no namespace is bound today — so the deps
+  // it rides on must remain absent-safe.
+  let calls = 0;
+  const api = normalizeApi({ name: "r", url: "https://x.example.com/r", cacheSeconds: 3600 });
+  const deps = { secrets: {}, blockedReason: () => null, fetch: async () => { calls++; return { status: 200, headers: { get: () => "application/json" }, text: async () => '{"ok":1}' }; } };
+  const out = await callApi(deps, { slug: "s", api, params: {}, now: 1 });
+  assert.equal(out.status, 200);
+  assert.equal(calls, 1, "and the read still happens");
 });

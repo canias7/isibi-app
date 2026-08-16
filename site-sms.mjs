@@ -43,6 +43,23 @@ export const SMS_PROVIDERS = [
 export const MAX_BODY = 480;
 
 /**
+ * Every vault name this channel reads, DERIVED from the provider table.
+ *
+ * Written out by hand in `worker.js` until the jobs runner needed the same six
+ * — which is the shape `siteMailSecrets` exists to prevent one channel over: two
+ * readers of one vault are two things that can disagree about which key is live,
+ * and the way that fails is an owner told "no provider key in Secrets" while
+ * their booking confirmations text perfectly well on the same key.
+ *
+ * Derived rather than listed, so a fourth provider added to SMS_PROVIDERS is
+ * read by every caller without anybody remembering this line.
+ */
+export const SMS_SECRET_NAMES = [
+  ...SMS_PROVIDERS.flatMap((p) => (p.also ? [p.secret, p.also] : [p.secret])),
+  "SMS_FROM",
+];
+
+/**
  * Normalise a phone number to E.164, or refuse it.
  *
  * STRICT, AND DELIBERATELY UNFORGIVING, because both failure modes cost money
