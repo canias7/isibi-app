@@ -3892,8 +3892,28 @@ const SITE_SCHEMA_TOOL = {
  * `thinking` is omitted, and max_tokens caps thinking AND the response together,
  * so part of that budget is spent before a single row is written. Same reasoning
  * as SITE_PAGES_MAX_TOKENS below, which was sized for it and this was not.
+ *
+ * 8000 -> 16000 (2026-08-16, owner's call). THIS COSTS NOTHING ON AN ORDINARY
+ * BUILD: max_tokens is a ceiling, not a purchase, and billing is on tokens
+ * actually generated — a build that spends 1,103 is charged for 1,103 whichever
+ * number sits here. So the only thing it changes is which answers are allowed to
+ * finish.
+ *
+ * What it buys, stated honestly: headroom, not a fix for anything measured. The
+ * last instrumented eval run put output at ~1,576 tokens and the last live build
+ * at 1,103, so truncation is NOT the current failure — the missing `seed` field
+ * comes back absent, not cut off, and `topUpSeed` is what answers that. What
+ * this covers is the large-schema case the average hides: four display tables at
+ * six seed rows each is several thousand tokens of content before thinking takes
+ * its share, and the adaptive-thinking spend above is invisible in the output
+ * count, so the real headroom was always less than 8000 looked.
+ *
+ * The cost of being wrong is bounded and one-sided. A runaway can now generate
+ * 16000 output tokens instead of 8000 — roughly 5 credits more at Sonnet's
+ * output rate, on a call that has never come close — against a truncation, which
+ * throws, refunds, and leaves the customer with nothing at all.
  */
-const SITE_SCHEMA_MAX_TOKENS = 8000;
+const SITE_SCHEMA_MAX_TOKENS = 16000;
 
 /**
  * One Messages API call, body in, parsed response out.
