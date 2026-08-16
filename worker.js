@@ -7251,6 +7251,17 @@ async function deleteSiteFor(env, uid, dslug) {
     // holding a string that points at a dropped database is worse than a slow
     // lookup: it answers reads with a connection error instead of a 404.
     _connCache.delete(dslug);
+    // AND THE CACHED OWNER, or the API cache key is wrong for exactly as long
+    // as the slug takes to be re-claimed.
+    //
+    // `siteOwnerBySlug` memoizes for five minutes, and the whole reason the
+    // owner is in `cacheKey` is that a freed slug can be taken by somebody
+    // else. Left warm, a site deleted at T and re-claimed at T+1min resolves to
+    // the OLD owner for the next four — so the new owner's visitors are keyed
+    // under the previous account and read that account's cached third-party
+    // answers, fetched with their API key. The precise leak the owner field
+    // closes, surviving inside the cache that resolves it.
+    _ownerCache.delete(dslug);
     // And the edge route. KV propagates for up to a minute, so this has to go
     // BEFORE the database is dropped — a route outliving its database answers
     // reads with a connection error instead of an honest 404.

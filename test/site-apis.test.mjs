@@ -657,6 +657,30 @@ test("the WIRING: the route resolves an owner and hands it over, and KV keys are
   assert.match(get, /kv\.get\(id,/);
 });
 
+test("deleting a site forgets its cached OWNER, not just its connection", () => {
+  // THE LEAK, SURVIVING INSIDE THE CACHE THAT CLOSES IT. `siteOwnerBySlug`
+  // memoizes for five minutes and the whole reason the owner is in `cacheKey`
+  // is that a freed slug can be taken by somebody else — so a site deleted at T
+  // and re-claimed at T+1min resolves to the OLD owner for the next four. The
+  // new owner's visitors are then keyed under the previous account and read
+  // that account's cached third-party answers, fetched with their API key.
+  //
+  // Found by mutation: removing the invalidation passed the whole suite,
+  // because a module test cannot see the route that populates the cache.
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const at = w.indexOf("_connCache.delete(dslug)");
+  assert.ok(at > 0, "the delete route's connection invalidation moved — retarget this test");
+  // Bounded by the teardown that follows, so this cannot be satisfied by an
+  // invalidation somewhere else entirely.
+  const block = w.slice(at, w.indexOf("dropRoute(", at));
+  assert.match(block, /_ownerCache\.delete\(dslug\)/,
+    "both slug-keyed caches must be forgotten together — the owner one decides the API cache key");
+  // BEFORE the route is dropped, like the connection: everything here runs
+  // ahead of teardown so no warm isolate can answer from a site that is going.
+  assert.ok(w.indexOf("_ownerCache.delete(dslug)") < w.indexOf("dropRoute(", at),
+    "the owner must be forgotten before the site is torn down");
+});
+
 test("callApi still works with no cache wired at all", async () => {
   // The whole KV layer is optional — no namespace is bound today — so the deps
   // it rides on must remain absent-safe.
