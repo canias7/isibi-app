@@ -1,0 +1,43 @@
+# Is Workers for Platforms usable, and does our dispatch namespace exist?
+#
+# Sites are moving from static files on R2 to a Worker per site rendered at
+# request time. That needs a dispatch namespace, which needs the product
+# enabled on the account — a purchase, not a permission. This answers both
+# before anything depends on them.
+#
+# DRY RUN BY DEFAULT, like `cloudflare for saas setup`: creating a namespace is
+# a write against a paid product on the live account. Run once to read the
+# report, then again with apply on.
+#
+# It is also the diagnostic. Cloudflare answers "product not enabled" (1404) and
+# "token cannot do this" (10000) with statuses that read alike, and this repo
+# has already paid once for reporting the wrong one — so each is named with the
+# specific thing to do about it.
+name: dispatch namespace setup
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Actually create the namespace (off = report only)'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: preflight
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node .github/scripts/dispatch-setup.mjs ${{ inputs.apply && '--apply' || '' }}
