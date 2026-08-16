@@ -75,10 +75,13 @@ jobs:
       - name: build smoke
         env:
           SMOKE_BASE_URL: ${{ inputs.base_url || 'https://gofarther.dev' }}
-          # ONE-SHOT: a different trade, to see what the builder makes of it.
-          # Revert to empty after the run — the default in build-smoke.mjs is
-          # the brief every assertion below it was calibrated against.
-          SMOKE_BRIEF: "A photography studio in Manchester. People send an enquiry about a shoot through a form, and there is a list of packages with prices."
+          # SMOKE_BRIEF overrides the brief in build-smoke.mjs. Left unset here
+          # on purpose: the default is the one every assertion below it was
+          # calibrated against — a trade with a list to READ and a form to
+          # WRITE. A brief of a different SHAPE fails those honestly. Measured
+          # 2026-08-16 with a photography studio: 97/100, and two of the three
+          # were the `agency` family's home page doing exactly what the family
+          # declares ("the strongest work, uncrowded"), not a bug.
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}

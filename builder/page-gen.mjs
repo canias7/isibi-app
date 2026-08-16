@@ -3934,7 +3934,27 @@ export function lintPages(pages, spec) {
       const open = code.lastIndexOf("<", m.index);
       const tag = open < 0 ? "" : (code.slice(open + 1, open + 24).match(/^[A-Za-z][\w.]*/) || [""])[0];
       if (!SAFE_IMAGE_COMPONENTS.includes(tag)) {
+        // AND SAY WHAT WAS ACTUALLY THERE, because ONE message covers two
+        // failures that need opposite fixes and nothing could tell them apart.
+        //
+        // Measured live 2026-08-16 on a photography studio: `index.tsx: writes a
+        // @@IMG:@@ token outside any tag` — and the source is gone with the
+        // site, so which of these it was is now unanswerable:
+        //
+        //   (a) the token is loose in the page, or in prose. The picture really
+        //       is lost, and the fix is a worked example in the rules.
+        //   (b) `const HERO = "@@IMG:...@@"` used later as `<SafeImage src={HERO}>`.
+        //       `applyImages` substitutes by a plain text replace over the whole
+        //       file, so that picture WORKS — and this rule refused it. A false
+        //       alarm teaches the model away from a correct pattern, which this
+        //       codebase rates strictly worse than the miss.
+        //
+        // The preceding text separates them at a glance and costs nothing. It is
+        // the page's own source going back to its own owner, clipped and
+        // whitespace-collapsed so a multi-line hero does not fill the reply.
+        const before = code.slice(Math.max(0, m.index - 60), m.index).replace(/\s+/g, " ").trim();
         say(path, "writes a @@IMG:@@ photograph token " + (tag ? "inside <" + tag + ">" : "outside any tag") +
+          (before ? ' (saw: "…' + before + '")' : "") +
           '. A token belongs in the image prop of a component that draws through SafeImage — `<SafeImage src="@@IMG:...@@" alt="..." />` ' +
           "is the plain one, and Gallery, Hero, TeamGrid, ProductCard and the rest are fine too — because a " +
           "picture that could not be bought becomes an empty src, which those draw as a placeholder and " +
