@@ -19,26 +19,52 @@ import fs from "node:fs";
 import path from "node:path";
 
 const DIR = new URL("../supabase/applied/", import.meta.url);
-const FILE = new URL("20260816034500_revoke_truncate_on_service_tables.sql", DIR);
-const sql = fs.readFileSync(FILE, "utf8");
-// Comments blanked LINE-WISE and length-preserving, because this file explains
-// at length what it does NOT revoke — so prose naming `REVOKE ALL` and `SELECT`
-// would be read as statements by every assertion below. The failure that costs
-// most here is a scan that reports a clean file.
-const code = sql.replace(/^([ \t]*)--.*$/gm, (s) => " ".repeat(s.length));
 
-/** Every table the migration actually names, read out of it. */
+// EVERY revoke-truncate migration in the folder, not one named file. The sweep
+// arrived in two passes — the tables that came up in conversation, then the ones
+// a census of `public` turned up — and a test pinned to the first file would
+// have gone quiet about the second the moment it landed. A third pass is covered
+// with nothing to remember.
+//
+// Comments are blanked LINE-WISE and length-preserving, because these files
+// explain at length what they do NOT revoke: prose naming `REVOKE ALL` and
+// `SELECT` would otherwise be read as statements by every assertion below, and a
+// scan that reports a clean file is the failure that costs most here.
+const FILES = fs.readdirSync(DIR)
+  .filter((f) => f.endsWith(".sql"))
+  .map((f) => ({ name: f, code: fs.readFileSync(new URL(f, DIR), "utf8").replace(/^([ \t]*)--.*$/gm, (s) => " ".repeat(s.length)) }))
+  .filter((f) => /revoke\s+truncate/i.test(f.code));
+
+const code = FILES.map((f) => f.code).join("\n");
+
+/** Every table the migrations actually name, read out of them. */
 const named = [...code.matchAll(/on\s+public\.([a-z_]+)\s+from/gi)].map((m) => m[1]);
 
-/** The tables this migration is responsible for. */
+/** The tables this sweep is responsible for. */
 const TABLES = [
-  "site_project",        // Neon connection strings, per site. RLS on, no policies.
-  "user_site_project",   // the per-user Neon project record. RLS on, no policies.
-  "site_backends",       // the site registry. Has an "own read" SELECT policy.
-  "site_functions",      // scheduled jobs. Has owner SELECT and owner DELETE policies.
-  "neon_teardown",       // the queue that stops deleted projects billing for ever.
-  "webhook_queue",       // pending outbound deliveries, across every site.
+  // Pass one — the platform's own plumbing.
+  "site_project",         // Neon connection strings, per site. RLS on, no policies.
+  "user_site_project",    // the per-user Neon project record. RLS on, no policies.
+  "site_backends",        // the site registry. Has an "own read" SELECT policy.
+  "site_functions",       // scheduled jobs. Has owner SELECT and owner DELETE policies.
+  "neon_teardown",        // the queue that stops deleted projects billing for ever.
+  "webhook_queue",        // pending outbound deliveries, across every site.
+  // Pass two — found by a census rather than by memory. All five are RLS-on with
+  // ZERO policies, which is what makes revoking provably safe: with no policy,
+  // no grant can be serving a client feature, because RLS refuses every row.
+  "autoreply_log",        // the dedup record behind Instagram comment auto-reply
+  "gen_charges",          // what each generation cost, per user
+  "site_domains",         // custom domains and the slug each answers for
+  "site_hits",            // every published site's traffic
+  "storage_reservations", // the ledger that keeps a gallery inside its cap
 ];
+
+test("the sweep's migrations are all still being read", () => {
+  // A folder scan that silently stops matching reports every assertion below as
+  // green over nothing at all.
+  assert.ok(FILES.length >= 2,
+    "expected the revoke-truncate migrations, found " + FILES.length + ": " + FILES.map((f) => f.name).join(", "));
+});
 
 test("every service-only table has TRUNCATE revoked from BOTH roles", () => {
   for (const t of TABLES) {
@@ -118,6 +144,6 @@ test("the applied folder is not the CLI's migrations folder", () => {
   assert.ok(fs.existsSync(new URL("README.md", DIR)), "the folder must explain itself");
   assert.ok(!fs.existsSync(new URL("../supabase/migrations/", import.meta.url).pathname),
     "if a migrations/ folder is ever added it must hold the FULL history, and this guard should be revisited deliberately");
-  assert.match(path.basename(FILE.pathname), /^\d{14}_/,
+  assert.ok(FILES.every((f) => /^\d{14}_/.test(f.name)),
     "named by its remote version, so a file here can be lined up against the remote history");
 });
