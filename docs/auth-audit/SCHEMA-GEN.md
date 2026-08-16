@@ -7,30 +7,29 @@ Each check is a property that is true or false, never a judgement about whether 
 
 ## By check
 
-- **seeded** — 11 pass, 3 fail, 1 n/a
+- **seeded** — 11 pass, 4 fail
 - **validFamily** — 20 pass, 0 fail
-- **tablesSurvive** — 19 pass, 1 fail
+- **tablesSurvive** — 20 pass, 0 fail
 - **slotGuarded** — 5 pass, 0 fail
 - **browsable** — 5 pass, 0 fail
 - **capacityFn** — 5 pass, 0 fail
 
 ## What it cost
 
-- output 1533 tok/sample · fresh in 4725 · cache read 380160 · write 0
-- 0.588 credits for the run
+- output 1534 tok/sample · fresh in 4725 · cache read 369417 · write 19443
+- 0.658 credits for the run
 
 ## Samples
 
 - **menu 1** — seeded (unseeded: menu_items,opening_hours — no `seed` key at all)
 - **menu 2** — clean
-- **menu 3** — seeded (unseeded: menu_items,opening_hours — no `seed` key at all)
-- **menu 4** — tablesSurvive (no tables)
-  - why: `tables` was a string that is NOT valid JSON — a stringified list would have been recovered [stop=tool_use, out=1183 tok]
+- **menu 3** — clean
+- **menu 4** — clean
 - **menu 5** — clean
-- **booking 1** — clean
+- **booking 1** — seeded (unseeded: services — no `seed` key at all)
 - **booking 2** — clean
-- **booking 3** — clean
-- **booking 4** — seeded (unseeded: services — no `seed` key at all)
+- **booking 3** — seeded (unseeded: services — no `seed` key at all)
+- **booking 4** — clean
 - **booking 5** — clean
 - **marketplace 1** — clean
 - **marketplace 2** — clean
@@ -41,4 +40,4 @@ Each check is a property that is true or false, never a judgement about whether 
 - **capacity 2** — clean
 - **capacity 3** — clean
 - **capacity 4** — clean
-- **capacity 5** — clean
+- **capacity 5** — seeded (unseeded: classes — no `seed` key at all)
