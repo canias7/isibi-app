@@ -89,8 +89,20 @@ function enforcementSource() {
   // path and turns it into an outbound POST — no column, no policy, no trigger,
   // and nothing in the schema or RLS files to find. Left out, this guard would
   // correctly report a feature that works as dead.
+  // `builder/page-gen.mjs` is the FOURTH kind, and it is the weakest one — being
+  // DESCRIBED to the generator rather than kept by the database. It is here for
+  // `defaultSort` and the admission is worth making precisely: reads go straight
+  // from the published page to Neon's Data API, which orders by whatever
+  // `useRows` asks for, so no trigger, policy or constraint can decide a
+  // default order. Telling the generator is not merely the cheapest enforcement
+  // available — it is the ONLY one, and a field nobody is told about is worth
+  // exactly nothing, which is what `defaultSort` was.
+  //
+  // Safe to add because the scan counts PROPERTY READS (`t.defaultSort`) rather
+  // than name mentions, and this file's prose about dead features — it names
+  // `roundRobin` and `sla` in a comment — is blanked before the scan sees it.
   return [src, blankComments(read("site-rls.mjs")), blankComments(read("site-mail.mjs")),
-    blankComments(read("site-webhooks.mjs"))].join("\n");
+    blankComments(read("site-webhooks.mjs")), blankComments(read("builder/page-gen.mjs"))].join("\n");
 }
 
 test("the design_schema tool offers a list this test can read", () => {

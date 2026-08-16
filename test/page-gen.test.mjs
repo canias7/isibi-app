@@ -3400,19 +3400,41 @@ test("the designer can DECLARE the pair, or the whole grid is unreachable", () =
   assert.match(tool, /'display' = anyone reads it, nobody writes/);
 });
 
-test("the four audited features are declarable, and the dead ones are not", () => {
+test("only what is reachable end to end is declarable", () => {
   // EXPOSED ONLY WHAT IS REACHABLE END TO END. `sequence` creates a column
-  // nothing stamps, `checks` is copied into _meta and emits no DDL at all,
-  // `audit` and `history` build tables the Worker reads in zero places, and
-  // `version` is a lock the client never sends back. Offering any of those
-  // would be the dead-feature trap one layer up — a slot that looks like a
-  // capability and does nothing.
+  // nothing stamps, `audit` and `history` build tables the Worker reads in zero
+  // places, and `version` is a lock the client never sends back. Offering any
+  // of those would be the dead-feature trap one layer up — a slot that looks
+  // like a capability and does nothing.
+  //
+  // `checks` MOVED LISTS ON 2026-08-16, and that is this test working rather
+  // than this test being wrong: it pinned "copied into _meta and emits no DDL
+  // at all", which was true when it was written and stopped being true when the
+  // constraint tier landed. `computed` and `transitions` joined it — a
+  // generated column and a BEFORE UPDATE trigger — and `searchWeights` now
+  // weights the tsvector document it was always stored beside.
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   const tool = w.slice(w.indexOf('name: "design_schema"'), w.indexOf('name: "design_schema"') + 40000);
-  for (const f of ["oncePerUser", "enforceRefs", "expires", "scheduled"]) {
+  for (const f of ["oncePerUser", "enforceRefs", "expires", "scheduled",
+                   "checks", "computed", "transitions", "searchWeights", "defaultSort"]) {
     assert.match(tool, new RegExp("\\n\\s+" + f + ": \\{"), f + " is not declarable, so no site can have it");
   }
-  for (const f of ["sequence", "checks", "audit", "history", "version"]) {
+  for (const f of ["sequence", "audit", "history", "version",
+                   // STILL DEAD, EACH FOR ITS OWN REASON, and none of them is
+                   // "nobody got round to it". `mask` and `fieldRoles` name OUR
+                   // roles, which Postgres does not have, and the Worker left
+                   // the read and write paths when reads moved to the Data API.
+                   // `sla`, `roundRobin` and `assignBy` are the named-verb class
+                   // the 2026-07-30 direction rules out — the model writes those
+                   // as `functions`. `formulas` is `computed` with arithmetic,
+                   // and two fields for one job is how they drift apart.
+                   // `currency` would bake a static FX table into a column that
+                   // is wrong within a day; live rates are what `apis` is for.
+                   // `geo` is two column names and no distance query to use them.
+                   // `teamRead` needs a manager hierarchy on `neon_auth."user"`,
+                   // a table Neon owns and we cannot add a column to.
+                   "mask", "fieldRoles", "sla", "roundRobin", "assignBy",
+                   "formulas", "currency", "geo", "teamRead"]) {
     assert.doesNotMatch(tool, new RegExp("\\n\\s+" + f + ": \\{"),
       f + " is offered but is not reachable end to end — check it stamps/reads/sends before exposing it");
   }

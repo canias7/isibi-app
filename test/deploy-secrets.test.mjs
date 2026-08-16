@@ -210,10 +210,15 @@ const GITHUB_MARKERS = ["[skip ci]", "[ci skip]", "[no ci]", "[skip actions]", "
 // it for reasons that have nothing to do with the designer's prompt — a comment
 // fix, a route change, a wiring fix. Each of those bought a real model call to
 // re-measure something nothing moved.
-test("schema gen eval can be skipped too, and reads the PUSH payload", () => {
-  const y = readFileSync(new URL("../.github/workflows/schema-gen-eval.yml", import.meta.url), "utf8");
+test("EVERY push-triggered paid workflow can be skipped, and reads the PUSH payload", () => {
+  // ALL FOUR, not the three that happened to be written first. A marker that
+  // works on some of them is one somebody uses believing it covers the rest —
+  // and the one it misses is the one that spends. `edit smoke` is ~50 credits a
+  // run and watches `builder/page-gen.mjs`, a file most builder work touches.
+  for (const f of ["schema-gen-eval", "page-gen-eval", "edit-smoke"]) {
+  const y = readFileSync(new URL("../.github/workflows/" + f + ".yml", import.meta.url), "utf8");
   const gate = (y.match(/\n\s*if: >-\n([\s\S]*?)\n\s*runs-on:/) || [])[1];
-  assert.ok(gate, "the eval job's gate is gone or reshaped");
+  assert.ok(gate, f + ": the job's gate is gone or reshaped");
 
   // THE COPY-PASTE TRAP, and it is silent: build smoke is triggered by another
   // workflow COMPLETING, so its payload is `workflow_run.head_commit`. This one
@@ -221,16 +226,16 @@ test("schema gen eval can be skipped too, and reads the PUSH payload", () => {
   // borrowed expression never matches and the guard reads as working while
   // every push pays.
   assert.match(gate, /!contains\(github\.event\.head_commit\.message, '\[skip smoke\]'\)/,
-    "the marker must be read off the PUSH's own head commit");
+    f + ": the marker must be read off the PUSH's own head commit");
   assert.ok(!/workflow_run/.test(gate),
-    "workflow_run has no meaning in a push-triggered workflow — this gate would never fire");
-  assert.match(gate, /workflow_dispatch/, "a hand-triggered run must not be vetoable by a commit message");
+    f + ": workflow_run has no meaning in a push-triggered workflow — this gate would never fire");
+  assert.match(gate, /workflow_dispatch/, f + ": a hand-triggered run must not be vetoable by a commit message");
   // The gate itself must not reach for GitHub's marker — that one takes the
   // deploy down with the eval, which is the opposite of what this is for. Said
   // of the GATE and not of the file, because this workflow legitimately WRITES
   // that marker into the results commit it pushes; see the next test.
   for (const github of GITHUB_MARKERS) {
-    assert.ok(!gate.includes(github), `the eval's gate names ${github}, which would suppress the deploy too`);
+    assert.ok(!gate.includes(github), f + `: the gate names ${github}, which would suppress the deploy too`);
   }
   // AND THE GATE MUST NOT BE NEUTERED, which is the failure the assertions above
   // cannot see: `workflow_dispatch || false && !contains(…)` keeps every string
@@ -239,7 +244,8 @@ test("schema gen eval can be skipped too, and reads the PUSH payload", () => {
   // and no `false`.
   const clauses = gate.split("||").map((s) => s.trim()).filter(Boolean);
   assert.equal(clauses.length, 2, "the gate should be exactly `dispatch || !contains(...)`: " + gate.replace(/\s+/g, " "));
-  assert.ok(!/\bfalse\b|&&/.test(gate), "an extra condition here can only ever skip runs that should happen");
+  assert.ok(!/\bfalse\b|&&/.test(gate), f + ": an extra condition here can only ever skip runs that should happen");
+  }
 });
 
 // GITHUB'S MARKER MAY ONLY APPEAR IN A COMMIT A WORKFLOW WRITES.

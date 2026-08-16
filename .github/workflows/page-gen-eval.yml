@@ -36,6 +36,20 @@ permissions:
 
 jobs:
   eval:
+    # `[skip smoke]` ships the change without the paid sample, the same escape
+    # hatch `build smoke` and `schema gen eval` carry. Uniform across all four
+    # paid workflows on purpose: a marker that works on three of them is one
+    # somebody uses believing it covers the fourth.
+    #
+    # `github.event.head_commit.message`, NOT `workflow_run.head_commit` — this
+    # is triggered by the push itself, so the payload differs from build smoke's
+    # and borrowing that expression would read `undefined` and never match.
+    #
+    # `workflow_dispatch` is exempt: asking for a run by hand is not something a
+    # commit message should be able to veto.
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || !contains(github.event.head_commit.message, '[skip smoke]')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
