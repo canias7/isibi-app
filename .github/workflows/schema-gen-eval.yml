@@ -73,6 +73,23 @@ permissions:
 
 jobs:
   eval:
+    # `[skip smoke]` ships the change without the paid sample, the same escape
+    # hatch `build smoke` has had since it was written — and this workflow
+    # needed one more, because it watches `worker.js`. That file is touched by
+    # most commits in this repo for reasons that have nothing to do with the
+    # designer's prompt, so a comment fix or a route change bought a real model
+    # call to re-measure something nothing moved.
+    #
+    # `github.event.head_commit.message`, NOT `workflow_run.head_commit` — this
+    # workflow is triggered by the push itself rather than by another workflow
+    # completing, so the payload is different from build smoke's and copying
+    # that expression across would read `undefined` and never match.
+    #
+    # `workflow_dispatch` is deliberately exempt: asking for a run by hand is
+    # not something a commit message should be able to veto.
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || !contains(github.event.head_commit.message, '[skip smoke]')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
