@@ -75,6 +75,147 @@ function slugify(s) {
   return String(s == null ? "" : s).normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
 }
 
+// \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// THE CONSTRAINT TIER: four features that were parsed, stored in `_meta`, and
+// enforced by nothing \u2014 until now.
+//
+// WHY THEY CAN EXIST AND SEVEN SIBLINGS CANNOT. Everything below is a fact the
+// DATABASE can keep on its own: a CHECK, a generated column, a weighted
+// tsvector, a trigger. Nothing here needs the Worker on the read or write path,
+// which is exactly what killed `mask` (see the note above it) and what would
+// kill `fieldRoles` for the same reason \u2014 those name OUR application roles, and
+// Postgres knows only `anonymous` and `authenticated`.
+//
+// A DECLARED CONSTRAINT THAT SILENTLY DOES NOTHING IS THE WORST OUTCOME HERE,
+// worse than refusing it: an owner who asked for "end must be after start" and
+// got nothing finds out from a customer who booked backwards. So every emitter
+// below returns null rather than guessing, and `applySiteSchema` reports what it
+// refused rather than swallowing it.
+
+/** Postgres comparison for the six operators the parser admits. */
+const CHECK_OPS = { gt: ">", gte: ">=", lt: "<", lte: "<=", eq: "=", ne: "<>" };
+
+/**
+ * `checks: [[a, op, b], \u2026]` as real CHECK constraints.
+ *
+ * THE RIGHT-HAND SIDE IS AMBIGUOUS AND THE PARSER CANNOT TELL, which is the one
+ * thing to get right here. It validates `b` against `[a-z0-9_]{1,40}` \u2014 a
+ * column name \u2014 and `"1"` passes that too. Read as an identifier, `["qty","gte","1"]`
+ * emits `CHECK ("qty" >= "1")`, which fails to create because no column `1`
+ * exists, and the whole constraint is lost. All-digits is therefore a numeric
+ * LITERAL, and anything else must be a column the table really has.
+ *
+ * NULL IS NOT A VIOLATION, and that is Postgres's own rule rather than a choice:
+ * a CHECK fails only on FALSE, so a row with either side unset passes. Right for
+ * an optional field, and worth knowing before somebody expects a NOT NULL.
+ */
+export function checkSql(t, colSet) {
+  const out = [];
+  for (const [a, op, b] of Array.isArray(t.checks) ? t.checks : []) {
+    const sym = CHECK_OPS[op];
+    if (!sym || !colSet.has(a)) continue;
+    const rhs = /^\d+$/.test(b) ? b : (colSet.has(b) ? sqlIdent(b) : null);
+    if (rhs === null) continue;
+    out.push({
+      name: "ck_" + t.name + "_" + a + "_" + op + "_" + b,
+      sql: sqlIdent(a) + " " + sym + " " + rhs,
+    });
+  }
+  return out.slice(0, 12);
+}
+
+/**
+ * `computed: {name: [token, \u2026]}` as STORED generated columns.
+ *
+ * A token that names a declared column is that column; anything else is a
+ * literal. Columns are COALESCEd, or one NULL part nulls the whole value \u2014
+ * the same trap the FTS document already avoids.
+ *
+ * REFUSES A NAME THE TABLE ALREADY HAS, and this is the dangerous one: the
+ * statement is DROP-then-ADD (Postgres has no "replace column"), so a
+ * `computed` named after a real column would DROP THE CUSTOMER'S DATA and
+ * replace it with a derived value. Managed columns are refused for the same
+ * reason \u2014 `id`, `owner_id`, `created_at` are ours and a site is built on them.
+ */
+export function computedSql(t, colSet) {
+  const out = [];
+  for (const [name, toks] of Object.entries(t.computed || {})) {
+    if (colSet.has(name) || isManagedColumn(name)) continue;
+    const parts = (Array.isArray(toks) ? toks : []).map((tok) => {
+      const s = String(tok);
+      return colSet.has(s.toLowerCase())
+        ? "COALESCE(" + sqlIdent(s.toLowerCase()) + "::text,'')"
+        : "'" + s.replace(/'/g, "''") + "'";
+    });
+    if (parts.length) out.push({ col: name, expr: parts.join(" || ") });
+  }
+  return out.slice(0, 8);
+}
+
+/**
+ * The tsvector document, weighted when the table said which columns matter.
+ *
+ * Postgres ranks A > B > C > D and has exactly those four, so the declared
+ * numbers are an ORDERING rather than a scale: the highest weight a table names
+ * becomes A and the rest fall in behind it. A table that declares nothing keeps
+ * the single unweighted document it has always had, byte for byte \u2014 which is
+ * what makes this safe to apply to every existing site.
+ */
+export function ftsDoc(want, weights) {
+  const col = (c) => "COALESCE(" + sqlIdent(c) + ",'')";
+  const w = weights && typeof weights === "object" ? weights : null;
+  if (!w || !want.some((c) => w[String(c).toLowerCase()] > 0)) {
+    return "to_tsvector('english', " + want.map(col).join(" || ' ' || ") + ")";
+  }
+  // Distinct declared weights, biggest first \u2014 position in that list is the
+  // letter. Anything undeclared sits below everything declared, at D.
+  const tiers = [...new Set(want.map((c) => Number(w[String(c).toLowerCase()]) || 0).filter((n) => n > 0))].sort((a, b) => b - a).slice(0, 3);
+  return want.map((c) => {
+    const n = Number(w[String(c).toLowerCase()]) || 0;
+    const at = tiers.indexOf(n);
+    return "setweight(to_tsvector('english', " + col(c) + "), '" + (at < 0 ? "D" : "ABC"[at]) + "')";
+  }).join(" || ");
+}
+
+/**
+ * `transitions: {col: {from: [to, \u2026]}}` as a BEFORE UPDATE trigger.
+ *
+ * A state machine is the one rule here that a CHECK cannot express, because it
+ * is about the PAIR of old and new \u2014 "a cancelled booking may not go back to
+ * confirmed" is invisible to a constraint that can only see one row version.
+ *
+ * ONLY A CHANGE IS JUDGED: an update that leaves the column alone passes
+ * whatever it holds, so an existing row in a state the map never mentions can
+ * still have its other fields edited. The alternative \u2014 refusing every update to
+ * a legacy row \u2014 turns a new rule into a data lockout.
+ *
+ * A `from` the map does not mention is UNCONSTRAINED, not forbidden. The map is
+ * a set of rules about the states it names; treating silence as a denial makes
+ * every partial declaration a trap.
+ */
+export function transitionSql(t, colSet) {
+  const arms = [];
+  for (const [col, moves] of Object.entries(t.transitions || {})) {
+    if (!colSet.has(col)) continue;
+    const c = sqlIdent(col);
+    const froms = [];
+    for (const [from, tos] of Object.entries(moves || {})) {
+      const list = (Array.isArray(tos) ? tos : []).map((x) => "'" + String(x).replace(/'/g, "''") + "'");
+      if (!list.length) continue;
+      froms.push("WHEN " + "'" + String(from).replace(/'/g, "''") + "'" +
+        " THEN NEW." + c + "::text NOT IN (" + list.join(", ") + ")");
+    }
+    if (!froms.length) continue;
+    arms.push(
+      "IF OLD." + c + " IS DISTINCT FROM NEW." + c + " THEN\n" +
+      "  IF (CASE OLD." + c + "::text " + froms.join(" ") + " ELSE FALSE END) THEN\n" +
+      "    RAISE EXCEPTION 'cannot change % from % to %', '" + col.replace(/'/g, "''") + "', OLD." + c + ", NEW." + c + ";\n" +
+      "  END IF;\n" +
+      "END IF;");
+  }
+  return arms.length ? arms.join("\n") : null;
+}
+
 // `maskFields()` LIVED HERE and was deleted 2026-08-04 along with `mask` in the
 // designer tool. Not a gap to fill back in — see the note at the tool for why it
 // cannot be enforced from here any more: the Worker left the read path when
@@ -496,6 +637,15 @@ export async function applySiteSchema(uuid, spec) {
   spec = normalizeSchema(spec);
   const tables = (spec && Array.isArray(spec.tables)) ? spec.tables.slice(0, 24) : [];
   const made = [], norm = [];
+  // CONSTRAINTS THAT WOULD NOT APPLY, collected rather than logged.
+  //
+  // A `checks` rule usually fails for one reason and it is a reason the owner
+  // has to hear: the rows ALREADY BREAK IT. "End must be after start" cannot be
+  // added to a table that holds a backwards booking, and if that is swallowed
+  // the site reports a guarantee it does not have — the exact shape this whole
+  // tier exists to stop being. Non-fatal (the table and its rows are already
+  // live by here) and never silent.
+  const refused = [];
   // THE STORED TABLE FILLS THE DECLARED ONE'S SILENCES *BEFORE ANY DDL OR
   // POLICY IS EMITTED* (2026-08-14 audit). The absent-means-unchanged merge
   // far below patches only `_meta` — the DDL loop and `policiesFor` had
@@ -974,15 +1124,68 @@ export async function applySiteSchema(uuid, spec) {
         if (want.length) {
           // to_tsvector is only IMMUTABLE with an explicit regconfig, which a generated
           // column requires; COALESCE keeps a NULL column from nulling the whole document.
-          const doc = want.map((c) => "COALESCE(" + sqlIdent(c) + ",'')").join(" || ' ' || ");
+          // WEIGHTED WHEN THE TABLE SAID SO. `searchWeights` was parsed and
+          // stored and read by nothing, so a site that declared a title matters
+          // more than a body got a flat document and ranked them equally. A
+          // table declaring none produces the identical SQL it always has.
+          const doc = ftsDoc(want, t.searchWeights);
           await sqlQuery(uuid, "ALTER TABLE " + tn + " DROP COLUMN IF EXISTS " + tsv);
           await sqlQuery(uuid, "ALTER TABLE " + tn + " ADD COLUMN " + tsv +
-            " tsvector GENERATED ALWAYS AS (to_tsvector('english', " + doc + ")) STORED");
+            " tsvector GENERATED ALWAYS AS (" + doc + ") STORED");
           await sqlQuery(uuid, "CREATE INDEX IF NOT EXISTS " + sqlIdent("idx_" + t.name + "_fts") +
             " ON " + tn + " USING GIN (" + tsv + ")");
         }
       } catch (e) { console.error("fts setup failed:", t.name, e && e.detail); }
     }
+
+    // ── THE CONSTRAINT TIER ──────────────────────────────────────────────────
+    //
+    // `checks`, `computed` and `transitions`, each of which was parsed,
+    // validated, written into `_meta` and enforced by nothing. See the emitters
+    // for why these three can exist where `mask` and `fieldRoles` cannot.
+    //
+    // NON-FATAL, one statement at a time, like every other rule in this loop: a
+    // constraint that will not apply must not lose a build whose tables and
+    // rows are already in place. But NOT silent — `refused` rides back on the
+    // response, because "the guarantee you asked for is not there" is the one
+    // thing an owner cannot discover for themselves.
+    const colSet = new Set(colNames.map((c) => String(c).toLowerCase()));
+
+    for (const ck of checkSql(t, colSet)) {
+      try {
+        // DROP-then-ADD: Postgres has no ADD CONSTRAINT IF NOT EXISTS, and a
+        // revise re-applies the whole schema. Dropping first also lets a
+        // changed rule replace an old one rather than silently keeping both.
+        await sqlQuery(uuid, "ALTER TABLE " + tn + " DROP CONSTRAINT IF EXISTS " + sqlIdent(ck.name));
+        await sqlQuery(uuid, "ALTER TABLE " + tn + " ADD CONSTRAINT " + sqlIdent(ck.name) + " CHECK (" + ck.sql + ")");
+      } catch (e) {
+        // The commonest cause is EXISTING ROWS that violate the new rule, and
+        // that is worth saying out loud rather than logging: the owner asked
+        // for a guarantee, the data already breaks it, and nothing else will
+        // ever tell them.
+        refused.push({ table: t.name, feature: "checks", rule: ck.name, why: (e && e.detail) || String(e && e.message || e).slice(0, 160) });
+      }
+    }
+
+    for (const gc of computedSql(t, colSet)) {
+      try {
+        await sqlQuery(uuid, "ALTER TABLE " + tn + " DROP COLUMN IF EXISTS " + sqlIdent(gc.col));
+        await sqlQuery(uuid, "ALTER TABLE " + tn + " ADD COLUMN " + sqlIdent(gc.col) +
+          " TEXT GENERATED ALWAYS AS (" + gc.expr + ") STORED");
+      } catch (e) {
+        refused.push({ table: t.name, feature: "computed", rule: gc.col, why: (e && e.detail) || String(e && e.message || e).slice(0, 160) });
+      }
+    }
+
+    const trans = transitionSql(t, colSet);
+    if (trans) {
+      try {
+        await pgTrigger(uuid, "trg_" + t.name + "_trans", { timing: "BEFORE", event: "UPDATE", table: tn, body: trans });
+      } catch (e) {
+        refused.push({ table: t.name, feature: "transitions", rule: Object.keys(t.transitions || {}).join(","), why: (e && e.detail) || String(e && e.message || e).slice(0, 160) });
+      }
+    }
+
     made.push(t.name);
     // Row-level security. The Worker's own enforcement stays — these are
     // additional, so a mistake in either is caught by the other — and applying
@@ -1266,6 +1469,9 @@ export async function applySiteSchema(uuid, spec) {
   // written. `app_user_id()` no longer depends on them; this is how anyone can
   // tell whether a future deployment has made them unnecessary or essential.
   made.authGrants = authGrants;
+  // Only when there is something to say, so a clean apply's shape is unchanged
+  // and the field's PRESENCE is the signal rather than its value.
+  if (refused.length) made.refusedRules = refused.slice(0, 20);
   return made;
 }
 // Load the persisted access rules for a site's tables (from its own _meta.schema).
@@ -1546,7 +1752,7 @@ export const TOOL_TABLE_FIELDS = new Set([
   "name", "retired", "access", "read", "write", "oncePerUser", "enforceRefs",
   "expires", "scheduled", "columns", "timestamps", "fts", "unique", "uniqueCI",
   "maxRows", "teamScope", "publicView", "noOverlap", "confirm", "sms", "payment",
-  "webhooks",
+  "webhooks", "searchWeights", "defaultSort", "checks", "computed", "transitions",
 ]);
 
 /**

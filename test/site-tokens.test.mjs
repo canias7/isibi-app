@@ -8,6 +8,7 @@ import {
   normalizeLength, stripThemeRadius, validForWrite,
   luminance, withContrast, parseTokens, mergeTokens, tokensCss, tokenNote,
 } from "../builder/site-tokens.mjs";
+import { computedSql } from "../site-schema.mjs";
 
 // ── what may be a colour ──────────────────────────────────────────────────────
 
@@ -679,15 +680,34 @@ test("retiring keeps the data — nothing drops a declared table or column", () 
   // A `collect` table holds real customers' bookings. A model reading "remove
   // the booking page" must never be one step from deleting them.
   //
-  // ONE `DROP COLUMN` IS LEGITIMATE and is named rather than excluded by a
-  // pattern: the generated `tsv` search column is rebuilt when a table's
-  // full-text configuration changes, and it holds no data of its own. A blanket
-  // "no DROP anywhere" assertion failed on it, which is the assertion being
-  // wrong rather than the code.
+  // TWO `DROP COLUMN`S ARE LEGITIMATE and both are named rather than excluded by
+  // a pattern. Each drops a GENERATED column — derived from other columns and
+  // holding nothing of its own — because Postgres has no "replace column" and
+  // both are rebuilt when a table's declaration changes: `_fts` when the
+  // full-text configuration moves, a `computed` column when its parts do. A
+  // blanket "no DROP anywhere" assertion failed on the first, which was the
+  // assertion being wrong rather than the code.
   const src = fs.readFileSync(new URL("../site-schema.mjs", import.meta.url), "utf8");
   assert.ok(!/DROP\s+TABLE/i.test(src), "the schema engine must never drop a table");
   const drops = [...src.matchAll(/DROP\s+COLUMN[^\n]*/gi)].map((m) => m[0]);
-  assert.equal(drops.length, 1, "unexpected column drops: " + drops.join(" ; "));
+  assert.equal(drops.length, 2, "unexpected column drops: " + drops.join(" ; "));
+
+  // AND THE PROPERTY THAT MAKES THE SECOND ONE SAFE, which a count cannot see.
+  // `computed` names the column it creates, so a declaration naming an EXISTING
+  // column would drop the customer's data and replace it with a derived value —
+  // on every revise, silently. Refused in `computedSql`, and asserted here
+  // rather than only there, because this is the test that exists to say the
+  // engine never destroys a row.
+  const cols = new Set(["title", "first_name", "last_name"]);
+  assert.deepEqual(
+    computedSql({ name: "t", computed: { title: ["first_name"] } }, cols), [],
+    "a computed column named after a real column must be refused — it would DROP it");
+  assert.deepEqual(
+    computedSql({ name: "t", computed: { id: ["first_name"] } }, cols), [],
+    "and a managed column even more so");
+  assert.equal(
+    computedSql({ name: "t", computed: { full_name: ["first_name", " ", "last_name"] } }, cols).length, 1,
+    "…while a genuinely new name is still emitted, or the assertions above pass on a dead function");
   assert.match(drops[0], /tsv/, "the only column drop must be the managed search column");
 });
 

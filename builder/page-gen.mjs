@@ -2945,6 +2945,21 @@ export function schemaDigest(spec) {
         ? "  usePublicRows: YES — anyone may read " + t.publicView.columns.join(", ") + " from this table"
         : "  usePublicRows: NO — this table has no public view; calling it is a 404, so build the page without it");
     }
+    // THE ORDER THE OWNER ASKED FOR, and this is the one field in the tier that
+    // the DATABASE cannot keep. Reads go straight to the Data API, which orders
+    // by whatever the page's `useRows` asks for — so `defaultSort` can only ever
+    // be a fact the generator is told, never a guarantee. Stated here because
+    // told to nobody it was worth exactly nothing, which is what it was.
+    //
+    // Related to the alphabetical-menu failure and NOT a replacement for it:
+    // that rule is about ordering a category column by meaning rather than by
+    // value, and it stays. This is the table saying which column to sort ON.
+    if (t.defaultSort) {
+      const desc = String(t.defaultSort).trim().startsWith("-");
+      lines.push("  DEFAULT ORDER: " + String(t.defaultSort).replace(/^[-+]/, "") +
+        (desc ? " descending" : " ascending") +
+        " — pass this to useRows unless the page has a reason of its own");
+    }
     // Stated for every table a public page can SUBMIT to, YES or NO, never
     // omitted — an absent line reads as an omission rather than an answer, the
     // exact failure that made a whole site come out as the placeholder when

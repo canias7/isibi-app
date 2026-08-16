@@ -3643,6 +3643,54 @@ const SITE_SCHEMA_TOOL = {
             },
             timestamps: { type: "boolean" },
             fts: { type: "boolean", description: "Enable full-text search over this table's text columns." },
+            searchWeights: {
+              type: "object",
+              additionalProperties: { type: "integer" },
+              description:
+                "Only with `fts`. Which columns matter most in search, as column -> importance (bigger is more important). " +
+                "A title is usually worth more than a body, and without this every column ranks the same — so searching a menu " +
+                "for \"halloumi\" ranks a dish that merely MENTIONS it level with the one called it. Postgres has four tiers, " +
+                "so these are an ordering rather than a scale. Omit it if every column is equally worth matching.",
+            },
+            defaultSort: {
+              type: "string",
+              description:
+                "The column a list of these rows should normally be ordered by, `-` first for descending: \"-created_at\", \"name\", \"price\". " +
+                "Newest-first for anything posted, alphabetical for a directory, soonest-first for anything booked. " +
+                "This is what the PAGES are told to sort by; it is not enforced, so a page with a reason of its own may still differ.",
+            },
+            // THE CONSTRAINT TIER. Every one of these is kept by the DATABASE —
+            // a CHECK, a generated column, a trigger — so what a table declares
+            // here is true of the rows however they arrive. All three were
+            // parsed, stored and enforced by nothing until 2026-08-16.
+            checks: {
+              type: "array",
+              items: { type: "array", items: { type: "string" } },
+              description:
+                "Rules the database refuses to break, each `[column, operator, column-or-number]` with operator one of " +
+                "gt, gte, lt, lte, eq, ne. `[\"end_time\", \"gt\", \"start_time\"]` makes a backwards booking impossible; " +
+                "`[\"quantity\", \"gte\", \"1\"]` makes an order for zero impossible. A row with either side empty passes — " +
+                "these compare values, they do not make a column required. Use them where a wrong row costs the owner money or time.",
+            },
+            computed: {
+              type: "object",
+              additionalProperties: { type: "array", items: { type: "string" } },
+              description:
+                "Columns the database fills in from other columns, as new-name -> list of parts. A part that names one of this " +
+                "table's columns is that column's value; anything else is literal text. " +
+                "`{\"full_name\": [\"first_name\", \" \", \"last_name\"]}` gives every row a `full_name` that can never disagree with its parts. " +
+                "The name must be NEW — naming an existing column is refused, because these are rebuilt on every revise. " +
+                "Text only, and read-only: nothing can write to one.",
+            },
+            transitions: {
+              type: "object",
+              description:
+                "Which status changes are allowed, as column -> {from: [permitted next values]}. " +
+                "`{\"status\": {\"pending\": [\"confirmed\", \"cancelled\"], \"cancelled\": []}}` means a cancelled booking can never " +
+                "become confirmed again — the kind of rule a form can be talked past and a database cannot. " +
+                "A value you do not list as a `from` is unconstrained, so declare only the states that matter. " +
+                "Use it for bookings, orders and applications; skip it where any status may follow any other.",
+            },
             // These are enforced by real Postgres constraints and have been since
             // the schema engine was written — and until 2026-07-28 the designer
             // could not emit ANY of them, so no generated site had one. Measured
