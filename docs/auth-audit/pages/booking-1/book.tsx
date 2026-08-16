@@ -1,41 +1,49 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
 
 import { useCreateRow, usePublicRows, type Row } from "@/lib/rows";
-import { AvailabilityGrid } from "@/components/ui/availability-grid";
 import { Button } from "@/components/ui/button";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { SiteChrome } from "@/components/ui/site-chrome";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { AvailabilityGrid } from "@/components/ui/availability-grid";
 
 export const Route = createFileRoute("/book")({
   component: Book,
-  validateSearch: (search: Record<string, unknown>): { class?: string; time?: string } => ({
+  validateSearch: (search: Record<string, unknown>): { class?: string } => ({
     class: typeof search.class === "string" ? search.class : undefined,
-    time: typeof search.time === "string" ? search.time : undefined,
   }),
 });
 
-type Appointment = Row;
+type Booking = Row;
 
-const CHROME = {
-  name: "Aurora Yoga",
-  tagline: "A calm, well-lit studio — five classes a day, every level welcome.",
-  links: [
-    { label: "Home", href: "/" },
-    { label: "Book", href: "/book" },
-    { label: "Account", href: "/account" },
-  ],
-  action: { label: "Book now", href: "/book" },
-};
+const CLASSES = [
+  "Sunrise Vinyasa",
+  "Slow Hatha",
+  "Power Flow",
+  "Restorative & Yin",
+  "Beginners' Foundations",
+];
 
-const CLASSES = ["Beginners Flow", "Vinyasa", "Restorative", "Hatha", "Candlelit Yin"];
-const SLOTS = ["07:00", "08:15", "09:30", "12:00", "17:30", "18:45", "20:00"];
+const SLOTS = ["07:00", "09:00", "10:15", "12:00", "17:30", "18:30", "19:30"];
 
 const booking = z.object({
   class_name: z.string().min(1, "Pick a class"),
@@ -45,31 +53,34 @@ const booking = z.object({
   slot_time: z.string().min(1, "Pick a time"),
 });
 
-type Booking = z.infer<typeof booking>;
+type BookingForm = z.infer<typeof booking>;
 
 function Book() {
-  const { class: preselected, time: preselectedTime } = Route.useSearch();
-  const create = useCreateRow<Appointment>("bookings");
+  const { class: preselected } = Route.useSearch();
+  const create = useCreateRow<Booking>("bookings");
   const [booked, setBooked] = useState(false);
 
-  const form = useForm<Booking>({
+  const form = useForm<BookingForm>({
     resolver: zodResolver(booking),
     defaultValues: {
       class_name: preselected ?? "",
       customer_name: "",
       customer_email: "",
       slot_date: "",
-      slot_time: preselectedTime ?? "",
+      slot_time: "",
     },
   });
 
   const slot_date = form.watch("slot_date");
-  const taken = usePublicRows<{ slot_date: string; slot_time: string }>("bookings", slot_date ? { slot_date } : undefined);
+  const taken = usePublicRows<{ slot_date: string; slot_time: string }>(
+    "bookings",
+    slot_date ? { slot_date } : undefined,
+  );
 
-  const onSubmit = (values: Booking) => {
+  const onSubmit = (values: BookingForm) => {
     create.mutate(values, {
       onSuccess: () => {
-        toast.success("Booked — see you on the mat.");
+        toast.success("Booked — see you on your mat.");
         form.reset();
         setBooked(true);
       },
@@ -79,14 +90,25 @@ function Book() {
 
   if (booked) {
     return (
-      <SiteChrome {...CHROME}>
+      <SiteChrome
+        name="Aurora Yoga"
+        tagline="A calm, well-lit studio a short walk from the station."
+        links={[
+          { label: "Home", href: "/" },
+          { label: "Book", href: "/book" },
+          { label: "The work", href: "/work" },
+          { label: "Account", href: "/account" },
+        ]}
+        action={{ label: "Check availability", href: "/book" }}
+      >
         <div className="mx-auto max-w-lg px-6 py-20 text-center motion-enter">
           <h1 className="text-3xl font-semibold tracking-tight">You're booked</h1>
           <p className="mt-3 text-muted-foreground">
-            We've sent a confirmation to your email. See you on the mat.
+            We've saved your mat. There's no account needed to keep this booking, and
+            we don't hold a page to change it — if plans shift, drop the studio a line.
           </p>
           <Button asChild variant="outline" className="mt-6">
-            <Link to="/">Back to Aurora Yoga</Link>
+            <Link to="/">Back to the studio</Link>
           </Button>
         </div>
       </SiteChrome>
@@ -94,10 +116,20 @@ function Book() {
   }
 
   return (
-    <SiteChrome {...CHROME}>
+    <SiteChrome
+      name="Aurora Yoga"
+      tagline="A calm, well-lit studio a short walk from the station."
+      links={[
+        { label: "Home", href: "/" },
+        { label: "Book", href: "/book" },
+        { label: "The work", href: "/work" },
+        { label: "Account", href: "/account" },
+      ]}
+      action={{ label: "Check availability", href: "/book" }}
+    >
       <div className="mx-auto max-w-2xl px-6 py-14">
-        <h1 className="text-3xl font-semibold tracking-tight">Book a class</h1>
-        <p className="mt-2 text-muted-foreground">We'll email a confirmation right away.</p>
+        <h1 className="text-3xl font-semibold tracking-tight">Check availability</h1>
+        <p className="mt-2 text-muted-foreground">Pick a class, a date and a time — we'll confirm by email.</p>
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="mt-8 grid gap-4 sm:grid-cols-2">
@@ -115,7 +147,9 @@ function Book() {
                     </FormControl>
                     <SelectContent>
                       {CLASSES.map((c) => (
-                        <SelectItem key={c} value={c}>{c}</SelectItem>
+                        <SelectItem key={c} value={c}>
+                          {c}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -175,7 +209,7 @@ function Book() {
                   <FormControl>
                     <AvailabilityGrid
                       slots={SLOTS}
-                      taken={taken.data?.filter((t) => t.slot_date === slot_date).map((t) => t.slot_time) ?? []}
+                      taken={taken.data?.map((t) => t.slot_time) ?? []}
                       value={field.value}
                       onSelect={field.onChange}
                     />
@@ -187,7 +221,7 @@ function Book() {
 
             <div className="sm:col-span-2">
               <Button type="submit" className="motion-press" disabled={create.isPending}>
-                {create.isPending ? "Booking…" : "Book class"}
+                {create.isPending ? "Booking…" : "Book my mat"}
               </Button>
             </div>
           </form>
