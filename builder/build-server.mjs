@@ -97,6 +97,7 @@ function resetRoutes() {
   // carries the slug, so a stale one is the same leak wearing a smaller file.
   try { fs.rmSync(path.join(APP, WORKER_DIR), { recursive: true, force: true }); } catch {}
   try { fs.rmSync(path.join(APP, "src", "site-config.js"), { force: true }); } catch {}
+  try { fs.rmSync(path.join(APP, "vite.worker.config.mjs"), { force: true }); } catch {}
   // AND THE STYLESHEET, which was the one build output nothing reset.
   //
   // `writeTheme` and `writeTokens` both APPEND to whatever `src/styles.css`
@@ -419,6 +420,13 @@ async function packageWorker(slug, shell) {
   try {
     fs.writeFileSync(path.join(src, "site-config.js"), siteConfigModule({ shell, slug, routes }));
     fs.copyFileSync(WORKER_ENTRY, path.join(src, "site-worker-entry.js"));
+    // THE CONFIG IS COPIED IN TOO, and it has to be. Vite loads a config by
+    // writing a temp module next to the config file's own root — so one living
+    // in the build service resolves `vite` and `@vitejs/plugin-react` from
+    // THERE, where neither is installed. Measured: "Cannot find package 'vite'
+    // imported from node_modules/.vite-temp/…". Inside the template it
+    // resolves like any other import.
+    fs.copyFileSync(WORKER_CONFIG, path.join(APP, "vite.worker.config.mjs"));
   } catch (e) {
     return { ok: false, why: "could not stage the worker entry: " + String((e && e.message) || e) };
   }
@@ -434,7 +442,7 @@ async function packageWorker(slug, shell) {
   // no loader. Measured on the first real container run, the plain flag
   // produced 17,647 bytes importing React from a bare specifier, which is not
   // a bundled app and could never have been uploaded.
-  const r = await run("npx", ["vite", "build", "--config", WORKER_CONFIG,
+  const r = await run("npx", ["vite", "build", "--config", "vite.worker.config.mjs",
     "--ssr", "src/site-worker-entry.js", "--outDir", WORKER_DIR, "--logLevel", "error"], {});
   if (r.code !== 0) return { ok: false, why: exitReason("the worker build", r) };
 
