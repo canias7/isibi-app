@@ -7,10 +7,24 @@
 //
 // WHY A GENERATED MODULE RATHER THAN THE INJECTED `<meta>` NEXT TO IT.
 // `site-meta.mjs` puts `site-slug` in the head at PUBLISH time, which is fine for
-// a value only read when a fetch happens. A logo is RENDERED — and every route is
-// prerendered to HTML before the publish step runs, so a component reading the
-// meta tag would render without it on the server and with it in the browser: a
-// hydration mismatch, and a header that visibly flips from the name to the logo
-// on every page load. Baked into the bundle instead, the prerendered HTML and the
-// hydrated app agree, and there is nothing to flash.
+// a value only read when a fetch happens. A logo is RENDERED, so a component
+// reading the meta tag would render without it on the server and with it in the
+// browser: a hydration mismatch, and a header that visibly flips from the name to
+// the logo on every page load. Baked into the bundle instead, the server render
+// and the hydrated app agree, and there is nothing to flash.
+//
+// THAT REASONING IS WHY THE OTHER TWO MOVED HERE. `lang` and the favicon were
+// applied by `applyIdentity` doing regex surgery on `index.html`, which Start
+// does not produce — the document is `__root.tsx` now — so they are ordinary
+// values a component renders, under exactly the rule above. It also removes the
+// surgery: nothing to patch, no pattern to get wrong.
 export const SITE_LOGO = "";
+// The document's language. A REFUSAL RATHER THAN A DEFAULT lives one layer up in
+// `normalizeLang` — a site whose language could not be established keeps
+// whatever it had, and the template's own answer is English.
+export const SITE_LANG = "en";
+// The tab's mark. `/icon.svg` when the build wrote one from the business's
+// initials, and the template's own `favicon.svg` otherwise — never overwritten,
+// because this container is long-lived and the first site's mark would become
+// every later brandless site's.
+export const SITE_ICON = "/favicon.svg";

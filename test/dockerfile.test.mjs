@@ -176,8 +176,8 @@ test(`the ${svc.name} image carries every file the service COPIES into the templ
 });
 
 test(`the ${svc.name} image bakes every pristine base the service restores from`, () => {
-  // THE FAILURE IS SILENT AND CROSS-TENANT. `.routes-base` and `.index-base.html`
-  // are read with no catch, so a missing one kills the first build loudly.
+  // THE FAILURE IS SILENT AND CROSS-TENANT. `.routes-base` is read with no
+  // catch, so a missing one kills the first build loudly.
   // `.styles-base.css` is the ONLY base whose absence is deliberately soft — and
   // soft here meant `src/styles.css` fell back to ITSELF, i.e. the previous
   // customer's sheet, and every later build appended to it. Measured over three
@@ -196,7 +196,12 @@ test(`the ${svc.name} image bakes every pristine base the service restores from`
   const src = fs.readFileSync(path.join(svc.dir, "build-server.mjs"), "utf8");
   const bases = [...src.matchAll(/const\s+\w*_BASE\s*=\s*path\.join\(APP,\s*"([^"]+)"\)/g)].map((m) => m[1]);
   if (!bases.length) return;                       // the game service restores from none
-  assert.ok(bases.length >= 3, `only ${bases.length} pristine bases found — the scan stopped matching`);
+  // A FLOOR, so a scan that silently stopped matching cannot report a clean
+  // image. It was 3 while `.index-base.html` existed; the shell went with the
+  // move to Start, where the document is `__root.tsx` rendered per request and
+  // there is nothing to keep a pristine copy OF. Two is what remains, and this
+  // number tracks the constants rather than describing an intent.
+  assert.ok(bases.length >= 2, `only ${bases.length} pristine bases found — the scan stopped matching`);
   const df = fs.readFileSync(path.join(svc.dir, "Dockerfile"), "utf8");
   for (const b of bases) {
     assert.ok(df.includes("/app/" + b),

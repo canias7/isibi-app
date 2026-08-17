@@ -55,9 +55,19 @@ COPY lovable/template/ ./
 # 2026-08-01 — index, book, manage, account — and removing one by name would
 # have shipped a stranger's booking page to every site that did not build one.
 # `find` rather than a list, so adding a fifth needs no change here.
+#
+# NO `.index-base.html` ANY MORE. It was the pristine shell `writeIndexHtml`
+# patched per build — and under TanStack Start there is no shell: the document
+# is `src/routes/__root.tsx`, rendered per request, and a clean build emits no
+# top-level `index.html` at all. The title, language and mark it used to inject
+# with a regex are `src/site-brand.ts` now, which `writeSiteBrand` rewrites every
+# build like any other generated module.
+#
+# THE `&&` CHAIN IS WHY THIS HAD TO MOVE IN THE SAME COMMIT as the template: a
+# `cp` of a file that no longer exists fails the whole RUN, so the image would
+# simply stop building.
 RUN mkdir -p /app/.routes-base \
     && cp src/routes/__root.tsx /app/.routes-base/ \
-    && cp index.html /app/.index-base.html \
     && cp src/styles.css /app/.styles-base.css \
     && find src/routes -maxdepth 1 -name '*.tsx' ! -name '__root.tsx' -delete
 

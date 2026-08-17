@@ -271,7 +271,36 @@ test("the build service writes the identity and does not mutate the template's o
   // one-build's-files-leak-into-the-next class this file's neighbours already
   // guard against for `src/routes` and `dist`.
   const src = fs.readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8");
-  assert.match(src, /applyIdentity\(base, \{ title, lang, icon \}\)/, "the build service no longer applies the identity");
+  // THE IDENTITY REACHES THE SITE AS A GENERATED MODULE, not as a patched shell.
+  // This asserted `applyIdentity(base, { title, lang, icon })` — the regex
+  // surgery on `index.html` — which stopped existing when the document became
+  // `__root.tsx` under Start. Re-anchored on the property, and derived at BOTH
+  // ends: the container must write each value and the root route must render it,
+  // because either half alone passes while the wire is cut. That exact shape has
+  // been the wiring failure here a dozen times.
+  //
+  // The neighbouring test above still reads the template's `index.html` for a
+  // lang/title/icon. That file is VESTIGIAL under Start — nothing builds from it
+  // — so those assertions now hold against a file no site is made of. They go
+  // with `applyIdentity` itself when the prerender path is retired.
+  const brand = /function writeSiteBrand\(\{[\s\S]*?\n\}/.exec(src);
+  assert.ok(brand, "the build service no longer writes the brand module");
+  const root = fs.readFileSync(
+    new URL("../builder/lovable/template/src/routes/__root.tsx", import.meta.url), "utf8");
+  for (const name of ["SITE_LANG", "SITE_ICON", "SITE_NAME"]) {
+    assert.ok(brand[0].includes(name),
+      `the build service no longer writes ${name} — the site would keep the template's own`);
+  }
+  // THE IMPORT LINE IS STRIPPED FIRST, and a mutation is why: written as a bare
+  // `root.includes("SITE_LANG")` this passed against a document changed to
+  // `lang="en"`, because the name still appeared in the import above. Asserting
+  // a name EXISTS is not asserting it is USED — the declaration-satisfying-a-
+  // call-assertion failure this repo has recorded three times.
+  const body = root.replace(/^import[\s\S]*?from\s+["'][^"']+["'];?$/gm, "");
+  for (const name of ["SITE_LANG", "SITE_ICON"]) {
+    assert.ok(body.includes(name),
+      `the document no longer renders ${name} — the container writes a value nothing reads`);
+  }
   // ANCHORED ON THE WHOLE FILENAME, and a mutation is why. Written `/icon\.svg/`
   // this passed against a build service writing over `favicon.svg` — the string
   // is a SUBSTRING of the thing it was meant to forbid, so both assertions here

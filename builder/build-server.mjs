@@ -28,7 +28,7 @@ import { themeCss } from "./site-theme.mjs";
 import { resolveTheme } from "./site-theme-registry.mjs";
 import { tokensCss, stripThemeRadius, validForWrite } from "./site-tokens.mjs";
 import { applyStyle, explicitRadiusCss } from "./site-style.mjs";
-import { applyIdentity, initialsMark, normalizeLang } from "./site-identity.mjs";
+import { initialsMark, normalizeLang } from "./site-identity.mjs";
 import { exitReason } from "./exit-reason.mjs";
 import { checkRender } from "./render-check.mjs";
 import { routeOf, fileForRoute } from "./site-addon.mjs";
@@ -37,7 +37,6 @@ import { siteConfigModule, shellIsUsable } from "./site-worker.mjs";
 const APP = process.env.APP_DIR || "/app";
 const ROUTES = path.join(APP, "src", "routes");
 const ROUTES_BASE = path.join(APP, ".routes-base");
-const INDEX_BASE = path.join(APP, ".index-base.html");
 const STYLES_BASE = path.join(APP, ".styles-base.css");
 const STYLES = path.join(APP, "src", "styles.css");
 const DIST = path.join(APP, "dist");
@@ -121,9 +120,12 @@ function resetRoutes() {
 
 // The published tab: the business's name, its language, and its own mark.
 //
-// ALWAYS FROM `INDEX_BASE`, never from the last build's output — this is the one
-// file every route's prerendered head derives from, and rewriting it in place
-// would compound one site's title, language and icon into the next one's.
+// IT USED TO PATCH `index.html` WITH A REGEX, and there is no `index.html` any
+// more — Start emits none, because the document is `__root.tsx` rendered per
+// request. So the three values are written as an ordinary generated module and
+// the root route renders them as props. That is a straight simplification: no
+// pattern to get wrong, no pristine base to read from, and the compiler sees
+// them.
 //
 // THE ICON IS WRITTEN TO `icon.svg` RATHER THAN OVER `favicon.svg`. The template
 // ships a real `public/favicon.svg` and this container is long-lived, serving
@@ -131,14 +133,19 @@ function resetRoutes() {
 // first site's mark becomes the fallback for every site afterwards that has no
 // brand. Deleted before every build for the same reason `src/routes` is — a
 // stale one is one site's mark on another's tab.
-function writeIndexHtml(title, lang, brand) {
-  const base = fs.readFileSync(INDEX_BASE, "utf8");
+//
+// THE TITLE IS A DEFAULT, NOT THE ANSWER. It is the root's `head()`, so a route
+// declaring its own overrides it — which is what the per-page title rule already
+// asks the generator to do. Before this, `setTitle` at PUBLISH time stamped the
+// brand onto every non-home page after the fact; a default the routes can beat
+// is the same outcome with the ordering the right way round.
+function writeSiteBrand({ title, lang, logo }) {
   const iconPath = path.join(APP, "public", "icon.svg");
   try { fs.rmSync(iconPath, { force: true }); } catch {}
 
   let icon = null;
   try {
-    const svg = initialsMark(brand || title);
+    const svg = initialsMark(title);
     if (svg) {
       fs.mkdirSync(path.dirname(iconPath), { recursive: true });
       fs.writeFileSync(iconPath, svg);
@@ -150,8 +157,35 @@ function writeIndexHtml(title, lang, brand) {
     icon = null;
   }
 
-  fs.writeFileSync(path.join(APP, "index.html"), applyIdentity(base, { title, lang, icon }));
-  return { lang: normalizeLang(lang), icon: !!icon };
+  // ONLY AN ABSOLUTE https URL OR A SITE-RELATIVE `/u/` PATH for the logo. The
+  // value ends up in a `src` inside generated TypeScript, so it is quoted with
+  // JSON.stringify AND bounded to shapes that cannot be a `javascript:` URL —
+  // the string comes from our own `_meta`, but "it came from us" is how the
+  // first person to reach that row through some other route gets an XSS on a
+  // customer's site.
+  const raw = typeof logo === "string" ? logo.trim() : "";
+  const logoOk = /^https:\/\/[^\s"'<>]+$/i.test(raw)
+    || /^\/u\/[a-z0-9][a-z0-9-]{0,80}\/[a-z0-9._-]{1,120}$/i.test(raw);
+  const logoValue = logoOk ? raw : "";
+  // `normalizeLang` REFUSES rather than defaulting, so an unusable value leaves
+  // the site on the template's English instead of guessing at one.
+  const langValue = normalizeLang(lang) || "en";
+  const titleValue = typeof title === "string" && title.trim() ? title.trim().slice(0, 120) : "App";
+
+  // WRITTEN ON EVERY BUILD, INCLUDING WHEN A VALUE IS ABSENT. This container is
+  // long-lived and serves every build on the platform, so a file left behind by
+  // the last site is that site's logo, language and mark on this one — the same
+  // leak `resetRoutes` and the per-build icon already guard against. An empty
+  // string is a real answer here and has to be written as one.
+  fs.writeFileSync(
+    path.join(APP, "src", "site-brand.ts"),
+    "// Generated per build by build-server.mjs. Do not edit.\n" +
+      "export const SITE_LOGO = " + JSON.stringify(logoValue) + ";\n" +
+      "export const SITE_LANG = " + JSON.stringify(langValue) + ";\n" +
+      "export const SITE_ICON = " + JSON.stringify(icon || "/favicon.svg") + ";\n" +
+      "export const SITE_NAME = " + JSON.stringify(titleValue) + ";\n",
+  );
+  return { lang: langValue, icon: !!icon, logo: !!logoValue, refused: !!raw && !logoOk };
 }
 
 // The site's typeface, written per build.
@@ -247,23 +281,6 @@ function writeFonts(fonts, fontFiles) {
 // `resetRoutes` and the per-build icon already guard against. An empty string is
 // a real answer here and has to be written as one.
 //
-// ONLY AN ABSOLUTE https URL OR A SITE-RELATIVE `/u/` PATH. The value ends up in
-// a `src` inside generated TypeScript, so it is quoted with JSON.stringify AND
-// bounded to shapes that cannot be a `javascript:` URL — the string comes from
-// our own `_meta`, but "it came from us" is how the first person to reach that
-// row through some other route gets an XSS on a customer's site.
-function writeSiteLogo(logo) {
-  const s = typeof logo === "string" ? logo.trim() : "";
-  const ok = /^https:\/\/[^\s"'<>]+$/i.test(s) || /^\/u\/[a-z0-9][a-z0-9-]{0,80}\/[a-z0-9._-]{1,120}$/i.test(s);
-  const value = ok ? s : "";
-  fs.writeFileSync(
-    path.join(APP, "src", "site-brand.ts"),
-    "// Generated per build by build-server.mjs. Do not edit.\n" +
-      "export const SITE_LOGO = " + JSON.stringify(value) + ";\n",
-  );
-  return { logo: !!value, refused: !!s && !ok };
-}
-
 function run(cmd, args, env, opts) {
   return new Promise((resolve) => {
     const child = spawn(cmd, args, { cwd: APP, env: { ...process.env, ...(env || {}) }, ...(opts || {}) });
@@ -690,8 +707,9 @@ const server = http.createServer((req, res) => {
     return oneAtATime(async () => {
     try {
       resetRoutes();
-      const identityUsed = writeIndexHtml(payload.title, payload.lang, payload.title);
-      const logoUsed = writeSiteLogo(payload.logo);
+      // ONE writer for all four, because they land in ONE generated module and
+      // two writers of one file is one of them silently losing.
+      const brandUsed = writeSiteBrand({ title: payload.title, lang: payload.lang, logo: payload.logo });
       const fontsUsed = writeFonts(payload.fonts, payload.fontFiles);
       // ONE reading of the patch, shared: whether a radius was asked for decides
       // both that the theme's own corner rules give way and what is written.
@@ -810,7 +828,7 @@ const server = http.createServer((req, res) => {
         worker = await timed("workerMs", null, null, () => packageWorker(payload.slug, shell));
       }
 
-      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, fonts: fontsUsed, theme: themeUsed, tokens: tokensUsed, identity: identityUsed, brand: logoUsed, prerendered: pre.done, prerenderSkipped: pre.skipped, prerenderUnprivileged: !!pre.unprivileged, render, worker });
+      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, fonts: fontsUsed, theme: themeUsed, tokens: tokensUsed, brand: brandUsed, prerendered: pre.done, prerenderSkipped: pre.skipped, prerenderUnprivileged: !!pre.unprivileged, render, worker });
     } catch (e) {
       return send(res, 200, { ok: false, stage: "build", error: String((e && e.message) || e).slice(0, 2000), ms: Date.now() - t0, ...times });
     }
