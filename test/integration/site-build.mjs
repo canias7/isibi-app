@@ -346,29 +346,25 @@ try {
   // switches that subtree to client rendering, and returns 5.6 KB of markup with
   // no text in it and no exception anywhere — which is exactly what happened on
   // the first run here, on every route, because `siteSlug()` read `window`.
-  console.log(`  prerender ${built.preMs}ms → ${JSON.stringify(built.prerendered)}${(built.prerenderSkipped || []).length ? " skipped " + JSON.stringify(built.prerenderSkipped) : ""}`);
-  ok("both routes were prerendered", Array.isArray(built.prerendered) && ["/", "/menu"].every((p) => built.prerendered.includes(p)),
-    JSON.stringify({ done: built.prerendered, skipped: built.prerenderSkipped }));
-
-  // ── THE FLAT FORM, AGAINST THE THING THAT DECIDES ─────────────────────────
+  // THERE IS NO PRERENDER STEP, and its assertions moved rather than vanished.
   //
-  // `about.team.tsx` is `/about/team`. What makes this worth a real container
-  // is that `tsr generate` is the authority on the route and `routeOf` is the
-  // authority on what we prerender and publish — so this is the only place the
-  // two are made to agree rather than assumed to. It fails BOTH ways: read the
-  // dot as a literal and the snapshot lands at `/about.team`, which is not in
-  // this list; break `routeOf` the other way and the file below is missing.
-  ok("a route written in TanStack's flat form is prerendered at its REAL address",
-    Array.isArray(built.prerendered) && built.prerendered.includes("/about/team"),
-    JSON.stringify({ done: built.prerendered, skipped: built.prerenderSkipped }));
-  if (built.ok && built.files) {
-    ok("…and its snapshot is a real document with the page's own words",
-      /counter/.test((built.files["about/team.html"] || {}).t || ""),
-      Object.keys(built.files).filter((n) => n.endsWith(".html")).join(", "));
-    ok("…and nothing was written at the literal-dot address",
-      !built.files["about.team.html"],
-      "about.team.html exists — the dot was read as a character, so this file is at an address no route matches");
-  }
+  // This block checked that both routes were prerendered to real documents with
+  // the page's own words in them — a check that had to be about WORDS, because
+  // React catches a throw during a server render, silently switches that subtree
+  // to client rendering, and returns 5.6 KB of markup with no text and no
+  // exception anywhere. That happened here on the first run, on every route.
+  //
+  // Under Start the document is rendered per REQUEST from the script's own
+  // bundle, so there is no build-time artefact to inspect — and the same
+  // properties are asserted in the execution block below, against the bytes a
+  // visitor really receives rather than a snapshot of them. The flat-route case
+  // (`about.team.tsx` is `/about/team`) moved with them and is now proved by
+  // ASKING THE ROUTER, which is a stronger form of the same agreement between
+  // `tsr generate` and `routeOf`.
+  ok("the build reports no prerender step, because there is none",
+    built.prerendered === undefined && built.preMs === undefined,
+    JSON.stringify({ prerendered: built.prerendered, preMs: built.preMs }) +
+    " — an empty list would read as 'the prerender ran and produced nothing', which is the state that used to mean every page published blank");
 
   // ─────────────────────────────────────────── the site packaged as a Worker
   //
@@ -404,40 +400,59 @@ try {
     // been uploaded. Caught by the SIZE check below, not by this one — a
     // number wrong by an order of magnitude is harder to satisfy by accident
     // than a pattern is.
-    const imports = (w.code.match(/^\s*import[^;]*from\s*["'][^"']+["']/gm) || [])
-      .concat(w.code.match(/\brequire\(["'][^"']+["']\)/g) || []);
+    //
+    // `node:` SPECIFIERS ARE THE EXCEPTION, AND THEY ARE NOT A HOLE. Start's
+    // server imports `node:async_hooks` (its request-scoped storage) and
+    // `node:stream` (the streaming SSR transform); workerd provides both behind
+    // the `nodejs_compat` flag, which `site-dispatch.mjs` sets on every upload.
+    // They are the runtime's own modules, not dependencies left unresolved —
+    // and the distinction is exactly what this check is about, so it is drawn
+    // here rather than by widening the assertion to "few enough imports".
+    const specifiers = (w.code.match(/^\s*import[^;]*from\s*["']([^"']+)["']/gm) || [])
+      .concat(w.code.match(/\brequire\(["'][^"']+["']\)/g) || [])
+      .map((line) => (line.match(/["']([^"']+)["']/) || [])[1])
+      .filter(Boolean);
+    const unresolved = specifiers.filter((m) => !m.startsWith("node:"));
     ok("…as a single self-contained script, with nothing left to resolve",
-      imports.length === 0, imports.slice(0, 4).join(" · "));
+      unresolved.length === 0, unresolved.slice(0, 4).join(" · "));
+    // AND THE RUNTIME MODULES IT DOES KEEP ARE ONES THE FLAG COVERS. A `node:`
+    // import outside that set would fail at STARTUP — workerd refuses an unknown
+    // module before the first request — while the upload itself reports 200.
+    const NODE_OK = ["node:async_hooks", "node:stream", "node:stream/web", "node:buffer", "node:util"];
+    const strays = [...new Set(specifiers.filter((m) => m.startsWith("node:") && !NODE_OK.includes(m)))];
+    ok("…and every node: module it keeps is one nodejs_compat provides",
+      strays.length === 0, strays.join(" · ") + " — workerd refuses an unknown module at startup");
     // THE CONFIG IS REALLY BAKED IN. The slug decides which R2 prefix the
     // script serves assets from, so a bundle that dropped it is a site whose
     // every stylesheet 404s — and it would still "package successfully".
     ok("…carrying its own slug", w.code.includes("fold-coffee"), "the slug is the asset prefix; without it every asset 404s");
     ok("…and its own route list", w.code.includes("/about/team") && w.code.includes("/menu"),
       "routes decide 200-vs-404; a bundle without them cannot tell a real page from a typo");
-    // THE SHELL, which is what the rendered markup gets injected into.
+    // THERE IS NO SHELL ANY MORE, and what replaced it needs its own check.
     //
-    // THIS ASSERTION USED TO BE `w.code.includes('<div id="root">')` AND IT WAS
-    // VACUOUS. `entry.js` declares `const SLOT = '<div id="root">'` — the string
-    // it searches the shell FOR — so the bundle contains it whatever the shell
-    // is, and the check passed while every site's document was the literal
-    // fifteen characters `[object Object]`. A guard satisfied by the code that
-    // looks for the thing, rather than by the thing.
+    // This asserted the bundle carried `const SHELL = '<!doctype html>…'` — the
+    // static document the render was spliced into. Under Start the document IS
+    // the app: `__root.tsx` renders `<html>`, and the build emits no HTML file
+    // at all. So the shell assertion has no subject.
     //
-    // Anchored on what only a REAL document has: the value STARTS with a
-    // doctype. That is the whole job of this check — catch the `[object
-    // Object]` class here, with a message naming it, rather than letting it
-    // reach the execution block below where the symptom is an empty page.
+    // ITS PURPOSE SURVIVES AND IS WHAT IS ASSERTED INSTEAD. It existed to catch
+    // the `[object Object]` class HERE, with a message naming it, rather than at
+    // the execution block below where the symptom is an empty page: a bundle
+    // that packages cleanly and serves fifteen literal characters as every
+    // document. The equivalent under Start is that the bundle carries a real
+    // renderer — the doctype it will emit, and Start's own handler.
     //
-    // NO `export`, AND EITHER QUOTE. Two things this got wrong first time, both
-    // facts about the BUNDLER rather than about the shell: `site-config.js` is
-    // inlined, so the keyword is gone, and rollup re-quotes the value —
-    // measured as `const SHELL = '<!doctype html>\n<html lang="en">…'`, single
-    // quotes with the inner double quotes left bare. A regex written for the
-    // SOURCE spelling describes a file that is never produced.
-    ok("…and the HTML shell to render into",
-      /\bconst SHELL = (['"])\s*<!doctype html/i.test(w.code),
-      "the SHELL constant is not a real document — " +
-      (w.code.match(/\bconst SHELL = .{0,80}/) || ["(absent)"])[0]);
+    // The predecessor of this check was VACUOUS for a year: it looked for
+    // `<div id="root">`, which `entry.js` itself declared as the string it
+    // searched the shell FOR, so it passed whatever the shell was. Anchored here
+    // on things only a real render can need.
+    ok("…and a renderer that emits a real document",
+      /<!DOCTYPE html>/i.test(w.code),
+      "the bundle emits no doctype — it cannot be producing a document");
+    ok("…through Start's own request handler",
+      /createStartHandler|startFetch/.test(w.code),
+      "the bundle carries no Start handler — nothing would render");
+
     // THE CHECK THAT ACTUALLY CAUGHT THE EXTERNALS BUG. React, TanStack Router,
     // TanStack Query and every kit component a page imports cannot add up to a
     // small file — 17,647 bytes was the measured symptom of a bundle that
@@ -472,30 +487,43 @@ try {
     catch (e) { ok("the packaged script imports", false, String((e && e.message) || e)); }
     if (site) {
       ok("the packaged script imports and exports a fetch handler", typeof site.fetch === "function", typeof site.fetch);
-      // A FAKE R2 HOLDING WHAT A PUBLISHED SITE HOLDS — the prerendered document
-      // for each route, plus an asset.
+      // A FAKE R2 HOLDING WHAT A PUBLISHED SITE HOLDS — and under Start that is
+      // NOT a document per route. The build emits `dist/client` and
+      // `dist/server` and no HTML at all: the document is rendered per request
+      // from `__root.tsx`. So what the bucket holds is the assets, the meta
+      // sidecar, and the liveness marker.
       //
-      // THE DOCUMENTS ARE THE REAL BUILT ONES, marked so the test can tell which
-      // was read. The script serves the ROUTE's own document rather than a baked
-      // copy of the shell, because `injectMeta` adds the description and the
-      // Open Graph tags at PUBLISH time — after this container has produced the
-      // bundle — so anything baked here is always the version from before those
-      // tags existed. Every published site lost its link preview that way, and a
-      // fixture with one shared shell cannot see it.
-      const docs = {};
-      for (const [name, v] of Object.entries(wpack.files || {})) {
-        if (name.endsWith(".html") && v && typeof v.t === "string") {
-          docs["sites/fold-coffee/" + name] = v.t.replace("</head>", `<meta name="from-doc" content="${name}"></head>`);
-        }
-      }
-      const objs = { ...docs, "sites/fold-coffee/assets/app.js": "console.log(1)" };
-      const bucketOf = (o) => ({ get: async (k) => (k in o
-        ? { body: o[k], text: async () => o[k], writeHttpMetadata() {}, httpMetadata: {} } : null) });
+      // THE FIXTURE HAD TO STOP BEING DOCUMENTS, and the property those
+      // documents proved has not gone away — it moved. It used to be "this
+      // route was served from its OWN file, not a baked copy of the home
+      // page's", because `injectMeta` added the description and the Open Graph
+      // tags at PUBLISH time and anything baked in the container was always the
+      // version from before they existed. Now the head is composed per request
+      // and the per-route content comes from the router, so what proves the same
+      // thing is that two routes render DIFFERENT copy and the sidecar's
+      // description reaches the head.
+      // THE DESCRIPTION SHARES NO WORDS WITH ANY PAGE'S BODY, deliberately. It
+      // rides in EVERY page's `og:description`, so a phrase used in both it and
+      // the home page's copy makes the "this is not the home page" assertion
+      // below unfalsifiable — which is exactly what a first draft did, using
+      // "Wick Lane" for both.
+      const META = { description: "A very short shop blurb", image: "https://x/og.png", origin: "https://fold-coffee.gofarther.app" };
+      const objs = {
+        "sites/fold-coffee/assets/app.js": "console.log(1)",
+        // THE LIVENESS MARKER. Its ABSENCE is the take-down — see the case
+        // below, which is a regression this harness caught: under Start the
+        // document renders from the bundle and needs no R2, so a site whose
+        // files were wiped kept serving until the marker existed.
+        "sites/fold-coffee/site.live": "1",
+        "sitemeta/fold-coffee.json": JSON.stringify(META),
+      };
+      const bucketOf = (o) => ({
+        get: async (k) => (k in o
+          ? { body: o[k], text: async () => o[k], writeHttpMetadata() {}, httpMetadata: {} } : null),
+        head: async (k) => (k in o ? {} : null),
+      });
       const bucket = bucketOf(objs);
       const call = (p, b = bucket) => site.fetch(new Request("https://fold-coffee.gofarther.app" + p), { SITES: b }, { waitUntil() {} });
-
-      ok("the build produced a document per route to serve from",
-        Object.keys(docs).length >= 2, Object.keys(docs).join(", ") || "(none)");
 
       let home;
       try { home = await call("/"); } catch (e) { ok("the home page renders", false, String((e && e.stack) || e).slice(0, 600)); }
@@ -503,58 +531,95 @@ try {
         const html = await home.text();
         ok("the home page renders", home.status === 200 && /text\/html/.test(home.headers.get("content-type") || ""),
           home.status + " " + home.headers.get("content-type"));
-        // THE ASSERTION THAT WOULD HAVE FAILED. A shell that never made it into
-        // the bundle produces a response with no root div at all.
-        ok("…into the real shell", html.includes('<div id="root">'),
-          "no root element in a " + html.length + "-byte response: " + JSON.stringify(html.slice(0, 120)));
-        // AND THE PAGE'S OWN WORDS, not just the shell. A response that is the
-        // shell and nothing else is the fallback path — correct when a render
-        // fails, and a silent regression if it becomes the ordinary answer.
-        //
-        // A SENTENCE ONLY THE PAGE HAS. `Fold Coffee` is the brand, so it is in
-        // the shell's own `<title>` and would pass with the render producing
-        // nothing at all — the same shape as the vacuous shell assertion this
-        // block just replaced.
-        ok("…with the page's own markup in it", /Wick Lane/.test(html),
-          html.length + " bytes and no page copy — the render produced nothing and it served the bare shell");
+        // A REAL DOCUMENT, which is what the shell assertion used to prove and
+        // what the `[object Object]` bug produced fifteen characters instead of.
+        ok("…as a complete document", /<!DOCTYPE html>/i.test(html) && /<\/html>/i.test(html),
+          html.length + "-byte response: " + JSON.stringify(html.slice(0, 120)));
+        // AND THE PAGE'S OWN WORDS, not just a frame. A SENTENCE ONLY THE PAGE
+        // HAS: `Fold Coffee` is the brand, so it is in the `<title>` and would
+        // pass with the render producing nothing at all — the same shape as the
+        // vacuous shell assertion this block replaced.
+        ok("…with the page's own markup in it", /Slow coffee on the corner/.test(html),
+          html.length + " bytes and no page copy — the render produced nothing");
+        // THE PUBLISH-TIME HALF OF THE HEAD, read out of the sidecar at request
+        // time. `injectMeta` used to patch this into a built shell; there is no
+        // shell, so a site that lost this loses its link preview silently.
+        ok("…and the publish-time share tags from the sidecar",
+          html.includes(META.description) && html.includes(META.image),
+          "the sidecar never reached the head — every share of this site is a bare URL");
       }
 
-      // A ROUTE THE SITE HAS is a 200; one it does not is a 404 with the page
-      // still in it. The status is what stops a typo reading as a real address.
+      // A ROUTE THE SITE HAS is a 200; one it does not is a 404. The status is
+      // what stops a typo reading as a real address.
       const menu = await call("/menu");
       const menuHtml = await menu.text();
       ok("a declared route answers 200", menu.status === 200, String(menu.status));
-      // ITS OWN DOCUMENT, not the home page's. Serving `index.html` for every
-      // address puts the home page's title and share card on every page of the
-      // site — the exact bug the per-page injection was written to fix, and it
-      // is invisible unless the fixture can tell two documents apart.
-      ok("…served from that route's OWN document", /content="menu\.html"/.test(menuHtml),
-        (menuHtml.match(/content="[^"]*\.html"/) || ["(no marker — a baked shell?)"])[0]);
+      // ITS OWN CONTENT, not the home page's. Serving one document for every
+      // address is the bug the per-page work exists to prevent, and it is
+      // invisible unless the fixture can tell two routes apart.
+      // TWO SENTENCES ONLY THIS FIXTURE HAS, taken from the pages themselves
+      // rather than invented. A first draft asserted copy ("Flat white") that
+      // appears in NEITHER fixture, so it failed against a perfectly correct
+      // render — the assertion was about a page I had not read.
+      //
+      // The menu page is a heading, a Back link and a data list; its rows come
+      // from the API at runtime, so what it renders statically is "Back" and
+      // "Menu". The home page's own sentence is the discriminator on the other
+      // side: if `/menu` carried it, one document would be serving every
+      // address, which is the failure this pair exists to catch.
+      ok("…rendering its OWN page, not the home page's",
+        /Menu<\/h1>/.test(menuHtml) && !/Slow coffee on the corner/.test(menuHtml),
+        menuHtml.length + " bytes — " + (/Slow coffee on the corner/.test(menuHtml) ? "this is the home page" : "no menu heading"));
+
+      // THE FLAT FORM, AGAINST THE THING THAT DECIDES. `about.team.tsx` is
+      // `/about/team`, and what makes this worth a real container is that
+      // `tsr generate` is the authority on the route while `routeOf` is the
+      // authority on what we publish — this is the only place the two are MADE
+      // to agree rather than assumed to. It used to be checked against a
+      // prerendered file; under Start it is checked by asking the router.
+      const flat = await call("/about/team");
+      ok("a route written in TanStack's flat form is served at its REAL address",
+        flat.status === 200, String(flat.status) + " — the dot was read as a character, not a separator");
+      const dotted = await call("/about.team");
+      ok("…and nothing answers at the literal-dot address", dotted.status === 404, String(dotted.status));
 
       const nope = await call("/definitely-not-a-page");
       const nopeHtml = await nope.text();
       ok("an undeclared route answers 404, and still serves a page",
-        nope.status === 404 && nopeHtml.includes('<div id="root">'), String(nope.status));
-      ok("…falling back to index.html, which is the only document that can exist for it",
-        /content="index\.html"/.test(nopeHtml),
-        (nopeHtml.match(/content="[^"]*\.html"/) || ["(none)"])[0]);
+        nope.status === 404 && /<!DOCTYPE html>/i.test(nopeHtml), String(nope.status));
+      // THE BRANDED NOT-FOUND, not TanStack's bare text. Without
+      // `defaultNotFoundComponent` the visitor gets nine characters on a white
+      // page — the render check literally measured it as `blank: only 9
+      // characters` — with no site name and no way back.
+      ok("…and it is the site's own not-found page, not nine bare characters",
+        nopeHtml.length > 1000, nopeHtml.length + " bytes");
 
       // NOTHING PUBLISHED MEANS THE SITE IS GONE — the safety net for a script
       // removal that failed, which happened live twice. A delete wipes the files
       // and then drops the script; a rollback and the offline switch drop the
-      // script and then change the files. With the shell baked in, a script that
-      // outlived its own deletion kept serving a fully rendered site whose every
-      // trace had been erased. Reading the document means the FILES get the final
-      // say, so a take-down works even when the removal did not.
+      // script and then change the files, so a script that outlives its own
+      // deletion must not keep serving a site whose every trace has been erased.
+      //
+      // THIS CHECK CAUGHT A REAL REGRESSION, which is why it reads as it does.
+      // The old entry served a DOCUMENT out of R2, so wiping the prefix made
+      // every route 404 and that miss WAS the take-down — free, and lost the
+      // moment Start started rendering from the script's own bundle. Measured
+      // here as "200 — a deleted site is still serving", after unit tests and a
+      // hand-driven execution check had both passed. `site.live` is the explicit
+      // signal that replaced it.
       const gone = await call("/", bucketOf({}));
       ok("a site whose files are gone answers 404, whatever the script still is",
         gone.status === 404, String(gone.status) + " — a deleted site is still serving");
 
       // A THROW IS NOT A DELETION, and the difference decides whether an R2 blip
-      // takes a live site down. Degraded to no share preview, still serving.
-      const blip = await call("/", { get: async () => { throw new Error("R2 unavailable"); } });
-      ok("…but an R2 failure keeps the site up on the baked shell",
-        blip.status === 200 && (await blip.text()).includes('<div id="root">'), String(blip.status));
+      // takes every published site on the platform down at once. Being wrong
+      // toward "live" serves a page that should be gone for a few seconds.
+      const blip = await call("/", {
+        get: async () => { throw new Error("R2 unavailable"); },
+        head: async () => { throw new Error("R2 unavailable"); },
+      });
+      ok("…but an R2 failure keeps the site up, degraded to no share preview",
+        blip.status === 200, String(blip.status));
 
       // ASSETS COME OFF R2 rather than through the renderer — the cost decision
       // the entry makes, and the one that would silently stop being true.
@@ -578,58 +643,52 @@ try {
     noSlug.ok && noSlug.worker && noSlug.worker.ok === false && /slug/i.test(noSlug.worker.why || ""),
     JSON.stringify(noSlug.worker));
 
-  // WHETHER THE RENDER WAS SANDBOXED, reported on every build rather than
-  // assumed. The drop needs root and needs the user to exist, neither of which
-  // the code can guarantee — and "we thought this was sandboxed" is worse than
-  // knowing it is not. NOT asserted true: this harness runs as whoever invoked
-  // it, and in CI that is not root, so the honest expectation here is a boolean
-  // that is present and correctly false.
-  console.log(`  prerender sandbox: ${built.prerenderUnprivileged ? "dropped to an unprivileged user" : "same user (not root, or no such user)"}`);
-  ok("the build says whether the render ran unprivileged", typeof built.prerenderUnprivileged === "boolean",
-    JSON.stringify(built.prerenderUnprivileged));
-  if (built.ok && built.files) {
-    const home = (built.files["index.html"] || {}).t || "";
-    const menu = (built.files["menu.html"] || {}).t || "";
-    ok("a second page exists as its own document", menu.length > 0, Object.keys(built.files).filter((n) => n.endsWith(".html")).join(", "));
-    const wordsIn = (html) => ((html.match(/<div id="root">([\s\S]*)<\/div>/) || [])[1] || "")
-      .replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-    for (const [name, html] of [["index.html", home], ["menu.html", menu]]) {
-      const words = wordsIn(html);
-      console.log(`  ${name}: ${words.length} chars of readable text`);
-      // A LOW BAR ON PURPOSE, and the number is the point. The failure this
-      // guards is 5.6 KB of markup containing ZERO words — the client-render
-      // fallback — so "any words at all" is what separates a working prerender
-      // from that. Set higher it fails on a legitimately thin page, which is the
-      // next assertion's job to bound instead.
-      ok(`${name} carries words a crawler can read`, words.length > 6, JSON.stringify(words.slice(0, 120)));
-      ok(`${name} did not fall back to client rendering`, !/Switched to client rendering/.test(html));
-      // The snapshot must still load the SAME bundle as the shell, or a page is
-      // a photograph of a site that no longer exists.
-      ok(`${name} still loads the built bundle`, /<script[^>]+src="\.\/assets\//.test(html), html.slice(0, 200));
-    }
-    // WHAT A PRERENDER CAN AND CANNOT CAPTURE, pinned rather than left to be
-    // rediscovered. The home page has written copy and comes out substantial;
-    // the menu page is `<Link>Back</Link>`, an `<h1>`, and then a data list, so
-    // it prerenders to "Back Menu" and nothing else — measured, not estimated.
-    // Rows arrive from the data API at runtime, so a page that is ENTIRELY a
-    // list has almost no snapshot, and that is correct: a snapshot of somebody
-    // else's rows would go stale the moment they edited a price.
-    // Measured on this fixture: home 122 chars, menu 9. Both pages here are
-    // mostly data lists, which is why the home page is not larger — the
-    // template's own reference page, which carries real written copy, prerenders
-    // to 28 KB of HTML. The bar is set from what was measured, with headroom,
-    // rather than from what would be nice.
-    ok("a page with written copy prerenders more than a bare list", wordsIn(home).length > 60, String(wordsIn(home).length));
-    ok("and a page that is only a data list prerenders to little — the known limit",
-      wordsIn(menu).length < 40, JSON.stringify(wordsIn(menu)));
-  }
+  // THE PRERENDER SANDBOX AND THE SNAPSHOT-WORDS CHECKS WERE HERE, and both
+  // went with the step they were about.
+  //
+  // The sandbox one reported whether the render had dropped to an unprivileged
+  // user, because "we thought this was sandboxed" is worse than knowing it is
+  // not. The words one asserted each snapshot carried text a crawler can read —
+  // a check that had to be about WORDS, because React catches a throw during a
+  // server render, silently switches that subtree to client rendering, and
+  // returns 5.6 KB of markup with no text and no exception anywhere.
+  //
+  // Under Start the document is rendered per REQUEST from the script's own
+  // bundle: there is no child process to drop privileges for, and no snapshot to
+  // read words out of. THE WORDS PROPERTY SURVIVED and is asserted in the
+  // execution block above, against the bytes a visitor actually receives — which
+  // is where it always belonged, since a snapshot could be wrong in a way the
+  // live page was not.
+  //
+  // The privilege drop is a REAL LOSS and is worth naming rather than quietly
+  // dropping: model-written page code now executes in the site's own Worker
+  // isolate instead of a uid-dropped child. That is a different and stronger
+  // sandbox — a Cloudflare isolate with no filesystem and no host — so the
+  // protection did not go away, it moved somewhere the code cannot check.
 
   if (built.ok) {
     const names = Object.keys(built.files);
-    ok("it produced an index.html", !!built.files["index.html"]);
+    // NO `index.html`, AND ITS ABSENCE IS THE ASSERTION. Start emits
+    // `dist/client` and `dist/server` and no top-level document — measured on a
+    // clean build — so a file here would mean `collectDist` is publishing the
+    // wrong half, which puts every asset one directory too deep AND writes the
+    // site's own server code into the PUBLIC bucket.
+    ok("it produced no top-level document, because the document is rendered",
+      !built.files["index.html"], "an index.html in the published files means the wrong dist half was collected");
     ok("it produced hashed js and css", names.some((n) => /^assets\/.*\.js$/.test(n)) && names.some((n) => /^assets\/.*\.css$/.test(n)), names.join(", "));
-    ok("the html is the app shell, not a page of markup", /id="root"/.test(built.files["index.html"].t || ""));
-    ok("the brand reached the title tag", /<title>Fold Coffee<\/title>/.test(built.files["index.html"].t || ""), (built.files["index.html"].t || "").slice(0, 200));
+    // AND NOTHING FROM THE SERVER HALF. `dist/server/server.js` is the script
+    // that renders the site; published, it would be a customer's server code in
+    // a public bucket.
+    ok("…and nothing from the server half", !names.some((n) => n.startsWith("server/") || n === "server.js"),
+      names.filter((n) => /server/i.test(n)).join(", "));
+    // THE BRAND REACHES THE TITLE, which used to be a fact about the shell's
+    // `<title>` and is now a fact about the bundle: `writeSiteBrand` bakes
+    // `SITE_NAME` and the root route renders it as the document's default title.
+    // The RENDERED proof is in the execution block above; this is the build-time
+    // half, and it is the one that fails if the container stops writing it.
+    const brandJs = names.filter((n) => n.endsWith(".js")).map((n) => built.files[n].t || "").join("");
+    ok("the brand reached the bundle as its title", brandJs.includes("Fold Coffee"),
+      "SITE_NAME never reached the build — every page would be titled with the template's default");
 
     // ── the site's language, and its own mark ──────────────────────────────
     //
@@ -679,9 +738,14 @@ try {
     // The router code-splits each route, so the entry NAMES the pages rather than
     // containing them. The production smoke test walks that link to prove a
     // published site reads its own database — assert the shape it relies on.
-    const entry = ((built.files["index.html"].t || "").match(/src="([^"]+\.js)"/) || [])[1] || "";
-    const entryJs = (built.files[entry.replace(/^\.\//, "")] || {}).t || "";
-    ok("the entry chunk names the lazy route chunks", /["']\.\/[A-Za-z0-9._-]+\.js["']/.test(entryJs), entry);
+    // THE ROUTER CODE-SPLITS EACH ROUTE, so some chunk NAMES the others rather
+    // than containing them. This used to find the entry by reading the shell's
+    // `<script src>`; there is no shell, so it is asked of the published chunks
+    // directly — which is the property the production smoke test walks anyway.
+    const chunkNames = names.filter((n) => /^assets\/.*\.js$/.test(n));
+    ok("some chunk names the lazy route chunks",
+      chunkNames.some((n) => /["'][^"']*assets\/[A-Za-z0-9._-]+\.js["']/.test(built.files[n].t || "")),
+      chunkNames.length + " js chunks and none references another — the routes are not code-split");
     ok("the bundle carries no route for the reference page's schema", !js.includes("duration_minutes"),
       "the template's own index.tsx leaked into a generated site");
 
@@ -1071,9 +1135,19 @@ function Home() { return <main><h1>${brand}</h1></main>; }`;
     // is the state of every site built before 2026-08-12: the attribute must be
     // LEFT ALONE rather than guessed at, or one deploy silently relabels every
     // existing site on the platform.
-    const shell = (r) => ((r.files || {})["index.html"] || {}).t || "";
+    // THE LANGUAGE IS IN THE BUNDLE NOW, not in a shell. `applyIdentity` used to
+    // patch `<html lang>` with a regex; under Start `writeSiteBrand` bakes
+    // `SITE_LANG` and `__root.tsx` renders it as a prop, so the negative is
+    // asserted where the value now lives.
+    // ASKED OF THE CONTAINER, NOT GREPPED OUT OF MINIFIED JS. A first draft
+    // matched `"en"` and required `"es"|"fr"|"de"` to be absent — which is
+    // meaningless against a minified bundle, where two-letter strings appear
+    // everywhere, and it duly failed a correct build. `writeSiteBrand` returns
+    // the value it wrote and the response carries it, so the honest question has
+    // a direct answer.
     ok("a build that names no language keeps the one the template had",
-      /<html[^>]*\blang="en"/.test(shell(a)), (shell(a).match(/<html[^>]*>/) || [""])[0]);
+      (a.brand || {}).lang === "en" && (b.brand || {}).lang === "en",
+      JSON.stringify({ a: (a.brand || {}).lang, b: (b.brand || {}).lang }));
     // …and each still gets its OWN mark. The container is shared and long-lived,
     // so a mark written once and not cleared is one customer's icon on another's
     // tab — the same leak the content check above is here for, one file over.
@@ -1087,7 +1161,7 @@ function Home() { return <main><h1>${brand}</h1></main>; }`;
     // the platform, and a file left behind is one customer's logo on another's
     // header. Same leak the content check above is here for, one file over.
     ok("a build that sends no logo carries none",
-      !shell(a).includes("logo.png") && !shell(b).includes("logo.png"),
+      !A.includes("logo.png") && !B.includes("logo.png"),
       "the previous build's logo is still on disk and reached a site that never asked for one");
   }
 
@@ -1114,10 +1188,34 @@ function Home() {
     </SiteChrome>
   );
 }`;
-  const withLogo = await post({ files: { "index.tsx": CHROMED }, slug: "logo-site", title: "Sharp Fade Barbers", logo: "/u/logo-site/mark.png" });
+  // ASKED FOR THE WORKER, because the proof has to be a RENDER. This block read
+  // the prerendered `index.html` and there is none: the header is rendered per
+  // request from the script's own bundle. Executing it is a stronger form of the
+  // same assertion — "SERVER-RENDERED into the header" is what it always claimed
+  // and now what it actually checks.
+  const withLogo = await post({ files: { "index.tsx": CHROMED }, slug: "logo-site", title: "Sharp Fade Barbers", logo: "/u/logo-site/mark.png", worker: true });
   ok("a site using the site frame builds with a logo", withLogo.ok === true, withLogo.stage + ": " + withLogo.error);
-  if (withLogo.ok) {
-    const h = (withLogo.files["index.html"] || {}).t || "";
+
+  // A fake R2 carrying only what a document render needs: the liveness marker.
+  // Without it the entry answers 404 for every route — which is the take-down
+  // working, and would read here as the logo having vanished.
+  const liveBucket = (slug) => ({
+    get: async () => null,
+    head: async (k) => (k === "sites/" + slug + "/site.live" ? {} : null),
+  });
+  const renderHome = async (build, slug) => {
+    if (!build.ok || !build.worker || !build.worker.ok) return null;
+    const f = path.join(sandbox, "logo-bundle-" + slug + "-" + Math.random().toString(36).slice(2) + ".mjs");
+    fs.writeFileSync(f, build.worker.code);
+    try {
+      const app = (await import("file://" + f)).default;
+      const r = await app.fetch(new Request("https://x.gofarther.app/"), { SITES: liveBucket(slug) }, { waitUntil() {} });
+      return await r.text();
+    } catch (e) { return "IMPORT FAILED: " + String((e && e.message) || e); }
+  };
+
+  const h = await renderHome(withLogo, "logo-site");
+  if (h) {
     // NOT CALLED `img`. The block-scope scanner in `worker-imports.test.mjs`
     // reads the source as text, so a bare three-letter name that also appears
     // inside a regex literal (`/<img[^>]*>/` two assertions down) reads to it as
@@ -1134,10 +1232,11 @@ function Home() {
     ok("…and a width bound, so it cannot push the nav off the page", /max-w-\[\d+px\]/.test(logoImg), logoImg);
   }
 
-  const noLogo = await post({ files: { "index.tsx": CHROMED }, slug: "logo-site", title: "Sharp Fade Barbers" });
-  if (noLogo.ok) {
-    const h = (noLogo.files["index.html"] || {}).t || "";
-    ok("a site with no logo shows the name, exactly as before", h.includes("Sharp Fade Barbers") && !/<img[^>]*mark\.png/.test(h),
+  const noLogo = await post({ files: { "index.tsx": CHROMED }, slug: "logo-site", title: "Sharp Fade Barbers", worker: true });
+  const h2 = await renderHome(noLogo, "logo-site");
+  if (h2) {
+    ok("a site with no logo shows the name, exactly as before",
+      h2.includes("Sharp Fade Barbers") && !/<img[^>]*mark\.png/.test(h2),
       "the previous build's logo survived into a site that sent none");
   }
   // ── a link to a page that does not exist ─────────────────────────────────────
@@ -1320,8 +1419,15 @@ function P() {
       salvaged.ok === true && !/menu/.test(String(salvaged.error || "")),
       String(salvaged.error || "").slice(0, 240));
     if (salvaged.ok) {
+      // FROM THE BUNDLE, NOT FROM A DOCUMENT. This joined every published `.html`
+      // and looked for the stub's sentence; there are no published documents any
+      // more, so it searched an empty string and failed against a build that had
+      // stubbed the page perfectly well. The stub's copy is compiled INTO the
+      // route chunk, which is where the property now lives — and the RENDERED
+      // proof of the same thing is the execution block above, where a stubbed
+      // route is served like any other.
       const html = Object.entries(salvaged.files || {})
-        .filter(([n]) => n.endsWith(".html")).map(([, v]) => String(v.t || "")).join("\n");
+        .filter(([n]) => /\.js$/.test(n)).map(([, v]) => String(v.t || "")).join("\n");
       ok("and the stub says so on the page rather than rendering blank",
         /isn't finished yet|isn&#x27;t finished yet|isn&apos;t finished yet/.test(html),
         html.slice(0, 300));
