@@ -265,3 +265,48 @@ test(`the ${svc.name} container class agrees with the image's port`, () => {
   assert.equal(port[1], svc.port);
 });
 }
+
+test("NO HARNESS SETS UP A SANDBOX THE IMAGE WOULD NOT PRODUCE", () => {
+  // EVERY INTEGRATION HARNESS FAKES `/app` BY HAND — it copies the template into
+  // a temp directory and then reproduces the pristine bases the Dockerfile bakes.
+  // So the Dockerfile and six separate harnesses each hold a copy of the same
+  // fact, and when the fact changes they go out of step ONE AT A TIME.
+  //
+  // MEASURED, not hypothetical: deleting the template's `index.html` for
+  // TanStack Start broke SIX harnesses, and I fixed one by hand and shipped it.
+  // `family apps` went red on main; `page gen eval` was skipped so it hid;
+  // `site routing`, `theme seam`, `theme render` and `site runtime` were not
+  // triggered and would have failed on their next run. That is the whole reason
+  // this check is derived rather than a list.
+  //
+  // THE RULE: a harness may only copy a base that the Dockerfile also bakes.
+  const dir = new URL("./integration/", import.meta.url).pathname;
+  const df = fs.readFileSync(new URL("../builder/Dockerfile", import.meta.url).pathname, "utf8")
+    .replace(/^#[^\n]*$/gm, "");   // a comment naming a retired base is not a bake
+  const offenders = [];
+  for (const name of fs.readdirSync(dir).filter((f) => f.endsWith(".mjs"))) {
+    const src = fs.readFileSync(path.join(dir, name), "utf8").replace(/\/\/[^\n]*/g, "");
+    for (const m of src.matchAll(/["'](\.[a-z0-9-]+(?:-base)(?:\.[a-z]+)?)["']/gi)) {
+      if (!df.includes(m[1])) offenders.push(name + " copies " + m[1]);
+    }
+  }
+  assert.deepEqual(offenders, [],
+    "a harness builds a sandbox the image does not: " + offenders.join(" · ") +
+    " — the harness passes or fails on something production never sees");
+});
+
+test("the pristine-base scan still sees the bases that DO exist", () => {
+  // The check above passes vacuously against a scan that stopped matching, which
+  // is the failure this whole file exists to stop one level up. The two real
+  // bases are `.routes-base` and `.styles-base.css`; both must be found in the
+  // Dockerfile and in at least one harness, or the pattern has drifted.
+  const df = fs.readFileSync(new URL("../builder/Dockerfile", import.meta.url).pathname, "utf8");
+  const dir = new URL("./integration/", import.meta.url).pathname;
+  const all = fs.readdirSync(dir).filter((f) => f.endsWith(".mjs"))
+    .map((f) => fs.readFileSync(path.join(dir, f), "utf8")).join("\n");
+  for (const base of [".routes-base", ".styles-base.css"]) {
+    assert.ok(df.includes(base), "the image no longer bakes " + base);
+    assert.ok(new RegExp('["\']' + base.replace(".", "\\.") + '["\']').test(all),
+      "no harness reproduces " + base + " — either it is gone or the scan pattern has drifted");
+  }
+});

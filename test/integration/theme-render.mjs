@@ -80,7 +80,6 @@ try {
   fs.symlinkSync(path.join(TEMPLATE, "node_modules"), path.join(sandbox, "node_modules"), "dir");
   fs.mkdirSync(path.join(sandbox, ".routes-base"), { recursive: true });
   fs.copyFileSync(path.join(sandbox, "src/routes/__root.tsx"), path.join(sandbox, ".routes-base/__root.tsx"));
-  fs.copyFileSync(path.join(sandbox, "index.html"), path.join(sandbox, ".index-base.html"));
   fs.copyFileSync(path.join(sandbox, "src/styles.css"), path.join(sandbox, ".styles-base.css"));
 
   buildSrv = spawn("node", [path.join(ROOT, "builder/build-server.mjs")], {
