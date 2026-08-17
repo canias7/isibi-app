@@ -85,20 +85,56 @@ export function isVersionId(id) {
  *   read(key)                       → string | null
  */
 
+/** Where a version keeps the script that serves it. Not a published file — it
+ *  lives under `versions/`, which nothing serves, so it can never be fetched. */
+const WORKER_FILE = "_worker.js";
+
 /**
  * Archive the dist that was just published, and prune the oldest beyond the cap.
+ *
+ * THE SCRIPT IS PART OF THE VERSION, and under TanStack Start it is the part
+ * that MATTERS. Measured on a real build: the server bundle bakes in that
+ * build's own content-hashed client asset names (`index-Cn8EPcR-.js` and
+ * friends, one occurrence each), and `dist/client` contains no HTML at all — so
+ * a document exists only because a script renders it, and only THAT build's
+ * script can name THAT build's assets.
+ *
+ * WITHOUT THIS A ROLLBACK COULD NOT WORK EITHER WAY. Restore the files and keep
+ * the standing script and its document names assets that are gone: a blank page.
+ * Restore them and drop the script — which is what the route did, on the stated
+ * reasoning that dropping it "puts the site back on the static path" — and there
+ * is no static path any more, so the site 404s at its own front door. That
+ * reasoning was exactly true while a published site was documents plus a bundle
+ * and became false the day the document started being rendered.
+ *
+ * A VERSION WITH NO SCRIPT IS STILL RESTORABLE, and must be: every version
+ * archived before this carries real prerendered documents, so the static path is
+ * genuinely what it should go back to. `worker` on the manifest is what tells
+ * the two apart, and its absence means the old behaviour, unchanged.
  *
  * BEST-EFFORT BY CONSTRUCTION, and the caller must treat it that way: the site
  * is already live by the time this runs, so a failed archive costs a rollback
  * point and nothing else. Failing a publish that succeeded would be trading a
  * real site for a bookkeeping entry.
  */
-export async function archiveVersion(deps, { slug, id, label, files } = {}) {
+export async function archiveVersion(deps, { slug, id, label, files, worker } = {}) {
   if (!isVersionId(id)) return { ok: false, error: "bad version id" };
   const names = (Array.isArray(files) ? files : []).filter((f) => typeof f === "string" && f);
   if (!names.length) return { ok: false, error: "nothing to archive" };
   const dest = P_VERS(slug) + id + "/";
   for (const rel of names) await deps.copy(P_SITE(slug) + rel, dest + rel);
+
+  // THE SCRIPT FIRST, THEN THE MANIFEST THAT CLAIMS IT. The manifest's `worker`
+  // flag is what a rollback trusts, and a flag set over a write that failed is a
+  // version that reports itself restorable and restores a site with no document
+  // — strictly worse than one that honestly says it has no script, because that
+  // one still falls back to the static path.
+  let hasWorker = false;
+  if (typeof worker === "string" && worker) {
+    try { await deps.put(dest + WORKER_FILE, worker, "application/javascript"); hasWorker = true; }
+    catch (e) { hasWorker = false; }
+  }
+
   // The manifest is what makes a version restorable: R2 has no way to ask "which
   // objects belonged to this build", and a rollback that guessed from a prefix
   // listing would resurrect anything that had ever been copied in beside them.
@@ -106,9 +142,10 @@ export async function archiveVersion(deps, { slug, id, label, files } = {}) {
     id, at: Number(String(id).slice(0, 14)) || 0,
     label: String(label || "Build").slice(0, MAX_LABEL),
     files: names,
+    ...(hasWorker ? { worker: true } : {}),
   }), "application/json");
   const pruned = await pruneVersions(deps, { slug });
-  return { ok: true, id, files: names.length, pruned };
+  return { ok: true, id, files: names.length, worker: hasWorker, pruned };
 }
 
 /** Newest first. Reads manifests only — the object bodies are never touched. */
@@ -148,6 +185,21 @@ export async function listVersions(deps, { slug } = {}) {
  * now, and those have stable names, so `book.html` copied before the assets it
  * names is a blank page at a public URL for the length of the restore. Same
  * one-file sort, same fix, as the publish path this mirrors.
+ *
+ * AND THE SCRIPT COMES BACK WITH THEM — see `archiveVersion` for why it has to.
+ * It is returned rather than uploaded here, because this module's whole point is
+ * that it can be driven with a fake store and no Cloudflare account; the caller
+ * owns the dispatch namespace. `worker` is the code when the version has one and
+ * `null` when it does not, and the caller must read the two differently: a
+ * version WITH a script needs it uploaded, and one WITHOUT needs whatever is
+ * standing taken down, which is what puts a pre-Start version back on the
+ * static path it really belongs to.
+ *
+ * AFTER THE FILES, always. The script serves this site's assets out of R2 and
+ * its document names them, so uploading it before they are copied in means every
+ * stylesheet and bundle 404s for as long as the copies take — the same ordering
+ * argument as `putSiteWorker`, and the reason `worker` rides on the RETURN rather
+ * than being something the caller could sequence wrongly.
  */
 export async function rollbackVersion(deps, { slug, id } = {}) {
   if (!isVersionId(id)) return { ok: false, error: "no such version", status: 404 };
@@ -156,6 +208,19 @@ export async function rollbackVersion(deps, { slug, id } = {}) {
   try { manifest = JSON.parse(await deps.read(src + "_manifest.json")); } catch { manifest = null; }
   const names = (manifest && Array.isArray(manifest.files) ? manifest.files : []).filter(Boolean);
   if (!names.length) return { ok: false, error: "no such version", status: 404 };
+
+  // READ BEFORE ANYTHING IS COPIED. A version that claims a script and cannot
+  // produce one must not half-restore: the files would already be back, the
+  // standing script would still name the previous build's assets, and the site
+  // would be blank with the customer told it was restored. Refusing here leaves
+  // them the site they had.
+  let worker = null;
+  if (manifest && manifest.worker === true) {
+    try { worker = await deps.read(src + WORKER_FILE); } catch { worker = null; }
+    if (typeof worker !== "string" || !worker) {
+      return { ok: false, error: "that version's script is missing, so it cannot be put back", status: 409 };
+    }
+  }
 
   const ordered = names.slice().sort((a, b) =>
     (/\.html$/i.test(a) ? 1 : 0) - (/\.html$/i.test(b) ? 1 : 0));
@@ -180,7 +245,7 @@ export async function rollbackVersion(deps, { slug, id } = {}) {
   // than dead.
   if (typeof deps.sweep === "function") {
     const s = await deps.sweep({ slug, wrote: keep });
-    return { ok: true, id, files: names.length, swept: (s && s.removed) || 0, deferred: (s && s.deferred) || 0 };
+    return { ok: true, id, files: names.length, worker, swept: (s && s.removed) || 0, deferred: (s && s.deferred) || 0 };
   }
 
   let swept = 0;
@@ -189,7 +254,7 @@ export async function rollbackVersion(deps, { slug, id } = {}) {
     if (!rel || keep.has(rel)) continue;
     await deps.remove(o.key); swept++;
   }
-  return { ok: true, id, files: names.length, swept };
+  return { ok: true, id, files: names.length, worker, swept };
 }
 
 /** Drop the oldest versions past the cap. Whole prefixes, manifest included. */

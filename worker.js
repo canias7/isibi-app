@@ -30,7 +30,7 @@ import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload
 import { handleOwnerExport } from "./site-export.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
 import { makeTrace } from "./builder/trace.mjs";
-import { injectMeta, pageMeta, setTitle } from "./site-meta.mjs";
+import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, mergeRedirects, decideFallback } from "./site-seo.mjs";
 import { readJsonBody } from "./request-limits.mjs";
 import { listSecrets, addSecret, deleteSecret, readSecret } from "./site-secrets.mjs";
@@ -66,7 +66,7 @@ import { resolveAccess, accessLabel, ACCESS_PRESETS, unguardedBookings } from ".
 // data layer's gate cannot drift from the vocabulary again — it was compared
 // against "anyone", which is a WRITE level, and matched nothing on any site.
 const DISPLAY_PAIR = ACCESS_PRESETS.display;
-import { mergeAddonPages, mergeAddonSchema, unlinkedPages, routeOf, fileForRoute } from "./builder/site-addon.mjs";
+import { mergeAddonPages, mergeAddonSchema, unlinkedPages, routeOf } from "./builder/site-addon.mjs";
 import { archiveVersion, listVersions, rollbackVersion, deleteAllVersions, versionId, versionLabel } from "./site-versions.mjs";
 import { sweepAfterPublish, P_ORPHANS } from "./site-sweep.mjs";
 import { takeOffline, putBackOnline } from "./site-live.mjs";
@@ -6614,10 +6614,20 @@ function dispatchCreds(env) {
  * every stylesheet and bundle underneath it, for as long as the writes take.
  * In this order a site serves its last good build until the new script lands.
  *
- * BEST-EFFORT. The site is already live and correct by the time this runs, and
- * every site on the platform is served from those same files today — so a
- * failure here costs the rendered path and nothing else. Throwing would trade a
- * working publish for an upload.
+ * NOT BEST-EFFORT ANY MORE, and the correction matters more than the code. This
+ * said "the site is already live and correct by the time this runs… so a failure
+ * here costs the rendered path and nothing else" — true while a published site
+ * was prerendered documents plus a bundle, i.e. something R2 could serve on its
+ * own. Measured on a real TanStack Start build: `dist/client` holds NO HTML, so
+ * a site whose script never landed has no document at any address. A failed
+ * upload is now a site that answers 404, not a site on a slower path.
+ *
+ * IT STILL DOES NOT THROW, for the reason it never did: the files are written by
+ * the time this runs, so failing the publish would report an error over work
+ * that has happened and take the archive and the stored source with it. What
+ * changed is that the failure is RETURNED for the caller to tell the customer
+ * about, rather than logged and forgotten — the difference between "your site is
+ * live" and "your site is built; we could not put it in front of visitors".
  */
 async function putSiteWorker(env, slug, worker) {
   // The container returns `{ok, why, code}` and packages only when asked, so
@@ -6644,15 +6654,23 @@ async function putSiteWorker(env, slug, worker) {
 }
 
 /**
- * Take a site's script down, so it falls back to whatever is in R2.
+ * Take a site's script down.
  *
- * CALLED BY EVERY PATH THAT CHANGES WHAT R2 HOLDS WITHOUT COMPILING — a
- * rollback, an offline switch, a delete. The script bakes in the shell and the
- * route list of the build that produced it, so a path that swaps the files
- * underneath it leaves a script serving a document that names assets which are
- * no longer there: a blank page, at a public address, with nothing to explain
- * it. Removing the script restores the static path, which is exactly the state
- * those files were just put into.
+ * CALLED BY THE PATHS THAT WANT NOTHING SERVED — a delete and the offline
+ * switch — and by a rollback ONLY for a version that has no script of its own.
+ *
+ * WHAT IT DOES NOT DO ANY MORE IS "FALL BACK TO R2". This said so, at length:
+ * "removing the script restores the static path, which is exactly the state
+ * those files were just put into." Measured on a real TanStack Start build,
+ * `dist/client` contains no HTML, so for anything built since Start there is no
+ * static path to restore — dropping the script leaves the site 404ing rather
+ * than serving its last good build. For a delete and for going offline that is
+ * the point; for a rollback it was a bug, fixed by restoring the version's own
+ * script instead.
+ *
+ * IT IS STILL WHAT THE PRE-START VERSIONS NEED: those carry real prerendered
+ * documents, so R2 alone really can serve them, and leaving a newer script
+ * standing over them names assets the restore has just swept away.
  *
  * 404 IS DONE — most sites have no script, which is the ordinary case rather
  * than a failure. `deleteSiteWorker` owns that rule; this only decides who asks.
@@ -6700,8 +6718,8 @@ async function writeSiteDistToR2(env, slug, dist, meta, pages) {
   // The route list becomes three things at once: `sitemap.xml` + a `robots.txt`
   // that declares it (both carrying SITE_ORIGIN_TOKEN — the serve path puts the
   // real origin in, because the same bytes serve on three different hosts), and
-  // a manifest in index.html's head that lets the SPA fallback tell a real
-  // route from a junk address. The redirect map is derived by DIFFING against
+  // a manifest the site's own Worker reads back out of the sidecar so it can
+  // tell a real route from a junk address. The redirect map is derived by DIFFING against
   // the PREVIOUS publish's manifest — read here, before anything is
   // overwritten — so deleting a page automatically leaves a 301 where it was,
   // with no lane anywhere having to remember to say so.
@@ -6711,22 +6729,9 @@ async function writeSiteDistToR2(env, slug, dist, meta, pages) {
   // Best-effort to the bone: a site published without a sitemap is a far
   // smaller problem than one not published.
   let manifest = null;
-  // WHICH ROUTE PRODUCED EACH `.html`, so `og:url` can name that page.
-  //
-  // DECLARED OUTSIDE THE TRY on purpose: `manifest` is deliberately nulled when
-  // the PREVIOUS publish's copy could not be read, and this map has nothing to
-  // do with that — sharing its fate would silently put every page's share link
-  // back on the home page for one publish.
-  //
-  // Keyed on the container's file name, which `routeOf` does NOT lowercase while
-  // `siteRoutes` does — so a mixed-case page path simply misses the map and keeps
-  // the site-level URL, which is today's behaviour and never a wrong per-page
-  // claim. Do not "fix" that by lowercasing `rel`: a miss is the safe direction.
-  let routeByFile = new Map();
   if (meta && Array.isArray(pages) && pages.length && dist) {
     try {
       const man = siteRoutes(pages);
-      routeByFile = new Map((man.routes || []).map((r) => [fileForRoute(r), r]));
       let prev = null;
       // A READ THAT FAILED IS NOT A SITE WITH NO HISTORY, and conflating them
       // converts every accumulated redirect into a hard 404 in one publish.
@@ -6741,8 +6746,14 @@ async function writeSiteDistToR2(env, slug, dist, meta, pages) {
       // publish has no old addresses to protect.
       let prevUnreadable = false;
       try {
-        const po = await env.SITES_BUCKET.get("sites/" + slug + "/index.html");
-        if (po) prev = parseSiteManifest(await po.text());
+        // FROM THE SIDECAR, NOT FROM A DOCUMENT. It used to parse the previous
+        // publish's `index.html`, which under Start does not exist: the build
+        // emits `dist/client` and `dist/server` and no top-level document, and
+        // the head is composed per request by `__root.tsx`. One small JSON is
+        // also a better carrier than a `<meta>` pair — nothing to escape, and a
+        // reader that cannot silently half-parse it.
+        const po = await env.SITES_BUCKET.get(siteMetaKey(slug));
+        if (po) prev = JSON.parse(await po.text());
       } catch (e) {
         prevUnreadable = true;
         console.error("previous manifest unreadable:", slug, e && e.message);
@@ -6775,40 +6786,56 @@ async function writeSiteDistToR2(env, slug, dist, meta, pages) {
   //
   // The docstring's "atomic from a visitor's side" was therefore true of the
   // home page and of nothing else.
+  // THE LIVENESS MARKER, added to the dist rather than written separately — so
+  // it rides the same ordering, the same sweep keep-set and the same prefix wipe
+  // as every other published file, and there is no second path that could leave
+  // it behind. Its ABSENCE is what tells the site's own Worker it has been taken
+  // down: under Start the document renders from the bundle and needs no R2, so
+  // without this a deleted site keeps serving its pages. Measured exactly that
+  // way by the container harness before it existed.
+  if (dist && typeof dist === "object") dist[SITE_LIVE_FILE] = { t: "1" };
+
+  // ── WHAT THE SITE'S OWN WORKER READS BACK ────────────────────────────────
+  //
+  // The publish-time half of the head: the description the designer wrote, the
+  // share image (chosen after photographs are bought), this site's origin, and
+  // the route/redirect manifest. `injectMeta` used to patch all of it into a
+  // built shell — and under Start there is no shell, because the document is
+  // `__root.tsx` rendered per request.
+  //
+  // OUTSIDE `sites/<slug>/`, deliberately. The site's Worker serves that prefix
+  // verbatim, so a file under it would be fetchable at `/site-meta.json`.
+  // Nothing here is secret, but a file the site never meant to publish is not
+  // one to publish by accident — and it keeps the publish sweep, which wipes by
+  // that prefix, from deleting the thing every request reads.
+  //
+  // BEST-EFFORT, AND IT SAYS SO: every field is decoration on a document that
+  // renders perfectly without it, so a failure costs a plainer link preview
+  // rather than the site. Failing the publish over a share tag would trade a
+  // working site for a preview card.
+  if (meta || manifest) {
+    try {
+      const sidecar = {
+        description: (meta && meta.description) || "",
+        image: (meta && meta.image) || "",
+        origin: (meta && meta.url) || "",
+        routesCsv: (manifest && manifest.routesCsv) || "",
+        redirectsCsv: (manifest && manifest.redirectsCsv) || "",
+      };
+      await env.SITES_BUCKET.put(siteMetaKey(slug), JSON.stringify(sidecar), {
+        httpMetadata: { contentType: "application/json" },
+      });
+    } catch (e) { console.error("site meta sidecar failed:", slug, e && e.message); }
+  }
+
+  // EVERY DOCUMENT LAST — a page names the new hashed bundle, so nothing may see
+  // it until the bundle it points at is fully written. Kept as a sort rather than
+  // dropped with the prerender: a site published BEFORE Start still has its
+  // documents in the archive, and a rollback copies them back through this same
+  // ordering.
   const entries = Object.entries(dist || {})
     .sort((a, b) => (/\.html$/i.test(a[0]) ? 1 : 0) - (/\.html$/i.test(b[0]) ? 1 : 0));
   for (const [rel, v] of entries) {
-    // The head belongs to the built dist, which the model never sees, so the
-    // share tags go in here. Only ever a no-op on anything unexpected — a site
-    // published without a description is a far smaller problem than one
-    // published broken.
-    //
-    // EVERY HTML FILE, not just index.html, and that is not cosmetic. Each route
-    // is prerendered to its own document now, and this block writes the
-    // `<meta name="site-slug">` tag that `siteSlug()` reads. On a CUSTOM DOMAIN
-    // there is no `/s/<slug>/` in the path, so that tag is the only thing telling
-    // a page which site's API to talk to — leave it off a prerendered page and a
-    // visitor landing directly on /book reads a DIFFERENT site's data, silently.
-    //
-    // Per-page title, description AND URL come from what the page itself
-    // rendered (`pageMeta`), so a booking page pasted into WhatsApp previews as
-    // the booking page, at the booking page's own address. The home page keeps
-    // the site-level description, which the designer wrote for exactly this
-    // purpose. `og:url` named the HOME page on every prerendered page of every
-    // published site until 2026-08-14 — raised in an audit five days earlier and
-    // still true, so a share preview claimed the right page at the wrong URL and
-    // a crawler was told two addresses were one page.
-    if (/\.html$/i.test(String(rel)) && v && typeof v.t === "string" && meta) {
-      const home = /^index\.html$/i.test(String(rel));
-      try {
-        const pm = pageMeta(v.t, meta, { home, route: routeByFile.get(String(rel)) });
-        // The manifest rides the HOME page only — index.html is the one file
-        // the SPA fallback reads, and a copy on every prerendered page would be
-        // bytes nothing ever parses.
-        v.t = injectMeta(v.t, home && manifest ? { ...pm, ...manifest } : pm);
-        if (!home) v.t = setTitle(v.t, pm.brand);
-      } catch (e) { console.error("meta inject failed:", slug, rel, e && e.message); }
-    }
     const safeRel = String(rel).replace(/[^a-z0-9/._-]/gi, "-");
     const ext = (safeRel.match(/\.([a-z0-9]{1,8})$/i) || [])[1] || "";
     const ct = R2_MIME[ext.toLowerCase()] || "application/octet-stream";
@@ -7108,6 +7135,11 @@ async function recompileAndPublish(env, { slug, pages, label }) {
       id: versionId(Date.now(), Math.random().toString(36).slice(2)),
       label: label || "Rebuilt",
       files: Object.keys(built.files || {}).map((rel) => String(rel).replace(/[^a-z0-9/._-]/gi, "-")),
+      // AND THE SCRIPT THAT SERVES THEM. Under Start it is the only thing that
+      // produces a document at all, and it names THIS build's hashed assets —
+      // so a version archived without it can be restored to a blank page or to
+      // a 404 and to nothing else. See `archiveVersion`.
+      worker: (built.worker && built.worker.ok === true && built.worker.code) || undefined,
     });
   } catch (e) { console.error("archive failed:", slug, e && e.message); }
   // LAST, AND ONLY ON SUCCESS. The stored source is what the next edit reads, so
@@ -7116,7 +7148,15 @@ async function recompileAndPublish(env, { slug, pages, label }) {
   await saveSiteSource(env, slug, pages);
   // AND THE REFRESHED SCRIPT, after the files — the ordering `putSiteWorker`
   // owns, and the same one the build path uses one function over.
-  await putSiteWorker(env, slug, built.worker);
+  //
+  // ITS ANSWER IS KEPT, because it stopped being harmless. This discarded the
+  // result while the build path one function over reported it — a real
+  // asymmetry, not a stylistic one: under Start the script is the ONLY thing
+  // that renders a document (`dist/client` holds no HTML, measured), so a failed
+  // upload on a text fix leaves the site 404ing while the customer is told the
+  // typo is corrected. Same `uploaded`/`status`/`error` shape as the build
+  // response, so one client branch reads both.
+  const wput = await putSiteWorker(env, slug, built.worker);
   // THE RENDER REPORT REACHES THE CALLER. Every edit lane pays ~6s for the
   // check inside the container and used to throw the result away (2026-08-14
   // audit) — so a cheap edit that turned the site blank or unreadable
@@ -7136,7 +7176,13 @@ async function recompileAndPublish(env, { slug, pages, label }) {
     lookSoft.push({ what, notes: (Array.isArray(r.notes) ? r.notes : []).slice(0, 2).map((x) => String(x).slice(0, 160)) });
   }
   return { ok: true, files: wrote, look, render, renderNote: renderNote(built.render) || undefined,
-    lookSoft: lookSoft.length ? lookSoft : undefined };
+    lookSoft: lookSoft.length ? lookSoft : undefined,
+    // ONLY ON A FAILURE, so a clean edit's response is byte-identical to before
+    // and the field's PRESENCE is the alarm. The build response uses the same
+    // shape and the same rule.
+    worker: wput && wput.ok === false
+      ? { uploaded: false, status: wput.status, error: String(wput.error || "").slice(0, 200) }
+      : undefined };
 }
 
 async function siteOgImage(env, slug) {
@@ -7362,6 +7408,11 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
           // change the customer asked for, in their own words.
           label: versionLabel({ revise, changeNote, brand }),
           files: Object.keys(dist || {}).map((rel) => String(rel).replace(/[^a-z0-9/._-]/gi, "-")),
+          // AND THE SCRIPT THAT SERVES THEM — the same reason as the cheap-edit
+          // spine one function up: it is what renders the document, and it names
+          // this build's own hashed assets, so a version without it restores to
+          // a blank page or a 404. See `archiveVersion`.
+          worker: (worker && worker.ok === true && worker.code) || undefined,
         });
       } catch (e) { console.error("archive failed:", slug, e && e.message); }
       // AND THE SOURCE THAT PRODUCED IT, so the next revise is an edit rather
@@ -7544,6 +7595,17 @@ async function deleteSiteFor(env, uid, dslug) {
     // and the reason both of those have their own line here.
     try { if (env.SITES_BUCKET) await env.SITES_BUCKET.delete(P_ORPHANS(dslug)); }
     catch (e) { console.error("orphan marker delete failed:", dslug, e && e.message); }
+
+    // AND THE META SIDECAR, for exactly the reason one line up. It carries the
+    // site's description, its share image and its route/redirect manifest, and
+    // it lives outside `sites/<slug>/` so the served prefix cannot expose it and
+    // the publish sweep cannot delete the thing every request reads — which also
+    // means the wipe above walks straight past it. Keyed by slug and by nothing
+    // else, so a leftover is invisible AND would be inherited wholesale by
+    // whoever claims the slug next: the new site would serve the old one's
+    // description and redirect map until its first publish overwrote them.
+    try { if (env.SITES_BUCKET) await env.SITES_BUCKET.delete(siteMetaKey(dslug)); }
+    catch (e) { console.error("site meta delete failed:", dslug, e && e.message); }
 
     // THE NIGHTLY BACKUPS GO WITH THE SITE. They are a second copy of the
     // customers' own data, and a deleted site keeping one in R2 forever is a
@@ -10704,7 +10766,27 @@ async function handleRequest(request, env, ctx) {
       // A NON-STRING IS NOT COERCED. `String(["a","b"])` is `"a,b"`, which
       // strips to a real slug nobody asked for — the coercion bug already
       // recorded for `normalizeRole` and for a table's `access`.
-      const cleanSlug = (v) => (typeof v === "string" ? v : "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 60);
+      //
+      // EDGE HYPHENS ARE TRIMMED, so every slug this route claims is a legal
+      // DNS label. Without it `-shop` and `shop-` pass here and are refused by
+      // `labelOk` in `site-domains.mjs`, so `siteHostFor` answers null and such
+      // a site can only ever be served at `/s/<slug>/` — A SECOND RENDER MOUNT,
+      // which is the thing that has to stop existing. The published bundle
+      // derives its basepath at runtime today (`main.tsx`, `import.meta.url`)
+      // precisely because the same bytes serve at both; anything that bakes a
+      // basepath in — TanStack Start does, on the server AND in `hydrateStart`,
+      // overwriting whatever the router itself set — can serve one mount only.
+      // With no edge-hyphen slug there is only one, and `/s/…` is left as what
+      // it already is: the internal addressing scheme both hostname rewrites
+      // produce, prefix-stripped before dispatch, and a 301 source.
+      //
+      // AFTER THE SLICE, NEVER BEFORE. A 62-character name truncates to 60 and
+      // can land on a hyphen, so trimming first leaves exactly the label this
+      // is written to refuse.
+      //
+      // Safe to add rather than a rename: `site_backends` was measured with no
+      // edge-hyphen slug in it before this landed, so no live site changes name.
+      const cleanSlug = (v) => (typeof v === "string" ? v : "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 60).replace(/^-+|-+$/g, "");
       // Revise sends {slug, instruction} for an existing site; build sends
       // {brief}. Re-applying a schema is safe (all its DDL is additive or
       // IF NOT EXISTS), so both take the same path.
@@ -13222,28 +13304,52 @@ async function handleRequest(request, env, ctx) {
               // here changed nothing observable, which is what an inert guard
               // looks like. `isVersionId` is still imported and used by the
               // module; `id` reaches it as whatever the caller sent.
-              // THE SCRIPT COMES DOWN FIRST, and this is the one place the
-              // order is worth arguing. A script bakes in the shell and the
-              // route list of the build that made it, so restoring an older
-              // build underneath a standing script serves a document naming
-              // assets that are no longer there — blank, at a public address,
-              // with nothing to connect it to the restore. Removing it first
-              // puts the site back on the static path, which is exactly what
-              // the archived files are.
+              // THE VERSION'S OWN SCRIPT IS PART OF THE RESTORE, and this used
+              // to be a `dropSiteWorker` here instead — on the reasoning that
+              // removing it "puts the site back on the static path, which is
+              // exactly what the archived files are."
               //
-              // A FAILED REMOVAL REFUSES THE ROLLBACK. Rolling back anyway is
-              // the broken-page outcome above; refusing leaves the customer
-              // the site they already had, which is the thing they were
-              // unhappy with rather than the thing they cannot use. `null`
-              // means there was nothing to remove — no credentials configured,
-              // which is every site until the upload is switched on.
-              const dropped = await dropSiteWorker(env, ownerSlug);
-              if (dropped && !dropped.ok) {
-                return Response.json({ ok: false, error: "couldn't put the old version back just now — your site is unchanged. Try again in a moment." }, { status: 503 });
-              }
+              // THAT WAS TRUE AND IS NOT. It was written when a published site
+              // was documents plus a bundle, so R2 alone could serve one.
+              // Measured on a real TanStack Start build: `dist/client` contains
+              // NO HTML at all, so there is no static path to go back to — a
+              // rollback that only dropped the script left the site answering
+              // 404 at its own front door. And keeping the standing script is
+              // no better: the server bundle bakes in its OWN build's hashed
+              // asset names (measured, one occurrence each), so it would name
+              // assets the restore has just swept away. Blank either way.
+              //
+              // So the files come back, and then the script that renders them.
+              // `rollbackVersion` reads the archived script BEFORE it copies
+              // anything, so a version that claims one and cannot produce it
+              // refuses rather than half-restoring.
               const rb = await rollbackVersion(versionDepsWithSweep(env), { slug: ownerSlug, id: vb && vb.id });
               if (!rb.ok) return Response.json({ ok: false, error: rb.error || "rollback failed" }, { status: rb.status || 500 });
-              return Response.json({ ok: true, id: rb.id, files: rb.files, swept: rb.swept, url: "/s/" + ownerSlug + "/" });
+
+              // AFTER THE FILES, like every other publish: the script serves the
+              // site's assets out of R2 and its document names them, so uploading
+              // first 404s every stylesheet for as long as the copies take.
+              //
+              // A VERSION WITH NO SCRIPT DROPS WHATEVER IS STANDING. Those are
+              // the pre-Start versions, which carry real prerendered documents —
+              // so the static path genuinely is where they belong, and leaving a
+              // newer script over them is the naming-dead-assets failure above.
+              const wput = rb.worker
+                ? await putSiteWorker(env, ownerSlug, { ok: true, code: rb.worker })
+                : await dropSiteWorker(env, ownerSlug);
+              // LOUD BUT NOT FATAL, and the asymmetry with the old code is
+              // deliberate. The files ARE restored by this point, so refusing
+              // now would report a failure over a change that has happened. What
+              // the customer needs is to know the page may still be the new one;
+              // `worker` on the response is how the panel can say so.
+              if (wput && wput.ok === false) {
+                console.error("ROLLBACK LEFT THE WRONG SCRIPT UP:", ownerSlug, wput.status, wput.error);
+              }
+              return Response.json({
+                ok: true, id: rb.id, files: rb.files, swept: rb.swept,
+                worker: wput ? wput.ok !== false : undefined,
+                url: "/s/" + ownerSlug + "/",
+              });
             }
             return Response.json({ ok: false, error: "method not allowed" }, { status: 405 });
           }

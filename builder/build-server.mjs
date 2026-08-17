@@ -22,43 +22,31 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { resolvePair, fontCss, fontImports } from "./site-fonts.mjs";
 import { themeCss } from "./site-theme.mjs";
 import { resolveTheme } from "./site-theme-registry.mjs";
 import { tokensCss, stripThemeRadius, validForWrite } from "./site-tokens.mjs";
 import { applyStyle, explicitRadiusCss } from "./site-style.mjs";
-import { applyIdentity, initialsMark, normalizeLang } from "./site-identity.mjs";
+import { initialsMark, normalizeLang } from "./site-identity.mjs";
 import { exitReason } from "./exit-reason.mjs";
 import { checkRender } from "./render-check.mjs";
 import { routeOf, fileForRoute } from "./site-addon.mjs";
-import { siteConfigModule, shellIsUsable } from "./site-worker.mjs";
 
 const APP = process.env.APP_DIR || "/app";
 const ROUTES = path.join(APP, "src", "routes");
 const ROUTES_BASE = path.join(APP, ".routes-base");
-const INDEX_BASE = path.join(APP, ".index-base.html");
 const STYLES_BASE = path.join(APP, ".styles-base.css");
 const STYLES = path.join(APP, "src", "styles.css");
 const DIST = path.join(APP, "dist");
-// The server bundle the prerender loads. Kept OUT of `dist`, which is
-// collected wholesale and published — shipping the SSR build to R2 would
-// double every site's size with code no visitor runs.
-const SSR_DIR = "dist-ssr";
-// RESOLVED FROM THIS FILE, never from APP or the cwd. The child is part of the
-// build service, not of the template — it sits wherever build-server.mjs sits,
-// which is `/app` in the image and the repo's `builder/` when the harness runs
-// it from a sandbox copy. Joining it to APP would work in exactly one of those.
-const PRERENDER_CHILD = path.join(path.dirname(fileURLToPath(import.meta.url)), "prerender-child.mjs");
-// Same rule as the prerender child: part of the build SERVICE, not of the
-// template, so it resolves from this file rather than from APP or the cwd.
-const WORKER_ENTRY = path.join(path.dirname(fileURLToPath(import.meta.url)), "site-worker", "entry.js");
-const WORKER_CONFIG = path.join(path.dirname(fileURLToPath(import.meta.url)), "site-worker", "vite.worker.config.mjs");
-// Its own output directory, kept OUT of `dist` for the reason `dist-ssr` is:
-// `collectDist` publishes everything under `dist` wholesale, and the Worker
-// script is uploaded rather than served — shipping it to R2 would put a copy of
-// every site's server code in the public bucket.
-const WORKER_DIR = "dist-worker";
+// START EMITS TWO HALVES. `dist/client` is what a visitor downloads and is the
+// only half published to R2; `dist/server/server.js` is the module uploaded as
+// the site's Worker. Publishing `dist` wholesale would put every asset one
+// directory too deep — the document references `/assets/…` — AND write the
+// site's own server code into the PUBLIC bucket, which is exactly what keeping
+// `dist-worker` out of `dist` has always been about.
+const CLIENT_DIST = path.join(DIST, "client");
+const SERVER_BUNDLE = path.join(DIST, "server", "server.js");
 const GEN = path.join(APP, "src", "routeTree.gen.ts");
 const MAX_BODY = 4 * 1024 * 1024;
 const STEP_TIMEOUT = 150_000;
@@ -84,20 +72,15 @@ function resetRoutes() {
   }
   try { fs.rmSync(GEN, { force: true }); } catch {}
   try { fs.rmSync(DIST, { recursive: true, force: true }); } catch {}
-  // AND THE SERVER BUNDLE, for the same reason as `dist` and the route tree.
-  // This container is long-lived and serves every build on the platform; a
-  // stale `dist-ssr` left behind by a failed SSR build is one site's pages
-  // waiting to be rendered into another site's snapshots. That exact class —
-  // one build's files leaking into the next — has happened here before, and it
-  // is cheaper to delete than to reason about.
-  try { fs.rmSync(path.join(APP, SSR_DIR), { recursive: true, force: true }); } catch {}
-  // AND THE WORKER BUILD, for the same reason one line up: a script left by a
-  // failed build is one site's pages waiting to be uploaded under another
-  // site's name. `site-config.js` goes with it — it is generated per site and
-  // carries the slug, so a stale one is the same leak wearing a smaller file.
-  try { fs.rmSync(path.join(APP, WORKER_DIR), { recursive: true, force: true }); } catch {}
-  try { fs.rmSync(path.join(APP, "src", "site-config.js"), { force: true }); } catch {}
-  try { fs.rmSync(path.join(APP, "vite.worker.config.mjs"), { force: true }); } catch {}
+  // AND THE LEAVINGS OF THE THREE-BUILD PIPELINE, which Start replaced. Kept as
+  // wipes rather than dropped with the code that made them: this container is
+  // long-lived, so an instance carrying a `dist-ssr` or a `dist-worker` from
+  // before the deploy would otherwise hold it until Cloudflare recycled it, and
+  // one build's files leaking into the next is a class that has bitten here
+  // before. They cost nothing and can go once no live instance predates Start.
+  for (const stale of ["dist-ssr", "dist-worker", "vite.worker.config.mjs", path.join("src", "site-config.js")]) {
+    try { fs.rmSync(path.join(APP, stale), { recursive: true, force: true }); } catch {}
+  }
   // AND THE STYLESHEET, which was the one build output nothing reset.
   //
   // `writeTheme` and `writeTokens` both APPEND to whatever `src/styles.css`
@@ -121,9 +104,12 @@ function resetRoutes() {
 
 // The published tab: the business's name, its language, and its own mark.
 //
-// ALWAYS FROM `INDEX_BASE`, never from the last build's output — this is the one
-// file every route's prerendered head derives from, and rewriting it in place
-// would compound one site's title, language and icon into the next one's.
+// IT USED TO PATCH `index.html` WITH A REGEX, and there is no `index.html` any
+// more — Start emits none, because the document is `__root.tsx` rendered per
+// request. So the three values are written as an ordinary generated module and
+// the root route renders them as props. That is a straight simplification: no
+// pattern to get wrong, no pristine base to read from, and the compiler sees
+// them.
 //
 // THE ICON IS WRITTEN TO `icon.svg` RATHER THAN OVER `favicon.svg`. The template
 // ships a real `public/favicon.svg` and this container is long-lived, serving
@@ -131,14 +117,19 @@ function resetRoutes() {
 // first site's mark becomes the fallback for every site afterwards that has no
 // brand. Deleted before every build for the same reason `src/routes` is — a
 // stale one is one site's mark on another's tab.
-function writeIndexHtml(title, lang, brand) {
-  const base = fs.readFileSync(INDEX_BASE, "utf8");
+//
+// THE TITLE IS A DEFAULT, NOT THE ANSWER. It is the root's `head()`, so a route
+// declaring its own overrides it — which is what the per-page title rule already
+// asks the generator to do. Before this, `setTitle` at PUBLISH time stamped the
+// brand onto every non-home page after the fact; a default the routes can beat
+// is the same outcome with the ordering the right way round.
+function writeSiteBrand({ title, lang, logo, slug }) {
   const iconPath = path.join(APP, "public", "icon.svg");
   try { fs.rmSync(iconPath, { force: true }); } catch {}
 
   let icon = null;
   try {
-    const svg = initialsMark(brand || title);
+    const svg = initialsMark(title);
     if (svg) {
       fs.mkdirSync(path.dirname(iconPath), { recursive: true });
       fs.writeFileSync(iconPath, svg);
@@ -150,8 +141,41 @@ function writeIndexHtml(title, lang, brand) {
     icon = null;
   }
 
-  fs.writeFileSync(path.join(APP, "index.html"), applyIdentity(base, { title, lang, icon }));
-  return { lang: normalizeLang(lang), icon: !!icon };
+  // ONLY AN ABSOLUTE https URL OR A SITE-RELATIVE `/u/` PATH for the logo. The
+  // value ends up in a `src` inside generated TypeScript, so it is quoted with
+  // JSON.stringify AND bounded to shapes that cannot be a `javascript:` URL —
+  // the string comes from our own `_meta`, but "it came from us" is how the
+  // first person to reach that row through some other route gets an XSS on a
+  // customer's site.
+  const raw = typeof logo === "string" ? logo.trim() : "";
+  const logoOk = /^https:\/\/[^\s"'<>]+$/i.test(raw)
+    || /^\/u\/[a-z0-9][a-z0-9-]{0,80}\/[a-z0-9._-]{1,120}$/i.test(raw);
+  const logoValue = logoOk ? raw : "";
+  // `normalizeLang` REFUSES rather than defaulting, so an unusable value leaves
+  // the site on the template's English instead of guessing at one.
+  const langValue = normalizeLang(lang) || "en";
+  const titleValue = typeof title === "string" && title.trim() ? title.trim().slice(0, 120) : "App";
+  // THE SLUG IS THE ONE VALUE HERE THAT IS NOT DECORATION. `siteSlug()` reads it
+  // off the head on a custom domain, where there is no `/s/<slug>/` path to learn
+  // it from — get it wrong and every read and every form on the site addresses a
+  // DIFFERENT site's API. Shape-checked rather than trusted: it reaches a URL.
+  const slugValue = /^[a-z0-9][a-z0-9-]{0,80}$/i.test(String(slug || "")) ? String(slug).toLowerCase() : "";
+
+  // WRITTEN ON EVERY BUILD, INCLUDING WHEN A VALUE IS ABSENT. This container is
+  // long-lived and serves every build on the platform, so a file left behind by
+  // the last site is that site's logo, language and mark on this one — the same
+  // leak `resetRoutes` and the per-build icon already guard against. An empty
+  // string is a real answer here and has to be written as one.
+  fs.writeFileSync(
+    path.join(APP, "src", "site-brand.ts"),
+    "// Generated per build by build-server.mjs. Do not edit.\n" +
+      "export const SITE_SLUG = " + JSON.stringify(slugValue) + ";\n" +
+      "export const SITE_LOGO = " + JSON.stringify(logoValue) + ";\n" +
+      "export const SITE_LANG = " + JSON.stringify(langValue) + ";\n" +
+      "export const SITE_ICON = " + JSON.stringify(icon || "/favicon.svg") + ";\n" +
+      "export const SITE_NAME = " + JSON.stringify(titleValue) + ";\n",
+  );
+  return { lang: langValue, icon: !!icon, logo: !!logoValue, slug: !!slugValue, refused: !!raw && !logoOk };
 }
 
 // The site's typeface, written per build.
@@ -247,23 +271,6 @@ function writeFonts(fonts, fontFiles) {
 // `resetRoutes` and the per-build icon already guard against. An empty string is
 // a real answer here and has to be written as one.
 //
-// ONLY AN ABSOLUTE https URL OR A SITE-RELATIVE `/u/` PATH. The value ends up in
-// a `src` inside generated TypeScript, so it is quoted with JSON.stringify AND
-// bounded to shapes that cannot be a `javascript:` URL — the string comes from
-// our own `_meta`, but "it came from us" is how the first person to reach that
-// row through some other route gets an XSS on a customer's site.
-function writeSiteLogo(logo) {
-  const s = typeof logo === "string" ? logo.trim() : "";
-  const ok = /^https:\/\/[^\s"'<>]+$/i.test(s) || /^\/u\/[a-z0-9][a-z0-9-]{0,80}\/[a-z0-9._-]{1,120}$/i.test(s);
-  const value = ok ? s : "";
-  fs.writeFileSync(
-    path.join(APP, "src", "site-brand.ts"),
-    "// Generated per build by build-server.mjs. Do not edit.\n" +
-      "export const SITE_LOGO = " + JSON.stringify(value) + ";\n",
-  );
-  return { logo: !!value, refused: !!s && !ok };
-}
-
 function run(cmd, args, env, opts) {
   return new Promise((resolve) => {
     const child = spawn(cmd, args, { cwd: APP, env: { ...process.env, ...(env || {}) }, ...(opts || {}) });
@@ -298,27 +305,21 @@ function collectDist(dir = DIST, base = "") {
   return out;
 }
 
-// ── A REAL DOCUMENT PER ROUTE ───────────────────────────────────────────────
+// ── WHICH ADDRESSES THIS SITE HAS ───────────────────────────────────────────
 //
-// Without this a published page is an empty `<div id="root">` and a bundle. A
-// search engine runs JavaScript so it gets there eventually; A LINK PREVIEW DOES
-// NOT — WhatsApp, iMessage and Slack fetch the HTML once and read the head — so
-// every page shared anywhere showed the home page's card. This renders the first
-// frame of each route to HTML at build time, which is what both actually want.
+// The render check's work list: every route the browser harness opens and every
+// route the contrast and overflow passes judge. Read off the files that are
+// really there rather than a list, so a page the model wrote is checked without
+// anything having to be told about it.
 //
-// NEVER FAILS THE BUILD. A route it cannot render simply gets no file, and the
-// Worker's fallback then serves `index.html` at that address. That USED to be
-// the empty app shell — this comment said so for a fortnight — and since the
-// prerender exists `index.html` is the HOME PAGE's snapshot, so what a skipped
-// route actually serves is the home page's content, painted and then torn down
-// by `createRoot` on mount. The cost is a brief wrong-page flash for a visitor
-// and the home page's card in that route's link preview, which is exactly the
-// state every page was in before any of this existed: a degradation back to the
-// old behaviour, not a regression past it. Written down because a comment
-// claiming the safer of two behaviours is the thing that gets believed.
+// IT USED TO FEED THE PRERENDER — the build-time step that wrote each route to
+// its own HTML file, because a published page was an empty `<div id="root">` and
+// a link preview does not run JavaScript. Under Start the document is rendered
+// per REQUEST by the site's own Worker, so there is no snapshot to produce and
+// no skipped-route fallback to reason about: a route either exists in the router
+// or it does not.
 //
-// The routes are read off the files that are really there rather than a list,
-// and the FILE-TO-URL MAPPING IS `routeOf`, IMPORTED — not a copy.
+// THE FILE-TO-URL MAPPING IS `routeOf`, IMPORTED — not a copy.
 //
 // It used to be a copy, and the copy read a dot as a literal character where
 // TanStack's flat-route convention reads it as a separator: `about.team.tsx` is
@@ -327,11 +328,11 @@ function collectDist(dir = DIST, base = "") {
 // snapshot of every page written that way.
 //
 // FIXING ONLY THIS COPY WOULD HAVE BEEN WORSE THAN THE BUG. The published route
-// manifest comes from `siteRoutes` → `routeOf`, so a container that prerendered
-// `/about/team` against a manifest still saying `/about.team` makes Round 7's
-// fallback answer 404 for a page that previously loaded through the SPA path.
-// Two readings of one mapping is the repo's recorded "path-shape mismatch"
-// family; the fix is one function, not two agreeing functions.
+// manifest comes from `siteRoutes` → `routeOf`, so a container answering
+// `/about/team` against a manifest still saying `/about.team` makes the
+// platform's fallback 404 a page that previously loaded. Two readings of one
+// mapping is the repo's recorded "path-shape mismatch" family; the fix is one
+// function, not two agreeing functions.
 //
 // WHAT STAYS HERE is only what is genuinely this side's business: walking the
 // directory, and skipping a `$` file. `routeOf` passes a `$` through on purpose
@@ -354,198 +355,66 @@ function routePaths() {
   return [...new Set(out)];
 }
 
-// WHO THE RENDER RUNS AS. Resolved once, at startup, rather than per build: the
-// answer cannot change under a running container, and a per-build /etc/passwd
-// read is a thing that can fail on the path that must not.
-//
-// Only root can drop, so a non-root container answers null and the render still
-// runs — bounded by the subprocess and its SIGKILL, which is the half that
-// closes the availability failure. The privilege drop is the half that closes
-// the cross-tenant one, and it is reported (`unprivileged` on the response)
-// rather than assumed, because "we thought this was sandboxed" is worse than
-// knowing it is not.
-//
-// uid 0 IS NOT A DROP. Without the `> 0` a misconfigured passwd entry would
-// hand model code root and read, from here, exactly like a successful drop.
-const PRERENDER_USER = process.env.PRERENDER_USER || "node";
-const PRERENDER_AS = (() => {
-  try { if (typeof process.getuid !== "function" || process.getuid() !== 0) return null; } catch { return null; }
-  try {
-    const row = fs.readFileSync("/etc/passwd", "utf8").split("\n").find((l) => l.startsWith(PRERENDER_USER + ":"));
-    if (!row) return null;
-    const f = row.split(":");
-    const uid = Number(f[2]), gid = Number(f[3]);
-    return Number.isInteger(uid) && uid > 0 && Number.isInteger(gid) ? { uid, gid } : null;
-  } catch { return null; }
-})();
-
 /**
- * Package this build as a Worker that renders per request.
+ * The site's Worker script — Start's own server build, read off disk.
  *
- * THE SAME `render()` THE PRERENDER USES, run at request time instead of build
- * time. `entry-server.tsx` has exported it since the prerender shipped, so
- * nothing about the template, the routes or the generated pages changes — what
- * is new is a small `fetch` handler around it, bundled into one script.
+ * IT USED TO BE A SECOND VITE PASS. `packageWorker` staged an entry and a
+ * generated `site-config.js` into the template, copied in a second config, and
+ * ran `vite build --ssr` again, purely to get a bundle with its dependencies
+ * INLINED — the Workers runtime has no loader, so an externalised script cannot
+ * run. `src/server.ts` is Start's server entry now and `vite.config.ts` carries
+ * the `noExternal` + `workerd` settings, so that bundle falls out of the build
+ * that was already happening.
  *
- * WHY, and it is the failure this step exists to end: the prerender is
- * best-effort by design, and on 2026-08-16 it produced nothing on a real build
- * — killed by SIGTERM 4.4s in, no output on either stream — so the site
- * published blank to anything that does not run JavaScript, and NOTHING
- * FAILED. Rendering per request removes the artefact that can be missing.
+ * WHAT WENT WITH IT: the shell splicing, and therefore the `[object Object]`
+ * failure — `String()` turned a dist entry into fifteen literal characters and
+ * every page of the site served them as its whole document, past a typecheck, a
+ * bundle, a size check, and an assertion that matched the entry file's own copy
+ * of the string it was looking for.
  *
- * ONE VITE PASS, from source. The entry imports `./entry-server` without an
- * extension so vite resolves the TSX rather than the built SSR output; pointing
- * at the output would need the SSR build to have run first and would make the
- * Worker's contents depend on step order.
- *
- * BEST-EFFORT, LIKE EVERY STEP AROUND IT. A failure here returns no script and
- * the caller publishes static files exactly as it does today. A site is never
- * lost to this, which is what makes it safe to add before anything can serve it.
+ * BEST-EFFORT, like every step around it: no bundle means no script and the
+ * caller publishes static files exactly as it does today.
  */
-async function packageWorker(slug, shell) {
-  // REFUSED WITHOUT A SLUG rather than packaged with an empty one. The slug is
-  // the R2 key prefix the Worker serves its own assets from, so a script
-  // without it answers 404 to every stylesheet and bundle on the site — a page
-  // that renders and then looks broken, which is worse than the static path it
-  // would have replaced.
-  if (!String(slug || "")) return { ok: false, why: "no slug — a worker cannot find its own assets without one" };
-
-  // THE SHELL IS WHAT GETS SERVED, so it is checked before anything is built.
-  //
-  // THIS IS THE CHECK THE FIRST DRAFT SHIPPED WITHOUT, and the failure was
-  // total: the caller passed `dist["index.html"]`, which `collectDist` returns
-  // as `{t: "…"}`, and `String()` turned that object into the literal fifteen
-  // characters `[object Object]` — a valid string, so the module generated, the
-  // bundle built, and every page of the site served those fifteen characters as
-  // its whole document. Nothing in the pipeline could see it: it typechecks, it
-  // bundles, it is a plausible size, and the harness's own "…and the HTML shell
-  // to render into" assertion passed on the entry file's copy of the string it
-  // was looking for. Found by EXECUTING a real bundle.
-  const usable = shellIsUsable(shell);
-  if (!usable.ok) return { ok: false, why: usable.why };
-
-  // THE SITE'S OWN ROUTES, read the way the prerender reads them, so the two
-  // cannot disagree about what a route is. `routePaths` is the one place that
-  // knows the file-to-URL conventions (a trailing `_`, a leading `_`, a dot as
-  // a separator); a second reading here is the class of bug that put `/about.team`
-  // in a manifest for a page really served at `/about/team`.
-  const routes = routePaths();
-  const src = path.join(APP, "src");
+function readSiteWorker() {
   try {
-    fs.writeFileSync(path.join(src, "site-config.js"), siteConfigModule({ shell, slug, routes }));
-    fs.copyFileSync(WORKER_ENTRY, path.join(src, "site-worker-entry.js"));
-    // THE CONFIG IS COPIED IN TOO, and it has to be. Vite loads a config by
-    // writing a temp module next to the config file's own root — so one living
-    // in the build service resolves `vite` and `@vitejs/plugin-react` from
-    // THERE, where neither is installed. Measured: "Cannot find package 'vite'
-    // imported from node_modules/.vite-temp/…". Inside the template it
-    // resolves like any other import.
-    fs.copyFileSync(WORKER_CONFIG, path.join(APP, "vite.worker.config.mjs"));
+    const code = fs.readFileSync(SERVER_BUNDLE, "utf8");
+    // A NUMBER WRONG BY AN ORDER OF MAGNITUDE is harder to satisfy by accident
+    // than a pattern, which is what caught the externalised bundle the first
+    // time: 17,647 bytes importing React from a bare specifier — not a bundled
+    // app, and undeployable. The assertion written to catch it looked for
+    // RELATIVE imports, and a bare `from "react"` walks straight past that.
+    if (code.length < 300_000) {
+      return { ok: false, why: "the server bundle is " + code.length + " bytes — its dependencies were externalised and it cannot run in a Worker" };
+    }
+    return { ok: true, why: "", code, bytes: Buffer.byteLength(code) };
   } catch (e) {
-    return { ok: false, why: "could not stage the worker entry: " + String((e && e.message) || e) };
+    return { ok: false, why: "could not read the server bundle: " + String((e && e.message) || e) };
   }
-
-  // Wiped first for the reason `dist-ssr` is: this container is long-lived and
-  // serves every build on the platform, so a script left behind by a failed
-  // build is one site's pages waiting to be uploaded under another site's name.
-  try { fs.rmSync(path.join(APP, WORKER_DIR), { recursive: true, force: true }); } catch {}
-
-  // ITS OWN CONFIG, and that is not tidiness. `vite build --ssr` externalises
-  // dependencies by default — right for the prerender, which runs in Node with
-  // `node_modules` beside it, and fatally wrong here: the Workers runtime has
-  // no loader. Measured on the first real container run, the plain flag
-  // produced 17,647 bytes importing React from a bare specifier, which is not
-  // a bundled app and could never have been uploaded.
-  const r = await run("npx", ["vite", "build", "--config", "vite.worker.config.mjs",
-    "--ssr", "src/site-worker-entry.js", "--outDir", WORKER_DIR, "--logLevel", "error"], {});
-  if (r.code !== 0) return { ok: false, why: exitReason("the worker build", r) };
-
-  let code = "";
-  try { code = fs.readFileSync(path.join(APP, WORKER_DIR, "site-worker-entry.js"), "utf8"); } catch {}
-  if (!code) return { ok: false, why: "the worker build wrote no script" };
-  return { ok: true, why: "", code, bytes: Buffer.byteLength(code) };
 }
 
-async function prerender() {
-  const done = [], skipped = [];
-
-  const ssr = await run("npx", ["vite", "build", "--ssr", "src/entry-server.tsx", "--outDir", SSR_DIR, "--logLevel", "error"], {});
-  // THE COMPILER'S OWN REASON. This said "ssr build failed" — four words naming
-  // the step we already knew, which is the exact sentence `exitReason` was
-  // written to abolish — on the single failure that costs every snapshot on a
-  // site. An operator working out why sites stopped getting snapshots after a
-  // template change had nothing to read and had to reproduce the build by hand.
-  if (ssr.code !== 0) return { done, skipped: ["*: " + exitReason("the ssr build", ssr)], unprivileged: !!PRERENDER_AS };
-
-  // The shell is read BEFORE the render, so a missing or malformed one costs no
-  // subprocess: there would be nothing to splice the bodies into.
-  let shell;
-  try { shell = fs.readFileSync(path.join(DIST, "index.html"), "utf8"); } catch { return { done, skipped: ["*: no index.html"], unprivileged: !!PRERENDER_AS }; }
-  const slot = shell.indexOf('<div id="root">');
-  if (slot < 0) return { done, skipped: ["*: no root element in the shell"], unprivileged: !!PRERENDER_AS };
-  const open = shell.slice(0, slot + '<div id="root">'.length);
-  const close = shell.slice(shell.indexOf("</div>", slot));
-
-  const routes = routePaths();
-  if (!routes.length) return { done, skipped: ["*: no routes to render"], unprivileged: !!PRERENDER_AS };
-
-  // MODEL-WRITTEN CODE, IN ITS OWN PROCESS, WRITING NOTHING. See the header of
-  // `prerender-child.mjs` for why — in short, this used to `import()` the
-  // generated bundle here and call it, so a hostile brief's code ran with the
-  // build service's privileges inside the loop that answers `/health`, in a
-  // container shared by every customer on the platform. `run` gives it the same
-  // STEP_TIMEOUT and SIGKILL every other step has had all along.
-  const child = await run(process.execPath, [PRERENDER_CHILD, path.join(APP, SSR_DIR, "entry-server.js"), JSON.stringify(routes)], {}, PRERENDER_AS || undefined);
-
-  // WHATEVER ARRIVED, even from a killed child. The lines are written and
-  // flushed one route at a time precisely so a page that hangs costs its own
-  // snapshot rather than the site's — so the output is parsed before the exit
-  // status is judged. A half-written final line fails to parse and is dropped,
-  // which is the one thing that must not be accepted as a page.
-  const seen = new Set();
-  let fatal = "";
-  for (const raw of String(child.out || "").split("\n")) {
-    const s = raw.trim();
-    if (!s) continue;
-    let msg;
-    try { msg = JSON.parse(s); } catch { continue; }
-    if (!msg || typeof msg !== "object") continue;
-    if (msg.fatal) { fatal = String(msg.fatal); continue; }
-    if (typeof msg.p !== "string") continue;
-    seen.add(msg.p);
-    if (typeof msg.err === "string") { skipped.push(msg.p + ": " + msg.err.slice(0, 120)); continue; }
-    if (typeof msg.body !== "string") continue;
-    const body = msg.body;
-    // A THROW DURING A SERVER RENDER DOES NOT REACH US. React catches it,
-    // switches that subtree to client rendering and returns markup — 5.6 KB of
-    // it, containing no words — with no exception anywhere. Every route
-    // "succeeded" and every snapshot was empty, measured on the first run. So
-    // the marker React leaves behind is checked, and so is the presence of
-    // actual text: a snapshot with no words in it is not one worth publishing.
-    //
-    // JUDGED HERE AND NOT IN THE CHILD, deliberately: the child's whole job is
-    // to render and print, and every rule it does not carry is a rule that
-    // cannot be got wrong by the code running beside the model's.
-    if (/Switched to client rendering/.test(body)) { skipped.push(msg.p + ": render errored (client fallback)"); continue; }
-    if (!/>[^<>]*[A-Za-z]{3,}/.test(body)) { skipped.push(msg.p + ": rendered no text"); continue; }
-    const file = fileForRoute(msg.p);
-    const full = path.join(DIST, file);
-    try {
-      fs.mkdirSync(path.dirname(full), { recursive: true });
-      fs.writeFileSync(full, open + body + close);
-      done.push(msg.p);
-    } catch (e) { skipped.push(msg.p + ": " + String((e && e.message) || e).slice(0, 120)); }
+/**
+ * The built server's `fetch`, for the render check to drive.
+ *
+ * NULL RATHER THAN A THROW. This is a diagnostic's dependency, not the build's:
+ * a bundle that will not load costs a render report and must never cost the
+ * site. `checkRender` answers honestly when it gets nothing.
+ *
+ * CACHE-BUSTED PER CALL. This container is long-lived and serves every build on
+ * the platform, so Node's module cache would hand back the PREVIOUS site's
+ * server and every render report after the first would be a statement about
+ * somebody else's pages — the one-build-leaks-into-the-next class `resetRoutes`
+ * and the per-build icon already guard against.
+ */
+async function loadSiteServer() {
+  try {
+    const mod = await import(pathToFileURL(SERVER_BUNDLE).href + "?b=" + Date.now());
+    const app = mod && mod.default;
+    if (!app || typeof app.fetch !== "function") return null;
+    return (request) => app.fetch(request, {});
+  } catch (e) {
+    console.error("could not load the server bundle for the render check:", String((e && e.message) || e));
+    return null;
   }
-
-  if (fatal) skipped.push("*: " + fatal.slice(0, 200));
-  // The routes the child never got to. Named individually rather than as one
-  // "*: killed" line, because the question a reader has is which pages lost
-  // their snapshot — and with the reason attached, so a kill is not read as the
-  // page having rendered nothing.
-  const why = child.code === 0 ? "no result from the renderer" : exitReason("the renderer", child);
-  for (const p of routes) if (!seen.has(p)) skipped.push(p + ": " + why.slice(0, 120));
-
-  return { done, skipped, unprivileged: !!PRERENDER_AS };
 }
 
 // The theme's own CSS, appended to whatever writeFonts left behind.
@@ -690,8 +559,9 @@ const server = http.createServer((req, res) => {
     return oneAtATime(async () => {
     try {
       resetRoutes();
-      const identityUsed = writeIndexHtml(payload.title, payload.lang, payload.title);
-      const logoUsed = writeSiteLogo(payload.logo);
+      // ONE writer for all four, because they land in ONE generated module and
+      // two writers of one file is one of them silently losing.
+      const brandUsed = writeSiteBrand({ title: payload.title, lang: payload.lang, logo: payload.logo, slug: payload.slug });
       const fontsUsed = writeFonts(payload.fonts, payload.fontFiles);
       // ONE reading of the patch, shared: whether a radius was asked for decides
       // both that the theme's own corner rules give way and what is written.
@@ -750,39 +620,45 @@ const server = http.createServer((req, res) => {
         return send(res, 200, { ok: false, stage: "build", error: exitReason("vite build", build).slice(0, 4000), ms: Date.now() - t0, ...times });
       }
 
-      // Real HTML per route, so a page is a document and not an empty div.
-      // Best-effort by construction: `prerender` never throws and a route it
-      // cannot render simply gets no file, which the Worker's fallback already
-      // serves as the app shell — exactly today's behaviour. A snapshot is worth
-      // having and is never worth failing a build for.
-      const pre = await timed("preMs", null, null, () => prerender());
-
+      // NO PRERENDER STEP. Under Start the document is rendered per REQUEST by
+      // the server bundle this build just produced, so there is no build-time
+      // snapshot left to be missing — which is the failure that made the Worker
+      // tier necessary in the first place (2026-08-16: the child was killed 4.4s
+      // in, wrote nothing to either stream, and the site published blank to
+      // anything that does not run JavaScript, with nothing reporting a failure).
+      //
       // THE ONLY STEP THAT EVER LOOKS AT THE SITE. Everything above is textual —
       // is it a file, does it name real things, does it compile, does it bundle —
       // and none of that can see a page that renders blank, throws on load, or
       // paints text nobody can read. Every visual failure this platform has
       // recorded got through all four and was found by a person looking.
       //
-      // Fed the routes `prerender` ACTUALLY wrote, so it inspects the documents a
-      // visitor really gets rather than a list of what ought to exist.
+      // IT NOW DRIVES THE REAL SERVER rather than a snapshot, which is strictly
+      // better: the bytes it inspects are the bytes a visitor receives, from the
+      // same code that will serve them.
       //
-      // Best-effort by construction, exactly like the prerender above it:
-      // `checkRender` has a try around everything and reports rather than
-      // throwing, so a browser that will not start costs a report and never a
-      // build. Reporting only — nothing here refuses a publish.
-      // UNGATED on prerender having produced anything. It was `pre.done.length
-      // ? checkRender(...) : null`, and that gate meant the one failure mode
-      // that loses EVERY snapshot — a total prerender failure — also switched
-      // off the only check that would have said so: checkRender's own first
-      // line already answers an empty list with {ok:false, error:"no
-      // prerendered routes to look at"}, before any browser is launched, and
-      // the gate prevented that honest report from ever being produced
-      // (2026-08-13 audit). A harness that silently reports nothing reads
-      // exactly like a site with nothing wrong.
-      const render = await timed("renderMs", null, null, () => checkRender(DIST, pre.done));
+      // Best-effort by construction: `loadSiteServer` returns null rather than
+      // throwing, and `checkRender` has a try around everything and reports
+      // rather than throwing, so a bundle that will not load costs a report and
+      // never a build. Reporting only — nothing here refuses a publish.
+      const ssrFetch = await loadSiteServer();
+      const render = await timed("renderMs", null, null, () => checkRender(CLIENT_DIST, routePaths(), ssrFetch));
 
-      const dist = collectDist();
-      if (!dist["index.html"]) return send(res, 200, { ok: false, stage: "build", error: "build produced no index.html", ms: Date.now() - t0, ...times });
+      // ONLY THE CLIENT HALF IS PUBLISHED. Start emits `dist/client/**` (what a
+      // visitor downloads) and `dist/server/server.js` (the script that renders).
+      // `collectDist(DIST)` would publish BOTH — so every asset would land at
+      // `sites/<slug>/client/assets/…` and 404, since the document references
+      // `/assets/…`, AND the site's own server code would be written into the
+      // PUBLIC bucket. That second one is exactly what keeping `dist-worker` out
+      // of `dist` has always been about.
+      const dist = collectDist(CLIENT_DIST);
+      // THE GATE MOVED FROM `index.html` TO THE BUNDLE, because Start emits no
+      // top-level document at all — a clean build's `dist/` is `client/` and
+      // `server/` and nothing else, measured. What still has to exist is
+      // something for the browser to run.
+      if (!Object.keys(dist).some((k) => /^assets\/.+\.js$/i.test(k))) {
+        return send(res, 200, { ok: false, stage: "build", error: "build produced no client bundle", ms: Date.now() - t0, ...times });
+      }
 
       // OFF UNLESS ASKED FOR, and that is the whole reason it is safe to land
       // before anything can serve it. Packaging is a second vite pass — real
@@ -798,19 +674,36 @@ const server = http.createServer((req, res) => {
       // is undefined for every request and the step would never have run. A
       // silent no-op behind a flag reads exactly like a feature that is switched
       // off, which is the shape this repo keeps paying for.
-      let worker = null;
-      if (payload.worker) {
-        // `.t`, NOT THE ENTRY. `collectDist` returns every text file as
-        // `{t: "…"}` and every binary one as `{b: "…"}`, so handing the entry
-        // straight over gave `packageWorker` an object where a document was
-        // expected — see the note on `shellIsUsable` in it. Read defensively
-        // rather than destructured: a missing `index.html` is `undefined` here
-        // and is refused by name one layer down, which is the honest answer.
-        const shell = (dist["index.html"] || {}).t;
-        worker = await timed("workerMs", null, null, () => packageWorker(payload.slug, shell));
-      }
+      // THE SCRIPT IS THE BUILD'S OWN OUTPUT. It used to be a SECOND vite pass
+      // with its own config, staging an entry and a generated `site-config.js`
+      // into the template first; `src/server.ts` is Start's server entry now, so
+      // `dist/server/server.js` already IS the uploadable module — one build
+      // instead of three, and the `[object Object]` class of bug goes with the
+      // splicing that produced it.
+      //
+      // Still behind the flag, and for the reason it always was: the decision is
+      // per site (an owner on the static path and an owner on the rendered path
+      // can coexist), which a container-wide switch cannot express. It costs
+      // nothing now beyond reading a file.
+      // REFUSED WITHOUT A SLUG rather than packaged with an empty one, which is
+      // `packageWorker`'s own rule and had to be restored here when it went: the
+      // slug is baked into `site-brand.ts` and the entry builds its R2 keys from
+      // it, so a script without one answers 404 to every stylesheet, every
+      // bundle and its own meta — a page that renders and then looks broken,
+      // which is worse than the static path it would have replaced. Verified by
+      // EXECUTING a bundle built with an empty slug: every asset 404'd and the
+      // share tags were silently absent.
+      let worker = payload.worker && !brandUsed.slug
+        ? { ok: false, why: "no slug — a worker cannot find its own assets or its meta without one" }
+        : null;
+      if (payload.worker && brandUsed.slug) worker = readSiteWorker();
 
-      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, fonts: fontsUsed, theme: themeUsed, tokens: tokensUsed, identity: identityUsed, brand: logoUsed, prerendered: pre.done, prerenderSkipped: pre.skipped, prerenderUnprivileged: !!pre.unprivileged, render, worker });
+      // `prerendered`/`prerenderSkipped`/`prerenderUnprivileged` ARE GONE, not
+      // emptied. The step does not exist under Start, and reporting an empty
+      // list for it would read to every caller as "the prerender ran and
+      // produced nothing" — the one state that used to mean every page of the
+      // site published blank. An absent field says the step is absent.
+      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, fonts: fontsUsed, theme: themeUsed, tokens: tokensUsed, brand: brandUsed, render, worker });
     } catch (e) {
       return send(res, 200, { ok: false, stage: "build", error: String((e && e.message) || e).slice(0, 2000), ms: Date.now() - t0, ...times });
     }

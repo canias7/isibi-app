@@ -28,7 +28,7 @@ function tsc(project) {
   return { code: r.status, out: (r.stdout || "") + (r.stderr || ""), ms: Date.now() - started };
 }
 
-// The route tree comes first: the per-build check below needs it (main.tsx
+// The route tree comes first: the per-build check below needs it (router.tsx
 // imports src/routeTree.gen.ts), and generating it up front means both tsc
 // passes run against the same freshly generated file. src/family-pages is in
 // NEITHER pass — each family app declares routes the template tree never
@@ -50,7 +50,7 @@ else bad("the component kit does not typecheck", kit.out.split("\n").slice(0, 20
 // paying for the kit again with nobody noticing.
 //
 // `tsr generate` FIRST, because that is what a site build does — build-server
-// runs it before typechecking for the stated reason that main.tsx imports
+// runs it before typechecking for the stated reason that router.tsx imports
 // src/routeTree.gen.ts. That file is generated and gitignored, so it exists on
 // any machine that has ever built and never in a fresh checkout: this test
 // passed locally and failed in CI on both errors it produces, which is the

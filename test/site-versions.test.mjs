@@ -596,3 +596,117 @@ test("an extensionless path falls back to the app shell, and an asset never does
   assert.match(w.slice(miss, servedAt), /logSiteHit\(env, ctx, slug, "\/" \+ rest, request\)/,
     "the hit log stopped recording the path it was served");
 });
+
+/* ── the script that serves a version ───────────────────────────────────── */
+
+test("A VERSION KEEPS THE SCRIPT THAT SERVES IT", async () => {
+  // MEASURED ON A REAL TANSTACK START BUILD, which is what makes this necessary
+  // rather than tidy: `dist/client` contains no HTML at all, and the server
+  // bundle bakes in that build's own content-hashed client asset names (one
+  // occurrence each). So a document exists only because a script renders it, and
+  // only THAT build's script can name THAT build's assets.
+  const b = bucket(published());
+  const id = versionId(1000, "aa");
+  const r = await archiveVersion(b.deps, { slug: "cafe", id, label: "First", files: DIST, worker: "export default 1" });
+  assert.equal(r.ok, true);
+  assert.equal(r.worker, true, "the script was not archived");
+  assert.equal(b.store.get("versions/cafe/" + id + "/_worker.js"), "export default 1");
+  assert.equal(JSON.parse(b.store.get("versions/cafe/" + id + "/_manifest.json")).worker, true);
+});
+
+test("the archived script is NOT a published file", async () => {
+  // It lives under `versions/`, which nothing serves — so it can never be
+  // fetched. And it must stay out of `files`, or a rollback would copy a site's
+  // own server code onto the PUBLIC prefix.
+  const b = bucket(published());
+  const id = versionId(1000, "aa");
+  await archiveVersion(b.deps, { slug: "cafe", id, files: DIST, worker: "export default 1" });
+  const m = JSON.parse(b.store.get("versions/cafe/" + id + "/_manifest.json"));
+  assert.ok(!m.files.includes("_worker.js"), "the script is listed as a published file");
+  const rb = await rollbackVersion(b.deps, { slug: "cafe", id });
+  assert.equal(rb.ok, true);
+  assert.equal(b.store.get("sites/cafe/_worker.js"), undefined, "the script was copied onto the served prefix");
+});
+
+test("A ROLLBACK HANDS THE SCRIPT BACK — it does not upload it", async () => {
+  // This module's whole point is that it drives with a fake store and no
+  // Cloudflare account; the caller owns the dispatch namespace.
+  const b = bucket(published());
+  const id = versionId(1000, "aa");
+  await archiveVersion(b.deps, { slug: "cafe", id, files: DIST, worker: "export default 1" });
+  const rb = await rollbackVersion(b.deps, { slug: "cafe", id });
+  assert.equal(rb.worker, "export default 1");
+});
+
+test("A VERSION WITH NO SCRIPT ANSWERS null, and is still restorable", async () => {
+  // Every version archived before this carries real prerendered documents, so
+  // the static path is genuinely where it should go back to — and the caller
+  // reads `null` as "take down whatever is standing". Refusing these would break
+  // every rollback on the platform the day this shipped.
+  const b = bucket(published());
+  const id = versionId(1000, "aa");
+  await archiveVersion(b.deps, { slug: "cafe", id, files: DIST });
+  assert.equal(JSON.parse(b.store.get("versions/cafe/" + id + "/_manifest.json")).worker, undefined,
+    "a manifest claims a script that was never written");
+  const rb = await rollbackVersion(b.deps, { slug: "cafe", id });
+  assert.equal(rb.ok, true);
+  assert.equal(rb.worker, null);
+});
+
+test("A CLAIMED SCRIPT THAT IS MISSING REFUSES, BEFORE ANY FILE IS COPIED", async () => {
+  // The half-restore is the dangerous outcome: the files back, the standing
+  // script still naming the previous build's assets, and the customer told it
+  // was restored. Refusing leaves them the site they had.
+  const b = bucket(published());
+  const id = versionId(1000, "aa");
+  await archiveVersion(b.deps, { slug: "cafe", id, files: DIST, worker: "export default 1" });
+  b.store.delete("versions/cafe/" + id + "/_worker.js");
+  const before = new Map(b.store);
+  const rb = await rollbackVersion(b.deps, { slug: "cafe", id });
+  assert.equal(rb.ok, false);
+  assert.equal(rb.status, 409);
+  assert.match(rb.error, /script is missing/);
+  assert.deepEqual([...b.store.keys()].sort(), [...before.keys()].sort(), "a refused rollback still wrote something");
+});
+
+test("A FAILED SCRIPT WRITE DOES NOT CLAIM ONE", async () => {
+  // A flag set over a write that failed is a version reporting itself
+  // restorable and restoring a site with no document — strictly worse than one
+  // that honestly has no script, because that one still falls back.
+  const b = bucket(published());
+  const id = versionId(1000, "aa");
+  const put = b.deps.put;
+  b.deps.put = async (key, text, ct) => {
+    if (key.endsWith("_worker.js")) throw new Error("r2 down");
+    return put(key, text, ct);
+  };
+  const r = await archiveVersion(b.deps, { slug: "cafe", id, files: DIST, worker: "export default 1" });
+  assert.equal(r.ok, true, "a failed script write must not fail the archive — the site is already live");
+  assert.equal(r.worker, false);
+  assert.equal(JSON.parse(b.store.get("versions/cafe/" + id + "/_manifest.json")).worker, undefined,
+    "the manifest claims a script that is not there");
+});
+
+test("a non-string script is ignored rather than stored", async () => {
+  // `String({})` is "[object Object]" — a perfectly valid JavaScript-shaped
+  // string that would upload and serve nothing, which is the coercion class
+  // this repo has recorded four times.
+  const b = bucket(published());
+  for (const bad of [{}, ["export default 1"], 7, true, ""]) {
+    const id = versionId(1000, "a" + String(bad).slice(0, 1));
+    const r = await archiveVersion(b.deps, { slug: "cafe", id, files: DIST, worker: bad });
+    assert.equal(r.worker, false, "a " + typeof bad + " was archived as a script");
+  }
+});
+
+test("PRUNING TAKES THE SCRIPT WITH THE VERSION", async () => {
+  // A leftover script under a pruned version is a megabyte-and-a-half of dead
+  // weight per site with nothing that would ever find it again — the same class
+  // as the orphaned Neon project and the leftover meta sidecar.
+  const b = bucket(published());
+  for (let i = 1; i <= MAX_VERSIONS + 1; i++) {
+    await archiveVersion(b.deps, { slug: "cafe", id: versionId(1000 + i, "a" + i), files: DIST, worker: "v" + i });
+  }
+  const scripts = [...b.store.keys()].filter((k) => k.endsWith("/_worker.js"));
+  assert.equal(scripts.length, MAX_VERSIONS, "a pruned version left its script behind: " + scripts.join(" "));
+});

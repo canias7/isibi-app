@@ -350,7 +350,14 @@ test("writeSiteDistToR2 derives the manifest and writes both files into the dist
   assert.ok(end > at, "the entries sort moved — the manifest window has no end");
   const head = worker.slice(at, end);
   assert.match(head, /siteRoutes\(pages\)/, "the route list is not derived from the pages");
-  assert.match(head, /parseSiteManifest\(await po\.text\(\)\)/, "the previous manifest is never read — deletions leave no redirect");
+  // READ FROM THE SIDECAR, NOT PARSED OUT OF A DOCUMENT. This asserted
+  // `parseSiteManifest(await po.text())` — the previous publish's `index.html`,
+  // which under Start does not exist: the build emits no top-level document and
+  // the head is composed per request. The PROPERTY is unchanged and is what is
+  // asserted here: the previous manifest is read, so a deleted page leaves a 301
+  // where it was.
+  assert.match(head, /await env\.SITES_BUCKET\.get\(siteMetaKey\(slug\)\)/,
+    "the previous manifest is never read — deletions leave no redirect");
   assert.match(head, /mergeRedirects\(prev, man\.routes\)/, "gone routes are not diffed into redirects");
   assert.match(head, /dist\["sitemap\.xml"\] = \{ t: sitemapXml\(/, "no sitemap is written at publish");
   assert.match(head, /dist\["robots\.txt"\] = \{ t: robotsTxt\(\) \}/, "robots.txt keeps the template's two-line file");
@@ -361,9 +368,20 @@ test("writeSiteDistToR2 derives the manifest and writes both files into the dist
     "a routeless site publishes an empty sitemap declaring it has no pages");
 });
 
-test("the manifest rides ONLY the home page's head", () => {
-  assert.match(worker, /injectMeta\(v\.t, home && manifest \? \{ \.\.\.pm, \.\.\.manifest \} : pm\)/,
-    "the home page no longer carries the manifest — the fallback reads index.html and nothing else");
+test("the manifest is written where the site's own Worker reads it", () => {
+  // IT USED TO RIDE THE HOME PAGE'S HEAD, and that assertion went vacuous rather
+  // than red: it matched a source string for a branch that can no longer run,
+  // because under Start the dist contains no HTML at all and the `injectMeta`
+  // loop iterates over nothing. A guard that passes because its subject stopped
+  // existing is the shape this repo keeps paying for.
+  //
+  // The manifest now travels in the meta sidecar — one object, outside the
+  // served prefix — and `test/site-meta-sidecar.test.mjs` holds the key itself
+  // against the template's copy of it.
+  assert.match(worker, /routesCsv: \(manifest && manifest\.routesCsv\) \|\| ""/,
+    "the route list is not written to the sidecar — the SPA fallback has no opinion");
+  assert.match(worker, /redirectsCsv: \(manifest && manifest\.redirectsCsv\) \|\| ""/,
+    "the redirect map is not written — a renamed page hard-404s every indexed link");
 });
 
 test("the sitemap and robots are archived with the build, so a restore keeps them", () => {
@@ -448,12 +466,36 @@ test("the 404 never counts as a page view", () => {
 
 // ── The template's branded 404 ──────────────────────────────────────────────
 
-test("the router mounts the kit's NotFound page, basepath-aware", () => {
-  const main = fs.readFileSync(new URL("../builder/lovable/template/src/main.tsx", import.meta.url), "utf8");
-  assert.match(main, /import \{ NotFound \} from "@\/components\/ui\/not-found"/,
+test("the router mounts the kit's NotFound page", () => {
+  // WITHOUT IT TanStack renders its own bare text — the render check has
+  // literally measured that as "blank: only 9 characters" — while the kit's own
+  // `not-found.tsx` sits unused.
+  //
+  // READ OFF `router.tsx`, WHICH IS NOW THE ONLY ROUTER. It was `main.tsx`, and
+  // `entry-server.tsx` built a second one beside it; TanStack Start calls one
+  // `getRouter()` from both `createStartHandler` and `hydrateStart`, so the two
+  // can no longer disagree about the 404 either.
+  const router = fs.readFileSync(new URL("../builder/lovable/template/src/router.tsx", import.meta.url), "utf8");
+  assert.match(router, /import \{ NotFound \} from "@\/components\/ui\/not-found"/,
     "the 404 component is not imported — TanStack's bare nine characters render again");
-  assert.match(main, /defaultNotFoundComponent:/,
+  assert.match(router, /defaultNotFoundComponent:/,
     "the router has no not-found component — the render check's 'blank: only 9 characters' case");
-  assert.match(main, /NotFound homeHref=\{basepath/,
-    "the 404's way home ignores the basepath — a workspace-mounted visitor is sent to the platform root");
+
+  // THE WAY HOME IS `/`, AND THAT IS A CONSEQUENCE OF STAGE 1 RATHER THAN A
+  // SHORTCUT. `NotFound` renders `homeHref` into a plain `<a href>`, which no
+  // router resolves, so on a `/s/<slug>/` mount it would send the visitor to the
+  // PLATFORM's root. That is why this used to be `homeHref={basepath}`, derived
+  // at runtime from `import.meta.url`.
+  //
+  // Start bakes `ROUTER_BASEPATH` at build time and OVERWRITES whatever the
+  // factory sets, so a runtime-derived basepath is not available here at all.
+  // What makes `/` correct instead is that `cleanSlug` now refuses an edge
+  // hyphen, so every slug is a legal DNS label, every site has a pretty host,
+  // and `/` is the only mount a Start bundle is ever served at.
+  assert.match(router, /NotFound homeHref="\/"/,
+    "the 404's way home is not the site root");
+  const slug = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(slug, /const cleanSlug = [^;]*replace\(\/\^-\+\|-\+\$\/g, ""\)/,
+    "cleanSlug admits an edge hyphen again — such a site has no pretty host, is served at " +
+    "/s/<slug>/, and its 404 would send visitors to the platform root");
 });

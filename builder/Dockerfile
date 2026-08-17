@@ -55,9 +55,19 @@ COPY lovable/template/ ./
 # 2026-08-01 — index, book, manage, account — and removing one by name would
 # have shipped a stranger's booking page to every site that did not build one.
 # `find` rather than a list, so adding a fifth needs no change here.
+#
+# NO `.index-base.html` ANY MORE. It was the pristine shell `writeIndexHtml`
+# patched per build — and under TanStack Start there is no shell: the document
+# is `src/routes/__root.tsx`, rendered per request, and a clean build emits no
+# top-level `index.html` at all. The title, language and mark it used to inject
+# with a regex are `src/site-brand.ts` now, which `writeSiteBrand` rewrites every
+# build like any other generated module.
+#
+# THE `&&` CHAIN IS WHY THIS HAD TO MOVE IN THE SAME COMMIT as the template: a
+# `cp` of a file that no longer exists fails the whole RUN, so the image would
+# simply stop building.
 RUN mkdir -p /app/.routes-base \
     && cp src/routes/__root.tsx /app/.routes-base/ \
-    && cp index.html /app/.index-base.html \
     && cp src/styles.css /app/.styles-base.css \
     && find src/routes -maxdepth 1 -name '*.tsx' ! -name '__root.tsx' -delete
 
@@ -73,37 +83,34 @@ RUN mkdir -p /app/.routes-base \
 # anything being added here. `test/dockerfile.test.mjs` walks the imports from
 # build-server.mjs and fails if one is not copied, so the warning is enforced
 # rather than written down.
-# `prerender-child.mjs` IS SPAWNED, NOT IMPORTED, so the import walk in
-# test/dockerfile.test.mjs cannot see it — a missing COPY here would not fail
-# that guard, it would fail every build's prerender at runtime with MODULE_NOT_FOUND
-# and publish every site with the home page's snapshot at every address. It has
-# its own assertion in that file for exactly that reason.
-COPY build-server.mjs prerender-child.mjs exit-reason.mjs site-addon.mjs site-fonts.mjs font-index.json site-theme.mjs site-theme-registry.mjs site-tokens.mjs site-style.mjs site-identity.mjs render-check.mjs site-render.mjs site-worker.mjs ./
+# NO `prerender-child.mjs` AND NO `site-worker/` ANY MORE. Both were spawned or
+# read off disk rather than imported, so the import walk could not see either and
+# each carried its own hand-written assertion. TanStack Start removed the need
+# for both: the document is rendered per REQUEST by the site's own script, which
+# Start's build produces, so there is no build-time snapshot to render in a
+# subprocess and no entry to stage into the template.
+COPY build-server.mjs exit-reason.mjs site-addon.mjs site-fonts.mjs font-index.json site-theme.mjs site-theme-registry.mjs site-tokens.mjs site-style.mjs site-identity.mjs render-check.mjs site-render.mjs site-worker.mjs ./
 COPY theme-candidates/ ./theme-candidates/
-# `site-worker/entry.js` IS COPIED INTO THE TEMPLATE, NOT IMPORTED — the same
-# blind spot as `prerender-child.mjs` one line up, and with the same shape of
-# failure. `packageWorker` reads it off disk and writes it into `src/` for vite
-# to bundle, so the import walk cannot see it; a missing COPY would leave the
-# packaging step returning "could not stage the worker entry" on every build
-# that asked for one, which is a feature that silently never works rather than
-# a service that fails to start. It has its own assertion for that reason.
-COPY site-worker/ ./site-worker/
 
-# WHO THE PRERENDER RUNS AS. `node:22-slim` ships an unprivileged `node` user
-# (uid 1000) and everything in /app is copied as root, so a render dropped to it
-# can READ the bundle and node_modules and WRITE NOTHING — which is the whole
-# protection, since the child is handed model-written code and this container is
-# long-lived and shared by every customer on the platform.
+# NOTHING IN THIS IMAGE EXECUTES MODEL-WRITTEN CODE ANY MORE, which is why the
+# `PRERENDER_USER=node` privilege drop went with the prerender.
 #
-# The image is NOT switched to that user with `USER`: the build service itself
-# writes src/routes, dist and the generated tree on every build, and dropping the
-# whole process would break all of it. Root is what makes the per-render drop
-# possible at all — only root can hand a subprocess a different uid.
+# It existed because the prerender `import()`ed the generated SSR bundle and
+# CALLED it, so a hostile brief's code ran with the build service's privileges,
+# in the loop that answers /health, in a container shared by every customer.
+# Dropping the render to an unprivileged uid meant it could read the bundle and
+# node_modules and write nothing.
 #
-# Asserted rather than assumed: test/dockerfile.test.mjs requires this file to
-# name a user, and build-server.mjs reports `prerenderUnprivileged` on every
-# build, because "we thought this was sandboxed" is worse than knowing it is not.
-ENV PRERENDER_USER=node
+# Under Start that code is COMPILED here and RUN in the customer's own Worker —
+# a separate isolate on Cloudflare's side, which is a stronger boundary than a
+# uid in a shared container ever was. The container still runs `vite` and `tsc`
+# over that source, exactly as it did before the prerender existed.
+#
+# THE ONE THING THAT STILL DRIVES IT IS THE RENDER CHECK, and it is not the same
+# exposure: it loads the server bundle to answer a browser, and the browser runs
+# the CLIENT half. `render-check.mjs` reports whether that browser is sandboxed
+# rather than assuming it, and running this service as non-root is the real fix
+# there — which is a change to this file, not to that one.
 
 ENV NODE_ENV=production
 EXPOSE 8080

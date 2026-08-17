@@ -9,7 +9,7 @@
 // site had it.
 //
 // WHY SSR AND NOT A BROWSER. Production PRERENDERS every route through
-// `src/entry-server.tsx` before publishing, so `renderToString` IS the path a
+// `src/server.ts` on every request, so `renderToString` IS the path a
 // real customer's site takes — a component that throws here fails a real build.
 // It is also ~100x faster than driving 2,000 components through Chromium, which
 // is what makes running all of them on every change affordable.

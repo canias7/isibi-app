@@ -9,6 +9,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { hit } from "./fixtures/worker-harness.mjs";
+import { siteHostFor } from "../site-domains.mjs";
 
 const WORKER = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 
@@ -87,20 +88,62 @@ test("ONE reading of which site this is", () => {
   assert.equal(strippers.length, 1, `${strippers.length} slug-cleaning expressions in one route`);
 });
 
+/** The route's OWN `cleanSlug`, lifted and made callable.
+ *
+ *  Lifted rather than retyped because a second copy of this expression is the
+ *  very thing the one-reading fix removed, and a test carrying its own would
+ *  agree with itself while the route drifted. */
+function liftCleanSlug() {
+  const src = buildRoute().match(/const cleanSlug = \(v\) => [^;]+;/)[0];
+  // eslint-disable-next-line no-new-func
+  return new Function("return " + src.replace(/^const cleanSlug = /, "").replace(/;$/, ""))();
+}
+
 test("the shared cleaner refuses a non-string rather than coercing one", () => {
   // `String(["a","b"])` is `"a,b"`, which strips to a real slug nobody asked for
   // — the coercion bug already recorded for `normalizeRole` and for a table's
   // `access`. Driven through the route's own expression rather than a retyped
   // copy of it, since a second copy is the very thing this fix removed.
-  const seg = buildRoute();
-  const src = seg.match(/const cleanSlug = \(v\) => [^;]+;/)[0];
-  // eslint-disable-next-line no-new-func
-  const cleanSlug = new Function("return " + src.replace(/^const cleanSlug = /, "").replace(/;$/, ""))();
+  const cleanSlug = liftCleanSlug();
   assert.equal(cleanSlug("Sharp Fade!"), "sharpfade");
   assert.equal(cleanSlug("x".repeat(80)).length, 60);
   assert.equal(cleanSlug(["a", "b"]), "", "an array was coerced into a slug");
   assert.equal(cleanSlug(7), "");
   assert.equal(cleanSlug(null), "");
+});
+
+test("every slug the route can claim is a legal DNS label", () => {
+  // ONE RENDER MOUNT. `labelOk` refuses an edge hyphen, so `-shop` and `shop-`
+  // — both of which `[a-z0-9-]` happily permits — got no pretty host and could
+  // only ever be served at `/s/<slug>/`. Two mounts is what forces the bundle
+  // to derive its basepath at runtime, and anything that bakes one in can serve
+  // exactly one of them.
+  //
+  // DERIVED FROM BOTH ENDS: the route's own cleaner against the real
+  // `siteHostFor`, so neither side can be corrected without the other. Asserting
+  // the regex in `worker.js` instead would restate the fix and say nothing about
+  // whether the two files agree — which is the whole property.
+  const cleanSlug = liftCleanSlug();
+  const raws = [
+    "-shop", "shop-", "-shop-", "--shop--", "  -Sharp Fade- ", "-",
+    // Truncation is what makes the ORDER load-bearing: 62 characters slice to
+    // 60 and land on a hyphen, so a trim applied before the slice leaves
+    // exactly the label being refused.
+    "a".repeat(59) + "-bc",
+    "-" + "a".repeat(70),
+    "forno-and-co", "wassup", "sharp-fade-2",
+  ];
+  for (const raw of raws) {
+    const slug = cleanSlug(raw);
+    if (!slug) continue; // an empty slug claims nothing; the route refuses it
+    assert.ok(
+      siteHostFor(slug),
+      `cleanSlug(${JSON.stringify(raw)}) = ${JSON.stringify(slug)}, which has no pretty host`,
+    );
+  }
+  // The corpus has to be able to fail, or every case above passing proves only
+  // that the loop ran. `siteHostFor` really does refuse the shape being trimmed.
+  assert.equal(siteHostFor("-shop"), null, "siteHostFor stopped refusing an edge hyphen");
 });
 
 test("what the pages call BILLED is on the response, not only what we took", () => {

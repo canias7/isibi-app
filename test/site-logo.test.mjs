@@ -238,13 +238,32 @@ test("THE HEADER CAN ACTUALLY SHOW ONE", () => {
   assert.match(header, /max-w-\[\d+px\]/, "the logo is unbounded and can push the nav off the page");
 });
 
+/** The brand writer's body. Anchored on the function rather than sliced to a
+ *  byte count — a well-commented insertion is what has repeatedly walked a
+ *  fixed window off the thing it was written to guard. */
+function brandWriter() {
+  const i = buildServer.indexOf("function writeSiteBrand(");
+  assert.ok(i > 0, "the brand writer moved — rescope this");
+  const end = buildServer.indexOf("\nfunction ", i + 10);
+  const block = buildServer.slice(i, end > i ? end : undefined);
+  assert.ok(block.length > 400, "the brand-writer window is suspiciously small — rescope this");
+  return block;
+}
+
 test("the site's logo is BAKED IN, not read from the injected head", () => {
   // Every route is prerendered to HTML BEFORE `injectMeta` runs, so a component
   // reading a `<meta>` would render without it on the server and with it in the
   // browser: a hydration mismatch, and a header that visibly flips from the name
   // to the logo on every page load.
-  assert.match(buildServer, /function writeSiteLogo\(/, "the container no longer writes the logo module");
-  assert.match(buildServer, /writeSiteLogo\(payload\.logo\)/, "writeSiteLogo is defined and never called");
+  // ANCHORED ON THE PROPERTY, NOT THE FUNCTION'S NAME. This asserted
+  // `writeSiteLogo(` — one of two writers of `site-brand.ts`, merged into one
+  // `writeSiteBrand` when the language and the mark joined the logo there. Two
+  // writers of one generated file is one of them silently losing, which is why
+  // they were merged; a test pinned to either name is a test about word order.
+  assert.match(buildServer, /site-brand\.ts/, "the container no longer writes the brand module");
+  assert.match(buildServer, /SITE_LOGO = " \+ JSON\.stringify\(/, "the logo is not written into it");
+  assert.match(buildServer, /writeSiteBrand\(\{[^}]*logo: payload\.logo/,
+    "the brand writer is defined and never handed the payload's logo");
   assert.ok(!/site-logo["']\s*\)|name="site-logo"/.test(fs.readFileSync(new URL("../site-meta.mjs", import.meta.url), "utf8")),
     "the logo is being injected into the head, which cannot survive prerendering");
 });
@@ -253,21 +272,26 @@ test("THE CONTAINER WRITES IT ON EVERY BUILD, including when there is none", () 
   // This container is long-lived and serves every build on the platform, so a
   // file left behind by the last site is that site's logo on this one's header
   // — the leak `resetRoutes` and the per-build icon already guard against.
-  const i = buildServer.indexOf("function writeSiteLogo(");
-  const block = buildServer.slice(i, buildServer.indexOf("\nfunction ", i + 10));
+  const block = brandWriter();
   assert.match(block, /writeFileSync/, "nothing is written");
-  assert.ok(!/if \(!s\)\s*return|if \(!value\)\s*return/.test(block),
-    "an absent logo skips the write, so the previous site's logo stays on disk");
+  assert.ok(!/if \(!\w+\)\s*return/.test(block),
+    "an absent value skips the write, so the previous site's brand stays on disk");
 });
 
 test("only a shape that cannot be a javascript: URL is written", () => {
   // The value ends up in a `src` inside generated TypeScript. It comes from our
   // own `_meta` today, and "it came from us" is how the first person to reach
   // that row by some other route gets an XSS on a customer's site.
-  const i = buildServer.indexOf("function writeSiteLogo(");
-  const block = buildServer.slice(i, buildServer.indexOf("\nfunction ", i + 10));
+  const block = brandWriter();
   assert.match(block, /\^https:\\\/\\\//, "an absolute URL is not required to be https");
-  assert.match(block, /JSON\.stringify\(value\)/, "the value is not quoted safely into the module");
+  assert.match(block, /JSON\.stringify\(logoValue\)/, "the value is not quoted safely into the module");
+  // AND THE CHECK HAS TO DECIDE THE VALUE, not merely exist. A mutant replacing
+  // `logoOk ? raw : ""` with `raw` left both assertions above intact — the
+  // pattern was still in the file and the value was still quoted — while every
+  // shape the check exists to refuse went straight into a customer's `src`.
+  // Computed and dropped, which is the class this whole guard is about.
+  assert.match(block, /logoValue\s*=\s*logoOk\s*\?/,
+    "the shape check is computed and then discarded — every refused shape is written anyway");
 });
 
 test("BOTH PUBLISH PATHS CARRY THE STORED LOGO", () => {

@@ -7,9 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { normalizeLang, initials, brandHue, initialsMark, applyIdentity, isWide, MAX_INITIALS } from "../builder/site-identity.mjs";
-
-const TEMPLATE = fs.readFileSync(new URL("../builder/lovable/template/index.html", import.meta.url), "utf8");
+import { normalizeLang, initials, brandHue, initialsMark, isWide, MAX_INITIALS } from "../builder/site-identity.mjs";
 
 /* ── the language tag ────────────────────────────────────────────────────── */
 
@@ -193,76 +191,27 @@ test("the wide test does not catch the scripts that are already right", () => {
   }
 });
 
-/* ── writing it into the document ────────────────────────────────────────── */
+/* ── the premises this is built on ─────────────────────────────────────── */
 
-test("the title, the language and the icon all land in the real template", () => {
-  const out = applyIdentity(TEMPLATE, { title: "Sharp Fade", lang: "es", icon: "/icon.svg" });
-  assert.match(out, /<title>Sharp Fade<\/title>/);
-  assert.match(out, /<html lang="es">/);
-  assert.match(out, /href="\/icon\.svg"/);
+test("THE THREE VALUES REACH THE SITE AS A MODULE, and nothing patches a document", () => {
+  // `applyIdentity` LIVED HERE AND IS GONE. It put the title, the language and
+  // the icon into the built `index.html` with three regexes — and under TanStack
+  // Start there is no `index.html`: the document is `__root.tsx`, rendered per
+  // request, so there is nothing to patch and the values are ordinary props a
+  // component renders.
+  //
+  // ASSERTED AS AN ABSENCE, not merely deleted, which is the `@/examples/*`
+  // precedent: while the function existed its tests read the template's own
+  // `index.html`, so restoring either half without the other gives regex surgery
+  // on a file no site is built from — every assertion passing against something
+  // that ships nowhere.
+  const mod = fs.readFileSync(new URL("../builder/site-identity.mjs", import.meta.url), "utf8");
+  assert.ok(!/export function applyIdentity/.test(mod),
+    "applyIdentity is back — Start emits no shell for it to patch");
+  assert.ok(!fs.existsSync(new URL("../builder/lovable/template/index.html", import.meta.url)),
+    "the template has an index.html again — the head is composed by __root.tsx now");
 });
 
-test("THE ICON'S TYPE ATTRIBUTE SURVIVES", () => {
-  // Replacing the whole `<link>` drops `type="image/svg+xml"`, and a browser
-  // handed an icon with no type has to sniff it.
-  const out = applyIdentity(TEMPLATE, { icon: "/icon.svg" });
-  assert.match(out, /type="image\/svg\+xml"/);
-  assert.ok(!/favicon\.svg/.test(out), "the template's own icon is still referenced");
-});
-
-test("a language that is not a tag leaves the attribute alone", () => {
-  // Every site built before this exists with `lang="en"` and no stored value.
-  // Guessing here would relabel them all.
-  const out = applyIdentity(TEMPLATE, { title: "Sharp Fade", lang: "Spanish" });
-  assert.match(out, /<html lang="en">/);
-});
-
-test("nothing named leaves the document byte-identical", () => {
-  assert.equal(applyIdentity(TEMPLATE, {}), TEMPLATE);
-  assert.equal(applyIdentity(TEMPLATE), TEMPLATE);
-});
-
-test("AN <html> WITH NO lang GETS ONE", () => {
-  // The attribute may be absent as well as wrong. Without this branch a
-  // template edited to a bare `<html>` publishes every site with no language at
-  // all — the state this function exists to end, arriving from the other side.
-  const out = applyIdentity("<!doctype html><html><head></head></html>", { lang: "fr" });
-  assert.match(out, /<html lang="fr">/);
-});
-
-test("an existing lang is REPLACED, not appended to", () => {
-  const out = applyIdentity('<html lang="en" dir="ltr">', { lang: "ar" });
-  assert.match(out, /lang="ar"/);
-  assert.ok(!/lang="en"/.test(out), "two lang attributes, and the first one wins");
-  assert.match(out, /dir="ltr"/, "another attribute on the same tag was eaten");
-});
-
-test("the title is escaped and capped", () => {
-  const out = applyIdentity(TEMPLATE, { title: '<b>&"x' });
-  assert.match(out, /<title>&lt;b&gt;&amp;&quot;x<\/title>/);
-  const long = applyIdentity(TEMPLATE, { title: "y".repeat(200) });
-  assert.equal(/<title>(y*)<\/title>/.exec(long)[1].length, 70);
-});
-
-test("A DOCUMENT WE DO NOT UNDERSTAND IS RETURNED, never thrown on", () => {
-  // Publishing a site whose title did not change beats failing a build over a
-  // head tag — the same rule `injectMeta` follows one module over.
-  for (const junk of ["", "not html at all", "<p>hello</p>", null, undefined]) {
-    const out = applyIdentity(junk, { title: "X", lang: "es", icon: "/i.svg" });
-    assert.equal(typeof out, "string");
-  }
-});
-
-/* ── the premises this is built on ───────────────────────────────────────── */
-
-test("THE TEMPLATE STILL HAS THE THREE THINGS THIS REWRITES", () => {
-  // Every assertion above is about editing a document, and they all pass
-  // vacuously against a template whose shape has moved. This is the check that
-  // the thing being edited is still the thing that ships.
-  assert.match(TEMPLATE, /<html\b[^>]*\blang\s*=/i, "the template no longer declares a lang");
-  assert.match(TEMPLATE, /<title>[\s\S]*?<\/title>/i, "the template no longer has a title");
-  assert.match(TEMPLATE, /<link\b[^>]*rel=["']icon["']/i, "the template no longer links an icon");
-});
 
 test("the build service writes the identity and does not mutate the template's own icon", () => {
   // The container is long-lived and serves every build on the platform.
@@ -271,7 +220,36 @@ test("the build service writes the identity and does not mutate the template's o
   // one-build's-files-leak-into-the-next class this file's neighbours already
   // guard against for `src/routes` and `dist`.
   const src = fs.readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8");
-  assert.match(src, /applyIdentity\(base, \{ title, lang, icon \}\)/, "the build service no longer applies the identity");
+  // THE IDENTITY REACHES THE SITE AS A GENERATED MODULE, not as a patched shell.
+  // This asserted `applyIdentity(base, { title, lang, icon })` — the regex
+  // surgery on `index.html` — which stopped existing when the document became
+  // `__root.tsx` under Start. Re-anchored on the property, and derived at BOTH
+  // ends: the container must write each value and the root route must render it,
+  // because either half alone passes while the wire is cut. That exact shape has
+  // been the wiring failure here a dozen times.
+  //
+  // The neighbouring assertions that read the template's own `index.html` for a
+  // lang/title/icon went with `applyIdentity`, as the note here said they should:
+  // that file is gone, so they would have held against something no site is made
+  // of.
+  const brand = /function writeSiteBrand\(\{[\s\S]*?\n\}/.exec(src);
+  assert.ok(brand, "the build service no longer writes the brand module");
+  const root = fs.readFileSync(
+    new URL("../builder/lovable/template/src/routes/__root.tsx", import.meta.url), "utf8");
+  for (const name of ["SITE_LANG", "SITE_ICON", "SITE_NAME"]) {
+    assert.ok(brand[0].includes(name),
+      `the build service no longer writes ${name} — the site would keep the template's own`);
+  }
+  // THE IMPORT LINE IS STRIPPED FIRST, and a mutation is why: written as a bare
+  // `root.includes("SITE_LANG")` this passed against a document changed to
+  // `lang="en"`, because the name still appeared in the import above. Asserting
+  // a name EXISTS is not asserting it is USED — the declaration-satisfying-a-
+  // call-assertion failure this repo has recorded three times.
+  const body = root.replace(/^import[\s\S]*?from\s+["'][^"']+["'];?$/gm, "");
+  for (const name of ["SITE_LANG", "SITE_ICON"]) {
+    assert.ok(body.includes(name),
+      `the document no longer renders ${name} — the container writes a value nothing reads`);
+  }
   // ANCHORED ON THE WHOLE FILENAME, and a mutation is why. Written `/icon\.svg/`
   // this passed against a build service writing over `favicon.svg` — the string
   // is a SUBSTRING of the thing it was meant to forbid, so both assertions here

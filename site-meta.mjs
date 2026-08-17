@@ -24,6 +24,50 @@ const OPEN = "<!--isibi:meta-->";
 const CLOSE = "<!--/isibi:meta-->";
 
 /**
+ * The file whose PRESENCE means "this site is published".
+ *
+ * IT EXISTS BECAUSE START TOOK THE OLD SIGNAL AWAY. A published site used to be
+ * served from a document in R2, so wiping `sites/<slug>/` made every page 404 —
+ * that miss WAS the take-down, and both site deletion and the offline switch
+ * rely on it. Under Start the document is rendered from the script's own bundle
+ * and needs no R2 at all, so a site whose files are gone kept serving: measured
+ * by the container harness as "200 — a deleted site is still serving".
+ *
+ * A MISS IS PERMANENT AND A THROW IS TRANSIENT, which is the distinction the old
+ * entry drew explicitly and which was lost with it. An R2 blip must not take a
+ * live site down; an absent marker means somebody deleted the site.
+ *
+ * ONE R2 HEAD PER DOCUMENT, which is not a new cost: serving a page WAS one R2
+ * get before this tier existed, and a head is cheaper than the get it replaces.
+ * Not cached per isolate, deliberately — "take this site offline" that waits for
+ * an isolate to recycle is not offline.
+ *
+ * INSIDE `sites/<slug>/` on purpose, unlike the meta sidecar: it has to be wiped
+ * by exactly the same prefix sweep that takes the site down, or it would outlive
+ * what it is a marker for.
+ */
+export const SITE_LIVE_FILE = "site.live";
+
+/**
+ * Where a site's publish-time meta lives.
+ *
+ * THE SITE'S OWN WORKER READS THIS KEY and the platform writes it, so it is one
+ * expression rather than two spellings — the drift class this repo has recorded
+ * repeatedly, and here it would be silent: a mismatched key reads as a site with
+ * no description rather than as an error.
+ *
+ * The template cannot import this module (it is built separately), so
+ * `src/server.ts` carries the only other copy and a test holds the two together.
+ *
+ * OUTSIDE `sites/<slug>/`, which is the served prefix AND the one the publish
+ * sweep wipes. Under it, this file would be both publicly fetchable and deleted
+ * by the next publish of the site that depends on it.
+ */
+export function siteMetaKey(slug) {
+  return "sitemeta/" + String(slug || "") + ".json";
+}
+
+/**
  * Build the head fragment. Pure, so what goes into a published page is testable
  * without R2, a build, or a browser.
  */

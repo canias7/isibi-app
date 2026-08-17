@@ -79,8 +79,8 @@ export { fileForRoute };
  * out. Anything else would render the member view to a stranger and report on a
  * page no visitor sees.
  */
-function serveDist(dir) {
-  return http.createServer((req, res) => {
+function serveDist(dir, ssrFetch) {
+  return http.createServer(async (req, res) => {
     const raw = String(req.url || "/");
     // `decodeURIComponent` THROWS ON A MALFORMED PERCENT-SEQUENCE, and an
     // uncaught throw in a Node request handler does not 500 — it kills the
@@ -133,7 +133,35 @@ function serveDist(dir) {
     // prerendered to. Anything with an extension is an asset and is served as
     // itself, so a genuinely missing bundle still 404s rather than being handed
     // an HTML page and reported as some stranger error.
-    const rel = /\.[a-z0-9]+$/i.test(p) ? p.replace(/^\/+/, "") : fileForRoute(p);
+    const isAsset = /\.[a-z0-9]+$/i.test(p);
+
+    // A DOCUMENT COMES FROM THE SERVER BUNDLE, NOT A FILE. Under Start there are
+    // no prerendered HTML files — the document is rendered per request — so
+    // without this every route 404s and the check reports a blank site.
+    //
+    // THIS MAKES THE CHECK STRICTLY BETTER, which is worth stating because it
+    // reads like a workaround. It used to inspect a build-time SNAPSHOT; it now
+    // inspects the bytes a visitor actually receives, from the same code that
+    // will serve them. A snapshot that was wrong in a way the live page was not
+    // could produce a finding nobody could reproduce.
+    if (!isAsset && ssrFetch) {
+      try {
+        const out = await ssrFetch(new Request("http://127.0.0.1" + raw));
+        const body = Buffer.from(await out.arrayBuffer());
+        const ct = out.headers.get("content-type") || "text/html; charset=utf-8";
+        res.writeHead(out.status, { "content-type": ct });
+        res.end(body);
+      } catch (e) {
+        // 500 WITH THE REASON, never a silent 200. A render that throws is
+        // exactly what this check exists to find, and swallowing it here would
+        // report the page as clean.
+        res.writeHead(500, { "content-type": "text/plain" });
+        res.end("ssr threw: " + String((e && e.message) || e));
+      }
+      return;
+    }
+
+    const rel = isAsset ? p.replace(/^\/+/, "") : fileForRoute(p);
     const fp = path.join(dir, rel);
     if (!fp.startsWith(dir)) { res.writeHead(403); res.end(); return; }
     fs.readFile(fp, (e, d) => {
@@ -215,14 +243,14 @@ export async function launchChromium(chromium) {
  * `routes` is what `prerender()` actually wrote, so this checks the documents a
  * visitor really gets rather than a list of what should exist.
  */
-export async function checkRender(distDir, routes) {
+export async function checkRender(distDir, routes, ssrFetch) {
   const list = (Array.isArray(routes) ? routes : []).filter(Boolean);
-  if (!list.length) return renderReport([], { ok: false, error: "no prerendered routes to look at" });
+  if (!list.length) return renderReport([], { ok: false, error: "no routes to look at" });
 
   let server = null, browser = null, cut = false, sandboxed = true;
   const seen = [];
   try {
-    server = serveDist(distDir);
+    server = serveDist(distDir, ssrFetch);
     await new Promise((ok, no) => { server.once("error", no); server.listen(0, ok); });
     const port = server.address().port;
 

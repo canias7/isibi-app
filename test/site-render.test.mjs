@@ -341,7 +341,19 @@ test("both widths are checked, and the phone one is there", () => {
 test("the container RUNS the check and puts it on its response", () => {
   const src = fs.readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8");
   assert.match(src, /import \{ checkRender \}/, "build-server must import it");
-  assert.match(src, /checkRender\(DIST, pre\.done\)/, "fed the routes prerender actually wrote");
+  // FED THE ROUTES THE ROUTER HAS, AND THE SERVER THAT RENDERS THEM. It used to
+  // be `checkRender(DIST, pre.done)` — the routes a build-time prerender had
+  // actually written. Under Start there is no prerender: the document comes from
+  // the server bundle per request, so the check drives that bundle directly.
+  // That is strictly better — the bytes it inspects are the bytes a visitor
+  // receives, from the same code that will serve them, rather than a snapshot
+  // that could be wrong in a way the live page was not.
+  assert.match(src, /checkRender\(CLIENT_DIST, routePaths\(\), ssrFetch\)/,
+    "the check is not fed the site's own routes and its own server");
+  // THE CLIENT HALF, NOT `dist`. Start emits `dist/client` and `dist/server`;
+  // pointed at `dist` the static branch would serve assets one directory too
+  // deep and every one would 404 inside the check.
+  assert.match(src, /const CLIENT_DIST = /, "CLIENT_DIST is gone — rescope this");
   // ON THE ok:true RESPONSE — asserted as a property of that literal, not as an
   // adjacency. This read `prerenderSkipped: pre\.skipped, render` and went red
   // the moment a field was added between them: a guard about word order, failing
@@ -352,24 +364,30 @@ test("the container RUNS the check and puts it on its response", () => {
   assert.ok(/(^|[{,]\s*)render\b/.test(lit), "the render report is not carried out on the ok:true response");
 });
 
-test("THE CHECK RUNS AFTER THE PRERENDER, because there is nothing to look at before it", () => {
+test("THE CHECK RUNS AFTER THE BUILD, because there is nothing to look at before it", () => {
   const src = fs.readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8");
-  const pre = src.indexOf("timed(\"preMs\"");
-  const chk = src.indexOf("checkRender(DIST");
-  assert.ok(pre > 0 && chk > 0, "both anchors must exist or this passes vacuously");
-  assert.ok(pre < chk, "the per-route HTML has to exist before a browser can open it");
-  // AND THE CALL IS UNGATED. This used to assert the opposite — that checkRender
-  // sat on the true branch of `pre.done.length` — and the 2026-08-13 audit
-  // showed that gate was itself the bug: a TOTAL prerender failure, the one
-  // mode that loses every snapshot, also switched off the only check that
-  // would have said so. checkRender's own first line answers an empty list
-  // with {ok:false, error:"no prerendered routes to look at"} before any
-  // browser launches, so the honest report needs the call to happen
-  // unconditionally. Guarded as the ABSENCE of a conditional between prerender
-  // and the check.
-  const win = src.slice(pre, chk);
-  assert.ok(!/pre\.done\.length\s*\?/.test(win),
-    "checkRender is gated on prerender output again — a total prerender failure silences the render report");
+  // THE ORDERING SURVIVED THE PRERENDER'S REMOVAL, against a different anchor.
+  // It used to be "after `preMs`", because the per-route HTML had to exist
+  // before a browser could open it. There is no per-route HTML now — but the
+  // SERVER BUNDLE still has to exist before it can be loaded and driven, so the
+  // property is the same one against the thing that now produces the document.
+  const vite = src.indexOf('timed("viteMs"');
+  const load = src.indexOf("await loadSiteServer()");
+  const chk = src.indexOf("checkRender(CLIENT_DIST");
+  assert.ok(vite > 0 && load > 0 && chk > 0, "all three anchors must exist or this passes vacuously");
+  assert.ok(vite < load, "the server bundle has to be built before it can be loaded");
+  assert.ok(load < chk, "the server has to be loaded before the check can drive it");
+  // AND THE CALL IS UNGATED. It once sat on the true branch of `pre.done.length`,
+  // and the 2026-08-13 audit showed that gate was itself the bug: a TOTAL
+  // prerender failure — the one mode that loses every snapshot — also switched
+  // off the only check that would have said so. The same hazard exists in the
+  // new shape wearing a new name: `loadSiteServer` returns NULL when the bundle
+  // will not load, which is exactly when a render report matters most, so
+  // gating on it would silence the check on the worst build there is.
+  // checkRender answers honestly for itself; the call has to happen regardless.
+  const win = src.slice(load, chk + 200);
+  assert.ok(!/if\s*\(\s*ssrFetch\s*\)|ssrFetch\s*\?/.test(win),
+    "checkRender is gated on the server bundle loading — a bundle that will not load silences the report that would say so");
   assert.match(src, /const render = await timed\("renderMs"/,
     "the render check is no longer called unconditionally");
 });

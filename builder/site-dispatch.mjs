@@ -34,6 +34,16 @@ export async function uploadSiteWorker({ accountId, namespace, name, code, bucke
   const metadata = {
     main_module: "index.js",
     compatibility_date: COMPAT_DATE,
+    // REQUIRED, NOT OPTIONAL. Start's server bundle imports `node:async_hooks`
+    // (its request-scoped storage) and `node:stream` (the streaming SSR
+    // transform), and workerd refuses an unknown module at STARTUP — so without
+    // this every uploaded script fails to boot and every page of every site on
+    // the rendered path answers an error, while the upload itself reports 200.
+    //
+    // Named rather than relying on the compatibility date: `nodejs_compat` has
+    // never been enabled by a date alone, and a date that quietly started
+    // implying it would be a behaviour change nobody asked for.
+    compatibility_flags: ["nodejs_compat"],
     bindings: bucket ? [{ type: "r2_bucket", name: "SITES", bucket_name: bucket }] : [],
   };
 
