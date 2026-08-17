@@ -166,7 +166,10 @@ test("the build route actually uses it", () => {
   // publish closure — captured before the build, it predates the photographs
   // `deps.images` writes into the same prefix, and every share of a
   // picture-led site degrades to a small card.
-  const pub = w.indexOf("publish: async (dist, pages) => {");
+  // FOUND BY THE ARGUMENTS IT MUST HAVE, not by the exact list — pinned to
+  // `(dist, pages) => {` this failed the day the dep grew a third argument,
+  // which is a check about word order rather than about tracing.
+  const pub = w.search(/publish: async \(dist, pages\b/);
   assert.ok(pub > 0, "the publish closure moved — rescope this");
   const body = w.slice(pub, w.indexOf("writeSiteDistToR2(env, slug, dist", pub));
   assert.ok(body.length > 40, "the publish window is empty — rescope this");

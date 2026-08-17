@@ -2272,7 +2272,11 @@ test("the source that produced a build is stored, and read back on a revise", ()
   // this being a revise — any link missing and the generator is back to writing
   // every page from the brief while every test still passes.
   const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.match(worker, /publish: async \(dist, pages\)/, "publish must receive the source");
+  // ANCHORED ON THE PROPERTY, NOT THE ARITY. Pinned as `(dist, pages)` this
+  // went red the day `publish` grew a third argument — a test about word order
+  // failing a correct change, which is this repo's most repeated own-goal. What
+  // matters here is that the SOURCE arrives, whatever travels beside it.
+  assert.match(worker, /publish: async \(dist, pages\b/, "publish must receive the source");
   assert.match(worker, /await saveSiteSource\(env, slug, pages\);/, "…and store it");
   assert.match(worker, /priorPages: priorBrief \? await loadSiteSource\(env, slug\) : null/,
     "…and a revise must read it back");

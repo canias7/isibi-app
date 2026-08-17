@@ -28,6 +28,22 @@
  * third answer for the runtime to get wrong.
  */
 export function siteConfigModule({ shell, slug, routes } = {}) {
+  // A NON-STRING IS REFUSED, NEVER COERCED, and this is the whole reason the
+  // check exists. `String(shell || "")` on an object yields the literal text
+  // `[object Object]` — 15 characters — which is a perfectly valid string, so
+  // everything downstream succeeds: the module generates, vite bundles it, the
+  // script uploads, and EVERY PAGE OF THE SITE serves those fifteen characters
+  // as its entire document. Measured by executing a real bundle: the call site
+  // passed `dist["index.html"]`, which `collectDist` returns as `{t: "…"}`.
+  //
+  // The same family as `String(["a","b"]) === "a,b"`, recorded three times in
+  // this codebase already: a coercion that turns a shape mistake into a value
+  // nothing downstream can tell from a real one.
+  for (const [name, v] of [["shell", shell], ["slug", slug]]) {
+    if (v !== undefined && v !== null && typeof v !== "string") {
+      throw new TypeError("site config `" + name + "` must be a string, got " + Object.prototype.toString.call(v));
+    }
+  }
   const list = Array.isArray(routes) ? routes.filter((r) => typeof r === "string") : [];
   return [
     "// Generated per site by site-worker.mjs. Do not edit.",
@@ -51,10 +67,31 @@ export function siteConfigModule({ shell, slug, routes } = {}) {
  * degrades rather than refuses.
  */
 export function canServeAsWorker({ shell, ssr } = {}) {
-  const s = String(shell || "");
-  if (!s) return { ok: false, why: "no index.html in the build" };
-  if (!s.includes('<div id="root">')) return { ok: false, why: "the shell has no root element to render into" };
+  const sh = shellIsUsable(shell);
+  if (!sh.ok) return sh;
   if (!String(ssr || "")) return { ok: false, why: "no SSR bundle — nothing to render with" };
+  return { ok: true, why: "" };
+}
+
+/**
+ * Is this shell something a page can be rendered into?
+ *
+ * SPLIT OUT BECAUSE IT NEEDED A CALLER. `canServeAsWorker` was written to
+ * refuse exactly the failure that shipped — a shell with no root element — and
+ * nothing ever called it, so the check sat correct and unreachable while every
+ * document came out as `[object Object]`. Its `ssr` half cannot be asked inside
+ * `packageWorker` (that build produces the SSR bundle itself, so a missing one
+ * is a build failure with its own message), and a gate that can only be
+ * half-asked is a gate nobody wires. This half can be, and is.
+ *
+ * TYPE-CHECKED RATHER THAN COERCED, for the reason `siteConfigModule` now is:
+ * the value arrives from a dist map whose entries are `{t}` / `{b}` objects,
+ * and `String()` turns one of those into a plausible fifteen-character
+ * document instead of an error.
+ */
+export function shellIsUsable(shell) {
+  if (typeof shell !== "string" || !shell) return { ok: false, why: "no index.html in the build" };
+  if (!shell.includes('<div id="root">')) return { ok: false, why: "the shell has no root element to render into" };
   return { ok: true, why: "" };
 }
 

@@ -414,9 +414,30 @@ try {
     ok("…carrying its own slug", w.code.includes("fold-coffee"), "the slug is the asset prefix; without it every asset 404s");
     ok("…and its own route list", w.code.includes("/about/team") && w.code.includes("/menu"),
       "routes decide 200-vs-404; a bundle without them cannot tell a real page from a typo");
-    // THE SHELL, which is what the rendered markup gets injected into. Present
-    // in the source and absent from the bundle is a script that serves nothing.
-    ok("…and the HTML shell to render into", w.code.includes('<div id="root">'), "no shell means nothing to inject the render into");
+    // THE SHELL, which is what the rendered markup gets injected into.
+    //
+    // THIS ASSERTION USED TO BE `w.code.includes('<div id="root">')` AND IT WAS
+    // VACUOUS. `entry.js` declares `const SLOT = '<div id="root">'` — the string
+    // it searches the shell FOR — so the bundle contains it whatever the shell
+    // is, and the check passed while every site's document was the literal
+    // fifteen characters `[object Object]`. A guard satisfied by the code that
+    // looks for the thing, rather than by the thing.
+    //
+    // Anchored on what only a REAL document has: the value STARTS with a
+    // doctype. That is the whole job of this check — catch the `[object
+    // Object]` class here, with a message naming it, rather than letting it
+    // reach the execution block below where the symptom is an empty page.
+    //
+    // NO `export`, AND EITHER QUOTE. Two things this got wrong first time, both
+    // facts about the BUNDLER rather than about the shell: `site-config.js` is
+    // inlined, so the keyword is gone, and rollup re-quotes the value —
+    // measured as `const SHELL = '<!doctype html>\n<html lang="en">…'`, single
+    // quotes with the inner double quotes left bare. A regex written for the
+    // SOURCE spelling describes a file that is never produced.
+    ok("…and the HTML shell to render into",
+      /\bconst SHELL = (['"])\s*<!doctype html/i.test(w.code),
+      "the SHELL constant is not a real document — " +
+      (w.code.match(/\bconst SHELL = .{0,80}/) || ["(absent)"])[0]);
     // THE CHECK THAT ACTUALLY CAUGHT THE EXTERNALS BUG. React, TanStack Router,
     // TanStack Query and every kit component a page imports cannot add up to a
     // small file — 17,647 bytes was the measured symptom of a bundle that
@@ -431,6 +452,69 @@ try {
     ok("…and the worker build is not in the published files",
       !Object.keys(wpack.files || {}).some((n) => n.startsWith("dist-worker") || n.includes("site-worker-entry")),
       Object.keys(wpack.files || {}).filter((n) => /worker/i.test(n)).join(", "));
+
+    // ── AND THEN IT IS RUN, which is the only check that could have caught the
+    // one bug this whole block shipped with.
+    //
+    // Everything above is a fact about the FILE — its size, its imports, the
+    // strings in it — and all of it passed on a bundle whose every response was
+    // the literal fifteen characters `[object Object]`. Compiling is not
+    // working: the same lesson as the 70 charts that typechecked and rendered
+    // grey, and as `message-scroller`, which bundled and hard-crashed the page.
+    //
+    // NODE IS NOT WORKERD, so this is a ONE-WAY filter and is worth stating:
+    // passing here does not prove the script runs on Cloudflare, and failing
+    // here proves it does not. It costs about a second and needs no account.
+    const bundleFile = path.join(sandbox, "bundle-under-test.mjs");
+    fs.writeFileSync(bundleFile, w.code);
+    let site = null;
+    try { site = (await import("file://" + bundleFile)).default; }
+    catch (e) { ok("the packaged script imports", false, String((e && e.message) || e)); }
+    if (site) {
+      ok("the packaged script imports and exports a fetch handler", typeof site.fetch === "function", typeof site.fetch);
+      // A fake R2, so an asset request has something to answer with. Only the
+      // one key exists — a miss has to 404 rather than throw.
+      const bucket = { get: async (k) => (k === "sites/fold-coffee/assets/app.js"
+        ? { body: "console.log(1)", writeHttpMetadata() {}, httpMetadata: {} } : null) };
+      const call = (p) => site.fetch(new Request("https://fold-coffee.gofarther.app" + p), { SITES: bucket }, { waitUntil() {} });
+
+      let home;
+      try { home = await call("/"); } catch (e) { ok("the home page renders", false, String((e && e.stack) || e).slice(0, 600)); }
+      if (home) {
+        const html = await home.text();
+        ok("the home page renders", home.status === 200 && /text\/html/.test(home.headers.get("content-type") || ""),
+          home.status + " " + home.headers.get("content-type"));
+        // THE ASSERTION THAT WOULD HAVE FAILED. A shell that never made it into
+        // the bundle produces a response with no root div at all.
+        ok("…into the real shell", html.includes('<div id="root">'),
+          "no root element in a " + html.length + "-byte response: " + JSON.stringify(html.slice(0, 120)));
+        // AND THE PAGE'S OWN WORDS, not just the shell. A response that is the
+        // shell and nothing else is the fallback path — correct when a render
+        // fails, and a silent regression if it becomes the ordinary answer.
+        //
+        // A SENTENCE ONLY THE PAGE HAS. `Fold Coffee` is the brand, so it is in
+        // the shell's own `<title>` and would pass with the render producing
+        // nothing at all — the same shape as the vacuous shell assertion this
+        // block just replaced.
+        ok("…with the page's own markup in it", /Wick Lane/.test(html),
+          html.length + " bytes and no page copy — the render produced nothing and it served the bare shell");
+      }
+
+      // A ROUTE THE SITE HAS is a 200; one it does not is a 404 with the page
+      // still in it. The status is what stops a typo reading as a real address.
+      const menu = await call("/menu");
+      ok("a declared route answers 200", menu.status === 200, String(menu.status));
+      const nope = await call("/definitely-not-a-page");
+      ok("an undeclared route answers 404, and still serves a page",
+        nope.status === 404 && (await nope.text()).includes('<div id="root">'), String(nope.status));
+
+      // ASSETS COME OFF R2 rather than through the renderer — the cost decision
+      // the entry makes, and the one that would silently stop being true.
+      const asset = await call("/assets/app.js");
+      ok("an asset is served from the bucket", asset.status === 200 && (await asset.text()) === "console.log(1)", String(asset.status));
+      const missing = await call("/assets/gone.js");
+      ok("…and a missing one is a 404, not a throw", missing.status === 404, String(missing.status));
+    }
   }
 
   // REFUSED WITHOUT A SLUG rather than packaged with an empty one — a script

@@ -65,6 +65,7 @@ jobs:
             NEON_API_KEY
             SITE_SECRETS_KEY
             CLOUDFLARE_API_TOKEN
+            CLOUDFLARE_ACCOUNT_ID
             DOMAIN_CONNECT_KEY
         env:
           FAL_KEY: ${{ secrets.FAL_KEY }}
@@ -103,6 +104,18 @@ jobs:
           # and without that every registration answers a permission error,
           # which the route reports rather than swallows.
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          # WHICH ACCOUNT HOLDS THE DISPATCH NAMESPACE. Already used above to
+          # deploy with; uploaded to the Worker as well so it can address
+          # `/accounts/<id>/workers/dispatch/namespaces/…` at request time —
+          # which is how a site's own script is uploaded on publish and removed
+          # on delete.
+          #
+          # REQUIRED, and safe to list precisely because it already has a value:
+          # the deploy step above cannot run without it, so it can never be the
+          # empty one that fails the whole run. No fallback, for the reason the
+          # inverse rule exists — a placeholder account id would send every
+          # customer's script to a namespace nobody serves from, silently.
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           # The RSA private key (PKCS#8, base64) that signs Domain Connect apply
           # links. Its PUBLIC half is published as a TXT record at
           # `_dck1.gofarther.dev`, which is what providers fetch to verify.

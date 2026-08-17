@@ -103,7 +103,17 @@ export default {
     try {
       if (SPLIT) body = await render(url.pathname);
     } catch (e) {
-      console.error("render failed:", SLUG, url.pathname, String((e && e.message) || e));
+      // THE STACK, NOT JUST THE MESSAGE, and that is not verbosity. This
+      // failure is silent by design — the shell still serves, the visitor sees
+      // a working page, and the only trace is this line. `window is not
+      // defined` names no module, and the bundle is one file of ~950,000
+      // characters, so a message alone leaves nobody able to say WHICH
+      // dependency reached for a browser global. Measured: the message cost a
+      // separate diagnostic harness to answer a question the stack states.
+      //
+      // Safe to log: it goes to our own console, never to the response, and a
+      // bundled stack carries module paths rather than anything a visitor sent.
+      console.error("render failed:", SLUG, url.pathname, String((e && e.stack) || (e && e.message) || e));
     }
 
     const html = SPLIT ? SPLIT.open + body + SPLIT.close : SHELL;

@@ -498,10 +498,16 @@ export function salvageNote(stubbed) {
  *   generate()      → { input, truncated?, usage }            the model call
  *                     usage: { in, out, cacheRead, cacheWrite } — the four kinds
  *                     kept APART, because they are priced 1x / 5x / 0.1x / 1.25x
- *   compile(pages)  → { ok, files?, error?, stage? }           the build container
- *   publish(dist, pages) → void                                write to storage
+ *   compile(pages)  → { ok, files?, error?, stage?, worker? }   the build container
+ *   publish(dist, pages, worker) → void                        write to storage
  *                     `pages` is the SOURCE that produced `dist`, so a later
  *                     revise can edit it instead of regenerating from nothing.
+ *                     `worker` is the compile's OWN `worker` field — the script
+ *                     that renders this site on request, when one was asked for.
+ *                     Passed through rather than read from a closure because
+ *                     this is the layer where twelve features have been dead:
+ *                     a side channel makes "the script never reached the
+ *                     upload" indistinguishable from "no script was made".
  *   readCredits()   → number
  *   useCredits(n)   → number: the credits ACTUALLY collected, which may be less
  *                     than n. The ledger is a gate, not a till — `use_credits`
@@ -1036,7 +1042,13 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages } =
   //
   // Passed to `publish` rather than stored here, because this module owns no
   // storage: the Worker decides where it goes, the way it does for the dist.
-  await deps.publish(built.files, pages);
+  // THE SCRIPT COMES FROM THE COMPILE THAT IS BEING PUBLISHED, which is why it
+  // is read off `built` here rather than captured earlier. On the salvage path
+  // `built` is REASSIGNED to the second compile, so the script uploaded is the
+  // one packaged from the stubbed page set — the same source as the files
+  // beside it. Read from the first compile it would render a page whose source
+  // was just refused.
+  await deps.publish(built.files, pages, built.worker);
   out.publishMs = Date.now() - tPub;
   out.page = "app";
   // SAY WHICH PAGE DID NOT MAKE IT. A visitor finding the stub by clicking the

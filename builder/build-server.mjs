@@ -32,7 +32,7 @@ import { applyIdentity, initialsMark, normalizeLang } from "./site-identity.mjs"
 import { exitReason } from "./exit-reason.mjs";
 import { checkRender } from "./render-check.mjs";
 import { routeOf, fileForRoute } from "./site-addon.mjs";
-import { siteConfigModule } from "./site-worker.mjs";
+import { siteConfigModule, shellIsUsable } from "./site-worker.mjs";
 
 const APP = process.env.APP_DIR || "/app";
 const ROUTES = path.join(APP, "src", "routes");
@@ -410,6 +410,20 @@ async function packageWorker(slug, shell) {
   // would have replaced.
   if (!String(slug || "")) return { ok: false, why: "no slug — a worker cannot find its own assets without one" };
 
+  // THE SHELL IS WHAT GETS SERVED, so it is checked before anything is built.
+  //
+  // THIS IS THE CHECK THE FIRST DRAFT SHIPPED WITHOUT, and the failure was
+  // total: the caller passed `dist["index.html"]`, which `collectDist` returns
+  // as `{t: "…"}`, and `String()` turned that object into the literal fifteen
+  // characters `[object Object]` — a valid string, so the module generated, the
+  // bundle built, and every page of the site served those fifteen characters as
+  // its whole document. Nothing in the pipeline could see it: it typechecks, it
+  // bundles, it is a plausible size, and the harness's own "…and the HTML shell
+  // to render into" assertion passed on the entry file's copy of the string it
+  // was looking for. Found by EXECUTING a real bundle.
+  const usable = shellIsUsable(shell);
+  if (!usable.ok) return { ok: false, why: usable.why };
+
   // THE SITE'S OWN ROUTES, read the way the prerender reads them, so the two
   // cannot disagree about what a route is. `routePaths` is the one place that
   // knows the file-to-URL conventions (a trailing `_`, a leading `_`, a dot as
@@ -786,7 +800,14 @@ const server = http.createServer((req, res) => {
       // off, which is the shape this repo keeps paying for.
       let worker = null;
       if (payload.worker) {
-        worker = await timed("workerMs", null, null, () => packageWorker(payload.slug, dist["index.html"]));
+        // `.t`, NOT THE ENTRY. `collectDist` returns every text file as
+        // `{t: "…"}` and every binary one as `{b: "…"}`, so handing the entry
+        // straight over gave `packageWorker` an object where a document was
+        // expected — see the note on `shellIsUsable` in it. Read defensively
+        // rather than destructured: a missing `index.html` is `undefined` here
+        // and is refused by name one layer down, which is the honest answer.
+        const shell = (dist["index.html"] || {}).t;
+        worker = await timed("workerMs", null, null, () => packageWorker(payload.slug, shell));
       }
 
       return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, fonts: fontsUsed, theme: themeUsed, tokens: tokensUsed, identity: identityUsed, brand: logoUsed, prerendered: pre.done, prerenderSkipped: pre.skipped, prerenderUnprivileged: !!pre.unprivileged, render, worker });
