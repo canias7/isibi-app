@@ -619,6 +619,48 @@ try {
     if (d.page === "app") {
       ok("the page is the compiled app shell", /id="root"/.test(html) && /<script[^>]+src=/.test(html), html.slice(0, 240));
 
+      // ── WHAT THE SITE'S OWN SCRIPT HAD TO GET RIGHT (2026-08-17) ─────────
+      //
+      // Serving a page from a per-site Worker moved where the document comes
+      // from, and three things the static path did silently did not move with
+      // it. Each cost something a visitor or a crawler sees, and each is
+      // invisible to every other check in this file — the site still builds,
+      // still publishes and still answers 200 with all three broken.
+      //
+      // Asserted only when a script really served this, since with no script
+      // the static path answers and all three were always right.
+      const byScript = !!(d.worker && d.worker.uploaded);
+      if (byScript) {
+        // THE SHARE CARD. `injectMeta` writes these at PUBLISH time, after the
+        // container produced the bundle — so a script with the shell baked in
+        // served the version from before they existed. Measured on the first
+        // live build: a real page whose whole head was `<title>Forno</title>`.
+        // WhatsApp, Slack and iMessage read the head and never run the bundle.
+        ok("the script serves the PUBLISHED document, with its share tags",
+          /<meta property="og:title"/i.test(html) && /<meta property="og:description"/i.test(html),
+          "the head has no Open Graph tags — a baked shell? " + (html.match(/<head>[\s\S]{0,300}/) || [""])[0]);
+
+        // THE BUNDLE. vite writes `./assets/…` and a browser resolves that
+        // against the DIRECTORY of the URL — so a relative reference that
+        // survives is a blank page on `/book/` and on any nested route.
+        ok("…with its asset references made absolute",
+          !/\s(?:src|href)="\.\//.test(html),
+          (html.match(/\s(?:src|href)="\.\/[^"]*"/) || [""])[0] + " — this 404s on a trailing slash");
+      }
+
+      // THE SITEMAP, whichever path served it. Published carrying a placeholder
+      // because the same bytes serve at three addresses; the real origin goes in
+      // at serve time, and a script serving it raw would hand a crawler a list
+      // of URLs that resolve nowhere.
+      const sm = await fetch(new URL("sitemap.xml", SITE).href);
+      const smText = await sm.text().catch(() => "");
+      ok("sitemap.xml carries a real origin, not the placeholder",
+        sm.status === 200 && !/__SITE_ORIGIN__/.test(smText),
+        sm.status + " " + smText.slice(0, 160));
+      ok("…and its URLs are on this site's own hostname",
+        new RegExp("<loc>" + SITE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).test(smText),
+        (smText.match(/<loc>[^<]*<\/loc>/) || ["(no <loc>)"])[0] + "  expected under " + SITE);
+
       // ── A DEEP LINK IS A REAL ADDRESS ────────────────────────────────────
       //
       // `/s/<slug>/book` used to 404, because vite emits no `book.html` — and
