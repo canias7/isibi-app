@@ -10704,7 +10704,27 @@ async function handleRequest(request, env, ctx) {
       // A NON-STRING IS NOT COERCED. `String(["a","b"])` is `"a,b"`, which
       // strips to a real slug nobody asked for — the coercion bug already
       // recorded for `normalizeRole` and for a table's `access`.
-      const cleanSlug = (v) => (typeof v === "string" ? v : "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 60);
+      //
+      // EDGE HYPHENS ARE TRIMMED, so every slug this route claims is a legal
+      // DNS label. Without it `-shop` and `shop-` pass here and are refused by
+      // `labelOk` in `site-domains.mjs`, so `siteHostFor` answers null and such
+      // a site can only ever be served at `/s/<slug>/` — A SECOND RENDER MOUNT,
+      // which is the thing that has to stop existing. The published bundle
+      // derives its basepath at runtime today (`main.tsx`, `import.meta.url`)
+      // precisely because the same bytes serve at both; anything that bakes a
+      // basepath in — TanStack Start does, on the server AND in `hydrateStart`,
+      // overwriting whatever the router itself set — can serve one mount only.
+      // With no edge-hyphen slug there is only one, and `/s/…` is left as what
+      // it already is: the internal addressing scheme both hostname rewrites
+      // produce, prefix-stripped before dispatch, and a 301 source.
+      //
+      // AFTER THE SLICE, NEVER BEFORE. A 62-character name truncates to 60 and
+      // can land on a hyphen, so trimming first leaves exactly the label this
+      // is written to refuse.
+      //
+      // Safe to add rather than a rename: `site_backends` was measured with no
+      // edge-hyphen slug in it before this landed, so no live site changes name.
+      const cleanSlug = (v) => (typeof v === "string" ? v : "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 60).replace(/^-+|-+$/g, "");
       // Revise sends {slug, instruction} for an existing site; build sends
       // {brief}. Re-applying a schema is safe (all its DDL is additive or
       // IF NOT EXISTS), so both take the same path.
