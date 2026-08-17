@@ -175,6 +175,24 @@ test("THE UPLOAD'S RESULT LEAVES THE BUILDING", () => {
   assert.match(smoke, /if \(!d\.worker\)/, "the absent case is no longer distinguished");
 });
 
+test("AND SO DOES THE REMOVAL'S", () => {
+  // The worse half of the same blindness, and the one that took a curl to
+  // find. A failed UPLOAD is invisible and harmless — the site falls back to
+  // R2. A failed REMOVAL leaves a deleted site serving, a rollback that does
+  // not take, and an offline switch that stays online, with the ownership row
+  // it would be authorised against already gone. Measured live: 21 objects
+  // removed and the address still answering 200 a quarter of an hour later.
+  assert.match(code, /const workerDrop = await dropSiteWorker\(env, dslug\)/,
+    "the removal's result is discarded again");
+  assert.match(code, /workerRemoved: workerDrop \? workerDrop\.ok : undefined/,
+    "the delete response no longer says whether the script went");
+  assert.match(code, /SITE WORKER NOT REMOVED/,
+    "…and the log line no longer says what it costs");
+  const smoke = fs.readFileSync(new URL("integration/build-smoke.mjs", import.meta.url), "utf8");
+  assert.match(smoke, /dd\.workerRemoved === false/,
+    "build smoke does not name the cause — the files-are-gone check would fail with no explanation");
+});
+
 test("…and says nothing when there is nothing to say", () => {
   // Omitted rather than reported false, so a deployment with no dispatch
   // credentials — every one before this shipped — has a byte-identical
