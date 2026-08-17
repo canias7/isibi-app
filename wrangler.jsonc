@@ -93,6 +93,22 @@
     { "binding": "SITE_ROUTES", "id": "5fdb805d4ead430cbb5b8824f766a76b" },
     { "binding": "SITE_API_CACHE", "id": "d1f7c9b6ecce4231a3733f4a95dc7d6f" }
   ],
+  // Where a site's OWN Worker lives, one script per site. Created 2026-08-17 by
+  // `dispatch namespace setup`; the preflight reported `ok created the
+  // namespace` before this line was added, which is the order that matters.
+  //
+  // A BINDING THAT NAMES SOMETHING NONEXISTENT FAILS THE WHOLE DEPLOY, not just
+  // itself — that is how three merges shipped nothing on 2026-08-07, with the
+  // error naming a feature none of them touched. So this goes in AFTER the
+  // namespace exists, never in the same change that creates it.
+  //
+  // OPTIONAL BY CONSTRUCTION, exactly like the two KV namespaces above: the
+  // serve path checks the binding and falls back to R2. That is what makes it
+  // safe for a site with no uploaded script — which is every site that exists
+  // today — to keep being served from static files as if this were not here.
+  "dispatch_namespaces": [
+    { "binding": "SITE_WORKERS", "namespace": "gofarther-sites" }
+  ],
   // Outbound mail. Cloudflare Email Service, from 2026-07-30 — the previous
   // provider was stopped.
   //
