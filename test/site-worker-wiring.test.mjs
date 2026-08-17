@@ -144,6 +144,50 @@ test("deleting a site removes its script before its files", () => {
   assert.ok(del > drop, "the script must come down before the files, or a deleted site keeps rendering");
 });
 
+/* ------------------------------------------------------ the answer gets out */
+
+test("THE UPLOAD'S RESULT LEAVES THE BUILDING", () => {
+  // `putSiteWorker` logged its result and returned it to nobody, so a build
+  // could package a script, fail to upload it, and report success — with the
+  // only trace in a Cloudflare log. The site serves from R2 either way, so
+  // nothing looks wrong. That is the works-but-cannot-say-so shape this repo
+  // records a dozen times, built while fixing it.
+  //
+  // ASSERTED AT ALL THREE LINKS, because each one alone passes with the wire
+  // cut: the capture, the route forwarding it, and the smoke run reading it.
+  assert.match(code, /workerUpload = await putSiteWorker\(/,
+    "the upload result is discarded again — a failed upload would report as success");
+  assert.match(code, /out\.worker =/, "the result never reaches the build's own return value");
+  assert.match(code, /worker: pages\.worker \|\| undefined/,
+    "the route no longer forwards the upload result");
+  // AND THE SMOKE RUN REPORTS ALL THREE OUTCOMES, not merely mentions the
+  // field. `assert.match(smoke, /d\.worker\b/)` was the first draft and it
+  // passed with the absent-branch broken, because `d.worker.uploaded` two
+  // lines down still matched — proved by a mutation that survived. What
+  // matters is that "nothing was uploaded", "it worked" and "it failed" are
+  // three distinct sentences: the run is the ONLY place a real upload happens,
+  // so a missing branch is an outcome nobody would ever see.
+  const smoke = fs.readFileSync(new URL("integration/build-smoke.mjs", import.meta.url), "utf8");
+  const said = new Set();
+  for (const m of smoke.matchAll(/console\.log\("   worker: ([^"]+)/g)) said.add(m[1]);
+  assert.equal(said.size, 3,
+    "build smoke must separate no-upload, success and failure — it says: " + [...said].join(" | "));
+  assert.match(smoke, /if \(!d\.worker\)/, "the absent case is no longer distinguished");
+});
+
+test("…and says nothing when there is nothing to say", () => {
+  // Omitted rather than reported false, so a deployment with no dispatch
+  // credentials — every one before this shipped — has a byte-identical
+  // response. Its PRESENCE is the signal, the contract `render` and
+  // `salvageNote` already use.
+  const at = code.indexOf("if (workerUpload) {");
+  assert.ok(at > 0, "the result is now attached unconditionally, so an ordinary build's response changed shape");
+  // And a failure carries Cloudflare's own code, which is the difference
+  // between a missing token scope (10000) and a product not enabled (1404).
+  const block = code.slice(at, at + 400);
+  assert.match(block, /status: workerUpload\.status/, "a failed upload no longer names Cloudflare's own status");
+});
+
 /* ------------------------------------------------------ the credentials */
 
 test("ONE reader decides whether the dispatch API is reachable", () => {

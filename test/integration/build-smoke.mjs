@@ -339,6 +339,27 @@ try {
   if (d.notes) console.log("   notes:", d.notes);
   if (d.problems) console.log("   problems:", JSON.stringify(d.problems));
 
+  // --- DID THIS SITE GET ITS OWN SCRIPT? ------------------------------------
+  //
+  // THE ONE THING NO FREE CHECK CAN ANSWER. The bundle is packaged and executed
+  // in `site build` at no cost, but the UPLOAD needs a real Cloudflare call
+  // against a real dispatch namespace — so this run is the only place it
+  // happens, and until now the result reached a Cloudflare log and nothing
+  // else. The site serves from R2 either way, so a failed upload looks
+  // identical to a working platform from every other angle.
+  //
+  // REPORTED, NOT ASSERTED, and that is deliberate for exactly one run: the
+  // path has never executed, so a red line here would be indistinguishable
+  // from the thing it is measuring. It becomes an assertion once it has been
+  // green once.
+  if (!d.worker) {
+    console.log("   worker: NO SCRIPT UPLOADED — either no dispatch credentials on the Worker, or nothing was packaged");
+  } else if (d.worker.uploaded) {
+    console.log("   worker: UPLOADED — this site is served by its own script");
+  } else {
+    console.log("   worker: UPLOAD FAILED —", d.worker.status, d.worker.error);
+  }
+
   // --- WHAT THE PAGE LOOKED LIKE, WHICH NOTHING HERE HAD EVER PRINTED -------
   //
   // The build response carries `render`, `renderNote`, `prerenderSkipped` and

@@ -7161,6 +7161,21 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
   // unbundled families it is the whole gap between `og` and the generation.
   const fontFiles = await fetchSiteFonts(fontPair);
   try { mark?.("fonts"); } catch { /* a trace must never break a build */ }
+  // WHETHER THIS SITE GOT ITS OWN SCRIPT, so the answer leaves the building.
+  //
+  // `putSiteWorker` logged its result and returned it to NOBODY — so a build
+  // could package a script, fail to upload it, and report success, with the
+  // only trace in a Cloudflare log. The site is served from R2 either way, so
+  // nothing looks wrong: exactly the works-but-cannot-say-so shape this file
+  // records a dozen times, built while fixing it.
+  //
+  // A CLOSURE HERE AND NOT A RETURN, deliberately, and the distinction matters
+  // because the script itself is passed as an ARGUMENT one layer up: that
+  // crosses a module boundary, where a side channel makes "it never arrived"
+  // and "there was none" the same observation. This variable is declared and
+  // assigned inside ONE function, four statements apart, and `deps.publish`'s
+  // return value is already spoken for.
+  let workerUpload = null;
   // HOW MANY PHOTOGRAPHS THIS SITE MAY HAVE, derived once from the family's own
   // page set. It is stated to the model BEFORE generation and cut down to what
   // the balance carries AFTER it, and those cannot be the same number: what a
@@ -7353,7 +7368,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       // R2. See `putSiteWorker`: the dispatch answers ahead of the static read,
       // so a script that lands first renders a document naming assets that have
       // not been written yet.
-      await putSiteWorker(env, slug, worker);
+      workerUpload = await putSiteWorker(env, slug, worker);
       return wrote;
     },
     readCredits: () => readCredits(auth),
@@ -7363,6 +7378,23 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
     // ends up with the placeholder.
   }, { spec, slug, priorUsage, livePages });
   if (out.page !== "app" && out.error) console.error("site page build failed:", slug, out.stage, out.error);
+  // AND WHETHER THE SITE IS SERVED BY ITS OWN SCRIPT.
+  //
+  // OMITTED WHEN THERE IS NOTHING TO SAY, so a build on a deployment with no
+  // dispatch credentials — which is every deployment before this shipped — has
+  // a byte-identical response. Its PRESENCE is the signal, the same contract
+  // `render` and `salvageNote` already use.
+  //
+  // The reason rides only on a FAILURE, and it is Cloudflare's own: `10000` is
+  // a token without the scope and `1404` is the product not enabled, which need
+  // completely different actions. "upload failed" sends the reader to the wrong
+  // one — the mistake this repo already paid for once by telling somebody to
+  // add an SSL permission that could not have helped.
+  if (workerUpload) {
+    out.worker = workerUpload.ok
+      ? { uploaded: true }
+      : { uploaded: false, status: workerUpload.status, error: String(workerUpload.error || "").slice(0, 200) };
+  }
   return out;
 }
 
@@ -11678,6 +11710,12 @@ async function handleRequest(request, env, ctx) {
         // …and the same thing as a sentence, composed in the module for the
         // reason all four notes above it are.
         renderNote: renderNote(pages.render) || undefined,
+        // WHETHER THIS SITE IS SERVED BY ITS OWN SCRIPT. Absent when there was
+        // nothing to say (no dispatch credentials, or no script packaged), so
+        // its PRESENCE is the signal — and on a failure it carries Cloudflare's
+        // own error code, which is the difference between a missing token scope
+        // and a product that is not enabled.
+        worker: pages.worker || undefined,
         // Per-route prerender skips, same discipline as `render` one line up:
         // absent on a clean build, carried when a page lost its snapshot —
         // which used to be invisible in production (2026-08-13 audit).
