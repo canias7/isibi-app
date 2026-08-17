@@ -816,10 +816,19 @@ try {
 
       await pg.goto(SITE, { waitUntil: "networkidle", timeout: 60000 });
       // React mounting is what separates a live site from a served file.
-      await pg.waitForFunction(() => !!document.querySelector("#root")?.firstElementChild, null, { timeout: 20000 }).catch(() => {});
+      // NO `#root` UNDER START. `__root.tsx` renders `<html>`, `<head>` and `<body>`
+      // itself, so the page content is a direct child of body — measured on a real
+      // bundle: `id="root"` appears nowhere in the document. The old shell had that
+      // div because `createRoot` needed something to mount into.
+      //
+      // Counting body descendants instead includes the two or three elements
+      // `<Scripts />` emits, which the floors here are far above (20 nodes against a
+      // real page's hundreds), so it still discriminates a blank render from a real
+      // one — which is the only thing these counts are for.
+      await pg.waitForFunction(() => !!document.body.firstElementChild, null, { timeout: 20000 }).catch(() => {});
 
-      const mounted = await pg.evaluate(() => (document.querySelector("#root")?.childElementCount || 0) > 0);
-      ok("the app mounted — React rendered into #root", mounted);
+      const mounted = await pg.evaluate(() => document.body.childElementCount > 0);
+      ok("the app mounted — React rendered into the document body", mounted);
       ok("nothing threw during render", pageErrors.length === 0, pageErrors.join(" | "));
       // THE SITE'S OWN ERRORS, separated from the one the edge injects.
       //

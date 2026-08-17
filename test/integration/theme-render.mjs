@@ -18,6 +18,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import http from "node:http";
+import { serveSite, loadSiteServer } from "./lib/serve-site.mjs";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
@@ -68,6 +69,9 @@ const ROUTES = Object.fromEntries(
 const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), "theme-render-"));
 let buildSrv = null, siteSrv = null, browser = null;
 let dist = {};
+// Reloaded after every build — see `serveSite`: the server is resolved per
+// request precisely because the site under test changes underneath it.
+let siteFetch = null;
 fs.mkdirSync(OUT, { recursive: true });
 
 const send = (res, code, obj) => {
@@ -97,21 +101,20 @@ try {
   // Serves the current dist plus a stub of the Data API, exactly as
   // site-runtime.mjs does — a page with no data renders its error state, and an
   // error state is not what anybody wants to look at when judging a theme.
-  siteSrv = http.createServer((req, res) => {
-    const url = new URL(req.url, "http://127.0.0.1");
-    const m = url.pathname.match(/^\/api\/db\/([^/]+)\/data\/([^/]+)$/);
-    if (m) {
-      if (m[2] === "services") return send(res, 200, SERVICES);
-      return send(res, 200, []);
-    }
-    const rel = url.pathname.replace(/^\/s\/[^/]+\/?/, "") || "index.html";
-    const file = dist[rel] || dist["index.html"];
-    if (!file) { res.writeHead(404); return res.end("not found"); }
-    const body = file.b ? Buffer.from(file.b, "base64") : Buffer.from(file.t || "", "utf8");
-    const type = rel.endsWith(".css") ? "text/css" : rel.endsWith(".js") ? "text/javascript"
-      : rel.endsWith(".svg") ? "image/svg+xml" : "text/html";
-    res.writeHead(200, { "content-type": type });
-    res.end(body);
+  // THE DOCUMENT COMES FROM THE BUILT SERVER, not from a dist file. Under
+  // TanStack Start `dist/client` has no HTML at all, and this served
+  // `dist["index.html"]` for every address — measured as "9 chars" (the router's
+  // own Not found) on all four themes, light and dark. One helper now, shared
+  // with every other harness that stands a site up.
+  siteSrv = serveSite({
+    assets: (rel) => dist[rel] || null,
+    ssr: () => siteFetch,
+    extra: (req, res, url) => {
+      const m = url.pathname.match(/^\/api\/db\/([^/]+)\/data\/([^/]+)$/);
+      if (!m) return false;
+      send(res, 200, m[2] === "services" ? SERVICES : []);
+      return true;
+    },
   });
   await new Promise((r) => siteSrv.listen(SITE_PORT, r));
 
@@ -134,6 +137,7 @@ try {
     if (!built.ok) continue;
     ok(`${theme}: the theme applied`, built.theme && built.theme.applied === true, JSON.stringify(built.theme));
     dist = built.files;
+    siteFetch = await loadSiteServer(sandbox);
 
     const shots = {};
     for (const mode of ["light", "dark"]) {
@@ -141,7 +145,10 @@ try {
       const page = await ctx.newPage();
       const errors = [];
       page.on("pageerror", (e) => errors.push(String(e)));
-      await page.goto(`http://127.0.0.1:${SITE_PORT}/s/look/`, { waitUntil: "networkidle" });
+      // AT `/`, which is where a published site really is: `cleanSlug` refuses an
+      // edge hyphen, so every slug is a legal DNS label and every site has a
+      // pretty host. It was `/s/look/` from when that was a second render mount.
+      await page.goto(`http://127.0.0.1:${SITE_PORT}/`, { waitUntil: "networkidle" });
       if (mode === "dark") {
         await page.evaluate(() => document.documentElement.classList.add("dark"));
         await page.waitForTimeout(250);
