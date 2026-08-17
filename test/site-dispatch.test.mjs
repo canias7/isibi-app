@@ -160,3 +160,56 @@ test("the name is encoded into the path", async () => {
   assert.doesNotMatch(new URL(rec.calls[0].url).pathname, /\/a b\/c/);
   assert.match(rec.calls[0].url, /a%20b%2Fc$/);
 });
+
+/* ------------------------------------ 200 IS NOT THE ANSWER ON THIS API */
+
+test("A 200 CARRYING `success: false` IS A REFUSAL, NOT A DELETE", async () => {
+  // THE BUG THAT SHIPPED, measured on a real run: a site was deleted — 21 R2
+  // objects gone, the Neon project dropped, the ownership row removed — and
+  // the address kept answering 200 for a quarter of an hour, because its
+  // script was never removed and the status-only check called that success.
+  //
+  // Cloudflare's v4 endpoints answer 200 with `{"success": false, "errors":
+  // […]}` for a class of refusals. Reading the status alone turns "we refused"
+  // into "done", silently — the same shape as a GRANT that reports success and
+  // changes nothing.
+  const body = { success: false, errors: [{ code: 10007, message: "workers.api.error.script_not_found" }] };
+  const res = () => new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+  const r = await deleteSiteWorker({ accountId: "a", namespace: "n", name: "site-x", apiToken: "t" },
+    { fetch: async () => res() });
+  assert.equal(r.ok, false, "a refusal wearing a 200 must not read as a delete");
+  assert.match(r.error, /10007/, "and it must carry Cloudflare's own code, which says what to do");
+});
+
+test("…and the upload is judged the same way", async () => {
+  const body = { success: false, errors: [{ code: 10000, message: "Authentication error" }] };
+  const r = await uploadSiteWorker({ accountId: "a", namespace: "n", name: "site-x", code: "export default {}", apiToken: "t" },
+    { fetch: async () => new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } }) });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /10000/);
+});
+
+test("a 204 with no body is still a delete", async () => {
+  // The commonest success shape carries nothing to parse, and an unparseable
+  // body is not evidence of refusal — reading it as one turns every working
+  // delete into a failure and a retry loop.
+  const r = await deleteSiteWorker({ accountId: "a", namespace: "n", name: "site-x", apiToken: "t" },
+    { fetch: async () => new Response(null, { status: 204 }) });
+  assert.equal(r.ok, true);
+});
+
+test("…and so is a 200 whose body is not JSON at all", async () => {
+  const r = await deleteSiteWorker({ accountId: "a", namespace: "n", name: "site-x", apiToken: "t" },
+    { fetch: async () => new Response("OK", { status: 200 }) });
+  assert.equal(r.ok, true, "no opinion is not a refusal");
+});
+
+test("`success: true` is left alone, and 404 still means already gone", async () => {
+  const ok = async (s, b) => deleteSiteWorker({ accountId: "a", namespace: "n", name: "site-x", apiToken: "t" },
+    { fetch: async () => new Response(JSON.stringify(b), { status: s, headers: { "content-type": "application/json" } }) });
+  assert.equal((await ok(200, { success: true, result: null })).ok, true);
+  // 404 is DONE — most deletes are of sites that never had a script, and
+  // treating already-gone as a failure means the cleanup never reports success.
+  assert.equal((await ok(404, { success: false, errors: [{ code: 10007, message: "not found" }] })).ok, true,
+    "an already-absent script is the goal, not a refusal");
+});
