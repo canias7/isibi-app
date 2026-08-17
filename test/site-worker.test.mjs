@@ -93,6 +93,77 @@ test("every refusal says which of the three it was", () => {
   for (const w of seen) assert.ok(w.length > 10, w);
 });
 
+/* ------------------------------------------------- the packaging contract */
+//
+// These read the SOURCE, because `build-server.mjs` starts a server on import
+// and the vite config is data rather than behaviour — and because the only
+// thing that currently proves any of it is a ~20-minute integration run
+// against a real container. A property whose sole guard takes twenty minutes
+// is one that regresses between runs.
+
+test("THE WORKER BUILD ASKS FOR THE `workerd` CONDITION", () => {
+  // WITHOUT IT EVERY SITE RENDERS NOTHING, silently. `ssr.target: "webworker"`
+  // alone puts `browser` in the condition set, `@tanstack/router-core` then
+  // resolves `./isServer` to its CLIENT variant, `RouterCore.update` believes
+  // it is in a browser, and `createRouter` throws `window is not defined`. The
+  // entry catches a render failure and serves the bare shell, so the site
+  // answers 200 with an empty root div and none of its own words — a working
+  // status code over exactly the blank page this whole tier exists to end.
+  //
+  // Both libraries that decide it ship the answer under this one name:
+  // router-core maps `workerd` to its server build, react-dom maps it to
+  // `server.edge.js`. Neither pure choice works alone — webworker conditions
+  // break the router, node conditions pull `node:stream` into react-dom.
+  const cfg = fs.readFileSync(new URL("../builder/site-worker/vite.worker.config.mjs", import.meta.url), "utf8");
+  const m = cfg.match(/conditions:\s*\[([^\]]*)\]/);
+  assert.ok(m, "the worker build no longer names its resolve conditions at all");
+  const list = m[1].split(",").map((s) => s.trim().replace(/^["']|["']$/g, "")).filter(Boolean);
+  assert.ok(list.includes("workerd"),
+    "`workerd` is gone from the condition set — every generated site would render nothing: " + list.join(" "));
+  // `react-server` selects react-dom's RSC build, which is not what this
+  // renders, and it is the FIRST key in that package's map — so its presence
+  // would win over `workerd` and change what gets bundled.
+  assert.ok(!list.includes("react-server"),
+    "`react-server` outranks `workerd` in react-dom's export map and selects the RSC build");
+});
+
+test("packaging REFUSES an unusable shell before it builds anything", () => {
+  // The gate that was written and never called. Asserted on the ORDER as well
+  // as the presence: after the vite build it would cost a container run to
+  // learn what a string comparison already knew, and after the staging write it
+  // would leave one site's config in the template for the next build to reuse.
+  const src = fs.readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8");
+  const fn = src.slice(src.indexOf("async function packageWorker("));
+  const gate = fn.indexOf("shellIsUsable(");
+  assert.ok(gate > 0, "packageWorker no longer checks the shell — `[object Object]` would package cleanly again");
+  const stage = fn.indexOf("siteConfigModule(");
+  assert.ok(stage > gate, "the shell must be judged BEFORE the config module is written");
+});
+
+test("the shell reaches the packager as TEXT, not as the dist entry", () => {
+  // `collectDist` returns every text file as `{t: "…"}`, and handing that over
+  // is the whole of the `[object Object]` bug. Anchored on the call, because
+  // the refusal above only turns the failure loud — this is what stops it
+  // happening.
+  const src = fs.readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8");
+  assert.match(src, /packageWorker\(payload\.slug,\s*shell\)/,
+    "the packager is being handed something other than the resolved shell text");
+  assert.match(src, /const shell = \(dist\["index\.html"\] \|\| \{\}\)\.t;/,
+    "the shell is no longer read out of the dist entry's text field");
+});
+
+test("a render failure is logged with its STACK", () => {
+  // `window is not defined` names no module, and the bundle is one file of
+  // ~950,000 characters — the message alone cost a separate diagnostic harness
+  // to answer what one line states. It goes to our own console, never to the
+  // response.
+  const entry = fs.readFileSync(new URL("../builder/site-worker/entry.js", import.meta.url), "utf8");
+  const at = entry.indexOf("render failed:");
+  assert.ok(at > 0, "the render failure is no longer logged at all");
+  assert.match(entry.slice(at, at + 120), /e\.stack/,
+    "the render failure logs only its message, which names no module in a bundled file");
+});
+
 /* ------------------------------------------------------------ the name */
 
 test("the script name is derived from the slug and prefixed", () => {
