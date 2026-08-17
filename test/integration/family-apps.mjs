@@ -159,6 +159,20 @@ try {
   }));
 
   const ONLY = new Set((process.env.FAM_ONLY || "").split(",").map((s) => s.trim()).filter(Boolean));
+  // A FILTER THAT MATCHES NOTHING IS AN ERROR, NOT A PASS — and this is not a
+  // hypothetical tidy-up. `failed === 0` prints "all pages built and rendered",
+  // so a mistyped name makes the loop run zero times and the harness report
+  // success in about two seconds. Every `FAM_ONLY` run in the sitting that
+  // rewrote this file used names that are not families (`menu-first` and
+  // friends are LAYOUT names, not the `salon`/`agency`/`podcast` this iterates),
+  // and each one was read as proof the rewrite worked. It proved nothing.
+  //
+  // A harness that cannot fail honestly is worse than no harness.
+  const unknown = [...ONLY].filter((n) => !READY_FAMILIES.includes(n));
+  if (unknown.length) {
+    throw new Error("FAM_ONLY names no such family: " + unknown.join(", ") +
+      " — did you mean one of " + READY_FAMILIES.slice(0, 6).join(", ") + "?");
+  }
   for (const app of APPS.filter((a) => ONLY.size === 0 || ONLY.has(a.id))) {
     const name = app.id;
     const dir = app.dir;
