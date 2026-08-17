@@ -33,7 +33,11 @@ const REQUIRED = new Set([
   "FAL_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY",
   "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "CREDITS_MINT_SECRET",
   "SUPABASE_SERVICE_KEY", "COMPOSIO_API_KEY", "NEON_API_KEY",
-  "SITE_SECRETS_KEY", "CLOUDFLARE_API_TOKEN",
+  // Safe to require because the deploy step itself already reads it — a run
+  // with it empty never reaches the upload — and dangerous to make optional,
+  // since a fallback account id would send every site's script to a namespace
+  // nobody serves from.
+  "SITE_SECRETS_KEY", "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID",
 ]);
 
 /** The names in the action's `secrets:` block. */

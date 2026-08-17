@@ -51,6 +51,7 @@ import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, MIN
 import { imageBudget, budgetFor, imagesAffordable, planImages, applyImages, countImageSlots, imagePrompt, imageNote, IMAGE_ASPECT } from "./builder/site-images.mjs";
 import { renderNote } from "./builder/site-render.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
+import { uploadSiteWorker, deleteSiteWorker } from "./builder/site-dispatch.mjs";
 import { ASKABLE as SITE_TOKEN_NAMES, valueHint as siteTokenHint, mergeTokens, parseTokens, withContrast, tokenNote, saidFor as tokenSaid } from "./builder/site-tokens.mjs";
 import { ASKABLE as SITE_STYLE_AXES, optionsFor as siteStyleOptions, axisHint as siteStyleHint, mergeStyle, parseStyle, styleNote, saidFor as styleSaid } from "./builder/site-style.mjs";
 import { extractText, applyEdits } from "./builder/site-text.mjs";
@@ -6583,6 +6584,90 @@ function versionDepsWithSweep(env) {
 }
 
 /**
+ * The credentials the dispatch API needs, or null.
+ *
+ * ONE READER, because the alternative is five call sites each deciding what
+ * "configured" means and one of them eventually disagreeing — which here would
+ * be a path that quietly skips the upload while its neighbours do it, leaving a
+ * site's script stale against its own files. `CLOUDFLARE_ACCOUNT_ID` is the
+ * account the platform Worker is already deployed into; the override exists so
+ * the namespace can be moved without a code change.
+ */
+function dispatchCreds(env) {
+  const accountId = env.SITE_WORKERS_API_ACCOUNT || env.CLOUDFLARE_ACCOUNT_ID;
+  if (!accountId || !env.CLOUDFLARE_API_TOKEN) return null;
+  return {
+    accountId,
+    namespace: env.SITE_WORKERS_NAMESPACE || "gofarther-sites",
+    apiToken: env.CLOUDFLARE_API_TOKEN,
+  };
+}
+
+/**
+ * Upload the script the container just packaged, so this site renders on request
+ * instead of being served as prerendered files.
+ *
+ * AFTER THE FILES ARE IN R2, NEVER BEFORE, and that ordering is the whole
+ * safety argument. The dispatch sits IN FRONT of the R2 read, so the moment a
+ * script exists it answers everything — including the asset requests it serves
+ * out of R2 itself. Uploaded first, a site would render its document and 404
+ * every stylesheet and bundle underneath it, for as long as the writes take.
+ * In this order a site serves its last good build until the new script lands.
+ *
+ * BEST-EFFORT. The site is already live and correct by the time this runs, and
+ * every site on the platform is served from those same files today — so a
+ * failure here costs the rendered path and nothing else. Throwing would trade a
+ * working publish for an upload.
+ */
+async function putSiteWorker(env, slug, worker) {
+  // The container returns `{ok, why, code}` and packages only when asked, so
+  // "no worker" is the ordinary answer on every path that did not request one.
+  if (!worker || worker.ok !== true || !worker.code) {
+    if (worker && worker.ok === false) console.error("site worker packaging failed:", slug, worker.why);
+    return null;
+  }
+  const creds = dispatchCreds(env);
+  const name = scriptNameFor(slug);
+  if (!creds || !name) return null;
+  const r = await uploadSiteWorker({
+    ...creds,
+    name,
+    code: worker.code,
+    // THE ONLY BINDING IT GETS. A dispatch-namespace script inherits nothing
+    // from us, so naming the bucket here is what lets it read its own assets —
+    // and naming nothing else is what keeps it away from the ledger, the
+    // secrets key and every other site's anything.
+    bucket: env.SITES_BUCKET_NAME || "isibi-sites",
+  }).catch((e) => ({ ok: false, status: 0, error: String((e && e.message) || e) }));
+  if (!r.ok) console.error("site worker upload failed:", slug, r.status, r.error);
+  return r;
+}
+
+/**
+ * Take a site's script down, so it falls back to whatever is in R2.
+ *
+ * CALLED BY EVERY PATH THAT CHANGES WHAT R2 HOLDS WITHOUT COMPILING — a
+ * rollback, an offline switch, a delete. The script bakes in the shell and the
+ * route list of the build that produced it, so a path that swaps the files
+ * underneath it leaves a script serving a document that names assets which are
+ * no longer there: a blank page, at a public address, with nothing to explain
+ * it. Removing the script restores the static path, which is exactly the state
+ * those files were just put into.
+ *
+ * 404 IS DONE — most sites have no script, which is the ordinary case rather
+ * than a failure. `deleteSiteWorker` owns that rule; this only decides who asks.
+ */
+async function dropSiteWorker(env, slug) {
+  const creds = dispatchCreds(env);
+  const name = scriptNameFor(slug);
+  if (!creds || !name) return null;
+  const r = await deleteSiteWorker({ ...creds, name })
+    .catch((e) => ({ ok: false, status: 0, error: String((e && e.message) || e) }));
+  if (!r.ok) console.error("site worker delete failed:", slug, r.status, r.error);
+  return r;
+}
+
+/**
  * Publish a compiled site — WRITE FIRST, THEN SWEEP. Never the other way round.
  *
  * THIS USED TO DELETE THE WHOLE PREFIX AND THEN WRITE, which left a window —
@@ -6969,6 +7054,15 @@ async function recompileAndPublish(env, { slug, pages, label }) {
           theme: (look && look.theme) || null,
           tokens: Object.keys(tokens || {}).length ? withContrast(tokens) : undefined,
           style: Object.keys(style || {}).length ? style : undefined,
+          // THE SCRIPT IS REPACKAGED ON EVERY CHEAP EDIT, and it has to be.
+          // The script bakes in the shell — which names this build's
+          // content-hashed assets — so a text fix that republished the files
+          // and left the script alone would serve a document pointing at the
+          // PREVIOUS build's chunks. They survive one publish on the sweep's
+          // grace period and are gone after the next, so the site would go
+          // blank one edit later, with nothing connecting it to the edit that
+          // caused it.
+          worker: true,
           fontFiles: Object.keys(fontFiles).length ? fontFiles : undefined,
         }),
       }));
@@ -7014,6 +7108,9 @@ async function recompileAndPublish(env, { slug, pages, label }) {
   // writing it before the compile is proved would hand the next edit a version
   // that does not build.
   await saveSiteSource(env, slug, pages);
+  // AND THE REFRESHED SCRIPT, after the files — the ordering `putSiteWorker`
+  // owns, and the same one the build path uses one function over.
+  await putSiteWorker(env, slug, built.worker);
   // THE RENDER REPORT REACHES THE CALLER. Every edit lane pays ~6s for the
   // check inside the container and used to throw the result away (2026-08-14
   // audit) — so a cheap edit that turned the site blank or unreadable
@@ -7156,6 +7253,13 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
           // that object, so all twelve generate correctly, including the three
           // that emit ordinary rules no later-wins patch could reach.
           style: Object.keys(style || {}).length ? style : undefined,
+          // PACKAGE THE SITE'S OWN WORKER. Asked for per build rather than set
+          // container-wide, because the two paths coexist by design: a site
+          // with a script renders on request, a site without one is served as
+          // the files this same build wrote, and the dispatch falls through
+          // when there is no script. So this is the switch that decides which,
+          // and it is on for everything built from here.
+          worker: true,
           fontFiles: Object.keys(fontFiles).length ? fontFiles : undefined }),
       }));
       // THE STATUS AND THE BODY, NOT JUST "no JSON". Parsing straight to JSON and
@@ -7177,7 +7281,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
         };
       }
     },
-    publish: async (dist, pages) => {
+    publish: async (dist, pages, worker) => {
       // THE CONTAINER'S WHOLE TURN, closed HERE and not at `pages` — because
       // this dep runs INSIDE `publishPages`, so a mark taken here is the first
       // one since `fonts` and its delta covers generate + typecheck + vite +
@@ -7245,6 +7349,11 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       // this costs the next revise its anchor — which is exactly the behaviour
       // it replaces.
       await saveSiteSource(env, slug, pages);
+      // AND THE SITE'S OWN WORKER, LAST — after the files it serves are all in
+      // R2. See `putSiteWorker`: the dispatch answers ahead of the static read,
+      // so a script that lands first renders a document naming assets that have
+      // not been written yet.
+      await putSiteWorker(env, slug, worker);
       return wrote;
     },
     readCredits: () => readCredits(auth),
@@ -7346,6 +7455,27 @@ async function deleteSiteFor(env, uid, dslug) {
         projectDropped = true;
       }
     } catch (e) { console.error("site project drop failed:", dslug, e && (e.detail || e.message)); }
+
+    // AND THE SITE'S OWN WORKER, if it has one.
+    //
+    // The same leak `neon_teardown` exists to stop, one resource over: a script
+    // in the dispatch namespace is BILLED PER SCRIPT and its only record is the
+    // ownership row about to be deleted. Left behind it is invisible, costs
+    // money forever, and holds the slug's script name against whoever claims
+    // that slug next — so the next owner's upload lands on top of a stranger's
+    // code, or fails.
+    //
+    // BEST-EFFORT, and 404 is DONE. Most sites have no script at all, which is
+    // the ordinary case rather than a failure — `deleteSiteWorker` already
+    // reads 404 as success for exactly that reason. Failing the whole delete
+    // over it would leave the published files up, which is the thing the caller
+    // asked to take down.
+    //
+    // BEFORE the files, deliberately. The script serves the document from its
+    // own baked shell, so a site whose files were wiped while its script stood
+    // would keep answering with a rendered page — a "deleted" site still
+    // serving, which is the one outcome this route must not produce.
+    await dropSiteWorker(env, dslug);
 
     let removed = 0;
     try {
@@ -12979,6 +13109,25 @@ async function handleRequest(request, env, ctx) {
               // here changed nothing observable, which is what an inert guard
               // looks like. `isVersionId` is still imported and used by the
               // module; `id` reaches it as whatever the caller sent.
+              // THE SCRIPT COMES DOWN FIRST, and this is the one place the
+              // order is worth arguing. A script bakes in the shell and the
+              // route list of the build that made it, so restoring an older
+              // build underneath a standing script serves a document naming
+              // assets that are no longer there — blank, at a public address,
+              // with nothing to connect it to the restore. Removing it first
+              // puts the site back on the static path, which is exactly what
+              // the archived files are.
+              //
+              // A FAILED REMOVAL REFUSES THE ROLLBACK. Rolling back anyway is
+              // the broken-page outcome above; refusing leaves the customer
+              // the site they already had, which is the thing they were
+              // unhappy with rather than the thing they cannot use. `null`
+              // means there was nothing to remove — no credentials configured,
+              // which is every site until the upload is switched on.
+              const dropped = await dropSiteWorker(env, ownerSlug);
+              if (dropped && !dropped.ok) {
+                return Response.json({ ok: false, error: "couldn't put the old version back just now — your site is unchanged. Try again in a moment." }, { status: 503 });
+              }
               const rb = await rollbackVersion(versionDepsWithSweep(env), { slug: ownerSlug, id: vb && vb.id });
               if (!rb.ok) return Response.json({ ok: false, error: rb.error || "rollback failed" }, { status: rb.status || 500 });
               return Response.json({ ok: true, id: rb.id, files: rb.files, swept: rb.swept, url: "/s/" + ownerSlug + "/" });
@@ -13321,7 +13470,21 @@ async function handleRequest(request, env, ctx) {
                 const src = await loadSiteSource(env, slug).catch(() => null);
                 return !!(src && src.length);
               },
-              wipe: ({ slug }) => deleteSitePrefix(env, slug),
+              // TAKING A SITE OFFLINE MEANS THE SCRIPT TOO, and without it the
+              // switch does not work at all: the script renders the document
+              // from its OWN baked shell and never reads R2 for it, so a site
+              // whose files were wiped would carry on answering with a fully
+              // rendered page. "Offline" that still serves is the one outcome
+              // this route must not produce.
+              //
+              // BEFORE the files, and a failure THROWS — `takeOffline` turns
+              // that into "your site is still up, try again", which is true.
+              // Wiping anyway would leave a rendered page over no assets.
+              wipe: async ({ slug }) => {
+                const dropped = await dropSiteWorker(env, slug);
+                if (dropped && !dropped.ok) throw new Error("site worker still up: " + dropped.error);
+                return deleteSitePrefix(env, slug);
+              },
               rollback: ({ slug, id }) => rollbackVersion(versionDepsWithSweep(env), { slug, id }),
               recompile: async ({ slug }) => {
                 const src = await loadSiteSource(env, slug).catch(() => null);
