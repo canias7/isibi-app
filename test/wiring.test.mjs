@@ -685,30 +685,37 @@ test("every build output is wiped before the next build starts", () => {
   for (const [what, re] of [
     ["the generated route tree", /rmSync\(GEN,/],
     ["the client dist", /rmSync\(DIST,/],
-    ["the server bundle (dist-ssr)", /rmSync\(path\.join\(APP, SSR_DIR\)/],
+    // THE LEAVINGS OF THE THREE-BUILD PIPELINE. `dist-ssr` and `dist-worker` are
+    // no longer produced — Start's own build emits `dist/client` and
+    // `dist/server` — but a long-lived instance that predates the deploy can
+    // still be carrying them, so the wipes stay. Asserted by NAME rather than by
+    // the old `SSR_DIR` constant, which went with the code that wrote there.
+    ["the pre-Start build outputs", /"dist-ssr", "dist-worker"/],
     ["the stylesheet", /copyFileSync\(STYLES_BASE, STYLES\)/],
   ]) {
     assert.match(body, re, `resetRoutes no longer clears ${what} — the previous build's output survives into this one`);
   }
 
-  // AND THE ONE THING THAT REALLY STOPS THE FIRST SITE BECOMING EVERY LATER
-  // SITE'S SNAPSHOT: the bundle is loaded in a process that did not exist a
-  // moment ago. This used to assert a cache-buster on an in-process `import()`
-  // in THIS file, which was the correct guard while the render ran here — it now
-  // runs in `prerender-child.mjs`, whose module registry starts empty, so a
-  // fresh process is the mechanism and the buster is belt-and-braces beside it.
+  // AND THE BUNDLE THE RENDER CHECK LOADS IS CACHE-BUSTED PER BUILD. This
+  // container is long-lived and serves every build on the platform, so Node's
+  // module cache would hand back the PREVIOUS site's server and every render
+  // report after the first would be a statement about somebody else's pages.
   //
-  // Asserted at both ends, because either alone passes while the other is
-  // broken: the parent must spawn a child per build, and the child must be the
-  // only thing that loads the bundle.
-  assert.match(src, /run\(process\.execPath, \[PRERENDER_CHILD,/,
-    "the prerender no longer runs as its own process — model-written code is back in the build server's event loop");
-  assert.ok(!/import\([^)]*entry-server\.js/.test(src),
-    "build-server.mjs imports the SSR bundle itself again — that is the in-process execution the child exists to end");
-
-  const child = fs.readFileSync(new URL("../builder/prerender-child.mjs", import.meta.url), "utf8");
-  assert.match(child, /"\?v=" \+ Date\.now\(\)/,
-    "the child's import lost its cache buster — harmless today, and the guard against this ever moving back in-process");
+  // WHAT THIS REPLACES. The prerender ran model-written code in its own process
+  // (`prerender-child.mjs`), and this asserted both ends of that — the parent
+  // spawning a child per build, and the child being the only thing that loaded
+  // the bundle. TanStack Start removed the build-time prerender entirely: the
+  // document is rendered per REQUEST by the site's own Worker, in the customer's
+  // own isolate on Cloudflare's side, which is a stronger boundary than a uid in
+  // a shared container was.
+  //
+  // ASSERTED AS AN ABSENCE TOO, because the render check DOES still load the
+  // bundle in this process — to answer a browser — and that is a diagnostic
+  // rather than a render, one whose failure costs a report and never the site.
+  assert.match(src, /pathToFileURL\(SERVER_BUNDLE\)\.href \+ "\?b=" \+ Date\.now\(\)/,
+    "the render check's import lost its cache buster — every report after the first would describe another site");
+  assert.ok(!fs.existsSync(new URL("../builder/prerender-child.mjs", import.meta.url)),
+    "the prerender child is back without its spawn and privilege-drop guards, which went with it");
 });
 
 // ── THE PLATFORM MUST SAY WHY A BUILD FAILED ────────────────────────────────
@@ -896,7 +903,11 @@ test("a look that failed SOFT reaches the caller instead of publishing silently"
   // `recompileAndPublish`, so a build-path-only fix leaves a text fix, a colour
   // change and a picture swap all shipping the default look in silence.
   assert.match(worker, /lookSoft: pages\.lookSoft \|\| undefined,/, "the build route drops it");
-  assert.match(worker, /lookSoft: lookSoft\.length \? lookSoft : undefined \}/,
+  // ANCHORED ON THE PROPERTY, not on what follows it. This pinned the closing
+  // brace and went red the moment an honest `worker` field joined the return —
+  // a correct change failing a test about word order, which is this repo's
+  // most-recorded own-goal.
+  assert.match(worker, /lookSoft: lookSoft\.length \? lookSoft : undefined/,
     "recompileAndPublish drops it, so every cheap edit is silent about it");
 
   // CARRIED ONLY WHEN SOMETHING WENT WRONG, at both layers: a build where the

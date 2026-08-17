@@ -15,9 +15,15 @@ export type NavLink = { label: string; href: string };
  * MOUNTS. The same bundle is served at `/s/<slug>/` on gofarther.dev and at `/`
  * on `<slug>.gofarther.app` and on the owner's own domain, so `href="/book"` is
  * the site's booking page on two of those and the PLATFORM's `/book` on the
- * third. `<Link>` resolves against the router's basepath, which is derived at
- * runtime in main.tsx, so it is correct on all three without knowing which it
- * is on.
+ * third. `<Link>` resolves against the router's basepath, so it is correct on all
+ * three without this component knowing which it is on.
+ *
+ * That basepath is TanStack Start's `ROUTER_BASEPATH`, applied by
+ * `createStartHandler` on the server and `hydrateStart` in the browser — which
+ * is why `src/router.tsx` deliberately sets none. It was derived at runtime in
+ * `main.tsx` before Start, from where the bundle had really been loaded from;
+ * the conclusion for this file is the same either way, which is the point of
+ * reading it off the router rather than computing it here.
  *
  * It used to be `href="#/book"`, and the comment here said a hash was "real
  * client-side navigation". That was true while the app ran on

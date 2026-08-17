@@ -125,37 +125,59 @@ test(`the ${svc.name} entrypoint is the file whose imports were just checked`, (
   assert.match(df, new RegExp("^EXPOSE " + svc.port, "m"), "the port must match the class's defaultPort");
 });
 
-test(`the ${svc.name} spawned-sibling scan can still see one`, () => {
-  // A scan that silently stops matching reports a clean image and proves
-  // nothing — the failure this whole file exists to stop, one level up. The
-  // site service really does spawn a child; the game one does not, and that is
-  // asserted as the honest answer rather than skipped.
+test(`the ${svc.name} spawns no sibling — and if one comes back, COPY it`, () => {
+  // NEITHER SERVICE SPAWNS ONE NOW. The site service spawned
+  // `prerender-child.mjs` until TanStack Start removed the build-time prerender;
+  // the game service never has.
+  //
+  // ASSERTED AS AN ABSENCE RATHER THAN DELETED, and it is a tripwire rather than
+  // a rule: the COPY check above is DERIVED, so it covers a child added
+  // tomorrow — but only if that child is also in the Dockerfile, and the failure
+  // if it is not is silent (MODULE_NOT_FOUND at spawn time, on a step that is
+  // best-effort, so the build succeeds and the feature just never works). This
+  // line going red is the signal to read that check rather than a complaint
+  // about the change.
   const entry = path.join(svc.dir, "build-server.mjs");
   const found = spawnedSiblings(entry, svc.dir).map((p) => path.basename(p));
-  if (svc.name === "site") {
-    assert.ok(found.includes("prerender-child.mjs"),
-      "the prerender child is no longer named in build-server.mjs — either it stopped being spawned " +
-      "(model-written code is back in the build server's own process) or this scan stopped matching");
-  } else {
-    assert.deepEqual(found, [], `${svc.name} gained a spawned sibling; make sure it is in the COPY line`);
-  }
+  assert.deepEqual(found, [],
+    `${svc.name} gained a spawned sibling (${found.join(", ")}) — make sure the Dockerfile COPYs it, ` +
+    "then update this assertion; a missing COPY fails at runtime on a best-effort step, which is silent");
+});
+
+test("the spawned-sibling scan still fires on the shape it was written for", () => {
+  // The absence above is only worth anything if the scan can still SEE one. A
+  // scan that silently stopped matching would report both services clean and
+  // prove nothing — which is the failure this whole file exists to stop, one
+  // level up. Driven over a synthetic entrypoint that names a file really on
+  // disk beside it.
+  const dir = path.dirname(new URL(import.meta.url).pathname);
+  const fake = path.join(dir, ".spawn-scan-probe.mjs");
+  const sibling = path.basename(new URL(import.meta.url).pathname);
+  fs.writeFileSync(fake, 'spawn(process.execPath, ["' + sibling + '"]);\n');
+  try {
+    const found = spawnedSiblings(fake, dir).map((p) => path.basename(p));
+    assert.ok(found.includes(sibling), "the spawned-sibling scan no longer matches a spawned sibling");
+    // And a name inside a COMMENT is not one, or every mention of a deleted
+    // child in prose would demand a COPY line for a file nothing runs.
+    fs.writeFileSync(fake, '// see "' + sibling + '" for why\n');
+    assert.deepEqual(spawnedSiblings(fake, dir), [], "a commented mention reads as a spawned sibling");
+  } finally { fs.rmSync(fake, { force: true }); }
 });
 
 test(`the ${svc.name} image carries every file the service COPIES into the template`, () => {
-  // THE THIRD BLIND SPOT, after imports and spawned siblings. `packageWorker`
-  // reads `site-worker/entry.js` off disk with `fs.copyFileSync` and writes it
-  // into `src/` for vite to bundle — no import names it and nothing spawns it,
-  // so neither of the two checks above can see it.
+  // THE THIRD BLIND SPOT, after imports and spawned siblings. A file read off
+  // disk and written into `src/` for vite to bundle is named by no import and
+  // spawned by nothing, so neither of the two checks above can see it.
+  //
+  // `packageWorker` staged `site-worker/entry.js` that way until TanStack Start
+  // removed the second vite pass, so nothing does it today — this stays because
+  // it is DERIVED from the entrypoint's own path joins, and therefore covers the
+  // next one without anybody remembering the file.
   //
   // A missing COPY here fails differently from both, and more quietly: the
-  // service starts fine, every ordinary build is unaffected, and only a build
-  // that ASKED for a worker comes back "could not stage the worker entry". A
-  // feature that silently never works rather than a container that will not
-  // boot — which is the harder one to notice, because nothing is red until
-  // somebody goes looking for why no site is being served from a script.
-  //
-  // DERIVED from the entrypoint's own path joins, not a list, so a second file
-  // staged this way tomorrow is covered without anybody remembering this test.
+  // service starts fine, every ordinary build is unaffected, and only the build
+  // that needed the staged file fails. A feature that silently never works
+  // rather than a container that will not boot — the harder one to notice.
   const entry = fs.readFileSync(path.join(svc.dir, "build-server.mjs"), "utf8");
   const df = fs.readFileSync(path.join(svc.dir, "Dockerfile"), "utf8");
   const staged = [...entry.matchAll(/path\.join\(path\.dirname\(fileURLToPath\(import\.meta\.url\)\),\s*"([^"]+)"\s*,\s*"([^"]+)"\s*\)/g)]
@@ -167,12 +189,33 @@ test(`the ${svc.name} image carries every file the service COPIES into the templ
       `${svc.name}'s build-server stages ${rel} into the template and the image does not carry ${dir}/ — ` +
       "every build that asks for a worker would fail to stage it, silently, while everything else stays green");
   }
-  // The scan must still SEE one, or this passes vacuously on an image missing
-  // everything — the failure this file exists to stop, one level up.
-  if (svc.name === "site") {
-    assert.ok(staged.includes("site-worker/entry.js"),
-      "the worker entry is no longer staged from build-server.mjs — either packaging changed or this scan stopped matching");
-  }
+  // NOTHING IS STAGED TODAY, so the loop above is vacuous — said plainly here
+  // rather than left looking like live protection, which is the thing this repo
+  // rates worse than no protection at all. The scan is proved to fire by its own
+  // test below, and this line going red means somebody staged a file and this
+  // check now really covers it.
+  assert.deepEqual(staged, [],
+    `${svc.name} stages ${staged.join(", ")} into the template — check the Dockerfile COPYs it, then update this`);
+});
+
+test("the staged-file scan still fires on the shape it was written for", () => {
+  // Same reasoning as the spawned-sibling probe: an assertion that nothing is
+  // staged is worth nothing if the scan could no longer see one.
+  const dir = path.dirname(new URL(import.meta.url).pathname);
+  const fake = path.join(dir, ".stage-scan-probe.mjs");
+  const here = path.basename(new URL(import.meta.url).pathname);
+  fs.writeFileSync(fake,
+    'const P = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "cf-stub.mjs");\n' +
+    'const Q = path.join(path.dirname(fileURLToPath(import.meta.url)), "nope", "absent.mjs");\n');
+  try {
+    const src = fs.readFileSync(fake, "utf8");
+    const staged = [...src.matchAll(/path\.join\(path\.dirname\(fileURLToPath\(import\.meta\.url\)\),\s*"([^"]+)"\s*,\s*"([^"]+)"\s*\)/g)]
+      .map((m) => m[1] + "/" + m[2])
+      .filter((rel) => fs.existsSync(path.join(dir, rel)));
+    assert.deepEqual(staged, ["fixtures/cf-stub.mjs"],
+      "the staged-file scan no longer matches a two-segment join, or stopped filtering ones that are not there");
+    assert.ok(here, "sanity");
+  } finally { fs.rmSync(fake, { force: true }); }
 });
 
 test(`the ${svc.name} image bakes every pristine base the service restores from`, () => {

@@ -291,10 +291,13 @@ try {
   // node_modules is baked into the image layer; here it is borrowed by symlink so
   // the sandbox costs nothing to make.
   fs.symlinkSync(path.join(TEMPLATE, "node_modules"), path.join(sandbox, "node_modules"), "dir");
-  // The two pristine copies the Dockerfile bakes.
+  // The two pristine copies the Dockerfile bakes. There were three: `.index-base.html`
+  // went with the template's `index.html`, which TanStack Start does not build
+  // from — the document is `__root.tsx`, rendered per request, so there is no
+  // shell to keep a pristine copy of. Kept in step by `test/dockerfile.test.mjs`,
+  // which asserts the image bakes exactly the bases the service restores from.
   fs.mkdirSync(path.join(sandbox, ".routes-base"), { recursive: true });
   fs.copyFileSync(path.join(sandbox, "src/routes/__root.tsx"), path.join(sandbox, ".routes-base/__root.tsx"));
-  fs.copyFileSync(path.join(sandbox, "index.html"), path.join(sandbox, ".index-base.html"));
   fs.copyFileSync(path.join(sandbox, "src/styles.css"), path.join(sandbox, ".styles-base.css"));
   fs.rmSync(path.join(sandbox, "src/routes/index.tsx"), { force: true });
 

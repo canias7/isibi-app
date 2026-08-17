@@ -49,9 +49,11 @@ export default tseslint.config(
     },
   },
   {
-    // The router entry is the ONE file that legitimately imports the generated tree — that is how
+    // The router factory is the ONE file that legitimately imports the generated tree — that is how
     // the tree reaches the app at all. Restricting it everywhere else is the useful half of the rule.
-    files: ["src/main.tsx"],
+    // It was `src/main.tsx` until TanStack Start: there is one `getRouter()` now, called by both the
+    // server entry and the client, precisely so the two can no longer disagree about the tree.
+    files: ["src/router.tsx"],
     rules: { "no-restricted-imports": "off" },
   },
   eslintPluginPrettier,

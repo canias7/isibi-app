@@ -1,7 +1,7 @@
 // Is Workers for Platforms usable on this account, and does our namespace exist?
 //
 // Sites are moving from static files on R2 to a Worker per site, rendered at
-// request time — see `builder/site-worker/entry.js` for why. That needs a
+// request time — see `builder/lovable/template/src/server.ts` for why. That needs a
 // dispatch namespace, which needs the product enabled on the account, which is
 // a purchase. This answers all three questions before anything depends on them.
 //

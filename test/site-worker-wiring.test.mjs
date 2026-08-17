@@ -76,49 +76,94 @@ test("the upload happens AFTER the files are written, never before", () => {
   // OTHER function's one and passed. The overlapping-window bug, in the guard
   // written to hold an ordering. Proven by mutation: it survived.
   const starts = offsets(code, /async function \w+\(|publish: async \(/g);
+  // TWO MECHANISMS PUT THE FILES THERE, and the invariant is about the FILES
+  // rather than about one function's name. A publish writes them
+  // (`writeSiteDistToR2`); a rollback copies an archived build back
+  // (`rollbackVersion`), and it restores that version's OWN script afterwards —
+  // which is the whole reason a rollback stopped being a `dropSiteWorker`, since
+  // under Start there is no static path for a dropped script to fall back to.
+  const PUT_FILES = ["writeSiteDistToR2(", "rollbackVersion("];
   for (const at of calls) {
     const open = starts.filter((s) => s < at).pop();
     assert.ok(open !== undefined, "a putSiteWorker call sits outside any function — rescope this");
-    assert.ok(code.slice(open, at).includes("writeSiteDistToR2("),
-      "a putSiteWorker call has no writeSiteDistToR2 before it IN ITS OWN FUNCTION — the " +
-      "script would land ahead of the files it serves, and every asset on the site would 404 " +
-      "until the writes finished");
+    const before = code.slice(open, at);
+    assert.ok(PUT_FILES.some((f) => before.includes(f)),
+      "a putSiteWorker call has nothing that puts the site's files in place before it IN ITS OWN " +
+      "FUNCTION — the script would land ahead of the files it serves, and every asset on the site " +
+      "would 404 until the writes finished");
   }
 });
 
 /* ------------------------------------------------ the removing half */
 
-test("EVERY PATH THAT CHANGES R2 WITHOUT COMPILING TAKES THE SCRIPT DOWN", () => {
-  // Two such paths exist: a rollback (which restores an older build's files)
-  // and the offline switch (which wipes them). Both are expressed here as
-  // "reaches for R2 destructively without a compile", and each must have a
-  // `dropSiteWorker` before it.
+test("EVERY PATH THAT WANTS NOTHING SERVED TAKES THE SCRIPT DOWN", () => {
+  // Two of them: the offline switch and a site delete. Both wipe the files, and
+  // without dropping the script the site carries on answering — the script
+  // renders the document from its own bundle, so "offline" and "deleted" would
+  // both still serve a page.
+  //
+  // A ROLLBACK IS NO LONGER ONE OF THEM, and that changed with Start. It used to
+  // drop the script "to put the site back on the static path", which was true
+  // while a published site was documents plus a bundle; `dist/client` has no HTML
+  // at all now, so dropping it left the site 404ing. It restores the VERSION'S
+  // OWN script instead — except for a pre-Start version, which really does have
+  // documents, and for which dropping is still right.
   const drops = offsets(code, /\bdropSiteWorker\(/g);
-  // One definition, plus rollback, plus the offline wipe, plus site delete.
+  // One definition, plus the offline wipe, plus site delete, plus the rollback's
+  // no-archived-script arm.
   assert.ok(drops.length >= 4,
-    "expected the rollback, the offline wipe and the site delete to each take the " +
+    "expected the offline wipe, the site delete and the rollback's no-script arm to each take the " +
     "script down; found " + (drops.length - 1) + " call sites");
 });
 
-test("a rollback removes the script BEFORE it restores the files", () => {
-  // The opposite order publishes an older build under a script whose shell
-  // names assets that are about to be swept — a blank page at a public address.
+test("A ROLLBACK PUTS THE VERSION'S OWN SCRIPT BACK, after its files", () => {
+  // THIS ASSERTED THE OPPOSITE, on the reasoning that dropping the script "puts
+  // the site back on the static path, which is exactly what the archived files
+  // are". Measured on a real TanStack Start build: `dist/client` contains no HTML
+  // at all, so there is no static path — a rollback that only dropped the script
+  // left the site 404ing at its own front door. And keeping the standing script
+  // is no better: the server bundle bakes in its own build's content-hashed
+  // asset names, so it would name assets the restore has just swept away.
+  //
+  // AFTER the files, like every other publish: the script serves them out of R2.
   const at = code.indexOf("rollbackVersion(versionDepsWithSweep(env), { slug: ownerSlug");
   assert.ok(at > 0, "the versions route's rollback call moved — re-anchor this check");
-  const drop = code.lastIndexOf("dropSiteWorker(env, ownerSlug)", at);
-  assert.ok(drop > 0 && drop < at, "the rollback no longer takes the script down first");
+  const put = code.indexOf("putSiteWorker(env, ownerSlug", at);
+  assert.ok(put > at, "the rollback no longer restores the version's own script after its files");
+  // AND THE ARCHIVE CARRIES IT, or there is nothing to restore. Either half alone
+  // passes while the wire is cut: an archive with no script leaves the route
+  // reading `rb.worker` as undefined on every version for ever.
+  const vers = fs.readFileSync(new URL("../site-versions.mjs", import.meta.url), "utf8");
+  assert.match(vers, /export async function archiveVersion\(deps, \{[^}]*\bworker\b/,
+    "archiveVersion no longer takes the script, so no version can be restored to a working site");
+  assert.match(vers, /deps\.put\(dest \+ WORKER_FILE, worker/,
+    "the archived script is never written");
 });
 
-test("a failed removal REFUSES the rollback rather than proceeding", () => {
-  // Rolling back anyway is the broken-page outcome; refusing leaves the
-  // customer the site they already had. `null` means there was nothing to
-  // remove — no credentials configured — and must NOT refuse, or every rollback
-  // on the platform stops working the moment this ships.
-  const at = code.indexOf("dropSiteWorker(env, ownerSlug)");
-  assert.ok(at > 0, "the rollback's drop call moved");
-  const window = code.slice(at, code.indexOf("rollbackVersion(versionDepsWithSweep(env), { slug: ownerSlug", at));
-  assert.match(window, /if\s*\(dropped\s*&&\s*!dropped\.ok\)/,
-    "the rollback must refuse on a FAILED removal and proceed when there was nothing to remove");
+test("A VERSION WITH NO SCRIPT DROPS WHATEVER IS STANDING", () => {
+  // The pre-Start versions: they carry real prerendered documents, so the static
+  // path genuinely is where they belong — and leaving a NEWER script over them is
+  // the naming-dead-assets failure. Read as a ternary on the archived script so
+  // the two arms cannot be reordered into one.
+  const at = code.indexOf("rollbackVersion(versionDepsWithSweep(env), { slug: ownerSlug");
+  const win = code.slice(at, at + 1200);
+  assert.match(win, /rb\.worker[\s\S]{0,200}?putSiteWorker\(env, ownerSlug[\s\S]{0,200}?dropSiteWorker\(env, ownerSlug\)/,
+    "the rollback no longer chooses between restoring the version's script and dropping the live one");
+});
+
+test("A HALF-RESTORE IS REFUSED, and the read happens before anything is copied", () => {
+  // A version that CLAIMS a script and cannot produce one must not proceed: the
+  // files would already be back, the standing script would still name the
+  // previous build's assets, and the customer would be told it was restored.
+  // Refusing leaves them the site they had — the same direction the old
+  // failed-removal refusal took, moved to the thing that can now fail.
+  const vers = fs.readFileSync(new URL("../site-versions.mjs", import.meta.url), "utf8");
+  const read = vers.indexOf("await deps.read(src + WORKER_FILE)");
+  const copy = vers.indexOf("await deps.copy(src + rel");
+  assert.ok(read > 0 && copy > 0 && read < copy,
+    "the archived script is read after the files are copied — a missing one would half-restore");
+  assert.match(vers.slice(read, copy), /status: 409/,
+    "a version whose script cannot be read no longer refuses");
 });
 
 test("the offline wipe removes the script before it deletes the files", () => {
@@ -256,4 +301,50 @@ test("the script published is the one from the compile that produced the files",
   assert.ok(at > 0, "the publish call moved");
   assert.match(pp.slice(at, at + 200), /built\.worker/,
     "the script must come off `built`, the same object the published files do");
+});
+
+test("EVERY ARCHIVE PASSES THE SCRIPT, or the version cannot be restored", () => {
+  // DERIVED FROM THE CALL SITES, not a list of the two that exist today. The
+  // build path and the cheap-edit spine each archive, and a third would be
+  // written by somebody who had not read `archiveVersion` — whose contract is
+  // that a version without its script restores to a blank page or a 404.
+  //
+  // BOTH SURVIVED A MUTATION SWEEP against `site-versions.mjs`'s own tests,
+  // which is the recurring shape here: the module is correct and tested, the
+  // Worker never hands it the argument, and nothing spans the two. Twelfth
+  // recorded instance.
+  const calls = offsets(code, /archiveVersion\(versionDeps\(env\), \{/g);
+  assert.ok(calls.length >= 2,
+    "expected the build path and the cheap-edit spine to both archive; found " + calls.length);
+  for (const at of calls) {
+    // To the matching close of the object literal, so a neighbouring call's
+    // argument cannot satisfy this one — the overlapping-window bug.
+    const end = code.indexOf("});", at);
+    assert.ok(end > at, "an archiveVersion call has no closing — rescope this");
+    assert.match(code.slice(at, end), /\bworker:/,
+      "an archiveVersion call passes no script, so that version restores to a site with no document");
+  }
+});
+
+test("THE UPLOAD'S ANSWER IS KEPT ON BOTH COMPILING PATHS", () => {
+  // It stopped being harmless. Under Start the script is the ONLY thing that
+  // renders a document — `dist/client` holds no HTML, measured — so a failed
+  // upload leaves the site 404ing while the customer is told their change
+  // landed. The build path reported it and the cheap-edit spine discarded it: a
+  // real asymmetry, and a mutation restoring it survived the whole suite.
+  const calls = offsets(code, /await putSiteWorker\(env, slug,/g);
+  assert.ok(calls.length >= 2, "expected an upload on both compiling paths; found " + calls.length);
+  for (const at of calls) {
+    // The assignment is what makes the answer readable; a bare `await` throws it
+    // away. Read backwards from the call to the start of its own statement.
+    const line = code.lastIndexOf("\n", at);
+    assert.match(code.slice(line, at), /=\s*$/,
+      "a putSiteWorker call's result is discarded — a failed upload would report as a successful publish");
+  }
+  // AND EACH PATH TELLS THE CALLER. Either half alone passes while the wire is
+  // cut: a captured result nothing returns is the same silence.
+  assert.match(code, /uploaded: false, status: wput\.status/,
+    "the cheap-edit spine no longer reports a failed upload");
+  assert.match(code, /uploaded: false, status: workerUpload\.status/,
+    "the build path no longer reports a failed upload");
 });

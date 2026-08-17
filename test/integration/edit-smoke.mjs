@@ -461,7 +461,7 @@ async function main() {
   const l = (await jsonOf(lk)) || {};
   // 900, NOT 200. This is where a `compile` failure lands, and its `detail` is
   // the container's own output — which LEADS with Vite's benign
-  // `new URL("../", import.meta.url)` warning from main.tsx, so 200 characters
+  // `new URL("../", import.meta.url)` warning from the client entry, so 200 characters
   // showed the warning and cut off the actual error. Measured 2026-08-12: the
   // rename failed four checks and the cause was not in the log.
   if (!funded(l)) return;

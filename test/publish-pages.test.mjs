@@ -670,45 +670,38 @@ test("the published index.html carries the share tags", async () => {
   assert.match(dist["index.html"].t, /name="description" content="Skin fades in Lisbon."/);
 });
 
-test("worker.js injects into every html page and nothing else", async () => {
-  // A stylesheet or a JS bundle must never be rewritten — asserted on the source,
-  // because passing meta to every file would corrupt the dist silently.
+test("THE PUBLISH-TIME HEAD IS A SIDECAR, and no document is patched", async () => {
+  // WHAT THIS REPLACES. It asserted that `injectMeta`/`pageMeta`/`setTitle` ran
+  // over every `.html` in the dist — the description, the share image, the
+  // per-page `og:url`, and the `<meta name="site-slug">` tag `siteSlug()` reads
+  // on a custom domain, where there is no `/s/<slug>/` in the path to learn it
+  // from.
   //
-  // EVERY HTML FILE, not just index.html, since each route is prerendered to its
-  // own document. That is not cosmetic: this block writes the
-  // `<meta name="site-slug">` tag `siteSlug()` reads, and ON A CUSTOM DOMAIN
-  // there is no `/s/<slug>/` in the path — so a prerendered page without it
-  // would send a visitor who landed on /book straight at a DIFFERENT site's API.
+  // MEASURED ON A REAL TANSTACK START BUILD: `dist/client` contains no HTML at
+  // all. So that block could not fire on anything, and every one of those
+  // assertions would have passed for ever over a loop that never ran once.
+  //
+  // The head is composed by `__root.tsx` per request instead: the baked half
+  // (slug, brand, language, icon) comes from `site-brand.ts` and the
+  // publish-time half is read back out of `sitemeta/<slug>.json`. Which makes
+  // the slug the important one to keep asserted — it is what stops a visitor
+  // landing on /book of a custom domain being pointed at a DIFFERENT site's API,
+  // and it moved from a patched tag to the bundle.
   const fs = await import("node:fs");
   const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.match(src, /if \(\/\\\.html\$\/i\.test\(String\(rel\)\)/,
-    "the injection must be gated on the extension — never applied to a bundle");
-  assert.ok(!/if \(\/\^index\\\.html\$\/i\.test\(String\(rel\)\).*injectMeta/s.test(src.slice(0, src.indexOf("SITES_BUCKET.put"))),
-    "injection is gated on index.html again — every other page loses its slug tag");
-  // pm-DERIVED meta, whatever else rides along — the home page additionally
-  // carries the seo manifest (site-seo.mjs), and the guard's concern is only
-  // that the raw `meta` never reaches injectMeta unprocessed.
-  assert.match(src, /v\.t = injectMeta\(v\.t, [^;]*\bpm\b[^;]*\);/);
-  // The home page keeps the designer's site-level description; the rest derive
-  // their own from what they rendered, and get their own <title> with it.
-  // ANCHORED ON THE PROPERTY, not the argument literal. This pinned `{ home }`
-  // exactly and went red the moment `route` joined it — a correct change failing
-  // a test about word order, which is this repo's most-recorded own-goal.
-  assert.match(src, /pageMeta\(v\.t, meta, \{ home[,}]/, "per-page meta is not derived");
-  assert.match(src, /route: routeByFile\.get\(/, "og:url no longer moves with the page");
-  // AND THE MAP IS ACTUALLY BUILT. A mutation deleting its construction survived
-  // the whole suite: `routeByFile` stays an empty Map, every `.get` misses, and
-  // every page silently falls back to the site URL — which is exactly the bug,
-  // with the call site still reading as fixed.
-  assert.match(src, /routeByFile = new Map\(\(man\.routes \|\| \[\]\)\.map\(\(r\) => \[fileForRoute\(r\), r\]\)\)/,
-    "the file->route map is never populated, so every page keeps the site URL");
-  // Declared OUTSIDE the try, or an unreadable previous manifest silently puts
-  // every page's share link back on the home page for one publish.
-  const decl = src.indexOf("let routeByFile = new Map();");
-  const tryAt = src.indexOf("const man = siteRoutes(pages);");
-  assert.ok(decl > 0 && tryAt > decl, "routeByFile is no longer declared before the manifest try");
-  assert.match(src, /if \(!home\) v\.t = setTitle\(v\.t, pm\.brand\)/,
-    "a prerendered page keeps the shell's title — one tab name for every page");
+  const code = src.replace(/\/\/[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
+  for (const gone of ["injectMeta", "pageMeta", "setTitle", "routeByFile"]) {
+    assert.ok(!new RegExp("\\b" + gone + "\\b").test(code),
+      gone + " is back in worker.js — Start emits no document for it to patch, so it would run over nothing");
+  }
+  // AND THE SIDECAR REALLY IS WRITTEN, with the slug on the site's own bundle.
+  // Either half alone passes while the wire is cut: a publish that writes no
+  // sidecar loses every site's share tags, and a bundle with no slug addresses
+  // the wrong API.
+  assert.match(src, /await env\.SITES_BUCKET\.put\(siteMetaKey\(slug\)/,
+    "the publish no longer writes the meta sidecar");
+  const brand = fs.readFileSync(new URL("../builder/lovable/template/src/site-brand.ts", import.meta.url), "utf8");
+  assert.match(brand, /export const SITE_SLUG/, "the bundle no longer carries its own slug");
 });
 
 test("a compile failure quotes the line it points at", () => {

@@ -466,12 +466,36 @@ test("the 404 never counts as a page view", () => {
 
 // ── The template's branded 404 ──────────────────────────────────────────────
 
-test("the router mounts the kit's NotFound page, basepath-aware", () => {
-  const main = fs.readFileSync(new URL("../builder/lovable/template/src/main.tsx", import.meta.url), "utf8");
-  assert.match(main, /import \{ NotFound \} from "@\/components\/ui\/not-found"/,
+test("the router mounts the kit's NotFound page", () => {
+  // WITHOUT IT TanStack renders its own bare text — the render check has
+  // literally measured that as "blank: only 9 characters" — while the kit's own
+  // `not-found.tsx` sits unused.
+  //
+  // READ OFF `router.tsx`, WHICH IS NOW THE ONLY ROUTER. It was `main.tsx`, and
+  // `entry-server.tsx` built a second one beside it; TanStack Start calls one
+  // `getRouter()` from both `createStartHandler` and `hydrateStart`, so the two
+  // can no longer disagree about the 404 either.
+  const router = fs.readFileSync(new URL("../builder/lovable/template/src/router.tsx", import.meta.url), "utf8");
+  assert.match(router, /import \{ NotFound \} from "@\/components\/ui\/not-found"/,
     "the 404 component is not imported — TanStack's bare nine characters render again");
-  assert.match(main, /defaultNotFoundComponent:/,
+  assert.match(router, /defaultNotFoundComponent:/,
     "the router has no not-found component — the render check's 'blank: only 9 characters' case");
-  assert.match(main, /NotFound homeHref=\{basepath/,
-    "the 404's way home ignores the basepath — a workspace-mounted visitor is sent to the platform root");
+
+  // THE WAY HOME IS `/`, AND THAT IS A CONSEQUENCE OF STAGE 1 RATHER THAN A
+  // SHORTCUT. `NotFound` renders `homeHref` into a plain `<a href>`, which no
+  // router resolves, so on a `/s/<slug>/` mount it would send the visitor to the
+  // PLATFORM's root. That is why this used to be `homeHref={basepath}`, derived
+  // at runtime from `import.meta.url`.
+  //
+  // Start bakes `ROUTER_BASEPATH` at build time and OVERWRITES whatever the
+  // factory sets, so a runtime-derived basepath is not available here at all.
+  // What makes `/` correct instead is that `cleanSlug` now refuses an edge
+  // hyphen, so every slug is a legal DNS label, every site has a pretty host,
+  // and `/` is the only mount a Start bundle is ever served at.
+  assert.match(router, /NotFound homeHref="\/"/,
+    "the 404's way home is not the site root");
+  const slug = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(slug, /const cleanSlug = [^;]*replace\(\/\^-\+\|-\+\$\/g, ""\)/,
+    "cleanSlug admits an edge hyphen again — such a site has no pretty host, is served at " +
+    "/s/<slug>/, and its 404 would send visitors to the platform root");
 });

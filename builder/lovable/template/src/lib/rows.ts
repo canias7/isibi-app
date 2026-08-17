@@ -137,9 +137,14 @@ export type RowQuery = {
  * -time value for local dev, where the site is served from /.
  */
 export function siteSlug(): string {
-  // NO BROWSER AT BUILD TIME. Each route is rendered to HTML once by
-  // `entry-server.tsx`, in Node, where `window` does not exist — and this
-  // function runs inside `useRows`, so it is on the path of every real page.
+  // NO BROWSER ON THE SERVER. Every document is rendered by `src/server.ts`, in
+  // the Workers runtime, where `window` does not exist — and this function runs
+  // inside `useRows`, so it is on the path of every real page.
+  //
+  // It was `entry-server.tsx` in Node before TanStack Start, and the guard is
+  // needed for exactly the same reason: the runtime changed, the absence of a
+  // browser did not. Which is also why it must not be "cleaned up" as a
+  // build-time concern — this now runs on every REQUEST rather than once.
   //
   // The failure it caused is the reason for the guard rather than a try/catch
   // somewhere upstream: React catches a throw during a server render, silently

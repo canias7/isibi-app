@@ -47,24 +47,6 @@ const DIST = path.join(APP, "dist");
 // `dist-worker` out of `dist` has always been about.
 const CLIENT_DIST = path.join(DIST, "client");
 const SERVER_BUNDLE = path.join(DIST, "server", "server.js");
-// The server bundle the prerender loads. Kept OUT of `dist`, which is
-// collected wholesale and published — shipping the SSR build to R2 would
-// double every site's size with code no visitor runs.
-const SSR_DIR = "dist-ssr";
-// RESOLVED FROM THIS FILE, never from APP or the cwd. The child is part of the
-// build service, not of the template — it sits wherever build-server.mjs sits,
-// which is `/app` in the image and the repo's `builder/` when the harness runs
-// it from a sandbox copy. Joining it to APP would work in exactly one of those.
-const PRERENDER_CHILD = path.join(path.dirname(fileURLToPath(import.meta.url)), "prerender-child.mjs");
-// Same rule as the prerender child: part of the build SERVICE, not of the
-// template, so it resolves from this file rather than from APP or the cwd.
-const WORKER_ENTRY = path.join(path.dirname(fileURLToPath(import.meta.url)), "site-worker", "entry.js");
-const WORKER_CONFIG = path.join(path.dirname(fileURLToPath(import.meta.url)), "site-worker", "vite.worker.config.mjs");
-// Its own output directory, kept OUT of `dist` for the reason `dist-ssr` is:
-// `collectDist` publishes everything under `dist` wholesale, and the Worker
-// script is uploaded rather than served — shipping it to R2 would put a copy of
-// every site's server code in the public bucket.
-const WORKER_DIR = "dist-worker";
 const GEN = path.join(APP, "src", "routeTree.gen.ts");
 const MAX_BODY = 4 * 1024 * 1024;
 const STEP_TIMEOUT = 150_000;
@@ -90,20 +72,15 @@ function resetRoutes() {
   }
   try { fs.rmSync(GEN, { force: true }); } catch {}
   try { fs.rmSync(DIST, { recursive: true, force: true }); } catch {}
-  // AND THE SERVER BUNDLE, for the same reason as `dist` and the route tree.
-  // This container is long-lived and serves every build on the platform; a
-  // stale `dist-ssr` left behind by a failed SSR build is one site's pages
-  // waiting to be rendered into another site's snapshots. That exact class —
-  // one build's files leaking into the next — has happened here before, and it
-  // is cheaper to delete than to reason about.
-  try { fs.rmSync(path.join(APP, SSR_DIR), { recursive: true, force: true }); } catch {}
-  // AND THE WORKER BUILD, for the same reason one line up: a script left by a
-  // failed build is one site's pages waiting to be uploaded under another
-  // site's name. `site-config.js` goes with it — it is generated per site and
-  // carries the slug, so a stale one is the same leak wearing a smaller file.
-  try { fs.rmSync(path.join(APP, WORKER_DIR), { recursive: true, force: true }); } catch {}
-  try { fs.rmSync(path.join(APP, "src", "site-config.js"), { force: true }); } catch {}
-  try { fs.rmSync(path.join(APP, "vite.worker.config.mjs"), { force: true }); } catch {}
+  // AND THE LEAVINGS OF THE THREE-BUILD PIPELINE, which Start replaced. Kept as
+  // wipes rather than dropped with the code that made them: this container is
+  // long-lived, so an instance carrying a `dist-ssr` or a `dist-worker` from
+  // before the deploy would otherwise hold it until Cloudflare recycled it, and
+  // one build's files leaking into the next is a class that has bitten here
+  // before. They cost nothing and can go once no live instance predates Start.
+  for (const stale of ["dist-ssr", "dist-worker", "vite.worker.config.mjs", path.join("src", "site-config.js")]) {
+    try { fs.rmSync(path.join(APP, stale), { recursive: true, force: true }); } catch {}
+  }
   // AND THE STYLESHEET, which was the one build output nothing reset.
   //
   // `writeTheme` and `writeTokens` both APPEND to whatever `src/styles.css`
@@ -328,27 +305,21 @@ function collectDist(dir = DIST, base = "") {
   return out;
 }
 
-// ── A REAL DOCUMENT PER ROUTE ───────────────────────────────────────────────
+// ── WHICH ADDRESSES THIS SITE HAS ───────────────────────────────────────────
 //
-// Without this a published page is an empty `<div id="root">` and a bundle. A
-// search engine runs JavaScript so it gets there eventually; A LINK PREVIEW DOES
-// NOT — WhatsApp, iMessage and Slack fetch the HTML once and read the head — so
-// every page shared anywhere showed the home page's card. This renders the first
-// frame of each route to HTML at build time, which is what both actually want.
+// The render check's work list: every route the browser harness opens and every
+// route the contrast and overflow passes judge. Read off the files that are
+// really there rather than a list, so a page the model wrote is checked without
+// anything having to be told about it.
 //
-// NEVER FAILS THE BUILD. A route it cannot render simply gets no file, and the
-// Worker's fallback then serves `index.html` at that address. That USED to be
-// the empty app shell — this comment said so for a fortnight — and since the
-// prerender exists `index.html` is the HOME PAGE's snapshot, so what a skipped
-// route actually serves is the home page's content, painted and then torn down
-// by `createRoot` on mount. The cost is a brief wrong-page flash for a visitor
-// and the home page's card in that route's link preview, which is exactly the
-// state every page was in before any of this existed: a degradation back to the
-// old behaviour, not a regression past it. Written down because a comment
-// claiming the safer of two behaviours is the thing that gets believed.
+// IT USED TO FEED THE PRERENDER — the build-time step that wrote each route to
+// its own HTML file, because a published page was an empty `<div id="root">` and
+// a link preview does not run JavaScript. Under Start the document is rendered
+// per REQUEST by the site's own Worker, so there is no snapshot to produce and
+// no skipped-route fallback to reason about: a route either exists in the router
+// or it does not.
 //
-// The routes are read off the files that are really there rather than a list,
-// and the FILE-TO-URL MAPPING IS `routeOf`, IMPORTED — not a copy.
+// THE FILE-TO-URL MAPPING IS `routeOf`, IMPORTED — not a copy.
 //
 // It used to be a copy, and the copy read a dot as a literal character where
 // TanStack's flat-route convention reads it as a separator: `about.team.tsx` is
@@ -357,11 +328,11 @@ function collectDist(dir = DIST, base = "") {
 // snapshot of every page written that way.
 //
 // FIXING ONLY THIS COPY WOULD HAVE BEEN WORSE THAN THE BUG. The published route
-// manifest comes from `siteRoutes` → `routeOf`, so a container that prerendered
-// `/about/team` against a manifest still saying `/about.team` makes Round 7's
-// fallback answer 404 for a page that previously loaded through the SPA path.
-// Two readings of one mapping is the repo's recorded "path-shape mismatch"
-// family; the fix is one function, not two agreeing functions.
+// manifest comes from `siteRoutes` → `routeOf`, so a container answering
+// `/about/team` against a manifest still saying `/about.team` makes the
+// platform's fallback 404 a page that previously loaded. Two readings of one
+// mapping is the repo's recorded "path-shape mismatch" family; the fix is one
+// function, not two agreeing functions.
 //
 // WHAT STAYS HERE is only what is genuinely this side's business: walking the
 // directory, and skipping a `$` file. `routeOf` passes a `$` through on purpose
@@ -383,31 +354,6 @@ function routePaths() {
   try { walk(ROUTES, ""); } catch { return []; }
   return [...new Set(out)];
 }
-
-// WHO THE RENDER RUNS AS. Resolved once, at startup, rather than per build: the
-// answer cannot change under a running container, and a per-build /etc/passwd
-// read is a thing that can fail on the path that must not.
-//
-// Only root can drop, so a non-root container answers null and the render still
-// runs — bounded by the subprocess and its SIGKILL, which is the half that
-// closes the availability failure. The privilege drop is the half that closes
-// the cross-tenant one, and it is reported (`unprivileged` on the response)
-// rather than assumed, because "we thought this was sandboxed" is worse than
-// knowing it is not.
-//
-// uid 0 IS NOT A DROP. Without the `> 0` a misconfigured passwd entry would
-// hand model code root and read, from here, exactly like a successful drop.
-const PRERENDER_USER = process.env.PRERENDER_USER || "node";
-const PRERENDER_AS = (() => {
-  try { if (typeof process.getuid !== "function" || process.getuid() !== 0) return null; } catch { return null; }
-  try {
-    const row = fs.readFileSync("/etc/passwd", "utf8").split("\n").find((l) => l.startsWith(PRERENDER_USER + ":"));
-    if (!row) return null;
-    const f = row.split(":");
-    const uid = Number(f[2]), gid = Number(f[3]);
-    return Number.isInteger(uid) && uid > 0 && Number.isInteger(gid) ? { uid, gid } : null;
-  } catch { return null; }
-})();
 
 /**
  * The site's Worker script — Start's own server build, read off disk.
@@ -469,98 +415,6 @@ async function loadSiteServer() {
     console.error("could not load the server bundle for the render check:", String((e && e.message) || e));
     return null;
   }
-}
-
-// UNREACHABLE AS OF THE MOVE TO START — zero call sites, and said so here rather
-// than left for a reader to work out. The document is rendered per REQUEST by
-// the site's own Worker now, so there is no build-time snapshot to produce.
-//
-// KEPT FOR ONE COMMIT'S WORTH OF CAUTION rather than deleted with the rest: its
-// removal takes `prerender-child.mjs`, the Dockerfile's COPY of it, and six test
-// files with it, and this repo's own record is that a half-done deletion is
-// worse than one not started. It is dead, not dormant — nothing switches it back
-// on — which is exactly the state this file warns about elsewhere, so it must not
-// survive the next sitting.
-async function prerender() {
-  const done = [], skipped = [];
-
-  const ssr = await run("npx", ["vite", "build", "--ssr", "src/entry-server.tsx", "--outDir", SSR_DIR, "--logLevel", "error"], {});
-  // THE COMPILER'S OWN REASON. This said "ssr build failed" — four words naming
-  // the step we already knew, which is the exact sentence `exitReason` was
-  // written to abolish — on the single failure that costs every snapshot on a
-  // site. An operator working out why sites stopped getting snapshots after a
-  // template change had nothing to read and had to reproduce the build by hand.
-  if (ssr.code !== 0) return { done, skipped: ["*: " + exitReason("the ssr build", ssr)], unprivileged: !!PRERENDER_AS };
-
-  // The shell is read BEFORE the render, so a missing or malformed one costs no
-  // subprocess: there would be nothing to splice the bodies into.
-  let shell;
-  try { shell = fs.readFileSync(path.join(DIST, "index.html"), "utf8"); } catch { return { done, skipped: ["*: no index.html"], unprivileged: !!PRERENDER_AS }; }
-  const slot = shell.indexOf('<div id="root">');
-  if (slot < 0) return { done, skipped: ["*: no root element in the shell"], unprivileged: !!PRERENDER_AS };
-  const open = shell.slice(0, slot + '<div id="root">'.length);
-  const close = shell.slice(shell.indexOf("</div>", slot));
-
-  const routes = routePaths();
-  if (!routes.length) return { done, skipped: ["*: no routes to render"], unprivileged: !!PRERENDER_AS };
-
-  // MODEL-WRITTEN CODE, IN ITS OWN PROCESS, WRITING NOTHING. See the header of
-  // `prerender-child.mjs` for why — in short, this used to `import()` the
-  // generated bundle here and call it, so a hostile brief's code ran with the
-  // build service's privileges inside the loop that answers `/health`, in a
-  // container shared by every customer on the platform. `run` gives it the same
-  // STEP_TIMEOUT and SIGKILL every other step has had all along.
-  const child = await run(process.execPath, [PRERENDER_CHILD, path.join(APP, SSR_DIR, "entry-server.js"), JSON.stringify(routes)], {}, PRERENDER_AS || undefined);
-
-  // WHATEVER ARRIVED, even from a killed child. The lines are written and
-  // flushed one route at a time precisely so a page that hangs costs its own
-  // snapshot rather than the site's — so the output is parsed before the exit
-  // status is judged. A half-written final line fails to parse and is dropped,
-  // which is the one thing that must not be accepted as a page.
-  const seen = new Set();
-  let fatal = "";
-  for (const raw of String(child.out || "").split("\n")) {
-    const s = raw.trim();
-    if (!s) continue;
-    let msg;
-    try { msg = JSON.parse(s); } catch { continue; }
-    if (!msg || typeof msg !== "object") continue;
-    if (msg.fatal) { fatal = String(msg.fatal); continue; }
-    if (typeof msg.p !== "string") continue;
-    seen.add(msg.p);
-    if (typeof msg.err === "string") { skipped.push(msg.p + ": " + msg.err.slice(0, 120)); continue; }
-    if (typeof msg.body !== "string") continue;
-    const body = msg.body;
-    // A THROW DURING A SERVER RENDER DOES NOT REACH US. React catches it,
-    // switches that subtree to client rendering and returns markup — 5.6 KB of
-    // it, containing no words — with no exception anywhere. Every route
-    // "succeeded" and every snapshot was empty, measured on the first run. So
-    // the marker React leaves behind is checked, and so is the presence of
-    // actual text: a snapshot with no words in it is not one worth publishing.
-    //
-    // JUDGED HERE AND NOT IN THE CHILD, deliberately: the child's whole job is
-    // to render and print, and every rule it does not carry is a rule that
-    // cannot be got wrong by the code running beside the model's.
-    if (/Switched to client rendering/.test(body)) { skipped.push(msg.p + ": render errored (client fallback)"); continue; }
-    if (!/>[^<>]*[A-Za-z]{3,}/.test(body)) { skipped.push(msg.p + ": rendered no text"); continue; }
-    const file = fileForRoute(msg.p);
-    const full = path.join(DIST, file);
-    try {
-      fs.mkdirSync(path.dirname(full), { recursive: true });
-      fs.writeFileSync(full, open + body + close);
-      done.push(msg.p);
-    } catch (e) { skipped.push(msg.p + ": " + String((e && e.message) || e).slice(0, 120)); }
-  }
-
-  if (fatal) skipped.push("*: " + fatal.slice(0, 200));
-  // The routes the child never got to. Named individually rather than as one
-  // "*: killed" line, because the question a reader has is which pages lost
-  // their snapshot — and with the reason attached, so a kill is not read as the
-  // page having rendered nothing.
-  const why = child.code === 0 ? "no result from the renderer" : exitReason("the renderer", child);
-  for (const p of routes) if (!seen.has(p)) skipped.push(p + ": " + why.slice(0, 120));
-
-  return { done, skipped, unprivileged: !!PRERENDER_AS };
 }
 
 // The theme's own CSS, appended to whatever writeFonts left behind.
