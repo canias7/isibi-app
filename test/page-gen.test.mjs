@@ -299,6 +299,40 @@ test("the documentation examples are gone, not merely unimported", () => {
     "src/examples is back; it compiles, so nothing else catches an import of it — restore the lint rule in page-gen.mjs or remove the folder again");
 });
 
+test("the unreachable dependencies are gone, not merely unimported", () => {
+  // THE RULE THIS ASSERTS: a dependency exists only if something imports it.
+  //
+  // These four were installed and reached by NOTHING — no kit component, no
+  // reference page, none of the 324 family exemplars, and no rule telling the
+  // model they were there. That is the same on-disk-and-reachable-by-nothing
+  // shape the 27 blocks and the 196 examples were deleted for.
+  //
+  // `react-form` is the one that was not merely idle. It was forbidden by a rule
+  // and a lint — and BECAUSE IT WAS INSTALLED an import of it typechecked clean
+  // (measured, exit 0), so the page compiled, lint-warned and published a form
+  // that silently did not validate. Both the rule and the lint went with the
+  // package, which is only safe while it is actually absent: reinstall it
+  // without restoring them and the silent failure comes back. So this asserts
+  // the premise the deletion rests on rather than the rules it removed.
+  //
+  // `react-table` is the one most likely to be argued back. It may be — but
+  // behind our own component the way `react-query` is, never named in the
+  // prompt, so the model cannot half-understand an API we did not write.
+  const pkg = JSON.parse(fs.readFileSync(path.join(TEMPLATE, "package.json"), "utf8"));
+  const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+  for (const gone of ["@tanstack/react-form", "@tanstack/react-pacer", "@tanstack/react-store", "@tanstack/react-table"]) {
+    assert.ok(!deps[gone],
+      gone + " is back in the template. If something now imports it that is fine — but nothing did when it "
+      + "was removed, and for react-form its presence is what let a broken form publish: restore the lint "
+      + "rule in page-gen.mjs, or take the package out again.");
+  }
+  // …and the ones that ARE reachable stay, or this test would pass just as well
+  // on a template with no data layer at all.
+  for (const kept of ["@tanstack/react-query", "@tanstack/react-router", "@tanstack/react-virtual"]) {
+    assert.ok(deps[kept], kept + " is gone — the site has no " + kept.split("/")[1]);
+  }
+});
+
 test("reading a member table WITH useMember is fine", () => {
   const spec = { tables: [{ name: "posts", access: "feed", columns: [{ name: "body" }] }] };
   assert.deepEqual(lintPages(page('const { data: me } = useMember(); useRows("posts");'), spec), []);
@@ -519,10 +553,11 @@ test("a ui component that does not exist is caught", () => {
   assert.deepEqual(lintPages(page('import { Button } from "@/components/ui/button";'), SPEC), []);
 });
 
-test("mixing in TanStack Form is caught — shadcn's inputs would not validate", () => {
-  const p = lintPages(page('import { useForm } from "@tanstack/react-form";'), SPEC);
-  assert.match(p.join(" "), /only speak to react-hook-form/);
-});
+// The TanStack Form lint test went with its rule and its package (2026-08-17),
+// the same way the `@/examples/*` one did. What replaced it is the absence
+// check above — the premise the removal rests on. Not deleted silently, because
+// a lint test disappearing looks like coverage quietly lost rather than a check
+// that stopped being needed.
 
 test("every problem names the file it is in", () => {
   const p = lintPages([{ path: "menu.tsx", source: 'useRows("appointments");' }], SPEC);

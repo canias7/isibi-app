@@ -2362,8 +2362,7 @@ ${UI_SHORTLIST_API()}
    path, not about what you may render.
 
 4. FORMS ARE react-hook-form + zod, through shadcn's \`Form\`/\`FormField\`/\`FormControl\`.
-   TanStack Form is installed but shadcn's form components do not speak to it — mixing them
-   produces inputs that silently do not validate. Never import "@tanstack/react-form".
+   Those components speak to react-hook-form and to nothing else.
 
 5. THE ZOD SCHEMA MIRRORS THE DECLARED COLUMNS. The API drops anything undeclared, so a field
    the schema does not have vanishes without an error.
@@ -3560,9 +3559,20 @@ export function lintPages(pages, spec) {
         "`require` is not defined in the browser, so the page compiles, publishes, and then throws at " +
         "runtime — the whole section renders as an error. Use a top-level `import` instead.");
     }
-    if (/@tanstack\/react-form/.test(code)) {
-      say(path, "imports @tanstack/react-form. shadcn's Form components only speak to react-hook-form; use useForm from react-hook-form with zodResolver.");
-    }
+    // THE @tanstack/react-form RULE WENT WITH THE PACKAGE (2026-08-17).
+    //
+    // It existed because the package was INSTALLED: an import of it typechecked
+    // clean — measured, `tsc --noEmit` exit 0 — so a page mixing it with
+    // shadcn's `Form` compiled, lint-warned, and PUBLISHED, since `problems` is
+    // reported and nothing branches on it. What shipped was a form that
+    // silently did not validate.
+    //
+    // Uninstalled, the same import is a module that does not resolve, which
+    // `tsc` refuses like any other — for free, with no rule and no tokens. The
+    // `@/examples/*` rule was retired on exactly this reasoning when its folder
+    // was deleted; `test/page-gen.test.mjs` asserts the PREMISE (the package is
+    // absent) rather than the rule, because reinstalling it without restoring
+    // this check brings the silent failure straight back.
     // A ROUTE ADDRESSED AS A FRAGMENT — the same class again, and this one was
     // live for a day on every site built after the router moved.
     //
