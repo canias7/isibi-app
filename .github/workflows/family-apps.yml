@@ -23,16 +23,24 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # 100 families at ~32s each is ~53 minutes, MEASURED (`FAM_ONLY=salon`, which
-    # builds and drives one family end to end). The old 25 was not a squeeze that
-    # Start caused — every run in the recent history hit it exactly, including
-    # ones from before that work — so this check has not produced a verdict in a
-    # long time. A timeout is CANCELLED rather than failed, and a cancelled run
-    # is not red, which is why nobody noticed a check that had stopped checking.
+    # 33 MINUTES FOR 100 FAMILIES, measured on a run that actually finished —
+    # the first one in this workflow's recent history, because the old cap was 25
+    # and every run before it was CANCELLED at exactly 25.4.
     #
-    # 75 leaves headroom for a slower runner and for the npm ci and browser
-    # download in front of it. If it ever needs to be faster the answer is
-    # sharding the family list across a matrix, not trimming what is covered.
+    # THE FIGURE THAT WENT IN HERE FIRST WAS ~53, AND IT WAS WRONG. It came from
+    # timing one family in a dev container (`FAM_ONLY=salon`, 32s) and
+    # multiplying. The CI runner does each in ~20s, so the extrapolation was 60%
+    # high — recorded because it was written as "MEASURED", which it was, of the
+    # wrong machine.
+    #
+    # The old 25 was not a squeeze TanStack Start caused: runs from before that
+    # work hit it identically. A timeout is CANCELLED rather than failed, and a
+    # cancelled run is not red, which is why nobody noticed a check that had
+    # stopped producing a verdict.
+    #
+    # 75 leaves better than double the headroom for a slow runner and for the npm
+    # ci and browser download in front of it. If it ever needs to be faster the
+    # answer is sharding the family list across a matrix, not trimming coverage.
     timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
