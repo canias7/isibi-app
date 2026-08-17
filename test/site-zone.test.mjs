@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import {
   OWN_ZONES, APP_ZONE, SITE_ZONE, SITE_ZONE_LIVE,
   isOwnHostname, isAppHostname, siteHostSlug, siteHostFor, siteLabelFor, siteUrlFor, claimRefusal, servedAtRoot, siteOrigin,
-  isPublishedSiteRequest } from "../site-domains.mjs";
+  isPublishedSiteRequest, mountRootFor } from "../site-domains.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => fs.readFileSync(path.join(ROOT, p), "utf8");
@@ -157,16 +157,30 @@ test("siteUrlFor always returns a URL that works", () => {
 
 // ── the Worker ───────────────────────────────────────────────────────────────
 
+// ASSERTED THROUGH THE FUNCTION, NOT ITS SPELLING. This was pinned to the
+// literal `const mountRoot = isAppHostname(url.hostname) ? …` and went red the
+// day the rule moved into `mountRootFor` so the site's own Worker tier could
+// ask the same question — a test about word order failing a correct change,
+// which is this repo's most repeated own-goal.
+//
+// What matters is the ANSWER: `isOwnHostname` covers BOTH zones, so a mount
+// root built on it mounts every site on the site zone under `/s/<slug>/` and
+// 404s every script and stylesheet on it. Driving the real function is a
+// stronger statement than reading which predicate it happens to call.
 test("the mount root asks isAppHostname, never isOwnHostname", () => {
+  assert.equal(mountRootFor(APP_ZONE, "shop"), "/s/shop/", "the workspace serves a site under a path");
+  assert.equal(mountRootFor("shop." + SITE_ZONE, "shop"), "/",
+    "the site zone serves at the root — isOwnHostname is true here and would 404 every asset");
+  assert.equal(mountRootFor("sharpfadebarbers.com", "shop"), "/", "and so does a custom domain");
+
+  // …and `worker.js` reaches it rather than keeping a copy: a correct helper
+  // nothing calls is the shape twelve features here have shipped dead in.
   const w = read("worker.js");
-  const i = w.indexOf("const mountRoot =");
-  assert.ok(i > 0, "the mount-root line is gone");
-  const line = w.slice(i, w.indexOf("\n", i));
-  assert.match(line, /isAppHostname\(url\.hostname\)/, line);
-  assert.doesNotMatch(
-    line, /isOwnHostname/,
-    "isOwnHostname covers both zones, so this would mount every site on the site zone under /s/<slug>/ and 404 every asset",
-  );
+  assert.match(w, /\bmountRootFor\b[\s\S]{0,200}from "\.\/site-domains\.mjs"|from "\.\/site-domains\.mjs"[\s\S]{0,0}/,
+    "mountRootFor is not imported — a call to it would be a ReferenceError on the serve path");
+  assert.match(w, /mountRootFor\(url\.hostname, slug\)/, "the serve path no longer asks it");
+  assert.doesNotMatch(w, /const mountRoot = isOwnHostname/,
+    "isOwnHostname covers both zones, so this would mount every site on the site zone under /s/<slug>/ and 404 every asset");
 });
 
 test("the site zone is rewritten to /s/<slug>/ and root paths are left alone", () => {

@@ -472,11 +472,30 @@ try {
     catch (e) { ok("the packaged script imports", false, String((e && e.message) || e)); }
     if (site) {
       ok("the packaged script imports and exports a fetch handler", typeof site.fetch === "function", typeof site.fetch);
-      // A fake R2, so an asset request has something to answer with. Only the
-      // one key exists — a miss has to 404 rather than throw.
-      const bucket = { get: async (k) => (k === "sites/fold-coffee/assets/app.js"
-        ? { body: "console.log(1)", writeHttpMetadata() {}, httpMetadata: {} } : null) };
-      const call = (p) => site.fetch(new Request("https://fold-coffee.gofarther.app" + p), { SITES: bucket }, { waitUntil() {} });
+      // A FAKE R2 HOLDING WHAT A PUBLISHED SITE HOLDS — the prerendered document
+      // for each route, plus an asset.
+      //
+      // THE DOCUMENTS ARE THE REAL BUILT ONES, marked so the test can tell which
+      // was read. The script serves the ROUTE's own document rather than a baked
+      // copy of the shell, because `injectMeta` adds the description and the
+      // Open Graph tags at PUBLISH time — after this container has produced the
+      // bundle — so anything baked here is always the version from before those
+      // tags existed. Every published site lost its link preview that way, and a
+      // fixture with one shared shell cannot see it.
+      const docs = {};
+      for (const [name, v] of Object.entries(wpack.files || {})) {
+        if (name.endsWith(".html") && v && typeof v.t === "string") {
+          docs["sites/fold-coffee/" + name] = v.t.replace("</head>", `<meta name="from-doc" content="${name}"></head>`);
+        }
+      }
+      const objs = { ...docs, "sites/fold-coffee/assets/app.js": "console.log(1)" };
+      const bucketOf = (o) => ({ get: async (k) => (k in o
+        ? { body: o[k], text: async () => o[k], writeHttpMetadata() {}, httpMetadata: {} } : null) });
+      const bucket = bucketOf(objs);
+      const call = (p, b = bucket) => site.fetch(new Request("https://fold-coffee.gofarther.app" + p), { SITES: b }, { waitUntil() {} });
+
+      ok("the build produced a document per route to serve from",
+        Object.keys(docs).length >= 2, Object.keys(docs).join(", ") || "(none)");
 
       let home;
       try { home = await call("/"); } catch (e) { ok("the home page renders", false, String((e && e.stack) || e).slice(0, 600)); }
@@ -503,10 +522,39 @@ try {
       // A ROUTE THE SITE HAS is a 200; one it does not is a 404 with the page
       // still in it. The status is what stops a typo reading as a real address.
       const menu = await call("/menu");
+      const menuHtml = await menu.text();
       ok("a declared route answers 200", menu.status === 200, String(menu.status));
+      // ITS OWN DOCUMENT, not the home page's. Serving `index.html` for every
+      // address puts the home page's title and share card on every page of the
+      // site — the exact bug the per-page injection was written to fix, and it
+      // is invisible unless the fixture can tell two documents apart.
+      ok("…served from that route's OWN document", /content="menu\.html"/.test(menuHtml),
+        (menuHtml.match(/content="[^"]*\.html"/) || ["(no marker — a baked shell?)"])[0]);
+
       const nope = await call("/definitely-not-a-page");
+      const nopeHtml = await nope.text();
       ok("an undeclared route answers 404, and still serves a page",
-        nope.status === 404 && (await nope.text()).includes('<div id="root">'), String(nope.status));
+        nope.status === 404 && nopeHtml.includes('<div id="root">'), String(nope.status));
+      ok("…falling back to index.html, which is the only document that can exist for it",
+        /content="index\.html"/.test(nopeHtml),
+        (nopeHtml.match(/content="[^"]*\.html"/) || ["(none)"])[0]);
+
+      // NOTHING PUBLISHED MEANS THE SITE IS GONE — the safety net for a script
+      // removal that failed, which happened live twice. A delete wipes the files
+      // and then drops the script; a rollback and the offline switch drop the
+      // script and then change the files. With the shell baked in, a script that
+      // outlived its own deletion kept serving a fully rendered site whose every
+      // trace had been erased. Reading the document means the FILES get the final
+      // say, so a take-down works even when the removal did not.
+      const gone = await call("/", bucketOf({}));
+      ok("a site whose files are gone answers 404, whatever the script still is",
+        gone.status === 404, String(gone.status) + " — a deleted site is still serving");
+
+      // A THROW IS NOT A DELETION, and the difference decides whether an R2 blip
+      // takes a live site down. Degraded to no share preview, still serving.
+      const blip = await call("/", { get: async () => { throw new Error("R2 unavailable"); } });
+      ok("…but an R2 failure keeps the site up on the baked shell",
+        blip.status === 200 && (await blip.text()).includes('<div id="root">'), String(blip.status));
 
       // ASSETS COME OFF R2 rather than through the renderer — the cost decision
       // the entry makes, and the one that would silently stop being true.

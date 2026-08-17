@@ -230,6 +230,48 @@ export function servedAtRoot(pathname) {
 }
 
 /**
+ * The URL prefix a published site is mounted at, from the host it was asked for.
+ *
+ * FOURTH PLACE TO ASK "WHICH MOUNT IS THIS", and the first one that had to ask
+ * it from inside a customer's own Worker script. It was a bare expression in
+ * `worker.js` until the site-script tier, which is exactly the shape
+ * `isPublishedSiteRequest` was extracted to stop: a rule with two copies, whose
+ * drift is silent because the site still renders.
+ *
+ * One label on the site zone and every custom domain serve the site at the
+ * ROOT; only the workspace serves one under a path.
+ */
+export function mountRootFor(hostname, slug) {
+  return isAppHostname(hostname) ? "/s/" + String(slug || "") + "/" : "/";
+}
+
+/**
+ * Turn a built page's RELATIVE asset references into absolute ones.
+ *
+ * WHY THIS EXISTS, and it is not cosmetic. The template sets vite `base: "./"`,
+ * so every `<script src>` and `<link href>` in a prerendered document is
+ * written `./assets/…` — resolved by the browser against the DIRECTORY of
+ * whatever URL it was served at. That is correct only when the document is
+ * served at the mount root, and wrong everywhere else:
+ *
+ *   /book            → directory `/`       → /assets/x.js         ✅
+ *   /book/           → directory `/book/`  → /book/assets/x.js    ✗ 404
+ *   /services/cuts   → directory `/services/` → /services/assets/x.js ✗ 404
+ *
+ * A 404 on the bundle is a blank page, so a visitor who typed a trailing slash
+ * got nothing. The static serve path has always rewritten these; the site's own
+ * Worker script served the document verbatim and reintroduced it, which is why
+ * this became shared code rather than staying a one-line expression.
+ *
+ * Anchored on the SPACE before the attribute so it cannot match inside a value,
+ * and on `="./` so an already-absolute reference is left alone.
+ */
+export function absolutizeAssets(html, mountRoot) {
+  return String(html == null ? "" : html)
+    .replace(/(\s(?:src|href))="\.\//g, '$1="' + (mountRoot || "/"));
+}
+
+/**
  * Is this request going to be answered by a published customer site?
  *
  * THE SECURITY HEADERS NEED THIS AND WERE ASKING THE WRONG QUESTION. `harden()`

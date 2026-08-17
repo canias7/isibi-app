@@ -15,7 +15,7 @@ import { handleInbound, MAX_BODY as INBOUND_MAX_BODY, MAX_PER_MINUTE as INBOUND_
 // every Cloudflare custom-hostname call the platform made threw before it could
 // reach the API. Invisible until the line ran, which is the whole class of bug
 // `test/worker-imports.test.mjs` now covers.
-import { OWN_ZONES, APP_ZONE, SITE_ZONE, normalizeHostname, isOwnHostname, isAppHostname, servedAtRoot, isPublishedSiteRequest, siteHostSlug, siteHostFor, siteUrlFor, siteOrigin, claimRefusal, dnsInstructions, readStatus } from "./site-domains.mjs";
+import { OWN_ZONES, APP_ZONE, SITE_ZONE, normalizeHostname, isOwnHostname, isAppHostname, servedAtRoot, isPublishedSiteRequest, siteHostSlug, siteHostFor, siteUrlFor, siteOrigin, claimRefusal, dnsInstructions, readStatus, mountRootFor, absolutizeAssets } from "./site-domains.mjs";
 import { checkDns, dnsSentence } from "./site-dns.mjs";
 import { detectProvider, providerSentence } from "./site-registrar.mjs";
 import { offerFor as dcOfferFor, applyUrl as dcApplyUrl, signQuery as dcSign, rsaSigner as dcSigner } from "./site-domain-connect.mjs";
@@ -7809,14 +7809,71 @@ async function handleRequest(request, env, ctx) {
         // both hostname rewrites produce it — and the site's own script knows
         // nothing about it: its routes are `/book`. Forwarding unrewritten
         // gives every page the not-found component.
-        if (env.SITE_WORKERS) {
+        //
+        // TWO FILES STAY HERE, and it is not an exception so much as the line
+        // between the two jobs. `robots.txt` and `sitemap.xml` are published
+        // carrying SITE_ORIGIN_TOKEN precisely because the same bytes serve at
+        // three different addresses, and only this side knows which one the
+        // request arrived on — `substituteOrigin` below is what puts it in. The
+        // script's own asset branch would serve them straight off R2, token and
+        // all, so a customer's sitemap would list `https://__SITE_ORIGIN__/book`
+        // and every URL in it would be unusable to a crawler.
+        if (env.SITE_WORKERS && rest !== "robots.txt" && rest !== "sitemap.xml") {
           const name = scriptNameFor(slug);
           if (name) {
             const inner = new URL(url.toString());
             inner.pathname = "/" + rest;
             try {
               const stub = env.SITE_WORKERS.get(name);
-              return await stub.fetch(new Request(inner.toString(), request));
+              const res = await stub.fetch(new Request(inner.toString(), request));
+              const ct = res.headers.get("content-type") || "";
+              const html = /text\/html/i.test(ct);
+
+              // ── AN UNKNOWN ADDRESS FALLS BACK TO THE STATIC PATH ──────────
+              //
+              // Not a retry: the script answers 404 for an address the site
+              // does not have, and everything that decides what an address
+              // like that SHOULD get lives below — the redirect map, which a
+              // publish writes into `index.html`'s head, and the shell the
+              // branded 404 renders into.
+              //
+              // Dispatching in front of it made every renamed or deleted page
+              // a hard 404, so an owner who renamed a page broke every link
+              // Google had indexed and every share already sent, silently, on
+              // the exact feature written to stop that.
+              //
+              // FALLING THROUGH RATHER THAN COPYING THE RULE HERE. The
+              // alternative is the script parsing the manifest itself, which
+              // means a second copy of `decideFallback` inside every customer's
+              // bundle. Extensionless only, so a genuinely missing chunk still
+              // 404s rather than being handed HTML — the same restriction the
+              // SPA fallback below already lives under, and for the same
+              // reason. It costs one wasted script call on an address nobody
+              // has.
+              const lastSeg = rest.split("/").pop() || "";
+              if (!(res.status === 404 && html && !/\.[a-z0-9]{1,8}$/i.test(lastSeg))) {
+                if (!html) return res;
+                // ASSET REFERENCES ARE MADE ABSOLUTE HERE, not in the script.
+                // Vite writes them `./assets/…`, which a browser resolves
+                // against the DIRECTORY of the URL it was served at — correct
+                // only at the mount root, so `/book/` asked for
+                // `/book/assets/…` and rendered nothing. The static path below
+                // has always rewritten them; the script served its document
+                // verbatim and put the bug back. It belongs on this side
+                // because the mount depends on which of three addresses the
+                // request came in on, which is a question only this side can
+                // answer.
+                //
+                // A FRESH `Headers`, because the old one carries the script's
+                // `content-length` and the body it describes has just changed
+                // length.
+                const out = new Headers(res.headers);
+                out.delete("content-length");
+                return new Response(
+                  absolutizeAssets(await res.text(), mountRootFor(url.hostname, slug)),
+                  { status: res.status, headers: out },
+                );
+              }
             } catch (e) {
               // TWO OUTCOMES, TOLD APART. "Worker not found" is the ordinary
               // state of every site on the platform right now and must be
@@ -7944,10 +8001,10 @@ async function handleRequest(request, env, ctx) {
           // asset with `/s/<slug>/` on a mount whose root is `/`, and every
           // script and stylesheet on every site on the new zone would 404.
           // Only the workspace serves a site under a path.
-          const mountRoot = isAppHostname(url.hostname) ? "/s/" + slug + "/" : "/";
+          const mountRoot = mountRootFor(url.hostname, slug);
           // The fallback branch buffered the shell already — a body reads once,
           // so reusing it is correctness, not thrift.
-          served = (shellText !== null ? shellText : await obj.text()).replace(/(\s(?:src|href))="\.\//g, '$1="' + mountRoot);
+          served = absolutizeAssets(shellText !== null ? shellText : await obj.text(), mountRoot);
         } else if (rest === "robots.txt" || rest === "sitemap.xml") {
           // ── THE ORIGIN GOES IN AT SERVE TIME (site-seo.mjs) ───────────────
           //
