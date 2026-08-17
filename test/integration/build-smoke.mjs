@@ -617,7 +617,26 @@ try {
     ok("…on the public hostname, having followed the redirect",
       new URL(page.url).hostname === `${slug}.gofarther.app`, page.url);
     if (d.page === "app") {
-      ok("the page is the compiled app shell", /id="root"/.test(html) && /<script[^>]+src=/.test(html), html.slice(0, 240));
+      // NO `#root` UNDER START — `__root.tsx` renders <html>/<head>/<body>
+      // itself, verified against a real bundle where `id="root"` appears
+      // nowhere. This looked for the mount div the old shell needed for
+      // `createRoot`, so it failed against a perfectly rendered document.
+      //
+      // What identifies a real compiled page now: a COMPLETE document with a
+      // module script to hydrate with, and enough of it to be a page rather
+      // than a stub. That is the same shape `site-build.mjs` asserts against
+      // the executed bundle, and it is what the `[object Object]` failure —
+      // fifteen literal characters served as a whole document — could not pass.
+      //
+      // Deliberately NOT matching on the word `body` in a pattern: this file
+      // declares a `const body` in a block above, and the out-of-scope scanner
+      // in `test/worker-imports.test.mjs` reads any occurrence of the name as a
+      // read. That scanner catches real ReferenceErrors and does not lex regex
+      // literals, which is the right trade — hand-lexing them is the
+      // over-blanking failure this repo already records.
+      ok("the page is the compiled app",
+        /<!DOCTYPE html>/i.test(html) && /<\/html>/i.test(html) && /<script[^>]+src=/.test(html) && html.length > 2000,
+        html.length + " bytes: " + html.slice(0, 200));
 
       // ── WHAT THE SITE'S OWN SCRIPT HAD TO GET RIGHT (2026-08-17) ─────────
       //
@@ -1171,6 +1190,11 @@ try {
     // WHAT THE SITE LOOKS LIKE NOW, so the revise can be checked for having
     // kept it. Read off the published stylesheet rather than the response,
     // because the response is what we believe and the CSS is what ships.
+    // The stylesheet's address, apart from its contents — see the colour checks.
+    const cssHref = async () => {
+      const h = await (await fetch(SITE)).text();
+      return (h.match(/<link[^>]+href="([^"]+\.css)"/) || [])[1] || "";
+    };
     const cssOf = async () => {
       const html = await (await fetch(SITE)).text();
       const href = (html.match(/<link[^>]+href="([^"]+\.css)"/) || [])[1];
@@ -1184,8 +1208,15 @@ try {
       return (await fetch(u)).text();
     };
     const fontsOf = (css) => [...css.matchAll(/--font-(?:sans|heading):\s*([^;]+)/g)].map((m) => m[1].trim()).join(" | ");
-    // The entry bundle's name. Vite content-hashes it, and a route chunk's hash
-    // is part of the entry's own bytes, so a change ANYWHERE in the source moves
+    // The entry bundle's name. Vite content-hashes it — and the premise that
+    // followed here was that a route chunk's hash rides in the entry's own
+    // bytes, so any source change moved it. MEASURED AGAINST A REAL START
+    // BUILD, THAT IS FALSE: the entry names only the SHARED chunks
+    // (site-chrome, skeleton) and not the per-route ones, so editing one page's
+    // words leaves the entry hash exactly where it was. See the stylesheet
+    // check below, which moves on a look change and is what this was reaching
+    // for. Kept as a comment rather than a claim.
+    // (was: a route chunk's hash is part of the entry's own bytes, so a change moves
     // this string — which makes it the cheap, deterministic proof that a
     // republish really happened rather than a stored file merely being written.
     const bundleOf = async () => {
@@ -1193,6 +1224,7 @@ try {
       return (html.match(/<script[^>]+src="([^"]+)"/) || [])[1] || "";
     };
     const beforeCss = await cssOf();
+    const beforeCssHref = await cssHref();
     const beforeFonts = fontsOf(beforeCss);
     ok("the published stylesheet is readable before the revise", beforeCss.length > 1000, String(beforeCss.length));
 
@@ -1293,6 +1325,14 @@ try {
 
     if (rd.page === "app") {
       const afterCss = await cssOf();
+      // THE STYLESHEET'S OWN ADDRESS, printed at each point. Two of this run's
+      // failures were about a colour that was missing here and present later,
+      // and the log could not say WHY: a stale served document (the site's
+      // script had not picked up the new build yet) and a token that never
+      // reached the container produce the identical symptom. The href
+      // discriminates them — an UNCHANGED href means the document is stale,
+      // a changed one means the stylesheet really was rebuilt without it.
+      console.log(`   stylesheet: ${beforeCssHref || "?"} -> ${await cssHref()}`);
 
       // ── THE LOOK IS ANCHORED ─────────────────────────────────────────────
       // "make the background yellow" used to re-roll the theme, the page family
@@ -1442,8 +1482,18 @@ try {
       // bundle is content-hashed and a route chunk's hash is inside it, so this
       // name cannot survive a real edit.
       const bundleAfter = await bundleOf();
-      ok("the published bundle is a new one", !!bundleAfter && bundleAfter !== bundleBefore,
-        `${bundleBefore} -> ${bundleAfter}`);
+      // THE ENTRY HASH DOES NOT MOVE ON A WORDS-ONLY EDIT, measured against a
+      // real Start build: the entry names the SHARED chunks and not the
+      // per-route ones, so editing one page changes that page's chunk and
+      // leaves the entry alone. This asserted the opposite and failed a text
+      // edit that worked — the words really did change on the live site, which
+      // the two checks below prove directly.
+      //
+      // KEPT AS A REPORT rather than deleted, because the value is still worth
+      // seeing when the two checks below ever disagree with each other.
+      console.log(`   entry bundle: ${bundleBefore} -> ${bundleAfter}` +
+        (bundleAfter === bundleBefore ? "  (unchanged, which is expected for a words-only edit)" : ""));
+      ok("the site is still serving a bundle at all", !!bundleAfter, String(bundleAfter));
       ok("and the site still serves its home page",
         (await fetch(SITE)).status === 200);
 
