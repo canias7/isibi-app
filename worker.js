@@ -50,6 +50,7 @@ import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayou
 import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, MIN_CREDITS, IMAGE_USD as SITE_PHOTO_USD } from "./builder/publish-pages.mjs";
 import { imageBudget, budgetFor, imagesAffordable, planImages, applyImages, countImageSlots, imagePrompt, imageNote, IMAGE_ASPECT } from "./builder/site-images.mjs";
 import { renderNote } from "./builder/site-render.mjs";
+import { scriptNameFor } from "./builder/site-worker.mjs";
 import { ASKABLE as SITE_TOKEN_NAMES, valueHint as siteTokenHint, mergeTokens, parseTokens, withContrast, tokenNote, saidFor as tokenSaid } from "./builder/site-tokens.mjs";
 import { ASKABLE as SITE_STYLE_AXES, optionsFor as siteStyleOptions, axisHint as siteStyleHint, mergeStyle, parseStyle, styleNote, saidFor as styleSaid } from "./builder/site-style.mjs";
 import { extractText, applyEdits } from "./builder/site-text.mjs";
@@ -7610,6 +7611,45 @@ async function handleRequest(request, env, ctx) {
           return Response.redirect(url.toString(), 301);
         }
         const rest = (sm[2] || "").replace(/\/+$/, "");
+
+        // ── the site's OWN Worker, if it has one ────────────────────────────
+        //
+        // A site packaged into a script renders per request instead of being
+        // served as the build-time snapshot below. See
+        // `builder/site-worker/entry.js` for why that move exists at all.
+        //
+        // FALLING THROUGH IS THE WHOLE SAFETY PROPERTY. Every site that exists
+        // today has no script, and none will until the packaging is switched
+        // on per build — so "no script" must behave EXACTLY as this line did
+        // before, which is why the dispatch sits in front of the R2 read
+        // rather than replacing it. Get this wrong and the deploy that adds
+        // the binding 404s every published site on the platform at once.
+        //
+        // THE PREFIX IS STRIPPED. `/s/<slug>/book` is our internal addressing —
+        // both hostname rewrites produce it — and the site's own script knows
+        // nothing about it: its routes are `/book`. Forwarding unrewritten
+        // gives every page the not-found component.
+        if (env.SITE_WORKERS) {
+          const name = scriptNameFor(slug);
+          if (name) {
+            const inner = new URL(url.toString());
+            inner.pathname = "/" + rest;
+            try {
+              const stub = env.SITE_WORKERS.get(name);
+              return await stub.fetch(new Request(inner.toString(), request));
+            } catch (e) {
+              // TWO OUTCOMES, TOLD APART. "Worker not found" is the ordinary
+              // state of every site on the platform right now and must be
+              // silent; anything else is a script that exists and broke, which
+              // is worth knowing about. Both still serve the static files —
+              // while both paths exist, the visitor getting the last published
+              // build beats a 503 — but only one of them is news.
+              const msg = String((e && e.message) || e);
+              if (!/not found/i.test(msg)) console.error("site worker failed:", slug, msg.slice(0, 200));
+            }
+          }
+        }
+
         const last = rest.split("/").pop() || "";
         const ext = (last.match(/\.([a-z0-9]{1,8})$/i) || [])[1];
         let key, ctype, immutable = false;
