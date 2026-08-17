@@ -21,7 +21,7 @@ const SCRIPT = path.join(ROOT, ".github", "scripts", "sweep-orphan-site.mjs");
 
 // A stand-in for Supabase + the published site. `owner` is the site_backends
 // row's uid (null = orphaned), `published` is whether /s/<slug>/ still serves.
-function stub({ owner = null, published = true, deleteStatus = 200 } = {}) {
+function stub({ owner = null, published = true, deleteStatus = 200, workerRemoved = undefined, workerError = "" } = {}) {
   const calls = [];
   const state = { owner, published };
   const server = http.createServer((req, res) => {
@@ -55,7 +55,13 @@ function stub({ owner = null, published = true, deleteStatus = 200 } = {}) {
         // verifies afterwards, so the stub has to model it.
         state.published = false;
         state.owner = null;
-        return json(200, { ok: true, slug: m[1], removed: 8 });
+        // `workerRemoved` is OMITTED unless asked for, which is the shape a
+        // Worker with no dispatch credentials really answers with — so the
+        // default case here is the one that must not read as a failure.
+        return json(200, {
+          ok: true, slug: m[1], removed: 8,
+          ...(workerRemoved === undefined ? {} : { workerRemoved, workerError }),
+        });
       }
       // --- the published site ---
       if (url.pathname.startsWith("/s/")) {
@@ -109,13 +115,44 @@ test("a live site is refused before any account is created", async () => {
     "should not create a throwaway account for a site it is going to refuse");
 });
 
-test("it exits clean when the slug is already gone", async () => {
-  const r = await runSweeper("already-swept", { owner: null, published: false });
-  assert.equal(r.code, 0);
-  assert.match(r.stdout, /nothing to do/i);
-  assert.equal(deletes(r.calls).length, 0);
-  assert.ok(!r.calls.some((c) => c.method === "POST" && c.path === "/rest/v1/site_backends"),
-    "should not claim a slug that has nothing to delete");
+// A 404 USED TO EXIT 0 HERE, and that stopped being safe when a site got its
+// own Worker script. The script answers 404 with nothing published — on
+// purpose, so a delete whose script removal failed still takes the site down —
+// which makes "no script" and "a leaked script over an empty prefix"
+// indistinguishable from outside. Exiting on the first would leave the second
+// billed and unreachable by the only tool that can remove it.
+test("a 404 does NOT stop the sweep — it does not prove the script is gone", async () => {
+  const r = await runSweeper("maybe-a-leaked-script", { owner: null, published: false });
+  assert.equal(r.code, 0, r.stdout + r.stderr);
+  assert.equal(deletes(r.calls).length, 1,
+    "must still delete through the route, which is what removes the script");
+  assert.match(r.stdout, /does not prove/i, "should say why it is sweeping something that looks gone");
+  assert.doesNotMatch(r.stdout, /nothing to do/i, "the old early exit must not come back");
+});
+
+test("a failing script removal is a FAILURE, and names Cloudflare's reason", async () => {
+  const r = await runSweeper("barber-shop", {
+    owner: null, published: true, workerRemoved: false, workerError: "10000: Authentication error",
+  });
+  assert.equal(r.code, 1, "a leaked script must not report as swept clean\n" + r.stdout);
+  assert.match(r.stdout, /FAIL.*Worker script/i);
+  assert.match(r.stdout, /10000/, "the operator needs the code to know it is a token scope");
+});
+
+test("a removed script is reported as removed", async () => {
+  const r = await runSweeper("barber-shop", { owner: null, published: true, workerRemoved: true });
+  assert.equal(r.code, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /ok.*Worker script was removed/i);
+});
+
+// The commonest answer today: no dispatch credentials on the Worker, so it has
+// nothing to say. That is not evidence the script survived, and reading it as a
+// failure would make every sweep against such a deploy report red.
+test("silence about the script is neither a pass nor a failure", async () => {
+  const r = await runSweeper("barber-shop", { owner: null, published: true });
+  assert.equal(r.code, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /did not say whether a Worker script was removed/i);
+  assert.doesNotMatch(r.stdout, /FAIL/, "must not fail on a Worker that simply did not answer");
 });
 
 test("it sweeps a real orphan, and says what it removed", async () => {
