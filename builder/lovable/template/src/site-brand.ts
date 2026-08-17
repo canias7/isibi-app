@@ -41,3 +41,11 @@ export const SITE_ICON = "/favicon.svg";
 // non-home page at publish, after the fact; a default the routes can override is
 // the same outcome with the ordering the right way round.
 export const SITE_NAME = "App";
+// WHICH BUILD THIS IS — the one value here that nothing renders. `src/server.ts`
+// returns it as `x-site-build` on every response, and the platform waits for it
+// to match what it just uploaded before calling a publish done: a script does
+// not start serving the instant its upload is accepted, so without this the
+// route reports success while the site still answers with the previous build.
+// Empty in the template, because a standalone build is not a published site and
+// has nothing to confirm.
+export const SITE_BUILD = "";

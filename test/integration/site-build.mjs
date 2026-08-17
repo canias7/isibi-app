@@ -1206,15 +1206,22 @@ function Home() {
     get: async () => null,
     head: async (k) => (k === "sites/" + slug + "/site.live" ? {} : null),
   });
-  const renderHome = async (build, slug) => {
+  // A dead bucket: nothing published, so the entry's take-down probe answers
+  // 404. That is the state a FIRST build's script is uploaded into, and the
+  // stamp has to survive it — see the assertion below.
+  const deadBucket = () => ({ get: async () => null, head: async () => null });
+  const serveOnce = async (build, slug, bucket) => {
     if (!build.ok || !build.worker || !build.worker.ok) return null;
     const f = path.join(sandbox, "logo-bundle-" + slug + "-" + Math.random().toString(36).slice(2) + ".mjs");
     fs.writeFileSync(f, build.worker.code);
     try {
       const app = (await import("file://" + f)).default;
-      const r = await app.fetch(new Request("https://x.gofarther.app/"), { SITES: liveBucket(slug) }, { waitUntil() {} });
-      return await r.text();
-    } catch (e) { return "IMPORT FAILED: " + String((e && e.message) || e); }
+      return await app.fetch(new Request("https://x.gofarther.app/"), { SITES: (bucket || liveBucket)(slug) }, { waitUntil() {} });
+    } catch (e) { return new Response("IMPORT FAILED: " + String((e && e.message) || e), { status: 500 }); }
+  };
+  const renderHome = async (build, slug) => {
+    const r = await serveOnce(build, slug);
+    return r ? await r.text() : null;
   };
 
   const h = await renderHome(withLogo, "logo-site");
@@ -1242,6 +1249,39 @@ function Home() {
       h2.includes("Sharp Fade Barbers") && !/<img[^>]*mark\.png/.test(h2),
       "the previous build's logo survived into a site that sent none");
   }
+
+  // ── WHICH BUILD IS THIS SITE SERVING? ───────────────────────────────────────
+  //
+  // An accepted upload is not a live script — measured twice live, where a read
+  // 0.2s after a publish came back with the previous build's document — so the
+  // platform waits for this header before calling a publish done. Nothing but
+  // executing a real bundle can prove the header is there, which is the same
+  // reason `[object Object]` as a whole document survived every static check.
+  const stampOf = async (build, slug, bucket) => {
+    const r = await serveOnce(build, slug, bucket);
+    return r ? r.headers.get("x-site-build") : null;
+  };
+  const stamp1 = await stampOf(withLogo, "logo-site");
+  const stamp2 = await stampOf(noLogo, "logo-site");
+  ok("a served page says which build answered", !!stamp1 && stamp1.length > 4, JSON.stringify(stamp1));
+  // THE PROPERTY THE WAIT RESTS ON. Equal stamps make the confirmation
+  // vacuous — it would match the OLD script instantly and every publish would
+  // report itself live while still serving the build before it, which is the
+  // exact bug being fixed, wearing a green tick.
+  ok("…and two builds of one site do not share a stamp", !!stamp2 && stamp1 !== stamp2, stamp1 + " vs " + stamp2);
+  // THE CONTAINER'S ANSWER AND THE SITE'S ANSWER ARE THE SAME STRING. The
+  // platform waits for `worker.build` and the site returns `x-site-build`, and
+  // nothing else joins them — if they disagree the wait never confirms, on
+  // every publish, and the only symptom is the lag it exists to remove.
+  ok("…and it is the stamp the container reported with the script",
+    !!(withLogo.worker && withLogo.worker.build) && withLogo.worker.build === stamp1,
+    JSON.stringify({ reported: withLogo.worker && withLogo.worker.build, served: stamp1 }));
+  // ON A SITE THAT IS NOT PUBLISHED YET, which is what a FIRST build's script
+  // is uploaded into: the take-down probe answers 404 until the files land. A
+  // document-only stamp would be invisible on exactly the build that most needs
+  // confirming, so the wait would time out on every new site.
+  const stampDead = await stampOf(withLogo, "logo-site", deadBucket);
+  ok("…and on a site whose files are not there yet", stampDead === stamp1, JSON.stringify(stampDead));
   // ── a link to a page that does not exist ─────────────────────────────────────
   //
   // PROVEN AS A CHAIN, not as a regex. The unit test asserts validatePages rewrites

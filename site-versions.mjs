@@ -117,7 +117,7 @@ const WORKER_FILE = "_worker.js";
  * point and nothing else. Failing a publish that succeeded would be trading a
  * real site for a bookkeeping entry.
  */
-export async function archiveVersion(deps, { slug, id, label, files, worker } = {}) {
+export async function archiveVersion(deps, { slug, id, label, files, worker, build } = {}) {
   if (!isVersionId(id)) return { ok: false, error: "bad version id" };
   const names = (Array.isArray(files) ? files : []).filter((f) => typeof f === "string" && f);
   if (!names.length) return { ok: false, error: "nothing to archive" };
@@ -143,6 +143,15 @@ export async function archiveVersion(deps, { slug, id, label, files, worker } = 
     label: String(label || "Build").slice(0, MAX_LABEL),
     files: names,
     ...(hasWorker ? { worker: true } : {}),
+    // AND WHICH BUILD THAT SCRIPT IS. A restore uploads it again, and the
+    // platform waits for the site to actually serve what it uploaded before it
+    // says the rollback is done — which it can only do if it knows what to wait
+    // for. Reading it back out of the bundled code instead would mean matching
+    // a string literal inside a megabyte of minified JavaScript.
+    //
+    // ONLY BESIDE A SCRIPT THAT WAS REALLY STORED: a stamp on a version with no
+    // script is a claim about something that is not there.
+    ...(hasWorker && typeof build === "string" && build ? { build } : {}),
   }), "application/json");
   const pruned = await pruneVersions(deps, { slug });
   return { ok: true, id, files: names.length, worker: hasWorker, pruned };
@@ -245,7 +254,7 @@ export async function rollbackVersion(deps, { slug, id } = {}) {
   // than dead.
   if (typeof deps.sweep === "function") {
     const s = await deps.sweep({ slug, wrote: keep });
-    return { ok: true, id, files: names.length, worker, swept: (s && s.removed) || 0, deferred: (s && s.deferred) || 0 };
+    return { ok: true, id, files: names.length, worker, build: (manifest && manifest.build) || "", swept: (s && s.removed) || 0, deferred: (s && s.deferred) || 0 };
   }
 
   let swept = 0;
@@ -254,7 +263,7 @@ export async function rollbackVersion(deps, { slug, id } = {}) {
     if (!rel || keep.has(rel)) continue;
     await deps.remove(o.key); swept++;
   }
-  return { ok: true, id, files: names.length, worker, swept };
+  return { ok: true, id, files: names.length, worker, build: (manifest && manifest.build) || "", swept };
 }
 
 /** Drop the oldest versions past the cap. Whole prefixes, manifest included. */

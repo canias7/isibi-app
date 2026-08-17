@@ -51,7 +51,7 @@ import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, MIN
 import { imageBudget, budgetFor, imagesAffordable, planImages, applyImages, countImageSlots, imagePrompt, imageNote, IMAGE_ASPECT } from "./builder/site-images.mjs";
 import { renderNote } from "./builder/site-render.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
-import { uploadSiteWorker, deleteSiteWorker } from "./builder/site-dispatch.mjs";
+import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker } from "./builder/site-dispatch.mjs";
 import { ASKABLE as SITE_TOKEN_NAMES, valueHint as siteTokenHint, mergeTokens, parseTokens, withContrast, tokenNote, saidFor as tokenSaid } from "./builder/site-tokens.mjs";
 import { ASKABLE as SITE_STYLE_AXES, optionsFor as siteStyleOptions, axisHint as siteStyleHint, mergeStyle, parseStyle, styleNote, saidFor as styleSaid } from "./builder/site-style.mjs";
 import { extractText, applyEdits } from "./builder/site-text.mjs";
@@ -6649,8 +6649,27 @@ async function putSiteWorker(env, slug, worker) {
     // secrets key and every other site's anything.
     bucket: env.SITES_BUCKET_NAME || "isibi-sites",
   }).catch((e) => ({ ok: false, status: 0, error: String((e && e.message) || e) }));
-  if (!r.ok) console.error("site worker upload failed:", slug, r.status, r.error);
-  return r;
+  if (!r.ok) {
+    console.error("site worker upload failed:", slug, r.status, r.error);
+    return r;
+  }
+  // AND THEN WAIT UNTIL IT IS ACTUALLY SERVING. An accepted upload is not a
+  // live script — see `confirmSiteWorker`, which measures it — and every caller
+  // of this function reports "done" the moment it returns, with the builder's
+  // preview reloading on the back of that. Without the wait the customer's
+  // first look at their change is the build before it.
+  //
+  // HERE RATHER THAN AT THE CALL SITES, because there are three of them (the
+  // build path, the cheap-edit spine, and a version rollback) and a publish
+  // that skipped the wait would be indistinguishable from one where it passed.
+  // The same reasoning that put the upload itself in one place.
+  //
+  // NEVER FATAL. `confirmed: false` rides on the answer and nothing branches on
+  // it — a slow confirmation must not cost an edit that really did publish.
+  const c = await confirmSiteWorker({ stubFor: env.SITE_WORKERS ? (n) => env.SITE_WORKERS.get(n) : null, name, build: worker.build })
+    .catch(() => ({ confirmed: false, ms: 0, tried: 0 }));
+  if (!c.confirmed && worker.build) console.error("site worker not confirmed serving:", slug, c.ms + "ms", c.tried + " tries");
+  return { ...r, confirmed: c.confirmed, confirmMs: c.ms };
 }
 
 /**
@@ -7140,6 +7159,9 @@ async function recompileAndPublish(env, { slug, pages, label }) {
       // so a version archived without it can be restored to a blank page or to
       // a 404 and to nothing else. See `archiveVersion`.
       worker: (built.worker && built.worker.ok === true && built.worker.code) || undefined,
+      // AND WHICH BUILD IT IS, so a restore can wait for the site to really
+      // serve it. Stored beside the script rather than dug out of the bundle.
+      build: (built.worker && built.worker.build) || undefined,
     });
   } catch (e) { console.error("archive failed:", slug, e && e.message); }
   // LAST, AND ONLY ON SUCCESS. The stored source is what the next edit reads, so
@@ -7413,6 +7435,9 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
           // this build's own hashed assets, so a version without it restores to
           // a blank page or a 404. See `archiveVersion`.
           worker: (worker && worker.ok === true && worker.code) || undefined,
+          // AND ITS STAMP, for the reason above: a restore has to know what
+          // to wait for, and only the manifest can tell it.
+          build: (worker && worker.build) || undefined,
         });
       } catch (e) { console.error("archive failed:", slug, e && e.message); }
       // AND THE SOURCE THAT PRODUCED IT, so the next revise is an edit rather
@@ -13335,7 +13360,12 @@ async function handleRequest(request, env, ctx) {
               // so the static path genuinely is where they belong, and leaving a
               // newer script over them is the naming-dead-assets failure above.
               const wput = rb.worker
-                ? await putSiteWorker(env, ownerSlug, { ok: true, code: rb.worker })
+                // `build` IS THE VERSION'S OWN STAMP, not this moment's. A
+                // rollback deliberately serves an OLD build, so what the wait
+                // must watch for is that build's id — which the manifest kept
+                // for exactly this. Versions archived before it carry none, and
+                // then nothing waits, which is the behaviour they had anyway.
+                ? await putSiteWorker(env, ownerSlug, { ok: true, code: rb.worker, build: rb.build })
                 : await dropSiteWorker(env, ownerSlug);
               // LOUD BUT NOT FATAL, and the asymmetry with the old code is
               // deliberate. The files ARE restored by this point, so refusing
