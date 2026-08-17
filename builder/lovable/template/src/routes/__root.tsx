@@ -20,7 +20,8 @@ import {
 import type { QueryClient } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/sonner";
 import { SpamGuard } from "@/lib/spam-guard";
-import { SITE_LANG, SITE_ICON } from "@/site-brand";
+import { SITE_LANG, SITE_ICON, SITE_NAME, SITE_SLUG } from "@/site-brand";
+import { siteMeta } from "@/site-runtime";
 // The stylesheet and the site's typeface, imported here rather than in a client
 // entry so the SERVER render emits their <link> tags too. Imported in
 // `main.tsx` before this, where they reached the client only — which was fine
@@ -30,13 +31,54 @@ import "../styles.css";
 import "../fonts";
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
-  head: () => ({
-    meta: [
+  // WHAT `injectMeta` USED TO PATCH INTO A SHELL AT PUBLISH TIME. There is no
+  // shell to patch under Start, so the head is composed here — from the baked
+  // half (`site-brand.ts`) and the publish-time half the server entry read out
+  // of R2 (`site-runtime.ts`).
+  //
+  // `site-slug` IS THE ONE THAT MATTERS AND IT IS BAKED. `siteSlug()` in
+  // `@/lib/rows` learns which site it is from the path — and ON A CUSTOM DOMAIN
+  // THERE IS NO `/s/<slug>/` PATH, so without this tag every read and every form
+  // would address whatever the build-time default happens to be: a DIFFERENT
+  // site's API, silently, on the hostname the owner actually gives to customers.
+  // It comes from the bundle rather than the R2 read precisely so that a blip
+  // costs a link preview and never the site's data.
+  //
+  // THE TITLE IS A DEFAULT ANY ROUTE OVERRIDES. `setTitle` used to stamp the
+  // brand onto every non-home page at publish, after the fact; a route's own
+  // `head()` beating a default is the same outcome with the ordering the right
+  // way round.
+  head: () => {
+    const m = siteMeta();
+    const tags: Array<Record<string, string>> = [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-    ],
-    links: [{ rel: "icon", href: SITE_ICON, type: "image/svg+xml" }],
-  }),
+      { title: SITE_NAME },
+      { property: "og:title", content: SITE_NAME },
+      { property: "og:type", content: "website" },
+    ];
+    if (SITE_SLUG) tags.push({ name: "site-slug", content: SITE_SLUG });
+    // EACH ONE ONLY IF THERE IS SOMETHING TO SAY. An empty `og:description` is
+    // worse than none — a preview renders the empty string rather than falling
+    // back to what the page itself contains.
+    if (m?.description) {
+      tags.push({ name: "description", content: m.description });
+      tags.push({ property: "og:description", content: m.description });
+    }
+    if (m?.image) {
+      tags.push({ property: "og:image", content: m.image });
+      // `summary_large_image` WITH NO IMAGE RENDERS AN EMPTY BOX, so the card
+      // type follows whether there is actually one — the rule `metaTags` already had.
+      tags.push({ name: "twitter:card", content: "summary_large_image" });
+    } else {
+      tags.push({ name: "twitter:card", content: "summary" });
+    }
+    if (m?.origin) tags.push({ property: "og:url", content: m.origin });
+    return {
+      meta: tags,
+      links: [{ rel: "icon", href: SITE_ICON, type: "image/svg+xml" }],
+    };
+  },
   component: RootDocument,
 });
 

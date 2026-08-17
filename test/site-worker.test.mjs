@@ -127,29 +127,45 @@ test("THE WORKER BUILD ASKS FOR THE `workerd` CONDITION", () => {
     "`react-server` outranks `workerd` in react-dom's export map and selects the RSC build");
 });
 
-test("packaging REFUSES an unusable shell before it builds anything", () => {
-  // The gate that was written and never called. Asserted on the ORDER as well
-  // as the presence: after the vite build it would cost a container run to
-  // learn what a string comparison already knew, and after the staging write it
-  // would leave one site's config in the template for the next build to reuse.
+test("THE SHELL IS GONE, and so is what it could get wrong", () => {
+  // These two guards protected the `[object Object]` failure: the caller passed
+  // `dist["index.html"]`, which `collectDist` returns as `{t: "…"}`, `String()`
+  // turned it into fifteen literal characters, and every page of the site served
+  // those as its whole document — past a typecheck, a bundle, a size check, and
+  // an assertion that matched the entry file's own copy of the string it was
+  // looking for. It was found by EXECUTING a bundle.
+  //
+  // Under Start there is no shell to hand over at all: the document is rendered
+  // per request from `__root.tsx`, and the site's Worker IS Start's server
+  // build. So the guard is replaced by its PREMISE rather than deleted — the
+  // `@/examples/*` lint precedent, where a rule whose justification evaporated
+  // with the feature was removed and the absence asserted instead, because
+  // restoring the feature without the rule brings the silent failure straight
+  // back.
   const src = fs.readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8");
-  const fn = src.slice(src.indexOf("async function packageWorker("));
-  const gate = fn.indexOf("shellIsUsable(");
-  assert.ok(gate > 0, "packageWorker no longer checks the shell — `[object Object]` would package cleanly again");
-  const stage = fn.indexOf("siteConfigModule(");
-  assert.ok(stage > gate, "the shell must be judged BEFORE the config module is written");
+  // Comments blanked first: the note explaining that the splicing is gone NAMES
+  // it, so a bare scan finds the word it was written to forbid and fails against
+  // a correct file. Recorded three times in this repo already.
+  const code = src.replace(/\/\/[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
+  assert.ok(!/packageWorker\s*\(/.test(code), "the shell packager is back without its shell guard");
+  assert.ok(!/dist\["index\.html"\]/.test(code), "the build reads a shell out of the dist again");
 });
 
-test("the shell reaches the packager as TEXT, not as the dist entry", () => {
-  // `collectDist` returns every text file as `{t: "…"}`, and handing that over
-  // is the whole of the `[object Object]` bug. Anchored on the call, because
-  // the refusal above only turns the failure loud — this is what stops it
-  // happening.
+test("a worker is REFUSED without a slug, rather than packaged with an empty one", () => {
+  // `packageWorker`'s own first rule, which had to be restored when it went. The
+  // slug is baked into `site-brand.ts` and the server entry builds every R2 key
+  // from it, so a script without one answers 404 to every stylesheet, every
+  // bundle and its own meta — a page that renders and then looks broken, which
+  // is worse than the static path it would have replaced.
+  //
+  // VERIFIED BY EXECUTION, not by reading: a bundle built with an empty slug
+  // served `sites//assets/…`, every asset 404'd, and the share tags were
+  // silently absent while the document still returned 200.
   const src = fs.readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8");
-  assert.match(src, /packageWorker\(payload\.slug,\s*shell\)/,
-    "the packager is being handed something other than the resolved shell text");
-  assert.match(src, /const shell = \(dist\["index\.html"\] \|\| \{\}\)\.t;/,
-    "the shell is no longer read out of the dist entry's text field");
+  assert.match(src, /payload\.worker && !brandUsed\.slug/,
+    "a worker can be packaged for a site with no slug — every asset on it would 404");
+  assert.match(src, /payload\.worker && brandUsed\.slug\) worker = readSiteWorker\(\)/,
+    "the script is read without the slug having been checked");
 });
 
 test("a render failure is logged with its STACK", () => {

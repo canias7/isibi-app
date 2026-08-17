@@ -165,8 +165,32 @@ test("whether the drop actually happened is REPORTED, never assumed", () => {
   // "We thought this was sandboxed" is worse than knowing it is not: the drop
   // depends on the container running as root and on the user existing, neither
   // of which this code can guarantee, so the answer rides on every build.
-  assert.match(SERVER, /prerenderUnprivileged: !!pre\.unprivileged/,
-    "the build response no longer says whether the render was dropped");
+  //
+  // THE PREMISE IS ASSERTED FIRST, because it stopped holding. Under Start the
+  // document is rendered per REQUEST by the site's own Worker, so the build has
+  // no prerender step and nothing to report about it — the field is ABSENT from
+  // the response rather than emptied, deliberately, since an empty list would
+  // read as "the prerender ran and produced nothing", which is the one state
+  // that used to mean every page published blank.
+  //
+  // Written as the pair rather than deleted: the sandbox reasoning below is
+  // still correct and still worth keeping, and if the step is ever re-wired
+  // this goes red until the reporting comes back with it. A guard whose feature
+  // has gone is replaced by its inverse here, never quietly dropped — the
+  // `@/examples/*` lint precedent.
+  const runs = /await timed\("preMs"[\s\S]{0,80}?prerender\(\)\)/.test(SERVER);
+  if (runs) {
+    assert.match(SERVER, /prerenderUnprivileged: !!pre\.unprivileged/,
+      "the build response no longer says whether the render was dropped");
+  } else {
+    // COMMENTS BLANKED BEFORE JUDGING AN ABSENCE. The note in `build-server.mjs`
+    // explaining that these fields are gone NAMES them, so a bare scan of the
+    // source finds the word it was written to forbid and fails against a correct
+    // file. Recorded here twice before; this is the third.
+    const code = SERVER.replace(/\/\/[^\n]*/g, "");
+    assert.ok(!/prerenderUnprivileged/.test(code),
+      "the build reports a prerender sandbox for a step it no longer runs");
+  }
   const df = fs.readFileSync(new URL("../builder/Dockerfile", import.meta.url), "utf8");
   assert.match(df, /^ENV PRERENDER_USER=\S+/m, "the image names no unprivileged user for the render");
   assert.ok(!/^USER /m.test(df),
@@ -313,7 +337,11 @@ test("A MALFORMED URL CANNOT KILL THE BUILD SERVICE", () => {
   // is a model-written href: `/services/50%-off` is enough, and it is
   // deterministic for that site — every rebuild kills the container again.
   const src = fs.readFileSync(new URL("../builder/render-check.mjs", import.meta.url), "utf8");
-  const at = src.indexOf("function serveDist(dir)");
+  // ANCHORED ON THE NAME, NOT THE PARAMETER LIST. Written `serveDist(dir)` this
+  // went red the day the function grew a second argument — a test about word
+  // order failing a change it has no opinion about, which is this repo's most
+  // repeated own-goal.
+  const at = src.indexOf("function serveDist(");
   assert.ok(at > 0, "serveDist moved — rescope this");
   const body = src.slice(at, src.indexOf("\n}\n", at));
   assert.match(body, /try \{ p = decodeURIComponent\([a-z]+\); \} catch \{ p = [a-z]+; \}/,

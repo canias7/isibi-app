@@ -18,6 +18,14 @@
 // does not produce — the document is `__root.tsx` now — so they are ordinary
 // values a component renders, under exactly the rule above. It also removes the
 // surgery: nothing to patch, no pattern to get wrong.
+// WHICH SITE THIS IS. Baked rather than read at request time, and that is the
+// load-bearing choice in the whole meta split: `siteSlug()` in `@/lib/rows`
+// normally learns it from the `/s/<slug>/` path, and ON A CUSTOM DOMAIN THERE IS
+// NO SUCH PATH — the site is served at `/` on the owner's own hostname. Without
+// it every read and every form addresses whatever the build-time default is: a
+// DIFFERENT site's API, silently, on the domain customers are actually given.
+// From the bundle, so an R2 blip costs a link preview and never the site's data.
+export const SITE_SLUG = "";
 export const SITE_LOGO = "";
 // The document's language. A REFUSAL RATHER THAN A DEFAULT lives one layer up in
 // `normalizeLang` — a site whose language could not be established keeps
@@ -28,3 +36,8 @@ export const SITE_LANG = "en";
 // because this container is long-lived and the first site's mark would become
 // every later brandless site's.
 export const SITE_ICON = "/favicon.svg";
+// The business's name, used as the document's DEFAULT title — a route that
+// declares its own `head()` beats it. `setTitle` used to stamp this onto every
+// non-home page at publish, after the fact; a default the routes can override is
+// the same outcome with the ordering the right way round.
+export const SITE_NAME = "App";
