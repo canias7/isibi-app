@@ -180,6 +180,15 @@ export default {
 
     // A document with no root div is one we did not build — served untouched
     // rather than guessed at, which is what the prerendered snapshot already is.
+    //
+    // THE ASSET REFERENCES IN HERE ARE STILL RELATIVE, deliberately. Vite writes
+    // them `./assets/…` and the browser resolves those against the DIRECTORY of
+    // whatever URL the document was served at, which is only correct at the
+    // mount root — so they have to be made absolute before anybody gets this.
+    // That is the PLATFORM's job and not this script's: the mount depends on
+    // which of three addresses the request arrived on, a question `worker.js`
+    // already answers in one place, and answering it a second time here is how
+    // the two drift. See `absolutizeAssets` in `site-domains.mjs`.
     const html = split ? split.open + body + split.close : shell;
 
     // 404 IS A STATUS, NOT A PAGE. The router draws its own not-found

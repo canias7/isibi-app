@@ -12,6 +12,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { mountRootFor, absolutizeAssets } from "../site-domains.mjs";
 
 const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 
@@ -112,42 +113,44 @@ test("published assets carry a CORS header, or the preview is blank", () => {
 // `/s/<slug>/` on our domain and at `/` on the owner's custom domain — the Host
 // rewrite above turns the second into the first — so nothing baked into the file
 // is correct in both.
+// BOTH HALVES ASSERTED THROUGH THE REAL FUNCTIONS, not by their spelling. This
+// test pinned the exact expression `const mountRoot = isAppHostname(url.hostname)
+// ? "/s/" + slug + "/" : "/"` and the inline `.replace(…)` beside it, and went
+// red the day both moved into `site-domains.mjs` so the site's own Worker tier
+// could ask the same question once instead of twice — a test about word order
+// failing a correct change, which is this repo's most repeated own-goal.
 test("html is rewritten to the mount it is actually being served from", () => {
-  assert.match(siteBranch, /const mountRoot = isAppHostname\(url\.hostname\) \? "\/s\/" \+ slug \+ "\/" : "\/";/,
+  // THE ANSWER, driven. `isOwnHostname` covers BOTH zones, so a mount root built
+  // on it answers `/s/<slug>/` for `<slug>.gofarther.app` — where the root is
+  // `/` — and every script and stylesheet on that zone 404s. Only one of the two
+  // predicates can be right, and this states which by its result.
+  assert.equal(mountRootFor("gofarther.dev", "shop"), "/s/shop/");
+  assert.equal(mountRootFor("shop.gofarther.app", "shop"), "/",
+    "the site zone serves at the root");
+  assert.equal(mountRootFor("sharpfadebarbers.com", "shop"), "/",
+    "a customer's own address is the arm that has no slug in it");
+
+  // THE REWRITE, driven. Removing it left every test green while deep links at
+  // depth 2 lost their assets, so it is asserted on what comes out.
+  assert.equal(absolutizeAssets('<script src="./assets/a.js">', "/s/shop/"),
+    '<script src="/s/shop/assets/a.js">');
+  assert.equal(absolutizeAssets('<link href="./x.css">', "/"), '<link href="/x.css">');
+
+  // …AND THAT THE SERVE PATH REACHES BOTH. A correct helper nothing calls is the
+  // shape twelve features here have shipped dead in.
+  assert.match(siteBranch, /const mountRoot = mountRootFor\(url\.hostname, slug\)/,
     "the mount root is no longer derived from the hostname — hardcode either side " +
     "and it is wrong on every custom domain, or wrong on every site of ours");
-
-  // `isAppHostname` AND NOT `isOwnHostname`, which it used to be and which was
-  // correct while there was one zone. `isOwnHostname` now covers the site zone
-  // too, so it answers true for `<slug>.gofarther.app` — a mount whose root is
-  // `/` — and every script and stylesheet on the new zone would be asked for at
-  // `/s/<slug>/assets/…` and 404. Asserted as an absence as well as a presence:
-  // only one of the two predicates can be right here.
-  assert.doesNotMatch(siteBranch, /const mountRoot = isOwnHostname/,
-    "isOwnHostname covers both zones and cannot decide the mount");
-
-  // BOTH ARMS, named separately. A mutation collapsing the ternary to the /s/
-    // form survived a first sweep: nothing asserted the custom-domain answer, and
-  // that is the arm a customer's own address depends on.
-  const m = siteBranch.match(/const mountRoot = [^;]+;/);
-  assert.ok(m, "the mount root assignment is gone");
-  assert.match(m[0], /"\/s\/" \+ slug \+ "\/"/, "our own domain's mount is not built from the slug");
-  assert.match(m[0], /:\s*"\/"/, "a custom domain does not resolve to the site root");
-
-  // And the rewrite itself. Removing it left every test green while deep links
-  // at depth 2 lost their assets.
-  // The fallback path buffers the shell to read its manifest (site-seo.mjs),
-  // and a body reads ONCE — so the rewrite must reuse that buffer rather than
-  // call .text() a second time, which throws on exactly the fallback path.
-  assert.match(siteBranch, /\(shellText !== null \? shellText : await obj\.text\(\)\)\.replace\(/,
+  // The fallback path buffers the shell to read its manifest (site-seo.mjs), and
+  // a body reads ONCE — so the rewrite must reuse that buffer rather than call
+  // .text() a second time, which throws on exactly the fallback path.
+  assert.match(siteBranch, /absolutizeAssets\(shellText !== null \? shellText : await obj\.text\(\), mountRoot\)/,
     "the relative-root rewrite is gone; a nested route's assets will 404");
-  assert.match(siteBranch, /\$1="' \+ mountRoot\)/,
-    "the rewrite no longer substitutes the mount root");
 
   // HTML ONLY. Running it over a bundle would corrupt JavaScript that happens to
   // contain the same characters, and it costs a full read of every asset.
   const guard = siteBranch.indexOf('ctype.startsWith("text/html")', siteBranch.indexOf("let served"));
-  const rewrite = siteBranch.indexOf("(shellText !== null ? shellText : await obj.text()).replace(");
+  const rewrite = siteBranch.indexOf("absolutizeAssets(shellText !== null ? shellText : await obj.text(), mountRoot)");
   assert.ok(guard > 0 && rewrite > guard,
     "the rewrite is not gated on html — it would run over every asset served");
 });

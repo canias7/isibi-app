@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
   normalizeHostname, isOwnHostname, claimRefusal, isApex, dnsInstructions, readStatus, OWN_ZONES, servedAtRoot,
+  mountRootFor, absolutizeAssets,
 } from "../site-domains.mjs";
 
 // ------------------------------------------------- what a hostname reduces to
@@ -341,4 +342,64 @@ test("the published bundle learns its own slug from the head", () => {
   assert.ok(call > 0, "the publish call moved — re-point this guard");
   const args = worker.slice(call, worker.indexOf("});", call));
   assert.match(args, /(^|[\s,{])slug\s*,/m, "and the publisher passes it");
+});
+
+// ------------------------------------------- where a site is mounted, and why
+
+test("only the workspace serves a site under a path", () => {
+  assert.equal(mountRootFor("gofarther.dev", "barbers"), "/s/barbers/");
+  assert.equal(mountRootFor("www.gofarther.dev", "barbers"), "/s/barbers/");
+  // The site zone and every custom domain serve the site AT the root, so a
+  // prefix there would send the browser to `/s/<slug>/assets/…` on a host
+  // where that path does not exist.
+  assert.equal(mountRootFor("barbers.gofarther.app", "barbers"), "/");
+  assert.equal(mountRootFor("sharpfadebarbers.com", "barbers"), "/");
+});
+
+test("a relative asset reference becomes absolute, and that is what stops a blank page", () => {
+  // MEASURED on a real container build: every ref in a prerendered document is
+  // `./assets/…`, because the template sets vite `base: "./"`. A browser
+  // resolves that against the DIRECTORY of the URL it was served at.
+  const doc = '<script type="module" crossorigin src="./assets/index-BZW04i8N.js"></script>'
+    + '<link rel="stylesheet" href="./assets/index-BGXVLV5r.css">'
+    + '<link rel="icon" href="./favicon.svg">';
+
+  const root = absolutizeAssets(doc, "/");
+  assert.ok(!/="\.\//.test(root), "nothing relative may survive: " + root);
+  assert.match(root, /src="\/assets\/index-BZW04i8N\.js"/);
+  assert.match(root, /href="\/favicon\.svg"/);
+
+  // Under the workspace mount the prefix has to come with it, or the bundle
+  // 404s on the one mount the builder's own preview uses.
+  const mounted = absolutizeAssets(doc, "/s/barbers/");
+  assert.match(mounted, /src="\/s\/barbers\/assets\/index-BZW04i8N\.js"/);
+  assert.match(mounted, /href="\/s\/barbers\/favicon\.svg"/);
+});
+
+test("…and it leaves alone everything that is not a relative asset reference", () => {
+  // An already-absolute path, an absolute URL, and a protocol-relative one all
+  // mean a specific place. Rewriting any of them breaks a working reference —
+  // the false-alarm direction, which this repo rates worse than the miss.
+  const keep = '<script src="/assets/a.js"></script>'
+    + '<link href="https://fonts.example/x.css">'
+    + '<img src="//cdn.example/x.png">'
+    + '<a href="/book">Book</a>';
+  assert.equal(absolutizeAssets(keep, "/s/barbers/"), keep);
+
+  // THE WHITESPACE ANCHOR IS WHY `data-src` SURVIVES, and that is a real
+  // attribute rather than a contrived one: it is how every lazy-loading image
+  // and half the carousel components on the web hold their real source. Rewrite
+  // it and the picture never loads, on a page that looked fine in the markup.
+  // `-src` is not `\ssrc`, so the anchor is the whole protection.
+  const data = '<img data-src="./assets/hero.jpg" data-href="./x"><div data-srcset="./a.jpg">';
+  assert.equal(absolutizeAssets(data, "/s/barbers/"), data);
+
+  // …and the real attribute right beside it is still rewritten, or the guard
+  // above would pass just as well with the rewrite switched off entirely.
+  assert.match(absolutizeAssets('<img data-src="./a.jpg" src="./b.jpg">', "/s/barbers/"),
+    /data-src="\.\/a\.jpg" src="\/s\/barbers\/b\.jpg"/);
+
+  // No mount is the root, not `undefined/assets/…`.
+  assert.match(absolutizeAssets('<script src="./a.js">', undefined), /src="\/a\.js"/);
+  assert.equal(absolutizeAssets(null, "/"), "");
 });
