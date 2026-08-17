@@ -18,6 +18,8 @@
 //
 // $0: no model call, no container, no Neon project. Needs the template built.
 import http from "node:http";
+import { serveSite, loadSiteServer } from "./lib/serve-site.mjs";
+import { absolutizeAssets, mountRootFor } from "../../site-domains.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -33,7 +35,8 @@ const TEMPLATE = path.join(ROOT, "builder/lovable/template");
 // makes this pass locally and fail in CI on a missing file, which is the exact
 // trap the workflow already records for the browser steps.
 const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), "isibi-routing-"));
-const DIST = path.join(sandbox, "dist");
+// `dist/client` — Start emits two halves and only this one is published.
+const DIST = path.join(sandbox, "dist", "client");
 
 // Use whatever Chromium is on the machine — same reasoning as site-runtime.mjs.
 function findChromium() {
@@ -58,26 +61,32 @@ const MIME = { js: "text/javascript", css: "text/css", svg: "image/svg+xml", wof
 // which reads the real source — a harness that drifts from the thing it stands
 // in for is worse than no harness (the `setTotp` lesson).
 function serve(mountPrefix) {
-  return http.createServer((req, res) => {
-    const p = new URL(req.url, "http://x").pathname;
-    if (mountPrefix && !p.startsWith(mountPrefix)) { res.writeHead(404); return res.end("not found"); }
-    const rest = p.slice(mountPrefix.length).replace(/^\/+/, "").replace(/\/+$/, "");
-    const ext = ((rest.split("/").pop() || "").match(/\.([a-z0-9]{1,8})$/i) || [])[1];
-    let full = path.join(DIST, rest === "" ? "index.html" : ext ? rest : rest + ".html");
-    if (!fs.existsSync(full)) {
-      if (!ext && rest !== "") full = path.join(DIST, "index.html");   // the fallback
-      else { res.writeHead(404); return res.end("not found"); }
-    }
-    const kind = full.endsWith(".html") ? "html" : ((full.match(/\.([a-z0-9]{1,8})$/i) || [])[1] || "");
-    let body = fs.readFileSync(full);
-    if (kind === "html") {
-      body = Buffer.from(body.toString("utf8").replace(/(\s(?:src|href))="\.\//g, '$1="' + (mountPrefix || "") + "/"));
-    }
-    res.writeHead(200, { "content-type": MIME[kind] || "application/octet-stream" });
-    res.end(body);
+  // THE DOCUMENT IS RENDERED, NOT LOOKED UP. This read `DIST/<rest>.html` and
+  // fell back to `DIST/index.html` — the platform's old SPA fallback over a
+  // build that emitted a shell. TanStack Start emits no HTML into `dist/client`
+  // at all, so every one of those reads became a 404 and this harness would have
+  // failed on its next run; it simply was not triggered by the merge that broke
+  // it, which is how four of the six went unnoticed.
+  //
+  // The asset half still comes off disk, and the `./` rewrite stays with it:
+  // that is the platform's own job on a published site, and this harness exists
+  // to prove the two mounts agree about it.
+  return serveSite({
+    assets: (rel) => {
+      const full = path.join(DIST, rel);
+      if (!fs.existsSync(full)) return null;
+      let body = fs.readFileSync(full);
+      if (full.endsWith(".html")) {
+        body = Buffer.from(body.toString("utf8").replace(/(\s(?:src|href))="\.\//g, '$1="' + (mountPrefix || "") + "/"));
+      }
+      return body;
+    },
+    ssr: () => siteFetch,
+    mount: mountPrefix,
   });
 }
 
+let siteFetch = null;
 let passed = 0, failed = 0;
 const ok = (n, c, x) => { c ? (passed++, console.log("  ok   " + n)) : (failed++, console.log("  FAIL " + n + (x ? "  -> " + String(x).slice(0, 220) : ""))); };
 
@@ -91,8 +100,14 @@ fs.symlinkSync(path.join(TEMPLATE, "node_modules"), path.join(sandbox, "node_mod
   const sh = (cmd, args) => new Promise((r) => spawn(cmd, args, { cwd: sandbox, stdio: ["ignore", "ignore", "inherit"] }).on("close", r));
   await sh("npx", ["tsr", "generate"]);
   const code = await sh("npx", ["vite", "build", "--logLevel", "error"]);
-  ok("the template builds", code === 0 && fs.existsSync(path.join(DIST, "index.html")), "vite exited " + code);
-  if (!fs.existsSync(path.join(DIST, "index.html"))) { console.log("\n0 passed, 1 failed"); process.exit(1); }
+  // THE SERVER BUNDLE IS THE PROOF THE BUILD WORKED, not `index.html` — Start
+  // emits none. Both halves are checked, because the client dist alone is a site
+  // with assets and nothing to render them.
+  const server = path.join(sandbox, "dist", "server", "server.js");
+  ok("the template builds", code === 0 && fs.existsSync(DIST) && fs.existsSync(server), "vite exited " + code);
+  if (!fs.existsSync(server)) { console.log("\n0 passed, 1 failed"); process.exit(1); }
+  siteFetch = await loadSiteServer(sandbox);
+  ok("…and its server loads, so a page can be rendered at all", !!siteFetch, "dist/server/server.js would not import");
 }
 
 // ── the rules this harness copies must still be the rules worker.js applies ──
@@ -100,10 +115,30 @@ fs.symlinkSync(path.join(TEMPLATE, "node_modules"), path.join(sandbox, "node_mod
   const w = fs.readFileSync(path.join(ROOT, "worker.js"), "utf8");
   ok("worker.js still falls back on an extensionless miss",
     w.includes('if (!obj && !ext && rest !== "") {'));
-  ok("…and still rewrites relative asset roots for the mount it is serving",
-    /replace\(\/\(\\s\(\?:src\|href\)\)="\\\.\\\/\/g, '\$1="' \+ mountRoot\)/.test(w) ||
-    w.includes(`replace(/(\\s(?:src|href))="\\.\\//g, '$1="' + mountRoot)`),
-    "the rewrite this harness reproduces is gone from worker.js");
+  // THE PROPERTY, THROUGH THE REAL FUNCTION — not the inline spelling. This
+  // matched the expression as it was WRITTEN in worker.js, and it moved into
+  // `site-domains.mjs` (which is also what let `isPublishedSiteRequest` and
+  // `mountRootFor` stop being three copies of one question). A check pinned to
+  // word order fails a correct extraction, which is this repo's most-recorded
+  // own-goal.
+  // DRIVEN THROUGH `mountRootFor` RATHER THAN A HAND-WRITTEN MOUNT, because it
+  // returns a TRAILING SLASH (`/s/demo/`) and `absolutizeAssets` substitutes it
+  // for the `./` verbatim. A hand-written `/s/demo` yields `/s/demoa.js` — which
+  // is my own first draft of this assertion, failing a function that was right.
+  // Composing the two real functions is also what the Worker does.
+  ok("…and the relative-asset rewrite still does its job",
+    absolutizeAssets('<script src="./a.js"></script>', mountRootFor("gofarther.dev", "demo"))
+      === '<script src="/s/demo/a.js"></script>');
+  // AND THE WORKER STILL CALLS IT. Either half alone passes while the wire is
+  // cut: a correct function nothing calls, or a call to something that stopped
+  // rewriting.
+  ok("…and worker.js still applies it when it serves a document",
+    /absolutizeAssets\(/.test(w), "the rewrite is no longer applied on the serve path");
+  // WORTH KNOWING WHY IT SURVIVES: a TanStack Start build emits ABSOLUTE asset
+  // hrefs (`/assets/index-*.js` — `base: "./"` went with the shell), so nothing
+  // it publishes contains a `./` to rewrite. What still does is every site
+  // published BEFORE Start, whose stored documents are full of them, and those
+  // are served from R2 by this same path.
 }
 
 // playwright is one of the TEMPLATE's devDependencies, not the root's. A bare
@@ -113,7 +148,22 @@ fs.symlinkSync(path.join(TEMPLATE, "node_modules"), path.join(sandbox, "node_mod
 // two browser tests here.
 const { chromium } = createRequire(path.join(TEMPLATE, "package.json"))("playwright");
 
-for (const [label, prefix, port] of [["served at /s/<slug>/ (our domain)", "/s/demo", 8123], ["served at / (a custom domain)", "", 8124]]) {
+// ONE MOUNT NOW, AND THAT IS THE POINT RATHER THAN A NARROWING. This drove two:
+// `/s/<slug>/` on our domain and `/` on a custom one, and the whole reason the
+// bundle derived its basepath at runtime was that both had to work.
+//
+// A TANSTACK START BUNDLE CAN ONLY SERVE AT `/`, by construction and measured
+// on a real build: its asset hrefs are absolute (`/assets/index-*.js`, since
+// `base: "./"` went with the shell) and Start bakes `ROUTER_BASEPATH` at build
+// time, so there is no runtime basepath to derive. At `/s/<slug>/` every asset
+// would 404 and the router would resolve the wrong route.
+//
+// That is safe because stage 1 made it so, and the two halves are asserted
+// below: `cleanSlug` refuses an edge hyphen, so every slug is a legal DNS label
+// and every site has a pretty host — and `/s/<slug>/` 301s to it. A site with
+// no pretty host predates all of this and is on the static path, with real
+// documents of its own.
+for (const [label, prefix, port] of [["served at / (the only mount a Start bundle has)", "", 8124]]) {
   console.log("\n" + label);
   const srv = serve(prefix);
   await new Promise((r) => srv.listen(port, r));
@@ -146,7 +196,16 @@ for (const [label, prefix, port] of [["served at /s/<slug>/ (our domain)", "/s/d
     page.on("pageerror", (e) => threw.push(String(e.message).slice(0, 140)));
 
     await page.goto(base + "/", { waitUntil: "networkidle", timeout: 30000 });
-    ok("the home page renders", (await page.locator("#root *").count()) > 0);
+    // NO `#root` UNDER START. `__root.tsx` renders `<html>`, `<head>` and `<body>`
+    // itself, so the page content is a direct child of body — measured on a real
+    // bundle: `id="root"` appears nowhere in the document. The old shell had that
+    // div because `createRoot` needed something to mount into.
+    //
+    // Counting body descendants instead includes the two or three elements
+    // `<Scripts />` emits, which the floors here are far above (20 nodes against a
+    // real page's hundreds), so it still discriminates a blank render from a real
+    // one — which is the only thing these counts are for.
+    ok("the home page renders", (await page.locator("body *").count()) > 0);
 
     // CLICKING THE NAV, which is a different assertion from navigating to the
     // address — and the only one that would have caught the bug that arrived
@@ -183,14 +242,14 @@ for (const [label, prefix, port] of [["served at /s/<slug>/ (our domain)", "/s/d
       // Against the restored `#/book` bug the text never arrives, so this waits
       // its five seconds and then goes red, which is the behaviour that matters.
       await page.getByText(/Anything else\?/i).first().waitFor({ timeout: 5000 }).catch(() => {});
-      const clicked = await page.locator("#root").innerText();
+      const clicked = await page.locator("body").innerText();
       ok("…and the BOOK route rendered", /Anything else\?/i.test(clicked),
         clicked.slice(0, 140).replace(/\s+/g, " "));
       await page.goBack({ waitUntil: "networkidle" });
     }
 
     await page.goto(base + "/book", { waitUntil: "networkidle", timeout: 30000 });
-    ok("a deep link renders instead of 404ing", (await page.locator("#root *").count()) > 0);
+    ok("a deep link renders instead of 404ing", (await page.locator("body *").count()) > 0);
     ok("and its address carries no #", !page.url().includes("#"), page.url());
 
     // THE ASSERTION THAT HAS TO BE REAL — and the weak version of it passed
@@ -199,7 +258,7 @@ for (const [label, prefix, port] of [["served at /s/<slug>/ (our domain)", "/s/d
     // renders Not Found at that same URL. Only the CONTENT says which route
     // resolved. Verified by mutation: `basepath: "/"` at a sub-path mount makes
     // this line, and only this line, go red.
-    const body = await page.locator("#root").innerText();
+    const body = await page.locator("body").innerText();
     ok("and it is the BOOK route, not a miss rendered at /book",
       /Book a chair/i.test(body), body.slice(0, 180).replace(/\s+/g, " "));
 

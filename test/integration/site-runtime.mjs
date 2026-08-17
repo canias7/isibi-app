@@ -19,9 +19,11 @@
 //   node test/integration/site-runtime.mjs
 import { spawn } from "node:child_process";
 import http from "node:http";
+import { serveSite, loadSiteServer } from "./lib/serve-site.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 
@@ -223,6 +225,9 @@ const patched = [];
 
 const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), "isibi-site-runtime-"));
 let buildSrv = null, siteSrv = null, browser = null;
+// Resolved per request by `serveSite`. This harness builds once, but the getter
+// is the contract there because the harnesses that build many times need it.
+let siteFetch = null;
 
 const send = (res, code, obj) => {
   res.writeHead(code, { "content-type": "application/json", "access-control-allow-origin": "*" });
@@ -266,6 +271,16 @@ try {
   })).json();
   ok("the reference page builds", built.ok === true, built.stage + ": " + built.error);
   if (!built.ok) throw new Error("cannot drive a site that did not build");
+  siteFetch = await loadSiteServer(sandbox);
+  if (!siteFetch) {
+    const sp = path.join(sandbox, "dist", "server", "server.js");
+    const lsd = (d) => { try { return fs.readdirSync(d).join(","); } catch (e) { return "<" + e.code + ">"; } };
+    let why = "dist=[" + lsd(path.join(sandbox, "dist")) + "] server=[" + lsd(path.join(sandbox, "dist", "server")) + "] ";
+    why += fs.existsSync(sp) ? "exists (" + fs.statSync(sp).size + " bytes) but would not import: " : "no such file: ";
+    if (fs.existsSync(sp)) { try { await import(pathToFileURL(sp).href + "?d=" + Date.now()); } catch (e) { why += String((e && e.message) || e).slice(0, 300); } }
+    else { why += sp; }
+    ok("the built server loads, so pages can be rendered at all", false, why);
+  } else ok("the built server loads, so pages can be rendered at all", true);
 
   // ── serve it exactly as production does: /s/<slug>/ + the data API ─────────
   //
@@ -276,8 +291,15 @@ try {
   // `{rows:[…]}`, and a refusal carries a Postgres SQLSTATE instead of a sentence
   // we chose. Stubbing the old shape is how this test went green while the real
   // page fetched a URL nothing served.
-  siteSrv = http.createServer((req, res) => {
-    const url = new URL(req.url, "http://127.0.0.1");
+  // THE DOCUMENT COMES FROM THE BUILT SERVER. This served
+  // `built.files["index.html"]` for any address it did not have — the platform's
+  // old SPA fallback — and Start emits no HTML into `dist/client` at all, so
+  // every page became the router's own "Not found". Shared with every other
+  // harness that stands a site up, so the fact has one copy.
+  siteSrv = serveSite({
+    assets: (rel) => built.files[rel] || null,
+    ssr: () => siteFetch,
+    extra: (req, res, url) => {
     const m = url.pathname.match(/^\/api\/db\/([^/]+)\/data\/([^/]+)$/);
     if (m) {
       const table = m[2];
@@ -330,7 +352,13 @@ try {
           if (!wants) { res.writeHead(201, { "access-control-allow-origin": "*" }); return res.end(); }
           return send(res, 201, [{ id: 99, ...parsed }]);
         });
-        return;
+        // TAKES OWNERSHIP EXPLICITLY, because this branch is the one that
+        // DEFERS: it answers from `req.on("end")`, so the response is not
+        // written yet when this returns. `serveSite` otherwise reads "extra did
+        // not answer" and renders a page — and the deferred handler then writes
+        // headers a second time (ERR_HTTP_HEADERS_SENT). Every other branch here
+        // answers synchronously and is covered by the `writableEnded` check.
+        return true;
       }
       if (req.method === "PATCH") {
         let body = "";
@@ -340,25 +368,22 @@ try {
           patched.push({ table, body: parsed });
           return send(res, 200, [{ id: 1, ...(parsed || {}) }]);
         });
-        return;
+        return true;   // deferred, like the POST above — see that comment
       }
       return pgError(res, 405, "42501", "method not allowed");
     }
-    // Static dist under /s/<slug>/…
-    const sm = url.pathname.match(/^\/s\/[^/]+\/?(.*)$/);
-    if (!sm) { res.writeHead(404); return res.end("nf"); }
-    const rel = sm[1] || "index.html";
-    const file = built.files[rel] || built.files["index.html"];
-    if (!file) { res.writeHead(404); return res.end("nf"); }
-    const ext = (rel.match(/\.([a-z0-9]+)$/i) || [])[1] || "html";
-    const type = { js: "text/javascript", css: "text/css", svg: "image/svg+xml", html: "text/html; charset=utf-8" }[ext] || "application/octet-stream";
-    res.writeHead(200, { "content-type": type });
-    res.end(file.t != null ? file.t : Buffer.from(file.b, "base64"));
+    return false;   // not the data API — `serveSite` serves the site
+    },
   });
   await new Promise((r) => siteSrv.listen(SITE_PORT, r));
 
   browser = await chromium.launch(chromiumPath ? { executablePath: chromiumPath } : {});
-  const base = `http://127.0.0.1:${SITE_PORT}/s/${SLUG}/`;
+  // AT `/`, not `/s/<slug>/`. Every slug is a legal DNS label since `cleanSlug`
+  // started refusing an edge hyphen, so a published site has a pretty host and
+  // `/` is the only mount there is — which is also why the router bakes no
+  // basepath. `SLUG` still rides on the build so the bundle knows which site's
+  // API to address, which is the thing a custom domain has no path to learn.
+  const base = `http://127.0.0.1:${SITE_PORT}/`;
   // A REAL PATH SINCE 2026-08-09, not `#/book`. The stub above already falls
   // back to index.html for anything it does not have, which is the Worker's own
   // rule — so `/s/<slug>/book` serves the shell and the router resolves the book

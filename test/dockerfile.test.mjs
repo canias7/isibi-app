@@ -310,3 +310,58 @@ test("the pristine-base scan still sees the bases that DO exist", () => {
       "no harness reproduces " + base + " — either it is gone or the scan pattern has drifted");
   }
 });
+
+test("NO HARNESS SERVES A DOCUMENT OUT OF A DIST", () => {
+  // THE HALF THE SANDBOX CHECK ABOVE MISSED, and it cost another red on main.
+  // That one caught harnesses that COPY a base the image no longer bakes; this
+  // catches the ones that then SERVE `dist["index.html"]` as the document.
+  //
+  // Under TanStack Start `dist/client` contains no HTML at all — the document is
+  // `__root.tsx`, rendered per request — so a harness doing that answers the
+  // router's own "Not found" for every page of every site. Measured as exactly
+  // "9 chars" in `theme-render`, on all four themes, light and dark.
+  //
+  // Four harnesses had it. `test/integration/lib/serve-site.mjs` is the one copy
+  // now, and this is what stops a fifth being written.
+  const dir = new URL("./integration/", import.meta.url).pathname;
+  const offenders = [];
+  for (const name of fs.readdirSync(dir).filter((f) => f.endsWith(".mjs"))) {
+    const src = fs.readFileSync(path.join(dir, name), "utf8").replace(/\/\/[^\n]*/g, "");
+    // THE FALLBACK SHAPE ONLY — `… || x["index.html"]` or `… || "index.html"`.
+    // That is what actually causes the bug: serving the shell for an address the
+    // dist does not have. A bare `x["index.html"]` is too broad and flagged
+    // `site-build.mjs`, whose use is the ASSERTION THAT THERE IS NONE
+    // (`!built.files["index.html"]`) — a false alarm on correct code, which this
+    // repo rates strictly worse than the miss.
+    if (/\|\|\s*(?:[A-Za-z_$][\w$.]*)?\[\s*["']index\.html["']\s*\]/.test(src) ||
+        /\|\|\s*["']index\.html["']/.test(src)) {
+      offenders.push(name);
+    }
+  }
+  assert.deepEqual(offenders, [],
+    "these serve a document from the dist: " + offenders.join(", ") +
+    " — Start emits no HTML there, so every page would answer Not found. Use lib/serve-site.mjs");
+});
+
+test("the shared site server is the one copy, and it renders rather than looking up", () => {
+  // The absence above is worth nothing if the replacement stopped doing the job.
+  // Asserted on the two properties that make it correct: it resolves the server
+  // per REQUEST (a fetch captured at construction is the bundle from before the
+  // first build — measured, it answers "no server bundle" for every page), and
+  // it has NO shell fallback, which is what stops an unknown address rendering
+  // the home page's markup at the wrong URL.
+  // COMMENTS BLANKED FIRST: this file's own header explains the bug and
+  // therefore CONTAINS its spelling, so a bare scan finds the thing it forbids
+  // in the prose describing why it is forbidden. Fourth time this session.
+  const lib = fs.readFileSync(new URL("./integration/lib/serve-site.mjs", import.meta.url).pathname, "utf8")
+    .replace(/\/\/[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
+  assert.match(lib, /const currentSsr = \(\) =>/, "the server is captured once rather than resolved per request");
+  assert.ok(!/\[\s*["']index\.html["']\s*\]/.test(lib), "the shared server fell back to a shell of its own");
+  assert.match(lib, /loadSiteServer/, "the shared server no longer loads a built server at all");
+  // And every harness that stands a site up uses it.
+  const dir = new URL("./integration/", import.meta.url).pathname;
+  const users = fs.readdirSync(dir).filter((f) => f.endsWith(".mjs"))
+    .filter((f) => /serveSite\(/.test(fs.readFileSync(path.join(dir, f), "utf8")));
+  assert.ok(users.length >= 4,
+    "only " + users.length + " harnesses use the shared server — one has grown its own again: " + users.join(", "));
+});

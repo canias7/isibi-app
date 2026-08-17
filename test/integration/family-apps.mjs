@@ -40,7 +40,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
-import { pathToFileURL } from "node:url";
+import { serveSite, loadSiteServer } from "./lib/serve-site.mjs";
 import { FAMILIES, READY_FAMILIES } from "../../builder/site-layouts.mjs";
 import { THEME_SHORTLIST, resolveTheme } from "../../builder/site-theme-registry.mjs";
 
@@ -101,17 +101,7 @@ let server = null, web = null, browser = null, current = null;
 // -next class `resetRoutes` already guards against on the container side.
 let ssr = null;
 async function loadSsr(dir) {
-  try {
-    const mod = await import(pathToFileURL(path.join(dir, "dist", "server", "server.js")).href + "?b=" + Date.now());
-    // NAMED `srv`, NOT `app`, and deliberately: the family loop below binds
-    // `const app`, and the block-scope scanner in `test/worker-imports.test.mjs`
-    // is narrow by design — it walks forward from a declaration and does not
-    // track a re-declaration in a later scope, so two `app`s read to it as the
-    // `vidRefN` bug. A wider scanner was tried once and abandoned at 1,113
-    // candidates, so the cheap side of that trade is not reusing the name.
-    const srv = mod && mod.default;
-    ssr = srv && typeof srv.fetch === "function" ? (rq) => srv.fetch(rq, {}) : null;
-  } catch { ssr = null; }
+  ssr = await loadSiteServer(dir);
 }
 
 try {
@@ -149,27 +139,12 @@ try {
   // Worker uses: a path with an extension is an asset, anything else is a route.
   // They must agree, or a request classified one way here and the other way in
   // production is a page that renders in CI and 404s live.
-  web = http.createServer(async (req, res) => {
-    const u = new URL(req.url, "http://x");
-    const last = u.pathname.split("/").pop() || "";
-    if (last.includes(".")) {
-      const f = current && current[u.pathname.replace(/^\//, "")];
-      if (!f) { res.writeHead(404); return res.end("nf"); }
-      const ext = (last.match(/\.([a-z0-9]+)$/i) || [])[1] || "bin";
-      res.writeHead(200, { "content-type": { js: "text/javascript", css: "text/css", svg: "image/svg+xml", json: "application/json" }[ext] || "application/octet-stream" });
-      return res.end(f.t != null ? f.t : Buffer.from(f.b, "base64"));
-    }
-    if (!ssr) { res.writeHead(503); return res.end("no server bundle"); }
-    try {
-      const r = await ssr(new Request("http://x" + u.pathname + u.search));
-      res.writeHead(r.status, { "content-type": r.headers.get("content-type") || "text/html; charset=utf-8" });
-      return res.end(await r.text());
-    } catch (e) {
-      // Reported rather than swallowed: a renderer that throws is exactly what
-      // this workflow exists to catch, and a bare 500 with no words reads as the
-      // harness being broken.
-      res.writeHead(500); return res.end("ssr threw: " + String((e && e.stack) || e).slice(0, 400));
-    }
+  // ONE COPY, SHARED. This grew its own server first — see
+  // `lib/serve-site.mjs` for why there were four of them and what each got
+  // wrong. Served at `/`, which is the only mount a Start bundle has.
+  web = serveSite({
+    assets: (rel) => (current && current[rel]) || null,
+    ssr: () => ssr,
   });
   await new Promise((r) => web.listen(PORT + 1, r));
 
@@ -215,7 +190,16 @@ try {
       await page.goto(`http://127.0.0.1:${PORT + 1}${route}?v=${name}-${p.file}`, { waitUntil: "networkidle" });
       await page.waitForTimeout(400);
       const d = await page.evaluate(() => ({
-        nodes: document.querySelectorAll("#root *").length,
+        // NO `#root` UNDER START. `__root.tsx` renders `<html>`, `<head>` and `<body>`
+        // itself, so the page content is a direct child of body — measured on a real
+        // bundle: `id="root"` appears nowhere in the document. The old shell had that
+        // div because `createRoot` needed something to mount into.
+        //
+        // Counting body descendants instead includes the two or three elements
+        // `<Scripts />` emits, which the floors here are far above (20 nodes against a
+        // real page's hundreds), so it still discriminates a blank render from a real
+        // one — which is the only thing these counts are for.
+        nodes: document.body.querySelectorAll("*").length,
         boundary: /didn.t load|something went wrong/i.test(document.body.innerText),
       }));
       const label = `${name} ${route}`;
@@ -250,7 +234,7 @@ try {
           // throw, and at 880 it reads as merely a bit odd rather than wrong.
           // Same family as the cramped and spilling rules: correct code, wrong
           // picture, and only the DOM knows.
-          for (const li of document.querySelectorAll("#root li")) {
+          for (const li of document.body.querySelectorAll("li")) {
             const p = li.parentElement;
             if (!p) continue;
             const t = p.tagName;
@@ -267,7 +251,7 @@ try {
           // sentence. Tailwind's breakpoints are the VIEWPORT's, so
           // `lg:grid-cols-3` still makes three columns inside a half-width
           // parent — the CSS is correct and the result is four-word lines.
-          for (const el of document.querySelectorAll("#root [class*=grid]")) {
+          for (const el of document.body.querySelectorAll("[class*=grid]")) {
             const cs = getComputedStyle(el);
             if (cs.display !== "grid") continue;
             if (cs.gridTemplateColumns.split(" ").filter(Boolean).length < 2) continue;
@@ -320,7 +304,7 @@ try {
           // result is truncation, which is deliberate and visible; with no
           // clipping ancestor it is painted across whatever sits beside it,
           // which is the failure that rendered two real figures as a third.
-          for (const el of document.querySelectorAll("#root *")) {
+          for (const el of document.body.querySelectorAll("*")) {
             if (el.children.length || !el.textContent.trim()) continue;
             const w = el.clientWidth;
             if (!w || el.scrollWidth <= w + 2) continue;
