@@ -26,7 +26,58 @@ export function neonConfigured(env) {
   return !!(env && env.NEON_API_KEY);
 }
 
+/**
+ * How long a locked project is waited out, and in how many steps.
+ *
+ * Exported so the test drives the real numbers rather than restating them — a
+ * retry budget asserted against a copy of itself proves nothing.
+ */
+export const NEON_LOCK_TRIES = 6;
+export const NEON_LOCK_STEP_MS = 1500;
+
+/**
+ * Neon's own "busy, try again".
+ *
+ * 423 Locked, `project already has running conflicting operations, scheduling
+ * of new ones is prohibited`. MEASURED LIVE 2026-08-17: a `build smoke` run
+ * died at `upstream: 423` before the designer's schema could be applied, and
+ * the whole paid run was lost to it — 10 passed, 14 failed, none of them about
+ * the code under test.
+ *
+ * `waitForProject` ALREADY GUARDS THIS AND CANNOT CLOSE IT. It polls
+ * `/operations` after every scheduling call and returns when none are pending —
+ * but Neon's operations list is eventually consistent, so a poll issued
+ * immediately after a POST can see the work before it is REGISTERED, find
+ * nothing pending, and return clean. The next call is then refused. Waiting
+ * longer up front would slow every build to fix a race that is about ordering
+ * rather than duration.
+ *
+ * RETRYING IS SAFE HERE FOR ONE SPECIFIC REASON, and it is the whole argument:
+ * 423 means Neon DID NOT DO IT. There is no partial project, no half-created
+ * database, nothing to reconcile — the call was refused at the door. That is
+ * what separates this from every other status, and why nothing else is retried.
+ */
+function neonLocked(status, body, text) {
+  if (status !== 423) return false;
+  const msg = String((body && body.message) || text || "");
+  // The STATUS alone would be enough today, and the message is checked as well
+  // so that a future 423 meaning something other than "busy" is not silently
+  // retried six times before failing.
+  return /conflicting operations|already has running/i.test(msg) || !msg;
+}
+
 async function neonApi(env, path, init) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await neonApiOnce(env, path, init);
+    } catch (e) {
+      if (!e || !e.locked || attempt >= NEON_LOCK_TRIES - 1) throw e;
+      await new Promise((r) => setTimeout(r, NEON_LOCK_STEP_MS));
+    }
+  }
+}
+
+async function neonApiOnce(env, path, init) {
   const r = await fetch(NEON_API + path, {
     ...init,
     headers: {
@@ -56,6 +107,9 @@ async function neonApi(env, path, init) {
     // scrubs any connection string — a Neon error can echo the params it was
     // given, and those carry a PASSWORD.
     e.detail = scrubSecrets((body === null ? text : JSON.stringify(body)) || "(empty body)").slice(0, 400);
+    // Marked here rather than decided by the caller, so the one place that
+    // knows both the status and the body is the one place that judges it.
+    if (neonLocked(r.status, body, text)) e.locked = true;
     throw e;
   }
   return body === null ? {} : body;
