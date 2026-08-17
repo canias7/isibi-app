@@ -350,7 +350,14 @@ test("writeSiteDistToR2 derives the manifest and writes both files into the dist
   assert.ok(end > at, "the entries sort moved — the manifest window has no end");
   const head = worker.slice(at, end);
   assert.match(head, /siteRoutes\(pages\)/, "the route list is not derived from the pages");
-  assert.match(head, /parseSiteManifest\(await po\.text\(\)\)/, "the previous manifest is never read — deletions leave no redirect");
+  // READ FROM THE SIDECAR, NOT PARSED OUT OF A DOCUMENT. This asserted
+  // `parseSiteManifest(await po.text())` — the previous publish's `index.html`,
+  // which under Start does not exist: the build emits no top-level document and
+  // the head is composed per request. The PROPERTY is unchanged and is what is
+  // asserted here: the previous manifest is read, so a deleted page leaves a 301
+  // where it was.
+  assert.match(head, /await env\.SITES_BUCKET\.get\(siteMetaKey\(slug\)\)/,
+    "the previous manifest is never read — deletions leave no redirect");
   assert.match(head, /mergeRedirects\(prev, man\.routes\)/, "gone routes are not diffed into redirects");
   assert.match(head, /dist\["sitemap\.xml"\] = \{ t: sitemapXml\(/, "no sitemap is written at publish");
   assert.match(head, /dist\["robots\.txt"\] = \{ t: robotsTxt\(\) \}/, "robots.txt keeps the template's two-line file");
@@ -361,9 +368,20 @@ test("writeSiteDistToR2 derives the manifest and writes both files into the dist
     "a routeless site publishes an empty sitemap declaring it has no pages");
 });
 
-test("the manifest rides ONLY the home page's head", () => {
-  assert.match(worker, /injectMeta\(v\.t, home && manifest \? \{ \.\.\.pm, \.\.\.manifest \} : pm\)/,
-    "the home page no longer carries the manifest — the fallback reads index.html and nothing else");
+test("the manifest is written where the site's own Worker reads it", () => {
+  // IT USED TO RIDE THE HOME PAGE'S HEAD, and that assertion went vacuous rather
+  // than red: it matched a source string for a branch that can no longer run,
+  // because under Start the dist contains no HTML at all and the `injectMeta`
+  // loop iterates over nothing. A guard that passes because its subject stopped
+  // existing is the shape this repo keeps paying for.
+  //
+  // The manifest now travels in the meta sidecar — one object, outside the
+  // served prefix — and `test/site-meta-sidecar.test.mjs` holds the key itself
+  // against the template's copy of it.
+  assert.match(worker, /routesCsv: \(manifest && manifest\.routesCsv\) \|\| ""/,
+    "the route list is not written to the sidecar — the SPA fallback has no opinion");
+  assert.match(worker, /redirectsCsv: \(manifest && manifest\.redirectsCsv\) \|\| ""/,
+    "the redirect map is not written — a renamed page hard-404s every indexed link");
 });
 
 test("the sitemap and robots are archived with the build, so a restore keeps them", () => {

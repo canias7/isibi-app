@@ -30,7 +30,7 @@ import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload
 import { handleOwnerExport } from "./site-export.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
 import { makeTrace } from "./builder/trace.mjs";
-import { injectMeta, pageMeta, setTitle } from "./site-meta.mjs";
+import { injectMeta, pageMeta, setTitle, siteMetaKey } from "./site-meta.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, mergeRedirects, decideFallback } from "./site-seo.mjs";
 import { readJsonBody } from "./request-limits.mjs";
 import { listSecrets, addSecret, deleteSecret, readSecret } from "./site-secrets.mjs";
@@ -6741,8 +6741,14 @@ async function writeSiteDistToR2(env, slug, dist, meta, pages) {
       // publish has no old addresses to protect.
       let prevUnreadable = false;
       try {
-        const po = await env.SITES_BUCKET.get("sites/" + slug + "/index.html");
-        if (po) prev = parseSiteManifest(await po.text());
+        // FROM THE SIDECAR, NOT FROM A DOCUMENT. It used to parse the previous
+        // publish's `index.html`, which under Start does not exist: the build
+        // emits `dist/client` and `dist/server` and no top-level document, and
+        // the head is composed per request by `__root.tsx`. One small JSON is
+        // also a better carrier than a `<meta>` pair — nothing to escape, and a
+        // reader that cannot silently half-parse it.
+        const po = await env.SITES_BUCKET.get(siteMetaKey(slug));
+        if (po) prev = JSON.parse(await po.text());
       } catch (e) {
         prevUnreadable = true;
         console.error("previous manifest unreadable:", slug, e && e.message);
@@ -6775,6 +6781,39 @@ async function writeSiteDistToR2(env, slug, dist, meta, pages) {
   //
   // The docstring's "atomic from a visitor's side" was therefore true of the
   // home page and of nothing else.
+  // ── WHAT THE SITE'S OWN WORKER READS BACK ────────────────────────────────
+  //
+  // The publish-time half of the head: the description the designer wrote, the
+  // share image (chosen after photographs are bought), this site's origin, and
+  // the route/redirect manifest. `injectMeta` used to patch all of it into a
+  // built shell — and under Start there is no shell, because the document is
+  // `__root.tsx` rendered per request.
+  //
+  // OUTSIDE `sites/<slug>/`, deliberately. The site's Worker serves that prefix
+  // verbatim, so a file under it would be fetchable at `/site-meta.json`.
+  // Nothing here is secret, but a file the site never meant to publish is not
+  // one to publish by accident — and it keeps the publish sweep, which wipes by
+  // that prefix, from deleting the thing every request reads.
+  //
+  // BEST-EFFORT, AND IT SAYS SO: every field is decoration on a document that
+  // renders perfectly without it, so a failure costs a plainer link preview
+  // rather than the site. Failing the publish over a share tag would trade a
+  // working site for a preview card.
+  if (meta || manifest) {
+    try {
+      const sidecar = {
+        description: (meta && meta.description) || "",
+        image: (meta && meta.image) || "",
+        origin: (meta && meta.url) || "",
+        routesCsv: (manifest && manifest.routesCsv) || "",
+        redirectsCsv: (manifest && manifest.redirectsCsv) || "",
+      };
+      await env.SITES_BUCKET.put(siteMetaKey(slug), JSON.stringify(sidecar), {
+        httpMetadata: { contentType: "application/json" },
+      });
+    } catch (e) { console.error("site meta sidecar failed:", slug, e && e.message); }
+  }
+
   const entries = Object.entries(dist || {})
     .sort((a, b) => (/\.html$/i.test(a[0]) ? 1 : 0) - (/\.html$/i.test(b[0]) ? 1 : 0));
   for (const [rel, v] of entries) {
@@ -7544,6 +7583,17 @@ async function deleteSiteFor(env, uid, dslug) {
     // and the reason both of those have their own line here.
     try { if (env.SITES_BUCKET) await env.SITES_BUCKET.delete(P_ORPHANS(dslug)); }
     catch (e) { console.error("orphan marker delete failed:", dslug, e && e.message); }
+
+    // AND THE META SIDECAR, for exactly the reason one line up. It carries the
+    // site's description, its share image and its route/redirect manifest, and
+    // it lives outside `sites/<slug>/` so the served prefix cannot expose it and
+    // the publish sweep cannot delete the thing every request reads — which also
+    // means the wipe above walks straight past it. Keyed by slug and by nothing
+    // else, so a leftover is invisible AND would be inherited wholesale by
+    // whoever claims the slug next: the new site would serve the old one's
+    // description and redirect map until its first publish overwrote them.
+    try { if (env.SITES_BUCKET) await env.SITES_BUCKET.delete(siteMetaKey(dslug)); }
+    catch (e) { console.error("site meta delete failed:", dslug, e && e.message); }
 
     // THE NIGHTLY BACKUPS GO WITH THE SITE. They are a second copy of the
     // customers' own data, and a deleted site keeping one in R2 forever is a

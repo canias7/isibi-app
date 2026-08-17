@@ -24,6 +24,25 @@ const OPEN = "<!--isibi:meta-->";
 const CLOSE = "<!--/isibi:meta-->";
 
 /**
+ * Where a site's publish-time meta lives.
+ *
+ * THE SITE'S OWN WORKER READS THIS KEY and the platform writes it, so it is one
+ * expression rather than two spellings — the drift class this repo has recorded
+ * repeatedly, and here it would be silent: a mismatched key reads as a site with
+ * no description rather than as an error.
+ *
+ * The template cannot import this module (it is built separately), so
+ * `src/server.ts` carries the only other copy and a test holds the two together.
+ *
+ * OUTSIDE `sites/<slug>/`, which is the served prefix AND the one the publish
+ * sweep wipes. Under it, this file would be both publicly fetchable and deleted
+ * by the next publish of the site that depends on it.
+ */
+export function siteMetaKey(slug) {
+  return "sitemeta/" + String(slug || "") + ".json";
+}
+
+/**
  * Build the head fragment. Pure, so what goes into a published page is testable
  * without R2, a build, or a browser.
  */

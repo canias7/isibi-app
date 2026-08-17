@@ -32,7 +32,6 @@ import { initialsMark, normalizeLang } from "./site-identity.mjs";
 import { exitReason } from "./exit-reason.mjs";
 import { checkRender } from "./render-check.mjs";
 import { routeOf, fileForRoute } from "./site-addon.mjs";
-import { siteConfigModule, shellIsUsable } from "./site-worker.mjs";
 
 const APP = process.env.APP_DIR || "/app";
 const ROUTES = path.join(APP, "src", "routes");
@@ -472,6 +471,16 @@ async function loadSiteServer() {
   }
 }
 
+// UNREACHABLE AS OF THE MOVE TO START — zero call sites, and said so here rather
+// than left for a reader to work out. The document is rendered per REQUEST by
+// the site's own Worker now, so there is no build-time snapshot to produce.
+//
+// KEPT FOR ONE COMMIT'S WORTH OF CAUTION rather than deleted with the rest: its
+// removal takes `prerender-child.mjs`, the Dockerfile's COPY of it, and six test
+// files with it, and this repo's own record is that a half-done deletion is
+// worse than one not started. It is dead, not dormant — nothing switches it back
+// on — which is exactly the state this file warns about elsewhere, so it must not
+// survive the next sitting.
 async function prerender() {
   const done = [], skipped = [];
 
