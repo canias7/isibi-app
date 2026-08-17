@@ -14,6 +14,20 @@
 // is not an option. It does not need to be: the platform Worker strips
 // `/s/<slug>/` before dispatch, and since the slug cleaner started refusing an
 // edge hyphen every site has a pretty host, so `/` is the only mount there is.
+// FIRST, AND THE ORDER IS THE WIRING. `pinSiteLocale` mutates the formatting
+// built-ins, and it has to have done so before anything formats — so it is
+// imported ABOVE `routeTree.gen`, which pulls in every page module. Below it, a
+// page that formats at module scope would evaluate against the runtime's own
+// locale on the server and the visitor's in the browser, which is the exact
+// mismatch this exists to remove.
+//
+// THIS FILE IS THE ONE PLACE BOTH SIDES GO THROUGH: Start calls `getRouter()`
+// from `createStartHandler` on the server and from `hydrateStart` in the
+// browser, so a single import here covers the render and the hydration, and the
+// two cannot disagree about the locale by construction.
+import { pinSiteLocale } from "./site-locale";
+pinSiteLocale();
+
 import { createRouter } from "@tanstack/react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { routeTree } from "./routeTree.gen";
