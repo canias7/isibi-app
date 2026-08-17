@@ -25,7 +25,6 @@ fs.cpSync(TEMPLATE, sandbox, { recursive: true, filter: (s) => !/(^|[\\/])(node_
 fs.symlinkSync(path.join(TEMPLATE, "node_modules"), path.join(sandbox, "node_modules"), "dir");
 fs.mkdirSync(path.join(sandbox, ".routes-base"), { recursive: true });
 fs.copyFileSync(path.join(sandbox, "src/routes/__root.tsx"), path.join(sandbox, ".routes-base/__root.tsx"));
-fs.copyFileSync(path.join(sandbox, "index.html"), path.join(sandbox, ".index-base.html"));
 fs.copyFileSync(path.join(sandbox, "src/styles.css"), path.join(sandbox, ".styles-base.css"));
 const ROUTES = Object.fromEntries(fs.readdirSync(path.join(TEMPLATE, "src/routes"))
   .filter((f) => f.endsWith(".tsx") && f !== "__root.tsx")

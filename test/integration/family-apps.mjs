@@ -40,6 +40,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
 import { FAMILIES, READY_FAMILIES } from "../../builder/site-layouts.mjs";
 import { THEME_SHORTLIST, resolveTheme } from "../../builder/site-theme-registry.mjs";
 
@@ -94,13 +95,30 @@ function findChromium() {
 // delete the reference site.
 const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), "isibi-famapps-"));
 let server = null, web = null, browser = null, current = null;
+// The built server's fetch, reloaded per family. CACHE-BUSTED: this process
+// builds a hundred sites in a row, so Node's module cache would hand back the
+// FIRST family's renderer for every one after it — the one-build-leaks-into-the
+// -next class `resetRoutes` already guards against on the container side.
+let ssr = null;
+async function loadSsr(dir) {
+  try {
+    const mod = await import(pathToFileURL(path.join(dir, "dist", "server", "server.js")).href + "?b=" + Date.now());
+    // NAMED `srv`, NOT `app`, and deliberately: the family loop below binds
+    // `const app`, and the block-scope scanner in `test/worker-imports.test.mjs`
+    // is narrow by design — it walks forward from a declaration and does not
+    // track a re-declaration in a later scope, so two `app`s read to it as the
+    // `vidRefN` bug. A wider scanner was tried once and abandoned at 1,113
+    // candidates, so the cheap side of that trade is not reusing the name.
+    const srv = mod && mod.default;
+    ssr = srv && typeof srv.fetch === "function" ? (rq) => srv.fetch(rq, {}) : null;
+  } catch { ssr = null; }
+}
 
 try {
   fs.cpSync(TEMPLATE, sandbox, { recursive: true, filter: (s) => !/(^|[\\/])(node_modules|dist)$/.test(s) });
   fs.symlinkSync(path.join(TEMPLATE, "node_modules"), path.join(sandbox, "node_modules"), "dir");
   fs.mkdirSync(path.join(sandbox, ".routes-base"), { recursive: true });
   fs.copyFileSync(path.join(sandbox, "src/routes/__root.tsx"), path.join(sandbox, ".routes-base/__root.tsx"));
-  fs.copyFileSync(path.join(sandbox, "index.html"), path.join(sandbox, ".index-base.html"));
   fs.copyFileSync(path.join(sandbox, "src/styles.css"), path.join(sandbox, ".styles-base.css"));
   for (const f of fs.readdirSync(path.join(sandbox, "src/routes"))) {
     if (f !== "__root.tsx") fs.rmSync(path.join(sandbox, "src/routes", f), { force: true });
@@ -117,16 +135,41 @@ try {
   }
   if (!up) throw new Error("build server never came up");
 
-  // Serves whatever the LAST build produced, at /s/<slug>/ like production.
-  web = http.createServer((req, res) => {
+  // Serves whatever the LAST build produced, at `/` — which is where a
+  // published site really is, since `cleanSlug` refuses an edge hyphen and every
+  // site therefore has a pretty host.
+  //
+  // THE DOCUMENT COMES FROM THE BUILT SERVER, not from a file. Under TanStack
+  // Start `dist/client` contains no HTML at all; the document is `__root.tsx`
+  // rendered per request by `dist/server/server.js`. This used to serve
+  // `current["index.html"]` for every address, which after the move is a 404 for
+  // every page of every family.
+  //
+  // AN ASSET IS STILL A FILE, and the split is the same rule the site's own
+  // Worker uses: a path with an extension is an asset, anything else is a route.
+  // They must agree, or a request classified one way here and the other way in
+  // production is a page that renders in CI and 404s live.
+  web = http.createServer(async (req, res) => {
     const u = new URL(req.url, "http://x");
-    const m = u.pathname.match(/^\/s\/[^/]+\/?(.*)$/);
-    const rel = m ? (m[1] || "index.html") : "index.html";
-    const f = current && (current[rel] || current["index.html"]);
-    if (!f) { res.writeHead(404); return res.end("nf"); }
-    const ext = (rel.match(/\.([a-z0-9]+)$/i) || [])[1] || "html";
-    res.writeHead(200, { "content-type": { js: "text/javascript", css: "text/css", svg: "image/svg+xml", html: "text/html; charset=utf-8" }[ext] || "application/octet-stream" });
-    res.end(f.t != null ? f.t : Buffer.from(f.b, "base64"));
+    const last = u.pathname.split("/").pop() || "";
+    if (last.includes(".")) {
+      const f = current && current[u.pathname.replace(/^\//, "")];
+      if (!f) { res.writeHead(404); return res.end("nf"); }
+      const ext = (last.match(/\.([a-z0-9]+)$/i) || [])[1] || "bin";
+      res.writeHead(200, { "content-type": { js: "text/javascript", css: "text/css", svg: "image/svg+xml", json: "application/json" }[ext] || "application/octet-stream" });
+      return res.end(f.t != null ? f.t : Buffer.from(f.b, "base64"));
+    }
+    if (!ssr) { res.writeHead(503); return res.end("no server bundle"); }
+    try {
+      const r = await ssr(new Request("http://x" + u.pathname + u.search));
+      res.writeHead(r.status, { "content-type": r.headers.get("content-type") || "text/html; charset=utf-8" });
+      return res.end(await r.text());
+    } catch (e) {
+      // Reported rather than swallowed: a renderer that throws is exactly what
+      // this workflow exists to catch, and a bare 500 with no words reads as the
+      // harness being broken.
+      res.writeHead(500); return res.end("ssr threw: " + String((e && e.stack) || e).slice(0, 400));
+    }
   });
   await new Promise((r) => web.listen(PORT + 1, r));
 
@@ -156,13 +199,20 @@ try {
     })).json();
     if (!built.ok) { bad(`${name} refused at ${built.stage}`, built.error); continue; }
     current = built.files;
+    await loadSsr(sandbox);
 
     // Every declared page, loaded fresh (goto, not hashchange — a full load per
     // route also proves each one boots from a cold start).
     for (const p of FAMILIES[app.family].pages) {
       const route = p.file === "index" ? "/" : "/" + p.file;
       pageErrors.length = 0;
-      await page.goto(`http://127.0.0.1:${PORT + 1}/s/f-${name}/?v=${name}-${p.file}#${route}`, { waitUntil: "networkidle" });
+      // A REAL PATH, NOT A FRAGMENT. This was `…/?v=…#${route}`, from when the
+      // router ran on `createHashHistory()` — retired 2026-08-09. A fragment
+      // never reaches a server and the router stopped reading one, so every one
+      // of these 324 navigations was loading the HOME page and being reported as
+      // a distinct route. The exemplars carry zero `#/` hrefs, which is what
+      // makes this measurable rather than a guess.
+      await page.goto(`http://127.0.0.1:${PORT + 1}${route}?v=${name}-${p.file}`, { waitUntil: "networkidle" });
       await page.waitForTimeout(400);
       const d = await page.evaluate(() => ({
         nodes: document.querySelectorAll("#root *").length,

@@ -226,7 +226,6 @@ function makeSandbox() {
   fs.symlinkSync(path.join(TEMPLATE, "node_modules"), path.join(dir, "node_modules"), "dir");
   fs.mkdirSync(path.join(dir, ".routes-base"), { recursive: true });
   fs.copyFileSync(path.join(dir, "src/routes/__root.tsx"), path.join(dir, ".routes-base/__root.tsx"));
-  fs.copyFileSync(path.join(dir, "index.html"), path.join(dir, ".index-base.html"));
   // The template's own index.tsx is the REFERENCE page, written against a barber
   // shop. Leaving it in would compile somebody else's site alongside the sample.
   fs.rmSync(path.join(dir, "src/routes/index.tsx"), { force: true });
