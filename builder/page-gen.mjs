@@ -2500,20 +2500,24 @@ ${UI_SHORTLIST_API()}
 
 16. A TABLE MARKED \`PAID: YES\` IS BOUGHT, NOT SUBMITTED. The digest says so per table.
     \`useCreateRow\` on one returns 403 — a paid table has no public insert at all, which is
-    exactly what stops a price being forged — so use \`useCheckout\` and let the server price it:
+    exactly what stops a price being forged — so use \`useCheckout\` and let the server price it.
+    THE BASKET IS \`useCart\`, NOT \`useState\`: it is kept across pages and across a reload, so
+    a shop can add on one page and check out on another, and it empties itself when the
+    customer comes back from Stripe. \`useState\` loses it the moment they navigate.
+      const cart = useCart("orders")            // the PAID table's own basket
       const checkout = useCheckout("orders")
       const { data: products = [] } = useRows<Product>("products")
-      const [cart, setCart] = useState<Record<number, number>>({})
       ...
+      <Button onClick={() => cart.add(p.id)}>Add</Button>
+      <span>{cart.count} in your basket</span>
       <BusyButton
         busy={checkout.isPending}
-        onClick={() =>
-          checkout.mutate({
-            items: Object.entries(cart).map(([id, qty]) => ({ id: Number(id), qty })),
-            fields: { customer_name: name, email },
-          })
-        }
+        onClick={() => checkout.mutate({ items: cart.lines, fields: { customer_name: name, email } })}
       >Pay <Money amount={total} currency="GBP" /></BusyButton>
+    \`cart.lines\` is already the \`{ id, qty }\` shape \`useCheckout\` wants. Also
+    \`cart.qtyOf(id)\`, \`cart.setQty(id, n)\` (0 removes), \`cart.remove(id)\`, \`cart.clear()\`,
+    and \`cart.ready\` — false until the stored basket has been read, so gate an "your basket
+    is empty" message on it rather than flashing it at somebody whose basket is full.
     Send \`{ id, qty }\` and NOTHING else per line — no price, no total, no currency. The
     server reads the prices out of the catalogue table itself, so a total computed in the
     page is for DISPLAY only and is never sent. \`fields\` carries the customer's own

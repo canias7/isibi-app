@@ -2028,12 +2028,26 @@ test("rule 14's example cites components that REALLY EXIST, with the right casin
   const kitDir = path.join(import.meta.dirname, "..", "builder", "lovable", "template", "src", "components", "ui");
   // `[\s/]` and not `>`, or `useRows<Product>` matches as a JSX tag — it is a
   // generic type parameter, and the guard went looking for product.tsx.
+  // THREE EXPORT FORMS, NOT TWO. This knew `export function` and `export const`
+  // and went red on `<Button>` — which `button.tsx` certainly exports, as
+  // `export { Button, buttonVariants }`, the form every shadcn primitive uses.
+  // It had never fired only because the example happened to cite our OWN
+  // components, which are all written the other way. A check that cries wolf on
+  // correct code is worse than the miss it prevents, so the check moves rather
+  // than the rule.
+  const exportsIt = (src, name) => new RegExp(
+    "export\\s+(?:function|const|class)\\s+" + name + "\\b"
+    + "|export\\s*\\{[^}]*\\b" + name + "\\b[^}]*\\}",
+  ).test(src);
   for (const name of new Set([...example.matchAll(/<([A-Z]\w+)[\s/]/g)].map((m) => m[1]))) {
     const file = name.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase() + ".tsx";
     const src = fs.readFileSync(path.join(kitDir, file), "utf8");
-    assert.ok(new RegExp("export (?:function|const) " + name + "\\b").test(src),
+    assert.ok(exportsIt(src, name),
       name + " is cited by rule 14 but " + file + " does not export it");
   }
+  // …and it still refuses a name that is genuinely absent, or widening the
+  // pattern above would have turned the guard off rather than fixed it.
+  assert.equal(exportsIt(fs.readFileSync(path.join(kitDir, "button.tsx"), "utf8"), "NotAThing"), false);
   // And the lower-case call form must not come back.
   assert.equal(/\bmoney\s*\(/.test(example), false, "the kit exports Money, a component — not a money() function");
 });
