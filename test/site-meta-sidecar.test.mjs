@@ -12,7 +12,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { siteMetaKey } from "../site-meta.mjs";
+import { siteMetaKey, SITE_LIVE_FILE } from "../site-meta.mjs";
 
 const WORKER = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 const ENTRY = fs.readFileSync(new URL("../builder/lovable/template/src/server.ts", import.meta.url), "utf8");
@@ -71,4 +71,42 @@ test("DELETING A SITE TAKES IT WITH THEM", () => {
   // have their own line in that block for the same reason.
   assert.match(WORKER, /await env\.SITES_BUCKET\.delete\(siteMetaKey\(dslug\)\)/,
     "a deleted site leaves its meta behind for the next claimant of the slug");
+});
+
+test("THE LIVENESS MARKER IS THE TAKE-DOWN, and both sides spell it the same", () => {
+  // Start took the old signal away. A published site used to BE a document in
+  // R2, so wiping `sites/<slug>/` made every route 404 and that miss was the
+  // take-down — which both site deletion and the offline switch rest on. Under
+  // Start the document renders from the script's own bundle and needs no R2, so
+  // a site whose files are gone kept serving: the container harness measured it
+  // as "200 — a deleted site is still serving".
+  //
+  // A MISMATCH HERE IS SILENT IN THE WORST DIRECTION: the probe misses forever
+  // and every page of every site 404s.
+  const inEntry = /const LIVE_FILE = "([^"]+)"/.exec(ENTRY);
+  assert.ok(inEntry, "the site's Worker no longer names a liveness marker");
+  assert.equal(inEntry[1], SITE_LIVE_FILE,
+    "the platform publishes a different marker than the site probes for");
+  // PUBLISHED WITH THE DIST, not written separately — so it rides the same
+  // ordering, the same sweep keep-set and the same prefix wipe as every other
+  // file, and no second path can leave it behind.
+  assert.match(WORKER, /dist\[SITE_LIVE_FILE\] = \{ t: "1" \}/,
+    "the marker is not published with the site's files");
+});
+
+test("A MISS IS PERMANENT AND A THROW IS TRANSIENT", () => {
+  // The distinction the R2-shell entry drew explicitly and which was lost with
+  // it. An R2 blip must not take every published site down; an absent marker
+  // means somebody deleted the site. Being wrong toward "live" serves a page
+  // that should be gone for a few seconds; being wrong the other way takes the
+  // whole platform's published sites down during an R2 incident.
+  const at = ENTRY.indexOf("const LIVE_FILE");
+  const probe = ENTRY.slice(ENTRY.indexOf('env.SITES.head(', at));
+  assert.match(probe, /catch \{[\s\S]{0,600}?live = true;/,
+    "an R2 failure is treated as a take-down — a blip would 404 every site at once");
+  assert.match(probe, /if \(!live\) return new Response\("Not found", \{ status: 404 \}\)/,
+    "an absent marker no longer takes the site down");
+  // NOT CACHED, or "take this site offline" waits for an isolate to recycle.
+  assert.ok(!/if \(liveChecked\)|liveCache/.test(ENTRY),
+    "liveness is cached — an offline switch would not take effect until the isolate recycles");
 });

@@ -26,6 +26,11 @@ import { createStartHandler, defaultStreamHandler } from "@tanstack/react-start/
 import { SITE_SLUG } from "./site-brand";
 import { setSiteMeta, type SiteMeta } from "./site-runtime";
 
+// KEPT IN STEP WITH `site-meta.mjs`'s `SITE_LIVE_FILE` BY A TEST. The template is
+// built separately and cannot import it, and a mismatch here is silent in the
+// worst direction: the probe misses forever and every page of every site 404s.
+const LIVE_FILE = "site.live";
+
 // `createStartHandler` RETURNS THE FETCH FUNCTION, not an object carrying one.
 // Start's own generated entry reads `createServerEntry({ fetch: createStartHandler(…) })`.
 const startFetch = createStartHandler(defaultStreamHandler);
@@ -36,7 +41,7 @@ const startFetch = createStartHandler(defaultStreamHandler);
 // answers. A narrower type is also a better one here, because it says exactly
 // what the entry is allowed to do with the bucket.
 type SiteObject = { body: ReadableStream | null; text(): Promise<string>; writeHttpMetadata(h: Headers): void };
-type Env = { SITES?: { get(key: string): Promise<SiteObject | null> } };
+type Env = { SITES?: { get(key: string): Promise<SiteObject | null>; head(key: string): Promise<unknown> } };
 
 /** Is this a request for a file rather than a page?
  *
@@ -94,6 +99,37 @@ export default {
       // emitted asset name, so a file at this address can never change.
       h.set("cache-control", "public, max-age=31536000, immutable");
       return new Response(obj.body, { headers: h });
+    }
+
+    // ── IS THIS SITE STILL PUBLISHED? ────────────────────────────────────────
+    //
+    // A MISS IS PERMANENT, A THROW IS TRANSIENT, and the two must not be
+    // confused — the distinction the R2-shell entry drew explicitly and which
+    // was lost when the shell went.
+    //
+    // The old design got this for free: a page WAS a document in R2, so wiping
+    // `sites/<slug>/` made every route 404 and that miss was the take-down.
+    // Under Start the document renders from this bundle and needs no R2 at all,
+    // so without this probe a deleted site keeps serving — measured by the
+    // container harness as "200 — a deleted site is still serving". Both site
+    // deletion and the offline switch rest on it.
+    //
+    // NOT CACHED, unlike the meta above: "take this site offline" that waits for
+    // an isolate to recycle is not offline. It is one R2 head per document, and
+    // that is CHEAPER than the get the old shell read cost on the same path, so
+    // it is not a new expense — it is the old one, smaller.
+    if (env.SITES) {
+      let live = true;
+      try {
+        live = (await env.SITES.head("sites/" + SITE_SLUG + "/" + LIVE_FILE)) !== null;
+      } catch {
+        // Transient. An R2 blip must not take a live site down, so an
+        // unanswerable question keeps the site up — being wrong that way serves
+        // a page that should be gone for a few seconds, and being wrong the
+        // other way takes every published site down during an R2 incident.
+        live = true;
+      }
+      if (!live) return new Response("Not found", { status: 404 });
     }
 
     await loadMeta(env);

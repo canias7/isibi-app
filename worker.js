@@ -30,7 +30,7 @@ import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload
 import { handleOwnerExport } from "./site-export.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
 import { makeTrace } from "./builder/trace.mjs";
-import { injectMeta, pageMeta, setTitle, siteMetaKey } from "./site-meta.mjs";
+import { injectMeta, pageMeta, setTitle, siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, mergeRedirects, decideFallback } from "./site-seo.mjs";
 import { readJsonBody } from "./request-limits.mjs";
 import { listSecrets, addSecret, deleteSecret, readSecret } from "./site-secrets.mjs";
@@ -6781,6 +6781,15 @@ async function writeSiteDistToR2(env, slug, dist, meta, pages) {
   //
   // The docstring's "atomic from a visitor's side" was therefore true of the
   // home page and of nothing else.
+  // THE LIVENESS MARKER, added to the dist rather than written separately — so
+  // it rides the same ordering, the same sweep keep-set and the same prefix wipe
+  // as every other published file, and there is no second path that could leave
+  // it behind. Its ABSENCE is what tells the site's own Worker it has been taken
+  // down: under Start the document renders from the bundle and needs no R2, so
+  // without this a deleted site keeps serving its pages. Measured exactly that
+  // way by the container harness before it existed.
+  if (dist && typeof dist === "object") dist[SITE_LIVE_FILE] = { t: "1" };
+
   // ── WHAT THE SITE'S OWN WORKER READS BACK ────────────────────────────────
   //
   // The publish-time half of the head: the description the designer wrote, the
