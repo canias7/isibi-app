@@ -23,7 +23,17 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # 100 families at ~32s each is ~53 minutes, MEASURED (`FAM_ONLY=salon`, which
+    # builds and drives one family end to end). The old 25 was not a squeeze that
+    # Start caused — every run in the recent history hit it exactly, including
+    # ones from before that work — so this check has not produced a verdict in a
+    # long time. A timeout is CANCELLED rather than failed, and a cancelled run
+    # is not red, which is why nobody noticed a check that had stopped checking.
+    #
+    # 75 leaves headroom for a slower runner and for the npm ci and browser
+    # download in front of it. If it ever needs to be faster the answer is
+    # sharding the family list across a matrix, not trimming what is covered.
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
