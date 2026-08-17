@@ -56,8 +56,7 @@ export async function uploadSiteWorker({ accountId, namespace, name, code, bucke
     return { ok: false, status: 0, error: String((e && e.message) || e).slice(0, 300) };
   }
 
-  if (r.status === 200 || r.status === 201) return { ok: true, status: r.status, error: "" };
-  return { ok: false, status: r.status, error: (await readError(r)).slice(0, 300) };
+  return await verdict(r, [200, 201]);
 }
 
 /**
@@ -89,8 +88,48 @@ export async function deleteSiteWorker({ accountId, namespace, name, apiToken },
     return { ok: false, status: 0, error: String((e && e.message) || e).slice(0, 300) };
   }
 
-  if (r.status === 200 || r.status === 204 || r.status === 404) return { ok: true, status: r.status, error: "" };
-  return { ok: false, status: r.status, error: (await readError(r)).slice(0, 300) };
+  return await verdict(r, [200, 204, 404], [404]);
+}
+
+/**
+ * Did Cloudflare actually do it?
+ *
+ * THE HTTP STATUS IS NOT THE ANSWER ON THIS API, and reading it as though it
+ * were is what let a delete report success while the script kept serving.
+ * Cloudflare's v4 endpoints answer **200 with `{"success": false, "errors":
+ * […]}`** for a class of refusals — so a status-only check turns "we refused"
+ * into "done", silently, which is precisely the shape `GRANT USAGE ON SCHEMA
+ * auth` had: a statement that reported success and changed nothing.
+ *
+ * MEASURED, not theorised: a real `build smoke` run deleted a site — 21 R2
+ * objects gone, the Neon project dropped, the ownership row removed — and the
+ * site was still answering 200 fifteen minutes later, because its script was
+ * never removed and nothing said so.
+ *
+ * `success` IS ONLY BELIEVED WHEN IT IS PRESENT AND FALSE. A 204 carries no
+ * body at all, and a body that will not parse is not evidence of refusal —
+ * treating either as a failure would turn a working delete into a retry loop.
+ * So the status still has to be in the accepted list, and `success: false` can
+ * only ever DEMOTE a status that was otherwise fine.
+ */
+async function verdict(r, okStatuses, conclusive = []) {
+  if (!okStatuses.includes(r.status)) {
+    return { ok: false, status: r.status, error: (await readError(r)).slice(0, 300) };
+  }
+  // A STATUS THE BODY CANNOT ARGUE WITH. 404 on a delete means the script is
+  // not there, which IS the goal — and Cloudflare sends `success: false` with
+  // it, as it does for every error status. Without this, "already gone" reads
+  // as a refusal, and since most deletes are of sites that never had a script
+  // the cleanup would report failure on its commonest path. Found by the test
+  // written for the fix above, not by reasoning about it.
+  if (conclusive.includes(r.status)) return { ok: true, status: r.status, error: "" };
+  let body = null;
+  try { body = await r.clone().json(); } catch { /* 204, or not JSON — no opinion */ }
+  if (body && body.success === false) {
+    const errs = (body.errors || []).map((e) => (e.code ? e.code + ": " : "") + (e.message || "")).join("; ");
+    return { ok: false, status: r.status, error: ("refused with " + r.status + ": " + (errs || JSON.stringify(body))).slice(0, 300) };
+  }
+  return { ok: true, status: r.status, error: "" };
 }
 
 /**

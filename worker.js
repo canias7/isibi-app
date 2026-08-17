@@ -6663,7 +6663,13 @@ async function dropSiteWorker(env, slug) {
   if (!creds || !name) return null;
   const r = await deleteSiteWorker({ ...creds, name })
     .catch((e) => ({ ok: false, status: 0, error: String((e && e.message) || e) }));
-  if (!r.ok) console.error("site worker delete failed:", slug, r.status, r.error);
+  // LOUDLY, because a script that outlives its site keeps SERVING it. The
+  // upload's failure is invisible-but-harmless — the site falls back to R2 —
+  // and this one is the opposite: a deleted site that still answers 200, a
+  // rollback that does not take, an offline switch that stays online. It is
+  // also billed per script with its ownership row already gone, so nothing is
+  // left that could retry it through the normal route.
+  if (!r.ok) console.error("SITE WORKER NOT REMOVED — it will keep serving:", slug, name, r.status, r.error);
   return r;
 }
 
@@ -7507,7 +7513,7 @@ async function deleteSiteFor(env, uid, dslug) {
     // own baked shell, so a site whose files were wiped while its script stood
     // would keep answering with a rendered page — a "deleted" site still
     // serving, which is the one outcome this route must not produce.
-    await dropSiteWorker(env, dslug);
+    const workerDrop = await dropSiteWorker(env, dslug);
 
     let removed = 0;
     try {
@@ -7617,7 +7623,19 @@ async function deleteSiteFor(env, uid, dslug) {
       }
     } catch (e) { console.error("domain release failed:", dslug, e && e.message); }
 
-    return Response.json({ ok: true, slug: dslug, removed, versionsRemoved, backupsRemoved, projectDropped, domainsReleased });
+    // AND WHETHER THE SCRIPT REALLY WENT. `dropSiteWorker` logged its result
+    // and returned it to nobody, so a site could report `ok: true` — files
+    // gone, project dropped, row deleted — and CARRY ON SERVING from a script
+    // nothing can now reach: the ownership row it would be authorised against
+    // is the thing that was just removed. Measured live: 21 objects removed and
+    // the address still answering 200 a quarter of an hour later.
+    //
+    // `null` means there was nothing to do (no dispatch credentials), so it is
+    // omitted and an ordinary delete's response is unchanged — the same
+    // presence-is-the-signal contract the build response uses.
+    return Response.json({ ok: true, slug: dslug, removed, versionsRemoved, backupsRemoved, projectDropped, domainsReleased,
+      workerRemoved: workerDrop ? workerDrop.ok : undefined,
+      workerError: (workerDrop && !workerDrop.ok) ? (workerDrop.status + " " + workerDrop.error).slice(0, 200) : undefined });
 }
 
 async function handleRequest(request, env, ctx) {

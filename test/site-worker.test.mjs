@@ -304,3 +304,80 @@ test("the asset rule matches the platform's own SPA fallback", async () => {
     assert.equal(mod.isAsset(p), true, p + " is an asset");
   }
 });
+
+/* --------------------------------------- the shell comes from R2 */
+
+/** An R2 stub holding exactly the named objects. */
+const bucket = (files, seen = []) => ({
+  seen,
+  get: async (k) => { seen.push(k); return files[k] === undefined ? null : { async text() { return files[k]; } }; },
+});
+
+const PUBLISHED = '<!doctype html><html><head><title>Forno</title>'
+  + '<meta property="og:title" content="Forno"><meta name="description" content="Wood-fired, Bristol">'
+  + '</head><body><div id="root"></div><script src="/a.js"></script></body></html>';
+
+test("THE PUBLISHED DOCUMENT IS THE SHELL, not the one baked at build time", async () => {
+  // The bug this exists for: `injectMeta` adds the description and the Open
+  // Graph tags at PUBLISH time, after the container produced the bundle — so a
+  // baked shell is always the version from before those tags existed, and every
+  // site lost its link preview. Measured live: three failures and a real page
+  // whose whole head was `<title>Forno</title>`.
+  const mod = await loadEntry({ routes: ["/"] });
+  const res = await mod.default.fetch(req("/"), { SITES: bucket({ "sites/s/index.html": PUBLISHED }) });
+  const html = await res.text();
+  assert.equal(res.status, 200);
+  assert.match(html, /og:title/, "the published meta must reach the visitor");
+  assert.match(html, /<h1>page<\/h1>/, "…and the fresh render still goes into it");
+});
+
+test("…per ROUTE, so a page's own preview is not the home page's", async () => {
+  // Every route is prerendered to its own document with its OWN meta. Serving
+  // `index.html` for all of them puts the home card on every address — the bug
+  // the per-page injection was written to fix, reintroduced one layer down.
+  const seen = [];
+  const mod = await loadEntry({ routes: ["/", "/book"] });
+  const res = await mod.default.fetch(req("/book"), {
+    SITES: bucket({ "sites/s/book.html": PUBLISHED.replace("Forno", "Book a table"), "sites/s/index.html": PUBLISHED }, seen),
+  });
+  assert.match(await res.text(), /Book a table/, "the route's own document is what was read");
+  assert.equal(seen[0], "sites/s/book.html", "and it was asked for first");
+});
+
+test("…falling back to index.html when a route has no document of its own", async () => {
+  // A prerender is best-effort and a route can legitimately have no snapshot.
+  const mod = await loadEntry({ routes: ["/", "/book"] });
+  const res = await mod.default.fetch(req("/book"), { SITES: bucket({ "sites/s/index.html": PUBLISHED }) });
+  assert.equal(res.status, 200);
+  assert.match(await res.text(), /og:title/);
+});
+
+test("NOTHING PUBLISHED IS A 404 — the files get the final say", async () => {
+  // The safety net for the failure that produced this change: a delete removes
+  // the files and then the script, and when the REMOVAL fails a baked shell
+  // keeps serving a site whose every trace was erased. Measured live — 21
+  // objects gone, the address still answering 200 fifteen minutes later.
+  const mod = await loadEntry({ routes: ["/"] });
+  const res = await mod.default.fetch(req("/"), { SITES: bucket({}) });
+  assert.equal(res.status, 404);
+});
+
+test("…but an R2 THROW keeps the site up on the baked shell", async () => {
+  // A blip must not take a live site down. Degraded to no preview, still
+  // serving — the opposite call from a miss, and the distinction is the whole
+  // design.
+  const mod = await loadEntry({ routes: ["/"] });
+  const boom = { get: async () => { throw new Error("R2 unavailable"); } };
+  const res = await mod.default.fetch(req("/"), { SITES: boom });
+  assert.equal(res.status, 200);
+  assert.match(await res.text(), /<h1>page<\/h1>/, "the render still lands in the baked shell");
+});
+
+test("…and so does a script with no bucket binding at all", async () => {
+  // "Cannot tell" is not "gone". The first draft of this conflated them and
+  // 404'd every page of every site whose env had no SITES — caught by the
+  // existing runtime tests, all of which drive exactly that shape.
+  const mod = await loadEntry({ routes: ["/"] });
+  const res = await mod.default.fetch(req("/"), {});
+  assert.equal(res.status, 200);
+});

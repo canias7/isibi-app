@@ -1467,6 +1467,17 @@ try {
       ok("the owner can delete the site", del.status === 200 && dd.ok === true,
         del.status + " " + JSON.stringify(dd).slice(0, 200));
       if (dd.ok) console.log(`  removed the published site (${dd.removed} objects)`);
+      // AND THE SCRIPT, WHICH IS THE HALF THAT KEEPS SERVING. Measured on the
+      // first live run: 21 objects removed, the Neon project dropped, the
+      // ownership row gone — and the address still answering 200 fifteen
+      // minutes later, because the script survived and nothing said so. The
+      // check below ("the published files are actually gone") is what caught
+      // it; this names the cause instead of leaving it to be inferred.
+      if (dd.workerRemoved === false) {
+        console.log(`  worker: NOT REMOVED — it will keep serving this deleted site: ${dd.workerError || "(no reason given)"}`);
+      } else if (dd.workerRemoved === true) {
+        console.log("  worker: removed");
+      }
 
       const gone = await fetch(SITE);
       ok("the published files are actually gone", gone.status === 404, `GET /s/${slug}/ -> ${gone.status}`);

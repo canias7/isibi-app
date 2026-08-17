@@ -52,12 +52,21 @@ try {
     process.exit(1);
   }
 
+  // A 404 NO LONGER MEANS THERE IS NOTHING TO CLEAN, and this used to exit 0
+  // here. A site is served by its own Worker script now, and that script
+  // answers 404 when no document is published — deliberately, so a delete whose
+  // script removal FAILED still takes the site down for a visitor. The cost of
+  // that safety net is that a leaked script is invisible from outside: "no
+  // script at all" and "a script serving an empty prefix" are the same 404.
+  //
+  // So the sweep runs either way. It is idempotent and cheap on a slug with
+  // nothing there — the prefix wipe removes 0 objects and the script removal
+  // treats already-gone as done — and being wrong the other way leaves a
+  // billed script holding a name that nothing else can ever remove.
   const before = await fetch(`${BASE}/s/${slug}/`);
-  if (before.status === 404) {
-    console.log(`nothing to do — /s/${slug}/ already returns 404`);
-    process.exit(0);
-  }
-  console.log(`/s/${slug}/ currently returns ${before.status} — sweeping…`);
+  console.log(before.status === 404
+    ? `/s/${slug}/ returns 404 — sweeping anyway, because that does not prove the site's script is gone…`
+    : `/s/${slug}/ currently returns ${before.status} — sweeping…`);
 
   const stamp = Date.now().toString(36);
   const email = `sweep-${stamp}@gofarther.dev`;
@@ -93,6 +102,21 @@ try {
   const dd = await del.json().catch(() => ({}));
   step("deleted it through the owner route", del.status === 200 && dd.ok === true, del.status + " " + JSON.stringify(dd).slice(0, 200));
   if (dd && dd.ok) console.log(`  removed ${dd.removed} object(s)`);
+
+  // THE ROUTE'S OWN ANSWER IS THE ONLY THING THAT PROVES THE SCRIPT WENT — a
+  // request cannot tell, per the note above. THREE states, and only one is a
+  // failure: `false` is Cloudflare refusing, which leaves a billed script
+  // holding this name; `undefined` is the Worker having nothing to say (no
+  // dispatch credentials configured, or a deploy from before it reported this)
+  // and is not evidence either way, so it is printed rather than passed
+  // silently.
+  if (dd && dd.workerRemoved === false) {
+    step("the site's own Worker script was removed", false, dd.workerError || "the route said it was not removed");
+  } else if (dd && dd.workerRemoved === true) {
+    step("the site's own Worker script was removed", true);
+  } else {
+    console.log("  note: the route did not say whether a Worker script was removed — check the namespace by hand");
+  }
 
   const after = await fetch(`${BASE}/s/${slug}/`);
   step("the published files are gone", after.status === 404, `GET /s/${slug}/ -> ${after.status}`);

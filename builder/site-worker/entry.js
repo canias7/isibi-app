@@ -29,24 +29,17 @@
 import { render } from "./entry-server";
 import { SHELL, SLUG, ROUTES } from "./site-config.js";
 
-// THE SHELL IS BAKED IN, NOT FETCHED. It is byte-identical for every request
-// to this site, so reading it from R2 would put a round trip in front of every
-// page view to learn something known at upload time.
+// THE SHELL IS READ FROM R2, NOT BAKED IN — corrected 2026-08-17, and the note
+// that stood here said the opposite at length: that it was "byte-identical for
+// every request… known at upload time". Both halves were false, and the second
+// one cost every published site its link preview. `injectMeta` adds the
+// description and the Open Graph tags at PUBLISH time, which is after the
+// container has produced the bundle this script is packaged from, so a baked
+// shell is always the version from before the tags existed.
+//
+// `SHELL` survives as the FALLBACK for a transient read failure. See the fetch
+// handler for why a MISS is treated completely differently from a throw.
 const SLOT = '<div id="root">';
-
-/**
- * Where the rendered markup goes, computed once per isolate rather than per
- * request. A shell with no root div is a template we did not build and there
- * is nothing to inject into — `null`, and the caller serves it untouched
- * rather than guessing.
- */
-const SPLIT = (() => {
-  const at = SHELL.indexOf(SLOT);
-  if (at < 0) return null;
-  const close = SHELL.indexOf("</div>", at);
-  if (close < 0) return null;
-  return { open: SHELL.slice(0, at + SLOT.length), close: SHELL.slice(close) };
-})();
 
 /**
  * Is this a request for a file rather than a page?
@@ -93,6 +86,75 @@ export default {
       return new Response(obj.body, { headers: h });
     }
 
+    // ── THE SHELL COMES FROM R2, NOT FROM THIS BUNDLE ────────────────────────
+    //
+    // IT USED TO BE BAKED IN, and that lost every published site its link
+    // preview. `injectMeta` runs in the platform Worker at PUBLISH time — the
+    // description, the Open Graph tags, the twitter card — and the script bakes
+    // whatever the CONTAINER produced, which is the raw vite output from before
+    // any of that. Measured on the first live run: three failures, and a real
+    // page whose whole head was `<title>Forno</title>`. WhatsApp, Slack and
+    // iMessage fetch the HTML once and read the head; they do not run
+    // JavaScript. That is the entire reason `injectMeta` exists.
+    //
+    // THE COST ARGUMENT THAT SETTLES IT: before this tier existed, serving a
+    // page WAS one R2 get. The old note called the shell "known at upload time"
+    // and refused to spend a round trip on it — but it is not known then, and
+    // one get for the document is exactly what the static path always paid. So
+    // this is not a new cost, it is the old one.
+    //
+    // PER ROUTE, so per-page previews survive too. Every route is prerendered
+    // to its own document with its OWN meta; serving `index.html` for all of
+    // them would put the home page's card on every address, which is the bug
+    // the per-page injection was written to fix.
+    const docKey = url.pathname === "/" || url.pathname === ""
+      ? "index.html"
+      : url.pathname.replace(/^\/+/, "").replace(/\/+$/, "") + ".html";
+    let shell = SHELL, missing = false;
+    try {
+      // NO BUCKET IS "CANNOT TELL", NOT "GONE" — the same distinction as a
+      // throw one line down, and the first draft got it wrong here: it used
+      // `env.SITES && …`, which short-circuits to undefined rather than
+      // throwing, so `missing` was set and every page of every site 404'd.
+      // Caught by the existing runtime tests, all of which drive exactly that
+      // env shape.
+      //
+      // BELT-AND-BRACES NOW, AND IT SAYS SO RATHER THAN BEING FALSELY
+      // ASSERTED. With the check removed, `env.SITES.get` on undefined THROWS,
+      // the catch below takes it, and the answer is the same 200 on the baked
+      // shell — proved by a mutation that survived. It is kept because relying
+      // on a TypeError to produce correct behaviour is one edit from not
+      // working, and because a script is uploaded WITH the bucket, so an
+      // absent one means something is wrong that this should not hide.
+      if (env.SITES) {
+        const doc = (await env.SITES.get("sites/" + SLUG + "/" + docKey))
+          || (await env.SITES.get("sites/" + SLUG + "/index.html"));
+        if (doc) shell = await doc.text();
+        else missing = true;
+      }
+    } catch (e) {
+      // A THROW IS TRANSIENT AND A MISS IS NOT, and the difference decides
+      // whether a site stays up. An R2 blip must not take a live site down, so
+      // this keeps the baked shell — degraded to no preview, still serving.
+      console.error("shell read failed:", SLUG, url.pathname, String((e && e.message) || e));
+    }
+
+    // NOTHING PUBLISHED HERE MEANS THE SITE IS GONE, and answering 404 is the
+    // safety net for the failure that produced this change. A delete removes
+    // the files and then the script; a rollback and the offline switch remove
+    // the script and then change the files. When the script REMOVAL fails —
+    // measured live, twice — a baked shell would keep serving a site whose
+    // every trace has been erased. Reading the document means the files get the
+    // final say, so the take-down works even when the removal did not.
+    //
+    // No window to race: a publish OVERWRITES index.html rather than deleting
+    // it first, so the old document is there until the new one replaces it.
+    if (missing) return new Response("Not found", { status: 404 });
+
+    const at = shell.indexOf(SLOT);
+    const close = at < 0 ? -1 : shell.indexOf("</div>", at);
+    const split = at < 0 || close < 0 ? null : { open: shell.slice(0, at + SLOT.length), close: shell.slice(close) };
+
     // A RENDER FAILURE MUST NEVER BE AN OUTAGE, and this matters far more here
     // than it did at build time. A prerender that failed cost a snapshot; a
     // render that fails now is a visitor looking at the site. So anything that
@@ -101,7 +163,7 @@ export default {
     // still works, it is merely blank to a crawler for that request.
     let body = "";
     try {
-      if (SPLIT) body = await render(url.pathname);
+      if (split) body = await render(url.pathname);
     } catch (e) {
       // THE STACK, NOT JUST THE MESSAGE, and that is not verbosity. This
       // failure is silent by design — the shell still serves, the visitor sees
@@ -116,7 +178,9 @@ export default {
       console.error("render failed:", SLUG, url.pathname, String((e && e.stack) || (e && e.message) || e));
     }
 
-    const html = SPLIT ? SPLIT.open + body + SPLIT.close : SHELL;
+    // A document with no root div is one we did not build — served untouched
+    // rather than guessed at, which is what the prerendered snapshot already is.
+    const html = split ? split.open + body + split.close : shell;
 
     // 404 IS A STATUS, NOT A PAGE. The router draws its own not-found
     // component either way, so the body is unchanged — what changes is that a
