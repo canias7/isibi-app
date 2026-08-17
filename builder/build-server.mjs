@@ -166,6 +166,20 @@ function writeSiteBrand({ title, lang, logo, slug }) {
   // the last site is that site's logo, language and mark on this one — the same
   // leak `resetRoutes` and the per-build icon already guard against. An empty
   // string is a real answer here and has to be written as one.
+  // WHICH BUILD THIS IS, and it is the only value here that nothing renders.
+  //
+  // A dispatch-namespace script does not start serving the instant its upload
+  // is accepted — MEASURED on two live runs: the publish route returned, the
+  // site was read 0.2s later, and it answered with the PREVIOUS build's
+  // document; a read 1.4s after another publish was fresh. So "the route
+  // returned 200" and "the site is serving this" are different facts, and
+  // there was nothing on the wire that could tell them apart.
+  //
+  // A CONTENT HASH WOULD BE NICER AND CANNOT WORK: this file is written BEFORE
+  // vite runs, so there is no output to hash yet. Time plus randomness is
+  // enough for the one question asked of it — is what I am reading the thing I
+  // just uploaded — which needs only difference, never order.
+  const buildValue = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
   fs.writeFileSync(
     path.join(APP, "src", "site-brand.ts"),
     "// Generated per build by build-server.mjs. Do not edit.\n" +
@@ -173,9 +187,10 @@ function writeSiteBrand({ title, lang, logo, slug }) {
       "export const SITE_LOGO = " + JSON.stringify(logoValue) + ";\n" +
       "export const SITE_LANG = " + JSON.stringify(langValue) + ";\n" +
       "export const SITE_ICON = " + JSON.stringify(icon || "/favicon.svg") + ";\n" +
-      "export const SITE_NAME = " + JSON.stringify(titleValue) + ";\n",
+      "export const SITE_NAME = " + JSON.stringify(titleValue) + ";\n" +
+      "export const SITE_BUILD = " + JSON.stringify(buildValue) + ";\n",
   );
-  return { lang: langValue, icon: !!icon, logo: !!logoValue, slug: !!slugValue, refused: !!raw && !logoOk };
+  return { lang: langValue, icon: !!icon, logo: !!logoValue, slug: !!slugValue, refused: !!raw && !logoOk, build: buildValue };
 }
 
 // The site's typeface, written per build.
@@ -697,6 +712,13 @@ const server = http.createServer((req, res) => {
         ? { ok: false, why: "no slug — a worker cannot find its own assets or its meta without one" }
         : null;
       if (payload.worker && brandUsed.slug) worker = readSiteWorker();
+      // THE STAMP RIDES ON THE SCRIPT, so the caller that uploads it is the
+      // caller that can confirm it. Put anywhere else it would have to be
+      // matched up again by hand, and the whole point is that the uploader
+      // already holds both halves: the code it sent and the id that code
+      // answers with. Only on a script that exists — a failed packaging has
+      // nothing to confirm.
+      if (worker && worker.ok && brandUsed.build) worker.build = brandUsed.build;
 
       // `prerendered`/`prerenderSkipped`/`prerenderUnprivileged` ARE GONE, not
       // emptied. The step does not exist under Start, and reporting an empty

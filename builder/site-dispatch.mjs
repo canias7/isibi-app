@@ -102,6 +102,80 @@ export async function deleteSiteWorker({ accountId, namespace, name, apiToken },
 }
 
 /**
+ * Wait until the namespace is actually serving the script we just uploaded.
+ *
+ * AN ACCEPTED UPLOAD IS NOT A LIVE SCRIPT. Measured on two consecutive live
+ * runs: the publish route returned 200, the site was read 0.2s later, and it
+ * answered with the PREVIOUS build's document — the same stylesheet href, so a
+ * colour change looked as though it had not happened. A read 1.4s after another
+ * publish was fresh. The window is short, and everything automated lands inside
+ * it: the builder reloads its preview the moment the route returns, so the
+ * customer sees their old site and concludes the change did nothing. Then they
+ * ask again, and the look lane correctly answers "you already have that".
+ *
+ * SO THE PUBLISH WAITS, rather than the preview guessing at a delay. A timed
+ * guess is right until the day it is not, and its failure is silent; asking the
+ * dispatch what it is serving is the same question the visitor asks.
+ *
+ * THROUGH THE STUB, NOT OVER THE NETWORK. `stubFor` is `env.SITE_WORKERS.get`,
+ * which is exactly how the serve path reaches a site — so this measures the
+ * real thing with no subrequest to our own hostname, which is the shape
+ * Cloudflare's loop protection exists to refuse.
+ *
+ * BEST-EFFORT, ALWAYS. Every failure — no binding, a throwing stub, a script
+ * that never answers with this id — returns `confirmed: false` and NOTHING
+ * else. The site is published and the script is uploaded either way; refusing
+ * a publish because a confirmation was slow would turn a cosmetic lag into a
+ * lost edit, which is the trade nobody would make.
+ *
+ * THE PROBE ASKS FOR A FILE, NOT A PAGE, and that is a cost decision. The
+ * entry's asset branch is its FIRST branch: one R2 get, a miss, a 404 — no
+ * React render, no liveness probe, no meta read. Asking for `/` instead would
+ * render a whole document per attempt, and this polls.
+ *
+ * The name has an extension so the entry classifies it as a file, and its
+ * being absent is the point — the answer is a 404 either way and only the
+ * header is read. `x-site-build` rides on EVERY response the entry makes
+ * including that 404, deliberately: a first build uploads its script while the
+ * site is not browsable yet, so a document-only stamp would be invisible on
+ * exactly the build that most needs confirming.
+ */
+const PROBE_PATH = "/__build.txt";
+
+export async function confirmSiteWorker({ stubFor, name, build, origin = "https://site.invalid" }, deps = {}) {
+  const wait = deps.wait || ((ms) => new Promise((r) => setTimeout(r, ms)));
+  const now = deps.now || (() => Date.now());
+  const budgetMs = deps.budgetMs == null ? 6000 : deps.budgetMs;
+  const stepMs = deps.stepMs == null ? 250 : deps.stepMs;
+  // NOTHING TO CONFIRM IS NOT A FAILURE TO CONFIRM. A caller with no binding,
+  // no script name or no stamp is a deployment where this feature is simply not
+  // on — every site built before it, and the whole platform if the container is
+  // rolled back — and it must behave exactly as it did before this existed.
+  if (typeof stubFor !== "function" || !name || !build) return { confirmed: false, ms: 0, tried: 0 };
+  const t0 = now();
+  let tried = 0;
+  for (;;) {
+    tried++;
+    try {
+      const stub = stubFor(name);
+      const res = stub && (await stub.fetch(new Request(origin + PROBE_PATH, { method: "GET" })));
+      // THE HEADER IS THE ONLY EVIDENCE READ. Not the status, which is 404 on a
+      // site whose files are not written yet, and not the body, which is a
+      // whole rendered page we would be buffering for nothing.
+      if (res && res.headers && res.headers.get("x-site-build") === build) {
+        return { confirmed: true, ms: now() - t0, tried };
+      }
+    } catch {
+      // A THROWING STUB IS A RETRY, NOT AN ANSWER. The commonest reason to
+      // throw here is the namespace not yet holding the name at all, which is
+      // the exact state being waited out.
+    }
+    if (now() - t0 + stepMs >= budgetMs) return { confirmed: false, ms: now() - t0, tried };
+    await wait(stepMs);
+  }
+}
+
+/**
  * Did Cloudflare actually do it?
  *
  * THE HTTP STATUS IS NOT THE ANSWER ON THIS API, and reading it as though it

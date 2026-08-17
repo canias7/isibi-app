@@ -23,7 +23,7 @@
 // dispatch namespace. Stated because it is the first design anybody reaches for
 // and the runtime refuses it, not our architecture.
 import { createStartHandler, defaultStreamHandler } from "@tanstack/react-start/server";
-import { SITE_SLUG } from "./site-brand";
+import { SITE_BUILD, SITE_SLUG } from "./site-brand";
 import { setSiteMeta, type SiteMeta } from "./site-runtime";
 
 // KEPT IN STEP WITH `site-meta.mjs`'s `SITE_LIVE_FILE` BY A TEST. The template is
@@ -82,7 +82,50 @@ async function loadMeta(env: Env): Promise<void> {
   }
 }
 
+// WHICH BUILD ANSWERED. Stamped on EVERY response, and the two failure modes
+// this exists for are both reasons it cannot be document-only.
+//
+// A dispatch-namespace script does not start serving the moment its upload is
+// accepted, so "the publish route returned 200" and "the site is serving that
+// build" are different facts — measured twice live, where a read 0.2s after a
+// revise came back with the PREVIOUS build's stylesheet. The platform waits on
+// this header before it calls a publish done, and the builder's preview reloads
+// on the back of that, so without it the customer reloads into their old site
+// and concludes the change did nothing.
+//
+// ON THE 404s TOO, deliberately. A FIRST build uploads its script before the
+// site is browsable, and the take-down probe below answers 404 for a site whose
+// files are not there yet — so a document-only stamp would be invisible on
+// exactly the build that most needs confirming, and the wait would time out on
+// every new site.
+//
+// The header is the build id and nothing else: no timing, no slug, no version
+// of ours. It is also the answer to "which build is this site actually
+// serving", which until now could only be inferred from asset hashes — and two
+// runs of this platform were spent doing exactly that inference, wrongly.
+const stamp = (res: Response): Response => {
+  try {
+    const h = new Headers(res.headers);
+    h.set("x-site-build", SITE_BUILD);
+    // THE BODY IS PASSED THROUGH, NOT READ. Start streams its SSR response, so
+    // buffering it here would hold every page until the last byte and give up
+    // the streaming the handler exists to do.
+    return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
+  } catch {
+    // A HEADER IS NEVER WORTH A PAGE. If a response cannot be re-wrapped for
+    // any reason, the visitor gets the original — the platform then fails to
+    // confirm and says so, which is the cheap half of the pair.
+    return res;
+  }
+};
+
 export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    return stamp(await site.fetch(request, env));
+  },
+};
+
+const site = {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
