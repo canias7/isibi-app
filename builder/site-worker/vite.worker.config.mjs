@@ -40,9 +40,39 @@ export default defineConfig({
   ssr: {
     // THE WHOLE POINT OF THIS FILE.
     noExternal: true,
-    // `webworker` picks the `worker` export condition, so a package that ships
-    // a Workers-safe build gets it rather than its Node one.
     target: "webworker",
+    resolve: {
+      // `workerd` IS THE CONDITION THAT MATTERS, and leaving it out cost every
+      // page of every site its render.
+      //
+      // MEASURED, not reasoned. `ssr.target: "webworker"` alone put `browser`
+      // in the condition set and not `workerd` — so `@tanstack/router-core`
+      // resolved `./isServer` to its CLIENT variant, `RouterCore.update`
+      // believed it was in a browser, and `createRouter` threw
+      // `ReferenceError: window is not defined` on every route. The entry
+      // catches a render failure and serves the bare shell, so nothing broke
+      // loudly: the site came back 200, with an empty `<div id="root">` and
+      // none of the page's own words — exactly the blank-to-a-crawler state
+      // this whole move exists to end, wearing a working site's status code.
+      //
+      // BOTH LIBRARIES THAT DECIDE THIS SHIP THE ANSWER, which is why the fix
+      // is a condition rather than a patch: `router-core`'s `./isServer` maps
+      // `workerd` to its server build, and `react-dom`'s `./server` maps
+      // `workerd` to `server.edge.js` — the Cloudflare build — where `node`
+      // would give `server.node.js` and pull in `node:stream`.
+      //
+      // ORDER IN THIS ARRAY IS NOT WHAT DECIDES. Export-map resolution walks
+      // the MAP's keys and takes the first one present in this set, so what
+      // matters is membership. `browser` is kept as the fallback for packages
+      // with no worker condition at all: being wrong toward a browser build
+      // costs a guarded global, being wrong toward Node pulls in a builtin the
+      // runtime does not have.
+      //
+      // `react-server` IS DELIBERATELY ABSENT. It is the first key in
+      // react-dom's map and selects the RSC build, which is not what this
+      // renders.
+      conditions: ["workerd", "worker", "browser", "module", "import", "default"],
+    },
   },
   build: {
     ssr: true,

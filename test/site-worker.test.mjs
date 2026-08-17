@@ -8,7 +8,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { siteConfigModule, canServeAsWorker, scriptNameFor } from "../builder/site-worker.mjs";
+import { siteConfigModule, canServeAsWorker, shellIsUsable, scriptNameFor } from "../builder/site-worker.mjs";
 
 const SHELL = '<!doctype html><html><head><title>t</title></head><body><div id="root"></div><script src="/a.js"></script></body></html>';
 
@@ -43,6 +43,30 @@ test("a non-string in the route list is dropped, not stringified", () => {
   // 200 a fake one depending on which way the coercion fell.
   const src = siteConfigModule({ shell: SHELL, slug: "s", routes: ["/", null, 7, ["/x"], "/book"] });
   assert.deepEqual(JSON.parse(src.match(/export const ROUTES = (.*);/)[1]), ["/", "/book"]);
+});
+
+test("A NON-STRING SHELL IS REFUSED, NOT COERCED — the bug that shipped", () => {
+  // MEASURED, not hypothetical. The call site passed `dist["index.html"]`, and
+  // `collectDist` returns every text file as `{t: "…"}` — so `String(shell)`
+  // produced the literal fifteen characters `[object Object]`. A valid string,
+  // so the config module generated, vite bundled it, the size check passed, and
+  // EVERY PAGE OF THE SITE served those fifteen characters as its whole
+  // document. Found by executing a real bundle; nothing that reads the file
+  // could see it.
+  assert.throws(() => siteConfigModule({ shell: { t: SHELL }, slug: "s" }), /`shell` must be a string/);
+  assert.throws(() => siteConfigModule({ shell: SHELL, slug: ["s"] }), /`slug` must be a string/);
+  // …and the shape the bug wore is never a usable shell, checked through the
+  // predicate the packager actually gates on.
+  assert.equal(shellIsUsable({ t: SHELL }).ok, false);
+  assert.equal(shellIsUsable(String({ t: SHELL })).ok, false, "'[object Object]' must never read as a document");
+});
+
+test("absent stays absent — undefined and null are still the empty shell", () => {
+  // The refusal is about a WRONG SHAPE, not about a missing value: a caller with
+  // nothing to give must keep behaving as it did, or a build with no index.html
+  // starts throwing out of a step whose whole contract is to be best-effort.
+  assert.match(siteConfigModule({ shell: undefined, slug: null }), /export const SHELL = "";/);
+  assert.match(siteConfigModule({}), /export const SLUG = "";/);
 });
 
 /* --------------------------------------------------------- the refusal */
