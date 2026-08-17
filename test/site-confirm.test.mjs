@@ -269,3 +269,48 @@ test("the stamp rides back on the packaged script, or nothing can wait for it", 
   const worker = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   assert.match(worker, /build: worker\.build/, "putSiteWorker waits on something other than this build's own id");
 });
+
+test("the wait's own result reaches the caller, on both publish paths", async () => {
+  // MEASURED 2026-08-17, and the measurement is why this exists: a green run
+  // settled at 15,085ms on a revise against a wait built for "about a second".
+  // `confirmed: false` was the only thing on the wire, and it has TWO causes
+  // needing opposite fixes — the wait ran and spent its budget, or there was no
+  // stamp to wait for and it returned instantly. Nothing separated them.
+  const src = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+
+  // `stamped` is what draws the line, so the wait must report it.
+  assert.match(src, /stamped: !!worker\.build/,
+    "putSiteWorker no longer says whether there was a stamp to wait for");
+
+  // And `confirmFields` must REQUIRE it — without that, a build predating the
+  // stamp reports `confirmed: false` and reads as a wait that gave up.
+  const i = src.indexOf("function confirmFields(");
+  assert.ok(i > 0, "confirmFields is gone — re-point this");
+  const body = src.slice(i, src.indexOf("\n}\n", i));
+  assert.match(body, /!wput\.stamped/, "an unstamped build would report as a wait that failed");
+  assert.match(body, /confirmMs/, "the measurement is not carried");
+
+  // BOTH PATHS. The build route and the cheap-edit spine each compose their own
+  // `worker` field, and a fix applied to one is the shape this repo has
+  // recorded a dozen times: correct at one layer, silent at the other.
+  //
+  // DERIVED FROM EVERY SUCCESS COMPOSITION rather than counted. The first draft
+  // asserted `confirmFields(` appeared at least three times — and the DEFINITION
+  // is one of those, and the spine uses it twice, so deleting the build path's
+  // call left three and the mutant survived. What must hold is that every place
+  // reporting a successful upload carries what the wait measured.
+  const successes = [...src.matchAll(/\{\s*uploaded: true[^}]*\}/g)].map((m) => m[0]);
+  assert.ok(successes.length >= 2,
+    "found " + successes.length + " places reporting a successful upload — the scan for them broke");
+  for (const s of successes) {
+    assert.match(s, /confirmFields\(/, "a publish reports success without saying whether it waited: " + s);
+  }
+
+  // AND THE CLIENT OF RECORD READS IT. A field computed and rendered nowhere is
+  // this repo's most-recorded failure; the smoke run is what reads this one.
+  const smoke = readFileSync(new URL("./integration/build-smoke.mjs", import.meta.url), "utf8");
+  assert.match(smoke, /confirmMs === undefined/,
+    "build smoke does not separate 'no stamp' from 'the wait gave up'");
+  assert.equal((smoke.match(/worker\.confirmMs/g) || []).length >= 2, true,
+    "only one publish point reports the wait — the revise is the one the measurement came from");
+});
