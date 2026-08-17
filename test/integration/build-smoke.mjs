@@ -355,7 +355,14 @@ try {
   if (!d.worker) {
     console.log("   worker: NO SCRIPT UPLOADED — either no dispatch credentials on the Worker, or nothing was packaged");
   } else if (d.worker.uploaded) {
-    console.log("   worker: UPLOADED — this site is served by its own script");
+    // AND WHETHER THE PUBLISH WAITED FOR IT, which is the number this run
+    // exists to get. `confirmMs` absent means there was no build stamp to wait
+    // for at all; present with `confirmed: false` means the wait ran and spent
+    // its budget. Those need opposite fixes and used to look identical.
+    console.log("   worker: UPLOADED — this site is served by its own script"
+      + (d.worker.confirmMs === undefined
+        ? "  (no build stamp — the wait did not run)"
+        : `  (serving it after ${d.worker.confirmMs}ms, ${d.worker.confirmed ? "confirmed" : "NOT CONFIRMED — budget spent"})`));
   } else {
     console.log("   worker: UPLOAD FAILED —", d.worker.status, d.worker.error);
   }
@@ -1368,6 +1375,13 @@ try {
     await poll;
 
     ok("the revise returns 200", rv.status === 200, rv.status + " " + JSON.stringify(rd).slice(0, 300));
+    // THE REVISE IS THE PATH THE MEASUREMENT CAME FROM, so it is the one that
+    // has to report. Its settle read 15,085ms on a green run — an order of
+    // magnitude past the estimate the wait was built on — and this line is what
+    // says whether the wait even ran.
+    console.log("   revise worker: " + (!rd.worker ? "no script reported"
+      : rd.worker.confirmMs === undefined ? "uploaded, NO BUILD STAMP — the wait did not run"
+      : `waited ${rd.worker.confirmMs}ms, ${rd.worker.confirmed ? "confirmed" : "NOT CONFIRMED — budget spent"}`));
     ok("THE SITE WAS NEVER HALF-PUBLISHED — index.html always named a bundle that existed",
       gaps.length === 0, gaps.slice(0, 4).join(" ; "));
     console.log(`   polled the live site ${gaps.length === 0 ? "clean" : "WITH GAPS"} across the republish`);

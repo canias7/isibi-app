@@ -6629,6 +6629,34 @@ function dispatchCreds(env) {
  * about, rather than logged and forgotten — the difference between "your site is
  * live" and "your site is built; we could not put it in front of visitors".
  */
+/**
+ * What the wait actually measured, for a caller that wants to report it.
+ *
+ * MEASURED 2026-08-17 AND IT REFUTED THE ESTIMATE THIS TIER WAS BUILT ON. The
+ * publish-wait was written against an inferred "about a second" — three data
+ * points, no measurement. A real run then settled at **15,085ms** on a revise
+ * and 660ms on a restore, so the estimate was an order of magnitude out on the
+ * path that matters most.
+ *
+ * AND THE LOG COULD NOT SAY WHY. `confirmed: false` has two completely
+ * different causes — the wait ran and spent its whole budget against a slower
+ * propagation, or there was no stamp to wait for at all and it returned
+ * instantly — and they need opposite fixes: raise the budget, or work out why
+ * the container's id never arrived. Nothing on the wire separated them, so the
+ * next run would have been another guess. Sixth time in this repo that a
+ * failure could not name itself.
+ *
+ * OMITTED WHEN THERE WAS NOTHING TO WAIT FOR, which is what keeps the two
+ * apart: a build with no stamp carries no fields at all, so their ABSENCE is
+ * "the feature was not active" and `confirmed: false` beside a real `confirmMs`
+ * is "it waited and gave up". A deployment predating the stamp is byte-
+ * identical to before.
+ */
+function confirmFields(wput) {
+  if (!wput || typeof wput.confirmMs !== "number" || !wput.stamped) return {};
+  return { confirmed: wput.confirmed === true, confirmMs: wput.confirmMs };
+}
+
 async function putSiteWorker(env, slug, worker) {
   // The container returns `{ok, why, code}` and packages only when asked, so
   // "no worker" is the ordinary answer on every path that did not request one.
@@ -6669,7 +6697,10 @@ async function putSiteWorker(env, slug, worker) {
   const c = await confirmSiteWorker({ stubFor: env.SITE_WORKERS ? (n) => env.SITE_WORKERS.get(n) : null, name, build: worker.build })
     .catch(() => ({ confirmed: false, ms: 0, tried: 0 }));
   if (!c.confirmed && worker.build) console.error("site worker not confirmed serving:", slug, c.ms + "ms", c.tried + " tries");
-  return { ...r, confirmed: c.confirmed, confirmMs: c.ms };
+  // `stamped` IS WHAT SEPARATES THE TWO WAYS OF NOT BEING CONFIRMED. Without
+  // it, "the wait spent its budget" and "there was nothing to wait for" are the
+  // same `confirmed: false` — and they need opposite fixes.
+  return { ...r, confirmed: c.confirmed, confirmMs: c.ms, stamped: !!worker.build };
 }
 
 /**
@@ -7204,7 +7235,9 @@ async function recompileAndPublish(env, { slug, pages, label }) {
     // shape and the same rule.
     worker: wput && wput.ok === false
       ? { uploaded: false, status: wput.status, error: String(wput.error || "").slice(0, 200) }
-      : undefined };
+      : wput && wput.ok && confirmFields(wput).confirmMs !== undefined
+        ? { uploaded: true, ...confirmFields(wput) }
+        : undefined };
 }
 
 async function siteOgImage(env, slug) {
@@ -7474,7 +7507,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
   // add an SSL permission that could not have helped.
   if (workerUpload) {
     out.worker = workerUpload.ok
-      ? { uploaded: true }
+      ? { uploaded: true, ...confirmFields(workerUpload) }
       : { uploaded: false, status: workerUpload.status, error: String(workerUpload.error || "").slice(0, 200) };
   }
   return out;
