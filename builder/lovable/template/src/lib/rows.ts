@@ -8,6 +8,7 @@
 // and the site's RLS policies decide every access question — a `display` table is
 // readable by anyone, a `collect` table is write-only, and `user`/`feed`/`admin`
 // tables answer according to the member session sent with the request.
+import * as React from "react";
 import {
   useQuery,
   useMutation,
@@ -363,14 +364,67 @@ async function send<T>(url: string, init?: RequestInit): Promise<T> {
  * that `usePublicRows` got — see `PublicRow` above. Asking for a table the
  * visitor may not read is still caught, by the lint, which says so in words.
  */
+/**
+ * How long a CHANGED set of read parameters waits before it is fetched.
+ *
+ * Long enough that typing a word is one request instead of one per letter,
+ * short enough that a filter chip does not feel stuck.
+ */
+const READ_SETTLE_MS = 250;
+
+/**
+ * Hold a changing set of read parameters still for a moment.
+ *
+ * WHY THIS EXISTS, and it is a real limit rather than a nicety. A search box
+ * that passes what has been typed straight to `useRows` makes one request per
+ * KEYSTROKE, and reads on a published site share ONE rate-limit bucket for the
+ * whole site (`DEFAULT_READ_PER_MIN`, 300/min in `rate-limit.mjs`) — so a
+ * visitor typing steadily into a search field can exhaust the allowance for
+ * every other visitor's every other page.
+ *
+ * IT LIVES HERE RATHER THAN IN A COMPONENT ON PURPOSE. A debounce a page has to
+ * remember is one a page eventually forgets, and the forgetting is invisible
+ * until a site is busy — the same reason the spam guard mounts at the app root
+ * and `SafeImage` carries its own fallback instead of rule 7 asking for a guard
+ * on every image.
+ *
+ * THE FIRST RENDER IS NEVER DELAYED. The initial value is the initial state, so
+ * a page load fetches immediately; only a CHANGE waits.
+ *
+ * COMPARED BY VALUE, NEVER BY IDENTITY, and this is the whole difficulty. Every
+ * caller writes `useRows("menu", { order: "name" })` — a fresh object literal on
+ * every render — so an effect keyed on the object restarts its timer on every
+ * render and the timer NEVER fires: the list would freeze on its first result
+ * for good. Keyed on a stable serialisation instead, which is also exactly how
+ * react-query hashes a query key, so the two agree by construction.
+ */
+function useSettledParams(params?: RowQuery): RowQuery | undefined {
+  const key = JSON.stringify(params ?? null);
+  const [held, setHeld] = React.useState(() => ({ key, params }));
+
+  React.useEffect(() => {
+    if (key === held.key) return;
+    const t = setTimeout(() => setHeld({ key, params }), READ_SETTLE_MS);
+    return () => clearTimeout(t);
+    // `params` is deliberately NOT a dependency — see above. `key` is its value.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, held.key]);
+
+  return held.params;
+}
+
 export function useRows<T = Row>(
   table: string,
   params?: RowQuery,
   options?: Omit<UseQueryOptions<T[]>, "queryKey" | "queryFn">,
 ) {
+  // THE KEY AND THE REQUEST USE THE SAME VALUE. Keyed on the new parameters
+  // while fetching the old ones would cache one answer under another's name —
+  // a list that shows the previous search's results and never corrects itself.
+  const settled = useSettledParams(params);
   return useQuery<T[]>({
-    queryKey: ["rows", siteSlug(), table, params ?? {}],
-    queryFn: () => send<T[]>(base(table) + pgQuery(params)),
+    queryKey: ["rows", siteSlug(), table, settled ?? {}],
+    queryFn: () => send<T[]>(base(table) + pgQuery(settled)),
     ...options,
   });
 }
@@ -442,6 +496,223 @@ export function useCreateRow<T = Row>(table: string) {
 
 /** One line of a basket. The ONLY two things a page may decide about money. */
 export type CartLine = { id: RowId; qty?: number };
+
+// ── A basket that survives leaving the page ─────────────────────────────────
+//
+// WHAT WAS MISSING. A basket was `useState` on one page, so "add to basket
+// here, check out over there" could not be built at all — measured over the
+// corpus the generator learns from: 0 of 324 exemplars hold any state across
+// routes. On a platform that takes card payments, a shop that only works if
+// the whole purchase happens on a single screen is a real limit rather than a
+// stylistic one.
+//
+// NO DEPENDENCY. React's own `useSyncExternalStore` is exactly the primitive
+// this needs — one store per site+table, every component reading it live —
+// so this is about thirty lines rather than a state library the generator
+// would have to be taught.
+//
+// THERE IS NOWHERE IN HERE TO PUT A PRICE, and that is deliberate rather than
+// an omission. `parseCart` on the server DROPS any price, total or currency a
+// browser sends and reads them out of the site's own catalogue instead; a
+// basket that carried prices would be inviting a page to send them. A line is
+// which row and how many, and nothing else.
+
+/** Caps mirrored from `site-payments.mjs`. A basket the server will refuse is a
+ *  checkout that fails at the till, after the customer has filled it. */
+const MAX_CART_LINES = 50;
+const MAX_LINE_QTY = 999;
+
+const CART_KEY = (table: string) => `site_cart_${siteSlug()}_${table}`;
+
+/** What is safe to believe from storage.
+ *
+ *  This value is editable by hand and survives across deploys, so it is parsed
+ *  defensively: a corrupt one must degrade to an empty basket rather than
+ *  throwing on render, which would break the shop for that visitor permanently
+ *  with nothing they could do about it. */
+function readCart(table: string): CartLine[] {
+  let raw: unknown;
+  try { raw = JSON.parse(localStorage.getItem(CART_KEY(table)) || "[]"); } catch { return []; }
+  if (!Array.isArray(raw)) return [];
+  const out: CartLine[] = [];
+  for (const it of raw) {
+    if (!it || typeof it !== "object") continue;
+    const { id, qty } = it as { id?: unknown; qty?: unknown };
+    if (typeof id !== "string" && typeof id !== "number") continue;
+    if (id === "") continue;
+    const n = Math.floor(Number(qty));
+    if (!Number.isFinite(n) || n < 1) continue;
+    out.push({ id: id as RowId, qty: Math.min(n, MAX_LINE_QTY) });
+    if (out.length >= MAX_CART_LINES) break;
+  }
+  return out;
+}
+
+function writeCart(table: string, lines: CartLine[]) {
+  try { localStorage.setItem(CART_KEY(table), JSON.stringify(lines)); } catch { /* private mode */ }
+}
+
+// ONE STORE PER SITE+TABLE, so two payable tables on one site are two baskets
+// and two sites open in one browser never share one. Cached by key because
+// every component reading the same basket must read the SAME store, or adding
+// an item in the header would not move the number in the basket page.
+type CartStore = {
+  table: string;
+  lines: CartLine[];
+  subs: Set<() => void>;
+  subscribe: (fn: () => void) => () => void;
+  get: () => CartLine[];
+  set: (next: CartLine[]) => void;
+};
+const cartStores = new Map<string, CartStore>();
+
+// SHARED BY EVERY STORE, and registered once. A `storage` event fires in the
+// OTHER tabs, so a basket filled in one and paid for in another does not
+// disagree with itself — which looks exactly like the shop losing an order.
+let storageWired = false;
+
+function cartStore(table: string): CartStore {
+  const key = CART_KEY(table);
+  let store = cartStores.get(key);
+  if (store) return store;
+
+  store = {
+    table,
+    lines: readCart(table),
+    subs: new Set<() => void>(),
+    subscribe(fn) { store!.subs.add(fn); return () => { store!.subs.delete(fn); }; },
+    get() { return store!.lines; },
+    set(next) {
+      store!.lines = next;
+      writeCart(table, next);
+      store!.subs.forEach((fn) => fn());
+    },
+  };
+  cartStores.set(key, store);
+
+  if (!storageWired && typeof window !== "undefined") {
+    storageWired = true;
+    window.addEventListener("storage", (e) => {
+      if (!e.key) return;
+      const s = cartStores.get(e.key);
+      if (!s) return;
+      // Re-read rather than trusting the event's newValue: it goes through the
+      // same sanitiser as everything else, because another tab is not a more
+      // trustworthy source than the storage it wrote to. The table comes off
+      // the store rather than being sliced back out of the key, which would
+      // silently produce nonsense the day the key format changes.
+      s.lines = readCart(s.table);
+      s.subs.forEach((fn) => fn());
+    });
+  }
+  return store;
+}
+
+/** The server renders with no storage at all, so it renders an EMPTY basket.
+ *
+ *  THE HYDRATION SAFETY IS `getServerSnapshot`, NOT `ready`, and this note said
+ *  otherwise until a mutation proved it: React calls `getServerSnapshot` for the
+ *  CLIENT's hydration render as well, so the first paint matches the markup
+ *  whether or not anything gates it, and removing the gate produced no mismatch
+ *  at all. Corrected rather than left, because a comment crediting a line with
+ *  something it does not do is what gets believed when somebody deletes it.
+ *
+ *  `ready` still earns its place for two smaller things — see the return value. */
+const EMPTY_LINES: CartLine[] = [];
+
+/**
+ * A basket for a payable table, kept across pages and across a reload.
+ *
+ * ```tsx
+ * const cart = useCart("orders")
+ * const { data: products = [] } = useRows<Product>("products")
+ * const checkout = useCheckout("orders")
+ * …
+ * <Button onClick={() => cart.add(p.id)}>Add</Button>
+ * <BusyButton busy={checkout.isPending}
+ *   onClick={() => checkout.mutate({ items: cart.lines, fields: { email } })}>
+ *   Pay
+ * </BusyButton>
+ * ```
+ *
+ * IT EMPTIES ITSELF WHEN THE CUSTOMER COMES BACK PAID. Checkout leaves the site
+ * for Stripe and returns to `?paid=<orderId>`; without this the basket they
+ * just bought is still sitting there, which invites paying for it twice. Doing
+ * it here rather than asking the page to remember is the same rule as the
+ * debounce above.
+ */
+export function useCart(table: string) {
+  const store = cartStore(table);
+  const [ready, setReady] = React.useState(false);
+
+  const lines = React.useSyncExternalStore(
+    store.subscribe,
+    () => (ready ? store.get() : EMPTY_LINES),
+    () => EMPTY_LINES,
+  );
+
+  React.useEffect(() => {
+    // ?paid= IS NOT PROOF OF PAYMENT and is not treated as any — the order is
+    // marked paid by Stripe calling the platform. It is only ever read as "this
+    // browser has been through checkout", which is reason enough to let go of a
+    // basket and is harmless if somebody types it.
+    let params: URLSearchParams | null = null;
+    try { params = new URLSearchParams(window.location.search); } catch { /* no window */ }
+    if (params && params.get("paid")) {
+      store.set([]);
+      try { localStorage.removeItem(CART_KEY(table)); } catch { /* private mode */ }
+    }
+    setReady(true);
+  }, [store, table]);
+
+  // EVERY MUTATOR READS THE STORE, NEVER THE RENDERED `lines`, and that is a
+  // correctness point rather than a style one. The rendered value is a snapshot
+  // of the last paint, so two calls in one tick — a double-clicked "Add", or a
+  // page adding several items in a loop — would each start from the same
+  // snapshot and the last write would erase the others. Reading the store means
+  // each call starts from what the one before it actually left.
+  const edit = React.useCallback(
+    (fn: (prev: CartLine[]) => CartLine[]) => store.set(fn(store.get()).slice(0, MAX_CART_LINES)),
+    [store],
+  );
+  // An id off a route param is a string and a row's id is a number, so every
+  // comparison here goes through String() — the mismatch that made a manage
+  // page answer "not found" for every real row.
+  const same = (a: RowId, b: RowId) => String(a) === String(b);
+  const clamp = (n: number) => Math.min(Math.max(1, Math.floor(n)), MAX_LINE_QTY);
+
+  return {
+    lines,
+    /** Whether the stored basket has been settled yet. False for the first
+     *  paint, and it does two things:
+     *
+     *  a page can hold its "your basket is empty" message back rather than
+     *  flashing it at somebody whose basket is full — and the `?paid=` clear
+     *  below happens in an effect, so without this a customer returning from
+     *  Stripe would see the basket they just bought for one frame before it
+     *  emptied. */
+    ready,
+    /** Total items, not lines — the number a basket badge should show. */
+    count: lines.reduce((n, l) => n + (l.qty ?? 1), 0),
+    qtyOf: (id: RowId) => lines.find((l) => same(l.id, id))?.qty ?? 0,
+    add: (id: RowId, qty = 1) => edit((prev) => {
+      const at = prev.findIndex((l) => same(l.id, id));
+      if (at < 0) return [...prev, { id, qty: clamp(qty) }];
+      const next = prev.slice();
+      next[at] = { id: prev[at].id, qty: clamp((prev[at].qty ?? 1) + Math.floor(qty)) };
+      return next;
+    }),
+    /** A quantity of zero or less REMOVES the line, which is what a stepper
+     *  clicked down to nothing means. */
+    setQty: (id: RowId, qty: number) => edit((prev) => (
+      Number.isFinite(qty) && Math.floor(qty) >= 1
+        ? prev.map((l) => (same(l.id, id) ? { id: l.id, qty: clamp(qty) } : l))
+        : prev.filter((l) => !same(l.id, id))
+    )),
+    remove: (id: RowId) => edit((prev) => prev.filter((l) => !same(l.id, id))),
+    clear: () => edit(() => []),
+  };
+}
 
 /**
  * Send the visitor to Stripe to pay for a basket.
@@ -891,9 +1162,13 @@ export function usePublicRows<T = PublicRow>(table: string, params?: RowQuery) {
   // this is a separate bundle and cannot import it. A test reads both files and
   // fails if they ever disagree — a disagreement is a 403 on a published site.
   const view = table + "_public";
+  // Settled for the same reason `useRows` is: this is the hook a public listing
+  // page filters with, so it is exactly where a search box spends the site's
+  // shared read allowance one keystroke at a time.
+  const settled = useSettledParams(params);
   return useQuery<T[]>({
-    queryKey: ["public", siteSlug(), view, params ?? {}],
-    queryFn: () => send<T[]>(base(view) + pgQuery(params, { noDefaultOrder: true })),
+    queryKey: ["public", siteSlug(), view, settled ?? {}],
+    queryFn: () => send<T[]>(base(view) + pgQuery(settled, { noDefaultOrder: true })),
   });
 }
 

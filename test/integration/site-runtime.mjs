@@ -113,6 +113,90 @@ function Edit() {
   return <main data-done={done ? "yes" : "no"}>edit</main>;
 }
 `;
+
+// A SEARCH BOX, WRITTEN THE OBVIOUS WAY — the value typed handed straight to
+// `useRows` in an object literal.
+//
+// That literal is the whole reason this page exists. It is a NEW object on every
+// render, so a debounce keyed on the object's identity restarts its timer every
+// render and never fires: the list would freeze on its first result and never
+// update again. Only driving real keystrokes can tell that apart from a debounce
+// that works, because both typecheck and both look right in the source.
+ROUTES["find.tsx"] = `import * as React from "react";
+import { createFileRoute } from "@tanstack/react-router";
+import { useRows, type Row } from "@/lib/rows";
+
+export const Route = createFileRoute("/find")({ component: Find });
+
+type Service = Row & { name: string };
+
+function Find() {
+  const [q, setQ] = React.useState("");
+  // SOMETHING ELSE ON THE PAGE THAT RE-RENDERS, and it is what makes this probe
+  // honest. A debounce keyed on the params OBJECT resets its timer on every
+  // render, so on a page that renders only when you type it still fires and the
+  // bug hides. Any live element — a clock, a countdown, a carousel, a "3 left"
+  // badge — resets it forever and the list never updates again. A generated
+  // site has one of those more often than not.
+  const [, tick] = React.useState(0);
+  React.useEffect(() => {
+    const t = setInterval(() => tick((n) => n + 1), 60);
+    return () => clearInterval(t);
+  }, []);
+  const { data = [], isFetching } = useRows<Service>("services", { limit: q.length + 1 });
+  return (
+    <main>
+      <input aria-label="Search" value={q} onChange={(e) => setQ(e.target.value)} />
+      <p data-busy={isFetching ? "yes" : "no"} data-limit={String(q.length + 1)}>
+        {data.length} found
+      </p>
+    </main>
+  );
+}
+`;
+
+// A BASKET ACROSS TWO PAGES — the thing that could not be built at all before
+// `useCart`, and the reason it exists.
+ROUTES["shop.tsx"] = `import { createFileRoute, Link } from "@tanstack/react-router";
+import { useCart } from "@/lib/rows";
+
+export const Route = createFileRoute("/shop")({ component: Shop });
+
+function Shop() {
+  const cart = useCart("orders");
+  return (
+    <main>
+      <button data-t="add" onClick={() => cart.add(1)}>Add one</button>
+      {/* TWO CALLS IN ONE TICK. A mutator reading the RENDERED lines starts both
+          from the same snapshot and the second erases the first, so this button
+          would add 1 instead of 2 — a double-clicked "Add" losing an item. */}
+      <button data-t="add2" onClick={() => { cart.add(2); cart.add(2); }}>Add two at once</button>
+      <button data-t="clear" onClick={() => cart.clear()}>Clear</button>
+      <span data-t="count">{cart.count}</span>
+      <span data-t="ready">{cart.ready ? "yes" : "no"}</span>
+      <Link to="/basket">Basket</Link>
+    </main>
+  );
+}
+`;
+
+ROUTES["basket.tsx"] = `import { createFileRoute } from "@tanstack/react-router";
+import { useCart } from "@/lib/rows";
+
+export const Route = createFileRoute("/basket")({ component: Basket });
+
+function Basket() {
+  const cart = useCart("orders");
+  return (
+    <main>
+      <span data-t="count">{cart.count}</span>
+      <span data-t="lines">{JSON.stringify(cart.lines)}</span>
+      <span data-t="qty1">{cart.qtyOf(1)}</span>
+      <span data-t="ready">{cart.ready ? "yes" : "no"}</span>
+    </main>
+  );
+}
+`;
 const REFERENCE = ROUTES["index.tsx"];
 if (!REFERENCE) throw new Error("the template has no src/routes/index.tsx to drive");
 
@@ -477,6 +561,144 @@ try {
     ok("…and `values` is not sent as a column",
       patched[0] && patched[0].body && patched[0].body.values === undefined,
       JSON.stringify(patched[0] && patched[0].body));
+    await page.context().close();
+  }
+
+  // ── 8. a search box does not spend the site's read allowance per keystroke ─
+  //
+  // Reads share ONE rate-limit bucket for the whole site (300/min), so a
+  // visitor typing steadily into an undebounced search field can exhaust the
+  // allowance for every other visitor's every other page. `useRows` holds a
+  // CHANGED set of parameters still for a moment; nothing on the page asks for
+  // that, which is the point.
+  {
+    mode = "ok";
+    const { page } = await newPage();
+    await page.goto(`${base}find`, { waitUntil: "networkidle" });
+    const box = page.getByLabel("Search");
+    await box.waitFor({ timeout: 8000 });
+
+    reads = 0;
+    // Six keystrokes, faster than the settle window. Undebounced this is six
+    // requests; settled it is one.
+    await box.pressSequentially("fadeee", { delay: 30 });
+    await page.waitForTimeout(900);
+    const typed = reads;
+    ok(`six keystrokes cost one read, not six (${typed})`, typed === 1,
+      `${typed} reads — an undebounced box would be 6`);
+
+    // THE ASSERTION THAT CATCHES THE IDENTITY BUG, and it must be here: a
+    // debounce keyed on the params OBJECT never fires at all, so the read count
+    // above would be 0 — which passes no test that only counts down. The list
+    // has to have actually caught up with what was typed.
+    const limit = await page.locator("p").getAttribute("data-limit");
+    ok("…and the list did catch up with what was typed", limit === "7",
+      `the page is asking for limit=${limit}, expected 7 — the settled value never advanced`);
+
+    // A pause between letters is a separate search and is allowed to cost one
+    // read each: the settle window is a pause, not a cap.
+    reads = 0;
+    await box.pressSequentially("x", { delay: 10 });
+    await page.waitForTimeout(700);
+    await box.pressSequentially("y", { delay: 10 });
+    await page.waitForTimeout(700);
+    ok(`two deliberate searches are two reads (${reads})`, reads === 2, `${reads} reads`);
+    await page.context().close();
+  }
+
+  // ── 9. a basket survives leaving the page ─────────────────────────────────
+  //
+  // The thing that could not be built at all before `useCart`: measured over
+  // the corpus the generator learns from, 0 of 324 exemplars hold any state
+  // across routes, so "add here, check out there" had no shape.
+  {
+    const { page, errors: errs } = await newPage();
+    await page.goto(`${base}shop`, { waitUntil: "networkidle" });
+    const count = () => page.locator('[data-t="count"]').innerText();
+
+    await page.locator('[data-t="add"]').click();
+    ok("adding an item moves the basket count", (await count()) === "1", await count());
+
+    // A DOUBLE-CLICKED ADD. Both calls land in one tick; a mutator reading the
+    // rendered lines starts both from the same snapshot and the second erases
+    // the first, so this reads 2 instead of 3 — an item silently lost.
+    await page.locator('[data-t="add2"]').click();
+    ok("two adds in one tick both count", (await count()) === "3", await count() + " — expected 3");
+
+    // ACROSS A NAVIGATION, which is the whole feature.
+    await page.getByRole("link", { name: "Basket" }).click();
+    await page.waitForURL(/\/basket$/, { timeout: 8000 });
+    await page.waitForFunction(() => document.querySelector('[data-t="ready"]')?.textContent === "yes", null, { timeout: 8000 }).catch(() => {});
+    ok("the basket survives a navigation", (await count()) === "3", await count());
+    ok("…and it carries the row id and quantity, and NOTHING about money",
+      /^\[\{"id":1,"qty":1\},\{"id":2,"qty":2\}\]$/.test(await page.locator('[data-t="lines"]').innerText()),
+      await page.locator('[data-t="lines"]').innerText());
+
+    // ACROSS A RELOAD — localStorage, not React state.
+    await page.reload({ waitUntil: "networkidle" });
+    await page.waitForFunction(() => document.querySelector('[data-t="ready"]')?.textContent === "yes", null, { timeout: 8000 }).catch(() => {});
+    ok("…and a reload", (await count()) === "3", await count());
+
+    // AND THE RELOAD IS WHERE A HYDRATION MISMATCH WOULD SHOW: every route is
+    // prerendered, the server has no storage, and this is a page loaded with
+    // something already in the basket.
+    //
+    // WHAT KEEPS IT QUIET IS `getServerSnapshot`, which React uses for the
+    // client's hydration render too — measured, by removing the `ready` gate and
+    // watching this stay green. So this asserts the PROPERTY rather than any one
+    // line: a basket that ever starts rendering before hydration settles is a
+    // mismatch on every shop on the platform, whichever line caused it.
+    ok("…with no hydration mismatch — the server renders an empty basket and the client agrees",
+      errs.length === 0, errs.slice(0, 2).join(" · "));
+
+    // COMING BACK FROM STRIPE EMPTIES IT. Checkout leaves the site and returns
+    // to `?paid=<orderId>`; without this the basket they just bought is still
+    // sitting there, inviting them to pay for it twice.
+    await page.goto(`${base}basket?paid=42`, { waitUntil: "networkidle" });
+    await page.waitForFunction(() => document.querySelector('[data-t="ready"]')?.textContent === "yes", null, { timeout: 8000 }).catch(() => {});
+    ok("coming back paid empties the basket", (await count()) === "0", await count());
+    await page.goto(`${base}basket`, { waitUntil: "networkidle" });
+    await page.waitForFunction(() => document.querySelector('[data-t="ready"]')?.textContent === "yes", null, { timeout: 8000 }).catch(() => {});
+    ok("…and it stays empty on the next visit", (await count()) === "0", await count());
+    await page.context().close();
+  }
+
+  // ── 10. a corrupt stored basket does not break the shop ───────────────────
+  //
+  // This value is editable by hand and survives across deploys. Parsed
+  // carelessly it throws during render, and the customer's shop is broken for
+  // good with nothing they can do about it.
+  {
+    const { page, errors } = await newPage();
+    await page.goto(`${base}shop`, { waitUntil: "networkidle" });
+    // ADD SOMETHING FIRST, so the real key exists to overwrite. A fresh browser
+    // context has no basket at all, and guessing the key name here wrote the
+    // corrupt value somewhere nothing reads — which reported a clean basket and
+    // an empty one as the same number, passing this check for the wrong reason.
+    await page.locator('[data-t="add"]').click();
+    const key = await page.evaluate(() => Object.keys(localStorage).find((x) => x.startsWith("site_cart_")) || "");
+    ok("the basket is stored per site and per table", /^site_cart_.+_orders$/.test(key), key || "(no key written)");
+    // EVERY BAD LINE HAS A VALID QUANTITY, deliberately. The first fixture here
+    // was `{"id":null}` and `{"qty":"x"}`, both of which the QUANTITY check
+    // already refuses — so the id check never had to fire and a mutation
+    // removing it passed. These can only be caught by looking at the id: an
+    // object, a boolean, an empty string, and a line that is not an object.
+    await page.evaluate((k) => {
+      localStorage.setItem(k, JSON.stringify([
+        { id: { evil: 1 }, qty: 2 },
+        { id: true, qty: 2 },
+        { id: "", qty: 2 },
+        "nonsense",
+        { qty: 2 },
+        { id: 9, qty: 3 },
+      ]));
+    }, key);
+    await page.reload({ waitUntil: "networkidle" });
+    await page.waitForFunction(() => document.querySelector('[data-t="ready"]')?.textContent === "yes", null, { timeout: 8000 }).catch(() => {});
+    ok("a corrupt basket keeps only the lines that make sense",
+      (await page.locator('[data-t="count"]').innerText()) === "3",
+      await page.locator('[data-t="count"]').innerText());
+    ok("…and nothing threw", errors.length === 0, errors.slice(0, 2).join(" · "));
     await page.context().close();
   }
 } catch (e) {
