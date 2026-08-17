@@ -1191,23 +1191,73 @@ try {
     // kept it. Read off the published stylesheet rather than the response,
     // because the response is what we believe and the CSS is what ships.
     // The stylesheet's address, apart from its contents — see the colour checks.
-    const cssHref = async () => {
-      const h = await (await fetch(SITE)).text();
-      return (h.match(/<link[^>]+href="([^"]+\.css)"/) || [])[1] || "";
-    };
-    const cssOf = async () => {
-      const html = await (await fetch(SITE)).text();
-      const href = (html.match(/<link[^>]+href="([^"]+\.css)"/) || [])[1];
-      if (!href) return "";
+    // ONE DOCUMENT READ, both answers off it. `cssHref` and `cssOf` used to
+    // fetch the page separately, which is two requests for one question and
+    // RACY in exactly the window this section is about: across a republish the
+    // href could come from the new document and the contents from the old one,
+    // reported as a stylesheet that disagrees with itself.
+    const readCss = async () => {
+      const html = await (await fetch(SITE, { cache: "no-store" })).text();
+      const href = (html.match(/<link[^>]+href="([^"]+\.css)"/) || [])[1] || "";
+      if (!href) return { href: "", css: "" };
       // RESOLVED, NOT CONCATENATED. The Worker rewrites `./assets/…` to the
       // mount it is serving from, so this href is now ABSOLUTE — and stripping
       // its leading slash and appending it to the site root produced
       // `/s/<slug>/s/<slug>/assets/…`, a 404 that reads exactly like a
       // half-published site. `new URL` is right for both shapes.
-      const u = new URL(href, SITE).href;
-      return (await fetch(u)).text();
+      return { href, css: await (await fetch(new URL(href, SITE).href)).text() };
     };
     const fontsOf = (css) => [...css.matchAll(/--font-(?:sans|heading):\s*([^;]+)/g)].map((m) => m[1].trim()).join(" | ");
+    // The LAST `--radius:` declaration wins, because `site-tokens.mjs` appends
+    // its patch after the theme — so this is the corner the site actually has.
+    //
+    // `\x7d` IS A CLOSING BRACE AND MUST STAY WRITTEN THAT WAY. Minified CSS
+    // drops the final semicolon, so `:root{--radius:.5rem}` really does end at
+    // the brace and the class needs it — but `worker-imports.test.mjs` finds
+    // block-scoped names read after their block by counting brace depth, and it
+    // has no lexer, so a literal `}` inside a character class reads to it as the
+    // end of this whole function. Measured: it reported three names in this file
+    // as runtime ReferenceErrors. A real lexer was tried in this repo and
+    // abandoned on measurement, so the narrow scan stays and the brace is
+    // escaped here instead.
+    const radiusOf = (css) => (css.match(/--radius:\s*([^;\x7d]+)/g) || []).slice(-1)[0] || "";
+
+    // ── A PUBLISH IS NOT LIVE THE INSTANT THE ROUTE RETURNS ──────────────────
+    //
+    // MEASURED, over two runs that failed byte-identically. The route returned,
+    // this file read the published stylesheet 0.2-0.3s later, and got the
+    // PREVIOUS build's — `stylesheet: index-Byi_8DiM.css -> index-Byi_8DiM.css`,
+    // unchanged across a revise that changed the background colour.
+    //
+    // IT IS A LAG, NOT A LOST CHANGE, and the run proved which: the restore a
+    // hundred seconds later read a stylesheet that HAS `--background:#fc0`, so
+    // the colour reached the container and was published all along. The text
+    // edit's new words were live 1.4s after its own republish, so uploading the
+    // script is not the slow part either. Stale at 0.2s, fresh at 1.4s: a
+    // dispatch-namespace script takes about a second to start serving.
+    //
+    // WHAT THAT COST WAS NOT ONE FAILURE BUT THREE ASSERTIONS. On a stale read
+    // `afterCss` is byte-identical to `beforeCss`, so "kept its typefaces"
+    // compared the file to itself and passed, and the corner check only asked
+    // whether SOME `--radius:` exists — which every theme declares. Both were
+    // green in both runs while reading the wrong file. Settling is what makes
+    // them mean anything.
+    //
+    // IT CANNOT HIDE A REAL FAILURE: a change that never publishes never
+    // satisfies the predicate, so the budget runs out and the assertion below
+    // fails on the same content it always did, with `settled: false` and the
+    // elapsed time saying the difference out loud.
+    const settleCss = async (want, budgetMs = 20000) => {
+      const t0 = Date.now();
+      for (;;) {
+        const { href, css } = await readCss();
+        if (want(css, href)) return { css, href, ms: Date.now() - t0, settled: true };
+        if (Date.now() - t0 > budgetMs) return { css, href, ms: Date.now() - t0, settled: false };
+        await new Promise((r) => setTimeout(r, 250));
+      }
+    };
+    const settleNote = (what, s) =>
+      `   ${what} went live after ${s.ms}ms` + (s.settled ? "" : ` — NEVER, budget spent`);
     // The entry bundle's name. Vite content-hashes it — and the premise that
     // followed here was that a route chunk's hash rides in the entry's own
     // bytes, so any source change moved it. MEASURED AGAINST A REAL START
@@ -1223,8 +1273,7 @@ try {
       const html = await (await fetch(SITE, { cache: "no-store" })).text();
       return (html.match(/<script[^>]+src="([^"]+)"/) || [])[1] || "";
     };
-    const beforeCss = await cssOf();
-    const beforeCssHref = await cssHref();
+    const { css: beforeCss, href: beforeCssHref } = await readCss();
     const beforeFonts = fontsOf(beforeCss);
     ok("the published stylesheet is readable before the revise", beforeCss.length > 1000, String(beforeCss.length));
 
@@ -1290,7 +1339,7 @@ try {
             const src = (html.match(/<script[^>]+src="([^"]+)"/) || [])[1];
             if (!src) gaps.push("index.html named no bundle");
             else {
-              // Same as cssOf: the src is absolute now, so resolve it rather than
+              // Same as readCss: the src is absolute now, so resolve it rather than
               // gluing it onto the site root. Concatenated, this poll reported
               // "index.html pointed at a bundle that 404s" on a site that was
               // perfectly fine — the publish gap's own signature, from the test.
@@ -1324,15 +1373,22 @@ try {
     console.log(`   polled the live site ${gaps.length === 0 ? "clean" : "WITH GAPS"} across the republish`);
 
     if (rd.page === "app") {
-      const afterCss = await cssOf();
-      // THE STYLESHEET'S OWN ADDRESS, printed at each point. Two of this run's
-      // failures were about a colour that was missing here and present later,
-      // and the log could not say WHY: a stale served document (the site's
-      // script had not picked up the new build yet) and a token that never
-      // reached the container produce the identical symptom. The href
-      // discriminates them — an UNCHANGED href means the document is stale,
-      // a changed one means the stylesheet really was rebuilt without it.
-      console.log(`   stylesheet: ${beforeCssHref || "?"} -> ${await cssHref()}`);
+      // WAIT FOR THE NEW SCRIPT, then read once. The predicate is the CSS FILE
+      // CHANGING rather than the colour arriving, deliberately: keyed on the
+      // colour, a revise that published no colour at all would spend the whole
+      // budget and then fail — indistinguishable from the lag — while keyed on
+      // the href it settles as soon as the site really is serving the new
+      // build, and the colour is then a genuine question asked of it.
+      const rev = await settleCss((c, h) => h !== beforeCssHref);
+      const afterCss = rev.css;
+      console.log(settleNote("the revise", rev));
+      // THE STYLESHEET'S OWN ADDRESS AT EACH POINT. This is what said the
+      // failure was a lag: unchanged here, changed by the time the restore
+      // read it. Kept, because an UNCHANGED href after a settle is the shape
+      // of a look change that never reached the container at all — and read
+      // off the settled document rather than fetched again, or the line can
+      // report a third state neither assertion below ever saw.
+      console.log(`   stylesheet: ${beforeCssHref || "?"} -> ${rev.href || "?"}`);
 
       // ── THE LOOK IS ANCHORED ─────────────────────────────────────────────
       // "make the background yellow" used to re-roll the theme, the page family
@@ -1349,9 +1405,15 @@ try {
       ok("the colour that WAS asked for reached the published stylesheet",
         /--background:\s*(#ffcc00|#fc0)/i.test(afterCss),
         (afterCss.match(/--background:[^;]*/g) || []).slice(-3).join(" ; "));
+      // A CHANGE, NOT A PRESENCE. This asked whether SOME `--radius:` exists
+      // and whether the last one is not `0rem` — and every theme in the
+      // registry declares one, so it was true of the stylesheet from BEFORE the
+      // revise. It passed in both of the runs that read the wrong file, which
+      // is what proved it vacuous. The revise says "round the corners more",
+      // so the corner the site has must not be the corner it had.
       ok("and the corner change reached it too",
-        /--radius:\s*[^;]+/.test(afterCss) && !/--radius:\s*0rem/.test(afterCss.slice(afterCss.lastIndexOf("--radius:"))),
-        (afterCss.match(/--radius:[^;]*/g) || []).slice(-2).join(" ; "));
+        radiusOf(afterCss) !== "" && radiusOf(afterCss) !== radiusOf(beforeCss),
+        `before: ${radiusOf(beforeCss) || "(none)"}  after: ${radiusOf(afterCss) || "(none)"}`);
 
       // ── AND THE SITE STILL HAS ITS TABLES ────────────────────────────────
       //
@@ -1530,10 +1592,19 @@ try {
       // THE ASSERTION THAT MATTERS: the LIVE site changed back. The old button
       // reported success and touched nothing published, which is the failure
       // this whole feature exists to end.
-      const restoredCss = await cssOf();
+      // SETTLED, for the reason the revise is — this read was 0.23s after the
+      // route returned and got the stylesheet from two publishes earlier.
+      // The predicate is the build's OWN href: a restore puts version A's files
+      // back verbatim, so the site must end up serving the exact stylesheet it
+      // was serving before the revise, which is a sharper question than "the
+      // colour is gone" and is the one this feature exists to answer.
+      const back = await settleCss((c, h) => h === beforeCssHref);
+      const restoredCss = back.css;
+      console.log(settleNote("the restore", back));
       ok("THE LIVE SITE REALLY WENT BACK — the revised colour is gone from it",
         !/--background:\s*(#ffcc00|#fc0)/i.test(restoredCss),
-        (restoredCss.match(/--background:[^;]*/g) || []).slice(-3).join(" ; "));
+        `${back.href || "(none)"} (build served ${beforeCssHref || "?"}) :: ` +
+          (restoredCss.match(/--background:[^;]*/g) || []).slice(-3).join(" ; "));
       ok("and the restored site still serves its home page",
         (await fetch(SITE)).status === 200);
     }

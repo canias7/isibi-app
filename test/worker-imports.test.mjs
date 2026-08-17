@@ -310,8 +310,17 @@ test("no block-scoped const/let in worker.js is read after its block closes", ()
 
     // Walk forward until the brace depth relative to the declaration goes
     // negative — that is the line its enclosing block closes on.
+    //
+    // A COMMENT CONTRIBUTES NO BRACES. Prose is full of them — a documented
+    // `:root{--radius:0}`, a character class carrying a brace, half a JSON
+    // shape — and counting those moves the block's end. It fails BOTH ways: an
+    // unmatched `}` closes the block early and every name above it is reported
+    // as a runtime ReferenceError, an unmatched `{` closes it late and a real
+    // out-of-scope read is hidden. Measured on the integration scan below,
+    // where one comment accused two innocent helpers.
     let depth = 0, close = -1;
     for (let j = i; j < lines.length && close < 0; j++) {
+      if (wholeLineComment(lines[j])) continue;
       for (const ch of lines[j]) {
         if (ch === "{") depth++;
         else if (ch === "}") { depth--; if (depth < 0) { close = j; break; } }
@@ -433,6 +442,11 @@ test("the handler-local scan actually fires on the shape it was written for", ()
  * is not caught, nor is one declared more than once anywhere in the file, nor
  * one that happens to share a name with some parameter.
  */
+// A LINE THAT IS NOTHING BUT A COMMENT. Anchored at the start on purpose: a
+// mid-line `//` is as likely to be inside `"https://…"` as to open a comment,
+// and truncating there would delete real code from the count.
+const wholeLineComment = (l) => /^\s*(\/\/|\*)/.test(l);
+
 function outOfScopeReads(src) {
   const lines = src.split("\n");
   const declCount = new Map();
@@ -470,8 +484,12 @@ function outOfScopeReads(src) {
     if (!m) continue;
     const name = m[2];
     if (declCount.get(name) !== 1 || m[1].length < 4 || name.length < 3 || params.has(name)) continue;
+    // Comments contribute no braces — see the walk above, same rule, same
+    // reason. It is applied through `wholeLineComment` rather than restated so
+    // the two scans cannot disagree about what a comment is.
     let depth = 0, close = -1;
     for (let j = i; j < lines.length && close < 0; j++) {
+      if (wholeLineComment(lines[j])) continue;
       for (const ch of lines[j]) {
         if (ch === "{") depth++;
         else if (ch === "}") { depth--; if (depth < 0) { close = j; break; } }
@@ -480,7 +498,7 @@ function outOfScopeReads(src) {
     if (close < 0) continue;
     const re = new RegExp("(^|[^.\\w$])" + name.replace(/\$/g, "\\$") + "\\s*[.([]");
     for (let j = close + 1; j < lines.length; j++) {
-      if (/^\s*(\/\/|\*)/.test(lines[j])) continue;
+      if (wholeLineComment(lines[j])) continue;
       const hit = re.exec(lines[j]);
       // PROSE, NOT CODE — `"…with no lint problems."` matched `problems.` and
       // was the third false alarm this scan produced on a clean tree. Counted
@@ -557,6 +575,58 @@ test("the integration scope scan fires on the shape it was written for", () => {
   // The same shape with a REAL out-of-scope read still reports.
   const real = quoted.replace('  post({ files: { "index.tsx": INDEX, "menu.tsx": MENU } });', "  use(menu.length);");
   assert.equal(outOfScopeReads(real).length, 1, "narrowed so far it no longer catches the real thing");
+});
+
+test("a brace in a comment does not move where the block closes", () => {
+  // PROSE IS FULL OF BRACES — a documented `:root{--radius:0}`, a character
+  // class carrying one, half a JSON shape. Before the depth walk skipped
+  // comment lines, a single unmatched one closed the enclosing block early and
+  // every name declared above it was reported as a runtime ReferenceError.
+  // Measured in build-smoke.mjs: one comment accused two innocent helpers.
+  //
+  // THE ASSERTION IS THE LINE, NOT THE COUNT, and that is what makes it
+  // discriminate. Both the broken and the fixed scan report `helperOne` — the
+  // broken one blames the IN-BLOCK read on line 4, the fixed one the genuine
+  // out-of-scope read on line 7. A test counting findings passes either way.
+  const src = [
+    "function outer() {",
+    "    const helperOne = (x) => x;",
+    "    // a comment mentioning a lone } brace",
+    "    const helperTwo = (x) => helperOne(x);",
+    "    return helperTwo(1);",
+    "}",
+    "helperOne(2);",
+  ].join("\n");
+  const found = outOfScopeReads(src);
+  assert.equal(found.length, 1, "expected only the real read, got: " + found.join(" ; "));
+  assert.equal(found[0], "helperOne declared at 2, block closes at 6, read at 7",
+    "the comment's brace moved the block");
+
+  // AND THE COMMENT IS WHAT IS BEING TESTED: the identical source without it
+  // must reach the same verdict, or this proves nothing about comments.
+  const noComment = src.split("\n").filter((l) => !l.includes("//")).join("\n");
+  assert.equal(outOfScopeReads(noComment)[0], "helperOne declared at 2, block closes at 5, read at 6",
+    "the control case does not behave as the commented one");
+});
+
+test("every depth walk in this file skips comment lines", () => {
+  // THERE ARE TWO OF THESE WALKS — one over worker.js, one over the integration
+  // scripts — and only the second is reachable through `outOfScopeReads`, so
+  // the test above holds exactly half of the fix. MEASURED: deleting the skip
+  // from the worker walk survived the entire suite.
+  //
+  // Merging the two would be the better answer and they are not the same scan
+  // (different read patterns, and only one has the camelCase filter), so this
+  // asserts the shared property instead: whatever walks brace depth here must
+  // ask `wholeLineComment` first. Derived, so a third walk is covered without
+  // anybody remembering this test.
+  const self = readFileSync(new URL("./worker-imports.test.mjs", import.meta.url), "utf8");
+  const walks = [...self.matchAll(/for \(let j = i; j < lines\.length && close < 0; j\+\+\) \{\n([^\n]*)\n/g)];
+  assert.ok(walks.length >= 2, "found " + walks.length + " depth walks — the scan for them broke");
+  for (const w of walks) {
+    assert.match(w[1], /if \(wholeLineComment\(lines\[j\]\)\) continue;/,
+      "a depth walk counts braces inside comments: " + w[1].trim());
+  }
 });
 
 test("nothing re-exports a name it also uses — that binds nothing", () => {
