@@ -11262,7 +11262,7 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering) {
 // failed (the site is untouched, and rewriting every page to fix a typo is the
 // trade nobody would make). Those the customer is told about, in the server's
 // own words.
-function siteEdit(site, d, instruction, origin, finish, fallback, imgs) {
+function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOff) {
   const slug = String(site.slug || '');
   if (!slug) return fallback();
   apiFetch('/api/site/' + encodeURIComponent(slug) + '/edit', {
@@ -11300,7 +11300,24 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs) {
     // A body we cannot read is not a refusal — it is us not knowing, and the
     // rung above still works.
     if (!e) return fallback();
-    if (e.escalate) return fallback();
+    if (e.escalate) {
+      // ── ONE HOP SIDEWAYS, THEN UP ────────────────────────────────────────
+      //
+      // A lane that cannot answer may name a CHEAPER one that can: the picture
+      // layer cannot insert a `<SafeImage>` and the `page` layer can, so "add a
+      // photo to the about page" costs one page instead of the whole-site
+      // rewrite `fallback` performs.
+      //
+      // BOUNDED HERE, NOT TRUSTED FROM THE SERVER, and that is the whole safety
+      // argument: `handedOff` allows exactly one, and a different layer, so no
+      // sequence of server answers can loop between two lanes. A second
+      // escalation goes up the ladder exactly as it does today.
+      if (!handedOff && e.layer && e.layer !== d.layer) {
+        return siteEdit(site, { ...d, layer: String(e.layer), page: e.page ? String(e.page) : d.page },
+          instruction, origin, finish, fallback, imgs, true);
+      }
+      return fallback();
+    }
     if (!r.ok || !e.ok) {
       // The server's own sentence when it has one. `buildDownMsg` already knows
       // to drop the "try again in a few seconds" advice on a failure that no

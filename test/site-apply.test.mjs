@@ -648,7 +648,24 @@ test("an edit is dispatched, and every failure falls back to the build", () => {
   assert.match(b, /'\/api\/site\/' \+ encodeURIComponent\(slug\) \+ '\/edit'/, "siteEdit posts nowhere");
   // THE ESCALATION MUST NEVER SURFACE AS AN ERROR. It is the whole reason
   // trying the cheap rung first is safe.
-  assert.match(b, /if \(e\.escalate\) return fallback\(\)/);
+  //
+  // ANCHORED ON THE PROPERTY, NOT THE SPELLING. This pinned the exact one-line
+  // `if (e.escalate) return fallback()` and went red the moment that branch
+  // became a block to allow a sideways handoff — a test about word order, which
+  // is this repo's most repeated own-goal. What it needs is that an escalation
+  // is HANDLED and that every path out of that branch is a fallback or another
+  // lane, never the error branch below it.
+  const esc = b.slice(b.indexOf("if (e.escalate)"), b.indexOf("if (!r.ok || !e.ok)"));
+  assert.ok(esc.length > 20, "the escalation branch is gone — an escalation would be shown as an error");
+  assert.match(esc, /fallback\(\)/, "an escalation no longer reaches the build");
+  // A HANDOFF IS BOUNDED TO ONE HOP, and that bound lives HERE rather than in
+  // the server's answer: without it, two lanes each naming the other loop for
+  // ever on a customer's edit.
+  if (/siteEdit\(/.test(esc)) {
+    assert.match(esc, /!handedOff/, "a sideways handoff is unbounded — two lanes could loop");
+    assert.match(esc, /e\.layer !== d\.layer/, "a handoff to the SAME layer would re-run the lane that just failed");
+    assert.match(esc, /, true\)/, "the second call is not marked as handed off, so the bound never bites");
+  }
   assert.match(b, /if \(!e\) return fallback\(\)/, "an unreadable body is not a refusal");
   assert.match(b, /\}\)\.catch\(fallback\)/, "a network drop must land on the build too");
   // And the escalation branch must come BEFORE the generic failure branch, or a

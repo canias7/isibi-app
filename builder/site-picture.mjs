@@ -27,6 +27,11 @@
 //
 // Plain module with its side effects injected, like `site-apply.mjs` beside it.
 
+// ONE READING OF THE FILE-TO-ROUTE MAPPING, shared with the addon and page
+// lanes. `readNeedsPlace` compares a route the model named against the pages
+// this site has, and those arrive as file paths.
+import { routeOf } from "./site-addon.mjs";
+
 /** Haiku. Matching a sentence to a list of sentences is not a design task. */
 export const PICTURE_MODEL = "claude-haiku-4-5";
 export const PICTURE_MAX_TOKENS = 1200;
@@ -180,6 +185,16 @@ export const PICTURE_TOOL = {
           required: ["page", "alt"],
         },
       },
+      needsPlace: {
+        type: "string",
+        description:
+          "The page they want a picture ON, when that page has NO slot for one — \"/about\". Only alongside an EMPTY " +
+          "`pictures` array, and only when they are asking for a picture to be ADDED somewhere that has none.\n" +
+          "THIS IS THE DIFFERENCE BETWEEN A REFUSAL AND THE WORK. Every slot the site has is listed below, so a page " +
+          "that is not among them has nowhere to put a photograph and swapping cannot help — saying so here sends it " +
+          "to the step that can add one. LEAVE IT OUT when they meant a slot that IS listed and you simply could not " +
+          "tell which: that is an honest no, and guessing here costs them a page rewrite they did not ask for.",
+      },
     },
     required: ["pictures"],
   },
@@ -248,6 +263,44 @@ export const MAX_DESCRIBE = 240;
  * their own uploads prefix, so a name the model invented would publish a broken
  * image — which is the one outcome `SafeImage` cannot draw around.
  */
+/**
+ * The page a picture is wanted ON that has no slot for one, or null.
+ *
+ * BOUNDED TO A PAGE THE SITE REALLY HAS. The value decides which page a MODEL
+ * CALL is spent rewriting, so an invented path buys a page edit for a page that
+ * does not exist. The pages are right here in the slot list that was offered.
+ *
+ * A PAGE THAT ALREADY HAS A SLOT IS REFUSED, and that is the load-bearing half.
+ * A model that both matched nothing AND named a page it was shown slots for has
+ * contradicted itself: the honest reading is "I could not tell which of these
+ * you meant", which is the cheap refusal, not a page rewrite. Without this,
+ * every failure to match becomes a paid edit.
+ */
+export function readNeedsPlace(reply, slots) {
+  const blocks = reply && Array.isArray(reply.content) ? reply.content : [];
+  const use = blocks.find((b) => b && b.type === "tool_use");
+  const raw = use && use.input && use.input.needsPlace;
+  if (typeof raw !== "string") return null;
+  const want = raw.trim().toLowerCase();
+  if (!want.startsWith("/")) return null;
+  const list = Array.isArray(slots) ? slots : [];
+  if (!list.length) return null;
+  // A SLOT'S `page` IS A FILE PATH AND `needsPlace` IS A ROUTE, and comparing
+  // them raw is comparing two different things: `src/routes/index.tsx` never
+  // equals `/`, so the refusal below could not fire and every unmatched
+  // instruction naming any path would have bought a page rewrite. Found by
+  // mutation — deleting this check changed nothing, because the tests reached
+  // it through `startsWith("/")`, which had already refused every file path
+  // they used. One guard masking another, and the fixture hid it.
+  //
+  // `routeOf` IS IMPORTED rather than reimplemented: the file-to-route mapping
+  // has been written five times in this repo and each copy has been wrong at
+  // least once (`menu/index.tsx` → `/menu/index`, `about.team.tsx` →
+  // `/about.team`).
+  if (list.some((sl) => sl && routeOf(sl.page) === want)) return null;
+  return want;
+}
+
 export function readPictures(reply, slots, library) {
   const blocks = reply && Array.isArray(reply.content) ? reply.content : [];
   const use = blocks.find((b) => b && b.type === "tool_use");
@@ -382,7 +435,29 @@ export async function runPictureEdit(deps, { instruction, pages } = {}) {
   const usage = pictureUsage(reply);
 
   const picked = readPictures(reply, slots, library);
-  if (!picked.length) return { ok: false, escalate: false, reason: "no-match", usage, msg: pictureReply({}) };
+  if (!picked.length) {
+    // ── NOWHERE TO PUT IT IS NOT "I COULD NOT TELL WHICH" ───────────────────
+    //
+    // This lane fills a slot that already exists — `imageSlots` finds
+    // `<SafeImage>` and `<img>`, and inserting a new element into arbitrary TSX
+    // is exactly the guess that breaks a page. So "add a photo to the about
+    // page", on a page that has none, came back as a REFUSAL: the one shape of
+    // picture request this layer's own description advertises and the code
+    // cannot do.
+    //
+    // SIDEWAYS, NOT UP. The layer that CAN is `page` — one page, one model call
+    // — whose description already covers "add a block built from parts the page
+    // already has", and a `SafeImage` is a part the kit has. The rung ABOVE
+    // rewrites every page of the site to add one picture, which is the wrong
+    // answer at roughly twice the price.
+    //
+    // THE MODEL DECIDES, because it is the only party that has just read every
+    // slot on the site. Guessing here would send a mistyped SWAP to a page
+    // rewrite it never needed. An absent `needsPlace` keeps the honest refusal.
+    const place = readNeedsPlace(reply, slots);
+    if (place) return { ok: false, escalate: true, reason: "needs-place", layer: "page", page: place, usage };
+    return { ok: false, escalate: false, reason: "no-match", usage, msg: pictureReply({}) };
+  }
 
   const byName = new Map((Array.isArray(library) ? library : []).map((f) => [f && f.name, f && f.url]).filter(([n]) => n));
   const resolved = [], used = [], made = [], cleared = [];

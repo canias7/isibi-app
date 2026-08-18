@@ -12524,7 +12524,14 @@ async function handleRequest(request, env, ctx) {
                     msg: pOut.msg || "That change couldn't be made — try again.",
                   }, { status: 422 });
                 }
-                return escalate(pOut.reason);
+                // A HANDOFF IS AN ESCALATION THAT NAMES A CHEAPER LANE. The
+                // picture layer cannot insert a `<SafeImage>` and the `page`
+                // layer can, so "add a photo to the about page" goes there —
+                // one page, one model call — rather than up to the revise, which
+                // rewrites every page of the site to add one picture. Carried on
+                // the escalate the client already reads; a lane that names no
+                // layer behaves exactly as it did.
+                return escalate(pOut.reason, pOut.layer ? { layer: pOut.layer, page: pOut.page } : undefined);
               }
               const pPub = await recompileAndPublish(env, {
                 slug: ownerSlug, pages: pOut.pages,
