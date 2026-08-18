@@ -101,3 +101,166 @@ test("THE SITE'S OWN LANGUAGE IS WHAT IT USES", () => {
     "the pin no longer takes the site's own declared language");
   assert.match(LOCALE, /locale: string = SITE_LANG/, "SITE_LANG is imported and not used as the default");
 });
+
+// ---------------------------------------------------------------------------
+// SAME LOCALE, DIFFERENT ICU — the failure the pin above cannot reach.
+//
+// `pinSiteLocale` makes an ABSENT locale mean the site's, and deliberately
+// leaves an explicit one alone. That is right, and it is not the whole story: a
+// format can name one locale on both sides and still render different text,
+// because the SERVER and the VISITOR are two different ICU builds.
+//
+// MEASURED, Node 22 (ICU 78.2) against this Chromium, same timezone:
+//   Intl.DateTimeFormat("en-GB", {weekday:"short", day, month:"long", year})
+//     node "Sat, 19 September 2026"   chrome "Sat 19 September 2026"
+//   timeZoneName: "shortOffset" at ZERO offset
+//     node "GMT+0"                    chrome "GMT"
+//   timeZoneName: "longOffset" at ZERO offset
+//     node "GMT+00:00"                chrome "GMT"
+// One character each, and each one took a page down with React #418 ("text").
+//
+// IT CANNOT BE FIXED BY MATCHING ENGINES, which is the point. We SSR in workerd
+// and hydrate in whatever browser the visitor brought — so a format whose output
+// depends on the ICU version will mismatch for some fraction of real visitors
+// however the build machine happens to be configured. The proof that agreement
+// is luck: CI's Node and CI's Chromium DO agree on the date shape, so `family
+// apps` was green on `entertainer /` while it failed here on the same commit.
+//
+// SCOPE, MEASURED RATHER THAN GENERALISED. 237 weekday/month/day/year
+// combinations across en-GB, en-US and en: 12 differ and ALL TWELVE are en-GB
+// with a weekday AND a day AND a month in one formatter. Across 16 locales
+// (adding de, fr, es, pt, it, nl, pl, ja, zh, ar, tr, sv, cs) only en-GB
+// diverges. en-GB is the platform's primary market, and `pinSiteLocale`
+// resolves an absent locale to SITE_LANG — so a UK site puts every one of these
+// call sites into the unstable region.
+const KIT = new URL("../builder/lovable/template/src/components/ui/", import.meta.url);
+
+// COMMENTS ARE BLANKED BEFORE ANYTHING HERE IS JUDGED, and it is not a
+// precaution: the first draft of the TimezonePicker guard below failed against
+// correct code, because `indexOf("resolvedOptions()")` found the sentence in the
+// comment EXPLAINING the fix rather than the call, and that sentence sits above
+// the effect it was asserting came first. Prose describing a bug contains the
+// bug's spelling. The same trap would let a comment showing an example format
+// count as a call.
+//
+// LENGTH-PRESERVING, so offsets stay valid against the real text — and by WHOLE
+// LINE rather than from any `//`, which would eat the rest of a line holding a
+// URL. Every comment in these files is a whole line or a block.
+const blankComments = (src) => {
+  const blanked = src.split("\n").map((line) => {
+    const t = line.trim();
+    return t.startsWith("//") || t.startsWith("/*") || t.startsWith("*") ? " ".repeat(line.length) : line;
+  }).join("\n");
+  if (blanked.length !== src.length) throw new Error("the comment blanker changed the file's length");
+  return blanked;
+};
+
+// Balanced-brace argument slice. A flat split on "," cannot be used: a format's
+// options are full of commas that belong to the object.
+const argsAt = (src, open) => {
+  let depth = 0;
+  for (let i = open; i < src.length; i++) {
+    if (src[i] === "(") depth++;
+    else if (src[i] === ")") { depth--; if (!depth) return src.slice(open + 1, i); }
+  }
+  return null;
+};
+const formatCalls = () => {
+  const out = [];
+  for (const name of fs.readdirSync(KIT)) {
+    if (!name.endsWith(".tsx")) continue;
+    const src = blankComments(fs.readFileSync(new URL(name, KIT), "utf8"));
+    const re = /(Intl\.DateTimeFormat)\s*\(|\.(toLocaleDateString|toLocaleString|toLocaleTimeString)\s*\(/g;
+    let m;
+    while ((m = re.exec(src))) {
+      const open = src.indexOf("(", m.index + (m[1] ? m[1].length : m[0].length - 1));
+      const args = argsAt(src, open);
+      if (args != null) out.push({ file: name, args: args.replace(/\s+/g, " ") });
+    }
+  }
+  return out;
+};
+
+// THE SCAN'S OWN FLOOR. A regex that silently stops matching reports a clean kit,
+// which is the most reassuring way to check nothing at all.
+test("the format scan still finds the kit's formatting calls", () => {
+  const calls = formatCalls();
+  assert.ok(calls.length > 100, "the format scan found only " + calls.length + " calls — it has stopped matching");
+  assert.ok(calls.some((c) => /weekday/.test(c.args)), "the scan sees no weekday option at all");
+});
+
+test("NO KIT COMPONENT ASKS ICU FOR AN OFFSET LITERAL", () => {
+  // Unstable at ZERO offset in both the short and the long form, so asking for
+  // the wider one is not the fix — measured, both diverge. There is no safe use:
+  // "UTC" is in `timezone-picker`'s own default list, so every server-rendered
+  // picker carried an option the browser then disagreed with.
+  //
+  // Compute it from NUMERIC parts and write the string yourself, which is what
+  // `timezone-picker.tsx` does now — verified stable across UTC, London, Paris,
+  // New York, Tokyo, Kolkata, Sydney and Chatham, including the half-hour and
+  // 45-minute zones a naive hours-only formatter gets wrong.
+  const bad = formatCalls().filter((c) => /timeZoneName\s*:\s*["'](short|long)Offset["']/.test(c.args));
+  assert.deepEqual(bad.map((c) => c.file), [],
+    "these ask ICU for an offset literal, which differs between engines at zero offset: " + bad.map((c) => c.file).join(", "));
+});
+
+// A RATCHET, NOT A CLEAN SHEET. Twelve components ask one formatter for a
+// weekday, a day and a month together, which is the region measured above. They
+// are recorded rather than fixed here: each needs its own decision about the
+// separator, and none of them is what broke the family exemplars. The list is
+// compared EXACTLY, so a thirteenth fails and a fixed one cannot sit here
+// looking like debt that is still owed.
+const WEEKDAY_DAY_MONTH = [
+  "agenda-list.tsx", "approval-deadline.tsx", "delivery-estimate.tsx", "delivery-eta.tsx",
+  "event-card.tsx", "event-meta.tsx", "meeting-papers.tsx", "multi-date-picker.tsx",
+  "nl-date-input.tsx", "return-window.tsx", "site-diary.tsx", "week-strip.tsx",
+];
+
+test("the weekday+day+month family does not grow", () => {
+  const hit = formatCalls().filter((c) =>
+    /weekday\s*:/.test(c.args) && /\bday\s*:/.test(c.args) && /month\s*:/.test(c.args));
+  const files = [...new Set(hit.map((c) => c.file))].sort();
+  assert.deepEqual(files, [...WEEKDAY_DAY_MONTH].sort(),
+    "the weekday+day+month set moved. On an en-GB site these render different text on the " +
+    "server and in the browser. Compose the weekday yourself — two formatters and your own " +
+    "separator — the way date-enquiry.tsx does, then take the file out of this list.");
+});
+
+test("date-enquiry composes the weekday itself", () => {
+  // The fix that closed `entertainer /`. Asserted as the PROPERTY — two
+  // formatters and a separator of ours — rather than the spelling, and paired
+  // with the negative, since a single four-field formatter is what it replaced.
+  const src = blankComments(fs.readFileSync(new URL("date-enquiry.tsx", KIT), "utf8"));
+  const pretty = src.slice(src.indexOf("const pretty ="), src.indexOf("return (", src.indexOf("const pretty =")));
+  assert.ok(pretty.length > 100, "the pretty() window is empty — the anchor moved");
+  assert.equal((pretty.match(/new Intl\.DateTimeFormat/g) || []).length, 2,
+    "pretty() no longer builds the date from two separate formatters");
+  assert.ok(!/weekday[^}]*month:\s*"long"/.test(pretty),
+    "pretty() asks one formatter for the weekday and a long month again — that literal differs between engines");
+});
+
+test("Countdown never reads the clock on its first render", () => {
+  // The fix that closed `festival /` and `box-office /event`. The server cannot
+  // know this number, so seeding state from `Date.now()` guaranteed a mismatch
+  // as soon as the SSR-to-hydration gap crossed a second — a race in the
+  // harness and, at network latency, the ordinary case in production.
+  const src = blankComments(fs.readFileSync(new URL("countdown.tsx", KIT), "utf8"));
+  const init = src.slice(src.indexOf("React.useState"), src.indexOf("\n", src.indexOf("React.useState")));
+  assert.ok(init.length > 10, "the useState window is empty — the anchor moved");
+  assert.ok(!/Date\.now\(\)/.test(init),
+    "Countdown seeds its state from the clock again — the server and the browser will disagree");
+  assert.match(src, /React\.useEffect/, "Countdown no longer fills the value in after mount");
+});
+
+test("TimezonePicker does not guess the visitor's zone during SSR", () => {
+  // `resolvedOptions().timeZone` answers with the RUNTIME's zone, so the server
+  // and the visitor built option lists of different lengths with different first
+  // entries — a structural mismatch rather than a cosmetic one, for every
+  // visitor outside the server's zone.
+  const src = blankComments(fs.readFileSync(new URL("timezone-picker.tsx", KIT), "utf8"));
+  const guessAt = src.indexOf("resolvedOptions()");
+  assert.ok(guessAt > 0, "the zone guess is gone — this guard no longer describes the file");
+  const effectAt = src.indexOf("React.useEffect");
+  assert.ok(effectAt > 0 && effectAt < guessAt,
+    "the visitor's zone is guessed during render again, not after mount");
+});
