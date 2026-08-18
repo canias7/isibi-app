@@ -20,7 +20,7 @@ import {
 import type { QueryClient } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/sonner";
 import { SpamGuard } from "@/lib/spam-guard";
-import { SITE_LANG, SITE_ICON, SITE_NAME, SITE_SLUG } from "@/site-brand";
+import { SITE_LANG, SITE_ICON, SITE_ICON_TYPE, SITE_NAME, SITE_SLUG } from "@/site-brand";
 import { siteMeta } from "@/site-runtime";
 // The stylesheet and the site's typeface, imported here rather than in a client
 // entry so the SERVER render emits their <link> tags too. Imported in
@@ -90,7 +90,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     if (m?.origin) tags.push({ property: "og:url", content: m.origin + here });
     return {
       meta: tags,
-      links: [{ rel: "icon", href: SITE_ICON, type: "image/svg+xml" }],
+      links: [{ rel: "icon", href: SITE_ICON, type: SITE_ICON_TYPE }],
     };
   },
   component: RootDocument,

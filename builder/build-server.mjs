@@ -28,7 +28,7 @@ import { themeCss } from "./site-theme.mjs";
 import { resolveTheme } from "./site-theme-registry.mjs";
 import { tokensCss, stripThemeRadius, validForWrite } from "./site-tokens.mjs";
 import { applyStyle, explicitRadiusCss } from "./site-style.mjs";
-import { initialsMark, normalizeLang } from "./site-identity.mjs";
+import { initialsMark, normalizeLang, siteIconFrom } from "./site-identity.mjs";
 import { exitReason } from "./exit-reason.mjs";
 import { checkRender } from "./render-check.mjs";
 import { routeOf, fileForRoute } from "./site-addon.mjs";
@@ -123,22 +123,40 @@ function resetRoutes() {
 // asks the generator to do. Before this, `setTitle` at PUBLISH time stamped the
 // brand onto every non-home page after the fact; a default the routes can beat
 // is the same outcome with the ordering the right way round.
-function writeSiteBrand({ title, lang, logo, slug }) {
+function writeSiteBrand({ title, lang, logo, icon: sent, slug }) {
   const iconPath = path.join(APP, "public", "icon.svg");
   try { fs.rmSync(iconPath, { force: true }); } catch {}
 
-  let icon = null;
-  try {
-    const svg = initialsMark(title);
-    if (svg) {
-      fs.mkdirSync(path.dirname(iconPath), { recursive: true });
-      fs.writeFileSync(iconPath, svg);
-      icon = "/icon.svg";
+  // THE OWNER'S OWN TAB ICON WINS OVER THE DRAWN ONE, and it is a SEPARATE
+  // piece of artwork from the header logo rather than a smaller copy of it: a
+  // wordmark is legible at a few hundred pixels and a smear at 16, so a site
+  // that used its logo for both would have a worse tab than one showing its
+  // initials. Same shape check as the logo below, because it ends up in a `src`
+  // inside generated TypeScript the same way.
+  const own = siteIconFrom(sent);
+  const iconOk = !!(own && own.href);
+
+  let icon = iconOk ? own.href : null;
+  // THE TYPE IS DECLARED PER ICON AND NOT HARDCODED. The drawn mark is an SVG
+  // and `__root.tsx` said `type="image/svg+xml"` unconditionally — with an
+  // owner's PNG behind it that is a lie about the bytes, and a browser is
+  // entitled to refuse an icon whose declared type does not match. Read off the
+  // extension, which is ours: `uploadName` builds it from the sniffed kind.
+  let iconType = iconOk ? own.type : "";
+  if (!icon) {
+    try {
+      const svg = initialsMark(title);
+      if (svg) {
+        fs.mkdirSync(path.dirname(iconPath), { recursive: true });
+        fs.writeFileSync(iconPath, svg);
+        icon = "/icon.svg";
+        iconType = "image/svg+xml";
+      }
+    } catch {
+      // A site keeps the template's mark. Failing a build over a tab icon would
+      // trade a working site for a decoration.
+      icon = null;
     }
-  } catch {
-    // A site keeps the template's mark. Failing a build over a tab icon would
-    // trade a working site for a decoration.
-    icon = null;
   }
 
   // ONLY AN ABSOLUTE https URL OR A SITE-RELATIVE `/u/` PATH for the logo. The
@@ -187,10 +205,16 @@ function writeSiteBrand({ title, lang, logo, slug }) {
       "export const SITE_LOGO = " + JSON.stringify(logoValue) + ";\n" +
       "export const SITE_LANG = " + JSON.stringify(langValue) + ";\n" +
       "export const SITE_ICON = " + JSON.stringify(icon || "/favicon.svg") + ";\n" +
+      "export const SITE_ICON_TYPE = " + JSON.stringify(iconType || "image/svg+xml") + ";\n" +
       "export const SITE_NAME = " + JSON.stringify(titleValue) + ";\n" +
       "export const SITE_BUILD = " + JSON.stringify(buildValue) + ";\n",
   );
-  return { lang: langValue, icon: !!icon, logo: !!logoValue, slug: !!slugValue, refused: !!raw && !logoOk, build: buildValue };
+  // `ownIcon` SEPARATES THE TWO OUTCOMES the single `icon` boolean could not:
+  // a site drawing its initials and a site serving the owner's own artwork
+  // both answered true, so a favicon that was stored and then refused by the
+  // shape check reported as a working icon.
+  return { lang: langValue, icon: !!icon, ownIcon: iconOk, logo: !!logoValue, slug: !!slugValue,
+    refused: (!!raw && !logoOk) || !!(own && own.refused), build: buildValue };
 }
 
 // The site's typeface, written per build.
@@ -576,7 +600,7 @@ const server = http.createServer((req, res) => {
       resetRoutes();
       // ONE writer for all four, because they land in ONE generated module and
       // two writers of one file is one of them silently losing.
-      const brandUsed = writeSiteBrand({ title: payload.title, lang: payload.lang, logo: payload.logo, slug: payload.slug });
+      const brandUsed = writeSiteBrand({ title: payload.title, lang: payload.lang, logo: payload.logo, icon: payload.icon, slug: payload.slug });
       const fontsUsed = writeFonts(payload.fonts, payload.fontFiles);
       // ONE reading of the patch, shared: whether a radius was asked for decides
       // both that the theme's own corner rules give way and what is written.

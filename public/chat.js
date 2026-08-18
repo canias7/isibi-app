@@ -11279,6 +11279,10 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
       // anything that is not a path, and `renameRoute` owns every refusal that
       // needs to see the site.
       rename: typeof d.rename === "string" ? d.rename : "",
+      // WHICH SLOT THE ATTACHED ARTWORK GOES IN — the header, or the browser
+      // tab. A real boolean like `remove`, so nothing merely truthy on the wire
+      // can send a wide wordmark to a 16-pixel tab and leave the header bare.
+      tab: d.tab === true,
       instruction: instruction,
       picker: buildPicker,
       // THE UNDO. A deleted row is gone from the table, so the server cannot

@@ -437,8 +437,16 @@ test("a container that answers with no JSON says what it DID answer", () => {
   // Windowed to the END OF THE DEP, not a guessed character count. A 1400-char
   // window stopped 134 characters short of the thing it asserts — the third time
   // in this session an assertion sized by luck went red for the wrong reason.
+  //
+  // AND THEN THE REPLACEMENT BOUND WAS A GUESSED CHARACTER COUNT TOO (`< 4000`),
+  // so it went red the moment the payload grew one honest field. What the bound
+  // was ever FOR is proving the `publish:` we found belongs to THIS dep rather
+  // than a later object — which is a property, not a size: another
+  // `getContainer` in between is the only thing that could mean we overshot.
   const end = src.indexOf("publish:", i);
-  assert.ok(end > i && end - i < 4000, `the compile dep did not close cleanly (${end - i})`);
+  assert.ok(end > i, "the compile dep has no publish: after it");
+  assert.equal(src.slice(i + 1, end).indexOf("getContainer(env.SITE_BUILD_CONTAINER)"), -1,
+    "the window ran past this dep into another container call");
   const after = src.slice(i, end);
   assert.ok(!/r\.json\(\)\s*\.catch/.test(after), "the container's answer is being discarded again");
   assert.match(after, /await r\.text\(\)/, "the body must be read as text so a non-JSON answer survives");

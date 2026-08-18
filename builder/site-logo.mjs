@@ -109,7 +109,28 @@ export function logoRefusal(reason) {
  * which is worse than the text it replaced. Same ordering rule as the site
  * delete, one file over.
  */
-export async function runLogoEdit(deps, { images, remove } = {}) {
+/**
+ * The two places a business's own artwork can go, and they are NOT one thing.
+ *
+ * The header logo is read at a few hundred pixels wide; the tab icon is read at
+ * 16. A wordmark — which is what most small businesses have — is legible in the
+ * first and a smear in the second, so a site that puts one in both has a worse
+ * tab than one showing its initials. Real businesses keep two pieces of artwork
+ * for exactly this reason, and conflating them is the mistake.
+ *
+ * SO IT IS ASKED FOR, NEVER INFERRED. Deriving it from the logo's shape was the
+ * alternative and it needs the image's DIMENSIONS, which `sniffImage` does not
+ * read — it answers a mime type off the leading bytes. Three format parsers
+ * whose wrong answer silently swaps a site's tab icon is a worse trade than one
+ * more sentence in a tool description.
+ */
+export const LOGO_TARGETS = ["logo", "icon"];
+
+export async function runLogoEdit(deps, { images, remove, tab } = {}) {
+  // `=== true` and nothing merely truthy, the rule `remove` already lives under
+  // one field over: a value arriving as the string "false" must not send a
+  // logo to the tab.
+  const where = tab === true ? "icon" : "logo";
   // A REMOVAL NEEDS NO IMAGE, and it has to be asked first — otherwise "take the
   // logo off" is answered with "attach a logo", which is the opposite of what
   // was asked and reads as the builder not listening. The router decides this,
@@ -117,11 +138,19 @@ export async function runLogoEdit(deps, { images, remove } = {}) {
   // volunteer a removal from the instruction alone failed against words it was
   // demonstrably reading.
   if (remove === true) {
-    try { await deps.save({ logo: "" }); }
+    try { await deps.save({ [where]: "" }); }
     catch { return { ok: false, reason: "store", msg: "That couldn't be saved just now — your site is unchanged. Try again." }; }
     const gone = await deps.publish();
-    if (!gone || !gone.ok) return { ok: false, reason: "publish", msg: "I took the logo off but couldn't republish just now — try again in a moment." };
-    return { ok: true, removed: true, files: gone.files, msg: "✅ Took the logo off — the header shows your name again." };
+    if (!gone || !gone.ok) return { ok: false, reason: "publish", msg: "I took the " + (where === "icon" ? "tab icon" : "logo") + " off but couldn't republish just now — try again in a moment." };
+    // WHAT IT GOES BACK TO, per slot. Removing the tab icon does not leave the
+    // tab blank — the site returns to the mark drawn from its initials, which
+    // is what every site has until somebody sends one.
+    return {
+      ok: true, removed: true, target: where, files: gone.files,
+      msg: where === "icon"
+        ? "✅ Took the tab icon off — back to the mark drawn from your initials."
+        : "✅ Took the logo off — the header shows your name again.",
+    };
   }
 
   const first = Array.isArray(images) ? images.find((i) => typeof i === "string" && i) : null;
@@ -133,14 +162,20 @@ export async function runLogoEdit(deps, { images, remove } = {}) {
   catch { url = null; }
   if (!url) return { ok: false, reason: "store", msg: "I couldn't save that image just now — your site is unchanged. Try again." };
 
-  try { await deps.save({ logo: url }); }
+  try { await deps.save({ [where]: url }); }
   catch { return { ok: false, reason: "store", msg: "I couldn't save that just now — your site is unchanged. Try again." }; }
 
+  const what = where === "icon" ? "tab icon" : "logo";
   const pub = await deps.publish();
   // THE URL IS STORED AND THE PUBLISH FAILED, which is a real state and not a
   // failure to report as "nothing happened": the next publish of this site — a
   // colour change, a typo fix — will carry the logo. Said plainly rather than
   // pretending either way.
-  if (!pub || !pub.ok) return { ok: false, reason: "publish", url, msg: "I saved your logo but couldn't republish just now. Try again, or it'll appear with your next change." };
-  return { ok: true, url, files: pub.files, msg: "✅ That's your logo in the header now, on every page." };
+  if (!pub || !pub.ok) return { ok: false, reason: "publish", url, target: where, msg: "I saved your " + what + " but couldn't republish just now. Try again, or it'll appear with your next change." };
+  return {
+    ok: true, url, target: where, files: pub.files,
+    msg: where === "icon"
+      ? "✅ That's your tab icon now — it shows in the browser tab and when somebody bookmarks the site."
+      : "✅ That's your logo in the header now, on every page.",
+  };
 }

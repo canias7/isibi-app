@@ -7053,7 +7053,7 @@ function compileMsg(pub, theirs) {
 }
 
 async function recompileAndPublish(env, { slug, pages, label, renamed = null }) {
-  let look = null, tokens = null, style = null, logo = "";
+  let look = null, tokens = null, style = null, logo = "", icon = "";
   try {
     // `siteBackendBySlug` RETURNS THE CONNECTION STRING, not a record. This read
     // `conn && conn.conn`, which is `undefined` for a string — so the `_meta`
@@ -7071,7 +7071,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
     // reported as success, and archived to version history — for a site that
     // is deleted or unresolvable. Same rule as the catch below.
     if (!db) return { ok: false, error: "read", ours: true, detail: "no backend recorded for " + slug + " — the stored look could not be read" };
-    const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_style','site_logo')");
+    const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_style','site_logo','site_icon')");
     for (const r of rows || []) {
       if (r.k === "site_look" && r.v) look = JSON.parse(r.v);
       if (r.k === "site_tokens" && r.v) tokens = JSON.parse(r.v);
@@ -7088,6 +7088,13 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
       // customer changing a colour would silently lose their logo. Stored
       // beside `site_tokens`, which is a separate concern for the same reason.
       if (r.k === "site_logo" && typeof r.v === "string") logo = r.v;
+      // THE TAB ICON, ITS OWN KEY FOR THE SAME REASON and read here for one
+      // more: the container rewrites `site-brand.ts` on EVERY build, so a
+      // publish path that does not send the stored icon sends nothing, and
+      // nothing means the site falls back to its initials. A customer who
+      // sent a favicon and then fixed a typo would have watched it vanish —
+      // exactly what `priorLogo` exists to prevent one line up.
+      if (r.k === "site_icon" && typeof r.v === "string") icon = r.v;
     }
   } catch (e) {
     // A THROWING READ FAILS THE EDIT — it does not publish the site stripped.
@@ -7361,6 +7368,11 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
           // writes anyway. A REVISE carries the stored one — see `priorLogo`,
           // without which every revise would quietly take the logo off.
           logo: logo || "",
+          // THE TAB ICON, which is a DIFFERENT piece of artwork from the
+          // header logo and not a smaller copy of it: a wordmark is legible
+          // at a few hundred pixels and a smear at 16. An empty string is a
+          // real answer and the container draws the initials mark instead.
+          icon: icon || "",
           fonts: { heading: fontPair.heading.id, body: fontPair.body.id },
           // Passed by NAME, resolved inside the container against the same
           // registry the enum came from. Sending the resolved object instead
@@ -10749,6 +10761,13 @@ async function handleRequest(request, env, ctx) {
         // had zero callers; a field decided here and dropped in this object is
         // exactly how it stayed unreachable.
         rename: routed.intent === "edit" && typeof routed.rename === "string" ? routed.rename : undefined,
+        // AND WHICH SLOT ATTACHED ARTWORK GOES IN. `readEdit` decides it and
+        // this object is the only way it can reach the client, which posts it
+        // back on the edit — the wire that `remove` was missing for the whole
+        // life of the logo layer and `remove` again for page deletion, both
+        // found only by a live run answering `undefined`. Added WITH the field
+        // rather than after.
+        tab: routed.intent === "edit" && routed.tab === true ? true : undefined,
         // The question to put in front of the build, already cleaned into
         // something renderable — two to four options, deduped, capped. The
         // client shows it verbatim rather than re-deciding anything, so there is
@@ -11510,10 +11529,10 @@ async function handleRequest(request, env, ctx) {
       // goes. Best-effort in both directions — losing it re-rolls the look, which
       // is exactly today's behaviour, so it can never be worse than what it
       // replaces.
-      let priorLook = null, priorTokens = null, priorStyle = null, priorLogo = "";
+      let priorLook = null, priorTokens = null, priorStyle = null, priorLogo = "", priorIcon = "";
       if (priorBrief) {
         try {
-          const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_style','site_logo')");
+          const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_style','site_logo','site_icon')");
           for (const r of rows || []) {
             if (r.k === "site_look" && r.v) priorLook = JSON.parse(r.v);
             if (r.k === "site_tokens" && r.v) priorTokens = JSON.parse(r.v);
@@ -11525,6 +11544,10 @@ async function handleRequest(request, env, ctx) {
             // who attached a logo and then asked for any page change would have
             // watched it disappear, with no error and nothing to point at.
             if (r.k === "site_logo" && typeof r.v === "string") priorLogo = r.v;
+            // AND THE TAB ICON, for the identical reason one line up. A
+            // revise that does not carry it publishes the site back onto the
+            // mark drawn from its initials.
+            if (r.k === "site_icon" && typeof r.v === "string") priorIcon = r.v;
           }
         } catch (e) { console.error("look read failed:", slug, e && e.message); }
       }
@@ -11737,6 +11760,7 @@ async function handleRequest(request, env, ctx) {
             // logo is not something a designer can name, so it has no business
             // in `EDIT_FIELDS` and would be dropped by that merge if it were.
             logo: priorLogo,
+            icon: priorIcon,
             auth: request.headers.get("Authorization") || "",
             mark: (n) => tr.at(n),
           });
@@ -12659,14 +12683,31 @@ async function handleRequest(request, env, ctx) {
                 // ITS OWN `_meta` KEY, never a field on `site_look`: that object
                 // is rebuilt from `EDIT_FIELDS` by `mergeLook`, so a logo stored
                 // on it would be dropped by the next colour change.
-                save: async ({ logo }) => {
-                  await sqlQuery(ldb, "INSERT INTO _meta (k,v) VALUES ('site_logo', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v", [String(logo || "")]);
+                // TWO KEYS, ONE PER SLOT, and the module names which. The header
+                // logo and the tab icon are different pieces of artwork — a
+                // wordmark is legible at a few hundred pixels and a smear at 16
+                // — so a site can have both, and setting one must not clear the
+                // other. Written from the key the module chose rather than from
+                // a flag re-read here, or the two could disagree about where the
+                // picture went.
+                save: async (patch) => {
+                  const icon = Object.prototype.hasOwnProperty.call(patch, "icon");
+                  // TWO WHOLE STATEMENTS RATHER THAN ONE WITH THE KEY SPLICED
+                  // IN. The slot can only ever be one of two words this file
+                  // wrote, so concatenating is safe today — and a table name
+                  // built by concatenation is the habit that stops being safe
+                  // the moment somebody widens it. The value is bound either
+                  // way; only the key was ever in question.
+                  await sqlQuery(ldb, icon
+                    ? "INSERT INTO _meta (k,v) VALUES ('site_icon', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v"
+                    : "INSERT INTO _meta (k,v) VALUES ('site_logo', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v",
+                    [String((icon ? patch.icon : patch.logo) || "")]);
                 },
                 publish: () => recompileAndPublish(env, {
                   slug: ownerSlug, pages: eSrc,
                   label: versionLabel({ revise: true, changeNote: eInstruction }),
                 }),
-              }, { images: eImages, remove: eb && eb.remove === true });
+              }, { images: eImages, remove: eb && eb.remove === true, tab: eb && eb.tab === true });
 
               if (!lOut.ok) {
                 // NEVER ESCALATED. The rung above is a full revise, which cannot
@@ -12680,6 +12721,11 @@ async function handleRequest(request, env, ctx) {
               }
               return Response.json({
                 ok: true, layer: "logo", msg: lOut.msg,
+                // WHICH SLOT IT LANDED IN, from the module rather than re-read
+                // off the request: the module is what chose, and a second
+                // reading here is a second thing that can disagree about where
+                // a customer's artwork went.
+                target: lOut.target || "logo",
                 removed: !!lOut.removed, url: lOut.url || "", files: lOut.files,
                 cost: 0, usage: null,
               });

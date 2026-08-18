@@ -280,6 +280,18 @@ export const ASK_TOOL = {
           "business name — \"drop the logo\", \"remove our logo\", \"just the name is fine\". A message that ATTACHES " +
           "a picture is never a removal.",
       },
+      tab: {
+        type: "boolean",
+        description:
+          "Only when layer is \"logo\". True when the picture is for the BROWSER TAB rather than the header — " +
+          "\"this is our favicon\", \"use this as the tab icon\", \"the little icon in the tab\", \"put this on the " +
+          "bookmark\". The words \"favicon\", \"tab\" and \"bookmark\" are the signal, and each is a strong one.\n" +
+          "LEAVE IT OUT FOR AN ORDINARY LOGO. \"Here's my logo\" means the header, which is where a logo is read at " +
+          "a size that makes it legible; a wide wordmark shrunk into a 16-pixel tab is a smear, so sending one there " +
+          "on a guess gives them a worse tab than the initials they had.\n" +
+          "It also works with `remove` — \"take the favicon off\" is both fields, and puts the tab back to the mark " +
+          "drawn from the business's initials.",
+      },
       rename: {
         type: "string",
         description:
@@ -630,7 +642,13 @@ export function readEdit(input, pages) {
   // away rather than adding something visible and undoable.
   const remove = input && input.remove === true;
   const removal = remove ? { remove: true } : {};
-  if (layer !== "page") return { intent: "edit", answer: "", layer, ...(REMOVABLE_LAYERS.includes(layer) ? removal : {}) };
+  // WHICH SLOT THE ARTWORK GOES IN, read only for the layer that has two.
+  // Scoped the way `remove` is, and for the same reason: a flag carried by a
+  // layer that cannot act on it is one nothing reads, which is how this repo's
+  // dead features start. Combines with `remove` — "take the favicon off" is
+  // both, and the pair is what makes that removal hit the right slot.
+  const tab = layer === "logo" && input && input.tab === true ? { tab: true } : {};
+  if (layer !== "page") return { intent: "edit", answer: "", layer, ...tab, ...(REMOVABLE_LAYERS.includes(layer) ? removal : {}) };
   const want = normalizePagePath(input.page);
   if (!want) return { intent: FALLBACK_WITH_SITE, answer: "" };
   const known = (Array.isArray(pages) ? pages : []).map(normalizePagePath).filter(Boolean);

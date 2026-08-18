@@ -7,7 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { normalizeLang, initials, brandHue, initialsMark, isWide, MAX_INITIALS } from "../builder/site-identity.mjs";
+import { normalizeLang, initials, brandHue, initialsMark, isWide, MAX_INITIALS, siteIconFrom } from "../builder/site-identity.mjs";
 
 /* ── the language tag ────────────────────────────────────────────────────── */
 
@@ -300,4 +300,60 @@ test("…and the designer can name one", () => {
   // "Spanish", which `normalizeLang` correctly refuses — and the site then
   // silently keeps English, which is the bug wearing a fix.
   assert.match(tool, /BCP-47/, "the designer is not told what shape a language tag is");
+});
+
+// ── THE OWNER'S OWN TAB ICON ────────────────────────────────────────────────
+
+test("siteIconFrom accepts our own upload paths and absolute https, and NOTHING else", () => {
+  // The value ends up in a `src` inside generated TypeScript. It comes out of our
+  // own `_meta`, and "it came from us" is how the first person to reach that row
+  // through some other route gets an XSS on a customer's site.
+  assert.equal(siteIconFrom("/u/sharp-fade/abc123.png").href, "/u/sharp-fade/abc123.png");
+  assert.equal(siteIconFrom("https://cdn.example.com/i.png").href, "https://cdn.example.com/i.png");
+  for (const bad of [
+    "javascript:alert(1)", "data:image/svg+xml,<svg onload=alert(1)>", "http://x.example/i.png",
+    "//evil.example/i.png", "/etc/passwd", "/u/../../secret.png", "i.png",
+  ]) {
+    const out = siteIconFrom(bad);
+    assert.equal(out && out.href, null, bad);
+    assert.equal(out && out.refused, true, bad);
+  }
+});
+
+test("a non-string is refused rather than coerced", () => {
+  // `String(["/u/a/b.png"])` is "/u/a/b.png", which would pass the shape check.
+  for (const v of [null, undefined, 7, ["/u/a/b.png"], { href: "/u/a/b.png" }]) {
+    assert.equal(siteIconFrom(v), null, String(v));
+  }
+});
+
+test("THE TYPE IS READ OFF THE EXTENSION, which is ours rather than a caller's claim", () => {
+  // `uploadName` builds the filename from the kind `sniffImage` decided off the
+  // leading bytes, so the extension is a fact about the file. It matters because
+  // the document used to declare `image/svg+xml` unconditionally, which is a lie
+  // about an owner's PNG and a browser may refuse it.
+  assert.equal(siteIconFrom("/u/a/x.png").type, "image/png");
+  assert.equal(siteIconFrom("/u/a/x.jpg").type, "image/jpeg");
+  assert.equal(siteIconFrom("/u/a/x.jpeg").type, "image/jpeg");
+  assert.equal(siteIconFrom("/u/a/x.webp").type, "image/webp");
+  assert.equal(siteIconFrom("/u/a/x.svg").type, "image/svg+xml");
+});
+
+test("AN UNKNOWN EXTENSION IS NOT A REFUSAL — it is a type we decline to claim", () => {
+  // An absent `type` is a perfectly ordinary `<link rel="icon">` that browsers
+  // sniff. Declaring the WRONG one is the failure this field exists to stop, so
+  // the honest answer to "I don't know" is silence, not a guess and not a refusal
+  // of an icon the owner really did send.
+  const out = siteIconFrom("https://cdn.example.com/icon");
+  assert.equal(out.href, "https://cdn.example.com/icon");
+  assert.equal(out.type, "");
+  assert.equal(out.refused, false);
+  // A query string or a fragment must not hide the extension.
+  assert.equal(siteIconFrom("https://cdn.example.com/i.png?v=2").type, "image/png");
+  assert.equal(siteIconFrom("https://cdn.example.com/i.svg#a").type, "image/svg+xml");
+});
+
+test("nothing sent is nothing to decide — the site draws its initials", () => {
+  assert.equal(siteIconFrom(""), null);
+  assert.equal(siteIconFrom("   "), null);
 });
