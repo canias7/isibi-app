@@ -54,7 +54,7 @@ import { scriptNameFor } from "./builder/site-worker.mjs";
 import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker } from "./builder/site-dispatch.mjs";
 import { ASKABLE as SITE_TOKEN_NAMES, valueHint as siteTokenHint, mergeTokens, parseTokens, withContrast, tokenNote, saidFor as tokenSaid } from "./builder/site-tokens.mjs";
 import { ASKABLE as SITE_STYLE_AXES, optionsFor as siteStyleOptions, axisHint as siteStyleHint, mergeStyle, parseStyle, styleNote, saidFor as styleSaid } from "./builder/site-style.mjs";
-import { extractText, applyEdits, staleTelLinks } from "./builder/site-text.mjs";
+import { extractText, applyEdits, staleContactLinks } from "./builder/site-text.mjs";
 import { runTextEdit, runDataEdit, renamePages, renameRoute, MAX_DATA_ROWS } from "./builder/site-apply.mjs";
 import { runRulesEdit } from "./builder/site-rules.mjs";
 import { runPictureEdit } from "./builder/site-picture.mjs";
@@ -12776,7 +12776,7 @@ async function handleRequest(request, env, ctx) {
               // rewritten: pairing `0113 200 0000` with `tel:+441132000000`
               // needs a heuristic, and a heuristic that fires wrongly sends a
               // customer's calls somewhere nobody asked for.
-              const staleTel = staleTelLinks(out.pages, out.edits);
+              const staleTel = staleContactLinks(out.pages, out.edits);
               return Response.json({
                 ok: true, layer: "text", applied: out.applied, files: pub.files, render: pub.render, renderNote: pub.renderNote,
                 changed: out.edits.map((e) => e.to).slice(0, 8),

@@ -63,6 +63,9 @@ function nameIsCode(before) {
   return !/^[A-Z]/.test(before.slice(open + 1));
 }
 
+/** A whole string that is exactly one email address, and nothing else. */
+const EMAIL = /^[\w.+-]+@[\w-]+(\.[\w-]+)*\.[a-z]{2,}$/i;
+
 /** A whole string that is plainly not something a person wrote to be read. */
 function looksLikeCode(v) {
   const s = String(v);
@@ -76,6 +79,19 @@ function looksLikeCode(v) {
   // What it costs, stated: a genuinely lowercase one-word label ("menu") is not
   // offered. Almost every real label is either capitalised or more than one
   // word, and the failure in the other direction is a broken site.
+  // AN EMAIL ADDRESS IS PROSE, WHATEVER ITS CASE, and it is the one thing that
+  // rule refuses wrongly. `hello@cutlerrow.com` has no whitespace and no
+  // capital, so a standalone address was treated as an identifier and could not
+  // be changed by anything — measured over the exemplars, 21 of them, including
+  // a school laying out three contact addresses as a list where not one was
+  // editable. Inside a SENTENCE it was always fine, because the sentence is
+  // what gets offered; on its own line it was invisible.
+  //
+  // ANCHORED AT BOTH ENDS AND REQUIRING A REAL TLD, so nothing that merely
+  // contains an `@` slips through. `react@18.2.0` fails on the TLD (`0` is not
+  // two letters); `@/components/ui/card` and Tailwind's `@container` have no
+  // local part and are refused by the `^[./@]` rule below in any case.
+  if (EMAIL.test(s)) return false;
   if (!/\s/.test(s) && !/[A-Z]/.test(s)) return true;
   // Paths, urls, imports, tokens, class strings, template holes.
   if (/^[./@]/.test(s)) return true;
@@ -236,12 +252,37 @@ function phoneTail(s) {
   return digits.slice(-PHONE_TAIL);
 }
 
-export function staleTelLinks(pages, edits) {
+export function staleContactLinks(pages, edits) {
   const out = [];
   const seen = new Set();
   for (const e of Array.isArray(edits) ? edits : []) {
     // The OLD text is what a stale link would still carry. A non-phone edit has
     // no tail and cannot match anything.
+    // ── AN EMAIL ADDRESS, WHICH NEEDS NO HEURISTIC AT ALL ──────────────────
+    //
+    // `mailto:hello@cutlerrow.com` carries the address VERBATIM, so the match is
+    // exact rather than a suffix guess — which is why this half could safely
+    // rewrite and the phone half could not, and it is still only reported, so
+    // there is one rule on this lane instead of two.
+    //
+    // ZERO `mailto:` LINKS IN THE CORPUS TODAY, stated rather than implied. It
+    // is here because the change that made an email address EDITABLE created the
+    // condition: a contact page with `<a href="mailto:...">` is the obvious
+    // markup, and the failure would be the identical silent misroute.
+    const wasMail = EMAIL.test(String((e && e.from) || "").trim()) ? String(e.from).trim().toLowerCase() : "";
+    if (wasMail && phoneTail(e && e.to) === "" ) {
+      for (const p of Array.isArray(pages) ? pages : []) {
+        if (!p || typeof p.source !== "string") continue;
+        for (const m of p.source.matchAll(/"mailto:([^"?]{3,120})/g)) {
+          if (m[1].trim().toLowerCase() !== wasMail) continue;
+          const key = p.path + "|" + m[1];
+          if (seen.has(key)) continue;
+          seen.add(key);
+          out.push({ page: p.path, href: "mailto:" + m[1], was: String(e.from) });
+        }
+      }
+      continue;
+    }
     const tail = phoneTail(e && e.from);
     if (!tail) continue;
     // ...and only when the number really CHANGED. Correcting the spacing around

@@ -11516,8 +11516,12 @@ function editReply(e) {
     // one — the worst failure this lane can produce for a trade.
     const stale = Array.isArray(e.staleTel) ? e.staleTel : [];
     if (stale.length) {
-      out += ' One thing I couldn’t change: the Call link still dials ' +
-        stale[0].href.replace(/^tel:/, '') + '. Say “make the call button use the new number” and I’ll fix it.';
+      const isMail = /^mailto:/.test(stale[0].href || '');
+      out += isMail
+        ? ' One thing I couldn’t change: the email link still sends to ' +
+          stale[0].href.replace(/^mailto:/, '') + '. Say “point the email link at the new address” and I’ll fix it.'
+        : ' One thing I couldn’t change: the Call link still dials ' +
+          stale[0].href.replace(/^tel:/, '') + '. Say “make the call button use the new number” and I’ll fix it.';
     }
     return out + problemNote(e.problems);
   }

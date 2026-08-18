@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { extractText, applyEdit, applyEdits , staleTelLinks } from "../builder/site-text.mjs";
+import { extractText, applyEdit, applyEdits , staleContactLinks } from "../builder/site-text.mjs";
 
 const PAGE = `import { createFileRoute, Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
@@ -297,7 +297,7 @@ const telPages = [{
 }];
 
 test("a changed phone number leaves the tel: link stale, and it is named", () => {
-  const out = staleTelLinks(telPages, [{ path: "index.tsx", from: "0113 200 0000", to: "0113 999 9999" }]);
+  const out = staleContactLinks(telPages, [{ path: "index.tsx", from: "0113 200 0000", to: "0113 999 9999" }]);
   assert.equal(out.length, 1);
   assert.equal(out[0].href, "tel:+441132000000");
   assert.equal(out[0].page, "index.tsx");
@@ -307,28 +307,28 @@ test("MATCHED ON THE LAST 9 DIGITS, because the two encodings never match exactl
   // `+441132000000` against `01132000000` — the national form drops the leading
   // zero and the international one prefixes a country code, so a whole-string
   // digit compare finds nothing and the whole check would be dead.
-  assert.equal(staleTelLinks(telPages, [{ path: "index.tsx", from: "+44 113 200 0000", to: "0113 999 9999" }]).length, 1);
+  assert.equal(staleContactLinks(telPages, [{ path: "index.tsx", from: "+44 113 200 0000", to: "0113 999 9999" }]).length, 1);
 });
 
 test("RESPACING A NUMBER IS NOT A CHANGE — every link is still correct", () => {
-  assert.deepEqual(staleTelLinks(telPages, [{ path: "index.tsx", from: "0113 200 0000", to: "0113 2000000" }]), []);
+  assert.deepEqual(staleContactLinks(telPages, [{ path: "index.tsx", from: "0113 200 0000", to: "0113 2000000" }]), []);
 });
 
 test("an ordinary wording change says nothing about phones", () => {
-  assert.deepEqual(staleTelLinks(telPages, [{ path: "index.tsx", from: "Our team", to: "The team" }]), []);
+  assert.deepEqual(staleContactLinks(telPages, [{ path: "index.tsx", from: "Our team", to: "The team" }]), []);
   // A short number is not a phone number — a price, a year, a house number.
-  assert.deepEqual(staleTelLinks(telPages, [{ path: "index.tsx", from: "£24.99", to: "£29.99" }]), []);
-  assert.deepEqual(staleTelLinks(telPages, [{ path: "index.tsx", from: "Since 1998", to: "Since 1999" }]), []);
+  assert.deepEqual(staleContactLinks(telPages, [{ path: "index.tsx", from: "£24.99", to: "£29.99" }]), []);
+  assert.deepEqual(staleContactLinks(telPages, [{ path: "index.tsx", from: "Since 1998", to: "Since 1999" }]), []);
 });
 
 test("a tel: link for a DIFFERENT number is left out of the report", () => {
   const two = [{ path: "index.tsx", source: `<a href="tel:+441132000000">a</a><a href="tel:+441619999999">b</a>` }];
-  const out = staleTelLinks(two, [{ path: "index.tsx", from: "0113 200 0000", to: "0113 999 9999" }]);
+  const out = staleContactLinks(two, [{ path: "index.tsx", from: "0113 200 0000", to: "0113 999 9999" }]);
   assert.deepEqual(out.map((o) => o.href), ["tel:+441132000000"]);
 });
 
 test("one link is reported once even when several edits match it", () => {
-  const out = staleTelLinks(telPages, [
+  const out = staleContactLinks(telPages, [
     { path: "index.tsx", from: "0113 200 0000", to: "0113 999 9999" },
     { path: "index.tsx", from: "+44 113 200 0000", to: "0113 999 9999" },
   ]);
@@ -344,13 +344,19 @@ test("the text lane carries it and the client says it", () => {
   // import line that does not exist and the name was never brought in.
   const imp = w.match(/import \{([^}]*)\} from "\.\/builder\/site-text\.mjs"/);
   assert.ok(imp, "the Worker imports the text module");
-  assert.ok(imp[1].split(",").map((x) => x.trim()).includes("staleTelLinks"),
+  assert.ok(imp[1].split(",").map((x) => x.trim()).includes("staleContactLinks"),
     "the Worker must import the name it calls: " + imp[1]);
-  assert.match(w, /const staleTel = staleTelLinks\(out\.pages, out\.edits\);/);
+  assert.match(w, /const staleTel = staleContactLinks\(out\.pages, out\.edits\);/);
   assert.match(w, /staleTel: staleTel\.length \? staleTel\.slice\(0, 4\) : undefined,/);
   const c = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
   assert.match(c, /Array\.isArray\(e\.staleTel\)/);
+  // BOTH SENTENCES, AND KEYED ON THE SCHEME. With one sentence for both, a
+  // stale email link is reported as a Call link that "still dials"
+  // hello@cutlerrow.com — which reads as the builder having lost track of what
+  // it changed. Found by mutation; the branch was covered by nothing.
   assert.match(c, /the Call link still dials/);
+  assert.match(c, /the email link still sends to/);
+  assert.match(c, /\/\^mailto:\/\.test\(stale\[0\]\.href/);
 });
 
 test("A SHORT NUMBER IS NOT A PHONE NUMBER, and the minimum is what stops a false alarm", () => {
@@ -360,10 +366,67 @@ test("A SHORT NUMBER IS NOT A PHONE NUMBER, and the minimum is what stops a fals
   // a link and a price in the copy is an ordinary shape, and without the minimum
   // changing the price reports the emergency link as stale.
   const pages = [{ path: "index.tsx", source: `<p>From £999</p><a href="tel:999">In an emergency</a>` }];
-  assert.deepEqual(staleTelLinks(pages, [{ path: "index.tsx", from: "£999", to: "£1,099" }]), []);
+  assert.deepEqual(staleContactLinks(pages, [{ path: "index.tsx", from: "£999", to: "£1,099" }]), []);
   // And a real number on the same page is still caught.
   const both = [{ path: "index.tsx", source: `<a href="tel:+441132000000">x</a><a href="tel:999">y</a>` }];
   assert.deepEqual(
-    staleTelLinks(both, [{ path: "index.tsx", from: "0113 200 0000", to: "0113 999 9999" }]).map((o) => o.href),
+    staleContactLinks(both, [{ path: "index.tsx", from: "0113 200 0000", to: "0113 999 9999" }]).map((o) => o.href),
     ["tel:+441132000000"]);
+});
+
+// ── A STANDALONE EMAIL ADDRESS IS PROSE, NOT AN IDENTIFIER ──────────────────
+
+test("a bare email address is offered — it was refused as an identifier", () => {
+  // `hello@cutlerrow.com` has no whitespace and no capital, so the rule that
+  // stops this lane renaming a column refused it too. Measured over the
+  // exemplars: 21 standalone addresses, including a school laying out three
+  // contact addresses as a list where not one was editable.
+  const got = extractText(`<p>hello@cutlerrow.com</p><p>office@bolsterstone.sheffield.sch.uk</p>`);
+  assert.deepEqual(got.map((t) => t.text),
+    ["hello@cutlerrow.com", "office@bolsterstone.sheffield.sch.uk"]);
+});
+
+test("...and NOTHING ELSE that merely contains an @ comes with it", () => {
+  const got = extractText(
+    `<div className="@md:grid-cols-2 flex"><span>menu</span></div>` +
+    `<p>created_at</p><p>react@18.2.0</p><p>@/components/ui/card</p><p>bookings</p>`,
+  ).map((t) => t.text);
+  // A column name, a bare label, a package spec, an import path and a Tailwind
+  // container query all stay refused.
+  for (const s of ["menu", "created_at", "react@18.2.0", "@/components/ui/card", "bookings"]) {
+    assert.ok(!got.includes(s), s + " must not be offered");
+  }
+});
+
+test("an address inside a sentence was always fine, and still is", () => {
+  const got = extractText(`<p>Email us at hello@cutlerrow.com</p>`).map((t) => t.text);
+  assert.deepEqual(got, ["Email us at hello@cutlerrow.com"]);
+});
+
+// ── AND THE mailto: LINK THAT GOES STALE WITH IT ────────────────────────────
+
+const mailPages = [{ path: "index.tsx", source: `<a href="mailto:hello@cutlerrow.com">Email us</a>` }];
+
+test("a changed email leaves the mailto: link stale, and it is named", () => {
+  const out = staleContactLinks(mailPages, [
+    { path: "index.tsx", from: "hello@cutlerrow.com", to: "bookings@cutlerrow.com" }]);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].href, "mailto:hello@cutlerrow.com");
+});
+
+test("THE EMAIL HALF NEEDS NO HEURISTIC — the address is carried verbatim", () => {
+  // Which is why a different address on the same page is not swept up, where the
+  // phone half has to match on a suffix.
+  const two = [{ path: "i.tsx", source: `<a href="mailto:hello@x.com">a</a><a href="mailto:sales@x.com">b</a>` }];
+  const out = staleContactLinks(two, [{ path: "i.tsx", from: "hello@x.com", to: "hi@x.com" }]);
+  assert.deepEqual(out.map((o) => o.href), ["mailto:hello@x.com"]);
+});
+
+test("case is ignored, and a query string on the link does not defeat the match", () => {
+  const p = [{ path: "i.tsx", source: `<a href="mailto:Hello@Cutlerrow.com?subject=Hi">x</a>` }];
+  assert.equal(staleContactLinks(p, [{ path: "i.tsx", from: "hello@cutlerrow.com", to: "b@c.com" }]).length, 1);
+});
+
+test("an ordinary wording change still says nothing about contact links", () => {
+  assert.deepEqual(staleContactLinks(mailPages, [{ path: "index.tsx", from: "Our team", to: "The team" }]), []);
 });
