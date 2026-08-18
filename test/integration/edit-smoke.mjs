@@ -701,6 +701,14 @@ async function main() {
   const ad = await post(`/api/site/${slug}/addon`, { instruction: wanted.ask, picker: "sonnet" });
   const a = (await jsonOf(ad)) || {};
   if (!funded(a)) return;
+  // A DECLINE IS NOW A DIFFERENT ANSWER FROM A FAILURE, and the run has to be
+  // able to tell them apart in one read. `nothing-returned` used to escalate
+  // with `problems: []` and nothing else, so two identical failures two days
+  // apart said only "the addon did not succeed" — the model's actual reason
+  // ("you already have a gallery page") existed and was thrown away. It comes
+  // back as `msg` on a 422 now, so print it: a check that cannot report WHY is
+  // how a correct refusal got read as a broken lane for days.
+  if (ad.status === 422 && a.msg) console.log(`   the addon declined: ${String(a.msg).slice(0, 200)}`);
   ok("the addon succeeds", ad.status === 200 && a.ok === true, `${ad.status} ${JSON.stringify(a).slice(0, 240)}`);
   const added = (a.added || [])[0];
   ok("…and a page was added", !!added, JSON.stringify(a.added));
