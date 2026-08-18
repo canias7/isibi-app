@@ -196,9 +196,54 @@ test("A PAGE THAT DOES NOT EXIST IS DROPPED AND NAMED — it would 404 from ever
   assert.equal(r.dropped[0].href, "/gallery");
 });
 
-test("an in-page anchor is allowed — PAGE_RULES blesses them and the corpus is full of them", () => {
+test("A BARE ANCHOR IS DROPPED ON A MULTI-PAGE SITE — it is dead on every page but one", () => {
+  // `lintPages` exempts anchors and 256 of the corpus's hrefs are one, but those
+  // are IN-BODY links on the page holding the section. A menu is shown on every
+  // page, so `#prices` there means "a section of whatever page you are on" and
+  // finds nothing on the other four.
   const r = readNav(reply([{ label: "Prices", href: "#prices" }]), ROUTES);
+  assert.deepEqual(r.links, []);
+  assert.equal(r.dropped[0].why, "page-local");
+});
+
+test("...AND IS KEPT ON A ONE-PAGE SITE, where the menu IS in-page navigation", () => {
+  // Refusing it there would empty the menu entirely. `menu-1`, one of the two
+  // generated samples in this repo, is exactly that shape.
+  const r = readNav(reply([{ label: "Prices", href: "#prices" }]), ["/"]);
   assert.deepEqual(r.links, [{ label: "Prices", href: "#prices" }]);
+});
+
+test("A PAGE PLUS A FRAGMENT IS THE FORM THAT WORKS FROM EVERYWHERE", () => {
+  // `/#prices` is the correct way to put a section of the home page in a menu.
+  // Checked against the route with the fragment split off, or it reads as a page
+  // called "/#prices" and is dropped as nonexistent.
+  const r = readNav(reply([{ label: "Prices", href: "/#prices" }, { label: "Kit", href: "/book#kit" }]), ROUTES);
+  assert.deepEqual(r.links, [{ label: "Prices", href: "/#prices" }, { label: "Kit", href: "/book#kit" }]);
+});
+
+test("a fragment on a page that does not exist is still dropped", () => {
+  const r = readNav(reply([{ label: "X", href: "/ghost#a" }]), ROUTES);
+  assert.deepEqual(r.links, []);
+  assert.equal(r.dropped[0].why, "no-such-page");
+});
+
+test("a malformed fragment is refused on both forms", () => {
+  for (const href of ["#a b", "/#a b", "#" + "x".repeat(80)]) {
+    assert.deepEqual(readNav(reply([{ label: "X", href }]), ROUTES).links, [], href);
+  }
+});
+
+test("the reply NAMES a page-local anchor and says how to fix it", () => {
+  const msg = navReply({
+    links: [{ label: "Book", href: "/book" }],
+    dropped: [{ label: "Prices", href: "#prices", why: "page-local" }],
+    changed: ["index.tsx"],
+  });
+  assert.match(msg, /Prices/);
+  assert.match(msg, /section of whichever page/);
+  // Not folded into the generic count, which reads as "something went wrong"
+  // about a menu item that is nearly right.
+  assert.doesNotMatch(msg, /not usable/);
 });
 
 test("an absolute https address is allowed — a social profile in a menu is ordinary", () => {
@@ -235,7 +280,7 @@ test("a duplicate href is dropped — two menu items to one page", () => {
 test("a label is bounded, and a menu is bounded", () => {
   const long = readNav(reply([{ label: "x".repeat(500), href: "/book" }]), ROUTES);
   assert.equal(long.links[0].label.length, MAX_LABEL);
-  const many = readNav(reply(Array.from({ length: 40 }, (_, i) => ({ label: "L" + i, href: "#a" + i }))), ROUTES);
+  const many = readNav(reply(Array.from({ length: 40 }, (_, i) => ({ label: "L" + i, href: "/#a" + i }))), ROUTES);
   assert.equal(many.links.length, MAX_NAV_ITEMS);
 });
 
@@ -456,4 +501,29 @@ test("driven over every page the generator learns from: no false positives, and 
   for (const s of slots) {
     assert.deepEqual(parseNavItems(renderNav(s.items)), s.items, s.page);
   }
+});
+
+test("driven over the only pages in this repo the GENERATOR wrote", () => {
+  // THE EXEMPLARS ARE PAGES WE WROTE, in the house style, so a rule tuned on
+  // them is tuned to us rather than to the thing being linted. These eight files
+  // are committed eval output — the only corpus here written by the generator —
+  // and they are what changed the anchor rule: `booking-1`'s home page carries
+  // three bare `#` anchors in its menu and its other three pages carry none.
+  const dir = new URL("../docs/auth-audit/pages/", import.meta.url).pathname;
+  const sites = fs.readdirSync(dir).filter((d) => fs.statSync(path.join(dir, d)).isDirectory());
+  assert.ok(sites.length >= 3, "the generated samples were found: " + sites.length);
+
+  let withNav = 0;
+  for (const site of sites) {
+    const files = fs.readdirSync(path.join(dir, site)).filter((f) => f.endsWith(".tsx"));
+    const pages = files.map((f) => ({ path: f, source: fs.readFileSync(path.join(dir, site, f), "utf8") }));
+    for (const s of navSlots(pages)) {
+      withNav++;
+      // The two properties that decide whether this lane can touch generator
+      // output at all: every item is readable, and it survives a round trip.
+      assert.ok(s.items.every((it) => it.label && it.href), site + "/" + s.page);
+      assert.deepEqual(parseNavItems(renderNav(s.items)), s.items, site + "/" + s.page);
+    }
+  }
+  assert.ok(withNav >= 4, "menus were found in the generated samples: " + withNav);
 });

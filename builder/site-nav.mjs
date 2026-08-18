@@ -203,9 +203,13 @@ export const NAV_TOOL = {
               type: "string",
               description:
                 "Where it goes. A page of THIS site, exactly as listed below — \"/book\", \"/\" for the home page. " +
-                "It may also be \"#something\" for a section of the page they are already on, or a full https:// " +
-                "address for somewhere else entirely, like a social profile. Anything that is not one of those three " +
-                "is dropped, because a menu item leading nowhere is worse than one that is missing.",
+                "It may also be a full https:// address for somewhere else entirely, like a social profile.\n" +
+                "FOR A SECTION OF A PAGE, PUT THE PAGE IN FRONT OF IT: \"/#prices\", not \"#prices\". This menu is " +
+                "shown on EVERY page, and a bare \"#prices\" means \"a section of whatever page you are on right now\" " +
+                "— so it does nothing at all on every page but the one holding that section. With the page in front " +
+                "it works from anywhere. (On a site with only one page a bare \"#prices\" is right, because there is " +
+                "nowhere else to be.)\n" +
+                "Anything else is dropped, because a menu item leading nowhere is worse than one that is missing.",
             },
           },
           required: ["label", "href"],
@@ -313,11 +317,26 @@ export function readNav(reply, routes) {
 /**
  * Why an href cannot be a menu item, or "" if it can.
  *
- * THREE SHAPES ARE ALLOWED and everything else is refused. A path of this site,
- * because a menu item to a page that does not exist 404s from every page at
- * once. An in-page `#anchor`, which `PAGE_RULES` blesses and `lintPages` exempts
- * and 256 of the corpus's hrefs use. And an absolute https address, because a
- * footer link to an Instagram profile is an ordinary thing a business wants.
+ * A PATH OF THIS SITE, because a menu item to a page that does not exist 404s
+ * from every page at once. Optionally with a fragment — `/#prices` is the
+ * correct way to put a section of the home page in a menu, and it works from
+ * every page, which is the whole difference from the case below.
+ *
+ * AN ABSOLUTE https ADDRESS, because a link to an Instagram profile is an
+ * ordinary thing a business wants in its menu.
+ *
+ * A BARE `#anchor` ONLY ON A SINGLE-PAGE SITE, and this is the rule real
+ * generator output changed my mind about. `lintPages` exempts anchors and 256
+ * of the corpus's hrefs are one — but those are IN-BODY links on the page that
+ * holds the section. A menu is shown on every page, so `#prices` in one is dead
+ * on all of them but the home page: the browser looks for that section on the
+ * page the visitor is already on and finds nothing. Measured on the only pages
+ * in this repo written by the generator itself: `booking-1`'s home page carries
+ * `#prices`, `#teachers`, `#find-us` and its other three pages carry none.
+ *
+ * ON A ONE-PAGE SITE IT IS THE OPPOSITE — the menu IS in-page navigation and
+ * nothing else, so refusing anchors there would empty it entirely. `menu-1`, the
+ * other generated sample, is exactly that: one page, an anchors-only menu.
  *
  * `//evil.example` IS NOT A PATH, and it is the one shape a naive
  * `startsWith("/")` gets wrong — protocol-relative, so it is another origin
@@ -326,10 +345,19 @@ export function readNav(reply, routes) {
  */
 function hrefProblem(href, known) {
   if (href.startsWith("//")) return "offsite";
-  if (href.startsWith("#")) return /^#[\w-]{1,60}$/.test(href) ? "" : "bad-anchor";
+  if (href.startsWith("#")) {
+    if (!/^#[\w-]{1,60}$/.test(href)) return "bad-anchor";
+    return known.size > 1 ? "page-local" : "";
+  }
   if (/^https:\/\/[^\s"'<>]+$/i.test(href)) return "";
   if (!href.startsWith("/")) return "not-a-path";
-  return known.has(href) ? "" : "no-such-page";
+  // The fragment is split off before the route is checked, or `/#prices` — the
+  // one form that works from every page — reads as a page called `/#prices`.
+  const hash = href.indexOf("#");
+  const at = hash < 0 ? href : href.slice(0, hash);
+  const frag = hash < 0 ? "" : href.slice(hash);
+  if (frag && !/^#[\w-]{1,60}$/.test(frag)) return "bad-anchor";
+  return known.has(at) ? "" : "no-such-page";
 }
 
 /**
@@ -419,7 +447,16 @@ export function navReply({ links = [], dropped = [], changed = [] } = {}) {
     msg += " I left out " + bad.map((d) => d.label || d.href).join(", ") +
       " — there's no " + bad.map((d) => d.href).join(" or ") + " page on the site yet.";
   }
-  const other = dropped.length - bad.length;
+  // A PAGE-LOCAL ANCHOR GETS ITS OWN SENTENCE, because the fix is one word and
+  // they can ask for it. Folded into the generic count it reads as "something
+  // went wrong" about a menu item that is nearly right.
+  const local = dropped.filter((d) => d.why === "page-local");
+  if (local.length) {
+    msg += " I left out " + local.map((d) => d.label || d.href).join(", ") +
+      " — that points at a section of whichever page you're on, so it would do nothing on the others. " +
+      "Say which page it's on and I'll link to it properly.";
+  }
+  const other = dropped.length - bad.length - local.length;
   if (other > 0) msg += " " + other + (other === 1 ? " item was" : " items were") + " not usable and left out.";
   return msg;
 }
