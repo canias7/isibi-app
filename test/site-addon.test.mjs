@@ -679,7 +679,14 @@ test("the route hands a considered refusal to the customer, not to the build lan
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   const at = w.indexOf("const aMerge = mergeAddonPages(");
   assert.ok(at > 0, "the addon merge call moved");
-  const after = w.slice(at, at + 1400);
+  // TO A LANDMARK, NOT A BYTE COUNT. This read `at + 1400` and went red on a
+  // correct change the moment a documented branch was added between the two
+  // anchors — a test about how much prose sits in the region, on the recurring
+  // own-goal this repo records as "a window sized in BYTES stops covering what
+  // it was written for the moment comments are added above it".
+  const end = w.indexOf("recompileAndPublish(env, {", at);
+  assert.ok(end > at, "the publish that bounds this region moved — rescope this");
+  const after = w.slice(at, end);
   const refuse = after.indexOf("if (!aMerge.ok && aMerge.msg)");
   const climb = after.indexOf("return aEscalate(aMerge.reason");
   assert.ok(refuse > 0, "a refusal with a reason still escalates to the build lane");
@@ -1166,4 +1173,67 @@ test("an options object with no `order` does not borrow the NEXT list's", () => 
     { table: "a", order: "", dir: "" },
     { table: "b", order: "name", dir: "asc" },
   ]);
+});
+
+// ── A CONSIDERED REFUSAL FROM THE MODEL DOES NOT CLIMB THE LADDER ────────────
+//
+// MEASURED LIVE, TWICE, TWO DAYS APART. `edit smoke` asked for "a gallery page
+// showing photographs of our work" against a fixture whose `/work` page IS that
+// gallery and is already in the header. The model correctly returned no files —
+// and `nothing-returned` escalated, so asking for something the site already has
+// rewrote every page of it for ~25 credits. Byte-identical failures on
+// 2026-08-16 and 2026-08-18 is what ruled out generator variance.
+
+test("the addon reports the model's own note instead of escalating", () => {
+  // The rule is already written one branch up — "'Remove the home page' has an
+  // answer, and sending it up rebuilds a customer's site, for ~25 credits" — and
+  // it covered our merge's refusals and not the model's, which is the commonest
+  // case of it by far.
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const at = w.indexOf("const aMerge = mergeAddonPages(aSrc, aValid.pages, aRemove);");
+  assert.ok(at > 0, "the addon merge moved — rescope this");
+  const win = w.slice(at, w.indexOf("recompileAndPublish(env, {", at));
+
+  // THE NOTE IS READ OFF THE GENERATION, not invented here.
+  assert.match(win, /aGen\.input\.notes === "string"/,
+    "the model's note is not read, so a considered refusal cannot be told from a failure");
+  // AND IT ANSWERS RATHER THAN ESCALATING — 422 with the note as the message.
+  assert.match(win, /aMerge\.reason === "nothing-returned" && aNote/,
+    "the refusal branch is gone or no longer requires a note");
+  // …AND IT COMES BEFORE THE ESCALATION, or it can never fire.
+  const refusal = win.indexOf('aMerge.reason === "nothing-returned"');
+  const climb = win.indexOf("return aEscalate(aMerge.reason");
+  assert.ok(refusal > 0 && climb > 0 && refusal < climb,
+    "the refusal must be decided before the escalation, or the ladder wins every time");
+});
+
+test("NOTHING SAID WHY STILL ESCALATES, which is what keeps the recovery", () => {
+  // A model that fell over writes no note, and that really is "this lane could
+  // not answer" — the one question escalation exists to settle. Requiring the
+  // note is what separates the two, so a branch that fired without one would
+  // turn every generator failure into a dead end.
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const at = w.indexOf("const aMerge = mergeAddonPages(aSrc, aValid.pages, aRemove);");
+  const win = w.slice(at, w.indexOf("recompileAndPublish(env, {", at));
+  assert.match(win, /if \(!aMerge\.ok\) return aEscalate\(aMerge\.reason/,
+    "the unexplained-failure path no longer escalates");
+});
+
+test("the live check asks for a page the fixture does NOT have", () => {
+  // The check failed deterministically for days with the code right, because a
+  // hardcoded instruction collided with a REUSED fixture's existing pages. A
+  // fresh site each run had whatever shape the generator gave it; a reused one
+  // is fixed, so the collision is permanent — and invisible from the assertion,
+  // which only says the addon did not succeed.
+  const t = fs.readFileSync(new URL("../test/integration/edit-smoke.mjs", import.meta.url), "utf8");
+  assert.match(t, /const haveRoutes = new Set\(\(b\.files \|\| \[\]\)\.map\(routeOfAdded\)/,
+    "the addon instruction is no longer derived from what the site already has");
+  assert.match(t, /WANTED\.find\(\(w\) => !haveRoutes\.has\(w\.route\)\)/,
+    "it no longer picks a route the site is missing");
+  // AND THE ASSERTION BELOW IT IS NOT VACUOUS. `[].every(...)` is `true` and
+  // `0 <= 5` is `true`, so it reported `ok` on both runs where the lane returned
+  // nothing at all — in the one check meant to catch a lane running away with
+  // the site.
+  assert.match(t, /if \(a\.ok === true\) \{\s*\n\s*ok\("…and every page it changed was carrying the new link"/,
+    "the changed-pages assertion can still pass on a run where the addon did nothing");
 });

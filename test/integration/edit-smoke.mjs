@@ -536,11 +536,33 @@ async function main() {
     `${reopened.status} ${(await reopened.text().catch(() => "")).slice(0, 200)}`);
 
   // ── THE ADDON LANE ────────────────────────────────────────────────────────
-  console.log("\nadding a page, then taking it away…");
-  const ad = await post(`/api/site/${slug}/addon`, {
-    instruction: "Add a gallery page showing photographs of our work, and link to it from the header",
-    picker: "sonnet",
-  });
+  //
+  // ASK FOR A PAGE THE SITE DOES NOT ALREADY HAVE, and derive which rather than
+  // hardcoding one.
+  //
+  // THIS CHECK FAILED DETERMINISTICALLY FOR DAYS AND THE CODE WAS RIGHT. It
+  // asked for "a gallery page showing photographs of our work" against a fixture
+  // whose `/work` page IS that gallery and is already linked from the header, so
+  // the model correctly returned nothing and the lane correctly refused.
+  // Byte-identical failures on 2026-08-16 and 2026-08-18, which is what told
+  // variance apart from a mismatch.
+  //
+  // IT BECAME WRONG WHEN THE FIXTURE STOPPED BEING REBUILT. A fresh site each
+  // run had whatever shape the generator gave it; a REUSED one has a fixed set
+  // of pages, so a hardcoded instruction can collide with it permanently — and
+  // the collision is invisible from the assertion, which only says the addon did
+  // not succeed. A derived instruction cannot collide, and it also survives the
+  // fixture growing a page from some later run.
+  const haveRoutes = new Set((b.files || []).map(routeOfAdded).filter(Boolean));
+  const WANTED = [
+    { route: "/team", ask: "Add a page introducing the barbers who work here, and link to it from the header" },
+    { route: "/prices", ask: "Add a page listing what everything costs, and link to it from the header" },
+    { route: "/contact", ask: "Add a page with how to find us and get in touch, and link to it from the header" },
+    { route: "/faq", ask: "Add a page answering the questions customers ask most, and link to it from the header" },
+  ];
+  const wanted = WANTED.find((w) => !haveRoutes.has(w.route)) || WANTED[0];
+  console.log(`   asking for ${wanted.route} — the site already has ${[...haveRoutes].join(", ") || "(none)"}`);
+  const ad = await post(`/api/site/${slug}/addon`, { instruction: wanted.ask, picker: "sonnet" });
   const a = (await jsonOf(ad)) || {};
   if (!funded(a)) return;
   ok("the addon succeeds", ad.status === 200 && a.ok === true, `${ad.status} ${JSON.stringify(a).slice(0, 240)}`);
@@ -564,9 +586,16 @@ async function main() {
   // The real property is that it does not rewrite MORE than the site has, and
   // that whatever it kept, it can name.
   const totalPages = (b.files || []).length + 1; // +1 for the page it just added
-  ok("…and every page it changed was carrying the new link",
-    kept2 <= totalPages && (a.changed || []).every((f) => typeof f === "string" && f),
-    `changed=${JSON.stringify(a.changed)} reverted=${JSON.stringify(a.reverted)} of ${totalPages} pages`);
+  // GATED ON THE ADDON HAVING WORKED, because every clause of this is vacuous
+  // otherwise: `[].every(...)` is `true` and `0 <= 5` is `true`, so it reported
+  // `ok` on both runs where the lane returned nothing at all. The `[].every`
+  // shape this repo keeps recording, in the one assertion meant to catch a lane
+  // running away with the site.
+  if (a.ok === true) {
+    ok("…and every page it changed was carrying the new link",
+      kept2 <= totalPages && (a.changed || []).every((f) => typeof f === "string" && f),
+      `changed=${JSON.stringify(a.changed)} reverted=${JSON.stringify(a.reverted)} of ${totalPages} pages`);
+  }
   if (put) console.log(`   reverted ${put} page(s) the model rewrote for no reason: ${JSON.stringify(a.reverted)}`);
 
   if (added) {

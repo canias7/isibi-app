@@ -13496,7 +13496,39 @@ async function handleRequest(request, env, ctx) {
             if (!aMerge.ok && aMerge.msg) {
               return Response.json({ ok: false, error: aMerge.reason, cost: 0, msg: aMerge.msg.trim() }, { status: 422 });
             }
-            // NOTHING USABLE CAME BACK — escalate rather than report success.
+            // …AND NEITHER DOES A CONSIDERED REFUSAL FROM THE MODEL, which is the
+            // same rule one branch up and did not cover the commonest case of it.
+            //
+            // MEASURED LIVE, TWICE, TWO DAYS APART: `edit smoke` asks for "a
+            // gallery page showing photographs of our work" against a fixture
+            // whose `/work` page IS that gallery and is already in the header.
+            // The model correctly returns no files — and `nothing-returned`
+            // escalated, so asking for something the site already has rewrote
+            // every page of it for ~25 credits. Byte-identical failure on
+            // 2026-08-16 and 2026-08-18, which is what rules out variance.
+            //
+            // THE MODEL'S OWN SENTENCE IS THE EVIDENCE. `notes` is a field this
+            // call already pays for and the build path already renders; a model
+            // that engaged with the task and declined writes one, and a call
+            // that fell over does not. So a note is what separates "there is
+            // nothing to do here" from "this lane could not answer", which is
+            // the only question escalation exists to settle.
+            //
+            // THE ASYMMETRY DECIDES IT, and it points the other way from this
+            // file's usual rule. Reporting when we should have escalated costs
+            // one round trip and nothing on the meter — they rephrase.
+            // Escalating when we should have reported rewrites a customer's
+            // whole site in reply to a request that had a one-sentence answer.
+            //
+            // `cost: 0` matches its sibling above and is HONEST here rather than
+            // conventional: `aCost` is collected after the publish, so a refusal
+            // on this path really does take nothing off the ledger.
+            const aNote = aGen && aGen.input && typeof aGen.input.notes === "string" ? aGen.input.notes.trim() : "";
+            if (!aMerge.ok && aMerge.reason === "nothing-returned" && aNote) {
+              return Response.json({ ok: false, error: aMerge.reason, cost: 0, msg: aNote.slice(0, 500) }, { status: 422 });
+            }
+            // NOTHING USABLE CAME BACK AND NOTHING SAID WHY — escalate rather
+            // than report success.
             if (!aMerge.ok) return aEscalate(aMerge.reason, { problems: aProblems.slice(0, 4) });
 
             const aPub = await recompileAndPublish(env, {
