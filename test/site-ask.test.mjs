@@ -1631,3 +1631,106 @@ test("the route response carries `failed` when the routing model threw", () => {
   assert.match(win, /failed:\s*routed\.failed === true \|\| undefined/,
     "the routing fallback flag is dropped again — an outage reads as a decision");
 });
+
+// ── The router can say WHERE a page is moving to ────────────────────────────
+
+test("readEdit carries a new address for a page the site really has", () => {
+  const out = readEdit({ layer: "page", page: "/what-we-do", rename: "/services" }, ["/", "/what-we-do"]);
+  assert.equal(out.intent, "edit");
+  assert.equal(out.layer, "page");
+  assert.equal(out.page, "/what-we-do", "the page being moved must still be named");
+  assert.equal(out.rename, "/services");
+});
+
+test("A REMOVAL BEATS A MOVE, because a model answering both has contradicted itself", () => {
+  // Of the two readings, "delete it" is the one they plainly asked for if they
+  // asked for it at all — moving a page on its way out is work nobody wanted.
+  const out = readEdit({ layer: "page", page: "/gallery", remove: true, rename: "/work" }, ["/", "/gallery"]);
+  assert.equal(out.remove, true);
+  assert.ok(!("rename" in out), "a page was moved and deleted in one answer");
+});
+
+test("a heading is not an address", () => {
+  // The field's whole risk: "call that page Services" is about the WORDS on it.
+  // Anything that is not a path must not reach `renameRoute` as one.
+  for (const junk of ["Services", "", "   ", null, 7, {}, ["/a"], true]) {
+    const out = readEdit({ layer: "page", page: "/what-we-do", rename: junk }, ["/", "/what-we-do"]);
+    assert.equal(out.intent, "edit", "a junk rename broke the edit: " + JSON.stringify(junk));
+    assert.ok(!("rename" in out), "a non-path reached the renamer: " + JSON.stringify(junk));
+  }
+});
+
+test("moving a page to the address it already has is not a move", () => {
+  const out = readEdit({ layer: "page", page: "/book", rename: "/book" }, ["/", "/book"]);
+  assert.ok(!("rename" in out), "a page was 'moved' to where it already is");
+});
+
+test("only the page layer can move anything", () => {
+  // Every other layer would carry a field nothing acts on, which is how this
+  // repo's dead features start — the same reason `remove` is scoped to
+  // REMOVABLE_LAYERS rather than read for all seven.
+  for (const layer of EDIT_LAYERS.filter((l) => l !== "page")) {
+    const out = readEdit({ layer, rename: "/services" }, ["/", "/what-we-do"]);
+    assert.ok(!("rename" in out), layer + " carries a rename it cannot act on");
+  }
+});
+
+// EVERY FIELD `readEdit` READS MUST REACH THE ROUTE — derived from the FUNCTION'S
+// SOURCE, not from inputs somebody remembered to drive.
+//
+// The sweep below it drives `readEdit` and collects the keys it RETURNS, which
+// is derived at one end and hand-listed at the other: it drove `{}` and
+// `{remove: true}`, so a field the model can send and nobody thought to pass in
+// never appears in the result and the guard stays green. `rename` went straight
+// through it. Reading the function for `input.<name>` cannot miss one, because
+// the read is the thing that makes the field exist at all.
+test("every field readEdit READS off the model is forwarded by the route", () => {
+  const src = fs.readFileSync(new URL("../builder/site-ask.mjs", import.meta.url), "utf8");
+  const body = src.slice(src.indexOf("export function readEdit"));
+  const fn = body.slice(0, body.indexOf("\n}\n"));
+  assert.ok(fn.length > 200, "the readEdit window is empty — the anchor moved");
+  const read = new Set([...fn.matchAll(/\binput\.([a-zA-Z][\w$]*)/g)].map((m) => m[1]));
+  assert.ok(read.has("rename") && read.has("remove") && read.has("page"),
+    "the scan sees no fields at all — readEdit changed shape, rescope this");
+  const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const resp = worker.slice(worker.indexOf("intent: routed.intent,"));
+  const window = resp.slice(0, resp.indexOf("usage: routed.usage"));
+  for (const field of read) {
+    assert.match(window, new RegExp("\\b" + field + ":\\s*routed\\."),
+      `readEdit reads \`${field}\` off the model and the route never sends it — the edit lane cannot act on it`);
+  }
+});
+
+test("the composer carries the new address to the edit route", () => {
+  // The other end of the same wire. Either alone passes while it is cut, which
+  // is the state `remove` was found in.
+  const client = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+  assert.match(client, /rename:\s*typeof d\.rename === "string"/,
+    "the composer no longer carries the new address to the edit route");
+});
+
+test("THE PAGE BRANCH ACTUALLY MOVES THE PAGE, and spends no model call doing it", () => {
+  // The layer below every test above. `renameRoute` was written, committed,
+  // tested and had ZERO CALLERS — correct and unreachable — which is the exact
+  // failure this guard exists to make impossible to repeat.
+  const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(worker, /import \{[^}]*\brenameRoute\b[^}]*\} from "\.\/builder\/site-apply\.mjs"/,
+    "renameRoute is used without being imported — a ReferenceError on the edit path");
+  const at = worker.indexOf("const wantRename =");
+  assert.ok(at > 0, "the rename branch is gone from the page layer");
+  const branch = worker.slice(at, worker.indexOf("const eDb = await siteBackendBySlug", at));
+  assert.ok(branch.length > 200, "the rename window is empty — the anchor moved");
+  assert.match(branch, /renameRoute\(eSrc, wantRoute, wantRename, routeOf\)/,
+    "the branch never calls the renamer");
+  // THE REDIRECT PAIR IS THE POINT. Without it the publish sees a delete plus an
+  // add and 301s the old address to the home page — the customer's indexed links
+  // land on the wrong page, which is the whole reason renameRoute returns one.
+  assert.match(branch, /renamed: rn\.redirect/,
+    "the move publishes without its redirect pair — the old address 301s to home");
+  // AND IT IS FREE. A path is not prose: the router has already resolved which
+  // page and where it is going, so there is nothing for a model to work out —
+  // the same argument the deletion branch above it makes.
+  assert.ok(!/generateSitePages|anthropicMessages/.test(branch),
+    "the rename branch makes a model call — a path needs no generation");
+  assert.match(branch, /cost: 0/, "a rename is billed as though something was generated");
+});

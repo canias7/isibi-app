@@ -55,7 +55,7 @@ import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker } from "./builder
 import { ASKABLE as SITE_TOKEN_NAMES, valueHint as siteTokenHint, mergeTokens, parseTokens, withContrast, tokenNote, saidFor as tokenSaid } from "./builder/site-tokens.mjs";
 import { ASKABLE as SITE_STYLE_AXES, optionsFor as siteStyleOptions, axisHint as siteStyleHint, mergeStyle, parseStyle, styleNote, saidFor as styleSaid } from "./builder/site-style.mjs";
 import { extractText, applyEdits } from "./builder/site-text.mjs";
-import { runTextEdit, runDataEdit, renamePages, MAX_DATA_ROWS } from "./builder/site-apply.mjs";
+import { runTextEdit, runDataEdit, renamePages, renameRoute, MAX_DATA_ROWS } from "./builder/site-apply.mjs";
 import { runRulesEdit } from "./builder/site-rules.mjs";
 import { runPictureEdit } from "./builder/site-picture.mjs";
 import { runLogoEdit } from "./builder/site-logo.mjs";
@@ -6761,7 +6761,7 @@ async function dropSiteWorker(env, slug) {
  * assets exist is what makes the switch atomic from a visitor's side. Then the
  * sweep removes whatever the new build does not use.
  */
-async function writeSiteDistToR2(env, slug, dist, meta, pages) {
+async function writeSiteDistToR2(env, slug, dist, meta, pages, renamed = null) {
   const wrote = new Set();
   // ── WHAT THIS PUBLISH TELLS A SEARCH ENGINE (site-seo.mjs) ────────────────
   //
@@ -6808,7 +6808,11 @@ async function writeSiteDistToR2(env, slug, dist, meta, pages) {
         prevUnreadable = true;
         console.error("previous manifest unreadable:", slug, e && e.message);
       }
-      const redirects = mergeRedirects(prev, man.routes);
+      // `renamed` IS THE ONLY old→new PAIR THE DIFF CANNOT DERIVE. A rename is
+      // indistinguishable from a delete plus an add by the time it reaches here,
+      // so without the explicit pair the customer's old address 301s to the home
+      // page rather than to the page they just renamed.
+      const redirects = mergeRedirects(prev, man.routes, renamed);
       manifest = prevUnreadable ? null : { routesCsv: routesContent(man), redirectsCsv: redirectsContent(redirects) };
       // NO ROUTES MEANS NO SITEMAP, rather than an empty one. A site whose every
       // page is a dynamic segment yields an empty list here, and publishing
@@ -7047,7 +7051,7 @@ function compileMsg(pub, theirs) {
     : theirs;
 }
 
-async function recompileAndPublish(env, { slug, pages, label }) {
+async function recompileAndPublish(env, { slug, pages, label, renamed = null }) {
   let look = null, tokens = null, style = null, logo = "";
   try {
     // `siteBackendBySlug` RETURNS THE CONNECTION STRING, not a record. This read
@@ -7178,7 +7182,7 @@ async function recompileAndPublish(env, { slug, pages, label }) {
     image: await siteOgImage(env, slug),
     url: siteUrlFor(slug, "https://" + APP_ZONE),
     slug,
-  }, pages);
+  }, pages, renamed);
   try {
     await archiveVersion(versionDeps(env), {
       slug,
@@ -10738,6 +10742,12 @@ async function handleRequest(request, env, ctx) {
         // it holds by a property of another function one file over — the shape
         // this repo keeps a note for instead of a false assertion.
         remove: routed.intent === "edit" && routed.remove === true ? true : undefined,
+        // AND WHERE THE PAGE IS MOVING TO — the twelfth field of the same shape,
+        // added WITH its wire rather than after a live run found it undefined.
+        // `renameRoute` has existed and been correct since it was committed and
+        // had zero callers; a field decided here and dropped in this object is
+        // exactly how it stayed unreachable.
+        rename: routed.intent === "edit" && typeof routed.rename === "string" ? routed.rename : undefined,
         // The question to put in front of the build, already cleaned into
         // something renderable — two to four options, deduped, capped. The
         // client shows it verbatim rather than re-deciding anything, so there is
@@ -12947,6 +12957,53 @@ async function handleRequest(request, env, ctx) {
                 return Response.json({
                   ok: true, layer: "page", page: wantRoute, removed: cut.removed,
                   files: cutPub.files, render: cutPub.render, renderNote: cutPub.renderNote, cost: 0,
+                });
+              }
+
+              // ── MOVING THE PAGE, ALSO WITH NO MODEL CALL ─────────────────
+              //
+              // Same shape and same argument as the deletion above: the router
+              // has already resolved which page they mean, and where it is going
+              // is a path rather than prose — so there is nothing for a model to
+              // work out. `renameRoute` rewrites the route declaration on this
+              // page and every `<Link>` to it on every other, which is what makes
+              // it a rename rather than a break: those links are typed against
+              // the tree `tsr generate` emits, so leaving one behind is a compile
+              // error that costs the whole build.
+              //
+              // ITS REFUSALS ARE ANSWERS, NOT ESCALATIONS. "There is already a
+              // page at /work" and "the home page has no address to move" are
+              // things the customer can act on, and the rung above cannot move a
+              // page either — sending it up would spend ~25 credits to fail
+              // differently. The deletion branch's own `cut.msg` case makes the
+              // same call.
+              const wantRename = typeof (eb && eb.rename) === "string" ? eb.rename.trim().toLowerCase() : "";
+              if (wantRename) {
+                const rn = renameRoute(eSrc, wantRoute, wantRename, routeOf);
+                if (!rn.ok) {
+                  return Response.json({ ok: false, error: "rename", cost: 0, msg: "I couldn't move that page — " + rn.reason + "." }, { status: 422 });
+                }
+                // `renamed` IS THE POINT OF DOING IT THIS WAY. Without the
+                // explicit pair the publish sees a delete plus an add and 301s
+                // the old address to the HOME page, so every indexed link and
+                // every share lands on the wrong page rather than the moved one.
+                const mvPub = await recompileAndPublish(env, {
+                  slug: ownerSlug, pages: rn.pages, renamed: rn.redirect,
+                  label: versionLabel({ revise: true, changeNote: eInstruction }),
+                });
+                if (!mvPub.ok) {
+                  return Response.json({
+                    ok: false, error: "compile", cost: 0,
+                    msg: compileMsg(mvPub, "Moving that page left the site not compiling, so nothing changed."),
+                    detail: mvPub.detail,
+                  }, { status: 422 });
+                }
+                // NO `cost`, for the reason the deletion states: nothing was
+                // generated, and the routing call that decided this was charged
+                // where every routing call is.
+                return Response.json({
+                  ok: true, layer: "page", page: wantRoute, renamedTo: rn.redirect.to, changed: rn.changed,
+                  files: mvPub.files, render: mvPub.render, renderNote: mvPub.renderNote, cost: 0,
                 });
               }
 

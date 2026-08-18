@@ -148,20 +148,61 @@ export function parseSiteManifest(html) {
 }
 
 /**
+ * Only the moves whose destination REALLY EXISTS in this publish.
+ *
+ * The whole value of an explicit move is that the 301 lands on the renamed page
+ * instead of the home page — so a pair naming a target this publish does not
+ * serve is worse than no pair at all: it 301s a working old address onto a 404,
+ * where the derived rule would at least have reached the home page. Checked
+ * against the route list rather than trusted, because the caller's `to` comes
+ * from a model-driven lane.
+ *
+ * Tolerant of one pair or a list of them, since `renameRoute` returns a single
+ * `{from, to}` and a publish could in principle carry several.
+ */
+function normalizeMoves(renamed, routes) {
+  const list = Array.isArray(renamed) ? renamed : renamed ? [renamed] : [];
+  const out = {};
+  for (const m of list.slice(0, MAX_REDIRECTS)) {
+    if (!m || typeof m !== "object") continue;
+    const from = typeof m.from === "string" ? m.from.trim().toLowerCase() : "";
+    const to = typeof m.to === "string" ? m.to.trim().toLowerCase() : "";
+    if (!from.startsWith("/") || !to.startsWith("/")) continue;
+    // The home page has no address to move, and a self-move is a redirect loop.
+    if (from === "/" || from === to) continue;
+    if (!routes.includes(to)) continue;
+    out[from] = to;
+  }
+  return out;
+}
+
+/**
  * The redirect map for a new publish, given the previous one.
  *
  * A route that EXISTED last publish and is gone from this one redirects to the
- * home page — there is no rename verb anywhere in the product, so old → new is
- * a guess this deliberately does not make; home is where every page's header
- * already points. Accumulated across publishes (a page deleted two revises ago
- * still redirects), and an entry whose source is a live route again is DROPPED
- * — a re-added page must serve itself. A kept entry whose target has since
- * gone is re-pointed at home rather than chained: two hops is where redirect
- * loops come from.
+ * home page — old → new is a guess the DIFF cannot make, and home is where
+ * every page's header already points. Accumulated across publishes (a page
+ * deleted two revises ago still redirects), and an entry whose source is a live
+ * route again is DROPPED — a re-added page must serve itself.
+ *
+ * `renamed` IS THE ONE CASE WHERE old → new IS NOT A GUESS. A rename looks
+ * exactly like a delete plus an add from the outside, so without it the address
+ * a customer has in their index and in last month's messages 301s to the home
+ * page rather than to the page they renamed — which is the whole reason
+ * `renameRoute` returns an explicit pair. Applied FIRST, for the same reason
+ * newly-gone routes are: `redirectsContent` keeps the first MAX_REDIRECTS pairs,
+ * so whatever is written first is what survives the cap, and a move is the most
+ * valuable pair in the map.
+ *
+ * A kept entry whose target has since gone is re-pointed at home rather than
+ * chained — two hops is where redirect loops come from — EXCEPT when a move
+ * says where that target went, which is one hop and lands on the real page.
  */
-export function mergeRedirects(prev, newRoutes) {
+export function mergeRedirects(prev, newRoutes, renamed = null) {
   const routes = Array.isArray(newRoutes) ? newRoutes : [];
+  const moved = normalizeMoves(renamed, routes);
   const out = {};
+  for (const [from, to] of Object.entries(moved)) out[from] = to;
   // NEWLY GONE FIRST, AND THAT ORDER IS THE CAP'S MEANING. `redirectsContent`
   // keeps the first MAX_REDIRECTS pairs, so whichever end is written first is
   // the end that survives. Built the other way round — carried-over entries
@@ -172,14 +213,20 @@ export function mergeRedirects(prev, newRoutes) {
   // manifest and the route is already gone from the page list, so the next
   // publish cannot see that it ever existed.
   for (const r of ((prev && prev.routes) || [])) {
-    if (r === "/" || routes.includes(r)) continue;
+    // `out[r]` is a move already recorded for this exact route, and it must win:
+    // a renamed page is BOTH gone from the old address and explained, and the
+    // derived rule would overwrite the explanation with the home page.
+    if (r === "/" || routes.includes(r) || out[r]) continue;
     out[r] = "/";
   }
   const prevRedirects = (prev && prev.redirects) || {};
   for (const [from, to] of Object.entries(prevRedirects)) {
     if (routes.includes(from)) continue;
     if (from === "/" || out[from]) continue;
-    out[from] = routes.includes(to) ? to : "/";
+    // A move tells us where a now-dead target went, so an older redirect that
+    // pointed at it follows the page rather than collapsing to home. Still ONE
+    // hop: `moved` only ever names live routes.
+    out[from] = routes.includes(to) ? to : (moved[to] || "/");
   }
   return out;
 }

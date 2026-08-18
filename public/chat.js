@@ -11275,6 +11275,10 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs) {
       // reading. Passed through verbatim as a real boolean, so nothing merely
       // truthy on the wire can take a customer's page away.
       remove: d.remove === true,
+      // AND WHERE IT IS MOVING TO. A string or nothing — the server refuses
+      // anything that is not a path, and `renameRoute` owns every refusal that
+      // needs to see the site.
+      rename: typeof d.rename === "string" ? d.rename : "",
       instruction: instruction,
       picker: buildPicker,
       // THE UNDO. A deleted row is gone from the table, so the server cannot

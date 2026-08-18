@@ -264,6 +264,19 @@ export const ASK_TOOL = {
           "business name — \"drop the logo\", \"remove our logo\", \"just the name is fine\". A message that ATTACHES " +
           "a picture is never a removal.",
       },
+      rename: {
+        type: "string",
+        description:
+          "For layer \"page\" ONLY: the NEW ADDRESS they want that page to have, when the ask is about its address " +
+          "rather than its contents — \"move the gallery to /work\", \"the services page should be at /what-we-do\", " +
+          "\"change /about-us to /about\". Name the page they mean in `page` as usual, and put the new path here, " +
+          "starting with a slash: \"/work\".\n" +
+          "AN ADDRESS IS NOT A HEADING, and this is the distinction that decides the field. \"Call that page Services " +
+          "instead of What We Do\" is about the WORDS ON IT — that is an ordinary page edit and this stays empty. Only " +
+          "use this when they are talking about the URL, the address, the link, or where the page lives.\n" +
+          "LEAVE IT OUT UNLESS THEY ASKED. Moving a page changes every link to it and leaves a redirect behind, so " +
+          "setting this when they only wanted different wording changes the address of a page they were happy with.",
+      },
       answer: {
         type: "string",
         description:
@@ -627,10 +640,35 @@ export function readEdit(input, pages) {
   // It is safe to be this direct because the merge still refuses the dangerous
   // cases — never the home page, never one another page still links to — and a
   // publish is archived, so a page deleted by mistake is one restore away.
+  // ── MOVING THE PAGE, WHICH IS THE OTHER THING ONLY THIS LAYER CAN DO ──────
+  //
+  // A NEW ADDRESS AND A REMOVAL ARE MUTUALLY EXCLUSIVE, and the removal wins.
+  // A model answering both has contradicted itself, and of the two readings
+  // "delete it" is the one they plainly asked for if they asked for it at all;
+  // moving a page that is on its way out is work nobody wanted.
+  //
+  // NOT VALIDATED HERE BEYOND ITS SHAPE. `renameRoute` owns every refusal that
+  // matters — the home page has no address to move, the target must not already
+  // exist, the source must — and it owns them because it is the thing that can
+  // SEE the pages. A second opinion here would be a second place for the rules
+  // to drift, and this repo has that failure written down several times over.
+  // What this does is refuse anything that is not a path at all, so a heading
+  // ("Services") cannot reach the renamer as an address.
+  //
+  // THE LEADING SLASH IS REQUIRED HERE AND NOT ABOVE, and the asymmetry is the
+  // whole guard. `normalizePagePath` ADDS one — right for `page`, where a model
+  // naming which page it means may reasonably answer `book` or `/book`, and
+  // wrong for this field, where the slash is the only thing separating "move it
+  // to /services" from "call it Services". Without this, a heading normalises
+  // into an address and the page silently moves; caught by its own test rather
+  // than reasoned about, because the lenient helper looked safe to reuse.
+  const raw = !remove && typeof input.rename === "string" ? input.rename.trim() : "";
+  const rename = raw.startsWith("/") ? normalizePagePath(raw) : null;
+  const moving = rename && rename !== want ? { rename } : {};
   // `remove` is read once, at the top, so the logo layer gets the same field
   // this branch does — it was declared here and the early return above stripped
   // it from every other layer.
-  return { intent: "edit", answer: "", layer, page: want, ...removal };
+  return { intent: "edit", answer: "", layer, page: want, ...removal, ...moving };
 }
 
 /**
