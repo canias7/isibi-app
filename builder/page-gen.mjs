@@ -1634,6 +1634,19 @@ import { Textarea } from "@/components/ui/textarea";
 
 export const Route = createFileRoute("/book")({
   component: Book,
+  // WHAT THIS PAGE IS, so a share of it does not preview as the home page.
+  // Without a \`head\` a route inherits the site's own title and description, so
+  // every address on the site showed one headline and one blurb — the booking
+  // page pasted into a message read as the front page. The root supplies
+  // \`og:url\`, the share image and the card type; a page supplies only these.
+  head: () => ({
+    meta: [
+      { title: "Book a chair — Sharp Fade Barbers" },
+      { property: "og:title", content: "Book a chair — Sharp Fade Barbers" },
+      { name: "description", content: "Pick a service and a time. Takes about a minute, and you get a link to change it." },
+      { property: "og:description", content: "Pick a service and a time. Takes about a minute, and you get a link to change it." },
+    ],
+  }),
   // Every Book button on the site carries its service here — the price list's
   // per-row button navigates with \`search: { service: r.name }\` — so the form
   // opens half-filled. Narrowing here is also what TYPES that navigate call.
@@ -1928,6 +1941,19 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 export const Route = createFileRoute("/manage")({
   component: Manage,
+  // WHAT THIS PAGE IS, so a share of it does not preview as the home page.
+  // Without a \`head\` a route inherits the site's own title and description, so
+  // every address on the site showed one headline and one blurb — the booking
+  // page pasted into a message read as the front page. The root supplies
+  // \`og:url\`, the share image and the card type; a page supplies only these.
+  head: () => ({
+    meta: [
+      { title: "Your booking — Sharp Fade Barbers" },
+      { property: "og:title", content: "Your booking — Sharp Fade Barbers" },
+      { name: "description", content: "Check the time you booked, or cancel it, using the link from your confirmation." },
+      { property: "og:description", content: "Check the time you booked, or cancel it, using the link from your confirmation." },
+    ],
+  }),
   // Search params arrive as unknown; narrowing here is what makes the token a
   // string for the rest of the page instead of \`unknown\`.
   validateSearch: (search: Record<string, unknown>) => ({
@@ -2128,7 +2154,22 @@ import {
 import { Input } from "@/components/ui/input";
 import { SiteChrome } from "@/components/ui/site-chrome";
 
-export const Route = createFileRoute("/account")({ component: Account });
+export const Route = createFileRoute("/account")({
+  // WHAT THIS PAGE IS, so a share of it does not preview as the home page.
+  // Without a \`head\` a route inherits the site's own title and description, so
+  // every address on the site showed one headline and one blurb — the booking
+  // page pasted into a message read as the front page. The root supplies
+  // \`og:url\`, the share image and the card type; a page supplies only these.
+  head: () => ({
+    meta: [
+      { title: "Your account — Sharp Fade Barbers" },
+      { property: "og:title", content: "Your account — Sharp Fade Barbers" },
+      { name: "description", content: "Sign in to see your past visits and the times you have booked." },
+      { property: "og:description", content: "Sign in to see your past visits and the times you have booked." },
+    ],
+  }),
+  component: Account,
+});
 
 type Profile = Row & { nickname: string | null };
 
@@ -2558,6 +2599,33 @@ ${UI_SHORTLIST_API()}
     in structured data is what gets a site's rich results switched off entirely, so a
     field the brief does not supply is a field you leave out, and a brief that states none
     of them means no \`SeoJsonLd\` at all.
+
+19. EVERY PAGE EXCEPT THE HOME PAGE SAYS WHAT IT IS, in a \`head\` beside its
+    \`component\`. Without one it inherits the site's own title and description, so the
+    booking page pasted into WhatsApp previews as the home page — same headline, same
+    sentence — and a search result for "book a table" shows the site's front page blurb.
+    The home page is the ONE that leaves this out: its description was written for exactly
+    this purpose and beats anything a page could say about itself.
+
+    \`\`\`tsx
+    export const Route = createFileRoute("/book")({
+      head: () => ({
+        meta: [
+          { title: "Book a table — Forno & Co" },
+          { property: "og:title", content: "Book a table — Forno & Co" },
+          { name: "description", content: "Reserve a table in the dining room or the courtyard, seven days a week." },
+          { property: "og:description", content: "Reserve a table in the dining room or the courtyard, seven days a week." },
+        ],
+      }),
+      component: P,
+    });
+    \`\`\`
+
+    The title is what this page is, then the business — that order, because a phone
+    truncates the end. The description is ONE plain sentence about THIS page and not about
+    the business; write it for somebody deciding whether to tap, and never repeat the site
+    description. \`og:url\`, the share image and the card type are already handled for you
+    — do not write those.
 
 ## Reading rows
 

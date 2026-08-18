@@ -373,3 +373,175 @@ test("A REFUSAL IS NEVER ESCALATED to a full revise", () => {
   assert.ok(!/return escalate\(lOut/.test(block), "a logo refusal escalates into a paid revise");
   assert.match(block, /msg: lOut\.msg/, "the module's own sentence is dropped");
 });
+
+// ── THE TAB ICON IS A SECOND SLOT, NOT A SMALLER LOGO ───────────────────────
+
+test("the tab icon is stored under its own key, leaving the logo alone", async () => {
+  const saved = [];
+  const out = await runLogoEdit({
+    sniff: () => ({ mime: "image/png", ext: "png" }),
+    store: async () => "/u/x/abc.png",
+    save: async (patch) => { saved.push(patch); },
+    publish: async () => ({ ok: true, files: 3 }),
+  }, { images: ["data:image/png;base64,aaaa"], tab: true });
+  assert.equal(out.ok, true);
+  assert.equal(out.target, "icon");
+  // ONE KEY, and it must be the icon — writing `logo` here would put a wordmark
+  // in the header nobody asked to change, and writing both would silently
+  // replace the other piece of artwork.
+  assert.deepEqual(saved, [{ icon: "/u/x/abc.png" }]);
+  assert.match(out.msg, /tab/i);
+});
+
+test("without the flag it is still the header logo, byte for byte as before", async () => {
+  const saved = [];
+  const out = await runLogoEdit({
+    sniff: () => ({ mime: "image/png", ext: "png" }),
+    store: async () => "/u/x/abc.png",
+    save: async (patch) => { saved.push(patch); },
+    publish: async () => ({ ok: true, files: 3 }),
+  }, { images: ["data:image/png;base64,aaaa"] });
+  assert.equal(out.target, "logo");
+  assert.deepEqual(saved, [{ logo: "/u/x/abc.png" }]);
+  assert.match(out.msg, /header/i);
+});
+
+test("NOTHING MERELY TRUTHY SENDS ARTWORK TO THE TAB", async () => {
+  // The rule `remove` already lives under one field over. A `tab` arriving as
+  // the string "false" — which is truthy — must not take a wordmark off the
+  // header and put it in a 16-pixel box.
+  for (const tab of ["false", "true", 1, {}, []]) {
+    const saved = [];
+    await runLogoEdit({
+      sniff: () => ({ mime: "image/png", ext: "png" }),
+      store: async () => "/u/x/a.png",
+      save: async (p) => { saved.push(p); },
+      publish: async () => ({ ok: true }),
+    }, { images: ["data:image/png;base64,aaaa"], tab });
+    assert.deepEqual(saved, [{ logo: "/u/x/a.png" }], String(tab));
+  }
+});
+
+test("a removal hits the slot it was asked about, and says what it goes back to", async () => {
+  const saved = [];
+  const out = await runLogoEdit({
+    save: async (p) => { saved.push(p); },
+    publish: async () => ({ ok: true, files: 2 }),
+  }, { remove: true, tab: true });
+  assert.equal(out.ok, true);
+  assert.equal(out.target, "icon");
+  assert.deepEqual(saved, [{ icon: "" }]);
+  // Removing the tab icon does not leave the tab blank — the site returns to the
+  // mark drawn from its initials, which is what every site has until one is sent.
+  assert.match(out.msg, /initials/i);
+  assert.doesNotMatch(out.msg, /header shows your name/i);
+});
+
+test("a failed publish names the right thing in both slots", async () => {
+  for (const [tab, word] of [[true, /tab icon/i], [false, /logo/i]]) {
+    const out = await runLogoEdit({
+      sniff: () => ({ mime: "image/png", ext: "png" }),
+      store: async () => "/u/x/a.png",
+      save: async () => {},
+      publish: async () => ({ ok: false }),
+    }, { images: ["data:image/png;base64,aaaa"], tab });
+    assert.equal(out.ok, false);
+    assert.equal(out.reason, "publish");
+    assert.match(out.msg, word);
+  }
+});
+
+// ── REACHABLE, WHICH IS THE HALF THAT KEEPS DYING ───────────────────────────
+
+test("the whole tab-icon wire holds, end to end", () => {
+  // `remove` was decided by `readEdit` and dropped by the route for the entire
+  // life of the logo layer, and then AGAIN for page deletion — both found only
+  // by a live run answering `undefined`. Every hop is asserted here rather than
+  // after the fact.
+  const ask = fs.readFileSync(new URL("../builder/site-ask.mjs", import.meta.url), "utf8");
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const c = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+
+  // 1. the model can say it
+  assert.match(ask, /\n {6}tab: \{\n {8}type: "boolean"/);
+  // 2. readEdit reads it, scoped to the layer that has two slots, and strictly
+  assert.match(ask, /layer === "logo" && input && input\.tab === true/);
+  // 3. the route returns it
+  assert.match(w, /tab: routed\.intent === "edit" && routed\.tab === true \? true : undefined,/);
+  // 4. the client posts it back as a real boolean
+  assert.match(c, /\n {6}tab: d\.tab === true,/);
+  // 5. the worker hands it to the module
+  assert.match(w, /tab: eb && eb\.tab === true \}\);/);
+});
+
+test("the two slots are two _meta keys, and the icon reaches the container from BOTH publish paths", () => {
+  // The container rewrites `site-brand.ts` on EVERY build, so a path that does
+  // not send the stored icon sends nothing and the site falls back to its
+  // initials. That is exactly the bug `priorLogo` exists to prevent, one key
+  // over — a customer who sent a favicon and then fixed a typo would have
+  // watched it vanish.
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(w, /VALUES \('site_icon', \?\)/);
+  assert.match(w, /VALUES \('site_logo', \?\)/);
+  // read on the cheap-edit spine AND on the build path
+  assert.match(w, /r\.k === "site_icon" && typeof r\.v === "string"\) icon = r\.v;/);
+  assert.match(w, /r\.k === "site_icon" && typeof r\.v === "string"\) priorIcon = r\.v;/);
+  // and sent on both
+  assert.match(w, /\n {10}icon: icon \|\| "",/);
+  assert.match(w, /\n {12}icon: priorIcon,/);
+  // ...which needs both SELECTs to ask for it, or the read is of a row that
+  // was never fetched and every publish silently drops the icon.
+  const selects = [...w.matchAll(/SELECT k, v FROM _meta WHERE k IN \(([^)]*)\)/g)].map((m) => m[1]);
+  assert.ok(selects.length >= 2, "the meta reads were found: " + selects.length);
+  for (const cols of selects) {
+    if (!cols.includes("site_logo")) continue;
+    assert.ok(cols.includes("site_icon"), "a read asking for site_logo must ask for site_icon: " + cols);
+  }
+});
+
+test("the container prefers the owner's icon, declares its real type, and keeps the drawn mark as the fallback", () => {
+  const b = fs.readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8");
+  assert.match(b, /function writeSiteBrand\(\{ title, lang, logo, icon: sent, slug \}\)/);
+  assert.match(b, /writeSiteBrand\(\{[^)]*icon: payload\.icon/);
+  // THE DRAWN MARK IS BEHIND THE OWNER'S, not instead of it: a site with no
+  // stored icon must behave byte-identically to before this existed.
+  assert.match(b, /if \(!icon\) \{[\s\S]{0,200}initialsMark\(title\)/);
+  // AND THE OWNER'S ANSWER HAS TO REACH THAT GATE. `writeSiteBrand` writes
+  // files, so no unit test can drive it — and a mutation setting `icon` to null
+  // outright SURVIVED everything: the gate above still reads correctly, the
+  // drawn mark still appears, and the owner's icon is silently discarded on
+  // every build. Asserted as the data flow rather than the expression, so a
+  // legitimate rewrite of the ternary passes and a severed one does not.
+  assert.match(b, /let icon = [^;\n]*own\.href[^;\n]*;/, "the resolved icon must reach the gate");
+  assert.match(b, /let iconType = [^;\n]*own\.type[^;\n]*;/, "the resolved type must reach the module");
+  // THE BOUNDARY, STATED: this proves the wiring and not the render. Only
+  // `site build`, against the real container, can prove a published document
+  // carries the owner's icon — a source-read is a one-way filter here.
+  // AND THE TYPE IS PER ICON. `image/svg+xml` was hardcoded in the document,
+  // which is a lie about an owner's PNG and a browser may refuse it.
+  assert.match(b, /export const SITE_ICON_TYPE = /);
+  const root = fs.readFileSync(
+    new URL("../builder/lovable/template/src/routes/__root.tsx", import.meta.url), "utf8");
+  assert.match(root, /rel: "icon", href: SITE_ICON, type: SITE_ICON_TYPE/);
+  assert.doesNotMatch(root, /type: "image\/svg\+xml"/);
+});
+
+test("readEdit RETURNS the flag, not merely computes it", async () => {
+  // A mutant deleting `...tab` from the return survived the whole suite: the
+  // source guard asserted the expression that DECIDES it, which was still there,
+  // while the value never left the router. The eleventh time in this repo a
+  // guard has watched the layer below the break.
+  const { readEdit } = await import("../builder/site-ask.mjs");
+  assert.equal(readEdit({ layer: "logo", tab: true }).tab, true);
+  // Scoped to the layer that HAS two slots — a flag on a layer that cannot act
+  // on it is one nothing reads, which is how this repo's dead features start.
+  assert.equal(readEdit({ layer: "look", tab: true }).tab, undefined);
+  assert.equal(readEdit({ layer: "logo" }).tab, undefined);
+  // And it combines with `remove`, which is what makes "take the favicon off"
+  // hit the right slot rather than clearing the header logo.
+  const both = readEdit({ layer: "logo", tab: true, remove: true });
+  assert.equal(both.tab, true);
+  assert.equal(both.remove, true);
+  // Nothing merely truthy.
+  for (const v of ["false", 1, {}, []]) assert.equal(readEdit({ layer: "logo", tab: v }).tab, undefined, String(v));
+});

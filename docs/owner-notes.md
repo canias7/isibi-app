@@ -12,6 +12,45 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ## OPEN — waiting to be picked up
 
+**THREE BROKEN FAMILY REFERENCE APPS, FIXED — and the cause was not what the
+error said (2026-08-18).** `festival /`, `entertainer /` and `box-office /event`
+all died with the same minified React #418, which is a hydration mismatch: the
+server rendered different text from the browser. Three DIFFERENT causes, none of
+them in the family pages themselves.
+
+* **entertainer** — `date-enquiry.tsx` asked ICU for
+  `{weekday:"short", day, month:"long", year}` in one call. Node returns
+  `"Sat, 19 September 2026"`, this Chromium returns `"Sat 19 September 2026"`.
+  One comma. Same locale, same timezone — two ICU *versions* disagreeing.
+* **festival and box-office** — `countdown.tsx` seeded its state from
+  `Date.now()`, so the `sec` field differed whenever the gap between the server
+  render and the browser crossed a second.
+* **solar** — not broken at all. `timed out after 150s` was container load in a
+  100-family sequential run; it builds and renders fine on its own and in CI.
+
+**WHY THIS MATTERS BEYOND THREE PAGES.** These are the pages the generator is
+SHOWN as the known-good example for those trades. And the ICU one cannot be
+fixed by matching engines: we render on Cloudflare and hydrate in whatever
+browser the visitor brought, so a format whose output depends on the ICU version
+will mismatch for a share of real visitors whatever the build machine does. The
+proof that agreement is luck rather than safety — **CI's Node and CI's Chromium
+DO agree on that date, so `family apps` was green on `entertainer /` while it
+failed here on the same commit.** CI's own one failure was `box-office /event`,
+a family nobody had reported.
+
+Every published site also POSTs its console errors to its own `_errors` table,
+so the countdown one was filing an error report on essentially every page view
+of any site using it — the owner's error panel filling with noise, one row per
+visitor.
+
+**Not urgent, and written down so it is a decision rather than an oversight:**
+the same measurement found **24 more kit components** in the same two families —
+12 that ask one formatter for a weekday, a day and a month (only unstable in
+en-GB, which is our primary market; `event-card` is on 11 exemplar pages), and
+12 that read a live clock during render. None is what broke the exemplars. They
+are recorded as task #117 with the measurements, and `test/site-locale.test.mjs`
+now holds the first list as a ratchet so the set can shrink but never grow.
+
 **⚠️ THE ANTHROPIC ACCOUNT IS EMPTY, AND THAT IS A CUSTOMER-FACING OUTAGE
 (measured 2026-08-12 03:23Z).** Nobody can build a site on gofarther.dev while it
 is: the very first model call answers `503 stage:"design"` with `billing:true` in

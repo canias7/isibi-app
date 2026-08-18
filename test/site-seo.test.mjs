@@ -344,7 +344,11 @@ test("ON A CUSTOM DOMAIN THE SITEMAP IS THE OWNER'S OWN ADDRESS, never ours", as
 // ── The publish wiring (source-reads, the layer below the harness) ──────────
 
 test("writeSiteDistToR2 derives the manifest and writes both files into the dist", () => {
-  const at = worker.indexOf("async function writeSiteDistToR2(env, slug, dist, meta, pages)");
+  // ANCHORED ON THE PROPERTY, NOT THE SPELLING. This pinned the exact parameter
+  // list and went red the moment a sixth argument was added for renames — a test
+  // about word order, which is this repo's most repeated own-goal. What it needs
+  // is that the choke point exists and can SEE the pages.
+  const at = worker.search(/async function writeSiteDistToR2\(env, slug, dist, meta, pages\b/);
   assert.ok(at > 0, "the publish choke point no longer takes pages — the manifest has no source");
   const end = worker.indexOf("const entries = Object.entries(dist || {})", at);
   assert.ok(end > at, "the entries sort moved — the manifest window has no end");
@@ -358,7 +362,14 @@ test("writeSiteDistToR2 derives the manifest and writes both files into the dist
   // where it was.
   assert.match(head, /await env\.SITES_BUCKET\.get\(siteMetaKey\(slug\)\)/,
     "the previous manifest is never read — deletions leave no redirect");
-  assert.match(head, /mergeRedirects\(prev, man\.routes\)/, "gone routes are not diffed into redirects");
+  assert.match(head, /mergeRedirects\(prev, man\.routes\b/, "gone routes are not diffed into redirects");
+  // AND THE EXPLICIT MOVE REACHES IT. A rename is a delete plus an add by the
+  // time it gets here, so without this pair the old address 301s to the HOME
+  // page rather than to the page that was moved — which is the entire reason
+  // `renameRoute` returns one. Computed and dropped in the wiring is how that
+  // function sat correct and unreachable in the first place.
+  assert.match(head, /mergeRedirects\(prev, man\.routes, renamed\)/,
+    "the rename pair never reaches the redirect map — a moved page 301s to home");
   assert.match(head, /dist\["sitemap\.xml"\] = \{ t: sitemapXml\(/, "no sitemap is written at publish");
   assert.match(head, /dist\["robots\.txt"\] = \{ t: robotsTxt\(\) \}/, "robots.txt keeps the template's two-line file");
   // AN EMPTY SITEMAP IS WORSE THAN NONE: a site whose every page is a dynamic
@@ -417,7 +428,12 @@ test("both publish paths hand their pages to the choke point", () => {
   const calls = [...worker.matchAll(/await writeSiteDistToR2\(env, slug, [^;]+?\);/gs)].map((m) => m[0]);
   assert.ok(calls.length >= 2, "expected both publish call sites, found " + calls.length);
   for (const c of calls) {
-    assert.match(c, /\}, pages\);$/, "a publish call site drops `pages`: " + c.slice(0, 80));
+    // `pages` LAST OR FOLLOWED BY THE RENAME PAIR. It was pinned to `}, pages);`
+    // and went red on a correct change the moment the choke point grew a sixth
+    // argument. The property is that every call site hands over the pages at
+    // all — dropping them is what silently stops a path writing a sitemap and
+    // leaving redirects.
+    assert.match(c, /\}, pages(?:, [A-Za-z_$][\w$]*)?\);$/, "a publish call site drops `pages`: " + c.slice(0, 80));
   }
 });
 
@@ -498,4 +514,90 @@ test("the router mounts the kit's NotFound page", () => {
   assert.match(slug, /const cleanSlug = [^;]*replace\(\/\^-\+\|-\+\$\/g, ""\)/,
     "cleanSlug admits an edge hyphen again — such a site has no pretty host, is served at " +
     "/s/<slug>/, and its 404 would send visitors to the platform root");
+});
+// ── An explicit move (site-apply's renameRoute → the redirect map) ──────────
+//
+// A RENAME IS INDISTINGUISHABLE FROM A DELETE PLUS AN ADD by the time it reaches
+// the publish, which is why the diff alone sends the old address to the home
+// page. `renameRoute` returns the one pair the diff cannot derive.
+
+test("a moved page's old address 301s to the NEW page, not to home", () => {
+  const prev = { routes: ["/", "/what-we-do"], redirects: {} };
+  const out = mergeRedirects(prev, ["/", "/services"], { from: "/what-we-do", to: "/services" });
+  assert.equal(out["/what-we-do"], "/services",
+    "the moved page's old address went to the home page — the whole point of the explicit pair");
+  // And WITHOUT the pair it must still degrade to the old behaviour rather than
+  // to nothing: a site whose lane does not pass one is every site today.
+  const derived = mergeRedirects(prev, ["/", "/services"]);
+  assert.equal(derived["/what-we-do"], "/", "the derived rule stopped leaving a redirect at all");
+});
+
+test("A MOVE NAMING A TARGET THIS PUBLISH DOES NOT SERVE IS REFUSED", () => {
+  // Worse than no pair at all: it 301s a working old address onto a 404, where
+  // the derived rule would at least have reached the home page. The `to` comes
+  // from a model-driven lane, so it is checked rather than trusted.
+  const prev = { routes: ["/", "/what-we-do"], redirects: {} };
+  const out = mergeRedirects(prev, ["/", "/services"], { from: "/what-we-do", to: "/typo" });
+  assert.equal(out["/what-we-do"], "/", "a 301 was pointed at a route the site does not serve");
+});
+
+test("the home page cannot be moved, and a self-move is not a redirect", () => {
+  const prev = { routes: ["/", "/book"], redirects: {} };
+  const home = mergeRedirects(prev, ["/", "/book"], { from: "/", to: "/book" });
+  assert.ok(!("/" in home), "the site root was pointed away from itself");
+  const self = mergeRedirects(prev, ["/", "/book"], { from: "/book", to: "/book" });
+  assert.ok(!("/book" in self), "a page was redirected to itself — a loop");
+});
+
+test("an older redirect follows the page it pointed at, in ONE hop", () => {
+  // `/old` → `/what-we-do` and `/what-we-do` → `/services`. Collapsing to home
+  // is the general rule (two hops is where loops come from); here the move NAMES
+  // a live route, so following it is one hop and lands on the real page.
+  const prev = { routes: ["/", "/what-we-do"], redirects: { "/old": "/what-we-do" } };
+  const out = mergeRedirects(prev, ["/", "/services"], { from: "/what-we-do", to: "/services" });
+  assert.equal(out["/old"], "/services", "an accumulated redirect collapsed to home instead of following the page");
+  assert.ok(Object.values(out).every((t) => t === "/" || ["/", "/services"].includes(t)),
+    "a redirect points somewhere this publish does not serve");
+});
+
+test("A MOVE SURVIVES THE CAP, because it is written first", () => {
+  // Same argument as newly-gone-first: `redirectsContent` keeps the first
+  // MAX_REDIRECTS pairs, and a move is the most valuable pair in the map — the
+  // address in somebody's index today, with a known destination.
+  const prevRoutes = ["/", "/what-we-do"];
+  const redirects = {};
+  for (let i = 0; i < MAX_REDIRECTS + 10; i++) redirects["/r" + i] = "/";
+  const out = mergeRedirects({ routes: prevRoutes, redirects }, ["/", "/services"],
+    { from: "/what-we-do", to: "/services" });
+  const kept = redirectsContent(out).split(",");
+  assert.ok(kept.includes("/what-we-do=/services"), "the move was dropped by the cap");
+});
+
+test("a malformed move changes nothing", () => {
+  // Every shape a model-driven lane can produce. None may throw, and none may
+  // put a pair in the map — the derived rule still applies underneath.
+  const prev = { routes: ["/", "/gone"], redirects: {} };
+  for (const junk of [null, undefined, "", "/a", 7, {}, { from: "/a" }, { to: "/b" },
+                      { from: 1, to: 2 }, { from: "a", to: "b" }, [{ from: "/x" }]]) {
+    const out = mergeRedirects(prev, ["/"], junk);
+    assert.equal(out["/gone"], "/", "a malformed move broke the derived rule: " + JSON.stringify(junk));
+    assert.ok(Object.keys(out).every((k) => k.startsWith("/")), "a junk key reached the map");
+  }
+});
+
+test("THE SPINE HANDS THE MOVE TO THE CHOKE POINT", () => {
+  // The hop between "the route decided a rename" and "the publish knows about
+  // it". `writeSiteDistToR2` is asserted above to pass `renamed` into
+  // `mergeRedirects` — and that is satisfied while `recompileAndPublish` never
+  // supplies one, which is a moved page whose old address 301s to home with
+  // every other test in this file green. Found by mutation; the wiring layer,
+  // one hop further out than the guard that was watching.
+  const at = worker.indexOf("async function recompileAndPublish(env,");
+  assert.ok(at > 0, "the shared publish spine is gone — rescope this");
+  const spine = worker.slice(at, worker.indexOf("\n}\n", at));
+  assert.ok(spine.length > 400, "the spine window is empty — the anchor moved");
+  assert.match(spine, /async function recompileAndPublish\(env, \{[^}]*\brenamed\b/,
+    "the spine cannot be told about a rename at all");
+  assert.match(spine, /\}, pages, renamed\)/,
+    "the spine drops `renamed` on the way to the publish — a moved page 301s to home");
 });

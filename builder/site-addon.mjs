@@ -424,3 +424,82 @@ export function addonReply({ added = [], changed = [], removed = [], kept = [], 
   // find, and the fix is one sentence from them.
   return head + " Nothing links to " + unlinked.join(", ") + " yet — say where you want the link and I'll add it.";
 }
+
+/**
+ * The tables a page LISTS, and how each list is ordered.
+ *
+ * `useRows<T>("menu", { order: "name", dir: "asc" })` and its `usePublicRows`
+ * twin. Measured over the only pages in this repo the generator wrote plus the
+ * reference pages: 14 calls, 13 with a literal table name, 10 carrying exactly
+ * that options shape.
+ *
+ * A CALL WITH NO LITERAL TABLE IS SKIPPED rather than guessed at — one real call
+ * takes a computed argument, and a wrong reading here becomes a sentence telling
+ * an owner their menu appears on a page it does not.
+ */
+export function rowLists(source) {
+  const src = String(source || "");
+  const out = [];
+  for (const m of src.matchAll(/\buse(?:Public)?Rows\s*(?:<[\s\S]*?>)?\s*\(\s*"([a-z0-9_]+)"\s*(,)?/gi)) {
+    const table = m[1].toLowerCase();
+    let order = "", dir = "";
+    if (m[2]) {
+      // The options object, if there is one — bounded to this call so an
+      // `order:` belonging to the NEXT list cannot be read as this one's.
+      const rest = src.slice(m.index + m[0].length, m.index + m[0].length + 400);
+      const stop = rest.indexOf(");");
+      const opts = stop < 0 ? rest : rest.slice(0, stop);
+      order = (opts.match(/\border\s*:\s*"([a-z0-9_]+)"/i) || [, ""])[1];
+      dir = (opts.match(/\bdir\s*:\s*"(asc|desc)"/i) || [, ""])[1];
+    }
+    out.push({ table, order: order.toLowerCase(), dir: dir.toLowerCase() });
+  }
+  return out;
+}
+
+/**
+ * Tables whose ORDERING this edit changed on one page, and which OTHER pages of
+ * the site also list.
+ *
+ * THE SILENT FAILURE THIS NAMES. The `page` layer edits exactly one file by
+ * design — its own description says so and points multi-page changes at the
+ * addon lane. But "order the menu by price" does not READ as a multi-page
+ * change to anybody, and measured over the generated samples and the reference
+ * pages, 2 of 11 tables are listed on more than one page — including `services`
+ * on BOTH reference pages, which is what the model copies. So the ordinary
+ * outcome for those is a site that now disagrees with itself, reported as a
+ * plain success.
+ *
+ * REPORTED, NEVER REWRITTEN, and that asymmetry is the decision. Rewriting the
+ * other pages is exactly what this layer refuses to do — one instruction must
+ * not touch a page the customer never named — and the fix costs the owner one
+ * more sentence, which they can only say if they are told.
+ *
+ * KEYED ON THE ORDERING HAVING MOVED, not on the table merely appearing. A page
+ * edit that changes the wording around a list must not produce a sentence about
+ * sort order.
+ */
+export function orderingMoved(prevSource, nextSource, pages, selfPath) {
+  const before = new Map();
+  for (const l of rowLists(prevSource)) before.set(l.table, l.order + "|" + l.dir);
+  const changed = new Set();
+  for (const l of rowLists(nextSource)) {
+    if (!before.has(l.table)) continue;
+    if (before.get(l.table) !== l.order + "|" + l.dir) changed.add(l.table);
+  }
+  if (!changed.size) return [];
+  // THE EDITED PAGE EXCLUDES ITSELF, HERE RATHER THAN IN THE CALLER. Left to
+  // the caller it was a `.filter()` on the line below the call, visible only to
+  // a source-read — and a mutation deleting it SURVIVED, because the edited
+  // page's own new list matches every time, so EVERY reorder would report as
+  // shared and the sentence would be noise on the majority of edits. One fewer
+  // way for a caller to get it wrong, and a property a test can drive.
+  const self = typeof selfPath === "string" ? selfPath : null;
+  const elsewhere = new Set();
+  for (const p of Array.isArray(pages) ? pages : []) {
+    if (!p || typeof p.source !== "string") continue;
+    if (self !== null && p.path === self) continue;
+    for (const l of rowLists(p.source)) if (changed.has(l.table)) elsewhere.add(l.table);
+  }
+  return [...elsewhere];
+}

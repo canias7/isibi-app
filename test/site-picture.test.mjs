@@ -10,7 +10,7 @@ import fs from "node:fs";
 import {
   PICTURE_MODEL, PICTURE_TOOL, MAX_SLOTS, MAX_PICTURE_OPS, MAX_DESCRIBE,
   imageSlots, isEmptySlot, pictureDigest, pictureRequest, readPictures,
-  applyPictures, pictureReply, pictureUsage, runPictureEdit,
+  applyPictures, pictureReply, pictureUsage, runPictureEdit, readNeedsPlace,
 } from "../builder/site-picture.mjs";
 
 const HOME = {
@@ -372,4 +372,94 @@ test("uploadFileName is the inverse of uploadKey, derived from both", async () =
       "a name that does not survive the round trip becomes a broken image on a real page");
   }
   assert.equal(uploadFileName(""), "");
+});
+
+// ── NOWHERE TO PUT IT: the handoff to the page layer ────────────────────────
+//
+// This lane fills a slot that already exists, so "add a photo to the about
+// page" — on a page with none — was a REFUSAL: the one shape of picture request
+// the layer's own description advertises and the code cannot do. It hands
+// SIDEWAYS to `page` (one page, one model call) rather than up the ladder,
+// which rewrites every page of the site to add one picture.
+
+const REPLY = (input) => ({ content: [{ type: "tool_use", name: "choose_pictures", input }] });
+const SLOTS = [
+  { page: "src/routes/index.tsx", alt: "The row of chairs" },
+  { page: "src/routes/book.tsx", alt: "The shopfront" },
+];
+
+test("a page with no slot is handed to the page layer, not refused", () => {
+  assert.equal(readNeedsPlace(REPLY({ pictures: [], needsPlace: "/about" }), SLOTS), "/about");
+});
+
+test("A PAGE THAT ALREADY HAS SLOTS IS REFUSED, which is what stops every miss becoming a paid edit", () => {
+  // A model that matched nothing AND named a page it was shown slots for has
+  // contradicted itself; the honest reading is "I could not tell which of
+  // these", which is the cheap refusal rather than a page rewrite.
+  //
+  // THE CASES ARE ROUTES, AND THE FIRST DRAFT'S WERE FILE PATHS. A slot's
+  // `page` is `src/routes/index.tsx` and `needsPlace` is `/`, so comparing them
+  // raw compares two different things and the check could never fire — but the
+  // tests reached it through `startsWith("/")`, which had already refused every
+  // file path they used. One guard masking another: the mutant survived, the
+  // suite was green, and the bug was real. Discriminating cases are routes.
+  for (const p of ["/", "/book", "  /BOOK  "]) {
+    assert.equal(readNeedsPlace(REPLY({ pictures: [], needsPlace: p }), SLOTS), null,
+      "a page with slots was sent for a page rewrite: " + JSON.stringify(p));
+  }
+  // And a route the site really does not have still hands off, or the fix above
+  // would read as "refuse everything", which is the old behaviour wearing a fix.
+  assert.equal(readNeedsPlace(REPLY({ pictures: [], needsPlace: "/about" }), SLOTS), "/about");
+});
+
+test("anything that is not a path is refused", () => {
+  // The value decides which page a MODEL CALL is spent rewriting, so a heading
+  // or an invented shape must not reach it.
+  for (const junk of [undefined, null, "", "   ", "about", "About us", 7, {}, ["/about"], true]) {
+    assert.equal(readNeedsPlace(REPLY({ pictures: [], needsPlace: junk }), SLOTS), null,
+      "junk reached the page layer: " + JSON.stringify(junk));
+  }
+  assert.equal(readNeedsPlace({ content: [] }, SLOTS), null, "a reply with no tool call");
+  assert.equal(readNeedsPlace(null, SLOTS), null);
+});
+
+test("with no slots at all there is nothing to compare against, so it stays an escalation", () => {
+  // `runPictureEdit` returns before this on an empty site — asserted so the
+  // reader cannot conclude the two paths disagree.
+  assert.equal(readNeedsPlace(REPLY({ pictures: [], needsPlace: "/about" }), []), null);
+});
+
+test("THE HANDOFF NAMES THE LAYER AND THE PAGE, and does not fire on an ordinary miss", async () => {
+  const deps = (input) => ({
+    send: async () => REPLY(input),
+    library: async () => [],
+    generate: async () => null,
+  });
+  const pages = [{ path: "src/routes/index.tsx", source: '<SafeImage src="" alt="The row of chairs" />' }];
+
+  const handed = await runPictureEdit(deps({ pictures: [], needsPlace: "/about" }), { instruction: "add a photo to the about page", pages });
+  assert.equal(handed.ok, false);
+  assert.equal(handed.escalate, true, "a page with no slot must not be a dead-end refusal");
+  assert.equal(handed.layer, "page", "the handoff must name the lane that can insert one");
+  assert.equal(handed.page, "/about");
+
+  // AND THE ORDINARY MISS IS UNCHANGED — a mistyped swap must not buy a page
+  // rewrite, which is the cost of getting this wrong in the other direction.
+  const missed = await runPictureEdit(deps({ pictures: [] }), { instruction: "change the one of the chairs", pages });
+  assert.equal(missed.escalate, false, "an honest no became a paid page edit");
+  assert.equal(missed.reason, "no-match");
+  assert.ok(!missed.layer, "an ordinary miss must name no layer");
+});
+
+test("THE ROUTE FORWARDS THE HANDOFF, and the layer that decides it is the module", () => {
+  // The wiring layer, where this repo has recorded twelve dead features. The
+  // module can name a lane perfectly and the route can drop it, and from the
+  // customer's side that is indistinguishable from the model never naming one.
+  const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const at = worker.indexOf('if (eLayer === "picture")');
+  assert.ok(at > 0, "the picture branch is gone — rescope this");
+  const branch = worker.slice(at, worker.indexOf("const pPub = await recompileAndPublish", at));
+  assert.ok(branch.length > 400, "the picture window is empty — the anchor moved");
+  assert.match(branch, /escalate\(pOut\.reason, pOut\.layer \? \{ layer: pOut\.layer, page: pOut\.page \} : undefined\)/,
+    "the route drops the handoff — a page with no slot goes to the full revise instead of one page");
 });

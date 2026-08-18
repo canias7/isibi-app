@@ -20,7 +20,7 @@ import {
 import type { QueryClient } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/sonner";
 import { SpamGuard } from "@/lib/spam-guard";
-import { SITE_LANG, SITE_ICON, SITE_NAME, SITE_SLUG } from "@/site-brand";
+import { SITE_LANG, SITE_ICON, SITE_ICON_TYPE, SITE_NAME, SITE_SLUG } from "@/site-brand";
 import { siteMeta } from "@/site-runtime";
 // The stylesheet and the site's typeface, imported here rather than in a client
 // entry so the SERVER render emits their <link> tags too. Imported in
@@ -48,8 +48,22 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   // brand onto every non-home page at publish, after the fact; a route's own
   // `head()` beating a default is the same outcome with the ordering the right
   // way round.
-  head: () => {
+  head: (ctx) => {
     const m = siteMeta();
+    // THE PAGE'S OWN ADDRESS, not the site's, and it is computed here rather
+    // than asked of the generator. `og:url` was `m.origin` for every route, so
+    // a crawler was told several addresses are one page and every share of
+    // /book pointed at the home page. `head` receives the matched routes, so
+    // the deepest one's pathname IS the current page — which makes this correct
+    // for a page the model has never seen and for one written tomorrow.
+    //
+    // The basepath is already stripped from a match's pathname, so this stays
+    // right in the workspace preview as well as on the site's own domain.
+    const here = (() => {
+      const list = Array.isArray(ctx?.matches) ? ctx.matches : [];
+      const p = list.length ? list[list.length - 1]?.pathname : "";
+      return typeof p === "string" && p.startsWith("/") ? p.replace(/\/+$/, "") : "";
+    })();
     const tags: Array<Record<string, string>> = [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
@@ -73,10 +87,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     } else {
       tags.push({ name: "twitter:card", content: "summary" });
     }
-    if (m?.origin) tags.push({ property: "og:url", content: m.origin });
+    if (m?.origin) tags.push({ property: "og:url", content: m.origin + here });
     return {
       meta: tags,
-      links: [{ rel: "icon", href: SITE_ICON, type: "image/svg+xml" }],
+      links: [{ rel: "icon", href: SITE_ICON, type: SITE_ICON_TYPE }],
     };
   },
   component: RootDocument,

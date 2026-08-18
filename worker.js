@@ -54,10 +54,11 @@ import { scriptNameFor } from "./builder/site-worker.mjs";
 import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker } from "./builder/site-dispatch.mjs";
 import { ASKABLE as SITE_TOKEN_NAMES, valueHint as siteTokenHint, mergeTokens, parseTokens, withContrast, tokenNote, saidFor as tokenSaid } from "./builder/site-tokens.mjs";
 import { ASKABLE as SITE_STYLE_AXES, optionsFor as siteStyleOptions, axisHint as siteStyleHint, mergeStyle, parseStyle, styleNote, saidFor as styleSaid } from "./builder/site-style.mjs";
-import { extractText, applyEdits } from "./builder/site-text.mjs";
-import { runTextEdit, runDataEdit, renamePages, MAX_DATA_ROWS } from "./builder/site-apply.mjs";
+import { extractText, applyEdits, staleContactLinks } from "./builder/site-text.mjs";
+import { runTextEdit, runDataEdit, renamePages, renameRoute, MAX_DATA_ROWS } from "./builder/site-apply.mjs";
 import { runRulesEdit } from "./builder/site-rules.mjs";
 import { runPictureEdit } from "./builder/site-picture.mjs";
+import { runNavEdit } from "./builder/site-nav.mjs";
 import { runLogoEdit } from "./builder/site-logo.mjs";
 import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
 import { runNightlyBackups, dumpSite, backupKey, backupListing, backupDayParam, BACKUP_META_KEYS } from "./site-backup.mjs";
@@ -66,7 +67,7 @@ import { resolveAccess, accessLabel, ACCESS_PRESETS, unguardedBookings } from ".
 // data layer's gate cannot drift from the vocabulary again — it was compared
 // against "anyone", which is a WRITE level, and matched nothing on any site.
 const DISPLAY_PAIR = ACCESS_PRESETS.display;
-import { mergeAddonPages, mergeAddonSchema, unlinkedPages, routeOf } from "./builder/site-addon.mjs";
+import { mergeAddonPages, mergeAddonSchema, unlinkedPages, routeOf, orderingMoved } from "./builder/site-addon.mjs";
 import { archiveVersion, listVersions, rollbackVersion, deleteAllVersions, versionId, versionLabel } from "./site-versions.mjs";
 import { sweepAfterPublish, P_ORPHANS } from "./site-sweep.mjs";
 import { takeOffline, putBackOnline } from "./site-live.mjs";
@@ -6761,7 +6762,7 @@ async function dropSiteWorker(env, slug) {
  * assets exist is what makes the switch atomic from a visitor's side. Then the
  * sweep removes whatever the new build does not use.
  */
-async function writeSiteDistToR2(env, slug, dist, meta, pages) {
+async function writeSiteDistToR2(env, slug, dist, meta, pages, renamed = null) {
   const wrote = new Set();
   // ── WHAT THIS PUBLISH TELLS A SEARCH ENGINE (site-seo.mjs) ────────────────
   //
@@ -6808,7 +6809,11 @@ async function writeSiteDistToR2(env, slug, dist, meta, pages) {
         prevUnreadable = true;
         console.error("previous manifest unreadable:", slug, e && e.message);
       }
-      const redirects = mergeRedirects(prev, man.routes);
+      // `renamed` IS THE ONLY old→new PAIR THE DIFF CANNOT DERIVE. A rename is
+      // indistinguishable from a delete plus an add by the time it reaches here,
+      // so without the explicit pair the customer's old address 301s to the home
+      // page rather than to the page they just renamed.
+      const redirects = mergeRedirects(prev, man.routes, renamed);
       manifest = prevUnreadable ? null : { routesCsv: routesContent(man), redirectsCsv: redirectsContent(redirects) };
       // NO ROUTES MEANS NO SITEMAP, rather than an empty one. A site whose every
       // page is a dynamic segment yields an empty list here, and publishing
@@ -7047,8 +7052,8 @@ function compileMsg(pub, theirs) {
     : theirs;
 }
 
-async function recompileAndPublish(env, { slug, pages, label }) {
-  let look = null, tokens = null, style = null, logo = "";
+async function recompileAndPublish(env, { slug, pages, label, renamed = null }) {
+  let look = null, tokens = null, style = null, logo = "", icon = "";
   try {
     // `siteBackendBySlug` RETURNS THE CONNECTION STRING, not a record. This read
     // `conn && conn.conn`, which is `undefined` for a string — so the `_meta`
@@ -7066,7 +7071,7 @@ async function recompileAndPublish(env, { slug, pages, label }) {
     // reported as success, and archived to version history — for a site that
     // is deleted or unresolvable. Same rule as the catch below.
     if (!db) return { ok: false, error: "read", ours: true, detail: "no backend recorded for " + slug + " — the stored look could not be read" };
-    const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_style','site_logo')");
+    const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_style','site_logo','site_icon')");
     for (const r of rows || []) {
       if (r.k === "site_look" && r.v) look = JSON.parse(r.v);
       if (r.k === "site_tokens" && r.v) tokens = JSON.parse(r.v);
@@ -7083,6 +7088,13 @@ async function recompileAndPublish(env, { slug, pages, label }) {
       // customer changing a colour would silently lose their logo. Stored
       // beside `site_tokens`, which is a separate concern for the same reason.
       if (r.k === "site_logo" && typeof r.v === "string") logo = r.v;
+      // THE TAB ICON, ITS OWN KEY FOR THE SAME REASON and read here for one
+      // more: the container rewrites `site-brand.ts` on EVERY build, so a
+      // publish path that does not send the stored icon sends nothing, and
+      // nothing means the site falls back to its initials. A customer who
+      // sent a favicon and then fixed a typo would have watched it vanish —
+      // exactly what `priorLogo` exists to prevent one line up.
+      if (r.k === "site_icon" && typeof r.v === "string") icon = r.v;
     }
   } catch (e) {
     // A THROWING READ FAILS THE EDIT — it does not publish the site stripped.
@@ -7178,7 +7190,7 @@ async function recompileAndPublish(env, { slug, pages, label }) {
     image: await siteOgImage(env, slug),
     url: siteUrlFor(slug, "https://" + APP_ZONE),
     slug,
-  }, pages);
+  }, pages, renamed);
   try {
     await archiveVersion(versionDeps(env), {
       slug,
@@ -7356,6 +7368,11 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
           // writes anyway. A REVISE carries the stored one — see `priorLogo`,
           // without which every revise would quietly take the logo off.
           logo: logo || "",
+          // THE TAB ICON, which is a DIFFERENT piece of artwork from the
+          // header logo and not a smaller copy of it: a wordmark is legible
+          // at a few hundred pixels and a smear at 16. An empty string is a
+          // real answer and the container draws the initials mark instead.
+          icon: icon || "",
           fonts: { heading: fontPair.heading.id, body: fontPair.body.id },
           // Passed by NAME, resolved inside the container against the same
           // registry the enum came from. Sending the resolved object instead
@@ -10738,6 +10755,33 @@ async function handleRequest(request, env, ctx) {
         // it holds by a property of another function one file over — the shape
         // this repo keeps a note for instead of a false assertion.
         remove: routed.intent === "edit" && routed.remove === true ? true : undefined,
+        // AND WHERE THE PAGE IS MOVING TO — the twelfth field of the same shape,
+        // added WITH its wire rather than after a live run found it undefined.
+        // `renameRoute` has existed and been correct since it was committed and
+        // had zero callers; a field decided here and dropped in this object is
+        // exactly how it stayed unreachable.
+        rename: routed.intent === "edit" && typeof routed.rename === "string" ? routed.rename : undefined,
+        // AND WHICH SLOT ATTACHED ARTWORK GOES IN. `readEdit` decides it and
+        // this object is the only way it can reach the client, which posts it
+        // back on the edit — the wire that `remove` was missing for the whole
+        // life of the logo layer and `remove` again for page deletion, both
+        // found only by a live run answering `undefined`. Added WITH the field
+        // rather than after.
+        tab: routed.intent === "edit" && routed.tab === true ? true : undefined,
+        // AND THE SECOND THING THEY ASKED FOR, WHICH THIS TURN IS NOT DOING.
+        // `layer` is one value, so a message naming two different parts of the
+        // site has half of it dropped — and the reply then reports the half that
+        // ran as a plain success, which reads as the builder ignoring them.
+        //
+        // THE THIRTEENTH FIELD OF THIS SHAPE, added WITH its wire rather than
+        // after a live run answered `undefined`. `readAlso` decides it, this
+        // object is the only way it reaches the client, and the client appends
+        // the sentence itself — so there is exactly one hop rather than a second
+        // one through the edit route.
+        //
+        // It is a NOTE and never an action: nothing branches on it, so the worst
+        // a wrong one costs is a sentence about something they did not ask for.
+        alsoAsked: typeof routed.alsoAsked === "string" && routed.alsoAsked ? routed.alsoAsked : undefined,
         // The question to put in front of the build, already cleaned into
         // something renderable — two to four options, deduped, capped. The
         // client shows it verbatim rather than re-deciding anything, so there is
@@ -11499,10 +11543,10 @@ async function handleRequest(request, env, ctx) {
       // goes. Best-effort in both directions — losing it re-rolls the look, which
       // is exactly today's behaviour, so it can never be worse than what it
       // replaces.
-      let priorLook = null, priorTokens = null, priorStyle = null, priorLogo = "";
+      let priorLook = null, priorTokens = null, priorStyle = null, priorLogo = "", priorIcon = "";
       if (priorBrief) {
         try {
-          const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_style','site_logo')");
+          const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_style','site_logo','site_icon')");
           for (const r of rows || []) {
             if (r.k === "site_look" && r.v) priorLook = JSON.parse(r.v);
             if (r.k === "site_tokens" && r.v) priorTokens = JSON.parse(r.v);
@@ -11514,6 +11558,10 @@ async function handleRequest(request, env, ctx) {
             // who attached a logo and then asked for any page change would have
             // watched it disappear, with no error and nothing to point at.
             if (r.k === "site_logo" && typeof r.v === "string") priorLogo = r.v;
+            // AND THE TAB ICON, for the identical reason one line up. A
+            // revise that does not carry it publishes the site back onto the
+            // mark drawn from its initials.
+            if (r.k === "site_icon" && typeof r.v === "string") priorIcon = r.v;
           }
         } catch (e) { console.error("look read failed:", slug, e && e.message); }
       }
@@ -11726,6 +11774,7 @@ async function handleRequest(request, env, ctx) {
             // logo is not something a designer can name, so it has no business
             // in `EDIT_FIELDS` and would be dropped by that merge if it were.
             logo: priorLogo,
+            icon: priorIcon,
             auth: request.headers.get("Authorization") || "",
             mark: (n) => tr.at(n),
           });
@@ -12363,7 +12412,12 @@ async function handleRequest(request, env, ctx) {
                 // written: whatever comes back still goes through
                 // `readDataChanges`, which admits only declared tables, declared
                 // columns and scalar values.
-              }, { instruction: eInstruction, tables: dTables, recent: (eb && eb.recent) || null });
+                // AND THE PAGES, because what ORDER a list comes out in is a
+                // fact about the page source and not about the rows: the whole
+                // answer is the `{ order, dir }` argument to `useRows`. Read on
+                // the request the lane already pays for, so asking costs
+                // nothing on a build that never mentions the order.
+              }, { instruction: eInstruction, tables: dTables, recent: (eb && eb.recent) || null, pages: eSrc });
 
               if (!dOut.ok) {
                 // A model that read the rows and matched none does NOT escalate:
@@ -12373,16 +12427,53 @@ async function handleRequest(request, env, ctx) {
                 if (!dOut.escalate) {
                   if (dOut.reason === "send") return modelDown(dOut.error, "I couldn't reach the model that makes that change — try again in a moment.");
                   return Response.json({
-                    ok: false, error: dOut.reason, cost: 0,
-                    msg: dOut.reason === "no-match"
+                    ok: false, error: dOut.reason, cost: await eCharge(dOut.usage), usage: dOut.usage,
+                    // THE MODULE WRITES THE ORDERING SENTENCE, because it is the
+                    // only thing that knows which pages work their own order out
+                    // and could not be rewritten from outside.
+                    msg: dOut.msg || (dOut.reason === "no-match"
                       ? "I couldn't match that to anything the site stores — say which list it's in and I'll have another go."
-                      : "That change couldn't be saved — try again.",
+                      : "That change couldn't be saved — try again."),
                   }, { status: 422 });
                 }
                 return escalate(dOut.reason);
               }
+              // A REORDER IS THE ONE THING THIS LANE PUBLISHES. Rows are live
+              // the moment they commit — the bundle reads them at runtime — but
+              // an order lives in the page source, so it needs the container.
+              // Skipped entirely when nothing was reordered, which is every
+              // ordinary data edit.
+              let dPub = null;
+              if (dOut.sortPages) {
+                dPub = await recompileAndPublish(env, {
+                  slug: ownerSlug, pages: dOut.sortPages,
+                  label: versionLabel({ revise: true, changeNote: eInstruction }),
+                });
+                if (!dPub.ok) {
+                  // THE ROWS ARE ALREADY SAVED AND THE OWNER IS TOLD SO. They
+                  // committed before this ran and cannot be taken back, so a
+                  // failed recompile that reported "nothing happened" would send
+                  // somebody looking for a change that really did land.
+                  return Response.json({
+                    ok: false, error: "compile", cost: await eCharge(dOut.usage), usage: dOut.usage,
+                    msg: compileMsg(dPub, dOut.applied.length
+                      ? "Your rows are saved, but the new order didn't compile — the site is untouched."
+                      : "That ordering change didn't compile, so your site is untouched."),
+                    detail: dPub.detail,
+                  }, { status: 422 });
+                }
+              }
               return Response.json({
                 ok: true, layer: "data",
+                // WHAT ORDER THE LIST COMES OUT IN, when that is what changed.
+                // Omitted otherwise, so an ordinary data edit's response is
+                // byte-identical to what it has always been.
+                sort: dOut.sort || undefined,
+                sortMsg: dOut.sortMsg || undefined,
+                sortChanged: dOut.sortChanged && dOut.sortChanged.length ? dOut.sortChanged : undefined,
+                files: dPub ? dPub.files : undefined,
+                render: dPub ? dPub.render : undefined,
+                renderNote: dPub ? dPub.renderNote : undefined,
                 // `was` RIDES BACK ON A REMOVAL, and it is the only undo a
                 // deleted row has: pages are archived on every publish and can
                 // be restored, rows are not. With the contents in the thread,
@@ -12459,6 +12550,79 @@ async function handleRequest(request, env, ctx) {
                 msg: rOut.msg, cost: await eCharge(rOut.usage), usage: rOut.usage,
               });
             }
+            if (eLayer === "nav") {
+              // ── THE MENU, ON EVERY PAGE AT ONCE ─────────────────────────
+              //
+              // The nav is a `links` array passed to `SiteChrome` and there is a
+              // SEPARATE COPY IN EVERY PAGE FILE. Measured over the 324 family
+              // exemplars the generator learns from: 302 arrays across 93
+              // families, and not one family where every page's list is the
+              // same. So reordering, adding or removing one item meant a
+              // structural edit on every page, and the only lane that touches
+              // every page is the full revise — ~27 credits to move one word.
+              //
+              // ONE MODEL CALL AND A MECHANICAL REWRITE, so the price does not
+              // grow with the number of pages, which is exactly what made this
+              // expensive. The `text` layer can already RENAME an item and this
+              // is deliberately not that: a string replacement at a recorded
+              // offset cannot move, insert or delete an array element.
+              //
+              // THE ROUTES ARE THE ALLOW-LIST. A menu item pointing at a page
+              // the site does not have is a 404 from every page at once, so the
+              // real route list goes in and anything else is dropped and named.
+              //
+              // AND EVERY LINK WRITTEN INTO THE COPY, for the same reason and
+              // at the same price. Measured over the 337 pages the generator
+              // learns from and writes: 600 links in the chrome and 469 in the
+              // page bodies, where the only lane that could touch one was
+              // `page` — one page at a time, one model call, for a destination.
+              // The `text` layer cannot help either: it refuses `href` and `to`
+              // by name, which is the rule that stops it rewriting a route id.
+              const navRoutes = [...new Set(eSrc.map((p) => routeOf(p.path)).filter(Boolean))];
+              const nOut = await runNavEdit({
+                send: (req) => anthropicMessages(env, req),
+              }, { instruction: eInstruction, pages: eSrc, routes: navRoutes });
+
+              if (!nOut.ok) {
+                if (!nOut.escalate) {
+                  if (nOut.reason === "send") return modelDown(nOut.error, "I couldn't reach the model that sets the menu — try again in a moment.");
+                  return Response.json({
+                    ok: false, error: nOut.reason, cost: await eCharge(nOut.usage), usage: nOut.usage,
+                    // The module writes this — it is the only thing that knows
+                    // which items were dropped and why.
+                    msg: nOut.msg || "That change couldn't be made — try again.",
+                  }, { status: 422 });
+                }
+                return escalate(nOut.reason);
+              }
+              const nPub = await recompileAndPublish(env, {
+                slug: ownerSlug, pages: nOut.pages,
+                label: versionLabel({ revise: true, changeNote: eInstruction }),
+              });
+              if (!nPub.ok) {
+                return Response.json({
+                  ok: false, error: "compile", cost: 0,
+                  msg: compileMsg(nPub, "That menu change didn't compile, so your site is untouched."),
+                  detail: nPub.detail,
+                }, { status: 422 });
+              }
+              return Response.json({
+                ok: true, layer: "nav", msg: nOut.msg,
+                changed: nOut.changed, files: nPub.files, render: nPub.render, renderNote: nPub.renderNote,
+                links: nOut.links, dropped: nOut.dropped.length,
+                // AND THE BUTTON, when this change touched it. Omitted when it
+                // did not, so a menu-only change's response is unchanged.
+                action: nOut.action || undefined, removedAction: nOut.removedAction || undefined,
+                // AND THE LINKS IN THE COPY. `movedLinks` counts what really
+                // changed and `refusedLinks` carries the ones that could not —
+                // a link the model named and we would not repoint is a change
+                // the customer believes happened, which is the one shape this
+                // response must not have.
+                movedLinks: nOut.movedLinks || undefined,
+                refusedLinks: nOut.refusedLinks && nOut.refusedLinks.length ? nOut.refusedLinks.length : undefined,
+                cost: await eCharge(nOut.usage), usage: nOut.usage,
+              });
+            }
             if (eLayer === "picture") {
               // ── A PHOTOGRAPH ON A PAGE THAT ALREADY EXISTS ──────────────
               //
@@ -12514,7 +12678,14 @@ async function handleRequest(request, env, ctx) {
                     msg: pOut.msg || "That change couldn't be made — try again.",
                   }, { status: 422 });
                 }
-                return escalate(pOut.reason);
+                // A HANDOFF IS AN ESCALATION THAT NAMES A CHEAPER LANE. The
+                // picture layer cannot insert a `<SafeImage>` and the `page`
+                // layer can, so "add a photo to the about page" goes there —
+                // one page, one model call — rather than up to the revise, which
+                // rewrites every page of the site to add one picture. Carried on
+                // the escalate the client already reads; a lane that names no
+                // layer behaves exactly as it did.
+                return escalate(pOut.reason, pOut.layer ? { layer: pOut.layer, page: pOut.page } : undefined);
               }
               const pPub = await recompileAndPublish(env, {
                 slug: ownerSlug, pages: pOut.pages,
@@ -12586,14 +12757,31 @@ async function handleRequest(request, env, ctx) {
                 // ITS OWN `_meta` KEY, never a field on `site_look`: that object
                 // is rebuilt from `EDIT_FIELDS` by `mergeLook`, so a logo stored
                 // on it would be dropped by the next colour change.
-                save: async ({ logo }) => {
-                  await sqlQuery(ldb, "INSERT INTO _meta (k,v) VALUES ('site_logo', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v", [String(logo || "")]);
+                // TWO KEYS, ONE PER SLOT, and the module names which. The header
+                // logo and the tab icon are different pieces of artwork — a
+                // wordmark is legible at a few hundred pixels and a smear at 16
+                // — so a site can have both, and setting one must not clear the
+                // other. Written from the key the module chose rather than from
+                // a flag re-read here, or the two could disagree about where the
+                // picture went.
+                save: async (patch) => {
+                  const icon = Object.prototype.hasOwnProperty.call(patch, "icon");
+                  // TWO WHOLE STATEMENTS RATHER THAN ONE WITH THE KEY SPLICED
+                  // IN. The slot can only ever be one of two words this file
+                  // wrote, so concatenating is safe today — and a table name
+                  // built by concatenation is the habit that stops being safe
+                  // the moment somebody widens it. The value is bound either
+                  // way; only the key was ever in question.
+                  await sqlQuery(ldb, icon
+                    ? "INSERT INTO _meta (k,v) VALUES ('site_icon', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v"
+                    : "INSERT INTO _meta (k,v) VALUES ('site_logo', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v",
+                    [String((icon ? patch.icon : patch.logo) || "")]);
                 },
                 publish: () => recompileAndPublish(env, {
                   slug: ownerSlug, pages: eSrc,
                   label: versionLabel({ revise: true, changeNote: eInstruction }),
                 }),
-              }, { images: eImages, remove: eb && eb.remove === true });
+              }, { images: eImages, remove: eb && eb.remove === true, tab: eb && eb.tab === true });
 
               if (!lOut.ok) {
                 // NEVER ESCALATED. The rung above is a full revise, which cannot
@@ -12607,6 +12795,11 @@ async function handleRequest(request, env, ctx) {
               }
               return Response.json({
                 ok: true, layer: "logo", msg: lOut.msg,
+                // WHICH SLOT IT LANDED IN, from the module rather than re-read
+                // off the request: the module is what chose, and a second
+                // reading here is a second thing that can disagree about where
+                // a customer's artwork went.
+                target: lOut.target || "logo",
                 removed: !!lOut.removed, url: lOut.url || "", files: lOut.files,
                 cost: 0, usage: null,
               });
@@ -12646,9 +12839,21 @@ async function handleRequest(request, env, ctx) {
                   detail: pub.detail,
                 }, { status: 422 });
               }
+              // ── A PHONE NUMBER CHANGED IN THE WORDS AND NOT IN THE LINK ──
+              //
+              // A number is one fact in two encodings and only the words are
+              // text, so this lane changes what a visitor READS and leaves the
+              // Call button dialling the old number. Reported rather than
+              // rewritten: pairing `0113 200 0000` with `tel:+441132000000`
+              // needs a heuristic, and a heuristic that fires wrongly sends a
+              // customer's calls somewhere nobody asked for.
+              const staleTel = staleContactLinks(out.pages, out.edits);
               return Response.json({
                 ok: true, layer: "text", applied: out.applied, files: pub.files, render: pub.render, renderNote: pub.renderNote,
                 changed: out.edits.map((e) => e.to).slice(0, 8),
+                // Omitted when empty, so an ordinary wording change's response
+                // is byte-identical and the field's PRESENCE is the signal.
+                staleTel: staleTel.length ? staleTel.slice(0, 4) : undefined,
                 cost: await eCharge(out.usage), usage: out.usage,
               });
             }
@@ -12950,6 +13155,53 @@ async function handleRequest(request, env, ctx) {
                 });
               }
 
+              // ── MOVING THE PAGE, ALSO WITH NO MODEL CALL ─────────────────
+              //
+              // Same shape and same argument as the deletion above: the router
+              // has already resolved which page they mean, and where it is going
+              // is a path rather than prose — so there is nothing for a model to
+              // work out. `renameRoute` rewrites the route declaration on this
+              // page and every `<Link>` to it on every other, which is what makes
+              // it a rename rather than a break: those links are typed against
+              // the tree `tsr generate` emits, so leaving one behind is a compile
+              // error that costs the whole build.
+              //
+              // ITS REFUSALS ARE ANSWERS, NOT ESCALATIONS. "There is already a
+              // page at /work" and "the home page has no address to move" are
+              // things the customer can act on, and the rung above cannot move a
+              // page either — sending it up would spend ~25 credits to fail
+              // differently. The deletion branch's own `cut.msg` case makes the
+              // same call.
+              const wantRename = typeof (eb && eb.rename) === "string" ? eb.rename.trim().toLowerCase() : "";
+              if (wantRename) {
+                const rn = renameRoute(eSrc, wantRoute, wantRename, routeOf);
+                if (!rn.ok) {
+                  return Response.json({ ok: false, error: "rename", cost: 0, msg: "I couldn't move that page — " + rn.reason + "." }, { status: 422 });
+                }
+                // `renamed` IS THE POINT OF DOING IT THIS WAY. Without the
+                // explicit pair the publish sees a delete plus an add and 301s
+                // the old address to the HOME page, so every indexed link and
+                // every share lands on the wrong page rather than the moved one.
+                const mvPub = await recompileAndPublish(env, {
+                  slug: ownerSlug, pages: rn.pages, renamed: rn.redirect,
+                  label: versionLabel({ revise: true, changeNote: eInstruction }),
+                });
+                if (!mvPub.ok) {
+                  return Response.json({
+                    ok: false, error: "compile", cost: 0,
+                    msg: compileMsg(mvPub, "Moving that page left the site not compiling, so nothing changed."),
+                    detail: mvPub.detail,
+                  }, { status: 422 });
+                }
+                // NO `cost`, for the reason the deletion states: nothing was
+                // generated, and the routing call that decided this was charged
+                // where every routing call is.
+                return Response.json({
+                  ok: true, layer: "page", page: wantRoute, renamedTo: rn.redirect.to, changed: rn.changed,
+                  files: mvPub.files, render: mvPub.render, renderNote: mvPub.renderNote, cost: 0,
+                });
+              }
+
               const eDb = await siteBackendBySlug(env, ownerSlug);
               let eSpec = null, eLook2 = null;
               try {
@@ -13015,11 +13267,28 @@ async function handleRequest(request, env, ctx) {
                   detail: pPub.detail,
                 }, { status: 422 });
               }
+              // ── A LIST THIS EDIT REORDERED THAT OTHER PAGES ALSO SHOW ────
+              //
+              // This layer edits exactly ONE file by design, and its own
+              // description says so — but "order the menu by price" does not
+              // read as a multi-page change to anybody. Measured over the
+              // generated samples and the reference pages, 2 of 11 listed tables
+              // appear on more than one page, `services` on BOTH reference pages
+              // among them, so for those the ordinary outcome is a site that now
+              // disagrees with itself and a reply saying it worked.
+              //
+              // REPORTED, NEVER REWRITTEN. Touching the other pages is the exact
+              // thing this layer refuses to do; the fix costs the owner one more
+              // sentence, which they can only say if they are told.
+              const alsoOn = orderingMoved(target.source, wrote.source, eSrc, target.path);
               return Response.json({
                 ok: true, layer: "page", page: wantRoute,
                 photos: pSlots,
                 ignored: (pValid.pages || []).filter((p) => p.path !== target.path).map((p) => p.path).slice(0, 4),
                 problems: pProblems.slice(0, 4),
+                // OMITTED WHEN EMPTY, so an ordinary page edit's response is
+                // byte-identical and the field's PRESENCE is the signal.
+                reordered: alsoOn.length ? alsoOn.slice(0, 4) : undefined,
                 files: pPub.files, render: pPub.render, renderNote: pPub.renderNote, cost: await eCharge(eGen && eGen.usage), usage: eGen && eGen.usage,
               });
             }

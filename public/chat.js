@@ -11228,7 +11228,7 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering) {
     // few credits where the revise below costs ~25 and rewrites pages that were
     // fine. Falls through to that revise on anything it cannot do, exactly like
     // the edit above it.
-    if (d.intent === 'addon' && site.slug) return siteAddon(site, t, origin, finish, go);
+    if (d.intent === 'addon' && site.slug) return siteAddon(site, t, origin, finish, go, d);
     if (d.intent !== 'ask' || !d.answer) return go();
     // A QUESTION. Nothing is built, nothing on the site changes, and the reply
     // is an ordinary assistant message — no build steps, because there was no
@@ -11262,7 +11262,7 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering) {
 // failed (the site is untouched, and rewriting every page to fix a typo is the
 // trade nobody would make). Those the customer is told about, in the server's
 // own words.
-function siteEdit(site, d, instruction, origin, finish, fallback, imgs) {
+function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOff) {
   const slug = String(site.slug || '');
   if (!slug) return fallback();
   apiFetch('/api/site/' + encodeURIComponent(slug) + '/edit', {
@@ -11275,6 +11275,14 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs) {
       // reading. Passed through verbatim as a real boolean, so nothing merely
       // truthy on the wire can take a customer's page away.
       remove: d.remove === true,
+      // AND WHERE IT IS MOVING TO. A string or nothing — the server refuses
+      // anything that is not a path, and `renameRoute` owns every refusal that
+      // needs to see the site.
+      rename: typeof d.rename === "string" ? d.rename : "",
+      // WHICH SLOT THE ATTACHED ARTWORK GOES IN — the header, or the browser
+      // tab. A real boolean like `remove`, so nothing merely truthy on the wire
+      // can send a wide wordmark to a 16-pixel tab and leave the header bare.
+      tab: d.tab === true,
       instruction: instruction,
       picker: buildPicker,
       // THE UNDO. A deleted row is gone from the table, so the server cannot
@@ -11296,7 +11304,24 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs) {
     // A body we cannot read is not a refusal — it is us not knowing, and the
     // rung above still works.
     if (!e) return fallback();
-    if (e.escalate) return fallback();
+    if (e.escalate) {
+      // ── ONE HOP SIDEWAYS, THEN UP ────────────────────────────────────────
+      //
+      // A lane that cannot answer may name a CHEAPER one that can: the picture
+      // layer cannot insert a `<SafeImage>` and the `page` layer can, so "add a
+      // photo to the about page" costs one page instead of the whole-site
+      // rewrite `fallback` performs.
+      //
+      // BOUNDED HERE, NOT TRUSTED FROM THE SERVER, and that is the whole safety
+      // argument: `handedOff` allows exactly one, and a different layer, so no
+      // sequence of server answers can loop between two lanes. A second
+      // escalation goes up the ladder exactly as it does today.
+      if (!handedOff && e.layer && e.layer !== d.layer) {
+        return siteEdit(site, { ...d, layer: String(e.layer), page: e.page ? String(e.page) : d.page },
+          instruction, origin, finish, fallback, imgs, true);
+      }
+      return fallback();
+    }
     if (!r.ok || !e.ok) {
       // The server's own sentence when it has one. `buildDownMsg` already knows
       // to drop the "try again in a few seconds" advice on a failure that no
@@ -11324,7 +11349,7 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs) {
       else if (rows.some((r) => r && r.id === undefined)) s.undoRows = null;
       sitesSave();
     }
-    finish(editReply(e) + renderTail(e));
+    finish(editReply(e) + renderTail(e) + alsoTail(d));
   }).catch(fallback);
 }
 // The middle rung: add a page or a table, keep everything else.
@@ -11333,7 +11358,10 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs) {
 // an escalation is never surfaced as an error — but this one CAN take a while
 // (a model call plus a container build), so the step rows stay running rather
 // than being stopped the way a question stops them.
-function siteAddon(site, instruction, origin, finish, fallback) {
+// `d` IS THE ROUTING DECISION, carried only for `alsoAsked` — the second thing
+// they asked for, which this turn is not doing. It is optional so nothing that
+// calls this without one changes shape.
+function siteAddon(site, instruction, origin, finish, fallback, d) {
   const slug = String(site.slug || '');
   if (!slug) return fallback();
   apiFetch('/api/site/' + encodeURIComponent(slug) + '/addon', {
@@ -11380,7 +11408,7 @@ function siteAddon(site, instruction, origin, finish, fallback) {
       if (tnames.length) s.tables = [...new Set([...(Array.isArray(s.tables) ? s.tables : []), ...tnames])].slice(0, 48);
       sitesSave();
     }
-    finish(addonReplyText(a) + renderTail(a));
+    finish(addonReplyText(a) + renderTail(a) + alsoTail(d));
   }).catch(fallback);
 }
 // `src/routes/gallery.tsx` OR a bare `gallery.tsx` → `/gallery`. Kept in step
@@ -11463,6 +11491,24 @@ function addonReplyText(a) {
 function renderTail(d) {
   return (d && typeof d.renderNote === 'string' && d.renderNote.trim()) ? '\n' + d.renderNote.trim() : '';
 }
+// THE SECOND THING THEY ASKED FOR, WHICH THIS TURN DID NOT DO.
+//
+// `layer` is one value, so a message naming two different parts of the site has
+// half of it silently dropped — and the reply then reports the half that ran as
+// a plain success, which reads as the builder ignoring them rather than as one
+// change per turn.
+//
+// THEIR OWN WORDS, so the follow-up is a paste rather than a re-explanation. The
+// router copies them out of the message; nothing here rewrites them, because a
+// second wording is a second thing that can be wrong about what they meant.
+//
+// Absent by default — the router is told to stay silent when unsure, since a
+// wrong one costs a sentence about something nobody asked for.
+function alsoTail(d) {
+  const also = d && typeof d.alsoAsked === 'string' ? d.alsoAsked.trim() : '';
+  if (!also) return '';
+  return '\nI only did one thing this time. Say “' + also.slice(0, 200) + '” and I\u2019ll do that next.';
+}
 function problemNote(list) {
   const p = (Array.isArray(list) ? list : []).filter((x) => typeof x === 'string' && x.trim()).slice(0, 3);
   if (!p.length) return '';
@@ -11483,8 +11529,22 @@ function editReply(e) {
     const said = (Array.isArray(e.changed) ? e.changed : [])
       .filter((x) => typeof x === 'string' && x.trim()).slice(0, 3)
       .map((x) => '“' + x.slice(0, 60) + '”');
-    return '✅ Updated the wording' + (n > 1 ? ' in ' + n + ' places' : '') +
-      (said.length ? ' — now ' + said.join(', ') : '') + '.' + problemNote(e.problems);
+    let out = '✅ Updated the wording' + (n > 1 ? ' in ' + n + ' places' : '') +
+      (said.length ? ' — now ' + said.join(', ') : '') + '.';
+    // THE CALL LINK STILL HAS THE OLD NUMBER. A phone number is one fact in two
+    // encodings and this lane only reaches the words, so without saying it the
+    // customer sees the right number on the page and the button rings the wrong
+    // one — the worst failure this lane can produce for a trade.
+    const stale = Array.isArray(e.staleTel) ? e.staleTel : [];
+    if (stale.length) {
+      const isMail = /^mailto:/.test(stale[0].href || '');
+      out += isMail
+        ? ' One thing I couldn’t change: the email link still sends to ' +
+          stale[0].href.replace(/^mailto:/, '') + '. Say “point the email link at the new address” and I’ll fix it.'
+        : ' One thing I couldn’t change: the Call link still dials ' +
+          stale[0].href.replace(/^tel:/, '') + '. Say “make the call button use the new number” and I’ll fix it.';
+    }
+    return out + problemNote(e.problems);
   }
   if (e.layer === 'data') {
     // NAMES WHAT MOVED, because this layer changes rows the customer cannot see
@@ -11497,7 +11557,15 @@ function editReply(e) {
     if (rest.length) bits.push('updated ' + (rest.length === 1 ? 'one entry' : rest.length + ' entries') +
       (uniq.length ? ' in ' + uniq.join(', ') : ''));
     if (gone.length) bits.push('removed ' + (gone.length === 1 ? 'one entry' : gone.length + ' entries'));
-    let out = bits.length ? '✅ ' + bits.join(', ').replace(/^./, (c) => c.toUpperCase()) + '.' : '✅ Done.';
+    // WHAT ORDER THE LIST COMES OUT IN, when that is what changed. The server
+    // composes the sentence because it is the only thing that knows which pages
+    // work their own order out and could not be rewritten from outside — and
+    // this is the one data change that publishes, so a lane that reported
+    // nothing would leave somebody waiting for a rebuild they were not told
+    // about.
+    const sorted = typeof e.sortMsg === 'string' && e.sortMsg.trim() ? e.sortMsg.trim() : '';
+    let out = bits.length ? '✅ ' + bits.join(', ').replace(/^./, (c) => c.toUpperCase()) + '.' : (sorted || '✅ Done.');
+    if (sorted && bits.length) out += ' ' + sorted;
     // WHAT WENT, IN WORDS. A deleted row has no version history to restore from,
     // so the contents sitting in the thread ARE the undo — "put that back" is
     // one sentence with the data already on screen.
@@ -11523,6 +11591,23 @@ function editReply(e) {
     // so the reply quotes the description the slot already carries — and the
     // module is the only thing that knows which ones could not be made, which is
     // the half a second copy here would eventually drop.
+    return (typeof e.msg === 'string' && e.msg.trim() ? e.msg.trim() : '✅ Done.');
+  }
+  if (e.layer === 'nav') {
+    // THE SERVER NAMES THE MENU, because it is the only thing that knows what
+    // was DROPPED and why — an item pointing at a page the site does not have
+    // is left out, and a second copy here would eventually report that as a
+    // plain success and leave the owner wondering where their link went.
+    //
+    // HOW MANY PAGES IS THE PART WORTH SAYING. The whole reason this layer
+    // exists is that the menu is a separate copy in every page file, so "it
+    // changed on all 5 pages" is exactly the thing the owner could not get
+    // before without paying for a full rewrite.
+    //
+    // THE SAME GOES FOR THE LINKS IN THE COPY, which this lane also repoints
+    // site-wide. `navReply` is the only place that knows which of those were
+    // REFUSED — a typed link cannot point at an anchor — and a second copy of
+    // that sentence here would eventually report a link that never moved.
     return (typeof e.msg === 'string' && e.msg.trim() ? e.msg.trim() : '✅ Done.');
   }
   if (e.layer === 'rules') {
@@ -11552,6 +11637,15 @@ function editReply(e) {
     // makes that a SILENT PARTIAL: ask for a link "on every page", get it on
     // one, and be told it worked.
     let out = '✅ Updated ' + (e.page || 'the page') + '.';
+    // A LIST THIS REORDERED THAT OTHER PAGES ALSO SHOW. The server is the only
+    // side that can know — it holds both the page before and every other page —
+    // and without saying it, "order the menu by price" leaves the site
+    // disagreeing with itself under a reply that says it worked.
+    const reord = Array.isArray(e.reordered) ? e.reordered.filter(Boolean) : [];
+    if (reord.length) {
+      out += ' Heads up: ' + reord.join(' and ') + (reord.length === 1 ? ' is' : ' are') +
+        ' listed on other pages too, and I only changed this one — say “do the same everywhere” if you want them to match.';
+    }
     const ign = Array.isArray(e.ignored) ? e.ignored.map(sitePathOf).filter(Boolean) : [];
     if (ign.length) {
       out += ' I only changed that one — ' + ign.join(', ') +

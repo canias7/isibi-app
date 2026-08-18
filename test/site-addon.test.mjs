@@ -9,8 +9,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
   MAX_RETURNED, mergeAddonPages, mergeAddonSchema, ADDON_TABLE_FIELDS, ADDON_SPEC_FIELDS,
-  unlinkedPages, routeOf, addonReply, keptReply,
-} from "../builder/site-addon.mjs";
+  unlinkedPages, routeOf, addonReply, keptReply, rowLists, orderingMoved } from "../builder/site-addon.mjs";
 import { priorPagesBlock, pagesRequest, pagesPrompt, validatePages, SITE_PAGES_TOOL } from "../builder/page-gen.mjs";
 import { EDIT_RULE } from "../builder/site-edit.mjs";
 
@@ -1051,4 +1050,120 @@ test("`routeOf` CAN READ WHAT `validatePages` STORES", () => {
     "a stored page has no route, so nothing that looks one up by route can find it");
   // The property, stated: every page that can be stored can be addressed.
   for (const p of stored) assert.notEqual(routeOf(p.path), "", p.path + " is stored and unaddressable");
+});
+
+// ── A LIST REORDERED ON ONE PAGE THAT OTHER PAGES ALSO SHOW ─────────────────
+
+test("rowLists reads the table, the column and the direction", () => {
+  assert.deepEqual(
+    rowLists('const d = useRows<Dish>("dishes", { order: "name", dir: "asc" });'),
+    [{ table: "dishes", order: "name", dir: "asc" }]);
+  assert.deepEqual(
+    rowLists('const a = usePublicRows<Slot>("appointments", { order: "slot_time", dir: "desc" });'),
+    [{ table: "appointments", order: "slot_time", dir: "desc" }]);
+  // A list with no options at all is still a list — `useRows<Deal>("deals")` is
+  // three of the thirteen calls in the real generated pages.
+  assert.deepEqual(rowLists('useRows<Deal>("deals")'), [{ table: "deals", order: "", dir: "" }]);
+});
+
+test("A CALL WITH NO LITERAL TABLE IS SKIPPED rather than guessed at", () => {
+  // One real call takes a computed argument. A wrong reading becomes a sentence
+  // telling an owner their menu appears on a page it does not.
+  assert.deepEqual(rowLists("useRows<Row>(tableName, { order: \"id\" })"), []);
+  assert.deepEqual(rowLists("useRows(props.table)"), []);
+});
+
+test("an `order` belonging to the NEXT list is not read as this one's", () => {
+  const src = 'useRows<A>("a");\nconst b = useRows<B>("b", { order: "name", dir: "asc" });';
+  assert.deepEqual(rowLists(src), [
+    { table: "a", order: "", dir: "" },
+    { table: "b", order: "name", dir: "asc" },
+  ]);
+});
+
+test("orderingMoved names a table whose order changed AND that another page lists", () => {
+  const before = 'useRows<Dish>("dishes", { order: "name", dir: "asc" });';
+  const after = 'useRows<Dish>("dishes", { order: "price", dir: "asc" });';
+  const other = { path: "menu.tsx", source: 'useRows<Dish>("dishes", { order: "name", dir: "asc" });' };
+  assert.deepEqual(orderingMoved(before, after, [other]), ["dishes"]);
+});
+
+test("...and says nothing when no other page lists it", () => {
+  const before = 'useRows<Dish>("dishes", { order: "name" });';
+  const after = 'useRows<Dish>("dishes", { order: "price" });';
+  assert.deepEqual(orderingMoved(before, after, [{ path: "x.tsx", source: 'useRows<Other>("other")' }]), []);
+  assert.deepEqual(orderingMoved(before, after, []), []);
+});
+
+test("KEYED ON THE ORDERING HAVING MOVED, not on the table merely appearing", () => {
+  // A page edit that changes the wording around a list must not produce a
+  // sentence about sort order.
+  const src = 'useRows<Dish>("dishes", { order: "name", dir: "asc" });\n<h1>Our menu</h1>';
+  const reworded = 'useRows<Dish>("dishes", { order: "name", dir: "asc" });\n<h1>The menu</h1>';
+  assert.deepEqual(orderingMoved(src, reworded, [{ path: "m.tsx", source: src }]), []);
+});
+
+test("a direction change on its own counts", () => {
+  const before = 'useRows<Post>("posts", { order: "id", dir: "asc" });';
+  const after = 'useRows<Post>("posts", { order: "id", dir: "desc" });';
+  assert.deepEqual(orderingMoved(before, after, [{ path: "b.tsx", source: before }]), ["posts"]);
+});
+
+test("a list the page did not have before is not a REORDER", () => {
+  // Adding a list is an ordinary page edit; only a list that already existed and
+  // now sorts differently is the thing this reports.
+  const after = 'useRows<Dish>("dishes", { order: "price" });';
+  assert.deepEqual(orderingMoved("", after, [{ path: "m.tsx", source: after }]), []);
+});
+
+test("driven over the pages the generator actually wrote", () => {
+  // The only corpus here written by the thing being read. It is also where the
+  // multi-page case comes from: `services` is listed on BOTH reference pages.
+  const dir = new URL("../builder/lovable/template/src/routes/", import.meta.url).pathname;
+  const idx = fs.readFileSync(dir + "index.tsx", "utf8");
+  const book = fs.readFileSync(dir + "book.tsx", "utf8");
+  const onIdx = rowLists(idx).map((l) => l.table);
+  const onBook = rowLists(book).map((l) => l.table);
+  assert.ok(onIdx.includes("services"), "index lists services: " + onIdx);
+  assert.ok(onBook.includes("services"), "book lists services: " + onBook);
+  // So reordering it on one really would leave the other disagreeing.
+  const reordered = idx.replace(/order: "price"/, 'order: "name"');
+  assert.notEqual(reordered, idx, "the fixture still carries the order this rewrites");
+  assert.deepEqual(orderingMoved(idx, reordered, [{ path: "book.tsx", source: book }]), ["services"]);
+});
+
+test("the page layer computes it and BOTH ends of the wire carry it", () => {
+  // Computed and rendered by nothing is this repo's most-recorded failure — the
+  // build reply's `notes`, `oneClickBlocked`, the four ticked steps.
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(w, /import \{[^}]*orderingMoved[^}]*\} from "\.\/builder\/site-addon\.mjs"/);
+  assert.match(w, /const alsoOn = orderingMoved\(target\.source, wrote\.source, eSrc, target\.path\);/);
+  assert.match(w, /reordered: alsoOn\.length \? alsoOn\.slice\(0, 4\) : undefined,/);
+  const c = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+  assert.match(c, /Array\.isArray\(e\.reordered\)/);
+  assert.match(c, /listed on other pages too/);
+});
+
+test("THE EDITED PAGE EXCLUDES ITSELF — otherwise every reorder reports as shared", () => {
+  // The edited page's own new list always matches, so without this the sentence
+  // is noise on the majority of edits. It lived in the caller as a `.filter()`
+  // one line below the call, where only a source-read could see it, and a
+  // mutation deleting it survived — so it moved into the function.
+  const before = 'useRows<Dish>("dishes", { order: "name" });';
+  const after = 'useRows<Dish>("dishes", { order: "price" });';
+  const pages = [{ path: "index.tsx", source: after }, { path: "menu.tsx", source: 'useRows<X>("other")' }];
+  assert.deepEqual(orderingMoved(before, after, pages, "index.tsx"), []);
+  // And it still finds a genuine second page.
+  pages.push({ path: "specials.tsx", source: before });
+  assert.deepEqual(orderingMoved(before, after, pages, "index.tsx"), ["dishes"]);
+});
+
+test("an options object with no `order` does not borrow the NEXT list's", () => {
+  // The window has to stop at this call's own `);`. Unbounded, a list carrying
+  // only a `limit` reads the order of whatever list follows it.
+  const src = 'useRows<A>("a", { limit: 5 });\nconst b = useRows<B>("b", { order: "name", dir: "asc" });';
+  assert.deepEqual(rowLists(src), [
+    { table: "a", order: "", dir: "" },
+    { table: "b", order: "name", dir: "asc" },
+  ]);
 });

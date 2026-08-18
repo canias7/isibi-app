@@ -39,6 +39,19 @@ import { Textarea } from "@/components/ui/textarea";
 
 export const Route = createFileRoute("/book")({
   component: Book,
+  // WHAT THIS PAGE IS, so a share of it does not preview as the home page.
+  // Without a `head` a route inherits the site's own title and description, so
+  // every address on the site showed one headline and one blurb — the booking
+  // page pasted into a message read as the front page. The root supplies
+  // `og:url`, the share image and the card type; a page supplies only these.
+  head: () => ({
+    meta: [
+      { title: "Book a chair — Sharp Fade Barbers" },
+      { property: "og:title", content: "Book a chair — Sharp Fade Barbers" },
+      { name: "description", content: "Pick a service and a time. Takes about a minute, and you get a link to change it." },
+      { property: "og:description", content: "Pick a service and a time. Takes about a minute, and you get a link to change it." },
+    ],
+  }),
   // Every Book button on the site carries its service here — the price list's
   // per-row button navigates with `search: { service: r.name }` — so the form
   // opens half-filled. Narrowing here is also what TYPES that navigate call.

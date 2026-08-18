@@ -36,6 +36,12 @@ export const SITE_LANG = "en";
 // because this container is long-lived and the first site's mark would become
 // every later brandless site's.
 export const SITE_ICON = "/favicon.svg";
+// WHAT THOSE BYTES ACTUALLY ARE. The mark this build draws is an SVG and the
+// document declared `image/svg+xml` unconditionally — fine while that was the
+// only icon a site could have, and a lie about the bytes the moment an owner
+// sends their own PNG. A browser is entitled to refuse an icon whose declared
+// type does not match, so the type is written per icon rather than assumed.
+export const SITE_ICON_TYPE = "image/svg+xml";
 // The business's name, used as the document's DEFAULT title — a route that
 // declares its own `head()` beats it. `setTitle` used to stamp this onto every
 // non-home page at publish, after the fact; a default the routes can override is

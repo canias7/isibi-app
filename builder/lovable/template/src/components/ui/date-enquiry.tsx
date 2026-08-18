@@ -64,11 +64,39 @@ export function DateEnquiry({
   const ready = !!date && n > 0 && !over && !under;
   // ISO parsed as LOCAL, not through `new Date("2026-08-15")` — that is UTC
   // midnight, which renders as the 14th for every reader west of Greenwich.
+  //
+  // TWO FORMATTERS AND OUR OWN SPACE, NOT ONE FORMATTER WITH FOUR FIELDS. Asking
+  // ICU for `{weekday:"short", day, month:"long", year}` in one call makes it
+  // improvise the join, and implementations disagree about it: measured, Node
+  // (ICU 78.2) returns "Sat, 19 September 2026" and this Chromium returns
+  // "Sat 19 September 2026". One character, same timezone, same locale — and it
+  // is rendered during SSR whenever a caller passes `status` with a date, so
+  // React refused the hydration (#418, "text") and took `entertainer /` down.
+  //
+  // IT IS NOT THE PROBLEM `pinSiteLocale` SOLVES, which is worth being clear
+  // about because that module looks like it should cover this. It makes an
+  // ABSENT locale mean the site's, and deliberately leaves an explicit one
+  // alone — both sides here already agreed on "en-GB". This is two ICU VERSIONS
+  // disagreeing about one locale's pattern, which no amount of locale-pinning
+  // reaches.
+  //
+  // AND IT CANNOT BE FIXED BY MATCHING ENGINES, which is why the answer is to
+  // stop asking. We SSR in workerd and hydrate in whatever browser the visitor
+  // brought, at whatever ICU version it ships — so any format whose output
+  // depends on the ICU version WILL mismatch for some fraction of real
+  // visitors. The proof that this is luck rather than safety: CI's Node and
+  // CI's Chromium happen to agree, so `family apps` was green on this page
+  // while it failed here.
+  //
+  // Both halves below were measured stable across both engines on their own; the
+  // only unstable part was the literal between them, and now it is ours.
   const pretty = (iso: string) => {
     const [y, m, d] = iso.split("-").map(Number);
     if (!y || !m || !d) return iso;
-    return new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "long", year: "numeric" })
-      .format(new Date(y, m - 1, d));
+    const at = new Date(y, m - 1, d);
+    const weekday = new Intl.DateTimeFormat("en-GB", { weekday: "short" }).format(at);
+    const rest = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric" }).format(at);
+    return `${weekday} ${rest}`;
   };
   return (
     <div className={cn("rounded-xl border border-border bg-background p-6", className)}>

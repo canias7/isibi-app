@@ -123,7 +123,7 @@ export const FALLBACK_NO_SITE = "build";
  * An unrecognised layer is not a fourth option, it is a routing failure, and it
  * goes UP the ladder like every other one.
  */
-export const EDIT_LAYERS = ["data", "text", "look", "page", "rules", "picture", "logo"];
+export const EDIT_LAYERS = ["data", "text", "look", "page", "rules", "picture", "logo", "nav"];
 
 /**
  * The layers where "take it away" is a thing a customer can ask for.
@@ -187,6 +187,21 @@ export const ASK_TOOL = {
           "spends a full page-generation call and changes nothing at all. If they are asking for something to GO, it is " +
           "an \"edit\", every time, even when you are unsure of anything else about it.",
       },
+      alsoAsked: {
+        type: "string",
+        description:
+          "THE SECOND, SEPARATE THING THEY ASKED FOR AND THIS TURN IS NOT DOING — in their own words, copied from " +
+          "their message so they can send it straight back. One change happens per turn, so \"make the background " +
+          "yellow and add a booking form\" does the colour and this field holds \"add a booking form\". Without it " +
+          "the second half is dropped in silence and they are told the first one worked.\n" +
+          "ALMOST ALWAYS LEAVE THIS OUT. Two things said about ONE change is still one change: \"make the background " +
+          "yellow and the corners rounder\" is a single look edit, \"put Book first and drop Prices\" is a single " +
+          "menu edit, and \"change the phone number in the header and the footer\" is one wording edit in two places. " +
+          "It belongs here ONLY when the leftover would go to a DIFFERENT part of the site than the one you just " +
+          "named in `layer` — and never for a detail, a reason or a restatement of the change you are doing.\n" +
+          "Being wrong here costs them a sentence about something they did not ask for, which is worse than useless: " +
+          "it reads as the builder misunderstanding them. When in doubt, say nothing.",
+      },
       layer: {
         type: "string",
         enum: EDIT_LAYERS,
@@ -222,15 +237,39 @@ export const ASK_TOOL = {
           "Answer this for taking it OFF as well (\"drop the logo\", \"just the name is fine\"), with `remove` true " +
           "and no attachment expected. THE WORD \"LOGO\" IS THE SIGNAL and it is a strong one: a picture attached to " +
           "a message about the header, the top of the site, or the brand mark is this and not \"picture\".\n" +
+          "\"nav\" — THE TOP OF EVERY PAGE: the menu, and the one button beside it.\n" +
+          "THE MENU — which items are in it, what order they come in, taking one out. \"Put Book first\", \"add " +
+          "Contact to the menu\", \"take Pricing out of the nav\", \"the menu should be Home, Services, Contact\".\n" +
+          "THE BUTTON — what it says AND where it goes. \"Change the Book button to Get a quote\", \"make the button " +
+          "call us instead\", \"point the button at the contact page\", \"add a Call now button at the top\", \"drop " +
+          "the button\". A phone number belongs here: for a trade whose customers ring rather than book, that button " +
+          "IS the site's whole purpose.\n" +
+          "LINKS WRITTEN INTO THE PAGES belong here too — \"the Send an enquiry link should go to the contact " +
+          "page\", \"make Read more point at the blog\". Every link on the site with those words moves at once, on " +
+          "every page carrying one, which is the part no other lane can do.\n" +
+          "The menu and the button are the same on every page, so this changes all of them at once and is nearly " +
+          "free.\n" +
+          "IT ONLY EVER POINTS AT PAGES THE SITE ALREADY HAS. \"Add a gallery to the menu\" when there is no gallery " +
+          "page is an \"addon\" — the page has to exist before anything can link to it. The pages it has are listed " +
+          "above.\n" +
           "\"page\" — the arrangement of ONE existing page: move a section, take one out, lay a list out differently, " +
           "add a block built from parts the page already has. Name it in `page`.\n" +
           "THIS IS ALSO WHERE A PAGE IS DELETED. \"Remove the gallery page\" is this layer, that page in `page`, and " +
           "`remove` true — not a rewrite of the site and not a question back. Deleting costs almost nothing precisely " +
           "because it comes here.\n" +
           "ONE PAGE, AND ONLY ONE. If the change is meant to land on several — \"put the phone number in the footer " +
-          "of every page\", \"add the gallery to the menu everywhere\" — this is NOT the layer for it: it edits the " +
-          "single page you name and leaves the rest exactly as they are, so the site would end up disagreeing with " +
-          "itself. Answer \"addon\" for those; it can touch the pages a visitor would look on.",
+          "of every page\" — this is NOT the layer for it: it edits the single page you name and leaves the rest " +
+          "exactly as they are, so the site would end up disagreeing with itself. Answer \"addon\" for those; it can " +
+          "touch the pages a visitor would look on.\n" +
+          // THIS CLAUSE USED TO SEND EVERY MENU CHANGE TO THE ADDON LANE, by
+          // name: "add the gallery to the menu everywhere" was its own worked
+          // example of something to answer "addon" for. That was correct while
+          // nothing could edit a menu — the nav is a separate copy in every page
+          // file, so it really did need a lane that touches them all. With the
+          // `nav` layer there it is a ~27-credit page-generation call to move one
+          // word, and the example has to point at the cheap lane or the layer is
+          // reachable by nothing.
+          "A MENU CHANGE IS \"nav\", NOT THIS AND NOT \"addon\". It lands on every page and costs almost nothing.",
       },
       page: {
         type: "string",
@@ -263,6 +302,31 @@ export const ASK_TOOL = {
           "For layer \"logo\": true when they want the logo TAKEN OFF and the header to go back to showing the " +
           "business name — \"drop the logo\", \"remove our logo\", \"just the name is fine\". A message that ATTACHES " +
           "a picture is never a removal.",
+      },
+      tab: {
+        type: "boolean",
+        description:
+          "Only when layer is \"logo\". True when the picture is for the BROWSER TAB rather than the header — " +
+          "\"this is our favicon\", \"use this as the tab icon\", \"the little icon in the tab\", \"put this on the " +
+          "bookmark\". The words \"favicon\", \"tab\" and \"bookmark\" are the signal, and each is a strong one.\n" +
+          "LEAVE IT OUT FOR AN ORDINARY LOGO. \"Here's my logo\" means the header, which is where a logo is read at " +
+          "a size that makes it legible; a wide wordmark shrunk into a 16-pixel tab is a smear, so sending one there " +
+          "on a guess gives them a worse tab than the initials they had.\n" +
+          "It also works with `remove` — \"take the favicon off\" is both fields, and puts the tab back to the mark " +
+          "drawn from the business's initials.",
+      },
+      rename: {
+        type: "string",
+        description:
+          "For layer \"page\" ONLY: the NEW ADDRESS they want that page to have, when the ask is about its address " +
+          "rather than its contents — \"move the gallery to /work\", \"the services page should be at /what-we-do\", " +
+          "\"change /about-us to /about\". Name the page they mean in `page` as usual, and put the new path here, " +
+          "starting with a slash: \"/work\".\n" +
+          "AN ADDRESS IS NOT A HEADING, and this is the distinction that decides the field. \"Call that page Services " +
+          "instead of What We Do\" is about the WORDS ON IT — that is an ordinary page edit and this stays empty. Only " +
+          "use this when they are talking about the URL, the address, the link, or where the page lives.\n" +
+          "LEAVE IT OUT UNLESS THEY ASKED. Moving a page changes every link to it and leaves a redirect behind, so " +
+          "setting this when they only wanted different wording changes the address of a page they were happy with.",
       },
       answer: {
         type: "string",
@@ -498,8 +562,20 @@ export function readRouting(reply, { canClarify = false, answering = false, atta
   // nothing to edit is not a cheaper build, it is a lane with no input — so on an
   // empty project both fall through to the bottom of this function and build,
   // which is what every caller did before these existed.
-  if (hasSite && input.intent === "addon") return work("addon");
-  if (hasSite && input.intent === "edit") return readEdit(input, pages);
+  //
+  // AND THE SECOND THING THEY ASKED FOR, ON THE TWO WORK RUNGS ONLY. `layer` is
+  // one value and always has been, so a message naming two different parts of
+  // the site has half of it dropped — and the customer is then told the half
+  // that ran worked, which reads as the builder ignoring them rather than as one
+  // change per turn. This does not change what gets DONE: it is a note, so the
+  // worst case is a sentence about something they did not ask for.
+  //
+  // NOT ON `build`, which rewrites everything and folds a second ask in by
+  // construction, and not on `ask` or `clarify`, where no work happened for a
+  // leftover to sit beside.
+  const also = readAlso(input);
+  if (hasSite && input.intent === "addon") return { ...work("addon"), ...also };
+  if (hasSite && input.intent === "edit") return { ...readEdit(input, pages), ...also };
   // "build" IS STILL HONOURED ON AN EXISTING SITE, deliberately and narrowly:
   // it is the only way to say "scrap this and make me a different site", which is
   // a thing people really do ask for. The tool description is what keeps it rare.
@@ -581,6 +657,34 @@ export function normalizePagePath(raw) {
  * alternative is inventing a refusal out of evidence we do not have, and sending
  * every page edit on those sites to a lane that would try to add a duplicate.
  */
+/**
+ * The second thing they asked for, which this turn is not doing.
+ *
+ * A NOTE AND NEVER AN ACTION. Nothing downstream branches on it — it is one
+ * sentence appended to the reply — so a model that over-reports costs the
+ * customer a line about something they did not ask for, and one that
+ * under-reports leaves today's behaviour exactly as it is. That asymmetry is why
+ * the schema description tells it to stay silent when unsure, and why this
+ * reader is strict rather than generous.
+ *
+ * A NON-STRING IS REFUSED RATHER THAN COERCED: `String(["a","b"])` is "a,b",
+ * which would be shown to the customer as their own words. The same coercion bug
+ * this repo has recorded on `normalizeRole` and on a table's `access`.
+ *
+ * ABSENT MEANS ABSENT — an empty object, so a response that has no leftover is
+ * byte-identical to what it was before this existed.
+ */
+export function readAlso(input) {
+  const raw = input && typeof input.alsoAsked === "string" ? input.alsoAsked.trim() : "";
+  if (!raw) return {};
+  // Long enough for a real second ask and short enough that it cannot become a
+  // paragraph glued onto every reply.
+  return { alsoAsked: raw.slice(0, MAX_ALSO_CHARS) };
+}
+
+/** One more sentence, not a second brief. */
+export const MAX_ALSO_CHARS = 200;
+
 export function readEdit(input, pages) {
   const layer = EDIT_LAYERS.includes(input && input.layer) ? input.layer : null;
   if (!layer) return { intent: FALLBACK_WITH_SITE, answer: "" };
@@ -601,7 +705,13 @@ export function readEdit(input, pages) {
   // away rather than adding something visible and undoable.
   const remove = input && input.remove === true;
   const removal = remove ? { remove: true } : {};
-  if (layer !== "page") return { intent: "edit", answer: "", layer, ...(REMOVABLE_LAYERS.includes(layer) ? removal : {}) };
+  // WHICH SLOT THE ARTWORK GOES IN, read only for the layer that has two.
+  // Scoped the way `remove` is, and for the same reason: a flag carried by a
+  // layer that cannot act on it is one nothing reads, which is how this repo's
+  // dead features start. Combines with `remove` — "take the favicon off" is
+  // both, and the pair is what makes that removal hit the right slot.
+  const tab = layer === "logo" && input && input.tab === true ? { tab: true } : {};
+  if (layer !== "page") return { intent: "edit", answer: "", layer, ...tab, ...(REMOVABLE_LAYERS.includes(layer) ? removal : {}) };
   const want = normalizePagePath(input.page);
   if (!want) return { intent: FALLBACK_WITH_SITE, answer: "" };
   const known = (Array.isArray(pages) ? pages : []).map(normalizePagePath).filter(Boolean);
@@ -627,10 +737,35 @@ export function readEdit(input, pages) {
   // It is safe to be this direct because the merge still refuses the dangerous
   // cases — never the home page, never one another page still links to — and a
   // publish is archived, so a page deleted by mistake is one restore away.
+  // ── MOVING THE PAGE, WHICH IS THE OTHER THING ONLY THIS LAYER CAN DO ──────
+  //
+  // A NEW ADDRESS AND A REMOVAL ARE MUTUALLY EXCLUSIVE, and the removal wins.
+  // A model answering both has contradicted itself, and of the two readings
+  // "delete it" is the one they plainly asked for if they asked for it at all;
+  // moving a page that is on its way out is work nobody wanted.
+  //
+  // NOT VALIDATED HERE BEYOND ITS SHAPE. `renameRoute` owns every refusal that
+  // matters — the home page has no address to move, the target must not already
+  // exist, the source must — and it owns them because it is the thing that can
+  // SEE the pages. A second opinion here would be a second place for the rules
+  // to drift, and this repo has that failure written down several times over.
+  // What this does is refuse anything that is not a path at all, so a heading
+  // ("Services") cannot reach the renamer as an address.
+  //
+  // THE LEADING SLASH IS REQUIRED HERE AND NOT ABOVE, and the asymmetry is the
+  // whole guard. `normalizePagePath` ADDS one — right for `page`, where a model
+  // naming which page it means may reasonably answer `book` or `/book`, and
+  // wrong for this field, where the slash is the only thing separating "move it
+  // to /services" from "call it Services". Without this, a heading normalises
+  // into an address and the page silently moves; caught by its own test rather
+  // than reasoned about, because the lenient helper looked safe to reuse.
+  const raw = !remove && typeof input.rename === "string" ? input.rename.trim() : "";
+  const rename = raw.startsWith("/") ? normalizePagePath(raw) : null;
+  const moving = rename && rename !== want ? { rename } : {};
   // `remove` is read once, at the top, so the logo layer gets the same field
   // this branch does — it was declared here and the early return above stripped
   // it from every other layer.
-  return { intent: "edit", answer: "", layer, page: want, ...removal };
+  return { intent: "edit", answer: "", layer, page: want, ...removal, ...moving };
 }
 
 /**

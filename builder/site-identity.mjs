@@ -181,3 +181,49 @@ export function initialsMark(brand) {
   );
 }
 
+
+/**
+ * The owner's OWN tab icon, if they sent one we can serve.
+ *
+ * WHY THIS IS HERE RATHER THAN IN THE CONTAINER, which is where it started: the
+ * decision is pure — is this URL usable, and what are the bytes — and inside
+ * `build-server.mjs` nothing can drive it. A mutation sweep proved that
+ * immediately: making the container ignore the stored icon entirely, and making
+ * its shape check accept any string at all, BOTH survived a green suite. The
+ * container keeps the wiring; the judgement lives where it can be tested.
+ *
+ * A SEPARATE PIECE OF ARTWORK FROM THE HEADER LOGO, never a smaller copy. A
+ * wordmark is legible at a few hundred pixels and a smear at 16, so a site that
+ * used one for both would have a worse tab than one showing its initials — which
+ * is why this is asked for and never inferred from the logo.
+ *
+ * THE TYPE IS READ OFF THE EXTENSION, WHICH IS OURS. `uploadName` builds the
+ * filename from the kind `sniffImage` decided off the leading bytes, so the
+ * extension is a fact about the file rather than a caller's claim about it. It
+ * matters because the document used to declare `image/svg+xml` unconditionally,
+ * which is a lie about an owner's PNG and a browser may refuse an icon whose
+ * declared type does not match.
+ *
+ * SHAPE-CHECKED BECAUSE IT REACHES A `src` IN GENERATED TYPESCRIPT — an absolute
+ * https URL or one of our own `/u/` upload paths, and nothing else. The value
+ * comes out of our own `_meta`, and "it came from us" is how the first person to
+ * reach that row through some other route gets an XSS on a customer's site.
+ */
+export const ICON_TYPES = {
+  png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
+  webp: "image/webp", svg: "image/svg+xml",
+};
+
+export function siteIconFrom(sent) {
+  const raw = typeof sent === "string" ? sent.trim() : "";
+  if (!raw) return null;
+  const ok = /^https:\/\/[^\s"'<>]+$/i.test(raw)
+    || /^\/u\/[a-z0-9][a-z0-9-]{0,80}\/[a-z0-9._-]{1,120}$/i.test(raw);
+  if (!ok) return { href: null, type: "", refused: true };
+  // AN UNKNOWN EXTENSION IS NOT A REFUSAL. The URL is one we minted or an https
+  // address the owner gave us; what we cannot do is CLAIM a type for it, and an
+  // absent `type` is a perfectly ordinary `<link rel="icon">` that browsers
+  // sniff. Declaring the wrong one is the failure this field exists to stop.
+  const ext = (raw.match(/\.([a-z0-9]+)(?:[?#]|$)/i) || [, ""])[1].toLowerCase();
+  return { href: raw, type: ICON_TYPES[ext] || "", refused: false };
+}
