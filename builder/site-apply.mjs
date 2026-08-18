@@ -32,6 +32,7 @@
 // container and no Worker.
 
 import { extractText, applyEdits } from "./site-text.mjs";
+import { sortSlots, sortDigest, sortColumns, applySort, sortReply, sortRefusal, SORT_DIRS } from "./site-order.mjs";
 
 /** Haiku. Choosing which of a list of strings to change is not a design task. */
 export const TEXT_MODEL = "claude-haiku-4-5";
@@ -422,6 +423,35 @@ export const DATA_TOOL = {
           required: ["table"],
         },
       },
+      order: {
+        type: "object",
+        description:
+          "WHAT ORDER ONE OF THESE LISTS COMES OUT IN, when that is what they are asking about rather than the rows " +
+          "themselves — \"show the cheapest first\", \"put the newest at the top\", \"the opening hours are in the " +
+          "wrong order\". The lists and the order each one is in today are below.\n" +
+          "IT SORTS BY A COLUMN AND NOTHING ELSE. \"Put the Fade above the Beard trim\" is a sequence somebody chose " +
+          "rather than a sort, and there is nowhere to keep one — leave this out and say nothing about it, rather " +
+          "than picking a column that happens to put those two the right way round and moving everything else.\n" +
+          "Leave the whole field out if they are not asking about the order of a list.",
+        properties: {
+          table: { type: "string", description: "Which list, exactly as named below." },
+          column: {
+            type: "string",
+            description:
+              "The column to order by, exactly as listed for that table. `created_at` is the newest-first column and " +
+              "every table has one. A column that table does not have is ignored, because sorting by one shows the " +
+              "visitor an EMPTY list rather than a differently ordered one.",
+          },
+          dir: {
+            type: "string",
+            enum: ["asc", "desc"],
+            description:
+              "\"asc\" for smallest, earliest or A first; \"desc\" for largest, latest or Z first. Newest-first is " +
+              "`created_at` with \"desc\".",
+          },
+        },
+        required: ["table", "column"],
+      },
     },
     required: ["changes"],
   },
@@ -503,7 +533,10 @@ export function recentBlock(recent) {
     "entirely: it is a record of what went, not a list of things to restore.";
 }
 
-export function dataRequest({ instruction, tables, recent }) {
+export function dataRequest({ instruction, tables, recent, lists }) {
+  // THE LISTS BLOCK IS OMITTED WHEN THERE ARE NONE, so a caller that does not
+  // pass the pages sends exactly the request it sent before this existed.
+  const order = sortDigest(lists, tables);
   return {
     model: DATA_MODEL,
     max_tokens: DATA_MAX_TOKENS,
@@ -513,9 +546,41 @@ export function dataRequest({ instruction, tables, recent }) {
     messages: [{
       role: "user",
       content: "WHAT THIS SITE STORES\n" + dataDigest(tables) + recentBlock(recent) +
+        (order ? "\n\n" + order : "") +
         "\n\nWHAT THEY ASKED FOR\n" + String(instruction || "").trim().slice(0, 2000),
     }],
   };
+}
+
+/**
+ * The order change the model asked for, checked against what the site has.
+ *
+ * A COLUMN THE TABLE DOES NOT HAVE IS REFUSED HERE AND NOT LEFT TO POSTGREST.
+ * The data API answers a sort by an unknown column with a 400, `useRows` turns
+ * that into the list's error state, and the owner is left with an EMPTY list on
+ * every page reading that table — a worse outcome than the order they disliked,
+ * arriving on a change they were told had worked.
+ */
+export function readSortChange(reply, tables) {
+  const blocks = reply && Array.isArray(reply.content) ? reply.content : [];
+  const use = blocks.find((b) => b && b.type === "tool_use");
+  const raw = use && use.input && use.input.order;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  // A NON-STRING IS REFUSED RATHER THAN COERCED: `String(["a","b"])` is "a,b",
+  // which is not a column and would be dropped anyway — but the same coercion
+  // on a TABLE name is a sort applied to a list nobody asked about.
+  const table = typeof raw.table === "string" ? raw.table.trim() : "";
+  const column = typeof raw.column === "string" ? raw.column.trim() : "";
+  if (!table || !column) return null;
+  const cols = sortColumns(tables, table);
+  if (!cols) return null;
+  // A REFUSAL, NOT SILENCE. "Order the dishes by spiciness" against a table with
+  // no such column used to fall through to "I couldn't match that to anything
+  // the site stores", which is both wrong (the list is right there) and
+  // unactionable. Naming what the list HAS is a next step; a shrug is not.
+  if (!cols.includes(column)) return { table, column, refused: "no-such-column", columns: cols };
+  const dir = SORT_DIRS.includes(raw.dir) ? raw.dir : "asc";
+  return { table, column, dir };
 }
 
 /**
@@ -609,12 +674,16 @@ export function dataUsage(reply) {
  * and matched none of them does NOT escalate: the rungs above cannot change a
  * row either, so sending them up spends ~25 credits to fail differently.
  */
-export async function runDataEdit(deps, { instruction, tables, recent } = {}) {
+export async function runDataEdit(deps, { instruction, tables, recent, pages } = {}) {
   const usable = (Array.isArray(tables) ? tables : []).filter((t) => t && t.name && Array.isArray(t.rows));
   if (!usable.length) return { ok: false, escalate: true, reason: "no-data", usage: null };
+  // WHAT ORDER EACH LIST COMES OUT IN, which is a fact about the PAGES and not
+  // about the rows. Absent pages means the block is omitted and this behaves
+  // exactly as it did before ordering existed.
+  const lists = sortSlots(pages);
   let reply;
   try {
-    reply = await deps.send(dataRequest({ instruction, tables: usable, recent }));
+    reply = await deps.send(dataRequest({ instruction, tables: usable, recent, lists }));
   } catch (e) {
     // OUR MODEL CALL FAILED, SO THIS IS REPORTED AND NOT ESCALATED — the rule
     // every sibling lane already follows, and the look layer states outright:
@@ -636,7 +705,50 @@ export async function runDataEdit(deps, { instruction, tables, recent } = {}) {
   }
   const usage = dataUsage(reply);
   const changes = readDataChanges(reply, usable);
-  if (!changes.length) return { ok: false, escalate: false, reason: "no-match", usage };
+
+  // ── WHAT ORDER A LIST COMES OUT IN ────────────────────────────────────────
+  //
+  // A PAGE REWRITE RATHER THAN A ROW WRITE, so it is done here and published by
+  // the caller: `useRows("dishes", { order: "name" })` is the whole mechanism,
+  // the database has no opinion, and `defaultSort` is acted on by nothing.
+  //
+  // SITE-WIDE, which is the reason it is not simply left to the `page` layer.
+  // A table is read on several pages, so changing one leaves the site
+  // disagreeing with itself — the failure `orderingMoved` can report and cannot
+  // fix. Nothing here is a model call: the column came back with the reply that
+  // was already paid for.
+  const asked = readSortChange(reply, usable);
+  // A COLUMN THE TABLE DOES NOT HAVE NEVER REACHES `applySort`, so nothing can
+  // be rewritten to a sort that would 400 and empty the list.
+  const want = asked && !asked.refused ? asked : null;
+  const sorted = want ? applySort(pages, want.table, want.column, want.dir) : null;
+  const sortChanged = sorted ? sorted.changed : [];
+
+  if (!changes.length && !sortChanged.length) {
+    // A REFUSED SORT IS NOT "NOTHING MATCHED". The model found the list and we
+    // could not use what it asked for, which is a different sentence and a
+    // different next step — the same distinction the nav lane draws for a
+    // refused link. Three of them, because they have three different answers.
+    if (asked && asked.refused === "no-such-column") {
+      return { ok: false, escalate: false, reason: "no-change", usage, sort: asked,
+        msg: sortRefusal(asked) };
+    }
+    if (want && sorted && sorted.refused.length) {
+      return { ok: false, escalate: false, reason: "no-change", usage, sort: want, refused: sorted.refused,
+        msg: sortReply({ table: want.table, order: want.column, dir: want.dir, changed: [], refused: sorted.refused }) };
+    }
+    if (want) {
+      // A LIST NO PAGE READS IS NOT "ALREADY IN THAT ORDER", which is what the
+      // ordinary sentence would say — and it is a fact the owner can act on:
+      // the rows exist and nothing shows them.
+      const shown = lists.some((s) => s.table === want.table);
+      return { ok: false, escalate: false, reason: "no-change", usage, sort: want,
+        msg: shown
+          ? sortReply({ table: want.table, order: want.column, dir: want.dir, changed: [], refused: [] })
+          : "Nothing on the site shows " + want.table + " yet, so there is no order to change." };
+    }
+    return { ok: false, escalate: false, reason: "no-match", usage };
+  }
 
   const applied = [], failed = [];
   for (const c of changes) {
@@ -649,8 +761,24 @@ export async function runDataEdit(deps, { instruction, tables, recent } = {}) {
   // page, where half an edit is a file that does not compile — so the four that
   // worked are worth keeping, and the owner has to be told about the one that
   // did not or they will believe all five landed.
-  if (!applied.length) return { ok: false, escalate: false, reason: "write", usage, failed: failed.length };
-  return { ok: true, applied, failed: failed.length, usage };
+  //
+  // A SORT THAT LANDED KEEPS THE ANSWER ALIVE even when every row write failed:
+  // the pages really did change, and reporting `write` would tell the owner
+  // nothing happened while the caller is about to publish a site where it did.
+  if (!applied.length && !sortChanged.length) {
+    return { ok: false, escalate: false, reason: "write", usage, failed: failed.length };
+  }
+  return {
+    ok: true, applied, failed: failed.length, usage,
+    sort: want || null,
+    // THE PAGES ARE RETURNED, NEVER PUBLISHED HERE. This module has no publish
+    // dep by design — the row half of this lane is live the moment it commits
+    // and needs no container — so the caller decides, and a lane that changed
+    // no page still costs no container time.
+    sortPages: sortChanged.length ? sorted.pages : null,
+    sortChanged, sortRefused: sorted ? sorted.refused : [],
+    sortMsg: want ? sortReply({ table: want.table, order: want.column, dir: want.dir, changed: sortChanged, refused: sorted.refused }) : "",
+  };
 }
 
 /**

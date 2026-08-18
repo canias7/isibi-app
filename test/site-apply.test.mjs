@@ -517,12 +517,26 @@ test("the charge comes AFTER the publish, on every layer", () => {
     assert.ok(published > 0 || wroteRows > 0,
       "a charge at offset " + at + " runs before any work was done");
   }
-  // And the data layer really does skip the container, or it is not the cheap
-  // layer it claims to be. Asserted as an absence between its own boundaries.
+  // AND THE DATA LAYER STILL SKIPS THE CONTAINER ON EVERY ROW CHANGE, which is
+  // what makes it the cheap layer it claims to be. It stopped being an absence
+  // the day it learned to reorder a list: what order a list comes out in lives
+  // in `useRows("dishes", { order })` in the page source, so that one path must
+  // recompile and every other one must not.
+  //
+  // GATED ON THE REORDER, NOT MERELY PRESENT. A recompile the branch reaches
+  // unconditionally would put a container run on the cheapest lane there is,
+  // for every price change on every site.
   const dBlock = layerBranch(b, "data");
-  assert.ok(!dBlock.includes("recompileAndPublish("),
-    "the data layer must not recompile — rows are read at runtime");
   assert.match(dBlock, /runDataEdit\(/);
+  const pubs = [...dBlock.matchAll(/recompileAndPublish\(/g)].map((m) => m.index);
+  assert.ok(pubs.length <= 1, "the data layer publishes in at most one place, found " + pubs.length);
+  if (pubs.length) {
+    // The gate is the nearest `if` above it and it must ask about the reorder.
+    const guard = dBlock.lastIndexOf("if (", pubs[0]);
+    assert.ok(guard > 0, "the data layer's publish is not guarded at all");
+    assert.match(dBlock.slice(guard, pubs[0]), /sortPages/,
+      "the data layer's publish is not gated on a reorder — every row change would run a container");
+  }
   // And the helper itself is declared once, so the ordering above cannot be
   // satisfied by a second charge site that happens to sit lower.
   assert.equal((b.match(/const eCharge = /g) || []).length, 1);
@@ -542,9 +556,20 @@ test("a failed edit publishes nothing and says the site is untouched", () => {
   // small and deliberate: these are the ways this codebase says it, and a new
   // branch that says it a sixth way should have to add itself here rather than
   // pass by accident.
-  const survived = (b.match(/site is untouched|nothing changed|your site is exactly as it was/g) || []).length;
-  assert.equal(survived, compiles,
-    "a compile failure does not tell the customer their site survived it: " + survived + " of " + compiles);
+  //
+  // PER BRANCH, NOT AS TWO TOTALS. Counting both across the whole block passes
+  // when one branch says it twice and another says it not at all — which is the
+  // vacuous shape this file keeps recording, and it went red honestly the day a
+  // branch wrote the promise in a ternary with two arms.
+  const SURVIVED = /site is untouched|nothing changed|your site is exactly as it was|pages are exactly as they were/;
+  const at = [...b.matchAll(/error: "compile"/g)].map((m) => m.index);
+  for (const i of at) {
+    // To the end of that `Response.json`, which is where its message lives.
+    const end = b.indexOf("status: 422", i);
+    assert.ok(end > i, "a compile failure at " + i + " does not answer 422");
+    assert.match(b.slice(i, end), SURVIVED,
+      "the compile failure at " + i + " does not tell the customer their site survived it");
+  }
   // A 422 THAT IS NOT A COMPILE FAILURE IS FINE — the data layer refuses with
   // one when it matched nothing, and it never compiles anything. This asserted
   // equality and went red on a legitimate fourth refusal. What must hold is that

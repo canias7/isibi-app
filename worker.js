@@ -12398,7 +12398,12 @@ async function handleRequest(request, env, ctx) {
                 // written: whatever comes back still goes through
                 // `readDataChanges`, which admits only declared tables, declared
                 // columns and scalar values.
-              }, { instruction: eInstruction, tables: dTables, recent: (eb && eb.recent) || null });
+                // AND THE PAGES, because what ORDER a list comes out in is a
+                // fact about the page source and not about the rows: the whole
+                // answer is the `{ order, dir }` argument to `useRows`. Read on
+                // the request the lane already pays for, so asking costs
+                // nothing on a build that never mentions the order.
+              }, { instruction: eInstruction, tables: dTables, recent: (eb && eb.recent) || null, pages: eSrc });
 
               if (!dOut.ok) {
                 // A model that read the rows and matched none does NOT escalate:
@@ -12408,16 +12413,53 @@ async function handleRequest(request, env, ctx) {
                 if (!dOut.escalate) {
                   if (dOut.reason === "send") return modelDown(dOut.error, "I couldn't reach the model that makes that change — try again in a moment.");
                   return Response.json({
-                    ok: false, error: dOut.reason, cost: 0,
-                    msg: dOut.reason === "no-match"
+                    ok: false, error: dOut.reason, cost: await eCharge(dOut.usage), usage: dOut.usage,
+                    // THE MODULE WRITES THE ORDERING SENTENCE, because it is the
+                    // only thing that knows which pages work their own order out
+                    // and could not be rewritten from outside.
+                    msg: dOut.msg || (dOut.reason === "no-match"
                       ? "I couldn't match that to anything the site stores — say which list it's in and I'll have another go."
-                      : "That change couldn't be saved — try again.",
+                      : "That change couldn't be saved — try again."),
                   }, { status: 422 });
                 }
                 return escalate(dOut.reason);
               }
+              // A REORDER IS THE ONE THING THIS LANE PUBLISHES. Rows are live
+              // the moment they commit — the bundle reads them at runtime — but
+              // an order lives in the page source, so it needs the container.
+              // Skipped entirely when nothing was reordered, which is every
+              // ordinary data edit.
+              let dPub = null;
+              if (dOut.sortPages) {
+                dPub = await recompileAndPublish(env, {
+                  slug: ownerSlug, pages: dOut.sortPages,
+                  label: versionLabel({ revise: true, changeNote: eInstruction }),
+                });
+                if (!dPub.ok) {
+                  // THE ROWS ARE ALREADY SAVED AND THE OWNER IS TOLD SO. They
+                  // committed before this ran and cannot be taken back, so a
+                  // failed recompile that reported "nothing happened" would send
+                  // somebody looking for a change that really did land.
+                  return Response.json({
+                    ok: false, error: "compile", cost: await eCharge(dOut.usage), usage: dOut.usage,
+                    msg: compileMsg(dPub, dOut.applied.length
+                      ? "Your rows are saved, but the new order didn't compile — the site is untouched."
+                      : "That ordering change didn't compile, so your site is untouched."),
+                    detail: dPub.detail,
+                  }, { status: 422 });
+                }
+              }
               return Response.json({
                 ok: true, layer: "data",
+                // WHAT ORDER THE LIST COMES OUT IN, when that is what changed.
+                // Omitted otherwise, so an ordinary data edit's response is
+                // byte-identical to what it has always been.
+                sort: dOut.sort || undefined,
+                sortMsg: dOut.sortMsg || undefined,
+                sortChanged: dOut.sortChanged && dOut.sortChanged.length ? dOut.sortChanged : undefined,
+                files: dPub ? dPub.files : undefined,
+                render: dPub ? dPub.render : undefined,
+                renderNote: dPub ? dPub.renderNote : undefined,
                 // `was` RIDES BACK ON A REMOVAL, and it is the only undo a
                 // deleted row has: pages are archived on every publish and can
                 // be restored, rows are not. With the contents in the thread,

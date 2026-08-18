@@ -11536,7 +11536,15 @@ function editReply(e) {
     if (rest.length) bits.push('updated ' + (rest.length === 1 ? 'one entry' : rest.length + ' entries') +
       (uniq.length ? ' in ' + uniq.join(', ') : ''));
     if (gone.length) bits.push('removed ' + (gone.length === 1 ? 'one entry' : gone.length + ' entries'));
-    let out = bits.length ? '✅ ' + bits.join(', ').replace(/^./, (c) => c.toUpperCase()) + '.' : '✅ Done.';
+    // WHAT ORDER THE LIST COMES OUT IN, when that is what changed. The server
+    // composes the sentence because it is the only thing that knows which pages
+    // work their own order out and could not be rewritten from outside — and
+    // this is the one data change that publishes, so a lane that reported
+    // nothing would leave somebody waiting for a rebuild they were not told
+    // about.
+    const sorted = typeof e.sortMsg === 'string' && e.sortMsg.trim() ? e.sortMsg.trim() : '';
+    let out = bits.length ? '✅ ' + bits.join(', ').replace(/^./, (c) => c.toUpperCase()) + '.' : (sorted || '✅ Done.');
+    if (sorted && bits.length) out += ' ' + sorted;
     // WHAT WENT, IN WORDS. A deleted row has no version history to restore from,
     // so the contents sitting in the thread ARE the undo — "put that back" is
     // one sentence with the data already on screen.
