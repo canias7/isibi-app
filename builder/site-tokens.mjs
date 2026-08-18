@@ -62,8 +62,6 @@ export const TOKENS = Object.freeze([
  */
 export const SIZES = Object.freeze(["radius"]);
 
-/** Everything the designer may name, whatever kind of value it takes. */
-export const ASKABLE = Object.freeze([...TOKENS, ...SIZES]);
 
 /** The `-foreground` partner of a surface token, where one exists. */
 const PAIRS = Object.freeze({
@@ -80,6 +78,33 @@ const PAIRS = Object.freeze({
 });
 
 /**
+ * THE TEXT THAT SITS ON EACH SURFACE — nine colours that were WRITABLE and not
+ * askable, so nobody could name one.
+ *
+ * `withContrast` picks them: near-black on a light surface, near-white on a
+ * dark one. That is a good DEFAULT and it was also a ceiling. It is right
+ * nearly always and wrong exactly where a customer notices — a mid-tone card
+ * where the crossover goes the other way, a brand colour whose button text
+ * wants to be the brand's own rather than plain white — and "the text on the
+ * cards is too light" had no path at any price.
+ *
+ * NOTHING IN THE DERIVATION HAD TO CHANGE, which is what makes this a list
+ * rather than a feature. `withContrast` already skips a pairing whose partner is
+ * present (`if (!(surface in out) || fg in out) continue;`), and `muted-foreground`
+ * has the same guard — so an explicit value has always won, and the only thing
+ * missing was permission to send one. Asserted, because the whole change rests
+ * on it.
+ *
+ * DERIVED FROM `PAIRS`, so a tenth surface added there is askable without
+ * anybody editing a list here — the drift this file already keeps `WRITABLE`
+ * out of by the same trick.
+ */
+export const PAIRED = Object.freeze([...new Set(Object.values(PAIRS))]);
+
+/** Everything the designer may name, whatever kind of value it takes. */
+export const ASKABLE = Object.freeze([...new Set([...TOKENS, ...PAIRED, ...SIZES])]);
+
+/**
  * WHAT MAY BE WRITTEN, which is a bigger set than what may be ASKED for.
  *
  * The two were one list until a render showed why they cannot be. `withContrast`
@@ -90,7 +115,7 @@ const PAIRS = Object.freeze({
  * let them through. A validator shared between two layers with different jobs
  * quietly enforces the stricter one at both.
  */
-export const WRITABLE = Object.freeze([...ASKABLE, ...new Set(Object.values(PAIRS))]);
+export const WRITABLE = Object.freeze([...new Set([...ASKABLE, ...PAIRED])]);
 
 /** More than this ASKED FOR and it is a re-theme, which is a rebuild. */
 export const MAX_TOKENS = 8;
@@ -494,6 +519,19 @@ const SAID = Object.freeze({
   destructive: "delete buttons",
   success: "success labels", warning: "warning labels",
   radius: "corner roundness",
+  // THE TEXT ON EACH SURFACE. Every one has to read differently from the
+  // surface's own name above and from `site-style.mjs`'s list, or one reply
+  // says "Updated the look — card colour, card colour" about two different
+  // changes. `foreground` is already "text colour", so these say WHERE.
+  "card-foreground": "text on cards",
+  "popover-foreground": "text in menus",
+  "primary-foreground": "button text",
+  "secondary-foreground": "secondary button text",
+  "accent-foreground": "text on highlights",
+  "muted-foreground": "quiet text",
+  "destructive-foreground": "delete button text",
+  "success-foreground": "success label text",
+  "warning-foreground": "warning label text",
 });
 
 /**

@@ -7,6 +7,7 @@ import {
   TOKENS, SIZES, ASKABLE, WRITABLE, MAX_TOKENS, isColor, isLength, valueHint,
   normalizeLength, stripThemeRadius, validForWrite,
   luminance, withContrast, parseTokens, mergeTokens, tokensCss, tokenNote,
+  PAIRED, saidFor,
 } from "../builder/site-tokens.mjs";
 import { computedSql } from "../site-schema.mjs";
 
@@ -404,11 +405,41 @@ test("an expanded patch is not truncated by the ASK cap", () => {
   assert.ok(written > MAX_TOKENS, `only ${written} written for an ask of ${MAX_TOKENS}`);
 });
 
-test("a name the designer may not ask for is still refused at the ASK layer", () => {
-  // The write list is wider; the ask list must not have widened with it, or a
-  // designer could set a derived partner directly and defeat the contrast pass.
-  assert.deepEqual(parseTokens({ "card-foreground": "#fff" }).tokens, {});
-  assert.deepEqual(parseTokens({ "muted-foreground": "#fff" }).dropped, ["muted-foreground"]);
+test("THE TEXT ON EACH SURFACE CAN BE ASKED FOR — and the derivation yields to it", () => {
+  // REVERSED 2026-08-18. This asserted the nine paired colours were REFUSED at
+  // the ask layer, on the reasoning that a designer setting one directly would
+  // "defeat the contrast pass". Measured: it does not defeat it, it OVERRIDES
+  // it — `withContrast` has always skipped a pairing whose partner is already
+  // present — so what the refusal actually did was make "the text on the cards
+  // is too light" unanswerable at any price, while the automatic choice stayed
+  // a ceiling rather than a default.
+  for (const name of PAIRED) {
+    assert.deepEqual(parseTokens({ [name]: "#ffffff" }).tokens, { [name]: "#ffffff" },
+      "`" + name + "` cannot be asked for, so nobody can correct it");
+  }
+  // THE PROPERTY THE WHOLE CHANGE RESTS ON, asserted rather than assumed: an
+  // explicit value survives the pass that would otherwise compute one.
+  assert.equal(withContrast({ card: "#ffffff", "card-foreground": "#3b82f6" })["card-foreground"], "#3b82f6",
+    "an explicit text colour is overwritten by the derivation");
+  assert.equal(withContrast({ background: "#101418", "muted-foreground": "#3b82f6" })["muted-foreground"], "#3b82f6",
+    "an explicit quiet-text colour is overwritten by the ground rule");
+  // …and with nothing named, the derivation still does its job.
+  assert.equal(withContrast({ card: "#ffffff" })["card-foreground"], "#0a0a0a");
+  // A NAME THAT IS NEITHER A TOKEN NOR A PAIRING IS STILL REFUSED.
+  assert.deepEqual(parseTokens({ "card-backdrop": "#fff" }).dropped, ["card-backdrop"]);
+});
+
+test("every askable name has a plain name, and no two share one", () => {
+  // Two tokens sharing a plain name makes one reply say "Updated the look —
+  // card colour, card colour" about two different changes — the clash
+  // `site-style.mjs` already records, now with nine more names in the pot.
+  const said = ASKABLE.map((n) => saidFor(n));
+  assert.equal(new Set(said).size, said.length,
+    "two tokens are described to the customer with the same words: " +
+      said.filter((n, i) => said.indexOf(n) !== i).join(", "));
+  for (const n of ASKABLE) {
+    assert.notEqual(saidFor(n), n, "`" + n + "` has no plain name, so the reply prints the raw token");
+  }
 });
 
 test("withContrast does not invent tokens for surfaces nobody set", () => {
@@ -561,6 +592,26 @@ test("a build that asked for no colour gets no sentence", () => {
 
 const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 const server = fs.readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8");
+
+test("the tool says the text on a surface is AUTOMATIC, and when to override it", () => {
+  // FOUND BY MUTATION — the only survivor of the sweep on this change. Making
+  // the nine askable is worth nothing if the model sets them on every colour
+  // change: the automatic pairing is right nearly always, so a model that names
+  // both gives the customer a text colour they never chose. The permission and
+  // the restraint are ONE change, and only the restraint lives in prose, which
+  // is exactly the kind of rule a later edit drops silently.
+  const at = worker.indexOf("ONLY when the message asks for a specific COLOUR");
+  assert.ok(at > 0, "the tokens tool no longer opens the way this scan expects");
+  const desc = worker.slice(at, worker.indexOf("// THE HINT IS DERIVED PER TOKEN", at));
+  assert.ok(desc.length > 200, "the description window collapsed to nothing");
+  assert.match(desc, /WORKED OUT FOR YOU/,
+    "the tool does not say the text colour is automatic, so it gets set on every colour change");
+  // AND THE POSITIVE CASE, or the model reads a flat prohibition and the nine
+  // are unreachable in practice however askable they are in code — the failure
+  // `publicView` has already cost a whole site over, twice.
+  assert.match(desc, /NAME THE TEXT ONLY WHEN THE TEXT IS WHAT THEY ARE TALKING ABOUT/,
+    "the tool never says WHEN to name a text colour, so nobody ever will");
+});
 
 test("the patch is written AFTER the theme, which is the whole mechanism", () => {
   // These are the same custom properties the theme declares, so the override is

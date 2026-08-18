@@ -4008,8 +4008,13 @@ const SITE_SCHEMA_TOOL = {
           "ONLY when the message asks for a specific COLOUR or CORNER change to an existing site (\"make the background " +
           "yellow\", \"the buttons should be green\", \"round the corners more\", \"square corners please\"). Omit it " +
           "entirely otherwise — on a first build, and on any revise about content, pages or layout. Colours are HEX " +
-          "(#rrggbb); `radius` is a length. Set the surface only; the readable text colour on top of it is worked out " +
-          "for you, so do not set a *-foreground unless the customer named that colour too.",
+          "(#rrggbb); `radius` is a length.\n" +
+          "THE TEXT ON EACH SURFACE IS WORKED OUT FOR YOU — near-black on a light card, near-white on a dark one — so " +
+          "set the SURFACE and leave its text alone. Naming both when they only asked about one is how a customer ends " +
+          "up with a colour they never chose.\n" +
+          "NAME THE TEXT ONLY WHEN THE TEXT IS WHAT THEY ARE TALKING ABOUT — \"the writing on the cards is too " +
+          "light\", \"I can't read the button labels\", \"the small grey text is too faint\". The automatic choice " +
+          "is right nearly always and wrong exactly where somebody notices, and this is the only way to correct it.",
         // THE HINT IS DERIVED PER TOKEN, not one line for all of them. `radius`
         // takes a LENGTH and every other name takes a colour; described as
         // "#rrggbb" it would be asked for in hex, refused by the parser, and
