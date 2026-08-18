@@ -125,7 +125,23 @@ const api = (path, init) => fetch(`${BASE}${path}`, {
   headers: { "content-type": "application/json", Authorization: `Bearer ${jwt}`, ...((init || {}).headers || {}) },
 });
 const post = (path, body) => api(path, { method: "POST", body: JSON.stringify(body) });
-const jsonOf = async (r) => { try { return await r.json(); } catch { return null; } };
+// THE RAW BODY WHEN IT IS NOT JSON, because `{}` is OUR fallback and not the
+// server's answer. A text edit came back `502 {}` and that told nobody anything:
+// a bare 502 with a non-JSON body is Cloudflare's own error page rather than any
+// response this Worker composes, so the one fact that would separate a container
+// failure from a code bug was the fact being discarded. Kept short — an error
+// page is long and only its first line identifies it.
+/** What the last unparseable body said, for the assertion that has to report it. */
+let lastBody = "";
+const jsonOf = async (r) => {
+  // READ ONCE AND PARSE THE WHOLE THING. The first draft truncated before
+  // parsing, which would have failed every large-but-valid response in this file
+  // — the build's own answer among them. Truncation is for DISPLAY only, and a
+  // body can be read exactly once, so the raw text is kept rather than re-fetched.
+  let raw = "";
+  try { raw = await r.text(); } catch { lastBody = "(unreadable)"; return null; }
+  try { return JSON.parse(raw); } catch { lastBody = raw.replace(/\s+/g, " ").slice(0, 300); return null; }
+};
 /**
  * `src/routes/gallery.tsx` -> `/gallery`, for checking the page really stopped
  * serving.
@@ -623,7 +639,7 @@ async function main() {
   // 5xx, a corrupted page, or a success that changed nothing — so the assertion
   // is on the SHAPE of the answer rather than on the model finding a match.
   ok("the text lane answers cleanly", txt.status === 200 || txt.status === 422,
-    `${txt.status} ${JSON.stringify(tv).slice(0, 240)}`);
+    `${txt.status} ${JSON.stringify(tv) === "{}" && lastBody ? lastBody : JSON.stringify(tv).slice(0, 240)}`);
   if (txt.status === 200 && tv.ok === true) {
     ok("…and it says what it now reads", Array.isArray(tv.changed) && tv.changed.length > 0,
       JSON.stringify(tv.changed));
@@ -779,6 +795,12 @@ async function main() {
     const sent = [...new Set([...(digest.pages || []), goneRoute].filter(Boolean))];
     if (!goneName) console.log(`   skipping the deletion — can't name the added page from ${JSON.stringify(added)}`);
     const rmRoute = goneName ? await route(`Remove the ${goneName} page`, { ...digest, pages: sent }) : null;
+    // `alsoAsked` IS PRINTED because it is the one field that would explain this
+    // answer: a router that read "Remove the barbers page" as two separate asks
+    // has picked a lane for the half nobody meant. It was added the same day
+    // this check first failed, so ruling it in or out costs one line here rather
+    // than another paid run.
+    if (rmRoute) console.log(`   routed: intent=${rmRoute.intent} layer=${rmRoute.layer} remove=${rmRoute.remove} page=${rmRoute.page} alsoAsked=${JSON.stringify(rmRoute.alsoAsked || null)}`);
     if (rmRoute) ok("a deletion routes to the page layer with `remove`",
       rmRoute.intent === "edit" && rmRoute.layer === "page" && rmRoute.remove === true,
       `intent=${rmRoute.intent} layer=${rmRoute.layer} remove=${rmRoute.remove} page=${rmRoute.page} ` +
