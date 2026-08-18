@@ -13,6 +13,7 @@ import path from "node:path";
 import {
   CONTACT_FIELDS, MAX_CONTACT_CHARS, contactSlots, readContact, applyContact,
   navSlots, actionSlots, navDigest, readNav, navReply, runNavEdit, NAV_TOOL,
+  chromeListSlots, applyChromeList,
 } from "../builder/site-nav.mjs";
 import { ASK_TOOL } from "../builder/site-ask.mjs";
 import { COMPONENT_TYPES } from "../builder/component-api.mjs";
@@ -264,4 +265,122 @@ test("the ROUTER sends a footer ask to the nav lane", () => {
   assert.match(nav, /BOTTOM of every page/, "the router does not say the footer is site-wide");
   // And it must not swallow the timetable, which is rows in a table.
   assert.match(nav, /timetable/i, "the router does not send a day-by-day timetable to `data`");
+});
+
+// ── the other two footer lists ────────────────────────────────────────────────
+//
+// Same reachability problem as `contact`, one size smaller: the slots exist on
+// `SiteChrome`, the generator fills them on a new build, and on every site
+// published before that they were unreachable at any price.
+
+test("the social list is read, replaced, and removed cleanly", () => {
+  const before = chromeListSlots(REF(), "social")[0].items;
+  assert.equal(before.length, 2, "the reference page no longer demonstrates `social`");
+
+  const one = applyChromeList(REF(), "social", [{ network: "instagram", href: "https://instagram.com/x" }]);
+  assert.equal(one.changed.length, 4);
+  assert.deepEqual(chromeListSlots(one.pages, "social")[0].items,
+    [{ network: "instagram", href: "https://instagram.com/x" }]);
+
+  const none = applyChromeList(REF(), "social", []);
+  assert.equal(none.changed.length, 4);
+  assert.equal(chromeListSlots(none.pages, "social")[0].items, null);
+  // A stray `social: [],` is a shape the next scan has to survive, and the
+  // source is re-read on every later edit.
+  assert.doesNotMatch(none.pages[0].source, /social:\s*\[\s*\]/);
+});
+
+test("a list the site does not have yet is inserted", () => {
+  // `legal` is deliberately absent from the reference page, so this is the real
+  // pre-existing-site case rather than a constructed one.
+  assert.equal(chromeListSlots(REF(), "legal")[0].items, null);
+  const out = applyChromeList(REF(), "legal", [{ label: "Privacy", href: "/privacy" }]);
+  assert.equal(out.changed.length, 4);
+  assert.deepEqual(chromeListSlots(out.pages, "legal")[0].items, [{ label: "Privacy", href: "/privacy" }]);
+});
+
+test("a list written as a JSX prop is removed as cleanly as the object form", () => {
+  // ONLY THE `const CHROME` FORM WAS EXERCISED, so the step that eats the JSX
+  // `}` of `social={[…]}` was covered by nothing — found by mutation. A leftover
+  // `social={[]}` is a shape the next scan has to survive.
+  const src = 'export function P() {\n  return <SiteChrome name="X" social={[{ network: "x", href: "https://x" }]} />;\n}';
+  const out = applyChromeList([{ path: "i.tsx", source: src }], "social", []);
+  assert.deepEqual(out.changed, ["i.tsx"]);
+  assert.equal(chromeListSlots(out.pages, "social")[0].items, null);
+  assert.doesNotMatch(out.pages[0].source, /social=/, "the JSX prop was left behind");
+  assert.doesNotMatch(out.pages[0].source, /\}\s*\/>/, "a stray brace was left in the tag");
+  assert.match(out.pages[0].source, /<SiteChrome name="X" \/>/, "the tag did not come out clean");
+});
+
+test("restating the list that is already there changes nothing", () => {
+  const same = chromeListSlots(REF(), "social")[0].items;
+  assert.deepEqual(applyChromeList(REF(), "social", same).changed, []);
+});
+
+test("an array holding anything but plain literals is left alone", () => {
+  // Replacing it would drop a binding — the skip-rather-than-guess rule
+  // `navSlots` lives under.
+  const src = 'const CHROME = { social: [...FEEDS, { network: "x", href: "https://x" }] };';
+  assert.equal(chromeListSlots([{ path: "i.tsx", source: src }], "social")[0].items, null,
+    "a spread array was treated as an editable list");
+});
+
+test("a legal link to a page the site has not got is refused, not written", () => {
+  // It would be a not-found page from the bottom of EVERY page on the site.
+  const read = readNav({ content: [{ type: "tool_use", input: {
+    legal: [{ label: "Privacy", href: "/privacy" }],
+  } }] }, ["/", "/book"]);
+  assert.equal(read.lists.legal, undefined, "a dangling legal link was accepted");
+  assert.equal(read.dropped.some((d) => d.why === "no-such-page"), true);
+});
+
+test("a list where everything was refused does not read as 'empty it'", () => {
+  // The distinction that matters: an EMPTY array is "take them off" and a list
+  // whose every entry we refused is a refusal to report. Collapsing the two
+  // wipes a footer the customer never asked to change.
+  const read = readNav({ content: [{ type: "tool_use", input: {
+    social: [{ network: "instagram", href: "not a url" }],
+  } }] }, ["/"]);
+  assert.equal(read.lists.social, undefined);
+  const explicit = readNav({ content: [{ type: "tool_use", input: { social: [] } }] }, ["/"]);
+  assert.deepEqual(explicit.lists.social, [], "an explicitly empty list stopped meaning 'take them off'");
+});
+
+test("the digest states both lists, including when they are empty", () => {
+  const d = navDigest([], ["/"], [], [], [], chromeListSlots(REF(), "social").concat(chromeListSlots(REF(), "legal")));
+  assert.match(d, /THE SOCIAL ICONS IN THE FOOTER:/);
+  assert.match(d, /instagram -> https:\/\/instagram\.com\/cutlerrow/);
+  assert.match(d, /THE SMALL-PRINT LINKS BESIDE THE COPYRIGHT:/);
+  assert.match(d, /\(none\)/, "an absent list is omitted rather than described");
+});
+
+test("runNavEdit applies a list answer and says what the footer has now", async () => {
+  const deps = { send: async () => ({
+    content: [{ type: "tool_use", input: { social: [{ network: "facebook", href: "https://facebook.com/x" }] } }],
+    usage: null,
+  }) };
+  const out = await runNavEdit(deps, { instruction: "just facebook", pages: REF(), routes: ["/"] });
+  assert.equal(out.ok, true, out.reason);
+  assert.equal(out.changed.length, 4);
+  assert.deepEqual(out.lists, { social: [{ network: "facebook", href: "https://facebook.com/x" }] });
+  // THE PAGES IT HANDS BACK, not just what it says it did — returning the
+  // pre-apply pages passed everything else, and that is what gets published.
+  assert.deepEqual(chromeListSlots(out.pages, "social")[0].items,
+    [{ network: "facebook", href: "https://facebook.com/x" }]);
+  assert.match(out.msg, /1 social link/);
+  assert.doesNotMatch(out.msg, /facebook\.com/, "the reply prints the customer's own address back");
+});
+
+test("the Worker forwards the list counts, and not the addresses", () => {
+  const worker = fs.readFileSync(path.join(import.meta.dirname, "../worker.js"), "utf8");
+  const nav = worker.slice(worker.indexOf('if (eLayer === "nav")'), worker.indexOf('if (eLayer === "picture")'));
+  assert.match(nav, /lists: nOut\.lists/, "the nav branch does not forward `lists`");
+  assert.match(nav, /\[k, v\.length\]/, "the nav branch forwards the entries rather than their counts");
+});
+
+test("the router sends the socials and the small print to the nav lane", () => {
+  const layer = ASK_TOOL.input_schema.properties.layer.description;
+  const nav = layer.slice(layer.indexOf('"nav"'), layer.indexOf('"page"'));
+  assert.match(nav, /Instagram/i, "the router never mentions the social icons under `nav`");
+  assert.match(nav, /small print/i, "the router never mentions the small-print links under `nav`");
 });

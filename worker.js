@@ -12626,6 +12626,12 @@ async function handleRequest(request, env, ctx) {
                 // did not touch them, so every existing menu edit's response is
                 // byte-identical.
                 contact: nOut.contact ? Object.keys(nOut.contact) : undefined,
+                // AND THE TWO FOOTER LISTS, as counts. Same rule as `contact`:
+                // which lists moved and how many entries each ended with, never
+                // the addresses themselves.
+                lists: nOut.lists
+                  ? Object.fromEntries(Object.entries(nOut.lists).map(([k, v]) => [k, v.length]))
+                  : undefined,
                 cost: await eCharge(nOut.usage), usage: nOut.usage,
               });
             }

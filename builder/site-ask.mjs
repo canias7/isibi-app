@@ -245,6 +245,9 @@ export const ASK_TOOL = {
           "same block on every page, so it changes everywhere at once and costs almost nothing.\n" +
           "A FULL DAY-BY-DAY TIMETABLE IS NOT THIS — that is rows the site stores, so it is \"data\". This is the " +
           "one line at the bottom (\"Tue–Sun 12–10\").\n" +
+          "THE SOCIAL ICONS AND THE SMALL PRINT are here too — \"add our Instagram\", \"put a link to our Facebook " +
+          "at the bottom\", \"add a Privacy link in the small print\", \"take the Twitter icon off\". Same block, " +
+          "same page-wide change, same near-zero cost.\n" +
           "THE MENU — which items are in it, what order they come in, taking one out. \"Put Book first\", \"add " +
           "Contact to the menu\", \"take Pricing out of the nav\", \"the menu should be Home, Services, Contact\".\n" +
           "THE BUTTON — what it says AND where it goes. \"Change the Book button to Get a quote\", \"make the button " +

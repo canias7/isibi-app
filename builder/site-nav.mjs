@@ -456,6 +456,49 @@ export const NAV_TOOL = {
           "TRUE to take the button off the header entirely — \"drop the Book button\", \"we don't need a button up " +
           "there\". Leave it out otherwise; setting it alongside `action` is contradictory and the button is kept.",
       },
+      social: {
+        type: "array",
+        description:
+          "THE SOCIAL ICONS IN THE FOOTER — \"add our Instagram\", \"put our Facebook at the bottom\", \"take the " +
+          "Twitter link off\". THE WHOLE LIST, in order, not a change to it: start from the list below and return it " +
+          "with the one change made. An EMPTY LIST takes them all off.\n" +
+          "LEAVE THIS OUT ENTIRELY IF THE ICONS ARE NOT CHANGING. Restating a list you were not asked to touch is how " +
+          "one goes missing.\n" +
+          "NEVER INVENT A PROFILE. If they say to add Instagram and do not give the address, leave this out — a link " +
+          "to a profile that is not theirs is worse than no link at all.",
+        items: {
+          type: "object",
+          properties: {
+            network: {
+              type: "string",
+              description:
+                "One of: instagram, facebook, x, twitter, youtube, linkedin, tiktok, website, email, phone. " +
+                "Anything else still works and draws a plain link icon.",
+            },
+            href: { type: "string", description: "The full address — \"https://instagram.com/theirname\"." },
+          },
+          required: ["network", "href"],
+        },
+      },
+      legal: {
+        type: "array",
+        description:
+          "THE SMALL-PRINT LINKS beside the copyright line — Privacy, Terms, Accessibility. THE WHOLE LIST; an empty " +
+          "list takes them off. Leave it out if they are not changing.\n" +
+          "ONLY A PAGE THIS SITE ACTUALLY HAS, or a full https address. The pages are listed below. A link to a " +
+          "privacy page nobody has written gives a visitor a not-found page from the bottom of EVERY page on the " +
+          "site, so if they ask for one and there is no such page, that is a job for a different lane and this stays " +
+          "empty.\n" +
+          "THIS IS NOT THE MENU. These sit in the small print and never in the navigation.",
+        items: {
+          type: "object",
+          properties: {
+            label: { type: "string", description: "What the visitor reads — \"Privacy\", \"Terms\"." },
+            href: { type: "string", description: "A path of this site, or a full https address." },
+          },
+          required: ["label", "href"],
+        },
+      },
       contact: {
         type: "object",
         description:
@@ -510,7 +553,7 @@ const NAV_SYSTEM =
  * own. First-seen order, which is the order a visitor meets them on the home
  * page.
  */
-export function navDigest(slots, routes, actions, links, contacts) {
+export function navDigest(slots, routes, actions, links, contacts, lists) {
   const lines = [];
   const seen = new Map();
   for (const s of Array.isArray(slots) ? slots : []) {
@@ -568,6 +611,17 @@ export function navDigest(slots, routes, actions, links, contacts) {
     if (typeof con[f] === "string" && con[f]) lines.push("  " + f + ": " + con[f].replace(/\n/g, " / "));
   }
 
+  // The two footer lists as they stand. Stated even when empty, because "add
+  // our Instagram" and "replace our socials" are the same field and the model
+  // cannot tell them apart without knowing what is there.
+  for (const prop of Object.keys(LIST_FIELDS)) {
+    const got = ((Array.isArray(lists) ? lists : []).find((l) => l.prop === prop && l.items) || {}).items;
+    lines.push("");
+    lines.push(prop === "social" ? "THE SOCIAL ICONS IN THE FOOTER:" : "THE SMALL-PRINT LINKS BESIDE THE COPYRIGHT:");
+    if (!got || !got.length) lines.push("  (none)");
+    else for (const it of got) lines.push("  " + it[LIST_FIELDS[prop][0]] + " -> " + it.href);
+  }
+
   lines.push("");
   lines.push("THE PAGES THIS SITE HAS — an item may point at any of these:");
   const list = [...new Set((Array.isArray(routes) ? routes : []).filter(Boolean))];
@@ -586,7 +640,7 @@ export function navDigest(slots, routes, actions, links, contacts) {
   return lines.join("\n");
 }
 
-export function navRequest({ instruction, slots, routes, actions, links, contacts }) {
+export function navRequest({ instruction, slots, routes, actions, links, contacts, lists }) {
   return {
     model: NAV_MODEL,
     max_tokens: NAV_MAX_TOKENS,
@@ -595,7 +649,7 @@ export function navRequest({ instruction, slots, routes, actions, links, contact
     tool_choice: { type: "tool", name: NAV_TOOL.name },
     messages: [{
       role: "user",
-      content: navDigest(slots, routes, actions, links, contacts) + "\n\nWHAT THEY ASKED FOR:\n" + String(instruction || "").slice(0, 2000),
+      content: navDigest(slots, routes, actions, links, contacts, lists) + "\n\nWHAT THEY ASKED FOR:\n" + String(instruction || "").slice(0, 2000),
     }],
   };
 }
@@ -657,6 +711,34 @@ export function readNav(reply, routes) {
   // distinguishable all the way to `applyContact` — which is why a non-string
   // is dropped rather than coerced. `String(["a"])` is `"a"`, and this writes
   // into the footer of every page.
+  // ── THE TWO FOOTER LISTS ───────────────────────────────────────────────
+  //
+  // WHOLE-LIST, so an EMPTY array is a real instruction (take them off) and an
+  // ABSENT one means "not changing" — the two must stay distinguishable, which
+  // is why this checks `Array.isArray` rather than truthiness.
+  const lists = {};
+  for (const prop of Object.keys(LIST_FIELDS)) {
+    const raw2 = input[prop];
+    if (!Array.isArray(raw2)) continue;
+    const fields = LIST_FIELDS[prop];
+    const kept = [];
+    for (const it of raw2.slice(0, MAX_LIST_ITEMS)) {
+      if (!it || typeof it !== "object" || Array.isArray(it)) continue;
+      const a = typeof it[fields[0]] === "string" ? it[fields[0]].trim().slice(0, MAX_LABEL) : "";
+      const href = typeof it.href === "string" ? it.href.trim() : "";
+      // A LEGAL LINK TO A PAGE THAT DOES NOT EXIST is a not-found from the
+      // bottom of every page on the site — the same reason a menu item is
+      // checked against the real routes.
+      const why = href ? actionHrefProblem(href, known) : "incomplete";
+      if (!a || why) { dropped.push({ label: a, href, why: why || "incomplete", list: prop }); continue; }
+      kept.push({ [fields[0]]: a, href });
+    }
+    // Everything the model named was refused: that is a refusal to report, not
+    // an instruction to empty the list.
+    if (!kept.length && raw2.length) continue;
+    lists[prop] = kept;
+  }
+
   let contact = null;
   const rc = input.contact;
   if (rc && typeof rc === "object" && !Array.isArray(rc)) {
@@ -687,8 +769,8 @@ export function readNav(reply, routes) {
     // `contact` COUNTS HERE. Without it a footer-only answer — which is the
     // commonest shape this lane's newest field produces — fell out as `null`
     // and the whole change was dropped before anything could apply it.
-    if (!action && !removeAction && !dropped.length && !pageLinks.length && !contact) return null;
-    return { links: null, dropped, action, removeAction, pageLinks, contact };
+    if (!action && !removeAction && !dropped.length && !pageLinks.length && !contact && !Object.keys(lists).length) return null;
+    return { links: null, dropped, action, removeAction, pageLinks, contact, lists };
   }
   for (const it of raw) {
     if (!it || typeof it !== "object") continue;
@@ -705,7 +787,7 @@ export function readNav(reply, routes) {
     links.push({ label, href });
     if (links.length >= MAX_NAV_ITEMS) break;
   }
-  return { links, dropped, action, removeAction, pageLinks, contact };
+  return { links, dropped, action, removeAction, pageLinks, contact, lists };
 }
 
 /**
@@ -851,7 +933,7 @@ function humanList(fields) {
 }
 
 /** What the customer is told, in their words rather than ours. */
-export function navReply({ links = [], dropped = [], changed = [], action = null, removedAction = false, moved = 0, refused = [], contact = null } = {}) {
+export function navReply({ links = [], dropped = [], changed = [], action = null, removedAction = false, moved = 0, refused = [], contact = null, lists = null } = {}) {
   const where = changed.length + (changed.length === 1 ? " page" : " pages");
 
   // THE FOOTER ON ITS OWN, before every other branch. Falling through would
@@ -859,6 +941,18 @@ export function navReply({ links = [], dropped = [], changed = [], action = null
   // which of the two we actually did — the works-but-cannot-say-so disease.
   // NAMES WHAT MOVED rather than printing the values back: an address is two
   // lines and a phone number they just typed is not news.
+  // THE FOOTER LISTS ON THEIR OWN, before the menu branch — falling through
+  // would report a menu that did not change.
+  if (lists && !contact && !links.length && !action && !removedAction && !moved) {
+    const said = [];
+    for (const prop of Object.keys(lists)) {
+      const n = lists[prop].length;
+      const what = prop === "social" ? "social link" : "small-print link";
+      said.push(n ? n + " " + what + (n === 1 ? "" : "s") : "took the " + what + "s off");
+    }
+    return "✅ The footer now has " + said.join(", and ") + " — on " + where + "." + droppedNote(dropped);
+  }
+
   if (contact && !links.length && !action && !removedAction && !moved) {
     const set = CONTACT_FIELDS.filter((f) => typeof contact[f] === "string" && contact[f] !== "");
     const cleared = CONTACT_FIELDS.filter((f) => contact[f] === "");
@@ -953,6 +1047,7 @@ export async function runNavEdit(deps, { instruction, pages, routes } = {}) {
   const actions = actionSlots(pages);
   const links = linkSlots(pages);
   const contacts = contactSlots(pages);
+  const lists = Object.keys(LIST_FIELDS).flatMap((prop) => chromeListSlots(pages, prop));
   // NOTHING TO EDIT IS THE ONLY THING THAT ESCALATES. A site with a button and
   // no menu, or links in the copy and no chrome at all, is still this lane's
   // work — sending it up costs a ~27-credit rewrite to do what this does free.
@@ -961,7 +1056,7 @@ export async function runNavEdit(deps, { instruction, pages, routes } = {}) {
   }
 
   let reply;
-  try { reply = await deps.send(navRequest({ instruction, slots, routes, actions, links, contacts })); }
+  try { reply = await deps.send(navRequest({ instruction, slots, routes, actions, links, contacts, lists })); }
   catch (e) { return { ok: false, escalate: false, reason: "send", error: e, usage: null }; }
   const usage = navUsage(reply);
 
@@ -970,7 +1065,8 @@ export async function runNavEdit(deps, { instruction, pages, routes } = {}) {
   const wantsButton = !!(read && (read.action || read.removeAction));
   const wantsLinks = !!(read && read.pageLinks && read.pageLinks.length);
   const wantsContact = !!(read && read.contact);
-  if (!wantsMenu && !wantsButton && !wantsLinks && !wantsContact) {
+  const wantsLists = Object.keys((read && read.lists) || {});
+  if (!wantsMenu && !wantsButton && !wantsLinks && !wantsContact && !wantsLists.length) {
     // THE REASON TRAVELS EVEN WHEN NOTHING COULD BE APPLIED. `navReply({})` is
     // the honest answer only when the model said nothing usable at all; when it
     // named a button we had to refuse, the customer is owed the refusal.
@@ -986,7 +1082,12 @@ export async function runNavEdit(deps, { instruction, pages, routes } = {}) {
   if (wantsLinks) lnk = applyPageLinks(btn.pages, read.pageLinks, routes);
   let con = { pages: lnk.pages, changed: [] };
   if (wantsContact) con = applyContact(lnk.pages, read.contact);
-  const changed = [...new Set([...out.changed, ...btn.changed, ...lnk.changed, ...con.changed])];
+  let lst = { pages: con.pages, changed: [] };
+  for (const prop of wantsLists) {
+    const r = applyChromeList(lst.pages, prop, read.lists[prop]);
+    lst = { pages: r.pages, changed: [...lst.changed, ...r.changed] };
+  }
+  const changed = [...new Set([...out.changed, ...btn.changed, ...lnk.changed, ...con.changed, ...lst.changed])];
 
   if (!changed.length) {
     return {
@@ -997,12 +1098,15 @@ export async function runNavEdit(deps, { instruction, pages, routes } = {}) {
           ? "That's already what the button says and where it goes — nothing to change."
           : wantsContact
             ? "The footer already says that — nothing to change."
-            : linkRefusal(lnk.refused) || "Those links already point there — nothing to change.",
+            : wantsLists.length
+              ? "The footer already has exactly those — nothing to change."
+              : linkRefusal(lnk.refused) || "Those links already point there — nothing to change.",
     };
   }
   return {
-    ok: true, pages: con.pages, changed,
+    ok: true, pages: lst.pages, changed,
     contact: wantsContact ? read.contact : null,
+    lists: wantsLists.length ? read.lists : null,
     links: wantsMenu ? read.links : null,
     action: read.action || null, removedAction: !!read.removeAction,
     movedLinks: lnk.moved, refusedLinks: lnk.refused,
@@ -1012,6 +1116,7 @@ export async function runNavEdit(deps, { instruction, pages, routes } = {}) {
       removedAction: !!read.removeAction, dropped: read.dropped, changed,
       moved: lnk.moved, refused: lnk.refused,
       contact: wantsContact ? read.contact : null,
+      lists: wantsLists.length ? read.lists : null,
     }),
   };
 }
@@ -1232,6 +1337,154 @@ export function applyContact(pages, change) {
       src = src.slice(0, s.at) +
         (s.kind === "jsx" ? "contact={" + body + "}" : "contact: " + body + ",") +
         src.slice(s.to);
+    }
+    if (src === p.source) return p;
+    changed.push(p.path);
+    return { ...p, source: src };
+  });
+  return { pages: next, changed };
+}
+
+/**
+ * THE OTHER TWO FOOTER LISTS — the social icons and the small-print links.
+ *
+ * ONE IMPLEMENTATION FOR BOTH, because they are the same thing wearing
+ * different field names: a short array of two-string objects, spread into every
+ * page, meaningful only as a whole. `contact` earned its own reader because it
+ * is a MERGE (naming the phone must not wipe the address); a list is not — "the
+ * menu should be Home, Prices, Contact" replaces it, and so does "our socials
+ * are Instagram and Facebook".
+ *
+ * SAME REACHABILITY PROBLEM AS `contact`, one size smaller: the slots exist on
+ * `SiteChrome`, the generator fills them on a new build, and on every site
+ * published before that they were unreachable at any price.
+ */
+export const LIST_FIELDS = { social: ["network", "href"], legal: ["label", "href"] };
+
+/** How many icons or small-print links is still a footer rather than a page. */
+export const MAX_LIST_ITEMS = 8;
+
+/** The `{a, b}` items of an array literal, or null if any one is not that shape. */
+export function parseListItems(body, fields) {
+  const text = String(body || "").trim();
+  if (!text) return [];
+  const out = [];
+  for (const raw of splitTop(text)) {
+    const part = raw.trim();
+    if (!part) continue;
+    // A spread, a variable, a call or a conditional refuses the whole slot —
+    // replacing the array would drop the binding.
+    if (!part.startsWith("{") || !part.endsWith("}")) return null;
+    const item = {};
+    for (const f of fields) {
+      const v = literalProp(part, f);
+      if (v === null) return null;
+      item[f] = v;
+    }
+    out.push(item);
+  }
+  return out;
+}
+
+/** Where each page's `social`/`legal` array is, or where one would go. */
+export function chromeListSlots(pages, prop) {
+  const fields = LIST_FIELDS[prop];
+  if (!fields) return [];
+  const out = [];
+  for (const p of Array.isArray(pages) ? pages : []) {
+    if (!p || typeof p.path !== "string" || typeof p.source !== "string") continue;
+    const src = p.source;
+    let found = false;
+
+    const re = new RegExp("\\b" + prop + "\\s*(=\\s*\\{\\s*|:\\s*)\\[", "g");
+    let m;
+    while ((m = re.exec(src))) {
+      const open = m.index + m[0].length - 1;
+      const close = arrayEnd(src, open);
+      if (close < 0) continue;
+      const items = parseListItems(src.slice(open + 1, close), fields);
+      // NOT THE SHAPE WE UNDERSTAND IS NOT OUR SLOT. A `social` array of
+      // something else entirely is left alone rather than overwritten — the
+      // same skip-rather-than-guess rule `navSlots` lives under.
+      if (items === null) continue;
+      found = true;
+      out.push({ page: p.path, prop, at: open + 1, to: close, items });
+    }
+    if (found) continue;
+
+    // Nowhere to edit, so where one would GO. The object form is preferred when
+    // both are present, for the reason `actionSlots` records: a prop written
+    // before a spread is overridden by it.
+    const cm = /const CHROME\s*=\s*\{/.exec(src);
+    if (cm) {
+      const objAt = cm.index + cm[0].length - 1;
+      if (braceEnd(src, objAt) > 0) { out.push({ page: p.path, prop, kind: "obj", insertAt: objAt + 1, items: null }); continue; }
+    }
+    for (const t of src.matchAll(/<Site(?:Chrome|Header)\b/g)) {
+      const end = tagEnd(src, t.index);
+      if (end < 0) continue;
+      if (/\{\s*\.\.\./.test(src.slice(t.index, end))) continue;
+      out.push({ page: p.path, prop, kind: "jsx", insertAt: t.index + t[0].length, items: null });
+    }
+  }
+  return out;
+}
+
+/** `[{ network: "instagram", href: "…" }]` as it should appear in the source. */
+function listBody(items, fields) {
+  return "[" + items.map((it) =>
+    "{ " + fields.map((f) => f + ": " + JSON.stringify(String(it[f]))).join(", ") + " }").join(", ") + "]";
+}
+
+/**
+ * Write one list into every page's chrome, or take it off every page.
+ *
+ * WHOLE LIST, NOT A MERGE — see LIST_FIELDS. An EMPTY array removes the
+ * property, which is how "take the social icons off" is expressed.
+ *
+ * BACK TO FRONT, PER FILE, for the reason `applyNav` states.
+ */
+export function applyChromeList(pages, prop, items) {
+  const fields = LIST_FIELDS[prop];
+  if (!fields || !Array.isArray(items)) return { pages: Array.isArray(pages) ? pages : [], changed: [] };
+
+  const byPage = new Map();
+  for (const s of chromeListSlots(pages, prop)) {
+    if (!byPage.has(s.page)) byPage.set(s.page, []);
+    byPage.get(s.page).push(s);
+  }
+
+  const body = items.length ? listBody(items, fields) : "";
+  const changed = [];
+  const next = (Array.isArray(pages) ? pages : []).map((p) => {
+    const mine = byPage.get(p && p.path);
+    if (!mine || !mine.length) return p;
+    let src = p.source;
+    for (const s of [...mine].sort((a, b) => (b.at ?? b.insertAt) - (a.at ?? a.insertAt))) {
+      if (!s.items) {
+        // Nothing there and nothing to write is a no-op, not a failure: asking
+        // for something to go that is already gone is not an error.
+        if (!body) continue;
+        src = src.slice(0, s.insertAt) +
+          (s.kind === "jsx" ? " " + prop + "={" + body + "}" : " " + prop + ": " + body + ",") +
+          src.slice(s.insertAt);
+        continue;
+      }
+      // NOTHING TO DO IS NOT A CHANGE — the writer re-serialises, so without
+      // this an answer restating the list rewrites every page, runs the
+      // container and cuts a version while nothing moved.
+      if (body && listBody(s.items, fields) === body) continue;
+      if (!body) {
+        // The property and its comma, so no `social: [],` is left behind.
+        const propAt = src.lastIndexOf(prop, s.at);
+        const from = propAt > 0 && src[propAt - 1] === " " ? propAt - 1 : propAt;
+        let to = s.to + 1;
+        if (src[to] === "}") to += 1;          // the JSX `}` of `prop={[…]}`
+        if (src[to] === ",") to += 1;
+        src = src.slice(0, from) + src.slice(to);
+        continue;
+      }
+      src = src.slice(0, s.at) + body.slice(1, -1) + src.slice(s.to);
     }
     if (src === p.source) return p;
     changed.push(p.path);
