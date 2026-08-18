@@ -7,6 +7,8 @@ import {
   navRequest, navUsage, navReply, runNavEdit, NAV_TOOL, NAV_MODEL,
   MAX_NAV_ITEMS, MAX_LABEL,
   actionSlots, applyAction,
+  linkSlots, matchLinks, applyPageLinks, linkRefusal,
+  MAX_LINK_CHANGES, MAX_LINK_LINES, MAX_LINK_SLOTS,
 } from "../builder/site-nav.mjs";
 import { EDIT_LAYERS } from "../builder/site-ask.mjs";
 
@@ -808,4 +810,479 @@ test("runNavEdit SENDS the button in its request", () => {
     // and the menu is still in there beside it
     assert.match(sent.messages[0].content, /THE MENU AS IT IS NOW:/);
   });
+});
+
+// ── EVERY LINK WRITTEN INTO THE PAGES ───────────────────────────────────────
+//
+// Measured over the 337 pages the generator learns from and writes: 600 links
+// live in the chrome — the menu and the button, both already site-wide editable
+// — and 469 live in the page bodies, where the only lane that could touch one
+// was `page`: one page, one model call, for a destination.
+
+const body = (p, inner) => ({
+  path: p,
+  source: `export default function P() {\n  return (\n    <SiteChrome name="Cutler Row" links={[${NAV}]}>\n${inner}\n    </SiteChrome>\n  );\n}\n`,
+});
+
+test("linkSlots reads a plain anchor, and names it by its own words", () => {
+  const slots = linkSlots([body("index.tsx", `      <a href="/contact">Send an enquiry</a>`)]);
+  assert.equal(slots.length, 1);
+  assert.equal(slots[0].href, "/contact");
+  assert.equal(slots[0].label, "Send an enquiry");
+  assert.equal(slots[0].typed, false);
+});
+
+test("a <Link to> and a <SiteLink to> are found, and marked TYPED", () => {
+  // The distinction decides what may be written back: both are checked against
+  // the route tree the container generates, so an anchor or a `tel:` there is a
+  // build that FAILS rather than a link that degrades.
+  const slots = linkSlots([body("index.tsx",
+    `      <Link to="/book">Book now</Link>\n      <SiteLink to="/prices">Prices</SiteLink>`)]);
+  assert.deepEqual(slots.map((s) => [s.tag, s.href, s.typed]),
+    [["Link", "/book", true], ["SiteLink", "/prices", true]]);
+});
+
+test("A LINK QUOTED IN A COMMENT IS NOT A LINK", () => {
+  // The template's own prose quotes `<Link to="/book">` while explaining the
+  // convention, and a scan that reads it offers the customer a link that does
+  // not exist. Found by looking at real matches before writing a line of this.
+  const slots = linkSlots([body("index.tsx",
+    `      {/* always write <Link to="/gone">Old thing</Link> rather than an anchor */}\n      <a href="/contact">Real one</a>`)]);
+  assert.deepEqual(slots.map((s) => s.href), ["/contact"]);
+});
+
+test("blanking a comment PRESERVES LENGTH, so every offset stays valid", () => {
+  // Removing them instead shifts every index after the comment, and the write
+  // lands in whatever moved into it. The recurring bug this repo has recorded
+  // three times: strip by blanking, never by removing.
+  const src = body("index.tsx",
+    `      // point it at /old one day\n      <a href="/contact">Enquire</a>`);
+  const slots = linkSlots([src]);
+  assert.equal(slots.length, 1);
+  assert.equal(src.source.slice(slots[0].at, slots[0].to), "/contact");
+});
+
+test("THE MENU AND THE BUTTON ARE NOT BODY LINKS — they are object literals", () => {
+  // No href may be owned by two scanners: two lanes rewriting one is two things
+  // that can disagree about where it points. It holds by construction rather
+  // than by an exclusion — the menu is an array of `{label, href}` objects and
+  // the button is one object, so neither can hold a JSX link tag.
+  const src = {
+    path: "index.tsx",
+    source: `const CHROME = { links: [{ label: "Book", href: "/book" }], action: { label: "Call", href: "tel:+441134960000" } };\nexport default function P() {\n  return (\n    <SiteChrome {...CHROME}>\n      <a href="/contact">Enquire</a>\n    </SiteChrome>\n  );\n}\n`,
+  };
+  assert.deepEqual(linkSlots([src]).map((s) => s.href), ["/contact"]);
+});
+
+test("A JSX-VALUED CHROME PROP IS A BODY LINK, because nothing else can reach it", () => {
+  // The first draft skipped everything syntactically inside a `<SiteChrome>`
+  // tag. Measured, that excluded ZERO of the corpus's 458 body links and was
+  // WRONG in the one shape it could fire on: `navSlots` only reads arrays of
+  // `{label, href}` and `actionSlots` only one object, so a link written as JSX
+  // here is reachable by neither — skipping it made it editable by nothing.
+  const src = {
+    path: "index.tsx",
+    source: `<SiteChrome name="A" links={[${NAV}]} footer={<a href="/terms">Terms</a>}>\n  <a href="/c">Enquire</a>\n</SiteChrome>`,
+  };
+  assert.deepEqual(linkSlots([src]).map((s) => s.href), ["/terms", "/c"]);
+  // AND THE MENU BESIDE IT IS STILL THE MENU'S, which is the property that
+  // exclusion was reaching for and that this must not cost.
+  assert.deepEqual(navSlots([src])[0].items.map((i) => i.href), ["/prices", "/book"]);
+});
+
+test("a computed destination is skipped rather than guessed at", () => {
+  const slots = linkSlots([body("index.tsx",
+    `      <Link to={route}>Dynamic</Link>\n      <a href="/ok">Fine</a>`)]);
+  assert.deepEqual(slots.map((s) => s.href), ["/ok"]);
+});
+
+test("nested markup inside a link is dropped from its words", () => {
+  const slots = linkSlots([body("index.tsx",
+    `      <a href="/book"><span className="x">Book</span> now</a>`)]);
+  assert.equal(slots[0].label, "Book now");
+});
+
+test("a link with no closing tag in reach gets no words rather than swallowing the page", () => {
+  const slots = linkSlots([{ path: "index.tsx", source: `<a href="/x">` + "y".repeat(600) }]);
+  assert.equal(slots.length, 1);
+  assert.equal(slots[0].label, "");
+});
+
+test("a page with no source or no path is skipped rather than throwing", () => {
+  assert.deepEqual(linkSlots([null, { path: "a.tsx" }, { source: "<a href='/x'>y</a>" }]), []);
+  assert.deepEqual(linkSlots(null), []);
+});
+
+// ── WHICH LINKS A CHANGE NAMES ──────────────────────────────────────────────
+
+const MANY = [
+  { page: "index.tsx", label: "Book now", href: "/book", typed: false },
+  { page: "about.tsx", label: "Book now", href: "/classes", typed: false },
+  { page: "about.tsx", label: "Prices", href: "/prices", typed: true },
+];
+
+test("matched on the words, which is how a customer refers to a link", () => {
+  assert.deepEqual(matchLinks(MANY, { label: "Book now", to: "/x" }).map((s) => s.href),
+    ["/book", "/classes"]);
+});
+
+test("matched on the destination, which is how they refer to a SET of them", () => {
+  assert.deepEqual(matchLinks(MANY, { from: "/classes", to: "/x" }).map((s) => s.page), ["about.tsx"]);
+});
+
+test("GIVEN BOTH, BOTH MUST MATCH — that is what tells two identical labels apart", () => {
+  const hit = matchLinks(MANY, { label: "Book now", from: "/classes", to: "/x" });
+  assert.deepEqual(hit.map((s) => s.page), ["about.tsx"]);
+});
+
+test("A CHANGE THAT NAMES NEITHER MATCHES NOTHING", () => {
+  // An entry carrying only a destination to move TO is a model that answered the
+  // field and not the question, and applying it to every link on the site is the
+  // single most destructive thing this lane could do.
+  assert.deepEqual(matchLinks(MANY, { to: "/everywhere" }), []);
+});
+
+test("the words are matched case- and space-insensitively, because a customer types them", () => {
+  assert.equal(matchLinks(MANY, { label: "  book NOW ", to: "/x" }).length, 2);
+});
+
+// ── WRITING THEM BACK ───────────────────────────────────────────────────────
+
+test("applyPageLinks repoints one link across every page that carries it", () => {
+  const pages = [
+    body("index.tsx", `      <a href="/contact">Enquire</a>`),
+    body("about.tsx", `      <a href="/contact">Enquire</a>`),
+  ];
+  const out = applyPageLinks(pages, [{ label: "Enquire", to: "/book" }], ["/", "/about", "/book", "/contact"]);
+  assert.equal(out.moved, 2);
+  assert.deepEqual(out.changed, ["index.tsx", "about.tsx"]);
+  for (const p of out.pages) assert.match(p.source, /href="\/book"/);
+});
+
+test("two links in one file are both written, and the offsets stay right", () => {
+  // BACK TO FRONT, like the menu and the button: each write changes the length
+  // of the source, so a forward pass lands the second write in whatever moved
+  // into its offset. The first link is repointed to a LONGER path deliberately.
+  const pages = [body("index.tsx",
+    `      <a href="/c">One</a>\n      <a href="/c">Two</a>`)];
+  const out = applyPageLinks(pages, [{ label: "One", from: "/c", to: "/a-much-longer-path" },
+    { label: "Two", from: "/c", to: "/b" }], ["/", "/a-much-longer-path", "/b", "/c"]);
+  assert.equal(out.moved, 2);
+  const slots = linkSlots(out.pages);
+  assert.deepEqual(slots.map((s) => [s.label, s.href]),
+    [["One", "/a-much-longer-path"], ["Two", "/b"]]);
+});
+
+test("A TYPED LINK IS REFUSED WHEN THE DESTINATION IS NOT A PAGE — and the plain one beside it still goes", () => {
+  // `<Link to>` is checked against the generated route tree, so an anchor there
+  // is a build that fails and a customer left with the site they had plus a bill.
+  const pages = [body("index.tsx",
+    `      <Link to="/book">Go</Link>\n      <a href="/book">Go</a>`)];
+  const out = applyPageLinks(pages, [{ label: "Go", to: "/#form" }], ["/", "/book"]);
+  assert.equal(out.moved, 1);
+  assert.equal(out.refused.length, 1);
+  assert.equal(out.refused[0].why, "typed-needs-page");
+  const slots = linkSlots(out.pages);
+  assert.deepEqual(slots.map((s) => [s.tag, s.href]), [["Link", "/book"], ["a", "/#form"]]);
+});
+
+test("a destination that is not usable at all refuses the whole change", () => {
+  const pages = [body("index.tsx", `      <a href="/book">Go</a>`)];
+  const out = applyPageLinks(pages, [{ label: "Go", to: "/nowhere" }], ["/", "/book"]);
+  assert.deepEqual(out.changed, []);
+  assert.equal(out.refused[0].why, "no-such-page");
+});
+
+test("a link that already points there is not a change", () => {
+  // Republishing every page to write back the bytes already there costs a
+  // container run and archives a version describing a change that did not happen.
+  const pages = [body("index.tsx", `      <a href="/book">Go</a>`)];
+  const out = applyPageLinks(pages, [{ label: "Go", to: "/book" }], ["/", "/book"]);
+  assert.equal(out.moved, 0);
+  assert.deepEqual(out.changed, []);
+});
+
+test("words that name no link on the site are refused and named", () => {
+  const pages = [body("index.tsx", `      <a href="/book">Go</a>`)];
+  const out = applyPageLinks(pages, [{ label: "Nope", to: "/book" }], ["/", "/book"]);
+  assert.equal(out.refused[0].why, "no-such-link");
+  assert.match(linkRefusal(out.refused), /couldn.t find a link saying/);
+});
+
+test("an entry with nowhere to go is skipped rather than clearing the href", () => {
+  const pages = [body("index.tsx", `      <a href="/book">Go</a>`)];
+  const out = applyPageLinks(pages, [{ label: "Go", to: "" }, { label: "Go", to: "   " }], ["/", "/book"]);
+  assert.deepEqual(out.changed, []);
+  assert.match(out.pages[0].source, /href="\/book"/);
+});
+
+test("a tel: destination is allowed on a body link, like the button", () => {
+  const pages = [body("index.tsx", `      <a href="/contact">Ring us</a>`)];
+  const out = applyPageLinks(pages, [{ label: "Ring us", to: "tel:+441134960000" }], ["/", "/contact"]);
+  assert.equal(out.moved, 1);
+  assert.match(out.pages[0].source, /href="tel:\+441134960000"/);
+});
+
+test("the three refusals are three different sentences, because they are three next steps", () => {
+  const said = ["no-such-link", "typed-needs-page", "no-such-page"]
+    .map((why) => linkRefusal([{ label: "Go", to: "/x", why }]));
+  assert.equal(new Set(said).size, 3, said.join(" | "));
+  assert.equal(linkRefusal([]), "");
+  assert.equal(linkRefusal(null), "");
+});
+
+// ── READING THE ANSWER ──────────────────────────────────────────────────────
+
+const linkReply = (pageLinks) => ({ content: [{ type: "tool_use", input: { pageLinks } }] });
+
+test("readNav keeps a well-formed link change", () => {
+  const r = readNav(linkReply([{ label: "Enquire", to: "/book" }]), ROUTES);
+  assert.deepEqual(r.pageLinks, [{ label: "Enquire", from: "", to: "/book" }]);
+});
+
+test("AN ENTRY WITH NEITHER WORDS NOR A CURRENT DESTINATION IS DROPPED", () => {
+  // It is a model that answered the field and not the question; applied, it
+  // would repoint every link on the site.
+  const r = readNav(linkReply([{ to: "/book" }]), ROUTES);
+  assert.deepEqual(r.pageLinks, []);
+  assert.equal(r.dropped[0].why, "incomplete");
+});
+
+test("an entry with nowhere to go is dropped", () => {
+  const r = readNav(linkReply([{ label: "Enquire" }]), ROUTES);
+  assert.deepEqual(r.pageLinks, []);
+});
+
+test("a non-string label or destination is refused rather than coerced", () => {
+  // `String(["/a","/b"])` is "/a,/b" — the coercion bug this repo has recorded
+  // on `normalizeRole` and on a table's `access`.
+  const r = readNav(linkReply([{ label: ["a", "b"], to: ["/a", "/b"] }, "nope", null]), ROUTES);
+  assert.deepEqual(r.pageLinks, []);
+});
+
+test("the number of link changes in one instruction is bounded", () => {
+  const many = Array.from({ length: MAX_LINK_CHANGES + 5 }, (_, i) => ({ label: "L" + i, to: "/book" }));
+  assert.equal(readNav(linkReply(many), ROUTES).pageLinks.length, MAX_LINK_CHANGES);
+});
+
+test("A LINK-ONLY ANSWER IS NOT 'NO ANSWER' — it used to return null", () => {
+  // The same shape as the button: `readNav` returning null threw away an answer
+  // that named no menu, so a customer asking only about a link in the copy was
+  // told "I couldn't work out what the menu should be" about a menu they never
+  // mentioned.
+  const r = readNav(linkReply([{ label: "Enquire", to: "/book" }]), ROUTES);
+  assert.ok(r, "a links-only answer is an answer");
+  assert.equal(r.links, null, "and it says nothing about the menu");
+});
+
+// ── WHAT THE MODEL IS SHOWN ─────────────────────────────────────────────────
+
+test("the digest lists the links by their words, grouped, with a page count", () => {
+  // A customer names a link by its words, and the same words on four pages are
+  // ONE link to them rather than four.
+  const pages = [body("index.tsx", `      <a href="/contact">Enquire</a>`),
+    body("about.tsx", `      <a href="/contact">Enquire</a>`)];
+  const d = navDigest(navSlots(pages), ROUTES, [], linkSlots(pages));
+  assert.match(d, /LINKS INSIDE THE PAGES/);
+  assert.match(d, /“Enquire” -> \/contact {2}\(on 2 pages\)/);
+});
+
+test("A TYPED LINK IS MARKED, so the model does not ask for a change that gets refused", () => {
+  const pages = [body("index.tsx", `      <Link to="/book">Book now</Link>`)];
+  const d = navDigest(navSlots(pages), ROUTES, [], linkSlots(pages));
+  assert.match(d, /“Book now” -> \/book {2}\[must point at a page of this site\]/);
+});
+
+test("a site with no links in the copy gets no block at all", () => {
+  const d = navDigest(navSlots([page("index.tsx", NAV)]), ROUTES, [], []);
+  assert.doesNotMatch(d, /LINKS INSIDE THE PAGES/);
+});
+
+test("the digest's link list is bounded", () => {
+  const links = Array.from({ length: MAX_LINK_LINES + 20 }, (_, i) => ({ label: "L" + i, href: "/p" + i, typed: false }));
+  const d = navDigest([], ROUTES, [], links);
+  assert.equal(d.split("\n").filter((l) => l.startsWith("  “")).length, MAX_LINK_LINES);
+});
+
+// ── THE LANE ────────────────────────────────────────────────────────────────
+
+test("runNavEdit SENDS the links in its request", () => {
+  // Every other lane test hands back a canned reply, so the request itself was
+  // never looked at — `runNavEdit` could stop passing the link slots to
+  // `navRequest` and the model would be asked to change something it was never
+  // shown. Two mutants in a row have lived in exactly that gap.
+  let sent = null;
+  const pages = [body("index.tsx", `      <a href="/contact">Enquire</a>`)];
+  return runNavEdit({ send: async (req) => { sent = req; return linkReply([]); } }, {
+    instruction: "point the enquiry link at the booking page", pages, routes: ROUTES,
+  }).then(() => {
+    assert.match(sent.messages[0].content, /“Enquire” -> \/contact/);
+  });
+});
+
+test("a links-only change goes through and reports how many moved", () => {
+  const pages = [body("index.tsx", `      <a href="/contact">Enquire</a>`),
+    body("about.tsx", `      <a href="/contact">Enquire</a>`)];
+  return runNavEdit({ send: async () => linkReply([{ label: "Enquire", to: "/book" }]) }, {
+    instruction: "send the enquiry link to booking", pages, routes: ROUTES,
+  }).then((out) => {
+    assert.equal(out.ok, true);
+    assert.equal(out.movedLinks, 2);
+    assert.deepEqual(out.changed, ["index.tsx", "about.tsx"]);
+    assert.match(out.msg, /Repointed 2 links across 2 pages/);
+    // AND IT SAYS NOTHING ABOUT THE MENU, which did not change.
+    assert.doesNotMatch(out.msg, /menu/i);
+  });
+});
+
+test("A SITE WITH LINKS IN THE COPY AND NO CHROME AT ALL IS STILL THIS LANE'S WORK", () => {
+  // Escalating spends a ~27-credit rewrite to do what this does for one Haiku
+  // call. Nothing to edit is the only thing that escalates.
+  const pages = [{ path: "index.tsx", source: `<a href="/contact">Enquire</a>` }];
+  return runNavEdit({ send: async () => linkReply([{ label: "Enquire", to: "/book" }]) }, {
+    instruction: "x", pages, routes: ROUTES,
+  }).then((out) => {
+    assert.equal(out.ok, true);
+    assert.equal(out.movedLinks, 1);
+  });
+});
+
+test("a site with nothing to edit at all still escalates", () => {
+  return runNavEdit({ send: async () => linkReply([]) }, {
+    instruction: "x", pages: [{ path: "index.tsx", source: "export default () => <h1>Hi</h1>;" }], routes: ROUTES,
+  }).then((out) => {
+    assert.equal(out.escalate, true);
+    assert.equal(out.reason, "no-nav");
+  });
+});
+
+test("A REFUSED LINK IS NOT REPORTED AS A SUCCESS", () => {
+  // The one shape this lane must not have: the customer told a link moved when
+  // it did not.
+  const pages = [body("index.tsx", `      <a href="/book">Go</a>`)];
+  return runNavEdit({ send: async () => linkReply([{ label: "Nope", to: "/book" }]) }, {
+    instruction: "x", pages, routes: ROUTES,
+  }).then((out) => {
+    assert.equal(out.ok, false);
+    assert.equal(out.reason, "no-change");
+    assert.match(out.msg, /couldn.t find a link saying “Nope”/);
+  });
+});
+
+test("a menu change and a link change in one instruction both land, and both are said", () => {
+  const pages = [body("index.tsx", `      <a href="/contact">Enquire</a>`)];
+  return runNavEdit({
+    send: async () => ({
+      content: [{ type: "tool_use", input: {
+        links: [{ label: "Book", href: "/book" }],
+        pageLinks: [{ label: "Enquire", to: "/book" }],
+      } }],
+    }),
+  }, { instruction: "x", pages, routes: ROUTES }).then((out) => {
+    assert.equal(out.ok, true);
+    assert.match(out.msg, /Updated the menu/);
+    assert.match(out.msg, /1 link in the copy repointed too/);
+  });
+});
+
+// ── THE WIRING, WHICH IS WHERE TWELVE FEATURES HAVE DIED ─────────────────────
+
+test("the router's nav layer names the links in the copy", () => {
+  // A capability the router cannot describe is one nothing can reach.
+  const src = fs.readFileSync(new URL("../builder/site-ask.mjs", import.meta.url), "utf8");
+  const at = src.indexOf('"\\"nav\\" —');
+  const window = src.slice(at, src.indexOf('"\\"page\\" —', at));
+  assert.match(window, /LINKS WRITTEN INTO THE PAGES/);
+});
+
+test("the worker carries the links' outcome back", () => {
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const at = w.indexOf('ok: true, layer: "nav"');
+  assert.ok(at > 0);
+  const window = w.slice(at, w.indexOf("cost: await eCharge", at));
+  assert.match(window, /movedLinks: nOut\.movedLinks/);
+  assert.match(window, /refusedLinks: nOut\.refusedLinks/);
+});
+
+test("driven over every page the generator learns from: not one false link", () => {
+  // THE BAR EVERY NEW RULE HERE HAS TO CLEAR. A structural editor is only
+  // allowed if it is right about real pages — the same corpus the menu and the
+  // button were calibrated against.
+  const root = new URL("../builder/lovable/template/src/", import.meta.url).pathname;
+  const pages = [];
+  const walk = (dir, rel) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, e.name);
+      const r = rel ? rel + "/" + e.name : e.name;
+      if (e.isDirectory()) walk(full, r);
+      else if (e.name.endsWith(".tsx")) pages.push({ path: r, source: fs.readFileSync(full, "utf8") });
+    }
+  };
+  walk(path.join(root, "family-pages"), "");
+  walk(path.join(root, "routes"), "");
+  assert.ok(pages.length > 300, "the corpus was found: " + pages.length);
+
+  const slots = linkSlots(pages);
+  // The floor first: a scan that silently stopped matching would report a clean
+  // corpus and prove nothing. Measured: 458 body links across the 329 pages.
+  assert.ok(slots.length > 400, "body links were found: " + slots.length);
+  // AND THE CAP MUST NOT BE BINDING HERE. It is a runaway guard, not a display
+  // bound — the corpus sat at exactly 400 under the old number, which is a
+  // silent truncation of the APPLY wearing the shape of a clean run.
+  assert.ok(slots.length < MAX_LINK_SLOTS, "the cap is not what stopped the scan");
+
+  // NAMED BY THEIR WORDS, which is the whole handle a customer has on one.
+  // Measured: 8 of 458 have none, every one of them a link inside a `.map()`
+  // whose words are `{item.title}` — computed, so there is nothing to read.
+  // Those degrade honestly: they can be matched by destination and not by name.
+  const unnamed = slots.filter((s) => !s.label);
+  assert.ok(unnamed.length < 20, "nearly every link has readable words: " + unnamed.length);
+  // AND THE TYPED FORM IS REALLY EXERCISED. Without one in the corpus the
+  // `typed` half of this is calibrated against fixtures alone.
+  assert.ok(slots.some((s) => s.typed), "the corpus carries a typed link");
+
+  for (const s of slots) {
+    // EVERY SLOT MUST BE A REAL WRITE POINT. The recorded offsets are what get
+    // rewritten, so one that does not hold the href it claims corrupts a page.
+    const src = pages.find((p) => p.path === s.page).source;
+    assert.equal(src.slice(s.at, s.to), s.href, s.page + " " + s.href);
+  }
+
+  // AND NOT ONE HREF IS OWNED BY TWO SCANNERS. This is the property the deleted
+  // chrome exclusion was standing in for, asserted directly against every span
+  // the other two lanes really rewrite — 306 menus and 306 buttons against 458
+  // body links, zero overlaps. A link claimed by two lanes is two things that
+  // can disagree about where it points.
+  const owned = new Map();
+  const claim = (s) => {
+    if (s.at == null) return;
+    if (!owned.has(s.page)) owned.set(s.page, []);
+    owned.get(s.page).push([s.at, s.to]);
+  };
+  navSlots(pages).forEach(claim);
+  actionSlots(pages).forEach(claim);
+  assert.ok(owned.size > 90, "the other two scanners found their spans: " + owned.size);
+  for (const l of slots) {
+    for (const [a, b] of owned.get(l.page) || []) {
+      assert.ok(l.at < a || l.at > b, l.page + " " + l.href + " is claimed by two lanes");
+    }
+  }
+});
+
+test("driven over the only pages in this repo the GENERATOR wrote", () => {
+  // The exemplars are pages WE wrote, in the house style, so a rule tuned on
+  // them is tuned to us. These are committed eval output.
+  const dir = new URL("../docs/auth-audit/pages/", import.meta.url).pathname;
+  const sites = fs.readdirSync(dir).filter((d) => fs.statSync(path.join(dir, d)).isDirectory());
+  let found = 0;
+  for (const site of sites) {
+    const files = fs.readdirSync(path.join(dir, site)).filter((f) => f.endsWith(".tsx"));
+    const pages = files.map((f) => ({ path: f, source: fs.readFileSync(path.join(dir, site, f), "utf8") }));
+    for (const s of linkSlots(pages)) {
+      found++;
+      const src = pages.find((p) => p.path === s.page).source;
+      assert.equal(src.slice(s.at, s.to), s.href, site + "/" + s.page);
+    }
+  }
+  assert.ok(found >= 5, "body links were found in the generated samples: " + found);
 });

@@ -12514,6 +12514,14 @@ async function handleRequest(request, env, ctx) {
               // THE ROUTES ARE THE ALLOW-LIST. A menu item pointing at a page
               // the site does not have is a 404 from every page at once, so the
               // real route list goes in and anything else is dropped and named.
+              //
+              // AND EVERY LINK WRITTEN INTO THE COPY, for the same reason and
+              // at the same price. Measured over the 337 pages the generator
+              // learns from and writes: 600 links in the chrome and 469 in the
+              // page bodies, where the only lane that could touch one was
+              // `page` — one page at a time, one model call, for a destination.
+              // The `text` layer cannot help either: it refuses `href` and `to`
+              // by name, which is the rule that stops it rewriting a route id.
               const navRoutes = [...new Set(eSrc.map((p) => routeOf(p.path)).filter(Boolean))];
               const nOut = await runNavEdit({
                 send: (req) => anthropicMessages(env, req),
@@ -12549,6 +12557,13 @@ async function handleRequest(request, env, ctx) {
                 // AND THE BUTTON, when this change touched it. Omitted when it
                 // did not, so a menu-only change's response is unchanged.
                 action: nOut.action || undefined, removedAction: nOut.removedAction || undefined,
+                // AND THE LINKS IN THE COPY. `movedLinks` counts what really
+                // changed and `refusedLinks` carries the ones that could not —
+                // a link the model named and we would not repoint is a change
+                // the customer believes happened, which is the one shape this
+                // response must not have.
+                movedLinks: nOut.movedLinks || undefined,
+                refusedLinks: nOut.refusedLinks && nOut.refusedLinks.length ? nOut.refusedLinks.length : undefined,
                 cost: await eCharge(nOut.usage), usage: nOut.usage,
               });
             }

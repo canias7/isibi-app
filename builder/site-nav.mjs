@@ -372,6 +372,41 @@ export const NAV_TOOL = {
         },
         required: ["label", "href"],
       },
+      pageLinks: {
+        type: "array",
+        description:
+          "LINKS INSIDE THE PAGES — the ones written into the copy, not the menu or the button. \"Send an enquiry\", " +
+          "\"See the full lineup\", \"Back to records\". Every link on the site with the same words is changed at " +
+          "once, on every page it appears on.\n" +
+          "ONE ENTRY PER LINK THEY ARE CHANGING, and nothing else. Leave the whole field out if they are not asking " +
+          "about a link in the copy.",
+        items: {
+          type: "object",
+          properties: {
+            label: {
+              type: "string",
+              description:
+                "The link's own words, copied EXACTLY from the list below — that is how they refer to it. Leave it " +
+                "out only when they named a destination rather than words (\"everything pointing at /old-prices\").",
+            },
+            from: {
+              type: "string",
+              description:
+                "Where it goes NOW, exactly as listed. Give this as well as the words when the same words appear " +
+                "twice going to different places, and instead of them when they named no words at all.",
+            },
+            to: {
+              type: "string",
+              description:
+                "Where it should go INSTEAD. A page of this site, \"/#prices\" for a section of one, an https:// " +
+                "address, or \"tel:\" and the number. Some links are typed against the site's own pages and can " +
+                "only ever point at one — those are marked below, and anything else is left alone rather than " +
+                "breaking the site.",
+            },
+          },
+          required: ["to"],
+        },
+      },
       removeAction: {
         type: "boolean",
         description:
@@ -397,7 +432,7 @@ const NAV_SYSTEM =
  * own. First-seen order, which is the order a visitor meets them on the home
  * page.
  */
-export function navDigest(slots, routes, actions) {
+export function navDigest(slots, routes, actions, links) {
   const lines = [];
   const seen = new Map();
   for (const s of Array.isArray(slots) ? slots : []) {
@@ -418,6 +453,30 @@ export function navDigest(slots, routes, actions) {
   lines.push("THE BUTTON AT THE TOP:");
   lines.push(btn ? "  " + btn.label + " -> " + btn.href : "  (there is no button)");
 
+  // THE LINKS WRITTEN INTO THE PAGES, grouped by what they SAY and where they
+  // go — a customer names one by its words, and the same words on four pages
+  // are one link to them rather than four.
+  const groups = new Map();
+  for (const l of Array.isArray(links) ? links : []) {
+    if (!l || !l.label) continue;
+    const k = l.label + "\u0000" + l.href;
+    const g = groups.get(k) || { label: l.label, href: l.href, n: 0, typed: false };
+    g.n++; g.typed = g.typed || l.typed;
+    groups.set(k, g);
+  }
+  if (groups.size) {
+    lines.push("");
+    lines.push("LINKS INSIDE THE PAGES — the words, where they go, and how many pages carry one:");
+    for (const g of [...groups.values()].slice(0, MAX_LINK_LINES)) {
+      lines.push("  \u201c" + g.label + "\u201d -> " + g.href +
+        (g.n > 1 ? "  (on " + g.n + " pages)" : "") +
+        // STATED, NOT LEFT TO BE WORKED OUT. A typed link can only ever point at
+        // a page of this site, and a model that sends one to an anchor is asking
+        // for a change that gets refused.
+        (g.typed ? "  [must point at a page of this site]" : ""));
+    }
+  }
+
   lines.push("");
   lines.push("THE PAGES THIS SITE HAS — an item may point at any of these:");
   const list = [...new Set((Array.isArray(routes) ? routes : []).filter(Boolean))];
@@ -436,7 +495,7 @@ export function navDigest(slots, routes, actions) {
   return lines.join("\n");
 }
 
-export function navRequest({ instruction, slots, routes, actions }) {
+export function navRequest({ instruction, slots, routes, actions, links }) {
   return {
     model: NAV_MODEL,
     max_tokens: NAV_MAX_TOKENS,
@@ -445,7 +504,7 @@ export function navRequest({ instruction, slots, routes, actions }) {
     tool_choice: { type: "tool", name: NAV_TOOL.name },
     messages: [{
       role: "user",
-      content: navDigest(slots, routes, actions) + "\n\nWHAT THEY ASKED FOR:\n" + String(instruction || "").slice(0, 2000),
+      content: navDigest(slots, routes, actions, links) + "\n\nWHAT THEY ASKED FOR:\n" + String(instruction || "").slice(0, 2000),
     }],
   };
 }
@@ -491,13 +550,32 @@ export function readNav(reply, routes) {
     }
   }
 
+  // ── LINKS IN THE COPY ───────────────────────────────────────────────────
+  //
+  // Kept as the model gave them and resolved against the real slots at APPLY
+  // time, because matching needs the pages and this function only has the
+  // routes. What is checked here is the shape: an entry with nowhere to go, or
+  // with neither words nor a current destination to find it by, is dropped —
+  // the second is a model that answered the field and not the question, and
+  // applying it to every link on the site is the worst thing this lane could do.
+  const pageLinks = [];
+  for (const c of Array.isArray(input.pageLinks) ? input.pageLinks : []) {
+    if (!c || typeof c !== "object") continue;
+    const to = typeof c.to === "string" ? c.to.trim() : "";
+    const label = typeof c.label === "string" ? c.label.trim().slice(0, 120) : "";
+    const from = typeof c.from === "string" ? c.from.trim() : "";
+    if (!to || (!label && !from)) { dropped.push({ label, href: to, why: "incomplete", link: true }); continue; }
+    pageLinks.push({ label, from, to });
+    if (pageLinks.length >= MAX_LINK_CHANGES) break;
+  }
+
   if (!Array.isArray(raw)) {
     // A REFUSED BUTTON IS NOT "NO ANSWER". Returning null here threw away the
     // reason it was refused, so a customer asking to point the button at a page
     // that does not exist was told "I couldn't work out what the menu should be"
     // — about a menu they never mentioned. Found by my own test.
-    if (!action && !removeAction && !dropped.length) return null;
-    return { links: null, dropped, action, removeAction };
+    if (!action && !removeAction && !dropped.length && !pageLinks.length) return null;
+    return { links: null, dropped, action, removeAction, pageLinks };
   }
   for (const it of raw) {
     if (!it || typeof it !== "object") continue;
@@ -514,7 +592,7 @@ export function readNav(reply, routes) {
     links.push({ label, href });
     if (links.length >= MAX_NAV_ITEMS) break;
   }
-  return { links, dropped, action, removeAction };
+  return { links, dropped, action, removeAction, pageLinks };
 }
 
 /**
@@ -653,10 +731,16 @@ export function navUsage(reply) {
 }
 
 /** What the customer is told, in their words rather than ours. */
-export function navReply({ links = [], dropped = [], changed = [], action = null, removedAction = false } = {}) {
+export function navReply({ links = [], dropped = [], changed = [], action = null, removedAction = false, moved = 0, refused = [] } = {}) {
   const where = changed.length + (changed.length === 1 ? " page" : " pages");
   // THE BUTTON ON ITS OWN, when the menu was not part of the ask. Falling
   // through to the menu sentence would report a menu that did not change.
+  // LINKS IN THE COPY, ON THEIR OWN. Falling through to the menu sentence
+  // would report a menu that did not change.
+  if (!links.length && !action && !removedAction && moved) {
+    return "✅ Repointed " + moved + (moved === 1 ? " link" : " links") + " across " + where + "." +
+      (refused.length ? " " + linkRefusal(refused) : "");
+  }
   if (!links.length && (action || removedAction)) {
     const said = removedAction
       ? "✅ Took the button off the top of the site — " + where + " updated."
@@ -696,6 +780,8 @@ export function navReply({ links = [], dropped = [], changed = [], action = null
   // AND THE BUTTON, when this change carried both.
   if (removedAction) msg += " The button at the top is gone too.";
   else if (action) msg += " The button now says “" + action.label + "” and goes to " + action.href + ".";
+  if (moved) msg += " " + moved + (moved === 1 ? " link" : " links") + " in the copy repointed too.";
+  if (refused.length) msg += " " + linkRefusal(refused);
   return msg;
 }
 
@@ -731,19 +817,24 @@ function droppedNote(dropped) {
 export async function runNavEdit(deps, { instruction, pages, routes } = {}) {
   const slots = navSlots(pages);
   const actions = actionSlots(pages);
-  // NEITHER A MENU NOR A HEADER IS THE ONLY THING THAT ESCALATES. A site with a
-  // menu but no button is an ordinary site and this lane can still add one.
-  if (!slots.length && !actions.length) return { ok: false, escalate: true, reason: "no-nav", usage: null };
+  const links = linkSlots(pages);
+  // NOTHING TO EDIT IS THE ONLY THING THAT ESCALATES. A site with a button and
+  // no menu, or links in the copy and no chrome at all, is still this lane's
+  // work — sending it up costs a ~27-credit rewrite to do what this does free.
+  if (!slots.length && !actions.length && !links.length) {
+    return { ok: false, escalate: true, reason: "no-nav", usage: null };
+  }
 
   let reply;
-  try { reply = await deps.send(navRequest({ instruction, slots, routes, actions })); }
+  try { reply = await deps.send(navRequest({ instruction, slots, routes, actions, links })); }
   catch (e) { return { ok: false, escalate: false, reason: "send", error: e, usage: null }; }
   const usage = navUsage(reply);
 
   const read = readNav(reply, routes);
   const wantsMenu = !!(read && read.links && read.links.length);
   const wantsButton = !!(read && (read.action || read.removeAction));
-  if (!wantsMenu && !wantsButton) {
+  const wantsLinks = !!(read && read.pageLinks && read.pageLinks.length);
+  if (!wantsMenu && !wantsButton && !wantsLinks) {
     // THE REASON TRAVELS EVEN WHEN NOTHING COULD BE APPLIED. `navReply({})` is
     // the honest answer only when the model said nothing usable at all; when it
     // named a button we had to refuse, the customer is owed the refusal.
@@ -755,24 +846,30 @@ export async function runNavEdit(deps, { instruction, pages, routes } = {}) {
   if (wantsMenu) out = applyNav(out.pages, read.links);
   let btn = { pages: out.pages, changed: [] };
   if (wantsButton) btn = applyAction(out.pages, read.action, read.removeAction);
-  const changed = [...new Set([...out.changed, ...btn.changed])];
+  let lnk = { pages: btn.pages, changed: [], moved: 0, refused: [] };
+  if (wantsLinks) lnk = applyPageLinks(btn.pages, read.pageLinks, routes);
+  const changed = [...new Set([...out.changed, ...btn.changed, ...lnk.changed])];
 
   if (!changed.length) {
     return {
       ok: false, escalate: false, reason: "no-change", usage,
       msg: wantsMenu
         ? "That's already the menu — nothing to change."
-        : "That's already what the button says and where it goes — nothing to change.",
+        : wantsButton
+          ? "That's already what the button says and where it goes — nothing to change."
+          : linkRefusal(lnk.refused) || "Those links already point there — nothing to change.",
     };
   }
   return {
-    ok: true, pages: btn.pages, changed,
+    ok: true, pages: lnk.pages, changed,
     links: wantsMenu ? read.links : null,
     action: read.action || null, removedAction: !!read.removeAction,
+    movedLinks: lnk.moved, refusedLinks: lnk.refused,
     dropped: read.dropped, usage,
     msg: navReply({
       links: wantsMenu ? read.links : [], action: read.action,
       removedAction: !!read.removeAction, dropped: read.dropped, changed,
+      moved: lnk.moved, refused: lnk.refused,
     }),
   };
 }
@@ -834,4 +931,217 @@ export function applyAction(pages, action, remove) {
     return { ...p, source: src };
   });
   return { pages: next, changed };
+}
+
+/**
+ * Every link in the PAGES, as opposed to the chrome.
+ *
+ * WHAT THIS REACHES THAT NOTHING ELSE DID. Measured across the 337 pages the
+ * generator learns from and writes: 600 links live in the chrome — the menu and
+ * the header button, both site-wide editable — and 469 live in the page bodies,
+ * where the only lane that could touch one was `page`: one page at a time, one
+ * model call, for a link's destination. There was no site-wide version at all.
+ *
+ * The text lane cannot help, deliberately: it refuses `href` and `to` by name,
+ * which is the rule that stops it rewriting a route id or a column reference.
+ *
+ * NAMED BY THEIR WORDS, because that is how a customer refers to one — "the Get
+ * in touch link", not "the third anchor". The words are the element's own
+ * children, which is why they have to be read rather than guessed at.
+ *
+ * COMMENTS ARE BLANKED FIRST. The template's own prose quotes `<Link to="/book">`
+ * while explaining the convention, and a scan that reads it offers the customer a
+ * link that does not exist — found by looking at real matches before writing a
+ * line of this.
+ *
+ * NO HREF IS OWNED BY TWO SCANNERS, and it needs no exclusion to hold — which is
+ * the opposite of what the first draft of this assumed. The menu is an array of
+ * `{label, href}` object literals and the button an object literal, so neither
+ * can contain a JSX link tag: measured across the 458 body links in the corpus,
+ * ZERO fall inside a span `navSlots` or `actionSlots` owns.
+ *
+ * The draft skipped everything syntactically inside a `<SiteChrome>` tag, which
+ * excluded nothing at all in 458 cases and was WRONG in the one shape it can
+ * fire on — `footer={<a href="/terms">Terms</a>}`, a JSX-valued prop that is
+ * legal today and that neither of the other two scanners can reach, so skipping
+ * it made that link editable by nothing. The overlap property is asserted
+ * directly instead, which is the thing that actually had to be true.
+ */
+const LINK_TAGS = /<(a|Link|SiteLink)\b/g;
+
+export function linkSlots(pages) {
+  const out = [];
+  for (const p of Array.isArray(pages) ? pages : []) {
+    if (!p || typeof p.path !== "string" || typeof p.source !== "string") continue;
+    const src = p.source;
+    // Length-preserving, so every offset below is valid against the REAL source.
+    const scan = blankComments(src);
+
+    let m;
+    LINK_TAGS.lastIndex = 0;
+    while ((m = LINK_TAGS.exec(scan))) {
+      const end = tagEnd(scan, m.index);
+      if (end < 0) continue;
+      const tag = scan.slice(m.index, end);
+      // `to` on the typed forms, `href` on everything else. A computed value —
+      // `to={route}` — is skipped rather than guessed at.
+      const attr = /\b(href|to)\s*=\s*"([^"]*)"/.exec(tag);
+      if (!attr) continue;
+      const at = m.index + attr.index + attr[0].indexOf('"') + 1;
+      const to = at + attr[2].length;
+      out.push({
+        page: p.path,
+        tag: m[1],
+        // A `<Link to>`/`<SiteLink>` is TYPED against the route tree, so its
+        // destination can only ever be a real route — an anchor or a `tel:`
+        // there fails the build rather than degrading.
+        typed: m[1] !== "a",
+        href: attr[2],
+        at, to,
+        label: linkLabel(scan, end, m[1]),
+      });
+      if (out.length >= MAX_LINK_SLOTS) return out;
+    }
+  }
+  return out;
+}
+
+/**
+ * A RUNAWAY GUARD, NOT A DISPLAY BOUND — and the two are deliberately not one
+ * number. `linkSlots` feeds the APPLY as well as the digest, so a cap tuned to
+ * what a model can read silently leaves links this lane cannot see: the customer
+ * asks for every "Book now" to move, some of them do, and nothing says which.
+ * What the model is SHOWN is bounded separately, by `MAX_LINK_LINES`.
+ *
+ * Measured: the whole 329-page exemplar corpus holds ~400 body links and a real
+ * site is five to ten pages, so nothing genuine comes near this.
+ */
+export const MAX_LINK_SLOTS = 2000;
+
+/** Enough lines to describe a site's links without burying the instruction. */
+export const MAX_LINK_LINES = 40;
+
+/** One instruction is not fifty link changes. */
+export const MAX_LINK_CHANGES = 12;
+
+/** The words between the element's tags, with any nested markup dropped. */
+function linkLabel(src, from, tag) {
+  const close = src.indexOf("</" + tag, from);
+  if (close < 0 || close - from > 400) return "";
+  return src.slice(from + 1, close)
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\{[^}]*\}/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 80);
+}
+
+/** Comments blanked, offsets preserved — never removed, or every index shifts. */
+function blankComments(s) {
+  return s.replace(/\/\*[\s\S]*?\*\/|(^|[^:])\/\/[^\n]*/g, (m) => m.replace(/[^\n]/g, " "));
+}
+
+/**
+ * Which links a requested change actually names.
+ *
+ * MATCHED ON THE WORDS, THE DESTINATION, OR BOTH. The words are how a customer
+ * refers to a link; the destination is how they refer to a set of them ("all the
+ * ones pointing at the old prices page"). Given both, both must match — which is
+ * what lets one instruction pick "Book now → /book" apart from "Book now →
+ * /classes" on a site that has each.
+ *
+ * A CHANGE THAT NAMES NEITHER MATCHES NOTHING, deliberately. An entry carrying
+ * only a destination to move TO is a model that answered the field and not the
+ * question, and applying it to every link on the site is the single most
+ * destructive thing this lane could do.
+ */
+export function matchLinks(slots, change) {
+  const label = typeof change.label === "string" ? change.label.trim().toLowerCase() : "";
+  const from = typeof change.from === "string" ? change.from.trim() : "";
+  if (!label && !from) return [];
+  return (Array.isArray(slots) ? slots : []).filter((s) => {
+    if (label && s.label.trim().toLowerCase() !== label) return false;
+    if (from && s.href !== from) return false;
+    return true;
+  });
+}
+
+/**
+ * Rewrite the links a change names, across every page that carries one.
+ *
+ * A TYPED LINK CAN ONLY EVER POINT AT A REAL PAGE. `<Link to>` and `<SiteLink>`
+ * are checked against the route tree the container generates, so an anchor or a
+ * `tel:` there is not a degraded link — it is a build that fails and a customer
+ * left with the site they had plus a bill. Those slots are refused with a reason
+ * and the plain `<a>` ones in the same change still go through.
+ *
+ * BACK TO FRONT, PER FILE, for the reason the two scanners above state: every
+ * write changes the length of the source.
+ */
+export function applyPageLinks(pages, changes, routes) {
+  const list = Array.isArray(changes) ? changes : [];
+  if (!list.length) return { pages: Array.isArray(pages) ? pages : [], changed: [], moved: 0, refused: [] };
+
+  const known = new Set((Array.isArray(routes) ? routes : []).filter(Boolean));
+  const slots = linkSlots(pages);
+  const edits = new Map();
+  const refused = [];
+  let moved = 0;
+
+  for (const c of list) {
+    const to = c && typeof c.to === "string" ? c.to.trim() : "";
+    if (!to) continue;
+    const hits = matchLinks(slots, c);
+    if (!hits.length) { refused.push({ ...c, why: "no-such-link" }); continue; }
+    const why = actionHrefProblem(to, known);
+    if (why) { refused.push({ ...c, why }); continue; }
+    // A typed link takes only a real page, and `known` is exactly that set.
+    const plainOnly = !known.has(to);
+    for (const s of hits) {
+      if (s.typed && plainOnly) { refused.push({ ...c, why: "typed-needs-page" }); continue; }
+      if (s.href === to) continue;
+      if (!edits.has(s.page)) edits.set(s.page, []);
+      edits.get(s.page).push({ at: s.at, to: s.to, href: to });
+      moved++;
+    }
+  }
+
+  const changed = [];
+  const next = (Array.isArray(pages) ? pages : []).map((p) => {
+    const mine = edits.get(p && p.path);
+    if (!mine || !mine.length) return p;
+    let src = p.source;
+    for (const e of [...mine].sort((a, b) => b.at - a.at)) {
+      src = src.slice(0, e.at) + e.href + src.slice(e.to);
+    }
+    if (src === p.source) return p;
+    changed.push(p.path);
+    return { ...p, source: src };
+  });
+  return { pages: next, changed, moved, refused };
+}
+
+/**
+ * Why a link change could not be made, in a sentence the owner can act on.
+ *
+ * NAMED PER REASON, because the three are three different next steps: find the
+ * right words, ask for the page first, or point a typed link somewhere it can
+ * actually go. A single "couldn't do that" leaves them guessing at which.
+ */
+export function linkRefusal(refused) {
+  const list = (Array.isArray(refused) ? refused : []).filter(Boolean);
+  if (!list.length) return "";
+  const name = (r) => "“" + (r.label || r.from || r.to) + "”";
+  const first = list[0];
+  if (first.why === "no-such-link") {
+    return "I couldn't find a link saying " + name(first) + " anywhere on the site.";
+  }
+  if (first.why === "typed-needs-page") {
+    return "That link is typed against the site's own pages, so it can only point at one of them — " +
+      first.to + " isn't a page here.";
+  }
+  if (first.why === "no-such-page") {
+    return "There's no " + first.to + " page on the site yet, so I left that link where it was.";
+  }
+  return "I couldn't use " + first.to + " as a destination, so that link is unchanged.";
 }

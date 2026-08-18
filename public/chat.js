@@ -11574,6 +11574,11 @@ function editReply(e) {
     // exists is that the menu is a separate copy in every page file, so "it
     // changed on all 5 pages" is exactly the thing the owner could not get
     // before without paying for a full rewrite.
+    //
+    // THE SAME GOES FOR THE LINKS IN THE COPY, which this lane also repoints
+    // site-wide. `navReply` is the only place that knows which of those were
+    // REFUSED — a typed link cannot point at an anchor — and a second copy of
+    // that sentence here would eventually report a link that never moved.
     return (typeof e.msg === 'string' && e.msg.trim() ? e.msg.trim() : '✅ Done.');
   }
   if (e.layer === 'rules') {

@@ -229,7 +229,11 @@ export const ASK_TOOL = {
           "call us instead\", \"point the button at the contact page\", \"add a Call now button at the top\", \"drop " +
           "the button\". A phone number belongs here: for a trade whose customers ring rather than book, that button " +
           "IS the site's whole purpose.\n" +
-          "Both are the same on every page, so this changes all of them at once and is nearly free.\n" +
+          "LINKS WRITTEN INTO THE PAGES belong here too — \"the Send an enquiry link should go to the contact " +
+          "page\", \"make Read more point at the blog\". Every link on the site with those words moves at once, on " +
+          "every page carrying one, which is the part no other lane can do.\n" +
+          "The menu and the button are the same on every page, so this changes all of them at once and is nearly " +
+          "free.\n" +
           "IT ONLY EVER POINTS AT PAGES THE SITE ALREADY HAS. \"Add a gallery to the menu\" when there is no gallery " +
           "page is an \"addon\" — the page has to exist before anything can link to it. The pages it has are listed " +
           "above.\n" +
