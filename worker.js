@@ -12546,6 +12546,9 @@ async function handleRequest(request, env, ctx) {
                 ok: true, layer: "nav", msg: nOut.msg,
                 changed: nOut.changed, files: nPub.files, render: nPub.render, renderNote: nPub.renderNote,
                 links: nOut.links, dropped: nOut.dropped.length,
+                // AND THE BUTTON, when this change touched it. Omitted when it
+                // did not, so a menu-only change's response is unchanged.
+                action: nOut.action || undefined, removedAction: nOut.removedAction || undefined,
                 cost: await eCharge(nOut.usage), usage: nOut.usage,
               });
             }

@@ -6,6 +6,7 @@ import {
   navSlots, parseNavItems, renderNav, applyNav, readNav, navDigest,
   navRequest, navUsage, navReply, runNavEdit, NAV_TOOL, NAV_MODEL,
   MAX_NAV_ITEMS, MAX_LABEL,
+  actionSlots, applyAction,
 } from "../builder/site-nav.mjs";
 import { EDIT_LAYERS } from "../builder/site-ask.mjs";
 
@@ -322,7 +323,12 @@ test("the tool asks for the WHOLE menu, not a change to it", () => {
   // A model returning only the item to add would silently delete the rest.
   const d = NAV_TOOL.input_schema.properties.links.description;
   assert.match(d, /THE WHOLE MENU/);
-  assert.match(d, /RETURN AN EMPTY ARRAY IF THIS IS NOT A CHANGE TO THE MENU/);
+  // AND LEAVING IT OUT MEANS THE MENU IS UNCHANGED — the field is optional now,
+  // because a button-only ask that forces the model to restate the menu is how
+  // an item goes missing.
+  assert.match(d, /LEAVE THIS OUT ENTIRELY IF THE MENU IS NOT CHANGING/);
+  assert.ok(!(NAV_TOOL.input_schema.required || []).includes("links"),
+    "links must be optional, or a button-only change restates the menu");
 });
 
 // ── THE LANE ────────────────────────────────────────────────────────────────
@@ -420,7 +426,8 @@ test("the router's layer description names the menu and points a new page at add
   assert.ok(at > 0, "the nav layer has a description");
   const window = src.slice(at, src.indexOf('"\\"page\\" —', at));
   assert.ok(window.length > 100, "the window reaches the next layer");
-  assert.match(window, /MENU AT THE TOP OF EVERY PAGE/);
+  assert.match(window, /THE TOP OF EVERY PAGE/);
+  assert.match(window, /THE MENU — which items are in it/);
   // An item can only point at a page that exists, so "add a gallery to the
   // menu" with no gallery page is an addon and must say so here.
   assert.match(window, /ONLY EVER POINTS AT PAGES THE SITE ALREADY HAS/);
@@ -526,4 +533,279 @@ test("driven over the only pages in this repo the GENERATOR wrote", () => {
     }
   }
   assert.ok(withNav >= 4, "menus were found in the generated samples: " + withNav);
+});
+
+// ── THE HEADER'S CALL-TO-ACTION BUTTON ──────────────────────────────────────
+
+const withBtn = (p, extra = "") => ({
+  path: p,
+  source: `export default function P() {\n  return (\n    <SiteChrome name="Cutler Row" links={[${NAV}]} action={{ label: "Book a chair", href: "/book" }}${extra}>\n      <h1>Hi</h1>\n    </SiteChrome>\n  );\n}\n`,
+});
+const noBtn = (p) => ({
+  path: p,
+  source: `export default function P() {\n  return (\n    <SiteChrome name="Cutler Row" links={[${NAV}]}>\n      <h1>Hi</h1>\n    </SiteChrome>\n  );\n}\n`,
+});
+
+test("actionSlots reads the button out of a JSX attribute and a shared object", () => {
+  assert.deepEqual(actionSlots([withBtn("index.tsx")])[0].action,
+    { label: "Book a chair", href: "/book" });
+  const shared = {
+    path: "book.tsx",
+    source: `const CHROME = {\n  name: "Cutler Row",\n  action: { label: "Book a chair", href: "/book" },\n};\nexport default function P() { return <SiteChrome {...CHROME} />; }\n`,
+  };
+  const slots = actionSlots([shared]);
+  // ONE SLOT, NOT TWO. The tag spreads the object, so it is not an insertion
+  // point — a prop written before a spread is overridden by it.
+  assert.equal(slots.length, 1);
+  assert.equal(slots[0].kind, "obj");
+  assert.deepEqual(slots[0].action, { label: "Book a chair", href: "/book" });
+});
+
+test("a header with no button is an INSERTION point, not an absence", () => {
+  const slots = actionSlots([noBtn("index.tsx")]);
+  assert.equal(slots.length, 1);
+  assert.equal(slots[0].action, null);
+  assert.ok(slots[0].insertAt > 0);
+});
+
+test("A SPREAD TAG IS NEVER AN INSERTION POINT — found by driving the reference pages", () => {
+  const spread = { path: "x.tsx", source: `export default () => <SiteChrome {...CHROME} />;` };
+  assert.deepEqual(actionSlots([spread]), []);
+});
+
+test("changing the destination rewrites every page's button", () => {
+  const pages = [withBtn("index.tsx"), withBtn("book.tsx")];
+  const { pages: next, changed } = applyAction(pages, { label: "Get a quote", href: "/contact" }, false);
+  assert.deepEqual(changed, ["index.tsx", "book.tsx"]);
+  for (const p of next) {
+    assert.deepEqual(actionSlots([p])[0].action, { label: "Get a quote", href: "/contact" });
+  }
+});
+
+test("a removal takes the whole attribute away, not just its contents", () => {
+  // `action={{}}` would compile and render a button with no label.
+  const { pages: next, changed } = applyAction([withBtn("index.tsx")], null, true);
+  assert.deepEqual(changed, ["index.tsx"]);
+  assert.doesNotMatch(next[0].source, /action=/);
+  // The header is now an INSERTION point rather than nothing — which is what
+  // makes "actually, put it back" work.
+  const after = actionSlots(next);
+  assert.equal(after.length, 1);
+  assert.equal(after[0].action, null);
+  // And the tag is left tidy: no `name="X" >` with a hole in it.
+  assert.doesNotMatch(next[0].source, / {2}>/);
+  // and the rest of the tag is intact
+  assert.match(next[0].source, /name="Cutler Row"/);
+  assert.equal(navSlots(next).length, 1);
+});
+
+test("adding one to a header that has none produces a readable button", () => {
+  const { pages: next, changed } = applyAction([noBtn("index.tsx")], { label: "Call now", href: "tel:+441132000000" }, false);
+  assert.deepEqual(changed, ["index.tsx"]);
+  assert.deepEqual(actionSlots(next)[0].action, { label: "Call now", href: "tel:+441132000000" });
+  // The menu beside it is untouched.
+  assert.equal(navSlots(next)[0].items.length, 2);
+});
+
+test("REMOVING A BUTTON THAT IS NOT THERE IS A NO-OP, not a failure", () => {
+  // Asking for something to go that is already gone is not an error.
+  const { pages: next, changed } = applyAction([noBtn("index.tsx")], null, true);
+  assert.deepEqual(changed, []);
+  assert.equal(next[0].source, noBtn("index.tsx").source);
+});
+
+test("a tel: destination is allowed — 46 of the 288 buttons in the corpus are one", () => {
+  // One destination in six is a phone number; refusing it would refuse the whole
+  // conversion path for every trade whose customers ring rather than book.
+  const r = readNav({ content: [{ type: "tool_use", input: { action: { label: "Call now", href: "tel:+44 113 200 0000" } } }] }, ROUTES);
+  assert.deepEqual(r.action, { label: "Call now", href: "tel:+44 113 200 0000" });
+});
+
+test("a free-text tel: is refused — it is a URL scheme like any other", () => {
+  for (const href of ["tel:call me", "tel:", "tel:<script>", "tel:" + "9".repeat(60)]) {
+    const r = readNav({ content: [{ type: "tool_use", input: { action: { label: "Call", href } } }] }, ROUTES);
+    assert.equal(r.action, undefined, href);
+    assert.equal(r.dropped[0].why, "bad-number", href);
+  }
+});
+
+test("a button to a page that does not exist is refused, and the reply says which", () => {
+  const r = readNav({ content: [{ type: "tool_use", input: { action: { label: "Shop", href: "/shop" } } }] }, ROUTES);
+  assert.equal(r.action, undefined);
+  assert.equal(r.dropped[0].why, "no-such-page");
+  assert.match(navReply({ links: [], dropped: r.dropped, action: null, changed: [] }), /no \/shop page/);
+});
+
+test("`action` AND `removeAction` together keeps the button", () => {
+  // Being wrong toward a button that exists costs a label they can change again;
+  // being wrong the other way takes their conversion button off the site.
+  const r = readNav({ content: [{ type: "tool_use", input: {
+    action: { label: "Book", href: "/book" }, removeAction: true } }] }, ROUTES);
+  assert.deepEqual(r.action, { label: "Book", href: "/book" });
+  assert.equal(r.removeAction, false);
+});
+
+test("A BUTTON-ONLY ANSWER LEAVES THE MENU ALONE", async () => {
+  const pages = [withBtn("index.tsx"), withBtn("book.tsx")];
+  const before = navSlots(pages).map((s) => JSON.stringify(s.items));
+  const out = await runNavEdit({
+    send: async () => ({ content: [{ type: "tool_use", input: { action: { label: "Get a quote", href: "/prices" } } }] }),
+  }, { instruction: "point the button at prices", pages, routes: ROUTES });
+  assert.equal(out.ok, true);
+  assert.deepEqual(navSlots(out.pages).map((s) => JSON.stringify(s.items)), before);
+  assert.equal(out.links, null);
+  assert.match(out.msg, /Get a quote/);
+  assert.match(out.msg, /2 pages/);
+});
+
+test("a menu change and a button change in one answer both land", async () => {
+  const out = await runNavEdit({
+    send: async () => ({ content: [{ type: "tool_use", input: {
+      links: [{ label: "Book", href: "/book" }],
+      action: { label: "Call", href: "tel:+441132000000" } } }] }),
+  }, { instruction: "tidy the top", pages: [withBtn("index.tsx")], routes: ROUTES });
+  assert.equal(out.ok, true);
+  assert.deepEqual(navSlots(out.pages)[0].items, [{ label: "Book", href: "/book" }]);
+  assert.deepEqual(actionSlots(out.pages)[0].action, { label: "Call", href: "tel:+441132000000" });
+  assert.match(out.msg, /button/i);
+});
+
+test("a button that is already what was asked for reports NO change", async () => {
+  const out = await runNavEdit({
+    send: async () => ({ content: [{ type: "tool_use", input: { action: { label: "Book a chair", href: "/book" } } }] }),
+  }, { instruction: "call it Book a chair", pages: [withBtn("index.tsx")], routes: ROUTES });
+  assert.equal(out.ok, false);
+  assert.equal(out.reason, "no-change");
+  assert.equal(out.escalate, false);
+  assert.match(out.msg, /button/i);
+});
+
+test("the digest states the button, and says so when there is none", () => {
+  const pages = [withBtn("index.tsx")];
+  assert.match(navDigest(navSlots(pages), ROUTES, actionSlots(pages)), /THE BUTTON AT THE TOP:\n {2}Book a chair -> \/book/);
+  const bare = [noBtn("index.tsx")];
+  assert.match(navDigest(navSlots(bare), ROUTES, actionSlots(bare)), /there is no button/);
+});
+
+test("a site with a header but no menu can still be reached — it does not escalate", async () => {
+  // A page with a button and no links array at all: the lane can still change
+  // the button, so treating "no menu" as "nothing here" would send it up the
+  // ladder to a ~27-credit rewrite.
+  const only = { path: "index.tsx", source: `<SiteChrome name="X" action={{ label: "Book", href: "/book" }}>{null}</SiteChrome>` };
+  const out = await runNavEdit({
+    send: async () => ({ content: [{ type: "tool_use", input: { action: { label: "Call", href: "tel:+441132000000" } } }] }),
+  }, { instruction: "make it a call button", pages: [only], routes: ROUTES });
+  assert.equal(out.ok, true);
+  assert.deepEqual(actionSlots(out.pages)[0].action, { label: "Call", href: "tel:+441132000000" });
+});
+
+test("driven over every real header the generator and the exemplars wrote", () => {
+  // The bar the menu had to clear, applied to the button: every one this finds
+  // must be complete, and must survive being written back.
+  const root = new URL("../builder/lovable/template/src/", import.meta.url).pathname;
+  const pages = [];
+  const walk = (dir, rel) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, e.name);
+      const r = rel ? rel + "/" + e.name : e.name;
+      if (e.isDirectory()) walk(full, r);
+      else if (e.name.endsWith(".tsx")) pages.push({ path: r, source: fs.readFileSync(full, "utf8") });
+    }
+  };
+  walk(path.join(root, "family-pages"), "");
+  walk(path.join(root, "routes"), "");
+
+  const slots = actionSlots(pages);
+  const real = slots.filter((s) => s.action);
+  assert.ok(real.length > 260, "buttons were found: " + real.length);
+  for (const s of real) {
+    assert.ok(s.action.label, s.page);
+    assert.ok(s.action.href, s.page);
+  }
+  // ROUND TRIP: rewriting every button with its own value must change nothing.
+  for (const s of real) {
+    const p = pages.find((x) => x.path === s.page);
+    const { changed } = applyAction([p], s.action, false);
+    // A page can hold several headers with DIFFERENT buttons; writing one value
+    // into all of them is a real change, so only assert the single-slot pages.
+    if (actionSlots([p]).filter((x) => x.action).length === 1) {
+      assert.deepEqual(changed, [], s.page + " round-tripped to a different source");
+    }
+  }
+});
+
+test("the router's nav layer names the BUTTON as well as the menu", () => {
+  // A capability the router cannot describe is one nothing can reach — the
+  // shape twelve dead features in this repo have had.
+  const src = fs.readFileSync(new URL("../builder/site-ask.mjs", import.meta.url), "utf8");
+  const at = src.indexOf('"\\"nav\\" —');
+  const window = src.slice(at, src.indexOf('"\\"page\\" —', at));
+  assert.match(window, /THE BUTTON — what it says AND where it goes/);
+  // The phone case is named explicitly: it is 46 of the 288 buttons in the
+  // corpus, and for a trade it is the entire conversion path.
+  assert.match(window, /phone number belongs here/);
+});
+
+test("the worker carries the button's outcome back", () => {
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const at = w.indexOf('ok: true, layer: "nav"');
+  assert.ok(at > 0);
+  const window = w.slice(at, at + 700);
+  assert.match(window, /action: nOut\.action \|\| undefined/);
+  assert.match(window, /removedAction: nOut\.removedAction \|\| undefined/);
+});
+
+test("two headers in one file are both written, and the offsets stay right", () => {
+  // BACK TO FRONT, like the menu: each write changes the length of the source,
+  // so a forward pass lands the second write in whatever moved into its offset.
+  // Found by mutation — every other button test had a single slot, so the sort
+  // could be inverted with the whole suite green.
+  const src = {
+    path: "index.tsx",
+    source: `<SiteHeader brand="A" action={{ label: "Old", href: "/old" }} />\n<SiteChrome name="A" action={{ label: "Old", href: "/old" }}>x</SiteChrome>`,
+  };
+  const { pages: next, changed } = applyAction([src], { label: "New one", href: "/book" }, false);
+  assert.deepEqual(changed, ["index.tsx"]);
+  const slots = actionSlots(next);
+  assert.equal(slots.length, 2);
+  for (const s of slots) assert.deepEqual(s.action, { label: "New one", href: "/book" });
+});
+
+test("two headers, both removed, and nothing is left mangled", () => {
+  const src = {
+    path: "index.tsx",
+    source: `<SiteHeader brand="A" action={{ label: "Old", href: "/old" }} />\n<SiteChrome name="A" action={{ label: "Old", href: "/old" }}>x</SiteChrome>`,
+  };
+  const { pages: next } = applyAction([src], null, true);
+  assert.doesNotMatch(next[0].source, /action=/);
+  assert.match(next[0].source, /<SiteHeader brand="A" \/>/);
+  assert.match(next[0].source, /<SiteChrome name="A">x<\/SiteChrome>/);
+});
+
+test("the REQUEST shows the model the button, not just the digest in isolation", () => {
+  // Testing `navDigest` directly leaves `navRequest` free to stop passing the
+  // slots to it — the model would never learn a button exists, and every button
+  // change would come back as an invention. Found by mutation.
+  const pages = [withBtn("index.tsx")];
+  const req = navRequest({
+    instruction: "point the button at prices",
+    slots: navSlots(pages), routes: ROUTES, actions: actionSlots(pages),
+  });
+  assert.match(req.messages[0].content, /THE BUTTON AT THE TOP:\n {2}Book a chair -> \/book/);
+});
+
+test("runNavEdit SENDS the button in its request", () => {
+  // Every other lane test hands back a canned reply, so the request itself was
+  // never looked at — `runNavEdit` could stop passing the button slots to
+  // `navRequest` and the model would be asked to change something it was never
+  // shown. Two mutants in a row lived in that gap.
+  let sent = null;
+  return runNavEdit({ send: async (req) => { sent = req; return reply([]); } }, {
+    instruction: "point the button at prices", pages: [withBtn("index.tsx")], routes: ROUTES,
+  }).then(() => {
+    assert.ok(sent, "the lane made a request");
+    assert.match(sent.messages[0].content, /THE BUTTON AT THE TOP:\n {2}Book a chair -> \/book/);
+    // and the menu is still in there beside it
+    assert.match(sent.messages[0].content, /THE MENU AS IT IS NOW:/);
+  });
 });

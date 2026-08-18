@@ -222,10 +222,14 @@ export const ASK_TOOL = {
           "Answer this for taking it OFF as well (\"drop the logo\", \"just the name is fine\"), with `remove` true " +
           "and no attachment expected. THE WORD \"LOGO\" IS THE SIGNAL and it is a strong one: a picture attached to " +
           "a message about the header, the top of the site, or the brand mark is this and not \"picture\".\n" +
-          "\"nav\" — THE MENU AT THE TOP OF EVERY PAGE, and only the menu: which items are in it, what order they " +
-          "come in, and taking one out. \"Put Book first\", \"add Contact to the menu\", \"take Pricing out of the " +
-          "nav\", \"the menu should be Home, Services, Contact\". It is ONE menu shown on every page, so this changes " +
-          "all of them at once and is nearly free.\n" +
+          "\"nav\" — THE TOP OF EVERY PAGE: the menu, and the one button beside it.\n" +
+          "THE MENU — which items are in it, what order they come in, taking one out. \"Put Book first\", \"add " +
+          "Contact to the menu\", \"take Pricing out of the nav\", \"the menu should be Home, Services, Contact\".\n" +
+          "THE BUTTON — what it says AND where it goes. \"Change the Book button to Get a quote\", \"make the button " +
+          "call us instead\", \"point the button at the contact page\", \"add a Call now button at the top\", \"drop " +
+          "the button\". A phone number belongs here: for a trade whose customers ring rather than book, that button " +
+          "IS the site's whole purpose.\n" +
+          "Both are the same on every page, so this changes all of them at once and is nearly free.\n" +
           "IT ONLY EVER POINTS AT PAGES THE SITE ALREADY HAS. \"Add a gallery to the menu\" when there is no gallery " +
           "page is an \"addon\" — the page has to exist before anything can link to it. The pages it has are listed " +
           "above.\n" +

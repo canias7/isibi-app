@@ -86,6 +86,141 @@ export function navSlots(pages) {
   return out;
 }
 
+/**
+ * The header's CALL-TO-ACTION BUTTON, on every page that has one.
+ *
+ * THE SINGLE MOST IMPORTANT CONTROL ON A SMALL BUSINESS'S SITE, and its
+ * destination could not be changed by anything. Measured: 258 of 315
+ * `<SiteChrome>`/`<SiteHeader>` elements carry an `action`, plus 30 of the 47
+ * shared `const CHROME` objects — 288 in all, every one with a literal href.
+ *
+ * ITS LABEL WAS ALREADY EDITABLE AND ITS DESTINATION WAS NOT, which is the exact
+ * shape that makes a gap invisible. Driven through the real `extractText`:
+ * "Book a chair" is offered and `/book` is not — correctly, because the text
+ * layer refuses anything with no whitespace and no capital, the rule that stops
+ * it renaming a column. So "call the button Get a quote" worked and "point it at
+ * the contact page instead" had no path at all.
+ *
+ * ONE PER PAGE, LIKE THE MENU. Same file, same duplication, same fix — which is
+ * why it lives here rather than in a ninth layer: to a customer the menu and the
+ * button are both "the top of the site", and every layer is a permanent
+ * prompt-token cost on the router's description on every message.
+ */
+export function actionSlots(pages) {
+  const out = [];
+  for (const p of Array.isArray(pages) ? pages : []) {
+    if (!p || typeof p.path !== "string" || typeof p.source !== "string") continue;
+    const src = p.source;
+
+    // The JSX form: `<SiteChrome … action={{ … }} …>`.
+    for (const m of src.matchAll(/<Site(?:Chrome|Header)\b/g)) {
+      const end = tagEnd(src, m.index);
+      if (end < 0) continue;
+      const tag = src.slice(m.index, end);
+      const a = /\baction=\{\{/.exec(tag);
+      if (!a) {
+        // A SPREAD TAG IS NOT AN INSERTION POINT, and this was found by driving
+        // the reference pages rather than by reading. `<SiteChrome {...CHROME}>`
+        // takes its action from the shared object, which this scan finds
+        // separately — and a prop written BEFORE a spread is overridden by it,
+        // so an insert here would compile, publish and change nothing at all.
+        // 4 of the 5 reference pages are exactly that shape.
+        if (/\{\s*\.\.\./.test(tag)) continue;
+        // NO BUTTON YET, AND WHERE ONE WOULD GO. Immediately after the tag
+        // name is the one insertion point that needs no judgement at all —
+        // attribute order is otherwise meaningless to JSX, so nothing can be
+        // displaced.
+        out.push({ page: p.path, kind: "jsx", insertAt: m.index + m[0].length, action: null });
+        continue;
+      }
+      const from = m.index + a.index + a[0].length - 1; // at the inner `{`
+      const close = braceEnd(src, from);
+      if (close < 0) continue;
+      out.push({
+        page: p.path, kind: "jsx",
+        // The whole attribute, so a removal takes `action={{…}}` away entirely
+        // rather than leaving `action={{}}`, which is a button with no label.
+        at: m.index + a.index, to: close + 2,
+        inner: { at: from + 1, to: close },
+        action: readAction(src.slice(from + 1, close)),
+      });
+    }
+
+    // The shared-object form: `const CHROME = { …, action: { … } }`.
+    const cm = /const CHROME\s*=\s*\{/.exec(src);
+    if (cm) {
+      const objAt = cm.index + cm[0].length - 1;
+      const objEnd = braceEnd(src, objAt);
+      if (objEnd > 0) {
+        const body = src.slice(objAt + 1, objEnd);
+        const a = /\baction:\s*\{/.exec(body);
+        if (!a) {
+          out.push({ page: p.path, kind: "obj", insertAt: objAt + 1, action: null });
+        } else {
+          const from = objAt + 1 + a.index + a[0].length - 1;
+          const close = braceEnd(src, from);
+          if (close > 0) {
+            out.push({
+              page: p.path, kind: "obj",
+              at: objAt + 1 + a.index, to: close + 1,
+              inner: { at: from + 1, to: close },
+              action: readAction(src.slice(from + 1, close)),
+            });
+          }
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/** The label and destination of one action object, or null if either is computed. */
+function readAction(body) {
+  const label = literalProp("{" + body + "}", "label");
+  const href = literalProp("{" + body + "}", "href");
+  if (label === null || href === null) return null;
+  if (!label) return null;
+  return { label, href };
+}
+
+/** The index just past the opening tag that starts at `from`. */
+function tagEnd(src, from) {
+  let depth = 0, quote = "", esc = false;
+  for (let i = from; i < src.length; i++) {
+    const c = src[i];
+    if (quote) {
+      if (esc) { esc = false; continue; }
+      if (c === "\\") { esc = true; continue; }
+      if (c === quote) quote = "";
+      continue;
+    }
+    if (c === '"' || c === "'" || c === "`") { quote = c; continue; }
+    if (c === "{") { depth++; continue; }
+    if (c === "}") { depth = Math.max(0, depth - 1); continue; }
+    if (c === ">" && !depth) return i;
+  }
+  return -1;
+}
+
+/** The index of the `}` closing the object that opens at `from`. */
+function braceEnd(src, from) {
+  let depth = 0, quote = "", esc = false;
+  for (let i = from; i < src.length; i++) {
+    const c = src[i];
+    if (quote) {
+      if (esc) { esc = false; continue; }
+      if (c === "\\") { esc = true; continue; }
+      if (c === quote) quote = "";
+      continue;
+    }
+    if (c === '"' || c === "'" || c === "`") { quote = c; continue; }
+    if (c === "{" || c === "[" || c === "(") { depth++; continue; }
+    if (c === "}" && depth === 1) return i;
+    if (c === "}" || c === "]" || c === ")") { depth--; continue; }
+  }
+  return -1;
+}
+
 /** The index of the `]` closing the array that opens at `from`. */
 function arrayEnd(src, from) {
   let depth = 0, quote = "", esc = false;
@@ -193,8 +328,10 @@ export const NAV_TOOL = {
           "THE WHOLE MENU, IN THE ORDER IT SHOULD APPEAR — not a change to it. Start from the menu listed below and " +
           "return it with the one change they asked for made: an item added, an item taken out, or the order moved " +
           "around. Everything they did not mention comes back exactly as it was, in the same place.\n" +
-          "RETURN AN EMPTY ARRAY IF THIS IS NOT A CHANGE TO THE MENU. Saying you could not do it is cheap and correct; " +
-          "a guessed menu quietly takes a page off every visitor's route through the site.",
+          "LEAVE THIS OUT ENTIRELY IF THE MENU IS NOT CHANGING — if they are only asking about the button, say " +
+          "nothing about the menu. Restating a menu you were not asked to touch is how an item goes missing.\n" +
+          "AND LEAVE OUT BOTH THIS AND `action` IF NEITHER IS WHAT THEY MEANT. Saying you could not do it is cheap " +
+          "and correct; a guessed menu quietly takes a page off every visitor's route through the site.",
         items: {
           type: "object",
           properties: {
@@ -215,8 +352,33 @@ export const NAV_TOOL = {
           required: ["label", "href"],
         },
       },
+      action: {
+        type: "object",
+        description:
+          "THE ONE BUTTON AT THE TOP OF EVERY PAGE — the thing the business most wants a visitor to do. \"Book a " +
+          "chair\", \"Get a quote\", \"Call now\". Return the WHOLE button, both what it says and where it goes, " +
+          "even when only one of the two is changing.\n" +
+          "LEAVE IT OUT IF THEY ARE NOT ASKING ABOUT THE BUTTON. It is the same button on every page, so changing it " +
+          "changes all of them at once.",
+        properties: {
+          label: { type: "string", description: "What the button says — two or three words." },
+          href: {
+            type: "string",
+            description:
+              "Where it goes. A page of THIS site exactly as listed below, \"/#prices\" for a section of one, an " +
+              "https:// address, or \"tel:\" followed by the phone number for a Call button — which is the right " +
+              "answer for a trade whose customers ring rather than book.",
+          },
+        },
+        required: ["label", "href"],
+      },
+      removeAction: {
+        type: "boolean",
+        description:
+          "TRUE to take the button off the header entirely — \"drop the Book button\", \"we don't need a button up " +
+          "there\". Leave it out otherwise; setting it alongside `action` is contradictory and the button is kept.",
+      },
     },
-    required: ["links"],
   },
 };
 
@@ -235,7 +397,7 @@ const NAV_SYSTEM =
  * own. First-seen order, which is the order a visitor meets them on the home
  * page.
  */
-export function navDigest(slots, routes) {
+export function navDigest(slots, routes, actions) {
   const lines = [];
   const seen = new Map();
   for (const s of Array.isArray(slots) ? slots : []) {
@@ -247,6 +409,14 @@ export function navDigest(slots, routes) {
   lines.push("THE MENU AS IT IS NOW:");
   if (!seen.size) lines.push("  (empty)");
   for (const [href, label] of seen) lines.push("  " + (label || "(no label)") + " -> " + href);
+
+  // THE BUTTON AS IT STANDS, and whether there IS one. A model told nothing
+  // about it cannot be asked to change it, and one told only that a button
+  // exists cannot tell "point it at contact" from "add a button".
+  const btn = (Array.isArray(actions) ? actions : []).map((a) => a && a.action).filter(Boolean)[0];
+  lines.push("");
+  lines.push("THE BUTTON AT THE TOP:");
+  lines.push(btn ? "  " + btn.label + " -> " + btn.href : "  (there is no button)");
 
   lines.push("");
   lines.push("THE PAGES THIS SITE HAS — an item may point at any of these:");
@@ -266,7 +436,7 @@ export function navDigest(slots, routes) {
   return lines.join("\n");
 }
 
-export function navRequest({ instruction, slots, routes }) {
+export function navRequest({ instruction, slots, routes, actions }) {
   return {
     model: NAV_MODEL,
     max_tokens: NAV_MAX_TOKENS,
@@ -275,7 +445,7 @@ export function navRequest({ instruction, slots, routes }) {
     tool_choice: { type: "tool", name: NAV_TOOL.name },
     messages: [{
       role: "user",
-      content: navDigest(slots, routes) + "\n\nWHAT THEY ASKED FOR:\n" + String(instruction || "").slice(0, 2000),
+      content: navDigest(slots, routes, actions) + "\n\nWHAT THEY ASKED FOR:\n" + String(instruction || "").slice(0, 2000),
     }],
   };
 }
@@ -290,12 +460,45 @@ export function navRequest({ instruction, slots, routes }) {
 export function readNav(reply, routes) {
   const blocks = reply && Array.isArray(reply.content) ? reply.content : [];
   const use = blocks.find((b) => b && b.type === "tool_use");
-  const raw = use && use.input && use.input.links;
-  if (!Array.isArray(raw)) return null;
+  const input = (use && use.input) || null;
+  if (!input) return null;
+  const raw = input.links;
 
   const known = new Set((Array.isArray(routes) ? routes : []).filter(Boolean));
   const links = [], dropped = [];
   const seen = new Set();
+
+  // ── THE BUTTON, READ BEFORE THE MENU so a button-only answer is not lost ──
+  //
+  // `links` is OPTIONAL now: absent means the menu is not changing. Required, a
+  // customer asking only about the button would have the model restate a menu
+  // it was not asked to touch, which is how an item goes missing.
+  let action, removeAction = false;
+  if (input.removeAction === true) removeAction = true;
+  const ra = input.action;
+  if (ra && typeof ra === "object" && !Array.isArray(ra)) {
+    const label = typeof ra.label === "string" ? ra.label.trim().slice(0, MAX_LABEL) : "";
+    const href = typeof ra.href === "string" ? ra.href.trim() : "";
+    const why = href ? actionHrefProblem(href, known) : "incomplete";
+    if (!label || why) dropped.push({ label, href, why: why || "incomplete", button: true });
+    else {
+      action = { label, href };
+      // BOTH AT ONCE IS CONTRADICTORY AND THE BUTTON IS KEPT — being wrong
+      // toward a button that exists costs a label somebody can change again,
+      // and being wrong the other way takes their conversion button off the
+      // site. The same asymmetry `remove` lives under everywhere else.
+      removeAction = false;
+    }
+  }
+
+  if (!Array.isArray(raw)) {
+    // A REFUSED BUTTON IS NOT "NO ANSWER". Returning null here threw away the
+    // reason it was refused, so a customer asking to point the button at a page
+    // that does not exist was told "I couldn't work out what the menu should be"
+    // — about a menu they never mentioned. Found by my own test.
+    if (!action && !removeAction && !dropped.length) return null;
+    return { links: null, dropped, action, removeAction };
+  }
   for (const it of raw) {
     if (!it || typeof it !== "object") continue;
     // A NON-STRING IS REFUSED RATHER THAN COERCED. `String(["/a","/b"])` is
@@ -311,7 +514,26 @@ export function readNav(reply, routes) {
     links.push({ label, href });
     if (links.length >= MAX_NAV_ITEMS) break;
   }
-  return { links, dropped };
+  return { links, dropped, action, removeAction };
+}
+
+/**
+ * Why an href cannot be the BUTTON's destination, or "" if it can.
+ *
+ * EVERYTHING THE MENU ALLOWS, PLUS `tel:`. Measured over the 288 action objects
+ * in the corpus: 178 site paths, 63 anchors and 46 `tel:` — so one destination
+ * in six is a phone number, and refusing it would refuse the entire conversion
+ * path for every trade whose customers ring rather than book. It is right HERE
+ * and not in the menu, because a phone number is a call to action rather than a
+ * place on the site.
+ *
+ * BOUNDED TO DIGITS AND THE PUNCTUATION A NUMBER REALLY USES. `tel:` is a URL
+ * scheme like any other and the value is written into an href, so a free-text
+ * one is somewhere to put a payload.
+ */
+function actionHrefProblem(href, known) {
+  if (/^tel:/i.test(href)) return /^tel:\+?[0-9][0-9 ()./-]{4,24}$/.test(href) ? "" : "bad-number";
+  return hrefProblem(href, known);
 }
 
 /**
@@ -431,8 +653,21 @@ export function navUsage(reply) {
 }
 
 /** What the customer is told, in their words rather than ours. */
-export function navReply({ links = [], dropped = [], changed = [] } = {}) {
-  if (!links.length) return "I couldn't work out what the menu should be. Tell me what to add, take out or move.";
+export function navReply({ links = [], dropped = [], changed = [], action = null, removedAction = false } = {}) {
+  const where = changed.length + (changed.length === 1 ? " page" : " pages");
+  // THE BUTTON ON ITS OWN, when the menu was not part of the ask. Falling
+  // through to the menu sentence would report a menu that did not change.
+  if (!links.length && (action || removedAction)) {
+    const said = removedAction
+      ? "✅ Took the button off the top of the site — " + where + " updated."
+      : "✅ The button now says “" + action.label + "” and goes to " + action.href + ", on " + where + ".";
+    return said + droppedNote(dropped);
+  }
+  if (!links.length) {
+    const why = droppedNote(dropped);
+    if (why) return "I couldn't make that change." + why;
+    return "I couldn't work out what the menu should be. Tell me what to add, take out or move.";
+  }
   const menu = links.map((l) => l.label).join(" · ");
   // HOW MANY PAGES IS THE PART WORTH SAYING, not a flourish. The whole reason
   // this layer exists is that the menu is a separate copy in every page file, so
@@ -458,7 +693,25 @@ export function navReply({ links = [], dropped = [], changed = [] } = {}) {
   }
   const other = dropped.length - bad.length - local.length;
   if (other > 0) msg += " " + other + (other === 1 ? " item was" : " items were") + " not usable and left out.";
+  // AND THE BUTTON, when this change carried both.
+  if (removedAction) msg += " The button at the top is gone too.";
+  else if (action) msg += " The button now says “" + action.label + "” and goes to " + action.href + ".";
   return msg;
+}
+
+/** The dropped-item sentences, shared by both halves of the reply. */
+function droppedNote(dropped) {
+  const list = Array.isArray(dropped) ? dropped : [];
+  const btn = list.filter((d) => d.button);
+  if (!btn.length) return "";
+  // THE BUTTON'S OWN REFUSAL NAMES WHAT WAS WRONG WITH IT. A silent drop here
+  // is the worst shape this lane has: the customer is told the button changed
+  // and it did not.
+  const why = btn[0].why;
+  if (why === "no-such-page") return " I left the button where it was — there's no " + btn[0].href + " page yet.";
+  if (why === "bad-number") return " I left the button where it was — that doesn't look like a phone number.";
+  if (why === "page-local") return " I left the button where it was — that points at a section of whichever page you're on, so it would do nothing on the others.";
+  return " I left the button where it was — I couldn't use that destination.";
 }
 
 /**
@@ -477,24 +730,108 @@ export function navReply({ links = [], dropped = [], changed = [] } = {}) {
  */
 export async function runNavEdit(deps, { instruction, pages, routes } = {}) {
   const slots = navSlots(pages);
-  if (!slots.length) return { ok: false, escalate: true, reason: "no-nav", usage: null };
+  const actions = actionSlots(pages);
+  // NEITHER A MENU NOR A HEADER IS THE ONLY THING THAT ESCALATES. A site with a
+  // menu but no button is an ordinary site and this lane can still add one.
+  if (!slots.length && !actions.length) return { ok: false, escalate: true, reason: "no-nav", usage: null };
 
   let reply;
-  try { reply = await deps.send(navRequest({ instruction, slots, routes })); }
+  try { reply = await deps.send(navRequest({ instruction, slots, routes, actions })); }
   catch (e) { return { ok: false, escalate: false, reason: "send", error: e, usage: null }; }
   const usage = navUsage(reply);
 
   const read = readNav(reply, routes);
-  if (!read || !read.links.length) {
-    return { ok: false, escalate: false, reason: "no-menu", usage, msg: navReply({}) };
+  const wantsMenu = !!(read && read.links && read.links.length);
+  const wantsButton = !!(read && (read.action || read.removeAction));
+  if (!wantsMenu && !wantsButton) {
+    // THE REASON TRAVELS EVEN WHEN NOTHING COULD BE APPLIED. `navReply({})` is
+    // the honest answer only when the model said nothing usable at all; when it
+    // named a button we had to refuse, the customer is owed the refusal.
+    const why = read && read.dropped && read.dropped.length ? navReply({ dropped: read.dropped }) : navReply({});
+    return { ok: false, escalate: false, reason: "no-menu", usage, msg: why };
   }
 
-  const { pages: next, changed } = applyNav(pages, read.links);
+  let out = { pages: Array.isArray(pages) ? pages : [], changed: [] };
+  if (wantsMenu) out = applyNav(out.pages, read.links);
+  let btn = { pages: out.pages, changed: [] };
+  if (wantsButton) btn = applyAction(out.pages, read.action, read.removeAction);
+  const changed = [...new Set([...out.changed, ...btn.changed])];
+
   if (!changed.length) {
-    return { ok: false, escalate: false, reason: "no-change", usage, msg: "That's already the menu — nothing to change." };
+    return {
+      ok: false, escalate: false, reason: "no-change", usage,
+      msg: wantsMenu
+        ? "That's already the menu — nothing to change."
+        : "That's already what the button says and where it goes — nothing to change.",
+    };
   }
   return {
-    ok: true, pages: next, changed, links: read.links, dropped: read.dropped, usage,
-    msg: navReply({ links: read.links, dropped: read.dropped, changed }),
+    ok: true, pages: btn.pages, changed,
+    links: wantsMenu ? read.links : null,
+    action: read.action || null, removedAction: !!read.removeAction,
+    dropped: read.dropped, usage,
+    msg: navReply({
+      links: wantsMenu ? read.links : [], action: read.action,
+      removedAction: !!read.removeAction, dropped: read.dropped, changed,
+    }),
   };
+}
+
+/**
+ * Write one button into every header, or take it off every header.
+ *
+ * TWO SHAPES AND AN INSERTION, because that is what the corpus has: the JSX
+ * attribute, the shared `const CHROME` property, and a header that has no button
+ * at all. A page carrying BOTH — a `<SiteChrome {...CHROME}>` whose object holds
+ * the action — yields only the object slot, since a prop written before a spread
+ * is overridden by it.
+ *
+ * BACK TO FRONT, PER FILE, for the reason `applyNav` states: each write changes
+ * the length of the source, so a forward pass lands every later offset in
+ * whatever moved into it.
+ */
+export function applyAction(pages, action, remove) {
+  if (!action && !remove) return { pages: Array.isArray(pages) ? pages : [], changed: [] };
+  const slots = actionSlots(pages);
+  const byPage = new Map();
+  for (const s of slots) {
+    if (!byPage.has(s.page)) byPage.set(s.page, []);
+    byPage.get(s.page).push(s);
+  }
+
+  const body = action
+    ? "{ label: " + JSON.stringify(String(action.label)) + ", href: " + JSON.stringify(String(action.href)) + " }"
+    : "";
+  const changed = [];
+  const next = (Array.isArray(pages) ? pages : []).map((p) => {
+    const mine = byPage.get(p && p.path);
+    if (!mine || !mine.length) return p;
+    let src = p.source;
+    // A slot with an existing button is EDITED; one without is only INSERTED
+    // into, and only when there is a button to insert. A removal on a header
+    // that has none is a no-op rather than a failure — asking for something to
+    // go that is already gone is not an error.
+    const doable = mine.filter((s) => (s.action ? true : !!action));
+    for (const s of [...doable].sort((a, b) => (b.at ?? b.insertAt) - (a.at ?? a.insertAt))) {
+      if (!s.action) {
+        src = src.slice(0, s.insertAt) +
+          (s.kind === "jsx" ? " action={" + body + "}" : " action: " + body + ",") +
+          src.slice(s.insertAt);
+        continue;
+      }
+      if (remove) {
+        // The single space in front goes with it, or the tag is left reading
+        // `name="X" >`. The source is stored and re-read on every later edit,
+        // so tidy is not cosmetic here.
+        const from = s.at > 0 && src[s.at - 1] === " " ? s.at - 1 : s.at;
+        src = src.slice(0, from) + src.slice(s.to);
+        continue;
+      }
+      src = src.slice(0, s.inner.at) + body.slice(1, -1) + src.slice(s.inner.to);
+    }
+    if (src === p.source) return p;
+    changed.push(p.path);
+    return { ...p, source: src };
+  });
+  return { pages: next, changed };
 }
