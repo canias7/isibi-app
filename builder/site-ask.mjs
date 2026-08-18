@@ -228,9 +228,13 @@ export const ASK_TOOL = {
           "about behaviour rather than appearance. If the ask ALSO needs something new on a page — a button, a form " +
           "field — that is \"addon\", not this.\n" +
           "\"picture\" — A PHOTOGRAPH ON A PAGE: swapping one for another, putting one in a space that has none, " +
-          "or taking one off. \"Use my own photo of the shop instead\", \"the picture of the chairs is wrong\", " +
-          "\"add a photo to the about page\". This is about the IMAGE ITSELF and never about the words beside it or " +
-          "where it sits on the page.\n" +
+          "taking one off, or CHANGING WHICH PART OF IT YOU SEE. \"Use my own photo of the shop instead\", \"the " +
+          "picture of the chairs is wrong\", \"add a photo to the about page\". This is about the IMAGE ITSELF and " +
+          "never about the words beside it or where it sits on the page.\n" +
+          "A PICTURE THAT IS CUT OFF IS THIS LAYER, AND IT COSTS NOTHING — \"his head is chopped off\", \"you " +
+          "can't see the sign\", \"it's cropping the top\", \"show more of the left\". It moves the crop of the " +
+          "photograph that is already there rather than buying a new one, so it is free and it is nearly always " +
+          "what they meant.\n" +
           "\"logo\" — THE BUSINESS'S OWN LOGO, which goes at the top of every page and is not a photograph on one. " +
           "\"here's my logo\", \"this is our logo, put it in the header\", \"use this as the logo\", \"my logo goes " +
           "top left\" — nearly always with a picture attached, because the attachment IS which picture they mean. " +

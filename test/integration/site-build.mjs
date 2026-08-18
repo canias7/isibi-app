@@ -1303,6 +1303,7 @@ function Home() {
   console.log("\nbuilding a site whose CHROME carries a layout…");
   const LAID_OUT = `import { createFileRoute } from "@tanstack/react-router";
 import { SiteChrome } from "@/components/ui/site-chrome";
+import { SafeImage } from "@/components/ui/safe-image";
 export const Route = createFileRoute("/")({ component: Home });
 const CHROME = {
   name: "Sharp Fade Barbers",
@@ -1312,7 +1313,11 @@ const CHROME = {
 function Home() {
   return (
     <SiteChrome {...CHROME}>
-      <main><h1>Walk-ins welcome</h1></main>
+      <main>
+        <h1>Walk-ins welcome</h1>
+        <SafeImage src="/u/laid-out/mo.jpg" alt="Mo at the chair" ratio="21/9" focus="top" />
+        <SafeImage src="/u/laid-out/shop.jpg" alt="The shopfront" ratio="4/3" />
+      </main>
     </SiteChrome>
   );
 }`;
@@ -1327,6 +1332,24 @@ function Home() {
     ok("…and the header is NOT sticky, so the layout reached the render",
       !/<header[^>]*\bsticky\b/.test(h3), (h3.match(/<header[^>]*>/) || [""])[0]);
     ok("…and it runs full width", /max-w-none/.test(h3), (h3.match(/<header[\s\S]{0,240}/) || [""])[0]);
+
+    // ── WHICH PART OF A PHOTOGRAPH SURVIVES THE CROP ───────────────────────
+    //
+    // A CLASS THAT TAILWIND NEVER EMITS IS THE FAILURE ONLY A REAL BUILD CAN
+    // SEE. `object-top` lives as a string literal in `safe-image.tsx`, so it is
+    // only in the stylesheet while that file is being scanned — a change to the
+    // content globs, or holding the map somewhere Tailwind does not read, drops
+    // it silently and every framing change becomes a no-op the unit suite still
+    // passes. Measured in a real browser before this shipped: the three
+    // positions compute to 50% 0%, 50% 50% and 50% 100%, and the crop moves.
+    const mo = (h3.match(/<img[^>]*mo\.jpg[^>]*>/) || [""])[0];
+    const shop = (h3.match(/<img[^>]*shop\.jpg[^>]*>/) || [""])[0];
+    ok("a picture asked to keep its top carries the class that does it", /object-top/.test(mo), mo);
+    ok("…and one that was not asked is left alone", !!shop && !/object-(top|bottom|left|right)/.test(shop), shop);
+    const css = Object.entries(laidOut.files || {})
+      .filter(([n]) => n.endsWith(".css")).map(([, v]) => (v && v.t) || "").join("");
+    ok("…and the stylesheet really defines it", /\.object-top\s*\{[^}]*object-position/.test(css),
+      "object-top is in the markup and not in the CSS — the crop does not move");
   }
 
   // ── WHICH BUILD IS THIS SITE SERVING? ───────────────────────────────────────

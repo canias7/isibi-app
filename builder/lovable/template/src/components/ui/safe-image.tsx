@@ -40,14 +40,58 @@ function seed(text: string) {
   return Math.abs(h);
 }
 
+/**
+ * WHICH PART OF A PHOTOGRAPH SURVIVES THE CROP.
+ *
+ * The image is `object-cover` inside a fixed ratio, so anything that does not
+ * fit is cut off — from the CENTRE, always, because that is what a browser does
+ * when nothing says otherwise. A head-and-shoulders photo in a 21/9 hero loses
+ * the head; a tall shopfront in a 4/3 card loses the sign. Neither is a bug in
+ * the photograph and neither could be fixed at any price before this: the owner
+ * had to go and re-crop the file.
+ *
+ * PER SLOT, NOT PER PICTURE, and that is the decision rather than an accident.
+ * The same photograph legitimately wants different framing in a 21/9 banner and
+ * a 1/1 avatar, so a single focal point stored against the FILE would be right
+ * in one place and wrong in the other. It also makes the setting addressable:
+ * the picture lane reads page source, so a value written on the element is one
+ * it can find and change.
+ *
+ * FIVE NAMED POSITIONS, NOT COORDINATES. "A bit further up" is not something a
+ * customer can say in percentages and not something we should ask them to. Each
+ * maps to a Tailwind class, so there are no arbitrary values and nothing to
+ * escape.
+ */
+export type ImageFocus = "centre" | "top" | "bottom" | "left" | "right" | (string & {});
+
+/**
+ * `| (string & {})` FOR THE REASON `SiteLayout` CARRIES ONE. A page that holds
+ * its pictures in a `const` array and spreads them widens the property to
+ * `string`, which a bare literal union refuses — measured on the frame's own
+ * arrangement, where the closed union failed `TS2322` on the reference pages and
+ * would have cost the whole site. An unrecognised value falls through to the
+ * default below rather than emitting a class that does not exist.
+ */
+const FOCUS_CLASS: Record<string, string> = {
+  top: "object-top",
+  bottom: "object-bottom",
+  left: "object-left",
+  right: "object-right",
+  // `centre` is the browser's own default, so it deliberately maps to nothing:
+  // a picture put back to the middle carries no class at all.
+  centre: "",
+};
+
 export function SafeImage({
-  src, alt = "", className, ratio = "4/3", fallback, fallbackSeed,
+  src, alt = "", className, ratio = "4/3", fallback, fallbackSeed, focus,
 }: {
   src?: string | null;
   alt?: string;
   className?: string;
   /** CSS aspect-ratio, e.g. "16/9". Keeps layout stable before the image loads. */
   ratio?: string;
+  /** Which part survives the crop: "top" keeps heads, "bottom" keeps ground. */
+  focus?: ImageFocus;
   fallback?: React.ReactNode;
   /**
    * What the placeholder's angle and colours are derived from, when the alt is
@@ -113,7 +157,16 @@ export function SafeImage({
   }
   return (
     <div className={box} style={{ aspectRatio: ratio }}>
-      <img src={src} alt={alt} loading="lazy" className="size-full object-cover" />
+      {/* `object-cover` is what crops, so `object-position` is what decides
+          WHAT it crops. An unknown value falls through to no class at all,
+          which is the browser's own centre — the same direction every other
+          unrecognised enum on this platform fails in. */}
+      <img
+        src={src}
+        alt={alt}
+        loading="lazy"
+        className={cn("size-full object-cover", focus && FOCUS_CLASS[focus])}
+      />
     </div>
   );
 }

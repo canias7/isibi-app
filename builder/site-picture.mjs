@@ -43,6 +43,16 @@ export const MAX_SLOTS = 60;
 export const MAX_PICTURE_OPS = 8;
 
 /**
+ * WHICH PART OF A PICTURE SURVIVES THE CROP — the five `SafeImage` accepts.
+ *
+ * `centre` is in the list because putting a picture back is a real instruction,
+ * and it is written by REMOVING the attribute rather than writing the word: a
+ * centred picture and one that never had a focus are the same picture, so a site
+ * put back is byte-identical to one that was never touched.
+ */
+export const FOCUS_VALUES = ["centre", "top", "bottom", "left", "right"];
+
+/**
  * Every picture on the page, with the exact span of its `src` value.
  *
  * ONLY A LITERAL `alt` IS ADDRESSABLE, and that is a real limit rather than an
@@ -77,8 +87,25 @@ export function imageSlots(pages) {
       if (!alt) continue;
       const s = attrSpan(el, "src");
       if (!s) continue;
+      // WHICH PART OF THE PICTURE SURVIVES THE CROP. Recorded alongside the
+      // src because both are edits to ONE element and have to be written in one
+      // back-to-front pass — applied separately, the first write moves the
+      // second's offsets into the middle of an attribute.
+      //
+      // `focusInsertAt` is just past the tag name, which is a position that
+      // exists on every element whether or not it has the attribute yet, and
+      // needs no guess about where the other attributes end.
+      const f = attrSpan(el, "focus");
       out.push({
         page: p.path, tag: m[1], alt,
+        focus: f && !f.expr ? el.slice(f.from, f.to).trim() : "",
+        // An EXPRESSION is not our slot — `focus={row.crop}` is a value the
+        // site's own data decides, and overwriting it drops the binding. The
+        // skip-rather-than-guess rule every other scanner here lives under.
+        focusAt: f && !f.expr ? open + f.from : null,
+        focusTo: f && !f.expr ? open + f.to : null,
+        focusBound: !!(f && f.expr),
+        focusInsertAt: open + m[0].length,
         // THE EXPRESSION'S TEXT IS KEPT, not flattened to null. Recorded as null
         // for every expression slot, `isEmptySlot` could not tell `src={null}`
         // — a slot waiting to be filled — from `src={row.photo}`, which is a
@@ -181,6 +208,22 @@ export const PICTURE_TOOL = {
                 "owner real money for each one, so do not describe a picture nobody asked for.",
             },
             clear: { type: "boolean", description: "True to REMOVE the picture from this slot, leaving the space empty." },
+            focus: {
+              type: "string",
+              enum: ["centre", "top", "bottom", "left", "right"],
+              description:
+                "WHICH PART OF THE PICTURE TO KEEP when it has to be cropped to fit its space. Use this for \"his " +
+                "head is cut off\", \"you can't see the sign\", \"it's chopping the top off\", \"show more of the " +
+                "left\".\n" +
+                "\"top\" keeps the top of the photograph — faces, heads, a shop sign. \"bottom\" keeps the bottom — " +
+                "a table, a plate, the ground. \"left\" and \"right\" for a subject off to one side. \"centre\" is " +
+                "the ordinary one and puts it back.\n" +
+                "IT COSTS NOTHING AND CHANGES NO PHOTOGRAPH — it moves the crop of the picture already there. So " +
+                "when somebody says a picture is cut off, this is the answer and a new picture is NOT: replacing it " +
+                "charges them for an image they did not ask for and would very likely be cut off the same way.\n" +
+                "ON ITS OWN, or alongside `file` when the new photograph needs framing too. Leave it out when the " +
+                "framing is not what they are talking about.",
+            },
           },
           required: ["page", "alt"],
         },
@@ -315,14 +358,49 @@ export function readPictures(reply, slots, library) {
     const key = String(c.page || "") + "\u0000" + String(c.alt || "").trim();
     const slot = bySlot.get(key);
     if (!slot || seen.has(key)) continue;
-    if (c.clear === true) { out.push({ slot, clear: true }); seen.add(key); }
-    else if (typeof c.file === "string" && files.has(c.file)) { out.push({ slot, file: c.file }); seen.add(key); }
+
+    // THE ENUM IS ENFORCED HERE, IN CODE, and not merely declared in the schema
+    // above — a value the component does not know falls back to the middle, so
+    // writing one is a change reported as applied that moves nothing. Refused on
+    // a slot whose framing is BOUND to data, and on a bare `<img>`, which has no
+    // such prop: writing it there emits an attribute that does nothing at all.
+    // A REFUSED FRAMING IS NOT AN UNMATCHED PICTURE, and telling the customer it
+    // was is the works-but-cannot-say-so disease. Measured: all four refusal
+    // paths answered "I couldn't match that to any of the pictures on your
+    // site" about a picture named correctly and found — the one sentence that
+    // sends them looking for the wrong thing.
+    //
+    // TWO REASONS, because two are what the customer can act on. "It already
+    // shows that" means stop asking; "I can't change that one's framing" means
+    // this picture is decided elsewhere. A value the MODEL got wrong reports as
+    // the second, which is accurate from their side of the screen.
+    let refused = null, focus = null;
+    if (c.focus !== undefined && c.focus !== null && c.focus !== "") {
+      if (!FOCUS_VALUES.includes(c.focus) || slot.tag !== "SafeImage" || slot.focusBound) refused = "cannot";
+      // ALREADY THAT WAY IS NOT A CHANGE. `centre` and an absent attribute are
+      // the same picture, so putting a centred one back must not rewrite a file.
+      else if (c.focus === (slot.focus || "centre")) refused = "already";
+      else focus = c.focus;
+    }
+    // AN ENTRY CAN BE BOTH WORK AND A REFUSAL, and collapsing the two loses the
+    // half that is silent. A swap that also named an impossible framing swaps —
+    // and the framing was still asked for and still did not happen, so the
+    // refusal rides along rather than being dropped. `refused` is a NOTE here;
+    // what makes an entry work is having something to write.
+
+    if (c.clear === true) { out.push({ slot, clear: true, focus, refused }); seen.add(key); }
+    else if (typeof c.file === "string" && files.has(c.file)) { out.push({ slot, file: c.file, focus, refused }); seen.add(key); }
     else {
       const describe = String(c.describe || "").trim().slice(0, MAX_DESCRIBE);
       // A DESCRIPTION IS WHAT GETS PAID FOR, so an empty one is dropped rather
       // than sent: $0.15 to find out what an image model does with no prompt.
-      if (!describe) continue;
-      out.push({ slot, describe });
+      //
+      // A FRAMING CHANGE ON ITS OWN IS THE WHOLE POINT, though, and it costs
+      // nothing: "his head is cut off" must not have to buy a new photograph to
+      // be answered, and a replacement would very likely be cropped the same
+      // way. So an entry carrying a focus and no picture is kept.
+      if (!describe) { if (focus || refused) { out.push({ slot, focus, refused }); seen.add(key); } continue; }
+      out.push({ slot, describe, focus, refused });
       seen.add(key);
     }
     if (out.length >= MAX_PICTURE_OPS) break;
@@ -353,7 +431,10 @@ export function applyPictures(pages, choices) {
   const byPath = new Map((Array.isArray(pages) ? pages : []).map((p) => [p.path, { ...p }]));
   const perPage = new Map();
   for (const c of Array.isArray(choices) ? choices : []) {
-    if (!c || !c.slot || c.url === undefined) continue;
+    // A FOCUS-ONLY CHOICE CARRIES NO URL and is still work. Gated on the url
+    // alone, "his head is cut off" would be read, priced, reported — and
+    // dropped here before anything was written.
+    if (!c || !c.slot || (c.url === undefined && !c.focus)) continue;
     if (!perPage.has(c.slot.page)) perPage.set(c.slot.page, []);
     perPage.get(c.slot.page).push(c);
   }
@@ -361,16 +442,40 @@ export function applyPictures(pages, choices) {
   for (const [path, list] of perPage) {
     const page = byPath.get(path);
     if (!page) continue;
-    let src = page.source;
-    for (const c of [...list].sort((a, b) => b.slot.at - a.slot.at)) {
+    // ONE SORTED LIST OF EDITS, NOT TWO PASSES. The framing and the photograph
+    // are two writes to one element, and a second pass over offsets the first
+    // pass moved lands in the middle of an attribute. Collected first, then
+    // applied back to front together.
+    const edits = [];
+    for (const c of list) {
       const s = c.slot;
-      const value = JSON.stringify(String(c.url || ""));
-      // The braces are part of what is replaced when the attribute was written
-      // as an expression, so `src={null}` and `src=""` both end up `src="…"`.
-      const from = s.quoted ? s.at : s.at - 1;
-      const to = s.quoted ? s.to : s.to + 1;
-      src = src.slice(0, from) + (s.quoted ? value.slice(1, -1) : value) + src.slice(to);
+      if (c.url !== undefined && c.url !== null) {
+        const value = JSON.stringify(String(c.url || ""));
+        // The braces are part of what is replaced when the attribute was written
+        // as an expression, so `src={null}` and `src=""` both end up `src="…"`.
+        edits.push({
+          at: s.quoted ? s.at : s.at - 1,
+          to: s.quoted ? s.to : s.to + 1,
+          text: s.quoted ? value.slice(1, -1) : value,
+        });
+      }
+      if (!c.focus) continue;
+      // `centre` REMOVES the attribute rather than writing the word, so a
+      // picture put back looks exactly like one that never had a focus.
+      const back = c.focus === "centre";
+      if (s.focusAt != null) {
+        // A stored value to replace — or, putting it back, the whole attribute
+        // including the ` focus="` in front of it and the quote behind.
+        edits.push(back
+          ? { at: s.focusAt - ' focus="'.length, to: s.focusTo + 1, text: "" }
+          : { at: s.focusAt, to: s.focusTo, text: c.focus });
+      } else if (!back) {
+        edits.push({ at: s.focusInsertAt, to: s.focusInsertAt, text: ' focus="' + c.focus + '"' });
+      }
     }
+    if (!edits.length) continue;
+    let src = page.source;
+    for (const e of edits.sort((a, b) => b.at - a.at)) src = src.slice(0, e.at) + e.text + src.slice(e.to);
     byPath.set(path, { ...page, source: src });
     changed.push(path);
   }
@@ -390,14 +495,43 @@ export function pictureUsage(reply) {
 }
 
 /** What the customer is told. Names the picture, because they cannot see a src. */
-export function pictureReply({ used = [], made = [], cleared = [], failed = 0 } = {}) {
+export function pictureReply({ used = [], made = [], cleared = [], framed = [], refused = [], failed = 0 } = {}) {
   const bits = [];
   const name = (c) => "“" + c.slot.alt + "”";
   if (used.length) bits.push("put your own photograph" + (used.length > 1 ? "s" : "") + " on " + used.map(name).join(", "));
   if (made.length) bits.push("made " + (made.length === 1 ? "a new picture" : made.length + " new pictures") + " for " + made.map(name).join(", "));
   if (cleared.length) bits.push("took the picture off " + cleared.map(name).join(", "));
+  // ITS OWN SENTENCE, AND IT SAYS WHICH WAY IT MOVED. "Adjusted the framing" is
+  // not something the owner can check against the page; "shows the top" is.
+  // NAMED SEPARATELY FROM A SWAP, or a framing change on a picture that was
+  // also replaced reads as though the replacement is what fixed it.
+  if (framed.length) {
+    const where = (c) => c.focus === "centre" ? "the middle again" : "the " + c.focus;
+    bits.push("moved " + framed.map((c) => name(c) + " to show " + where(c)).join(", "));
+  }
   let msg = bits.length ? "✅ " + bits.join(", ").replace(/^./, (c) => c.toUpperCase()) + "." : "";
+  // THE REFUSALS, NAMED. Folded into the generic "I couldn't match that" they
+  // read as the picture not existing, which is the one thing that is certainly
+  // not true — the model found it and copied its description back.
+  const already = refused.filter((r) => r.refused === "already");
+  const cannot = refused.filter((r) => r.refused === "cannot");
+  const notes = [];
+  if (already.length) {
+    // READ OFF THE SLOT, NOT THE CHOICE. A refused entry carries no focus of its
+    // own — that is what refusing it means — so the choice's field is null and
+    // the sentence came out "already shows the null". What is true and useful is
+    // what the picture shows TODAY.
+    const has = (r) => (r.slot.focus || "centre") === "centre" ? "the middle" : "the " + r.slot.focus;
+    notes.push(already.map(name).join(", ") + (already.length === 1 ? " already shows " : " already show ") +
+      has(already[0]) + ".");
+  }
+  if (cannot.length) {
+    notes.push("I couldn't change the framing of " + cannot.map(name).join(", ") +
+      " — that one's decided by the page itself.");
+  }
+  if (!msg && notes.length) return notes.join(" ");
   if (!msg) msg = "I couldn't match that to any of the pictures on your site.";
+  if (notes.length) msg += " " + notes.join(" ");
   // A PICTURE THAT COULD NOT BE MADE IS SAID OUT LOUD. It leaves the slot
   // exactly as it was, which looks identical to a change that was never asked
   // for — and the owner has to know before they go looking for it.
@@ -434,7 +568,18 @@ export async function runPictureEdit(deps, { instruction, pages } = {}) {
   catch (e) { return { ok: false, escalate: false, reason: "send", error: e, usage: null }; }
   const usage = pictureUsage(reply);
 
-  const picked = readPictures(reply, slots, library);
+  const all = readPictures(reply, slots, library);
+  const refused = all.filter((c) => c.refused);
+  // WORK IS HAVING SOMETHING TO WRITE, not the absence of a refusal — an entry
+  // can be both, and splitting on the note drops a real swap on the floor.
+  const picked = all.filter((c) => c.clear || c.file || c.describe || c.focus);
+  // EVERY ENTRY REFUSED IS AN ANSWER, NOT A MISS. Falling through to the
+  // no-match branch below would report a picture the model found and named as
+  // one it could not find — and would send an "already that way" to the
+  // needs-place escalation, buying a page rewrite to do nothing.
+  if (!picked.length && refused.length) {
+    return { ok: false, escalate: false, reason: "no-change", usage, refused, msg: pictureReply({ refused }) };
+  }
   if (!picked.length) {
     // ── NOWHERE TO PUT IT IS NOT "I COULD NOT TELL WHICH" ───────────────────
     //
@@ -460,9 +605,15 @@ export async function runPictureEdit(deps, { instruction, pages } = {}) {
   }
 
   const byName = new Map((Array.isArray(library) ? library : []).map((f) => [f && f.name, f && f.url]).filter(([n]) => n));
-  const resolved = [], used = [], made = [], cleared = [];
+  const resolved = [], used = [], made = [], cleared = [], framed = [];
   let failed = 0;
   for (const c of picked) {
+    if (c.focus) framed.push(c);
+    // A FRAMING CHANGE WITH NO PICTURE IS THE COMMON CASE and costs nothing —
+    // no image model, no money. It carries no url, so without this it falls
+    // through to the generate branch and is counted as a picture that could not
+    // be made, on the one instruction that never wanted one.
+    if (c.focus && !c.clear && !c.file && !c.describe) { resolved.push(c); continue; }
     if (c.clear) { resolved.push({ ...c, url: "" }); cleared.push(c); continue; }
     if (c.file) { resolved.push({ ...c, url: byName.get(c.file) || "" }); used.push(c); continue; }
     if (typeof deps.generate !== "function") { failed++; continue; }
@@ -476,7 +627,7 @@ export async function runPictureEdit(deps, { instruction, pages } = {}) {
 
   const { pages: next, changed } = applyPictures(pages, resolved);
   return {
-    ok: true, pages: next, changed, used, made, cleared, failed, usage,
-    msg: pictureReply({ used, made, cleared, failed }),
+    ok: true, pages: next, changed, used, made, cleared, framed, refused, failed, usage,
+    msg: pictureReply({ used, made, cleared, framed, refused, failed }),
   };
 }
