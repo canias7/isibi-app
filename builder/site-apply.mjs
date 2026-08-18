@@ -652,3 +652,78 @@ export async function runDataEdit(deps, { instruction, tables, recent } = {}) {
   if (!applied.length) return { ok: false, escalate: false, reason: "write", usage, failed: failed.length };
   return { ok: true, applied, failed: failed.length, usage };
 }
+
+/**
+ * Rename a page's ROUTE — its address, not its heading.
+ *
+ * THE GAP THIS CLOSES. There was no rename verb anywhere in the product, so
+ * "call that page Services instead of What We Do" routed to the `page` layer and
+ * came back with the heading changed and the address unchanged. Delete-and-add
+ * is worse: the SEO map 301s the old URL to HOME, because old→new is a guess it
+ * deliberately does not make — so every indexed link and every share lands on
+ * the wrong page rather than the renamed one.
+ *
+ * EVERY LINKING PAGE IS REWRITTEN, NOT JUST THE RENAMED ONE, and that is what
+ * makes this a rename rather than a break. `<Link to="/what-we-do">` on four
+ * other pages is typed against the route tree `tsr generate` emits, so leaving
+ * them behind is not a dead link — it is a COMPILE ERROR that costs the whole
+ * build. Same reason a page is stubbed rather than deleted when it fails to
+ * typecheck.
+ *
+ * `routeOf` IS INJECTED because the file↔route mapping has been reimplemented
+ * four times in this repo and each copy has been wrong at least once (`menu/
+ * index.tsx` → `/menu/index`, `about.team.tsx` → `/about.team`). There is one
+ * reading of it; this takes that one rather than adding a fifth.
+ *
+ * THREE REFUSALS, each because the alternative is a broken site rather than an
+ * unhelpful answer. The home page has no address to move — renaming it means
+ * the site has no root. A target that already exists would merge two pages into
+ * one and silently lose the other. A source that does not exist is a customer
+ * naming a page they are thinking of rather than one they have.
+ *
+ * Returns `{ok, pages, redirect, changed}` — `redirect` is the explicit old→new
+ * pair the SEO map needs, which is the whole reason the 301 can land on the
+ * renamed page instead of the home page.
+ */
+export function renameRoute(pages, from, to, routeOf) {
+  const list = Array.isArray(pages) ? pages : [];
+  const clean = (r) => "/" + String(r == null ? "" : r).trim().replace(/^\/+|\/+$/g, "");
+  const a = clean(from), b = clean(to);
+  if (typeof routeOf !== "function") return { ok: false, reason: "no route reader" };
+  if (a === "/" ) return { ok: false, reason: "the home page has no address to move" };
+  if (b === "/" ) return { ok: false, reason: "a page cannot be renamed to the home page" };
+  if (a === b) return { ok: false, reason: "that is already its address" };
+  // The shape a route may take is the shape a file may produce, and nothing
+  // wider: this string becomes a file path and a URL.
+  if (!/^\/[a-z0-9]+(?:[-/][a-z0-9]+)*$/.test(b)) return { ok: false, reason: "that is not a usable address" };
+
+  const src = list.find((p) => p && routeOf(p.path) === a);
+  if (!src) return { ok: false, reason: "no page at " + a };
+  if (list.some((p) => p && routeOf(p.path) === b)) return { ok: false, reason: "there is already a page at " + b };
+
+  // The file path mirrors the route, derived from the page being replaced so
+  // the directory and extension it already lives under are preserved.
+  const dir = String(src.path).replace(/[^/]*$/, "");
+  const newPath = dir + b.replace(/^\//, "").replace(/\//g, ".") + ".tsx";
+
+  const changed = [];
+  const out = list.map((p) => {
+    if (!p || typeof p.source !== "string") return p;
+    let s = p.source;
+    // The route DECLARATION, on the renamed page only. `createFileRoute` must
+    // agree with the file name or `tsr generate` emits a tree the pages are
+    // then typed against wrongly.
+    if (p === src) s = s.split('createFileRoute("' + a + '")').join('createFileRoute("' + b + '")');
+    // And every REFERENCE, on every page. Anchored on the quote so `/about`
+    // cannot match inside `/about-us` — the prefix bug this repo has already
+    // paid for once in the hostname rewrite.
+    for (const q of ['"', "'", "`"]) s = s.split(q + a + q).join(q + b + q);
+    if (s !== p.source || p === src) {
+      changed.push(p === src ? newPath : p.path);
+      return { ...p, path: p === src ? newPath : p.path, source: s };
+    }
+    return p;
+  });
+
+  return { ok: true, pages: out, redirect: { from: a, to: b }, changed };
+}
