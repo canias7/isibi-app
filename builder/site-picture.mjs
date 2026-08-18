@@ -253,13 +253,13 @@ export function readPictures(reply, slots, library) {
   const use = blocks.find((b) => b && b.type === "tool_use");
   const raw = (use && use.input && use.input.pictures) || [];
   const bySlot = new Map();
-  for (const s of Array.isArray(slots) ? slots : []) bySlot.set(s.page + " " + s.alt, s);
+  for (const s of Array.isArray(slots) ? slots : []) bySlot.set(s.page + "\u0000" + s.alt, s);
   const files = new Set((Array.isArray(library) ? library : []).map((f) => f && f.name).filter(Boolean));
 
   const out = [], seen = new Set();
   for (const c of Array.isArray(raw) ? raw : []) {
     if (!c || typeof c !== "object") continue;
-    const key = String(c.page || "") + " " + String(c.alt || "").trim();
+    const key = String(c.page || "") + "\u0000" + String(c.alt || "").trim();
     const slot = bySlot.get(key);
     if (!slot || seen.has(key)) continue;
     if (c.clear === true) { out.push({ slot, clear: true }); seen.add(key); }
