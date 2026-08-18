@@ -123,7 +123,7 @@ export const FALLBACK_NO_SITE = "build";
  * An unrecognised layer is not a fourth option, it is a routing failure, and it
  * goes UP the ladder like every other one.
  */
-export const EDIT_LAYERS = ["data", "text", "look", "page", "rules", "picture", "logo"];
+export const EDIT_LAYERS = ["data", "text", "look", "page", "rules", "picture", "logo", "nav"];
 
 /**
  * The layers where "take it away" is a thing a customer can ask for.
@@ -222,15 +222,31 @@ export const ASK_TOOL = {
           "Answer this for taking it OFF as well (\"drop the logo\", \"just the name is fine\"), with `remove` true " +
           "and no attachment expected. THE WORD \"LOGO\" IS THE SIGNAL and it is a strong one: a picture attached to " +
           "a message about the header, the top of the site, or the brand mark is this and not \"picture\".\n" +
+          "\"nav\" — THE MENU AT THE TOP OF EVERY PAGE, and only the menu: which items are in it, what order they " +
+          "come in, and taking one out. \"Put Book first\", \"add Contact to the menu\", \"take Pricing out of the " +
+          "nav\", \"the menu should be Home, Services, Contact\". It is ONE menu shown on every page, so this changes " +
+          "all of them at once and is nearly free.\n" +
+          "IT ONLY EVER POINTS AT PAGES THE SITE ALREADY HAS. \"Add a gallery to the menu\" when there is no gallery " +
+          "page is an \"addon\" — the page has to exist before anything can link to it. The pages it has are listed " +
+          "above.\n" +
           "\"page\" — the arrangement of ONE existing page: move a section, take one out, lay a list out differently, " +
           "add a block built from parts the page already has. Name it in `page`.\n" +
           "THIS IS ALSO WHERE A PAGE IS DELETED. \"Remove the gallery page\" is this layer, that page in `page`, and " +
           "`remove` true — not a rewrite of the site and not a question back. Deleting costs almost nothing precisely " +
           "because it comes here.\n" +
           "ONE PAGE, AND ONLY ONE. If the change is meant to land on several — \"put the phone number in the footer " +
-          "of every page\", \"add the gallery to the menu everywhere\" — this is NOT the layer for it: it edits the " +
-          "single page you name and leaves the rest exactly as they are, so the site would end up disagreeing with " +
-          "itself. Answer \"addon\" for those; it can touch the pages a visitor would look on.",
+          "of every page\" — this is NOT the layer for it: it edits the single page you name and leaves the rest " +
+          "exactly as they are, so the site would end up disagreeing with itself. Answer \"addon\" for those; it can " +
+          "touch the pages a visitor would look on.\n" +
+          // THIS CLAUSE USED TO SEND EVERY MENU CHANGE TO THE ADDON LANE, by
+          // name: "add the gallery to the menu everywhere" was its own worked
+          // example of something to answer "addon" for. That was correct while
+          // nothing could edit a menu — the nav is a separate copy in every page
+          // file, so it really did need a lane that touches them all. With the
+          // `nav` layer there it is a ~27-credit page-generation call to move one
+          // word, and the example has to point at the cheap lane or the layer is
+          // reachable by nothing.
+          "A MENU CHANGE IS \"nav\", NOT THIS AND NOT \"addon\". It lands on every page and costs almost nothing.",
       },
       page: {
         type: "string",

@@ -58,6 +58,7 @@ import { extractText, applyEdits } from "./builder/site-text.mjs";
 import { runTextEdit, runDataEdit, renamePages, renameRoute, MAX_DATA_ROWS } from "./builder/site-apply.mjs";
 import { runRulesEdit } from "./builder/site-rules.mjs";
 import { runPictureEdit } from "./builder/site-picture.mjs";
+import { runNavEdit } from "./builder/site-nav.mjs";
 import { runLogoEdit } from "./builder/site-logo.mjs";
 import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
 import { runNightlyBackups, dumpSite, backupKey, backupListing, backupDayParam, BACKUP_META_KEYS } from "./site-backup.mjs";
@@ -12467,6 +12468,61 @@ async function handleRequest(request, env, ctx) {
               return Response.json({
                 ok: true, layer: "rules", applied: rOut.applied, refused: rOut.refused || [],
                 msg: rOut.msg, cost: await eCharge(rOut.usage), usage: rOut.usage,
+              });
+            }
+            if (eLayer === "nav") {
+              // ── THE MENU, ON EVERY PAGE AT ONCE ─────────────────────────
+              //
+              // The nav is a `links` array passed to `SiteChrome` and there is a
+              // SEPARATE COPY IN EVERY PAGE FILE. Measured over the 324 family
+              // exemplars the generator learns from: 302 arrays across 93
+              // families, and not one family where every page's list is the
+              // same. So reordering, adding or removing one item meant a
+              // structural edit on every page, and the only lane that touches
+              // every page is the full revise — ~27 credits to move one word.
+              //
+              // ONE MODEL CALL AND A MECHANICAL REWRITE, so the price does not
+              // grow with the number of pages, which is exactly what made this
+              // expensive. The `text` layer can already RENAME an item and this
+              // is deliberately not that: a string replacement at a recorded
+              // offset cannot move, insert or delete an array element.
+              //
+              // THE ROUTES ARE THE ALLOW-LIST. A menu item pointing at a page
+              // the site does not have is a 404 from every page at once, so the
+              // real route list goes in and anything else is dropped and named.
+              const navRoutes = [...new Set(eSrc.map((p) => routeOf(p.path)).filter(Boolean))];
+              const nOut = await runNavEdit({
+                send: (req) => anthropicMessages(env, req),
+              }, { instruction: eInstruction, pages: eSrc, routes: navRoutes });
+
+              if (!nOut.ok) {
+                if (!nOut.escalate) {
+                  if (nOut.reason === "send") return modelDown(nOut.error, "I couldn't reach the model that sets the menu — try again in a moment.");
+                  return Response.json({
+                    ok: false, error: nOut.reason, cost: await eCharge(nOut.usage), usage: nOut.usage,
+                    // The module writes this — it is the only thing that knows
+                    // which items were dropped and why.
+                    msg: nOut.msg || "That change couldn't be made — try again.",
+                  }, { status: 422 });
+                }
+                return escalate(nOut.reason);
+              }
+              const nPub = await recompileAndPublish(env, {
+                slug: ownerSlug, pages: nOut.pages,
+                label: versionLabel({ revise: true, changeNote: eInstruction }),
+              });
+              if (!nPub.ok) {
+                return Response.json({
+                  ok: false, error: "compile", cost: 0,
+                  msg: compileMsg(nPub, "That menu change didn't compile, so your site is untouched."),
+                  detail: nPub.detail,
+                }, { status: 422 });
+              }
+              return Response.json({
+                ok: true, layer: "nav", msg: nOut.msg,
+                changed: nOut.changed, files: nPub.files, render: nPub.render, renderNote: nPub.renderNote,
+                links: nOut.links, dropped: nOut.dropped.length,
+                cost: await eCharge(nOut.usage), usage: nOut.usage,
               });
             }
             if (eLayer === "picture") {

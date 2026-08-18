@@ -11546,6 +11546,18 @@ function editReply(e) {
     // the half a second copy here would eventually drop.
     return (typeof e.msg === 'string' && e.msg.trim() ? e.msg.trim() : '✅ Done.');
   }
+  if (e.layer === 'nav') {
+    // THE SERVER NAMES THE MENU, because it is the only thing that knows what
+    // was DROPPED and why — an item pointing at a page the site does not have
+    // is left out, and a second copy here would eventually report that as a
+    // plain success and leave the owner wondering where their link went.
+    //
+    // HOW MANY PAGES IS THE PART WORTH SAYING. The whole reason this layer
+    // exists is that the menu is a separate copy in every page file, so "it
+    // changed on all 5 pages" is exactly the thing the owner could not get
+    // before without paying for a full rewrite.
+    return (typeof e.msg === 'string' && e.msg.trim() ? e.msg.trim() : '✅ Done.');
+  }
   if (e.layer === 'rules') {
     // THE SERVER WROTE THIS ONE. `rulesReply` is the single place a rule change
     // becomes words, and it is the only place that knows what was REFUSED — a
