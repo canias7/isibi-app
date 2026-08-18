@@ -150,6 +150,21 @@ const routeOfAdded = (f) => {
   return m[1] === "index" ? "/" : "/" + m[1].replace(/\/index$/, "");
 };
 
+// NAMING THE SKIP MARKER IN A COMMIT MESSAGE VETOES THE RUN, and it has now
+// happened three times in this repo — every one of them inside prose ABOUT the
+// rule. The workflow tests `contains(head_commit.message, …)`, which does not
+// care that the string sits in a sentence saying it is deliberately not being
+// used: a commit whose body read "NO [that marker] ON PURPOSE" skipped both
+// paid checks, exactly as if it had asked to.
+//
+// The first two were GitHub's own marker and took a deploy down with them
+// (2026-07-29 and 2026-08-16). This one was ours, and cost only a wasted push.
+//
+// THE DISCIPLINE IS THE SAME AS THE ONE CLAUDE.md ALREADY STATES for GitHub's:
+// in a commit message, refer to it by description — "the skip marker" — and
+// never spell it. There is no way to guard this from the tree, because a commit
+// message is not a file; the note is the mechanism.
+
 /** One routing call, exactly as the composer makes it. */
 async function route(message, digest) {
   const r = await post("/api/site/route", {
