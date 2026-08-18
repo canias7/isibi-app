@@ -4132,6 +4132,29 @@ const SITE_SCHEMA_TOOL = {
           "their customers read. It is NOT the language of this conversation and NOT where the business is — " +
           "a Welsh café writing to you in English gets `en`. Leave it out only if you genuinely cannot tell.",
       },
+      // LIGHT OR DARK — the one look decision that was unreachable at any price.
+      //
+      // Every theme in the registry ships a DESIGNED dark palette: 31 colour
+      // properties, drawn by whoever drew the light half, and `themeCss` has
+      // always emitted it as a `.dark` block into every site's stylesheet.
+      // Nothing ever applied it, so all 500 themes shipped their dark half as
+      // dead CSS — and "make my site dark" was answered with a token patch,
+      // which darkened the ground and left every button, highlight and border
+      // on colours chosen for white paper. This is one class on `<html>`.
+      //
+      // OPTIONAL AND ABSENT MEANS LIGHT, which is what every site published
+      // before 2026-08-18 is. So a build that answers nothing here is
+      // byte-identical to what the platform did before the field existed.
+      mode: {
+        type: "string",
+        enum: ["light", "dark"],
+        description:
+          "Whether the site is drawn on light paper or dark. LEAVE THIS OUT unless the brief or the change actually " +
+          "asks for it — light is the default and is right for most businesses. Answer `dark` when they ask for a dark " +
+          "site, or when the brief's own words are for a world that reads dark: a night club, a recording studio, a " +
+          "tattoo parlour, a cinema, a gaming or crypto brand. This is NOT a colour: the theme already has a dark half " +
+          "drawn for it, so do not also send tokens trying to darken the background.",
+      },
       // THE WEB-SEARCH GATE, RIDING ON A CALL THAT ALREADY HAPPENS. Searching
       // costs real money per search and is worth it on a small minority of
       // briefs, so it has to be gated — and the obvious way to gate it, a small
@@ -7213,6 +7236,10 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
           // `applyIdentity` leaves the attribute alone rather than guessing —
           // an old site keeps `en` until something tells it otherwise.
           lang: (look && look.lang) || null,
+          // OUT OF THE STORED LOOK, like `lang` — so the cheap spine carries
+          // it and a text fix, a colour change or a picture swap cannot quietly
+          // put a dark site back into light. Absent means light.
+          mode: (look && look.mode) || null,
           logo,
           fonts: { heading: pair.heading.id, body: pair.body.id },
           theme: (look && look.theme) || null,
@@ -7346,7 +7373,7 @@ async function siteOgImage(env, slug) {
   } catch (e) { console.error("og image lookup failed:", slug, e && e.message); return null; }
 }
 
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, fonts, theme, tokens, pageTokens, style, family, structure, lang, logo, attachments, priorUsage, model, revise, changeNote, priorPages, mark }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, fonts, theme, tokens, pageTokens, style, family, structure, lang, mode, logo, attachments, priorUsage, model, revise, changeNote, priorPages, mark }) {
   // Resolved once, before any model call: the pair always lands on something
   // installed, so a build never waits on a font it cannot get.
   const fontPair = resolvePair(fonts || {});
@@ -7439,6 +7466,14 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
           // well-formed tag, so a model that answers with a country name is a
           // site that keeps the attribute it had.
           lang: lang || null,
+          // LIGHT OR DARK, and it is one class on `<html>` rather than a second
+          // palette. Every theme in the registry already ships its own designed
+          // dark half — 31 colour properties, solved by whoever drew the theme —
+          // and `themeCss` has always emitted it into the stylesheet, applied by
+          // nothing. Absent is light, which is what every site published before
+          // 2026-08-18 has and what the container writes for anything it does
+          // not recognise.
+          mode: mode || null,
           // A first build has none and sends "", which is what the container
           // writes anyway. A REVISE carries the stored one — see `priorLogo`,
           // without which every revise would quietly take the logo off.
@@ -11856,6 +11891,9 @@ async function handleRequest(request, env, ctx) {
             // `EDIT_FIELDS`, which is what makes "absent means unchanged" true
             // of it without a second rule here.
             lang: look.lang,
+            // And the same again for light/dark: on `EDIT_FIELDS`, so a revise
+            // that does not mention it keeps whichever the site is.
+            mode: look.mode,
             // Read straight off `_meta` rather than through `mergeLook`: the
             // logo is not something a designer can name, so it has no business
             // in `EDIT_FIELDS` and would be dropped by that merge if it were.

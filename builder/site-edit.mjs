@@ -30,7 +30,7 @@
 // whole decision is tested without a Worker, a model or a database.
 
 /** The look/identity fields an edit may move. `tables` and `tokens` merge on their own paths. */
-export const EDIT_FIELDS = ["brand", "description", "theme", "family", "structure", "fonts", "lang"];
+export const EDIT_FIELDS = ["brand", "description", "theme", "family", "structure", "fonts", "lang", "mode"];
 
 /**
  * Nothing is required of an EDIT.
@@ -69,6 +69,7 @@ export function currentStateNote(current) {
   add("one-line description", c.description);
   add("theme", c.theme);
   add("family", c.family);
+  add("mode", c.mode);
   add("structure", c.structure);
   // THE LANGUAGE THE PAGES ARE WRITTEN IN. Stated for the same reason as
   // everything else here and with a sharper edge than most: this note is written

@@ -17,7 +17,7 @@ const STORED = {
   brand: "Sharp Fade", description: "A barber shop in Leeds.",
   theme: "broadsheet", family: "salon", structure: "sidebar",
   fonts: { heading: "noto-serif", body: "source-sans-3" },
-  lang: "en-GB",
+  lang: "en-GB", mode: "light",
 };
 
 /* ── absent means unchanged ─────────────────────────────────────────────── */
@@ -28,6 +28,25 @@ test("an instructed edit that names nothing changes nothing", () => {
   const out = mergeLook(STORED, { tokens: { background: "#ffff00" } }, null, { instructed: true });
   for (const k of EDIT_FIELDS) assert.deepEqual(out[k], STORED[k], `${k} moved on a colour-only edit`);
   assert.deepEqual(movedFields(STORED, out), []);
+});
+
+test("A LOOK STORED BEFORE A FIELD EXISTED IS NOT A CHANGE TO IT", () => {
+  // WHAT MAKES ADDING A FIELD SAFE TO DEPLOY, and it is a property rather than
+  // a fixture: every site published before a field existed has no value for it,
+  // so if `null` counted as a move, the first unrelated edit on every existing
+  // site would report a change to something nobody touched — and, for `mode`,
+  // would look exactly like the platform deciding on its own whether their site
+  // is dark.
+  //
+  // Driven over EVERY field rather than the newest one, because the next field
+  // added has the same day-one exposure and nobody will remember this test.
+  for (const k of EDIT_FIELDS) {
+    const old = { ...STORED };
+    delete old[k];
+    const out = mergeLook(old, {}, null, { instructed: true });
+    assert.equal(out[k], null, `${k} invented a value for a site that has none`);
+    assert.deepEqual(movedFields(old, out), [], `an absent ${k} read as a change`);
+  }
 });
 
 test("EVERY FIELD THE PUBLISH PATH READS OFF THE LOOK IS ONE THE MERGE PRODUCES", () => {

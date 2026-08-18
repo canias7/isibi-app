@@ -31,6 +31,25 @@ export const SITE_LOGO = "";
 // `normalizeLang` — a site whose language could not be established keeps
 // whatever it had, and the template's own answer is English.
 export const SITE_LANG = "en";
+// LIGHT OR DARK. One class on `<html>` in `__root.tsx`, and that is the whole
+// mechanism: `styles.css` declares `@custom-variant dark (&:is(.dark *))`, and
+// `themeCss` already emits the theme's OWN designed dark palette as a `.dark`
+// block into every site's stylesheet. Nothing ever applied it, so all 500 themes
+// shipped their dark half as dead CSS and the only way to a dark site was
+// patching the ground colour — which left the buttons and highlights on colours
+// picked for white paper.
+//
+// LIGHT IS THE TEMPLATE'S ANSWER and an unrecognised value reads as light one
+// layer up, because every site built before this sends nothing and a build must
+// not change its look over an absent field.
+//
+// ANNOTATED, and the annotation is load-bearing. Without it this const has the
+// LITERAL type `"light"`, so `SITE_MODE === "dark"` in `__root.tsx` is `TS2367`
+// — "these types have no overlap" — and the template does not compile. The
+// generated file carries the same annotation so both say the same thing; the
+// `SiteLayout` lesson one folder over, where a closed literal type met a value
+// that had to widen.
+export const SITE_MODE: "light" | "dark" = "light";
 // The tab's mark. `/icon.svg` when the build wrote one from the business's
 // initials, and the template's own `favicon.svg` otherwise — never overwritten,
 // because this container is long-lived and the first site's mark would become

@@ -501,7 +501,14 @@ test("the two slots are two _meta keys, and the icon reaches the container from 
 
 test("the container prefers the owner's icon, declares its real type, and keeps the drawn mark as the fallback", () => {
   const b = fs.readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8");
-  assert.match(b, /function writeSiteBrand\(\{ title, lang, logo, icon: sent, slug \}\)/);
+  // ANCHORED ON THE PROPERTY, NOT THE SPELLING. This pinned the whole
+  // destructuring list verbatim, so adding a SEVENTH field beside it — `mode`,
+  // 2026-08-18 — turned a correct change red with a message about an icon.
+  // A test about word order, which is this repo's most-repeated own-goal. What
+  // matters is that the function takes the sent icon under a different name
+  // from the resolved one, since that renaming is what makes the fallback gate
+  // below readable at all.
+  assert.match(b, /function writeSiteBrand\(\{[^}]*\bicon: sent\b[^}]*\}\)/);
   assert.match(b, /writeSiteBrand\(\{[^)]*icon: payload\.icon/);
   // THE DRAWN MARK IS BEHIND THE OWNER'S, not instead of it: a site with no
   // stored icon must behave byte-identically to before this existed.

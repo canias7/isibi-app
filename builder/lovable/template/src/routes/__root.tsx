@@ -21,7 +21,7 @@ import {
 import type { QueryClient } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/sonner";
 import { SpamGuard } from "@/lib/spam-guard";
-import { SITE_LANG, SITE_ICON, SITE_ICON_TYPE, SITE_NAME, SITE_SLUG } from "@/site-brand";
+import { SITE_LANG, SITE_MODE, SITE_ICON, SITE_ICON_TYPE, SITE_NAME, SITE_SLUG } from "@/site-brand";
 import { siteMeta } from "@/site-runtime";
 // The stylesheet and the site's typeface, imported here rather than in a client
 // entry so the SERVER render emits their <link> tags too. Imported in
@@ -146,7 +146,25 @@ function usePagePath() {
 
 function RootDocument() {
   return (
-    <html lang={SITE_LANG}>
+    // DARK MODE IS ONE CLASS ON `<html>`, and that is the entire feature.
+    //
+    // `styles.css` declares `@custom-variant dark (&:is(.dark *))`, and
+    // `themeCss` already emits the theme's OWN designed dark palette as a
+    // `.dark` block — 31 colour properties, solved rather than picked — into
+    // every site's stylesheet. Nothing ever applied it: all 500 themes shipped
+    // their dark half as dead CSS, and "make my site dark" got a token patch
+    // instead, which darkened the ground and left the buttons and highlights on
+    // colours chosen for white paper.
+    //
+    // ON `<html>` RATHER THAN `<body>`, because the variant is
+    // `&:is(.dark *)` — a DESCENDANT of `.dark` — so the class has to sit above
+    // everything it is meant to reach, and `<body>` is already carrying the
+    // per-page scope.
+    //
+    // BAKED, NOT DETECTED. A site does not follow the visitor's own light/dark
+    // setting, deliberately: the owner picked a look and half their visitors
+    // seeing a different one is not a feature they asked for.
+    <html lang={SITE_LANG} className={SITE_MODE === "dark" ? "dark" : undefined}>
       <head>
         <HeadContent />
       </head>

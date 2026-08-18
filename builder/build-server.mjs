@@ -28,7 +28,7 @@ import { themeCss } from "./site-theme.mjs";
 import { resolveTheme } from "./site-theme-registry.mjs";
 import { tokensCss, pageTokensCss, stripThemeRadius, validForWrite } from "./site-tokens.mjs";
 import { applyStyle, explicitRadiusCss } from "./site-style.mjs";
-import { initialsMark, normalizeLang, siteIconFrom } from "./site-identity.mjs";
+import { initialsMark, normalizeLang, normalizeMode, siteIconFrom } from "./site-identity.mjs";
 import { exitReason } from "./exit-reason.mjs";
 import { checkRender } from "./render-check.mjs";
 import { routeOf, fileForRoute } from "./site-addon.mjs";
@@ -123,7 +123,7 @@ function resetRoutes() {
 // asks the generator to do. Before this, `setTitle` at PUBLISH time stamped the
 // brand onto every non-home page after the fact; a default the routes can beat
 // is the same outcome with the ordering the right way round.
-function writeSiteBrand({ title, lang, logo, icon: sent, slug }) {
+function writeSiteBrand({ title, lang, logo, icon: sent, slug, mode }) {
   const iconPath = path.join(APP, "public", "icon.svg");
   try { fs.rmSync(iconPath, { force: true }); } catch {}
 
@@ -178,6 +178,13 @@ function writeSiteBrand({ title, lang, logo, icon: sent, slug }) {
   // it from — get it wrong and every read and every form on the site addresses a
   // DIFFERENT site's API. Shape-checked rather than trusted: it reaches a URL.
   const slugValue = /^[a-z0-9][a-z0-9-]{0,80}$/i.test(String(slug || "")) ? String(slug).toLowerCase() : "";
+  // LIGHT UNLESS THE SITE SAID DARK, and an unrecognised value reads as light
+  // rather than as an error — every site built before this sends nothing, and a
+  // build must not change its look because a field arrived empty. In
+  // `site-identity.mjs` beside `normalizeLang` for the reason that one is there:
+  // this function writes files, so nothing here can be driven by a unit test,
+  // and every shape the value can arrive in has to be answerable without one.
+  const modeValue = normalizeMode(mode);
 
   // WRITTEN ON EVERY BUILD, INCLUDING WHEN A VALUE IS ABSENT. This container is
   // long-lived and serves every build on the platform, so a file left behind by
@@ -204,6 +211,23 @@ function writeSiteBrand({ title, lang, logo, icon: sent, slug }) {
       "export const SITE_SLUG = " + JSON.stringify(slugValue) + ";\n" +
       "export const SITE_LOGO = " + JSON.stringify(logoValue) + ";\n" +
       "export const SITE_LANG = " + JSON.stringify(langValue) + ";\n" +
+      // DARK MODE IS ONE CLASS, and this is the whole feature.
+      //
+      // `styles.css` declares `@custom-variant dark (&:is(.dark *))` and
+      // `themeCss` already emits the theme's OWN designed dark palette as a
+      // `.dark` block — all 31 colour properties, solved rather than picked —
+      // into every site's stylesheet. Nothing anywhere ever applied it, so
+      // every one of the 500 themes shipped its dark half as dead CSS and a
+      // customer asking for a dark site got the token-patch approximation: a
+      // dark ground under buttons and highlights chosen for white paper.
+      //
+      // The class also flips every `dark:` utility in the kit, which is why
+      // this beats emitting the dark values as `:root` — that would move the
+      // custom properties and leave those components on their light branch.
+      // ANNOTATED so this file and the template placeholder agree — an
+      // unannotated const has the LITERAL type of whichever value was written,
+      // and `SITE_MODE === "dark"` then fails to compile on a light site.
+      'export const SITE_MODE: "light" | "dark" = ' + JSON.stringify(modeValue) + ";\n" +
       "export const SITE_ICON = " + JSON.stringify(icon || "/favicon.svg") + ";\n" +
       "export const SITE_ICON_TYPE = " + JSON.stringify(iconType || "image/svg+xml") + ";\n" +
       "export const SITE_NAME = " + JSON.stringify(titleValue) + ";\n" +
@@ -213,7 +237,7 @@ function writeSiteBrand({ title, lang, logo, icon: sent, slug }) {
   // a site drawing its initials and a site serving the owner's own artwork
   // both answered true, so a favicon that was stored and then refused by the
   // shape check reported as a working icon.
-  return { lang: langValue, icon: !!icon, ownIcon: iconOk, logo: !!logoValue, slug: !!slugValue,
+  return { lang: langValue, mode: modeValue, icon: !!icon, ownIcon: iconOk, logo: !!logoValue, slug: !!slugValue,
     refused: (!!raw && !logoOk) || !!(own && own.refused), build: buildValue };
 }
 
@@ -624,7 +648,7 @@ const server = http.createServer((req, res) => {
       resetRoutes();
       // ONE writer for all four, because they land in ONE generated module and
       // two writers of one file is one of them silently losing.
-      const brandUsed = writeSiteBrand({ title: payload.title, lang: payload.lang, logo: payload.logo, icon: payload.icon, slug: payload.slug });
+      const brandUsed = writeSiteBrand({ title: payload.title, lang: payload.lang, logo: payload.logo, icon: payload.icon, slug: payload.slug, mode: payload.mode });
       const fontsUsed = writeFonts(payload.fonts, payload.fontFiles);
       // ONE reading of the patch, shared: whether a radius was asked for decides
       // both that the theme's own corner rules give way and what is written.

@@ -1352,6 +1352,75 @@ function Home() {
       "object-top is in the markup and not in the CSS — the crop does not move");
   }
 
+  // ── LIGHT OR DARK ──────────────────────────────────────────────────────────
+  //
+  // THE PAIR IS THE ASSERTION, and the surprising half is that the STYLESHEET
+  // DOES NOT MOVE. `themeCss` has always emitted the theme's own designed dark
+  // palette as a `.dark` block — 31 colour properties, drawn by whoever drew the
+  // light half — into every site's stylesheet, and nothing ever applied it. So
+  // all 500 themes shipped their dark half as dead CSS, "make my site dark" was
+  // answered with a token patch that darkened the ground and left the buttons on
+  // colours chosen for white paper, and the whole fix is ONE CLASS ON `<html>`.
+  //
+  // Two builds of a byte-identical payload differing only in `mode`: the CSS
+  // has to come out the same and the document has to come out different. Either
+  // one alone is satisfiable by a broken implementation — a build that ignored
+  // `mode` entirely gives identical CSS, and one that regenerated a whole
+  // second palette gives a different document.
+  console.log("\nbuilding the same site light and dark…");
+  const MODE_PAYLOAD = { files: { "index.tsx": CHROMED }, slug: "mode-site", title: "Nightshift Records", theme: "noir", worker: true };
+  const lightBuild = await post({ ...MODE_PAYLOAD, mode: "light" });
+  const darkBuild = await post({ ...MODE_PAYLOAD, mode: "dark" });
+  ok("a light build succeeds", lightBuild.ok === true, lightBuild.stage + ": " + (lightBuild.error || "").slice(0, 300));
+  ok("a dark build succeeds", darkBuild.ok === true, darkBuild.stage + ": " + (darkBuild.error || "").slice(0, 300));
+  // THE CONTAINER'S OWN ANSWER, so a caller can tell what it got rather than
+  // inferring it. `light` is what an unrecognised value and an absent one both
+  // become, which is what makes this safe against every site built before it.
+  ok("the container reports which it drew", (lightBuild.brand || {}).mode === "light" && (darkBuild.brand || {}).mode === "dark",
+    JSON.stringify([(lightBuild.brand || {}).mode, (darkBuild.brand || {}).mode]));
+  const cssOf = (b) => Object.entries(b.files || {}).filter(([n]) => n.endsWith(".css")).map(([, v]) => (v && v.t) || "").join("");
+  const lightCss = cssOf(lightBuild), darkCss = cssOf(darkBuild);
+  ok("the stylesheet is BYTE-IDENTICAL — the dark palette was always there",
+    lightCss.length > 1000 && lightCss === darkCss,
+    `${lightCss.length} vs ${darkCss.length} bytes`);
+  // AND IT REALLY IS A SECOND PALETTE rather than the same colours under
+  // another selector. Without this the assertion above is satisfied by a theme
+  // whose dark block says nothing, and the class would apply to nothing.
+  {
+    // READ BY SLICING FROM THE SELECTOR, not with a brace-class regex, and the
+    // reason is a checker rather than a style. `worker-imports.test.mjs` counts
+    // braces as TEXT to find where a block-scoped name goes out of scope, so
+    // `[^}]` on a `const` line drives its depth negative on that very line and
+    // every later use reads as a ReferenceError that is not there. Measured:
+    // both declarations were flagged. Same family as `logoImg` five hundred
+    // lines up — the scanner is deliberately narrow rather than a parser, so
+    // the cheap fix is code it can read.
+    const bgIn = (css, sel) => {
+      const at = css.indexOf(sel);
+      const hit = at < 0 ? null : /--background:\s*([^;]+)/.exec(css.slice(at, at + 900));
+      return hit ? hit[1].trim() : "";
+    };
+    const rootBg = bgIn(lightCss, ":root");
+    const darkBg = bgIn(lightCss, ".dark");
+    ok("…and the `.dark` block carries a DIFFERENT background from `:root`",
+      !!rootBg && !!darkBg && rootBg !== darkBg, JSON.stringify([rootBg, darkBg]));
+  }
+  const lightDoc = await renderHome(lightBuild, "mode-site");
+  const darkDoc = await renderHome(darkBuild, "mode-site");
+  if (lightDoc && darkDoc) {
+    // ON `<html>`, NOT `<body>`. The variant is `&:is(.dark *)` — a DESCENDANT
+    // of `.dark` — so the class has to sit above everything it is meant to
+    // reach, and `<body>` already carries the per-page colour scope.
+    ok("the dark site's document carries the class on <html>",
+      /<html[^>]*class="[^"]*\bdark\b/.test(darkDoc), (darkDoc.match(/<html[^>]*>/) || [""])[0]);
+    ok("…and the light one does not", !/<html[^>]*\bdark\b/.test(lightDoc), (lightDoc.match(/<html[^>]*>/) || [""])[0]);
+    // The rest of the document is the same site. A `mode` that reached the
+    // document by regenerating it would show up here.
+    ok("…and they are otherwise the same page",
+      darkDoc.replace(' class="dark"', "").length === lightDoc.length,
+      `${lightDoc.length} vs ${darkDoc.length} bytes`);
+  }
+
   // ── WHICH BUILD IS THIS SITE SERVING? ───────────────────────────────────────
   //
   // An accepted upload is not a live script — measured twice live, where a read
