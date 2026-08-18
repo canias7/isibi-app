@@ -148,6 +148,33 @@ funded**, so every `SafeImage` on every published site is drawing its placeholde
 and no photograph has ever been generated. The upload half needs no image model
 and is what works today — which is why the tool prefers it.
 
+## 2026-08-18 — dark mode, and it was already drawn
+
+**You can ask for a dark site now.** *"Make the whole site dark"*, *"I want it on
+black"*, *"put it back to light"* — the cheap look lane, about a third of a
+credit, nothing rewritten.
+
+**The surprising part: every theme already HAD a dark version and nothing had
+ever switched it on.** All 500 of them ship a full dark palette — 31 colours,
+drawn by whoever drew the light one — into every site's stylesheet, and every
+site ignored it. So until today, asking for a dark site got an approximation:
+the background went dark and the buttons, badges and borders stayed the colours
+that were picked for white paper. On one theme that meant a very dark grey
+button on a nearly-black page — the one thing a customer has to be able to see.
+
+**Nothing about any existing site changes.** A site with no answer stored is
+light, which is every site published before today, so this deploy re-draws
+nothing. And a revise that does not mention it keeps whichever it is — a typo
+fix cannot put a dark site back to white.
+
+**It composes with a brand colour.** Ask for dark AND "make the buttons amber"
+and you get both, with the text on the amber worked out for you.
+
+**Not proven on a real customer build** — the model account is still empty, so
+this has only been driven through the real build container here. Three sites
+were built and looked at: a plain dark theme, a glass one (the background wash
+follows too), and a dark one with an amber override.
+
 ## 2026-08-14 — Google can find every page now, and a broken page tells you
 
 Round 7, the last of the audit's buildable gaps. Four things, all of them
