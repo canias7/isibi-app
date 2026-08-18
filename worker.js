@@ -67,7 +67,7 @@ import { resolveAccess, accessLabel, ACCESS_PRESETS, unguardedBookings } from ".
 // data layer's gate cannot drift from the vocabulary again — it was compared
 // against "anyone", which is a WRITE level, and matched nothing on any site.
 const DISPLAY_PAIR = ACCESS_PRESETS.display;
-import { mergeAddonPages, mergeAddonSchema, unlinkedPages, routeOf } from "./builder/site-addon.mjs";
+import { mergeAddonPages, mergeAddonSchema, unlinkedPages, routeOf, orderingMoved } from "./builder/site-addon.mjs";
 import { archiveVersion, listVersions, rollbackVersion, deleteAllVersions, versionId, versionLabel } from "./site-versions.mjs";
 import { sweepAfterPublish, P_ORPHANS } from "./site-sweep.mjs";
 import { takeOffline, putBackOnline } from "./site-live.mjs";
@@ -13181,11 +13181,28 @@ async function handleRequest(request, env, ctx) {
                   detail: pPub.detail,
                 }, { status: 422 });
               }
+              // ── A LIST THIS EDIT REORDERED THAT OTHER PAGES ALSO SHOW ────
+              //
+              // This layer edits exactly ONE file by design, and its own
+              // description says so — but "order the menu by price" does not
+              // read as a multi-page change to anybody. Measured over the
+              // generated samples and the reference pages, 2 of 11 listed tables
+              // appear on more than one page, `services` on BOTH reference pages
+              // among them, so for those the ordinary outcome is a site that now
+              // disagrees with itself and a reply saying it worked.
+              //
+              // REPORTED, NEVER REWRITTEN. Touching the other pages is the exact
+              // thing this layer refuses to do; the fix costs the owner one more
+              // sentence, which they can only say if they are told.
+              const alsoOn = orderingMoved(target.source, wrote.source, eSrc, target.path);
               return Response.json({
                 ok: true, layer: "page", page: wantRoute,
                 photos: pSlots,
                 ignored: (pValid.pages || []).filter((p) => p.path !== target.path).map((p) => p.path).slice(0, 4),
                 problems: pProblems.slice(0, 4),
+                // OMITTED WHEN EMPTY, so an ordinary page edit's response is
+                // byte-identical and the field's PRESENCE is the signal.
+                reordered: alsoOn.length ? alsoOn.slice(0, 4) : undefined,
                 files: pPub.files, render: pPub.render, renderNote: pPub.renderNote, cost: await eCharge(eGen && eGen.usage), usage: eGen && eGen.usage,
               });
             }

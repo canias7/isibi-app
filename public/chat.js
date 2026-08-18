@@ -11589,6 +11589,15 @@ function editReply(e) {
     // makes that a SILENT PARTIAL: ask for a link "on every page", get it on
     // one, and be told it worked.
     let out = '✅ Updated ' + (e.page || 'the page') + '.';
+    // A LIST THIS REORDERED THAT OTHER PAGES ALSO SHOW. The server is the only
+    // side that can know — it holds both the page before and every other page —
+    // and without saying it, "order the menu by price" leaves the site
+    // disagreeing with itself under a reply that says it worked.
+    const reord = Array.isArray(e.reordered) ? e.reordered.filter(Boolean) : [];
+    if (reord.length) {
+      out += ' Heads up: ' + reord.join(' and ') + (reord.length === 1 ? ' is' : ' are') +
+        ' listed on other pages too, and I only changed this one — say “do the same everywhere” if you want them to match.';
+    }
     const ign = Array.isArray(e.ignored) ? e.ignored.map(sitePathOf).filter(Boolean) : [];
     if (ign.length) {
       out += ' I only changed that one — ' + ign.join(', ') +
