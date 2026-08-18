@@ -43,7 +43,22 @@ import {
 import { Input } from "@/components/ui/input";
 import { SiteChrome } from "@/components/ui/site-chrome";
 
-export const Route = createFileRoute("/account")({ component: Account });
+export const Route = createFileRoute("/account")({
+  // WHAT THIS PAGE IS, so a share of it does not preview as the home page.
+  // Without a `head` a route inherits the site's own title and description, so
+  // every address on the site showed one headline and one blurb — the booking
+  // page pasted into a message read as the front page. The root supplies
+  // `og:url`, the share image and the card type; a page supplies only these.
+  head: () => ({
+    meta: [
+      { title: "Your account — Sharp Fade Barbers" },
+      { property: "og:title", content: "Your account — Sharp Fade Barbers" },
+      { name: "description", content: "Sign in to see your past visits and the times you have booked." },
+      { property: "og:description", content: "Sign in to see your past visits and the times you have booked." },
+    ],
+  }),
+  component: Account,
+});
 
 type Profile = Row & { nickname: string | null };
 

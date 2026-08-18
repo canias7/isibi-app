@@ -168,7 +168,17 @@ import { useRows } from "@/lib/rows";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Empty } from "@/components/ui/empty";
 
-export const Route = createFileRoute("/menu")({ component: Menu });
+export const Route = createFileRoute("/menu")({
+  head: () => ({
+    meta: [
+      { title: "The menu — Fold Coffee" },
+      { property: "og:title", content: "The menu — Fold Coffee" },
+      { name: "description", content: "Everything we pour, and what it costs." },
+      { property: "og:description", content: "Everything we pour, and what it costs." },
+    ],
+  }),
+  component: Menu,
+});
 
 interface Drink { id: number; name: string; price: number | null; notes: string | null }
 
@@ -573,6 +583,37 @@ try {
       ok("…rendering its OWN page, not the home page's",
         /Menu<\/h1>/.test(menuHtml) && !/Slow coffee on the corner/.test(menuHtml),
         menuHtml.length + " bytes — " + (/Slow coffee on the corner/.test(menuHtml) ? "this is the home page" : "no menu heading"));
+
+      // ── A SHARE OF THIS PAGE PREVIEWS AS THIS PAGE ────────────────────────
+      //
+      // The override mechanism EXISTED and nothing used it: 0 of 4 reference
+      // pages and 0 of 324 exemplars declared a `head`, and PAGE_RULES never
+      // mentioned it — so every address on every published site carried one
+      // title, one description, and an og:url pointing at the root. A booking
+      // page pasted into WhatsApp previewed as the home page.
+      //
+      // ONLY A REAL BUILD CAN SAY WHETHER A ROUTE'S head() BEATS THE ROOT'S.
+      // Both are composed by the router at request time, so a unit test can
+      // assert the rule is in the prompt and nothing more.
+      ok("a page's OWN title reaches the head",
+        /<title[^>]*>The menu — Fold Coffee<\/title>/.test(menuHtml),
+        "the route's head() lost to the root's default — every page shares one title");
+      ok("…and its own description, not the site's",
+        menuHtml.includes("Everything we pour, and what it costs") && !menuHtml.includes(META.description),
+        "the site description survived on a page that wrote its own — a share of /menu reads as the front page");
+      // og:url IS COMPUTED, NOT WRITTEN BY THE PAGE. The root reads the matched
+      // routes, so this is right for a page the model has never seen — and it
+      // is what stops a crawler being told several addresses are one page.
+      ok("…and og:url is THIS page's address",
+        menuHtml.includes('property="og:url" content="' + META.origin + '/menu"'),
+        "og:url is not the page's own address — every route claims to be the site root");
+      if (home) {
+        const homeHtml2 = await (await call("/")).text();
+        ok("the home page keeps the site's own description, and the bare origin",
+          homeHtml2.includes(META.description)
+            && homeHtml2.includes('property="og:url" content="' + META.origin + '"'),
+          "the home page is the ONE that must not override — its description was written for exactly this");
+      }
 
       // THE FLAT FORM, AGAINST THE THING THAT DECIDES. `about.team.tsx` is
       // `/about/team`, and what makes this worth a real container is that

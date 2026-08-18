@@ -28,6 +28,19 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 export const Route = createFileRoute("/manage")({
   component: Manage,
+  // WHAT THIS PAGE IS, so a share of it does not preview as the home page.
+  // Without a `head` a route inherits the site's own title and description, so
+  // every address on the site showed one headline and one blurb — the booking
+  // page pasted into a message read as the front page. The root supplies
+  // `og:url`, the share image and the card type; a page supplies only these.
+  head: () => ({
+    meta: [
+      { title: "Your booking — Sharp Fade Barbers" },
+      { property: "og:title", content: "Your booking — Sharp Fade Barbers" },
+      { name: "description", content: "Check the time you booked, or cancel it, using the link from your confirmation." },
+      { property: "og:description", content: "Check the time you booked, or cancel it, using the link from your confirmation." },
+    ],
+  }),
   // Search params arrive as unknown; narrowing here is what makes the token a
   // string for the rest of the page instead of `unknown`.
   validateSearch: (search: Record<string, unknown>) => ({
