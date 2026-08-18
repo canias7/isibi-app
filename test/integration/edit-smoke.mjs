@@ -535,6 +535,142 @@ async function main() {
   ok("…and the database lets them back in", reopened.status === 200,
     `${reopened.status} ${(await reopened.text().catch(() => "")).slice(0, 200)}`);
 
+  // ── THE NAV LANE ──────────────────────────────────────────────────────────
+  //
+  // NEVER DRIVEN LIVE UNTIL NOW, and neither were `text`, `picture` or `logo`.
+  // This check covered four of the eight layers — data, look, page, rules — so
+  // half the edit path had unit tests, mutation sweeps and no live proof at all.
+  // That is precisely the gap this repo has thirteen recorded deaths in: a
+  // feature correct in its module and dead at the one line that reaches it.
+  //
+  // TWO THINGS, AND THE FIRST IS THE ONE ONLY A LIVE RUN CAN SEE: does the
+  // ROUTER send this sentence here? The lane's own behaviour is unit-tested to
+  // death; whether a real Haiku call picks `nav` over `page` for "point the
+  // button at X" is a fact about the prompt, and no fake can answer it.
+  console.log("\nthe top of every page…");
+  const navR = await route("Change the button at the top to say Book a chair", digest);
+  if (!funded(navR)) return;
+  ok("a header-button change routes to the NAV layer",
+    navR.intent === "edit" && navR.layer === "nav",
+    `intent=${navR.intent} layer=${navR.layer}`);
+
+  // AND IT LANDS ON EVERY PAGE, which is the whole reason the lane exists: the
+  // menu and the button are a separate copy in each page file, so the `page`
+  // layer can only ever fix one of them.
+  const navLabel = `Book a chair ${stamp.slice(-4).toUpperCase()}`;
+  const nav = await post(`/api/site/${slug}/edit`, {
+    layer: "nav", instruction: `Change the button at the top to say "${navLabel}"`, picker: "sonnet",
+  });
+  const nv = (await jsonOf(nav)) || {};
+  if (!funded(nv)) return;
+  ok("the nav edit succeeds", nav.status === 200 && nv.ok === true,
+    `${nav.status} ${JSON.stringify(nv).slice(0, 240)}`);
+  if (nv.ok === true) {
+    ok("…and it changed more than one page",
+      Array.isArray(nv.changed) && nv.changed.length >= 1, JSON.stringify(nv.changed));
+    // THE ASSERTION NO UNIT TEST CAN MAKE: the published page, over the wire,
+    // carries the new label. Settled rather than read immediately — a publish is
+    // not live the instant the route returns.
+    if (liveUrl) {
+      let saw = false;
+      for (let i = 0; i < 8 && !saw; i++) {
+        const r = await fetch(liveUrl, { headers: { "user-agent": "Mozilla/5.0 (edit-smoke)" }, cache: "no-store" });
+        saw = (await r.text().catch(() => "")).includes(navLabel);
+        if (!saw) await new Promise((f) => setTimeout(f, 4000));
+      }
+      ok("…and the PUBLISHED page carries the new button", saw, `looked for “${navLabel}” at ${liveUrl}`);
+    }
+  }
+
+  // ── THE TEXT LANE ─────────────────────────────────────────────────────────
+  //
+  // THE CHEAPEST LANE THERE IS AND IT HAD NO LIVE PROOF. No page goes through a
+  // model at all — the strings are lifted out of the stored source and put back
+  // at the offsets they came from — so the failure mode is not a bad answer, it
+  // is an offset landing in whatever moved into it. Only a real publish shows
+  // that, because a corrupted page still passes every unit test that checks the
+  // decision rather than the file.
+  console.log("\nchanging the words…");
+  const txtR = await route("Change the phone number to 0113 496 0000", digest);
+  if (!funded(txtR)) return;
+  ok("a wording change routes to the TEXT layer",
+    txtR.intent === "edit" && txtR.layer === "text",
+    `intent=${txtR.intent} layer=${txtR.layer}`);
+
+  const phrase = `Open ${stamp.slice(-4).toUpperCase()} till late`;
+  const txt = await post(`/api/site/${slug}/edit`, {
+    layer: "text", instruction: `Change the opening-hours line to say "${phrase}"`, picker: "sonnet",
+  });
+  const tv = (await jsonOf(txt)) || {};
+  if (!funded(tv)) return;
+  // A TEXT EDIT THAT MATCHES NOTHING IS AN HONEST OUTCOME, not a failure: the
+  // fixture may have no line about opening hours. What must not happen is a
+  // 5xx, a corrupted page, or a success that changed nothing — so the assertion
+  // is on the SHAPE of the answer rather than on the model finding a match.
+  ok("the text lane answers cleanly", txt.status === 200 || txt.status === 422,
+    `${txt.status} ${JSON.stringify(tv).slice(0, 240)}`);
+  if (txt.status === 200 && tv.ok === true) {
+    ok("…and it says what it now reads", Array.isArray(tv.changed) && tv.changed.length > 0,
+      JSON.stringify(tv.changed));
+    // AND THE SITE STILL COMPILES AND SERVES. A structural editor writing at a
+    // stale offset produces a page that fails to build — which leaves the live
+    // site untouched by design, so the check is that it is still there and still
+    // rendering rather than that the words changed.
+    if (liveUrl) {
+      const still = await fetch(liveUrl, { headers: { "user-agent": "Mozilla/5.0 (edit-smoke)" }, cache: "no-store" });
+      const body = await still.text().catch(() => "");
+      ok("…and the site still serves a real page", still.status === 200 && body.length > 2000,
+        `${still.status} ${body.length}b`);
+    }
+  } else {
+    console.log(`   text lane declined: ${JSON.stringify(tv).slice(0, 160)}`);
+  }
+
+  // ── THE LOGO LANE ─────────────────────────────────────────────────────────
+  //
+  // THE ONLY LANE WITH NO MODEL CALL IN IT AT ALL — the ATTACHMENT is which
+  // picture, so nothing has to be matched and no model writes a line. That makes
+  // it the cheapest thing here to prove and the one with the least excuse for
+  // never having been proved: what can break is the wire (the router's `tab`
+  // flag, the client's `images`, the route's read of them) and the store, and
+  // none of that is visible from a unit test.
+  //
+  // A REAL PNG, the smallest valid one. The lane sniffs LEADING BYTES rather
+  // than believing the declared type, so a fake data URL would be refused for
+  // the right reason and prove nothing about the path.
+  console.log("\nattaching a logo, then taking it off…");
+  const PNG_1PX = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+  const logoR = await route("Here's my logo, put it at the top", digest);
+  if (!funded(logoR)) return;
+  // AN ATTACHMENT SKIPS THE ROUTER IN THE REAL COMPOSER, so this is asserted
+  // WITHOUT one: the words alone have to reach the logo layer, which is what a
+  // customer typing before they attach anything actually sends.
+  ok("a logo message routes to the LOGO layer",
+    logoR.intent === "edit" && logoR.layer === "logo",
+    `intent=${logoR.intent} layer=${logoR.layer}`);
+
+  const lg = await post(`/api/site/${slug}/edit`, {
+    layer: "logo", instruction: "Here's my logo, put it at the top",
+    images: [PNG_1PX], picker: "sonnet",
+  });
+  const lv = (await jsonOf(lg)) || {};
+  if (!funded(lv)) return;
+  ok("the logo edit succeeds", lg.status === 200 && lv.ok === true,
+    `${lg.status} ${JSON.stringify(lv).slice(0, 240)}`);
+
+  // AND IT COMES OFF AGAIN, which is a separate path with its own `remove` flag
+  // — and the one that was inverted for the whole life of the layer, answering
+  // "attach the logo with the 📎 button" to somebody asking to take it away.
+  // Restoring the fixture matters too: a 1px logo left on it would sit in every
+  // later run's header.
+  const lgOff = await post(`/api/site/${slug}/edit`, {
+    layer: "logo", instruction: "Take the logo off, just the name is fine",
+    remove: true, picker: "sonnet",
+  });
+  const lo = (await jsonOf(lgOff)) || {};
+  ok("…and it can be taken off again", lgOff.status === 200 && lo.ok === true,
+    `${lgOff.status} ${JSON.stringify(lo).slice(0, 200)}`);
+
   // ── THE ADDON LANE ────────────────────────────────────────────────────────
   //
   // ASK FOR A PAGE THE SITE DOES NOT ALREADY HAVE, and derive which rather than

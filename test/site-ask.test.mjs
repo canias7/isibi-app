@@ -1870,3 +1870,39 @@ test("the wire is not cut, at either end", () => {
   assert.match(c, /function siteAddon\(site, instruction, origin, finish, fallback, d\)/);
   assert.match(c, /siteAddon\(site, t, origin, finish, go, d\)/);
 });
+
+// ── WHICH LANES THE LIVE CHECK ACTUALLY DRIVES ──────────────────────────────
+
+test("every edit layer is driven by the live check, or is named as a known gap", () => {
+  // `edit smoke` drove FOUR of the eight layers — data, look, page, rules — so
+  // half the edit path had unit tests, mutation sweeps and no live proof at all.
+  // That gap is invisible from either end: the lanes pass their own tests and
+  // the check passes its own assertions, and nothing compares the two lists.
+  //
+  // DERIVED FROM BOTH SIDES rather than a count somebody remembers to bump, so
+  // a NINTH layer added later is covered here without anybody thinking of it —
+  // which is exactly how the first four came to be the only ones.
+  const t = fs.readFileSync(new URL("../test/integration/edit-smoke.mjs", import.meta.url), "utf8");
+  const driven = new Set([...t.matchAll(/layer: "([a-z]+)"/g)].map((m) => m[1]));
+
+  // THE ONE STILL UNCOVERED, NAMED RATHER THAN LEFT AS A SILENT ABSENCE. The
+  // picture lane swaps a `SafeImage` slot to a photograph, and both ways of
+  // getting one are unavailable to a check: buying costs real fal money on an
+  // empty balance, and reusing an owner upload means chaining this to whatever
+  // an earlier step happened to store. A named gap is a decision; an unnamed one
+  // is the state this test exists to end.
+  const KNOWN_GAPS = ["picture"];
+  const missing = EDIT_LAYERS.filter((l) => !driven.has(l) && !KNOWN_GAPS.includes(l));
+  assert.deepEqual(missing, [],
+    "these lanes have no live proof at all: " + missing.join(", "));
+
+  // AND THE GAP LIST MAY NOT GROW QUIETLY EITHER — a layer added to it is a
+  // decision to ship something unproven, which should have to be written down.
+  assert.ok(KNOWN_GAPS.length <= 1, "more lanes are being shipped without live proof");
+  // The floor: a scan that stopped matching would report full coverage.
+  assert.ok(driven.size >= EDIT_LAYERS.length - KNOWN_GAPS.length,
+    "the scan found only " + driven.size + " layers in the live check");
+  for (const l of driven) {
+    assert.ok(EDIT_LAYERS.includes(l), "the live check drives a layer that does not exist: " + l);
+  }
+});
