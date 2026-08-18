@@ -187,6 +187,21 @@ export const ASK_TOOL = {
           "spends a full page-generation call and changes nothing at all. If they are asking for something to GO, it is " +
           "an \"edit\", every time, even when you are unsure of anything else about it.",
       },
+      alsoAsked: {
+        type: "string",
+        description:
+          "THE SECOND, SEPARATE THING THEY ASKED FOR AND THIS TURN IS NOT DOING — in their own words, copied from " +
+          "their message so they can send it straight back. One change happens per turn, so \"make the background " +
+          "yellow and add a booking form\" does the colour and this field holds \"add a booking form\". Without it " +
+          "the second half is dropped in silence and they are told the first one worked.\n" +
+          "ALMOST ALWAYS LEAVE THIS OUT. Two things said about ONE change is still one change: \"make the background " +
+          "yellow and the corners rounder\" is a single look edit, \"put Book first and drop Prices\" is a single " +
+          "menu edit, and \"change the phone number in the header and the footer\" is one wording edit in two places. " +
+          "It belongs here ONLY when the leftover would go to a DIFFERENT part of the site than the one you just " +
+          "named in `layer` — and never for a detail, a reason or a restatement of the change you are doing.\n" +
+          "Being wrong here costs them a sentence about something they did not ask for, which is worse than useless: " +
+          "it reads as the builder misunderstanding them. When in doubt, say nothing.",
+      },
       layer: {
         type: "string",
         enum: EDIT_LAYERS,
@@ -547,8 +562,20 @@ export function readRouting(reply, { canClarify = false, answering = false, atta
   // nothing to edit is not a cheaper build, it is a lane with no input — so on an
   // empty project both fall through to the bottom of this function and build,
   // which is what every caller did before these existed.
-  if (hasSite && input.intent === "addon") return work("addon");
-  if (hasSite && input.intent === "edit") return readEdit(input, pages);
+  //
+  // AND THE SECOND THING THEY ASKED FOR, ON THE TWO WORK RUNGS ONLY. `layer` is
+  // one value and always has been, so a message naming two different parts of
+  // the site has half of it dropped — and the customer is then told the half
+  // that ran worked, which reads as the builder ignoring them rather than as one
+  // change per turn. This does not change what gets DONE: it is a note, so the
+  // worst case is a sentence about something they did not ask for.
+  //
+  // NOT ON `build`, which rewrites everything and folds a second ask in by
+  // construction, and not on `ask` or `clarify`, where no work happened for a
+  // leftover to sit beside.
+  const also = readAlso(input);
+  if (hasSite && input.intent === "addon") return { ...work("addon"), ...also };
+  if (hasSite && input.intent === "edit") return { ...readEdit(input, pages), ...also };
   // "build" IS STILL HONOURED ON AN EXISTING SITE, deliberately and narrowly:
   // it is the only way to say "scrap this and make me a different site", which is
   // a thing people really do ask for. The tool description is what keeps it rare.
@@ -630,6 +657,34 @@ export function normalizePagePath(raw) {
  * alternative is inventing a refusal out of evidence we do not have, and sending
  * every page edit on those sites to a lane that would try to add a duplicate.
  */
+/**
+ * The second thing they asked for, which this turn is not doing.
+ *
+ * A NOTE AND NEVER AN ACTION. Nothing downstream branches on it — it is one
+ * sentence appended to the reply — so a model that over-reports costs the
+ * customer a line about something they did not ask for, and one that
+ * under-reports leaves today's behaviour exactly as it is. That asymmetry is why
+ * the schema description tells it to stay silent when unsure, and why this
+ * reader is strict rather than generous.
+ *
+ * A NON-STRING IS REFUSED RATHER THAN COERCED: `String(["a","b"])` is "a,b",
+ * which would be shown to the customer as their own words. The same coercion bug
+ * this repo has recorded on `normalizeRole` and on a table's `access`.
+ *
+ * ABSENT MEANS ABSENT — an empty object, so a response that has no leftover is
+ * byte-identical to what it was before this existed.
+ */
+export function readAlso(input) {
+  const raw = input && typeof input.alsoAsked === "string" ? input.alsoAsked.trim() : "";
+  if (!raw) return {};
+  // Long enough for a real second ask and short enough that it cannot become a
+  // paragraph glued onto every reply.
+  return { alsoAsked: raw.slice(0, MAX_ALSO_CHARS) };
+}
+
+/** One more sentence, not a second brief. */
+export const MAX_ALSO_CHARS = 200;
+
 export function readEdit(input, pages) {
   const layer = EDIT_LAYERS.includes(input && input.layer) ? input.layer : null;
   if (!layer) return { intent: FALLBACK_WITH_SITE, answer: "" };

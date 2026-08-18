@@ -471,7 +471,13 @@ test("EVERY EDIT LANE FORWARDS THE RENDER REPORT it paid for", () => {
   // …and the CLIENT says it. A note carried to a response nothing displays is
   // the works-but-cannot-say-so disease stopped one layer short.
   const chat = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
-  assert.match(chat, /finish\(editReply\(e\) \+ renderTail\(e\)\)/, "the edit reply drops the render sentence");
-  assert.match(chat, /finish\(addonReplyText\(a\) \+ renderTail\(a\)\)/, "the addon reply drops the render sentence");
+  // THE PROPERTY, NOT THE SPELLING. This pinned the exact expression
+  // `finish(editReply(e) + renderTail(e))` and went red the day a SECOND honest
+  // tail was appended beside it — a test about word order, reporting "the edit
+  // reply drops the render sentence" about a reply that carries it perfectly.
+  // The repeated own-goal in this repo; what must hold is that the sentence is
+  // in the call, not what else is.
+  assert.match(chat, /finish\(editReply\(e\)[^;]*renderTail\(e\)/, "the edit reply drops the render sentence");
+  assert.match(chat, /finish\(addonReplyText\(a\)[^;]*renderTail\(a\)/, "the addon reply drops the render sentence");
   assert.match(chat, /function renderTail\(d\)[\s\S]{0,900}?renderNote/, "renderTail no longer reads renderNote");
 });

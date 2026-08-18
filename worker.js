@@ -10768,6 +10768,20 @@ async function handleRequest(request, env, ctx) {
         // found only by a live run answering `undefined`. Added WITH the field
         // rather than after.
         tab: routed.intent === "edit" && routed.tab === true ? true : undefined,
+        // AND THE SECOND THING THEY ASKED FOR, WHICH THIS TURN IS NOT DOING.
+        // `layer` is one value, so a message naming two different parts of the
+        // site has half of it dropped — and the reply then reports the half that
+        // ran as a plain success, which reads as the builder ignoring them.
+        //
+        // THE THIRTEENTH FIELD OF THIS SHAPE, added WITH its wire rather than
+        // after a live run answered `undefined`. `readAlso` decides it, this
+        // object is the only way it reaches the client, and the client appends
+        // the sentence itself — so there is exactly one hop rather than a second
+        // one through the edit route.
+        //
+        // It is a NOTE and never an action: nothing branches on it, so the worst
+        // a wrong one costs is a sentence about something they did not ask for.
+        alsoAsked: typeof routed.alsoAsked === "string" && routed.alsoAsked ? routed.alsoAsked : undefined,
         // The question to put in front of the build, already cleaned into
         // something renderable — two to four options, deduped, capped. The
         // client shows it verbatim rather than re-deciding anything, so there is

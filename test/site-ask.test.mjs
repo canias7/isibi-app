@@ -15,6 +15,7 @@ import {
   EDIT_LAYERS, REMOVABLE_LAYERS, FALLBACK_WITH_SITE, FALLBACK_NO_SITE,
   askRequest, readRouting, readEdit, readQuestion, clipOption, clarifiedBrief, askUsage, routeMessage,
   siteDigest, normalizePagePath,
+  readAlso, MAX_ALSO_CHARS,
 } from "../builder/site-ask.mjs";
 
 const SITE = { name: "Sharp Fade", url: "/s/sharp-fade/", pages: ["/", "/book"], tables: ["services", "bookings"] };
@@ -1733,4 +1734,139 @@ test("THE PAGE BRANCH ACTUALLY MOVES THE PAGE, and spends no model call doing it
   assert.ok(!/generateSitePages|anthropicMessages/.test(branch),
     "the rename branch makes a model call — a path needs no generation");
   assert.match(branch, /cost: 0/, "a rename is billed as though something was generated");
+});
+
+// ── THE SECOND THING THEY ASKED FOR ─────────────────────────────────────────
+//
+// `layer` is ONE value and always has been, so "make the background yellow and
+// add a booking form" does the colour and drops the rest — then reports the half
+// that ran as a plain success. Structural, not probabilistic: there was no field
+// a second ask could arrive in.
+
+test("readAlso carries the leftover in the customer's own words", () => {
+  assert.deepEqual(readAlso({ alsoAsked: "  add a booking form  " }), { alsoAsked: "add a booking form" });
+});
+
+test("ABSENT MEANS ABSENT — an empty object, not an empty string", () => {
+  // A response with no leftover must be byte-identical to what it was before
+  // this existed, so the FIELD's presence is the signal rather than its value.
+  assert.deepEqual(readAlso({}), {});
+  assert.deepEqual(readAlso({ alsoAsked: "" }), {});
+  assert.deepEqual(readAlso({ alsoAsked: "   " }), {});
+  assert.deepEqual(readAlso(null), {});
+  assert.deepEqual(readAlso(undefined), {});
+});
+
+test("a non-string is refused rather than coerced", () => {
+  // `String(["a","b"])` is "a,b", which would be shown to the customer as their
+  // own words — the coercion bug this repo has recorded on `normalizeRole`.
+  assert.deepEqual(readAlso({ alsoAsked: ["a", "b"] }), {});
+  assert.deepEqual(readAlso({ alsoAsked: 7 }), {});
+  assert.deepEqual(readAlso({ alsoAsked: {} }), {});
+  assert.deepEqual(readAlso({ alsoAsked: true }), {});
+});
+
+test("it is bounded — one more sentence, not a second brief", () => {
+  const long = "x".repeat(MAX_ALSO_CHARS + 200);
+  assert.equal(readAlso({ alsoAsked: long }).alsoAsked.length, MAX_ALSO_CHARS);
+});
+
+test("it rides on BOTH work rungs, because either can drop half a message", () => {
+  const also = "add a booking form";
+  const edit = readRouting(
+    { content: [{ type: "tool_use", input: { intent: "edit", layer: "look", alsoAsked: also } }] },
+    { hasSite: true });
+  assert.equal(edit.intent, "edit");
+  assert.equal(edit.alsoAsked, also);
+  const addon = readRouting(
+    { content: [{ type: "tool_use", input: { intent: "addon", alsoAsked: also } }] },
+    { hasSite: true });
+  assert.equal(addon.intent, "addon");
+  assert.equal(addon.alsoAsked, also);
+});
+
+test("NOT ON A BUILD, WHICH FOLDS A SECOND ASK IN BY CONSTRUCTION", () => {
+  // A build rewrites everything from the whole message, so telling somebody to
+  // ask again for something it has just done is worse than saying nothing.
+  const built = readRouting(
+    { content: [{ type: "tool_use", input: { intent: "build", alsoAsked: "add a booking form" } }] },
+    { hasSite: false });
+  assert.equal(built.intent, "build");
+  assert.equal(built.alsoAsked, undefined);
+});
+
+test("NOT ON ask OR clarify, where no work happened for a leftover to sit beside", () => {
+  const asked = readRouting(
+    { content: [{ type: "tool_use", input: { intent: "ask", answer: "Yes, I can.", alsoAsked: "x" } }] },
+    { hasSite: true });
+  assert.equal(asked.intent, "ask");
+  assert.equal(asked.alsoAsked, undefined);
+  const clar = readRouting(
+    { content: [{ type: "tool_use", input: { intent: "clarify", alsoAsked: "x", question: { text: "What trade?", options: ["Barber", "Café"] } } }] },
+    { hasSite: false, canClarify: true });
+  assert.equal(clar.intent, "clarify");
+  assert.equal(clar.alsoAsked, undefined);
+});
+
+test("A LEFTOVER NEVER CHANGES WHAT GETS DONE", () => {
+  // It is a note. Everything else about the decision must be identical with and
+  // without it, or a wrong one costs more than a stray sentence.
+  const input = { intent: "edit", layer: "page", page: "/book", remove: true };
+  const without = readRouting({ content: [{ type: "tool_use", input }] }, { hasSite: true, pages: ["/book"] });
+  const withIt = readRouting({ content: [{ type: "tool_use", input: { ...input, alsoAsked: "and make it blue" } }] },
+    { hasSite: true, pages: ["/book"] });
+  const { alsoAsked, ...rest } = withIt;
+  assert.deepEqual(rest, without);
+  assert.equal(alsoAsked, "and make it blue");
+});
+
+test("the tool tells the model to stay silent when unsure", () => {
+  // The whole design constraint: nothing branches on this, so over-reporting
+  // costs the customer a sentence about something they did not ask for — which
+  // reads as the builder misunderstanding them, and is worse than the miss.
+  const d = ASK_TOOL.input_schema.properties.alsoAsked.description;
+  assert.match(d, /ALMOST ALWAYS LEAVE THIS OUT/);
+  assert.match(d, /When in doubt, say nothing/);
+  // AND IT NAMES THE DISTINCTION THAT DECIDES IT: two things said about one
+  // change is still one change.
+  assert.match(d, /DIFFERENT part of the site/);
+  assert.match(d, /in their own words/);
+  assert.equal(ASK_TOOL.input_schema.properties.alsoAsked.type, "string");
+  // Never required — a leftover is the exception, not the shape of every turn.
+  assert.ok(!(ASK_TOOL.input_schema.required || []).includes("alsoAsked"));
+});
+
+test("the wire is not cut, at either end", () => {
+  // THE THIRTEENTH FIELD OF THIS SHAPE. Twelve have been decided correctly and
+  // dropped between `readRouting` and the client, and from outside "the model
+  // did not set it" and "we did not forward it" are the same `undefined`.
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const at = w.indexOf("question: routed.intent === \"clarify\"");
+  assert.ok(at > 0, "the routing response literal moved");
+  const block = w.slice(w.lastIndexOf("intent: routed.intent", at), at);
+  assert.match(block, /alsoAsked: typeof routed\.alsoAsked === "string"/);
+
+  // And the CLIENT renders it — on both rungs, since either can drop half a
+  // message. Asserted as the count, because one `finish` learning it and the
+  // other not is exactly how half this feature would ship dead.
+  const c = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+  // AND IT SAYS SOMETHING. Asserting the function EXISTS and is CALLED passes
+  // perfectly against one that returns "" — the works-but-cannot-say-so disease
+  // one layer further out, and a mutant proved it. The sentence must carry the
+  // customer's own words and tell them what to do with them.
+  const tailAt = c.indexOf("function alsoTail(d)");
+  assert.ok(tailAt > 0, "alsoTail is gone");
+  const tail = c.slice(tailAt, c.indexOf("\n}", tailAt));
+  assert.match(tail, /return[^;]*\balso\b/, "alsoTail never returns the leftover itself");
+  assert.match(tail, /I only did one thing this time/, "the sentence that explains one change per turn is gone");
+  assert.match(tail, /I\\u2019ll do that next/, "the sentence does not say what happens if they send it back");
+  // THE PROPERTY, NOT THE SPELLING — the sibling guard on `renderTail` was
+  // pinned to an exact expression and went red the moment this tail was added
+  // beside it. What must hold is that BOTH replies carry it, since one `finish`
+  // learning it and the other not is exactly how half a feature ships dead.
+  assert.match(c, /finish\(editReply\(e\)[^;]*alsoTail\(d\)/, "the edit reply drops the leftover");
+  assert.match(c, /finish\(addonReplyText\(a\)[^;]*alsoTail\(d\)/, "the addon reply drops the leftover");
+  // The addon lane had no routing decision in scope at all until this landed.
+  assert.match(c, /function siteAddon\(site, instruction, origin, finish, fallback, d\)/);
+  assert.match(c, /siteAddon\(site, t, origin, finish, go, d\)/);
 });

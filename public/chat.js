@@ -11228,7 +11228,7 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering) {
     // few credits where the revise below costs ~25 and rewrites pages that were
     // fine. Falls through to that revise on anything it cannot do, exactly like
     // the edit above it.
-    if (d.intent === 'addon' && site.slug) return siteAddon(site, t, origin, finish, go);
+    if (d.intent === 'addon' && site.slug) return siteAddon(site, t, origin, finish, go, d);
     if (d.intent !== 'ask' || !d.answer) return go();
     // A QUESTION. Nothing is built, nothing on the site changes, and the reply
     // is an ordinary assistant message — no build steps, because there was no
@@ -11349,7 +11349,7 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
       else if (rows.some((r) => r && r.id === undefined)) s.undoRows = null;
       sitesSave();
     }
-    finish(editReply(e) + renderTail(e));
+    finish(editReply(e) + renderTail(e) + alsoTail(d));
   }).catch(fallback);
 }
 // The middle rung: add a page or a table, keep everything else.
@@ -11358,7 +11358,10 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
 // an escalation is never surfaced as an error — but this one CAN take a while
 // (a model call plus a container build), so the step rows stay running rather
 // than being stopped the way a question stops them.
-function siteAddon(site, instruction, origin, finish, fallback) {
+// `d` IS THE ROUTING DECISION, carried only for `alsoAsked` — the second thing
+// they asked for, which this turn is not doing. It is optional so nothing that
+// calls this without one changes shape.
+function siteAddon(site, instruction, origin, finish, fallback, d) {
   const slug = String(site.slug || '');
   if (!slug) return fallback();
   apiFetch('/api/site/' + encodeURIComponent(slug) + '/addon', {
@@ -11405,7 +11408,7 @@ function siteAddon(site, instruction, origin, finish, fallback) {
       if (tnames.length) s.tables = [...new Set([...(Array.isArray(s.tables) ? s.tables : []), ...tnames])].slice(0, 48);
       sitesSave();
     }
-    finish(addonReplyText(a) + renderTail(a));
+    finish(addonReplyText(a) + renderTail(a) + alsoTail(d));
   }).catch(fallback);
 }
 // `src/routes/gallery.tsx` OR a bare `gallery.tsx` → `/gallery`. Kept in step
@@ -11487,6 +11490,24 @@ function addonReplyText(a) {
 // discarded the result).
 function renderTail(d) {
   return (d && typeof d.renderNote === 'string' && d.renderNote.trim()) ? '\n' + d.renderNote.trim() : '';
+}
+// THE SECOND THING THEY ASKED FOR, WHICH THIS TURN DID NOT DO.
+//
+// `layer` is one value, so a message naming two different parts of the site has
+// half of it silently dropped — and the reply then reports the half that ran as
+// a plain success, which reads as the builder ignoring them rather than as one
+// change per turn.
+//
+// THEIR OWN WORDS, so the follow-up is a paste rather than a re-explanation. The
+// router copies them out of the message; nothing here rewrites them, because a
+// second wording is a second thing that can be wrong about what they meant.
+//
+// Absent by default — the router is told to stay silent when unsure, since a
+// wrong one costs a sentence about something nobody asked for.
+function alsoTail(d) {
+  const also = d && typeof d.alsoAsked === 'string' ? d.alsoAsked.trim() : '';
+  if (!also) return '';
+  return '\nI only did one thing this time. Say “' + also.slice(0, 200) + '” and I\u2019ll do that next.';
 }
 function problemNote(list) {
   const p = (Array.isArray(list) ? list : []).filter((x) => typeof x === 'string' && x.trim()).slice(0, 3);
