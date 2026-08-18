@@ -237,7 +237,14 @@ export const ASK_TOOL = {
           "Answer this for taking it OFF as well (\"drop the logo\", \"just the name is fine\"), with `remove` true " +
           "and no attachment expected. THE WORD \"LOGO\" IS THE SIGNAL and it is a strong one: a picture attached to " +
           "a message about the header, the top of the site, or the brand mark is this and not \"picture\".\n" +
-          "\"nav\" — THE TOP OF EVERY PAGE: the menu, and the one button beside it.\n" +
+          "\"nav\" — THE SAME-ON-EVERY-PAGE FRAME: the menu, the one button beside it, and the contact details at " +
+          "the BOTTOM of every page.\n" +
+          "THE FOOTER'S DETAILS — the phone number, email address, postal address and opening line a visitor " +
+          "scrolls to the bottom for. \"Put our number in the footer\", \"the address is wrong, we've moved\", " +
+          "\"add our opening hours at the bottom\", \"show our email\", \"take the opening times off\". It is the " +
+          "same block on every page, so it changes everywhere at once and costs almost nothing.\n" +
+          "A FULL DAY-BY-DAY TIMETABLE IS NOT THIS — that is rows the site stores, so it is \"data\". This is the " +
+          "one line at the bottom (\"Tue–Sun 12–10\").\n" +
           "THE MENU — which items are in it, what order they come in, taking one out. \"Put Book first\", \"add " +
           "Contact to the menu\", \"take Pricing out of the nav\", \"the menu should be Home, Services, Contact\".\n" +
           "THE BUTTON — what it says AND where it goes. \"Change the Book button to Get a quote\", \"make the button " +

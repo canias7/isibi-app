@@ -12620,6 +12620,12 @@ async function handleRequest(request, env, ctx) {
                 // response must not have.
                 movedLinks: nOut.movedLinks || undefined,
                 refusedLinks: nOut.refusedLinks && nOut.refusedLinks.length ? nOut.refusedLinks.length : undefined,
+                // AND THE FOOTER'S CONTACT DETAILS. Names WHICH fields moved and
+                // never their values — a response is logged, and an address and
+                // a phone number are the customer's own. Omitted when the change
+                // did not touch them, so every existing menu edit's response is
+                // byte-identical.
+                contact: nOut.contact ? Object.keys(nOut.contact) : undefined,
                 cost: await eCharge(nOut.usage), usage: nOut.usage,
               });
             }

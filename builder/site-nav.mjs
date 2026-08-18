@@ -49,6 +49,12 @@ export const MAX_NAV_ITEMS = 10;
 export const MAX_LABEL = 40;
 
 /**
+ * Long enough for a two-line address, short enough that nothing pastes an essay
+ * into the bottom of every page of a site.
+ */
+export const MAX_CONTACT_CHARS = 160;
+
+/**
  * Every place a nav list is written, across every page of the site.
  *
  * TWO FORMS, AND BOTH ARE COMMON. `links={[...]}` as a JSX attribute (261 of the
@@ -202,6 +208,39 @@ function tagEnd(src, from) {
   return -1;
 }
 
+/**
+ * How far a comment starting at `i` runs, or 0 if there is no comment there.
+ *
+ * BOTH BRACKET SCANNERS WERE COMMENT-BLIND, and the failure is silent and total:
+ * an apostrophe in a `//` line — `// The footer's small print.` — opened a
+ * string the scanner never closed, so `braceEnd` ran to the end of the file and
+ * returned -1, and the page yielded NO SLOT AT ALL. Not a wrong menu: no menu,
+ * no button, no contact, on that page, with nothing reported.
+ *
+ * MEASURED WHEN IT BIT: of 307 corpus pages with a nav or CHROME structure, 112
+ * carry a comment with an unbalanced quote somewhere in the file, and exactly
+ * ONE broke — because the hazard only fires when the quote sits INSIDE the span
+ * being scanned. That is what makes it the worst kind of latent bug: rare
+ * enough to survive every test, and triggered by writing an ordinary English
+ * comment in the wrong place.
+ *
+ * A `/` OUTSIDE A STRING CANNOT BE DIVISION HERE. `//` is never a valid operator
+ * and these scanners only ever run over object and array literals, so treating
+ * both forms as comments is safe.
+ */
+function commentEnd(src, i) {
+  if (src[i] !== "/") return 0;
+  if (src[i + 1] === "/") {
+    const nl = src.indexOf("\n", i);
+    return (nl < 0 ? src.length : nl) - i;
+  }
+  if (src[i + 1] === "*") {
+    const close = src.indexOf("*/", i + 2);
+    return (close < 0 ? src.length : close + 2) - i;
+  }
+  return 0;
+}
+
 /** The index of the `}` closing the object that opens at `from`. */
 function braceEnd(src, from) {
   let depth = 0, quote = "", esc = false;
@@ -213,6 +252,8 @@ function braceEnd(src, from) {
       if (c === quote) quote = "";
       continue;
     }
+    const skip = commentEnd(src, i);
+    if (skip) { i += skip - 1; continue; }
     if (c === '"' || c === "'" || c === "`") { quote = c; continue; }
     if (c === "{" || c === "[" || c === "(") { depth++; continue; }
     if (c === "}" && depth === 1) return i;
@@ -232,6 +273,8 @@ function arrayEnd(src, from) {
       if (c === quote) quote = "";
       continue;
     }
+    const skip = commentEnd(src, i);
+    if (skip) { i += skip - 1; continue; }
     if (c === '"' || c === "'" || c === "`") { quote = c; continue; }
     if (c === "[" || c === "{" || c === "(") { depth++; continue; }
     if (c === "]" && depth === 1) return i;
@@ -413,6 +456,41 @@ export const NAV_TOOL = {
           "TRUE to take the button off the header entirely — \"drop the Book button\", \"we don't need a button up " +
           "there\". Leave it out otherwise; setting it alongside `action` is contradictory and the button is kept.",
       },
+      contact: {
+        type: "object",
+        description:
+          "THE DETAILS AT THE BOTTOM OF EVERY PAGE — the phone number, email address, postal address and opening " +
+          "line a visitor scrolls to the footer to find. Use this for \"put our number in the footer\", \"the " +
+          "address is wrong\", \"add our opening hours at the bottom\", \"we've moved\".\n" +
+          "NAME ONLY THE FIELDS THEY ASKED ABOUT. Everything you leave out stays exactly as it is — so changing a " +
+          "phone number is `{\"phone\": \"…\"}` and nothing else. Restating the address while you are in there is " +
+          "how a business ends up with the wrong one on every page of its site.\n" +
+          "AN EMPTY STRING TAKES A FIELD AWAY: `{\"hours\": \"\"}` for \"stop showing our opening times\".\n" +
+          "NEVER INVENT ONE. If they say to add a phone number and do not say what it is, leave this out entirely — " +
+          "a made-up number is worse than no number, because somebody rings it.\n" +
+          "This is the FOOTER. A number that belongs in the header as a call-now button is `action`, not this.",
+        properties: {
+          phone: {
+            type: "string",
+            description:
+              "Written the way they write it — \"0114 270 0000\", \"+44 20 7946 0000\". The tappable link is worked " +
+              "out from it, so do not reformat and do not add a country code they did not give you.",
+          },
+          email: { type: "string", description: "The address itself — \"hello@example.co.uk\". The mailto: link is added for you." },
+          address: {
+            type: "string",
+            description:
+              "The postal address, with a real newline between the lines: \"14 Cutler Row\\nSheffield S1 2AY\". " +
+              "It renders as written.",
+          },
+          hours: {
+            type: "string",
+            description:
+              "ONE LINE — \"Tue–Sun 12–10\", \"Mon–Fri 9–5.30\". A full day-by-day timetable is rows in a table on " +
+              "the page, not this; if they ask for one, leave this out.",
+          },
+        },
+      },
     },
   },
 };
@@ -432,7 +510,7 @@ const NAV_SYSTEM =
  * own. First-seen order, which is the order a visitor meets them on the home
  * page.
  */
-export function navDigest(slots, routes, actions, links) {
+export function navDigest(slots, routes, actions, links, contacts) {
   const lines = [];
   const seen = new Map();
   for (const s of Array.isArray(slots) ? slots : []) {
@@ -477,6 +555,19 @@ export function navDigest(slots, routes, actions, links) {
     }
   }
 
+  // WHAT THE FOOTER SAYS TODAY. Without it a one-field change is impossible to
+  // express safely: the model cannot tell "add an email" from "replace
+  // everything with an email", and the merge it has to reason about is the one
+  // this digest is describing. First slot that has anything, since every page
+  // carries the same object.
+  const con = (Array.isArray(contacts) ? contacts : []).map((c) => c.contact).find((c) => c && Object.keys(c).length);
+  lines.push("");
+  lines.push("THE FOOTER'S CONTACT DETAILS, on every page:");
+  if (!con) lines.push("  (none — the footer shows only the name, the tagline and the menu)");
+  else for (const f of CONTACT_FIELDS) {
+    if (typeof con[f] === "string" && con[f]) lines.push("  " + f + ": " + con[f].replace(/\n/g, " / "));
+  }
+
   lines.push("");
   lines.push("THE PAGES THIS SITE HAS — an item may point at any of these:");
   const list = [...new Set((Array.isArray(routes) ? routes : []).filter(Boolean))];
@@ -495,7 +586,7 @@ export function navDigest(slots, routes, actions, links) {
   return lines.join("\n");
 }
 
-export function navRequest({ instruction, slots, routes, actions, links }) {
+export function navRequest({ instruction, slots, routes, actions, links, contacts }) {
   return {
     model: NAV_MODEL,
     max_tokens: NAV_MAX_TOKENS,
@@ -504,7 +595,7 @@ export function navRequest({ instruction, slots, routes, actions, links }) {
     tool_choice: { type: "tool", name: NAV_TOOL.name },
     messages: [{
       role: "user",
-      content: navDigest(slots, routes, actions, links) + "\n\nWHAT THEY ASKED FOR:\n" + String(instruction || "").slice(0, 2000),
+      content: navDigest(slots, routes, actions, links, contacts) + "\n\nWHAT THEY ASKED FOR:\n" + String(instruction || "").slice(0, 2000),
     }],
   };
 }
@@ -558,6 +649,25 @@ export function readNav(reply, routes) {
   // with neither words nor a current destination to find it by, is dropped —
   // the second is a model that answered the field and not the question, and
   // applying it to every link on the site is the worst thing this lane could do.
+
+  // ── THE FOOTER'S CONTACT DETAILS ────────────────────────────────────────
+  //
+  // ONLY THE FIELDS NAMED, and only strings. An absent field means unchanged
+  // and an empty string means take it away, so the two must stay
+  // distinguishable all the way to `applyContact` — which is why a non-string
+  // is dropped rather than coerced. `String(["a"])` is `"a"`, and this writes
+  // into the footer of every page.
+  let contact = null;
+  const rc = input.contact;
+  if (rc && typeof rc === "object" && !Array.isArray(rc)) {
+    const picked = {};
+    for (const f of CONTACT_FIELDS) {
+      if (typeof rc[f] !== "string") continue;
+      picked[f] = rc[f].trim().slice(0, MAX_CONTACT_CHARS);
+    }
+    if (Object.keys(picked).length) contact = picked;
+  }
+
   const pageLinks = [];
   for (const c of Array.isArray(input.pageLinks) ? input.pageLinks : []) {
     if (!c || typeof c !== "object") continue;
@@ -574,8 +684,11 @@ export function readNav(reply, routes) {
     // reason it was refused, so a customer asking to point the button at a page
     // that does not exist was told "I couldn't work out what the menu should be"
     // — about a menu they never mentioned. Found by my own test.
-    if (!action && !removeAction && !dropped.length && !pageLinks.length) return null;
-    return { links: null, dropped, action, removeAction, pageLinks };
+    // `contact` COUNTS HERE. Without it a footer-only answer — which is the
+    // commonest shape this lane's newest field produces — fell out as `null`
+    // and the whole change was dropped before anything could apply it.
+    if (!action && !removeAction && !dropped.length && !pageLinks.length && !contact) return null;
+    return { links: null, dropped, action, removeAction, pageLinks, contact };
   }
   for (const it of raw) {
     if (!it || typeof it !== "object") continue;
@@ -592,7 +705,7 @@ export function readNav(reply, routes) {
     links.push({ label, href });
     if (links.length >= MAX_NAV_ITEMS) break;
   }
-  return { links, dropped, action, removeAction, pageLinks };
+  return { links, dropped, action, removeAction, pageLinks, contact };
 }
 
 /**
@@ -730,9 +843,30 @@ export function navUsage(reply) {
   };
 }
 
+/** "phone", "phone and email", "phone, email and address". */
+function humanList(fields) {
+  const words = fields.map((f) => (f === "hours" ? "opening hours" : f === "address" ? "address" : f));
+  if (words.length <= 1) return words[0] || "";
+  return words.slice(0, -1).join(", ") + " and " + words[words.length - 1];
+}
+
 /** What the customer is told, in their words rather than ours. */
-export function navReply({ links = [], dropped = [], changed = [], action = null, removedAction = false, moved = 0, refused = [] } = {}) {
+export function navReply({ links = [], dropped = [], changed = [], action = null, removedAction = false, moved = 0, refused = [], contact = null } = {}) {
   const where = changed.length + (changed.length === 1 ? " page" : " pages");
+
+  // THE FOOTER ON ITS OWN, before every other branch. Falling through would
+  // report a menu that did not change, and the customer has no way of knowing
+  // which of the two we actually did — the works-but-cannot-say-so disease.
+  // NAMES WHAT MOVED rather than printing the values back: an address is two
+  // lines and a phone number they just typed is not news.
+  if (contact && !links.length && !action && !removedAction && !moved) {
+    const set = CONTACT_FIELDS.filter((f) => typeof contact[f] === "string" && contact[f] !== "");
+    const cleared = CONTACT_FIELDS.filter((f) => contact[f] === "");
+    const said = [];
+    if (set.length) said.push("Updated the footer's " + humanList(set));
+    if (cleared.length) said.push("took the " + humanList(cleared) + " off it");
+    return "✅ " + said.join(", and ") + " — on " + where + ".";
+  }
   // THE BUTTON ON ITS OWN, when the menu was not part of the ask. Falling
   // through to the menu sentence would report a menu that did not change.
   // LINKS IN THE COPY, ON THEIR OWN. Falling through to the menu sentence
@@ -818,6 +952,7 @@ export async function runNavEdit(deps, { instruction, pages, routes } = {}) {
   const slots = navSlots(pages);
   const actions = actionSlots(pages);
   const links = linkSlots(pages);
+  const contacts = contactSlots(pages);
   // NOTHING TO EDIT IS THE ONLY THING THAT ESCALATES. A site with a button and
   // no menu, or links in the copy and no chrome at all, is still this lane's
   // work — sending it up costs a ~27-credit rewrite to do what this does free.
@@ -826,7 +961,7 @@ export async function runNavEdit(deps, { instruction, pages, routes } = {}) {
   }
 
   let reply;
-  try { reply = await deps.send(navRequest({ instruction, slots, routes, actions, links })); }
+  try { reply = await deps.send(navRequest({ instruction, slots, routes, actions, links, contacts })); }
   catch (e) { return { ok: false, escalate: false, reason: "send", error: e, usage: null }; }
   const usage = navUsage(reply);
 
@@ -834,7 +969,8 @@ export async function runNavEdit(deps, { instruction, pages, routes } = {}) {
   const wantsMenu = !!(read && read.links && read.links.length);
   const wantsButton = !!(read && (read.action || read.removeAction));
   const wantsLinks = !!(read && read.pageLinks && read.pageLinks.length);
-  if (!wantsMenu && !wantsButton && !wantsLinks) {
+  const wantsContact = !!(read && read.contact);
+  if (!wantsMenu && !wantsButton && !wantsLinks && !wantsContact) {
     // THE REASON TRAVELS EVEN WHEN NOTHING COULD BE APPLIED. `navReply({})` is
     // the honest answer only when the model said nothing usable at all; when it
     // named a button we had to refuse, the customer is owed the refusal.
@@ -848,7 +984,9 @@ export async function runNavEdit(deps, { instruction, pages, routes } = {}) {
   if (wantsButton) btn = applyAction(out.pages, read.action, read.removeAction);
   let lnk = { pages: btn.pages, changed: [], moved: 0, refused: [] };
   if (wantsLinks) lnk = applyPageLinks(btn.pages, read.pageLinks, routes);
-  const changed = [...new Set([...out.changed, ...btn.changed, ...lnk.changed])];
+  let con = { pages: lnk.pages, changed: [] };
+  if (wantsContact) con = applyContact(lnk.pages, read.contact);
+  const changed = [...new Set([...out.changed, ...btn.changed, ...lnk.changed, ...con.changed])];
 
   if (!changed.length) {
     return {
@@ -857,11 +995,14 @@ export async function runNavEdit(deps, { instruction, pages, routes } = {}) {
         ? "That's already the menu — nothing to change."
         : wantsButton
           ? "That's already what the button says and where it goes — nothing to change."
-          : linkRefusal(lnk.refused) || "Those links already point there — nothing to change.",
+          : wantsContact
+            ? "The footer already says that — nothing to change."
+            : linkRefusal(lnk.refused) || "Those links already point there — nothing to change.",
     };
   }
   return {
-    ok: true, pages: lnk.pages, changed,
+    ok: true, pages: con.pages, changed,
+    contact: wantsContact ? read.contact : null,
     links: wantsMenu ? read.links : null,
     action: read.action || null, removedAction: !!read.removeAction,
     movedLinks: lnk.moved, refusedLinks: lnk.refused,
@@ -870,6 +1011,7 @@ export async function runNavEdit(deps, { instruction, pages, routes } = {}) {
       links: wantsMenu ? read.links : [], action: read.action,
       removedAction: !!read.removeAction, dropped: read.dropped, changed,
       moved: lnk.moved, refused: lnk.refused,
+      contact: wantsContact ? read.contact : null,
     }),
   };
 }
@@ -925,6 +1067,171 @@ export function applyAction(pages, action, remove) {
         continue;
       }
       src = src.slice(0, s.inner.at) + body.slice(1, -1) + src.slice(s.inner.to);
+    }
+    if (src === p.source) return p;
+    changed.push(p.path);
+    return { ...p, source: src };
+  });
+  return { pages: next, changed };
+}
+
+/**
+ * THE FOOTER'S CONTACT DETAILS — the phone, email, address and opening line the
+ * bottom of every page carries.
+ *
+ * WHY THIS LANE AND NOT A NEW ONE. It is the same operation `action` already is:
+ * one object, spread into every page, changed everywhere at once. The `page`
+ * lane is explicitly the wrong home — it edits ONE page, and a footer that
+ * differs between pages is the inconsistency its own description warns about.
+ *
+ * AND WITHOUT IT THE SLOTS WERE REACHABLE ONLY BY A FRESH BUILD. `SiteChrome`
+ * gained `contact` on 2026-08-18; the generator fills it on a new site, and
+ * every site published before that could never get a phone number in its footer
+ * short of a ~27-credit rewrite. That is the on-disk-and-reachable-by-nothing
+ * shape this repo has deleted 289 files over.
+ *
+ * FIELD-LEVEL MERGE, because absent means unchanged everywhere else in this
+ * codebase and the alternative is vicious: "change the phone number" replacing
+ * the whole object wipes the address and the opening hours, and the customer
+ * finds out when somebody cannot find the shop. An EMPTY STRING is the removal
+ * verb, so a field can still be taken away.
+ */
+export const CONTACT_FIELDS = ["phone", "email", "address", "hours"];
+
+/** The `key: "value"` pairs of a contact object literal, as a plain map. */
+export function readContact(body) {
+  const out = {};
+  for (const f of CONTACT_FIELDS) {
+    // The value is a JSON string in the source, so JSON.parse gives back the
+    // real text — including a `\n` in an address, which must stay a newline and
+    // not become a literal backslash on the way through.
+    const m = new RegExp(`\\b${f}\\s*:\\s*("(?:[^"\\\\]|\\\\.)*")`).exec(String(body || ""));
+    if (!m) continue;
+    try { out[f] = JSON.parse(m[1]); } catch { /* not a plain string — leave it out */ }
+  }
+  return out;
+}
+
+/** Where each page's contact object is, or where one would go. */
+export function contactSlots(pages) {
+  const out = [];
+  for (const p of Array.isArray(pages) ? pages : []) {
+    if (!p || typeof p.path !== "string" || typeof p.source !== "string") continue;
+    const src = p.source;
+
+    for (const m of src.matchAll(/<Site(?:Chrome|Header)\b/g)) {
+      const end = tagEnd(src, m.index);
+      if (end < 0) continue;
+      const tag = src.slice(m.index, end);
+      const a = /\bcontact=\{\{/.exec(tag);
+      if (!a) {
+        // A SPREAD TAG IS NOT AN INSERTION POINT — `actionSlots` learned this by
+        // being driven against the reference pages: a prop written before a
+        // spread is overridden by it, so the insert would compile, publish and
+        // change nothing.
+        if (/\{\s*\.\.\./.test(tag)) continue;
+        out.push({ page: p.path, kind: "jsx", insertAt: m.index + m[0].length, contact: null });
+        continue;
+      }
+      const from = m.index + a.index + a[0].length - 1;
+      const close = braceEnd(src, from);
+      if (close < 0) continue;
+      out.push({
+        page: p.path, kind: "jsx",
+        at: m.index + a.index, to: close + 2,
+        contact: readContact(src.slice(from + 1, close)),
+      });
+    }
+
+    const cm = /const CHROME\s*=\s*\{/.exec(src);
+    if (cm) {
+      const objAt = cm.index + cm[0].length - 1;
+      const objEnd = braceEnd(src, objAt);
+      if (objEnd > 0) {
+        const body = src.slice(objAt + 1, objEnd);
+        const a = /\bcontact:\s*\{/.exec(body);
+        if (!a) {
+          out.push({ page: p.path, kind: "obj", insertAt: objAt + 1, contact: null });
+        } else {
+          const from = objAt + 1 + a.index + a[0].length - 1;
+          const close = braceEnd(src, from);
+          if (close > 0) {
+            out.push({
+              page: p.path, kind: "obj",
+              // Runs to the comma, so a full removal leaves no `contact: {},`
+              // behind — the source is stored and re-read on every later edit.
+              at: objAt + 1 + a.index,
+              to: src[close + 1] === "," ? close + 2 : close + 1,
+              contact: readContact(src.slice(from + 1, close)),
+            });
+          }
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/** `{ phone: "…", … }` as it should appear in the source, or "" for nothing. */
+function contactBody(fields) {
+  const parts = CONTACT_FIELDS
+    .filter((f) => typeof fields[f] === "string" && fields[f] !== "")
+    .map((f) => `${f}: ${JSON.stringify(fields[f])}`);
+  return parts.length ? `{ ${parts.join(", ")} }` : "";
+}
+
+/**
+ * Write the contact details into every page's chrome.
+ *
+ * BACK TO FRONT, PER FILE, for the reason `applyNav` states: each write changes
+ * the length of the source, so a forward pass lands every later offset in
+ * whatever moved into it.
+ */
+export function applyContact(pages, change) {
+  const asked = CONTACT_FIELDS.filter((f) => typeof (change || {})[f] === "string");
+  if (!asked.length) return { pages: Array.isArray(pages) ? pages : [], changed: [] };
+
+  const byPage = new Map();
+  for (const s of contactSlots(pages)) {
+    if (!byPage.has(s.page)) byPage.set(s.page, []);
+    byPage.get(s.page).push(s);
+  }
+
+  const changed = [];
+  const next = (Array.isArray(pages) ? pages : []).map((p) => {
+    const mine = byPage.get(p && p.path);
+    if (!mine || !mine.length) return p;
+    let src = p.source;
+    for (const s of [...mine].sort((a, b) => (b.at ?? b.insertAt) - (a.at ?? a.insertAt))) {
+      // ABSENT MEANS UNCHANGED, so the merge starts from what is already there.
+      const merged = { ...(s.contact || {}) };
+      for (const f of asked) merged[f] = change[f];
+      const body = contactBody(merged);
+
+      // NOTHING TO DO IS NOT A CHANGE. The writer re-serialises the whole
+      // object, so without this an answer restating what is already there
+      // rewrites every page, runs the container and cuts a version — and the
+      // customer is told it worked when nothing moved. Compared on the SERIALISED
+      // form, which is the only thing that reaches the file.
+      if (s.contact && body === contactBody(s.contact)) continue;
+
+      if (!s.contact) {
+        // Nothing there yet, and nothing to write: asking to clear a field on a
+        // site that has no contact block at all is a no-op, not a failure.
+        if (!body) continue;
+        src = src.slice(0, s.insertAt) +
+          (s.kind === "jsx" ? " contact={" + body + "}" : " contact: " + body + ",") +
+          src.slice(s.insertAt);
+        continue;
+      }
+      if (!body) {
+        const from = s.at > 0 && src[s.at - 1] === " " ? s.at - 1 : s.at;
+        src = src.slice(0, from) + src.slice(s.to);
+        continue;
+      }
+      src = src.slice(0, s.at) +
+        (s.kind === "jsx" ? "contact={" + body + "}" : "contact: " + body + ",") +
+        src.slice(s.to);
     }
     if (src === p.source) return p;
     changed.push(p.path);

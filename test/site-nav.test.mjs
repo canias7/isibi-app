@@ -428,7 +428,12 @@ test("the router's layer description names the menu and points a new page at add
   assert.ok(at > 0, "the nav layer has a description");
   const window = src.slice(at, src.indexOf('"\\"page\\" —', at));
   assert.ok(window.length > 100, "the window reaches the next layer");
-  assert.match(window, /THE TOP OF EVERY PAGE/);
+  // THE PROPERTY, NOT THE SPELLING. This was pinned to the exact phrase "THE TOP
+  // OF EVERY PAGE" and went red on a correct change — the lane grew the footer's
+  // contact details, which are at the BOTTOM, so the headline had to stop
+  // claiming the top. What it must say is that this lane is the same on every
+  // page, since that is the fact separating it from `page`.
+  assert.match(window, /every[- ]page/i);
   assert.match(window, /THE MENU — which items are in it/);
   // An item can only point at a page that exists, so "add a gallery to the
   // menu" with no gallery page is an addon and must say so here.
