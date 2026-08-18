@@ -1583,8 +1583,20 @@ test("A FAILED LOOK COMPILE PUTS THE STORED LOOK BACK", () => {
   // AND THE TWO PATCHES WITH IT. They are separate `_meta` keys precisely so a
   // colour change cannot lose a logo, which means a rollback that puts only the
   // look back leaves the colours and the axes moved.
-  assert.match(before, /\["site_tokens", priorTokens\], \["site_style", priorStyle\]/,
-    "the token and style patches are not rolled back with the look");
+  // ASSERTED AS A PROPERTY, NOT A SPELLING. This pinned the exact two-entry
+  // list and went red the moment a THIRD patch key was rolled back with them —
+  // a test about word order, which is this repo's most repeated own-goal. What
+  // has to hold is that every `_meta` key the look lane WRITES is also one it
+  // puts back, derived from the lane itself so a fourth is covered without
+  // anybody remembering this file.
+  const written = [...b.slice(from).matchAll(/INSERT INTO _meta \(k,v\) VALUES \('([a-z_]+)'/g)]
+    .map((m) => m[1]).filter((k) => k !== "site_look");
+  assert.ok(written.length >= 2, "the look lane's writes are no longer visible to this scan");
+  const rolled = (/for \(const \[k, v\] of \[([^\]]*\]\s*)+\]\)/.exec(before) || [""])[0];
+  for (const k of new Set(written)) {
+    assert.ok(rolled.includes('"' + k + '"'),
+      "the look lane writes `" + k + "` and a failed compile does not put it back");
+  }
   // ABSENT MEANS DELETED, not an empty object. A site that had no tokens must
   // not gain a `{}` row that later reads as "a patch exists".
   assert.match(before, /DELETE FROM _meta WHERE k = \?/,

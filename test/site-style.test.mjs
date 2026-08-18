@@ -422,7 +422,14 @@ test("EVERY CONTAINER PAYLOAD CARRIES THE PATCH", () => {
   assert.equal(payloads.length, 2, "found " + payloads.length + " container payloads — the scan is broken");
   assert.notEqual(payloads[0].index, payloads[1].index, "the scan is reading one payload twice");
   for (const p of payloads) {
-    const after = worker.slice(p.index, p.index + 900);
+    // RUN TO A LANDMARK, NOT A BYTE COUNT. This was `+ 900` and went red on a
+    // correct change the moment a documented field was added between the two
+    // lines — a window sized in bytes stops covering what it was written for as
+    // soon as a comment lands inside it, which this repo has recorded three
+    // times. `worker: true` closes both payloads.
+    const end = worker.indexOf("worker: true", p.index);
+    assert.ok(end > p.index, "the container payload no longer ends the way this scan expects");
+    const after = worker.slice(p.index, end);
     assert.match(after, /style: Object\.keys\(style \|\| \{\}\)\.length \? style : undefined/,
       "a container payload sends the colours and not the rest of the look");
   }
@@ -503,8 +510,14 @@ test("A LOOK EDIT COUNTS IT AS A CHANGE", () => {
   // — a test about statement shape failing a correct change, for the fifth time
   // in this repo. What must hold is that `styleMoved` is one of the three things
   // the nothing-moved test asks about, whatever the branch below it does.
-  assert.match(worker, /if \(!moved\.length && !tokensMoved && !styleMoved\)/,
-    "a style-only edit is no longer counted as a change, so it escalates as though nothing had been asked for");
+  // …AND THE PIN WENT RED AGAIN when a FOURTH thing joined the condition, which
+  // is the same lesson one turn later. Asserted as MEMBERSHIP now: `styleMoved`
+  // has to be one of the terms, and the branch may ask about as many others as
+  // it needs to.
+  const cond = /if \(([^)]*!styleMoved[^)]*)\) \{/.exec(worker);
+  assert.ok(cond, "a style-only edit is no longer counted as a change, so it escalates as though nothing had been asked for");
+  assert.match(cond[1], /!moved\.length/, "the nothing-moved test stopped asking about the look fields");
+  assert.match(cond[1], /!tokensMoved/, "the nothing-moved test stopped asking about the colours");
 });
 
 test("AN ASK THAT IS ALREADY SATISFIED IS ANSWERED, NOT ESCALATED", () => {
@@ -518,7 +531,9 @@ test("AN ASK THAT IS ALREADY SATISFIED IS ANSWERED, NOT ESCALATED", () => {
   // not express this", which is what the escalation was written for and must
   // stay. Both halves asserted, because keeping only the first turns every
   // unexpressible look ask into a dead end.
-  const at = worker.indexOf("if (!moved.length && !tokensMoved && !styleMoved)");
+  // ANCHORED ON THE PROPERTY, not on the exact list of terms — the same pin
+  // one test up went red the moment a fourth thing was counted as a change.
+  const at = worker.search(/if \([^)]*!styleMoved[^)]*\) \{/);
   assert.ok(at > 0, "the nothing-moved branch moved — rescope this");
   const block = worker.slice(at, worker.indexOf("\n              try {", at));
   assert.match(block, /const named = EDIT_FIELDS\.some\(\(k\) => designed && hasValue\(designed\[k\]\)\)/,

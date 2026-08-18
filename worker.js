@@ -52,7 +52,7 @@ import { imageBudget, budgetFor, imagesAffordable, planImages, applyImages, coun
 import { renderNote } from "./builder/site-render.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
 import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker } from "./builder/site-dispatch.mjs";
-import { ASKABLE as SITE_TOKEN_NAMES, valueHint as siteTokenHint, mergeTokens, parseTokens, withContrast, tokenNote, saidFor as tokenSaid } from "./builder/site-tokens.mjs";
+import { ASKABLE as SITE_TOKEN_NAMES, valueHint as siteTokenHint, mergeTokens, parseTokens, withContrast, tokenNote, saidFor as tokenSaid, routeSelectorOk, MAX_PAGE_TOKENS } from "./builder/site-tokens.mjs";
 import { ASKABLE as SITE_STYLE_AXES, optionsFor as siteStyleOptions, axisHint as siteStyleHint, mergeStyle, parseStyle, styleNote, saidFor as styleSaid } from "./builder/site-style.mjs";
 import { extractText, applyEdits, staleContactLinks } from "./builder/site-text.mjs";
 import { runTextEdit, runDataEdit, renamePages, renameRoute, MAX_DATA_ROWS } from "./builder/site-apply.mjs";
@@ -4027,6 +4027,28 @@ const SITE_SCHEMA_TOOL = {
             + (SITE_STYLE_AXES.includes(t) ? " — the COLOUR only; for its weight or style use `style." + t + "`" : ""),
         }])),
       },
+      // ONE PAGE, RATHER THAN THE WHOLE SITE.
+      //
+      // The look was site-wide — one `site_look` row, one `site_tokens` row —
+      // so "make the booking page calmer" was unreachable at any price: not by
+      // typing, and not by paying for a rebuild either, because there was no
+      // scope to write it into.
+      //
+      // ABSENT MEANS THE WHOLE SITE, which is what every existing edit relies
+      // on, so a colour change that does not name a page behaves exactly as it
+      // did before this existed. A field that defaulted to a page instead would
+      // silently narrow every site-wide colour change ever made.
+      tokensPage: {
+        type: "string",
+        description:
+          "ONLY when the colours above are meant for ONE PAGE rather than the whole site — \"make the booking " +
+          "page darker\", \"the about page should feel calmer\", \"give the menu page a warm background\". " +
+          "The page's path exactly as listed above: \"/book\", \"/\" for the home page.\n" +
+          "LEAVE IT OUT FOR THE WHOLE SITE, which is what nearly every colour change means. Naming a page when " +
+          "they meant the site leaves every other page unchanged and reads as the change having half worked.\n" +
+          "COLOURS ONLY. `style` and everything else here is the site's, so a request that is not about this " +
+          "page's colours does not belong with a page name.",
+      },
       // THE REST OF THE LOOK — the twelve decisions a theme makes that are not
       // colours, and that until now no customer could reach. Ask for square
       // buttons and one of two things happened: nothing, or the whole theme was
@@ -7052,8 +7074,42 @@ function compileMsg(pub, theirs) {
     : theirs;
 }
 
+/**
+ * ONE PAGE'S OWN COLOURS, ready for the container.
+ *
+ * ONE READER, SHARED BY BOTH PUBLISH PATHS. The cheap-edit spine and the build
+ * path both send this, and two copies of "what does a stored page override mean"
+ * is two things that can disagree — with the failure landing on whichever path
+ * the customer happened to take.
+ *
+ * `withContrast` RUNS PER PAGE, which is the whole reason this is a function
+ * rather than the stored object passed through. A page moved onto a dark ground
+ * needs ITS OWN readable text colour; derived once for the site, every line of
+ * body copy on that page stays in the light theme's dark grey — measured as a
+ * real bug when the site-wide patch shipped, and this is the same failure one
+ * scope down.
+ *
+ * A PATH THAT CANNOT GO IN A SELECTOR IS DROPPED rather than escaped, and the
+ * container refuses it a second time: the value ends up inside an attribute
+ * selector, where a quote closes the rule and there is no correct escape for
+ * arbitrary text. Bounded here as well as there because this is the layer that
+ * knows how many pages a site has.
+ */
+function pageTokensFor(stored) {
+  const map = stored && typeof stored === "object" && !Array.isArray(stored) ? stored : {};
+  const out = {};
+  for (const [path, tokens] of Object.entries(map).slice(0, MAX_PAGE_TOKENS)) {
+    if (!routeSelectorOk(path)) continue;
+    if (!tokens || typeof tokens !== "object" || !Object.keys(tokens).length) continue;
+    out[path] = withContrast(tokens);
+  }
+  // UNDEFINED RATHER THAN AN EMPTY OBJECT, so a build that never asked for one
+  // sends the request it sent before this existed.
+  return Object.keys(out).length ? out : undefined;
+}
+
 async function recompileAndPublish(env, { slug, pages, label, renamed = null }) {
-  let look = null, tokens = null, style = null, logo = "", icon = "";
+  let look = null, tokens = null, pageTokens = null, style = null, logo = "", icon = "";
   try {
     // `siteBackendBySlug` RETURNS THE CONNECTION STRING, not a record. This read
     // `conn && conn.conn`, which is `undefined` for a string — so the `_meta`
@@ -7071,10 +7127,18 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
     // reported as success, and archived to version history — for a site that
     // is deleted or unresolvable. Same rule as the catch below.
     if (!db) return { ok: false, error: "read", ours: true, detail: "no backend recorded for " + slug + " — the stored look could not be read" };
-    const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_style','site_logo','site_icon')");
+    const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_page_tokens','site_style','site_logo','site_icon')");
     for (const r of rows || []) {
       if (r.k === "site_look" && r.v) look = JSON.parse(r.v);
       if (r.k === "site_tokens" && r.v) tokens = JSON.parse(r.v);
+      // ONE PAGE'S OWN COLOURS. Its own `_meta` key rather than a field on
+      // `site_tokens`, for the reason `site_logo` is separate: `mergeTokens`
+      // rebuilds its output from the token names alone and drops anything else
+      // stored there, so a customer changing a site colour would silently lose
+      // every page override they had. READ HERE OR EVERY RECOMPILE UNDOES IT —
+      // a text fix would republish the site with every page back on the site's
+      // colours, which is the `site_logo` failure one scope down.
+      if (r.k === "site_page_tokens" && r.v) pageTokens = JSON.parse(r.v);
       // READ HERE OR EVERY RECOMPILE UNDOES IT, exactly as `site_logo` below.
       // The container merges this into the theme on EVERY build — it has to,
       // or one site's look decisions leak onto the next — so a path that does
@@ -7148,6 +7212,12 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
           fonts: { heading: pair.heading.id, body: pair.body.id },
           theme: (look && look.theme) || null,
           tokens: Object.keys(tokens || {}).length ? withContrast(tokens) : undefined,
+          // `withContrast` PER PAGE, not once for the site: a page put on a dark
+          // ground needs ITS OWN derived foregrounds, and deriving them from the
+          // site's colours leaves every line of body copy on that page in the
+          // light theme's dark grey — the exact failure the site-wide patch was
+          // fixed for, one scope down.
+          pageTokens: pageTokensFor(pageTokens),
           style: Object.keys(style || {}).length ? style : undefined,
           // THE SCRIPT IS REPACKAGED ON EVERY CHEAP EDIT, and it has to be.
           // The script bakes in the shell — which names this build's
@@ -7271,7 +7341,7 @@ async function siteOgImage(env, slug) {
   } catch (e) { console.error("og image lookup failed:", slug, e && e.message); return null; }
 }
 
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, fonts, theme, tokens, style, family, structure, lang, logo, attachments, priorUsage, model, revise, changeNote, priorPages, mark }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, fonts, theme, tokens, pageTokens, style, family, structure, lang, logo, attachments, priorUsage, model, revise, changeNote, priorPages, mark }) {
   // Resolved once, before any model call: the pair always lands on something
   // installed, so a build never waits on a font it cannot get.
   const fontPair = resolvePair(fonts || {});
@@ -7386,6 +7456,11 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
           // what is stored stays what the customer asked for and the readable
           // text colour follows whatever the surface currently is.
           tokens: Object.keys(tokens || {}).length ? withContrast(tokens) : undefined,
+          // AND ONE PAGE'S OWN, scoped by the container to `body[data-page=…]`.
+          // `withContrast` runs PER PAGE for the reason it runs at all: a page
+          // on a dark ground needs its own readable text colour, and the site's
+          // would leave every line of body copy there in the light theme's grey.
+          pageTokens: pageTokensFor(pageTokens),
           // THE REST OF THE LOOK, sent as the axes the customer named rather
           // than as a resolved theme. The container merges them INTO the theme
           // before rendering it — every axis emitter already reads its value off
@@ -11543,13 +11618,18 @@ async function handleRequest(request, env, ctx) {
       // goes. Best-effort in both directions — losing it re-rolls the look, which
       // is exactly today's behaviour, so it can never be worse than what it
       // replaces.
-      let priorLook = null, priorTokens = null, priorStyle = null, priorLogo = "", priorIcon = "";
+      let priorLook = null, priorTokens = null, priorPageTokens = null, priorStyle = null, priorLogo = "", priorIcon = "";
       if (priorBrief) {
         try {
-          const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_style','site_logo','site_icon')");
+          const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_page_tokens','site_style','site_logo','site_icon')");
           for (const r of rows || []) {
             if (r.k === "site_look" && r.v) priorLook = JSON.parse(r.v);
             if (r.k === "site_tokens" && r.v) priorTokens = JSON.parse(r.v);
+            // READ HERE FOR THE REASON THE LOGO IS. A revise that does not send
+            // the stored per-page colours sends nothing, and nothing means every
+            // page is back on the site's — silently, on a build the customer
+            // asked for something else entirely.
+            if (r.k === "site_page_tokens" && r.v) priorPageTokens = JSON.parse(r.v);
             if (r.k === "site_style" && r.v) priorStyle = JSON.parse(r.v);
             // READ HERE OR A REVISE TAKES THE LOGO OFF. The container writes
             // `site-brand.ts` on EVERY build — it has to, or one site's logo
@@ -11762,6 +11842,7 @@ async function handleRequest(request, env, ctx) {
             fonts: look.fonts,
             theme: look.theme,
             tokens: siteTokens,
+            pageTokens: priorPageTokens,
             style: siteStyle,
             family: look.family,
             structure: look.structure,
@@ -12880,12 +12961,13 @@ async function handleRequest(request, env, ctx) {
               // where reading a `.conn` off it silently disabled the whole look.
               const edb = await siteBackendBySlug(env, ownerSlug);
               if (!edb) return escalate("no-backend");
-              let priorLook = null, priorTokens = null, priorStyle = null, eSchema = null;
+              let priorLook = null, priorTokens = null, priorPageTokens = null, priorStyle = null, eSchema = null;
               try {
-                const rows = await sqlQuery(edb, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_style','schema')");
+                const rows = await sqlQuery(edb, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_page_tokens','site_style','schema')");
                 for (const r of rows || []) {
                   if (r.k === "site_look" && r.v) priorLook = JSON.parse(r.v);
                   if (r.k === "site_tokens" && r.v) priorTokens = JSON.parse(r.v);
+                  if (r.k === "site_page_tokens" && r.v) priorPageTokens = JSON.parse(r.v);
                   if (r.k === "site_style" && r.v) priorStyle = JSON.parse(r.v);
                   if (r.k === "schema" && r.v) eSchema = JSON.parse(r.v);
                 }
@@ -12924,8 +13006,36 @@ async function handleRequest(request, env, ctx) {
 
               const merged = mergeLook(priorLook, designed, {}, { instructed: true });
               const moved = movedFields(priorLook, merged);
-              const nextTokens = mergeTokens(priorTokens, designed && designed.tokens);
+              // ── WHOSE COLOURS ARE THESE? ────────────────────────────────
+              //
+              // ABSENT MEANS THE WHOLE SITE, which is what every colour change
+              // ever made relies on — so a named page is the narrow case and
+              // the default is untouched. A path the site does not have is
+              // IGNORED rather than stored: a selector for a page nobody can
+              // reach is a change reported as applied that no visitor sees, and
+              // the customer's colours would sit in `_meta` forever.
+              const eRoutes = (eSrc || []).map((p) => routeOf(p && p.path)).filter(Boolean);
+              const askedPage = typeof (designed && designed.tokensPage) === "string"
+                ? designed.tokensPage.trim() : "";
+              const forPage = askedPage && routeSelectorOk(askedPage) && eRoutes.includes(askedPage) ? askedPage : "";
+
+              // The SITE's colours move only when no page was named.
+              const nextTokens = forPage ? (priorTokens || {}) : mergeTokens(priorTokens, designed && designed.tokens);
               const tokensMoved = JSON.stringify(nextTokens) !== JSON.stringify(priorTokens || {});
+              // …and the page's move only when one was, ACCUMULATED like the
+              // site's: a later edit names one colour, and everything it does
+              // not mention has to survive.
+              const nextPageTokens = { ...(priorPageTokens || {}) };
+              if (forPage) {
+                const mergedPage = mergeTokens(nextPageTokens[forPage], designed && designed.tokens);
+                // A page whose overrides all went back to the theme's keeps no
+                // entry at all, so a site put back is byte-identical to one that
+                // never had a page override — the rule every other removal here
+                // lives under.
+                if (Object.keys(mergedPage).length) nextPageTokens[forPage] = mergedPage;
+                else delete nextPageTokens[forPage];
+              }
+              const pageTokensMoved = JSON.stringify(nextPageTokens) !== JSON.stringify(priorPageTokens || {});
               const nextStyle = mergeStyle(priorStyle, designed && designed.style);
               const styleAsk = parseStyle(designed && designed.style);
               const tokenAsk = parseTokens(designed && designed.tokens);
@@ -12947,7 +13057,7 @@ async function handleRequest(request, env, ctx) {
               // page rewrite that cannot put square buttons on anything either —
               // the rung above recompiles from the same stored look. The whole
               // point of this lane is that a look change costs one cheap call.
-              if (!moved.length && !tokensMoved && !styleMoved) {
+              if (!moved.length && !tokensMoved && !styleMoved && !pageTokensMoved) {
                 // NOTHING MOVED HAS TWO CAUSES AND ONLY ONE OF THEM IS AN
                 // ESCALATION, which is what this used to miss. Every escalation
                 // falls through to the full revise by contract, so an ask that
@@ -12963,7 +13073,12 @@ async function handleRequest(request, env, ctx) {
                 // the case the escalation was written for and is left exactly
                 // as it was.
                 const named = EDIT_FIELDS.some((k) => designed && hasValue(designed[k]))
-                  || hasValue(designed && designed.tokens) || hasValue(designed && designed.style);
+                  || hasValue(designed && designed.tokens) || hasValue(designed && designed.style)
+                  // A PAGE NAMED WITH COLOURS IS SOMETHING NAMED. Without this a
+                  // page colour that changed nothing reads as "I could not
+                  // express this" and buys a ~27-credit rebuild that cannot
+                  // scope a colour to one page either.
+                  || hasValue(designed && designed.tokensPage);
                 if (!named) return escalate("no-change");
                 return Response.json({
                   ok: true, layer: "look", moved: [], tokens: [], style: [], renamed: 0,
@@ -12985,6 +13100,16 @@ async function handleRequest(request, env, ctx) {
                 if (Object.keys(nextStyle).length) {
                   await sqlQuery(edb, "INSERT INTO _meta (k,v) VALUES ('site_style', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v",
                     [JSON.stringify(nextStyle)]);
+                }
+                // WRITTEN WHENEVER IT MOVED, INCLUDING TO NOTHING. The three
+                // above are gated on being non-empty, which is right for them —
+                // they only ever grow. This one can go back to `{}` when the
+                // last page override is put back to the theme's colours, and
+                // gated the same way that write would be skipped and the site
+                // would keep the override it was just told to drop.
+                if (pageTokensMoved) {
+                  await sqlQuery(edb, "INSERT INTO _meta (k,v) VALUES ('site_page_tokens', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v",
+                    [JSON.stringify(nextPageTokens)]);
                 }
               } catch (e) {
                 // Nothing has been published yet, so the site is exactly as it
@@ -13044,7 +13169,12 @@ async function handleRequest(request, env, ctx) {
                 try {
                   await sqlQuery(edb, "INSERT INTO _meta (k,v) VALUES ('site_look', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v",
                     [JSON.stringify(priorLook)]);
-                  for (const [k, v] of [["site_tokens", priorTokens], ["site_style", priorStyle]]) {
+                  // THE ROLLBACK HAS TO KNOW ABOUT IT TOO, or a failed compile
+                  // leaves the page override waiting to be applied by the
+                  // customer's next unrelated edit — silently, under a version
+                  // label naming a typo they were fixing. The same reason the
+                  // other two are here.
+                  for (const [k, v] of [["site_tokens", priorTokens], ["site_page_tokens", priorPageTokens], ["site_style", priorStyle]]) {
                     if (v && Object.keys(v).length) {
                       await sqlQuery(edb, "INSERT INTO _meta (k,v) VALUES (?, ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v", [k, JSON.stringify(v)]);
                     } else {
@@ -13074,6 +13204,15 @@ async function handleRequest(request, env, ctx) {
                 // say "Updated the look — popover, heading colour" about two
                 // changes described the same way.
                 tokens: tokensMoved ? Object.keys(nextTokens).map((k) => tokenSaid(k)) : [],
+                // A PAGE COLOUR IS REPORTED IN THE SAME LIST, and it has to be
+                // or the reply says "Updated the look" with nothing named — the
+                // works-but-cannot-say-so shape. `tokensPage` says WHICH page,
+                // so the customer can tell a scoped change from a site-wide one
+                // and knows to go and look at that page rather than the home.
+                ...(forPage ? {
+                  tokens: Object.keys(nextPageTokens[forPage] || {}).map((k) => tokenSaid(k)),
+                  tokensPage: forPage,
+                } : {}),
                 // PLAIN NAMES, not the axis keys. The client joins this straight
                 // into its sentence and cannot import the module that knows what
                 // `display` means, so raw keys would print "Updated the look —

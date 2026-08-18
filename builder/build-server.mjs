@@ -26,7 +26,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { resolvePair, fontCss, fontImports } from "./site-fonts.mjs";
 import { themeCss } from "./site-theme.mjs";
 import { resolveTheme } from "./site-theme-registry.mjs";
-import { tokensCss, stripThemeRadius, validForWrite } from "./site-tokens.mjs";
+import { tokensCss, pageTokensCss, stripThemeRadius, validForWrite } from "./site-tokens.mjs";
 import { applyStyle, explicitRadiusCss } from "./site-style.mjs";
 import { initialsMark, normalizeLang, siteIconFrom } from "./site-identity.mjs";
 import { exitReason } from "./exit-reason.mjs";
@@ -528,6 +528,30 @@ function writeTokens(tokens) {
   return { applied: true, notes: [] };
 }
 
+// ONE PAGE'S OWN COLOURS, written AFTER the site's.
+//
+// The same later-wins mechanism `writeTokens` runs on, one scope down: these are
+// the same custom properties, under `body[data-page="/book"]`, which `__root.tsx`
+// stamps. Appended last so ordering agrees with specificity rather than fighting
+// it — though `body[…]` is (0,1,1) against `:root`'s (0,1,0), so it would win
+// either way, which is deliberate: an append order is one refactor from changing.
+//
+// FAILS SOFT like both writes above it, and for the same reason: a site whose
+// pages compiled must not be lost because one page's colour could not be
+// written. `pageTokensCss` returns "" for an empty or unusable map, so a build
+// that never asked for one writes nothing and its stylesheet is byte-identical.
+function writePageTokens(pageTokens) {
+  let css;
+  try { css = pageTokensCss(pageTokens); }
+  catch { return { applied: false, notes: ["Those page colours could not be applied, so every page kept the site's."] }; }
+  if (!css) return { applied: false, notes: [] };
+  let base;
+  try { base = fs.readFileSync(STYLES, "utf8"); }
+  catch { return { applied: false, notes: ["Those page colours could not be applied, so every page kept the site's."] }; }
+  fs.writeFileSync(STYLES, base + "\n" + css);
+  return { applied: true, notes: [] };
+}
+
 // One build at a time. Not an optimisation — a correctness requirement.
 //
 // `getContainer(env.SITE_BUILD_CONTAINER)` is called with no id, so EVERY build
@@ -608,6 +632,8 @@ const server = http.createServer((req, res) => {
       const themeUsed = writeTheme(payload.theme, { dropRadius: wantsRadius, style: payload.style });
       // AFTER the theme, never before — later wins, and that IS the override.
       const tokensUsed = writeTokens(payload.tokens);
+      // AND AFTER THOSE, one page's own. Same mechanism, one scope down.
+      const pageTokensUsed = writePageTokens(payload.pageTokens);
       let wrote = 0;
       for (const [rel, content] of Object.entries(files)) {
         const safe = safeRoute(rel);
@@ -749,7 +775,7 @@ const server = http.createServer((req, res) => {
       // list for it would read to every caller as "the prerender ran and
       // produced nothing" — the one state that used to mean every page of the
       // site published blank. An absent field says the step is absent.
-      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, fonts: fontsUsed, theme: themeUsed, tokens: tokensUsed, brand: brandUsed, render, worker });
+      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, fonts: fontsUsed, theme: themeUsed, tokens: tokensUsed, pageTokens: pageTokensUsed, brand: brandUsed, render, worker });
     } catch (e) {
       return send(res, 200, { ok: false, stage: "build", error: String((e && e.message) || e).slice(0, 2000), ms: Date.now() - t0, ...times });
     }

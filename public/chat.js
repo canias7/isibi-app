@@ -11681,7 +11681,11 @@ function editReply(e) {
     // `display` means the heading colour.
     const style = (Array.isArray(e.style) ? e.style : []).slice(0, 4);
     const bits = moved.map(function (k) { return SAY[k] || k; }).concat(tokens, style);
-    let out = '✅ Updated the look' + (bits.length ? ' — ' + bits.join(', ') : '') + '.';
+    // WHICH PAGE, when it was one page rather than the site. Without it a
+    // scoped change and a site-wide one read identically — and the customer
+    // goes and looks at the home page, sees nothing, and concludes it failed.
+    var where = typeof e.tokensPage === 'string' && e.tokensPage ? ' on ' + e.tokensPage : '';
+    let out = '✅ Updated the look' + (bits.length ? ' — ' + bits.join(', ') : '') + where + '.';
     // A RENAME REACHES THE PAGES, and saying how far is the honest half. The
     // name is stored once and written into every page; the customer can check
     // the second half by looking, and a count of zero on a rename is the one

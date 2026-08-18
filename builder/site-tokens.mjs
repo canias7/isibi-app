@@ -419,6 +419,58 @@ export function tokensCss(tokens) {
   return "/* site tokens */\n:root {\n" + decls + "\n}\n.dark {\n" + decls + "\n}\n";
 }
 
+/** How many pages of one site may carry their own colours. */
+export const MAX_PAGE_TOKENS = 12;
+
+/**
+ * A ROUTE PATH THAT IS SAFE TO PUT IN A CSS SELECTOR, and that is the whole
+ * validation rather than an escape.
+ *
+ * The value is written into an attribute selector, so a quote or a brace closes
+ * the selector and the rule — and there is no correct escape for "arbitrary text
+ * in a CSS selector". The set of shapes a route path can take is small enough to
+ * list, which is the same reasoning `isColor` lives under one function up: a
+ * refusal, never a sanitiser.
+ */
+export function routeSelectorOk(p) {
+  return typeof p === "string" && /^\/[a-z0-9/-]*$/.test(p) && !p.includes("//") && p.length <= 80;
+}
+
+/**
+ * ONE PAGE'S OWN COLOURS.
+ *
+ * WHY A SELECTOR AND NOT A SECOND STYLESHEET. The tokens are CSS custom
+ * properties and a site is one bundle with one stylesheet, so "this page is
+ * calmer" is a scope rather than a file: everything inside the stamped element
+ * resolves `--background` to the page's value and everything else keeps the
+ * site's. `__root.tsx` stamps `data-page` on `<body>`, which is an ancestor of
+ * every page on every site whether or not it uses the site frame.
+ *
+ * `body[…]` RATHER THAN `[…]`, so specificity settles it as well as ordering.
+ * An attribute selector alone is (0,1,0) — exactly `:root`'s — and would depend
+ * on this block being appended last, which is true today and is one refactor
+ * away from not being.
+ *
+ * TOKENS ONLY, DELIBERATELY. The 17 style axes emit ordinary RULES against
+ * global selectors (`.lucide`, `.border-input`, a radius on the button
+ * selector), so scoping them means prefixing every selector a theme emits —
+ * a much larger change with a much worse failure mode. "Make the booking page
+ * calmer" is a colour question, which is what this answers.
+ */
+export function pageTokensCss(pageTokens) {
+  const map = pageTokens && typeof pageTokens === "object" && !Array.isArray(pageTokens) ? pageTokens : {};
+  const out = [];
+  for (const [path, tokens] of Object.entries(map).slice(0, MAX_PAGE_TOKENS)) {
+    if (!routeSelectorOk(path)) continue;
+    const t = validForWrite(tokens);
+    const keys = Object.keys(t);
+    if (!keys.length) continue;
+    const decls = keys.map((k) => "  --" + k + ": " + t[k] + ";").join("\n");
+    out.push('body[data-page="' + path + '"] {\n' + decls + "\n}");
+  }
+  return out.length ? "/* page tokens */\n" + out.join("\n") + "\n" : "";
+}
+
 /**
  * Plain names for the tokens a customer might have asked about.
  *

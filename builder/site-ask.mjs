@@ -220,6 +220,10 @@ export const ASK_TOOL = {
           "or where things sit. (The declared language is a fact about the site, not a translation — \"this site is in " +
           "Spanish, stop telling browsers it's English\" belongs here; \"translate the whole site into Spanish\" is a " +
           "rewrite and belongs further up.)\n" +
+          "A COLOUR CAN BE FOR ONE PAGE — \"make the booking page darker\", \"the about page should feel calmer\", " +
+          "\"give the menu page a warm background\". Still this layer and still cheap; it is the same colour change " +
+          "scoped to the page they named. (Everything else here is the site's, so a request to change one page's " +
+          "TYPEFACE or corners is not this.)\n" +
           "\"rules\" — WHAT THE SITE DOES WITH WHAT PEOPLE SUBMIT, rather than anything on a page. Who may see an " +
           "entry and who may add one (\"let people browse the listings without signing in\", \"close the booking " +
           "form\"), whether the customer gets an email or a text when they submit, and what the site refuses (\"don't " +

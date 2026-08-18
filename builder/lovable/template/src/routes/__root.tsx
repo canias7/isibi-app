@@ -16,6 +16,7 @@ import {
   Outlet,
   Scripts,
   createRootRouteWithContext,
+  useMatches,
 } from "@tanstack/react-router";
 import type { QueryClient } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/sonner";
@@ -114,13 +115,42 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 // component, so a form cannot be built without it. It renders NOTHING and
 // fetches no third-party script on a site whose owner has not configured
 // Turnstile, which is almost all of them.
+/**
+ * WHICH PAGE THIS IS, as an attribute a stylesheet can select on.
+ *
+ * WHY IT IS HERE AND NOT ON THE FRAME. The look was site-wide — one `site_look`
+ * row, one `site_tokens` row — so "make the booking page calmer" was
+ * unreachable at any price. A page's own colours are a SCOPE rather than a
+ * second stylesheet, and `<body>` is the one ancestor every page has whether or
+ * not it uses `SiteChrome` (16 of 318 exemplars do not).
+ *
+ * THE SAME READING `head()` USES, deliberately. The deepest match's pathname is
+ * the current page, with the basepath already stripped — so this is right in the
+ * workspace preview at `/s/<slug>/book` and on the site's own domain at `/book`,
+ * and right for a page the model has never seen. Computing it from
+ * `location.pathname` instead would carry the basepath on one mount and not the
+ * other, and the selector would match on neither.
+ *
+ * IT UPDATES ON NAVIGATION because `useMatches` subscribes: clicking through to
+ * another page re-stamps, which is what makes a per-page colour survive
+ * client-side routing rather than only a fresh load.
+ */
+function usePagePath() {
+  const matches = useMatches();
+  const p = matches.length ? matches[matches.length - 1]?.pathname : "";
+  if (typeof p !== "string" || !p.startsWith("/")) return "/";
+  // A trailing slash is the same page — `/book/` and `/book` must not be two
+  // selectors, and the home page has to stay "/" rather than becoming "".
+  return p.replace(/\/+$/, "") || "/";
+}
+
 function RootDocument() {
   return (
     <html lang={SITE_LANG}>
       <head>
         <HeadContent />
       </head>
-      <body>
+      <body data-page={usePagePath()}>
         <Outlet />
         <Toaster />
         <SpamGuard />
