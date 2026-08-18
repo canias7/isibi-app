@@ -198,3 +198,65 @@ export function applyEdits(pages, edits) {
   }
   return { ok: true, pages: list.map((p) => draft.get(p.path) || p), applied };
 }
+
+/**
+ * A phone number changed in the words while a Call link still dials the old one.
+ *
+ * THE SILENT MISROUTE THIS NAMES, and it is the worst shape on this lane. A
+ * number is ONE fact written in TWO encodings — `0113 200 0000` for a reader and
+ * `tel:+441132000000` for a phone — and only the first is text. Driven through
+ * the real `extractText`: the visible number IS offered and the `tel:` href is
+ * NOT, correctly, because a value with no whitespace and no capital is treated
+ * as an identifier, which is the rule that stops this lane renaming a column.
+ *
+ * So "change our phone number" updates every word a visitor reads and leaves the
+ * button ringing the old number. The customer sees the right number on the page
+ * and the call goes to the wrong place — and for a trade whose customers ring
+ * rather than book, that button is the entire conversion path. 11 pages in the
+ * corpus carry both a visible number and a `tel:` href.
+ *
+ * REPORTED, NOT REWRITTEN, and the reason is the join. The two encodings do not
+ * match digit for digit — `+441132000000` against `01132000000` — so pairing
+ * them needs a heuristic, and a heuristic that fires wrongly REWRITES a link to
+ * a number nobody asked for. A wrong rewrite is far worse than a wrong sentence,
+ * so the same heuristic is used only to ASK.
+ *
+ * MATCHED ON THE LAST 9 DIGITS OF THE OLD NUMBER. It is the longest suffix the
+ * national and international forms of one number reliably share, and matching on
+ * the OLD value is what makes a hit meaningful: a `tel:` that still carries the
+ * number just replaced is stale by definition.
+ */
+const PHONE_DIGITS = 7;
+const PHONE_TAIL = 9;
+
+/** The digits of a string, or "" if there are too few to be a phone number. */
+function phoneTail(s) {
+  const digits = String(s || "").replace(/\D/g, "");
+  if (digits.length < PHONE_DIGITS) return "";
+  return digits.slice(-PHONE_TAIL);
+}
+
+export function staleTelLinks(pages, edits) {
+  const out = [];
+  const seen = new Set();
+  for (const e of Array.isArray(edits) ? edits : []) {
+    // The OLD text is what a stale link would still carry. A non-phone edit has
+    // no tail and cannot match anything.
+    const tail = phoneTail(e && e.from);
+    if (!tail) continue;
+    // ...and only when the number really CHANGED. Correcting the spacing around
+    // a number leaves every link correct.
+    if (phoneTail(e && e.to) === tail) continue;
+    for (const p of Array.isArray(pages) ? pages : []) {
+      if (!p || typeof p.source !== "string") continue;
+      for (const m of p.source.matchAll(/"tel:([^"]{3,40})"/g)) {
+        if (phoneTail(m[1]) !== tail) continue;
+        const key = p.path + "|" + m[1];
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({ page: p.path, href: "tel:" + m[1], was: String(e.from) });
+      }
+    }
+  }
+  return out;
+}

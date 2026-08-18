@@ -54,7 +54,7 @@ import { scriptNameFor } from "./builder/site-worker.mjs";
 import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker } from "./builder/site-dispatch.mjs";
 import { ASKABLE as SITE_TOKEN_NAMES, valueHint as siteTokenHint, mergeTokens, parseTokens, withContrast, tokenNote, saidFor as tokenSaid } from "./builder/site-tokens.mjs";
 import { ASKABLE as SITE_STYLE_AXES, optionsFor as siteStyleOptions, axisHint as siteStyleHint, mergeStyle, parseStyle, styleNote, saidFor as styleSaid } from "./builder/site-style.mjs";
-import { extractText, applyEdits } from "./builder/site-text.mjs";
+import { extractText, applyEdits, staleTelLinks } from "./builder/site-text.mjs";
 import { runTextEdit, runDataEdit, renamePages, renameRoute, MAX_DATA_ROWS } from "./builder/site-apply.mjs";
 import { runRulesEdit } from "./builder/site-rules.mjs";
 import { runPictureEdit } from "./builder/site-picture.mjs";
@@ -12768,9 +12768,21 @@ async function handleRequest(request, env, ctx) {
                   detail: pub.detail,
                 }, { status: 422 });
               }
+              // ── A PHONE NUMBER CHANGED IN THE WORDS AND NOT IN THE LINK ──
+              //
+              // A number is one fact in two encodings and only the words are
+              // text, so this lane changes what a visitor READS and leaves the
+              // Call button dialling the old number. Reported rather than
+              // rewritten: pairing `0113 200 0000` with `tel:+441132000000`
+              // needs a heuristic, and a heuristic that fires wrongly sends a
+              // customer's calls somewhere nobody asked for.
+              const staleTel = staleTelLinks(out.pages, out.edits);
               return Response.json({
                 ok: true, layer: "text", applied: out.applied, files: pub.files, render: pub.render, renderNote: pub.renderNote,
                 changed: out.edits.map((e) => e.to).slice(0, 8),
+                // Omitted when empty, so an ordinary wording change's response
+                // is byte-identical and the field's PRESENCE is the signal.
+                staleTel: staleTel.length ? staleTel.slice(0, 4) : undefined,
                 cost: await eCharge(out.usage), usage: out.usage,
               });
             }

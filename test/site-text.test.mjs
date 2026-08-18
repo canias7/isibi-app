@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { extractText, applyEdit, applyEdits } from "../builder/site-text.mjs";
+import { extractText, applyEdit, applyEdits , staleTelLinks } from "../builder/site-text.mjs";
 
 const PAGE = `import { createFileRoute, Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
@@ -287,4 +287,83 @@ test("a failed compile leaves the live site alone — the ordering IS the guaran
   const refuse = block.indexOf("if (!built || built.ok !== true");
   const publish = block.indexOf("writeSiteDistToR2");
   assert.ok(refuse > 0 && publish > refuse, "nothing may publish before that check");
+});
+
+// ── A NUMBER CHANGED IN THE WORDS AND NOT IN THE CALL LINK ──────────────────
+
+const telPages = [{
+  path: "index.tsx",
+  source: `<a href="tel:+441132000000">0113 200 0000</a>\n<SiteChrome action={{ label: "Call now", href: "tel:+441132000000" }} />`,
+}];
+
+test("a changed phone number leaves the tel: link stale, and it is named", () => {
+  const out = staleTelLinks(telPages, [{ path: "index.tsx", from: "0113 200 0000", to: "0113 999 9999" }]);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].href, "tel:+441132000000");
+  assert.equal(out[0].page, "index.tsx");
+});
+
+test("MATCHED ON THE LAST 9 DIGITS, because the two encodings never match exactly", () => {
+  // `+441132000000` against `01132000000` — the national form drops the leading
+  // zero and the international one prefixes a country code, so a whole-string
+  // digit compare finds nothing and the whole check would be dead.
+  assert.equal(staleTelLinks(telPages, [{ path: "index.tsx", from: "+44 113 200 0000", to: "0113 999 9999" }]).length, 1);
+});
+
+test("RESPACING A NUMBER IS NOT A CHANGE — every link is still correct", () => {
+  assert.deepEqual(staleTelLinks(telPages, [{ path: "index.tsx", from: "0113 200 0000", to: "0113 2000000" }]), []);
+});
+
+test("an ordinary wording change says nothing about phones", () => {
+  assert.deepEqual(staleTelLinks(telPages, [{ path: "index.tsx", from: "Our team", to: "The team" }]), []);
+  // A short number is not a phone number — a price, a year, a house number.
+  assert.deepEqual(staleTelLinks(telPages, [{ path: "index.tsx", from: "£24.99", to: "£29.99" }]), []);
+  assert.deepEqual(staleTelLinks(telPages, [{ path: "index.tsx", from: "Since 1998", to: "Since 1999" }]), []);
+});
+
+test("a tel: link for a DIFFERENT number is left out of the report", () => {
+  const two = [{ path: "index.tsx", source: `<a href="tel:+441132000000">a</a><a href="tel:+441619999999">b</a>` }];
+  const out = staleTelLinks(two, [{ path: "index.tsx", from: "0113 200 0000", to: "0113 999 9999" }]);
+  assert.deepEqual(out.map((o) => o.href), ["tel:+441132000000"]);
+});
+
+test("one link is reported once even when several edits match it", () => {
+  const out = staleTelLinks(telPages, [
+    { path: "index.tsx", from: "0113 200 0000", to: "0113 999 9999" },
+    { path: "index.tsx", from: "+44 113 200 0000", to: "0113 999 9999" },
+  ]);
+  assert.equal(out.length, 1);
+});
+
+test("the text lane carries it and the client says it", () => {
+  // Computed and rendered by nothing is this repo's most-recorded failure.
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  // DERIVED, not pinned to today's spelling: whatever else the Worker imports
+  // from this module, it must import the name it calls, or the text path is a
+  // ReferenceError. This test caught exactly that — my first edit targeted an
+  // import line that does not exist and the name was never brought in.
+  const imp = w.match(/import \{([^}]*)\} from "\.\/builder\/site-text\.mjs"/);
+  assert.ok(imp, "the Worker imports the text module");
+  assert.ok(imp[1].split(",").map((x) => x.trim()).includes("staleTelLinks"),
+    "the Worker must import the name it calls: " + imp[1]);
+  assert.match(w, /const staleTel = staleTelLinks\(out\.pages, out\.edits\);/);
+  assert.match(w, /staleTel: staleTel\.length \? staleTel\.slice\(0, 4\) : undefined,/);
+  const c = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+  assert.match(c, /Array\.isArray\(e\.staleTel\)/);
+  assert.match(c, /the Call link still dials/);
+});
+
+test("A SHORT NUMBER IS NOT A PHONE NUMBER, and the minimum is what stops a false alarm", () => {
+  // Found by mutation: my other cases (`£24.99`, `Since 1998`) could not
+  // discriminate the guard, because no `tel:` in the fixture is short enough for
+  // their digits to match. This one can — a page with a short service number in
+  // a link and a price in the copy is an ordinary shape, and without the minimum
+  // changing the price reports the emergency link as stale.
+  const pages = [{ path: "index.tsx", source: `<p>From £999</p><a href="tel:999">In an emergency</a>` }];
+  assert.deepEqual(staleTelLinks(pages, [{ path: "index.tsx", from: "£999", to: "£1,099" }]), []);
+  // And a real number on the same page is still caught.
+  const both = [{ path: "index.tsx", source: `<a href="tel:+441132000000">x</a><a href="tel:999">y</a>` }];
+  assert.deepEqual(
+    staleTelLinks(both, [{ path: "index.tsx", from: "0113 200 0000", to: "0113 999 9999" }]).map((o) => o.href),
+    ["tel:+441132000000"]);
 });

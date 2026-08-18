@@ -11508,8 +11508,18 @@ function editReply(e) {
     const said = (Array.isArray(e.changed) ? e.changed : [])
       .filter((x) => typeof x === 'string' && x.trim()).slice(0, 3)
       .map((x) => '“' + x.slice(0, 60) + '”');
-    return '✅ Updated the wording' + (n > 1 ? ' in ' + n + ' places' : '') +
-      (said.length ? ' — now ' + said.join(', ') : '') + '.' + problemNote(e.problems);
+    let out = '✅ Updated the wording' + (n > 1 ? ' in ' + n + ' places' : '') +
+      (said.length ? ' — now ' + said.join(', ') : '') + '.';
+    // THE CALL LINK STILL HAS THE OLD NUMBER. A phone number is one fact in two
+    // encodings and this lane only reaches the words, so without saying it the
+    // customer sees the right number on the page and the button rings the wrong
+    // one — the worst failure this lane can produce for a trade.
+    const stale = Array.isArray(e.staleTel) ? e.staleTel : [];
+    if (stale.length) {
+      out += ' One thing I couldn’t change: the Call link still dials ' +
+        stale[0].href.replace(/^tel:/, '') + '. Say “make the call button use the new number” and I’ll fix it.';
+    }
+    return out + problemNote(e.problems);
   }
   if (e.layer === 'data') {
     // NAMES WHAT MOVED, because this layer changes rows the customer cannot see
