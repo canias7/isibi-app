@@ -410,6 +410,37 @@ try {
     ok("rows from the API render", body.includes("Skin fade") && body.includes("Beard trim"), body.slice(0, 400));
     ok("a column value renders, not just the name", body.includes("28") && body.includes("45 min"), body.slice(0, 400));
     ok("a null column is skipped rather than printed", !/\bnull\b/i.test(body), body.slice(0, 400));
+
+    // ── the footer's contact details, in a real DOM ────────────────────────
+    //
+    // ASSERTED HERE AND NOT IN A UNIT TEST because the unit half can only read
+    // the source. Whether the number a visitor taps actually DIALS, and whether
+    // the address really breaks into lines, are facts about the rendered page.
+    const foot = page.locator("footer");
+    const footText = await foot.innerText();
+    ok("the footer carries the business's contact details",
+      footText.includes("0114 270 0000") && footText.includes("hello@cutlerrow.co.uk")
+        && footText.includes("14 Cutler Row"),
+      footText.slice(0, 300));
+    // The whole point of taking the number as a person writes it: the LINK has
+    // to come out dialable, and nothing else in the page supplies it.
+    const tel = await foot.locator('a[href^="tel:"]').first().getAttribute("href");
+    ok("the phone is a dialable tel: link, derived from how it is written",
+      tel === "tel:01142700000", String(tel));
+    ok("the email is a mailto: link",
+      (await foot.locator('a[href^="mailto:"]').count()) === 1);
+    // The address arrives as one string with a newline in it, so without
+    // `whitespace-pre-line` it renders as a run-on. Two lines is the assertion.
+    const addr = await foot.locator("address").innerText();
+    ok("the postal address breaks into lines rather than running on",
+      /14 Cutler Row\s*\n\s*Sheffield S1 2AY/.test(addr), JSON.stringify(addr));
+    // MEASURED BY LOOKING: the reference page carries its number as a nav link
+    // AND in `contact`, and both printed on one footer row. The header keeps its
+    // copy; the footer must show it once.
+    ok("the number is not printed twice in the footer",
+      (footText.match(/0114 270 0000/g) || []).length === 1, footText.slice(0, 300));
+    ok("the header still carries the call-now link",
+      (await page.locator('header a[href^="tel:"]').count()) >= 1);
     await page.context().close();
   }
 

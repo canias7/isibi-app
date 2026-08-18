@@ -1,5 +1,5 @@
 import * as React from "react";
-import { SiteFooter } from "@/components/ui/site-footer";
+import { SiteFooter, type SiteContact } from "@/components/ui/site-footer";
 import { SiteHeader, type NavLink } from "@/components/ui/site-header";
 import { cn } from "@/lib/utils";
 
@@ -47,6 +47,9 @@ export function SiteChrome({
   tagline,
   links = [],
   action,
+  contact,
+  legal = [],
+  social = [],
   children,
   className,
 }: {
@@ -58,6 +61,12 @@ export function SiteChrome({
   links?: NavLink[];
   /** The one thing you want them to do, as a button in the header. */
   action?: { label: string; href?: string; onClick?: () => void };
+  /** Phone, email, address, opening line — the footer's small print. */
+  contact?: SiteContact;
+  /** Privacy, Terms. Footer only, and separate from `links`, which is navigation. */
+  legal?: NavLink[];
+  /** `{ network, href }` — "instagram", "facebook", "email"… */
+  social?: { network: string; href: string }[];
   children: React.ReactNode;
   className?: string;
 }) {
@@ -79,7 +88,12 @@ export function SiteChrome({
         {children}
       </main>
 
-      <SiteFooter brand={name} tagline={tagline} links={links} />
+      {/* THE FOOTER TAKES CONTACT DETAILS AND THE HEADER DOES NOT, deliberately.
+          The header holds one action; a phone number belongs there only when
+          ringing IS the action, in which case it is a `links` entry or the
+          `action` itself. Everything else — address, opening line, small print —
+          is what somebody scrolls to the bottom for. */}
+      <SiteFooter brand={name} tagline={tagline} links={links} contact={contact} legal={legal} social={social} />
     </div>
   );
 }

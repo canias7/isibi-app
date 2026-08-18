@@ -60,6 +60,11 @@ type Service = Row & {
 // The same facts on every page of the site. Written once per file rather than
 // once per return. The phone is a nav link because for this trade it is a
 // booking channel, not small print.
+//
+// IT IS ALSO IN `contact`, AND THAT IS NOT A DUPLICATE. The nav entry is the
+// action — ring us now — and the footer entry is the record a visitor scrolls
+// to the bottom to find, beside the address and the hours. Real businesses
+// print their number in both places for exactly that reason.
 const CHROME = {
   name: "Cutler Row",
   tagline: "Six chairs on Cutler Row. Walk in, or book one.",
@@ -70,6 +75,23 @@ const CHROME = {
     { label: "0114 270 0000", href: "tel:+441142700000" },
   ],
   action: { label: "Book a chair", href: "/book" },
+  // The footer's small print. `phone` is written the way a person writes it and
+  // the `tel:` link is derived, so there is no second value to get wrong; the
+  // address carries real newlines, which the footer renders as lines.
+  contact: {
+    phone: "0114 270 0000",
+    email: "hello@cutlerrow.co.uk",
+    address: "14 Cutler Row\nSheffield S1 2AY",
+    hours: "Tue–Fri 9–6, Sat 8.30–5",
+  },
+  social: [
+    { network: "instagram", href: "https://instagram.com/cutlerrow" },
+    { network: "facebook", href: "https://facebook.com/cutlerrow" },
+  ],
+  // `legal` is the fourth footer slot and is deliberately NOT demonstrated here:
+  // this site has no privacy page, and a reference page linking to one it has
+  // not built teaches exactly the dangling link the router refuses. Use it only
+  // for a page the site really has.
 };
 
 // The shop's own facts. Anything the owner will never edit from a form belongs

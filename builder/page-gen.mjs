@@ -1400,6 +1400,11 @@ type Service = Row & {
 // The same facts on every page of the site. Written once per file rather than
 // once per return. The phone is a nav link because for this trade it is a
 // booking channel, not small print.
+//
+// IT IS ALSO IN \`contact\`, AND THAT IS NOT A DUPLICATE. The nav entry is the
+// action — ring us now — and the footer entry is the record a visitor scrolls
+// to the bottom to find, beside the address and the hours. Real businesses
+// print their number in both places for exactly that reason.
 const CHROME = {
   name: "Cutler Row",
   tagline: "Six chairs on Cutler Row. Walk in, or book one.",
@@ -1410,6 +1415,23 @@ const CHROME = {
     { label: "0114 270 0000", href: "tel:+441142700000" },
   ],
   action: { label: "Book a chair", href: "/book" },
+  // The footer's small print. \`phone\` is written the way a person writes it and
+  // the \`tel:\` link is derived, so there is no second value to get wrong; the
+  // address carries real newlines, which the footer renders as lines.
+  contact: {
+    phone: "0114 270 0000",
+    email: "hello@cutlerrow.co.uk",
+    address: "14 Cutler Row\\nSheffield S1 2AY",
+    hours: "Tue–Fri 9–6, Sat 8.30–5",
+  },
+  social: [
+    { network: "instagram", href: "https://instagram.com/cutlerrow" },
+    { network: "facebook", href: "https://facebook.com/cutlerrow" },
+  ],
+  // \`legal\` is the fourth footer slot and is deliberately NOT demonstrated here:
+  // this site has no privacy page, and a reference page linking to one it has
+  // not built teaches exactly the dangling link the router refuses. Use it only
+  // for a page the site really has.
 };
 
 // The shop's own facts. Anything the owner will never edit from a form belongs
@@ -1676,6 +1698,16 @@ const CHROME = {
     { label: "Account", href: "/account" },
   ],
   action: { label: "Book a chair", href: "/book" },
+  contact: {
+    phone: "0114 270 0000",
+    email: "hello@cutlerrow.co.uk",
+    address: "14 Cutler Row\\nSheffield S1 2AY",
+    hours: "Tue–Fri 9–6, Sat 8.30–5",
+  },
+  social: [
+    { network: "instagram", href: "https://instagram.com/cutlerrow" },
+    { network: "facebook", href: "https://facebook.com/cutlerrow" },
+  ],
 };
 
 const SLOTS = [
@@ -1979,6 +2011,16 @@ const CHROME = {
     { label: "Account", href: "/account" },
   ],
   action: { label: "Book a chair", href: "/book" },
+  contact: {
+    phone: "0114 270 0000",
+    email: "hello@cutlerrow.co.uk",
+    address: "14 Cutler Row\\nSheffield S1 2AY",
+    hours: "Tue–Fri 9–6, Sat 8.30–5",
+  },
+  social: [
+    { network: "instagram", href: "https://instagram.com/cutlerrow" },
+    { network: "facebook", href: "https://facebook.com/cutlerrow" },
+  ],
 };
 
 function Manage() {
@@ -2184,6 +2226,16 @@ const CHROME = {
     { label: "Account", href: "/account" },
   ],
   action: { label: "Book a chair", href: "/book" },
+  contact: {
+    phone: "0114 270 0000",
+    email: "hello@cutlerrow.co.uk",
+    address: "14 Cutler Row\\nSheffield S1 2AY",
+    hours: "Tue–Fri 9–6, Sat 8.30–5",
+  },
+  social: [
+    { network: "instagram", href: "https://instagram.com/cutlerrow" },
+    { network: "facebook", href: "https://facebook.com/cutlerrow" },
+  ],
 };
 
 const credentials = z.object({
@@ -2626,6 +2678,42 @@ ${UI_SHORTLIST_API()}
     the business; write it for somebody deciding whether to tap, and never repeat the site
     description. \`og:url\`, the share image and the card type are already handled for you
     — do not write those.
+
+20. THE FOOTER TAKES THE BUSINESS'S CONTACT DETAILS, and a visitor scrolls to the bottom
+    expecting them. \`SiteChrome\` has three footer slots beyond the name and tagline —
+    \`contact\`, \`social\` and \`legal\` — and they belong in the same \`CHROME\` object as
+    \`links\` and \`action\`, because they are the same on every page.
+
+    \`\`\`tsx
+    const CHROME = {
+      name: "Forno & Co",
+      tagline: "Wood-fired pizza on Vicar Lane.",
+      links: [{ label: "Menu", href: "/menu" }, { label: "Find us", href: "#find-us" }],
+      action: { label: "Book a table", href: "/book" },
+      contact: {
+        phone: "0113 200 0000",
+        email: "hello@fornoandco.co.uk",
+        address: "42 Vicar Lane\\nLeeds LS1 6BA",
+        hours: "Tue–Sun 12–10",
+      },
+      social: [{ network: "instagram", href: "https://instagram.com/fornoandco" }],
+    };
+    \`\`\`
+
+    ONLY FACTS THE BRIEF ACTUALLY STATES. A phone number you invented is worse than no
+    phone number: somebody rings it. Leave out any field the brief does not answer, and
+    leave \`contact\` off entirely when it answers none of them.
+
+    Write \`phone\` the way a person writes it — the \`tel:\` link is derived, so there is no
+    second value to keep in step. Put real newlines in \`address\`; they render as lines.
+    \`hours\` is ONE line ("Tue–Sun 12–10") — a full timetable is rows in a table, not this.
+    \`social\` takes \`{ network, href }\` where network is "instagram", "facebook", "x",
+    "youtube", "linkedin", "tiktok", "email" or "phone".
+
+    \`legal\` is \`{ label, href }\` for small print — Privacy, Terms — and points ONLY at a
+    page you have actually written. Linking to a privacy page that does not exist gives a
+    visitor a not-found page from the bottom of every page on the site, so leave it out
+    unless the page is in your own list.
 
 ## Reading rows
 

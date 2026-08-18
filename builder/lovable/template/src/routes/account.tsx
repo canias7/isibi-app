@@ -73,6 +73,16 @@ const CHROME = {
     { label: "Account", href: "/account" },
   ],
   action: { label: "Book a chair", href: "/book" },
+  contact: {
+    phone: "0114 270 0000",
+    email: "hello@cutlerrow.co.uk",
+    address: "14 Cutler Row\nSheffield S1 2AY",
+    hours: "Tue–Fri 9–6, Sat 8.30–5",
+  },
+  social: [
+    { network: "instagram", href: "https://instagram.com/cutlerrow" },
+    { network: "facebook", href: "https://facebook.com/cutlerrow" },
+  ],
 };
 
 const credentials = z.object({
