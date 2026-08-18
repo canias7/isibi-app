@@ -1,6 +1,6 @@
 import * as React from "react";
 import { SiteFooter, type SiteContact } from "@/components/ui/site-footer";
-import { SiteHeader, type NavLink } from "@/components/ui/site-header";
+import { SiteHeader, type NavLink, type SiteLayout } from "@/components/ui/site-header";
 import { cn } from "@/lib/utils";
 
 /**
@@ -50,6 +50,7 @@ export function SiteChrome({
   contact,
   legal = [],
   social = [],
+  layout,
   children,
   className,
 }: {
@@ -67,6 +68,8 @@ export function SiteChrome({
   legal?: NavLink[];
   /** `{ network, href }` — "instagram", "facebook", "email"… */
   social?: { network: string; href: string }[];
+  /** How the frame itself sits: `{ brand: "centre", width: "full", sticky: false }`. */
+  layout?: SiteLayout;
   children: React.ReactNode;
   className?: string;
 }) {
@@ -79,7 +82,7 @@ export function SiteChrome({
         Skip to content
       </a>
 
-      <SiteHeader brand={name} links={links} action={action} />
+      <SiteHeader brand={name} links={links} action={action} layout={layout} />
 
       {/* ONE <main> per page, and it is focusable so the skip link can land on
           it — a skip link pointing at something unfocusable moves the scroll and
@@ -93,7 +96,7 @@ export function SiteChrome({
           ringing IS the action, in which case it is a `links` entry or the
           `action` itself. Everything else — address, opening line, small print —
           is what somebody scrolls to the bottom for. */}
-      <SiteFooter brand={name} tagline={tagline} links={links} contact={contact} legal={legal} social={social} />
+      <SiteFooter brand={name} tagline={tagline} links={links} contact={contact} legal={legal} social={social} layout={layout} />
     </div>
   );
 }

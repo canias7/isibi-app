@@ -80,20 +80,74 @@ export function SiteLink({
 }
 
 /** The site's top bar, with a real mobile menu rather than links that vanish. */
+/**
+ * THE FRAME'S OWN ARRANGEMENT — three decisions that were hardcoded.
+ *
+ * `SiteHeader` took brand/links/action and nothing else, and set `h-14`,
+ * `max-w-6xl`, `ml-auto` and `sticky` itself. So "centre our logo", "run the
+ * header full width" and "stop the menu following me down the page" had no path
+ * at ANY price: not by typing, and not by rebuilding either, because there was
+ * no slot to fill. `className` could not reach it — `SiteChrome` puts that on
+ * the outer div, and 0 of 329 corpus pages pass one.
+ *
+ * ENUMS, NOT VALUES, the rule the 17 style axes already live under: there is no
+ * "slightly wider header", and a free-form class reaching this component is a
+ * way to break every page of a site at once.
+ *
+ * HEIGHT IS DELIBERATELY NOT HERE. It reads like a fourth axis and it is a
+ * coupling: a centred brand stacks onto two rows, where a fixed height either
+ * clips it or leaves a gap. The `density` style axis already moves spacing
+ * site-wide, which is what "make it slimmer" usually means.
+ *
+ * `| (string & {})` IS LOAD-BEARING AND MUST NOT BE TIDIED AWAY. A page writes
+ * its frame as `const CHROME = { ..., layout: { brand: "centre" } }` and spreads
+ * it — 261 of the 318 exemplars use exactly that shape — and a `const` object's
+ * property widens to `string`, which a bare union REFUSES. Measured: the plain
+ * union fails `TS2322` on the reference pages, so a customer asking to centre
+ * their logo would lose the whole site to a failed typecheck. The arm accepts
+ * the widening while keeping both names visible to the model reading
+ * `COMPONENT_API`, and an unrecognised value falls back to the default
+ * arrangement below rather than rendering something broken. The real gate on
+ * what may arrive is the nav tool's own `enum`, which is in code.
+ */
+export type SiteLayout = {
+  /** "left" (default), or "centre" to stack the brand above the menu. */
+  brand?: "left" | "centre" | (string & {});
+  /** "contained" (default) caps the frame at the page width; "full" runs edge to edge. */
+  width?: "contained" | "full" | (string & {});
+  /** false stops the header following the reader down the page. Default true. */
+  sticky?: boolean;
+};
+
 export function SiteHeader({
   brand,
   links = [],
   action,
+  layout,
   className,
 }: {
   brand: string;
   links?: NavLink[];
   action?: { label: string; href?: string; onClick?: () => void };
+  layout?: SiteLayout;
   className?: string;
 }) {
+  // ABSENT MEANS TODAY'S BEHAVIOUR, which is what makes this safe against every
+  // site already published: `sticky` defaults ON, so only an explicit `false`
+  // turns it off.
+  const centred = layout?.brand === "centre";
+  const wide = layout?.width === "full";
+  const sticky = layout?.sticky !== false;
   return (
-    <header className={cn("sticky top-0 z-40 border-b bg-background/85 backdrop-blur", className)}>
-      <div className="mx-auto flex h-14 max-w-6xl items-center gap-4 px-6">
+    <header className={cn(sticky && "sticky top-0 z-40", "border-b bg-background/85 backdrop-blur", className)}>
+      {/* CENTRING IS FLEX-WRAP, NOT A SECOND LAYOUT. The brand takes a full row
+          and everything else wraps below it and centres — so the nav, the button
+          and the mobile menu button are rendered ONCE and read the same on both
+          arrangements. Two branches of duplicated JSX is how one of them stops
+          getting the next fix. */}
+      <div className={cn("mx-auto flex items-center gap-4 px-6",
+        wide ? "max-w-none" : "max-w-6xl",
+        centred ? "flex-wrap justify-center py-3" : "h-14")}>
         {/* THE BUSINESS'S OWN LOGO, when it has attached one.
          *
          * IT REPLACES THE NAME RATHER THAN SITTING BESIDE IT, and the name
@@ -106,7 +160,7 @@ export function SiteHeader({
          * `max-w` is not decoration. A wide wordmark with no bound pushes the
          * nav off the right-hand edge, and the person who notices is a visitor
          * who cannot find the booking link. */}
-        <SiteLink href="/" className="font-semibold tracking-tight">
+        <SiteLink href="/" className={cn("font-semibold tracking-tight", centred && "w-full text-center")}>
           {SITE_LOGO ? (
             <img
               src={SITE_LOGO}
@@ -117,7 +171,7 @@ export function SiteHeader({
             brand
           )}
         </SiteLink>
-        <nav className="ml-auto hidden items-center gap-6 md:flex">
+        <nav className={cn("hidden items-center gap-6 md:flex", !centred && "ml-auto")}>
           {links.map((l) => (
             <SiteLink
               key={l.href}
@@ -129,7 +183,7 @@ export function SiteHeader({
           ))}
         </nav>
         {action && (
-          <div className="ml-auto md:ml-0">
+          <div className={cn(!centred && "ml-auto md:ml-0")}>
             <Button size="sm" asChild={!!action.href} onClick={action.onClick}>
               {action.href ? <SiteLink href={action.href}>{action.label}</SiteLink> : <span>{action.label}</span>}
             </Button>

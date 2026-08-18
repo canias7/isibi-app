@@ -248,6 +248,9 @@ export const ASK_TOOL = {
           "THE SOCIAL ICONS AND THE SMALL PRINT are here too — \"add our Instagram\", \"put a link to our Facebook " +
           "at the bottom\", \"add a Privacy link in the small print\", \"take the Twitter icon off\". Same block, " +
           "same page-wide change, same near-zero cost.\n" +
+          "AND HOW THE FRAME ITSELF SITS — \"centre our logo\", \"put the name in the middle\", \"run the header " +
+          "right across the screen\", \"the top bar shouldn't follow me as I scroll\". That is WHERE the bar's " +
+          "parts go and how wide it runs; its COLOURS, corners and typefaces are \"look\", not this.\n" +
           "THE MENU — which items are in it, what order they come in, taking one out. \"Put Book first\", \"add " +
           "Contact to the menu\", \"take Pricing out of the nav\", \"the menu should be Home, Services, Contact\".\n" +
           "THE BUTTON — what it says AND where it goes. \"Change the Book button to Get a quote\", \"make the button " +

@@ -462,8 +462,17 @@ test("the chrome routes its links instead of anchoring them", () => {
       f + " renders a nav link as a bare anchor, which reloads to the server root");
   }
   // …and the wordmark, which is its own element and was the original `#/`.
+  //
+  // ANCHORED ON THE PROPERTY, NOT THE SPELLING. This read
+  // `<SiteLink href="/" className="font-semibold` and went red on a correct
+  // change the moment the wordmark's classes became a `cn(...)` call, because
+  // the frame's arrangement can now centre it — a test about word order, which
+  // is this repo's most repeated own-goal and which the test two below this one
+  // already records. What has to hold is that the link home goes through
+  // `SiteLink` and never a bare anchor.
   const hdr = fs.readFileSync(path.join(TEMPLATE, "src/components/ui/site-header.tsx"), "utf8");
-  assert.match(hdr, /<SiteLink href="\/" className="font-semibold/, "the brand link is not routed");
+  assert.match(hdr, /<SiteLink href="\/"/, "the brand link is not routed");
+  assert.doesNotMatch(hdr, /<a\s[^>]*href="\/"/, "the brand link is a bare anchor, which reloads to the server root");
 });
 
 test("SiteLink refuses to route a protocol-relative address", () => {

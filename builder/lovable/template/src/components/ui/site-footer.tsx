@@ -1,4 +1,4 @@
-import { SiteLink, type NavLink } from "@/components/ui/site-header";
+import { SiteLink, type NavLink, type SiteLayout } from "@/components/ui/site-header";
 import { SocialLinks } from "@/components/ui/social-links";
 import { cn } from "@/lib/utils";
 
@@ -35,7 +35,7 @@ function telHref(phone: string): string {
 
 /** The bottom of every page: the business, how to reach it, some links, the year. */
 export function SiteFooter({
-  brand, tagline, links = [], contact, legal = [], social = [], className,
+  brand, tagline, links = [], contact, legal = [], social = [], layout, className,
 }: {
   brand: string;
   tagline?: string;
@@ -46,8 +46,12 @@ export function SiteFooter({
   legal?: NavLink[];
   /** `{ network, href }` — "instagram", "facebook", "email"… */
   social?: { network: string; href: string }[];
+  /** Shares the header's frame. A full-width header over a contained footer
+   *  reads as a mistake, so `width` moves both or neither. */
+  layout?: SiteLayout;
   className?: string;
 }) {
+  const wide = layout?.width === "full";
   const hasContact = !!(contact && (contact.phone || contact.email || contact.address || contact.hours));
 
   // A PHONE NUMBER IN THE NAV **AND** IN THE CONTACT BLOCK PRINTS TWICE ON ONE
@@ -72,7 +76,7 @@ export function SiteFooter({
 
   return (
     <footer className={cn("border-t", className)}>
-      <div className="mx-auto flex max-w-6xl flex-col gap-8 px-6 py-10 sm:flex-row sm:items-start sm:justify-between">
+      <div className={cn("mx-auto flex flex-col gap-8 px-6 py-10 sm:flex-row sm:items-start sm:justify-between", wide ? "max-w-none" : "max-w-6xl")}>
         <div className="max-w-sm">
           <div className="font-semibold tracking-tight">{brand}</div>
           {tagline && <p className="mt-1 text-sm text-muted-foreground">{tagline}</p>}
@@ -111,7 +115,7 @@ export function SiteFooter({
       </div>
 
       <div className="border-t px-6 py-4">
-        <div className="mx-auto flex max-w-6xl flex-col gap-2 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+        <div className={cn("mx-auto flex flex-col gap-2 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between", wide ? "max-w-none" : "max-w-6xl")}>
           <p>&copy; {new Date().getFullYear()} {brand}</p>
           {legal.length > 0 && (
             <nav className="flex flex-wrap gap-x-4 gap-y-1">

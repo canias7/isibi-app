@@ -12632,6 +12632,11 @@ async function handleRequest(request, env, ctx) {
                 lists: nOut.lists
                   ? Object.fromEntries(Object.entries(nOut.lists).map(([k, v]) => [k, v.length]))
                   : undefined,
+                // AND THE FRAME'S ARRANGEMENT. Values, not just names — unlike
+                // the two above, these are OUR enum ("centre", "full", false),
+                // never anything the customer typed, so there is nothing of
+                // theirs to keep out of a log.
+                layout: nOut.layout || undefined,
                 cost: await eCharge(nOut.usage), usage: nOut.usage,
               });
             }

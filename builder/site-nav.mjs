@@ -534,6 +534,43 @@ export const NAV_TOOL = {
           },
         },
       },
+      layout: {
+        type: "object",
+        description:
+          "HOW THE FRAME ITSELF SITS — where the name goes, how wide the bar runs, and whether it follows the reader " +
+          "down the page. Use this for \"centre our logo\", \"put the name in the middle\", \"run the header right " +
+          "across\", \"the menu shouldn't follow me as I scroll\", \"stop the bar sticking to the top\".\n" +
+          "NAME ONLY THE ONE THEY ASKED ABOUT. Everything you leave out stays as it is — centring the name must not " +
+          "quietly un-stick the header.\n" +
+          "PUTTING ONE BACK IS ITS ORDINARY VALUE, not an empty field: \"put the logo back on the left\" is " +
+          "`{\"brand\": \"left\"}` and \"make it follow me again\" is `{\"sticky\": true}`.\n" +
+          "THIS IS THE FRAME, NOT WHAT IS IN IT. Which items are in the menu is `links`; what the button says is " +
+          "`action`; colours, corners and typefaces are a different lane entirely and none of them belong here.",
+        properties: {
+          brand: {
+            type: "string",
+            enum: ["left", "centre"],
+            description:
+              "Where the business's name or logo sits in the top bar. \"left\" is the ordinary arrangement, with " +
+              "the menu on the right. \"centre\" puts the name on its own line in the middle with the menu " +
+              "underneath it — which is what \"centre our logo\" means.",
+          },
+          width: {
+            type: "string",
+            enum: ["contained", "full"],
+            description:
+              "How wide the header and footer run. \"contained\" keeps them lined up with the rest of the page; " +
+              "\"full\" runs them right out to both edges of the screen. It moves BOTH — a full-width header over a " +
+              "narrower footer reads as a mistake.",
+          },
+          sticky: {
+            type: "boolean",
+            description:
+              "true (the ordinary way) keeps the top bar in view as the visitor scrolls, so the menu and the button " +
+              "are always there. false lets it scroll away with the rest of the page.",
+          },
+        },
+      },
     },
   },
 };
@@ -553,7 +590,7 @@ const NAV_SYSTEM =
  * own. First-seen order, which is the order a visitor meets them on the home
  * page.
  */
-export function navDigest(slots, routes, actions, links, contacts, lists) {
+export function navDigest(slots, routes, actions, links, contacts, lists, layouts) {
   const lines = [];
   const seen = new Map();
   for (const s of Array.isArray(slots) ? slots : []) {
@@ -622,6 +659,19 @@ export function navDigest(slots, routes, actions, links, contacts, lists) {
     else for (const it of got) lines.push("  " + it[LIST_FIELDS[prop][0]] + " -> " + it.href);
   }
 
+  // THE FRAME AS IT STANDS. Every axis is stated even when it is at its
+  // ordinary value, because an absent line reads as an omission rather than an
+  // answer — the `publicView` failure, which cost a whole build twice. Without
+  // it "put the logo back on the left" is indistinguishable from a no-op, and
+  // an answer that restates what is already there is a rewrite of every page.
+  const lay = (Array.isArray(layouts) ? layouts : []).map((l) => l.fields).find((l) => l && Object.keys(l).length) || {};
+  lines.push("");
+  lines.push("HOW THE FRAME SITS TODAY:");
+  for (const [f, s] of Object.entries(CHROME_OBJECTS.layout)) {
+    const v = lay[f] === undefined ? chromeDefault(s) : lay[f];
+    lines.push("  " + f + ": " + String(v) + (v === chromeDefault(s) ? "  (the ordinary one)" : ""));
+  }
+
   lines.push("");
   lines.push("THE PAGES THIS SITE HAS — an item may point at any of these:");
   const list = [...new Set((Array.isArray(routes) ? routes : []).filter(Boolean))];
@@ -640,7 +690,7 @@ export function navDigest(slots, routes, actions, links, contacts, lists) {
   return lines.join("\n");
 }
 
-export function navRequest({ instruction, slots, routes, actions, links, contacts, lists }) {
+export function navRequest({ instruction, slots, routes, actions, links, contacts, lists, layouts }) {
   return {
     model: NAV_MODEL,
     max_tokens: NAV_MAX_TOKENS,
@@ -649,7 +699,7 @@ export function navRequest({ instruction, slots, routes, actions, links, contact
     tool_choice: { type: "tool", name: NAV_TOOL.name },
     messages: [{
       role: "user",
-      content: navDigest(slots, routes, actions, links, contacts, lists) + "\n\nWHAT THEY ASKED FOR:\n" + String(instruction || "").slice(0, 2000),
+      content: navDigest(slots, routes, actions, links, contacts, lists, layouts) + "\n\nWHAT THEY ASKED FOR:\n" + String(instruction || "").slice(0, 2000),
     }],
   };
 }
@@ -750,6 +800,24 @@ export function readNav(reply, routes) {
     if (Object.keys(picked).length) contact = picked;
   }
 
+  // ── THE FRAME'S OWN ARRANGEMENT ─────────────────────────────────────────
+  //
+  // THE ENUM IS ENFORCED HERE, IN CODE, not merely declared in the schema
+  // above — a value the component does not recognise falls back to the default
+  // arrangement, so writing one produces a change reported as applied that
+  // moves nothing. `sticky` must be a REAL boolean: `"false"` is truthy, and
+  // reading it loosely would un-stick a header on the answer that asked for the
+  // opposite.
+  let layout = null;
+  const rl = input.layout;
+  if (rl && typeof rl === "object" && !Array.isArray(rl)) {
+    const picked = {};
+    for (const [f, s] of Object.entries(CHROME_OBJECTS.layout)) {
+      if (validChromeValue(rl[f], s)) picked[f] = rl[f];
+    }
+    if (Object.keys(picked).length) layout = picked;
+  }
+
   const pageLinks = [];
   for (const c of Array.isArray(input.pageLinks) ? input.pageLinks : []) {
     if (!c || typeof c !== "object") continue;
@@ -769,8 +837,8 @@ export function readNav(reply, routes) {
     // `contact` COUNTS HERE. Without it a footer-only answer — which is the
     // commonest shape this lane's newest field produces — fell out as `null`
     // and the whole change was dropped before anything could apply it.
-    if (!action && !removeAction && !dropped.length && !pageLinks.length && !contact && !Object.keys(lists).length) return null;
-    return { links: null, dropped, action, removeAction, pageLinks, contact, lists };
+    if (!action && !removeAction && !dropped.length && !pageLinks.length && !contact && !layout && !Object.keys(lists).length) return null;
+    return { links: null, dropped, action, removeAction, pageLinks, contact, lists, layout };
   }
   for (const it of raw) {
     if (!it || typeof it !== "object") continue;
@@ -787,7 +855,7 @@ export function readNav(reply, routes) {
     links.push({ label, href });
     if (links.length >= MAX_NAV_ITEMS) break;
   }
-  return { links, dropped, action, removeAction, pageLinks, contact, lists };
+  return { links, dropped, action, removeAction, pageLinks, contact, lists, layout };
 }
 
 /**
@@ -933,8 +1001,27 @@ function humanList(fields) {
 }
 
 /** What the customer is told, in their words rather than ours. */
-export function navReply({ links = [], dropped = [], changed = [], action = null, removedAction = false, moved = 0, refused = [], contact = null, lists = null } = {}) {
+export function navReply({ links = [], dropped = [], changed = [], action = null, removedAction = false, moved = 0, refused = [], contact = null, lists = null, layout = null } = {}) {
   const where = changed.length + (changed.length === 1 ? " page" : " pages");
+
+  // THE FRAME ON ITS OWN, ahead of every other branch for the reason the two
+  // below it are: falling through reports a menu that did not change, and the
+  // customer cannot tell which of the two we actually did.
+  //
+  // SAID IN THEIR WORDS. "brand: centre" is our field name; what they asked for
+  // was the logo in the middle, and a reply that reads back the schema is a
+  // reply nobody can check.
+  if (layout && !contact && !lists && !links.length && !action && !removedAction && !moved) {
+    const said = [];
+    if (layout.brand === "centre") said.push("put the name in the middle");
+    if (layout.brand === "left") said.push("moved the name back to the left");
+    if (layout.width === "full") said.push("ran the header and footer right across");
+    if (layout.width === "contained") said.push("brought the header and footer back in line with the page");
+    if (layout.sticky === false) said.push("stopped the top bar following the reader down the page");
+    if (layout.sticky === true) said.push("the top bar follows the reader down the page again");
+    if (!said.length) return "I couldn\u2019t work out what to change about the header.";
+    return "\u2705 " + said.join(", and ").replace(/^./, (c) => c.toUpperCase()) + " \u2014 on " + where + ".";
+  }
 
   // THE FOOTER ON ITS OWN, before every other branch. Falling through would
   // report a menu that did not change, and the customer has no way of knowing
@@ -1048,6 +1135,7 @@ export async function runNavEdit(deps, { instruction, pages, routes } = {}) {
   const links = linkSlots(pages);
   const contacts = contactSlots(pages);
   const lists = Object.keys(LIST_FIELDS).flatMap((prop) => chromeListSlots(pages, prop));
+  const layouts = chromeObjectSlots(pages, "layout");
   // NOTHING TO EDIT IS THE ONLY THING THAT ESCALATES. A site with a button and
   // no menu, or links in the copy and no chrome at all, is still this lane's
   // work — sending it up costs a ~27-credit rewrite to do what this does free.
@@ -1056,7 +1144,7 @@ export async function runNavEdit(deps, { instruction, pages, routes } = {}) {
   }
 
   let reply;
-  try { reply = await deps.send(navRequest({ instruction, slots, routes, actions, links, contacts, lists })); }
+  try { reply = await deps.send(navRequest({ instruction, slots, routes, actions, links, contacts, lists, layouts })); }
   catch (e) { return { ok: false, escalate: false, reason: "send", error: e, usage: null }; }
   const usage = navUsage(reply);
 
@@ -1066,7 +1154,8 @@ export async function runNavEdit(deps, { instruction, pages, routes } = {}) {
   const wantsLinks = !!(read && read.pageLinks && read.pageLinks.length);
   const wantsContact = !!(read && read.contact);
   const wantsLists = Object.keys((read && read.lists) || {});
-  if (!wantsMenu && !wantsButton && !wantsLinks && !wantsContact && !wantsLists.length) {
+  const wantsLayout = !!(read && read.layout);
+  if (!wantsMenu && !wantsButton && !wantsLinks && !wantsContact && !wantsLists.length && !wantsLayout) {
     // THE REASON TRAVELS EVEN WHEN NOTHING COULD BE APPLIED. `navReply({})` is
     // the honest answer only when the model said nothing usable at all; when it
     // named a button we had to refuse, the customer is owed the refusal.
@@ -1087,7 +1176,9 @@ export async function runNavEdit(deps, { instruction, pages, routes } = {}) {
     const r = applyChromeList(lst.pages, prop, read.lists[prop]);
     lst = { pages: r.pages, changed: [...lst.changed, ...r.changed] };
   }
-  const changed = [...new Set([...out.changed, ...btn.changed, ...lnk.changed, ...con.changed, ...lst.changed])];
+  let lay = { pages: lst.pages, changed: [] };
+  if (wantsLayout) lay = applyLayout(lst.pages, read.layout);
+  const changed = [...new Set([...out.changed, ...btn.changed, ...lnk.changed, ...con.changed, ...lst.changed, ...lay.changed])];
 
   if (!changed.length) {
     return {
@@ -1100,13 +1191,16 @@ export async function runNavEdit(deps, { instruction, pages, routes } = {}) {
             ? "The footer already says that — nothing to change."
             : wantsLists.length
               ? "The footer already has exactly those — nothing to change."
-              : linkRefusal(lnk.refused) || "Those links already point there — nothing to change.",
+              : wantsLayout
+                ? "The header already sits that way — nothing to change."
+                : linkRefusal(lnk.refused) || "Those links already point there — nothing to change.",
     };
   }
   return {
-    ok: true, pages: lst.pages, changed,
+    ok: true, pages: lay.pages, changed,
     contact: wantsContact ? read.contact : null,
     lists: wantsLists.length ? read.lists : null,
+    layout: wantsLayout ? read.layout : null,
     links: wantsMenu ? read.links : null,
     action: read.action || null, removedAction: !!read.removeAction,
     movedLinks: lnk.moved, refusedLinks: lnk.refused,
@@ -1117,6 +1211,7 @@ export async function runNavEdit(deps, { instruction, pages, routes } = {}) {
       moved: lnk.moved, refused: lnk.refused,
       contact: wantsContact ? read.contact : null,
       lists: wantsLists.length ? read.lists : null,
+      layout: wantsLayout ? read.layout : null,
     }),
   };
 }
@@ -1201,24 +1296,85 @@ export function applyAction(pages, action, remove) {
  * finds out when somebody cannot find the shop. An EMPTY STRING is the removal
  * verb, so a field can still be taken away.
  */
-export const CONTACT_FIELDS = ["phone", "email", "address", "hours"];
+/**
+ * THE OBJECT-VALUED CHROME PROPS — the contact block and the frame's own
+ * arrangement. Both are one object literal, spread into every page, edited a
+ * FIELD AT A TIME: naming the phone must not wipe the address, and centring the
+ * logo must not un-stick the header.
+ *
+ * ONE IMPLEMENTATION FOR BOTH, and the slot finder is why. Locating the literal
+ * in a page's source is the hard, comment-hazard-prone half and is identical for
+ * the two; only the VALUE KINDS differ. `applyChromeList` was unified for the
+ * same reason one prop family over.
+ *
+ * A FIELD EQUAL TO ITS DEFAULT IS DROPPED, which is what makes both removals
+ * work with no removal verb of their own. An empty string is a contact field
+ * taken away; `sticky: true` is a header put back — and when every field is at
+ * its default the whole property goes, so a site restored to the default frame
+ * is byte-identical to one that never had a `layout` at all.
+ */
+export const CHROME_OBJECTS = {
+  contact: {
+    phone: { kind: "text" }, email: { kind: "text" },
+    address: { kind: "text" }, hours: { kind: "text" },
+  },
+  layout: {
+    brand: { kind: "enum", values: ["left", "centre"] },
+    width: { kind: "enum", values: ["contained", "full"] },
+    sticky: { kind: "bool", default: true },
+  },
+};
 
-/** The `key: "value"` pairs of a contact object literal, as a plain map. */
-export function readContact(body) {
+/** DERIVED, so the spec above is the one place a chrome field is declared. */
+export const CONTACT_FIELDS = Object.keys(CHROME_OBJECTS.contact);
+
+/** The frame's three arrangement axes, in the order they are described. */
+export const LAYOUT_FIELDS = Object.keys(CHROME_OBJECTS.layout);
+
+/** The default for a field — what it means for that field not to be written. */
+function chromeDefault(spec) {
+  if (spec.kind === "bool") return spec.default;
+  if (spec.kind === "enum") return spec.values[0];
+  return "";
+}
+
+/** The `key: value` pairs of a chrome object literal, as a plain map. */
+export function readChromeObject(body, prop) {
+  const spec = CHROME_OBJECTS[prop];
   const out = {};
-  for (const f of CONTACT_FIELDS) {
+  if (!spec) return out;
+  const text = String(body || "");
+  for (const [f, s] of Object.entries(spec)) {
+    if (s.kind === "bool") {
+      // A bare `true`/`false`, not a quoted string — so it needs its own read.
+      const m = new RegExp(`\\b${f}\\s*:\\s*(true|false)\\b`).exec(text);
+      if (m) out[f] = m[1] === "true";
+      continue;
+    }
     // The value is a JSON string in the source, so JSON.parse gives back the
     // real text — including a `\n` in an address, which must stay a newline and
     // not become a literal backslash on the way through.
-    const m = new RegExp(`\\b${f}\\s*:\\s*("(?:[^"\\\\]|\\\\.)*")`).exec(String(body || ""));
+    const m = new RegExp(`\\b${f}\\s*:\\s*("(?:[^"\\\\]|\\\\.)*")`).exec(text);
     if (!m) continue;
-    try { out[f] = JSON.parse(m[1]); } catch { /* not a plain string — leave it out */ }
+    let v;
+    try { v = JSON.parse(m[1]); } catch { continue; /* not a plain string */ }
+    // AN ENUM VALUE WE DO NOT KNOW IS NOT READ BACK. The component falls back to
+    // the default arrangement for one, so carrying it forward would preserve a
+    // value that renders as nothing and looks like the edit failing.
+    if (s.kind === "enum" && !s.values.includes(v)) continue;
+    out[f] = v;
   }
   return out;
 }
 
-/** Where each page's contact object is, or where one would go. */
-export function contactSlots(pages) {
+/** The `key: "value"` pairs of a contact object literal, as a plain map. */
+export function readContact(body) {
+  return readChromeObject(body, "contact");
+}
+
+/** Where each page's object-valued chrome prop is, or where one would go. */
+export function chromeObjectSlots(pages, prop) {
+  if (!CHROME_OBJECTS[prop]) return [];
   const out = [];
   for (const p of Array.isArray(pages) ? pages : []) {
     if (!p || typeof p.path !== "string" || typeof p.source !== "string") continue;
@@ -1228,23 +1384,23 @@ export function contactSlots(pages) {
       const end = tagEnd(src, m.index);
       if (end < 0) continue;
       const tag = src.slice(m.index, end);
-      const a = /\bcontact=\{\{/.exec(tag);
+      const a = new RegExp(`\\b${prop}=\\{\\{`).exec(tag);
       if (!a) {
         // A SPREAD TAG IS NOT AN INSERTION POINT — `actionSlots` learned this by
         // being driven against the reference pages: a prop written before a
         // spread is overridden by it, so the insert would compile, publish and
         // change nothing.
         if (/\{\s*\.\.\./.test(tag)) continue;
-        out.push({ page: p.path, kind: "jsx", insertAt: m.index + m[0].length, contact: null });
+        out.push({ page: p.path, prop, kind: "jsx", insertAt: m.index + m[0].length, fields: null });
         continue;
       }
       const from = m.index + a.index + a[0].length - 1;
       const close = braceEnd(src, from);
       if (close < 0) continue;
       out.push({
-        page: p.path, kind: "jsx",
+        page: p.path, prop, kind: "jsx",
         at: m.index + a.index, to: close + 2,
-        contact: readContact(src.slice(from + 1, close)),
+        fields: readChromeObject(src.slice(from + 1, close), prop),
       });
     }
 
@@ -1254,20 +1410,20 @@ export function contactSlots(pages) {
       const objEnd = braceEnd(src, objAt);
       if (objEnd > 0) {
         const body = src.slice(objAt + 1, objEnd);
-        const a = /\bcontact:\s*\{/.exec(body);
+        const a = new RegExp(`\\b${prop}:\\s*\\{`).exec(body);
         if (!a) {
-          out.push({ page: p.path, kind: "obj", insertAt: objAt + 1, contact: null });
+          out.push({ page: p.path, prop, kind: "obj", insertAt: objAt + 1, fields: null });
         } else {
           const from = objAt + 1 + a.index + a[0].length - 1;
           const close = braceEnd(src, from);
           if (close > 0) {
             out.push({
-              page: p.path, kind: "obj",
+              page: p.path, prop, kind: "obj",
               // Runs to the comma, so a full removal leaves no `contact: {},`
               // behind — the source is stored and re-read on every later edit.
               at: objAt + 1 + a.index,
               to: src[close + 1] === "," ? close + 2 : close + 1,
-              contact: readContact(src.slice(from + 1, close)),
+              fields: readChromeObject(src.slice(from + 1, close), prop),
             });
           }
         }
@@ -1277,27 +1433,43 @@ export function contactSlots(pages) {
   return out;
 }
 
+/** Where each page's contact object is, or where one would go. */
+export function contactSlots(pages) {
+  return chromeObjectSlots(pages, "contact").map((s) => ({ ...s, contact: s.fields }));
+}
+
 /** `{ phone: "…", … }` as it should appear in the source, or "" for nothing. */
-function contactBody(fields) {
-  const parts = CONTACT_FIELDS
-    .filter((f) => typeof fields[f] === "string" && fields[f] !== "")
-    .map((f) => `${f}: ${JSON.stringify(fields[f])}`);
+function chromeObjectBody(fields, prop) {
+  const spec = CHROME_OBJECTS[prop] || {};
+  const parts = Object.entries(spec)
+    .filter(([f, s]) => fields[f] !== undefined && fields[f] !== chromeDefault(s))
+    .map(([f, s]) => `${f}: ${s.kind === "bool" ? String(fields[f]) : JSON.stringify(fields[f])}`);
   return parts.length ? `{ ${parts.join(", ")} }` : "";
 }
 
+/** What a field arriving in a change has to look like to be written at all. */
+function validChromeValue(v, spec) {
+  if (spec.kind === "bool") return typeof v === "boolean";
+  if (typeof v !== "string") return false;
+  return spec.kind === "enum" ? spec.values.includes(v) : true;
+}
+
 /**
- * Write the contact details into every page's chrome.
+ * Write one object-valued chrome prop into every page's chrome.
  *
  * BACK TO FRONT, PER FILE, for the reason `applyNav` states: each write changes
  * the length of the source, so a forward pass lands every later offset in
  * whatever moved into it.
  */
-export function applyContact(pages, change) {
-  const asked = CONTACT_FIELDS.filter((f) => typeof (change || {})[f] === "string");
+export function applyChromeObject(pages, prop, change) {
+  const spec = CHROME_OBJECTS[prop];
+  const asked = spec
+    ? Object.keys(spec).filter((f) => validChromeValue((change || {})[f], spec[f]))
+    : [];
   if (!asked.length) return { pages: Array.isArray(pages) ? pages : [], changed: [] };
 
   const byPage = new Map();
-  for (const s of contactSlots(pages)) {
+  for (const s of chromeObjectSlots(pages, prop)) {
     if (!byPage.has(s.page)) byPage.set(s.page, []);
     byPage.get(s.page).push(s);
   }
@@ -1309,23 +1481,23 @@ export function applyContact(pages, change) {
     let src = p.source;
     for (const s of [...mine].sort((a, b) => (b.at ?? b.insertAt) - (a.at ?? a.insertAt))) {
       // ABSENT MEANS UNCHANGED, so the merge starts from what is already there.
-      const merged = { ...(s.contact || {}) };
+      const merged = { ...(s.fields || {}) };
       for (const f of asked) merged[f] = change[f];
-      const body = contactBody(merged);
+      const body = chromeObjectBody(merged, prop);
 
       // NOTHING TO DO IS NOT A CHANGE. The writer re-serialises the whole
       // object, so without this an answer restating what is already there
       // rewrites every page, runs the container and cuts a version — and the
       // customer is told it worked when nothing moved. Compared on the SERIALISED
       // form, which is the only thing that reaches the file.
-      if (s.contact && body === contactBody(s.contact)) continue;
+      if (s.fields && body === chromeObjectBody(s.fields, prop)) continue;
 
-      if (!s.contact) {
+      if (!s.fields) {
         // Nothing there yet, and nothing to write: asking to clear a field on a
         // site that has no contact block at all is a no-op, not a failure.
         if (!body) continue;
         src = src.slice(0, s.insertAt) +
-          (s.kind === "jsx" ? " contact={" + body + "}" : " contact: " + body + ",") +
+          (s.kind === "jsx" ? ` ${prop}={${body}}` : ` ${prop}: ${body},`) +
           src.slice(s.insertAt);
         continue;
       }
@@ -1335,7 +1507,7 @@ export function applyContact(pages, change) {
         continue;
       }
       src = src.slice(0, s.at) +
-        (s.kind === "jsx" ? "contact={" + body + "}" : "contact: " + body + ",") +
+        (s.kind === "jsx" ? `${prop}={${body}}` : `${prop}: ${body},`) +
         src.slice(s.to);
     }
     if (src === p.source) return p;
@@ -1343,6 +1515,16 @@ export function applyContact(pages, change) {
     return { ...p, source: src };
   });
   return { pages: next, changed };
+}
+
+/** Write the contact details into every page's chrome. */
+export function applyContact(pages, change) {
+  return applyChromeObject(pages, "contact", change);
+}
+
+/** Write the frame's arrangement into every page's chrome. */
+export function applyLayout(pages, change) {
+  return applyChromeObject(pages, "layout", change);
 }
 
 /**

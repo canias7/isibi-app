@@ -1291,6 +1291,44 @@ function Home() {
       "the previous build's logo survived into a site that sent none");
   }
 
+  // ── THE FRAME'S ARRANGEMENT, WRITTEN THE WAY A PAGE REALLY WRITES IT ────────
+  //
+  // THE ONE THING ONLY A COMPILE CAN SHOW. `layout` is enum-shaped, and a page
+  // holds its frame in a `const CHROME` object that it spreads — 261 of the 318
+  // exemplars do exactly that — so the property widens to `string` and a CLOSED
+  // literal union refuses it with TS2322. Measured against the real reference
+  // pages before the type was opened: the whole site is lost to a failed
+  // typecheck because somebody asked to centre their logo. The unit suite can
+  // only read the type text; this is the shape the nav lane actually writes.
+  console.log("\nbuilding a site whose CHROME carries a layout…");
+  const LAID_OUT = `import { createFileRoute } from "@tanstack/react-router";
+import { SiteChrome } from "@/components/ui/site-chrome";
+export const Route = createFileRoute("/")({ component: Home });
+const CHROME = {
+  name: "Sharp Fade Barbers",
+  links: [{ label: "Book", href: "/book" }],
+  layout: { brand: "centre", width: "full", sticky: false },
+};
+function Home() {
+  return (
+    <SiteChrome {...CHROME}>
+      <main><h1>Walk-ins welcome</h1></main>
+    </SiteChrome>
+  );
+}`;
+  const laidOut = await post({ files: { "index.tsx": LAID_OUT }, slug: "laid-out", title: "Sharp Fade Barbers", worker: true });
+  ok("a const CHROME carrying a layout compiles", laidOut.ok === true, laidOut.stage + ": " + (laidOut.error || "").slice(0, 400));
+  const h3 = await renderHome(laidOut, "laid-out");
+  if (h3) {
+    // ASSERTED ON WHAT THE ARRANGEMENT DOES, not on a class name: `sticky` is
+    // the one axis whose absence is a real class in the markup, and `max-w-none`
+    // is what "full" means to the frame. A render that carried the layout as
+    // far as the props and dropped it there would still contain both defaults.
+    ok("…and the header is NOT sticky, so the layout reached the render",
+      !/<header[^>]*\bsticky\b/.test(h3), (h3.match(/<header[^>]*>/) || [""])[0]);
+    ok("…and it runs full width", /max-w-none/.test(h3), (h3.match(/<header[\s\S]{0,240}/) || [""])[0]);
+  }
+
   // ── WHICH BUILD IS THIS SITE SERVING? ───────────────────────────────────────
   //
   // An accepted upload is not a live script — measured twice live, where a read
