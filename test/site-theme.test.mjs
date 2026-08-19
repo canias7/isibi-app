@@ -17,8 +17,13 @@ import {
   SURFACES, surfaceCss, ICON_STROKES, iconCss, TRACKINGS, trackingCss, LEADINGS, leadingCss, WEIGHTS, weightCss,
   BUTTONS, buttonsCss, INPUTS, inputsCss, BACKDROPS, DECORS, worldCss, DISPLAYS, displayCss, displayColor,
   AMBIENTS, ambientCss, SKINS, skinCss, worldWorstGround, worldMutedColor, GROUND_DECORS,
+  worldBorderColor, rgbToOklch,
 } from "../builder/site-theme.mjs";
 import { SHORTLIST } from "../builder/site-fonts.mjs";
+// The 500 shipped themes. `site-theme.mjs` carries two; the border assertions
+// below are about a property that has to hold across the whole registry, not
+// across a fixture that was written to pass them.
+import { THEME_IDS, resolveTheme } from "../builder/site-theme-registry.mjs";
 
 /**
  * THE ENGINE IS TESTED AGAINST THIS, NOT AGAINST WHATEVER IS SHIPPED.
@@ -829,6 +834,109 @@ test("small text clears 4.5:1 on the worst ground a world can produce", () => {
     assert.deepEqual(worldWorstGround(w, mode).map((v) => +v.toFixed(6)), hand.map((v) => +v.toFixed(6)),
       `wood/${mode}: the ground-decor worst stop is not the paper-toward-ink blend`);
   }
+});
+
+test("rgbToOklch is the inverse of oklchToRgb", () => {
+  // ROUND-TRIP FROM RGB, NOT FROM OKLCH, and the direction is the whole point:
+  // `oklchToRgb` CLAMPS, so starting from an OKLCH triple tests the clamp as
+  // much as the transform. Written that way first, and it failed on
+  // oklch(0.62 0.16 60) — citrus's own accent, which is outside sRGB. Every rgb
+  // triple is in gamut by definition, so this direction is exact, and it is
+  // also the direction that matters: `worldWorstGround` hands back rgb.
+  for (const rgb of [
+    [1, 1, 1], [0, 0, 0], [0.5, 0.5, 0.5], [1, 0, 0], [0, 1, 0], [0, 0, 1],
+    [0.996, 0.788, 0.522], [0.843, 0.839, 0.824], [0.09, 0.08, 0.12],
+  ]) {
+    const back = oklchToRgb(...rgbToOklch(...rgb));
+    for (let i = 0; i < 3; i++) {
+      assert.ok(Math.abs(back[i] - rgb[i]) < 1e-6, `rgb round-trip ${rgb} -> ${back}`);
+    }
+  }
+  // A round-trip alone cannot catch two transforms that are wrong in mutually
+  // inverse ways — it passes perfectly on a matched pair of nonsense. These are
+  // published reference values, so they pin the absolute answer.
+  const white = rgbToOklch(1, 1, 1);
+  assert.ok(Math.abs(white[0] - 1) < 1e-4 && white[1] < 1e-4, `white is not oklch(1 0 h): ${white}`);
+  const red = rgbToOklch(1, 0, 0);
+  assert.ok(Math.abs(red[0] - 0.6280) < 1e-3, `sRGB red L is ${red[0]}, not 0.628`);
+  assert.ok(Math.abs(red[1] - 0.2577) < 1e-3, `sRGB red C is ${red[1]}, not 0.258`);
+  assert.ok(Math.abs(red[2] - 29.23) < 0.1, `sRGB red H is ${red[2]}, not 29.23`);
+});
+
+test("THE DIVIDER IS ON THE FAR SIDE OF THE GROUND FROM THE PAGE, on every world theme", () => {
+  // The bug, in one sentence: `paletteFor` derives the border as the PAPER
+  // stepped toward the ink, and under a world the page is no longer the paper
+  // — the root opens to 0.35 and the backdrop darkens it by more than the
+  // step. So the "darker" divider landed LIGHTER than the ground and read as a
+  // white streak. Measured on a real rendered page, the ground ran L 0.792 at
+  // the top to L 0.945 at the bottom while --border sat at L 0.875.
+  //
+  // Asserted as the PROPERTY over the real registry, not as a value: a divider
+  // must sit away from the ground, in whichever direction the ink is. That is
+  // one expression for both modes, and it is what makes a line read as a line.
+  const away = (t, mode, colour) => {
+    const g = rgbToOklch(...worldWorstGround(t, mode));
+    const inkIsDark = t[mode].ink[0] < t[mode].paper[0];
+    return inkIsDark ? colour[0] < g[0] : colour[0] > g[0];
+  };
+  let n = 0, brokenBefore = 0;
+  for (const id of THEME_IDS) {
+    const t = resolveTheme(id);
+    if ((t.backdrop ?? "plain") === "plain" && !GROUND_DECORS.has(t.decor ?? "none")) continue;
+    n++;
+    for (const mode of ["light", "dark"]) {
+      assert.ok(away(t, mode, worldBorderColor(t, mode)),
+        `${id}/${mode}: the divider is on the same side of the ground as the page`);
+      if (!away(t, mode, paletteFor(t, mode).border)) brokenBefore++;
+    }
+  }
+  // A floor, because a filter that silently stopped matching would report a
+  // clean sweep over nothing — the vacuous-pass shape this repo keeps hitting.
+  assert.ok(n > 300, `only ${n} world themes were checked`);
+  // And the inverse: the OLD derivation must fail this, or the assertion above
+  // passes whether or not the fix is present and proves nothing at all.
+  assert.ok(brokenBefore > 100,
+    `the paper-derived border failed on only ${brokenBefore} theme-modes — this test cannot tell the fix from its absence`);
+});
+
+test("the border override ships only where there is a world, and after the palette", () => {
+  // Plain themes must be BYTE-IDENTICAL: for them the paper really is the
+  // ground, so the palette's own derivation is already right and one deploy
+  // must not restyle them.
+  let plain = 0;
+  for (const id of THEME_IDS) {
+    const t = resolveTheme(id);
+    if ((t.backdrop ?? "plain") !== "plain" || GROUND_DECORS.has(t.decor ?? "none")) continue;
+    plain++;
+    assert.ok(!worldCss(t).includes("--border"), `${id} has no world and got a border override`);
+  }
+  assert.ok(plain > 50, `only ${plain} plain themes were checked`);
+
+  const out = worldCss({ ...FIXTURE, backdrop: "field" });
+  assert.match(out, /:root \{ --border: oklch/);
+  assert.match(out, /\.dark \{ --border: oklch/);
+  // A ground decor moves the ground the way light does, so it refits too.
+  for (const g of GROUND_DECORS) {
+    assert.match(worldCss({ ...FIXTURE, decor: g }), /:root \{ --border: oklch/,
+      `${g} alone left the divider fit to bare paper`);
+  }
+
+  // SOURCE ORDER IS THE WHOLE MECHANISM — the same reasoning every other world
+  // token rests on. The palette declares --border in its own :root block and
+  // this must come after it, or the override is inert and the white line is
+  // back with every test still green.
+  //
+  // Asserted on `themeCss` ALONE, which is what a build appends: it already
+  // composes `worldCss`, so concatenating the two would double every
+  // declaration and the ordering would hold whether or not it really does.
+  const full = themeCss({ ...FIXTURE, backdrop: "field" });
+  const decls = [...full.matchAll(/--border:/g)].map((m) => m.index);
+  assert.ok(decls.length === 4, `expected 4 --border declarations (palette x2, override x2), got ${decls.length}`);
+  const palette = full.indexOf("--border:");
+  assert.ok(full.lastIndexOf(":root { --border:") > palette,
+    "the border override does not come after the palette block");
+  assert.ok(full.lastIndexOf(".dark { --border:") > palette,
+    "the dark border override does not come after the palette block");
 });
 
 test("offset shadows are solid ink, whole pixels, and mode-invariant", () => {

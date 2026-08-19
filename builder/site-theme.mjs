@@ -77,6 +77,34 @@ export function oklchToRgb(L, C, Hdeg) {
   });
 }
 
+/**
+ * The inverse of `oklchToRgb`, for the one case that needs it: a colour that
+ * only EXISTS as a composite. `worldWorstGround` blends the paper over a
+ * backdrop stop in real sRGB — deliberately, because that is how the browser
+ * blends it — so its answer has no OKLCH form until it is converted back, and
+ * `worldBorderColor` has to derive from it in the same perceptual space
+ * everything else in this file derives in.
+ *
+ * Not a round-trip guarantee at the edges: `oklchToRgb` CLAMPS out-of-gamut
+ * triples, so a colour that was never representable comes back as whatever the
+ * clamp landed on. That is correct here — the ground is a real painted pixel by
+ * construction, so it is in gamut by definition.
+ */
+export function rgbToOklch(r, g, b) {
+  const lin = (c) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+  const R = lin(r), G = lin(g), B = lin(b);
+  const l = Math.cbrt(0.4122214708 * R + 0.5363325363 * G + 0.0514459929 * B);
+  const m = Math.cbrt(0.2119034982 * R + 0.6806995451 * G + 0.1073969566 * B);
+  const s = Math.cbrt(0.0883024619 * R + 0.2817188376 * G + 0.6299787005 * B);
+  const a = 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s;
+  const bb = 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s;
+  return [
+    0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+    Math.hypot(a, bb),
+    ((Math.atan2(bb, a) * 180) / Math.PI + 360) % 360,
+  ];
+}
+
 /** WCAG relative luminance of an OKLCH triple. */
 export function luminance([L, C, H]) {
   const [r, g, b] = oklchToRgb(L, C, H);
@@ -1363,7 +1391,7 @@ export function worldCss(theme) {
   };
   const grounded = backdrop !== "plain" || GROUND_DECORS.has(decor);
   return openRootCss(theme, grounded) + rule("light") + rule("dark") +
-    (grounded ? worldMutedCss(theme) + bandClearCss(theme) : "");
+    (grounded ? worldMutedCss(theme) + worldBorderCss(theme) + bandClearCss(theme) : "");
 }
 
 /**
@@ -1415,6 +1443,54 @@ export function worldMutedColor(theme, mode) {
 function worldMutedCss(theme) {
   return `:root { --muted-foreground: ${css(worldMutedColor(theme, "light"))}; }\n` +
     `.dark { --muted-foreground: ${css(worldMutedColor(theme, "dark"))}; }\n`;
+}
+
+/**
+ * THE DIVIDER WAS LIGHTER THAN THE PAGE IT DIVIDED — the owner's catch
+ * (2026-08-19, pointing at the two rules above a footer). `paletteFor` derives
+ * `border` as `mix(paper, ink, 0.14)`: the paper, stepped toward the ink. Under
+ * a world the page is no longer the paper — the root opens to 0.35 and the
+ * backdrop shows through, darkening it by MORE than 14% — so the "darker"
+ * divider lands LIGHTER than the ground and reads as a white streak.
+ *
+ * Measured down a real rendered citrus page: the ground runs L 0.792 at the top
+ * to L 0.945 at the bottom, and `--border` sat at L 0.875 — lighter than the
+ * ground over the top 29% of the page, and only just darker below it. Both
+ * failures, one token. Across the shortlist it is not a variance: the divider
+ * is lighter than the deepest ground on 57 of 57 themes with a world, median
+ * contrast against it 1.39:1.
+ *
+ * The same bug and the same fix as `worldMutedCss` directly above, one token
+ * over: derive against the ground the page really has. Emitted after the
+ * palette blocks so source order decides it, like every world token.
+ *
+ * THE STEP IS SMALL ON PURPOSE. `worldWorstGround` is the theoretical FLOOR —
+ * the deepest stop composited under the opened root — and the real page never
+ * quite reaches it (0.776 against a measured darkest of 0.792). So landing just
+ * below the floor already clears every point on the page, and stepping further
+ * only makes the line heavier everywhere else. Rendered at 0.03 and 0.08 side
+ * by side; 0.08 was the darker of two that both work, and this is the softer.
+ *
+ * THE COST, STATED: `--border` is one token doing two jobs — page dividers AND
+ * card outlines — so card edges get more visible. There is no way to separate
+ * them: measured over the 324 corpus pages, borders are drawn as 918
+ * `border-border`, 286 `border-t`, 226 `border-b` and 175 `border-y` against
+ * just 9 `bg-card`, so nothing in what the pages write distinguishes a card
+ * from a section rule. Inputs are unaffected — they use `border-input`, which
+ * is the separate `--input` token.
+ */
+const WORLD_BORDER_STEP = 0.03;
+export function worldBorderColor(theme, mode) {
+  const ground = rgbToOklch(...worldWorstGround(theme, mode));
+  // Toward the INK, which is what makes one expression right in both modes:
+  // on a light theme the ink is dark so the line darkens, and on a dark theme
+  // the ink is light so it lightens — in each case away from the ground, which
+  // is the only thing that makes a divider read as a line at all.
+  return mix(ground, theme[mode].ink.slice(0, 3), WORLD_BORDER_STEP);
+}
+function worldBorderCss(theme) {
+  return `:root { --border: ${css(worldBorderColor(theme, "light"))}; }\n` +
+    `.dark { --border: ${css(worldBorderColor(theme, "dark"))}; }\n`;
 }
 
 /**

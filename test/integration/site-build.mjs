@@ -1513,6 +1513,75 @@ function Home() {
   ok("an ink site has no heading-colour rule at all", !/--display:/.test(inkCss),
     "ink emitted a display colour");
 
+  // ── AND THE DIVIDER, WHICH WAS LIGHTER THAN THE PAGE ────────────────────
+  //
+  // Reported by the owner pointing at the two rules above a footer (2026-08-19).
+  // `paletteFor` derives --border as the PAPER stepped toward the ink, and under
+  // a backdrop the page is no longer the paper — the root opens to 0.35 and the
+  // wash darkens it by more than the step — so the "darker" divider landed
+  // LIGHTER than the ground and read as a white streak. Measured down a real
+  // citrus page: ground L 0.792 at the top to 0.945 at the bottom, --border at
+  // 0.875. On 57 of 57 shortlist themes with a world.
+  //
+  // The unit suite asserts the derivation; only a real build can say whether the
+  // override SURVIVES compilation. It is a second :root, so it wins on source
+  // order alone — and this repo has already shipped one of those that a minifier
+  // dropped, reporting the chosen font while serving the default.
+  console.log("\nbuilding a site whose dividers sit on a background wash…");
+  const B_PAYLOAD = { files: { "index.tsx": CHROMED }, slug: "border-site", title: "Fold Coffee" };
+  const washB = await post({ ...B_PAYLOAD, theme: "citrus" });   // backdrop: wash
+  const plainB = await post({ ...B_PAYLOAD, theme: "noir" });    // backdrop: plain
+  ok("a build on a world theme succeeds", washB.ok === true, washB.stage + ": " + (washB.error || "").slice(0, 300));
+  ok("a build on a plain theme succeeds", plainB.ok === true, plainB.stage + ": " + (plainB.error || "").slice(0, 300));
+  const bcss = (b) => Object.entries(b.files || {}).filter(([n]) => n.endsWith(".css")).map(([, v]) => (v && v.t) || "").join("");
+  const wshCss = bcss(washB), plnCss = bcss(plainB);
+  // THE LAST DECLARATION IN `:root` IS THE ONE THE BROWSER USES, and both
+  // halves matter. Reading the FIRST finds the template's own shadcn base and
+  // is true whatever we emitted; reading the last in the FILE finds the `.dark`
+  // block, which answers a different question — that one failed against
+  // perfectly correct code on this check's first run.
+  const lastRootBorder = (css) => {
+    let v = null;
+    for (const m of css.matchAll(/:root[^{]*\{([^}]*)\}/g)) {
+      const d = [...m[1].matchAll(/--border:\s*([^;}]+)/g)].pop();
+      if (d) v = d[1].trim();
+    }
+    return v;
+  };
+  // THE MINIFIER REWRITES `0.4117` AS `41.17%` — measured, and the first draft
+  // of this parser read that as a bare number and compared 41.17 < 0.8.
+  const okl = (v) => {
+    const m = /oklch\(\s*([\d.]+)(%?)/.exec(v || "");
+    return m ? Number(m[1]) / (m[2] ? 100 : 1) : null;
+  };
+  const wshL = okl(lastRootBorder(wshCss));
+  ok("the world override WINS in the compiled stylesheet",
+    wshL !== null && wshL < 0.8,
+    "last :root --border is " + lastRootBorder(wshCss) + " (L " + wshL + ") — the second :root was dropped or outranked");
+  // A PLAIN THEME MUST BE UNTOUCHED. For it the paper really is the ground, so
+  // the palette's own derivation is already right; one deploy must not restyle
+  // the 90 themes that never had this bug.
+  ok("…and a theme with no world keeps the palette's own divider",
+    (plnCss.match(/--border:/g) || []).length === (wshCss.match(/--border:/g) || []).length - 2,
+    "plain " + (plnCss.match(/--border:/g) || []).length + " vs wash " + (wshCss.match(/--border:/g) || []).length +
+    " — expected exactly two more (:root and .dark) on the world theme");
+  // AND THE DARK HALF, which had the mirrored bug — 56 of 84 world themes drew a
+  // divider DARKER than a dark page, so it has to LIGHTEN there.
+  //
+  // ASSERTED ON THE VALUE, not on there being a `.dark --border` at all: the
+  // palette declares one too, so "a --border exists inside a .dark block" is
+  // true whether or not the override survived — it passed on every run where
+  // the override was in fact missing. citrus's dark palette is L 0.31 and the
+  // override is L 0.41, so the floor between them is what discriminates.
+  let darkL = null;
+  for (const m of wshCss.matchAll(/\.dark[^{]*\{([^}]*)\}/g)) {
+    const d = [...m[1].matchAll(/--border:\s*([^;}]+)/g)].pop();
+    if (d) darkL = okl(d[1].trim());
+  }
+  ok("…and the dark block gets its own, lightened away from a dark page",
+    darkL !== null && darkL > 0.35,
+    "last .dark --border is L " + darkL + " — the palette's own 0.31, so the override did not survive");
+
   console.log("\nbuilding the same site light and dark…");
   const MODE_PAYLOAD = { files: { "index.tsx": CHROMED }, slug: "mode-site", title: "Nightshift Records", theme: "noir", worker: true };
   const lightBuild = await post({ ...MODE_PAYLOAD, mode: "light" });
