@@ -539,7 +539,7 @@ export const NAV_TOOL = {
         description:
           "HOW THE FRAME ITSELF SITS — where the name goes, how wide the bar runs, and whether it follows the reader " +
           "down the page. Use this for \"centre our logo\", \"put the name in the middle\", \"run the header right " +
-          "across\", \"the menu shouldn't follow me as I scroll\", \"stop the bar sticking to the top\", \"put a line under the header\".\n" +
+          "across\", \"keep the menu with me as I scroll\", \"make the bar stick to the top\", \"put a line under the header\".\n" +
           "NAME ONLY THE ONE THEY ASKED ABOUT. Everything you leave out stays as it is — centring the name must not " +
           "quietly un-stick the header.\n" +
           "PUTTING ONE BACK IS ITS ORDINARY VALUE, not an empty field: \"put the logo back on the left\" is " +
@@ -566,8 +566,10 @@ export const NAV_TOOL = {
           sticky: {
             type: "boolean",
             description:
-              "true (the ordinary way) keeps the top bar in view as the visitor scrolls, so the menu and the button " +
-              "are always there. false lets it scroll away with the rest of the page.",
+              "true keeps the top bar in view as the visitor scrolls, so the menu and the button are always there. " +
+              "OFF by default, and it brings a faint band behind the bar with it — a stuck header needs one to stay " +
+              "readable while the page slides underneath. false (the ordinary way) lets it scroll away and leaves " +
+              "the page uninterrupted.",
           },
           divider: {
             type: "boolean",
@@ -1026,7 +1028,7 @@ export function navReply({ links = [], dropped = [], changed = [], action = null
     if (layout.width === "full") said.push("ran the header and footer right across");
     if (layout.width === "contained") said.push("brought the header and footer back in line with the page");
     if (layout.sticky === false) said.push("stopped the top bar following the reader down the page");
-    if (layout.sticky === true) said.push("the top bar follows the reader down the page again");
+    if (layout.sticky === true) said.push("the top bar follows the reader down the page");
     if (layout.divider === true) said.push("a rule under the header and above the footer");
     if (layout.divider === false) said.push("took the rules off the header and footer");
     if (!said.length) return "I couldn\u2019t work out what to change about the header.";
@@ -1331,7 +1333,11 @@ export const CHROME_OBJECTS = {
   layout: {
     brand: { kind: "enum", values: ["left", "centre"] },
     width: { kind: "enum", values: ["contained", "full"] },
-    sticky: { kind: "bool", default: true },
+    // DEFAULTS OFF, and it is coupled to the band. A stuck header has content
+    // passing under it, so it needs a pale surface to stay readable — and that
+    // surface ENDS in a step, which reads as a line whatever the CSS calls it.
+    // There is no sticky-and-no-line arrangement, so the two move together.
+    sticky: { kind: "bool", default: false },
     // DEFAULTS THE OPPOSITE WAY TO `sticky`, and that asymmetry is the point:
     // the rules under the header and above the footer used to be hardcoded and
     // are now OFF unless somebody asks. So `divider: false` is the default and

@@ -119,8 +119,27 @@ test("THE RULES ARE OFF UNLESS SOMEBODY ASKS, in all three places", () => {
   // was the existing behaviour; this one defaults OFF because it is a change.
   assert.equal(CHROME_OBJECTS.layout.divider.default, false,
     "divider no longer defaults off, so every build gets the rules again");
-  assert.equal(CHROME_OBJECTS.layout.sticky.default, true,
-    "sticky's default moved — the two are deliberately opposite");
+  // AND `sticky` DEFAULTS OFF WITH IT, because the two are coupled: a stuck
+  // header needs a pale band to stay readable while content slides under it
+  // (measured — without one the wordmark prints through the page's headings),
+  // and that band ENDS in a step which reads as a line. There is no
+  // sticky-and-no-line arrangement, so neither may default on alone.
+  assert.equal(CHROME_OBJECTS.layout.sticky.default, false,
+    "sticky defaults on again, so every build gets the band's edge back");
+  // The band must be gated on `sticky` and on nothing else — carried
+  // unconditionally it is the pale strip whose bottom edge was the line.
+  const band = /sticky && "sticky top-0 z-40 bg-background\/85 backdrop-blur"/;
+  assert.match(header, band, "the header's band is not gated on `sticky`");
+  // AND THE COMPONENT'S OWN DEFAULT, not just the spec's. FOUND BY MUTATION:
+  // reverting the header to `layout?.sticky !== false` — every build sticky and
+  // banded again — survived the whole suite, because only CHROME_OBJECTS was
+  // asserted. The spec drives the tool; the component is what renders, and the
+  // two can disagree silently.
+  const blankHdr = blank(header);
+  for (const f of ["sticky", "divider"]) {
+    assert.match(blankHdr, new RegExp(`const ${f} = layout\\?\\.${f} === true;`),
+      `the header's \`${f}\` no longer defaults OFF — the spec says off and the render says on`);
+  }
 });
 
 test("width moves the header and the footer together", () => {
@@ -172,11 +191,14 @@ test("a comment with an apostrophe does not blind the scanner", () => {
 // ── WRITING IT ──────────────────────────────────────────────────────────────
 
 test("absent means unchanged — centring the name does not un-stick the header", () => {
-  const p = CHROME_PAGE(`  layout: { sticky: false },\n`);
+  // `sticky: true` is the NON-default value now, which is what makes this
+  // assertion mean anything: a field equal to its default is dropped by design,
+  // so storing the default and finding it gone would prove nothing.
+  const p = CHROME_PAGE(`  layout: { sticky: true },\n`);
   const { pages, changed } = applyLayout([p], { brand: "centre" });
   assert.deepEqual(changed, ["index.tsx"]);
   assert.match(pages[0].source, /brand: "centre"/);
-  assert.match(pages[0].source, /sticky: false/, "an unnamed axis was wiped");
+  assert.match(pages[0].source, /sticky: true/, "an unnamed axis was wiped");
 });
 
 test("the ordinary value is the removal verb, and an all-default frame leaves nothing behind", () => {
@@ -196,7 +218,7 @@ test("a no-op does not republish", () => {
   const p = CHROME_PAGE(`  layout: { brand: "centre" },\n`);
   assert.deepEqual(applyLayout([p], { brand: "centre" }).changed, []);
   // Nothing stored, and the ask IS the default: still nothing to do.
-  assert.deepEqual(applyLayout([CHROME_PAGE()], { sticky: true }).changed, []);
+  assert.deepEqual(applyLayout([CHROME_PAGE()], { sticky: false }).changed, []);
 });
 
 test("it is inserted where there is none, on every page", () => {
@@ -218,8 +240,8 @@ test("a junk value is never written", () => {
 });
 
 test("a round trip through the real applier and reader agrees", () => {
-  const written = applyLayout([CHROME_PAGE()], { brand: "centre", sticky: false }).pages;
-  assert.deepEqual(chromeObjectSlots(written, "layout")[0].fields, { brand: "centre", sticky: false });
+  const written = applyLayout([CHROME_PAGE()], { brand: "centre", sticky: true }).pages;
+  assert.deepEqual(chromeObjectSlots(written, "layout")[0].fields, { brand: "centre", sticky: true });
 });
 
 test("layout and contact do not disturb each other on one page", () => {
@@ -242,7 +264,7 @@ test("the digest states EVERY axis, including the ones at their ordinary value",
     "the axes are printed with no heading, so nothing says what they are");
   for (const f of LAYOUT_FIELDS) assert.match(d, new RegExp("\\n  " + f + ": "), `the digest never states \`${f}\``);
   assert.match(d, /brand: centre/);
-  assert.match(d, /sticky: true {2}\(the ordinary one\)/);
+  assert.match(d, /sticky: false {2}\(the ordinary one\)/);
 });
 
 test("the tool offers exactly the axes the writer can write", () => {

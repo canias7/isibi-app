@@ -117,17 +117,29 @@ export type SiteLayout = {
   brand?: "left" | "centre" | (string & {});
   /** "contained" (default) caps the frame at the page width; "full" runs edge to edge. */
   width?: "contained" | "full" | (string & {});
-  /** false stops the header following the reader down the page. Default true. */
+  /**
+   * true keeps the top bar in view as the visitor scrolls. Default FALSE.
+   *
+   * STICKINESS AND THE HEADER'S SURFACE TRAVEL TOGETHER, and that coupling is
+   * the whole reason this default moved. A stuck header has page content
+   * passing UNDER it, so it needs an opaque-ish band to stay readable — without
+   * one the wordmark prints straight through the page's own headings, measured
+   * on a real scrolled render. The band is `bg-background/85 backdrop-blur`, a
+   * pale strip that ENDS in a hard step, and that step is a line to the eye
+   * whatever the CSS calls it.
+   *
+   * So there is no arrangement with a sticky header and no line. Ask for one
+   * and you get the band with it; leave it alone and the header scrolls away
+   * and the page is uninterrupted.
+   */
   sticky?: boolean;
   /**
-   * true draws a rule under the header and above the footer. Default FALSE —
-   * and this one defaults the opposite way to `sticky` above, deliberately.
+   * true draws a rule under the header and above the footer. Default FALSE.
    *
    * These three rules were hardcoded and nobody could turn them off. Under a
    * theme that paints a background they read as clutter slicing one continuous
    * page into slabs, which is the same judgement `bandClearCss` already acts on
-   * — "sections separate by spacing and type, not by tone". The header carries
-   * `bg-background/85 backdrop-blur`, so it is a distinct band without a line.
+   * — "sections separate by spacing and type, not by tone".
    *
    * OFF BY DEFAULT IS A CHANGE, not a preserved behaviour: every published site
    * loses its rules on its next publish. Owner's call, 2026-08-19.
@@ -148,17 +160,19 @@ export function SiteHeader({
   layout?: SiteLayout;
   className?: string;
 }) {
-  // ABSENT MEANS TODAY'S BEHAVIOUR, which is what makes this safe against every
-  // site already published: `sticky` defaults ON, so only an explicit `false`
-  // turns it off.
   const centred = layout?.brand === "centre";
   const wide = layout?.width === "full";
-  const sticky = layout?.sticky !== false;
-  // Strictly `=== true`: an absent divider is OFF, and so is anything merely
-  // truthy arriving from a stored layout.
+  // BOTH STRICTLY `=== true`: absent is off, and so is anything merely truthy
+  // arriving from a stored layout.
+  const sticky = layout?.sticky === true;
   const divider = layout?.divider === true;
+  // THE BAND RIDES ON `sticky`, never on its own. It exists to keep the nav
+  // readable while the page slides under it, so an unstuck header does not need
+  // one — and carrying it anyway is exactly the pale strip whose bottom edge
+  // reads as a line. Measured on a real render: a step of 40 in the blue
+  // channel at the header's bottom, with no border anywhere near it.
   return (
-    <header className={cn(sticky && "sticky top-0 z-40", divider && "border-b", "bg-background/85 backdrop-blur", className)}>
+    <header className={cn(sticky && "sticky top-0 z-40 bg-background/85 backdrop-blur", divider && "border-b", className)}>
       {/* CENTRING IS FLEX-WRAP, NOT A SECOND LAYOUT. The brand takes a full row
           and everything else wraps below it and centres — so the nav, the button
           and the mobile menu button are rendered ONCE and read the same on both

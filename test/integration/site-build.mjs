@@ -1327,8 +1327,12 @@ function Home() {
     // on the platform with the axis still present and every other check green.
     // The paired positive — a site that ASKS gets them — is in the laid-out
     // block below, and neither alone discriminates.
-    ok("…and no rules under the header or above the footer, since it asked for none",
-      !/<header[^>]*\bborder-b\b/.test(h2) && !/<footer[^>]*\bborder-t\b/.test(h2),
+    ok("…and NOTHING that draws a line across the page, since it asked for none",
+      !/<header[^>]*\bborder-b\b/.test(h2) && !/<footer[^>]*\bborder-t\b/.test(h2)
+        // The band counts: no border is drawn, but a pale strip that ENDS is a
+        // line to the eye, which is how the first attempt at this shipped
+        // reporting "no rules" over a visible edge.
+        && !/<header[^>]*bg-background\//.test(h2) && !/<header[^>]*\bsticky\b/.test(h2),
       ((h2.match(/<header[^>]*>/) || [""])[0] + " ~ " + (h2.match(/<footer[^>]*>/) || [""])[0]));
   }
 
@@ -1349,7 +1353,7 @@ export const Route = createFileRoute("/")({ component: Home });
 const CHROME = {
   name: "Sharp Fade Barbers",
   links: [{ label: "Book", href: "/book" }],
-  layout: { brand: "centre", width: "full", sticky: false, divider: true },
+  layout: { brand: "centre", width: "full", sticky: true, divider: true },
 };
 function Home() {
   return (
@@ -1370,8 +1374,16 @@ function Home() {
     // the one axis whose absence is a real class in the markup, and `max-w-none`
     // is what "full" means to the frame. A render that carried the layout as
     // far as the props and dropped it there would still contain both defaults.
-    ok("…and the header is NOT sticky, so the layout reached the render",
-      !/<header[^>]*\bsticky\b/.test(h3), (h3.match(/<header[^>]*>/) || [""])[0]);
+    // ASKED FOR IT, because `sticky` now defaults OFF — asserting the absence of
+    // the default proves nothing about whether the layout was read at all.
+    ok("…and the header IS sticky, so the layout reached the render",
+      /<header[^>]*\bsticky\b/.test(h3), (h3.match(/<header[^>]*>/) || [""])[0]);
+    // THE BAND TRAVELS WITH IT. A stuck header needs a surface or the wordmark
+    // prints through the page's own headings — measured on a real scrolled
+    // render. Which is also why neither defaults on: that surface ends in a
+    // step, and the step is the line.
+    ok("…and it carries the band that keeps it readable",
+      /<header[^>]*bg-background\/85/.test(h3), (h3.match(/<header[^>]*>/) || [""])[0]);
     ok("…and it runs full width", /max-w-none/.test(h3), (h3.match(/<header[\s\S]{0,240}/) || [""])[0]);
     // THE RULES ARE OFF BY DEFAULT AND THIS SITE ASKED FOR THEM BACK.
     // Hardcoded until 2026-08-19, so no customer could remove them; now off
