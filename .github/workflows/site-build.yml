@@ -33,7 +33,20 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 15 UNTIL 2026-08-19, AND IT HAD BEEN ONE SMALL ADDITION FROM THE WALL FOR
+    # A WHILE. Measured across the preceding runs: 13m50s, 14m26s, 14m23s,
+    # 11m42s, 14m18s, 14m24s. Two extra container builds (~28s) tipped it, and
+    # GitHub reports a job TIMEOUT as `cancelled` — so the run showed neither a
+    # failing assertion nor a red step: `site-build.mjs` had already passed and
+    # the job died three steps later, in `site-runtime.mjs`, at exactly 15m.
+    # That reads as flaky infrastructure rather than as a budget, which is why
+    # the numbers are written down here instead of being rediscovered.
+    #
+    # A CAP EXISTS TO CATCH A HANG, not to police a suite that legitimately
+    # grew. This one really does ~20 real container builds plus six browser
+    # harnesses; 25 leaves headroom for another feature's worth of checks while
+    # still killing a genuine hang inside half an hour.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
