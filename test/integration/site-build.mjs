@@ -1386,25 +1386,36 @@ function Home() {
   // AND IT REALLY IS A SECOND PALETTE rather than the same colours under
   // another selector. Without this the assertion above is satisfied by a theme
   // whose dark block says nothing, and the class would apply to nothing.
-  {
-    // READ BY SLICING FROM THE SELECTOR, not with a brace-class regex, and the
-    // reason is a checker rather than a style. `worker-imports.test.mjs` counts
-    // braces as TEXT to find where a block-scoped name goes out of scope, so
-    // `[^}]` on a `const` line drives its depth negative on that very line and
-    // every later use reads as a ReferenceError that is not there. Measured:
-    // both declarations were flagged. Same family as `logoImg` five hundred
-    // lines up — the scanner is deliberately narrow rather than a parser, so
-    // the cheap fix is code it can read.
-    const bgIn = (css, sel) => {
-      const at = css.indexOf(sel);
-      const hit = at < 0 ? null : /--background:\s*([^;]+)/.exec(css.slice(at, at + 900));
-      return hit ? hit[1].trim() : "";
-    };
-    const rootBg = bgIn(lightCss, ":root");
-    const darkBg = bgIn(lightCss, ".dark");
-    ok("…and the `.dark` block carries a DIFFERENT background from `:root`",
-      !!rootBg && !!darkBg && rootBg !== darkBg, JSON.stringify([rootBg, darkBg]));
-  }
+  // THE LAST OF EACH, WHICH IS THE THEME'S OWN. Measured on a real compiled
+  // stylesheet: there are FOUR `--background` declarations, because the
+  // template's shadcn base palette is emitted before the theme's. So a regex
+  // taking the FIRST match compares the base light against the base dark —
+  // true whatever theme was built, and the assertion passes without ever
+  // touching the thing it names. Later wins, so the last pair is the pair a
+  // visitor actually sees, which is the same source-order rule the colour
+  // override two blocks up already rests on.
+  //
+  // AT THIS INDENT DELIBERATELY. `worker-imports.test.mjs` walks brace depth as
+  // TEXT to find where a block-scoped name goes out of scope, so `[^}]` in a
+  // regex on an INDENTED `const` line drives its depth negative on that line
+  // and every later use reads as a ReferenceError that is not there — measured,
+  // both declarations were flagged. Its own threshold skips declarations at the
+  // top of a script, which these genuinely are. A first attempt at appeasing it
+  // instead rewrote this to slice from `indexOf(":root")`, which finds
+  // Tailwind's own preamble thousands of characters before any palette and
+  // returned two empty strings — green here, red in CI, on an assertion that
+  // had been passing. Contorting correct code to satisfy a lint is how that
+  // happens.
+  const rootBgs = [...lightCss.matchAll(/:root\s*\{[^}]*--background:\s*([^;}]+)/g)].map((m) => m[1].trim());
+  const darkBgs = [...lightCss.matchAll(/\.dark\s*\{[^}]*--background:\s*([^;}]+)/g)].map((m) => m[1].trim());
+  ok("…and the `.dark` block carries a DIFFERENT background from `:root`",
+    rootBgs.length > 0 && darkBgs.length > 0 && rootBgs[rootBgs.length - 1] !== darkBgs[darkBgs.length - 1],
+    JSON.stringify([rootBgs, darkBgs]));
+  // AND IT IS THE THEME'S PALETTE THAT WINS, not the template's base. Without
+  // this the check above is satisfied by the shadcn defaults on a build whose
+  // theme never reached the stylesheet at all.
+  ok("…and it is the THEME's palette that has the last word",
+    rootBgs.length >= 2 && darkBgs.length >= 2, JSON.stringify([rootBgs.length, darkBgs.length]));
   const lightDoc = await renderHome(lightBuild, "mode-site");
   const darkDoc = await renderHome(darkBuild, "mode-site");
   if (lightDoc && darkDoc) {
