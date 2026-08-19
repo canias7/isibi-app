@@ -143,8 +143,15 @@ test("BOTH PUBLISH PATHS SEND IT — the cheap spine as well as the build", () =
     // The next non-comment property after it. Comments are skipped rather than
     // counted, because this repo puts its reasoning between the two lines.
     const after = worker.slice(m.index + m[0].length, m.index + m[0].length + 1200);
-    const next = after.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("//"))[0] || "";
-    assert.ok(/^mode:/.test(next), "a `lang` hop with no `mode` beside it: " + m[2] + " → " + next.slice(0, 80));
+    // THE NEXT FEW PROPERTIES, NOT STRICTLY THE NEXT ONE. This required `mode:`
+    // to be the immediately following line and went red when `langs:` — the
+    // site's OTHER languages, which travel with `lang` for exactly the same
+    // reason and are lost the same way — was added between them. A test about
+    // which order two companions are written in, on a correct change. What it is
+    // for is that they travel TOGETHER.
+    const props = after.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("//")).slice(0, 4);
+    assert.ok(props.some((l) => /^mode:/.test(l)),
+      "a `lang` hop with no `mode` beside it: " + m[2] + " → " + props.join(" ").slice(0, 90));
   }
   // And the third hop is a function SIGNATURE, so the value has somewhere to
   // land — a caller passing `mode` to a destructure that does not name it is a

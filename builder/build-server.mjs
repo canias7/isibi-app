@@ -29,6 +29,7 @@ import { resolveTheme } from "./site-theme-registry.mjs";
 import { tokensCss, pageTokensCss, stripThemeRadius, validForWrite } from "./site-tokens.mjs";
 import { applyStyle, explicitRadiusCss } from "./site-style.mjs";
 import { dirFor, initialsMark, normalizeLang, normalizeMode, siteIconFrom } from "./site-identity.mjs";
+import { langLabel, resolveLangs } from "./site-langs.mjs";
 import { exitReason } from "./exit-reason.mjs";
 import { checkRender } from "./render-check.mjs";
 import { routeOf, fileForRoute } from "./site-addon.mjs";
@@ -123,7 +124,7 @@ function resetRoutes() {
 // asks the generator to do. Before this, `setTitle` at PUBLISH time stamped the
 // brand onto every non-home page after the fact; a default the routes can beat
 // is the same outcome with the ordering the right way round.
-function writeSiteBrand({ title, lang, logo, icon: sent, slug, mode }) {
+function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, mode }) {
   const iconPath = path.join(APP, "public", "icon.svg");
   try { fs.rmSync(iconPath, { force: true }); } catch {}
 
@@ -178,6 +179,30 @@ function writeSiteBrand({ title, lang, logo, icon: sent, slug, mode }) {
   // and a stored `dir` is a second value that can disagree with the tag beside
   // it. So `lang` stays the one thing anybody sets and this follows it.
   const dirValue = dirFor(langValue);
+  // RESOLVED HERE RATHER THAN TRUSTED, for the reason every other value in this
+  // function is: it arrives over the wire and lands in generated TypeScript. A
+  // refused language is simply not in the list, so a bad one costs that language
+  // and never the site.
+  const resolvedLangs = resolveLangs(langValue, langs && langs.extra, { routes: (langs && langs.routes) || [] }).langs;
+  // EMPTY UNLESS THE SITE REALLY IS MULTILINGUAL, and when it is, it carries
+  // ALL of them INCLUDING the primary. Both halves matter: empty is what makes
+  // every site published before this render byte-identically, and the primary
+  // being in the list is what lets the switcher offer the way BACK — a visitor
+  // on the Spanish booking page has to be able to reach the English one.
+  //
+  // THE LABEL IS BAKED HERE RATHER THAN COMPUTED IN THE PAGE. `Intl.DisplayNames`
+  // is the obvious way to render "Español", and it is ICU — which this repo has
+  // already been bitten by, where two ICU VERSIONS disagreed about one locale and
+  // the server render and the browser hydration produced different text. Resolved
+  // once, in one process, and shipped as a string: there is no second opinion to
+  // diverge. An unusable answer falls back to the prefix in capitals, which is
+  // plain and never wrong.
+  const langsValue = resolvedLangs.length < 2 ? [] : resolvedLangs.map((l) => ({
+    lang: l.tag,
+    dir: dirFor(l.tag),
+    prefix: l.prefix,
+    label: langLabel(l.tag, l.prefix),
+  }));
   const titleValue = typeof title === "string" && title.trim() ? title.trim().slice(0, 120) : "App";
   // THE SLUG IS THE ONE VALUE HERE THAT IS NOT DECORATION. `siteSlug()` reads it
   // off the head on a custom domain, where there is no `/s/<slug>/` path to learn
@@ -221,6 +246,12 @@ function writeSiteBrand({ title, lang, logo, icon: sent, slug, mode }) {
       // the LITERAL type of whichever value was written, so a comparison against
       // the other member is `TS2367` and the template stops compiling.
       'export const SITE_DIR: "ltr" | "rtl" = ' + JSON.stringify(dirValue) + ";\n" +
+      // THE EXTRA LANGUAGES, each with the direction ITS OWN tag implies rather
+      // than the site's — an English site with an Arabic second language needs
+      // `/ar` to read right to left while `/` reads left to right, and that is
+      // only expressible because the kit is on logical utilities.
+      'export const SITE_LANGS: ReadonlyArray<{ lang: string; dir: "ltr" | "rtl"; prefix: string; label: string }> = ' +
+        JSON.stringify(langsValue) + ";\n" +
       // DARK MODE IS ONE CLASS, and this is the whole feature.
       //
       // `styles.css` declares `@custom-variant dark (&:is(.dark *))` and
@@ -247,7 +278,7 @@ function writeSiteBrand({ title, lang, logo, icon: sent, slug, mode }) {
   // a site drawing its initials and a site serving the owner's own artwork
   // both answered true, so a favicon that was stored and then refused by the
   // shape check reported as a working icon.
-  return { lang: langValue, dir: dirValue, mode: modeValue, icon: !!icon, ownIcon: iconOk, logo: !!logoValue, slug: !!slugValue,
+  return { lang: langValue, dir: dirValue, langs: langsValue, mode: modeValue, icon: !!icon, ownIcon: iconOk, logo: !!logoValue, slug: !!slugValue,
     refused: (!!raw && !logoOk) || !!(own && own.refused), build: buildValue };
 }
 
@@ -671,7 +702,7 @@ const server = http.createServer((req, res) => {
       resetRoutes();
       // ONE writer for all four, because they land in ONE generated module and
       // two writers of one file is one of them silently losing.
-      const brandUsed = writeSiteBrand({ title: payload.title, lang: payload.lang, logo: payload.logo, icon: payload.icon, slug: payload.slug, mode: payload.mode });
+      const brandUsed = writeSiteBrand({ title: payload.title, lang: payload.lang, langs: payload.langs, logo: payload.logo, icon: payload.icon, slug: payload.slug, mode: payload.mode });
       const fontsUsed = writeFonts(payload.fonts, payload.fontFiles, payload.pageFonts);
       // ONE reading of the patch, shared: whether a radius was asked for decides
       // both that the theme's own corner rules give way and what is written.

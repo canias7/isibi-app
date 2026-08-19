@@ -73,7 +73,13 @@ test("only writable tokens reach the page, and the count is bounded", () => {
 test("the page is stamped where every page can be reached", () => {
   // `<body>` and not the frame: 16 of 318 exemplars do not use `SiteChrome`, so
   // a stamp there is a scope those pages never enter.
-  assert.match(root, /<body data-page=\{usePagePath\(\)\}>/, "the page is not stamped on <body>");
+  // THE PROPERTY, NOT THE EXPRESSION. This pinned `data-page={usePagePath()}`
+  // exactly and went red on a correct change: the root reads the active
+  // LANGUAGE off the same pathname now, so the value arrives through one local
+  // instead of a second call. What this is for is that the stamp is on `<body>`
+  // and comes from the router, which the next assertion holds.
+  assert.match(root, /<body[^>]*\bdata-page=\{[^}]+\}/, "the page is not stamped on <body>");
+  assert.match(root, /usePagePath\(\)/, "nothing derives the stamp from the router's own pathname any more");
   // THE SAME READING `head()` USES. `location.pathname` carries the basepath on
   // the workspace mount and not on the site's own domain, so the selector would
   // match on neither.

@@ -30,7 +30,7 @@
 // whole decision is tested without a Worker, a model or a database.
 
 /** The look/identity fields an edit may move. `tables` and `tokens` merge on their own paths. */
-export const EDIT_FIELDS = ["brand", "description", "theme", "family", "structure", "fonts", "lang", "mode"];
+export const EDIT_FIELDS = ["brand", "description", "theme", "family", "structure", "fonts", "lang", "mode", "langs"];
 
 /**
  * Nothing is required of an EDIT.
@@ -79,11 +79,29 @@ export function currentStateNote(current) {
   // schema digest before it, are the same failure: a rule conditioned on a fact
   // the model was never given.
   add("language", c.lang);
+  // AND WHICH OTHERS IT IS ALREADY OFFERED IN, for the sharper half of the same
+  // reason. `langs` is the WHOLE list rather than an addition, so a designer not
+  // told a site is already bilingual has every reason to answer `["cy"]` to
+  // "also add Welsh" — dropping the Spanish the site already had, on a request
+  // that was only ever additive. Stated as "none" rather than omitted when the
+  // site has none, because an absent line reads as an omission rather than as an
+  // answer: the `usePublicRows: YES/NO` lesson.
   const f = c.fonts && typeof c.fonts === "object" ? c.fonts : null;
   if (f && str(f.heading) && str(f.body)) lines.push("fonts: " + str(f.heading) + " for headings, " + str(f.body) + " for body");
   const tables = Array.isArray(c.tables) ? c.tables.map(str).filter(Boolean).slice(0, 24) : [];
   if (tables.length) lines.push("tables it already has: " + tables.join(", "));
+  // A FIRST BUILD ADDS NOTHING AT ALL, which is why this is decided AFTER the
+  // emptiness check rather than pushed with the rest: the languages line is the
+  // one that would be present for a site with nothing stored, and a "THE SITE AS
+  // IT IS NOW" block on a brand new site is a lie about there being a site.
   if (!lines.length) return "";
+  // …and once there IS a note, "none" is STATED rather than omitted, because an
+  // absent line reads as an omission rather than as an answer — the
+  // `usePublicRows: YES/NO` lesson. `langs` is the WHOLE list rather than an
+  // addition, so a designer not told a site is already bilingual has every
+  // reason to answer `["cy"]` to "also add Welsh" and drop the Spanish it had.
+  const extra = Array.isArray(c.langs) ? c.langs.map(str).filter(Boolean) : [];
+  lines.push("other languages it is offered in: " + (extra.length ? extra.join(", ") : "none"));
   return "\n\nTHE SITE AS IT IS NOW\n" + lines.join("\n");
 }
 

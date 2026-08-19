@@ -46,6 +46,24 @@ export const SITE_LANG = "en";
 // ANNOTATED for the reason `SITE_MODE` is: an unannotated const has the LITERAL
 // type `"ltr"`, so comparing it with `"rtl"` is `TS2367` and nothing compiles.
 export const SITE_DIR: "ltr" | "rtl" = "ltr";
+// EVERY LANGUAGE THIS SITE SERVES BEYOND ITS OWN, with the URL segment each one
+// lives under. Empty on a site with one language, which is every site published
+// before 2026-08-19 and the ordinary case for ever after — so `__root.tsx` finds
+// nothing, falls back to the two constants above, and nothing renders
+// differently.
+//
+// WHY A SECOND LANGUAGE IS ROUTES RATHER THAN A STRING TABLE. A published site
+// is ONE bundle in ONE Worker script: the dispatch namespace keys a script per
+// slug and a Worker cannot load code at runtime, so two bundles is not a thing
+// that can exist. The alternative was rewriting every literal string in
+// model-written page code into a runtime lookup — a transform on code we did not
+// write, where a mistake is a page that does not compile. Measured through the
+// real container first: a page at `es/book.tsx` declaring `/es/book` builds and
+// serves, and `routeOf` already maps the directory to the address.
+//
+// The PRIMARY language has no prefix, so every URL an existing site has ever
+// published is untouched and the second language is purely additive.
+export const SITE_LANGS: ReadonlyArray<{ lang: string; dir: "ltr" | "rtl"; prefix: string; label: string }> = [];
 // LIGHT OR DARK. One class on `<html>` in `__root.tsx`, and that is the whole
 // mechanism: `styles.css` declares `@custom-variant dark (&:is(.dark *))`, and
 // `themeCss` already emits the theme's OWN designed dark palette as a `.dark`

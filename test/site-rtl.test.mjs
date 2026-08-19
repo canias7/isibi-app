@@ -119,9 +119,21 @@ test("the container derives it from the language and bakes it, ANNOTATED", () =>
 test("the document carries it on <html>, beside lang", () => {
   const openTag = (root.match(/<html [^>]*>/) || [""])[0];
   assert.ok(openTag, "no <html> tag in __root.tsx");
-  assert.match(openTag, /\bdir=\{SITE_DIR\}/, "the direction is not on the document");
-  assert.match(openTag, /\blang=\{SITE_LANG\}/, "…and it must sit beside the language it is derived from");
+  // THE PROPERTY, NOT THE IDENTIFIER. This pinned `dir={SITE_DIR}` and went red
+  // the moment a bilingual site made the direction a fact about the ROUTE rather
+  // than the site — a test about which local holds the value, on a correct
+  // change. What matters is that both attributes are on `<html>`, that they come
+  // from ONE reading (so they cannot disagree), and that the baked constants are
+  // still what a monolingual site falls back to.
+  assert.match(openTag, /\bdir=\{[^}]+\}/, "the direction is not on the document");
+  assert.match(openTag, /\blang=\{[^}]+\}/, "…and it must sit beside the language it is derived from");
+  const [, langExpr] = openTag.match(/\blang=\{([^}]+)\}/) || [];
+  const [, dirExpr] = openTag.match(/\bdir=\{([^}]+)\}/) || [];
+  assert.ok(langExpr && dirExpr, openTag);
+  assert.equal(langExpr.split(".")[0], dirExpr.split(".")[0],
+    "the language and the direction come from two different readings, which can disagree");
   assert.match(root, /import \{[^}]*\bSITE_DIR\b[^}]*\} from "@\/site-brand"/);
+  assert.match(root, /\bSITE_DIR\b/, "the baked direction is not the fallback any more");
   // ON `<html>`, NOT `<body>`: the logical utilities resolve against the
   // inherited `direction`, and `<body>` already carries the per-page colour
   // scope, which would then be inside the direction rather than under it.

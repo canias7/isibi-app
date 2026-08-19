@@ -70,6 +70,8 @@ import { resolveAccess, accessLabel, ACCESS_PRESETS, unguardedBookings } from ".
 // against "anyone", which is a WRITE level, and matched nothing on any site.
 const DISPLAY_PAIR = ACCESS_PRESETS.display;
 import { mergeAddonPages, mergeAddonSchema, unlinkedPages, routeOf, orderingMoved } from "./builder/site-addon.mjs";
+import { resolveLangs } from "./builder/site-langs.mjs";
+import { collectStrings, missingFrom, nextCache, translatePages, readTranslation, TRANSLATE_TOOL } from "./builder/site-translate.mjs";
 import { archiveVersion, listVersions, rollbackVersion, deleteAllVersions, versionId, versionLabel } from "./site-versions.mjs";
 import { sweepAfterPublish, P_ORPHANS } from "./site-sweep.mjs";
 import { takeOffline, putBackOnline } from "./site-live.mjs";
@@ -4137,6 +4139,35 @@ const SITE_SCHEMA_TOOL = {
           "their customers read. It is NOT the language of this conversation and NOT where the business is — " +
           "a Welsh café writing to you in English gets `en`. Leave it out only if you genuinely cannot tell.",
       },
+      // A SECOND LANGUAGE FOR THE SAME SITE, which is a different thing from the
+      // field above it: `lang` is what the site is written IN, this is what else
+      // it is ALSO offered in.
+      //
+      // ONLY WHEN ASKED FOR, IN AS MANY WORDS. A business in Cardiff is not
+      // asking for Welsh because it is in Cardiff, and a brief written in
+      // Spanish is asking for a Spanish site rather than a bilingual one — that
+      // is `lang`. Inferring this costs a translation of every page and a second
+      // set of addresses nobody wanted.
+      //
+      // WHAT IT COSTS THE CUSTOMER, so the model can weigh it: every page is
+      // copied under a `/es`-style prefix and its words translated, and a
+      // language switcher appears in the header. The site's DATABASE ROWS are
+      // NOT translated — a café's menu items stay in the owner's own words —
+      // because they live in Postgres rather than in the page.
+      //
+      // ABSENT MEANS UNCHANGED, like every other field here, so a request about
+      // a colour never removes a language the site already has. To REMOVE one,
+      // answer with an empty array.
+      langs: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "EVERY language this site is ALSO offered in, beyond `lang`, as BCP-47 tags — `[\"es\"]`, `[\"cy\"]`. " +
+          "ONLY when the customer asked for a second language in as many words (\"also in Welsh\", \"make it " +
+          "bilingual\", \"add a Spanish version\"). Never infer it from where the business is or from the " +
+          "language the brief was written in — that one is `lang`. This is the WHOLE list, not an addition: " +
+          "to keep what the site has, leave it out; to remove every extra language, answer `[]`.",
+      },
       // LIGHT OR DARK — the one look decision that was unreachable at any price.
       //
       // Every theme in the registry ships a DESIGNED dark palette: 31 colour
@@ -7157,9 +7188,41 @@ function pageTokensFor(stored) {
   return Object.keys(out).length ? out : undefined;
 }
 
+/**
+ * One Haiku call, translating a site's own words.
+ *
+ * THE CHEAPEST THING A MODEL CAN BE ASKED TO DO, and the expensive ones are no
+ * better at it. Called only for the strings this language has never been asked
+ * about, so an ordinary edit sends a handful and a colour change sends none.
+ *
+ * NEVER THROWS. It runs on the publish spine that every cheap edit goes through,
+ * and a translation failure must cost the second language being behind rather
+ * than the edit the customer actually asked for. The caller falls back to
+ * whatever is cached and, for anything new, to the primary language.
+ */
+async function translateStrings(env, tag, strings) {
+  if (!strings.length) return { ok: true, strings: [], usage: null };
+  try {
+    const r = await anthropicMessages(env, {
+      model: "claude-haiku-4-5",
+      max_tokens: 8000,
+      thinking: { type: "disabled" },
+      system: "You translate the words on a small business's own website into " + tag + ".",
+      tools: [TRANSLATE_TOOL],
+      tool_choice: { type: "tool", name: TRANSLATE_TOOL.name },
+      messages: [{ role: "user", content: "Target language (BCP-47): " + tag + "\n\nStrings:\n" + JSON.stringify(strings) }],
+    });
+    const use = (r.content || []).find((c) => c && c.type === "tool_use");
+    const read = readTranslation(use && use.input, strings.length);
+    return read.ok ? { ok: true, strings: read.strings, usage: r.usage || null } : { ...read, usage: r.usage || null };
+  } catch (e) {
+    return { ok: false, why: "call", error: String((e && e.message) || e), usage: null };
+  }
+}
+
 async function recompileAndPublish(env, { slug, pages, label, renamed = null }) {
   let look = null, tokens = null, pageTokens = null, pageFonts = null, style = null, logo = "", icon = ""
-  let verify = null;
+  let verify = null, langStrings = null;
   try {
     // `siteBackendBySlug` RETURNS THE CONNECTION STRING, not a record. This read
     // `conn && conn.conn`, which is `undefined` for a string — so the `_meta`
@@ -7177,7 +7240,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
     // reported as success, and archived to version history — for a site that
     // is deleted or unresolvable. Same rule as the catch below.
     if (!db) return { ok: false, error: "read", ours: true, detail: "no backend recorded for " + slug + " — the stored look could not be read" };
-    const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_page_tokens','site_style','site_logo','site_icon','site_verify','site_page_fonts')");
+    const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_page_tokens','site_style','site_logo','site_icon','site_verify','site_page_fonts','site_lang_strings')");
     for (const r of rows || []) {
       if (r.k === "site_look" && r.v) look = JSON.parse(r.v);
       if (r.k === "site_tokens" && r.v) tokens = JSON.parse(r.v);
@@ -7219,6 +7282,12 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
       // sent a favicon and then fixed a typo would have watched it vanish —
       // exactly what `priorLogo` exists to prevent one line up.
       if (r.k === "site_icon" && typeof r.v === "string") icon = r.v;
+      // THE TRANSLATION CACHE, keyed by the ENGLISH STRING. Read here for the
+      // reason everything else in this block is: this spine runs on EVERY cheap
+      // edit, and without the cache each one would re-translate the whole site
+      // to keep the two halves in step. A colour change moves no words, so it
+      // finds every string already there and costs no model call at all.
+      if (r.k === "site_lang_strings" && r.v) { try { langStrings = JSON.parse(r.v); } catch { /* a bad row is a cold cache, not a failed publish */ } }
     }
   } catch (e) {
     // A THROWING READ FAILS THE EDIT — it does not publish the site stripped.
@@ -7240,6 +7309,68 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
   const fontFiles = await fetchSiteFonts(pair, pageFontScopes);
   const files = {};
   for (const p of pages || []) files[p.path] = p.source;
+
+  // ── THE SITE'S OTHER LANGUAGES ──────────────────────────────────────────────
+  //
+  // A SECOND LANGUAGE IS ORDINARY ROUTES IN THE SAME BUNDLE, under a prefix.
+  // That is forced rather than chosen: the dispatch namespace keys ONE script
+  // per slug and a Worker cannot load code at runtime, so two bundles is not a
+  // design that exists — and the alternative was rewriting every literal string
+  // in model-written page code into a runtime lookup, a transform on code we did
+  // not write where a mistake is a page that does not compile. Measured through
+  // the real container before any of this was built.
+  //
+  // HERE, ON THE SHARED SPINE, so it happens on EVERY publish. A text fix, a
+  // colour change, a swapped picture and a page rewrite all come through this
+  // function, and a second language that only regenerated on one of them would
+  // drift out of step with the first — silently, because both halves compile.
+  //
+  // THE CACHE IS WHAT MAKES THAT AFFORDABLE. Keyed by the English string, so a
+  // colour change finds every string already translated and spends nothing, and
+  // a typo fix asks about one string rather than the whole site.
+  const extraLangs = Array.isArray(look && look.langs) ? look.langs : [];
+  const primaryRoutes = (pages || []).map((p) => routeOf(p.path)).filter(Boolean);
+  const { langs: siteLangs } = resolveLangs((look && look.lang) || "en", extraLangs, { routes: primaryRoutes });
+  const cache = langStrings && typeof langStrings === "object" ? langStrings : {};
+  const nextStrings = {};
+  let langsChanged = false;
+  let langCost = 0, langUsage = [];
+  for (const l of siteLangs) {
+    if (l.primary) continue;
+    const { strings, dropped } = collectStrings(pages || []);
+    const have = cache[l.tag] && typeof cache[l.tag] === "object" ? cache[l.tag] : {};
+    const missing = missingFrom(have, strings);
+    let fresh = {};
+    if (missing.length) {
+      const got = await translateStrings(env, l.tag, missing);
+      if (got.usage) { langUsage.push(got.usage); langCost += 1; }
+      // A FAILED TRANSLATION IS NOT A FAILED PUBLISH. The pages fall back to
+      // whatever is cached and, for anything new, to the primary language — so
+      // the site stays up and the second language is merely behind, which is
+      // strictly better than losing the edit the customer actually asked for.
+      if (got.ok) missing.forEach((sTxt, i) => { fresh[sTxt] = got.strings[i]; });
+      else console.error("translate failed", slug, l.tag, got.why || got.error);
+    }
+    const merged = nextCache(have, strings, fresh);
+    nextStrings[l.tag] = merged;
+    langsChanged = langsChanged || JSON.stringify(merged) !== JSON.stringify(have);
+    const t = translatePages(pages || [], l.prefix, strings, strings.map((sTxt) => merged[sTxt]), { routes: primaryRoutes });
+    for (const tp of t.pages) files[tp.path] = tp.source;
+    if (dropped) console.error("translate truncated", slug, l.tag, dropped + " strings over the cap");
+  }
+  // WRITTEN BACK ONLY WHEN IT MOVED, so the ordinary publish — where every
+  // string is already known — costs no database write either. Best-effort: a
+  // failed cache write means the next publish re-translates, which is slower
+  // and never wrong, and is not a reason to fail an edit that has succeeded.
+  if (langsChanged) {
+    try {
+      const db2 = await siteBackendBySlug(env, slug);
+      if (db2) {
+        await sqlQuery(db2, "INSERT INTO _meta (k,v) VALUES ('site_lang_strings', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v",
+          [JSON.stringify(nextStrings)]);
+      }
+    } catch (e) { console.error("lang cache write failed", slug, String((e && e.message) || e)); }
+  }
 
   // A DRAINED CONTAINER IS NOT THE CUSTOMER'S BROKEN CODE, and this path treated
   // it as exactly that. Measured live 2026-08-11, in the middle of a deploy: a
@@ -7269,6 +7400,12 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
           // `applyIdentity` leaves the attribute alone rather than guessing —
           // an old site keeps `en` until something tells it otherwise.
           lang: (look && look.lang) || null,
+          // AND WHICH OTHERS THIS SITE IS OFFERED IN, so the container bakes
+          // `SITE_LANGS` and the document reads its language off the ROUTE
+          // rather than off one constant. Carried on the SPINE, so a text fix or
+          // a colour change cannot quietly drop a language the site has — the
+          // same reason `lang`, `mode` and the logo are read here.
+          langs: extraLangs.length ? { extra: extraLangs, routes: primaryRoutes } : undefined,
           // OUT OF THE STORED LOOK, like `lang` — so the cheap spine carries
           // it and a text fix, a colour change or a picture swap cannot quietly
           // put a dark site back into light. Absent means light.

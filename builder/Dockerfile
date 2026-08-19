@@ -89,7 +89,7 @@ RUN mkdir -p /app/.routes-base \
 # for both: the document is rendered per REQUEST by the site's own script, which
 # Start's build produces, so there is no build-time snapshot to render in a
 # subprocess and no entry to stage into the template.
-COPY build-server.mjs exit-reason.mjs site-addon.mjs site-fonts.mjs font-index.json site-theme.mjs site-theme-registry.mjs site-tokens.mjs site-style.mjs site-identity.mjs render-check.mjs site-render.mjs site-worker.mjs ./
+COPY build-server.mjs exit-reason.mjs site-addon.mjs site-fonts.mjs font-index.json site-theme.mjs site-theme-registry.mjs site-tokens.mjs site-style.mjs site-identity.mjs site-langs.mjs render-check.mjs site-render.mjs site-worker.mjs ./
 COPY theme-candidates/ ./theme-candidates/
 
 # NOTHING IN THIS IMAGE EXECUTES MODEL-WRITTEN CODE ANY MORE, which is why the

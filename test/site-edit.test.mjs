@@ -17,7 +17,7 @@ const STORED = {
   brand: "Sharp Fade", description: "A barber shop in Leeds.",
   theme: "broadsheet", family: "salon", structure: "sidebar",
   fonts: { heading: "noto-serif", body: "source-sans-3" },
-  lang: "en-GB", mode: "light",
+  lang: "en-GB", mode: "light", langs: ["es"],
 };
 
 /* ── absent means unchanged ─────────────────────────────────────────────── */
@@ -84,8 +84,19 @@ test("EVERY FIELD AN EDIT CAN MOVE IS ONE THE DESIGNER IS TOLD THE CURRENT VALUE
   // English, so a designer NOT told a site is Spanish has every reason to answer
   // `en` — relabelling a live site on a request that was only ever about a
   // colour.
-  const full = Object.fromEntries(EDIT_FIELDS.map((k) => [k, k === "fonts" ? { heading: "inter", body: "inter" } : "value-of-" + k]));
-  const note = currentStateNote(full);
+  // A SAMPLE PER SHAPE, and the map is ASSERTED TO COVER `EDIT_FIELDS` EXACTLY.
+  // Two of the fields are not strings, so a bare "value-of-x" for every one of
+  // them silently stops exercising those — which is how this guard would quietly
+  // stop being derived. Requiring the map to match the list means a field with a
+  // NEW shape fails here, loudly, at the fixture.
+  const SAMPLE = {
+    brand: "value-of-brand", description: "value-of-description", theme: "value-of-theme",
+    family: "value-of-family", structure: "value-of-structure", lang: "value-of-lang",
+    mode: "value-of-mode", fonts: { heading: "inter", body: "inter" }, langs: ["value-of-langs"],
+  };
+  assert.deepEqual(Object.keys(SAMPLE).sort(), [...EDIT_FIELDS].sort(),
+    "a field was added to EDIT_FIELDS without a sample of its shape — this guard would stop exercising it");
+  const note = currentStateNote(SAMPLE);
   for (const k of EDIT_FIELDS) {
     if (k === "fonts") { assert.match(note, /fonts:/, "the note does not state the fonts"); continue; }
     assert.ok(note.includes("value-of-" + k),

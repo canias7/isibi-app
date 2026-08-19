@@ -21,7 +21,7 @@ import {
 import type { QueryClient } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/sonner";
 import { SpamGuard } from "@/lib/spam-guard";
-import { SITE_LANG, SITE_DIR, SITE_MODE, SITE_ICON, SITE_ICON_TYPE, SITE_NAME, SITE_SLUG } from "@/site-brand";
+import { SITE_LANG, SITE_DIR, SITE_LANGS, SITE_MODE, SITE_ICON, SITE_ICON_TYPE, SITE_NAME, SITE_SLUG } from "@/site-brand";
 import { siteMeta } from "@/site-runtime";
 // The stylesheet and the site's typeface, imported here rather than in a client
 // entry so the SERVER render emits their <link> tags too. Imported in
@@ -158,7 +158,35 @@ function usePagePath() {
   return p.replace(/\/+$/, "") || "/";
 }
 
+/**
+ * WHICH LANGUAGE THIS REQUEST IS IN.
+ *
+ * A SECOND LANGUAGE IS ORDINARY ROUTES under a prefix — `/es`, `/es/book` — in
+ * the same bundle, because a Worker cannot load code at runtime and the dispatch
+ * namespace keys one script per slug, so two bundles is not a design that
+ * exists. That makes the document's own `lang` and `dir` a fact about the ROUTE
+ * rather than about the site, and they were one baked constant each.
+ *
+ * READ OFF THE SAME PATHNAME `usePagePath` ALREADY READS, so this costs nothing
+ * new: the root is re-rendered per request either way, and `data-page` has been
+ * deriving from it since the per-page colour scope shipped.
+ *
+ * MATCHED ON A WHOLE SEGMENT. `/eshop` is not Spanish, and a `startsWith` here
+ * is the anchoring mistake the hostname rewrite already recorded once.
+ *
+ * A SITE WITH ONE LANGUAGE ANSWERS EXACTLY WHAT IT ANSWERED BEFORE: `SITE_LANGS`
+ * is empty on every site published before this, so the loop finds nothing and
+ * both values fall back to the baked constants.
+ */
+function useActiveLang() {
+  const path = usePagePath();
+  const seg = path.split("/").filter(Boolean)[0];
+  const hit = seg ? SITE_LANGS.find((l) => l.prefix === seg.toLowerCase()) : undefined;
+  return { lang: hit ? hit.lang : SITE_LANG, dir: hit ? hit.dir : SITE_DIR, path };
+}
+
 function RootDocument() {
+  const active = useActiveLang();
   return (
     // DARK MODE IS ONE CLASS ON `<html>`, and that is the entire feature.
     //
@@ -184,11 +212,17 @@ function RootDocument() {
     // about. On `<html>` rather than `<body>` because the logical utilities the
     // kit was swept onto resolve against the inherited `direction`, and the
     // per-page colour scope already lives on `<body>`.
-    <html lang={SITE_LANG} dir={SITE_DIR} className={SITE_MODE === "dark" ? "dark" : undefined}>
+    // THE LANGUAGE AND THE DIRECTION ARE PER ROUTE, not per site. On a bilingual
+    // site `/es/book` must declare Spanish or a screen reader reads Spanish with
+    // an English voice and Chrome offers to translate a page that is already in
+    // the visitor's language — the exact failure `lang` was added to fix, one
+    // level down. And an English/Arabic pair needs `dir` to change with it,
+    // which is only expressible because the kit is on logical utilities.
+    <html lang={active.lang} dir={active.dir} className={SITE_MODE === "dark" ? "dark" : undefined}>
       <head>
         <HeadContent />
       </head>
-      <body data-page={usePagePath()}>
+      <body data-page={active.path}>
         <Outlet />
         <Toaster />
         <SpamGuard />

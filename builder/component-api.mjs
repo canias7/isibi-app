@@ -879,7 +879,7 @@ export const COMPONENT_API = {
   "land-parcel": "LandParcel(code: string, name?: string, area: number, eligibleArea?: number, unit?: string = \"ha\", crop?: string, tenure?: string)",
   "landmark-nav": "LandmarkNav(targets: { id: string; label: string }[])",
   "landmark": "PageMain(children?: React.ReactNode) · PageNav(label: string, children?: React.ReactNode) · PageAside(label?: string, children?: React.ReactNode)",
-  "lang-switch": "LangSwitch(value: string, onChange: (code: string) => void, languages: { code: string; label: string }[], id?: string = \"lang\")",
+  "lang-switch": "LangSwitch()",
   "language-fallback": "LanguageFallback(shownIn: string, wantedIn?: string, noteInShown?: string, noteInWanted?: string, action?: React.ReactNode)",
   "last-chance-badge": "LastChanceBadge(until: string | number | Date)",
   "last-synced": "LastSynced(at?: string | number | Date | null, syncing?: boolean, onSyncNow?: () => void)",

@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Menu } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { LangSwitch } from "@/components/ui/lang-switch";
+import { SITE_LANGS } from "@/site-brand";
 import { SITE_LOGO } from "@/site-brand";
 
 export type NavLink = { label: string; href: string };
@@ -181,6 +183,12 @@ export function SiteHeader({
               {l.label}
             </SiteLink>
           ))}
+          {/* RENDERED BY THE HEADER, not passed in. A switcher a page has to
+              remember is one it eventually forgets, and forgetting it leaves a
+              bilingual site whose second language is reachable only by typing a
+              URL. It renders nothing at all on a site with one language, so no
+              existing header changes. */}
+          <LangSwitch />
         </nav>
         {action && (
           <div className={cn(!centred && "ms-auto md:ms-0")}>
@@ -189,7 +197,13 @@ export function SiteHeader({
             </Button>
           </div>
         )}
-        {links.length > 0 && (
+        {/* THE SHEET IS THE ONLY PLACE THE SWITCHER EXISTS ON A PHONE, because
+            the nav above it is `hidden md:flex`. Gated on links alone, a
+            one-page bilingual site had a header with no way at all to reach its
+            other language on the device most of these visitors use.
+            `SITE_LANGS` is a build-time constant, so on a site with one language
+            this condition is exactly what it was. */}
+        {(links.length > 0 || SITE_LANGS.length > 1) && (
           <Sheet>
             <SheetTrigger asChild>
               <Button size="icon" variant="ghost" className="md:hidden" aria-label="Menu">
@@ -204,6 +218,10 @@ export function SiteHeader({
                     {l.label}
                   </SiteLink>
                 ))}
+                {/* AND IN THE SHEET, because the desktop nav is `hidden md:flex`
+                    — without this the switcher is invisible on a phone, which is
+                    where most visitors to these sites are. */}
+                <LangSwitch className="mt-2" />
               </nav>
             </SheetContent>
           </Sheet>
