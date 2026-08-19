@@ -51,6 +51,12 @@ jobs:
     # fast-forward that is the branch commit; ON A MERGE IT IS THE MERGE COMMIT,
     # and putting it on the branch commit alone does nothing. Learned by doing
     # exactly that on 2026-08-09 and spending two builds on a test-only change.
+    # THIRD TIME 2026-08-19: a commit message EXPLAINING this marker contained
+    # it, and the run it was written to un-skip was skipped. The rule is not
+    # 'be careful' — it is: when writing about it, call it "the skip marker"
+    # and never spell it, in a commit message, a PR body, or anything else
+    # GitHub scans. The two earlier instances are recorded in CLAUDE.md and
+    # both were the same shape: prose about the rule, tripping the rule.
     if: >-
       (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
       && !contains(github.event.workflow_run.head_commit.message, '[skip smoke]')
