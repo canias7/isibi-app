@@ -108,7 +108,7 @@ export function AvailabilityCalendar({
             <div
               key={key}
               className={cn(
-                "min-h-16 rounded-md p-1.5 text-left",
+                "min-h-16 rounded-md p-1.5 text-start",
                 // A PAST NIGHT RECEDES RATHER THAN LABELS ITSELF. It carries no
                 // price and no "Booked", so bordered like the rest it reads as
                 // an unexplained empty square — but a fortnight of cells each

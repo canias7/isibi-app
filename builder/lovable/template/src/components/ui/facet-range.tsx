@@ -66,7 +66,7 @@ export function FacetRange({
         <input id={`${id}-b`} type="number" inputMode="decimal" value={value.to} min={value.from} max={max}
           onChange={(e) => onChange({ ...value, to: Math.max(value.from, Math.min(max, Number(e.target.value))) })}
           className="h-8 w-20 rounded border border-border bg-background px-2 text-xs tabular-nums outline-none focus-visible:border-ring" />
-        <span className="ml-auto text-xs text-muted-foreground tabular-nums">
+        <span className="ms-auto text-xs text-muted-foreground tabular-nums">
           {fmt(min)}&ndash;{fmt(max)}
         </span>
       </div>

@@ -48,7 +48,7 @@ export function TapList({ pours, heading, className }: {
               {p.note && <span className="mt-0.5 block text-sm text-muted-foreground">{p.note}</span>}
             </span>
             <span className="shrink-0 text-sm font-semibold tabular-nums">{p.abv.toFixed(1)}%</span>
-            {p.price && <span className="w-16 shrink-0 text-right text-sm tabular-nums">{p.price}</span>}
+            {p.price && <span className="w-16 shrink-0 text-end text-sm tabular-nums">{p.price}</span>}
             {p.off && <Badge variant="secondary" className="font-normal">Off</Badge>}
           </li>
         ))}

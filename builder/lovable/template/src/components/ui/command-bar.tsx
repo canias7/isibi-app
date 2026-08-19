@@ -99,7 +99,7 @@ export function CommandBar({ commands, query, onQueryChange, onClose, placeholde
               onMouseEnter={() => setAt(i)}
               onClick={() => { c.onRun(); onClose?.(); }}
               aria-current={i === index ? "true" : undefined}
-              className={cn("flex w-full cursor-pointer items-baseline gap-2 rounded px-2 py-1.5 text-left text-sm",
+              className={cn("flex w-full cursor-pointer items-baseline gap-2 rounded px-2 py-1.5 text-start text-sm",
                 i === index && "bg-muted")}>
               <span className="min-w-0 flex-1 truncate">{c.label}</span>
               {c.hint ? <span className="shrink-0 text-xs text-muted-foreground">{c.hint}</span> : null}

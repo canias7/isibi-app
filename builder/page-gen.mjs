@@ -2722,6 +2722,22 @@ ${UI_SHORTLIST_API()}
     visitor a not-found page from the bottom of every page on the site, so leave it out
     unless the page is in your own list.
 
+21. SIDES ARE LOGICAL, NEVER LEFT AND RIGHT. Write \`ms-\`/\`me-\`, \`ps-\`/\`pe-\`,
+    \`start-\`/\`end-\`, \`text-start\`/\`text-end\`, \`border-s\`/\`border-e\` and
+    \`rounded-s\`/\`rounded-e\` in place of \`ml-\`/\`mr-\`, \`pl-\`/\`pr-\`, \`left-\`/\`right-\`,
+    \`text-left\`/\`text-right\`, \`border-l\`/\`border-r\` and \`rounded-l\`/\`rounded-r\`.
+
+    THEY ARE THE SAME THING IN ENGLISH — \`ms-4\` and \`ml-4\` put the content in exactly the
+    same place — so this costs nothing on the sites you will usually write. On a site whose
+    language reads right to left the physical ones do not mirror, and a page written with
+    them comes out with its text on one side and every margin, price and border on the
+    other: not a limitation anybody can see in the code, and obvious to the person the site
+    is for.
+
+    THE ONE EXCEPTION IS CENTRING. \`left-1/2\` with \`-translate-x-1/2\` already centres in
+    both directions, because a transform does not mirror — leave that pair exactly as it
+    is. Arrows and chevrons need nothing either; the site's own stylesheet mirrors them.
+
 ## Reading rows
 
 \`useRows<T>(table, params)\` → a TanStack Query result whose \`.data\` is the rows.

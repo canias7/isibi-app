@@ -57,7 +57,7 @@ export function ReturnReason({ reasons = RETURN_REASONS, value, detail, onChange
         </label>
       ))}
       {chosen ? (
-        <div className="flex flex-col gap-1.5 pl-6">
+        <div className="flex flex-col gap-1.5 ps-6">
           <textarea value={detail} rows={2}
             onChange={(e) => onChange({ value: chosen.key, detail: e.target.value })}
             placeholder={chosen.needsDetail ? "What happened? (needed for this reason)" : "Anything that helps (optional)"}

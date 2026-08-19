@@ -19,7 +19,7 @@ export function ImportPreview({ columns, rows, total, className }: {
       <div className="overflow-x-auto rounded-md border border-border">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-border bg-muted/50 text-left">
+            <tr className="border-b border-border bg-muted/50 text-start">
               {columns.map((c) => <th key={c} className="whitespace-nowrap px-3 py-2 font-medium">{c}</th>)}
             </tr>
           </thead>

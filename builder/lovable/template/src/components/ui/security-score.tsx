@@ -50,7 +50,7 @@ export function SecurityScore({ items, className }: {
             <div className="min-w-0 flex-1">
               <p className={cn("text-sm", i.done ? "text-muted-foreground" : "font-medium")}>
                 {i.label}
-                {i.optional ? <span className="ml-2 text-xs font-normal text-muted-foreground">Optional</span> : null}
+                {i.optional ? <span className="ms-2 text-xs font-normal text-muted-foreground">Optional</span> : null}
                 <span className="sr-only">{i.done ? " — done" : " — not done yet"}</span>
               </p>
               {i.hint && !i.done ? <p className="mt-0.5 text-xs text-muted-foreground">{i.hint}</p> : null}

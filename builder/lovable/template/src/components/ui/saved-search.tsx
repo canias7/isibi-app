@@ -48,11 +48,11 @@ export function SavedSearch({ items, active, onRun, onSave, onRemove, onSetDefau
             <li key={i.key} className="group/s flex items-center">
               <button type="button" onClick={() => onRun(i.key)}
                 aria-current={i.key === active ? "true" : undefined}
-                className={cn("flex min-w-0 flex-1 cursor-pointer items-baseline gap-2 rounded px-2 py-1 text-left text-sm hover:bg-muted",
+                className={cn("flex min-w-0 flex-1 cursor-pointer items-baseline gap-2 rounded px-2 py-1 text-start text-sm hover:bg-muted",
                   i.key === active && "bg-muted font-medium")}>
                 <span className="min-w-0 flex-1 truncate">
                   {i.name}
-                  {i.query ? <span className="ml-1.5 text-xs text-muted-foreground">{i.query}</span> : null}
+                  {i.query ? <span className="ms-1.5 text-xs text-muted-foreground">{i.query}</span> : null}
                 </span>
                 {i.count != null ? (
                   <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{i.count.toLocaleString()}</span>

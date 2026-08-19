@@ -25,12 +25,12 @@ export function AutofillConflict({ field, browserValue, savedValue, onUse, class
       <p className="font-medium">Two versions of {field}</p>
       <div className="flex flex-col gap-1">
         <button type="button" onClick={() => onUse("browser")}
-          className="cursor-pointer rounded border border-border px-2 py-1 text-left hover:bg-muted">
+          className="cursor-pointer rounded border border-border px-2 py-1 text-start hover:bg-muted">
           <span className="block text-muted-foreground">From your browser</span>
           <span className="block">{browserValue}</span>
         </button>
         <button type="button" onClick={() => onUse("saved")}
-          className="cursor-pointer rounded border border-border px-2 py-1 text-left hover:bg-muted">
+          className="cursor-pointer rounded border border-border px-2 py-1 text-start hover:bg-muted">
           <span className="block text-muted-foreground">From your account</span>
           <span className="block">{savedValue}</span>
         </button>

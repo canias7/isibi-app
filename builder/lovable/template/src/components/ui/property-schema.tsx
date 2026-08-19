@@ -58,7 +58,7 @@ export function PropertySchema({ properties, className }: {
                 {p.note}
               </span>
             </span>
-            <span className="shrink-0 text-right text-xs">
+            <span className="shrink-0 text-end text-xs">
               <span className="block font-mono">{p.type}</span>
               <span className="block text-muted-foreground">{p.required ? "required" : "optional"}</span>
               {p.personal && <span className="block font-medium">personal data</span>}

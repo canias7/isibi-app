@@ -43,7 +43,7 @@ export function TranscriptLine({
 
   return (
     <div ref={ref}
-      className={cn("flex gap-3 border-l-2 py-1.5 pl-3",
+      className={cn("flex gap-3 border-s-2 py-1.5 ps-3",
         active ? "border-foreground" : "border-transparent", className)}>
       <button type="button" onClick={() => onSeek?.(at)} aria-label={spoken}
         className="shrink-0 cursor-pointer text-xs text-muted-foreground tabular-nums hover:text-foreground hover:underline">
@@ -51,7 +51,7 @@ export function TranscriptLine({
       </button>
       <p className={cn("min-w-0 flex-1 text-sm", active && "font-medium")}>
         {speaker && showSpeaker ? (
-          <strong className="mr-1.5 font-semibold">{speaker}</strong>
+          <strong className="me-1.5 font-semibold">{speaker}</strong>
         ) : null}
         {children}
       </p>

@@ -32,7 +32,7 @@ export function StreamingText({ text, done, className }: {
         {text}
         {!done ? (
           <span aria-hidden
-            className="ml-0.5 inline-block h-[1em] w-[0.5em] translate-y-[0.12em] bg-foreground motion-safe:animate-pulse" />
+            className="ms-0.5 inline-block h-[1em] w-[0.5em] translate-y-[0.12em] bg-foreground motion-safe:animate-pulse" />
         ) : null}
       </p>
       <p aria-live="polite" className="sr-only">{done ? text : ""}</p>

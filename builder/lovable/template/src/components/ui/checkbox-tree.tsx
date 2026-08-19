@@ -18,7 +18,7 @@ export function CheckboxTree({ nodes, value, onChange, label, className }: {
       <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
         <p className="text-xs font-medium">
           {label ?? "Filter"}
-          {value.length > 0 && <span className="ml-1.5 tabular-nums text-muted-foreground">{value.length} selected</span>}
+          {value.length > 0 && <span className="ms-1.5 tabular-nums text-muted-foreground">{value.length} selected</span>}
         </p>
         {value.length > 0 && (
           <button type="button" onClick={() => onChange([])}

@@ -37,7 +37,7 @@ export function EditingLock({ name, since, onTakeOver, takeOverLabel = "Take ove
       {since && <span className="text-xs text-muted-foreground">since {since}</span>}
       {onTakeOver && (
         <button type="button"
-          className="ml-auto text-xs font-medium underline underline-offset-2"
+          className="ms-auto text-xs font-medium underline underline-offset-2"
           onClick={() => { if (window.confirm(takeOverWarning)) onTakeOver(); }}>
           {takeOverLabel}
         </button>

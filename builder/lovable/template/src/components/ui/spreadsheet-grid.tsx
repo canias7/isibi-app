@@ -63,8 +63,8 @@ export function SpreadsheetGrid({
             {rowHeader ? <th scope="col" className="w-10 px-2 py-1.5" /> : null}
             {columns.map((c) => (
               <th key={c.key} scope="col"
-                className={cn("border-r border-border px-2 py-1.5 font-medium last:border-r-0",
-                  c.align === "right" ? "text-right" : "text-left")}>
+                className={cn("border-e border-border px-2 py-1.5 font-medium last:border-e-0",
+                  c.align === "right" ? "text-end" : "text-start")}>
                 {c.header}
               </th>
             ))}
@@ -74,7 +74,7 @@ export function SpreadsheetGrid({
           {rows.map((row, r) => (
             <tr key={r} className="border-b border-border last:border-0">
               {rowHeader ? (
-                <th scope="row" className="w-10 border-r border-border bg-muted/50 px-2 py-1 text-center text-xs font-normal text-muted-foreground tabular-nums">
+                <th scope="row" className="w-10 border-e border-border bg-muted/50 px-2 py-1 text-center text-xs font-normal text-muted-foreground tabular-nums">
                   {rowHeader(r)}
                 </th>
               ) : null}
@@ -99,7 +99,7 @@ export function SpreadsheetGrid({
                       else if (e.key === "Backspace" || e.key === "Delete") { e.preventDefault(); if (!c.readOnly) onChange(r, c.key, ""); }
                       else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) { e.preventDefault(); startEdit(e.key); }
                     }}
-                    className={cn("border-r border-border p-0 last:border-r-0",
+                    className={cn("border-e border-border p-0 last:border-e-0",
                       c.readOnly && "bg-muted/40",
                       on && "outline-2 -outline-offset-2 outline-ring",
                       "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring")}
@@ -115,10 +115,10 @@ export function SpreadsheetGrid({
                           else if (e.key === "Tab") { e.preventDefault(); commit("right"); }
                           else if (e.key === "Escape") { e.preventDefault(); setDraft(null); }
                         }}
-                        className={cn("w-full bg-background px-2 py-1 outline-none", c.align === "right" && "text-right tabular-nums")}
+                        className={cn("w-full bg-background px-2 py-1 outline-none", c.align === "right" && "text-end tabular-nums")}
                       />
                     ) : (
-                      <span className={cn("block px-2 py-1", c.align === "right" ? "text-right tabular-nums" : "text-left")}>
+                      <span className={cn("block px-2 py-1", c.align === "right" ? "text-end tabular-nums" : "text-start")}>
                         {row[c.key] || " "}
                       </span>
                     )}

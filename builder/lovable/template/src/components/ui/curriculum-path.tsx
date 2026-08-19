@@ -81,7 +81,7 @@ export function CurriculumPath({ modules, onOpen, className }: {
                   <a href={m.href} className="block rounded-sm underline-offset-4 hover:underline">{body}</a>
                 ) : (
                   <button type="button" onClick={() => onOpen?.(m.key)}
-                    className="block w-full cursor-pointer text-left underline-offset-4 hover:underline">{body}</button>
+                    className="block w-full cursor-pointer text-start underline-offset-4 hover:underline">{body}</button>
                 )
               ) : body}
             </div>

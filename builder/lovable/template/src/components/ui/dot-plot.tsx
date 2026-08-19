@@ -26,7 +26,7 @@ export function DotPlot({ items, min, max, format, className }: {
             <span className="absolute top-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground"
               style={{ left: `${((it.value - lo) / span) * 100}%` }} />
           </span>
-          <span className="w-16 shrink-0 text-right tabular-nums">{fmt(it.value)}</span>
+          <span className="w-16 shrink-0 text-end tabular-nums">{fmt(it.value)}</span>
         </div>
       ))}
       {/* The axis labels sit in the same three-column row as the data, not in a

@@ -22,7 +22,7 @@ export function RowNumber({ index, pageSize = 0, page = 0, className }: {
   className?: string;
 }) {
   return (
-    <th scope="row" className={cn("px-3 py-2 text-right text-xs font-normal text-muted-foreground tabular-nums", className)}>
+    <th scope="row" className={cn("px-3 py-2 text-end text-xs font-normal text-muted-foreground tabular-nums", className)}>
       {page * pageSize + index + 1}
     </th>
   );

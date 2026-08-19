@@ -12,7 +12,7 @@ export const Route = createFileRoute("/queue")({ component: P });
 function P() {
   return (
     <main className="grid min-h-screen md:grid-cols-2">
-      <section className="flex flex-col justify-between border-b border-border bg-muted/40 p-10 md:border-b-0 md:border-r">
+      <section className="flex flex-col justify-between border-b border-border bg-muted/40 p-10 md:border-b-0 md:border-e">
         <p className="text-lg font-semibold tracking-tight">Brindle Desk</p>
         <div className="max-w-md py-12">
           <h1 className="text-3xl font-semibold tracking-tight text-balance">

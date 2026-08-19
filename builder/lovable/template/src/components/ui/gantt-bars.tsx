@@ -52,7 +52,7 @@ export function GanttBars({ tasks, className }: { tasks: GanttTask[]; className?
     <div className={cn("flex text-xs", className)}>
       <div className="flex flex-col">
         {tasks.map((t) => (
-          <div key={t.id} className="flex items-center pr-2" style={{ height: ROW_H }}>
+          <div key={t.id} className="flex items-center pe-2" style={{ height: ROW_H }}>
             <span className="w-32 truncate">{t.label}</span>
           </div>
         ))}
@@ -69,7 +69,7 @@ export function GanttBars({ tasks, className }: { tasks: GanttTask[]; className?
                   style={{ left: `${pct(t.start)}%`, width: `${Math.max(1, pct(t.end) - pct(t.start))}%` }} />
                 {/* Late runs PAST the planned end, hatched — it never clips. */}
                 {late ? (
-                  <span className="absolute inset-y-0 rounded-r border border-foreground"
+                  <span className="absolute inset-y-0 rounded-e border border-foreground"
                     style={{
                       left: `${pct(t.end)}%`,
                       width: `${Math.max(1, pct(t.actualEnd!) - pct(t.end))}%`,
@@ -110,7 +110,7 @@ export function GanttBars({ tasks, className }: { tasks: GanttTask[]; className?
           const late = !!t.actualEnd && t.actualEnd > t.end;
           const days = late ? Math.round((t.actualEnd!.getTime() - t.end.getTime()) / 864e5) : 0;
           return (
-            <div key={t.id} className="flex items-center pl-2" style={{ height: ROW_H }}>
+            <div key={t.id} className="flex items-center ps-2" style={{ height: ROW_H }}>
               <span className="w-14 text-[11px] font-medium tabular-nums">{late ? `${days}d over` : ""}</span>
             </div>
           );

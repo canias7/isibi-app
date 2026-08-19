@@ -38,7 +38,7 @@ export function SelectionTray({ items, onRemove, onClear, max = 8, actions, clas
       <ul className="flex min-w-0 flex-wrap gap-1.5">
         {shown.map((i) => (
           <li key={i.key}>
-            <span className="inline-flex items-center gap-1 rounded border border-border py-0.5 pr-0.5 pl-2 text-xs">
+            <span className="inline-flex items-center gap-1 rounded border border-border py-0.5 pe-0.5 ps-2 text-xs">
               <span className="max-w-40 truncate">{i.label}</span>
               <button type="button" onClick={() => onRemove(i.key)}
                 aria-label={`Remove ${i.label} from the selection`}
@@ -52,7 +52,7 @@ export function SelectionTray({ items, onRemove, onClear, max = 8, actions, clas
           <li className="self-center text-xs text-muted-foreground tabular-nums">and {rest} more</li>
         )}
       </ul>
-      <span className="ml-auto flex items-center gap-2">
+      <span className="ms-auto flex items-center gap-2">
         {actions}
         {onClear && (
           <button type="button" onClick={onClear}

@@ -60,7 +60,7 @@ export function AppealForm({ what, rule, decidedAt, reviewDays = 7, appealedAt, 
             rows={4}
             className="w-full resize-y rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring" />
           {MAX - text.length < 100 ? (
-            <p className="text-right text-[11px] tabular-nums text-muted-foreground">{MAX - text.length} left</p>
+            <p className="text-end text-[11px] tabular-nums text-muted-foreground">{MAX - text.length} left</p>
           ) : null}
           <div className="flex items-center justify-between gap-3">
             <p className="text-xs text-muted-foreground">

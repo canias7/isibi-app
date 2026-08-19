@@ -25,7 +25,7 @@ export function KeyPoints({ points, title = "In short", max = 5, className }: {
   return (
     <section aria-label={title} className={cn("rounded-md border border-border p-4", className)}>
       <h2 className="mb-2 text-sm font-medium">{title}</h2>
-      <ul className="flex list-disc flex-col gap-1 pl-5 text-sm text-muted-foreground">
+      <ul className="flex list-disc flex-col gap-1 ps-5 text-sm text-muted-foreground">
         {shown.map((p, i) => <li key={i}>{p}</li>)}
       </ul>
       {dropped > 0 && (

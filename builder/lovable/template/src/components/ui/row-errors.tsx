@@ -24,7 +24,7 @@ export function RowErrors({ errors, max = 20, className }: {
           <li key={i} className="flex gap-3 px-3 py-2">
             <span className="w-16 shrink-0 tabular-nums text-muted-foreground">Row {e.line}</span>
             <span className="min-w-0 flex-1">
-              {e.column && <span className="mr-1.5 font-medium">{e.column}:</span>}
+              {e.column && <span className="me-1.5 font-medium">{e.column}:</span>}
               {e.message}
             </span>
           </li>

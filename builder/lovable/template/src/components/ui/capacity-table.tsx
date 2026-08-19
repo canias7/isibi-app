@@ -55,19 +55,19 @@ export function CapacityTable({ rooms, caption, className }: {
   return (
     <div className={cn("overflow-x-auto", className)}>
       <table className="w-full border-collapse text-sm">
-        {caption && <caption className="pb-3 text-left text-xs font-medium uppercase tracking-widest text-muted-foreground">{caption}</caption>}
+        {caption && <caption className="pb-3 text-start text-xs font-medium uppercase tracking-widest text-muted-foreground">{caption}</caption>}
         <thead>
-          <tr className="border-b border-border text-left text-xs uppercase tracking-widest text-muted-foreground">
-            <th scope="col" className="py-2 pr-4 font-medium">Room</th>
+          <tr className="border-b border-border text-start text-xs uppercase tracking-widest text-muted-foreground">
+            <th scope="col" className="py-2 pe-4 font-medium">Room</th>
             {layouts.map((l) => (
-              <th key={l} scope="col" className="py-2 pr-4 text-right font-medium">{l}</th>
+              <th key={l} scope="col" className="py-2 pe-4 text-end font-medium">{l}</th>
             ))}
           </tr>
         </thead>
         <tbody>
           {rooms.map((r) => (
             <tr key={r.name} className="border-b border-border/60 align-baseline">
-              <th scope="row" className="py-3.5 pr-4 text-left font-[inherit]">
+              <th scope="row" className="py-3.5 pe-4 text-start font-[inherit]">
                 <span className="font-medium">{r.name}</span>
                 {r.size && <span className="block text-xs text-muted-foreground">{r.size}</span>}
                 {r.note && <span className="block text-xs text-muted-foreground">{r.note}</span>}
@@ -75,7 +75,7 @@ export function CapacityTable({ rooms, caption, className }: {
               {layouts.map((l) => {
                 const n = r.capacities?.[l];
                 return (
-                  <td key={l} className="py-3.5 pr-4 text-right tabular-nums">
+                  <td key={l} className="py-3.5 pe-4 text-end tabular-nums">
                     {typeof n === "number"
                       ? n
                       : <><span aria-hidden="true" className="text-muted-foreground">—</span><span className="sr-only">not available in this layout</span></>}

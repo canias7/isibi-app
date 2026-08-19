@@ -55,7 +55,7 @@ export function HeatmapGrid({ rows, rowLabels, colLabels, max, legendUnit = "", 
             {rows.map((row, r) => (
               <tr key={r}>
                 {rowLabels ? (
-                  <th scope="row" className="pr-1 text-right text-[10px] font-normal text-muted-foreground">{rowLabels[r]}</th>
+                  <th scope="row" className="pe-1 text-end text-[10px] font-normal text-muted-foreground">{rowLabels[r]}</th>
                 ) : null}
                 {row.map((cell) => (
                   <td key={cell.key}>
@@ -79,7 +79,7 @@ export function HeatmapGrid({ rows, rowLabels, colLabels, max, legendUnit = "", 
         <span>0</span>
         {FILL.map((f, i) => <span key={i} className={cn("size-2.5 rounded-[2px] border border-border", f)} />)}
         <span className="tabular-nums">{top}{legendUnit}</span>
-        <span className="ml-1">· dashed means no data</span>
+        <span className="ms-1">· dashed means no data</span>
       </p>
     </div>
   );

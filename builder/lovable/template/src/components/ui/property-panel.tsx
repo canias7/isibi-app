@@ -52,7 +52,7 @@ export function PropertySection({ title, children, defaultOpen = true, className
   return (
     <section className={cn("border-b border-border last:border-0", className)}>
       <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open}
-        className="flex w-full cursor-pointer items-center justify-between px-3 py-2 text-left text-[11px] font-semibold tracking-wide uppercase hover:bg-muted">
+        className="flex w-full cursor-pointer items-center justify-between px-3 py-2 text-start text-[11px] font-semibold tracking-wide uppercase hover:bg-muted">
         {title}
         <span aria-hidden className="text-muted-foreground">{open ? "–" : "+"}</span>
       </button>

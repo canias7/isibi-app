@@ -47,14 +47,14 @@ export function LeagueTableRow({ position, team, played, won, drawn, lost, goals
         {/* Each figure names its own column for a screen reader. A row is one
             `li` and cannot render a header, so without this a table is read out
             as six unlabelled numbers. The caller renders the visible header. */}
-        <span className="w-8 shrink-0 text-right text-xs text-muted-foreground"><span className="sr-only">Played </span>{played}</span>
-        <span className="w-8 shrink-0 text-right text-xs text-muted-foreground"><span className="sr-only">Won </span>{won}</span>
-        <span className="w-8 shrink-0 text-right text-xs text-muted-foreground"><span className="sr-only">Drawn </span>{drawn}</span>
-        <span className="w-8 shrink-0 text-right text-xs text-muted-foreground"><span className="sr-only">Lost </span>{lost}</span>
-        <span className="w-10 shrink-0 text-right text-xs text-muted-foreground">
+        <span className="w-8 shrink-0 text-end text-xs text-muted-foreground"><span className="sr-only">Played </span>{played}</span>
+        <span className="w-8 shrink-0 text-end text-xs text-muted-foreground"><span className="sr-only">Won </span>{won}</span>
+        <span className="w-8 shrink-0 text-end text-xs text-muted-foreground"><span className="sr-only">Drawn </span>{drawn}</span>
+        <span className="w-8 shrink-0 text-end text-xs text-muted-foreground"><span className="sr-only">Lost </span>{lost}</span>
+        <span className="w-10 shrink-0 text-end text-xs text-muted-foreground">
           {gd !== undefined && <><span className="sr-only">Goal difference </span>{gd > 0 ? `+${gd}` : gd}</>}
         </span>
-        <span className="w-10 shrink-0 text-right font-medium"><span className="sr-only">Points </span>{points}</span>
+        <span className="w-10 shrink-0 text-end font-medium"><span className="sr-only">Points </span>{points}</span>
       </p>
       {pointsDeduction > 0 && (
         <p className="text-xs font-medium tabular-nums">

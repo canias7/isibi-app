@@ -34,7 +34,7 @@ export function SuggestionChips({ suggestions, onPick, busy, title, className }:
         {suggestions.map((s) => (
           <li key={s}>
             <button type="button" onClick={() => onPick(s)} disabled={busy}
-              className="cursor-pointer rounded-full border border-border px-3 py-1.5 text-left text-xs hover:bg-muted disabled:pointer-events-none disabled:opacity-50">
+              className="cursor-pointer rounded-full border border-border px-3 py-1.5 text-start text-xs hover:bg-muted disabled:pointer-events-none disabled:opacity-50">
               {s}
             </button>
           </li>

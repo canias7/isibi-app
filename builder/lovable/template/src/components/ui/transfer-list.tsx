@@ -46,7 +46,7 @@ export function TransferList({ options, selected, onChange, availableLabel = "Av
           <li key={o.value}>
             <button type="button" aria-pressed={marks.includes(o.value)}
               onClick={() => setMarks(marks.includes(o.value) ? marks.filter((v) => v !== o.value) : [...marks, o.value])}
-              className={cn("w-full cursor-pointer truncate rounded px-2 py-1 text-left text-sm",
+              className={cn("w-full cursor-pointer truncate rounded px-2 py-1 text-start text-sm",
                 marks.includes(o.value) ? "bg-muted font-medium" : "hover:bg-muted/60")}>
               {o.label}
             </button>

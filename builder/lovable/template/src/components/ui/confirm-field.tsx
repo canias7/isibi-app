@@ -50,11 +50,11 @@ export function ConfirmField({
           autoComplete={autoComplete ?? (type === "password" ? "new-password" : undefined)}
           aria-invalid={bad || undefined}
           aria-describedby={bad || matches ? `${fieldId}-msg` : undefined}
-          className={cn("h-9 w-full rounded-md border bg-background pr-8 pl-3 text-sm outline-none",
+          className={cn("h-9 w-full rounded-md border bg-background pe-8 ps-3 text-sm outline-none",
             bad ? "border-foreground" : "border-border focus-visible:border-ring")}
         />
         {matches ? (
-          <Check aria-hidden className="absolute top-1/2 right-2.5 size-4 -translate-y-1/2" />
+          <Check aria-hidden className="absolute top-1/2 end-2.5 size-4 -translate-y-1/2" />
         ) : null}
       </div>
       {bad ? (

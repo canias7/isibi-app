@@ -48,12 +48,12 @@ export function LogViewer({ lines, className }: {
     <div className={cn("flex flex-col gap-2", className)}>
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative min-w-40 flex-1">
-          <Search aria-hidden className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Search aria-hidden className="pointer-events-none absolute top-1/2 start-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter" aria-label="Filter the log"
-            className="h-8 w-full rounded-md border border-border bg-background pr-7 pl-7 font-mono text-xs outline-none focus-visible:border-ring" />
+            className="h-8 w-full rounded-md border border-border bg-background pe-7 ps-7 font-mono text-xs outline-none focus-visible:border-ring" />
           {q ? (
             <button type="button" onClick={() => setQ("")} aria-label="Clear filter"
-              className="absolute top-1/2 right-1.5 cursor-pointer -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground">
+              className="absolute top-1/2 end-1.5 cursor-pointer -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground">
               <X aria-hidden className="size-3" />
             </button>
           ) : null}

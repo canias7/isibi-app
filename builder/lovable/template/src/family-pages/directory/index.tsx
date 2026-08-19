@@ -53,7 +53,7 @@ function P() {
             1,806 businesses, clubs and services in Sheffield. Nobody pays to be here and nobody
             pays to be higher up.
           </p>
-          <div className="relative mt-8 text-left">
+          <div className="relative mt-8 text-start">
             <SearchInput value={q} onChange={setQ} placeholder="Plumber, nursery, five-a-side, S6…" />
             {suggestions.length > 0 && (
               <SearchSuggestions className="absolute inset-x-0 top-full z-10 mt-1"
@@ -66,7 +66,7 @@ function P() {
               </p>
             )}
           </div>
-          <div className="mt-8 text-left">
+          <div className="mt-8 text-start">
             <RecentSearches
               items={["Emergency plumber", "Nursery S6", "Five-a-side pitch", "NHS dentist"]}
               onSelect={(s) => setQ(s)} />

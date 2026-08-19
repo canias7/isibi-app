@@ -35,7 +35,7 @@ export function ContextPanel({
 }) {
   return (
     <aside aria-label={label}
-      className={cn("flex h-full min-h-0 w-full flex-col border-border bg-background lg:w-72 lg:border-l", className)}>
+      className={cn("flex h-full min-h-0 w-full flex-col border-border bg-background lg:w-72 lg:border-s", className)}>
       <div className="flex items-center gap-2 border-b border-border px-3 py-2">
         <h2 aria-live="polite" className="min-w-0 flex-1 truncate text-sm font-semibold">
           {selectedCount > 1 ? `${selectedCount} selected` : selectedCount === 1 ? title : label}

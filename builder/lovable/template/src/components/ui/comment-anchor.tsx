@@ -31,7 +31,7 @@ export function CommentAnchor({ id, resolved, active, count = 1, onSelect, child
         ? <button type="button" onClick={() => onSelect(id)}
             className="cursor-pointer text-inherit underline-offset-2 hover:underline">{children}</button>
         : children}
-      {count > 1 && <sup className="ml-0.5 text-[10px] tabular-nums text-muted-foreground">{count}</sup>}
+      {count > 1 && <sup className="ms-0.5 text-[10px] tabular-nums text-muted-foreground">{count}</sup>}
     </mark>
   );
 }

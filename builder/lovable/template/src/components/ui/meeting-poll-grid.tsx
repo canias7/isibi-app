@@ -57,7 +57,7 @@ export function MeetingPollGrid({ people, slots, votes, onVote, className }: {
         <tbody>
           {people.map((p) => (
             <tr key={p.key}>
-              <th scope="row" className="pr-2 text-right font-normal">{p.label}</th>
+              <th scope="row" className="pe-2 text-end font-normal">{p.label}</th>
               {slots.map((s) => {
                 const key = `${p.key}:${s.key}`;
                 const v = votes[key];
@@ -85,7 +85,7 @@ export function MeetingPollGrid({ people, slots, votes, onVote, className }: {
         </tbody>
         <tfoot>
           <tr>
-            <th scope="row" className="pr-2 pt-1 text-right font-medium">Can make it</th>
+            <th scope="row" className="pe-2 pt-1 text-end font-medium">Can make it</th>
             {slots.map((s) => (
               <td key={s.key} className="px-1 pt-1 text-center text-[11px] font-medium tabular-nums">
                 {yesFor(s.key).length}/{people.length}

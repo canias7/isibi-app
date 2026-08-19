@@ -39,7 +39,7 @@ export function DefaultSet({ rows, onRevert, onRevertAll, className }: {
         {changed.length > 0 && onRevertAll && (
           <button type="button"
             onClick={() => { if (window.confirm("Put every setting back to its default?")) onRevertAll(); }}
-            className="ml-auto text-xs underline underline-offset-2">
+            className="ms-auto text-xs underline underline-offset-2">
             Revert all
           </button>
         )}
@@ -57,9 +57,9 @@ export function DefaultSet({ rows, onRevert, onRevertAll, className }: {
                   </span>
                 )}
               </span>
-              <span className={cn("shrink-0 text-right", isChanged && "font-medium")}>
+              <span className={cn("shrink-0 text-end", isChanged && "font-medium")}>
                 {String(r.value)}
-                {isChanged && <span className="ml-1.5 text-xs font-normal text-muted-foreground">Changed</span>}
+                {isChanged && <span className="ms-1.5 text-xs font-normal text-muted-foreground">Changed</span>}
               </span>
               {isChanged && onRevert && (
                 <button type="button" onClick={() => onRevert(r.key)}

@@ -21,7 +21,7 @@ export function ChatMessage({ body, own, author, at, avatar, status, className }
       <div className={cn("flex max-w-[75%] flex-col gap-0.5", own && "items-end")}>
         {!own && author && <span className="px-1 text-xs text-muted-foreground">{author}</span>}
         <div className={cn("rounded-2xl px-3 py-2 text-sm",
-          own ? "rounded-br-sm bg-foreground text-background" : "rounded-bl-sm bg-muted")}>
+          own ? "rounded-ee-sm bg-foreground text-background" : "rounded-es-sm bg-muted")}>
           {body}
         </div>
         <span className="flex items-center gap-1.5 px-1 text-[10px] text-muted-foreground">

@@ -35,7 +35,7 @@ export function DeliveryNoteField({ value, onChange, suggestions = [], maxLength
     <div className={cn("space-y-1.5", className)}>
       <label htmlFor={id} className="block text-sm font-medium">
         Anything {audience} should know?
-        <span className="ml-1.5 font-normal text-muted-foreground">optional</span>
+        <span className="ms-1.5 font-normal text-muted-foreground">optional</span>
       </label>
       {suggestions.length > 0 && (
         <div className="flex flex-wrap gap-1.5">

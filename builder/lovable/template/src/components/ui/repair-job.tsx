@@ -123,7 +123,7 @@ export function RepairJob({ job, notFound, checking, onLookup, className }: {
             <dd className="mt-0.5 text-sm">
               {job.targetDate}
               {job.late && job.stage !== "complete" && (
-                <span className="ml-2 font-medium">— we are late</span>
+                <span className="ms-2 font-medium">— we are late</span>
               )}
             </dd>
           </div>

@@ -28,7 +28,7 @@ import { themeCss } from "./site-theme.mjs";
 import { resolveTheme } from "./site-theme-registry.mjs";
 import { tokensCss, pageTokensCss, stripThemeRadius, validForWrite } from "./site-tokens.mjs";
 import { applyStyle, explicitRadiusCss } from "./site-style.mjs";
-import { initialsMark, normalizeLang, normalizeMode, siteIconFrom } from "./site-identity.mjs";
+import { dirFor, initialsMark, normalizeLang, normalizeMode, siteIconFrom } from "./site-identity.mjs";
 import { exitReason } from "./exit-reason.mjs";
 import { checkRender } from "./render-check.mjs";
 import { routeOf, fileForRoute } from "./site-addon.mjs";
@@ -172,6 +172,12 @@ function writeSiteBrand({ title, lang, logo, icon: sent, slug, mode }) {
   // `normalizeLang` REFUSES rather than defaulting, so an unusable value leaves
   // the site on the template's English instead of guessing at one.
   const langValue = normalizeLang(lang) || "en";
+  // DERIVED FROM THE LANGUAGE, NEVER ASKED FOR. Whether a script runs right to
+  // left is a fact about the script, not a preference — a business writing its
+  // brief in Arabic is not going to be asked which way its own page should read,
+  // and a stored `dir` is a second value that can disagree with the tag beside
+  // it. So `lang` stays the one thing anybody sets and this follows it.
+  const dirValue = dirFor(langValue);
   const titleValue = typeof title === "string" && title.trim() ? title.trim().slice(0, 120) : "App";
   // THE SLUG IS THE ONE VALUE HERE THAT IS NOT DECORATION. `siteSlug()` reads it
   // off the head on a custom domain, where there is no `/s/<slug>/` path to learn
@@ -211,6 +217,10 @@ function writeSiteBrand({ title, lang, logo, icon: sent, slug, mode }) {
       "export const SITE_SLUG = " + JSON.stringify(slugValue) + ";\n" +
       "export const SITE_LOGO = " + JSON.stringify(logoValue) + ";\n" +
       "export const SITE_LANG = " + JSON.stringify(langValue) + ";\n" +
+      // ANNOTATED for the reason `SITE_MODE` below is: an unannotated const has
+      // the LITERAL type of whichever value was written, so a comparison against
+      // the other member is `TS2367` and the template stops compiling.
+      'export const SITE_DIR: "ltr" | "rtl" = ' + JSON.stringify(dirValue) + ";\n" +
       // DARK MODE IS ONE CLASS, and this is the whole feature.
       //
       // `styles.css` declares `@custom-variant dark (&:is(.dark *))` and
@@ -237,7 +247,7 @@ function writeSiteBrand({ title, lang, logo, icon: sent, slug, mode }) {
   // a site drawing its initials and a site serving the owner's own artwork
   // both answered true, so a favicon that was stored and then refused by the
   // shape check reported as a working icon.
-  return { lang: langValue, mode: modeValue, icon: !!icon, ownIcon: iconOk, logo: !!logoValue, slug: !!slugValue,
+  return { lang: langValue, dir: dirValue, mode: modeValue, icon: !!icon, ownIcon: iconOk, logo: !!logoValue, slug: !!slugValue,
     refused: (!!raw && !logoOk) || !!(own && own.refused), build: buildValue };
 }
 

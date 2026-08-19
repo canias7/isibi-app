@@ -33,7 +33,7 @@ export function KbdChord({ chord, className }: {
       <span className="sr-only">{say}</span>
       {steps.map((keys, i) => (
         <span key={i} aria-hidden className="inline-flex items-center gap-0.5">
-          {i > 0 && <span className="mr-1 text-xs text-muted-foreground">then</span>}
+          {i > 0 && <span className="me-1 text-xs text-muted-foreground">then</span>}
           {keys.map((k, j) => <KeyCap key={j} k={k} />)}
         </span>
       ))}

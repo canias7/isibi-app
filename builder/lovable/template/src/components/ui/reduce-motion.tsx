@@ -67,7 +67,7 @@ export function ReduceMotionToggle({ className }: { className?: string }) {
           className="size-4 cursor-pointer accent-foreground disabled:cursor-not-allowed" />
         <span className="text-sm font-medium">Reduce animation</span>
       </label>
-      <p className="pl-6.5 text-xs text-muted-foreground">
+      <p className="ps-6.5 text-xs text-muted-foreground">
         {system
           ? "Your device already asks for reduced motion, so it is on and cannot be turned off here."
           : "Turns off decorative movement across the site."}

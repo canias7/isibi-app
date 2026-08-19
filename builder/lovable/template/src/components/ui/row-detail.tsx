@@ -31,7 +31,7 @@ export function RowDetail({
   return (
     <>
       <tr className={cn("border-b border-border", open && "bg-muted/40", className)}>
-        <td className="w-8 pl-2 align-middle">
+        <td className="w-8 ps-2 align-middle">
           <button type="button" onClick={onToggle} aria-expanded={open} aria-controls={`detail-${id}`}
             className="cursor-pointer rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground">
             <ChevronRight aria-hidden className={cn("size-4 transition-transform", open && "rotate-90")} />

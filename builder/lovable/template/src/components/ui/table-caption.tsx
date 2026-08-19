@@ -22,7 +22,7 @@ export function TableCaption({ children, shown, total, filtered, className }: {
   className?: string;
 }) {
   return (
-    <caption className={cn("caption-top pb-2 text-left text-sm text-muted-foreground", className)}>
+    <caption className={cn("caption-top pb-2 text-start text-sm text-muted-foreground", className)}>
       <span className="font-medium text-foreground">{children}</span>
       {typeof shown === "number" && (
         <span className="tabular-nums">

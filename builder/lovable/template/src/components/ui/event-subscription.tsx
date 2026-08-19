@@ -52,14 +52,14 @@ export function EventSubscription({ groups, selected, onChange, className }: {
               {g.label}
               <span className="font-normal text-muted-foreground">{on.length} of {ids.length}</span>
             </label>
-            <div className="space-y-0.5 pl-6">
+            <div className="space-y-0.5 ps-6">
               {g.events.map((e) => (
                 <label key={e.id} className="flex items-start gap-2 text-sm">
                   <input type="checkbox" checked={selected.includes(e.id)} className="mt-0.5 size-4 accent-foreground"
                     onChange={(ev) => toggle(e.id, ev.target.checked)} />
                   <span className="min-w-0">
                     <code className="font-mono text-xs">{e.name}</code>
-                    {e.highVolume && <span className="ml-1.5 text-xs font-medium">busy</span>}
+                    {e.highVolume && <span className="ms-1.5 text-xs font-medium">busy</span>}
                     <span className="block text-xs text-muted-foreground">{e.fires}</span>
                   </span>
                 </label>

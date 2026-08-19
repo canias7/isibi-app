@@ -53,7 +53,7 @@ export function SceneRow({ scene, slug, interior, night, pageEighths, cast = [],
           <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{pages} pp</span>
         )}
       </p>
-      {summary && <p className="pl-13 text-xs">{summary}</p>}
+      {summary && <p className="ps-13 text-xs">{summary}</p>}
       {cast.length > 0 && (
         <p className="text-xs tabular-nums text-muted-foreground">Cast {cast.join(", ")}</p>
       )}

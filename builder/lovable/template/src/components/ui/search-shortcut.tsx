@@ -50,7 +50,7 @@ export function SearchShortcut({ onOpen, placeholder = "Search", className }: {
       className={cn("inline-flex cursor-pointer items-center gap-2 rounded-md border border-border px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted",
         "sm:w-56", className)}>
       <Search aria-hidden className="size-4 shrink-0" />
-      <span className="hidden min-w-0 flex-1 truncate text-left sm:block">{placeholder}</span>
+      <span className="hidden min-w-0 flex-1 truncate text-start sm:block">{placeholder}</span>
       <kbd aria-hidden className="hidden shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] sm:block">
         {mac ? "⌘K" : "Ctrl K"}
       </kbd>

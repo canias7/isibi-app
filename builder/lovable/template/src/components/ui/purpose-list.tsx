@@ -37,7 +37,7 @@ export function PurposeList({ purposes, title, essentialWord = "needed", classNa
             <span aria-hidden="true" className="text-muted-foreground">·</span>
             <span className="min-w-0">
               {p.text}
-              {p.essential && <span className="ml-1.5 text-xs text-muted-foreground">{essentialWord}</span>}
+              {p.essential && <span className="ms-1.5 text-xs text-muted-foreground">{essentialWord}</span>}
               {p.detail && <span className="block text-xs text-muted-foreground">{p.detail}</span>}
             </span>
           </li>

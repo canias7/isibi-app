@@ -18,7 +18,7 @@ export function CartLine({ name, meta, image, price, quantity, currency = "£",
       </div>
       {onQuantity ? <QuantityInput value={quantity} onChange={onQuantity} />
         : <span className="text-sm tabular-nums text-muted-foreground">×{quantity}</span>}
-      <span className="w-16 shrink-0 text-right text-sm font-medium tabular-nums">
+      <span className="w-16 shrink-0 text-end text-sm font-medium tabular-nums">
         {currency}{(price * quantity).toFixed(2)}
       </span>
       {onRemove && (

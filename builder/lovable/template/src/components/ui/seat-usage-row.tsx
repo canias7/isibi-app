@@ -45,7 +45,7 @@ export function SeatUsageRow({ name, email, role, state = "active", lastActive, 
             : lastActive ? `Last used ${lastActive}` : "Never signed in"}
         </span>
       </span>
-      <span className="shrink-0 text-right">
+      <span className="shrink-0 text-end">
         {cost && <span className="block tabular-nums">{cost}</span>}
         {(WORD[state] || idle) && (
           <span className="block text-xs font-medium">{WORD[state] || "Paying for an unused seat"}</span>

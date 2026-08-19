@@ -21,7 +21,7 @@ export function RsvpButtons({ value, onChange, counts, className }: {
         <Button key={o.key} size="sm" variant={value === o.key ? "default" : "outline"}
           aria-pressed={value === o.key} onClick={() => onChange(o.key)}>
           {o.label}
-          {counts?.[o.key] != null && <span className="ml-1.5 tabular-nums opacity-70">{counts[o.key]}</span>}
+          {counts?.[o.key] != null && <span className="ms-1.5 tabular-nums opacity-70">{counts[o.key]}</span>}
         </Button>
       ))}
     </div>

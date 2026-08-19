@@ -49,11 +49,11 @@ export function MappingConflict({ record, here, there, fields, hereAt, thereAt, 
       <table className="w-full text-sm">
         <thead>
           <tr className="text-xs text-muted-foreground">
-            <th scope="col" className="px-2 py-1 text-left font-normal">Field</th>
-            <th scope="col" className="px-2 py-1 text-left font-normal">
+            <th scope="col" className="px-2 py-1 text-start font-normal">Field</th>
+            <th scope="col" className="px-2 py-1 text-start font-normal">
               {here}{hereAt && <span className="block">{hereAt}</span>}
             </th>
-            <th scope="col" className="px-2 py-1 text-left font-normal">
+            <th scope="col" className="px-2 py-1 text-start font-normal">
               {there}{thereAt && <span className="block">{thereAt}</span>}
             </th>
           </tr>
@@ -61,7 +61,7 @@ export function MappingConflict({ record, here, there, fields, hereAt, thereAt, 
         <tbody className="divide-y divide-border">
           {fields.map((f) => (
             <tr key={f.field}>
-              <th scope="row" className="px-2 py-1.5 text-left font-normal text-muted-foreground">{f.field}</th>
+              <th scope="row" className="px-2 py-1.5 text-start font-normal text-muted-foreground">{f.field}</th>
               <td className="px-2 py-1.5">{f.here}</td>
               <td className="px-2 py-1.5">{f.there}</td>
             </tr>

@@ -68,7 +68,7 @@ export function PermissionMatrix({
       <table className="w-full border-collapse text-sm">
         <thead>
           <tr className="border-b border-border">
-            <th scope="col" className="sticky left-0 z-1 bg-muted px-3 py-2 text-left font-medium">Can do</th>
+            <th scope="col" className="sticky start-0 z-1 bg-muted px-3 py-2 text-start font-medium">Can do</th>
             {roles.map((r) => (
               <th key={r.key} scope="col" className="min-w-24 bg-muted px-3 py-2 text-center align-top font-medium">
                 <span className="block whitespace-nowrap">{r.label}</span>
@@ -82,12 +82,12 @@ export function PermissionMatrix({
             {g.label ? (
               <tr className="border-b border-border bg-muted/40">
                 <th scope="colgroup" colSpan={roles.length + 1}
-                  className="px-3 py-1.5 text-left text-xs font-semibold tracking-wide uppercase">{g.label}</th>
+                  className="px-3 py-1.5 text-start text-xs font-semibold tracking-wide uppercase">{g.label}</th>
               </tr>
             ) : null}
             {g.permissions.map((p) => (
               <tr key={p.key} className="border-b border-border last:border-0">
-                <th scope="row" className="sticky left-0 z-1 bg-background px-3 py-2 text-left font-normal">
+                <th scope="row" className="sticky start-0 z-1 bg-background px-3 py-2 text-start font-normal">
                   <span className="block">{p.label}</span>
                   {p.hint ? <span className="block text-xs text-muted-foreground">{p.hint}</span> : null}
                 </th>

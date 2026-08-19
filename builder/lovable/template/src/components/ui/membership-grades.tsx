@@ -72,7 +72,7 @@ export function MembershipGrades({
               <span className="text-base font-medium">
                 {g.name}
                 {g.postnominal && (
-                  <span className="ml-2 text-sm font-normal text-muted-foreground">{g.postnominal}</span>
+                  <span className="ms-2 text-sm font-normal text-muted-foreground">{g.postnominal}</span>
                 )}
               </span>
               {typeof g.fee === "number" && (

@@ -45,10 +45,10 @@ export function PresetMenu({ presets, activeId, dirty, onApply, onSave, onSaveAs
         {presets.map((p) => (
           <li key={p.id} className="flex items-center">
             <button type="button" onClick={() => onApply(p.id)}
-              className="flex min-w-0 flex-1 items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-muted">
+              className="flex min-w-0 flex-1 items-center gap-2 rounded px-2 py-1.5 text-start text-sm hover:bg-muted">
               <Check className={cn("size-3.5 shrink-0", p.id !== activeId && "invisible")} aria-hidden="true" />
               <span className="min-w-0 truncate">{p.name}</span>
-              {p.shared && <span className="ml-auto shrink-0 text-xs text-muted-foreground">Shared</span>}
+              {p.shared && <span className="ms-auto shrink-0 text-xs text-muted-foreground">Shared</span>}
             </button>
             {onDelete && (
               <button type="button" onClick={() => onDelete(p.id)} aria-label={`Delete ${p.name}`}
@@ -62,12 +62,12 @@ export function PresetMenu({ presets, activeId, dirty, onApply, onSave, onSaveAs
       <div className="mt-1 border-t border-border pt-1">
         {onSave && active && dirty && (
           <button type="button" onClick={onSave}
-            className="w-full rounded px-2 py-1.5 text-left text-sm hover:bg-muted">
+            className="w-full rounded px-2 py-1.5 text-start text-sm hover:bg-muted">
             Save to “{active.name}”
           </button>
         )}
         <button type="button" onClick={onSaveAs}
-          className="w-full rounded px-2 py-1.5 text-left text-sm hover:bg-muted">
+          className="w-full rounded px-2 py-1.5 text-start text-sm hover:bg-muted">
           Save as new preset
         </button>
       </div>

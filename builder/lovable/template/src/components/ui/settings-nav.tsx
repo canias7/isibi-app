@@ -18,7 +18,7 @@ export function SettingsNav({ groups, current, onSelect, className }: {
           <ul>
             {g.items.map((it) => {
               const active = it.key === current;
-              const cls = cn("block w-full cursor-pointer rounded px-2 py-1.5 text-left text-sm",
+              const cls = cn("block w-full cursor-pointer rounded px-2 py-1.5 text-start text-sm",
                 active ? "bg-muted font-medium" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground");
               return (
                 <li key={it.key}>

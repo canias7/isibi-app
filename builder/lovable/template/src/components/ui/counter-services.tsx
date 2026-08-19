@@ -59,7 +59,7 @@ export function CounterServices({
               )}
             </span>
             {!s.stopped && (
-              <span className="shrink-0 text-right">
+              <span className="shrink-0 text-end">
                 {/* THE HOURS ONLY WHERE THEY DIFFER. Repeating the shop's times
                     on every row buries the two rows that are the point. */}
                 <span className={cn("block text-sm tabular-nums", s.hours ? "font-medium" : "text-muted-foreground")}>

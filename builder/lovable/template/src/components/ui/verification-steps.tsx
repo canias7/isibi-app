@@ -49,7 +49,7 @@ export function VerificationSteps({ steps, className }: { steps: VerificationSte
             </span>
             {s.detail && <span className="block text-xs text-muted-foreground">{s.detail}</span>}
           </span>
-          <span className="shrink-0 text-right">
+          <span className="shrink-0 text-end">
             {WORD[s.state] && (
               <span className={cn("block text-xs", s.state === "current" ? "font-medium" : "text-muted-foreground")}>
                 {WORD[s.state]}

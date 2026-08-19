@@ -38,7 +38,7 @@ export function SearchSelect({ value, onChange, options, placeholder = "Chooseâ€
       <div className="relative">
         <Input id={id} role="combobox" aria-expanded={open} aria-controls={`${id ?? "ss"}-list`}
           aria-activedescendant={open && shown[active] ? `${id ?? "ss"}-${active}` : undefined}
-          value={open ? q : (chosen?.label ?? "")} placeholder={placeholder} className="pr-8"
+          value={open ? q : (chosen?.label ?? "")} placeholder={placeholder} className="pe-8"
           onFocus={() => { setOpen(true); setQ(""); }}
           onChange={(e) => { setQ(e.target.value); setActive(0); setOpen(true); }}
           onKeyDown={(e) => {
@@ -47,7 +47,7 @@ export function SearchSelect({ value, onChange, options, placeholder = "Chooseâ€
             else if (e.key === "Enter" && open && shown[active]) { e.preventDefault(); onChange(shown[active].value); setOpen(false); }
             else if (e.key === "Escape") setOpen(false);
           }} />
-        <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <ChevronDown className="pointer-events-none absolute end-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
       </div>
       {open && (
         <ul id={`${id ?? "ss"}-list`} role="listbox"
@@ -60,7 +60,7 @@ export function SearchSelect({ value, onChange, options, placeholder = "Chooseâ€
             // nested button was surplus that only ever added a tab stop.
             <li key={o.value} id={`${id ?? "ss"}-${i}`} role="option" aria-selected={o.value === value}
               onMouseDown={(e) => { e.preventDefault(); onChange(o.value); setOpen(false); }}
-              className={cn("flex cursor-pointer items-center gap-2 px-3 py-1.5 text-left text-sm",
+              className={cn("flex cursor-pointer items-center gap-2 px-3 py-1.5 text-start text-sm",
                 i === active ? "bg-muted" : "hover:bg-muted/60")}>
               <Check className={cn("size-4 shrink-0", o.value === value ? "opacity-100" : "opacity-0")} />
               <span className="min-w-0 flex-1 truncate"><HighlightMatch text={o.label} query={q} /></span>

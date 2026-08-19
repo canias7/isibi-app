@@ -35,7 +35,7 @@ function Branch({ nodes, level, open, onToggle, value, onSelect }: {
         return (
           <li key={n.id} role="treeitem" aria-level={level} aria-selected={value === n.id}
             {...(kids.length ? { "aria-expanded": isOpen } : {})}>
-            <span className="flex items-center" style={{ paddingLeft: (level - 1) * 16 }}>
+            <span className="flex items-center" style={{ paddingInlineStart: (level - 1) * 16 }}>
               {/* The toggle is NOT `tabIndex={-1}`. That is correct in a tree
                   implementing the ARIA keyboard pattern — one tab stop, arrows to
                   move — and this one has no key handling at all, so it only removed
@@ -49,11 +49,11 @@ function Branch({ nodes, level, open, onToggle, value, onSelect }: {
                 </button>
               ) : <span className="w-[1.375rem] shrink-0" aria-hidden="true" />}
               <button type="button" onClick={() => onSelect(n.id)}
-                className={cn("min-w-0 flex-1 rounded px-1.5 py-1 text-left text-sm hover:bg-muted",
+                className={cn("min-w-0 flex-1 rounded px-1.5 py-1 text-start text-sm hover:bg-muted",
                   value === n.id && "bg-muted font-medium")}>
                 {n.label}
                 {n.count !== undefined && (
-                  <span className="ml-1.5 text-xs tabular-nums text-muted-foreground">{n.count}</span>
+                  <span className="ms-1.5 text-xs tabular-nums text-muted-foreground">{n.count}</span>
                 )}
               </button>
             </span>

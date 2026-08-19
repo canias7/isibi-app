@@ -64,19 +64,19 @@ export function MarkdownPreview({ source, className }: { source: string; classNa
     if (/^>\s?/.test(line)) {
       const body: string[] = [];
       while (i < lines.length && /^>\s?/.test(lines[i])) body.push(lines[i++].replace(/^>\s?/, ""));
-      blocks.push(<blockquote key={k++} className="border-l-2 border-border pl-3 text-muted-foreground">{inline(body.join(" "), `q${k}`)}</blockquote>);
+      blocks.push(<blockquote key={k++} className="border-s-2 border-border ps-3 text-muted-foreground">{inline(body.join(" "), `q${k}`)}</blockquote>);
       continue;
     }
     if (/^\s*[-*+]\s+/.test(line)) {
       const items: string[] = [];
       while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i])) items.push(lines[i++].replace(/^\s*[-*+]\s+/, ""));
-      blocks.push(<ul key={k++} className="list-disc space-y-1 pl-5">{items.map((t, n) => <li key={n}>{inline(t, `u${k}-${n}`)}</li>)}</ul>);
+      blocks.push(<ul key={k++} className="list-disc space-y-1 ps-5">{items.map((t, n) => <li key={n}>{inline(t, `u${k}-${n}`)}</li>)}</ul>);
       continue;
     }
     if (/^\s*\d+[.)]\s+/.test(line)) {
       const items: string[] = [];
       while (i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i])) items.push(lines[i++].replace(/^\s*\d+[.)]\s+/, ""));
-      blocks.push(<ol key={k++} className="list-decimal space-y-1 pl-5">{items.map((t, n) => <li key={n}>{inline(t, `o${k}-${n}`)}</li>)}</ol>);
+      blocks.push(<ol key={k++} className="list-decimal space-y-1 ps-5">{items.map((t, n) => <li key={n}>{inline(t, `o${k}-${n}`)}</li>)}</ol>);
       continue;
     }
     if (!line.trim()) { i++; continue; }

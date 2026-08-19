@@ -32,7 +32,7 @@ export function ThreeLineRow({ title, meta, preview, unread, leading, href, onCl
       {unread && <span className="mt-1.5 size-2 shrink-0 rounded-full bg-foreground" aria-label="Unread" />}
     </>
   );
-  const base = "flex w-full items-start gap-3 border-b border-border py-3 text-left last:border-0";
+  const base = "flex w-full items-start gap-3 border-b border-border py-3 text-start last:border-0";
   if (href) return <a href={href} className={cn(base, "hover:bg-muted/50", className)}>{body}</a>;
   if (onClick) return <button type="button" onClick={onClick} className={cn(base, "cursor-pointer hover:bg-muted/50", className)}>{body}</button>;
   return <div className={cn(base, className)}>{body}</div>;

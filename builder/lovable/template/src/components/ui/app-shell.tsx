@@ -41,7 +41,7 @@ export function AppShell({
   return (
     <div className={cn("flex min-h-svh flex-col bg-background", className)}>
       <a href="#main"
-        className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:rounded-md focus:bg-foreground focus:px-3 focus:py-2 focus:text-sm focus:text-background">
+        className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:start-2 focus:z-50 focus:rounded-md focus:bg-foreground focus:px-3 focus:py-2 focus:text-sm focus:text-background">
         Skip to the main content
       </a>
       {header ? (
@@ -49,14 +49,14 @@ export function AppShell({
       ) : null}
       <div className="flex min-h-0 flex-1">
         {sidebar ? (
-          <nav aria-label={sidebarLabel} className="hidden w-60 shrink-0 border-r border-border md:block">
+          <nav aria-label={sidebarLabel} className="hidden w-60 shrink-0 border-e border-border md:block">
             {sidebar}
           </nav>
         ) : null}
         {/* min-w-0, or one wide table stretches the whole shell. */}
         <main id="main" tabIndex={-1} className="min-w-0 flex-1 outline-none">{children}</main>
         {aside ? (
-          <aside aria-label={asideLabel} className="hidden w-72 shrink-0 border-l border-border lg:block">
+          <aside aria-label={asideLabel} className="hidden w-72 shrink-0 border-s border-border lg:block">
             {aside}
           </aside>
         ) : null}

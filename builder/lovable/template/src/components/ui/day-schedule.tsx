@@ -15,7 +15,7 @@ export function DaySchedule({ date, items, empty = "Nothing booked", onSelect, c
             {items.map((a, i) => (
               <li key={i}>
                 <button type="button" disabled={!onSelect} onClick={() => onSelect?.(a)}
-                  className={cn("flex w-full items-baseline gap-4 border-b border-border py-3 text-left last:border-0",
+                  className={cn("flex w-full items-baseline gap-4 border-b border-border py-3 text-start last:border-0",
                     onSelect && "cursor-pointer hover:bg-muted/50")}>
                   <span className="w-14 shrink-0 text-sm tabular-nums text-muted-foreground">{a.at}</span>
                   <span className="min-w-0 flex-1">

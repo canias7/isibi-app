@@ -40,7 +40,7 @@ export function ConsentSummary({ items, className }: { items: ConsentItem[]; cla
               {c.label}
               {c.purpose && <span className="block text-xs text-muted-foreground">{c.purpose}</span>}
             </dt>
-            <dd className="shrink-0 text-right">
+            <dd className="shrink-0 text-end">
               <span className={cn("block", c.granted ? "font-medium" : "text-muted-foreground")}>
                 {c.required ? "Always on" : c.granted ? "Agreed" : "Not agreed"}
               </span>

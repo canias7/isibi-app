@@ -42,7 +42,7 @@ export function AiErrorNote({ kind = "failed", detail, onRetry, retryLabel = "Tr
       <span className="font-medium">{SENTENCE[kind] ?? SENTENCE.failed}</span>
       {detail && <span className="text-muted-foreground">{detail}</span>}
       {canRetry && (
-        <Button type="button" variant="outline" size="sm" className="ml-auto" onClick={onRetry}>
+        <Button type="button" variant="outline" size="sm" className="ms-auto" onClick={onRetry}>
           {retryLabel}
         </Button>
       )}

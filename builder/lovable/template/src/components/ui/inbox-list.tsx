@@ -17,7 +17,7 @@ export function InboxList({ items, selected, onSelect, empty = "Nothing here", c
         <li key={m.id}>
           <button type="button" onClick={() => onSelect?.(m.id)}
             aria-current={selected === m.id ? "true" : undefined}
-            className={cn("flex w-full cursor-pointer items-start gap-2.5 border-b border-border px-3 py-3 text-left last:border-0 hover:bg-muted/50",
+            className={cn("flex w-full cursor-pointer items-start gap-2.5 border-b border-border px-3 py-3 text-start last:border-0 hover:bg-muted/50",
               selected === m.id && "bg-muted")}>
             <span className={cn("mt-1.5 size-1.5 shrink-0 rounded-full", m.unread ? "bg-foreground" : "bg-transparent")}
               aria-hidden="true" />

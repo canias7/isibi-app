@@ -36,7 +36,7 @@ export function MeasurementSummary({ items, missingNote = "not given", className
               {m.label}
               {m.note && <span className="block text-xs">{m.note}</span>}
             </dt>
-            <dd className={cn("shrink-0 text-right tabular-nums", missing && "text-muted-foreground italic")}>
+            <dd className={cn("shrink-0 text-end tabular-nums", missing && "text-muted-foreground italic")}>
               {missing ? missingNote : <>{m.value}{m.unit ? ` ${m.unit}` : ""}</>}
             </dd>
           </div>

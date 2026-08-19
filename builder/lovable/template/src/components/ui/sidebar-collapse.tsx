@@ -81,7 +81,7 @@ export function SidebarItem({ icon, label, href, active, collapsed, badge, onCli
     </a>
   ) : (
     <button type="button" onClick={onClick} title={collapsed ? label : undefined}
-      aria-current={active ? "page" : undefined} className={cn(shared, "w-full cursor-pointer text-left")}>
+      aria-current={active ? "page" : undefined} className={cn(shared, "w-full cursor-pointer text-start")}>
       {body}
     </button>
   );

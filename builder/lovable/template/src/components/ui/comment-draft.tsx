@@ -55,7 +55,7 @@ export function CommentDraft({ value, onChange, onPost, onCancel, onDiscard, bus
           </button>
         )}
         {has && touched && (
-          <span className="ml-auto text-xs text-muted-foreground">Only you can see this until you post it</span>
+          <span className="ms-auto text-xs text-muted-foreground">Only you can see this until you post it</span>
         )}
       </div>
     </div>

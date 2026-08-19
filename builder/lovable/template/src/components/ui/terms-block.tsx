@@ -16,7 +16,7 @@ export function TermsBlock({ title = "Terms", clauses, className }: {
       <h2 className="mb-1.5 font-medium uppercase tracking-wide">{title}</h2>
       {clauses.length === 1
         ? <p className="leading-relaxed">{clauses[0]}</p>
-        : <ol className="list-decimal space-y-1 pl-4 leading-relaxed">
+        : <ol className="list-decimal space-y-1 ps-4 leading-relaxed">
             {clauses.map((c, i) => <li key={i}>{c}</li>)}
           </ol>}
     </section>

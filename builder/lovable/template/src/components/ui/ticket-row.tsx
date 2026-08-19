@@ -21,7 +21,7 @@ export function TicketRow({ id, subject, requester, state = "open", lastReplyAt,
     <div className={cn("flex flex-wrap items-center gap-3 border-b border-border py-3 last:border-0", className)}>
       <IdBadge id={id} head={8} />
       <button type="button" onClick={onClick} disabled={!onClick}
-        className={cn("min-w-0 flex-1 text-left", onClick && "cursor-pointer hover:underline")}>
+        className={cn("min-w-0 flex-1 text-start", onClick && "cursor-pointer hover:underline")}>
         <span className="block truncate text-sm font-medium">{subject}</span>
         {requester && <span className="block text-xs text-muted-foreground">{requester}</span>}
       </button>

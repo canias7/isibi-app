@@ -40,7 +40,7 @@ export function ToolCallCard({
   return (
     <div className={cn("rounded-lg border border-border text-sm", className)}>
       <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open}
-        className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left hover:bg-muted/60">
+        className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-start hover:bg-muted/60">
         <ChevronRight aria-hidden className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")} />
         <Icon aria-hidden className={cn("size-3.5 shrink-0",
           status === "running" && "motion-safe:animate-spin",

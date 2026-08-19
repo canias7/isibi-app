@@ -57,7 +57,7 @@ export function MultiSort({ rules, labels, onChange, className }: {
     <div className={cn("flex flex-wrap items-center gap-1.5 text-xs", className)}>
       <span className="text-muted-foreground">Sorted by</span>
       {rules.map((r, i) => (
-        <span key={r.key} className="inline-flex items-center gap-1 rounded-full bg-muted py-0.5 pr-1 pl-2">
+        <span key={r.key} className="inline-flex items-center gap-1 rounded-full bg-muted py-0.5 pe-1 ps-2">
           {rules.length > 1 ? <span className="text-muted-foreground tabular-nums">{i + 1}.</span> : null}
           <span>{labels[r.key] ?? r.key}</span>
           <button type="button"

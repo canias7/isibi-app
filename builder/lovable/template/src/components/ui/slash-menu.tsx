@@ -35,7 +35,7 @@ export function SlashMenu({ items, query = "", activeIndex = 0, onPick, classNam
         // point of a slash menu.
         <li key={it.key} role="option" aria-selected={i === activeIndex}
           onMouseDown={(e) => { e.preventDefault(); onPick(it); }}
-          className={cn("flex cursor-pointer items-center gap-2.5 px-3 py-1.5 text-left",
+          className={cn("flex cursor-pointer items-center gap-2.5 px-3 py-1.5 text-start",
             i === activeIndex ? "bg-muted" : "hover:bg-muted/60")}>
           {it.icon && <span className="shrink-0 text-muted-foreground">{it.icon}</span>}
           <span className="min-w-0 flex-1 truncate text-sm">{it.label}</span>

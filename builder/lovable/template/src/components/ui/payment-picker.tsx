@@ -47,7 +47,7 @@ export function PaymentPicker({ methods, value, onChange, onAdd, className }: {
       ))}
       {onAdd ? (
         <button type="button" onClick={onAdd}
-          className="cursor-pointer rounded-lg border border-dashed border-border p-2.5 text-left text-sm text-muted-foreground hover:border-foreground/50">
+          className="cursor-pointer rounded-lg border border-dashed border-border p-2.5 text-start text-sm text-muted-foreground hover:border-foreground/50">
           Add a card…
         </button>
       ) : null}

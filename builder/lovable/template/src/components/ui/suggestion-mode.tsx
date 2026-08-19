@@ -21,7 +21,7 @@ export function SuggestionMode({ before, after, by, onAccept, onReject, classNam
       {before && <del className="bg-destructive/10 text-destructive no-underline line-through">{before}</del>}
       {after && <ins className="bg-success/10 text-success underline decoration-dotted">{after}</ins>}
       <span className="inline-flex items-center gap-0.5 align-middle">
-        {by && <span className="mr-1 text-[10px] text-muted-foreground">{by}</span>}
+        {by && <span className="me-1 text-[10px] text-muted-foreground">{by}</span>}
         {onAccept && (
           <Button type="button" size="icon-sm" variant="ghost" onClick={onAccept} aria-label="Accept suggestion">
             <Check className="size-3.5" />

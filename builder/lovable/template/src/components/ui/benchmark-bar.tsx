@@ -29,7 +29,7 @@ export function BenchmarkBar({ you, benchmark, max, label, group, sampleSize, un
       {label && <p className="text-sm text-muted-foreground">{label}</p>}
       <div aria-hidden className="relative h-6 rounded bg-muted">
         <div className="h-full rounded bg-foreground" style={{ width: pos(you) }} />
-        <div className="absolute inset-y-0 border-l-2 border-dashed border-foreground"
+        <div className="absolute inset-y-0 border-s-2 border-dashed border-foreground"
           style={{ left: pos(benchmark) }} />
       </div>
       <p className="text-xs text-muted-foreground tabular-nums">

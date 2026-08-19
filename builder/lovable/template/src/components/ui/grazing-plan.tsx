@@ -53,12 +53,12 @@ export function GrazingPlan({ paddocks, minimumRest = 21, coverUnit = "kg DM/ha"
             <li key={p.id} className="flex items-start gap-3 px-3 py-1.5">
               <span className="min-w-0 flex-1">
                 {p.name}
-                {p.current && <span className="ml-1.5 text-xs font-medium">stock here now</span>}
+                {p.current && <span className="ms-1.5 text-xs font-medium">stock here now</span>}
                 {p.area !== undefined && (
                   <span className="block text-xs tabular-nums text-muted-foreground">{p.area} {areaUnit}</span>
                 )}
               </span>
-              <span className="shrink-0 text-right text-xs">
+              <span className="shrink-0 text-end text-xs">
                 {p.restDays !== undefined && (
                   <span className={cn("block tabular-nums", short ? "font-medium" : "text-muted-foreground")}>
                     {p.restDays} days rest{short ? " — too soon" : ""}

@@ -65,7 +65,7 @@ export function TableSettings({ columns, onChange, label = "Columns", className 
                   onClick={() => onChange(columns.map((x) => (x.key === c.key ? { ...x, hidden: !x.hidden } : x)))}
                   aria-pressed={!c.hidden}
                   title={last ? "A table needs at least one column" : c.locked ? "Always shown" : undefined}
-                  className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded px-1 py-1 text-left text-sm disabled:cursor-default disabled:opacity-60">
+                  className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded px-1 py-1 text-start text-sm disabled:cursor-default disabled:opacity-60">
                   {c.hidden
                     ? <EyeOff aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
                     : <Eye aria-hidden className="size-3.5 shrink-0" />}

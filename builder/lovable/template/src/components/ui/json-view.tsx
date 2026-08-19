@@ -15,8 +15,8 @@ export function JsonView({ value, collapsedHeight = 320, className }: {
   catch { text = String(value); }
   return (
     <div className={cn("relative rounded-md border border-border bg-muted/40", className)}>
-      <div className="absolute right-1.5 top-1.5"><CopyButton value={text} label="Copy JSON" iconOnly /></div>
-      <pre className="overflow-auto p-3 pr-10 font-mono text-xs leading-relaxed"
+      <div className="absolute end-1.5 top-1.5"><CopyButton value={text} label="Copy JSON" iconOnly /></div>
+      <pre className="overflow-auto p-3 pe-10 font-mono text-xs leading-relaxed"
         style={{ maxHeight: collapsedHeight }}>{text}</pre>
     </div>
   );

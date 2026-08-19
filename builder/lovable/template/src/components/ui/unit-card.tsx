@@ -54,7 +54,7 @@ export function UnitCard({
     <article className={cn("flex flex-col rounded-xl border border-border p-6", className)}>
       <div className="flex items-baseline justify-between gap-3">
         <h3 className="text-2xl font-semibold tracking-tight">{size}</h3>
-        <p className="shrink-0 text-right">
+        <p className="shrink-0 text-end">
           <span className="text-xl font-semibold tabular-nums">
             {typeof price === "number" ? money(price) : "Ask us"}
           </span>

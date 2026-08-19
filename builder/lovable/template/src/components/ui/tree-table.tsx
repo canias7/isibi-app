@@ -49,7 +49,7 @@ export function TreeTable({ nodes, columns, format, aggregate, defaultOpen = [],
       rows.push(
         <tr key={n.id} aria-level={depth + 1} aria-expanded={kids.length ? isOpen : undefined}
           className="border-b border-border last:border-0">
-          <td className="py-1" style={{ paddingLeft: `${depth * 16}px` }}>
+          <td className="py-1" style={{ paddingInlineStart: `${depth * 16}px` }}>
             <span className="flex items-center gap-1">
               {kids.length ? (
                 <button type="button" aria-label={`${isOpen ? "Collapse" : "Expand"} ${labelText(n.label)}`.trim()}
@@ -62,7 +62,7 @@ export function TreeTable({ nodes, columns, format, aggregate, defaultOpen = [],
             </span>
           </td>
           {columns.map((c) => (
-            <td key={c.key} className={cn("py-1 pl-3 text-right tabular-nums", kids.length && "font-medium")}>
+            <td key={c.key} className={cn("py-1 ps-3 text-end tabular-nums", kids.length && "font-medium")}>
               {fmt(rollUp(n, c.key, agg), c.key)}
             </td>
           ))}
@@ -78,8 +78,8 @@ export function TreeTable({ nodes, columns, format, aggregate, defaultOpen = [],
     <table className={cn("w-full text-xs", className)}>
       <thead>
         <tr className="border-b border-border">
-          <th className="pb-1 text-left font-medium">Name</th>
-          {columns.map((c) => <th key={c.key} className="pb-1 pl-3 text-right font-medium">{c.label}</th>)}
+          <th className="pb-1 text-start font-medium">Name</th>
+          {columns.map((c) => <th key={c.key} className="pb-1 ps-3 text-end font-medium">{c.label}</th>)}
         </tr>
       </thead>
       <tbody>{rows}</tbody>

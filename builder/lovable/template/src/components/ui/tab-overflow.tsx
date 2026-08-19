@@ -83,7 +83,7 @@ export function TabOverflow({ tabs, active, onSelect, className }: {
         <Popover>
           <PopoverTrigger asChild>
             <button type="button"
-              className="ml-auto inline-flex shrink-0 cursor-pointer items-center gap-1 px-2 py-1.5 text-sm text-muted-foreground hover:text-foreground">
+              className="ms-auto inline-flex shrink-0 cursor-pointer items-center gap-1 px-2 py-1.5 text-sm text-muted-foreground hover:text-foreground">
               {hidden.length} more
               <ChevronDown aria-hidden className="size-3.5" />
             </button>
@@ -93,7 +93,7 @@ export function TabOverflow({ tabs, active, onSelect, className }: {
               {hidden.map((t) => (
                 <li key={t.key}>
                   <button type="button" onClick={() => onSelect(t.key)}
-                    className="w-full cursor-pointer truncate rounded px-2 py-1.5 text-left text-sm hover:bg-muted">
+                    className="w-full cursor-pointer truncate rounded px-2 py-1.5 text-start text-sm hover:bg-muted">
                     {t.label}
                   </button>
                 </li>

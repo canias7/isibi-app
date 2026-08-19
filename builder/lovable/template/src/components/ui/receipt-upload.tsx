@@ -48,7 +48,7 @@ export function ReceiptUpload({ onSubmit, suggested, today, currencySymbol = "£
         <label htmlFor={uid + "-receipt-file"} className="block text-sm font-medium">Photo of the receipt</label>
         <input id={uid + "-receipt-file"} type="file" accept="image/*,application/pdf" required
           onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-          className="block w-full text-sm file:mr-3 file:cursor-pointer file:rounded-md file:border file:border-border file:bg-transparent file:px-3 file:py-1.5 file:text-sm" />
+          className="block w-full text-sm file:me-3 file:cursor-pointer file:rounded-md file:border file:border-border file:bg-transparent file:px-3 file:py-1.5 file:text-sm" />
       </div>
       {hasSuggestion && (
         <p className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">

@@ -73,7 +73,7 @@ export function PromptHistory({ items, onPick, title = "Recent", max = 5, classN
         {items.slice(-max).reverse().map((t, i) => (
           <li key={t + i}>
             <button type="button" onClick={() => onPick(t)}
-              className="w-full cursor-pointer truncate rounded px-2 py-1 text-left text-xs hover:bg-muted">
+              className="w-full cursor-pointer truncate rounded px-2 py-1 text-start text-xs hover:bg-muted">
               {t}
             </button>
           </li>

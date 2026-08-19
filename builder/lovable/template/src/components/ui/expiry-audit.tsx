@@ -60,7 +60,7 @@ export function ExpiryAudit({ items, warnWithin = 60, className }: {
                 {i.owner}
               </span>
             </span>
-            <span className="shrink-0 text-right text-xs">
+            <span className="shrink-0 text-end text-xs">
               <span className={cn("block", i.daysLeft < 0 && "font-medium")}>{i.on}</span>
               <span className="block text-muted-foreground tabular-nums">
                 {i.daysLeft < 0 ? `${Math.abs(i.daysLeft)} days ago` : `in ${i.daysLeft} days`}

@@ -53,7 +53,7 @@ export function LayerList({
             onClick={() => { if (!l.locked) onSelect(l.id); }}
             disabled={l.locked}
             aria-current={selected === l.id ? "true" : undefined}
-            className={cn("min-w-0 flex-1 cursor-pointer truncate rounded px-1 py-0.5 text-left",
+            className={cn("min-w-0 flex-1 cursor-pointer truncate rounded px-1 py-0.5 text-start",
               l.locked && "cursor-default text-muted-foreground")}>
             {l.name}
           </button>

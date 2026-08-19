@@ -52,7 +52,7 @@ export function TerminalOutput({ command, output, exitCode, running, className }
         <code className="min-w-0 flex-1 truncate font-mono text-xs">
           {command ? (
             <>
-              <span aria-hidden className="mr-1.5 text-muted-foreground select-none">$</span>
+              <span aria-hidden className="me-1.5 text-muted-foreground select-none">$</span>
               {command}
             </>
           ) : <span className="text-muted-foreground">Output</span>}

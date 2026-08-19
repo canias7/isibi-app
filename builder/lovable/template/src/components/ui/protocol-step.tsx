@@ -40,17 +40,17 @@ export function ProtocolStep({ number, instruction, durationNote, temperatureNot
         <span className={cn("min-w-0 flex-1", critical && "font-medium")}>{instruction}</span>
       </p>
       {(durationNote || temperatureNote) && (
-        <p className="pl-6 text-xs tabular-nums text-muted-foreground">
+        <p className="ps-6 text-xs tabular-nums text-muted-foreground">
           {[durationNote, temperatureNote].filter(Boolean).join(" · ")}
           {tolerance ? ` (${tolerance})` : ""}
         </p>
       )}
       {(durationNote || temperatureNote) && !tolerance && (
-        <p className="pl-6 text-xs font-medium">No tolerance stated — two operators will read this differently.</p>
+        <p className="ps-6 text-xs font-medium">No tolerance stated — two operators will read this differently.</p>
       )}
-      {critical && <p className="pl-6 text-xs font-medium">Critical — outside the range, the run is not valid.</p>}
-      {safeStop && <p className="pl-6 text-xs text-muted-foreground">Safe to stop here overnight.</p>}
-      {hazard && <p className="pl-6 text-xs font-medium">{hazard}</p>}
+      {critical && <p className="ps-6 text-xs font-medium">Critical — outside the range, the run is not valid.</p>}
+      {safeStop && <p className="ps-6 text-xs text-muted-foreground">Safe to stop here overnight.</p>}
+      {hazard && <p className="ps-6 text-xs font-medium">{hazard}</p>}
     </li>
   );
 }

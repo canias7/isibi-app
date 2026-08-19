@@ -76,7 +76,7 @@ export function ScrollSpy({ sections, active, label = "On this page", className 
                 history.replaceState(null, "", `#${s.id}`);
               }}
               style={{ paddingLeft: `${0.5 + (s.depth ?? 0) * 0.75}rem` }}
-              className={cn("block border-l-2 py-1 text-sm",
+              className={cn("block border-s-2 py-1 text-sm",
                 s.id === active
                   ? "border-foreground font-medium"
                   : "border-border text-muted-foreground hover:text-foreground")}

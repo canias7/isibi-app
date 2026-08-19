@@ -37,7 +37,7 @@ export function PermitRow({ kind, reference, from, to, expired, people = [], iss
       <p className="flex flex-wrap items-baseline gap-x-2">
         <span className={cn("font-medium", expired && "line-through decoration-from-font")}>{kind}</span>
         {reference && <code className="font-mono text-xs text-muted-foreground">{reference}</code>}
-        <span className={cn("ml-auto text-xs", expired ? "font-medium" : "text-muted-foreground")}>
+        <span className={cn("ms-auto text-xs", expired ? "font-medium" : "text-muted-foreground")}>
           {expired ? "Expired — stop work" : from && to ? `${from} to ${to}` : "No window set"}
         </span>
       </p>

@@ -52,7 +52,7 @@ export function EntryRequirements({
               <p className="text-base font-medium">{r.what}</p>
               {r.detail && <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{r.detail}</p>}
             </div>
-            <div className="sm:text-right">
+            <div className="sm:text-end">
               {/* THE DEADLINE AT WEIGHT. It is the field, not the requirement —
                   everybody knows a kennel wants vaccinations and almost nobody
                   knows the booster has a fortnight's lead time. */}

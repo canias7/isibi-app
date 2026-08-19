@@ -46,7 +46,7 @@ export function DiagnosticBundle({ parts, selected, onChange, excluded = [], onG
                     : selected.filter((x) => x !== p.id))} />
                 <span className="min-w-0">
                   {p.label}
-                  {p.sensitive && <span className="ml-1.5 text-xs font-medium">may contain personal data</span>}
+                  {p.sensitive && <span className="ms-1.5 text-xs font-medium">may contain personal data</span>}
                   {p.detail && <span className="block text-xs text-muted-foreground">{p.detail}</span>}
                 </span>
               </label>

@@ -50,7 +50,7 @@ function P() {
             <table className="w-full min-w-[34rem] text-sm">
               <caption className="sr-only">Weekly price and price per serving by plan</caption>
               <thead>
-                <tr className="border-b border-border text-left">
+                <tr className="border-b border-border text-start">
                   <th scope="col" className="py-2 font-medium">Plan</th>
                   <th scope="col" className="py-2 font-medium">A week</th>
                   <th scope="col" className="py-2 font-medium">Servings</th>

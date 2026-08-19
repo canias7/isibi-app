@@ -26,7 +26,7 @@ export function ScopeSummary({ canRead, canWrite, cannot, className }: {
     items?.length ? (
       <section key={title}>
         <h3 className="text-sm font-medium">{title}</h3>
-        <ul className="flex list-disc flex-col gap-0.5 pl-5 text-sm text-muted-foreground">
+        <ul className="flex list-disc flex-col gap-0.5 ps-5 text-sm text-muted-foreground">
           {items.map((i) => <li key={i}>{i}</li>)}
         </ul>
       </section>

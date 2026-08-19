@@ -23,7 +23,7 @@ export function StickyCta({ label, price, onClick, href, after = 400, className 
     <div className={cn("motion-enter fixed inset-x-0 bottom-0 z-40 border-t bg-popover/95 p-3 backdrop-blur md:hidden", className)}>
       <div className="flex items-center gap-3">
         {price && <span className="text-sm font-medium tabular-nums">{price}</span>}
-        <Button className="ml-auto flex-1" asChild={!!href} onClick={onClick}>
+        <Button className="ms-auto flex-1" asChild={!!href} onClick={onClick}>
           {href ? <a href={href}>{label}</a> : <span>{label}</span>}
         </Button>
       </div>

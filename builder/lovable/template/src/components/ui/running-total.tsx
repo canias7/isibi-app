@@ -26,9 +26,9 @@ export function RunningTotal({ lines, unit = "", label = "Running total", classN
     <table className={cn("w-full text-sm", className)}>
       <thead>
         <tr className="border-b border-border text-xs text-muted-foreground">
-          <th scope="col" className="py-1.5 text-left font-normal">Item</th>
-          <th scope="col" className="py-1.5 text-right font-normal">Amount</th>
-          <th scope="col" className="py-1.5 text-right font-normal">{label}</th>
+          <th scope="col" className="py-1.5 text-start font-normal">Item</th>
+          <th scope="col" className="py-1.5 text-end font-normal">Amount</th>
+          <th scope="col" className="py-1.5 text-end font-normal">{label}</th>
         </tr>
       </thead>
       <tbody>
@@ -38,8 +38,8 @@ export function RunningTotal({ lines, unit = "", label = "Running total", classN
               {r.label}
               {r.note && <span className="block text-xs text-muted-foreground">{r.note}</span>}
             </td>
-            <td className="py-1.5 text-right tabular-nums">{fmt(r.amount)}</td>
-            <td className="py-1.5 text-right font-medium tabular-nums">{fmt(r.sum)}</td>
+            <td className="py-1.5 text-end tabular-nums">{fmt(r.amount)}</td>
+            <td className="py-1.5 text-end font-medium tabular-nums">{fmt(r.sum)}</td>
           </tr>
         ))}
       </tbody>

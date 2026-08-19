@@ -77,7 +77,7 @@ export function ModerationQueue({ items, onKeep, onRemove, onSkip, className }: 
               </button>
               {onSkip ? (
                 <button type="button" onClick={() => onSkip(it.id)}
-                  className="ml-auto cursor-pointer text-xs text-muted-foreground underline underline-offset-2">
+                  className="ms-auto cursor-pointer text-xs text-muted-foreground underline underline-offset-2">
                   Skip for now
                 </button>
               ) : null}

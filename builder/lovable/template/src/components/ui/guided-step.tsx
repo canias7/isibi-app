@@ -37,7 +37,7 @@ export function GuidedStep({ title, body, step, of, onNext, onBack, onSkip, next
         {onBack && step > 1 && <Button size="sm" variant="outline" onClick={onBack}>Back</Button>}
         {onSkip && (
           <button type="button" onClick={onSkip}
-            className="ml-auto cursor-pointer text-xs text-muted-foreground underline underline-offset-4">Skip the tour</button>
+            className="ms-auto cursor-pointer text-xs text-muted-foreground underline underline-offset-4">Skip the tour</button>
         )}
       </div>
     </section>

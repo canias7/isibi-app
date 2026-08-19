@@ -31,7 +31,7 @@ export function SpamNote({ items, onNotSpam, className }: {
   return (
     <div className={cn("motion-enter rounded-lg border border-dashed border-border", className)}>
       <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open}
-        className="flex w-full cursor-pointer items-center justify-between gap-3 px-3 py-2 text-left text-xs text-muted-foreground hover:bg-muted/50">
+        className="flex w-full cursor-pointer items-center justify-between gap-3 px-3 py-2 text-start text-xs text-muted-foreground hover:bg-muted/50">
         <span>
           {items.length} message{items.length === 1 ? " was" : "s were"} hidden as likely spam.
           The filter is sometimes wrong — anything real can be restored.

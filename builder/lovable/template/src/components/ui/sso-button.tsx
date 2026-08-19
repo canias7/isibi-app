@@ -34,7 +34,7 @@ export function SsoButton({ provider, onClick, last, busy, disabled, className }
         "hover:bg-muted disabled:pointer-events-none disabled:opacity-60", className)}>
       <span>{busy ? `Opening ${provider}…` : `Continue with ${provider}`}</span>
       {last ? (
-        <span className="absolute right-3 text-xs font-normal text-muted-foreground">Last used</span>
+        <span className="absolute end-3 text-xs font-normal text-muted-foreground">Last used</span>
       ) : null}
     </button>
   );

@@ -30,7 +30,7 @@ export function Gallery({ items, columns = 3, className }: {
     <div className={cn("grid gap-3", cols, className)}>
       {items.map((s, i) => (
         <Dialog key={i}>
-          <DialogTrigger className="cursor-pointer text-left">
+          <DialogTrigger className="cursor-pointer text-start">
             <SafeImage src={s.src} alt={s.alt} ratio="1/1" fallbackSeed={s.fallbackSeed ?? s.caption ?? undefined} />
           </DialogTrigger>
           <DialogContent className="max-w-3xl">

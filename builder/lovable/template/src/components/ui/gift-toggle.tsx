@@ -27,7 +27,7 @@ export function GiftToggle({ isGift, hidePrices, onChange, children, className }
         This is a gift
       </label>
       {isGift ? (
-        <div className="flex flex-col gap-1.5 pl-6">
+        <div className="flex flex-col gap-1.5 ps-6">
           <label className="flex cursor-pointer items-center gap-2 text-sm">
             <input type="checkbox" checked={hidePrices}
               onChange={(e) => onChange({ isGift, hidePrices: e.target.checked })}

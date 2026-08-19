@@ -33,8 +33,8 @@ export function FunnelSteps({ steps, className }: {
         return (
           <li key={s.key}>
             {prev != null ? (
-              <div className="flex items-center gap-2 py-1 pl-3 text-[11px] text-muted-foreground">
-                <span aria-hidden className="h-4 border-l border-dashed border-border" />
+              <div className="flex items-center gap-2 py-1 ps-3 text-[11px] text-muted-foreground">
+                <span aria-hidden className="h-4 border-s border-dashed border-border" />
                 <span className="tabular-nums">
                   {lost > 0 ? <>−{lost.toLocaleString()} dropped here</> : <>no drop</>}
                 </span>
@@ -42,12 +42,12 @@ export function FunnelSteps({ steps, className }: {
             ) : null}
             <div className="flex items-center gap-2">
               <div className="h-7 flex-1 overflow-hidden rounded bg-muted">
-                <div className="flex h-full items-center rounded bg-foreground pl-2 text-[11px] font-medium text-background"
+                <div className="flex h-full items-center rounded bg-foreground ps-2 text-[11px] font-medium text-background"
                   style={{ width: `${Math.max(6, ofTop)}%` }}>
                   {s.label}
                 </div>
               </div>
-              <span className="w-36 shrink-0 text-right text-[11px] tabular-nums">
+              <span className="w-36 shrink-0 text-end text-[11px] tabular-nums">
                 <b>{s.count.toLocaleString()}</b>
                 <span className="text-muted-foreground">
                   {" "}· {ofTop}% of start{i > 0 ? ` · ${ofPrev}% of previous` : ""}

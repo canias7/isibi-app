@@ -30,7 +30,7 @@ export function InlineEdit({ value, onSave, label, placeholder, className }: {
   }
   return (
     <button type="button" onClick={() => setEditing(true)}
-      className={cn("w-full cursor-text rounded px-2 py-1 text-left text-sm hover:bg-muted", className)}>
+      className={cn("w-full cursor-text rounded px-2 py-1 text-start text-sm hover:bg-muted", className)}>
       {value || <span className="text-muted-foreground">{placeholder ?? "—"}</span>}
       <span className="sr-only">{label ? `Edit ${label}` : "Edit"}</span>
     </button>

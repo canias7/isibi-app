@@ -64,13 +64,13 @@ function P() {
                   <span className="min-w-0 flex-1">
                     <span className={cn("text-base", e.lapsed ? "text-muted-foreground" : "font-medium")}>
                       {e.name}
-                      <span className="ml-2 text-sm font-normal text-muted-foreground">{e.post}</span>
+                      <span className="ms-2 text-sm font-normal text-muted-foreground">{e.post}</span>
                     </span>
                     <span className="block text-sm text-muted-foreground">
                       {e.grade} since {e.since} · {e.where}
                     </span>
                   </span>
-                  <span className="shrink-0 text-right">
+                  <span className="shrink-0 text-end">
                     {/* A LAPSED ENTRY STAYS VISIBLE. Deleting it means a client
                         checking somebody who let their membership go in March
                         finds nothing at all — which reads as "never a member"

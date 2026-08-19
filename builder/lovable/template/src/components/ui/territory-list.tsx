@@ -67,7 +67,7 @@ export function TerritoryList({
               </span>
               {t.detail && <span className="block text-sm text-muted-foreground">{t.detail}</span>}
             </span>
-            <span className="shrink-0 text-right">
+            <span className="shrink-0 text-end">
               {/* THREE STATES IN WORDS. Under offer is not taken — a third of
                   them fall through, and that is when the runner-up matters. */}
               <span className={cn("block text-sm",

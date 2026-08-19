@@ -38,7 +38,7 @@ export function StrikeBadge({ strikes = 0, max = 3, oldestExpires, className }: 
       </span>
       {/* The expiry is what makes a strike a correction rather than a record. */}
       {n > 0 && oldestExpires ? (
-        <span className="pl-0.5 text-xs text-muted-foreground">Oldest strike expires {oldestExpires}.</span>
+        <span className="ps-0.5 text-xs text-muted-foreground">Oldest strike expires {oldestExpires}.</span>
       ) : null}
     </div>
   );

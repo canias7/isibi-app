@@ -42,7 +42,7 @@ export function CredentialRow({ name, issuer, reference, state = "claimed", awar
           {reference && <span>ref {reference}</span>}
         </span>
       </span>
-      <span className="shrink-0 text-right">
+      <span className="shrink-0 text-end">
         <span className={cn("block text-xs", state === "verified" ? "font-medium" : "text-muted-foreground")}>{word}</span>
         {action}
       </span>

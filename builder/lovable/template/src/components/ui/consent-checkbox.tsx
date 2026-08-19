@@ -25,7 +25,7 @@ export function ConsentCheckbox({ checked, onCheckedChange, id = "consent", chil
           {children}
         </label>
       </div>
-      {error && <p id={`${id}-error`} role="alert" className="pl-7 text-sm text-destructive">{error}</p>}
+      {error && <p id={`${id}-error`} role="alert" className="ps-7 text-sm text-destructive">{error}</p>}
     </div>
   );
 }

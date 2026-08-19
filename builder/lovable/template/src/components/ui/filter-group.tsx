@@ -34,11 +34,11 @@ export function FilterGroup({ label, activeCount = 0, onClear, defaultOpen, chil
     <div className={cn("border-b border-border py-2 last:border-b-0", className)}>
       <h3 className="flex items-center gap-2">
         <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open}
-          className="flex min-w-0 flex-1 items-center gap-2 py-1 text-left text-sm font-medium">
+          className="flex min-w-0 flex-1 items-center gap-2 py-1 text-start text-sm font-medium">
           <ChevronDown className={cn("size-3.5 shrink-0 transition-transform", !open && "-rotate-90")} aria-hidden="true" />
           <span className="min-w-0 truncate">{label}</span>
           {activeCount > 0 && (
-            <span className="ml-auto shrink-0 rounded-full bg-foreground px-1.5 text-xs tabular-nums text-background">
+            <span className="ms-auto shrink-0 rounded-full bg-foreground px-1.5 text-xs tabular-nums text-background">
               {activeCount}
             </span>
           )}
@@ -49,7 +49,7 @@ export function FilterGroup({ label, activeCount = 0, onClear, defaultOpen, chil
           </button>
         )}
       </h3>
-      {open && <div className="pb-1 pl-5 pt-1">{children}</div>}
+      {open && <div className="pb-1 ps-5 pt-1">{children}</div>}
     </div>
   );
 }

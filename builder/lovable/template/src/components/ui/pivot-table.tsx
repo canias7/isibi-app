@@ -78,31 +78,31 @@ export function PivotTable<T>({
       <table className="w-full border-collapse text-sm">
         <thead>
           <tr className="border-b border-border bg-muted/50">
-            <th scope="col" className="px-3 py-2 text-left font-medium">{rowLabel ?? ""}</th>
+            <th scope="col" className="px-3 py-2 text-start font-medium">{rowLabel ?? ""}</th>
             {colNames.map((c) => (
-              <th key={c} scope="col" className="px-3 py-2 text-right font-medium whitespace-nowrap">{c}</th>
+              <th key={c} scope="col" className="px-3 py-2 text-end font-medium whitespace-nowrap">{c}</th>
             ))}
-            <th scope="col" className="px-3 py-2 text-right font-semibold whitespace-nowrap">Total</th>
+            <th scope="col" className="px-3 py-2 text-end font-semibold whitespace-nowrap">Total</th>
           </tr>
         </thead>
         <tbody>
           {rowNames.map((r) => (
             <tr key={r} className="border-b border-border last:border-0">
-              <th scope="row" className="px-3 py-2 text-left font-medium whitespace-nowrap">{r}</th>
+              <th scope="row" className="px-3 py-2 text-start font-medium whitespace-nowrap">{r}</th>
               {colNames.map((c) => (
-                <td key={c} className="px-3 py-2 text-right tabular-nums">{show(cells.get(r + "\u0000" + c) ?? null)}</td>
+                <td key={c} className="px-3 py-2 text-end tabular-nums">{show(cells.get(r + "\u0000" + c) ?? null)}</td>
               ))}
-              <td className="px-3 py-2 text-right font-semibold tabular-nums">{show(rowTotals.get(r) ?? null)}</td>
+              <td className="px-3 py-2 text-end font-semibold tabular-nums">{show(rowTotals.get(r) ?? null)}</td>
             </tr>
           ))}
         </tbody>
         <tfoot>
           <tr className="border-t-2 border-border bg-muted/50">
-            <th scope="row" className="px-3 py-2 text-left font-semibold">Total</th>
+            <th scope="row" className="px-3 py-2 text-start font-semibold">Total</th>
             {colNames.map((c) => (
-              <td key={c} className="px-3 py-2 text-right font-semibold tabular-nums">{show(colTotals.get(c) ?? null)}</td>
+              <td key={c} className="px-3 py-2 text-end font-semibold tabular-nums">{show(colTotals.get(c) ?? null)}</td>
             ))}
-            <td className="px-3 py-2 text-right font-semibold tabular-nums">{show(grand)}</td>
+            <td className="px-3 py-2 text-end font-semibold tabular-nums">{show(grand)}</td>
           </tr>
         </tfoot>
       </table>

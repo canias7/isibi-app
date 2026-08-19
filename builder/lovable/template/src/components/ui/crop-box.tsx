@@ -30,7 +30,7 @@ export function CropBox({ rect, className }: {
         style={{ clipPath: `polygon(0 0, 100% 0, 100% 100%, 0 100%, 0 ${y}%, ${x}% ${y}%, ${x}% ${y + h}%, ${x + w}% ${y + h}%, ${x + w}% ${y}%, 0 ${y}%)` }} />
       <div className="absolute border-2 border-background outline outline-foreground"
         style={{ left: `${x}%`, top: `${y}%`, width: `${w}%`, height: `${h}%` }}>
-        {[["-top-1 -left-1"], ["-top-1 -right-1"], ["-bottom-1 -left-1"], ["-bottom-1 -right-1"]].map(([pos], i) => (
+        {[["-top-1 -start-1"], ["-top-1 -end-1"], ["-bottom-1 -start-1"], ["-bottom-1 -end-1"]].map(([pos], i) => (
           <span key={i} className={cn("absolute size-2 rounded-xs border border-background bg-foreground", pos)} />
         ))}
       </div>

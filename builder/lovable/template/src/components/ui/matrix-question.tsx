@@ -41,7 +41,7 @@ export function MatrixQuestion({ name, rows, columns, value, onChange, className
       <table className="hidden w-full text-sm md:table">
         <thead>
           <tr className="border-b border-border">
-            <th className="py-2 text-left font-medium" />
+            <th className="py-2 text-start font-medium" />
             {columns.map((c) => (
               <th key={c.value} className="px-2 py-2 text-center text-xs font-medium text-muted-foreground">{c.label}</th>
             ))}
@@ -50,7 +50,7 @@ export function MatrixQuestion({ name, rows, columns, value, onChange, className
         <tbody>
           {rows.map((r) => (
             <tr key={r.key} className="border-b border-border last:border-0">
-              <th scope="row" className="py-3 pr-4 text-left font-normal">{r.label}</th>
+              <th scope="row" className="py-3 pe-4 text-start font-normal">{r.label}</th>
               {columns.map((c) => (
                 <td key={c.value} className="py-3 text-center">
                   <input type="radio" name={`${name}-${r.key}`} value={c.value}

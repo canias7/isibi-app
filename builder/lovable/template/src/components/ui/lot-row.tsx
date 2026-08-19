@@ -37,7 +37,7 @@ export function LotRow({ code, quantity, unit = "units", location, state = "avai
           {note}
         </span>
       </span>
-      <span className="shrink-0 text-right">
+      <span className="shrink-0 text-end">
         <span className={cn("block tabular-nums", state === "quarantined" && "text-muted-foreground")}>
           {quantity.toLocaleString()} <span className="text-xs text-muted-foreground">{unit}</span>
         </span>

@@ -50,7 +50,7 @@ export function AssayPlate({ rows = ["A", "B", "C", "D", "E", "F", "G", "H"], co
           <tbody>
             {rows.map((r) => (
               <tr key={r}>
-                <th scope="row" className="pr-1 text-right font-normal text-muted-foreground">{r}</th>
+                <th scope="row" className="pe-1 text-end font-normal text-muted-foreground">{r}</th>
                 {Array.from({ length: columns }, (_, i) => {
                   const w = at.get(`${r}${i + 1}`);
                   return (

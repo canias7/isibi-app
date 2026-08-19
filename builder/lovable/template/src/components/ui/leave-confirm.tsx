@@ -33,7 +33,7 @@ export function LeaveConfirm({ what, keepsWork, canRejoin, lastOwner, onLeave, o
           You&apos;re the only owner. Make someone else an owner first, then you can leave.
         </p>
       ) : (
-        <ul className="flex list-disc flex-col gap-0.5 pl-5 text-sm text-muted-foreground">
+        <ul className="flex list-disc flex-col gap-0.5 ps-5 text-sm text-muted-foreground">
           <li>{keepsWork ? "Everything you added stays." : "Everything you added is removed with you."}</li>
           <li>{canRejoin ? "You can be invited back." : "You'd need a new invitation to return."}</li>
         </ul>

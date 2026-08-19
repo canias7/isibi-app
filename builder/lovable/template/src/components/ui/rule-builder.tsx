@@ -83,7 +83,7 @@ export function RuleBuilder({ rule, onChange, triggers, fields, ops, actions, cl
               className="cursor-pointer text-muted-foreground hover:text-foreground">×</button>
           </div>
         ))}
-        <div className="flex items-center gap-2 pl-10">
+        <div className="flex items-center gap-2 ps-10">
           <button type="button"
             onClick={() => onChange({ ...rule, conditions: [...rule.conditions, { field: fields[0]?.key ?? "", op: ops[0]?.key ?? "", value: "" }] })}
             className="cursor-pointer text-xs underline underline-offset-2">Add a condition</button>

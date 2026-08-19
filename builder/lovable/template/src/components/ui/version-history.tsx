@@ -26,7 +26,7 @@ export function VersionHistory({ versions, currentId, onView, onRestore, classNa
             <div className="min-w-0 flex-1">
               <p className="text-sm">
                 <TimeAgo date={v.at} />
-                {current && <span className="ml-2 rounded border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wide">Current</span>}
+                {current && <span className="ms-2 rounded border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wide">Current</span>}
               </p>
               {v.by && <div className="mt-0.5"><AvatarName name={v.by} size="sm" avatarOnly /></div>}
               {v.note && <p className="mt-0.5 text-xs text-muted-foreground">{v.note}</p>}

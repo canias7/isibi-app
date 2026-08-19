@@ -31,7 +31,7 @@ export function SwipeActions({ actions, children, className }: {
 
   return (
     <div className={cn("group relative overflow-hidden", className)}>
-      <div className="absolute inset-y-0 right-0 flex">
+      <div className="absolute inset-y-0 end-0 flex">
         {actions.map((a) => (
           <button key={a.key} type="button" onClick={() => { a.onAction(); setOffset(0); }}
             className={cn("flex w-18 cursor-pointer flex-col items-center justify-center gap-1 px-3 text-xs",
@@ -68,7 +68,7 @@ export function SwipeActions({ actions, children, className }: {
       >
         {children}
       </div>
-      <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center opacity-0 transition-opacity group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100">
+      <div className="pointer-events-none absolute inset-y-0 end-0 flex items-center opacity-0 transition-opacity group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100">
         {actions.map((a) => (
           <button key={a.key} type="button" onClick={a.onAction} aria-label={a.label}
             className={cn("h-full cursor-pointer px-3 text-xs",

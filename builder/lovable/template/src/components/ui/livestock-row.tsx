@@ -43,7 +43,7 @@ export function LivestockRow({ tag, name, kind, location, born, dam, withdrawalU
         <code className="font-mono text-xs">{tag}</code>
         {name && <span>{name}</span>}
         {kind && <span className="text-xs text-muted-foreground">{kind}</span>}
-        {location && <span className="ml-auto text-xs text-muted-foreground">{location}</span>}
+        {location && <span className="ms-auto text-xs text-muted-foreground">{location}</span>}
       </p>
       <p className="text-xs text-muted-foreground">
         {born && <span>Born {born}</span>}

@@ -37,7 +37,7 @@ export function ScenarioTabs({ scenarios, value, onChange, children, className }
           <button key={s.key} role="tab" type="button"
             aria-selected={s.key === active} aria-controls={`${id}-p`}
             tabIndex={s.key === active ? 0 : -1} onClick={() => onChange(s.key)}
-            className={cn("flex flex-1 cursor-pointer flex-col rounded px-3 py-1.5 text-left",
+            className={cn("flex flex-1 cursor-pointer flex-col rounded px-3 py-1.5 text-start",
               s.key === active ? "bg-background" : "text-muted-foreground hover:text-foreground")}>
             <span className="text-xs">{s.label}</span>
             <span className="text-sm font-medium tabular-nums">{s.headline}</span>

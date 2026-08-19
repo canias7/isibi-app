@@ -79,6 +79,68 @@ export function normalizeMode(v) {
 }
 
 /**
+ * The eight scripts written right to left, as BCP-47 script subtags.
+ *
+ * A SCRIPT LIST RATHER THAN A LANGUAGE LIST, because the script is what decides
+ * and the language often does not. Azerbaijani is Latin in Azerbaijan and
+ * Perso-Arabic in Iran; Kashmiri and Punjabi are each written in two scripts
+ * with opposite directions. A language list gets those wrong in BOTH directions
+ * and cannot be told it is wrong, because the tag carries the answer.
+ */
+export const RTL_SCRIPTS = new Set(["Arab", "Hebr", "Thaa", "Syrc", "Nkoo", "Adlm", "Mand", "Samr"]);
+
+/**
+ * The languages whose DEFAULT script is right to left, for a tag that names no
+ * script. `he` means Hebrew script even though it does not say so.
+ */
+export const RTL_LANGS = new Set([
+  "ar", "he", "iw", "fa", "ur", "ps", "sd", "ug", "yi", "ji", "dv", "ckb",
+  "syr", "arc", "nqo", "prs", "pnb", "skr", "bal", "khw", "glk", "mzn",
+]);
+
+// `ku` AND `ff` ARE DELIBERATELY ABSENT, and they were both in this list until
+// it was checked against CLDR rather than against intuition. Kurdish defaults to
+// KURMANJI IN LATIN (`ku` → `ku-Latn-TR`; the Perso-Arabic one is Sorani, which
+// is `ckb`), and Fulah defaults to Latin too (`ff` → `ff-Latn-SN`; Adlam is
+// `ff-Adlm`). Both were making a site right to left with LATIN text in it —
+// visibly wrong, and reachable by an ordinary brief.
+//
+// Named here rather than left as an absence, because both ARE reachable as
+// right to left through the script rule above (`ku-Arab`, `ff-Adlm`) and the
+// obvious "fix" is to put them back. My own test asserted `dirFor("ku-Latn")`
+// is ltr and PASSED THE WHOLE TIME — satisfied by the script rule, so it read as
+// covering the language and covered a different rule entirely.
+
+/**
+ * `ltr` or `rtl` for a language tag.
+ *
+ * THE SCRIPT SUBTAG WINS WHEN THERE IS ONE, and that is the whole design. It is
+ * the only part of the tag that answers the question directly, so `az-Arab` is
+ * right to left and `ku-Latn` is left to right even though the base languages
+ * pull the other way. Only a tag naming no script falls back to the language's
+ * own default.
+ *
+ * A TABLE RATHER THAN `Intl.Locale.textInfo`, which exists here and gives the
+ * same answers today. ICU is the thing this repo has already been bitten by:
+ * two ICU VERSIONS disagree about one locale, so a site's direction would be
+ * decided by whichever Node happened to build it, and could silently flip on a
+ * base-image bump. The set of right-to-left scripts is eight entries and has not
+ * changed in decades; determinism is worth more here than coverage of a script
+ * nobody has asked for.
+ *
+ * Takes whatever `normalizeLang` accepts. Anything it refuses is `ltr`, which is
+ * what every site published before this already is.
+ */
+export function dirFor(lang) {
+  const tag = normalizeLang(lang);
+  if (!tag) return "ltr";
+  const parts = tag.split("-");
+  const script = parts.find((p) => p.length === 4);
+  if (script) return RTL_SCRIPTS.has(script) ? "rtl" : "ltr";
+  return RTL_LANGS.has(parts[0]) ? "rtl" : "ltr";
+}
+
+/**
  * The letters that stand for a business.
  *
  * TWO WORDS, NOT TWO LETTERS OF ONE. "Sharp Fade Barbers" is SF and "Zephyr" is

@@ -51,7 +51,7 @@ export function AiUndo({ message = "Applied", onUndo, seconds = 10, onExpire, cl
       <span>{message}</span>
       {!done && (
         <button type="button" onClick={onUndo}
-          className="ml-auto inline-flex items-center gap-1 font-medium underline underline-offset-2">
+          className="ms-auto inline-flex items-center gap-1 font-medium underline underline-offset-2">
           <Undo2 className="size-3.5" aria-hidden="true" />
           Undo
           {Boolean(seconds) && <span className="tabular-nums text-muted-foreground">{left}s</span>}

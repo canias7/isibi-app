@@ -62,10 +62,10 @@ export function CompareTable({
       <table className="w-full border-collapse text-sm">
         <thead>
           <tr className="border-b border-border bg-muted/50 text-xs text-muted-foreground">
-            <th scope="col" className="px-3 py-1.5 text-left font-medium">Field</th>
-            <th scope="col" className="px-3 py-1.5 text-left font-medium">{beforeLabel}</th>
+            <th scope="col" className="px-3 py-1.5 text-start font-medium">Field</th>
+            <th scope="col" className="px-3 py-1.5 text-start font-medium">{beforeLabel}</th>
             <th scope="col" className="w-6 px-0 py-1.5" />
-            <th scope="col" className="px-3 py-1.5 text-left font-medium">{afterLabel}</th>
+            <th scope="col" className="px-3 py-1.5 text-start font-medium">{afterLabel}</th>
           </tr>
         </thead>
         <tbody>
@@ -73,7 +73,7 @@ export function CompareTable({
             const diff = changed(f);
             return (
               <tr key={f.key} className="border-b border-border last:border-0 align-top">
-                <th scope="row" className="px-3 py-2 text-left font-normal text-muted-foreground whitespace-nowrap">{f.label}</th>
+                <th scope="row" className="px-3 py-2 text-start font-normal text-muted-foreground whitespace-nowrap">{f.label}</th>
                 <td className={cn("px-3 py-2", diff && "text-muted-foreground line-through")}>
                   {f.before == null || f.before === "" ? blank : f.before}
                 </td>

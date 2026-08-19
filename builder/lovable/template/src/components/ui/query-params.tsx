@@ -50,7 +50,7 @@ export function QueryParams({ query, mask = [], className }: {
           const encoded = raw[i];
           return (
             <tr key={k + i} className="border-b border-border align-top last:border-0">
-              <th scope="row" className="w-1/3 px-3 py-1 text-left font-medium break-all">{k}</th>
+              <th scope="row" className="w-1/3 px-3 py-1 text-start font-medium break-all">{k}</th>
               <td className="px-3 py-1 break-all">
                 {secret ? "•".repeat(Math.min(24, Math.max(8, v.length)))
                   : v === "" ? <span className="text-muted-foreground italic">(empty)</span>

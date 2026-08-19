@@ -84,7 +84,7 @@ export function SiteLink({
  * THE FRAME'S OWN ARRANGEMENT — three decisions that were hardcoded.
  *
  * `SiteHeader` took brand/links/action and nothing else, and set `h-14`,
- * `max-w-6xl`, `ml-auto` and `sticky` itself. So "centre our logo", "run the
+ * `max-w-6xl`, `ms-auto` and `sticky` itself. So "centre our logo", "run the
  * header full width" and "stop the menu following me down the page" had no path
  * at ANY price: not by typing, and not by rebuilding either, because there was
  * no slot to fill. `className` could not reach it — `SiteChrome` puts that on
@@ -171,7 +171,7 @@ export function SiteHeader({
             brand
           )}
         </SiteLink>
-        <nav className={cn("hidden items-center gap-6 md:flex", !centred && "ml-auto")}>
+        <nav className={cn("hidden items-center gap-6 md:flex", !centred && "ms-auto")}>
           {links.map((l) => (
             <SiteLink
               key={l.href}
@@ -183,7 +183,7 @@ export function SiteHeader({
           ))}
         </nav>
         {action && (
-          <div className={cn(!centred && "ml-auto md:ml-0")}>
+          <div className={cn(!centred && "ms-auto md:ms-0")}>
             <Button size="sm" asChild={!!action.href} onClick={action.onClick}>
               {action.href ? <SiteLink href={action.href}>{action.label}</SiteLink> : <span>{action.label}</span>}
             </Button>

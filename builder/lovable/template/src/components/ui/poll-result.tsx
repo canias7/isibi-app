@@ -34,7 +34,7 @@ export function PollResult({ options, mine, className }: {
             <div className="flex items-baseline justify-between gap-3 text-sm">
               <span className={cn("min-w-0 truncate", lead && "font-semibold")}>
                 {o.label}
-                {mine === o.key ? <span className="ml-1.5 text-[11px] text-muted-foreground">(your vote)</span> : null}
+                {mine === o.key ? <span className="ms-1.5 text-[11px] text-muted-foreground">(your vote)</span> : null}
               </span>
               <span className="shrink-0 tabular-nums text-xs text-muted-foreground">
                 {o.votes} · {pct}%

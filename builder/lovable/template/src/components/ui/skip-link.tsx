@@ -17,7 +17,7 @@
 export function SkipLink({ href = "#main", label = "Skip to content" }: { href?: string; label?: string }) {
   return (
     <a href={href}
-      className="sr-only rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50">
+      className="sr-only rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background focus:not-sr-only focus:absolute focus:start-4 focus:top-4 focus:z-50">
       {label}
     </a>
   );

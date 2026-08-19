@@ -24,7 +24,7 @@ export function FormProgress({ steps, current, onGoTo, className }: {
             <span className={cn("text-sm", here ? "font-medium" : !done && "text-muted-foreground")}>{s}</span>
           </>
         );
-        const cls = "flex w-full items-center gap-2.5 rounded px-1 py-1.5 text-left";
+        const cls = "flex w-full items-center gap-2.5 rounded px-1 py-1.5 text-start";
         return (
           <li key={s} aria-current={here ? "step" : undefined}>
             {done && onGoTo

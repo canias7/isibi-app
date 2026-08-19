@@ -38,11 +38,11 @@ export function SignOffRow({ name, role, state, at, note, className }: {
       <span className="min-w-0 flex-1">
         <span className="block">
           {name}
-          {role && <span className="ml-1.5 text-muted-foreground">{role}</span>}
+          {role && <span className="ms-1.5 text-muted-foreground">{role}</span>}
         </span>
         {note && <span className="block text-xs text-muted-foreground">{note}</span>}
       </span>
-      <span className="shrink-0 text-right">
+      <span className="shrink-0 text-end">
         <span className={cn("block text-xs", state === "waiting" ? "text-muted-foreground" : "font-medium")}>{word}</span>
         {ok && (
           <time dateTime={isoAttr(d)} className="block text-xs text-muted-foreground">

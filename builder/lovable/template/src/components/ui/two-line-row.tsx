@@ -27,7 +27,7 @@ export function TwoLineRow({ title, subtitle, leading, trailing, href, onClick, 
       {trailing && <span className="shrink-0">{trailing}</span>}
     </>
   );
-  const base = "flex w-full items-center gap-3 border-b border-border py-2.5 text-left last:border-0";
+  const base = "flex w-full items-center gap-3 border-b border-border py-2.5 text-start last:border-0";
   if (href) return <a href={href} className={cn(base, "hover:bg-muted/50", className)}>{body}</a>;
   if (onClick) return <button type="button" onClick={onClick} className={cn(base, "cursor-pointer hover:bg-muted/50", className)}>{body}</button>;
   return <div className={cn(base, className)}>{body}</div>;

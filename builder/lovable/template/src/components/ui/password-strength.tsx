@@ -60,7 +60,7 @@ export function PasswordStrength({ value, className }: { value: string; classNam
             <span key={i} className={cn("flex-1 rounded-full", i < score ? "bg-foreground" : "bg-muted")} />
           ))}
         </div>
-        <span className="w-24 shrink-0 text-right text-xs font-medium">{label}</span>
+        <span className="w-24 shrink-0 text-end text-xs font-medium">{label}</span>
       </div>
       <p aria-live="polite" className="sr-only">Password strength: {label}.</p>
       {advice.length ? (

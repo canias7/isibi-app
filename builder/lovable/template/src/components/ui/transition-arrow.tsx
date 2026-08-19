@@ -43,7 +43,7 @@ export function TransitionArrow({ from, to, action, allowed = true, reason, need
         <button type="button" onClick={onMove} aria-label={name}
           className="cursor-pointer rounded-md border border-border px-2 py-1 text-xs font-medium hover:bg-muted">
           {action ?? "Move"}
-          {needsNote ? <span className="ml-1 font-normal text-muted-foreground">(needs a note)</span> : null}
+          {needsNote ? <span className="ms-1 font-normal text-muted-foreground">(needs a note)</span> : null}
         </button>
       ) : null}
       {/* The answer to "why can I not move it". */}

@@ -50,7 +50,7 @@ export function HerdCount({ categories, countedOn, className }: {
           return (
             <li key={c.label} className="flex items-baseline justify-between gap-3 px-3 py-1.5">
               <span>{c.label}</span>
-              <span className="shrink-0 text-right">
+              <span className="shrink-0 text-end">
                 <span className={cn("tabular-nums", d !== 0 && "font-medium")}>{c.counted.toLocaleString()}</span>
                 {d !== 0 && (
                   <span className="text-xs tabular-nums text-muted-foreground"> of {c.registered!.toLocaleString()}</span>

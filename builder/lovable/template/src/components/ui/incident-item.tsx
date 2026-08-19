@@ -22,11 +22,11 @@ export function IncidentItem({ title, status = "investigating", updates, started
         {startedAt && <span className="text-xs text-muted-foreground">Started <TimeAgo date={startedAt} /></span>}
       </div>
       {updates?.length ? (
-        <ol className="mt-3 space-y-2 border-l border-border pl-4">
+        <ol className="mt-3 space-y-2 border-s border-border ps-4">
           {updates.map((u, i) => (
             <li key={i} className="text-sm">
               <span className="text-xs text-muted-foreground">
-                {u.status && <span className="mr-2 font-medium capitalize text-foreground">{u.status}</span>}
+                {u.status && <span className="me-2 font-medium capitalize text-foreground">{u.status}</span>}
                 <TimeAgo date={u.at} />
               </span>
               <p className="mt-0.5">{u.body}</p>

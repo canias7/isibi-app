@@ -74,37 +74,37 @@ export function RateCard({
   return (
     <div className={cn("overflow-x-auto", className)}>
       <table className="w-full border-collapse text-sm">
-        {caption && <caption className="pb-3 text-left text-xs font-medium uppercase tracking-widest text-muted-foreground">{caption}</caption>}
+        {caption && <caption className="pb-3 text-start text-xs font-medium uppercase tracking-widest text-muted-foreground">{caption}</caption>}
         <thead>
-          <tr className="border-b border-border text-left text-xs uppercase tracking-widest text-muted-foreground">
-            <th scope="col" className="py-2 pr-4 font-medium">{label}</th>
-            <th scope="col" className={cn("py-2 text-right font-medium", (blocks || cols.length > 1) && "pr-4")}>{cols[0] ?? "Price"}</th>
+          <tr className="border-b border-border text-start text-xs uppercase tracking-widest text-muted-foreground">
+            <th scope="col" className="py-2 pe-4 font-medium">{label}</th>
+            <th scope="col" className={cn("py-2 text-end font-medium", (blocks || cols.length > 1) && "pe-4")}>{cols[0] ?? "Price"}</th>
             {cols.slice(1).map((b, i) => (
-              <th key={b} scope="col" className={cn("py-2 text-right font-medium", (blocks || i < cols.length - 2) && "pr-4")}>{b}</th>
+              <th key={b} scope="col" className={cn("py-2 text-end font-medium", (blocks || i < cols.length - 2) && "pe-4")}>{b}</th>
             ))}
-            {blocks && <th scope="col" className="py-2 text-right font-medium">Per {unit}</th>}
+            {blocks && <th scope="col" className="py-2 text-end font-medium">Per {unit}</th>}
           </tr>
         </thead>
         <tbody>
           {rates.map((r) => (
             <tr key={r.period} className="border-b border-border/60 align-baseline">
-              <th scope="row" className="py-3 pr-4 text-left font-[inherit]">
+              <th scope="row" className="py-3 pe-4 text-start font-[inherit]">
                 <span className={cn(r === best && "font-semibold")}>{r.period}</span>
                 {r === best && (
-                  <span className="ml-2 text-xs font-medium uppercase tracking-widest">Cheapest per {unit}</span>
+                  <span className="ms-2 text-xs font-medium uppercase tracking-widest">Cheapest per {unit}</span>
                 )}
                 {r.note && <span className="block text-xs text-muted-foreground">{r.note}</span>}
               </th>
-              <td className={cn("py-3 text-right tabular-nums", (blocks || cols.length > 1) && "pr-4", r === best && "font-semibold")}>{money(r.price)}</td>
+              <td className={cn("py-3 text-end tabular-nums", (blocks || cols.length > 1) && "pe-4", r === best && "font-semibold")}>{money(r.price)}</td>
               {cols.slice(1).map((b, i) => (
-                <td key={b} className={cn("py-3 text-right tabular-nums", (blocks || i < cols.length - 2) && "pr-4")}>
+                <td key={b} className={cn("py-3 text-end tabular-nums", (blocks || i < cols.length - 2) && "pe-4")}>
                   {typeof r.more?.[i] === "number"
                     ? money(r.more[i])
                     : <><span aria-hidden="true" className="text-muted-foreground">—</span><span className="sr-only">not available</span></>}
                 </td>
               ))}
               {blocks && (
-                <td className="py-3 text-right tabular-nums text-muted-foreground">
+                <td className="py-3 text-end tabular-nums text-muted-foreground">
                   {Number.isFinite(perUnit(r)) ? money(Math.round(perUnit(r) * 100) / 100) : "—"}
                 </td>
               )}

@@ -45,7 +45,7 @@ export function ModelPicker({ models, value, onChange, className }: {
                 disabled={m.disabled}
                 onClick={() => { onChange(m.key); setOpen(false); }}
                 aria-current={m.key === value ? "true" : undefined}
-                className={cn("flex w-full cursor-pointer items-start gap-2 rounded px-2 py-1.5 text-left hover:bg-muted",
+                className={cn("flex w-full cursor-pointer items-start gap-2 rounded px-2 py-1.5 text-start hover:bg-muted",
                   m.disabled && "cursor-default opacity-60 hover:bg-transparent")}
               >
                 <Check aria-hidden className={cn("mt-0.5 size-3.5 shrink-0", m.key === value ? "" : "invisible")} />

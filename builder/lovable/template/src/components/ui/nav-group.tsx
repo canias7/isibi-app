@@ -51,12 +51,12 @@ export function NavGroup({ title, count, children, containsActive, name, default
   return (
     <div className={cn("flex flex-col", className)}>
       <button type="button" onClick={toggle} aria-expanded={shown}
-        className="flex cursor-pointer items-center gap-1 rounded px-1 py-1 text-left text-[11px] font-semibold tracking-wide text-muted-foreground uppercase hover:text-foreground">
+        className="flex cursor-pointer items-center gap-1 rounded px-1 py-1 text-start text-[11px] font-semibold tracking-wide text-muted-foreground uppercase hover:text-foreground">
         <ChevronRight aria-hidden className={cn("size-3 shrink-0 transition-transform", shown && "rotate-90")} />
         <span className="min-w-0 flex-1 truncate">{title}</span>
         {!shown && count ? <span className="tabular-nums">{count}</span> : null}
       </button>
-      {shown ? <div className="flex flex-col gap-0.5 pl-2">{children}</div> : null}
+      {shown ? <div className="flex flex-col gap-0.5 ps-2">{children}</div> : null}
     </div>
   );
 }

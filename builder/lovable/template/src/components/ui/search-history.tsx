@@ -45,7 +45,7 @@ export function SearchHistory({ items, onPick, onRemove, onClear, title = "Recen
         {items.map((i) => (
           <li key={i.query} className="group/h flex items-center">
             <button type="button" onClick={() => onPick(i.query)}
-              className="flex min-w-0 flex-1 cursor-pointer items-baseline gap-2 rounded px-2 py-1 text-left text-sm hover:bg-muted">
+              className="flex min-w-0 flex-1 cursor-pointer items-baseline gap-2 rounded px-2 py-1 text-start text-sm hover:bg-muted">
               <span className="min-w-0 flex-1 truncate">{i.query}</span>
               {i.empty ? <span className="shrink-0 text-[11px] text-muted-foreground">no results</span> : null}
               {i.at ? <span className="shrink-0 text-[11px] text-muted-foreground">{i.at}</span> : null}

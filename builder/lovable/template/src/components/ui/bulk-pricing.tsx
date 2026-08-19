@@ -31,9 +31,9 @@ export function BulkPricing({ tiers, quantity, currency = "GBP", className }: {
         <tbody>
           {sorted.map((t, i) => (
             <tr key={t.min} className={cn(i === activeIdx && "font-semibold")}>
-              <td className="pr-3 tabular-nums">{t.min}+</td>
+              <td className="pe-3 tabular-nums">{t.min}+</td>
               <td className="tabular-nums">{fmt(t.priceMinor)} each</td>
-              <td className="pl-2 text-muted-foreground">{i === activeIdx ? "← your price" : ""}</td>
+              <td className="ps-2 text-muted-foreground">{i === activeIdx ? "← your price" : ""}</td>
             </tr>
           ))}
         </tbody>

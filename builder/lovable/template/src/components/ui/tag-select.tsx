@@ -46,7 +46,7 @@ export function TagSelect({ value, onChange, options, placeholder = "Add…", ma
     <div className={cn("relative", className)}>
       <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-input px-2 py-1.5 focus-within:ring-2 focus-within:ring-ring/40">
         {value.map((v) => (
-          <span key={v} className="inline-flex items-center gap-1 rounded bg-muted py-0.5 pl-2 pr-1 text-sm">
+          <span key={v} className="inline-flex items-center gap-1 rounded bg-muted py-0.5 ps-2 pe-1 text-sm">
             {label(v)}
             <button type="button" aria-label={`Remove ${label(v)}`} className="cursor-pointer rounded p-0.5 hover:bg-background"
               onClick={() => onChange(value.filter((x) => x !== v))}>
@@ -80,7 +80,7 @@ export function TagSelect({ value, onChange, options, placeholder = "Add…", ma
               <li key={o.value} id={`${listId}-${i}`} role="option" aria-selected={taken}
                 aria-disabled={taken || full || undefined}
                 onMouseDown={(e) => { e.preventDefault(); if (!taken && !full) add(o.value); }}
-                className={cn("px-3 py-1.5 text-left text-sm",
+                className={cn("px-3 py-1.5 text-start text-sm",
                   taken || full ? "cursor-default text-muted-foreground line-through"
                     : cn("cursor-pointer", i === active ? "bg-muted" : "hover:bg-muted/60"))}>
                 <HighlightMatch text={o.label} query={q} />

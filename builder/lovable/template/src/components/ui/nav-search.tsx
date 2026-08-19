@@ -56,11 +56,11 @@ export function NavSearch({ value, onChange, count, placeholder = "Filter", clas
   return (
     <div className={cn("flex flex-col gap-1", className)}>
       <div className="relative">
-        <Search aria-hidden className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+        <Search aria-hidden className="pointer-events-none absolute top-1/2 start-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
         <input id={id} value={value} onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder} aria-label={placeholder}
           onKeyDown={(e) => { if (e.key === "Escape" && value) { e.preventDefault(); e.stopPropagation(); onChange(""); } }}
-          className="h-8 w-full rounded-md border border-border bg-background pr-2 pl-7 text-xs outline-none focus-visible:border-ring" />
+          className="h-8 w-full rounded-md border border-border bg-background pe-2 ps-7 text-xs outline-none focus-visible:border-ring" />
       </div>
       {value && count === 0 ? (
         <p aria-live="polite" className="px-1 text-xs text-muted-foreground">

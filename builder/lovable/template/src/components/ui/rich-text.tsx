@@ -132,7 +132,7 @@ export function RichText({ defaultValue = "", onChange, label, placeholder, minH
       <div ref={ref} contentEditable suppressContentEditableWarning role="textbox" aria-multiline="true"
         aria-label={label ?? placeholder ?? "Rich text"}
         data-placeholder={placeholder} style={{ minHeight }}
-        className="rounded-md border border-input px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 [&:empty::before]:text-muted-foreground [&:empty::before]:content-[attr(data-placeholder)] [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_h3]:text-base [&_h3]:font-semibold [&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5 [&_a]:underline"
+        className="rounded-md border border-input px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 [&:empty::before]:text-muted-foreground [&:empty::before]:content-[attr(data-placeholder)] [&_blockquote]:border-s-2 [&_blockquote]:border-border [&_blockquote]:ps-3 [&_h3]:text-base [&_h3]:font-semibold [&_ol]:list-decimal [&_ol]:ps-5 [&_ul]:list-disc [&_ul]:ps-5 [&_a]:underline"
         onInput={() => onChange?.(ref.current?.innerHTML ?? "")}
         onKeyUp={readActive} onMouseUp={readActive}
         onPaste={onPasteContentEditable} />

@@ -53,21 +53,21 @@ export function SetlistRow({ position, title, seconds, gapSeconds = 0, cumulativ
             duration and no running total pushes the duration into the
             cumulative column, where it reads as a running total — which is
             exactly what a cut song produces. */}
-        <span className="w-14 shrink-0 text-right tabular-nums text-muted-foreground">
+        <span className="w-14 shrink-0 text-end tabular-nums text-muted-foreground">
           {seconds !== undefined ? fmt(seconds) : ""}
         </span>
-        <span className={cn("w-14 shrink-0 text-right tabular-nums", over ? "font-medium" : "text-muted-foreground")}>
+        <span className={cn("w-14 shrink-0 text-end tabular-nums", over ? "font-medium" : "text-muted-foreground")}>
           {cumulativeSeconds !== undefined ? fmt(cumulativeSeconds) : ""}
         </span>
       </p>
       {gapSeconds > 0 && !cut && (
-        <p className="pl-9 text-xs tabular-nums text-muted-foreground">
+        <p className="ps-9 text-xs tabular-nums text-muted-foreground">
           plus {gapSeconds}s to get into the next one
         </p>
       )}
-      {note && <p className="pl-9 text-xs">{note}</p>}
+      {note && <p className="ps-9 text-xs">{note}</p>}
       {over && slotSeconds !== undefined && cumulativeSeconds !== undefined && (
-        <p className="pl-9 text-xs font-medium tabular-nums">
+        <p className="ps-9 text-xs font-medium tabular-nums">
           {fmt(cumulativeSeconds - slotSeconds)} over the slot by here.
         </p>
       )}

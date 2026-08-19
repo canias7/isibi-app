@@ -54,7 +54,7 @@ export function ClipboardHistory({ history, onCopy, onClear, className }: {
         {history.map((h) => (
           <li key={h.text}>
             <button type="button" onClick={() => onCopy(h.text)}
-              className="flex w-full cursor-pointer items-baseline justify-between gap-3 px-2.5 py-1.5 text-left hover:bg-muted">
+              className="flex w-full cursor-pointer items-baseline justify-between gap-3 px-2.5 py-1.5 text-start hover:bg-muted">
               <span className="min-w-0 truncate font-mono text-xs">{h.text}</span>
               {h.label ? <span className="shrink-0 text-[11px] text-muted-foreground">{h.label}</span> : null}
             </button>

@@ -9,7 +9,7 @@ export function AvatarGroup({ people, max = 4, className }: {
   return (
     <div className={cn("flex items-center", className)} aria-label={`${people.length} people`}>
       {shown.map((p, i) => (
-        <Avatar key={p.name + i} className="size-8 ring-2 ring-background -ml-2 first:ml-0">
+        <Avatar key={p.name + i} className="size-8 ring-2 ring-background -ml-2 first:ms-0">
           <AvatarFallback className="text-xs">
             {p.initials || p.name.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase()}
           </AvatarFallback>

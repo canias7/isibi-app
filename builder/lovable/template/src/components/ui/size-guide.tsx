@@ -49,7 +49,7 @@ export function SizeGuide({ sizes, caption, className }: {
               <h3 className="text-lg font-medium">{s.name}</h3>
               <p className="text-sm tabular-nums text-muted-foreground">
                 {s.areaLabel}
-                {s.price && <span className="ml-3 font-medium text-foreground">{s.price}</span>}
+                {s.price && <span className="ms-3 font-medium text-foreground">{s.price}</span>}
               </p>
             </div>
             {/* Decoration over the words, never instead of them — remove this

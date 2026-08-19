@@ -63,7 +63,7 @@ export function FacilityStatus({ activities, updated, heading = "Right now", cla
                 </span>
               )}
             </span>
-            <span className="shrink-0 text-right">
+            <span className="shrink-0 text-end">
               {/* THE WORD carries it. Three dots would be one dot on the screen
                   in reception, which is where this is really read. */}
               <span className={cn("block text-sm", a.state === "free" ? "font-semibold" : a.state === "busy" ? "font-medium" : "text-muted-foreground")}>

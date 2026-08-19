@@ -57,7 +57,7 @@ export function TagMerge({ tags, onMerge, onCancel, busy, className }: {
             <input type="checkbox" checked={picked.includes(t.id)} className="size-4 accent-foreground"
               onChange={(e) => setRemove((r) => e.target.checked ? [...r, t.id] : r.filter((x) => x !== t.id))} />
             <span className="min-w-0 truncate">{t.name}</span>
-            {t.count !== undefined && <span className="ml-auto text-xs tabular-nums text-muted-foreground">{t.count.toLocaleString()}</span>}
+            {t.count !== undefined && <span className="ms-auto text-xs tabular-nums text-muted-foreground">{t.count.toLocaleString()}</span>}
           </label>
         ))}
       </fieldset>

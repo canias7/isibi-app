@@ -97,7 +97,13 @@ test("the class is on <html>, from the value the container baked", () => {
   // `&:is(.dark *)`, so the class has to sit ABOVE everything it is meant to
   // reach — and `<body>` already carries the per-page colour scope, which would
   // then be inside the dark scope rather than above it.
-  assert.match(root, /<html lang=\{SITE_LANG\} className=\{SITE_MODE === "dark" \? "dark" : undefined\}>/);
+  // THE PROPERTY, NOT THE ATTRIBUTE ORDER. This pinned the whole opening tag and
+  // went red the moment `dir={SITE_DIR}` was added between `lang` and
+  // `className` — a test about word order, on a correct change. What it is for
+  // is that the class is computed from `SITE_MODE` and sits on `<html>`.
+  const openTag = (root.match(/<html [^>]*>/) || [""])[0];
+  assert.ok(openTag, "no <html> tag in __root.tsx");
+  assert.match(openTag, /className=\{SITE_MODE === "dark" \? "dark" : undefined\}/);
   assert.match(root, /import \{[^}]*\bSITE_MODE\b[^}]*\} from "@\/site-brand"/);
   // …and never on the body, which is where a well-meaning tidy-up would put it.
   assert.doesNotMatch(root, /<body[^>]*SITE_MODE/);
@@ -114,7 +120,7 @@ test("the container writes it, ANNOTATED, and says what it drew", () => {
   assert.match(brand, /export const SITE_MODE: "light" \| "dark" = /);
   // Reported back, so the caller can tell what it got rather than inferring it
   // from the absence of an error — the works-but-cannot-say-so shape.
-  assert.match(server, /return \{ lang: langValue, mode: modeValue,/);
+  assert.match(server, /return \{ lang: langValue,[^}]*\bmode: modeValue\b/);
   assert.match(server, /writeSiteBrand\(\{[^)]*mode: payload\.mode/);
 });
 

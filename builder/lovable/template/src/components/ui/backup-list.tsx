@@ -76,7 +76,7 @@ export function BackupList({ backups, coversBackTo, emptyNote = "No backups yet"
                       : "Never checked by restoring"}
                 </span>
               </span>
-              <span className="shrink-0 text-right text-xs">
+              <span className="shrink-0 text-end text-xs">
                 {b.size && <span className="block tabular-nums">{b.size}</span>}
                 {b.state === "failed" && <span className="block font-medium">Failed</span>}
               </span>

@@ -81,7 +81,7 @@ export function LineupGrid({ days, className }: {
                     <span className={cn("text-sm", a.billing === "headline" ? "text-base font-semibold"
                       : a.billing === "main" ? "font-medium" : "")}>{a.name}</span>
                     {clashes.has(i) && (
-                      <span className="ml-2 rounded border border-foreground/40 px-1.5 py-0.5 align-middle text-[11px] font-medium">
+                      <span className="ms-2 rounded border border-foreground/40 px-1.5 py-0.5 align-middle text-[11px] font-medium">
                         clash
                       </span>
                     )}

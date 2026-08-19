@@ -62,7 +62,7 @@ function P() {
                 figure on this site is per head, and the bands below are the whole price list.
               </p>
               {/* THE MINIMUM, IN THE HERO. */}
-              <p className="mt-6 max-w-xl border-l-2 border-foreground pl-5 text-lg leading-relaxed">
+              <p className="mt-6 max-w-xl border-s-2 border-foreground ps-5 text-lg leading-relaxed">
                 <span className="font-semibold">We do not take a booking under forty people.</span>{" "}
                 Below that a day out of the kitchen with two vans and four staff costs more than the
                 food, and we would be doing you a favour badly. It is worth knowing now rather than

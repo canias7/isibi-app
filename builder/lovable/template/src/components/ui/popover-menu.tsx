@@ -54,7 +54,7 @@ export function PopoverMenu({ trigger, items, align = "end", className }: {
         title={i.disabled ? i.reason : undefined}
         aria-label={i.disabled && i.reason && typeof i.label === "string" ? `${labelText(i.label)} — ${i.reason}` : undefined}
         onClick={() => { if (!i.submenu) setOpen(false); i.onSelect?.(); }}
-        className={cn("flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-muted",
+        className={cn("flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-start text-sm hover:bg-muted",
           i.disabled && "cursor-default text-muted-foreground hover:bg-transparent",
           i.destructive && !i.disabled && "font-medium")}
       >

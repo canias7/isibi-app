@@ -74,9 +74,9 @@ export function RecentNav({ items, current, onPick, onRemove, title = "Recent", 
         {shown.map((i) => (
           <li key={i.key} className="group/r flex items-center">
             <button type="button" onClick={() => onPick(i.key)}
-              className="min-w-0 flex-1 cursor-pointer truncate rounded px-2 py-1 text-left text-sm text-muted-foreground hover:bg-muted hover:text-foreground">
+              className="min-w-0 flex-1 cursor-pointer truncate rounded px-2 py-1 text-start text-sm text-muted-foreground hover:bg-muted hover:text-foreground">
               {i.label}
-              {i.hint ? <span className="ml-1.5 text-xs">{i.hint}</span> : null}
+              {i.hint ? <span className="ms-1.5 text-xs">{i.hint}</span> : null}
             </button>
             {onRemove ? (
               <button type="button" onClick={() => onRemove(i.key)} aria-label={`Remove ${i.label} from recent`}

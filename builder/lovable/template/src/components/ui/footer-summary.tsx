@@ -24,7 +24,7 @@ export function FooterSummary({ cells, scope, sticky, className }: {
       <tr>
         {cells.map((c) => (
           <td key={c.key} colSpan={c.span}
-            className={cn("px-3 py-2", c.align === "right" ? "text-right tabular-nums" : "text-left")}>
+            className={cn("px-3 py-2", c.align === "right" ? "text-end tabular-nums" : "text-start")}>
             {c.label ? (
               <span className="block text-[11px] font-normal text-muted-foreground">{c.label}</span>
             ) : null}

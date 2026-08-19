@@ -18,7 +18,7 @@ export function HelpLauncher({ label = "Help", children, className }: {
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button size="icon-lg" aria-label={label}
-          className={cn("fixed bottom-20 right-4 z-40 rounded-full shadow-lg md:bottom-6", className)}>
+          className={cn("fixed bottom-20 end-4 z-40 rounded-full shadow-lg md:bottom-6", className)}>
           {open ? <X className="size-5" /> : <MessageCircle className="size-5" />}
         </Button>
       </PopoverTrigger>

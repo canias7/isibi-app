@@ -67,7 +67,7 @@ export function Typewriter({ text, speed = 40, startDelay = 0, cursor = true, on
       <span aria-hidden className="absolute inset-0">
         {chars.slice(0, n).join("")}
         {cursor && n < chars.length ? (
-          <span className="ml-0.5 inline-block h-[1em] w-[0.5em] translate-y-[0.12em] bg-foreground motion-safe:animate-pulse" />
+          <span className="ms-0.5 inline-block h-[1em] w-[0.5em] translate-y-[0.12em] bg-foreground motion-safe:animate-pulse" />
         ) : null}
       </span>
       <span className="sr-only">{text}</span>

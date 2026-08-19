@@ -41,13 +41,13 @@ export function LiveCursor({ x, y, name, idleAfter = 15000, lastMove, className 
       aria-hidden
       // A transform is composited; top/left forces a layout on every message.
       style={{ transform: `translate3d(${x}px, ${y}px, 0)` }}
-      className={cn("pointer-events-none absolute top-0 left-0 z-40 transition-opacity duration-(--dur-4)",
+      className={cn("pointer-events-none absolute top-0 start-0 z-40 transition-opacity duration-(--dur-4)",
         faded && "opacity-30", className)}
     >
       <svg width="14" height="18" viewBox="0 0 14 18" className="drop-shadow-sm">
         <path d="M1 1l11 7-4.5 1.3L5 16 1 1z" fill="currentColor" stroke="var(--background)" strokeWidth="1.2" />
       </svg>
-      <span className="ml-3 -mt-1 inline-block rounded bg-foreground px-1.5 py-0.5 text-[10px] font-medium whitespace-nowrap text-background">
+      <span className="ms-3 -mt-1 inline-block rounded bg-foreground px-1.5 py-0.5 text-[10px] font-medium whitespace-nowrap text-background">
         {name}
       </span>
     </div>

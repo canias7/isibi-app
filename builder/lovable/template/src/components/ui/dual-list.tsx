@@ -39,7 +39,7 @@ export function DualList({ options, value, onChange, availableLabel = "Available
           {left.map((o) => (
             <li key={o.value}>
               <button type="button" onClick={() => onChange([...value, o.value])}
-                className="flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-muted">
+                className="flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-start text-sm hover:bg-muted">
                 <Plus className="size-3.5 shrink-0 text-muted-foreground" />
                 <span className="truncate">{o.label}</span>
               </button>

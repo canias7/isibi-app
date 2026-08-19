@@ -30,7 +30,7 @@ export function ValidationSummary({ errors, title, className }: {
       <p className="text-sm font-medium">
         {title ?? `${errors.length} ${errors.length === 1 ? "thing needs" : "things need"} fixing`}
       </p>
-      <ul className="mt-1 flex list-disc flex-col gap-0.5 pl-5 text-sm">
+      <ul className="mt-1 flex list-disc flex-col gap-0.5 ps-5 text-sm">
         {errors.map((e) => (
           <li key={e.fieldId}>
             <a href={`#${e.fieldId}`} className="underline underline-offset-4">

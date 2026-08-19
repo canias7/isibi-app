@@ -37,7 +37,7 @@ export function HealthCheckRow({ name, state, breaks, optional, checkedAt, detai
       <span className="min-w-0 flex-1">
         <span className={cn("block", bad && !optional && "font-medium")}>
           {name}
-          {optional && <span className="ml-1.5 text-xs font-normal text-muted-foreground">not critical</span>}
+          {optional && <span className="ms-1.5 text-xs font-normal text-muted-foreground">not critical</span>}
         </span>
         <span className="block text-xs text-muted-foreground">
           {bad && breaks ? breaks : detail}

@@ -42,8 +42,8 @@ export function DownloadMenu({ formats, onDownload, label = "Download", classNam
       </>
     );
     const cls = primary
-      ? "inline-flex cursor-pointer items-center gap-1.5 rounded-l-md px-2.5 py-1.5 text-xs font-medium hover:bg-muted"
-      : "flex w-full cursor-pointer items-baseline gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-muted";
+      ? "inline-flex cursor-pointer items-center gap-1.5 rounded-s-md px-2.5 py-1.5 text-xs font-medium hover:bg-muted"
+      : "flex w-full cursor-pointer items-baseline gap-2 rounded px-2 py-1.5 text-start text-sm hover:bg-muted";
     return f.href ? (
       <a href={f.href} download={f.filename ?? true} onClick={() => setOpen(false)} className={cls}>
         {primary ? <Download aria-hidden className="size-3.5" /> : null}
@@ -64,7 +64,7 @@ export function DownloadMenu({ formats, onDownload, label = "Download", classNam
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
             <button type="button" aria-label="Other formats"
-              className="cursor-pointer rounded-r-md border-l border-border px-1 py-1.5 hover:bg-muted">
+              className="cursor-pointer rounded-e-md border-s border-border px-1 py-1.5 hover:bg-muted">
               <ChevronDown aria-hidden className="size-3.5 text-muted-foreground" />
             </button>
           </PopoverTrigger>

@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
  * without touching the rest of the app, which is the only way to check a
  * layout while still being able to read your own tools.
  *
- * WHAT IT CATCHES IS PHYSICAL PROPERTIES. `ml-2`, `left-0`, `text-left` and
+ * WHAT IT CATCHES IS PHYSICAL PROPERTIES. `ms-2`, `start-0`, `text-start` and
  * a chevron pointing right do not flip with `dir="rtl"`; `ms-2`, `start-0`
  * and `text-start` do. The mirrored view makes that difference visible in a
  * second, which no amount of reading the class list does.

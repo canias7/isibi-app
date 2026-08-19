@@ -32,7 +32,7 @@ export function DocumentOutline({ items, activeId, maxDepth = 3, label = "On thi
           const d = Math.min(Math.max(it.depth ?? 1, 1), maxDepth);
           const active = it.id === activeId;
           return (
-            <li key={it.id} style={{ paddingLeft: `${(d - 1) * 12}px` }}>
+            <li key={it.id} style={{ paddingInlineStart: `${(d - 1) * 12}px` }}>
               <a href={`#${it.id}`}
                 aria-current={active ? "location" : undefined}
                 className={cn("underline-offset-4 hover:underline",

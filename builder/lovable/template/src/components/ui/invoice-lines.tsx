@@ -19,24 +19,24 @@ export function InvoiceLines({ lines, currency = "GBP", className }: {
   return (
     <table className={cn("w-full text-sm", className)}>
       <thead>
-        <tr className="border-b border-border text-left">
+        <tr className="border-b border-border text-start">
           <th className="py-2 font-medium">Description</th>
-          {showQty && <th className="w-16 py-2 text-right font-medium">Qty</th>}
-          {showQty && <th className="w-24 py-2 text-right font-medium">Unit</th>}
-          <th className="w-24 py-2 text-right font-medium">Amount</th>
+          {showQty && <th className="w-16 py-2 text-end font-medium">Qty</th>}
+          {showQty && <th className="w-24 py-2 text-end font-medium">Unit</th>}
+          <th className="w-24 py-2 text-end font-medium">Amount</th>
         </tr>
       </thead>
       <tbody>
         {lines.map((l, i) => (
           <tr key={i} className="border-b border-border align-top last:border-0">
-            <td className="py-2.5 pr-4">
+            <td className="py-2.5 pe-4">
               {l.description}
               {l.detail && <span className="block text-xs text-muted-foreground">{l.detail}</span>}
             </td>
-            {showQty && <td className="py-2.5 text-right tabular-nums">{l.quantity ?? ""}</td>}
-            {showQty && <td className="py-2.5 text-right tabular-nums">
+            {showQty && <td className="py-2.5 text-end tabular-nums">{l.quantity ?? ""}</td>}
+            {showQty && <td className="py-2.5 text-end tabular-nums">
               {l.unitPrice != null ? <Money amount={l.unitPrice} currency={currency} /> : ""}</td>}
-            <td className="py-2.5 text-right tabular-nums"><Money amount={l.total} currency={currency} /></td>
+            <td className="py-2.5 text-end tabular-nums"><Money amount={l.total} currency={currency} /></td>
           </tr>
         ))}
       </tbody>

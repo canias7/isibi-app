@@ -91,7 +91,7 @@ export function FontPicker({ value, onChange, families = BUNDLED_FONTS, sample =
           tabIndex={i === at ? 0 : -1}
           onClick={() => { setActive(i); onChange(f.value); }}
           onFocus={() => setActive(i)}
-          className={cn("flex cursor-pointer flex-col items-start gap-0.5 border-b border-border px-3 py-2 text-left outline-none last:border-0",
+          className={cn("flex cursor-pointer flex-col items-start gap-0.5 border-b border-border px-3 py-2 text-start outline-none last:border-0",
             "focus-visible:ring-2 focus-visible:ring-ring/40",
             f.value === value ? "bg-muted" : "hover:bg-muted/50")}>
           <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{f.label}</span>

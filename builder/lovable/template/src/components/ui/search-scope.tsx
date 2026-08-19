@@ -35,7 +35,7 @@ export function SearchScope({ scopes, value, onChange, className }: {
         if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); move(-1); }
       }}
       className={cn("flex flex-wrap items-center gap-1", className)}>
-      <span className="mr-1 text-xs text-muted-foreground">Search in</span>
+      <span className="me-1 text-xs text-muted-foreground">Search in</span>
       {scopes.map((s) => {
         const on = s.key === value;
         return (
@@ -45,7 +45,7 @@ export function SearchScope({ scopes, value, onChange, className }: {
               on ? "border-foreground bg-foreground font-medium text-background" : "border-border hover:bg-muted")}>
             {s.label}
             {s.count != null ? (
-              <span className={cn("ml-1.5 tabular-nums", on ? "opacity-80" : "text-muted-foreground")}>
+              <span className={cn("ms-1.5 tabular-nums", on ? "opacity-80" : "text-muted-foreground")}>
                 {s.count.toLocaleString()}
               </span>
             ) : null}

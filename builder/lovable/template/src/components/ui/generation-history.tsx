@@ -38,13 +38,13 @@ export function GenerationHistory({ items, currentId, onRestore, emptyNote = "No
         return (
           <li key={g.id}>
             <button type="button" disabled={live} onClick={() => onRestore(g.id)}
-              className={cn("flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left text-sm",
+              className={cn("flex w-full flex-col items-start gap-0.5 px-3 py-2 text-start text-sm",
                 live ? "cursor-default bg-muted/40" : "hover:bg-muted/40")}>
               <span className="flex w-full items-baseline gap-2">
                 <span className={cn("min-w-0 line-clamp-2", live && "font-medium")}>
                   {g.prompt || "Untitled version"}
                 </span>
-                {live && <span className="ml-auto shrink-0 text-xs font-medium">Showing</span>}
+                {live && <span className="ms-auto shrink-0 text-xs font-medium">Showing</span>}
               </span>
               <span className="text-xs text-muted-foreground">
                 {ok ? (

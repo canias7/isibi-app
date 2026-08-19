@@ -32,7 +32,7 @@ function Branch({ node, depth, open, toggle, selected, onSelect }: {
       <div
         className={cn("flex items-center gap-1 rounded px-1 py-0.5",
           selected === node.id && "bg-foreground text-background")}
-        style={{ paddingLeft: `${depth * 16 + 4}px` }}
+        style={{ paddingInlineStart: `${depth * 16 + 4}px` }}
       >
         {kids.length ? (
           <button type="button" onClick={() => toggle(node.id)}
@@ -42,7 +42,7 @@ function Branch({ node, depth, open, toggle, selected, onSelect }: {
           </button>
         ) : <span className="w-[18px]" aria-hidden />}
         <button type="button" onClick={() => onSelect(node.id)}
-          className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left text-sm">
+          className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-start text-sm">
           {isOpen && kids.length
             ? <FolderOpen className="size-4 shrink-0" aria-hidden />
             : <Folder className="size-4 shrink-0" aria-hidden />}

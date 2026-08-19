@@ -82,7 +82,7 @@ export function CardInput({ value, onChange, label = "Card number", id, classNam
         {brand.name ? <span className="text-xs text-muted-foreground">{brand.name}</span> : null}
       </div>
       <div className="relative">
-        <CreditCard aria-hidden className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+        <CreditCard aria-hidden className="pointer-events-none absolute top-1/2 start-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
         <input
           id={fieldId}
           value={groupCard(value, brand.groups)}
@@ -93,7 +93,7 @@ export function CardInput({ value, onChange, label = "Card number", id, classNam
           placeholder={groupCard("0".repeat(max), brand.groups).replace(/0/g, "•")}
           aria-invalid={bad || undefined}
           aria-describedby={bad ? `${fieldId}-err` : undefined}
-          className={cn("h-9 w-full rounded-md border bg-background pr-3 pl-8 text-sm tracking-wider tabular-nums outline-none",
+          className={cn("h-9 w-full rounded-md border bg-background pe-3 ps-8 text-sm tracking-wider tabular-nums outline-none",
             bad ? "border-foreground" : "border-border focus-visible:border-ring")}
         />
       </div>

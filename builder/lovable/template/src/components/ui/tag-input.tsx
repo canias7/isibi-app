@@ -24,7 +24,7 @@ export function TagInput({ value, onChange, placeholder = "Add a tag…", max, i
   return (
     <div className={cn("flex flex-wrap items-center gap-1.5 rounded-md border border-input px-2 py-1.5 focus-within:ring-2 focus-within:ring-ring/40", className)}>
       {value.map((t) => (
-        <span key={t} className="inline-flex items-center gap-1 rounded bg-muted py-0.5 pl-2 pr-1 text-sm">
+        <span key={t} className="inline-flex items-center gap-1 rounded bg-muted py-0.5 ps-2 pe-1 text-sm">
           {t}
           <button type="button" onClick={() => onChange(value.filter((v) => v !== t))}
             aria-label={`Remove ${t}`} className="cursor-pointer rounded p-0.5 hover:bg-background">

@@ -36,7 +36,7 @@ export function Dock({ items, className }: {
               <span className="relative">
                 {i.icon}
                 {i.badge ? (
-                  <span className="absolute -top-1 -right-2 rounded-full bg-foreground px-1 text-[9px] leading-4 font-medium text-background">
+                  <span className="absolute -top-1 -end-2 rounded-full bg-foreground px-1 text-[9px] leading-4 font-medium text-background">
                     {i.badge}
                   </span>
                 ) : null}

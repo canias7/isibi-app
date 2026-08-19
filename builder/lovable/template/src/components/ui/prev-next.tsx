@@ -13,7 +13,7 @@ export function PrevNext({ prev, next, className }: {
         </a>
       ) : <span />}
       {next ? (
-        <a href={next.href} className="group flex min-w-0 flex-col items-end gap-1 text-right">
+        <a href={next.href} className="group flex min-w-0 flex-col items-end gap-1 text-end">
           <span className="flex items-center gap-1.5 text-xs text-muted-foreground">Next<ArrowRight className="size-3.5" /></span>
           <span className="truncate text-sm font-medium group-hover:underline">{next.label}</span>
         </a>

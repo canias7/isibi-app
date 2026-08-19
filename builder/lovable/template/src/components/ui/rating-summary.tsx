@@ -28,7 +28,7 @@ export function RatingSummary({ average, total, distribution, className }: {
               <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
                 <span className="block h-full bg-foreground" style={{ width: (n / max) * 100 + "%" }} />
               </span>
-              <span className="w-8 text-right tabular-nums text-muted-foreground">{n}</span>
+              <span className="w-8 text-end tabular-nums text-muted-foreground">{n}</span>
             </div>
           );
         })}

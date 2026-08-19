@@ -27,9 +27,9 @@ export function ThresholdMarker({ at, min, max, label, side = "auto", className 
   const flip = side === "auto" ? pct > 70 : side === "left";
   return (
     <div className={cn("pointer-events-none absolute inset-y-0", className)} style={{ left: `${pct}%` }}>
-      <div aria-hidden className="h-full border-l border-dashed border-foreground" />
+      <div aria-hidden className="h-full border-s border-dashed border-foreground" />
       <span className={cn("absolute top-0 whitespace-nowrap text-[10px] text-muted-foreground",
-        flip ? "right-1" : "left-1")}>
+        flip ? "end-1" : "start-1")}>
         {label}
       </span>
     </div>

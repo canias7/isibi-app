@@ -46,18 +46,18 @@ function P() {
 
         <table className="w-full border-collapse text-sm">
           <thead>
-            <tr className="border-b border-border text-left text-xs uppercase tracking-widest text-muted-foreground">
-              <th className="py-2 pr-4 font-medium">Production</th>
-              <th className="py-2 pr-4 font-medium">Dates</th>
-              <th className="py-2 text-right font-medium">Status</th>
+            <tr className="border-b border-border text-start text-xs uppercase tracking-widest text-muted-foreground">
+              <th className="py-2 pe-4 font-medium">Production</th>
+              <th className="py-2 pe-4 font-medium">Dates</th>
+              <th className="py-2 text-end font-medium">Status</th>
             </tr>
           </thead>
           <tbody>
             {BOARD.map((r) => (
               <tr key={r.show} className="border-b border-border/60">
-                <td className="py-3 pr-4"><a className="hover:underline" href={r.href}>{r.show}</a></td>
-                <td className="py-3 pr-4 tabular-nums text-muted-foreground">{r.when}</td>
-                <td className={"py-3 text-right tabular-nums " + (r.hot ? "font-semibold" : "text-muted-foreground")}>{r.state}{r.hot ? " ▲" : ""}</td>
+                <td className="py-3 pe-4"><a className="hover:underline" href={r.href}>{r.show}</a></td>
+                <td className="py-3 pe-4 tabular-nums text-muted-foreground">{r.when}</td>
+                <td className={"py-3 text-end tabular-nums " + (r.hot ? "font-semibold" : "text-muted-foreground")}>{r.state}{r.hot ? " ▲" : ""}</td>
               </tr>
             ))}
           </tbody>

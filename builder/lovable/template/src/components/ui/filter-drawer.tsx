@@ -49,17 +49,17 @@ export function FilterDrawer({ open, onClose, onApply, onClear, resultCount, act
     <div className={cn("fixed inset-0 z-50 flex", className)}>
       <div className="absolute inset-0 bg-foreground/40" onClick={onClose} aria-hidden="true" />
       <div role="dialog" aria-modal="true" aria-label={title}
-        className="relative ml-auto flex h-full w-full max-w-sm flex-col bg-popover shadow-lg">
+        className="relative ms-auto flex h-full w-full max-w-sm flex-col bg-popover shadow-lg">
         <div className="flex items-center gap-2 border-b border-border px-4 py-3">
           <h2 className="text-sm font-medium">{title}</h2>
           {activeCount > 0 && (
             <span className="rounded-full bg-foreground px-1.5 text-xs tabular-nums text-background">{activeCount}</span>
           )}
           {activeCount > 0 && onClear && (
-            <button type="button" onClick={onClear} className="ml-auto text-xs underline underline-offset-2">Clear</button>
+            <button type="button" onClick={onClear} className="ms-auto text-xs underline underline-offset-2">Clear</button>
           )}
           <button type="button" onClick={onClose} aria-label="Close filters"
-            className={cn("text-sm text-muted-foreground", !(activeCount > 0 && onClear) && "ml-auto")}>×</button>
+            className={cn("text-sm text-muted-foreground", !(activeCount > 0 && onClear) && "ms-auto")}>×</button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">{children}</div>
         <div className="border-t border-border p-3">

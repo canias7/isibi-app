@@ -26,7 +26,7 @@ export function WhyThisNote({ forReasons, againstReasons, className }: {
       {forReasons.length > 0 && (
         <div>
           <p className="font-medium">Why this one</p>
-          <ul className="flex list-disc flex-col gap-0.5 pl-4 text-muted-foreground">
+          <ul className="flex list-disc flex-col gap-0.5 ps-4 text-muted-foreground">
             {forReasons.map((r, i) => <li key={i}>{r}</li>)}
           </ul>
         </div>
@@ -34,7 +34,7 @@ export function WhyThisNote({ forReasons, againstReasons, className }: {
       {againstReasons?.length ? (
         <div>
           <p className="font-medium">Worth knowing</p>
-          <ul className="flex list-disc flex-col gap-0.5 pl-4 text-muted-foreground">
+          <ul className="flex list-disc flex-col gap-0.5 ps-4 text-muted-foreground">
             {againstReasons.map((r, i) => <li key={i}>{r}</li>)}
           </ul>
         </div>

@@ -15,9 +15,9 @@ export function GroupedRows({ label, count, colSpan, children, className }: {
     <>
       <tr className={cn("bg-muted/50", className)}>
         <th scope="colgroup" colSpan={colSpan}
-          className="px-2 py-1.5 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          className="px-2 py-1.5 text-start text-xs font-medium uppercase tracking-wide text-muted-foreground">
           {label}
-          {count != null && <span className="ml-2 font-normal tabular-nums">{count}</span>}
+          {count != null && <span className="ms-2 font-normal tabular-nums">{count}</span>}
         </th>
       </tr>
       {children}

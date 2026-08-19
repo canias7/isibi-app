@@ -43,7 +43,7 @@ export function ShotListRow({ shot, size, lens, move, setup, description, state 
           {state === "shot" ? "In the can" : state === "dropped" ? "Dropped" : "To shoot"}
         </span>
       </p>
-      <p className="pl-17 text-xs text-muted-foreground">
+      <p className="ps-17 text-xs text-muted-foreground">
         {[lens, move, setup !== undefined ? `setup ${setup}` : undefined].filter(Boolean).join(" · ")}
       </p>
     </li>

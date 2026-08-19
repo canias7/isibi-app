@@ -41,7 +41,7 @@ export function VariantMatrix({ rows, cols, cells, selected, onSelect, className
       <tbody>
         {rows.map((r) => (
           <tr key={r.key}>
-            <th scope="row" className="pr-2 text-right font-medium">{r.label}</th>
+            <th scope="row" className="pe-2 text-end font-medium">{r.label}</th>
             {cols.map((c) => {
               const key = `${r.key}:${c.key}`;
               const stock = cells[key] ?? 0;

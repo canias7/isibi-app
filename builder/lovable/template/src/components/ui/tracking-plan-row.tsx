@@ -49,7 +49,7 @@ export function TrackingPlanRow({ name, purpose, owner, state, lastSeen, volume,
           {state === "missing" && " · anything built on it is empty"}
         </span>
       </span>
-      <span className="shrink-0 text-right text-xs">
+      <span className="shrink-0 text-end text-xs">
         <span className={cn("block", bad ? "font-medium" : "text-muted-foreground")}>{WORD[state]}</span>
         {volume !== undefined && <span className="block tabular-nums text-muted-foreground">{volume.toLocaleString()}</span>}
       </span>

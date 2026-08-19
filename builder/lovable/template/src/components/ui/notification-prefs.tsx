@@ -18,7 +18,7 @@ export function NotificationPrefs({ channels, rows, value, onChange, className }
     <table className={cn("w-full text-sm", className)}>
       <thead>
         <tr className="border-b border-border">
-          <th className="py-2 text-left font-medium">Notify me about</th>
+          <th className="py-2 text-start font-medium">Notify me about</th>
           {channels.map((c) => (
             <th key={c.key} className="w-20 py-2 text-center text-xs font-medium text-muted-foreground">{c.label}</th>
           ))}
@@ -27,7 +27,7 @@ export function NotificationPrefs({ channels, rows, value, onChange, className }
       <tbody>
         {rows.map((r) => (
           <tr key={r.key} className="border-b border-border last:border-0">
-            <td className="py-3 pr-4">
+            <td className="py-3 pe-4">
               <span className="block">{r.label}</span>
               {r.description && <span className="block text-xs text-muted-foreground">{r.description}</span>}
             </td>

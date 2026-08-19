@@ -66,28 +66,28 @@ export function InvestmentTable({
     <div className={cn("", className)}>
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-sm">
-          <caption className="pb-3 text-left text-xs font-medium uppercase tracking-widest text-muted-foreground">{heading}</caption>
+          <caption className="pb-3 text-start text-xs font-medium uppercase tracking-widest text-muted-foreground">{heading}</caption>
           <thead>
-            <tr className="border-b border-border text-left text-xs uppercase tracking-widest text-muted-foreground">
-              <th scope="col" className="py-2 pr-4 font-medium">What</th>
-              <th scope="col" className="py-2 text-right font-medium">Cost</th>
+            <tr className="border-b border-border text-start text-xs uppercase tracking-widest text-muted-foreground">
+              <th scope="col" className="py-2 pe-4 font-medium">What</th>
+              <th scope="col" className="py-2 text-end font-medium">Cost</th>
             </tr>
           </thead>
           <tbody>
             {lines.map((l) => (
               <tr key={l.what} className="border-b border-border/60 align-baseline">
-                <th scope="row" className="py-3 pr-4 text-left font-[inherit]">
+                <th scope="row" className="py-3 pe-4 text-start font-[inherit]">
                   <span className="font-medium">{l.what}</span>
                   {l.detail && <span className="block text-xs leading-relaxed text-muted-foreground">{l.detail}</span>}
                 </th>
-                <td className="py-3 text-right tabular-nums">
+                <td className="py-3 text-end tabular-nums">
                   {typeof l.to === "number" && l.to > l.amount ? `${money(l.amount)} – ${money(l.to)}` : money(l.amount)}
                 </td>
               </tr>
             ))}
             <tr className="border-b-2 border-foreground align-baseline">
-              <th scope="row" className="py-3 pr-4 text-left text-base font-semibold">To open</th>
-              <td className="py-3 text-right text-base font-semibold tabular-nums">{total}</td>
+              <th scope="row" className="py-3 pe-4 text-start text-base font-semibold">To open</th>
+              <td className="py-3 text-end text-base font-semibold tabular-nums">{total}</td>
             </tr>
           </tbody>
         </table>

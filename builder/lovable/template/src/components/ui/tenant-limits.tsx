@@ -60,7 +60,7 @@ export function TenantLimits({ limits, planName, className }: {
                   </span>
                 )}
               </span>
-              <span className="shrink-0 text-right">
+              <span className="shrink-0 text-end">
                 <span className={cn("block tabular-nums", custom && "font-medium")}>{fmt(l.value, l.unit)}</span>
                 {custom && <span className="block text-xs font-medium">Set by hand</span>}
               </span>

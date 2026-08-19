@@ -36,7 +36,7 @@ export function LeaveSafeConsent({ enabled, place, onChange, className }: {
         </span>
       </label>
       {enabled ? (
-        <div className="flex flex-col gap-1 pl-6">
+        <div className="flex flex-col gap-1 ps-6">
           <input value={place} onChange={(e) => onChange({ enabled, place: e.target.value })}
             placeholder="Where exactly? e.g. in the porch, behind the blue bin"
             aria-label="Where to leave it"

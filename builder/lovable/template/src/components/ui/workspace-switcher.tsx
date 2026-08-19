@@ -43,7 +43,7 @@ export function WorkspaceSwitcher({ workspaces, value, onChange, onCreate, group
           <span className="grid size-5 shrink-0 place-items-center rounded bg-foreground text-[10px] font-semibold text-background">
             {(current?.name ?? "?").slice(0, 1).toUpperCase()}
           </span>
-          <span className="min-w-0 flex-1 truncate text-left font-medium">{current?.name ?? "Choose a workspace"}</span>
+          <span className="min-w-0 flex-1 truncate text-start font-medium">{current?.name ?? "Choose a workspace"}</span>
           <ChevronsUpDown aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
         </button>
       </PopoverTrigger>
@@ -59,7 +59,7 @@ export function WorkspaceSwitcher({ workspaces, value, onChange, onCreate, group
                   <li key={w.key}>
                     <button type="button" onClick={() => { onChange(w.key); setOpen(false); }}
                       aria-current={w.key === value ? "true" : undefined}
-                      className="flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-muted">
+                      className="flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-start text-sm hover:bg-muted">
                       <Check aria-hidden className={cn("size-3.5 shrink-0", w.key === value ? "" : "invisible")} />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate">{w.name}</span>
@@ -76,7 +76,7 @@ export function WorkspaceSwitcher({ workspaces, value, onChange, onCreate, group
           <>
             <hr className="my-1 border-border" />
             <button type="button" onClick={() => { setOpen(false); onCreate(); }}
-              className="flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-muted">
+              className="flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-start text-sm hover:bg-muted">
               <Plus aria-hidden className="size-3.5 shrink-0" />
               Create a workspace
             </button>

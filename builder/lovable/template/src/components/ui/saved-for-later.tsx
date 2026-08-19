@@ -35,7 +35,7 @@ export function SavedForLater({ items, onMoveToCart, onRemove, currency = "GBP",
                     {fmt(i.priceMinor)}
                     {/* The reason people come back. */}
                     {i.wasMinor != null && i.wasMinor > i.priceMinor ? (
-                      <span className="ml-1 font-medium text-foreground">
+                      <span className="ms-1 font-medium text-foreground">
                         down from {fmt(i.wasMinor)}
                       </span>
                     ) : null}

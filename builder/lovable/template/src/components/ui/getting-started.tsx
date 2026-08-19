@@ -18,7 +18,7 @@ export function GettingStarted({ items, className }: {
             {it.body && <span className="text-sm text-muted-foreground">{it.body}</span>}
           </>
         );
-        const cls = "group flex cursor-pointer flex-col items-start gap-1.5 rounded-lg border border-border p-4 text-left hover:border-foreground/30 hover:bg-muted/40";
+        const cls = "group flex cursor-pointer flex-col items-start gap-1.5 rounded-lg border border-border p-4 text-start hover:border-foreground/30 hover:bg-muted/40";
         return it.href
           ? <a key={it.title} href={it.href} className={cls}>{inner}</a>
           : <button key={it.title} type="button" onClick={it.onClick} className={cls}>{inner}</button>;

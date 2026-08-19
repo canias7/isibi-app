@@ -57,7 +57,7 @@ export function CopyLink({ url, label, truncate = true, className }: {
   return (
     <div className={cn("flex flex-col gap-1", className)}>
       {label ? <p className="text-xs font-medium">{label}</p> : null}
-      <div className="flex items-center gap-2 rounded-md border border-border p-1 pl-2.5">
+      <div className="flex items-center gap-2 rounded-md border border-border p-1 ps-2.5">
         <Link2 aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
         {/* Selectable, so it can be read and partly copied by hand. */}
         <span className={cn("min-w-0 flex-1 font-mono text-xs select-all", truncate && "truncate")}>{url}</span>

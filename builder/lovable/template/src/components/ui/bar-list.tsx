@@ -19,7 +19,7 @@ export function BarList({ items, valueLabel, className }: {
       {items.map((it) => (
         <div key={it.label} className="flex items-center gap-3">
           <div className="relative h-7 min-w-0 flex-1 overflow-hidden rounded-sm bg-muted">
-            <div className="absolute inset-y-0 left-0 bg-foreground/10"
+            <div className="absolute inset-y-0 start-0 bg-foreground/10"
               style={{ width: `${Math.max(2, (it.value / hi) * 100)}%` }} />
             <span className="relative flex h-full items-center truncate px-2 text-sm">
               {it.href ? <a href={it.href} className="truncate hover:underline">{it.label}</a> : it.label}

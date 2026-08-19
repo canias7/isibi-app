@@ -46,7 +46,7 @@ export function CollapsiblePanel({ title, children, defaultOpen = true, storageK
     <section className={cn("rounded-md border border-border", className)}>
       <Tag className="m-0">
         <button type="button" aria-expanded={open} aria-controls={id} onClick={toggle}
-          className="flex w-full cursor-pointer items-center gap-2 p-3 text-left text-sm font-medium">
+          className="flex w-full cursor-pointer items-center gap-2 p-3 text-start text-sm font-medium">
           <ChevronDown aria-hidden className={cn("size-4 shrink-0 transition-transform", !open && "-rotate-90")} />
           {title}
         </button>

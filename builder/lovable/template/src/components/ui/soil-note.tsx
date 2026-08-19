@@ -64,7 +64,7 @@ export function SoilNote({ parcel, ph, phTarget, indices = [], sampledOn, ageYea
           {indices.map((i) => (
             <li key={i.nutrient} className="flex items-baseline justify-between gap-3 px-3 py-1.5">
               <span>{i.nutrient}</span>
-              <span className="shrink-0 text-right">
+              <span className="shrink-0 text-end">
                 <span className={cn("tabular-nums", i.low && "font-medium")}>{i.index}</span>
                 {i.target && <span className="text-xs text-muted-foreground"> · target {i.target}</span>}
               </span>

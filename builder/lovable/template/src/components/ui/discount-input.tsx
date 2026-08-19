@@ -40,7 +40,7 @@ export function DiscountInput({ totalMinor, kind, value, onChange, currency = "G
           {(["percent", "fixed"] as const).map((k) => (
             <button key={k} type="button" aria-pressed={kind === k}
               onClick={() => onChange({ kind: k, value })}
-              className={cn("cursor-pointer border-r border-border px-2.5 py-1 text-xs last:border-r-0",
+              className={cn("cursor-pointer border-e border-border px-2.5 py-1 text-xs last:border-e-0",
                 kind === k ? "bg-foreground font-medium text-background" : "hover:bg-muted")}>
               {k === "percent" ? "%" : "amount"}
             </button>

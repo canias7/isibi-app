@@ -79,7 +79,7 @@ export function StepUpPrompt({
             Cancel
           </button>
         ) : null}
-        {alternative ? <span className="ml-auto text-xs">{alternative}</span> : null}
+        {alternative ? <span className="ms-auto text-xs">{alternative}</span> : null}
       </div>
     </form>
   );

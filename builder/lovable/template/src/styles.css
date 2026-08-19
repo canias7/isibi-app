@@ -522,3 +522,78 @@
     }
   }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   DIRECTIONAL ICONS MIRROR IN A RIGHT-TO-LEFT SITE.
+   
+   The kit was swept onto logical utilities so a `dir="rtl"` document mirrors
+   its margins, padding, borders and offsets. Icons do not follow: a
+   `ChevronRight` on a "next" button still points at the end of the page a
+   left-to-right reader is going to, and in Arabic that is backwards.
+   
+   ONE RULE RATHER THAN 192 EDITS, and that is what makes it worth having.
+   Measured across the kit, the family exemplars and the reference pages: 192
+   uses of a directional icon in 70 files. Marking each by hand fixes those and
+   nothing the generator writes tomorrow — the `safe-image` argument, where a
+   guard the model has to remember is one it eventually forgets. `lucide-react`
+   stamps a per-icon class (`lucide lucide-chevron-right`, verified on a real
+   rendered page), so the mirror can be stated once, for every use that exists
+   and every use that will.
+   
+   `scale`, NOT `transform`, and it is not a style preference. Tailwind v4
+   emits `rotate-180` as the INDIVIDUAL `rotate:` property — measured in a built
+   stylesheet — so a `transform: scaleX(-1)` here would be a separate property
+   that composes with it, while a component's own `transform` utility would
+   REPLACE this rule's. The individual `scale:` composes with `rotate:` and with
+   `translate:` alike, so an accordion chevron that rotates when it opens still
+   rotates, and still mirrors.
+   
+   WHAT IS DELIBERATELY NOT IN THE LIST:
+     * MEDIA TRANSPORT (play, skip-forward, rewind). A timeline runs the same
+       way in every language; mirroring the transport makes "next track" point
+       at the previous one.
+     * `align-left` / `align-right`. Those depict a literal alignment the user
+       is choosing — "align left" still means left in an Arabic editor, and
+       mirroring the icon makes the button lie about what it does.
+   ───────────────────────────────────────────────────────────────────────── */
+[dir="rtl"] .lucide-chevron-left,
+[dir="rtl"] .lucide-chevron-right,
+[dir="rtl"] .lucide-chevrons-left,
+[dir="rtl"] .lucide-chevrons-right,
+[dir="rtl"] .lucide-circle-chevron-left,
+[dir="rtl"] .lucide-circle-chevron-right,
+[dir="rtl"] .lucide-square-chevron-left,
+[dir="rtl"] .lucide-square-chevron-right,
+[dir="rtl"] .lucide-arrow-left,
+[dir="rtl"] .lucide-arrow-right,
+[dir="rtl"] .lucide-arrow-big-left,
+[dir="rtl"] .lucide-arrow-big-right,
+[dir="rtl"] .lucide-circle-arrow-left,
+[dir="rtl"] .lucide-circle-arrow-right,
+[dir="rtl"] .lucide-square-arrow-left,
+[dir="rtl"] .lucide-square-arrow-right,
+[dir="rtl"] .lucide-move-left,
+[dir="rtl"] .lucide-move-right,
+[dir="rtl"] .lucide-corner-down-left,
+[dir="rtl"] .lucide-corner-down-right,
+[dir="rtl"] .lucide-corner-up-left,
+[dir="rtl"] .lucide-corner-up-right,
+[dir="rtl"] .lucide-reply,
+[dir="rtl"] .lucide-reply-all,
+[dir="rtl"] .lucide-forward,
+[dir="rtl"] .lucide-undo,
+[dir="rtl"] .lucide-undo-2,
+[dir="rtl"] .lucide-redo,
+[dir="rtl"] .lucide-redo-2,
+[dir="rtl"] .lucide-log-in,
+[dir="rtl"] .lucide-log-out,
+[dir="rtl"] .lucide-panel-left,
+[dir="rtl"] .lucide-panel-right,
+[dir="rtl"] .lucide-panel-left-open,
+[dir="rtl"] .lucide-panel-left-close,
+[dir="rtl"] .lucide-indent-increase,
+[dir="rtl"] .lucide-indent-decrease,
+[dir="rtl"] .lucide-list-start,
+[dir="rtl"] .lucide-list-end {
+  scale: -1 1;
+}

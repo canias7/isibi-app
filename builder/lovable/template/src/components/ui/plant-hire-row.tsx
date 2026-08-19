@@ -42,7 +42,7 @@ export function PlantHireRow({ item, supplier, dailyRate, daysOnHire, daysUsed, 
           {item}
           {supplier && <span className="text-muted-foreground"> · {supplier}</span>}
         </span>
-        <span className="shrink-0 text-right">
+        <span className="shrink-0 text-end">
           {runningTotal && <span className="block tabular-nums">{runningTotal}</span>}
           {dailyRate && <span className="block text-xs tabular-nums text-muted-foreground">{dailyRate} a day</span>}
         </span>

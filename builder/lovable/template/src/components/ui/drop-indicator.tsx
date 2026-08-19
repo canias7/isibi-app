@@ -30,7 +30,7 @@ export function DropIndicator({ orientation = "horizontal", active = true, class
       className={cn("pointer-events-none relative", horizontal ? "h-0.5 w-full" : "h-full w-0.5", className)}>
       <div className={cn("absolute inset-0 bg-foreground")} />
       <div className={cn("absolute size-2 rounded-full border-2 border-foreground bg-background",
-        horizontal ? "-top-0.75 -left-1" : "-top-1 -left-0.75")} />
+        horizontal ? "-top-0.75 -start-1" : "-top-1 -start-0.75")} />
     </div>
   );
 }

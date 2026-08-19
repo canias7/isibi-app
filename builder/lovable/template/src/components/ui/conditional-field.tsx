@@ -16,7 +16,7 @@ export function ConditionalField({ when, label, children, className }: {
 }) {
   if (!when) return null;
   return (
-    <div role="region" aria-label={label} className={cn("border-l-2 border-border pl-3", className)}>
+    <div role="region" aria-label={label} className={cn("border-s-2 border-border ps-3", className)}>
       {children}
     </div>
   );

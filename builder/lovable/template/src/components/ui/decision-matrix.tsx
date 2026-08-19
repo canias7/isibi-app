@@ -43,19 +43,19 @@ export function DecisionMatrix({ options, criteria, scores, scale = 5, onScore, 
   return (
     <div className={cn("overflow-x-auto", className)}>
       <table className="w-full border-collapse text-sm">
-        <caption className="pb-2 text-left text-xs text-muted-foreground">
+        <caption className="pb-2 text-start text-xs text-muted-foreground">
           Scored 1 to {scale}. Blank means not scored, which is not the same as zero.
         </caption>
         <thead>
           <tr className="border-b border-border">
-            <th scope="col" className="px-3 py-2 text-left font-medium">Option</th>
+            <th scope="col" className="px-3 py-2 text-start font-medium">Option</th>
             {criteria.map((c) => (
               <th key={c.key} scope="col" className="px-2 py-2 text-center align-bottom font-medium">
                 <span className="block text-xs">{c.label}</span>
                 {c.hint ? <span className="block text-[11px] font-normal text-muted-foreground">{c.hint}</span> : null}
               </th>
             ))}
-            <th scope="col" className="px-3 py-2 text-right font-semibold">Total</th>
+            <th scope="col" className="px-3 py-2 text-end font-semibold">Total</th>
           </tr>
         </thead>
         <tbody>
@@ -63,7 +63,7 @@ export function DecisionMatrix({ options, criteria, scores, scale = 5, onScore, 
             const t = totals.find((x) => x.key === o.key)!;
             return (
               <tr key={o.key} className="border-b border-border last:border-0">
-                <th scope="row" className={cn("px-3 py-2 text-left font-normal", t.total === best && best > 0 && "font-medium")}>
+                <th scope="row" className={cn("px-3 py-2 text-start font-normal", t.total === best && best > 0 && "font-medium")}>
                   {o.label}
                 </th>
                 {criteria.map((c) => {
@@ -88,7 +88,7 @@ export function DecisionMatrix({ options, criteria, scores, scale = 5, onScore, 
                     </td>
                   );
                 })}
-                <td className="px-3 py-2 text-right">
+                <td className="px-3 py-2 text-end">
                   <span className="font-semibold tabular-nums">{t.total}</span>
                   <span className="text-xs text-muted-foreground tabular-nums"> / {t.possible}</span>
                   {t.missing ? (

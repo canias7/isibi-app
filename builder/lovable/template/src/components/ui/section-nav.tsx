@@ -34,7 +34,7 @@ export function SectionNav({ prev, next, label = "Section", className }: {
         </a>
       ) : <span className="flex-1" aria-hidden />}
       {next ? (
-        <a href={next.href} className={cn(card, "text-right")}>
+        <a href={next.href} className={cn(card, "text-end")}>
           <span className="text-[11px] text-muted-foreground">Next &rarr;</span>
           <span className="truncate text-sm font-medium">{next.title}</span>
         </a>

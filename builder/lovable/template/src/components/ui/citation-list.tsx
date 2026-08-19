@@ -24,7 +24,7 @@ export function CitationMark({ index, id, className }: { index: number; id?: str
   return (
     <a href={`#${id ?? "cite"}-${index}`}
       aria-label={`Source ${index}`}
-      className={cn("ml-0.5 rounded-sm bg-muted px-1 align-super text-[10px] font-medium tabular-nums hover:bg-foreground hover:text-background", className)}>
+      className={cn("ms-0.5 rounded-sm bg-muted px-1 align-super text-[10px] font-medium tabular-nums hover:bg-foreground hover:text-background", className)}>
       {index}
     </a>
   );
@@ -54,7 +54,7 @@ export function CitationList({ sources, id = "cite", title = "Sources", classNam
                 <ExternalLink aria-hidden className="size-2.5 translate-y-px" />
                 <span className="sr-only">(opens in a new tab)</span>
               </a>
-              {s.published ? <span className="ml-1.5 text-muted-foreground">{s.published}</span> : null}
+              {s.published ? <span className="ms-1.5 text-muted-foreground">{s.published}</span> : null}
               {s.title ? <span className="block truncate text-muted-foreground">{s.title}</span> : null}
               {s.snippet ? <span className="mt-0.5 block text-muted-foreground">{s.snippet}</span> : null}
             </span>

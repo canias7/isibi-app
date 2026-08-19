@@ -34,7 +34,7 @@ export function TreeItem({ label, depth = 0, expanded, hasChildren, selected, ic
         </button>
       ) : <span className="w-[1.625rem] shrink-0" />}
       <button type="button" onClick={onSelect}
-        className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 py-1 pr-2 text-left text-sm">
+        className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 py-1 pe-2 text-start text-sm">
         {icon && <span className="shrink-0 text-muted-foreground">{icon}</span>}
         <span className="truncate">{label}</span>
       </button>

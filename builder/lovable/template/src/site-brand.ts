@@ -31,6 +31,21 @@ export const SITE_LOGO = "";
 // `normalizeLang` — a site whose language could not be established keeps
 // whatever it had, and the template's own answer is English.
 export const SITE_LANG = "en";
+// WHICH WAY THE PAGE READS. Derived from the language by `dirFor`, never stored
+// and never asked for — the script decides, so a second value here could only
+// ever disagree with the tag above it.
+//
+// THE KIT WAS SWEPT ONTO LOGICAL UTILITIES FOR THIS. `ml-4` is a left margin
+// whichever way the page reads; `ms-4` is a margin on the side the text starts.
+// The two are byte-identical in LTR — measured over all 96 mappings the kit
+// uses, so the sweep changed nothing about any site the platform has published —
+// and only the logical one mirrors. Without it `dir="rtl"` would flip the text
+// and leave every margin, padding, border and offset on the wrong side, which
+// reads as a badly-made site rather than an honest limit.
+//
+// ANNOTATED for the reason `SITE_MODE` is: an unannotated const has the LITERAL
+// type `"ltr"`, so comparing it with `"rtl"` is `TS2367` and nothing compiles.
+export const SITE_DIR: "ltr" | "rtl" = "ltr";
 // LIGHT OR DARK. One class on `<html>` in `__root.tsx`, and that is the whole
 // mechanism: `styles.css` declares `@custom-variant dark (&:is(.dark *))`, and
 // `themeCss` already emits the theme's OWN designed dark palette as a `.dark`

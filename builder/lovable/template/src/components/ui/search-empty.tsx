@@ -64,7 +64,7 @@ export function SearchEmpty({
                     because `label` is a ReactNode and may not be text at all. */}
                 {f.onRemove ? (
                   <button type="button" onClick={f.onRemove} aria-label={`Remove the ${f.key} filter`}
-                    className="ml-0.5 cursor-pointer align-middle text-muted-foreground hover:text-foreground">
+                    className="ms-0.5 cursor-pointer align-middle text-muted-foreground hover:text-foreground">
                     <X aria-hidden className="inline size-3" />
                   </button>
                 ) : null}

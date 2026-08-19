@@ -78,7 +78,7 @@ export function SnoozeMenu({ snoozedUntil, onSnooze, onUnsnooze, options, classN
           {list.map((o) => (
             <li key={o.key}>
               <button type="button" onClick={() => { setOpen(false); onSnooze(o.when); }}
-                className="flex w-full cursor-pointer items-baseline justify-between gap-3 rounded px-2 py-1.5 text-left text-sm hover:bg-muted">
+                className="flex w-full cursor-pointer items-baseline justify-between gap-3 rounded px-2 py-1.5 text-start text-sm hover:bg-muted">
                 {o.label}
                 {/* The absolute time, so it can be checked against a calendar. */}
                 <span className="text-xs text-muted-foreground tabular-nums">{o.at}</span>

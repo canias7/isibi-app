@@ -16,7 +16,7 @@ function P() {
   return (
     <main className="grid min-h-screen md:grid-cols-2">
       {/* The pitch half — three sentences and the product, not a site. */}
-      <section className="flex flex-col justify-between border-b border-border bg-muted/40 p-10 md:border-b-0 md:border-r">
+      <section className="flex flex-col justify-between border-b border-border bg-muted/40 p-10 md:border-b-0 md:border-e">
         <p className="text-lg font-semibold tracking-tight">Brindle</p>
         <div className="max-w-md py-12">
           <h1 className="text-3xl font-semibold tracking-tight text-balance">Every enquiry, quote and job — one table your whole studio reads</h1>

@@ -62,7 +62,7 @@ function P() {
             <table className="w-full min-w-[32rem] text-sm">
               <caption className="sr-only">Price per cup by bag size</caption>
               <thead>
-                <tr className="border-b border-border text-left">
+                <tr className="border-b border-border text-start">
                   <th scope="col" className="py-2 font-medium">Bag</th>
                   <th scope="col" className="py-2 font-medium">Price</th>
                   <th scope="col" className="py-2 font-medium">Cups</th>

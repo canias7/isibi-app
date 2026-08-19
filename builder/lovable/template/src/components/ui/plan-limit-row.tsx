@@ -38,11 +38,11 @@ export function PlanLimitRow({ label, limit, unit, atLimit = "refused", note, us
   }[atLimit];
   return (
     <tr className={className}>
-      <th scope="row" className="px-3 py-2 text-left text-sm font-normal">
+      <th scope="row" className="px-3 py-2 text-start text-sm font-normal">
         {label}
         {note && <span className="block text-xs text-muted-foreground">{note}</span>}
       </th>
-      <td className="px-3 py-2 text-right text-sm tabular-nums">
+      <td className="px-3 py-2 text-end text-sm tabular-nums">
         {limit === null ? <span className="font-medium">Unlimited</span> : (
           <>
             {limit.toLocaleString()}

@@ -22,7 +22,7 @@ export function InvoiceTotals({ subtotal, tax, taxLabel = "VAT", discount, total
     </div>
   );
   return (
-    <dl className={cn("ml-auto w-full max-w-xs text-sm", className)}>
+    <dl className={cn("ms-auto w-full max-w-xs text-sm", className)}>
       {subtotal != null && <Row label="Subtotal" amount={subtotal} muted />}
       {discount != null && discount !== 0 && <Row label="Discount" amount={-Math.abs(discount)} muted />}
       {tax != null && <Row label={taxLabel} amount={tax} muted />}

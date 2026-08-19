@@ -15,7 +15,7 @@ export function CategoryNav({ items, active, onSelect, allLabel = "All", classNa
           <Button key={c.key} size="sm" variant={active === c.key ? "secondary" : "ghost"}
             className="shrink-0" onClick={() => onSelect(c.key)}>
             {c.label}
-            {c.count != null && <span className={cn("ml-1.5 tabular-nums text-muted-foreground")}>{c.count}</span>}
+            {c.count != null && <span className={cn("ms-1.5 tabular-nums text-muted-foreground")}>{c.count}</span>}
           </Button>
         ))}
       </div>

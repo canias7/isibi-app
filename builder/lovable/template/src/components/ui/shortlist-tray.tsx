@@ -32,7 +32,7 @@ export function ShortlistTray({ items, max = 4, onRemove, onCompare, onClear, cl
       <ul className="flex min-w-0 flex-wrap gap-1.5">
         {items.map((i) => (
           <li key={i.key}>
-            <span className="inline-flex items-center gap-1 rounded border border-border py-0.5 pr-0.5 pl-2 text-xs">
+            <span className="inline-flex items-center gap-1 rounded border border-border py-0.5 pe-0.5 ps-2 text-xs">
               <span className="max-w-40 truncate">{i.label}</span>
               <button type="button" onClick={() => onRemove(i.key)}
                 aria-label={`Remove ${i.label} from the shortlist`}
@@ -43,7 +43,7 @@ export function ShortlistTray({ items, max = 4, onRemove, onCompare, onClear, cl
           </li>
         ))}
       </ul>
-      <span className="ml-auto flex items-center gap-2 text-xs">
+      <span className="ms-auto flex items-center gap-2 text-xs">
         {onCompare && (
           <button type="button" onClick={onCompare} disabled={items.length < 2}
             className="cursor-pointer underline underline-offset-2 disabled:cursor-not-allowed disabled:no-underline disabled:opacity-50">

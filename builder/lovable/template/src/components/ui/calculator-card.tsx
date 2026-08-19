@@ -67,7 +67,7 @@ export function CalculatorCard({
                     min={f.min} max={f.max} step={f.step ?? 1} value={value}
                     aria-label={`${f.label}, exact value`}
                     onChange={(e) => onChange(f.key, Number(e.target.value))}
-                    className="h-8 w-20 rounded-md border border-input bg-transparent px-2 text-right text-sm tabular-nums"
+                    className="h-8 w-20 rounded-md border border-input bg-transparent px-2 text-end text-sm tabular-nums"
                   />
                   {f.unit && <span className="text-sm text-muted-foreground">{f.unit}</span>}
                 </div>

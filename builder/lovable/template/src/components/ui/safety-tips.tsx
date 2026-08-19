@@ -24,7 +24,7 @@ export function SafetyTips({ tips, title = "Before you do that", max = 3, classN
   return (
     <section aria-label={title} className={cn("rounded-md border border-border p-3", className)}>
       <p className="text-sm font-medium">{title}</p>
-      <ul className="mt-1 flex list-disc flex-col gap-0.5 pl-5 text-sm text-muted-foreground">
+      <ul className="mt-1 flex list-disc flex-col gap-0.5 ps-5 text-sm text-muted-foreground">
         {shown.map((t, i) => <li key={i}>{t}</li>)}
       </ul>
     </section>

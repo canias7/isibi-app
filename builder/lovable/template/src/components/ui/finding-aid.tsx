@@ -37,7 +37,7 @@ export function FindingAid({ path, extent, describedTo, childCount, childrenList
     <div className={cn("space-y-1 text-sm", className)}>
       <ol className="space-y-0.5">
         {path.map((l, i) => (
-          <li key={l.id} style={{ paddingLeft: `${i * 12}px` }} className="text-xs">
+          <li key={l.id} style={{ paddingInlineStart: `${i * 12}px` }} className="text-xs">
             <span className="text-muted-foreground">{l.level}</span>
             {l.reference && <span className="font-mono"> {l.reference}</span>}
             <span className={cn(i === path.length - 1 && "font-medium")}> {l.title}</span>

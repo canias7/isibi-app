@@ -22,7 +22,7 @@ export function Letterhead({ name, logo, lines, contact, className }: {
         </div>
       </div>
       {contact?.length ? (
-        <dl className="text-right text-xs">
+        <dl className="text-end text-xs">
           {contact.map((c) => (
             <div key={c.label} className="flex justify-end gap-2">
               <dt className="text-muted-foreground">{c.label}</dt><dd>{c.value}</dd>

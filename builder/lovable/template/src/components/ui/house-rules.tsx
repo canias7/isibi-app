@@ -80,7 +80,7 @@ export function HouseRules({
                   <p className={cn("text-base", r.firm ? "font-medium" : "")}>{r.what}</p>
                   {r.detail && <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{r.detail}</p>}
                 </div>
-                <div className="sm:text-right">
+                <div className="sm:text-end">
                   {r.at && <p className="text-base font-medium tabular-nums">{r.at}</p>}
                   {/* THE WORD, not a colour. A preference printed as an
                       absolute gets every rule treated as a preference. */}

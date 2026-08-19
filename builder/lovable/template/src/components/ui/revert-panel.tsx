@@ -38,7 +38,7 @@ export function RevertPanel({ versions, currentKey, onRevert, className }: {
             <div className="min-w-0">
               <p className="text-sm font-medium">
                 {v.label ?? <DateFormat date={v.at} withTime />}
-                {current && <span className="ml-2 font-normal text-muted-foreground">Current</span>}
+                {current && <span className="ms-2 font-normal text-muted-foreground">Current</span>}
               </p>
               <p className="text-xs text-muted-foreground">
                 {v.by ? `${v.by} · ` : ""}

@@ -46,12 +46,12 @@ export function FilterPreset<T>({ storageKey, current, countOf, onApply, classNa
       {presets.map((p) => (
         <span key={p.name} className="inline-flex items-center overflow-hidden rounded-full border border-border text-xs">
           <button type="button" onClick={() => onApply(p.filters)}
-            className="cursor-pointer py-1 pl-2.5 pr-1.5 hover:bg-muted">
+            className="cursor-pointer py-1 ps-2.5 pe-1.5 hover:bg-muted">
             {p.name} <span className="text-muted-foreground">· {countOf(p.filters)} filter{countOf(p.filters) === 1 ? "" : "s"}</span>
           </button>
           <button type="button" aria-label={`Delete the ${p.name} preset`}
             onClick={() => persist(presets.filter((x) => x.name !== p.name))}
-            className="cursor-pointer py-1 pl-0.5 pr-2 text-muted-foreground hover:text-foreground">
+            className="cursor-pointer py-1 ps-0.5 pe-2 text-muted-foreground hover:text-foreground">
             ×
           </button>
         </span>

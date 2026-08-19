@@ -26,7 +26,7 @@ export function SearchSuggestions({ items, query, activeIndex = -1, onSelect, cl
         // focus and was only ever tabbable by accident.
         <li key={it.label} id={`suggestion-${i}`} role="option" aria-selected={i === activeIndex}
           onMouseDown={(e) => { e.preventDefault(); onSelect(it.label, i); }}
-          className={cn("flex cursor-pointer items-center justify-between gap-3 px-3 py-1.5 text-left text-sm",
+          className={cn("flex cursor-pointer items-center justify-between gap-3 px-3 py-1.5 text-start text-sm",
             i === activeIndex ? "bg-muted" : "hover:bg-muted/60")}>
           <span className="truncate"><HighlightMatch text={it.label} query={query ?? ""} /></span>
           {it.hint && <span className="shrink-0 text-xs text-muted-foreground">{it.hint}</span>}

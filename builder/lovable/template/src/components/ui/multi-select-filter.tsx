@@ -57,7 +57,7 @@ export function MultiSelectFilter({ options, selected, onChange, searchAfter = 8
                 className="size-4 shrink-0 accent-foreground" />
               <span className="min-w-0 truncate">{o.label}</span>
               {o.count !== undefined && (
-                <span className={cn("ml-auto shrink-0 text-xs tabular-nums text-muted-foreground",
+                <span className={cn("ms-auto shrink-0 text-xs tabular-nums text-muted-foreground",
                   o.count === 0 && "italic")}>
                   {o.count === 0 ? "none" : o.count.toLocaleString()}
                 </span>

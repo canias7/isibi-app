@@ -29,7 +29,7 @@ export function TreeSelect({ nodes, value, onChange, className }: {
     const expanded = open.includes(node.value);
     return (
       <li>
-        <div className="flex items-center gap-1.5 py-1" style={{ paddingLeft: depth * 18 }}>
+        <div className="flex items-center gap-1.5 py-1" style={{ paddingInlineStart: depth * 18 }}>
           {node.children?.length ? (
             <button type="button" aria-expanded={expanded} aria-label={expanded ? `Collapse ${node.label}` : `Expand ${node.label}`}
               onClick={() => setOpen((o) => expanded ? o.filter((v) => v !== node.value) : [...o, node.value])}

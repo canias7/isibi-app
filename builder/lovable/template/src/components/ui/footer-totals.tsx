@@ -26,12 +26,12 @@ export function FooterTotals({ label = "Total", cells, scope, className }: {
   return (
     <tfoot className={cn("border-t border-border font-medium", className)}>
       <tr>
-        <th scope="row" className="px-3 py-2 text-left text-sm">
+        <th scope="row" className="px-3 py-2 text-start text-sm">
           {label}
           {scope && <span className="block text-xs font-normal text-muted-foreground">{scope}</span>}
         </th>
         {cells.map((c, i) => (
-          <td key={i} className="px-3 py-2 text-right text-sm tabular-nums">{c}</td>
+          <td key={i} className="px-3 py-2 text-end text-sm tabular-nums">{c}</td>
         ))}
       </tr>
     </tfoot>

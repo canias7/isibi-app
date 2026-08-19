@@ -46,12 +46,12 @@ export function TakeRow({ number, part, performer, seconds, keeper, partial, not
         {/* Fixed width so the duration stays in one column whether or not a
             partial range sits beside it — a length that moves between rows
             cannot be scanned down. */}
-        <span className="w-12 shrink-0 text-right tabular-nums text-muted-foreground">{mmss ?? ""}</span>
+        <span className="w-12 shrink-0 text-end tabular-nums text-muted-foreground">{mmss ?? ""}</span>
       </p>
-      <p className={cn("pl-12 text-xs", note ? "" : "text-muted-foreground")}>
+      <p className={cn("ps-12 text-xs", note ? "" : "text-muted-foreground")}>
         {note ?? "No note — this take will be indistinguishable from the others by next week."}
       </p>
-      {keeper && <p className="pl-12 text-xs text-muted-foreground">Marked to use.</p>}
+      {keeper && <p className="ps-12 text-xs text-muted-foreground">Marked to use.</p>}
     </li>
   );
 }

@@ -146,7 +146,7 @@ export function SafeImage({
               // A solid bar, not a gradient scrim. The scrim version was
               // unreadable on every theme it was tried against, because the
               // text sat on whatever the band underneath happened to be.
-              <span className="absolute inset-x-0 bottom-0 line-clamp-2 bg-background/85 px-2.5 py-1.5 text-left text-[11px] font-medium leading-snug text-foreground/80">
+              <span className="absolute inset-x-0 bottom-0 line-clamp-2 bg-background/85 px-2.5 py-1.5 text-start text-[11px] font-medium leading-snug text-foreground/80">
                 {alt}
               </span>
             )}

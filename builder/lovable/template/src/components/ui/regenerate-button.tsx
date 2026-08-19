@@ -36,14 +36,14 @@ export function RegenerateButton({ onRegenerate, busy, variants = VARIANTS, clas
   return (
     <span className={cn("inline-flex items-center rounded-md border border-border", className)}>
       <button type="button" onClick={() => onRegenerate("retry")} disabled={busy}
-        className="inline-flex cursor-pointer items-center gap-1.5 rounded-l-md px-2 py-1 text-xs font-medium hover:bg-muted disabled:pointer-events-none disabled:opacity-50">
+        className="inline-flex cursor-pointer items-center gap-1.5 rounded-s-md px-2 py-1 text-xs font-medium hover:bg-muted disabled:pointer-events-none disabled:opacity-50">
         <RefreshCw aria-hidden className={cn("size-3.5", busy && "motion-safe:animate-spin")} />
         {busy ? "Working…" : "Try again"}
       </button>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <button type="button" disabled={busy} aria-label="Try again, differently"
-            className="cursor-pointer rounded-r-md border-l border-border px-1 py-1 hover:bg-muted disabled:pointer-events-none disabled:opacity-50">
+            className="cursor-pointer rounded-e-md border-s border-border px-1 py-1 hover:bg-muted disabled:pointer-events-none disabled:opacity-50">
             <ChevronDown aria-hidden className="size-3.5 text-muted-foreground" />
           </button>
         </PopoverTrigger>
@@ -52,7 +52,7 @@ export function RegenerateButton({ onRegenerate, busy, variants = VARIANTS, clas
             {variants.map((v) => (
               <li key={v.key}>
                 <button type="button" onClick={() => { setOpen(false); onRegenerate(v.key); }}
-                  className="w-full cursor-pointer rounded px-2 py-1.5 text-left text-sm hover:bg-muted">
+                  className="w-full cursor-pointer rounded px-2 py-1.5 text-start text-sm hover:bg-muted">
                   {v.label}
                   {v.hint ? <span className="block text-xs text-muted-foreground">{v.hint}</span> : null}
                 </button>

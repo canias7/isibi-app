@@ -26,7 +26,7 @@ export function TopNPicker({ choices = [5, 10, 20], n, other, onChange, classNam
         {[...choices.map((c) => ({ label: `Top ${c}`, val: c as number | null })), { label: "All", val: null }].map((o) => (
           <button key={o.label} type="button" aria-pressed={n === o.val}
             onClick={() => onChange({ n: o.val, other })}
-            className={cn("cursor-pointer border-r border-border px-2.5 py-1 text-xs last:border-r-0",
+            className={cn("cursor-pointer border-e border-border px-2.5 py-1 text-xs last:border-e-0",
               n === o.val ? "bg-foreground font-medium text-background" : "hover:bg-muted")}>
             {o.label}
           </button>

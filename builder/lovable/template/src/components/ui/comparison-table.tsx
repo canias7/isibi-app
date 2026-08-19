@@ -11,14 +11,14 @@ export function ComparisonTable({ columns, rows, className }: {
       <table className="w-full min-w-[32rem] text-sm">
         <thead>
           <tr className="border-b">
-            <th className="py-3 text-left font-medium">Feature</th>
+            <th className="py-3 text-start font-medium">Feature</th>
             {columns.map((c) => <th key={c} className="px-4 py-3 text-center font-medium">{c}</th>)}
           </tr>
         </thead>
         <tbody>
           {rows.map((r) => (
             <tr key={r.feature} className="border-b border-border last:border-0">
-              <th scope="row" className="py-3 text-left font-normal text-muted-foreground">{r.feature}</th>
+              <th scope="row" className="py-3 text-start font-normal text-muted-foreground">{r.feature}</th>
               {r.values.map((v, i) => (
                 <td key={i} className={cn("px-4 py-3 text-center", typeof v === "string" && "tabular-nums")}>
                   {typeof v === "boolean"

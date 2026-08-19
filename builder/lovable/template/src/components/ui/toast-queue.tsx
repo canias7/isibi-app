@@ -68,7 +68,7 @@ export function ToastQueueItem({ toast, onDismiss, className }: {
         <p className="text-sm font-medium">
           {toast.title}
           {toast.count && toast.count > 1 ? (
-            <span className="ml-1.5 text-xs font-normal text-muted-foreground tabular-nums">({toast.count})</span>
+            <span className="ms-1.5 text-xs font-normal text-muted-foreground tabular-nums">({toast.count})</span>
           ) : null}
         </p>
         {toast.detail ? <p className="mt-0.5 text-xs text-muted-foreground">{toast.detail}</p> : null}

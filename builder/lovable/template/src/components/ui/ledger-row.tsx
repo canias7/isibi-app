@@ -49,14 +49,14 @@ export function LedgerRow({ date, description, reference, debit, credit, balance
             money columns are read out as three numbers, which is precisely the
             ambiguity the two-column layout exists to remove. The caller renders
             the visible header. */}
-        <span className="w-24 shrink-0 text-right tabular-nums">
+        <span className="w-24 shrink-0 text-end tabular-nums">
           {debit !== undefined && <><span className="sr-only">Debit </span>{money(debit)}</>}
         </span>
-        <span className="w-24 shrink-0 text-right tabular-nums">
+        <span className="w-24 shrink-0 text-end tabular-nums">
           {credit !== undefined && <><span className="sr-only">Credit </span>{money(credit)}</>}
         </span>
         {balance !== undefined && (
-          <span className="w-24 shrink-0 text-right tabular-nums text-muted-foreground">
+          <span className="w-24 shrink-0 text-end tabular-nums text-muted-foreground">
             <span className="sr-only">Balance </span>{money(balance)}
           </span>
         )}

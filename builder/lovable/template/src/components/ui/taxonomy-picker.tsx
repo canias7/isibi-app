@@ -57,7 +57,7 @@ export function TaxonomyPicker({ tree, path, onChange, placeholder = "Nothing ch
             {col.map((n) => (
               <li key={n.id}>
                 <button type="button" onClick={() => onChange([...path.slice(0, depth), n.id])}
-                  className={cn("w-full px-2.5 py-1.5 text-left text-sm hover:bg-muted",
+                  className={cn("w-full px-2.5 py-1.5 text-start text-sm hover:bg-muted",
                     path[depth] === n.id && "bg-muted font-medium")}>
                   {n.label}
                   {n.children?.length ? <span aria-hidden="true" className="float-right text-muted-foreground">›</span> : null}

@@ -33,7 +33,7 @@ export function BlameGutter({ lines, startLine = 1, className }: {
               className={cn("w-28 shrink-0 truncate", same ? "text-transparent" : "text-muted-foreground")}>
               {l.by}
             </span>
-            <span aria-hidden className="w-8 shrink-0 text-right text-muted-foreground tabular-nums">
+            <span aria-hidden className="w-8 shrink-0 text-end text-muted-foreground tabular-nums">
               {startLine + i}
             </span>
             <span className="whitespace-pre">

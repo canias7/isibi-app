@@ -25,7 +25,7 @@ export function OnCall({ name, role, phone, until, avatar, empty = "Nobody is on
   return (
     <div className={cn("flex flex-wrap items-center gap-3 rounded-md border border-border p-3", className)}>
       <AvatarName name={name} subtitle={role} src={avatar} size="md" />
-      <div className="ml-auto text-right text-xs text-muted-foreground">
+      <div className="ms-auto text-end text-xs text-muted-foreground">
         {ok && <p>Until {d.toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" })}</p>}
         {phone && (
           <a href={`tel:${phone.replace(/[^+\d]/g, "")}`}

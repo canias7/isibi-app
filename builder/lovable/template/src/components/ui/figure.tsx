@@ -10,7 +10,7 @@ export function Figure({ src, alt, caption, credit, ratio = "16/9", className }:
       <SafeImage src={src} alt={alt} ratio={ratio} />
       {(caption || credit) && (
         <figcaption className="text-sm text-muted-foreground">
-          {caption}{credit && <span className="ml-2 text-xs">{credit}</span>}
+          {caption}{credit && <span className="ms-2 text-xs">{credit}</span>}
         </figcaption>
       )}
     </figure>

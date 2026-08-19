@@ -29,7 +29,7 @@ export function SetupTask({ title, why, done, optional, action, className }: {
         <p className={cn("text-sm font-medium", done && "text-muted-foreground line-through")}>
           {done && <span className="sr-only">Done: </span>}
           {title}
-          {optional && <span className="ml-2 font-normal text-muted-foreground">Optional</span>}
+          {optional && <span className="ms-2 font-normal text-muted-foreground">Optional</span>}
         </p>
         {why && !done && <p className="text-xs text-muted-foreground">{why}</p>}
       </div>

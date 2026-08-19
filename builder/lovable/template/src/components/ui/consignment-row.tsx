@@ -49,7 +49,7 @@ export function ConsignmentRow({ reference, carrierReference, carrier, from, to,
       <p className="flex flex-wrap items-baseline gap-x-2">
         <code className="font-mono text-xs">{reference}</code>
         {carrierReference && <code className="font-mono text-xs text-muted-foreground">{carrierReference}</code>}
-        <span className={cn("ml-auto text-xs", state === "exception" ? "font-medium" : "text-muted-foreground")}>
+        <span className={cn("ms-auto text-xs", state === "exception" ? "font-medium" : "text-muted-foreground")}>
           {WORD[state]}
         </span>
       </p>

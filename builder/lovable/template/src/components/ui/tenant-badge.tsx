@@ -46,7 +46,7 @@ export function TenantBadge({ name, environment, actingAs, onLeave, className }:
         <span className="block text-xs opacity-80">This is not your own workspace.</span>
       </span>
       {onLeave && (
-        <button type="button" onClick={onLeave} className="ml-auto text-xs underline underline-offset-2">
+        <button type="button" onClick={onLeave} className="ms-auto text-xs underline underline-offset-2">
           Leave it
         </button>
       )}

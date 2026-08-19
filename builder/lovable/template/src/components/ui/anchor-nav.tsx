@@ -20,10 +20,10 @@ export function AnchorNav({ items, className }: {
     return () => io.disconnect();
   }, [items]);
   return (
-    <nav className={cn("flex flex-col gap-1 border-l text-sm", className)}>
+    <nav className={cn("flex flex-col gap-1 border-s text-sm", className)}>
       {items.map((it) => (
         <a key={it.id} href={"#" + it.id}
-          className={cn("-ml-px border-l-2 pl-3 py-1",
+          className={cn("-ml-px border-s-2 ps-3 py-1",
             active === it.id ? "border-foreground font-medium" : "border-transparent text-muted-foreground hover:text-foreground")}>
           {it.label}
         </a>

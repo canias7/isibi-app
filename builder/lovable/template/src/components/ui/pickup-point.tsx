@@ -22,7 +22,7 @@ export function PickupPoint({ name, address, hours, note, selected, onSelect, cl
       </span>
     </>
   );
-  const cls = cn("flex w-full items-start gap-3 rounded-lg border p-3 text-left",
+  const cls = cn("flex w-full items-start gap-3 rounded-lg border p-3 text-start",
     selected ? "border-foreground" : "border-border", className);
   return onSelect
     ? <button type="button" onClick={onSelect} aria-pressed={selected}

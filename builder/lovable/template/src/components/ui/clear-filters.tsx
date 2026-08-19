@@ -34,7 +34,7 @@ export function ClearFilters({ activeCount, onClear, query, onClearQuery, label 
       {activeCount > 0 && (
         <button type="button" onClick={onClear} className="underline underline-offset-2">
           {label}
-          <span className="ml-1 tabular-nums text-muted-foreground">{activeCount}</span>
+          <span className="ms-1 tabular-nums text-muted-foreground">{activeCount}</span>
         </button>
       )}
       {query && (

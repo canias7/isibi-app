@@ -7,7 +7,7 @@ export function Callout({ tone = "neutral", title, icon, className, children }: 
   const rule = { neutral: "border-border", success: "border-success",
                  warning: "border-warning", error: "border-destructive" }[tone];
   return (
-    <aside className={cn("border-l-2 py-1 pl-4", rule, className)}>
+    <aside className={cn("border-s-2 py-1 ps-4", rule, className)}>
       {(title || icon) && (
         <div className="flex items-center gap-2 font-medium">
           {icon && <span className="[&_svg]:size-4">{icon}</span>}{title}

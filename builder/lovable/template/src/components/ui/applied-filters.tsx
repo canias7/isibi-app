@@ -15,7 +15,7 @@ export function AppliedFilters({ filters, onRemove, onClearAll, className }: {
   return (
     <div className={cn("flex flex-wrap items-center gap-2", className)}>
       {filters.map((f) => (
-        <span key={f.key} className="inline-flex items-center gap-1.5 rounded-full border border-border py-1 pl-2.5 pr-1 text-xs">
+        <span key={f.key} className="inline-flex items-center gap-1.5 rounded-full border border-border py-1 ps-2.5 pe-1 text-xs">
           <span className="text-muted-foreground">{f.label}:</span>
           <span>{f.value}</span>
           <button type="button" onClick={() => onRemove(f.key)} aria-label={`Remove ${f.label} filter`}

@@ -32,9 +32,9 @@ export function NestIndent({ depth, unit = 16, max = 12, className }: {
       <span className="sr-only">Level {d + 1}. </span>
       {Array.from({ length: d }, (_, i) => (
         <span key={i} aria-hidden style={{ width: unit }} className="relative inline-block">
-          <span className={cn("absolute top-0 left-1/2 w-px bg-border", i === d - 1 ? "h-1/2" : "h-full")} />
+          <span className={cn("absolute top-0 start-1/2 w-px bg-border", i === d - 1 ? "h-1/2" : "h-full")} />
           {i === d - 1 && (
-            <span className="absolute top-1/2 left-1/2 h-px w-1/2 bg-border" />
+            <span className="absolute top-1/2 start-1/2 h-px w-1/2 bg-border" />
           )}
         </span>
       ))}

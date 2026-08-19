@@ -50,7 +50,7 @@ export function ProsCons({ pros, cons, forLabel = "For", againstLabel = "Against
               <span className={cn("min-w-0", i.weight === "high" && "font-medium")}>
                 {i.text}
                 {i.weight === "high" ? (
-                  <span className="ml-1.5 text-xs font-normal text-muted-foreground">counts for a lot</span>
+                  <span className="ms-1.5 text-xs font-normal text-muted-foreground">counts for a lot</span>
                 ) : null}
               </span>
             </li>

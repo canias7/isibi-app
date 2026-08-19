@@ -63,7 +63,7 @@ export function SheetStack({ sheets, onBack, onCloseAll, side = "right", classNa
             {...(i === top ? {} : { inert: true })}
             style={{ [side]: `${back * 12}px`, zIndex: 41 + i }}
             className={cn("fixed inset-y-0 flex w-[min(28rem,calc(100vw-3rem))] flex-col border-border bg-popover shadow-xl",
-              side === "right" ? "border-l" : "border-r",
+              side === "right" ? "border-s" : "border-e",
               i !== top && "opacity-60", className)}
           >
             <div className="flex items-center gap-2 border-b border-border px-3 py-2">

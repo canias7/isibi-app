@@ -40,22 +40,22 @@ export function ConflictMerge({
       <table className="w-full border-collapse text-sm">
         <thead>
           <tr className="border-b border-border text-xs text-muted-foreground">
-            <th scope="col" className="px-2 py-1.5 text-left font-medium">Field</th>
-            <th scope="col" className="px-2 py-1.5 text-left font-medium">{mineLabel}</th>
-            <th scope="col" className="px-2 py-1.5 text-left font-medium">{theirsLabel}</th>
+            <th scope="col" className="px-2 py-1.5 text-start font-medium">Field</th>
+            <th scope="col" className="px-2 py-1.5 text-start font-medium">{mineLabel}</th>
+            <th scope="col" className="px-2 py-1.5 text-start font-medium">{theirsLabel}</th>
           </tr>
         </thead>
         <tbody>
           {conflicts.map((c) => (
             <tr key={c.key} className="border-b border-border align-top last:border-0">
-              <th scope="row" className="px-2 py-2 text-left font-normal text-muted-foreground">{c.label}</th>
+              <th scope="row" className="px-2 py-2 text-start font-normal text-muted-foreground">{c.label}</th>
               {(["mine", "theirs"] as const).map((side) => {
                 const on = choices[c.key] === side;
                 return (
                   <td key={side} className="p-1">
                     <button type="button" onClick={() => onChoose(c.key, side)}
                       aria-pressed={on}
-                      className={cn("w-full cursor-pointer rounded-md border p-2 text-left text-sm",
+                      className={cn("w-full cursor-pointer rounded-md border p-2 text-start text-sm",
                         on ? "border-foreground bg-muted font-medium" : "border-border hover:bg-muted/60")}>
                       {side === "mine" ? c.mine : c.theirs}
                     </button>

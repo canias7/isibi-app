@@ -9,7 +9,7 @@ export function SortableHeader({ label, direction, onSort, numeric, className }:
   return (
     <button type="button" onClick={onSort}
       aria-sort={direction === "asc" ? "ascending" : direction === "desc" ? "descending" : "none"}
-      className={cn("group flex cursor-pointer items-center gap-1 font-medium", numeric && "ml-auto", className)}>
+      className={cn("group flex cursor-pointer items-center gap-1 font-medium", numeric && "ms-auto", className)}>
       {label}
       <Icon className={cn("size-3.5", direction ? "text-foreground" : "text-muted-foreground/50")} />
     </button>

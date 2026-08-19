@@ -31,7 +31,7 @@ export function ContentWarning({ category, why, children, className }: {
       <div className={shown ? "" : "invisible"} aria-hidden={!shown}>{children}</div>
       {shown ? (
         <button type="button" onClick={() => setShown(false)}
-          className="absolute right-2 top-2 cursor-pointer rounded-md border border-border bg-background/90 px-2 py-0.5 text-xs shadow-sm">
+          className="absolute end-2 top-2 cursor-pointer rounded-md border border-border bg-background/90 px-2 py-0.5 text-xs shadow-sm">
           Hide again
         </button>
       ) : (

@@ -13,14 +13,14 @@ import { cn } from "@/lib/utils";
  * Exported as a class string as well as a component, since the corner is
  * sometimes a `<th>` the caller must render themselves.
  */
-export const FROZEN_CORNER = "sticky top-0 left-0 z-30 bg-background";
+export const FROZEN_CORNER = "sticky top-0 start-0 z-30 bg-background";
 
 export function FrozenCorner({ children, className, ...rest }: {
   children?: React.ReactNode;
   className?: string;
 } & React.ThHTMLAttributes<HTMLTableCellElement>) {
   return (
-    <th {...rest} className={cn(FROZEN_CORNER, "px-3 py-2 text-left", className)}>
+    <th {...rest} className={cn(FROZEN_CORNER, "px-3 py-2 text-start", className)}>
       {children}
     </th>
   );

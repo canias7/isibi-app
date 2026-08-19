@@ -53,16 +53,16 @@ export function FieldMapping({ rows, targets, onChange, skipLabel = "Do not impo
       <table className="w-full text-sm">
         <thead>
           <tr className="text-xs text-muted-foreground">
-            <th scope="col" className="px-2 py-1 text-left font-normal">Their field</th>
-            <th scope="col" className="px-2 py-1 text-left font-normal">Goes to</th>
+            <th scope="col" className="px-2 py-1 text-start font-normal">Their field</th>
+            <th scope="col" className="px-2 py-1 text-start font-normal">Goes to</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
           {rows.map((r) => (
             <tr key={r.id}>
-              <th scope="row" className="px-2 py-1.5 text-left font-normal">
+              <th scope="row" className="px-2 py-1.5 text-start font-normal">
                 {r.source}
-                {r.required && <span className="ml-1.5 text-xs text-muted-foreground">required</span>}
+                {r.required && <span className="ms-1.5 text-xs text-muted-foreground">required</span>}
                 {r.sourceType && <span className="block text-xs text-muted-foreground">{r.sourceType}</span>}
               </th>
               <td className="px-2 py-1.5">

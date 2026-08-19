@@ -23,7 +23,7 @@ export function RecentSearches({ items, onSelect, onRemove, onClear, className }
         {items.map((q) => (
           <li key={q} className="group flex items-center gap-2 rounded px-2 hover:bg-muted">
             <button type="button" onClick={() => onSelect(q)}
-              className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 py-1.5 text-left text-sm">
+              className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 py-1.5 text-start text-sm">
               <Clock className="size-3.5 shrink-0 text-muted-foreground" />
               <span className="truncate">{q}</span>
             </button>

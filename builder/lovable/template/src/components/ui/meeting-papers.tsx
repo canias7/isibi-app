@@ -86,7 +86,7 @@ export function MeetingPapers({
               </span>
               {/* max-w so a long status cannot consume the row: `shrink-0`
                   alone lets the widest state decide the whole layout. */}
-              <span className="shrink-0 max-w-[13rem] text-right">
+              <span className="shrink-0 max-w-[13rem] text-end">
                 {/* AGENDA. Out, due, or LATE — and late is said rather than
                     softened, because a resident is the one it costs. */}
                 {m.agendaHref ? (

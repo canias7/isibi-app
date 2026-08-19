@@ -32,7 +32,7 @@ export function SamplePreview({ headers, rows, total, className }: {
           <thead>
             <tr className="border-b border-border bg-muted/40">
               {headers.map((h) => (
-                <th key={h} scope="col" className="px-2 py-1.5 text-left font-medium whitespace-nowrap">{h}</th>
+                <th key={h} scope="col" className="px-2 py-1.5 text-start font-medium whitespace-nowrap">{h}</th>
               ))}
             </tr>
           </thead>

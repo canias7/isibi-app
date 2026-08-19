@@ -43,17 +43,17 @@ export function LeagueTable({ rows, caption, pointsFor = 3, className }: {
   return (
     <div className={cn("overflow-x-auto", className)}>
       <table className="w-full border-collapse text-sm">
-        {caption && <caption className="pb-3 text-left text-xs font-medium uppercase tracking-widest text-muted-foreground">{caption}</caption>}
+        {caption && <caption className="pb-3 text-start text-xs font-medium uppercase tracking-widest text-muted-foreground">{caption}</caption>}
         <thead>
-          <tr className="border-b border-border text-left text-xs uppercase tracking-widest text-muted-foreground">
-            <th scope="col" className="py-2 pr-3 font-medium">#</th>
-            <th scope="col" className="py-2 pr-4 font-medium">Team</th>
-            <th scope="col" className="py-2 pr-3 text-right font-medium">P</th>
-            <th scope="col" className="py-2 pr-3 text-right font-medium">W</th>
-            <th scope="col" className="py-2 pr-3 text-right font-medium">D</th>
-            <th scope="col" className="py-2 pr-3 text-right font-medium">L</th>
-            <th scope="col" className="py-2 pr-3 text-right font-medium">GD</th>
-            <th scope="col" className="py-2 text-right font-medium">Pts</th>
+          <tr className="border-b border-border text-start text-xs uppercase tracking-widest text-muted-foreground">
+            <th scope="col" className="py-2 pe-3 font-medium">#</th>
+            <th scope="col" className="py-2 pe-4 font-medium">Team</th>
+            <th scope="col" className="py-2 pe-3 text-end font-medium">P</th>
+            <th scope="col" className="py-2 pe-3 text-end font-medium">W</th>
+            <th scope="col" className="py-2 pe-3 text-end font-medium">D</th>
+            <th scope="col" className="py-2 pe-3 text-end font-medium">L</th>
+            <th scope="col" className="py-2 pe-3 text-end font-medium">GD</th>
+            <th scope="col" className="py-2 text-end font-medium">Pts</th>
           </tr>
         </thead>
         <tbody>
@@ -66,19 +66,19 @@ export function LeagueTable({ rows, caption, pointsFor = 3, className }: {
                 className={cn("border-b border-border/60", r.zone && "border-t-2 border-t-foreground",
                   r.us && "font-semibold")}
               >
-                <td className="py-2.5 pr-3 tabular-nums text-muted-foreground">
-                  {r.us && <span aria-hidden="true" className="mr-1">▸</span>}{i + 1}
+                <td className="py-2.5 pe-3 tabular-nums text-muted-foreground">
+                  {r.us && <span aria-hidden="true" className="me-1">▸</span>}{i + 1}
                 </td>
-                <th scope="row" className="py-2.5 pr-4 text-left font-[inherit]">
+                <th scope="row" className="py-2.5 pe-4 text-start font-[inherit]">
                   {r.team}
-                  {r.zone && <span className="ml-2 text-xs font-normal uppercase tracking-widest text-muted-foreground">{r.zone} line</span>}
+                  {r.zone && <span className="ms-2 text-xs font-normal uppercase tracking-widest text-muted-foreground">{r.zone} line</span>}
                 </th>
-                <td className="py-2.5 pr-3 text-right tabular-nums">{r.played}</td>
-                <td className="py-2.5 pr-3 text-right tabular-nums">{r.won}</td>
-                <td className="py-2.5 pr-3 text-right tabular-nums">{r.drawn}</td>
-                <td className="py-2.5 pr-3 text-right tabular-nums">{r.lost}</td>
-                <td className="py-2.5 pr-3 text-right tabular-nums">{gd > 0 ? `+${gd}` : gd}</td>
-                <td className="py-2.5 text-right tabular-nums font-semibold">{pts(r)}</td>
+                <td className="py-2.5 pe-3 text-end tabular-nums">{r.played}</td>
+                <td className="py-2.5 pe-3 text-end tabular-nums">{r.won}</td>
+                <td className="py-2.5 pe-3 text-end tabular-nums">{r.drawn}</td>
+                <td className="py-2.5 pe-3 text-end tabular-nums">{r.lost}</td>
+                <td className="py-2.5 pe-3 text-end tabular-nums">{gd > 0 ? `+${gd}` : gd}</td>
+                <td className="py-2.5 text-end tabular-nums font-semibold">{pts(r)}</td>
               </tr>
             );
           })}

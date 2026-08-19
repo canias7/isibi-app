@@ -18,8 +18,8 @@ export function TimelineHorizontal({ steps, current = 0, className }: {
   return (
     <div className={cn("overflow-x-auto pb-2", className)}>
       <ol className="relative flex min-w-max gap-12 px-3 pt-4">
-        <span className="absolute left-3 right-3 top-[1.4375rem] h-px bg-border" aria-hidden="true" />
-        <span className="absolute left-3 top-[1.4375rem] h-px bg-foreground" aria-hidden="true"
+        <span className="absolute start-3 end-3 top-[1.4375rem] h-px bg-border" aria-hidden="true" />
+        <span className="absolute start-3 top-[1.4375rem] h-px bg-foreground" aria-hidden="true"
           style={{ width: `calc((100% - 1.5rem) * ${pct / 100})` }} />
         {steps.map((s, i) => (
           <li key={s.label} className="relative flex w-28 flex-col items-center text-center">

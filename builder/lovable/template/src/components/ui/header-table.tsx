@@ -51,7 +51,7 @@ export function HeaderTable({ headers, mask = [], title, className }: {
             const open = shown.has(k);
             return (
               <tr key={k} className="border-b border-border align-top last:border-0">
-                <th scope="row" className="w-1/3 px-3 py-1 text-left font-medium break-all">{k}</th>
+                <th scope="row" className="w-1/3 px-3 py-1 text-start font-medium break-all">{k}</th>
                 <td className="px-3 py-1 break-all">
                   {secret && !open ? "•".repeat(Math.min(28, Math.max(8, v.length))) : v}
                 </td>

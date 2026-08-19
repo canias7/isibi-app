@@ -50,7 +50,7 @@ export function ProofUpload({ accepted = [], onFile, files = [], retention, busy
           {files.map((f) => (
             <li key={f.id} className="flex items-start gap-3 px-3 py-2">
               <span className="min-w-0 flex-1 truncate">{f.name}</span>
-              <span className="shrink-0 text-right">
+              <span className="shrink-0 text-end">
                 <span className={cn("block text-xs", f.state === "rejected" ? "font-medium" : "text-muted-foreground")}>
                   {WORD[f.state]}
                 </span>

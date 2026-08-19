@@ -61,14 +61,14 @@ export function PaneTabs({ tabs, active, onSelect, onClose, className }: {
               if (e.key === "ArrowRight") { e.preventDefault(); onSelect(tabs[(i + 1) % tabs.length].key); }
               if (e.key === "ArrowLeft") { e.preventDefault(); onSelect(tabs[(i - 1 + tabs.length) % tabs.length].key); }
             }}
-            className={cn("cursor-pointer border-r border-border py-1.5 pr-7 pl-3 text-xs whitespace-nowrap",
+            className={cn("cursor-pointer border-e border-border py-1.5 pe-7 ps-3 text-xs whitespace-nowrap",
               t.key === active ? "bg-background font-medium" : "bg-muted/40 text-muted-foreground hover:text-foreground")}
           >
             {t.label}
             {t.dirty ? <span className="sr-only"> (unsaved)</span> : null}
           </button>
           {onClose ? (
-            <span className="absolute right-1.5">
+            <span className="absolute end-1.5">
               {/* The dot occupies the close button's place until hovered — it is
                   the only warning that closing loses work. */}
               {t.dirty ? (

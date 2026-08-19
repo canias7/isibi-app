@@ -43,7 +43,7 @@ export function TagCloud({ tags, selected = [], onToggle, className }: {
                 STEPS[step],
                 on ? "border-foreground bg-foreground text-background" : "border-border")}>
               {t.label}
-              <span className={cn("ml-1.5 text-xs tabular-nums", !on && "text-muted-foreground")}>{t.count}</span>
+              <span className={cn("ms-1.5 text-xs tabular-nums", !on && "text-muted-foreground")}>{t.count}</span>
             </button>
           </li>
         );

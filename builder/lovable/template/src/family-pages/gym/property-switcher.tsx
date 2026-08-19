@@ -106,7 +106,7 @@ function P() {
             {HOUSES.map((x) => (
               <li key={x.key}>
                 <button type="button" onClick={() => setKey(x.key)} aria-current={x.key === key ? "true" : undefined}
-                  className={cn("w-full cursor-pointer px-4 py-3.5 text-left", x.key === key ? "bg-muted" : "hover:bg-muted/50")}>
+                  className={cn("w-full cursor-pointer px-4 py-3.5 text-start", x.key === key ? "bg-muted" : "hover:bg-muted/50")}>
                   <span className="flex flex-wrap items-baseline justify-between gap-x-3">
                     <span className={cn("text-base", x.key === key ? "font-semibold" : "font-medium")}>{x.name}</span>
                     <span className="text-sm tabular-nums text-muted-foreground">from £{x.from}</span>

@@ -49,35 +49,35 @@ export function UsageBreakdown({ lines, total, period, className }: {
         <table className="w-full text-sm">
           <thead>
             <tr className="text-xs text-muted-foreground">
-              <th scope="col" className="px-2 py-1 text-left font-normal">What</th>
-              <th scope="col" className="px-2 py-1 text-right font-normal">Used</th>
-              <th scope="col" className="px-2 py-1 text-right font-normal">Charged</th>
+              <th scope="col" className="px-2 py-1 text-start font-normal">What</th>
+              <th scope="col" className="px-2 py-1 text-end font-normal">Used</th>
+              <th scope="col" className="px-2 py-1 text-end font-normal">Charged</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {sorted.map((l) => (
               <tr key={l.id}>
-                <th scope="row" className="px-2 py-1.5 text-left font-normal">
+                <th scope="row" className="px-2 py-1.5 text-start font-normal">
                   {l.label}
                   {l.unitPrice && <span className="block text-xs text-muted-foreground">{l.unitPrice} each</span>}
                 </th>
-                <td className="px-2 py-1.5 text-right tabular-nums">
+                <td className="px-2 py-1.5 text-end tabular-nums">
                   {l.used.toLocaleString()}
                   {l.unit && <span className="text-xs text-muted-foreground"> {l.unit}</span>}
                   {l.included !== undefined && (
                     <span className="block text-xs text-muted-foreground">{l.included.toLocaleString()} included</span>
                   )}
                 </td>
-                <td className="px-2 py-1.5 text-right tabular-nums">{l.cost}</td>
+                <td className="px-2 py-1.5 text-end tabular-nums">{l.cost}</td>
               </tr>
             ))}
           </tbody>
           {total && (
             <tfoot>
               <tr className="border-t border-border font-medium">
-                <th scope="row" className="px-2 py-1.5 text-left">Total</th>
+                <th scope="row" className="px-2 py-1.5 text-start">Total</th>
                 <td />
-                <td className="px-2 py-1.5 text-right tabular-nums">{total}</td>
+                <td className="px-2 py-1.5 text-end tabular-nums">{total}</td>
               </tr>
             </tfoot>
           )}

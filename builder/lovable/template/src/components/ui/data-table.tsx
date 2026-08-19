@@ -32,7 +32,7 @@ export function DataTable<T extends Record<string, unknown>>({
           <TableRow>
             {columns.map((c) => (
               <TableHead key={c.key} style={c.width ? { width: c.width } : undefined}
-                className={cn(c.numeric && "text-right")}>{c.header}</TableHead>
+                className={cn(c.numeric && "text-end")}>{c.header}</TableHead>
             ))}
           </TableRow>
         </TableHeader>
@@ -42,7 +42,7 @@ export function DataTable<T extends Record<string, unknown>>({
               onClick={onRowClick ? () => onRowClick(r) : undefined}
               className={cn(onRowClick && "cursor-pointer")}>
               {columns.map((c) => (
-                <TableCell key={c.key} className={cn(c.numeric && "text-right tabular-nums")}>
+                <TableCell key={c.key} className={cn(c.numeric && "text-end tabular-nums")}>
                   {c.cell ? c.cell(r) : String(r[c.key] ?? "")}
                 </TableCell>
               ))}

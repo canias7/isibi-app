@@ -64,7 +64,7 @@ export function ChangelogFeed({ releases, sinceVersion, className }: {
                   <span className="min-w-0">
                     <span className="text-muted-foreground">{KIND[i.kind]}: </span>
                     {i.text}
-                    {i.breaking && <span className="ml-1.5 text-xs font-medium">needs action</span>}
+                    {i.breaking && <span className="ms-1.5 text-xs font-medium">needs action</span>}
                   </span>
                 </li>
               ))}

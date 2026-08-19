@@ -11,7 +11,7 @@ export function Comment({ author, at, body, avatar, actions, edited, className }
       <div className="flex flex-wrap items-center justify-between gap-2">
         <AvatarName name={author} src={avatar} size="sm" />
         <span className="text-xs text-muted-foreground">
-          {at && <TimeAgo date={at} />}{edited && <span className="ml-1">(edited)</span>}
+          {at && <TimeAgo date={at} />}{edited && <span className="ms-1">(edited)</span>}
         </span>
       </div>
       <div className="text-sm">{body}</div>

@@ -42,7 +42,7 @@ export function AdvancedToggle({ label = "Advanced", storageKey = "advanced-open
         <ChevronRight className={cn("size-4 transition-transform", open && "rotate-90")} />
         {label}
       </button>
-      {open ? <div className="pl-5">{children}</div> : null}
+      {open ? <div className="ps-5">{children}</div> : null}
     </div>
   );
 }

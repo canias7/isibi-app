@@ -51,7 +51,7 @@ export function ZoomControls({ value, onChange, onFit, min = 0.1, max = 8, class
     <div className={cn("inline-flex items-center rounded-md border border-border bg-background", className)}>
       <button type="button" onClick={() => onChange(zoomStep(value, -1, min, max))}
         disabled={value <= min} aria-label="Zoom out"
-        className="cursor-pointer rounded-l-md p-1.5 hover:bg-muted disabled:pointer-events-none disabled:opacity-40">
+        className="cursor-pointer rounded-s-md p-1.5 hover:bg-muted disabled:pointer-events-none disabled:opacity-40">
         <ZoomOut aria-hidden className="size-4" />
       </button>
       <button type="button" onClick={() => onChange(1)}
@@ -66,7 +66,7 @@ export function ZoomControls({ value, onChange, onFit, min = 0.1, max = 8, class
       </button>
       {onFit ? (
         <button type="button" onClick={onFit} aria-label="Fit to the screen"
-          className="cursor-pointer rounded-r-md border-l border-border p-1.5 hover:bg-muted">
+          className="cursor-pointer rounded-e-md border-s border-border p-1.5 hover:bg-muted">
           <Maximize2 aria-hidden className="size-4" />
         </button>
       ) : null}

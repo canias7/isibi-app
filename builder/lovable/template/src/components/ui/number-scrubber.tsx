@@ -35,7 +35,7 @@ export function NumberScrubber({ value, onChange, step = 1, min, max, label, suf
         e.preventDefault();
         onChange(clamp(round(value + d * step * (e.shiftKey ? 10 : 1))));
       }}>
-      {label && <span className="mr-1 text-xs text-muted-foreground">{label}</span>}
+      {label && <span className="me-1 text-xs text-muted-foreground">{label}</span>}
       {value}{suffix}
     </span>
   );

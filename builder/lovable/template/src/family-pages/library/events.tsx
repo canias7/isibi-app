@@ -26,7 +26,7 @@ function P() {
           ].map((e) => (
             <div key={e.title}>
               <EventCard title={e.title} start={e.start} venue={e.venue} />
-              <p className="mt-1.5 pl-1 text-sm text-muted-foreground">{e.note}</p>
+              <p className="mt-1.5 ps-1 text-sm text-muted-foreground">{e.note}</p>
             </div>
           ))}
         </div>

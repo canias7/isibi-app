@@ -29,7 +29,7 @@ export function ResponseSummary({ answers, next, onEdit, className }: {
         {answers.map((a, i) => (
           <div key={i} className="grid grid-cols-[1fr_auto] items-baseline gap-x-3 border-b border-border pb-1.5 last:border-0 last:pb-0">
             <dt className="text-xs text-muted-foreground">{a.question}</dt>
-            <dd className="text-right text-sm">
+            <dd className="text-end text-sm">
               {a.answer == null || a.answer === ""
                 ? <span className="italic text-muted-foreground">skipped</span>
                 : a.answer}

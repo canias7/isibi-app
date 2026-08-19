@@ -46,7 +46,7 @@ export function HighContrastToggle({ className }: { className?: string }) {
           className="size-4 cursor-pointer accent-foreground disabled:cursor-not-allowed" />
         <span className="text-sm font-medium">Higher contrast</span>
       </label>
-      <p className="pl-6.5 text-xs text-muted-foreground">
+      <p className="ps-6.5 text-xs text-muted-foreground">
         {system
           ? "Your device already asks for more contrast, so it is on."
           : "Stronger text and borders, no translucency."}

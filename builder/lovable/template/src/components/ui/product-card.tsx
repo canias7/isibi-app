@@ -15,7 +15,7 @@ export function ProductCard({ product, currency = "£", onAdd, href, className }
     <div className={cn("group flex flex-col gap-3", className)}>
       <a href={href} className="relative block">
         <SafeImage src={product.image} alt={product.name} ratio="1/1" fallbackSeed={product.fallbackSeed ?? product.name} />
-        {product.soldOut && <Badge variant="secondary" className="absolute left-2 top-2">Sold out</Badge>}
+        {product.soldOut && <Badge variant="secondary" className="absolute start-2 top-2">Sold out</Badge>}
       </a>
       <div className="flex flex-col gap-1">
         <a href={href} className="text-sm font-medium hover:underline">{product.name}</a>

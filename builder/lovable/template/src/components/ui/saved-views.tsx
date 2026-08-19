@@ -11,7 +11,7 @@ export function SavedViews({ views, active, onSelect, className }: {
         <Button key={v.key} size="sm" variant={active === v.key ? "secondary" : "ghost"}
           onClick={() => onSelect(v.key)}>
           {v.label}
-          {v.count != null && <span className="ml-1.5 tabular-nums text-muted-foreground">{v.count}</span>}
+          {v.count != null && <span className="ms-1.5 tabular-nums text-muted-foreground">{v.count}</span>}
         </Button>
       ))}
     </div>

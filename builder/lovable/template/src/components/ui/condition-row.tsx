@@ -81,7 +81,7 @@ export function ConditionRow({ fields, field, operator, value, onChange, onRemov
       )}
       {onRemove && (
         <button type="button" onClick={onRemove} aria-label="Remove this condition"
-          className="ml-auto inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:text-foreground">
+          className="ms-auto inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:text-foreground">
           <X className="size-3.5" aria-hidden="true" />
         </button>
       )}

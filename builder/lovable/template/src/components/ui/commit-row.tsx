@@ -45,7 +45,7 @@ export function CommitRow({
           )}
           {body ? (
             <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open}
-              className="ml-2 cursor-pointer rounded border border-border px-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground">
+              className="ms-2 cursor-pointer rounded border border-border px-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground">
               {open ? "less" : "…"}
             </button>
           ) : null}

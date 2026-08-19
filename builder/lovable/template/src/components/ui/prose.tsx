@@ -11,9 +11,9 @@ export function Prose({ className, children }: { className?: string; children?: 
       "[&_h2]:mt-8 [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:tracking-tight",
       "[&_h3]:mt-6 [&_h3]:text-base [&_h3]:font-semibold",
       "[&_p]:mt-4 [&_p:first-child]:mt-0",
-      "[&_ul]:mt-4 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:mt-4 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mt-1",
+      "[&_ul]:mt-4 [&_ul]:list-disc [&_ul]:ps-5 [&_ol]:mt-4 [&_ol]:list-decimal [&_ol]:ps-5 [&_li]:mt-1",
       "[&_a]:underline [&_a]:underline-offset-4",
-      "[&_blockquote]:mt-4 [&_blockquote]:border-l-2 [&_blockquote]:pl-4 [&_blockquote]:text-muted-foreground",
+      "[&_blockquote]:mt-4 [&_blockquote]:border-s-2 [&_blockquote]:ps-4 [&_blockquote]:text-muted-foreground",
       "[&_hr]:my-8 [&_hr]:border-border",
       className)}>{children}</div>
   );

@@ -37,11 +37,11 @@ export function AvailabilityToggle({ on, until, options, onChange, className }: 
         }} />
         <span className="text-sm font-medium">
           {on ? "Taking bookings" : "Not taking bookings"}
-          {!on && until ? <span className="ml-1 text-xs font-normal text-muted-foreground">· back {until}</span> : null}
+          {!on && until ? <span className="ms-1 text-xs font-normal text-muted-foreground">· back {until}</span> : null}
         </span>
       </label>
       {asking ? (
-        <div className="flex flex-wrap gap-1.5 pl-10">
+        <div className="flex flex-wrap gap-1.5 ps-10">
           {opts.map((o) => (
             <button key={o.label} type="button"
               onClick={() => { setAsking(false); onChange({ on: false, until: o.until }); }}

@@ -21,7 +21,7 @@ export function NestedList({ nodes, ordered, maxDepth = 8, className }: {
     if (depth > maxDepth) return null;
     const Tag = ordered ? "ol" : "ul";
     return (
-      <Tag className={cn(ordered ? "list-decimal" : "list-disc", "space-y-1 pl-5", depth > 0 && "mt-1")}>
+      <Tag className={cn(ordered ? "list-decimal" : "list-disc", "space-y-1 ps-5", depth > 0 && "mt-1")}>
         {list.map((n) => {
           if (seen.has(n.id)) return null;
           seen.add(n.id);

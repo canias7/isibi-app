@@ -38,7 +38,7 @@ export function FileRequired({ label, id, accept, acceptWords, filename, onFile,
     <div className={cn("space-y-1", className)}>
       <label htmlFor={id} className="block text-sm font-medium">
         {label}
-        <span className="ml-1.5 text-xs font-normal text-muted-foreground">required</span>
+        <span className="ms-1.5 text-xs font-normal text-muted-foreground">required</span>
       </label>
       {done ? (
         <p className="flex flex-wrap items-center gap-2 text-sm">
@@ -52,7 +52,7 @@ export function FileRequired({ label, id, accept, acceptWords, filename, onFile,
       ) : (
         <input id={id} type="file" required accept={accept} aria-describedby={`${id}-help`}
           onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); }}
-          className="block w-full text-sm file:mr-3 file:cursor-pointer file:rounded-md file:border file:border-border file:bg-transparent file:px-3 file:py-1.5 file:text-sm" />
+          className="block w-full text-sm file:me-3 file:cursor-pointer file:rounded-md file:border file:border-border file:bg-transparent file:px-3 file:py-1.5 file:text-sm" />
       )}
       <p id={`${id}-help`} className="text-xs text-muted-foreground">
         {acceptWords && <span>{acceptWords}. </span>}

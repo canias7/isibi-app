@@ -45,7 +45,7 @@ export function NotificationGroup({
         {unread ? <span aria-hidden className="mt-1.5 size-1.5 shrink-0 rounded-full bg-foreground" /> : <span aria-hidden className="mt-1.5 size-1.5 shrink-0" />}
         <div className="min-w-0 flex-1">
           <button type="button" onClick={onOpen}
-            className={cn("cursor-pointer text-left text-sm hover:underline", unread && "font-medium")}>
+            className={cn("cursor-pointer text-start text-sm hover:underline", unread && "font-medium")}>
             {who} {verb} <strong className="font-semibold">{subject}</strong>
           </button>
           <p className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">

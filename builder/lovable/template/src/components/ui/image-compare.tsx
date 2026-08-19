@@ -54,10 +54,10 @@ export function ImageCompare({
       </div>
       <img src={after} alt={afterAlt} className="sr-only" />
 
-      <span className="absolute top-2 left-2 rounded bg-foreground/80 px-1.5 py-0.5 text-[11px] font-medium text-background">
+      <span className="absolute top-2 start-2 rounded bg-foreground/80 px-1.5 py-0.5 text-[11px] font-medium text-background">
         {beforeLabel}
       </span>
-      <span className="absolute top-2 right-2 rounded bg-foreground/80 px-1.5 py-0.5 text-[11px] font-medium text-background">
+      <span className="absolute top-2 end-2 rounded bg-foreground/80 px-1.5 py-0.5 text-[11px] font-medium text-background">
         {afterLabel}
       </span>
 

@@ -9,7 +9,7 @@ export function Faq({ items, className }: { items: QA[]; className?: string }) {
     <Accordion type="single" collapsible className={cn("w-full", className)}>
       {items.map((qa, i) => (
         <AccordionItem key={qa.question || i} value={"q" + i}>
-          <AccordionTrigger className="text-left">{qa.question}</AccordionTrigger>
+          <AccordionTrigger className="text-start">{qa.question}</AccordionTrigger>
           <AccordionContent className="text-muted-foreground">{qa.answer}</AccordionContent>
         </AccordionItem>
       ))}

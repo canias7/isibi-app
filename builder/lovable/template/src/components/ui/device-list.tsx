@@ -47,7 +47,7 @@ export function DeviceList({ devices, onRevoke, onRevokeAll, busyId, className }
                 <p className="truncate text-sm">
                   {[d.device, d.browser].filter(Boolean).join(" · ") || "Unknown device"}
                   {d.current ? (
-                    <span className="ml-2 rounded-full bg-foreground px-1.5 py-0.5 text-[10px] font-medium text-background">
+                    <span className="ms-2 rounded-full bg-foreground px-1.5 py-0.5 text-[10px] font-medium text-background">
                       This device
                     </span>
                   ) : null}

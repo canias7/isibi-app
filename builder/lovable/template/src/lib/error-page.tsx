@@ -31,7 +31,7 @@ export function ErrorPage({ error, reset }: ErrorComponentProps) {
           </Button>
         </div>
         {import.meta.env.DEV && (
-          <pre className="mt-6 overflow-x-auto rounded-md border border-border bg-muted p-3 text-left text-xs text-muted-foreground">
+          <pre className="mt-6 overflow-x-auto rounded-md border border-border bg-muted p-3 text-start text-xs text-muted-foreground">
             {error instanceof Error ? (error.stack ?? error.message) : String(error)}
           </pre>
         )}

@@ -70,7 +70,7 @@ export function PosterPicker({ frames, value, onChange, onUpload, error, classNa
                     on ? "border-foreground" : "border-transparent hover:border-border")}>
                   <img src={f} alt="" className="block aspect-video w-full object-cover" />
                   {on ? (
-                    <span className="absolute top-1 right-1 rounded-full bg-foreground p-0.5 text-background">
+                    <span className="absolute top-1 end-1 rounded-full bg-foreground p-0.5 text-background">
                       <Check aria-hidden className="size-3" />
                     </span>
                   ) : null}

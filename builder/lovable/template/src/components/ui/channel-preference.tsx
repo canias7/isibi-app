@@ -28,7 +28,7 @@ export function ChannelPreference({ rows, channels, onToggle, className }: {
     <table className={cn("w-full text-sm", className)}>
       <thead>
         <tr className="border-b border-border">
-          <th scope="col" className="py-2 text-left text-xs font-normal text-muted-foreground">Tell me about</th>
+          <th scope="col" className="py-2 text-start text-xs font-normal text-muted-foreground">Tell me about</th>
           {channels.map((c) => (
             <th key={c.key} scope="col" className="px-2 py-2 text-xs font-normal text-muted-foreground">{c.label}</th>
           ))}
@@ -39,7 +39,7 @@ export function ChannelPreference({ rows, channels, onToggle, className }: {
           const none = channels.every((c) => !r.channels[c.key]);
           return (
             <tr key={r.key} className="border-b border-border last:border-0">
-              <th scope="row" className="py-2 text-left font-normal">
+              <th scope="row" className="py-2 text-start font-normal">
                 {r.label}
                 {none && <span className="block text-xs font-medium">You won&apos;t hear about these</span>}
               </th>

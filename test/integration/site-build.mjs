@@ -778,15 +778,22 @@ try {
     // path is written but that it RESOLVES TO A FILE IN THE DIST; a head
     // pointing at a 404 is a broken icon, which is strictly worse than the
     // generic one it replaced.
-    for (const [name, html] of Object.entries(built.files).filter(([k]) => k.endsWith(".html"))) {
-      const h = html.t || "";
-      ok(`${name} declares the site's own language`, /<html[^>]*\blang="pt-BR"/.test(h),
-        (h.match(/<html[^>]*>/) || [""])[0]);
-      const link = (h.match(/<link[^>]*rel="icon"[^>]*>/) || [""])[0];
-      const href = ((link.match(/href="([^"]+)"/) || [])[1] || "").replace(/^\.?\//, "");
-      ok(`${name}'s icon is a file this build actually published`, !!href && !!built.files[href], link);
-      ok(`${name} no longer ships the template's shared favicon`, href !== "favicon.svg", link);
-    }
+    // THESE THREE RAN OVER NOTHING FOR THE WHOLE OF THE START MIGRATION. They
+    // looped `Object.entries(built.files).filter(k.endsWith(".html"))`, and the
+    // assertion forty lines above this one — "it produced no top-level document,
+    // because the document is rendered" — says in as many words that the dist
+    // contains no HTML at all. So three checks that read as covering the site's
+    // language and its favicon iterated zero times and covered nothing, while
+    // the harness's own count made them invisible: a loop that runs over an
+    // empty collection contributes no checks to fail.
+    //
+    // MOVED TO WHERE THE DOCUMENT ACTUALLY EXISTS, which is a rendered response
+    // out of the packaged worker — see the language-and-direction block further
+    // down. What survives here is the build-time half, which is a real fact
+    // about the dist and does not need a document to be asserted.
+    ok("the build really does emit no HTML, which is why the head is asserted on a render",
+      !Object.keys(built.files).some((k) => k.endsWith(".html")),
+      Object.keys(built.files).filter((k) => k.endsWith(".html")).join(", "));
     const icon = (built.files["icon.svg"] || {}).t || "";
     ok("the mark is a self-contained svg", /<svg[\s\S]*<\/svg>$/.test(icon), icon.slice(0, 120));
     ok("the mark carries this site's initials", />FC</.test(icon), icon.slice(0, 200));
@@ -1500,6 +1507,52 @@ function Home() {
     ok("…and they are otherwise the same page",
       darkDoc.replace(' class="dark"', "").length === lightDoc.length,
       `${lightDoc.length} vs ${darkDoc.length} bytes`);
+  }
+
+  // ── THE LANGUAGE, THE DIRECTION AND THE MARK, ON A REAL DOCUMENT ───────────
+  //
+  // ASSERTED ON A RENDER BECAUSE THERE IS NOWHERE ELSE. These were checked over
+  // the dist's `.html` files until 2026-08-19 and the dist has none — so the
+  // loop ran zero times and three assertions about the site's own language and
+  // its own favicon covered nothing at all, invisibly, because an empty loop
+  // contributes no checks to fail.
+  //
+  // AND THE DIRECTION IS THE HALF THAT NEEDED A NEW CASE. `normalizeLang` has
+  // accepted `ar` since it was written and NOTHING set `dir`, so a brief in
+  // Arabic produced a site correctly DECLARED Arabic and laid out left to right.
+  // The kit is on logical utilities now, which makes one attribute enough — and
+  // that attribute is what this proves, through the real container and the real
+  // packaged worker rather than by reading the source.
+  console.log("\nbuilding a site whose language reads right to left…");
+  const rtlBuild = await post({
+    files: { "index.tsx": CHROMED }, slug: "rtl-site",
+    title: "Sharp Fade Barbers", lang: "ar", worker: true,
+  });
+  ok("a site in a right-to-left language builds", rtlBuild.ok === true, rtlBuild.stage + ": " + rtlBuild.error);
+  ok("the container derives the direction from the language",
+    (rtlBuild.brand || {}).lang === "ar" && (rtlBuild.brand || {}).dir === "rtl",
+    JSON.stringify(rtlBuild.brand));
+  const rtlDoc = await renderHome(rtlBuild, "rtl-site");
+  if (rtlDoc) {
+    const tag = (rtlDoc.match(/<html[^>]*>/) || [""])[0];
+    ok("…and the document declares it, beside the language", /\bdir="rtl"/.test(tag) && /\blang="ar"/.test(tag), tag);
+    // THE MARK, on the one surface that has a head. `base: "./"` means every
+    // asset reference is emitted relative, so what matters is not how the path
+    // is written but that it RESOLVES TO A FILE THIS BUILD PUBLISHED — a head
+    // pointing at a 404 is a broken icon, strictly worse than the generic one.
+    const link = (rtlDoc.match(/<link[^>]*rel="icon"[^>]*>/) || [""])[0];
+    const href = ((link.match(/href="([^"]+)"/) || [])[1] || "").replace(/^\.?\//, "");
+    ok("the icon in the head is a file this build actually published", !!href && !!rtlBuild.files[href], link);
+    ok("…and it is not the template's shared favicon", href !== "favicon.svg", link);
+  }
+  // AND THE LEFT-TO-RIGHT CONTROL, or every assertion above passes on a build
+  // that hardcodes rtl. `CHROMED` sends no language, so this is the state every
+  // site published before this change is in.
+  const ltrDoc = await renderHome(noLogo, "logo-site");
+  if (ltrDoc) {
+    ok("a site that names no language reads left to right",
+      /\bdir="ltr"/.test((ltrDoc.match(/<html[^>]*>/) || [""])[0]),
+      (ltrDoc.match(/<html[^>]*>/) || [""])[0]);
   }
 
   // ── WHICH BUILD IS THIS SITE SERVING? ───────────────────────────────────────

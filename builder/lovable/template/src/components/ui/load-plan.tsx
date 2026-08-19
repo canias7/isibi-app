@@ -50,7 +50,7 @@ export function LoadPlan({ weight, weightLimit, weightUnit = "kg", spaces, space
           <span className={cn("tabular-nums", over && "font-medium")}>
             {weight.toLocaleString()} of {weightLimit.toLocaleString()} {weightUnit}
           </span>
-          <span className={cn("ml-auto text-xs tabular-nums", over ? "font-medium" : "text-muted-foreground")}>{Math.round(wShare * 100)}%</span>
+          <span className={cn("ms-auto text-xs tabular-nums", over ? "font-medium" : "text-muted-foreground")}>{Math.round(wShare * 100)}%</span>
         </p>
         {bar(wShare, over)}
       </div>
@@ -58,7 +58,7 @@ export function LoadPlan({ weight, weightLimit, weightUnit = "kg", spaces, space
         <p className="flex flex-wrap items-baseline gap-x-2 text-sm">
           <span className="text-muted-foreground">Space</span>
           <span className={cn("tabular-nums", overSpace && "font-medium")}>{spaces} of {spaceLimit} {spaceNoun}</span>
-          <span className={cn("ml-auto text-xs tabular-nums", overSpace ? "font-medium" : "text-muted-foreground")}>{Math.round(sShare * 100)}%</span>
+          <span className={cn("ms-auto text-xs tabular-nums", overSpace ? "font-medium" : "text-muted-foreground")}>{Math.round(sShare * 100)}%</span>
         </p>
         {bar(sShare, overSpace)}
       </div>

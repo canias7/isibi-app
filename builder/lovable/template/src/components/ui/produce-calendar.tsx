@@ -49,10 +49,10 @@ export function ProduceCalendar({ items, now, caption, className }: {
     <div className={cn("", className)}>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[44rem] border-collapse text-sm">
-          {caption && <caption className="pb-3 text-left text-xs font-medium uppercase tracking-widest text-muted-foreground">{caption}</caption>}
+          {caption && <caption className="pb-3 text-start text-xs font-medium uppercase tracking-widest text-muted-foreground">{caption}</caption>}
           <thead>
             <tr className="border-b border-border">
-              <th scope="col" className="py-2 pr-4 text-left text-xs font-medium uppercase tracking-widest text-muted-foreground">Grown here</th>
+              <th scope="col" className="py-2 pe-4 text-start text-xs font-medium uppercase tracking-widest text-muted-foreground">Grown here</th>
               {M.map((label, i) => (
                 <th key={label} scope="col"
                   className={cn("px-1 py-2 text-center text-xs font-medium uppercase tracking-widest",
@@ -66,7 +66,7 @@ export function ProduceCalendar({ items, now, caption, className }: {
           <tbody>
             {items.map((p) => (
               <tr key={p.name} className="border-b border-border/60">
-                <th scope="row" className="py-2.5 pr-4 text-left font-[inherit]">
+                <th scope="row" className="py-2.5 pe-4 text-start font-[inherit]">
                   <span className="font-medium">{p.name}</span>
                   {p.note && <span className="block text-xs text-muted-foreground">{p.note}</span>}
                 </th>

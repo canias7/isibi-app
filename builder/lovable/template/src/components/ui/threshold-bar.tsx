@@ -51,7 +51,7 @@ export function ThresholdBar({ value, threshold, consequence, goodWhenOver = tru
           : `${fmt(away)} away from ${typeof consequence === "string" ? consequence : "the threshold"}`}
         className="relative h-4">
         <div aria-hidden className="absolute inset-x-0 top-1.5 h-1 rounded-full bg-muted" />
-        <div aria-hidden className="absolute top-1.5 left-0 h-1 rounded-full bg-foreground" style={{ width: `${at(value)}%` }} />
+        <div aria-hidden className="absolute top-1.5 start-0 h-1 rounded-full bg-foreground" style={{ width: `${at(value)}%` }} />
         {/* The line where something happens, always visible. */}
         <span aria-hidden className="absolute top-0.5 h-3 w-0.5 -translate-x-1/2 bg-foreground"
           style={{ left: `${at(threshold)}%` }} />

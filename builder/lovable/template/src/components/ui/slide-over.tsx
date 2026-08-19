@@ -73,7 +73,7 @@ export function SlideOver({ open, onClose, title, description, children, footer,
           // A drawer on a phone is a bottom sheet; a 28rem panel is the whole screen.
           "inset-x-0 bottom-0 max-h-[85vh] rounded-t-2xl border-t",
           "sm:inset-x-auto sm:inset-y-0 sm:max-h-none sm:w-[28rem] sm:max-w-[calc(100vw-3rem)] sm:rounded-none sm:border-t-0",
-          side === "right" ? "sm:right-0 sm:border-l" : "sm:left-0 sm:border-r",
+          side === "right" ? "sm:end-0 sm:border-s" : "sm:start-0 sm:border-e",
           "motion-safe:animate-in motion-safe:slide-in-from-bottom sm:motion-safe:slide-in-from-right",
           className)}
       >

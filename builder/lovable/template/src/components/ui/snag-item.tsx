@@ -54,7 +54,7 @@ export function SnagItem({ number, description, location, trade, state, raisedBy
           {due && ` · due ${due}`}
         </span>
       </span>
-      <span className={cn("shrink-0 text-right text-xs", state === "checked" ? "text-muted-foreground" : "font-medium")}>
+      <span className={cn("shrink-0 text-end text-xs", state === "checked" ? "text-muted-foreground" : "font-medium")}>
         {WORD[state]}
       </span>
     </li>

@@ -13,9 +13,9 @@ export function TotalsRow({ label = "Total", cells, className }: {
   return (
     <tfoot className={cn("border-t-2 border-border font-medium", className)}>
       <tr>
-        <td className="py-2.5 pl-2 text-sm">{label}</td>
+        <td className="py-2.5 ps-2 text-sm">{label}</td>
         {cells.map((c, i) => (
-          <td key={i} className="py-2.5 pr-2 text-right text-sm tabular-nums">{c}</td>
+          <td key={i} className="py-2.5 pe-2 text-end text-sm tabular-nums">{c}</td>
         ))}
       </tr>
     </tfoot>

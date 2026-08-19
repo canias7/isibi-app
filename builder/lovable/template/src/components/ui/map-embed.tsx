@@ -28,7 +28,7 @@ export function MapEmbed({ address, embedSrc, label = "Open in Maps", className 
         <MapPin className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
         <span>
           {address}
-          <ExternalLink href={href} className="ml-2">{label}</ExternalLink>
+          <ExternalLink href={href} className="ms-2">{label}</ExternalLink>
         </span>
       </p>
     </div>

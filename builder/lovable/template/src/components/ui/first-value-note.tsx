@@ -30,7 +30,7 @@ export function FirstValueNote({ what, next, onDismiss, className }: {
       )}
       {onDismiss && (
         <button type="button" onClick={onDismiss}
-          className="ml-auto cursor-pointer text-xs text-muted-foreground underline underline-offset-2">Dismiss</button>
+          className="ms-auto cursor-pointer text-xs text-muted-foreground underline underline-offset-2">Dismiss</button>
       )}
     </div>
   );

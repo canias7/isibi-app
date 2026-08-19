@@ -50,7 +50,7 @@ export function TemplateFill<T extends Record<string, unknown>>({
       <div className="flex flex-wrap gap-2">
         {templates.map((t) => (
           <button key={t.key} type="button" onClick={() => choose(t.key)}
-            className={cn("cursor-pointer rounded-md border px-2.5 py-1.5 text-left text-xs hover:bg-muted",
+            className={cn("cursor-pointer rounded-md border px-2.5 py-1.5 text-start text-xs hover:bg-muted",
               pending === t.key ? "border-foreground bg-muted" : "border-border")}>
             <span className="block font-medium">{t.name}</span>
             {t.hint ? <span className="block text-muted-foreground">{t.hint}</span> : null}

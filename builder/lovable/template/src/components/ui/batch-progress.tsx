@@ -23,7 +23,7 @@ export function BatchProgress({ done, total, label, failed = 0, onStop, classNam
     <div className={cn("space-y-2", className)}>
       <div className="flex items-baseline justify-between gap-3">
         <p className="text-sm">
-          {label && <span className="mr-2 text-muted-foreground">{label}</span>}
+          {label && <span className="me-2 text-muted-foreground">{label}</span>}
           <strong className="tabular-nums">{done.toLocaleString()}</strong>
           <span className="text-muted-foreground"> of {total.toLocaleString()}</span>
         </p>

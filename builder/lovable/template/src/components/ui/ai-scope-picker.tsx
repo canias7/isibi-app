@@ -42,7 +42,7 @@ export function AiScopePicker({ scopes, value, onChange, name = "ai-scope", lege
             <span className="block">
               {s.label}
               {s.count !== undefined && (
-                <span className="ml-1.5 tabular-nums text-muted-foreground">{s.count.toLocaleString()}</span>
+                <span className="ms-1.5 tabular-nums text-muted-foreground">{s.count.toLocaleString()}</span>
               )}
             </span>
             {s.hint && <span className="block text-xs text-muted-foreground">{s.hint}</span>}

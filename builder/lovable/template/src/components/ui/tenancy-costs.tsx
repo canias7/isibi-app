@@ -57,46 +57,46 @@ export function TenancyCosts({
     <div className={cn("", className)}>
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-sm">
-          <caption className="pb-3 text-left text-xs font-medium uppercase tracking-widest text-muted-foreground">{heading}</caption>
+          <caption className="pb-3 text-start text-xs font-medium uppercase tracking-widest text-muted-foreground">{heading}</caption>
           <thead>
-            <tr className="border-b border-border text-left text-xs uppercase tracking-widest text-muted-foreground">
-              <th scope="col" className="py-2 pr-4 font-medium">What</th>
-              <th scope="col" className="py-2 text-right font-medium">Amount</th>
+            <tr className="border-b border-border text-start text-xs uppercase tracking-widest text-muted-foreground">
+              <th scope="col" className="py-2 pe-4 font-medium">What</th>
+              <th scope="col" className="py-2 text-end font-medium">Amount</th>
             </tr>
           </thead>
           <tbody>
             <tr className="border-b border-border/60 align-baseline">
-              <th scope="row" className="py-3 pr-4 text-left font-[inherit]">
+              <th scope="row" className="py-3 pe-4 text-start font-[inherit]">
                 <span className="font-medium">Holding deposit</span>
                 <span className="block text-xs leading-relaxed text-muted-foreground">
                   {holdingWeeks === 1 ? "One week's rent" : `${holdingWeeks} weeks' rent`}, paid to take
                   it off the market — and taken OFF your first month, not added to it
                 </span>
               </th>
-              <td className="py-3 text-right tabular-nums">{money(holding)}</td>
+              <td className="py-3 text-end tabular-nums">{money(holding)}</td>
             </tr>
             <tr className="border-b border-border/60 align-baseline">
-              <th scope="row" className="py-3 pr-4 text-left font-[inherit]">
+              <th scope="row" className="py-3 pe-4 text-start font-[inherit]">
                 <span className="font-medium">First month's rent</span>
                 <span className="block text-xs leading-relaxed text-muted-foreground">
                   Less the holding deposit you have already paid, so {money(monthlyRent - holding)} on the day
                 </span>
               </th>
-              <td className="py-3 text-right tabular-nums">{money(monthlyRent)}</td>
+              <td className="py-3 text-end tabular-nums">{money(monthlyRent)}</td>
             </tr>
             <tr className="border-b border-border/60 align-baseline">
-              <th scope="row" className="py-3 pr-4 text-left font-[inherit]">
+              <th scope="row" className="py-3 pe-4 text-start font-[inherit]">
                 <span className="font-medium">Security deposit</span>
                 <span className="block text-xs leading-relaxed text-muted-foreground">
                   {depositWeeks} weeks' rent, protected in a government scheme within 30 days and
                   returned unless something is owed
                 </span>
               </th>
-              <td className="py-3 text-right tabular-nums">{money(deposit)}</td>
+              <td className="py-3 text-end tabular-nums">{money(deposit)}</td>
             </tr>
             <tr className="border-b-2 border-foreground align-baseline">
-              <th scope="row" className="py-3 pr-4 text-left text-base font-semibold">Total before the keys</th>
-              <td className="py-3 text-right text-base font-semibold tabular-nums">{money(total)}</td>
+              <th scope="row" className="py-3 pe-4 text-start text-base font-semibold">Total before the keys</th>
+              <td className="py-3 text-end text-base font-semibold tabular-nums">{money(total)}</td>
             </tr>
           </tbody>
         </table>

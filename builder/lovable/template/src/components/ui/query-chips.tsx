@@ -25,7 +25,7 @@ export function QueryChips({ parts, onRemove, onClearAll, className }: {
     <ul className={cn("flex flex-wrap items-center gap-1.5", className)}>
       {parts.map((p) => (
         <li key={p.key}>
-          <span className="inline-flex items-center gap-1 rounded border border-border py-0.5 pr-0.5 pl-2 text-xs">
+          <span className="inline-flex items-center gap-1 rounded border border-border py-0.5 pe-0.5 ps-2 text-xs">
             {p.field && <span className="text-muted-foreground">{p.field}:</span>}
             <span className="max-w-40 truncate">{p.value}</span>
             <button type="button" onClick={() => onRemove(p.key)}

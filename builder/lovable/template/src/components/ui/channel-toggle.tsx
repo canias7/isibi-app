@@ -31,7 +31,7 @@ export function ChannelToggle({ channels, kinds, value, onChange, className }: {
       <table className="w-full border-collapse text-sm">
         <thead>
           <tr className="border-b border-border">
-            <th scope="col" className="px-3 py-2 text-left font-medium">Tell me about</th>
+            <th scope="col" className="px-3 py-2 text-start font-medium">Tell me about</th>
             {channels.map((c) => (
               <th key={c.key} scope="col" className="px-3 py-2 text-center align-bottom font-medium">
                 <span className="block">{c.label}</span>
@@ -47,7 +47,7 @@ export function ChannelToggle({ channels, kinds, value, onChange, className }: {
         <tbody>
           {kinds.map((k) => (
             <tr key={k.key} className="border-b border-border last:border-0">
-              <th scope="row" className="px-3 py-2 text-left font-normal">
+              <th scope="row" className="px-3 py-2 text-start font-normal">
                 <span className="block">{k.label}</span>
                 {k.hint ? <span className="block text-xs text-muted-foreground">{k.hint}</span> : null}
               </th>

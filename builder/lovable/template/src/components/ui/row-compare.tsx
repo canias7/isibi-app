@@ -32,16 +32,16 @@ export function RowCompare({ subjects, attributes, differencesOnly, className }:
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border">
-            <th scope="col" className="px-3 py-2 text-left text-xs font-normal text-muted-foreground">Attribute</th>
+            <th scope="col" className="px-3 py-2 text-start text-xs font-normal text-muted-foreground">Attribute</th>
             {subjects.map((s) => (
-              <th key={s} scope="col" className="px-3 py-2 text-left font-medium">{s}</th>
+              <th key={s} scope="col" className="px-3 py-2 text-start font-medium">{s}</th>
             ))}
           </tr>
         </thead>
         <tbody>
           {rows.map((a) => (
             <tr key={a.label} className="border-b border-border last:border-0">
-              <th scope="row" className="px-3 py-2 text-left font-normal text-muted-foreground">{a.label}</th>
+              <th scope="row" className="px-3 py-2 text-start font-normal text-muted-foreground">{a.label}</th>
               {a.values.map((v, i) => (
                 <td key={i} className="px-3 py-2 tabular-nums">
                   {v === null || v === undefined || v === "" ? <span className="text-muted-foreground italic">—</span> : v}

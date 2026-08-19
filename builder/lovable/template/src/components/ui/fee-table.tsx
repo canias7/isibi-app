@@ -71,14 +71,14 @@ export function FeeTable({
   return (
     <div className={cn("overflow-x-auto", className)}>
       <table className="w-full border-collapse text-sm">
-        {caption && <caption className="pb-3 text-left text-xs font-medium uppercase tracking-widest text-muted-foreground">{caption}</caption>}
+        {caption && <caption className="pb-3 text-start text-xs font-medium uppercase tracking-widest text-muted-foreground">{caption}</caption>}
         <thead>
-          <tr className="border-b border-border text-left text-xs uppercase tracking-widest text-muted-foreground">
-            <th scope="col" className="py-2 pr-4 font-medium">Age</th>
-            <th scope="col" className="py-2 pr-4 font-medium">Pattern</th>
-            <th scope="col" className="py-2 pr-4 text-right font-medium">Hours</th>
-            <th scope="col" className="py-2 pr-4 text-right font-medium">Full price</th>
-            {funding && <th scope="col" className="py-2 text-right font-medium">{funding.label}</th>}
+          <tr className="border-b border-border text-start text-xs uppercase tracking-widest text-muted-foreground">
+            <th scope="col" className="py-2 pe-4 font-medium">Age</th>
+            <th scope="col" className="py-2 pe-4 font-medium">Pattern</th>
+            <th scope="col" className="py-2 pe-4 text-end font-medium">Hours</th>
+            <th scope="col" className="py-2 pe-4 text-end font-medium">Full price</th>
+            {funding && <th scope="col" className="py-2 text-end font-medium">{funding.label}</th>}
           </tr>
         </thead>
         <tbody>
@@ -86,12 +86,12 @@ export function FeeTable({
             const f = funded(r);
             return (
               <tr key={r.band + r.pattern} className="border-b border-border/60 align-baseline">
-                <th scope="row" className="py-3 pr-4 text-left font-[inherit]">{r.band}</th>
-                <td className="py-3 pr-4">{r.pattern}</td>
-                <td className="py-3 pr-4 text-right tabular-nums">{r.hoursPerWeek}</td>
-                <td className="py-3 pr-4 text-right tabular-nums text-muted-foreground">{money(r.pricePerWeek)} a week</td>
+                <th scope="row" className="py-3 pe-4 text-start font-[inherit]">{r.band}</th>
+                <td className="py-3 pe-4">{r.pattern}</td>
+                <td className="py-3 pe-4 text-end tabular-nums">{r.hoursPerWeek}</td>
+                <td className="py-3 pe-4 text-end tabular-nums text-muted-foreground">{money(r.pricePerWeek)} a week</td>
                 {funding && (
-                  <td className="py-3 text-right tabular-nums">
+                  <td className="py-3 text-end tabular-nums">
                     {!f?.eligible ? (
                       <span className="text-muted-foreground">Not eligible at this age</span>
                     ) : f.total <= 0 ? (

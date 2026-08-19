@@ -35,7 +35,7 @@ export function NumberScaleNote({ scale, unit, as = "p", className }: {
   if (!scale || scale === 1) return null;
   const word = WORDS[scale] ?? `units of ${scale.toLocaleString()}`;
   const text = `All figures in ${word}${unit ? ` of ${unit}` : ""}`;
-  const cls = cn("text-xs text-muted-foreground", as === "caption" && "text-left", className);
+  const cls = cn("text-xs text-muted-foreground", as === "caption" && "text-start", className);
   return as === "caption"
     ? <caption className={cls}>{text}</caption>
     : <p className={cls}>{text}</p>;

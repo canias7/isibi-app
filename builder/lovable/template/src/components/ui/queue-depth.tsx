@@ -17,7 +17,7 @@ export function QueueDepth({ label, depth, history, oldest, className }: {
         {oldest && <p className="text-xs text-muted-foreground">Oldest waiting {oldest}</p>}
       </div>
       {history?.length ? <Sparkline values={history} className="text-muted-foreground" label={`${label} trend`} /> : null}
-      <p className="w-16 text-right text-lg font-semibold tabular-nums">{depth.toLocaleString()}</p>
+      <p className="w-16 text-end text-lg font-semibold tabular-nums">{depth.toLocaleString()}</p>
     </div>
   );
 }

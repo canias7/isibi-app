@@ -87,7 +87,7 @@ export function QuickSwitcher({ items, current, recents = [], query, onQueryChan
           <li key={i.key}>
             <button type="button" onMouseEnter={() => setAt(k)} onClick={() => onPick(i.key)}
               aria-current={k === index ? "true" : undefined}
-              className={cn("flex w-full cursor-pointer items-baseline gap-2 rounded px-2 py-1.5 text-left text-sm",
+              className={cn("flex w-full cursor-pointer items-baseline gap-2 rounded px-2 py-1.5 text-start text-sm",
                 k === index && "bg-muted")}>
               <span className="min-w-0 flex-1 truncate">{i.label}</span>
               {i.hint ? <span className="shrink-0 text-xs text-muted-foreground">{i.hint}</span> : null}

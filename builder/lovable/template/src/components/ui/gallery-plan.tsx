@@ -56,10 +56,10 @@ export function GalleryPlan({ rooms, routeNote, className }: {
               </span>
               {r.closed && <span className="shrink-0 text-xs font-medium">Closed</span>}
             </p>
-            {r.about && <p className="pl-6 text-xs text-muted-foreground">{r.about}</p>}
-            {r.closed && r.closedNote && <p className="pl-6 text-xs">{r.closedNote}</p>}
+            {r.about && <p className="ps-6 text-xs text-muted-foreground">{r.about}</p>}
+            {r.closed && r.closedNote && <p className="ps-6 text-xs">{r.closedNote}</p>}
             {r.stepFree === false && (
-              <p className="pl-6 text-xs font-medium">Not step-free — reached by stairs only.</p>
+              <p className="ps-6 text-xs font-medium">Not step-free — reached by stairs only.</p>
             )}
           </li>
         ))}

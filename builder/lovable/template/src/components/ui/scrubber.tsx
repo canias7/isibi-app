@@ -92,7 +92,7 @@ export function Scrubber({
           <div key={i} aria-hidden className="absolute inset-y-0 rounded-full bg-muted-foreground/40"
             style={{ left: `${pct(b.start)}%`, width: `${Math.max(0, pct(b.end) - pct(b.start))}%` }} />
         ))}
-        <div aria-hidden className="absolute inset-y-0 left-0 rounded-full bg-foreground" style={{ width: `${pct(shown)}%` }} />
+        <div aria-hidden className="absolute inset-y-0 start-0 rounded-full bg-foreground" style={{ width: `${pct(shown)}%` }} />
         <div aria-hidden
           className="absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground"
           style={{ left: `${pct(shown)}%` }} />

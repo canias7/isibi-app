@@ -27,7 +27,7 @@ export function CodeEditor({ value, onChange, rows = 12, tabSize = 2, placeholde
   return (
     <div className={cn("flex overflow-hidden rounded-md border border-input font-mono text-xs", className)}>
       <div ref={gutter} aria-hidden="true"
-        className="select-none overflow-hidden bg-muted/50 py-2 text-right text-muted-foreground">
+        className="select-none overflow-hidden bg-muted/50 py-2 text-end text-muted-foreground">
         {Array.from({ length: lines }, (_, i) => (
           <div key={i} className="px-2 leading-5 tabular-nums">{i + 1}</div>
         ))}

@@ -35,7 +35,7 @@ export function UnitPreference({ label, options, value, onChange, note, classNam
             <label key={o.key}
               className={cn("flex flex-1 cursor-pointer flex-col items-center gap-0.5 px-3 py-1.5 text-center",
                 on ? "bg-foreground text-background" : "hover:bg-muted",
-                "border-r border-border last:border-r-0",
+                "border-e border-border last:border-e-0",
                 "has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring has-[:focus-visible]:ring-inset")}>
               <input type="radio" name={name} checked={on} onChange={() => onChange(o.key)} className="sr-only" />
               <span className="text-sm font-medium">{o.label}</span>

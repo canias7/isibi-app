@@ -36,7 +36,7 @@ export function RankingList({ items, onChange, topLabel = "Most important first"
       <ol className="divide-y divide-border rounded-lg border border-border">
         {items.map((it, i) => (
           <li key={it} className="flex items-center gap-2.5 px-3 py-2">
-            <span className="w-5 text-right text-sm font-semibold tabular-nums text-muted-foreground">{i + 1}</span>
+            <span className="w-5 text-end text-sm font-semibold tabular-nums text-muted-foreground">{i + 1}</span>
             <span className="min-w-0 flex-1 truncate text-sm">{it}</span>
             <span className="flex items-center gap-0.5">
               <button type="button" onClick={() => move(i, -1)} disabled={i === 0}

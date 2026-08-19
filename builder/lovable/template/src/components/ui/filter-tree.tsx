@@ -55,7 +55,7 @@ export function FilterTree({ nodes, selected, onChange, className }: {
       <li key={node.key} role="treeitem" aria-expanded={kids.length ? expanded : undefined}
         aria-selected={state === true}>
         <div className={cn("flex items-center gap-1.5 py-0.5", node.count === 0 && "opacity-50")}
-          style={{ paddingLeft: `${depth * 1}rem` }}>
+          style={{ paddingInlineStart: `${depth * 1}rem` }}>
           {kids.length ? (
             <button type="button" onClick={() => setOpen((o) => ({ ...o, [node.key]: !expanded }))}
               aria-label={expanded ? `Collapse ${node.label}` : `Expand ${node.label}`}

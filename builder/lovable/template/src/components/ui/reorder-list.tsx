@@ -40,7 +40,7 @@ export function ReorderList({ items, onMove, dropIndex, announce, className }: {
       <ol className="divide-y divide-border rounded-md border border-border">
         {items.map((it, i) => (
           <li key={it.key} className="relative">
-            {dropIndex === i && <DropIndicator className="absolute -top-px left-0" />}
+            {dropIndex === i && <DropIndicator className="absolute -top-px start-0" />}
             <div className="flex items-center gap-3 p-3">
               <span aria-hidden className={cn("shrink-0", it.locked ? "opacity-30" : "cursor-grab text-muted-foreground")}>
                 <GripVertical className="size-4" />

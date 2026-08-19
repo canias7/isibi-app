@@ -27,7 +27,7 @@ export function DurationBar({ segments, className }: {
             {s.label} <span className="tabular-nums text-muted-foreground">{s.minutes} min</span>
           </li>
         ))}
-        <li className="ml-auto font-medium tabular-nums">{total} min total</li>
+        <li className="ms-auto font-medium tabular-nums">{total} min total</li>
       </ul>
     </div>
   );

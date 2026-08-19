@@ -54,7 +54,7 @@ export function WorldClock({ zones, className }: {
             <span className="text-sm tabular-nums">
               {z.time}
               {/* The day boundary is the trap; it gets words, not fine print. */}
-              {dayNote ? <span className="ml-1.5 text-xs font-medium">{dayNote}</span> : null}
+              {dayNote ? <span className="ms-1.5 text-xs font-medium">{dayNote}</span> : null}
             </span>
           </li>
         );

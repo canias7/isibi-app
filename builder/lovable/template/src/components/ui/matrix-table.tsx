@@ -66,7 +66,7 @@ export function MatrixTable({
       <table className="w-full border-collapse text-sm">
         <thead>
           <tr className="border-b border-border">
-            <th scope="col" className="px-3 py-2 text-left font-medium">{rowLabel}</th>
+            <th scope="col" className="px-3 py-2 text-start font-medium">{rowLabel}</th>
             {columns.map((c) => (
               <th key={c} scope="col" className="px-2 py-2 text-center text-xs font-medium whitespace-nowrap">{c}</th>
             ))}
@@ -75,7 +75,7 @@ export function MatrixTable({
         <tbody>
           {rows.map((r) => (
             <tr key={r} className="border-b border-border last:border-0">
-              <th scope="row" className="px-3 py-1.5 text-left font-medium whitespace-nowrap">{r}</th>
+              <th scope="row" className="px-3 py-1.5 text-start font-medium whitespace-nowrap">{r}</th>
               {columns.map((c) => {
                 const v = value(r, c);
                 const has = typeof v === "number" && Number.isFinite(v);

@@ -76,7 +76,7 @@ export function InstantResults({ results, loading, query, activeIndex, onActiveC
         // of a search box the caller drives with `activeIndex`.
         <li key={r.key} id={`${id}-${i}`} role="option" aria-selected={i === activeIndex}
           onMouseEnter={() => onActiveChange(i)} onClick={() => onPick(r.key)}
-          className={cn("cursor-pointer rounded px-2 py-1.5 text-left text-sm", i === activeIndex && "bg-muted")}>
+          className={cn("cursor-pointer rounded px-2 py-1.5 text-start text-sm", i === activeIndex && "bg-muted")}>
           {renderItem(r, i)}
         </li>
       ))}

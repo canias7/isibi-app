@@ -75,7 +75,7 @@ export function UploadQueue({ items, onRetry, className }: {
       <p className="text-xs tabular-nums text-muted-foreground">
         {done} of {items.length} done{failed ? <> · <b className="text-foreground">{failed} failed</b></> : null}
         {failed > 1 ? (
-          <button type="button" onClick={() => onRetry()} className="ml-2 cursor-pointer underline underline-offset-2">
+          <button type="button" onClick={() => onRetry()} className="ms-2 cursor-pointer underline underline-offset-2">
             Retry the failed
           </button>
         ) : null}

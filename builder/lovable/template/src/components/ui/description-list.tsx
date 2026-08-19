@@ -13,7 +13,7 @@ export function DescriptionList({ items, layout = "rows", className }: {
       {items.map((p, i) => (
         <div key={i} className={cn(layout === "rows" && "flex items-baseline justify-between gap-4 border-b border-border py-2.5 last:border-0")}>
           <dt className="text-sm text-muted-foreground">{p.label}</dt>
-          <dd className={cn("text-sm", layout === "rows" ? "text-right font-medium" : "mt-0.5 font-medium")}>{p.value}</dd>
+          <dd className={cn("text-sm", layout === "rows" ? "text-end font-medium" : "mt-0.5 font-medium")}>{p.value}</dd>
         </div>
       ))}
     </dl>

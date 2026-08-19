@@ -87,7 +87,7 @@ export function ToastStack({ toasts, onDismiss, onClear, max = 3, className }: {
   const extra = toasts.length - shown.length;
   return (
     <ol role="status" aria-live="polite"
-      className={cn("pointer-events-none fixed right-4 bottom-4 z-50 flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2", className)}>
+      className={cn("pointer-events-none fixed end-4 bottom-4 z-50 flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2", className)}>
       {extra > 0 ? (
         <li className="pointer-events-auto flex items-center gap-2 rounded-lg border border-border bg-muted px-3 py-1.5 text-xs">
           <span className="flex-1">{extra} more {extra === 1 ? "notice" : "notices"}</span>

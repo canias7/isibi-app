@@ -40,13 +40,13 @@ export function WeightedScore({ criteria, scale = 5, className }: {
             <li key={c.key} className={cn("flex items-baseline gap-2 text-sm", c.weight <= 0 && "text-muted-foreground")}>
               <span className="min-w-0 flex-1 truncate">{c.label}</span>
               {/* The normalised share, or the raw weights get read as a total. */}
-              <span className="w-14 shrink-0 text-right text-xs text-muted-foreground tabular-nums">
+              <span className="w-14 shrink-0 text-end text-xs text-muted-foreground tabular-nums">
                 {Math.round(share * 100)}%
               </span>
-              <span className="w-10 shrink-0 text-right text-xs tabular-nums">
+              <span className="w-10 shrink-0 text-end text-xs tabular-nums">
                 {c.score ?? "—"}/{scale}
               </span>
-              <span className="w-12 shrink-0 text-right text-xs font-medium tabular-nums">
+              <span className="w-12 shrink-0 text-end text-xs font-medium tabular-nums">
                 {contribution == null ? "—" : `+${(contribution * 100).toFixed(0)}`}
               </span>
             </li>

@@ -63,7 +63,7 @@ export function ReconciliationRow({ bankDescription, bankAmount, bookDescription
         {state === "matched" ? "Matched" : state === "partial" ? "Partly matched — look at this one" : "Nothing matched"}
         {matchedOn && ` on ${matchedOn}`}
         {onUnmatch && state !== "unmatched" && (
-          <button type="button" onClick={onUnmatch} className="pl-2 underline underline-offset-2">Unmatch</button>
+          <button type="button" onClick={onUnmatch} className="ps-2 underline underline-offset-2">Unmatch</button>
         )}
       </p>
       {weak && (

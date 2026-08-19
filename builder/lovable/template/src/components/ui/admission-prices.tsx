@@ -67,45 +67,45 @@ export function AdmissionPrices({
     <div className={cn("", className)}>
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-sm">
-          {caption && <caption className="pb-3 text-left text-xs font-medium uppercase tracking-widest text-muted-foreground">{caption}</caption>}
+          {caption && <caption className="pb-3 text-start text-xs font-medium uppercase tracking-widest text-muted-foreground">{caption}</caption>}
           <thead>
-            <tr className="border-b border-border text-left text-xs uppercase tracking-widest text-muted-foreground">
-              <th scope="col" className="py-2 pr-4 font-medium">Ticket</th>
-              {anyAdvance && <th scope="col" className="py-2 pr-4 text-right font-medium">Booked ahead</th>}
-              <th scope="col" className="py-2 text-right font-medium">On the day</th>
+            <tr className="border-b border-border text-start text-xs uppercase tracking-widest text-muted-foreground">
+              <th scope="col" className="py-2 pe-4 font-medium">Ticket</th>
+              {anyAdvance && <th scope="col" className="py-2 pe-4 text-end font-medium">Booked ahead</th>}
+              <th scope="col" className="py-2 text-end font-medium">On the day</th>
             </tr>
           </thead>
           <tbody>
             {tickets.map((t) => (
               <tr key={t.name} className="border-b border-border/60 align-baseline">
-                <th scope="row" className="py-3 pr-4 text-left font-[inherit]">
+                <th scope="row" className="py-3 pe-4 text-start font-[inherit]">
                   <span className="font-medium">{t.name}</span>
                   {t.note && <span className="block text-xs text-muted-foreground">{t.note}</span>}
                 </th>
                 {anyAdvance && (
-                  <td className="py-3 pr-4 text-right tabular-nums">
+                  <td className="py-3 pe-4 text-end tabular-nums">
                     {typeof t.advance === "number"
                       ? money(t.advance)
                       : <><span aria-hidden="true" className="text-muted-foreground">—</span><span className="sr-only">same either way</span></>}
                   </td>
                 )}
-                <td className="py-3 text-right tabular-nums">{money(t.price)}</td>
+                <td className="py-3 text-end tabular-nums">{money(t.price)}</td>
               </tr>
             ))}
             {family && (
               <tr className="border-b border-border/60 align-baseline">
-                <th scope="row" className="py-3 pr-4 text-left font-[inherit]">
+                <th scope="row" className="py-3 pe-4 text-start font-[inherit]">
                   <span className="font-medium">{family.name}</span>
                   <span className="block text-xs text-muted-foreground">
                     {family.covers.map((c) => `${c.count} × ${c.name}`).join(" + ")}
                   </span>
                 </th>
                 {anyAdvance && (
-                  <td className="py-3 pr-4 text-right tabular-nums">
+                  <td className="py-3 pe-4 text-end tabular-nums">
                     {typeof family.advance === "number" ? money(family.advance) : "—"}
                   </td>
                 )}
-                <td className="py-3 text-right tabular-nums">{money(family.price)}</td>
+                <td className="py-3 text-end tabular-nums">{money(family.price)}</td>
               </tr>
             )}
           </tbody>

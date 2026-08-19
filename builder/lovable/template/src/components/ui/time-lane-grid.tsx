@@ -83,18 +83,18 @@ export function TimeLaneGrid({ lanes, blocks, from = 8, to = 20, laneHeight = 48
           const groups = cluster(mine);
           return (
             <div key={lane.key} className="flex items-stretch">
-              <span className="w-24 shrink-0 truncate pr-2">{lane.label}</span>
+              <span className="w-24 shrink-0 truncate pe-2">{lane.label}</span>
               <div className="relative flex-1 rounded border border-border bg-muted/40"
                 style={{ height: laneHeight }}>
                 {hours.map((h) => (
-                  <span key={h} aria-hidden className="absolute inset-y-0 border-l border-border/60"
+                  <span key={h} aria-hidden className="absolute inset-y-0 border-s border-border/60"
                     style={{ left: `${pct(h)}%` }} />
                 ))}
                 {groups.flatMap((group) =>
                   group.map((b, i) => (
                     <button key={b.id} type="button" onClick={() => onPick?.(b.id)}
                       className={cn(
-                        "absolute overflow-hidden rounded border border-foreground bg-background px-1 text-left text-[10px] leading-tight",
+                        "absolute overflow-hidden rounded border border-foreground bg-background px-1 text-start text-[10px] leading-tight",
                         // Fades the last 5px so an under-sized lane truncates
                         // instead of slicing a line of text in half.
                         "[mask-image:linear-gradient(to_bottom,#000_calc(100%-5px),transparent)]",

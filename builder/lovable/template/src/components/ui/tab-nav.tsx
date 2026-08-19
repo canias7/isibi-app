@@ -19,7 +19,7 @@ export function TabNav({ items, active, className }: {
             className={cn("-mb-px shrink-0 border-b-2 px-3 py-2 text-sm",
               on ? "border-foreground font-medium" : "border-transparent text-muted-foreground hover:text-foreground")}>
             {t.label}
-            {t.count != null && <span className="ml-1.5 tabular-nums text-muted-foreground">{t.count}</span>}
+            {t.count != null && <span className="ms-1.5 tabular-nums text-muted-foreground">{t.count}</span>}
           </a>
         );
       })}

@@ -26,7 +26,7 @@ export function HandoffNote({ author, at, body, open, avatar, className }: {
       {open?.length ? (
         <div>
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Still open</p>
-          <ul className="mt-1 list-disc space-y-0.5 pl-4 text-sm">
+          <ul className="mt-1 list-disc space-y-0.5 ps-4 text-sm">
             {open.map((o) => <li key={o}>{o}</li>)}
           </ul>
         </div>

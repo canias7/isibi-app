@@ -24,7 +24,7 @@ export function StepperInput({ value, onChange, min = 0, max, step = 1, label, i
   const shown = draft ?? String(value);
   return (
     <div className={cn("inline-flex items-center", className)}>
-      <Button type="button" size="icon-sm" variant="outline" className="rounded-r-none"
+      <Button type="button" size="icon-sm" variant="outline" className="rounded-e-none"
         disabled={value <= min} onClick={() => onChange(clamp(value - step))}
         aria-label={label ? `Decrease ${label}` : "Decrease"}>
         <Minus className="size-4" />
@@ -33,7 +33,7 @@ export function StepperInput({ value, onChange, min = 0, max, step = 1, label, i
         className="h-8 w-14 rounded-none border-x-0 text-center tabular-nums"
         onChange={(e) => setDraft(e.target.value.replace(/[^\d.-]/g, ""))}
         onBlur={() => { if (draft != null) { const n = Number(draft); onChange(clamp(Number.isFinite(n) ? n : value)); setDraft(null); } }} />
-      <Button type="button" size="icon-sm" variant="outline" className="rounded-l-none"
+      <Button type="button" size="icon-sm" variant="outline" className="rounded-s-none"
         disabled={max != null && value >= max} onClick={() => onChange(clamp(value + step))}
         aria-label={label ? `Increase ${label}` : "Increase"}>
         <Plus className="size-4" />

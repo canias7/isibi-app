@@ -16,10 +16,10 @@ export function UnitInput({ value, unit, units, onValueChange, onUnitChange, id,
   return (
     <div className={cn("flex", className)}>
       <Input id={id} inputMode="decimal" value={value} placeholder={placeholder}
-        className="rounded-r-none tabular-nums"
+        className="rounded-e-none tabular-nums"
         onChange={(e) => onValueChange(e.target.value.replace(/[^0-9.,]/g, ""))} />
       <NativeSelect value={unit} onChange={(e) => onUnitChange(e.target.value)}
-        aria-label="Unit" className="w-auto rounded-l-none border-l-0">
+        aria-label="Unit" className="w-auto rounded-s-none border-s-0">
         {units.map((u) => <option key={u.value} value={u.value}>{u.label}</option>)}
       </NativeSelect>
     </div>

@@ -36,7 +36,7 @@ export function CursorLabel({ name, left, top, muted, className }: {
       <svg viewBox="0 0 12 12" className="size-3 fill-foreground">
         <path d="M0 0 L0 10 L3 7.5 L5 11.5 L7 10.5 L5 6.5 L9 6.5 Z" />
       </svg>
-      <span className="mt-0.5 ml-2 inline-block whitespace-nowrap rounded bg-foreground px-1.5 py-0.5 text-[10px] font-medium text-background">
+      <span className="mt-0.5 ms-2 inline-block whitespace-nowrap rounded bg-foreground px-1.5 py-0.5 text-[10px] font-medium text-background">
         {name}
       </span>
     </div>

@@ -59,10 +59,10 @@ export function CodeDiff({ lines, filename, className }: {
           <tbody>
             {lines.map((l, i) => (
               <tr key={i} className={cn(l.kind === "hunk" && "bg-muted/60")}>
-                <td className="w-10 border-r border-border px-2 text-right align-top text-muted-foreground tabular-nums select-none">
+                <td className="w-10 border-e border-border px-2 text-end align-top text-muted-foreground tabular-nums select-none">
                   {l.oldNo ?? ""}
                 </td>
-                <td className="w-10 border-r border-border px-2 text-right align-top text-muted-foreground tabular-nums select-none">
+                <td className="w-10 border-e border-border px-2 text-end align-top text-muted-foreground tabular-nums select-none">
                   {l.newNo ?? ""}
                 </td>
                 <td className={cn("px-2 whitespace-pre-wrap",

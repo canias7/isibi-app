@@ -49,7 +49,7 @@ export function Permalink({ id, heading, baseUrl, className }: {
   return (
     <button type="button" onClick={copy}
       aria-label={`Copy a link to ${heading}`}
-      className={cn("ml-1.5 inline-flex cursor-pointer items-center rounded p-0.5 align-middle text-muted-foreground",
+      className={cn("ms-1.5 inline-flex cursor-pointer items-center rounded p-0.5 align-middle text-muted-foreground",
         // Focus, not only hover: this is the control a keyboard user wants.
         // AND `pointer-coarse`, because the hover reveal needs two things this
         // component does not control: an ancestor carrying `group`, which is

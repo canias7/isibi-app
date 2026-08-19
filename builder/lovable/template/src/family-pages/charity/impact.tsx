@@ -32,8 +32,8 @@ function P() {
             ].map(([what, amount, share]) => (
               <li key={what} className="flex flex-wrap items-baseline gap-x-4 gap-y-1 py-3.5">
                 <span className="min-w-0 flex-1 text-sm font-medium">{what}</span>
-                <span className="w-24 shrink-0 text-right text-sm tabular-nums">{amount}</span>
-                <span className="w-16 shrink-0 text-right text-sm tabular-nums text-muted-foreground">{share}</span>
+                <span className="w-24 shrink-0 text-end text-sm tabular-nums">{amount}</span>
+                <span className="w-16 shrink-0 text-end text-sm tabular-nums text-muted-foreground">{share}</span>
               </li>
             ))}
           </ul>

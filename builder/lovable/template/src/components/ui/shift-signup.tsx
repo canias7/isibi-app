@@ -64,7 +64,7 @@ export function ShiftSignup({ role, when, where, filled = 0, needed, requirement
         <p className="text-xs">
           You are down for this.
           {onWithdraw && (
-            <button type="button" onClick={onWithdraw} className="pl-2 underline underline-offset-2">
+            <button type="button" onClick={onWithdraw} className="ps-2 underline underline-offset-2">
               Can't make it any more
             </button>
           )}

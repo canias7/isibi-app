@@ -35,7 +35,7 @@ export function ExcludeFilter({ label, state, onChange, count, className }: {
   return (
     <button type="button" onClick={() => onChange(NEXT[state])}
       aria-label={`${label}, ${WORD[state]}`}
-      className={cn("flex w-full items-center gap-2 rounded px-1.5 py-1 text-left text-sm hover:bg-muted", className)}>
+      className={cn("flex w-full items-center gap-2 rounded px-1.5 py-1 text-start text-sm hover:bg-muted", className)}>
       <span aria-hidden="true"
         className={cn("inline-flex size-4 shrink-0 items-center justify-center rounded border text-xs leading-none",
           state === "off" ? "border-border" : "border-foreground bg-foreground text-background")}>
@@ -43,7 +43,7 @@ export function ExcludeFilter({ label, state, onChange, count, className }: {
       </span>
       <span className={cn("min-w-0 truncate", state === "exclude" && "line-through decoration-from-font")}>{label}</span>
       {count !== undefined && (
-        <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">{count.toLocaleString()}</span>
+        <span className="ms-auto shrink-0 text-xs tabular-nums text-muted-foreground">{count.toLocaleString()}</span>
       )}
     </button>
   );

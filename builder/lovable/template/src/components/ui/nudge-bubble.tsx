@@ -55,7 +55,7 @@ export function NudgeBubble({
   return (
     <span
       role="status"
-      className={cn("motion-enter pointer-events-none absolute left-0 z-40 w-56",
+      className={cn("motion-enter pointer-events-none absolute start-0 z-40 w-56",
         side === "bottom" ? "top-full mt-2" : "bottom-full mb-2", className)}
     >
       <span className="pointer-events-auto flex items-start gap-2 rounded-lg border border-border bg-popover p-2.5 shadow-lg">

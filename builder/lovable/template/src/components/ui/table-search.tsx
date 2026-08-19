@@ -39,7 +39,7 @@ export function TableSearch({ value, onChange, placeholder = "Search", count, to
   return (
     <div className={cn("flex flex-col gap-1", className)}>
       <div className="relative">
-        <Search aria-hidden className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Search aria-hidden className="pointer-events-none absolute top-1/2 start-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
         <input
           id={id}
           type="text"
@@ -48,11 +48,11 @@ export function TableSearch({ value, onChange, placeholder = "Search", count, to
           onKeyDown={(e) => { if (e.key === "Escape" && value) { e.preventDefault(); onChange(""); } }}
           placeholder={placeholder}
           aria-label={placeholder}
-          className="h-9 w-full rounded-md border border-border bg-background pr-8 pl-8 text-sm outline-none focus-visible:border-ring"
+          className="h-9 w-full rounded-md border border-border bg-background pe-8 ps-8 text-sm outline-none focus-visible:border-ring"
         />
         {value ? (
           <button type="button" onClick={() => onChange("")} aria-label="Clear search"
-            className="absolute top-1/2 right-2 cursor-pointer -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground">
+            className="absolute top-1/2 end-2 cursor-pointer -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground">
             <X aria-hidden className="size-3.5" />
           </button>
         ) : null}

@@ -42,9 +42,9 @@ export function PinnedNav({ items, onPick, onUnpin, title = "Pinned", empty, cla
           {items.map((i) => (
             <li key={i.key} className="group/p flex items-center">
               <button type="button" onClick={() => onPick(i.key)}
-                className="min-w-0 flex-1 cursor-pointer truncate rounded px-2 py-1 text-left text-sm hover:bg-muted">
+                className="min-w-0 flex-1 cursor-pointer truncate rounded px-2 py-1 text-start text-sm hover:bg-muted">
                 {i.label}
-                {i.hint ? <span className="ml-1.5 text-xs text-muted-foreground">{i.hint}</span> : null}
+                {i.hint ? <span className="ms-1.5 text-xs text-muted-foreground">{i.hint}</span> : null}
               </button>
               <button type="button" onClick={() => onUnpin(i.key)}
                 aria-pressed="true" aria-label={`Unpin ${i.label}`}

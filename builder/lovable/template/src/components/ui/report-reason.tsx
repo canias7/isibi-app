@@ -85,7 +85,7 @@ export function ReportReasonForm({ what = "this", reasons = DEFAULT_REPORT_REASO
         {/* Block is the personal, immediate act — a different thing, offered as one. */}
         {onBlock ? (
           <button type="button" onClick={onBlock}
-            className="ml-auto cursor-pointer text-xs text-muted-foreground underline underline-offset-2">
+            className="ms-auto cursor-pointer text-xs text-muted-foreground underline underline-offset-2">
             Just block them instead
           </button>
         ) : null}

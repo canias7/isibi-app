@@ -81,7 +81,7 @@ export function MinimapScroll({ targetRef, width = 56, className }: {
       style={{ width, height: "60vh" }}
       className={cn("relative shrink-0 cursor-pointer overflow-hidden rounded border border-border bg-muted/30", className)}>
       {blocks.map((b, i) => (
-        <span key={i} className={cn("absolute left-1 right-1 rounded-[1px]", b.solid ? "bg-foreground/35" : "bg-foreground/15")}
+        <span key={i} className={cn("absolute start-1 end-1 rounded-[1px]", b.solid ? "bg-foreground/35" : "bg-foreground/15")}
           style={{ top: `${b.top * scale * 100}%`, height: `${Math.max(0.4, b.height * scale * 100)}%` }} />
       ))}
       <span className="absolute inset-x-0 border-y border-foreground bg-foreground/10"

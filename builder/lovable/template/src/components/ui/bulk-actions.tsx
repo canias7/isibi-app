@@ -16,7 +16,7 @@ export function BulkActions({ count, onClear, actions, className }: {
     <div className={cn("flex flex-wrap items-center gap-2 rounded-lg border bg-muted/50 px-3 py-2", className)}
       role="status">
       <span className="text-sm font-medium tabular-nums">{count} selected</span>
-      <div className="ml-auto flex flex-wrap items-center gap-2">
+      <div className="ms-auto flex flex-wrap items-center gap-2">
         {actions.map((a) => (
           <Button key={a.label} size="sm" variant={a.destructive ? "outline" : "secondary"}
             className={a.destructive ? "border-destructive/40 text-destructive hover:bg-destructive/10" : undefined}

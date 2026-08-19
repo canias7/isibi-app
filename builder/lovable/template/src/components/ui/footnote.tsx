@@ -36,9 +36,9 @@ export function FootnoteList({ notes, className }: {
   return (
     <section role="doc-endnotes" aria-label="Footnotes"
       className={cn("mt-8 border-t border-border pt-3", className)}>
-      <ol className="flex flex-col gap-1.5 pl-5 text-xs text-muted-foreground [list-style:decimal]">
+      <ol className="flex flex-col gap-1.5 ps-5 text-xs text-muted-foreground [list-style:decimal]">
         {notes.map((note) => (
-          <li key={note.id} id={`fn-${note.id}`} role="doc-footnote" className="pl-1 leading-relaxed">
+          <li key={note.id} id={`fn-${note.id}`} role="doc-footnote" className="ps-1 leading-relaxed">
             {note.children}{" "}
             <a href={`#fnref-${note.id}`} aria-label="Back to the text"
               className="cursor-pointer no-underline hover:underline">↩</a>

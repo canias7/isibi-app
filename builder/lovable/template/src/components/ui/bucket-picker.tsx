@@ -26,7 +26,7 @@ export function BucketPicker({ options = ["day", "week", "month"], labels, value
       <div className="inline-flex self-start overflow-hidden rounded-md border border-border">
         {options.map((o) => (
           <button key={o} type="button" onClick={() => onChange(o)} aria-pressed={value === o}
-            className={cn("cursor-pointer border-r border-border px-2.5 py-1 text-xs capitalize last:border-r-0",
+            className={cn("cursor-pointer border-e border-border px-2.5 py-1 text-xs capitalize last:border-e-0",
               value === o ? "bg-foreground font-medium text-background" : "hover:bg-muted")}>
             {labels?.[o] ?? o}
           </button>

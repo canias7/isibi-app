@@ -72,7 +72,7 @@ export function ColumnResize({ width, onResize, onReset, label, className }: {
         if (e.key === "Home") { e.preventDefault(); onReset?.(); }
       }}
       className={cn(
-        "absolute top-0 right-0 h-full w-1 cursor-col-resize touch-none select-none",
+        "absolute top-0 end-0 h-full w-1 cursor-col-resize touch-none select-none",
         "hover:bg-foreground/30 focus-visible:bg-foreground/40 focus-visible:outline-none",
         dragging && "bg-foreground/40", className)}
     />

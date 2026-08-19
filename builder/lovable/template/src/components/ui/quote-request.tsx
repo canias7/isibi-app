@@ -72,7 +72,7 @@ export function QuoteRequest({
       <div className="grid gap-1.5">
         <Label htmlFor={`${id}-photos`}>Photographs</Label>
         <input id={`${id}-photos`} type="file" accept="image/*" multiple
-          className="block w-full text-sm file:mr-3 file:rounded-md file:border file:border-border file:bg-background file:px-3 file:py-1.5 file:text-sm file:font-medium"
+          className="block w-full text-sm file:me-3 file:rounded-md file:border file:border-border file:bg-background file:px-3 file:py-1.5 file:text-sm file:font-medium"
           onChange={(e) => setFiles(Array.from(e.target.files ?? []).map((f) => ({ name: f.name, size: f.size })))} />
         <p className="text-xs text-muted-foreground">
           {files.length

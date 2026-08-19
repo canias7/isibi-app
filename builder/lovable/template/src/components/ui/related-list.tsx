@@ -12,7 +12,7 @@ export function RelatedList({ title = "Read next", items, ordered, className }: 
         {items.map((r) => (
           <li key={r.href} className="border-b border-border py-2 last:border-0">
             <a href={r.href} className="text-sm hover:underline underline-offset-4">{r.label}</a>
-            {r.meta && <span className="ml-2 text-xs text-muted-foreground">{r.meta}</span>}
+            {r.meta && <span className="ms-2 text-xs text-muted-foreground">{r.meta}</span>}
           </li>
         ))}
       </List>

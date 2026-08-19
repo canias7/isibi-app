@@ -28,7 +28,7 @@ export function CartBadge({ count, href = "#", cap = 99, className }: {
       <ShoppingBag className="size-5" aria-hidden />
       {count > 0 ? (
         <span aria-hidden
-          className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-foreground px-1 text-center text-[10px] font-bold leading-4 text-background tabular-nums">
+          className="absolute -end-0.5 -top-0.5 min-w-4 rounded-full bg-foreground px-1 text-center text-[10px] font-bold leading-4 text-background tabular-nums">
           {count > cap ? `${cap}+` : count}
         </span>
       ) : null}

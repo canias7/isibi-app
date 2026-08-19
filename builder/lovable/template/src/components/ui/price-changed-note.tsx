@@ -35,7 +35,7 @@ export function PriceChangedNote({ changes, currency = "GBP", onAccept, classNam
             <span className="min-w-0 truncate">{c.name}</span>
             <span>
               {fmt(c.wasMinor)} → <b>{fmt(c.nowMinor)}</b>
-              <span className="ml-1 text-muted-foreground">
+              <span className="ms-1 text-muted-foreground">
                 {c.nowMinor > c.wasMinor ? `up ${fmt(c.nowMinor - c.wasMinor)}` : `down ${fmt(c.wasMinor - c.nowMinor)}`}
               </span>
             </span>

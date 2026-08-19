@@ -17,7 +17,7 @@ export function NotificationBell({ count = 0, children, className }: {
           <span className="relative inline-flex">
             <Bell className="size-5" />
             {count > 0 && (
-              <span className="absolute -right-1.5 -top-1.5">
+              <span className="absolute -end-1.5 -top-1.5">
                 <CountBadge count={count} className="h-4 min-w-4 px-1 text-[10px] ring-2 ring-background" />
               </span>
             )}

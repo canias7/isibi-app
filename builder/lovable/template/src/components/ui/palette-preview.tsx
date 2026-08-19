@@ -58,7 +58,7 @@ export function PalettePreview({ colours, against = "#ffffff", className }: {
               <span className="block">{c.label}</span>
               <code className="block font-mono text-xs text-muted-foreground">{c.hex}</code>
             </span>
-            <span className="shrink-0 text-right text-xs">
+            <span className="shrink-0 text-end text-xs">
               <span className="block tabular-nums">{r === null ? "—" : `${r.toFixed(1)}:1`}</span>
               <span className={cn("block", body ? "text-muted-foreground" : "font-medium")}>
                 {r === null ? "cannot read this colour"

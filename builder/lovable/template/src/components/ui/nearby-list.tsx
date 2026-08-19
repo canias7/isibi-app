@@ -45,7 +45,7 @@ export function NearbyList({ places, onSelect, origin, unit = "km", emptyNote = 
       <ul className="divide-y divide-border rounded-md border border-border">
         {places.map((p) => {
           const body = (
-            <span className="flex w-full flex-wrap items-baseline gap-x-3 gap-y-0.5 px-3 py-2 text-left">
+            <span className="flex w-full flex-wrap items-baseline gap-x-3 gap-y-0.5 px-3 py-2 text-start">
               <span className="min-w-0 flex-1">
                 <span className="block text-sm font-medium">{p.name}</span>
                 {p.address && <span className="block text-xs text-muted-foreground">{p.address}</span>}

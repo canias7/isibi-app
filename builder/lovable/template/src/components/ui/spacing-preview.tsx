@@ -29,7 +29,7 @@ export function SpacingPreview({ steps, touchMinimum = 44, className }: {
       {steps.map((s) => (
         <li key={s.name} className="flex items-center gap-3 text-sm">
           <span className="w-12 shrink-0 text-xs text-muted-foreground">{s.name}</span>
-          <span className="w-10 shrink-0 text-right text-xs tabular-nums">{s.px}px</span>
+          <span className="w-10 shrink-0 text-end text-xs tabular-nums">{s.px}px</span>
           <span aria-hidden="true" style={{ width: `${(s.px / max) * 100}%` }}
             className="h-3 rounded-sm bg-foreground" />
           {s.px >= touchMinimum && (

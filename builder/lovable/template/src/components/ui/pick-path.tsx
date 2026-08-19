@@ -61,7 +61,7 @@ export function PickPath({ lines, className }: { lines: PickLine[]; className?: 
                 </span>
               </p>
               {shortfall > 0 && (
-                <p className="pl-6 text-xs font-medium tabular-nums">
+                <p className="ps-6 text-xs font-medium tabular-nums">
                   {shortfall} short — the bin did not hold what the system said.
                 </p>
               )}

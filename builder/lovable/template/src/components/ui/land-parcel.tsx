@@ -39,14 +39,14 @@ export function LandParcel({ code, name, area, eligibleArea, unit = "ha", crop, 
       <span className="min-w-0 flex-1">
         <span className="block">
           {name ?? code}
-          {name && <code className="ml-1.5 font-mono text-xs text-muted-foreground">{code}</code>}
+          {name && <code className="ms-1.5 font-mono text-xs text-muted-foreground">{code}</code>}
         </span>
         <span className="block text-xs text-muted-foreground">
           {crop ?? "Nothing recorded"}
           {tenure && ` · ${tenure}`}
         </span>
       </span>
-      <span className="shrink-0 text-right">
+      <span className="shrink-0 text-end">
         <span className="block tabular-nums">
           {area.toLocaleString()} <span className="text-xs text-muted-foreground">{unit}</span>
         </span>

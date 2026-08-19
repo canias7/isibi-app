@@ -42,7 +42,7 @@ export function DateFormatPreview({ date = "2026-04-03", locales, className }: {
           return (
             <div key={l.id} className="flex items-baseline justify-between gap-3 px-3 py-1.5">
               <dt className="text-muted-foreground">{l.label}</dt>
-              <dd className="text-right" lang={l.id}>
+              <dd className="text-end" lang={l.id}>
                 <span className="tabular-nums">{numeric}</span>
                 <span className="block text-xs text-muted-foreground">{long}</span>
               </dd>

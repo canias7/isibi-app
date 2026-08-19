@@ -20,7 +20,7 @@ export function TimelineVertical({ items, className }: {
       {items.map((it, i) => (
         <li key={it.id} className="relative flex gap-4 pb-6 last:pb-0">
           {i < items.length - 1 && (
-            <span className="absolute left-[0.6875rem] top-6 h-full w-px bg-border" aria-hidden="true" />
+            <span className="absolute start-[0.6875rem] top-6 h-full w-px bg-border" aria-hidden="true" />
           )}
           <span className={cn("relative z-10 mt-1 flex size-6 shrink-0 items-center justify-center rounded-full border bg-background",
             it.muted ? "border-border text-muted-foreground" : "border-foreground")}>

@@ -60,7 +60,7 @@ export function IntegrationLog({ runs, emptyNote = "This has never run", classNa
               </span>
               {r.reason && <span className="block text-xs text-muted-foreground">{r.reason}</span>}
             </span>
-            <span className="shrink-0 text-right text-xs text-muted-foreground">
+            <span className="shrink-0 text-end text-xs text-muted-foreground">
               {ok && (
                 <time dateTime={isoAttr(d)} className="block">
                   {d!.toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}

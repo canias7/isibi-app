@@ -39,7 +39,7 @@ export function FrozenColumns<T>({
     : { width: columns[i].width, minWidth: columns[i].width };
 
   const edge = (i: number) => cn(
-    i === n - 1 && "border-r border-border",
+    i === n - 1 && "border-e border-border",
     i === n - 1 && scrolled && "shadow-[2px_0_4px_-1px_rgba(0,0,0,0.15)]");
 
   return (
@@ -54,7 +54,7 @@ export function FrozenColumns<T>({
             {columns.map((c, i) => (
               <th key={c.key} scope="col" style={stick(i)}
                 className={cn("bg-muted px-3 py-2 font-medium whitespace-nowrap",
-                  c.align === "right" ? "text-right" : "text-left", edge(i))}>
+                  c.align === "right" ? "text-end" : "text-start", edge(i))}>
                 {c.header}
               </th>
             ))}
@@ -68,7 +68,7 @@ export function FrozenColumns<T>({
               {columns.map((c, i) => (
                 <td key={c.key} style={stick(i)}
                   className={cn("bg-background px-3 py-2 whitespace-nowrap",
-                    c.align === "right" ? "text-right tabular-nums" : "text-left", edge(i))}>
+                    c.align === "right" ? "text-end tabular-nums" : "text-start", edge(i))}>
                   {c.cell(row)}
                 </td>
               ))}

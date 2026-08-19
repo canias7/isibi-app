@@ -33,20 +33,20 @@ export function CountSheetRow({ name, expected, counted, onChange, unit, reveale
   const diff = counted === null ? null : counted - expected;
   return (
     <tr className={className}>
-      <th scope="row" className="px-3 py-2 text-left text-sm font-normal">
+      <th scope="row" className="px-3 py-2 text-start text-sm font-normal">
         {name}
-        {unit && <span className="ml-1.5 text-xs text-muted-foreground">{unit}</span>}
+        {unit && <span className="ms-1.5 text-xs text-muted-foreground">{unit}</span>}
       </th>
       <td className="px-3 py-2">
         <input type="number" inputMode="numeric" min={0} value={counted ?? ""}
           aria-label={`Counted ${name}`}
           onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
-          className="h-9 w-24 rounded-md border border-input bg-transparent px-2 text-right text-sm tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none" />
+          className="h-9 w-24 rounded-md border border-input bg-transparent px-2 text-end text-sm tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none" />
       </td>
-      <td className="px-3 py-2 text-right text-sm tabular-nums text-muted-foreground">
+      <td className="px-3 py-2 text-end text-sm tabular-nums text-muted-foreground">
         {show ? expected.toLocaleString() : <span className="italic">hidden</span>}
       </td>
-      <td className={cn("px-3 py-2 text-right text-sm tabular-nums", diff !== null && diff !== 0 && "font-medium")}>
+      <td className={cn("px-3 py-2 text-end text-sm tabular-nums", diff !== null && diff !== 0 && "font-medium")}>
         {diff === null ? "" : diff === 0 ? "—" : `${diff > 0 ? "+" : "−"}${Math.abs(diff).toLocaleString()}`}
       </td>
     </tr>

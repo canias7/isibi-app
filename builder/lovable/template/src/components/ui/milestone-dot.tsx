@@ -44,9 +44,9 @@ export function MilestoneDot({ label, at, iso, state = "upcoming", detail, class
         </p>
         <p className="text-xs text-muted-foreground">
           {at ? <time dateTime={iso}>{at}</time> : null}
-          {state === "missed" ? <span className="ml-1.5 font-medium text-foreground">missed</span> : null}
-          {state === "today" ? <span className="ml-1.5 font-medium text-foreground">today</span> : null}
-          {detail ? <span className="ml-1.5">{detail}</span> : null}
+          {state === "missed" ? <span className="ms-1.5 font-medium text-foreground">missed</span> : null}
+          {state === "today" ? <span className="ms-1.5 font-medium text-foreground">today</span> : null}
+          {detail ? <span className="ms-1.5">{detail}</span> : null}
         </p>
       </div>
     </li>

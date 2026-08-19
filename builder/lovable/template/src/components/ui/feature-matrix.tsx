@@ -36,7 +36,7 @@ export function FeatureMatrix({
       <table className="w-full border-collapse text-sm">
         <thead>
           <tr className="border-b border-border">
-            <th scope="col" className="sticky left-0 z-1 bg-muted px-3 py-2 text-left font-medium">Feature</th>
+            <th scope="col" className="sticky start-0 z-1 bg-muted px-3 py-2 text-start font-medium">Feature</th>
             {plans.map((p) => (
               <th key={p.key} scope="col"
                 className={cn("min-w-24 bg-muted px-3 py-2 text-center align-top font-semibold",
@@ -55,14 +55,14 @@ export function FeatureMatrix({
             {g.label ? (
               <tr className="border-b border-border bg-muted/40">
                 <th scope="colgroup" colSpan={plans.length + 1}
-                  className="px-3 py-1.5 text-left text-xs font-semibold tracking-wide uppercase">
+                  className="px-3 py-1.5 text-start text-xs font-semibold tracking-wide uppercase">
                   {g.label}
                 </th>
               </tr>
             ) : null}
             {g.features.map((f) => (
               <tr key={f.key} className="border-b border-border last:border-0">
-                <th scope="row" className="sticky left-0 z-1 bg-background px-3 py-2 text-left font-normal">
+                <th scope="row" className="sticky start-0 z-1 bg-background px-3 py-2 text-start font-normal">
                   <span className="block">{f.label}</span>
                   {f.hint ? <span className="block text-xs text-muted-foreground">{f.hint}</span> : null}
                 </th>

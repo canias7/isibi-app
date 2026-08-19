@@ -15,7 +15,7 @@ export function CaseStudyCard({ client, headline, result, image, href, className
       {result && (
         <div className="mt-auto border-t pt-3">
           <span className="text-2xl font-semibold tabular-nums">{result.value}</span>
-          <span className="ml-2 text-sm text-muted-foreground">{result.label}</span>
+          <span className="ms-2 text-sm text-muted-foreground">{result.label}</span>
         </div>
       )}
     </a>

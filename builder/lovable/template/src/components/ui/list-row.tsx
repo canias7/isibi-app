@@ -12,7 +12,7 @@ export function ListRow({ leading, title, description, trailing, onClick, classN
   const inner = (
     <>
       {leading && <span className="shrink-0">{leading}</span>}
-      <span className="min-w-0 flex-1 text-left">
+      <span className="min-w-0 flex-1 text-start">
         <span className="block truncate text-sm font-medium">{title}</span>
         {description && <span className="block truncate text-sm text-muted-foreground">{description}</span>}
       </span>

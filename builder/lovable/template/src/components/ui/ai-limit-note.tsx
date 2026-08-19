@@ -40,7 +40,7 @@ export function AiLimitNote({ used, limit, resetsAt, unit = "requests", warnAt =
         {out ? `No ${unit} left` : `${left} ${unit} left`}
       </span>
       {resetsAt && <span className="text-xs text-muted-foreground">Resets {resetsAt}</span>}
-      {action && <span className="ml-auto">{action}</span>}
+      {action && <span className="ms-auto">{action}</span>}
     </div>
   );
 }

@@ -43,7 +43,7 @@ function Node({ name, value, depth, maxDepth, seen, chunk }: {
 
   if (!isObj) {
     return (
-      <div className="flex gap-1.5 py-px pl-4 font-mono text-xs">
+      <div className="flex gap-1.5 py-px ps-4 font-mono text-xs">
         {name != null ? <span className="text-muted-foreground">{name}:</span> : null}
         <Leaf value={value} />
       </div>
@@ -51,14 +51,14 @@ function Node({ name, value, depth, maxDepth, seen, chunk }: {
   }
   if (seen.has(value as object)) {
     return (
-      <div className="py-px pl-4 font-mono text-xs text-muted-foreground">
+      <div className="py-px ps-4 font-mono text-xs text-muted-foreground">
         {name != null ? `${name}: ` : ""}(circular reference)
       </div>
     );
   }
   if (depth >= maxDepth) {
     return (
-      <div className="py-px pl-4 font-mono text-xs text-muted-foreground">
+      <div className="py-px ps-4 font-mono text-xs text-muted-foreground">
         {name != null ? `${name}: ` : ""}{summary(value)} — too deep to show
       </div>
     );
@@ -73,19 +73,19 @@ function Node({ name, value, depth, maxDepth, seen, chunk }: {
   return (
     <div className="font-mono text-xs">
       <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open}
-        className="flex w-full cursor-pointer items-center gap-1 rounded py-px text-left hover:bg-muted">
+        className="flex w-full cursor-pointer items-center gap-1 rounded py-px text-start hover:bg-muted">
         <ChevronRight aria-hidden className={cn("size-3 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")} />
         {name != null ? <span className="text-muted-foreground">{name}:</span> : null}
         {!open ? <span className="text-muted-foreground">{summary(value)}</span> : null}
       </button>
       {open ? (
-        <div className="border-l border-border pl-2">
+        <div className="border-s border-border ps-2">
           {entries.slice(0, limit).map(([k, v]) => (
             <Node key={k} name={k} value={v} depth={depth + 1} maxDepth={maxDepth} seen={next} chunk={chunk} />
           ))}
           {entries.length > limit ? (
             <button type="button" onClick={() => setLimit((n) => n + chunk)}
-              className="cursor-pointer py-px pl-4 text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground">
+              className="cursor-pointer py-px ps-4 text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground">
               Show {Math.min(chunk, entries.length - limit)} more of {entries.length}
             </button>
           ) : null}

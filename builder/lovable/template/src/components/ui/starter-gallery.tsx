@@ -41,7 +41,7 @@ export function StarterGallery({ starters, value, onChange, className }: {
         return (
           <li key={s.id}>
             <button type="button" onClick={() => onChange(s.id)} aria-pressed={on}
-              className={cn("w-full overflow-hidden rounded-lg border text-left",
+              className={cn("w-full overflow-hidden rounded-lg border text-start",
                 on ? "border-foreground ring-2 ring-foreground ring-offset-2 ring-offset-background" : "border-border")}>
               <span className="relative block">
                 {/* SEEDED ON THE NAME. The alt is deliberately empty (the name is read out
@@ -50,7 +50,7 @@ export function StarterGallery({ starters, value, onChange, className }: {
             Exactly the case SafeImage's own comment warns about. */}
           <SafeImage src={s.image} alt="" fallbackSeed={s.name} className="aspect-4/3 w-full object-cover" />
                 {on && (
-                  <span className="absolute right-1.5 top-1.5 rounded bg-foreground px-1.5 py-0.5 text-xs font-medium text-background">
+                  <span className="absolute end-1.5 top-1.5 rounded bg-foreground px-1.5 py-0.5 text-xs font-medium text-background">
                     Chosen
                   </span>
                 )}

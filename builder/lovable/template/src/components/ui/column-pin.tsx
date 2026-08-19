@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
  * The toggle names the column, or a header row of identical pin buttons is
  * unusable with a screen reader.
  */
-export const PIN_CELL = "sticky left-0 z-10 bg-background";
+export const PIN_CELL = "sticky start-0 z-10 bg-background";
 
 export function ColumnPin({ column, pinned, onToggle, className }: {
   column: string;

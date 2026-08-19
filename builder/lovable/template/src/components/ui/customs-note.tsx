@@ -44,9 +44,9 @@ export function CustomsNote({ fields, incoterm, dutyPayableBy, className }: {
           <div key={f.id} className="flex items-baseline justify-between gap-3 px-3 py-1.5">
             <dt className="min-w-0 text-muted-foreground">
               {f.label}
-              {f.required && !f.value && <span className="ml-1.5 text-xs font-medium text-foreground">required</span>}
+              {f.required && !f.value && <span className="ms-1.5 text-xs font-medium text-foreground">required</span>}
             </dt>
-            <dd className={cn("shrink-0 text-right", !f.value && "italic text-muted-foreground")}>
+            <dd className={cn("shrink-0 text-end", !f.value && "italic text-muted-foreground")}>
               {f.value || "not given"}
             </dd>
           </div>

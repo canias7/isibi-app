@@ -12,7 +12,7 @@ export function EscalationNote({ to, from, at, reason, className }: {
   to: string; from?: string; at?: string | number | Date; reason?: string; className?: string;
 }) {
   return (
-    <div className={cn("border-l-2 border-warning bg-warning/5 py-2 pl-3", className)}>
+    <div className={cn("border-s-2 border-warning bg-warning/5 py-2 ps-3", className)}>
       <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
         <span className="font-medium uppercase tracking-wide text-warning">Internal</span>
         {/* Both people are NAMED. An avatar in the middle of a sentence reads

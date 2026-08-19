@@ -42,7 +42,7 @@ export function TableEditor({ rows, onChange, className }: {
         <table className="w-full border-collapse">
           <thead>
             <tr className="border-b border-border bg-muted/40">
-              {rows[0]?.map((_, c) => <th key={c} className="border-r border-border p-0 last:border-r-0">{cell(0, c)}</th>)}
+              {rows[0]?.map((_, c) => <th key={c} className="border-e border-border p-0 last:border-e-0">{cell(0, c)}</th>)}
               <th className="w-9 p-0" />
             </tr>
           </thead>
@@ -51,7 +51,7 @@ export function TableEditor({ rows, onChange, className }: {
               const r = i + 1;
               return (
                 <tr key={r} className="border-b border-border last:border-0">
-                  {rows[r].map((_, c) => <td key={c} className="border-r border-border p-0 last:border-r-0">{cell(r, c)}</td>)}
+                  {rows[r].map((_, c) => <td key={c} className="border-e border-border p-0 last:border-e-0">{cell(r, c)}</td>)}
                   <td className="p-0 text-center">
                     {rows.length > 2 && (
                       <Button type="button" size="icon-sm" variant="ghost" aria-label={`Delete row ${r}`}

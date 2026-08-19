@@ -35,7 +35,7 @@ export function BreakpointBadge({ active, breakpoints = TAILWIND_BREAKPOINTS, cl
   const name = breakpoints.find(([, px]) => w >= px)?.[0] ?? "base";
   return (
     <div aria-hidden className={cn(
-      "fixed bottom-3 left-3 z-50 rounded-md border border-foreground bg-popover px-2 py-1 font-mono text-[11px] shadow-sm",
+      "fixed bottom-3 start-3 z-50 rounded-md border border-foreground bg-popover px-2 py-1 font-mono text-[11px] shadow-sm",
       className)}>
       <span className="font-bold">{name}</span>
       <span className="text-muted-foreground"> · {w}px · build tool</span>

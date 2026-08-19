@@ -29,7 +29,7 @@ export function CollectionHeader({ title, count, description, image, className }
       ) : null}
       <h1 className="text-2xl font-bold tracking-tight">
         {title}
-        {count != null ? <span className="ml-2 text-base font-normal tabular-nums text-muted-foreground">{count}</span> : null}
+        {count != null ? <span className="ms-2 text-base font-normal tabular-nums text-muted-foreground">{count}</span> : null}
       </h1>
       {description ? (
         <div>

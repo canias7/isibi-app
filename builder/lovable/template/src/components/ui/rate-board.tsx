@@ -90,10 +90,10 @@ export function RateBoard({
         <table className="w-full min-w-[36rem] border-collapse text-sm">
           <thead>
             <tr className="border-b border-border text-xs uppercase tracking-[0.12em] text-muted-foreground">
-              <th scope="col" className="py-2 pr-4 text-left font-normal">Currency</th>
-              <th scope="col" className="px-3 py-2 text-right font-normal">You get</th>
-              <th scope="col" className="px-3 py-2 text-right font-normal">You pay back</th>
-              <th scope="col" className="py-2 pl-3 text-right font-normal">Spread</th>
+              <th scope="col" className="py-2 pe-4 text-start font-normal">Currency</th>
+              <th scope="col" className="px-3 py-2 text-end font-normal">You get</th>
+              <th scope="col" className="px-3 py-2 text-end font-normal">You pay back</th>
+              <th scope="col" className="py-2 ps-3 text-end font-normal">Spread</th>
             </tr>
           </thead>
           <tbody>
@@ -101,7 +101,7 @@ export function RateBoard({
               const s = spread(r);
               return (
                 <tr key={r.code} className="border-b border-border align-baseline last:border-0">
-                  <th scope="row" className="py-2.5 pr-4 text-left font-normal">
+                  <th scope="row" className="py-2.5 pe-4 text-start font-normal">
                     <span className="font-medium">{r.code}</span>
                     <span className="text-muted-foreground"> · {r.name}</span>
                     {r.order && (
@@ -109,15 +109,15 @@ export function RateBoard({
                     )}
                     {r.note && <span className="block text-xs text-muted-foreground">{r.note}</span>}
                   </th>
-                  <td className="px-3 py-2.5 text-right tabular-nums">{n(r.sell)}</td>
-                  <td className="px-3 py-2.5 text-right tabular-nums">
+                  <td className="px-3 py-2.5 text-end tabular-nums">{n(r.sell)}</td>
+                  <td className="px-3 py-2.5 text-end tabular-nums">
                     {r.buy == null ? (
                       <span className="text-xs text-muted-foreground">not bought back</span>
                     ) : (
                       n(r.buy)
                     )}
                   </td>
-                  <td className="py-2.5 pl-3 text-right tabular-nums">
+                  <td className="py-2.5 ps-3 text-end tabular-nums">
                     {s == null ? (
                       <span className="text-muted-foreground">—</span>
                     ) : (

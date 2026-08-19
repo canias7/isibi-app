@@ -47,7 +47,7 @@ export function ChapterList({ chapters, at = 0, total, onSeek, className }: {
           <li key={c.start}>
             <button type="button" onClick={() => onSeek?.(c.start)}
               aria-current={i === current ? "true" : undefined}
-              className={cn("flex w-full cursor-pointer items-baseline gap-3 px-3 py-2 text-left text-sm hover:bg-muted",
+              className={cn("flex w-full cursor-pointer items-baseline gap-3 px-3 py-2 text-start text-sm hover:bg-muted",
                 i === current && "bg-muted/60 font-medium")}>
               <span className="w-12 shrink-0 text-xs text-muted-foreground tabular-nums">{clock(c.start)}</span>
               <span className="min-w-0 flex-1">{c.title}</span>

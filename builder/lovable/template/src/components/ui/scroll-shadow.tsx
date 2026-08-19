@@ -45,11 +45,11 @@ export function ScrollShadow({ children, orientation = "horizontal", className }
       <div ref={ref} className={cn(h ? "overflow-x-auto" : "overflow-y-auto", className)}>{children}</div>
       {edges.start && (
         <div aria-hidden className={cn("pointer-events-none absolute from-background to-transparent",
-          h ? "inset-y-0 left-0 w-6 bg-gradient-to-r" : "inset-x-0 top-0 h-6 bg-gradient-to-b")} />
+          h ? "inset-y-0 start-0 w-6 bg-gradient-to-r" : "inset-x-0 top-0 h-6 bg-gradient-to-b")} />
       )}
       {edges.end && (
         <div aria-hidden className={cn("pointer-events-none absolute from-background to-transparent",
-          h ? "inset-y-0 right-0 w-6 bg-gradient-to-l" : "inset-x-0 bottom-0 h-6 bg-gradient-to-t")} />
+          h ? "inset-y-0 end-0 w-6 bg-gradient-to-l" : "inset-x-0 bottom-0 h-6 bg-gradient-to-t")} />
       )}
     </div>
   );

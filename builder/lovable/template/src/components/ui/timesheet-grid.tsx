@@ -39,15 +39,15 @@ export function TimesheetGrid({ rows, days, values, onChange, expectedPerDay = 8
     <table className={cn("text-xs", className)}>
       <thead>
         <tr className="border-b border-border">
-          <th className="pb-1 text-left font-medium">Project</th>
+          <th className="pb-1 text-start font-medium">Project</th>
           {days.map((d) => <th key={d.key} className="px-1 pb-1 font-medium">{d.label}</th>)}
-          <th className="pl-2 pb-1 text-right font-medium">Total</th>
+          <th className="ps-2 pb-1 text-end font-medium">Total</th>
         </tr>
       </thead>
       <tbody>
         {rows.map((r) => (
           <tr key={r.key} className="border-b border-border">
-            <th scope="row" className="py-0.5 pr-2 text-left font-normal">{r.label}</th>
+            <th scope="row" className="py-0.5 pe-2 text-start font-normal">{r.label}</th>
             {days.map((d) => {
               const key = `${r.key}:${d.key}`;
               const v = values[key];
@@ -69,13 +69,13 @@ export function TimesheetGrid({ rows, days, values, onChange, expectedPerDay = 8
                 </td>
               );
             })}
-            <td className="pl-2 text-right font-medium tabular-nums">{fmt(rowTotal(r.key))}</td>
+            <td className="ps-2 text-end font-medium tabular-nums">{fmt(rowTotal(r.key))}</td>
           </tr>
         ))}
       </tbody>
       <tfoot>
         <tr>
-          <th scope="row" className="pt-1 text-left font-medium">Day total</th>
+          <th scope="row" className="pt-1 text-start font-medium">Day total</th>
           {days.map((d) => {
             const t = dayTotal(d.key);
             const over = t > expectedPerDay;
@@ -87,7 +87,7 @@ export function TimesheetGrid({ rows, days, values, onChange, expectedPerDay = 8
               </td>
             );
           })}
-          <td className="pl-2 pt-1 text-right font-bold tabular-nums">{fmt(grand)}</td>
+          <td className="ps-2 pt-1 text-end font-bold tabular-nums">{fmt(grand)}</td>
         </tr>
       </tfoot>
     </table>

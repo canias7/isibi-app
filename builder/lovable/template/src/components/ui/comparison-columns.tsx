@@ -37,10 +37,10 @@ export function ComparisonColumns({
       <table className="w-full border-collapse text-sm">
         <thead>
           <tr className="border-b border-border">
-            <th scope="col" className="sticky left-0 z-1 bg-muted px-3 py-2 text-left font-medium" />
+            <th scope="col" className="sticky start-0 z-1 bg-muted px-3 py-2 text-start font-medium" />
             {options.map((o) => (
               <th key={o.key} scope="col"
-                className={cn("min-w-32 bg-muted px-3 py-2 text-left align-top font-semibold",
+                className={cn("min-w-32 bg-muted px-3 py-2 text-start align-top font-semibold",
                   o.key === highlight && "bg-foreground text-background")}>
                 <span className="block">{o.label}</span>
                 {o.note ? (
@@ -54,7 +54,7 @@ export function ComparisonColumns({
         <tbody>
           {shown.map((r) => (
             <tr key={r.key} className="border-b border-border last:border-0">
-              <th scope="row" className="sticky left-0 z-1 bg-background px-3 py-2 text-left font-normal text-muted-foreground whitespace-nowrap">
+              <th scope="row" className="sticky start-0 z-1 bg-background px-3 py-2 text-start font-normal text-muted-foreground whitespace-nowrap">
                 {r.label}
               </th>
               {options.map((o) => (

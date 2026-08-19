@@ -50,7 +50,7 @@ export function CommentPin({ index, x, y, replies = 0, resolved, active, about, 
       aria-current={active ? "true" : undefined}
       // Fractions, not pixels: a document that reflows moves the text.
       style={{ left: `${x * 100}%`, top: `${y * 100}%`, zIndex: active ? 30 : 20 }}
-      className={cn("absolute grid size-6 -translate-x-1/2 -translate-y-full cursor-pointer place-items-center rounded-full rounded-bl-none text-[10px] font-medium",
+      className={cn("absolute grid size-6 -translate-x-1/2 -translate-y-full cursor-pointer place-items-center rounded-full rounded-es-none text-[10px] font-medium",
         resolved
           ? "border-2 border-foreground bg-background text-foreground"
           : "border border-foreground bg-foreground text-background",

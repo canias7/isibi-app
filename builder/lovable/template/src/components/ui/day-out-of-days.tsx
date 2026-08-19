@@ -43,11 +43,11 @@ export function DayOutOfDays({ cast, dayLabels = [], className }: {
           </caption>
           <thead>
             <tr>
-              <th scope="col" className="pr-2 text-left font-normal text-muted-foreground">Cast</th>
+              <th scope="col" className="pe-2 text-start font-normal text-muted-foreground">Cast</th>
               {(dayLabels.length > 0 ? dayLabels : cast[0]?.days.map((_, i) => i + 1) ?? []).map((d, i) => (
                 <th key={i} scope="col" className="px-1 text-center font-normal tabular-nums text-muted-foreground">{d}</th>
               ))}
-              <th scope="col" className="pl-2 text-right font-normal text-muted-foreground">W / H</th>
+              <th scope="col" className="ps-2 text-end font-normal text-muted-foreground">W / H</th>
             </tr>
           </thead>
           <tbody>
@@ -56,7 +56,7 @@ export function DayOutOfDays({ cast, dayLabels = [], className }: {
               const hold = c.days.filter((d) => d === "hold").length;
               return (
                 <tr key={c.id}>
-                  <th scope="row" className="whitespace-nowrap pr-2 text-left font-normal">
+                  <th scope="row" className="whitespace-nowrap pe-2 text-start font-normal">
                     {c.name}
                     {c.character && <span className="text-muted-foreground"> · {c.character}</span>}
                   </th>
@@ -68,7 +68,7 @@ export function DayOutOfDays({ cast, dayLabels = [], className }: {
                       </span>
                     </td>
                   ))}
-                  <td className="whitespace-nowrap pl-2 text-right tabular-nums">
+                  <td className="whitespace-nowrap ps-2 text-end tabular-nums">
                     {work} / <span className={cn(hold > 0 && "font-medium")}>{hold}</span>
                   </td>
                 </tr>

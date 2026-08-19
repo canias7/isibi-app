@@ -58,7 +58,7 @@ export function MentionTextarea({ value, onChange, people, rows = 4, placeholder
         }}
         onBlur={() => setQuery(null)} />
       {matches.length > 0 && (
-        <MentionPicker className="absolute left-0 top-full z-20 mt-1 w-64"
+        <MentionPicker className="absolute start-0 top-full z-20 mt-1 w-64"
           people={matches} query={query ?? ""} activeIndex={active} onPick={pick} />
       )}
     </div>

@@ -49,20 +49,20 @@ export function JournalEntry({ date, narrative, lines, reversesOn, postedBy, cur
             have. */}
         <li className="flex items-baseline gap-3 px-3 py-1.5 text-xs text-muted-foreground">
           <span className="min-w-0 flex-1">Account</span>
-          <span className="w-24 shrink-0 text-right">Debit</span>
-          <span className="w-24 shrink-0 text-right">Credit</span>
+          <span className="w-24 shrink-0 text-end">Debit</span>
+          <span className="w-24 shrink-0 text-end">Credit</span>
         </li>
         {lines.map((l) => (
           <li key={l.id} className="flex items-baseline gap-3 px-3 py-1.5">
             <span className="min-w-0 flex-1">{l.account}</span>
-            <span className="w-24 shrink-0 text-right tabular-nums">{l.debit !== undefined ? money(l.debit) : ""}</span>
-            <span className="w-24 shrink-0 text-right tabular-nums">{l.credit !== undefined ? money(l.credit) : ""}</span>
+            <span className="w-24 shrink-0 text-end tabular-nums">{l.debit !== undefined ? money(l.debit) : ""}</span>
+            <span className="w-24 shrink-0 text-end tabular-nums">{l.credit !== undefined ? money(l.credit) : ""}</span>
           </li>
         ))}
         <li className="flex items-baseline gap-3 px-3 py-1.5 text-sm font-medium">
           <span className="min-w-0 flex-1">Totals</span>
-          <span className="w-24 shrink-0 text-right tabular-nums">{money(dr)}</span>
-          <span className="w-24 shrink-0 text-right tabular-nums">{money(cr)}</span>
+          <span className="w-24 shrink-0 text-end tabular-nums">{money(dr)}</span>
+          <span className="w-24 shrink-0 text-end tabular-nums">{money(cr)}</span>
         </li>
       </ul>
       <p className={cn("text-xs tabular-nums", out !== 0 ? "font-medium" : "text-muted-foreground")}>

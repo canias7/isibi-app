@@ -60,7 +60,7 @@ export function CellEditor({
           if (e.key === "Escape") { e.preventDefault(); setDraft(original.current); setEditing(false); }
         }}
         className={cn("w-full rounded-sm border border-ring bg-background px-2 py-1 text-sm outline-none",
-          align === "right" && "text-right tabular-nums", className)}
+          align === "right" && "text-end tabular-nums", className)}
       />
     );
   }
@@ -71,7 +71,7 @@ export function CellEditor({
       onClick={open}
       onKeyDown={(e) => { if (e.key === "F2") { e.preventDefault(); open(); } }}
       className={cn("w-full rounded-sm px-2 py-1 text-sm",
-        align === "right" ? "text-right tabular-nums" : "text-left",
+        align === "right" ? "text-end tabular-nums" : "text-start",
         disabled ? "cursor-default text-muted-foreground" : "cursor-text hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring",
         className)}
     >

@@ -60,7 +60,7 @@ export function AsyncSelect({ value, onChange, search, minChars = 1, debounceMs 
         <Input id={id} role="combobox" aria-expanded={open} value={open ? q : (value?.label ?? "")}
           aria-controls={listId}
           aria-activedescendant={open && rows[active] ? `${listId}-${active}` : undefined}
-          placeholder={placeholder} className="pr-8"
+          placeholder={placeholder} className="pe-8"
           onFocus={() => { setOpen(true); setQ(""); }}
           onBlur={() => setTimeout(() => setOpen(false), 120)}
           onChange={(e) => { setQ(e.target.value); setActive(0); }}
@@ -70,7 +70,7 @@ export function AsyncSelect({ value, onChange, search, minChars = 1, debounceMs 
             else if (e.key === "Enter" && open && rows[active]) { e.preventDefault(); onChange(rows[active]); setOpen(false); }
             else if (e.key === "Escape") setOpen(false);
           }} />
-        <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2">
+        <span className="pointer-events-none absolute end-2.5 top-1/2 -translate-y-1/2">
           {state === "loading" ? <Spinner className="size-4" /> : <ChevronDown className="size-4 text-muted-foreground" />}
         </span>
       </div>
@@ -83,7 +83,7 @@ export function AsyncSelect({ value, onChange, search, minChars = 1, debounceMs 
           {rows.map((o, i) => (
             <li key={o.value} id={`${listId}-${i}`} role="option" aria-selected={o.value === value?.value}
               onMouseDown={(e) => { e.preventDefault(); onChange(o); setOpen(false); }}
-              className={cn("flex cursor-pointer items-center justify-between gap-2 px-3 py-1.5 text-left text-sm",
+              className={cn("flex cursor-pointer items-center justify-between gap-2 px-3 py-1.5 text-start text-sm",
                 i === active ? "bg-muted" : "hover:bg-muted/60")}>
               <span className="truncate">{o.label}</span>
               {o.hint && <span className="shrink-0 text-xs text-muted-foreground">{o.hint}</span>}

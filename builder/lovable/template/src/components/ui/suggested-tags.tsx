@@ -36,13 +36,13 @@ export function SuggestedTags({ suggestions, applied = [], onAccept, onDismiss, 
       {open.map((s) => (
         <span key={s.id} className="inline-flex items-center rounded-full border border-dashed border-border">
           <button type="button" onClick={() => onAccept(s.id)}
-            className="inline-flex items-center gap-1 py-0.5 pl-2 pr-1.5 text-xs">
+            className="inline-flex items-center gap-1 py-0.5 ps-2 pe-1.5 text-xs">
             <Plus className="size-3" aria-hidden="true" />
             {s.label}
           </button>
           {onDismiss && (
             <button type="button" onClick={() => onDismiss(s.id)} aria-label={`Never suggest ${s.label}`}
-              className="border-l border-border px-1.5 py-0.5 text-xs text-muted-foreground hover:text-foreground">
+              className="border-s border-border px-1.5 py-0.5 text-xs text-muted-foreground hover:text-foreground">
               ×
             </button>
           )}

@@ -21,7 +21,7 @@ import {
 import type { QueryClient } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/sonner";
 import { SpamGuard } from "@/lib/spam-guard";
-import { SITE_LANG, SITE_MODE, SITE_ICON, SITE_ICON_TYPE, SITE_NAME, SITE_SLUG } from "@/site-brand";
+import { SITE_LANG, SITE_DIR, SITE_MODE, SITE_ICON, SITE_ICON_TYPE, SITE_NAME, SITE_SLUG } from "@/site-brand";
 import { siteMeta } from "@/site-runtime";
 // The stylesheet and the site's typeface, imported here rather than in a client
 // entry so the SERVER render emits their <link> tags too. Imported in
@@ -178,7 +178,13 @@ function RootDocument() {
     // BAKED, NOT DETECTED. A site does not follow the visitor's own light/dark
     // setting, deliberately: the owner picked a look and half their visitors
     // seeing a different one is not a feature they asked for.
-    <html lang={SITE_LANG} className={SITE_MODE === "dark" ? "dark" : undefined}>
+    // `dir` IS WRITTEN ON EVERY SITE, INCLUDING EVERY LEFT-TO-RIGHT ONE. `ltr`
+    // is the initial value, so stating it changes nothing that renders — and it
+    // means the attribute's PRESENCE is never a signal anybody has to reason
+    // about. On `<html>` rather than `<body>` because the logical utilities the
+    // kit was swept onto resolve against the inherited `direction`, and the
+    // per-page colour scope already lives on `<body>`.
+    <html lang={SITE_LANG} dir={SITE_DIR} className={SITE_MODE === "dark" ? "dark" : undefined}>
       <head>
         <HeadContent />
       </head>

@@ -16,7 +16,7 @@ export function InvoiceRow({ number, date, amount, currency, status = "paid", hr
       <span className="w-28 shrink-0 text-muted-foreground"><DateFormat date={date} /></span>
       <span className="flex-1" />
       <Badge variant={variant[status]} className="capitalize">{status}</Badge>
-      <span className="w-20 text-right"><Money amount={amount} currency={currency} /></span>
+      <span className="w-20 text-end"><Money amount={amount} currency={currency} /></span>
       {/* The download slot is always there, empty when there is no PDF. A
           conditional button shifts every amount in a list of invoices out of
           line the moment one of them has no file. */}

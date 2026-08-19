@@ -78,13 +78,13 @@ export function EmbedCode({ src, title, defaultWidth = 560, defaultHeight = 315,
         </label>
       </div>
       <div className="relative">
-        <pre className="overflow-x-auto rounded-md border border-border bg-muted/40 p-2.5 pr-20 font-mono text-xs whitespace-pre-wrap">{code}</pre>
+        <pre className="overflow-x-auto rounded-md border border-border bg-muted/40 p-2.5 pe-20 font-mono text-xs whitespace-pre-wrap">{code}</pre>
         <button type="button"
           onClick={async () => {
             try { await navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 2000); }
             catch { /* refused clipboard */ }
           }}
-          className="absolute top-2 right-2 inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1 text-xs font-medium hover:bg-muted">
+          className="absolute top-2 end-2 inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1 text-xs font-medium hover:bg-muted">
           {copied ? <Check aria-hidden className="size-3" /> : <Copy aria-hidden className="size-3" />}
           {copied ? "Copied" : "Copy"}
         </button>

@@ -59,7 +59,7 @@ export function ShareInvite({
     <div className={cn("flex flex-col gap-3", className)}>
       <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-border p-1.5 focus-within:border-ring">
         {emails.map((e) => (
-          <span key={e} className="inline-flex items-center gap-1 rounded-full bg-muted py-0.5 pr-1 pl-2 text-xs">
+          <span key={e} className="inline-flex items-center gap-1 rounded-full bg-muted py-0.5 pe-1 ps-2 text-xs">
             {e}
             <button type="button" onClick={() => onEmails(emails.filter((x) => x !== e))}
               aria-label={`Remove ${e}`}

@@ -31,7 +31,7 @@ function P() {
               <CardHeader><CardTitle className="text-base">{a.title}</CardTitle></CardHeader>
               <CardContent>
                 <p className="text-sm text-muted-foreground">{a.body}</p>
-                <p className="mt-3 text-xs font-medium">{a.who} <VerifiedBadge className="ml-1" label="Partner-led" /></p>
+                <p className="mt-3 text-xs font-medium">{a.who} <VerifiedBadge className="ms-1" label="Partner-led" /></p>
               </CardContent>
             </Card>
           ))}

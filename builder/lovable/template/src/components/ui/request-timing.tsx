@@ -39,7 +39,7 @@ export function RequestTiming({ phases, total, className }: {
         {phases.map((p, i) => (
           <div key={p.key}
             style={{ width: `${whole > 0 ? (Math.max(0, p.ms) / whole) * 100 : 0}%` }}
-            className={cn("h-full border-r border-background last:border-0",
+            className={cn("h-full border-e border-background last:border-0",
               i % 2 === 0 ? "bg-foreground" : "bg-muted-foreground")} />
         ))}
       </div>
@@ -51,9 +51,9 @@ export function RequestTiming({ phases, total, className }: {
                 <span aria-hidden className={cn("block size-2 rounded-xs",
                   i % 2 === 0 ? "bg-foreground" : "bg-muted-foreground")} />
               </td>
-              <td className="py-0.5 pl-2 text-muted-foreground">{p.label}</td>
-              <td className="py-0.5 text-right tabular-nums">{ms(p.ms)}</td>
-              <td className="w-12 py-0.5 text-right text-muted-foreground tabular-nums">
+              <td className="py-0.5 ps-2 text-muted-foreground">{p.label}</td>
+              <td className="py-0.5 text-end tabular-nums">{ms(p.ms)}</td>
+              <td className="w-12 py-0.5 text-end text-muted-foreground tabular-nums">
                 {whole > 0 ? `${Math.round((Math.max(0, p.ms) / whole) * 100)}%` : "—"}
               </td>
             </tr>

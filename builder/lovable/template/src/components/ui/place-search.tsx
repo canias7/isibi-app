@@ -67,7 +67,7 @@ export function PlaceSearch({ search, onPick, placeholder = "Search places", cla
                 {results.map((p) => (
                   <li key={p.id} role="option" aria-selected={false}
                     onClick={() => { setPicked(p); onPick(p); }}
-                    className="cursor-pointer px-2.5 py-1.5 text-left hover:bg-muted">
+                    className="cursor-pointer px-2.5 py-1.5 text-start hover:bg-muted">
                     <span className="block truncate text-sm">{p.name}</span>
                     {p.address ? <span className="block truncate text-xs text-muted-foreground">{p.address}</span> : null}
                   </li>

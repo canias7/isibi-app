@@ -45,11 +45,11 @@ export function AllergenMatrix({ allergens, dishes, askFor, className }: {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border">
-              <th scope="col" className="py-1.5 pr-3 text-left font-medium">
+              <th scope="col" className="py-1.5 pe-3 text-start font-medium">
                 Dish
               </th>
               {allergens.map((a) => (
-                <th key={a} scope="col" className="px-2 py-1.5 text-left text-xs font-medium">
+                <th key={a} scope="col" className="px-2 py-1.5 text-start text-xs font-medium">
                   {a}
                 </th>
               ))}
@@ -58,7 +58,7 @@ export function AllergenMatrix({ allergens, dishes, askFor, className }: {
           <tbody>
             {dishes.map((d) => (
               <tr key={d.id} className="border-b border-border last:border-b-0">
-                <th scope="row" className="py-1.5 pr-3 text-left font-normal">
+                <th scope="row" className="py-1.5 pe-3 text-start font-normal">
                   {d.name}
                 </th>
                 {allergens.map((a) => {

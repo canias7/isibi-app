@@ -21,7 +21,7 @@ export function ReviewStars({ value, count, max = 5, className }: {
         {Array.from({ length: max }, (_, i) => (
           <Star key={i} className="size-4 text-muted-foreground/40" />
         ))}
-        <span className="absolute inset-y-0 left-0 flex overflow-hidden"
+        <span className="absolute inset-y-0 start-0 flex overflow-hidden"
           style={{ width: `${divide(v, max) * 100}%` }}>
           {Array.from({ length: max }, (_, i) => (
             <Star key={i} className="size-4 shrink-0 fill-foreground text-foreground" />

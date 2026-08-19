@@ -16,7 +16,7 @@ export function ExpandableRow({ colSpan, summary, detail, defaultOpen, className
   return (
     <>
       <tr className={cn("border-b border-border", className)}>
-        <td className="w-8 py-2 pl-2 align-middle">
+        <td className="w-8 py-2 ps-2 align-middle">
           <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open}
             className="flex size-6 cursor-pointer items-center justify-center rounded hover:bg-muted">
             <ChevronRight className={cn("size-4 transition-transform", open && "rotate-90")} />

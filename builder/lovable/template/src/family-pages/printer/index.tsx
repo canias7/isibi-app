@@ -138,7 +138,7 @@ function P() {
                 </div>
                 <p className="mt-5 text-3xl font-semibold tabular-nums">
                   £{((cards * (CARDS.reduce((b, t) => (cards >= t.min ? t.priceMinor : b), CARDS[0].priceMinor))) / 100).toFixed(2)}
-                  <span className="ml-2 text-base font-normal text-muted-foreground">for {cards.toLocaleString("en-GB")}</span>
+                  <span className="ms-2 text-base font-normal text-muted-foreground">for {cards.toLocaleString("en-GB")}</span>
                 </p>
                 <div className="mt-4">
                   <BulkPricing tiers={CARDS} quantity={cards} />
@@ -168,7 +168,7 @@ function P() {
                 </div>
                 <p className="mt-5 text-3xl font-semibold tabular-nums">
                   £{((flyers * (FLYERS.reduce((b, t) => (flyers >= t.min ? t.priceMinor : b), FLYERS[0].priceMinor))) / 100).toFixed(2)}
-                  <span className="ml-2 text-base font-normal text-muted-foreground">for {flyers.toLocaleString("en-GB")}</span>
+                  <span className="ms-2 text-base font-normal text-muted-foreground">for {flyers.toLocaleString("en-GB")}</span>
                 </p>
                 <div className="mt-4">
                   <BulkPricing tiers={FLYERS} quantity={flyers} />

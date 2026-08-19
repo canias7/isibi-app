@@ -21,7 +21,7 @@ export function DateNav({ label, onPrev, onNext, onToday, unit = "day", classNam
         <ChevronRight className="size-4" />
       </Button>
       {onToday && <Button size="sm" variant="outline" onClick={onToday}>Today</Button>}
-      <h2 className="ml-1 text-sm font-medium" aria-live="polite">{label}</h2>
+      <h2 className="ms-1 text-sm font-medium" aria-live="polite">{label}</h2>
     </div>
   );
 }

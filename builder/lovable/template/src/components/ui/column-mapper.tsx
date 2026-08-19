@@ -29,7 +29,7 @@ export function ColumnMapper({ fields, headers, mapping, onChange, sample, class
       )}
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-border text-left text-xs text-muted-foreground">
+          <tr className="border-b border-border text-start text-xs text-muted-foreground">
             <th className="py-2 font-medium">Field</th>
             <th className="py-2 font-medium">Your column</th>
             {sample && <th className="py-2 font-medium">First row</th>}
@@ -38,11 +38,11 @@ export function ColumnMapper({ fields, headers, mapping, onChange, sample, class
         <tbody>
           {fields.map((f) => (
             <tr key={f.key} className="border-b border-border last:border-0">
-              <td className="py-2 pr-4">
-                {f.label}{f.required && <span className="ml-1 text-destructive" aria-hidden="true">*</span>}
+              <td className="py-2 pe-4">
+                {f.label}{f.required && <span className="ms-1 text-destructive" aria-hidden="true">*</span>}
                 {f.required && <span className="sr-only"> (required)</span>}
               </td>
-              <td className="py-2 pr-4">
+              <td className="py-2 pe-4">
                 <NativeSelect value={mapping[f.key] ?? ""} aria-label={`Column for ${f.label}`}
                   className="h-8 text-xs" onChange={(e) => onChange(f.key, e.target.value)}>
                   <option value="">Don't import</option>

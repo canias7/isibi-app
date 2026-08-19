@@ -42,10 +42,10 @@ export function SchemaViewer({ fields, title, className }: {
         <table className="w-full border-collapse text-xs">
           <thead>
             <tr className="border-b border-border text-muted-foreground">
-              <th scope="col" className="px-3 py-1.5 text-left font-medium">Field</th>
-              <th scope="col" className="px-3 py-1.5 text-left font-medium">Type</th>
-              <th scope="col" className="px-3 py-1.5 text-left font-medium">Required</th>
-              <th scope="col" className="px-3 py-1.5 text-left font-medium">Default</th>
+              <th scope="col" className="px-3 py-1.5 text-start font-medium">Field</th>
+              <th scope="col" className="px-3 py-1.5 text-start font-medium">Type</th>
+              <th scope="col" className="px-3 py-1.5 text-start font-medium">Required</th>
+              <th scope="col" className="px-3 py-1.5 text-start font-medium">Default</th>
             </tr>
           </thead>
           <tbody>

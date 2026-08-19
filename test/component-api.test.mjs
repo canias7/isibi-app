@@ -422,7 +422,12 @@ test("a hard-coded legend never states something false about the caller", () => 
   assert.match(cal, /\{priceNote \?\? "Prices are per night for the whole property\."\}/,
     "the let-specific sentence is hard-coded again, or the default has silently changed for every existing caller");
   assert.match(rate, /label = "Hire for"/, "RateCard's first-column heading is hard-coded again");
-  assert.match(rate, /className="py-2 pr-4 font-medium">\{label\}</,
+  // ASSERTED AS THE PROPERTY, NOT THE SPELLING. This pinned the whole class
+  // string and went red on the logical-utility sweep, which turned `pr-4` into
+  // `pe-4` — a test about word order, reporting a hard-coded heading on a file
+  // that renders the prop perfectly. What matters is that the first column's
+  // heading is `{label}` rather than a literal.
+  assert.match(rate, /<th [^>]*>\{label\}<\/th>/,
     "the label prop exists but the heading does not use it");
 
   // And the premise: these two only matter while something actually overrides
@@ -616,7 +621,10 @@ test("a deadline derived from a date, and a status that cannot eat the row", () 
   // be able to consume the row. As a single long string with `shrink-0` it
   // squeezed the meeting name to a ~130px ribbon — measured on a render, and
   // invisible to tsc, to vite and to every other check here.
-  assert.match(src, /shrink-0 max-w-\[13rem\] text-right/,
+  // THE PROPERTY IS THE BOUND, and the alignment is whatever reads as the far
+  // side — `text-right` became `text-end` in the logical-utility sweep and this
+  // pinned the literal, so a correct change reported an unbounded column.
+  assert.match(src, /shrink-0 max-w-\[13rem\] text-(?:right|end)/,
     "the status column is unbounded again — the widest state decides the whole layout");
   assert.match(src, /<span className="block text-sm font-medium">Agenda overdue<\/span>/,
     "the overdue message is one long string again");

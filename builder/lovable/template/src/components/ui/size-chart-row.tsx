@@ -32,12 +32,12 @@ export function SizeChartRow({ size, cells, you, className }: {
 }) {
   return (
     <tr className={cn(you && "font-medium", className)}>
-      <th scope="row" className="px-3 py-2 text-left text-sm">
+      <th scope="row" className="px-3 py-2 text-start text-sm">
         {size}
-        {you && <span className="ml-2 text-xs font-normal text-muted-foreground">Your size</span>}
+        {you && <span className="ms-2 text-xs font-normal text-muted-foreground">Your size</span>}
       </th>
       {cells.map((c, i) => (
-        <td key={i} className="px-3 py-2 text-right text-sm tabular-nums">
+        <td key={i} className="px-3 py-2 text-end text-sm tabular-nums">
           {c.to !== undefined && c.to !== c.from ? `${c.from}–${c.to}` : c.from}
           {c.unit ? <span className="text-muted-foreground"> {c.unit}</span> : null}
         </td>

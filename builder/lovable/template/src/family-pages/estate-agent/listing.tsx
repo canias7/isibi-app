@@ -30,7 +30,7 @@ function P() {
             <h1 className="text-2xl font-semibold tracking-tight">Flat 2, 14 Commonside, Walkley</h1>
             <p className="mt-1 text-muted-foreground">Two beds over the bakery, top of the hill.</p>
           </div>
-          <div className="text-right">
+          <div className="text-end">
             <div className="text-2xl font-semibold tabular-nums">£925 <span className="text-sm font-normal text-muted-foreground">pcm</span></div>
             <Badge variant="secondary" className="mt-1">New this week</Badge>
           </div>

@@ -10,7 +10,7 @@ export function NotificationItem({ title, body, at, unread, who, onClick, classN
     <>
       <span className={cn("mt-1.5 size-1.5 shrink-0 rounded-full", unread ? "bg-foreground" : "bg-transparent")}
         aria-hidden="true" />
-      <span className="min-w-0 flex-1 text-left">
+      <span className="min-w-0 flex-1 text-start">
         <span className={cn("block text-sm", unread && "font-medium")}>{title}</span>
         {body && <span className="mt-0.5 block text-sm text-muted-foreground">{body}</span>}
         <span className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
@@ -23,6 +23,6 @@ export function NotificationItem({ title, body, at, unread, who, onClick, classN
   );
   const base = "flex w-full items-start gap-2.5 border-b border-border py-3 last:border-0";
   return onClick
-    ? <button type="button" onClick={onClick} className={cn(base, "cursor-pointer text-left hover:bg-muted/50", className)}>{inner}</button>
+    ? <button type="button" onClick={onClick} className={cn(base, "cursor-pointer text-start hover:bg-muted/50", className)}>{inner}</button>
     : <div className={cn(base, className)}>{inner}</div>;
 }

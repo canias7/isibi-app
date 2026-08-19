@@ -26,7 +26,7 @@ export function StatusList({ items, className }: {
           <li key={it.name} className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
             <span className="min-w-0">
               {it.name}
-              {it.note && <span className="ml-2 text-xs text-muted-foreground">{it.note}</span>}
+              {it.note && <span className="ms-2 text-xs text-muted-foreground">{it.note}</span>}
             </span>
             <StatusDot state={it.state} />
           </li>

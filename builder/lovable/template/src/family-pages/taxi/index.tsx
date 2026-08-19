@@ -51,7 +51,7 @@ function P() {
               at any hour and a person in Sheffield answers.
             </p>
           </div>
-          <div className="border-t border-border px-6 py-14 lg:border-l lg:border-t-0 lg:px-12">
+          <div className="border-t border-border px-6 py-14 lg:border-s lg:border-t-0 lg:px-12">
             <FareQuote
               fare={fare}
               includes={["Up to 15 minutes' waiting", "Two cases and two bags", "Card or cash"]}

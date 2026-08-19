@@ -41,7 +41,7 @@ export function NumberFormatPreview({ value = 1234.56, currency, locales, classN
           return (
             <div key={l.id} className="flex items-baseline justify-between gap-3 px-3 py-1.5">
               <dt className="text-muted-foreground">{l.label}</dt>
-              <dd className="text-right tabular-nums" lang={l.id}>
+              <dd className="text-end tabular-nums" lang={l.id}>
                 {plain}
                 {money && <span className="block text-xs text-muted-foreground">{money}</span>}
               </dd>

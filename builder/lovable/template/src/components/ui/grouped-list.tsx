@@ -31,7 +31,7 @@ export function GroupedList<T>({ items, groupBy, renderItem, sortGroups, empty =
       {keys.map((k) => (
         <section key={k}>
           <h3 className="sticky top-0 z-10 border-b border-border bg-background/95 px-1 py-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground backdrop-blur">
-            {k} <span className="ml-1 tabular-nums">{map.get(k)!.length}</span>
+            {k} <span className="ms-1 tabular-nums">{map.get(k)!.length}</span>
           </h3>
           <div>{map.get(k)!.map((it, i) => <React.Fragment key={i}>{renderItem(it, i)}</React.Fragment>)}</div>
         </section>

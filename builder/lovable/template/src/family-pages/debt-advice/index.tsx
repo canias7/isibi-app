@@ -189,7 +189,7 @@ function P() {
             ].map((s, i) => (
               <li key={s.t} className="grid gap-2 py-5 md:grid-cols-[minmax(0,12rem)_1fr] md:gap-8">
                 <p className="font-medium">
-                  <span className="mr-2 text-sm tabular-nums text-muted-foreground">{i + 1}</span>
+                  <span className="me-2 text-sm tabular-nums text-muted-foreground">{i + 1}</span>
                   {s.t}
                 </p>
                 <p className="text-sm leading-relaxed text-muted-foreground">{s.d}</p>

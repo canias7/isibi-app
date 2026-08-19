@@ -31,7 +31,7 @@ export function SliderInput({ value, onChange, min = 0, max = 100, step = 1, lab
           className="min-w-0 flex-1" onValueChange={([n]) => onChange(n)} />
         <div className="flex shrink-0 items-center gap-1">
           <Input id={`${id}-num`} inputMode="decimal" value={String(value)}
-            className="h-8 w-16 text-right tabular-nums"
+            className="h-8 w-16 text-end tabular-nums"
             onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n)) onChange(clamp(n)); }} />
           {unit && <span className="text-sm text-muted-foreground">{unit}</span>}
         </div>

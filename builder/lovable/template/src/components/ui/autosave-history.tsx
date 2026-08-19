@@ -47,7 +47,7 @@ export function AutosaveHistory({ entries, onOpen, retentionNote, empty = "No au
                 </p>
               )}
               <button type="button" onClick={() => onOpen(e.key)}
-                className="flex w-full cursor-pointer items-baseline gap-3 px-3 py-2 text-left text-sm hover:bg-muted">
+                className="flex w-full cursor-pointer items-baseline gap-3 px-3 py-2 text-start text-sm hover:bg-muted">
                 <time dateTime={isoAttr(e.at)} className="tabular-nums">
                   {d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
                 </time>

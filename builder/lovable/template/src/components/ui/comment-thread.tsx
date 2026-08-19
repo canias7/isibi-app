@@ -12,7 +12,7 @@ export function CommentThread({ root, replies, className }: {
     <div className={cn("border-b border-border py-2 last:border-0", className)}>
       {root}
       {replies && replies.length > 0 && (
-        <div className="ml-4 flex flex-col border-l pl-4 sm:ml-6 sm:pl-6">{replies}</div>
+        <div className="ms-4 flex flex-col border-s ps-4 sm:ms-6 sm:ps-6">{replies}</div>
       )}
     </div>
   );

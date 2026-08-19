@@ -30,7 +30,7 @@ export function FileVersion({ label, by, at, size, current, onRestore, onDownloa
       <div className="min-w-0">
         <p className="text-sm font-medium">
           {label}
-          {current && <span className="ml-2 font-normal text-muted-foreground">Current</span>}
+          {current && <span className="ms-2 font-normal text-muted-foreground">Current</span>}
         </p>
         <p className="text-xs text-muted-foreground">
           {by ? `${by} · ` : ""}

@@ -131,24 +131,24 @@ function P() {
             <table className="w-full min-w-[32rem] border-collapse font-mono text-sm">
               <tbody>
                 <tr className="border-b border-border">
-                  <th scope="row" className="py-3 pr-4 text-left font-normal">You bring in</th>
-                  <td className="py-3 text-right"><CurrencyAmount minor={50000} /></td>
+                  <th scope="row" className="py-3 pe-4 text-start font-normal">You bring in</th>
+                  <td className="py-3 text-end"><CurrencyAmount minor={50000} /></td>
                 </tr>
                 <tr className="border-b border-border">
-                  <th scope="row" className="py-3 pr-4 text-left font-normal">You get, at 1.1420</th>
-                  <td className="py-3 text-right"><CurrencyAmount minor={57100} currency="EUR" /></td>
+                  <th scope="row" className="py-3 pe-4 text-start font-normal">You get, at 1.1420</th>
+                  <td className="py-3 text-end"><CurrencyAmount minor={57100} currency="EUR" /></td>
                 </tr>
                 <tr className="border-b border-border">
-                  <th scope="row" className="py-3 pr-4 text-left font-normal">Say you spend two thirds and bring back</th>
-                  <td className="py-3 text-right"><CurrencyAmount minor={19033} currency="EUR" /></td>
+                  <th scope="row" className="py-3 pe-4 text-start font-normal">Say you spend two thirds and bring back</th>
+                  <td className="py-3 text-end"><CurrencyAmount minor={19033} currency="EUR" /></td>
                 </tr>
                 <tr className="border-b border-border">
-                  <th scope="row" className="py-3 pr-4 text-left font-normal">We buy it back at 1.1810</th>
-                  <td className="py-3 text-right"><CurrencyAmount minor={16117} /></td>
+                  <th scope="row" className="py-3 pe-4 text-start font-normal">We buy it back at 1.1810</th>
+                  <td className="py-3 text-end"><CurrencyAmount minor={16117} /></td>
                 </tr>
                 <tr>
-                  <th scope="row" className="py-3 pr-4 text-left font-medium">The round trip cost you</th>
-                  <td className="py-3 text-right font-medium"><CurrencyAmount minor={550} /></td>
+                  <th scope="row" className="py-3 pe-4 text-start font-medium">The round trip cost you</th>
+                  <td className="py-3 text-end font-medium"><CurrencyAmount minor={550} /></td>
                 </tr>
               </tbody>
             </table>

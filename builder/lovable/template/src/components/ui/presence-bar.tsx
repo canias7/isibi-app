@@ -51,7 +51,7 @@ export function PresenceBar({ people, me, max = 4, onShowAll, className }: {
       {extra > 0 ? (
         <button type="button" onClick={onShowAll}
           aria-label={`${extra} more ${extra === 1 ? "person" : "people"} here`}
-          className="ml-1 cursor-pointer rounded-full border border-border px-1.5 py-0.5 text-[10px] font-medium tabular-nums hover:bg-muted">
+          className="ms-1 cursor-pointer rounded-full border border-border px-1.5 py-0.5 text-[10px] font-medium tabular-nums hover:bg-muted">
           +{extra}
         </button>
       ) : null}

@@ -32,7 +32,7 @@ export function HandoverNote({ from, to, at, note, outstanding, className }: {
       {outstanding?.length ? (
         <div>
           <p className="text-sm font-medium">Still to do</p>
-          <ul className="flex list-disc flex-col gap-0.5 pl-5 text-sm text-muted-foreground">
+          <ul className="flex list-disc flex-col gap-0.5 ps-5 text-sm text-muted-foreground">
             {outstanding.map((o, i) => <li key={i}>{o}</li>)}
           </ul>
         </div>
