@@ -52,6 +52,8 @@ export function SiteFooter({
   className?: string;
 }) {
   const wide = layout?.width === "full";
+  // See `SiteLayout.divider` — off unless asked for, strictly `=== true`.
+  const divider = layout?.divider === true;
   const hasContact = !!(contact && (contact.phone || contact.email || contact.address || contact.hours));
 
   // A PHONE NUMBER IN THE NAV **AND** IN THE CONTACT BLOCK PRINTS TWICE ON ONE
@@ -75,7 +77,7 @@ export function SiteFooter({
   });
 
   return (
-    <footer className={cn("border-t", className)}>
+    <footer className={cn(divider && "border-t", className)}>
       <div className={cn("mx-auto flex flex-col gap-8 px-6 py-10 sm:flex-row sm:items-start sm:justify-between", wide ? "max-w-none" : "max-w-6xl")}>
         <div className="max-w-sm">
           <div className="font-semibold tracking-tight">{brand}</div>
@@ -114,7 +116,7 @@ export function SiteFooter({
         )}
       </div>
 
-      <div className="border-t px-6 py-4">
+      <div className={cn(divider && "border-t", "px-6 py-4")}>
         <div className={cn("mx-auto flex flex-col gap-2 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between", wide ? "max-w-none" : "max-w-6xl")}>
           <p>&copy; {new Date().getFullYear()} {brand}</p>
           {legal.length > 0 && (

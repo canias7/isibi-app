@@ -2305,7 +2305,7 @@ export const COMPONENT_TYPES = {
   "signature-request": {"Signatory":"{ name: string; signedAt?: string | number | Date | null; blockedBy?: string }"},
   "site-diary": {"TradeCount":"{ trade: string; people: number }"},
   "site-footer": {"SiteContact":"{ phone?: string; email?: string; address?: string; hours?: string; }"},
-  "site-header": {"NavLink":"{ label: string; href: string }","SiteLayout":"{ brand?: \"left\" | \"centre\" | (string & {}); width?: \"contained\" | \"full\" | (string & {}); sticky?: boolean; }"},
+  "site-header": {"NavLink":"{ label: string; href: string }","SiteLayout":"{ brand?: \"left\" | \"centre\" | (string & {}); width?: \"contained\" | \"full\" | (string & {}); sticky?: boolean; divider?: boolean; }"},
   "site-league-table": {"LeagueEntry":"{ id: string; site: string; value: number; excluded?: boolean; excludedReason?: string }"},
   "site-picker": {"Site":"{ id: string; name: string; readOnly?: boolean; closed?: boolean }"},
   "size-chart-row": {"SizeCell":"{ from: number; to?: number; unit?: string }"},

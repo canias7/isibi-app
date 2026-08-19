@@ -90,6 +90,39 @@ test("EVERY axis the writer can write, the header actually reads", () => {
   }
 });
 
+test("THE RULES ARE OFF UNLESS SOMEBODY ASKS, in all three places", () => {
+  // Owner's call, 2026-08-19: "if user wants to add it cool, but don't put it as
+  // default for build". These three rules were hardcoded and unreachable, and
+  // under a theme that paints a background they slice one continuous page into
+  // slabs — the same judgement `bandClearCss` already acts on for the bands.
+  //
+  // Asserted as an ABSENCE, which is the half that can rot silently: a later
+  // edit restoring an unconditional "border-b" puts them back on every site on
+  // the platform with the axis still present and every other test green.
+  const footer = fs.readFileSync(path.join(UI, "site-footer.tsx"), "utf8");
+  const blank = (s) => s.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+                        .replace(/^[ \t]*\/\/.*$/gm, (m) => " ".repeat(m.length));
+  // Comments blanked first: both files EXPLAIN this in prose, and prose about a
+  // class name contains that class name. Recorded trap, seven instances now.
+  for (const [name, src] of [["header", blank(header)], ["footer", blank(footer)]]) {
+    for (const m of src.matchAll(/"border-[tb]\b[^"]*"/g)) {
+      // Every rule that survives must be gated on the flag — the gate sits
+      // immediately before it in the same `cn(...)`.
+      const before = src.slice(Math.max(0, m.index - 40), m.index);
+      assert.match(before, /divider\s*&&\s*$/,
+        `${name} draws ${m[0]} unconditionally — the rules are back on by default`);
+    }
+    assert.match(src, /layout\?\.divider === true/,
+      `${name} does not read \`divider\`, so asking for the rules back moves nothing`);
+  }
+  // AND IT IS THE ONE AXIS THAT DEFAULTS OFF. `sticky` defaults ON because it
+  // was the existing behaviour; this one defaults OFF because it is a change.
+  assert.equal(CHROME_OBJECTS.layout.divider.default, false,
+    "divider no longer defaults off, so every build gets the rules again");
+  assert.equal(CHROME_OBJECTS.layout.sticky.default, true,
+    "sticky's default moved — the two are deliberately opposite");
+});
+
 test("width moves the header and the footer together", () => {
   // A full-width header over a contained footer reads as a mistake, so the
   // shared axis is the point. Both files must read it, or one moves alone.

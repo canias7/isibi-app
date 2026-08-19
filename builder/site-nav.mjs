@@ -539,7 +539,7 @@ export const NAV_TOOL = {
         description:
           "HOW THE FRAME ITSELF SITS — where the name goes, how wide the bar runs, and whether it follows the reader " +
           "down the page. Use this for \"centre our logo\", \"put the name in the middle\", \"run the header right " +
-          "across\", \"the menu shouldn't follow me as I scroll\", \"stop the bar sticking to the top\".\n" +
+          "across\", \"the menu shouldn't follow me as I scroll\", \"stop the bar sticking to the top\", \"put a line under the header\".\n" +
           "NAME ONLY THE ONE THEY ASKED ABOUT. Everything you leave out stays as it is — centring the name must not " +
           "quietly un-stick the header.\n" +
           "PUTTING ONE BACK IS ITS ORDINARY VALUE, not an empty field: \"put the logo back on the left\" is " +
@@ -568,6 +568,14 @@ export const NAV_TOOL = {
             description:
               "true (the ordinary way) keeps the top bar in view as the visitor scrolls, so the menu and the button " +
               "are always there. false lets it scroll away with the rest of the page.",
+          },
+          divider: {
+            type: "boolean",
+            description:
+              "true draws a thin rule under the top bar and above the footer. OFF by default — the page reads as one " +
+              "continuous surface, which is how these sites are meant to look. Set true for \"put a line under the " +
+              "header\", \"separate the footer with a rule\", \"I want a border under the menu\". false takes them " +
+              "away again.",
           },
         },
       },
@@ -1019,6 +1027,8 @@ export function navReply({ links = [], dropped = [], changed = [], action = null
     if (layout.width === "contained") said.push("brought the header and footer back in line with the page");
     if (layout.sticky === false) said.push("stopped the top bar following the reader down the page");
     if (layout.sticky === true) said.push("the top bar follows the reader down the page again");
+    if (layout.divider === true) said.push("a rule under the header and above the footer");
+    if (layout.divider === false) said.push("took the rules off the header and footer");
     if (!said.length) return "I couldn\u2019t work out what to change about the header.";
     return "\u2705 " + said.join(", and ").replace(/^./, (c) => c.toUpperCase()) + " \u2014 on " + where + ".";
   }
@@ -1322,6 +1332,11 @@ export const CHROME_OBJECTS = {
     brand: { kind: "enum", values: ["left", "centre"] },
     width: { kind: "enum", values: ["contained", "full"] },
     sticky: { kind: "bool", default: true },
+    // DEFAULTS THE OPPOSITE WAY TO `sticky`, and that asymmetry is the point:
+    // the rules under the header and above the footer used to be hardcoded and
+    // are now OFF unless somebody asks. So `divider: false` is the default and
+    // is dropped, and only an explicit `true` is ever stored.
+    divider: { kind: "bool", default: false },
   },
 };
 

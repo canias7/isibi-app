@@ -119,6 +119,20 @@ export type SiteLayout = {
   width?: "contained" | "full" | (string & {});
   /** false stops the header following the reader down the page. Default true. */
   sticky?: boolean;
+  /**
+   * true draws a rule under the header and above the footer. Default FALSE —
+   * and this one defaults the opposite way to `sticky` above, deliberately.
+   *
+   * These three rules were hardcoded and nobody could turn them off. Under a
+   * theme that paints a background they read as clutter slicing one continuous
+   * page into slabs, which is the same judgement `bandClearCss` already acts on
+   * — "sections separate by spacing and type, not by tone". The header carries
+   * `bg-background/85 backdrop-blur`, so it is a distinct band without a line.
+   *
+   * OFF BY DEFAULT IS A CHANGE, not a preserved behaviour: every published site
+   * loses its rules on its next publish. Owner's call, 2026-08-19.
+   */
+  divider?: boolean;
 };
 
 export function SiteHeader({
@@ -140,8 +154,11 @@ export function SiteHeader({
   const centred = layout?.brand === "centre";
   const wide = layout?.width === "full";
   const sticky = layout?.sticky !== false;
+  // Strictly `=== true`: an absent divider is OFF, and so is anything merely
+  // truthy arriving from a stored layout.
+  const divider = layout?.divider === true;
   return (
-    <header className={cn(sticky && "sticky top-0 z-40", "border-b bg-background/85 backdrop-blur", className)}>
+    <header className={cn(sticky && "sticky top-0 z-40", divider && "border-b", "bg-background/85 backdrop-blur", className)}>
       {/* CENTRING IS FLEX-WRAP, NOT A SECOND LAYOUT. The brand takes a full row
           and everything else wraps below it and centres — so the nav, the button
           and the mobile menu button are rendered ONCE and read the same on both

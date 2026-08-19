@@ -1322,6 +1322,14 @@ function Home() {
     ok("a site with no logo shows the name, exactly as before",
       h2.includes("Sharp Fade Barbers") && !/<img[^>]*mark\.png/.test(h2),
       "the previous build's logo survived into a site that sent none");
+    // AND IT DRAWS NO RULES, which is the half that can rot silently: a later
+    // edit restoring an unconditional `border-b` puts them back on every site
+    // on the platform with the axis still present and every other check green.
+    // The paired positive — a site that ASKS gets them — is in the laid-out
+    // block below, and neither alone discriminates.
+    ok("…and no rules under the header or above the footer, since it asked for none",
+      !/<header[^>]*\bborder-b\b/.test(h2) && !/<footer[^>]*\bborder-t\b/.test(h2),
+      ((h2.match(/<header[^>]*>/) || [""])[0] + " ~ " + (h2.match(/<footer[^>]*>/) || [""])[0]));
   }
 
   // ── THE FRAME'S ARRANGEMENT, WRITTEN THE WAY A PAGE REALLY WRITES IT ────────
@@ -1341,7 +1349,7 @@ export const Route = createFileRoute("/")({ component: Home });
 const CHROME = {
   name: "Sharp Fade Barbers",
   links: [{ label: "Book", href: "/book" }],
-  layout: { brand: "centre", width: "full", sticky: false },
+  layout: { brand: "centre", width: "full", sticky: false, divider: true },
 };
 function Home() {
   return (
@@ -1365,6 +1373,12 @@ function Home() {
     ok("…and the header is NOT sticky, so the layout reached the render",
       !/<header[^>]*\bsticky\b/.test(h3), (h3.match(/<header[^>]*>/) || [""])[0]);
     ok("…and it runs full width", /max-w-none/.test(h3), (h3.match(/<header[\s\S]{0,240}/) || [""])[0]);
+    // THE RULES ARE OFF BY DEFAULT AND THIS SITE ASKED FOR THEM BACK.
+    // Hardcoded until 2026-08-19, so no customer could remove them; now off
+    // unless named. Only a real compile can say what the frame renders — it is
+    // produced per request from the script's own bundle.
+    ok("…and the divider it asked for is drawn",
+      /<header[^>]*\bborder-b\b/.test(h3), (h3.match(/<header[^>]*>/) || [""])[0]);
 
     // ── WHICH PART OF A PHOTOGRAPH SURVIVES THE CROP ───────────────────────
     //
