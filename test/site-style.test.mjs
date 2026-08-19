@@ -234,7 +234,7 @@ test("EVERY AXIS IS THE ENGINE'S OWN LIST, in both directions", () => {
   // refuses — reported to the customer as a change that did not happen.
   const byName = {
     corner: T.CORNERS, scale: T.TYPE_SCALES, tracking: T.TRACKINGS, leading: T.LEADINGS,
-    weight: T.WEIGHTS, density: T.DENSITIES, border: T.BORDERS, icon: T.ICON_STROKES,
+    weight: T.WEIGHTS, density: T.DENSITIES, width: T.WIDTHS, border: T.BORDERS, icon: T.ICON_STROKES,
     shadow: T.SHADOWS, buttons: T.BUTTONS, inputs: T.INPUTS, display: T.DISPLAYS,
     surface: T.SURFACES, backdrop: T.BACKDROPS, decor: T.DECORS,
     ambient: T.AMBIENTS, skin: T.SKINS,
@@ -245,6 +245,85 @@ test("EVERY AXIS IS THE ENGINE'S OWN LIST, in both directions", () => {
     assert.deepEqual(optionsFor(a), Object.freeze(Object.keys(real)), a + " restates the engine's options");
     assert.ok(optionsFor(a).length >= 2, a + " has fewer than two options — it is not a choice");
   }
+});
+
+test("the heading-colour axis names what the TEMPLATE calls a heading", () => {
+  // THIS AXIS WAS DEAD FROM THE DAY IT SHIPPED, and nothing could see it: it
+  // targeted `.font-heading`, a class in 0 of the 2,112 kit files and 0 of the
+  // 324 corpus pages, so Tailwind — which only generates a utility something
+  // uses — never emitted the rule. Verified against a real compiled stylesheet.
+  // "Put our brand colour in the headings" was stored, reported as applied, and
+  // changed nothing on any site.
+  //
+  // DERIVED FROM THE TEMPLATE'S OWN RULE, because the failure was two places
+  // disagreeing about what a heading is. `styles.css` moved the FONT off the
+  // class onto the elements and the colour was left behind.
+  const css = fs.readFileSync(
+    new URL("../builder/lovable/template/src/styles.css", import.meta.url), "utf8");
+  const rule = css.match(/([\sa-z0-9,]+)\{\s*font-family:\s*var\(--font-heading\)/);
+  assert.ok(rule, "the template no longer sets the heading font on elements — this guard is reading nothing");
+  const wanted = rule[1].split(",").map((s) => s.trim()).filter(Boolean).sort();
+  assert.ok(wanted.length >= 3 && wanted.every((h) => /^h[1-6]$/.test(h)), JSON.stringify(wanted));
+
+  const theme = T.THEMES[Object.keys(T.THEMES)[0]];
+  for (const style of ["accent", "gradient"]) {
+    const out = T.displayCss({ ...theme, display: style });
+    const sel = (out.match(/^([^{@\n][^{]*)\{\s*(?:color|background-image)/m) || [])[1] || "";
+    const got = sel.split(",").map((s) => s.trim().replace(/:not\(.*$/, "")).filter(Boolean).sort();
+    assert.deepEqual(got, wanted, style + " colours a different set of elements than the template fonts");
+    // A HEADING SITTING ON THE ACCENT keeps its own colour, or it is painted
+    // accent-on-accent and disappears.
+    // THE PROPERTY, NOT THE SPELLING: the exclusion has been written two ways
+    // already (`:not(.bg-primary *)` and `:not(:where(.bg-primary *))`) and both
+    // are correct. What must hold is that a heading on the accent is spared.
+    assert.match(out, /:not\([^)]*\.bg-primary[^{]*\*/, style + " would paint a heading accent-on-accent");
+  }
+  // `ink` is the ordinary page and must emit nothing at all.
+  assert.equal(T.displayCss({ ...theme, display: "ink" }), "");
+  assert.equal(T.displayCss({ ...theme }), "");
+});
+
+test("the width axis moves the SHELL and never the reading column", () => {
+  // THE BOUNDARY IS MEASURED, NOT JUDGED. Counting every `max-w-*` in the
+  // 324-page corpus against whether its own element also carries a page gutter
+  // (`px-N`): 4xl 52/52, 5xl 127/127, 6xl 364/364 and 7xl 2/2 are page shells
+  // 100% of the time, while 2xl is 9% and lg/prose/sm/xs are 0%. So a paragraph
+  // column must NOT widen — pulling 65 characters to 90 is harder to read,
+  // which is the opposite of what "make it wider" asks for.
+  assert.deepEqual(Object.keys(T.CONTAINER_STEPS), ["4xl", "5xl", "6xl", "7xl"],
+    "the axis reaches a container size that is not a page shell");
+  for (const w of ["narrow", "wide", "full"]) {
+    const css = T.widthCss(w);
+    for (const step of ["4xl", "5xl", "6xl", "7xl"]) assert.match(css, new RegExp("--container-" + step + ":"), w);
+    // The reading widths are the ones a page uses for prose and for cards.
+    for (const step of ["2xl", "3xl", "lg", "md", "sm", "xs", "prose"])
+      assert.doesNotMatch(css, new RegExp("--container-" + step + "\\b"), w + " moved a reading column");
+  }
+  // NOTHING AT ALL for the ordinary width, so a site that never asked for this
+  // gets a byte-identical stylesheet — the `buttonsCss` rule for `inherit`.
+  assert.equal(T.widthCss("standard"), "");
+  assert.equal(T.widthCss(undefined), "");
+  assert.equal(T.widthCss("nonsense"), "", "an unknown option must read as the default, not as an override");
+  // A RATIO, so a page mixing 4xl and 6xl keeps the relationship it was drawn
+  // with — asserted as the property rather than as four numbers.
+  const num = (css, step) => Number((css.match(new RegExp("--container-" + step + ": ([\\d.]+)rem")) || [])[1]);
+  for (const w of ["narrow", "wide", "full"]) {
+    const css = T.widthCss(w);
+    const base = T.CONTAINER_STEPS["6xl"] / T.CONTAINER_STEPS["4xl"];
+    assert.ok(Math.abs(num(css, "6xl") / num(css, "4xl") - base) < 0.001, w + " distorted the scale");
+  }
+  assert.ok(num(T.widthCss("narrow"), "6xl") < T.CONTAINER_STEPS["6xl"]);
+  assert.ok(num(T.widthCss("wide"), "6xl") > T.CONTAINER_STEPS["6xl"]);
+  assert.ok(num(T.widthCss("full"), "6xl") > num(T.widthCss("wide"), "6xl"));
+  // AND IT IS COMPOSED INTO THE THEME. A `widthCss` nothing calls is the
+  // dead-axis shape this repo has recorded once already, one axis over.
+  const base = T.THEMES[Object.keys(T.THEMES)[0]];
+  assert.ok(base && base.light && base.dark, "no theme to compose against");
+  const theme = String(T.themeCss({ ...base, width: "wide" }));
+  assert.match(theme, /--container-6xl: 84\.96rem/, "the axis is never composed into the theme CSS");
+  // …and the same theme WITHOUT it must not carry one, or the assertion above
+  // passes on a stylesheet that would have said this anyway.
+  assert.doesNotMatch(String(T.themeCss(base)), /--container-6xl/);
 });
 
 test("every option carries a label, because the label IS the instruction", () => {

@@ -43,7 +43,7 @@
 // and outside the container.
 
 import {
-  CORNERS, TYPE_SCALES, TRACKINGS, LEADINGS, WEIGHTS, DENSITIES, BORDERS,
+  CORNERS, TYPE_SCALES, TRACKINGS, LEADINGS, WEIGHTS, DENSITIES, WIDTHS, BORDERS,
   ICON_STROKES, SHADOWS, BUTTONS, INPUTS, DISPLAYS,
   SURFACES, BACKDROPS, DECORS, AMBIENTS, SKINS,
   buttonsCss, inputsCss,
@@ -90,6 +90,7 @@ export const AXES = Object.freeze({
   leading:  { options: LEADINGS,     said: "line spacing" },
   weight:   { options: WEIGHTS,      said: "font weight" },
   density:  { options: DENSITIES,    said: "overall spacing" },
+  width:    { options: WIDTHS,       said: "page width" },
   border:   { options: BORDERS,      said: "border weight" },
   icon:     { options: ICON_STROKES, said: "icon weight" },
   shadow:   { options: SHADOWS,      said: "shadows" },

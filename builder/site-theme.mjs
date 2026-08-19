@@ -450,6 +450,52 @@ export function densityCss(density) {
 }
 
 /**
+ * How wide the page itself runs — the one common layout value with no knob.
+ *
+ * MEASURED, AND THE MEASUREMENT DECIDED THE SCOPE. Every one of the 324 corpus
+ * pages carries a `max-w-*`, 1,224 of them, median 4 distinct widths a site —
+ * and `density` deliberately does not move them (its own comment, above: the
+ * columns stay put while what is inside them loosens). So "it's too narrow on a
+ * big screen" was a `tweak` per page, ~3 credits each, asked once per page, for
+ * the most repeated layout value on the site.
+ *
+ * ONLY THE SHELL SIZES MOVE, and that split is measured rather than judged.
+ * Counting every `max-w-*` against whether its own element also carries a page
+ * gutter (`px-N`): `4xl` 52/52, `5xl` 127/127, `6xl` 364/364 and `7xl` 2/2 are
+ * page shells **100%** of the time, while `2xl` is 9%, `lg`/`prose`/`sm`/`xs`
+ * are 0%. So the boundary sits exactly at `4xl`, and everything below it is a
+ * reading column that must NOT widen — a 65-character paragraph pulled to 90 is
+ * harder to read, which is the opposite of what "make it wider" asks for.
+ *
+ * A RATIO RATHER THAN FOUR NUMBERS, the `typeCss` pattern: a page mixing `4xl`
+ * and `6xl` keeps the relationship it was designed with.
+ *
+ * THE FRAME FOLLOWS FOR FREE. `site-header.tsx` and `site-footer.tsx` cap
+ * themselves at `max-w-6xl`, which Tailwind compiles to
+ * `max-width: var(--container-6xl)` — verified in a real built stylesheet — so
+ * overriding the token moves the chrome and the page bodies together. Anything
+ * that hardcoded a rem here would have made the two disagree.
+ */
+export const CONTAINER_STEPS = Object.freeze({ "4xl": 56, "5xl": 64, "6xl": 72, "7xl": 80 });
+
+export const WIDTHS = {
+  narrow: { ratio: 0.85, label: "a tighter column, with more margin either side" },
+  standard: { ratio: 1, label: "the ordinary page width" },
+  wide: { ratio: 1.18, label: "more of a big screen used" },
+  full: { ratio: 1.4, label: "the page runs close to the edges" },
+};
+
+export function widthCss(width) {
+  const w = WIDTHS[width] ?? WIDTHS.standard;
+  // NOTHING AT ALL for the ordinary width, so a site that never asked for this
+  // gets a byte-identical stylesheet — the `buttonsCss` rule for `inherit`.
+  if (w.ratio === 1) return "";
+  const lines = Object.entries(CONTAINER_STEPS)
+    .map(([step, rem]) => `  --container-${step}: ${+(rem * w.ratio).toFixed(3)}rem;`);
+  return `:root {\n${lines.join("\n")}\n}\n`;
+}
+
+/**
  * Border weight — a class override, because 1px is hardcoded into the utility.
  *
  * The NUMBERED utilities (`border-2` and friends) are deliberately left alone:
@@ -656,10 +702,48 @@ export function displayColor(theme, mode) {
   return c;
 }
 
+/**
+ * WHAT A HEADING IS, and it has to be the same answer `styles.css` gives.
+ *
+ * THIS AXIS WAS DEAD FROM THE DAY IT SHIPPED. It targeted `.font-heading`, and
+ * that class is in **0 of the 2,112 kit files and 0 of the 324 corpus pages** —
+ * so Tailwind, which only generates a utility something uses, never emitted the
+ * rule at all. Verified against a real compiled stylesheet: it carries the token
+ * and `h1,h2,h3,h4 { font-family: var(--font-heading) }` and no `.font-heading`
+ * rule anywhere. "Put our brand colour in the headings" was stored, reported as
+ * applied, and changed nothing on any site.
+ *
+ * The comment two lines above that rule in `styles.css` warns about exactly this
+ * — *"A token nothing references is the state this template was already in"* —
+ * and it was written when the FONT was moved off the class onto the elements.
+ * The colour never got the same treatment. So this now names the same elements,
+ * and a test holds the two together.
+ *
+ * SPECIFICITY IS NOT WHAT DECIDES HERE, and two rounds of reasoning got that
+ * wrong before a measurement settled it. Tailwind v4 emits its utilities inside
+ * `@layer utilities` and this rule is UNLAYERED — and an unlayered rule beats a
+ * layered one whatever its specificity. So every `h1`–`h4` takes the colour,
+ * including one carrying `text-muted-foreground`; rendered in a real browser,
+ * switching `:not(.bg-primary *)` (which carries its argument's specificity, so
+ * (0,1,1)) to `:not(:where(…))` ((0,0,1)) changed NOTHING.
+ *
+ * KEPT AND LOOKED AT rather than layered to make the utility win. Of the 488
+ * corpus headings, 113 carry a colour and every one is `text-muted-foreground`
+ * — eyebrows and section labels. Rendered side by side, one of those going
+ * brand-coloured beside its own h3 reads as a deliberate hierarchy rather than a
+ * clash, and body copy is untouched because a `<p>` is not a heading.
+ *
+ * `:where()` is kept anyway: it costs nothing, and it is the correct form the
+ * day this rule is ever put in a layer. It is not doing the work today.
+ */
+const HEADING_SEL = "h1, h2, h3, h4";
+
 export function displayCss(theme) {
   const style = theme.display ?? "ink";
   if (style !== "accent" && style !== "gradient") return "";
-  const SEL = `.font-heading:not(.bg-primary *)`;
+  // A heading sitting ON the accent must keep its own colour, or it is painted
+  // accent-on-accent and disappears.
+  const SEL = HEADING_SEL.split(", ").map((h) => `${h}:not(:where(.bg-primary *))`).join(", ");
   const tok = (mode) => `--display: ${css(displayColor(theme, mode))};`;
   const tokens = `:root { ${tok("light")} }\n.dark { ${tok("dark")} }\n`;
   if (style === "accent") return tokens + `${SEL} { color: var(--display); }\n`;
@@ -1677,6 +1761,7 @@ export function themeCss(nameOrTheme) {
     leadingCss(theme.leading) + "\n" +
     weightCss(theme.weight) + "\n" +
     densityCss(theme.density) + "\n" +
+    widthCss(theme.width) + "\n" +
     borderCss(theme.border) + "\n" +
     iconCss(theme.icon) + "\n" +
     buttonsCss(theme.buttons) +

@@ -677,8 +677,18 @@ test("display colour is the accent walked to legibility, and gradient never goes
   assert.equal(displayCss(FIXTURE), "", "undeclared display must emit nothing");
   assert.equal(displayCss({ ...FIXTURE, display: "ink" }), "", "ink is the default and must emit nothing");
   const accent = displayCss({ ...FIXTURE, display: "accent" });
-  assert.match(accent, /\.font-heading:not\(\.bg-primary \*\) \{ color: var\(--display\)/,
-    "accent display must colour .font-heading and spare headings on the accent itself");
+  // THE PROPERTY, NOT THE SPELLING — and this assertion is why the axis was
+  // dead for so long. It pinned `.font-heading:not(.bg-primary *)`, a selector
+  // that matched NOTHING on any published site (the class is in 0 of 2,112 kit
+  // files and 0 of 324 corpus pages, so Tailwind never generated the utility),
+  // so the test passed for the whole time the feature did nothing. Which
+  // elements count as a heading is now derived from the template's own font
+  // rule in `test/site-style.test.mjs`; what belongs here is that the colour is
+  // applied and that a heading on the accent is spared.
+  assert.match(accent, /(^|,|\s)h1[^{]*\{ color: var\(--display\)/,
+    "accent display must colour real heading elements");
+  assert.match(accent, /:not\([^)]*\.bg-primary[^{]*\*/,
+    "a heading sitting on the accent would be painted accent-on-accent");
   assert.match(accent, /:root \{ --display: oklch/);
   assert.match(accent, /\.dark \{ --display: oklch/);
   const grad = displayCss({ ...FIXTURE, display: "gradient" });

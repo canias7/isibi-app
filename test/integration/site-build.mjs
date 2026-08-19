@@ -1444,6 +1444,75 @@ function Home() {
     plainCss.length > 1000 && !/data-page/.test(plainCss),
     plainCss.length + " bytes, data-page present: " + /data-page/.test(plainCss));
 
+  // ── HOW WIDE THE PAGE RUNS ──────────────────────────────────────────────
+  //
+  // THE MOST REPEATED LAYOUT VALUE ON EVERY SITE, and it had no knob: all 324
+  // corpus pages carry a `max-w-*`, 1,224 of them, and `density` deliberately
+  // leaves container widths alone (its own comment says so). So "it's too narrow
+  // on a big screen" was a `tweak` per page.
+  //
+  // THIS HAS TO RUN AGAINST A REAL BUILD, not a unit test, because the whole
+  // question is whether a second `:root` beats the one Tailwind's own `@theme`
+  // emits — same specificity, decided by source order after the minifier has had
+  // its turn. A second `:root` was proved DEAD exactly here once before.
+  console.log("\nbuilding the same site at three page widths…");
+  const W_PAYLOAD = { files: { "index.tsx": CHROMED }, slug: "width-site", title: "Fold Coffee", theme: "noir" };
+  const stdW = await post(W_PAYLOAD);
+  const wideW = await post({ ...W_PAYLOAD, style: { width: "wide" } });
+  ok("a build with no width axis succeeds", stdW.ok === true, stdW.stage + ": " + (stdW.error || "").slice(0, 300));
+  ok("a build with one succeeds too", wideW.ok === true, wideW.stage + ": " + (wideW.error || "").slice(0, 300));
+  const wcss = (b) => Object.entries(b.files || {}).filter(([n]) => n.endsWith(".css")).map(([, v]) => (v && v.t) || "").join("");
+  const stdCss = wcss(stdW), wideCss = wcss(wideW);
+  // THE LAST DECLARATION IS THE ONE THE BROWSER USES. Reading the first would
+  // find Tailwind's own and be true whatever we emitted.
+  const lastContainer = (css, step) => {
+    const all = [...css.matchAll(new RegExp("--container-" + step + ":\\s*([^;}]+)", "g"))];
+    return all.length ? all[all.length - 1][1].trim() : null;
+  };
+  ok("the override WINS in the compiled stylesheet",
+    lastContainer(wideCss, "6xl") === "84.96rem",
+    "6xl is " + lastContainer(wideCss, "6xl") + " — the second :root was dropped or outranked");
+  // THE READING COLUMN MUST NOT MOVE. Measured over the corpus, 4xl and up are
+  // page shells 100% of the time and 2xl is 9% — pulling a 65-character
+  // paragraph to 90 is the opposite of what "make it wider" asks for.
+  ok("…and the reading column is untouched",
+    lastContainer(wideCss, "2xl") === lastContainer(stdCss, "2xl"),
+    JSON.stringify([lastContainer(stdCss, "2xl"), lastContainer(wideCss, "2xl")]));
+  // A SITE THAT NEVER ASKED FOR THIS IS BYTE-IDENTICAL to before it existed —
+  // one declaration, Tailwind's own.
+  ok("a site with no width axis has exactly one declaration",
+    (stdCss.match(/--container-6xl:/g) || []).length === 1 && lastContainer(stdCss, "6xl") === "72rem",
+    (stdCss.match(/--container-6xl:/g) || []).length + " declarations, last " + lastContainer(stdCss, "6xl"));
+
+  // ── AND THE HEADING COLOUR, WHICH WAS DEAD ──────────────────────────────
+  //
+  // THIS IS THE CHECK THAT WAS MISSING. The axis targeted `.font-heading`, a
+  // class in 0 of 2,112 kit files and 0 of 324 corpus pages — so Tailwind, which
+  // only generates a utility something uses, emitted no rule at all, and "put
+  // our brand colour in the headings" was stored, reported as applied, and
+  // changed nothing on any site. Every unit test passed throughout, because a
+  // unit test reads the string the module returns and not what the compiler did
+  // with it. Only a real build can tell those apart.
+  console.log("\nbuilding a site with brand-coloured headings…");
+  const D_PAYLOAD = { files: { "index.tsx": CHROMED }, slug: "display-site", title: "Fold Coffee", theme: "citrus" };
+  const inkB = await post({ ...D_PAYLOAD, style: { display: "ink" } });
+  const accB = await post({ ...D_PAYLOAD, style: { display: "accent" } });
+  ok("an ink build succeeds", inkB.ok === true, inkB.stage + ": " + (inkB.error || "").slice(0, 300));
+  ok("an accent build succeeds", accB.ok === true, accB.stage + ": " + (accB.error || "").slice(0, 300));
+  const dcss = (b) => Object.entries(b.files || {}).filter(([n]) => n.endsWith(".css")).map(([, v]) => (v && v.t) || "").join("");
+  const inkCss = dcss(inkB), accCss = dcss(accB);
+  // A REAL ELEMENT, not a class that may never be generated. That is the whole
+  // difference between this axis working and the two years it did not.
+  ok("the heading rule reaches the compiled stylesheet and names an ELEMENT",
+    /(^|[},;])\s*h1[^{]*\{[^}]*color:\s*var\(--display\)/.test(accCss),
+    "no element-anchored heading colour in " + accCss.length + " bytes");
+  ok("…and the accent it names is really declared", /--display:\s*oklch/.test(accCss),
+    "the colour token was never emitted");
+  // `ink` IS THE ORDINARY PAGE and must emit nothing, or every site carries a
+  // rule it never asked for.
+  ok("an ink site has no heading-colour rule at all", !/--display:/.test(inkCss),
+    "ink emitted a display colour");
+
   console.log("\nbuilding the same site light and dark…");
   const MODE_PAYLOAD = { files: { "index.tsx": CHROMED }, slug: "mode-site", title: "Nightshift Records", theme: "noir", worker: true };
   const lightBuild = await post({ ...MODE_PAYLOAD, mode: "light" });
