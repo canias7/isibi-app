@@ -57,7 +57,12 @@ jobs:
     runs-on: ubuntu-latest
     # A build is now design → provision → generate → compile → publish, and the
     # build container may be cold. Ten minutes was sized for the schema alone.
-    timeout-minutes: 15
+    # 15 MINUTES WAS THE WHOLE BUDGET AND `playwright install` ATE IT.
+    # Measured 2026-08-19: the browser install ran 20:59:23 -> 21:14:28, the
+    # job was cancelled at the timeout, and `build smoke` was SKIPPED — a run
+    # that spent 15 minutes of runner and proved nothing, on a commit whose
+    # whole purpose was one build.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -70,17 +75,17 @@ jobs:
       # Worker dependency, so it is installed here rather than added to the root
       # package.json that wrangler bundles.
       - run: npm i --no-save --no-audit --no-fund playwright@^1.49.0
+      # BOUNDED, AND NOT ALLOWED TO FAIL THE RUN. The browser is for the page
+      # checks alone; the build, the publish and every API assertion need none
+      # of it. Letting a slow apt mirror take the whole job down loses the part
+      # that costs money to re-run in order to protect the part that does not.
       - run: npx playwright install --with-deps chromium
+        timeout-minutes: 6
+        continue-on-error: true
 
       - name: build smoke
         env:
           SMOKE_BASE_URL: ${{ inputs.base_url || 'https://gofarther.dev' }}
-          # ONE-SHOT, revert after the run: a menu with COURSES. That shape has
-          # never been built live and it is where two recorded bugs live — a
-          # menu that came out in alphabetical order (Dessert, Pizza, Starters),
-          # which is what `defaultSort` was wired for and has never run on a
-          # real build; and the designer omitting `seed` on a menu, measured
-          # twice, which leaves an empty price list and a dead form.
           # ONE-SHOT, REVERT AFTER THE RUN — the no-family experiment.
           #
           # `SMOKE_NO_FAMILY=1` builds with no layout family, so the model
