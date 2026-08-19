@@ -14,7 +14,7 @@
 // functions, so the real decision logic can be driven against fakes with no
 // model call, no container and no R2.
 
-import { validatePages, lintPages } from "./page-gen.mjs";
+import { validatePages, lintPages, repairImports } from "./page-gen.mjs";
 
 // List rates over the platform's $0.008/credit basis, PER MODEL.
 //
@@ -863,6 +863,15 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages } =
       await settle(out.stage);
     return out;
   }
+
+  // A WRONG EXPORT NAME IS FIXED BEFORE ANYTHING JUDGES IT — see `repairImports`.
+  // BEFORE the lint, so a repaired page does not also carry a problem about the
+  // thing that is no longer there; and long before the compile, so it costs not
+  // even a container run. Nothing is guessed: an ambiguous module is left for
+  // `tsc` to refuse honestly.
+  const rep = repairImports(v.pages);
+  v.pages = rep.pages;
+  if (rep.fixed.length) out.repaired = rep.fixed;
 
   const problems = v.problems.concat(lintPages(v.pages, spec));
 

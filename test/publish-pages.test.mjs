@@ -111,6 +111,50 @@ test("with no images dep the build is byte-identical to before photographs exist
   assert.equal(typeof deps.images, "undefined");
 });
 
+test("a wrongly-named kit import is REPAIRED before it reaches the compiler", async () => {
+  // ASSERTED AT THE DEP BOUNDARY, not by reading the source. `repairImports` is
+  // correct and tested in page-gen.test.mjs; what this holds is that it is
+  // CALLED here and that its answer is the thing compiled. Both halves have
+  // their own way of dying silently — not called at all, or called and the
+  // result dropped — and from outside each looks exactly like a generator that
+  // wrote the right import. The wiring layer, which is where this repo has
+  // recorded twelve features shipping dead.
+  //
+  // The case is the real one, measured on a live build: the prompt's own
+  // reference pages import `Hero` from `hero.tsx` while the shortlist offers
+  // only `hero-split`, so obeying both instructions produces an export name
+  // from one and a module from the other. TS2305 on index.tsx, which salvage
+  // refuses to stub, so the whole site publishes as the placeholder.
+  const broken = () => ({
+    path: "index.tsx",
+    source: `import { createFileRoute } from "@tanstack/react-router";
+import { Hero } from "@/components/ui/hero-split";
+export const Route = createFileRoute("/")({ component: Page });
+function Page() { return <Hero title="x" />; }`,
+  });
+  const { deps, calls } = harness({ generate: async () => gen([broken()]) });
+  const out = await publishPages(deps, { spec: SPEC, slug: "x" });
+  assert.equal(out.page, "app");
+  assert.equal(calls.compile.length, 1);
+  const src = calls.compile[0][0].source;
+  assert.match(src, /import \{ HeroSplit \} from "@\/components\/ui\/hero-split"/);
+  assert.match(src, /<HeroSplit title="x" \/>/, "the import was repaired and the usage was not");
+  // And it says so, or the build response cannot tell a repaired page from one
+  // the generator got right — which is the difference between a prompt worth
+  // fixing and one that is fine.
+  assert.deepEqual(out.repaired,
+    [{ path: "index.tsx", module: "hero-split", from: "Hero", to: "HeroSplit" }]);
+});
+
+test("a build whose imports were all correct reports no repairs at all", async () => {
+  // The ABSENCE, because `repaired: []` on every clean build reads in the
+  // response and in the eval as a generator that keeps getting names wrong.
+  const { deps } = harness();
+  const out = await publishPages(deps, { spec: SPEC, slug: "x" });
+  assert.equal(out.page, "app");
+  assert.equal(out.repaired, undefined);
+});
+
 test("a bought photograph reaches the compiler, and the placeholder does not", async () => {
   const withToken = () => ({
     path: "index.tsx",

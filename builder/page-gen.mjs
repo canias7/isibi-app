@@ -1294,15 +1294,77 @@ export const UI_SHORTLIST_API = () => {
   return lines.join("\n");
 };
 
-export const UI_SHORTLIST = (() => {
-  const wanted = new Set();
-  for (const fam of Object.values(FAMILIES)) for (const c of fam.components || []) wanted.add(c);
-  const real = new Set(UI_COMPONENTS);
-  // A family naming a component that does not exist would silently shrink this
-  // list; the wiring test asserts that never happens, and this keeps the prompt
-  // honest if it ever does.
-  return UI_COMPONENTS.filter((c) => wanted.has(c) && real.has(c));
-})();
+/**
+ * REWRITE AN IMPORT OF A MEMBER A KIT MODULE DOES NOT EXPORT.
+ *
+ * WHY THIS IS FREE AND WHY IT EXISTS. `lintPages` already reports this exactly:
+ * "imports { Hero } from @/components/ui/hero-split, which does not export it.
+ * That module exports: HeroSplit." It KNOWS the wrong name and the right one —
+ * and then the page goes to `tsc`, fails TS2305, and because the page is usually
+ * index.tsx (which salvage will not stub, since the home page must survive) the
+ * whole site publishes as the data-model placeholder.
+ *
+ * Measured live 2026-08-19 on a real build: one such import cost a customer the
+ * entire site. `TS2305 has no exported member` is already recorded here as one of
+ * the top recurring generator failures.
+ *
+ * NOT THE REPAIR PASS. That one re-ran the MODEL — ~80% of what a build costs —
+ * and was removed 2026-08-04. This is a string substitution over source that
+ * already exists: no model call, no tokens, and it happens BEFORE the compile so
+ * it costs not even a second container run.
+ *
+ * IT REFUSES TO GUESS, which is the whole safety argument. A module with no known
+ * export list is skipped. A wrong name is corrected only when the answer is
+ * unambiguous: the file name in PascalCase really is exported, or the module
+ * exports exactly one thing. Anything else is left for `tsc` to refuse honestly —
+ * a wrong rename compiles and renders the wrong component, which is far worse
+ * than a failed build.
+ *
+ * The old name is rewritten everywhere in that file, not just in the import. It
+ * cannot collide with anything: the name was imported and does not exist, so it
+ * has no other binding in the module.
+ */
+export function repairImports(pages) {
+  // NAMED `repaired`, NOT `out`. `test/declarable-enforced.test.mjs` cuts
+  // `out.push({` and `norm.push({` out of a bundle that INCLUDES this file, to
+  // prove the schema features it checks are really enforced — so an unrelated
+  // `out.push({` here reads to that guard as a failed cut. Measured: it went red
+  // the moment this function was added.
+  const repaired = [];
+  const fixed = [];
+  for (const p of Array.isArray(pages) ? pages : []) {
+    let src = String(p && p.source || "");
+    src.replace(/import\s*\{([^}]*)\}\s*from\s*"@\/components\/ui\/([a-z0-9-]+)"/g, (whole, inner, mod) => {
+      const known = UI_EXPORTS[mod];
+      if (!known) return whole;               // unknown module: tsc's problem, not ours
+      for (const raw of inner.split(",")) {
+        const part = raw.trim();
+        if (!part) continue;
+        // `X as Y` keeps X as the imported member; `type X` is still a member.
+        const name = part.replace(/^type\s+/, "").split(/\s+as\s+/)[0].trim();
+        if (!name || known.has(name)) continue;
+        if (!/^[A-Z]/.test(name)) continue;   // a lowercase helper is not this class
+        const pascal = pascalOf(mod);
+        const only = known.size === 1 ? [...known][0] : null;
+        const right = known.has(pascal) ? pascal : only;
+        // `right === name` CANNOT FIRE TODAY and is kept deliberately, said out
+        // loud rather than deleted or pretended-to-be-tested. `right` is always
+        // a member of `known` and `name` never is — the `known.has(name)`
+        // continue above is what guarantees it, and that is one edit away from
+        // changing. Measured over all 2,040 kit modules: 0 reachable. Without
+        // it a self-rename would push a `fixed` entry claiming a repair that
+        // did not happen, on the build response, for every import on the page.
+        if (!right || right === name) continue;
+        src = src.replace(new RegExp("\\b" + name + "\\b", "g"), right);
+        fixed.push({ path: p.path, module: mod, from: name, to: right });
+      }
+      return whole;
+    });
+    repaired.push({ ...p, source: src });
+  }
+  return { pages: repaired, fixed };
+}
+
 
 
 // Imported, not restated. The generator has to predict exactly what the API will
@@ -2395,6 +2457,50 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
 
 /** The home page alone, which is what most briefs need. */
 export const REFERENCE_PAGE = REFERENCE_PAGES[0].source;
+
+/**
+ * THE COMPONENTS THE MODEL IS TOLD TO REACH FOR.
+ *
+ * IT IS TWO SOURCES, AND IT USED TO BE ONE. The list is derived from what the
+ * 100 families declare — and the four REFERENCE PAGES, which sit in the same
+ * prompt as the worked example, import ten modules no family declares:
+ * `hero`, `button`, `card`, `input`, `select`, `textarea`, `form`, `skeleton`,
+ * `data-list`, `seo-jsonld`. The primitives, in other words, that every family
+ * assumes rather than lists.
+ *
+ * SO RULE 3 SAID "the only names under that path you should use" AND THEN SHOWED
+ * AN EXAMPLE USING TEN NAMES THAT WERE NOT IN IT. Measured live 2026-08-19: the
+ * generator, obeying both at once, wrote `import { Hero } from
+ * "@/components/ui/hero-split"` — the EXPORT from the reference page, the MODULE
+ * from the list. `hero.tsx` exports `Hero` and `hero-split.tsx` exports
+ * `HeroSplit`; both are real, and only one was offered. TS2305, and because it
+ * was index.tsx the whole site published as the placeholder.
+ *
+ * A worked example the model may not follow is worse than no example. The union
+ * is derived at both ends so neither source can drift out of the other, and a
+ * test asserts every reference-page import is in here.
+ */
+export const RULE_CITED_COMPONENTS = ["seo-jsonld"];
+
+export const UI_SHORTLIST = (() => {
+  const wanted = new Set();
+  for (const fam of Object.values(FAMILIES)) for (const c of fam.components || []) wanted.add(c);
+  for (const p of REFERENCE_PAGES) {
+    for (const m of String(p.source).matchAll(/from "@\/components\/ui\/([a-z0-9-]+)"/g)) wanted.add(m[1]);
+  }
+  // CITED IN THE RULES' OWN PROSE rather than in a reference page — rule 18's
+  // worked `localBusinessJsonLd` call. It cannot be derived here because
+  // PAGE_RULES is assembled from this list, so the scan would be circular;
+  // `test/page-gen.test.mjs` closes it from the other end by requiring every
+  // `@/components/ui/...` import ANYWHERE in the finished prompt to be in here.
+  for (const c of RULE_CITED_COMPONENTS) wanted.add(c);
+  const real = new Set(UI_COMPONENTS);
+  // A family naming a component that does not exist would silently shrink this
+  // list; the wiring test asserts that never happens, and this keeps the prompt
+  // honest if it ever does.
+  return UI_COMPONENTS.filter((c) => wanted.has(c) && real.has(c));
+})();
+
 
 export const PAGE_RULES = `You write the pages of a small business website, as TypeScript React route files.
 

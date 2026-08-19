@@ -67,7 +67,7 @@ function declarableProps() {
  * name every property there is. A feature that appears ONLY in those has been
  * read and written down and never acted on, which is the exact failure.
  */
-function enforcementSource() {
+function cutSchemaSource() {
   let src = blankComments(read("site-schema.mjs"));
   for (const marker of ["out.push({", "norm.push({"]) {
     for (;;) {
@@ -78,6 +78,11 @@ function enforcementSource() {
       src = src.slice(0, at) + " ".repeat(span[1] - at) + src.slice(span[1]);
     }
   }
+  return src;
+}
+
+function enforcementSource() {
+  const src = cutSchemaSource();
   // Enforcement is not only DDL. `confirm` is acted on by the Worker's write
   // path through `site-mail.mjs` — no column, no policy, no trigger — so a
   // scan limited to the schema and RLS files would call it dead while it works.
@@ -114,7 +119,12 @@ test("the design_schema tool offers a list this test can read", () => {
 test("both push expressions are really removed, or this test proves nothing", () => {
   // The guard rests entirely on those two being cut. If the cut silently fails,
   // every property looks enforced and the whole file is a no-op that passes.
-  const src = enforcementSource();
+  // SCOPED TO THE SCHEMA SOURCE, not the whole bundle. `enforcementSource()`
+  // concatenates four other files, and any of them using `out.push({` for its
+  // own unrelated reasons makes this read as a failed cut — which is exactly
+  // what happened when `repairImports` was added to page-gen.mjs. The cut is a
+  // fact about site-schema.mjs; assert it about site-schema.mjs.
+  const src = cutSchemaSource();
   assert.ok(!/out\.push\(\{/.test(src) && !/norm\.push\(\{/.test(src),
     "the parser/normaliser expressions were not removed — every property would read as enforced");
   // And something must survive, or the cut removed the file.

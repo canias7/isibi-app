@@ -14,7 +14,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   REFERENCE_PAGE, REFERENCE_PAGES, UI_COMPONENTS, UI_SHORTLIST, UI_SHORTLIST_API, PAGE_RULES, SITE_PAGES_TOOL, MAX_PAGES, MANAGED_COLUMNS,
-  schemaDigest, pagesPrompt, repairPrompt, validatePages, lintPages, briefForPages, ACCESS_NOTE, propsOf, UI_EXPORTS } from "../builder/page-gen.mjs";
+  schemaDigest, pagesPrompt, repairPrompt, validatePages, lintPages, briefForPages, ACCESS_NOTE, propsOf, UI_EXPORTS,
+  repairImports } from "../builder/page-gen.mjs";
 import { COMPONENT_API, COMPONENT_TYPES } from "../builder/component-api.mjs";
 import { build as buildApi, render as renderApi, extract as extractApi, buildTypes as buildTypesApi, extractTypes as extractTypesApi } from "../builder/gen-component-api.mjs";
 import * as api from "../builder/page-gen.mjs";
@@ -4023,4 +4024,81 @@ test("the digest says a table sends elsewhere, and stays silent when it does not
   assert.match(one, /SENDS ELSEWHERE: this table already posts .* on created\./,
     "a narrowed list must name only what it declared");
   assert.ok(!/updated/.test(one.split("SENDS ELSEWHERE")[1] || ""), "and must not claim events it does not emit");
+});
+
+// ── THE PROMPT MAY NOT CONTRADICT ITS OWN WORKED EXAMPLES ───────────────────
+//
+// Rule 3 says "the only names under that path you should use" and then lists a
+// shortlist DERIVED FROM THE FAMILIES. The four reference pages in the same
+// prompt import ten modules no family declares — the primitives every family
+// assumes: hero, button, card, input, select, textarea, form, skeleton,
+// data-list — plus `seo-jsonld`, cited in rule 18's own prose.
+//
+// Measured live 2026-08-19: obeying both at once, the generator wrote
+// `import { Hero } from "@/components/ui/hero-split"` — the EXPORT from the
+// example, the MODULE from the list. `hero` exports `Hero`, `hero-split`
+// exports `HeroSplit`; both real, one offered. TS2305 on index.tsx, which
+// salvage will not stub, so the entire site published as the placeholder.
+//
+// Asserted over the FINISHED PROMPT rather than over the sources it is built
+// from, because that is the artefact the model reads and the only place the
+// two halves meet.
+test("every kit import in the prompt is a name the prompt says to use", () => {
+  const offered = new Set(UI_SHORTLIST);
+  const cited = [...new Set([...PAGE_RULES.matchAll(/from "@\/components\/ui\/([a-z0-9-]+)"/g)].map((m) => m[1]))];
+  // THE FLOOR: a regex that stopped matching would report a clean prompt.
+  assert.ok(cited.length >= 15, `only found ${cited.length} kit imports in the prompt — the scan is broken`);
+  const contradictory = cited.filter((m) => !offered.has(m));
+  assert.deepEqual(contradictory, [],
+    `the prompt shows imports it also tells the model not to use: ${contradictory.join(", ")}`);
+});
+
+// ── A WRONG EXPORT NAME IS REPAIRED, AND ONLY WHEN IT IS UNAMBIGUOUS ────────
+test("repairImports fixes the measured failure and refuses to guess", () => {
+  const page = (source) => [{ path: "index.tsx", source }];
+
+  // The real one, from a real build.
+  const r = repairImports(page(
+    'import { Hero } from "@/components/ui/hero-split";\nexport default function P(){ return <Hero title="x" />; }'));
+  assert.match(r.pages[0].source, /import \{ HeroSplit \} from "@\/components\/ui\/hero-split"/);
+  assert.match(r.pages[0].source, /<HeroSplit title="x" \/>/,
+    "the import was fixed and the usage was not — that still fails to compile");
+  assert.deepEqual(r.fixed, [{ path: "index.tsx", module: "hero-split", from: "Hero", to: "HeroSplit" }]);
+
+  // A CORRECT IMPORT IS UNTOUCHED — byte-identical, so no build that works today changes.
+  const good = 'import { HeroSplit } from "@/components/ui/hero-split";\n<HeroSplit />';
+  const untouched = repairImports(page(good));
+  assert.equal(untouched.pages[0].source, good);
+  assert.deepEqual(untouched.fixed, []);
+
+  // A MODULE WE KNOW NOTHING ABOUT IS LEFT ALONE. Guessing here would rename an
+  // import to something that does not exist either, and a wrong rename that
+  // COMPILES renders the wrong component — far worse than a failed build.
+  const unknown = 'import { Whatever } from "@/components/ui/not-a-real-module-xyz";';
+  assert.equal(repairImports(page(unknown)).pages[0].source, unknown);
+
+  // A lowercase helper is a different class and is not touched. `seo-jsonld`
+  // exports both `SeoJsonLd` and `localBusinessJsonLd`, so without the
+  // capital-initial test the helper would be renamed to the component.
+  const helper = 'import { localBusinessJsonLd } from "@/components/ui/seo-jsonld";\nlocalBusinessJsonLd({});';
+  assert.equal(repairImports(page(helper)).pages[0].source, helper);
+
+  // A MULTI-EXPORT MODULE IS STILL REPAIRED when its PascalCase name is one of
+  // the exports — that is the commonest shape in the kit (378 modules), so a
+  // repair that only handled single-export modules would miss nearly all of it.
+  // `access-hours` exports AccessHours and AccessDay.
+  const multi = repairImports(page(
+    'import { AccessHour } from "@/components/ui/access-hours";\n<AccessHour />'));
+  assert.match(multi.pages[0].source, /import \{ AccessHours \}/);
+  assert.match(multi.pages[0].source, /<AccessHours \/>/);
+
+  // AND IT REFUSES TO GUESS when the PascalCase name is NOT among them.
+  // `heading-level` exports Section and Heading — neither is `HeadingLevel`, so
+  // there is no answer we can be sure of, and picking one at random renames the
+  // import to something that COMPILES and renders the wrong component. That is
+  // strictly worse than the failed build, which is the whole rule this function
+  // lives under.
+  const guessy = 'import { Header } from "@/components/ui/heading-level";\n<Header />';
+  assert.equal(repairImports(page(guessy)).pages[0].source, guessy,
+    "it guessed on a module with several exports and no PascalCase match");
 });

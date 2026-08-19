@@ -92,24 +92,28 @@ jobs:
       - name: build smoke
         env:
           SMOKE_BASE_URL: ${{ inputs.base_url || 'https://gofarther.dev' }}
-          # ONE-SHOT, REVERT AFTER THE RUN — the no-family experiment.
+          # THE NO-FAMILY EXPERIMENT RAN 2026-08-19 AND ITS ENV IS REVERTED.
+          # Kept as a note rather than a commented-out block, because a
+          # commented-out `SMOKE_NO_FAMILY: "1"` is one uncomment away from
+          # spending a paid build on a question already answered.
           #
           # `SMOKE_NO_FAMILY=1` builds with no layout family, so the model
           # decides the page set, the section order, the primary action and the
-          # components from the brief alone. The kit, the four cached reference
-          # pages, the theme and the schema are all unchanged: this removes the
-          # ~960-char layout directive and the ~8,100-char worked example, and
-          # nothing else.
+          # components from the brief alone — the kit, the four cached reference
+          # pages, the theme and the schema all unchanged. Two builds ran and
+          # NEITHER compiled, against a documented ~19/21 with families. Both
+          # failed by INVENTING A KIT API, not by laying a page out badly: one
+          # asked `localBusinessJsonLd` for an `email` it did not take, the
+          # other imported `Hero` from `hero-split`. So the measurement is n=2
+          # and half of it was our fault — the prompt's own reference pages
+          # import ten modules the shortlist told the model not to use.
           #
-          # `SMOKE_SKIP_JOURNEY=1` so the run is ONE build — no revise, no edit
-          # lanes — and `SMOKE_KEEP_SITE=1` so the site is still standing
-          # afterwards to be looked at. A kept site is a live Neon project;
-          # delete it when the question is answered.
-          SMOKE_BRIEF: "A one-page site for Ridgeway Bindery, a hand bookbinding workshop in Hebden Bridge. Repairs, custom journals and a two-day beginners' course. People enquire through a form."
-          SMOKE_NO_FAMILY: "1"
-          SMOKE_SKIP_JOURNEY: "1"
-          SMOKE_KEEP_SITE: "1"
-          # SMOKE_BRIEF overrides the brief in build-smoke.mjs. Left unset here
+          # Pair it with `SMOKE_SKIP_JOURNEY=1` (one build, no revise, no edit
+          # lanes) and `SMOKE_KEEP_SITE=1` (the site is left standing to be
+          # looked at). A kept site is a live Neon project, so delete it when
+          # the question is answered.
+          #
+          # SMOKE_BRIEF overrides the brief in build-smoke.mjs. Left unset
           # on purpose: the default is the one every assertion below it was
           # calibrated against — a trade with a list to READ and a form to
           # WRITE. A brief of a different SHAPE fails those honestly. Measured
