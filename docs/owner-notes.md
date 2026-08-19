@@ -12,6 +12,30 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ## OPEN — waiting to be picked up
 
+**YOU CAN PROVE THE SITE IS YOURS TO GOOGLE NOW (2026-08-19).** Search Console,
+Bing, Pinterest, Facebook and Yandex all ask for the same thing — a small code
+in the head of your site — and there was no way to put one there. Which meant a
+site could not be indexed, you could not see what it ranked for, and you could
+not run a Facebook ad against your own domain.
+
+* **Where.** Cloud → **Domains**, under **Search engines**. Each one has its own
+  box and a line saying exactly which screen to copy the code from.
+* **Paste the whole meta tag if that is what you copied** — the `<meta name=...>`
+  line. It reads the code out of it. If it cannot, it says which one and why,
+  rather than just failing.
+* **It takes effect straight away.** No rebuild, no waiting — press Save and the
+  code is on your site, so you can press Verify at Google in the next tab. The
+  panel tells you which of the two happened.
+* **Clearing a box removes it.** That is how you take a verification off.
+* **Deliberately NOT arbitrary HTML.** Every website builder offers "paste
+  anything into your head" and every one of them is a way to get a site hacked.
+  This takes a code from a provider we know, so there is nothing to get wrong.
+  Analytics (Google Analytics, Plausible) is a separate job — it needs a
+  decision about cookies and consent that we should make properly.
+* **Not proven live** — nobody has pasted a real token and had a provider check
+  it yet.
+
+
 **A SITE CAN OFFER A PDF NOW — and the download button had been there the whole
 time (2026-08-19).** `download-card` is one of the components the builder is
 allowed to use, and the reference sites reach for it 24 times: a parish

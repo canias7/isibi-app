@@ -31,6 +31,7 @@ import { handleOwnerExport } from "./site-export.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
 import { makeTrace } from "./builder/trace.mjs";
 import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
+import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, mergeRedirects, decideFallback } from "./site-seo.mjs";
 import { readJsonBody } from "./request-limits.mjs";
 import { listSecrets, addSecret, deleteSecret, readSecret } from "./site-secrets.mjs";
@@ -6934,6 +6935,10 @@ async function writeSiteDistToR2(env, slug, dist, meta, pages, renamed = null) {
         origin: (meta && meta.url) || "",
         routesCsv: (manifest && manifest.routesCsv) || "",
         redirectsCsv: (manifest && manifest.redirectsCsv) || "",
+        // OWNERSHIP VERIFICATION, resolved to `{name, content}` pairs by
+        // `site-verify.mjs` — which owns the allow-list of names, so the site's
+        // own document renders what it is handed and can never name its own tag.
+        verify: verificationPairs(meta && meta.verify),
       };
       await env.SITES_BUCKET.put(siteMetaKey(slug), JSON.stringify(sidecar), {
         httpMetadata: { contentType: "application/json" },
@@ -7145,7 +7150,8 @@ function pageTokensFor(stored) {
 }
 
 async function recompileAndPublish(env, { slug, pages, label, renamed = null }) {
-  let look = null, tokens = null, pageTokens = null, style = null, logo = "", icon = "";
+  let look = null, tokens = null, pageTokens = null, style = null, logo = "", icon = ""
+  let verify = null;
   try {
     // `siteBackendBySlug` RETURNS THE CONNECTION STRING, not a record. This read
     // `conn && conn.conn`, which is `undefined` for a string — so the `_meta`
@@ -7163,7 +7169,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
     // reported as success, and archived to version history — for a site that
     // is deleted or unresolvable. Same rule as the catch below.
     if (!db) return { ok: false, error: "read", ours: true, detail: "no backend recorded for " + slug + " — the stored look could not be read" };
-    const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_page_tokens','site_style','site_logo','site_icon')");
+    const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_page_tokens','site_style','site_logo','site_icon','site_verify')");
     for (const r of rows || []) {
       if (r.k === "site_look" && r.v) look = JSON.parse(r.v);
       if (r.k === "site_tokens" && r.v) tokens = JSON.parse(r.v);
@@ -7188,6 +7194,11 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
       // customer changing a colour would silently lose their logo. Stored
       // beside `site_tokens`, which is a separate concern for the same reason.
       if (r.k === "site_logo" && typeof r.v === "string") logo = r.v;
+      // READ HERE OR EVERY PUBLISH UNDOES IT, exactly as the logo and the tokens
+      // above. The sidecar is rewritten whole on every publish, so a path that
+      // does not carry the stored verification sends none — and an owner's
+      // Search Console tag would vanish the next time they fixed a typo.
+      if (r.k === "site_verify" && r.v) { try { verify = JSON.parse(r.v); } catch { /* a bad row is no verification, not a failed publish */ } }
       // THE TAB ICON, ITS OWN KEY FOR THE SAME REASON and read here for one
       // more: the container rewrites `site-brand.ts` on EVERY build, so a
       // publish path that does not send the stored icon sends nothing, and
@@ -7300,6 +7311,11 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
     image: await siteOgImage(env, slug),
     url: siteUrlFor(slug, "https://" + APP_ZONE),
     slug,
+    // THE STORED VERIFICATION, carried on every publish path. The sidecar is
+    // rewritten whole, so a path that omits this takes the owner's Search
+    // Console tag off their site — silently, on an edit that asked for
+    // something else entirely.
+    verify,
   }, pages, renamed);
   try {
     await archiveVersion(versionDeps(env), {
@@ -7575,6 +7591,8 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
         // the owner's next edit, which is the one thing they have no reason to do
         // after a build that looked fine.
         brand, description: siteDescription, image: ogImage,
+        // The stored verification — see the note on the cheap-edit spine.
+        verify: priorVerify,
         // THE PUBLIC ADDRESS, which is what a link preview and a search result
         // show — so it has to be the one a customer would hand out, not the one
         // that happens to be convenient to build. `siteUrlFor` answers the
@@ -11675,9 +11693,10 @@ async function handleRequest(request, env, ctx) {
       // is exactly today's behaviour, so it can never be worse than what it
       // replaces.
       let priorLook = null, priorTokens = null, priorPageTokens = null, priorStyle = null, priorLogo = "", priorIcon = "";
+      let priorVerify = null;
       if (priorBrief) {
         try {
-          const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_page_tokens','site_style','site_logo','site_icon')");
+          const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_page_tokens','site_style','site_logo','site_icon','site_verify')");
           for (const r of rows || []) {
             if (r.k === "site_look" && r.v) priorLook = JSON.parse(r.v);
             if (r.k === "site_tokens" && r.v) priorTokens = JSON.parse(r.v);
@@ -11694,6 +11713,11 @@ async function handleRequest(request, env, ctx) {
             // who attached a logo and then asked for any page change would have
             // watched it disappear, with no error and nothing to point at.
             if (r.k === "site_logo" && typeof r.v === "string") priorLogo = r.v;
+            // READ HERE OR EVERY PUBLISH UNDOES IT, exactly as the logo and the tokens
+            // above. The sidecar is rewritten whole on every publish, so a path that
+            // does not carry the stored verification sends none — and an owner's
+            // Search Console tag would vanish the next time they fixed a typo.
+            if (r.k === "site_verify" && r.v) { try { priorVerify = JSON.parse(r.v); } catch { /* a bad row is no verification, not a failed publish */ } }
             // AND THE TAB ICON, for the identical reason one line up. A
             // revise that does not carry it publishes the site back onto the
             // mark drawn from its initials.
@@ -12337,6 +12361,16 @@ async function handleRequest(request, env, ctx) {
       // so nothing else can even reach the handler.
       const bk = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/backups(?:\/(\d{4}-\d{2}-\d{2}))?$/i);
       const er = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/errors$/i);
+      // PROVING THE SITE TO A SEARCH ENGINE. Google Search Console, Bing,
+      // Pinterest, Facebook — all four ask for a <meta> tag with a token they
+      // generated, and until this there was no slot for one in a published head.
+      //
+      // A PANEL FIELD RATHER THAN A CHAT LANE, deliberately. The token is a
+      // 43-character opaque string nobody types, so extracting it from prose is
+      // a model call that fails silently when it gets it wrong, and this is a
+      // set-once action on the same shelf as Secrets and Domains. It also costs
+      // nothing: no model call anywhere on this path.
+      const sv = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/verify$/i);
       // EVERY owner-scoped matcher above has to appear here, and `dm2` did not —
       // so `/api/site/<slug>/domains` was dispatched by nothing and fell through
       // to the 404 at the bottom of the router. Custom domains were unreachable
@@ -12348,10 +12382,10 @@ async function handleRequest(request, env, ctx) {
       // so from outside the two are indistinguishable — which is how this
       // survived a live probe until the dispatch was read.
       // `test/api-auth.test.mjs` holds the list against the matchers now.
-      if (om || mm || an || uf || xp || nt || lv || sk || dm2 || vr || tx || ed || ad || jb || bk || er) {
+      if (om || mm || an || uf || xp || nt || lv || sk || dm2 || vr || tx || ed || ad || jb || bk || er || sv) {
         const ou = await authUser(request);
         if (!ou) return UNAUTHED();
-        const ownerSlug = (om || mm || an || uf || xp || nt || lv || sk || dm2 || vr || tx || ed || ad || jb || bk || er)[1].toLowerCase();
+        const ownerSlug = (om || mm || an || uf || xp || nt || lv || sk || dm2 || vr || tx || ed || ad || jb || bk || er || sv)[1].toLowerCase();
         const ownerDeps = {
           ownerOf: async (s2) => {
             const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(s2)}&select=uid`, { headers: svcHeaders(env), signal: AbortSignal.timeout(12000) });
@@ -14467,6 +14501,74 @@ async function handleRequest(request, env, ctx) {
               console.error("site errors read failed:", eslug, e && e.message);
               return Response.json({ ok: false, error: "couldn't read the error log just now" }, { status: 503 });
             }
+          } else if (sv) {
+            // SEARCH-ENGINE OWNERSHIP VERIFICATION. Read what is stored, or set
+            // it; `site-verify.mjs` decides which providers exist and what a
+            // token may look like, so nothing arbitrary can reach a head.
+            const vslug = sv[1].toLowerCase();
+            const gV = await assertOwner(ownerDeps, vslug, ou.id);
+            if (gV.error) return Response.json(gV.error.body, { status: gV.error.status });
+            if (request.method !== "GET" && request.method !== "POST") {
+              return Response.json({ error: "method not allowed" }, { status: 405 });
+            }
+            const vconn = await siteBackendBySlug(env, vslug);
+            // CANNOT TELL IS NOT THE SAME AS NOT SET — the rule `assertOwner`
+            // itself follows. Answering an empty object here would show the
+            // owner a blank form and invite them to re-paste a token that is
+            // already stored, and the POST that followed would write over it.
+            if (!vconn) return Response.json({ ok: false, error: "couldn't reach this site's settings just now" }, { status: 503 });
+            // The providers travel WITH the answer, so the panel's list of what
+            // can be verified and the server's allow-list cannot disagree — the
+            // hazard a hand-written copy in the client would create.
+            const providers = VERIFIER_NAMES.map((n) => ({ name: n, label: VERIFIERS[n].label, hint: VERIFIERS[n].hint }));
+            let stored = {};
+            try {
+              const rows = await sqlQuery(vconn, "SELECT v FROM _meta WHERE k = 'site_verify'");
+              if (rows && rows[0] && rows[0].v) stored = JSON.parse(rows[0].v) || {};
+            } catch (e) {
+              console.error("verification read failed:", vslug, e && e.message);
+              return Response.json({ ok: false, error: "couldn't read this site's verification just now" }, { status: 503 });
+            }
+            if (request.method === "GET") return Response.json({ ok: true, verify: stored, providers });
+
+            const vbody = await request.json().catch(() => null);
+            if (!vbody || typeof vbody !== "object") return Response.json({ error: "send a JSON object" }, { status: 400 });
+            const merged = mergeVerification(stored, vbody.verify);
+            try {
+              await sqlQuery(vconn, "INSERT INTO _meta (k,v) VALUES ('site_verify', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v", [JSON.stringify(merged.verify)]);
+            } catch (e) {
+              console.error("verification write failed:", vslug, e && e.message);
+              return Response.json({ ok: false, error: "couldn't save that just now" }, { status: 503 });
+            }
+            // AND IT TAKES EFFECT WITHOUT A REPUBLISH. The site's own Worker
+            // reads its head out of the sidecar, so patching that one key is the
+            // whole deployment — which matters because the alternative is a
+            // 40-second container run to change a string, and because somebody
+            // pasting a token has a provider's "Verify" button open in the next
+            // tab. Both writers derive from `_meta`, so they can differ in
+            // timing and never in value.
+            //
+            // BEST-EFFORT, AND THE STORED VALUE IS ALREADY SAFE: a failure here
+            // means the tag appears at the site's next publish rather than now,
+            // which is a delay rather than a loss — and failing the save over it
+            // would throw away a token the owner has already pasted.
+            let live = false;
+            try {
+              const cur = await env.SITES_BUCKET.get(siteMetaKey(vslug));
+              const side = cur ? JSON.parse(await cur.text()) : {};
+              side.verify = verificationPairs(merged.verify);
+              await env.SITES_BUCKET.put(siteMetaKey(vslug), JSON.stringify(side), { httpMetadata: { contentType: "application/json" } });
+              live = true;
+            } catch (e) { console.error("verification sidecar patch failed:", vslug, e && e.message); }
+            return Response.json({
+              ok: true, verify: merged.verify, providers,
+              refused: merged.refused.length ? merged.refused : undefined,
+              // WHICH OF THE TWO HAPPENED, because "saved" and "live on your site
+              // right now" are different facts and only one of them lets somebody
+              // press Verify at Google.
+              live,
+              note: verificationNote(merged),
+            });
           } else if (nt) {
             // The off switch. Email the owner did not ask for, with no way to
             // stop it, is not something to ship.

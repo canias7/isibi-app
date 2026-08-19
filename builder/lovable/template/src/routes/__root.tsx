@@ -89,6 +89,20 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       tags.push({ name: "twitter:card", content: "summary" });
     }
     if (m?.origin) tags.push({ property: "og:url", content: m.origin + here });
+    // PROVING THE SITE BELONGS TO THE BUSINESS. Search Console and the rest read
+    // the tag off whichever URL they were pointed at, so it goes on EVERY page
+    // rather than only the home page — a site verified at its root and not at
+    // /book is one failed check away from being unverified.
+    //
+    // SHAPE-CHECKED HERE TOO, even though the platform resolved it. This value
+    // comes off an R2 read and is spread straight into a meta tag; a bad row
+    // would otherwise render `name="undefined"`. Bounded for the same reason a
+    // head is not a place for an unbounded list.
+    for (const v of (Array.isArray(m?.verify) ? m.verify : []).slice(0, 12)) {
+      if (v && typeof v.name === "string" && v.name && typeof v.content === "string" && v.content) {
+        tags.push({ name: v.name, content: v.content });
+      }
+    }
     return {
       meta: tags,
       links: [{ rel: "icon", href: SITE_ICON, type: SITE_ICON_TYPE }],

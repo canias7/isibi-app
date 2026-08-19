@@ -520,7 +520,19 @@ try {
       // the home page's copy makes the "this is not the home page" assertion
       // below unfalsifiable — which is exactly what a first draft did, using
       // "Wick Lane" for both.
-      const META = { description: "A very short shop blurb", image: "https://x/og.png", origin: "https://fold-coffee.gofarther.app" };
+      const META = {
+        description: "A very short shop blurb", image: "https://x/og.png", origin: "https://fold-coffee.gofarther.app",
+        // OWNERSHIP VERIFICATION, resolved to pairs by `site-verify.mjs` on the
+        // platform side. This is the ONLY place the whole chain can be proved:
+        // the module can be perfectly correct, the sidecar can carry it, and the
+        // tag still never reaches a head — which is the shape this repo has
+        // recorded a dozen times. A second pair, so "it emitted one" cannot pass
+        // for "it emitted what it was given".
+        verify: [
+          { name: "google-site-verification", content: "GOOGLETOKEN0000000000000000000000000000000" },
+          { name: "msvalidate.01", content: "BINGTOKEN123" },
+        ],
+      };
       const objs = {
         "sites/fold-coffee/assets/app.js": "console.log(1)",
         // THE LIVENESS MARKER. Its ABSENCE is the take-down — see the case
@@ -530,6 +542,10 @@ try {
         "sites/fold-coffee/site.live": "1",
         "sitemeta/fold-coffee.json": JSON.stringify(META),
       };
+      const rx = (v) => v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const hasVerify = (h) => META.verify.every((v) =>
+        new RegExp('name="' + rx(v.name) + '"[^>]*content="' + rx(v.content) + '"').test(h) ||
+        new RegExp('content="' + rx(v.content) + '"[^>]*name="' + rx(v.name) + '"').test(h));
       const bucketOf = (o) => ({
         get: async (k) => (k in o
           ? { body: o[k], text: async () => o[k], writeHttpMetadata() {}, httpMetadata: {} } : null),
@@ -560,6 +576,11 @@ try {
         ok("…and the publish-time share tags from the sidecar",
           html.includes(META.description) && html.includes(META.image),
           "the sidecar never reached the head — every share of this site is a bare URL");
+        // AND THE VERIFICATION TAGS. An owner who cannot prove the site is
+        // theirs cannot be indexed, cannot see what they rank for, and cannot
+        // run an ad against their own domain.
+        ok("…and the ownership-verification tags", hasVerify(html),
+          "a verification tag never reached the head — Search Console cannot prove this site");
       }
 
       // A ROUTE THE SITE HAS is a 200; one it does not is a 404. The status is
@@ -567,6 +588,11 @@ try {
       const menu = await call("/menu");
       const menuHtml = await menu.text();
       ok("a declared route answers 200", menu.status === 200, String(menu.status));
+      // ON EVERY PAGE, not only the home one. Search Console reads the tag off
+      // whichever URL it was pointed at, so a site verified at its root and not
+      // at /menu is one failed check away from being unverified.
+      ok("…and it carries the verification tags too", hasVerify(menuHtml),
+        "the verification is home-page only");
       // ITS OWN CONTENT, not the home page's. Serving one document for every
       // address is the bug the per-page work exists to prevent, and it is
       // invisible unless the fixture can tell two routes apart.

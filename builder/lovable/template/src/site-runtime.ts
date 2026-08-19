@@ -31,6 +31,15 @@ export type SiteMeta = {
   image?: string;
   /** This site's public origin, for `og:url`. */
   origin?: string;
+  /**
+   * Ownership-verification tags — Search Console, Bing, Pinterest, Facebook.
+   *
+   * ALREADY RESOLVED BY THE PLATFORM. `builder/site-verify.mjs` owns the list of
+   * names that may be emitted and checks the token's shape, so what arrives here
+   * is a pair to render rather than anything to decide about. A site cannot name
+   * its own tag, which is the whole point of the split.
+   */
+  verify?: Array<{ name: string; content: string }>;
 };
 
 let meta: SiteMeta | null = null;

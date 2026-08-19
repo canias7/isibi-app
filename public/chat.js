@@ -10460,7 +10460,7 @@ function moreCloud(site) {
     ['history', 'Scheduled jobs', dataLive ? 'What your site does on a timer, and what it did' : (isReact ? 'Add data to your app to enable scheduled work' : 'Publish to enable scheduled work'), dataLive, 'functions'],
     ['mail', 'Emails', 'Send email from your own provider', auxLive, 'emails'],
     ['card', 'Payments', dataLive ? 'Sell with your own Stripe' : (isReact ? 'Publish your app to take payments' : 'Publish to take payments'), fnLive, 'payments'],
-    ['image', 'Files', 'Pictures on your site — yours and your visitors\u2019', dataLive, 'files'],
+    ['image', 'Files', 'Pictures and documents \u2014 add a PDF to hand out', dataLive, 'files'],
     ['alert', 'Errors', dataLive ? 'Problems visitors hit on your live site' : (isReact ? 'Add data to enable error reports' : 'Publish to enable error reports'), dataLive, 'errors'],
     // Needs only a PUBLISHED site, not a backend: a brochure site with no data
     // wants its own domain just as much as an app does, and gating this on
@@ -12737,7 +12737,15 @@ async function siteDomains(site) {
     '<p class="sp-intro">Serve this site on your own web address. Add the domain here, then add the records it gives you at whoever you bought the domain from. The certificate is issued automatically \u2014 you can close this and we\u2019ll email you when it\u2019s live.</p>' +
     '<div class="sk-add"><input class="st-in" id="sdHost" placeholder="sharpfadebarbers.com" autocomplete="off" spellcheck="false"><button type="button" class="st-publish" id="sdAdd">Add domain</button></div>' +
     '<div class="si-count" id="sdErr" style="display:none"></div>' +
-    '<div id="sdList">Loading…</div></div></div>';
+    '<div id="sdList">Loading…</div>' +
+    // SEARCH ENGINES ARE THE OTHER HALF OF "MY OWN ADDRESS", which is why this
+    // lives here rather than behind a fifteenth Cloud card. Somebody who has
+    // just pointed a domain at their site is exactly the person about to ask why
+    // Google cannot find it.
+    '<div class="sv-block"><h4 class="sv-h">Search engines</h4>' +
+    '<p class="sp-intro">Prove the site is yours, so it can be indexed and you can see what it ranks for. ' +
+    'Paste the code each one gives you \u2014 the whole meta tag is fine. Takes effect straight away; no rebuild.</p>' +
+    '<div id="svList">Loading\u2026</div></div></div></div>';
   document.body.appendChild(box);
   const close = () => box.remove();
   box.querySelector('.si-x').onclick = close;
@@ -12754,6 +12762,56 @@ async function siteDomains(site) {
     '<div class="sd-rf"><span class="sd-rl">Name</span><code>' + esc(r.name) + '</code><button type="button" class="fn-hook-copy" data-copy="' + esc(r.name) + '">Copy</button></div>' +
     '<div class="sd-rf"><span class="sd-rl">Value</span><code>' + esc(r.value) + '</code><button type="button" class="fn-hook-copy" data-copy="' + esc(r.value) + '">Copy</button></div>' +
     (r.note ? '<span class="sd-note">' + esc(r.note) + '</span>' : '') + '</div>';
+
+  // ── SEARCH-ENGINE VERIFICATION ────────────────────────────────────────────
+  //
+  // THE PROVIDER LIST COMES FROM THE SERVER, never from a copy here. A hand
+  // written list in the client is a second opinion about which providers exist,
+  // and the day they disagree the panel offers a field whose value the server
+  // silently drops — which reads to the owner as the save not working.
+  const svEl = box.querySelector('#svList');
+  const loadVerify = async () => {
+    try {
+      const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/verify');
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { svEl.innerHTML = '<div class="si-count">' + esc(d.error || 'Couldn\u2019t load this just now.') + '</div>'; return; }
+      const provs = Array.isArray(d.providers) ? d.providers : [];
+      const cur = d.verify || {};
+      svEl.innerHTML = provs.map((p) =>
+        '<div class="sv-row"><label class="sv-lb" for="sv-' + esc(p.name) + '">' + esc(p.label) + '</label>' +
+        '<input class="st-in sv-in" id="sv-' + esc(p.name) + '" data-prov="' + esc(p.name) + '" ' +
+        'value="' + esc(cur[p.name] || '') + '" placeholder="paste the code, or the whole meta tag" ' +
+        'autocomplete="off" spellcheck="false">' +
+        '<span class="sv-hint">' + esc(p.hint || '') + '</span></div>').join('') +
+        '<div class="sv-save"><button type="button" class="st-publish" id="svSave">Save</button>' +
+        '<span class="sv-msg" id="svMsg"></span></div>';
+      const msg = svEl.querySelector('#svMsg');
+      svEl.querySelector('#svSave').onclick = async () => {
+        const btn = svEl.querySelector('#svSave');
+        // EVERY FIELD IS SENT, INCLUDING THE EMPTY ONES, because an empty field
+        // is how somebody takes a verification off. Absent would mean unchanged,
+        // and then a cleared box would silently keep verifying.
+        const verify = {};
+        svEl.querySelectorAll('.sv-in').forEach((i) => { verify[i.dataset.prov] = i.value.trim(); });
+        btn.disabled = true; msg.textContent = 'Saving\u2026';
+        try {
+          const r2 = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/verify', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ verify }),
+          });
+          const d2 = await r2.json().catch(() => ({}));
+          if (!r2.ok) { msg.textContent = d2.error || 'Couldn\u2019t save that.'; return; }
+          // WHAT ACTUALLY HAPPENED, not "saved". A refusal names the provider,
+          // and `live` is the difference between "on your site now" and "with
+          // your next publish" — which is the only thing that decides whether
+          // pressing Verify at Google will work in the next tab.
+          msg.textContent = (d2.note ? d2.note + ' ' : '') +
+            (d2.live ? 'Live on your site now.' : 'Saved \u2014 it goes live with your next publish.');
+          loadVerify();
+        } catch (e) { msg.textContent = 'Couldn\u2019t save that \u2014 check your connection.'; }
+        finally { btn.disabled = false; }
+      };
+    } catch (e) { svEl.innerHTML = '<div class="si-count">Lost the connection.</div>'; }
+  };
 
   const load = async () => {
     try {
@@ -12859,6 +12917,7 @@ async function siteDomains(site) {
     btn.disabled = false; btn.textContent = 'Add domain';
   };
   load();
+  loadVerify();
 }
 
 // Edge functions — server-side logic the builder DECLARES from chat (call a

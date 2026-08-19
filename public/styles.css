@@ -5890,3 +5890,18 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
    clear of the remove button so a long one does not run underneath it. */
 .st-att-doc { width: auto; height: 56px; display: inline-flex; align-items: center; padding: 0 1.4rem 0 .6rem; background: var(--split); color: var(--on-accent); }
 .st-att-doc .st-att-name { font-size: .72rem; font-weight: 600; line-height: 1.25; max-width: 11rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Search-engine verification, inside the Domains panel — the other half of
+   "my own address". Somebody who has just pointed a domain at their site is
+   exactly the person about to ask why Google cannot find it. */
+.sv-block{margin-top:1.4rem;border-top:1px solid var(--line);padding-top:1.1rem}
+.sv-h{margin:0 0 .35rem;font-size:.85rem;font-weight:600;color:var(--text)}
+.sv-row{display:grid;grid-template-columns:1fr;gap:.25rem;margin:0 0 .7rem}
+.sv-lb{font-size:.75rem;font-weight:600;color:var(--text)}
+/* THE HINT IS THE FEATURE, not decoration: a provider's page shows several
+   strings and only one of them is the token, so naming the exact screen is
+   what stops somebody pasting the wrong one and concluding this is broken. */
+.sv-hint{font-size:.68rem;color:var(--muted)}
+.sv-in{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.72rem}
+.sv-save{display:flex;align-items:center;gap:.7rem;margin-top:.2rem;flex-wrap:wrap}
+.sv-msg{font-size:.72rem;color:var(--muted);flex:1 1 12rem;min-width:0}
