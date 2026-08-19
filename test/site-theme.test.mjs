@@ -857,10 +857,19 @@ test("offset shadows are solid ink, whole pixels, and mode-invariant", () => {
 
 test("the buttons axis reshapes every button hook; inherit is a no-op", () => {
   const pill = buttonsCss("pill");
-  // Both halves of the selector, or the cva buttons change and the hand-written
-  // link-buttons on generated pages keep the old corner beside them.
-  assert.match(pill, /button\.justify-center, a\.justify-center\.whitespace-nowrap \{ border-radius: 9999px; \}/);
-  assert.match(buttonsCss("sharp"), /button\.justify-center, a\.justify-center\.whitespace-nowrap \{ border-radius: 0; \}/);
+  // THE HOOK IS THE PRIMARY SELECTOR NOW, and the class half is a documented
+  // fallback rather than the guess it used to be — `calendar.tsx` hands
+  // `buttonVariants()` to react-day-picker as a `classNames` map, so the LIBRARY
+  // renders those elements and only a class can reach them.
+  //
+  // The old comment here claimed the second half caught "hand-written
+  // link-buttons on generated pages". Measured over the 324-page corpus: ZERO
+  // pages write one, use `<Button asChild>` or call `buttonVariants()`. What it
+  // really catches is the three KIT components that call `buttonVariants`
+  // directly, two of which are stamped now.
+  assert.match(pill, /\[data-slot="button"\][^{]*\{ border-radius: 9999px; \}/);
+  assert.match(buttonsCss("sharp"), /\[data-slot="button"\][^{]*\{ border-radius: 0; \}/);
+  assert.match(pill, /button\.justify-center/, "the fallback for library-rendered buttons is gone");
   assert.equal(buttonsCss("inherit"), "", "inherit must emit nothing — the radius axis decides");
   assert.equal(buttonsCss(undefined), "", "absent must emit nothing");
   assert.ok(themeCss({ ...FIXTURE, buttons: "pill" }).includes("border-radius: 9999px"), "themeCss carries the axis");

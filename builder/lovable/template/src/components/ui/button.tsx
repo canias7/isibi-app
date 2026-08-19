@@ -53,7 +53,25 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, asChild = false, ...props }, ref) => {
     const Comp = asChild ? Slot : "button";
     return (
-      <Comp className={cn(buttonVariants({ variant, size, className }))} ref={ref} {...props} />
+      // `data-slot` IS THE STYLING HOOK, and it replaces a structural guess.
+      //
+      // The theme's button axis used to select `button.justify-center,
+      // a.justify-center.whitespace-nowrap` — a guess at two utility classes
+      // `buttonVariants` happens to emit, which holds today and breaks silently
+      // the day a kit refresh reorders them. This is exact, and it is what
+      // upstream shadcn stamps on every primitive.
+      //
+      // A STYLED BUTTON, NOT EVERY `<button>`, and that distinction is the whole
+      // point: 450 kit files write a raw `<button>` — accordion triggers, sort
+      // toggles, close crosses, hamburgers — against 220 that use this. "Make
+      // the buttons rounder" means the ones that look like buttons, so
+      // pill-shaping an accordion trigger would be wrong.
+      //
+      // BEFORE `{...props}` so a caller can override it, and it survives
+      // `asChild`: `Slot` merges onto the child, so `<Button asChild><Link/>`
+      // renders an `<a data-slot="button">` — which is the half of the old
+      // selector that needed `a.justify-center.whitespace-nowrap`.
+      <Comp data-slot="button" className={cn(buttonVariants({ variant, size, className }))} ref={ref} {...props} />
     );
   },
 );

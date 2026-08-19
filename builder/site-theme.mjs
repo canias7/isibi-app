@@ -667,41 +667,6 @@ export const BUTTONS = {
   sharp: { label: "square buttons, even where the cards are round" },
 };
 
-const BUTTON_SEL = "button.justify-center, a.justify-center.whitespace-nowrap";
-
-export function buttonsCss(style) {
-  if (style === "pill") return `${BUTTON_SEL} { border-radius: 9999px; }\n`;
-  if (style === "sharp") return `${BUTTON_SEL} { border-radius: 0; }\n`;
-  return "";
-}
-
-/**
- * DISPLAY — what colour the display type wears. The owner's note after the
- * richer-worlds pass: the themes still read alike because every heading on
- * every theme is set in the same ink. `accent` puts the theme's own colour
- * into the headings; `gradient` runs it across them. Both use a FITTED copy
- * of the accent — the raw accent is tuned to carry white button text, not to
- * BE text on paper, so `displayColor` walks its lightness toward the ink
- * until it clears 4.5:1 against the paper, the same move `fitState` makes
- * for the state colours.
- *
- * The hook is `.font-heading`, the class every display element already
- * carries for the font axis — excluded inside `.bg-primary`, where a heading
- * sits on the accent itself and colouring it accent-on-accent would erase it.
- */
-export const DISPLAYS = {
-  ink: { label: "headings in the ink — the ordinary page" },
-  accent: { label: "headings carry the theme's colour" },
-  gradient: { label: "the accent runs across the headings" },
-};
-
-export function displayColor(theme, mode) {
-  const { paper, ink, accent } = theme[mode];
-  let c = [...accent.slice(0, 3)];
-  for (let i = 0; i < 40 && contrast(c, paper) < 4.5; i++) c = mix(c, ink, 0.08);
-  return c;
-}
-
 /**
  * WHAT A HEADING IS, and it has to be the same answer `styles.css` gives.
  *
@@ -737,6 +702,90 @@ export function displayColor(theme, mode) {
  * day this rule is ever put in a layer. It is not doing the work today.
  */
 const HEADING_SEL = "h1, h2, h3, h4";
+
+/**
+ * WHAT A CUSTOMER CAN NAME, and what it selects. ONE list, so an axis here and
+ * the site-wide restyle lane can never disagree about what "every button" is.
+ *
+ * THE HOOK IS PER-TARGET, decided by what the customer means rather than by a
+ * rule, and that was measured three times before it settled:
+ *
+ *   - A HEADING IS AN ELEMENT. Every `h1` is one. `displayCss` used a CLASS and
+ *     was dead for its whole life, because the class is in 0 of the 2,112 kit
+ *     files and Tailwind only generates a utility something uses.
+ *   - A BUTTON IS THE PRIMITIVE, not the element. 450 kit files write a raw
+ *     `<button>` against 220 that use `Button` — but those 450 are accordion
+ *     triggers, sort toggles, close crosses and hamburgers. "Make the buttons
+ *     rounder" means the ones that LOOK like buttons, so the element would
+ *     pill-shape an accordion trigger.
+ *   - A CARD HAS NO ELEMENT AT ALL, so it can only ever be a stamped hook.
+ *
+ * `input` DELIBERATELY COVERS `textarea` TOO: somebody saying "the input boxes"
+ * means both, and two names for one visible thing is a distinction they did not
+ * make. Note that the `inputs` AXIS still selects `.border-input` — a broader
+ * hook that also catches selects and comboboxes — and is left alone precisely
+ * because narrowing it to this would lose them.
+ *
+ * EVERY VALUE HERE IS SOMETHING THE KIT REALLY STAMPS OR RENDERS, and a derived
+ * test holds that: a target naming a hook nothing carries is the dead-axis
+ * failure this list exists to prevent, arriving one layer up.
+ */
+export const STYLE_TARGETS = Object.freeze({
+  button: { sel: '[data-slot="button"]', said: "buttons" },
+  input: { sel: '[data-slot="input"]', said: "input boxes" },
+  card: { sel: '[data-slot="card"]', said: "cards" },
+  badge: { sel: '[data-slot="badge"]', said: "badges and tags" },
+  heading: { sel: HEADING_SEL, said: "headings" },
+});
+
+/**
+ * THE CLASS HALF IS A FALLBACK NOW, NOT A GUESS, and one component is why.
+ *
+ * `calendar.tsx` hands `buttonVariants()` to react-day-picker as a `classNames`
+ * map — the LIBRARY renders those elements, so there is nowhere to stamp an
+ * attribute and only a class can reach them. `alert-dialog` and `pagination`
+ * had the same shape and were stampable, so they are stamped.
+ *
+ * So the selector is a UNION and strictly a superset of what it was: nothing
+ * that changed shape before stops changing shape now, the hook is exact for
+ * everything that can carry it, and the class half is kept for the one case
+ * that cannot rather than because nobody checked.
+ */
+const BUTTON_SEL = STYLE_TARGETS.button.sel + ", button.justify-center, a.justify-center.whitespace-nowrap";
+
+export function buttonsCss(style) {
+  if (style === "pill") return `${BUTTON_SEL} { border-radius: 9999px; }\n`;
+  if (style === "sharp") return `${BUTTON_SEL} { border-radius: 0; }\n`;
+  return "";
+}
+
+/**
+ * DISPLAY — what colour the display type wears. The owner's note after the
+ * richer-worlds pass: the themes still read alike because every heading on
+ * every theme is set in the same ink. `accent` puts the theme's own colour
+ * into the headings; `gradient` runs it across them. Both use a FITTED copy
+ * of the accent — the raw accent is tuned to carry white button text, not to
+ * BE text on paper, so `displayColor` walks its lightness toward the ink
+ * until it clears 4.5:1 against the paper, the same move `fitState` makes
+ * for the state colours.
+ *
+ * The hook is `.font-heading`, the class every display element already
+ * carries for the font axis — excluded inside `.bg-primary`, where a heading
+ * sits on the accent itself and colouring it accent-on-accent would erase it.
+ */
+export const DISPLAYS = {
+  ink: { label: "headings in the ink — the ordinary page" },
+  accent: { label: "headings carry the theme's colour" },
+  gradient: { label: "the accent runs across the headings" },
+};
+
+export function displayColor(theme, mode) {
+  const { paper, ink, accent } = theme[mode];
+  let c = [...accent.slice(0, 3)];
+  for (let i = 0; i < 40 && contrast(c, paper) < 4.5; i++) c = mix(c, ink, 0.08);
+  return c;
+}
+
 
 export function displayCss(theme) {
   const style = theme.display ?? "ink";

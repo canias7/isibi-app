@@ -247,6 +247,97 @@ test("EVERY AXIS IS THE ENGINE'S OWN LIST, in both directions", () => {
   }
 });
 
+test("EVERY STYLE TARGET SELECTS SOMETHING THE KIT REALLY RENDERS", () => {
+  // THE DEAD-AXIS FAILURE, ONE LAYER UP. `displayCss` named `.font-heading`, a
+  // class in 0 of the 2,112 kit files, and was inert for its whole life while
+  // every unit test passed. A target list is the same trap multiplied: one entry
+  // pointing at a hook nothing carries is a whole vocabulary the customer can
+  // name and nothing can act on.
+  //
+  // DERIVED FROM THE KIT ON DISK, so a primitive that stops stamping its hook
+  // fails here rather than shipping a lane that silently does nothing.
+  const uiDir = new URL("../builder/lovable/template/src/components/ui/", import.meta.url);
+  const read = (f) => fs.readFileSync(new URL(f, uiDir), "utf8");
+  const kit = fs.readdirSync(uiDir).filter((f) => f.endsWith(".tsx"));
+  assert.ok(kit.length > 1000, "the kit scan found " + kit.length + " files — it is reading the wrong place");
+  const all = kit.map(read).join("\n");
+
+  for (const [name, t] of Object.entries(T.STYLE_TARGETS)) {
+    assert.ok(t && typeof t.sel === "string" && t.sel, name + " has no selector");
+    assert.ok(t && typeof t.said === "string" && t.said.length > 2, name + " has no plain name");
+    const slot = (t.sel.match(/^\[data-slot="([a-z-]+)"\]$/) || [])[1];
+    if (slot) {
+      // A STAMPED HOOK has to be stamped BY something. Counted across the whole
+      // kit, because a component composing another one inherits it.
+      // A WHOLE ATTRIBUTE, NOT A SUBSTRING. `data-slot="input"` is a PREFIX of
+      // `data-slot="input-group-control"`, so a plain `includes` reported the
+      // input hook as stamped by a component that stamps something else — and
+      // the mutation deleting the real one survived. The same class as the RTL
+      // sweep's first grep, where `items-center` contained `ms-`.
+      const stamped = new RegExp('data-slot="' + slot + '"(?![-\\w])');
+      assert.match(all, stamped,
+        name + ' selects [data-slot="' + slot + '"] and no kit component stamps exactly that');
+    } else {
+      // AN ELEMENT SELECTOR has to name real elements, never a class — the
+      // `.font-heading` mistake.
+      for (const part of t.sel.split(",").map((s) => s.trim())) {
+        assert.match(part, /^[a-z][a-z0-9]*$/, name + " selects `" + part + "`, which is not an element");
+      }
+    }
+  }
+  // …and every plain name has to read differently, or one reply says "Updated
+  // the look — buttons, buttons" about two different things.
+  const said = Object.values(T.STYLE_TARGETS).map((t) => t.said);
+  assert.equal(new Set(said).size, said.length, said.join(", "));
+
+  // EACH PRIMITIVE CARRIES ITS OWN, which the kit-wide scan above cannot say.
+  // `input` is stamped by BOTH `input.tsx` and `textarea.tsx` — deliberately,
+  // because "the input boxes" means both — so deleting it from one leaves the
+  // scan perfectly green while every text field on every site silently stops
+  // following the lane. Found by mutation.
+  for (const [file, slot] of [["button", "button"], ["input", "input"], ["textarea", "input"],
+                              ["card", "card"], ["badge", "badge"]]) {
+    assert.match(read(file + ".tsx"), new RegExp('data-slot="' + slot + '"(?![-\\w])'),
+      file + ".tsx no longer stamps its hook");
+  }
+});
+
+test("the button axis selects the PRIMITIVE, not a guess at its utility classes", () => {
+  // IT USED TO SELECT `button.justify-center, a.justify-center.whitespace-nowrap`
+  // — two classes `buttonVariants` happens to emit, which holds today and breaks
+  // silently the day a kit refresh reorders them.
+  //
+  // AND THE PRIMITIVE RATHER THAN THE ELEMENT, deliberately: 450 kit files write
+  // a raw `<button>` against 220 that use `Button`, and those 450 are accordion
+  // triggers, sort toggles, close crosses and hamburgers. "Make the buttons
+  // rounder" means the ones that look like buttons.
+  const pill = T.buttonsCss("pill");
+  // THE HOOK LEADS. The class half is KEPT deliberately and is no longer a
+  // guess: `calendar.tsx` hands `buttonVariants()` to react-day-picker as a
+  // `classNames` map, so the LIBRARY renders those elements and there is nowhere
+  // to stamp an attribute. `alert-dialog` and `pagination` had the same shape,
+  // were stampable, and are stamped — so the union is strictly a superset of
+  // what this selected before, and nothing that changed shape stops changing.
+  assert.match(pill, /^\[data-slot="button"\]/, "the exact hook is not the primary selector");
+  assert.match(pill, /button\.justify-center/,
+    "the fallback for library-rendered buttons is gone — calendar's nav stops following the axis");
+  assert.equal(T.buttonsCss("inherit"), "", "the no-op option must emit nothing");
+  // COMMENTS BLANKED FIRST. `button.tsx` explains the hook at length and that
+  // prose contains the string `data-slot="button"`, so a scan of the raw file
+  // matched the EXPLANATION — both assertions below stayed green with the
+  // attribute deleted, found by mutation. Prose describing a thing contains that
+  // thing's spelling: the sixth time this repo has recorded it.
+  const btn = fs.readFileSync(
+    new URL("../builder/lovable/template/src/components/ui/button.tsx", import.meta.url), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+    .replace(/(^|[^:])\/\/[^\n]*/g, (m, p) => p + " ".repeat(m.length - p.length));
+  assert.match(btn, /data-slot="button"/, "the axis selects a hook the primitive does not stamp");
+  // BEFORE THE SPREAD, so a caller can override it and `asChild` carries it onto
+  // the child — which is what replaces the old `a.justify-center` half.
+  assert.match(btn, /data-slot="button"[\s\S]{0,200}\{\.\.\.props\}/,
+    "the hook is written after the spread, so a caller cannot override it");
+});
+
 test("the heading-colour axis names what the TEMPLATE calls a heading", () => {
   // THIS AXIS WAS DEAD FROM THE DAY IT SHIPPED, and nothing could see it: it
   // targeted `.font-heading`, a class in 0 of the 2,112 kit files and 0 of the
