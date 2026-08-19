@@ -7549,7 +7549,7 @@ async function siteOgImage(env, slug) {
   } catch (e) { console.error("og image lookup failed:", slug, e && e.message); return null; }
 }
 
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, fonts, theme, tokens, pageTokens, pageFonts, style, family, structure, lang, mode, logo, icon, attachments, priorUsage, model, revise, changeNote, priorPages, mark }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, fonts, theme, tokens, pageTokens, pageFonts, style, family, structure, lang, mode, logo, icon, verify, attachments, priorUsage, model, revise, changeNote, priorPages, mark }) {
   // Resolved once, before any model call: the pair always lands on something
   // installed, so a build never waits on a font it cannot get.
   const fontPair = resolvePair(fonts || {});
@@ -7746,7 +7746,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
         // after a build that looked fine.
         brand, description: siteDescription, image: ogImage,
         // The stored verification — see the note on the cheap-edit spine.
-        verify: priorVerify,
+        verify,
         // THE PUBLIC ADDRESS, which is what a link preview and a search result
         // show — so it has to be the one a customer would hand out, not the one
         // that happens to be convenient to build. `siteUrlFor` answers the
@@ -12113,6 +12113,10 @@ async function handleRequest(request, env, ctx) {
             // in `EDIT_FIELDS` and would be dropped by that merge if it were.
             logo: priorLogo,
             icon: priorIcon,
+            // AND THE SEARCH-CONSOLE TAG, for the reason the icon and the logo
+            // are here: the sidecar is rewritten whole on every publish, so a
+            // path that does not carry the stored verification publishes none.
+            verify: priorVerify,
             auth: request.headers.get("Authorization") || "",
             mark: (n) => tr.at(n),
           });

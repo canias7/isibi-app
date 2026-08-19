@@ -78,3 +78,35 @@ test("buildAndPublishPages destructures every key its caller passes", () => {
   assert.deepEqual(missing, [],
     `buildAndPublishPages is passed ${missing.join(", ")} and destructures neither — a ReferenceError on every build`);
 });
+
+// AND NO `prior*` NAME MAY BE READ INSIDE THE FUNCTION UNLESS IT IS A PARAMETER.
+//
+// THE SECOND HALF OF THE SAME BUG, found the run after `icon`. Line 7749 read
+// `verify: priorVerify` — and `priorVerify` is declared inside the ROUTE, ~4,100
+// lines away, so it was a free variable and a ReferenceError on every build.
+// Measured live 2026-08-19 at `stage: generate`.
+//
+// THE CHECK ABOVE COULD NOT SEE IT. That one compares the CALLER's keys against
+// the signature; this is a bare read of something the caller never passed. It is
+// the `du.id` shape CLAUDE.md records — a name that can only ever mean the
+// router, left behind by an extraction — and the fix recorded there is exactly
+// this: do not attempt general free-variable analysis (measured at 1,113 false
+// positives), narrow it to the prefix that can only mean the outer scope.
+test("no `prior*` name is read inside buildAndPublishPages unless it is a parameter", () => {
+  const i = worker.indexOf("async function buildAndPublishPages(env, {");
+  const end = worker.indexOf("\nasync function ", i + 10);
+  assert.ok(end > i, "could not find the end of buildAndPublishPages");
+  const body = worker.slice(i, end);
+  const params = destructured(worker, "buildAndPublishPages");
+  // Comments blanked first: this file explains `priorLogo` and `priorPages` in
+  // prose, and prose about a name contains that name.
+  const code = body.replace(/\/\/[^\n]*/g, (m) => " ".repeat(m.length));
+  const reads = new Set([...code.matchAll(/\bprior[A-Z][\w$]*/g)].map((m) => m[0]));
+  // THE FLOOR: the real parameters must still be seen, or a broken scan reports
+  // a clean function.
+  assert.ok(reads.has("priorPages") && reads.has("priorUsage"),
+    "the scan no longer sees the known prior* parameters — it is broken");
+  const free = [...reads].filter((n) => !params.has(n));
+  assert.deepEqual(free, [],
+    `${free.join(", ")} is read inside buildAndPublishPages and is not a parameter — a ReferenceError on every build`);
+});
