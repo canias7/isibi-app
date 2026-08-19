@@ -58,6 +58,7 @@ import { extractText, applyEdits, staleContactLinks } from "./builder/site-text.
 import { runTextEdit, runDataEdit, renamePages, renameRoute, MAX_DATA_ROWS } from "./builder/site-apply.mjs";
 import { runRulesEdit } from "./builder/site-rules.mjs";
 import { runPictureEdit } from "./builder/site-picture.mjs";
+import { runTweak } from "./builder/site-tweak.mjs";
 import { runNavEdit } from "./builder/site-nav.mjs";
 import { runLogoEdit } from "./builder/site-logo.mjs";
 import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
@@ -13401,6 +13402,59 @@ async function handleRequest(request, env, ctx) {
                 });
               }
 
+              // ── THE CHEAP RUNG, TRIED FIRST ─────────────────────────────
+              //
+              // "Make that heading bigger", "too much space above the prices",
+              // "show the gallery four across", "move the opening hours up".
+              // Every one of those regenerated the WHOLE page below — measured
+              // on a real 12,044-character page, 10 credits against 3 — and a
+              // regeneration rewords the copy on the way past, which nobody
+              // asked for.
+              //
+              // UNCONDITIONAL, WITH NO NEW ROUTING DECISION, because a refusal
+              // is nearly free: the model answers `cannot` in a few words, so
+              // the miss costs ~1 credit on top of the rewrite that was going to
+              // happen anyway. There is no case where asking first is the
+              // expensive move, which is exactly why it is not a question the
+              // router has to get right.
+              //
+              // AND THE PROMISE IS CHECKED, NOT ASKED FOR: `readTweak` throws
+              // the answer away if the prose moved. Calibrated over the corpus —
+              // 1,657 real tweaks across 329 pages moved the words 0 times, and
+              // a deliberate rewording was caught on 329 of 329.
+              const tw = await runTweak({
+                instruction: eInstruction, path: target.path, source: target.source,
+                send: (req) => anthropicMessages(env, req),
+              });
+              if (tw.ok) {
+                const twPages = eSrc.map((p) => (p.path === target.path ? { path: p.path, source: tw.source } : p));
+                const twPub = await recompileAndPublish(env, {
+                  slug: ownerSlug, pages: twPages,
+                  label: versionLabel({ revise: true, changeNote: eInstruction }),
+                });
+                // A FAILED COMPILE FALLS THROUGH rather than answering, and that
+                // is the one place this rung differs from every other lane. The
+                // rewrite below is a genuinely different attempt at the same
+                // request by a stronger model, so telling the customer "that
+                // didn't compile" here would refuse them a path that still
+                // works. Their live site is untouched either way.
+                if (twPub.ok) {
+                  return Response.json({
+                    ok: true, layer: "page", page: wantRoute, tweak: true,
+                    files: twPub.files, render: twPub.render, renderNote: twPub.renderNote,
+                    cost: await eCharge(tw.usage), usage: tw.usage,
+                  });
+                }
+                console.error("tweak compile failed, falling through:", ownerSlug, target.path);
+              }
+              // WHAT THE CHEAP ATTEMPT COST IS CARRIED FORWARD, never dropped.
+              // The call really happened, so its tokens are billed with the
+              // rewrite's below — the rule the whole charging tier rests on.
+              // `send` is the one exception: the provider was unreachable, so
+              // there is nothing to bill and the rewrite is about to fail the
+              // same way and say so properly.
+              const twSpent = tw.reason === "send" ? null : tw.usage;
+
               const eDb = await siteBackendBySlug(env, ownerSlug);
               let eSpec = null, eLook2 = null;
               try {
@@ -13488,7 +13542,12 @@ async function handleRequest(request, env, ctx) {
                 // OMITTED WHEN EMPTY, so an ordinary page edit's response is
                 // byte-identical and the field's PRESENCE is the signal.
                 reordered: alsoOn.length ? alsoOn.slice(0, 4) : undefined,
-                files: pPub.files, render: pPub.render, renderNote: pPub.renderNote, cost: await eCharge(eGen && eGen.usage), usage: eGen && eGen.usage,
+                // ONE BILL, ONE ROUNDING, for both calls. `eCharge` is variadic
+                // precisely so two calls on one path do not each round up — the
+                // lesson `pageCredits` already carries. `twSpent` is null when
+                // the cheap rung never reached the provider.
+                files: pPub.files, render: pPub.render, renderNote: pPub.renderNote,
+                cost: await eCharge(eGen && eGen.usage, twSpent), usage: eGen && eGen.usage, tweakUsage: twSpent || undefined,
               });
             }
 

@@ -1719,8 +1719,26 @@ test("THE PAGE BRANCH ACTUALLY MOVES THE PAGE, and spends no model call doing it
     "renameRoute is used without being imported — a ReferenceError on the edit path");
   const at = worker.indexOf("const wantRename =");
   assert.ok(at > 0, "the rename branch is gone from the page layer");
-  const branch = worker.slice(at, worker.indexOf("const eDb = await siteBackendBySlug", at));
+  // BOUNDED BY THE BRANCH'S OWN CLOSING BRACE, not by whatever happens to come
+  // next. This ran to `const eDb = await siteBackendBySlug` — a landmark far
+  // below — so the cheap tweak rung inserted between the two landed INSIDE the
+  // window and the "a rename makes no model call" assertion went red about a
+  // model call in a different branch. That is this repo's most-repeated
+  // own-goal, and the fix is a window that cannot be outrun by an insertion.
+  const branch = (() => {
+    const open = worker.indexOf("if (wantRename) {", at);
+    if (open < 0) return "";
+    let depth = 0;
+    for (let i = worker.indexOf("{", open); i < worker.length; i++) {
+      if (worker[i] === "{") depth++;
+      else if (worker[i] === "}" && --depth === 0) return worker.slice(at, i + 1);
+    }
+    return "";
+  })();
   assert.ok(branch.length > 200, "the rename window is empty — the anchor moved");
+  // …and it really did stop before the next thing, or the bound proves nothing.
+  assert.ok(!branch.includes("const eDb = await siteBackendBySlug"),
+    "the rename window still runs past the branch it is meant to bound");
   assert.match(branch, /renameRoute\(eSrc, wantRoute, wantRename, routeOf\)/,
     "the branch never calls the renamer");
   // THE REDIRECT PAIR IS THE POINT. Without it the publish sees a delete plus an
