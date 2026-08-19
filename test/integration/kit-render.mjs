@@ -81,6 +81,22 @@ try {
     // scan on one mode meant the check could not see the state it was named
     // after. It cost nothing to run everywhere and was found by asking why it
     // was gated at all.
+    // AN ADDRESS WITH NOTHING BEHIND IT, which is a whole class rather than one
+    // component. `<a href="" download>` RELOADS THE CURRENT PAGE and `<img
+    // src="">` paints the browser's broken-image icon — both of them look like
+    // a working control and do nothing, and both are invisible to `tsc`, to
+    // vite, to the lint and to every other check in this repo.
+    //
+    // THE `empty` PASS IS WHERE A REAL SITE LIVES: an optional prop omitted is
+    // exactly the state of a fresh site whose owner has not uploaded the file
+    // or the photograph yet. `safe-image` exists because of the picture half;
+    // `download-card` required its `href` and so had the other half, and every
+    // honest page had to write `href=""` to compile. Run over every pass, for
+    // the reason the NaN scan directly below it is.
+    const dead = html.filter((r) => /(?:href|src)="(?:|undefined|null)"/.test(r.html));
+    if (dead.length === 0) ok(`${mode}: no component paints an address with nothing behind it`);
+    else bad(`${mode}: ${dead.length} render an empty href or src`, dead.slice(0, 10).map((r) => "    " + r.k).join("\n"));
+
     const nan = html.filter((r) => /NaN|-?Infinity/.test(r.html));
     if (nan.length === 0) ok(`${mode}: no NaN or Infinity reaches the page`);
     else bad(`${mode}: ${nan.length} render NaN or Infinity`, nan.slice(0, 10).map((r) => "    " + r.k).join("\n"));

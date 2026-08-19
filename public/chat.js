@@ -12967,34 +12967,76 @@ async function siteFiles(site) {
   const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
   if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — then its files show up here.'); return; }
   const { bodyEl } = stCloudModal('siteFilesModal', 'Files');
-  bodyEl.innerHTML = '<p class="sp-intro">Pictures on your site — the ones you added, and the ones visitors sent with a form.</p><div id="flList">Loading…</div>';
+  bodyEl.innerHTML =
+    '<p class="sp-intro">Pictures and documents on your site — the ones you added, and the ones visitors sent with a form. ' +
+    'Add a PDF here, then ask me to put a download link on a page.</p>' +
+    '<div class="fl-add"><button type="button" class="st-btn" id="flAdd">Add a file</button>' +
+    '<span class="fl-hint">Pictures up to 5 MB \u00b7 PDF, Word, Excel and ZIP up to 10 MB</span></div>' +
+    '<div id="flList">Loading…</div>';
+  // NO `accept` FILTER, deliberately, and for the reason the composer's own
+  // picker carries none: the dialog hiding a format answers the question before
+  // the owner asks it, and the honest refusal — with the list of what we do
+  // take — comes back from the server in a sentence they can act on.
+  const addBtn = document.getElementById('flAdd');
+  if (addBtn) addBtn.onclick = () => {
+    const inp = document.createElement('input');
+    inp.type = 'file';
+    inp.onchange = async () => {
+      const f = inp.files && inp.files[0]; if (!f) return;
+      const was = addBtn.textContent; addBtn.textContent = 'Uploading…'; addBtn.disabled = true;
+      try {
+        // The name rides in the query string because the BODY is the bytes. It
+        // decides nothing about what the file IS — the leading bytes do that,
+        // server-side — only what a download is called once it is there.
+        const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/uploads?name=' + encodeURIComponent(f.name || ''), {
+          method: 'POST', headers: { 'Content-Type': f.type || 'application/octet-stream' }, body: f,
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok || !d.url) { if (typeof sbToast === 'function') sbToast(d.error || 'Couldn\u2019t upload that file.'); return; }
+        list();
+      } catch (e) { if (typeof sbToast === 'function') sbToast('Couldn\u2019t upload that file — check your connection.'); }
+      finally { addBtn.textContent = was; addBtn.disabled = false; }
+    };
+    inp.click();
+  };
   const list = () => apiFetch('/api/site/' + encodeURIComponent(slug) + '/uploads')
     .then(async (r) => {
       const d = await r.json().catch(() => ({}));
       const box = document.getElementById('flList'); if (!box) return;
       if (!r.ok) { box.innerHTML = '<div class="st-sec-empty"><b>Couldn\u2019t load your files</b><span>Try again in a moment.</span></div>'; return; }
       const files = Array.isArray(d.files) ? d.files : [];
-      if (!files.length) { box.innerHTML = '<div class="st-sec-empty"><b>No files yet</b><span>Pictures you add, or that visitors upload with a form, appear here.</span></div>'; return; }
+      if (!files.length) { box.innerHTML = '<div class="st-sec-empty"><b>No files yet</b><span>Pictures and documents you add, or that visitors upload with a form, appear here.</span></div>'; return; }
       const mb = (n) => (n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
       box.innerHTML =
         '<div class="fl-bar"><b>' + files.length + ' file' + (files.length === 1 ? '' : 's') + '</b>' +
         '<span>' + mb(d.used || 0) + ' of ' + mb(d.max || 0) + '</span></div>' +
-        '<div class="fl-grid">' + files.map((f) =>
-          // A thumbnail that 404s paints the browser's broken-image icon — a
-          // torn page in a tall grey box, which reads as "this panel is broken"
-          // rather than "this one file is missing". Seen on a stubbed render.
-          // The class swap leaves the tile its own size and says what happened.
-          '<figure class="fl-item"><a href="' + esc(f.url) + '" target="_blank" rel="noreferrer">' +
-          '<img src="' + esc(f.url) + '" alt="" loading="lazy" ' +
-          'onerror="this.closest(\'.fl-item\').classList.add(\'fl-gone\');this.remove()" /></a>' +
-          '<figcaption><span class="fl-nm">' + esc(f.name) + '</span><span class="fl-sz">' + mb(f.size) + '</span>' +
-          '<button type="button" class="fl-del" data-file="' + esc(f.name) + '" aria-label="Delete ' + esc(f.name) + '">\u00d7</button></figcaption></figure>').join('') +
+        '<div class="fl-grid">' + files.map((f) => {
+          // A DOCUMENT GETS NO <img>. Pointing one at a PDF paints the browser's
+          // broken-image icon on every card, which reads as "this panel is
+          // broken" — the exact failure the onerror below was added for, except
+          // it would fire on every document rather than on a missing file.
+          const doc = f.kind === 'doc';
+          const label = f.download || f.name;
+          const face = doc
+            ? '<span class="fl-doc" aria-hidden="true">' + esc((f.name.split('.').pop() || '').toUpperCase()) + '</span>'
+            // A thumbnail that 404s paints the browser's broken-image icon — a
+            // torn page in a tall grey box, which reads as "this panel is broken"
+            // rather than "this one file is missing". Seen on a stubbed render.
+            // The class swap leaves the tile its own size and says what happened.
+            : '<img src="' + esc(f.url) + '" alt="" loading="lazy" ' +
+              'onerror="this.closest(\'.fl-item\').classList.add(\'fl-gone\');this.remove()" />';
+          return '<figure class="fl-item' + (doc ? ' fl-isdoc' : '') + '">' +
+            '<a href="' + esc(f.url) + '" target="_blank" rel="noreferrer">' + face + '</a>' +
+            '<figcaption><span class="fl-nm" title="' + esc(label) + '">' + esc(label) + '</span>' +
+            '<span class="fl-sz">' + mb(f.size) + '</span>' +
+            '<button type="button" class="fl-del" data-file="' + esc(f.name) + '" aria-label="Delete ' + esc(label) + '">\u00d7</button></figcaption></figure>';
+        }).join('') +
         '</div>';
       // Deleting is irreversible and the file may be on a live page, so it asks
       // first — the one place in this panel that changes anything.
       box.querySelectorAll('.fl-del').forEach((b) => b.onclick = async () => {
         const name = b.getAttribute('data-file');
-        if (!window.confirm('Delete ' + name + '? If a page uses it, that picture will stop showing.')) return;
+        if (!window.confirm('Delete ' + name + '? If a page uses it, that picture or download will stop working.')) return;
         b.disabled = true;
         const r2 = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/uploads/' + encodeURIComponent(name), { method: 'DELETE' });
         if (!r2.ok) { b.disabled = false; if (typeof sbToast === 'function') sbToast('Could not delete that file.'); return; }

@@ -35,7 +35,7 @@ function P() {
           {got ? (
             <div className="grid gap-3">
               <p className="text-sm font-medium">It's yours — and it's in your inbox too.</p>
-              <DownloadCard name="wire-the-north-2026.pdf" description="34 pages, every table, street-level maps" size={6_400_000} href="/report" />
+              <DownloadCard name="wire-the-north-2026.pdf" description="34 pages, every table, street-level maps" size={6_400_000} />
             </div>
           ) : (
             <EmailCapture title="Get the full report" blurb="Free. The email is the price — one a quarter, no passing it on."

@@ -26,7 +26,7 @@ import { makeLimiter, bucketKey, tooMany, WINDOW_MS } from "./rate-limit.mjs";
 import { ensureSiteBackend as ensureSiteBackendPure } from "./site-provision.mjs";
 import { lookupRoute, saveRoute, dropRoute } from "./site-routing.mjs";
 import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerMembers, handleOwnerAnalytics, assertOwner } from "./site-owner.mjs";
-import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload, MAX_UPLOAD_BYTES, MAX_VISITOR_UPLOAD_BYTES, MAX_FILES_PER_SITE, sniffImage, uploadName, uploadKey, uploadUrl, uploadFileName } from "./site-uploads.mjs";
+import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload, MAX_UPLOAD_BYTES, MAX_DOC_BYTES, MAX_VISITOR_UPLOAD_BYTES, MAX_FILES_PER_SITE, sniffImage, uploadName, uploadKey, uploadUrl, uploadFileName, dispositionFor, readDownloadName, DOWNLOAD_NAME_KEY } from "./site-uploads.mjs";
 import { handleOwnerExport } from "./site-export.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
 import { makeTrace } from "./builder/trace.mjs";
@@ -5576,7 +5576,14 @@ async function siteUploadList(env, slug) {
   for (;;) {
     const page = await env.SITES_BUCKET.list({ prefix: "uploads/" + slug + "/", cursor, include: ["customMetadata"] });
     for (const o of (page.objects || [])) {
-      out.push({ key: o.key, size: o.size, visitor: !!(o.customMetadata && o.customMetadata.visitor) });
+      out.push({
+        key: o.key,
+        size: o.size,
+        visitor: !!(o.customMetadata && o.customMetadata.visitor),
+        // The download name a document was stored under, still encoded — this is
+        // transport, and `readDownloadName` is the one thing that decodes it.
+        download: (o.customMetadata && o.customMetadata[DOWNLOAD_NAME_KEY]) || "",
+      });
     }
     // Same termination rule as deleteSitePrefix: a truncated page with no
     // cursor would otherwise loop forever.
@@ -8347,18 +8354,26 @@ async function handleRequest(request, env, ctx) {
       if (pv) return new Response("Not found", { status: 404 });
     }
 
-    // Serve a visitor-uploaded file from R2: gofarther.dev/u/<slug>/<file>. Public,
+    // Serve an uploaded file from R2: gofarther.dev/u/<slug>/<file>. Public,
     // long-cached, content-type from what was stored. Never lists a directory.
+    //
+    // A PICTURE IS `inline` AND A DOCUMENT IS `attachment`, decided by
+    // `dispositionFor` from the type that was STORED — which is what the leading
+    // bytes said at upload, and the one thing about a file the caller cannot
+    // lie about. An `<img>` pointing at an attachment renders nothing, and a PDF
+    // served inline is rendered by the browser's own viewer on this origin
+    // rather than saved, which is not what a download button means.
     {
       const um = url.pathname.match(/^\/u\/([a-z0-9][a-z0-9-]{0,80})\/([A-Za-z0-9._-]{1,80})$/);
       if (um && env.SITES_BUCKET) {
         const obj = await env.SITES_BUCKET.get("uploads/" + um[1].toLowerCase() + "/" + um[2]);
         if (!obj) return new Response("Not found", { status: 404 });
+        const ct = (obj.httpMetadata && obj.httpMetadata.contentType) || "application/octet-stream";
         return new Response(obj.body, {
           headers: {
-            "content-type": (obj.httpMetadata && obj.httpMetadata.contentType) || "application/octet-stream",
+            "content-type": ct,
             "cache-control": "public, max-age=31536000, immutable",
-            "content-disposition": "inline",
+            "content-disposition": dispositionFor(ct, readDownloadName(obj.customMetadata && obj.customMetadata[DOWNLOAD_NAME_KEY])),
             "x-content-type-options": "nosniff",
           },
         });
@@ -14512,10 +14527,23 @@ async function handleRequest(request, env, ctx) {
               // Raw bytes, not base64 and not multipart: base64 inflates a photo
               // by a third for no benefit, and the declared type is ignored
               // anyway — only the leading bytes decide what this is.
+              //
+              // THE OUTER BOUND ONLY. Which cap really applies depends on what
+              // the bytes turn out to be — a 7 MB brochure is fine and a 7 MB
+              // photograph is not — and nothing here has read a byte yet, so
+              // this refuses what could not be either and `handleUpload` decides
+              // the rest once it knows.
               const cl = Number(request.headers.get("content-length") || 0);
-              if (cl && cl > MAX_UPLOAD_BYTES) return Response.json({ error: "that image is too big — keep it under 5 MB", code: "too_big" }, { status: 413 });
+              if (cl && cl > MAX_DOC_BYTES) return Response.json({ error: "that file is too big — keep it under 10 MB", code: "too_big" }, { status: 413 });
               const buf = await request.arrayBuffer();
-              r = await handleUpload(udeps, { slug: uslug, uid: ou.id, bytes: new Uint8Array(buf) });
+              r = await handleUpload(udeps, {
+                slug: uslug, uid: ou.id, bytes: new Uint8Array(buf),
+                // The bytes are the body, so the name it was picked under is the
+                // one thing that has to travel beside them. It decides nothing
+                // about what the file IS — the sniff does that — only what a
+                // download is called and, within the zip family, which member.
+                filename: url.searchParams.get("name") || "",
+              });
             } else return Response.json({ error: "method not allowed" }, { status: 405 });
           } else if (an) {
             if (request.method !== "GET") return Response.json({ error: "method not allowed" }, { status: 405 });

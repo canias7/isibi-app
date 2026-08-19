@@ -2480,6 +2480,13 @@ ${UI_SHORTLIST_API()}
      \`SafeImage\` \`src\` and NEVER invent a path under /u/ yourself: a token that cannot be
      bought becomes an empty src, which is the placeholder, while a made-up path is a 404
      on every page that shows it.
+   - A DOCUMENT TO DOWNLOAD FOLLOWS THE SAME RULE FROM THE OTHER END — a menu as a PDF,
+     a price list, a brochure, a council's minutes. Use \`<DownloadCard name="Budget
+     2026-27.pdf" size={140_000} />\` and **leave \`href\` OFF**: the owner uploads the file
+     after the build, so there is no address to write yet, and the card says "Not available
+     yet" until there is one. NEVER point it at a route (\`href="/report"\` navigates to a
+     page, it does not download) and never invent a path under /u/. Write these where the
+     brief names a real document; do not invent a library of them.
 
 8. A FORM MAY LET THE VISITOR ATTACH ONE, but only when its table declares an image
    column. Upload first, then submit the URL as an ordinary text field:

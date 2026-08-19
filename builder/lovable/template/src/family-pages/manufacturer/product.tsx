@@ -44,8 +44,8 @@ function P() {
           ]} />
         </section>
         <section className="mt-8 grid gap-4 sm:grid-cols-2">
-          <DownloadCard name="Torque tables, 12.9" description="Dry, lubricated, and zinc-flake figures" size={220_000} href="/product" />
-          <DownloadCard name="Full catalogue 2026" description="Every line, every finish, box quantities" size={4_200_000} href="/product" />
+          <DownloadCard name="Torque tables, 12.9" description="Dry, lubricated, and zinc-flake figures" size={220_000} />
+          <DownloadCard name="Full catalogue 2026" description="Every line, every finish, box quantities" size={4_200_000} />
         </section>
         <div className="mt-10 rounded-xl border bg-muted/40 p-6 text-center">
           <p className="font-medium">Schedule in hand?</p>

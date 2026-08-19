@@ -88,13 +88,13 @@ function P() {
 
             <div className="mt-8 space-y-3">
               <DownloadCard name="The nine competences.pdf" size={340_000}
-                description="What the submission is marked against, in full" href="/apply" />
+                description="What the submission is marked against, in full" />
               <DownloadCard name="Sample competence statement.pdf" size={210_000}
-                description="A real one that passed, anonymised with permission" href="/apply" />
+                description="A real one that passed, anonymised with permission" />
               <DownloadCard name="Assessor guidance.pdf" size={180_000}
-                description="What the two assessors are told to look for — published on purpose" href="/apply" />
+                description="What the two assessors are told to look for — published on purpose" />
               <DownloadCard name="Experienced practitioner route.pdf" size={160_000}
-                description="Ten years, no degree. How the submission differs" href="/apply" />
+                description="Ten years, no degree. How the submission differs" />
             </div>
           </div>
         </section>

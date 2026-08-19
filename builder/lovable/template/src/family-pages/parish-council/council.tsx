@@ -86,11 +86,11 @@ function P() {
             ]} />
             <div className="mt-6 space-y-3">
               <DownloadCard name="Budget 2026-27.pdf" size={140_000}
-                description="Set in January, in public, line by line" href="/papers" />
+                description="Set in January, in public, line by line" />
               <DownloadCard name="Annual governance and accountability return.pdf" size={310_000}
-                description="Last year's, with the external auditor's certificate" href="/papers" />
+                description="Last year's, with the external auditor's certificate" />
               <DownloadCard name="Register of members' interests.pdf" size={88_000}
-                description="All nine councillors. Required, and published in full" href="/council" />
+                description="All nine councillors. Required, and published in full" />
             </div>
           </div>
         </section>

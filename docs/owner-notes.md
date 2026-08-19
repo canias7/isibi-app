@@ -12,6 +12,37 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ## OPEN — waiting to be picked up
 
+**A SITE CAN OFFER A PDF NOW — and the download button had been there the whole
+time (2026-08-19).** `download-card` is one of the components the builder is
+allowed to use, and the reference sites reach for it 24 times: a parish
+council's annual return, a franchise prospectus, a food hygiene certificate, a
+photographer's press pack. **Nothing could ever store the file.** Both upload
+routes accepted pictures only — PNG, JPEG, WebP, GIF — so the button was in
+front of the model and there was nowhere for the document to go.
+
+* **What you can do now.** Cloud → **Files** has an **Add a file** button.
+  Pictures up to 5 MB; **PDF, Word, Excel and ZIP up to 10 MB.** Upload the file
+  there, then ask me to put a download link on a page.
+* **A download arrives under its real name.** Upload `Budget 2026-27.pdf` and
+  that is what a customer's browser saves, not the hash we store it under. It
+  also downloads rather than opening in the browser's PDF viewer, which is what
+  a Download button is supposed to do.
+* **Every one of the 34 download links in the reference sites was broken** —
+  they pointed at a page, so clicking one saved that page's HTML or just
+  reloaded. All swept. A card with no file yet says "Not available yet" instead
+  of offering a button that does nothing.
+* **Visitors still cannot send a document** — only pictures, as before. That
+  form is open to anyone who knows the address, so letting a stranger put a PDF
+  or a ZIP on your own domain is a way to host malware on your business's site.
+* **Two bugs in this were found by LOOKING at it, not by any test.** The
+  document tile in the Files panel lost its filename and size entirely (the
+  format badge overflowed and the caption was clipped away), and the badge came
+  out in browser-blue underlined link text. Both fixed. Every automated check
+  passed on both.
+* **Not proven on a live site** — the model account is out of credit, so no
+  build has written a download card and no file has been uploaded for real.
+
+
 **THREE BROKEN FAMILY REFERENCE APPS, FIXED — and the cause was not what the
 error said (2026-08-18).** `festival /`, `entertainer /` and `box-office /event`
 all died with the same minified React #418, which is a hydration mismatch: the

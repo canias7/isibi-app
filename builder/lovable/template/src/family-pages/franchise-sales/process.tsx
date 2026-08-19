@@ -67,11 +67,11 @@ function P() {
 
             <div className="mt-8 space-y-3">
               <DownloadCard name="Franchise prospectus.pdf" size={2_400_000}
-                description="The whole thing, including the figures on this site" href="/" />
+                description="The whole thing, including the figures on this site" />
               <DownloadCard name="Sample franchise agreement.pdf" size={480_000}
-                description="The real one. Read it before the second meeting, not at signing" href="/" />
+                description="The real one. Read it before the second meeting, not at signing" />
               <DownloadCard name="Five-year network accounts.xlsx" size={92_000}
-                description="Every van, every year, unaveraged" href="/" />
+                description="Every van, every year, unaveraged" />
             </div>
           </div>
         </section>

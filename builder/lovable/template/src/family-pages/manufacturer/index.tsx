@@ -61,10 +61,10 @@ function P() {
           <div>
             <h2 className="text-lg font-medium">The paperwork, before you ask</h2>
             <div className="mt-3 grid gap-3">
-              <DownloadCard name="Full catalogue 2026" description="Every line, every finish, box quantities" size={4200000} href="#dl" />
-              <DownloadCard name="898-1 cert template" description="What arrives with each batch" size={310000} href="#dl" />
-              <DownloadCard name="Torque tables, all classes" description="Dry, lubricated, zinc-flake" size={220000} href="#dl" />
-              <DownloadCard name="REACH & RoHS declaration" description="Current to 2027" size={120000} href="#dl" />
+              <DownloadCard name="Full catalogue 2026" description="Every line, every finish, box quantities" size={4200000} />
+              <DownloadCard name="898-1 cert template" description="What arrives with each batch" size={310000} />
+              <DownloadCard name="Torque tables, all classes" description="Dry, lubricated, zinc-flake" size={220000} />
+              <DownloadCard name="REACH & RoHS declaration" description="Current to 2027" size={120000} />
             </div>
           </div>
           <LogoCloud label="On the approved lists at" items={[{ name: "Network Rail" }, { name: "Sheffield Forgemasters" }, { name: "JCB" }, { name: "Severfield" }]} />

@@ -28,15 +28,15 @@ function P() {
 
             <div className="mt-8 space-y-3">
               <DownloadCard name="Agenda — 11 August 2026.pdf" size={96_000}
-                description="Published 5 August. Nine items, two of them planning" href="/papers" />
+                description="Published 5 August. Nine items, two of them planning" />
               <DownloadCard name="Draft minutes — 14 July 2026.pdf" size={128_000}
-                description="Not yet approved. Approval is item 3 on 11 August" href="/papers" />
+                description="Not yet approved. Approval is item 3 on 11 August" />
               <DownloadCard name="Minutes — 9 June 2026.pdf" size={124_000}
-                description="Approved 14 July" href="/papers" />
+                description="Approved 14 July" />
               <DownloadCard name="Annual governance and accountability return 2025-26.pdf" size={310_000}
-                description="Signed off. External auditor's certificate attached" href="/council" />
+                description="Signed off. External auditor's certificate attached" />
               <DownloadCard name="Register of members' interests.pdf" size={88_000}
-                description="All eleven councillors, updated May 2026" href="/council" />
+                description="All eleven councillors, updated May 2026" />
             </div>
           </div>
 

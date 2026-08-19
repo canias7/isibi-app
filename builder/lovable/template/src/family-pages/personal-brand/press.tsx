@@ -51,8 +51,8 @@ function P() {
             { src: null, alt: "Portrait, black and white" },
           ]} />
           <div className="mt-4 grid gap-2">
-            <DownloadCard name="elsie-marrow-photos.zip" description="All three, print resolution" size={48234496} href="/press" />
-            <DownloadCard name="marrow-album-art.png" description="3000×3000, for listings" size={8912896} href="/press" />
+            <DownloadCard name="elsie-marrow-photos.zip" description="All three, print resolution" size={48234496} />
+            <DownloadCard name="marrow-album-art.png" description="3000×3000, for listings" size={8912896} />
           </div>
         </section>
         <section className="mt-10 grid gap-6">

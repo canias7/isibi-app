@@ -5860,6 +5860,24 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
 .fl-item.fl-gone a{display:flex;align-items:center;justify-content:center;
   aspect-ratio:1;background:var(--panel);font-size:.7rem;color:var(--muted)}
 .fl-item.fl-gone a::after{content:"not found"}
+/* The add row, above the grid. */
+.fl-add{display:flex;align-items:center;gap:.7rem;margin:0 0 .9rem;flex-wrap:wrap}
+.fl-hint{font-size:.7rem;color:var(--muted)}
+/* A DOCUMENT'S FACE IS ITS FORMAT, not a thumbnail. A PDF has no picture to
+   show, and an <img> pointed at one paints the browser's torn-page icon on
+   every card — which reads as a broken panel rather than as a working file.
+   Same tile, same aspect ratio, so the grid does not reflow around it.
+
+   THE ANCHOR HAS TO BE A BLOCK, and this was measured rather than reasoned. An
+   <a> is inline, so the badge inside it had no definite width to derive its
+   height from: `aspect-ratio:1` lost, the badge came out 180px tall in a 153px
+   square, and `overflow:hidden` on the tile CUT THE FILENAME AND SIZE OFF
+   ENTIRELY — a document tile that said nothing but "PDF". Every test passed.
+   Found by looking at a render, which is the only thing that could have. */
+.fl-item a{display:block;text-decoration:none;color:inherit}
+.fl-doc{display:flex;align-items:center;justify-content:center;
+  width:100%;aspect-ratio:1;background:var(--panel);
+  font-size:.78rem;font-weight:600;letter-spacing:.06em;color:var(--muted)}
 
 /* An attachment with no picture — a PDF, a text file. The thumbnail tile would
    render `<img src="undefined">` and paint a broken-image icon, which reads as

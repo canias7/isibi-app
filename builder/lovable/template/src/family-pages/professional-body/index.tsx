@@ -107,11 +107,11 @@ function P() {
             anything. The card is right and the column was wrong. */}
         <div className="mt-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <DownloadCard name="The nine competences.pdf" size={340_000}
-            description="What Member is actually assessed against" href="/apply" />
+            description="What Member is actually assessed against" />
           <DownloadCard name="Sample competence statement.pdf" size={210_000}
-            description="A real one, anonymised, that passed" href="/apply" />
+            description="A real one, anonymised, that passed" />
           <DownloadCard name="CPD record template.xlsx" size={48_000}
-            description="What assessors expect to see. Not compulsory" href="#cpd" />
+            description="What assessors expect to see. Not compulsory" />
         </div>
       </section>
 

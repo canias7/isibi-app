@@ -76,9 +76,9 @@ function P() {
 
             <div className="mt-8 space-y-3">
               <DownloadCard name="Account application.pdf" size={210_000}
-                description="If you would rather do it on paper — post or bring it" href="/account" />
+                description="If you would rather do it on paper — post or bring it" />
               <DownloadCard name="Terms and conditions of sale.pdf" size={180_000}
-                description="Four pages, and there is nothing clever in them" href="/account" />
+                description="Four pages, and there is nothing clever in them" />
             </div>
           </div>
 

@@ -260,9 +260,12 @@ test("the listing reports what is there and how full it is", async () => {
   const { deps } = harness({ objects: [{ key: "uploads/cafe/aa.png", size: 100 }, { key: "uploads/cafe/bb.jpg", size: 50 }] });
   const r = await handleUploadList(deps, { slug: "cafe", uid: "owner-1" });
   assert.equal(r.status, 200);
+  // `kind` rides on every row so the panel does not have to guess from the
+  // extension — it draws a thumbnail for one and a format badge for the other,
+  // and an <img> pointed at a PDF paints a broken-image icon.
   assert.deepEqual(r.body.files, [
-    { name: "aa.png", url: "/u/cafe/aa.png", size: 100 },
-    { name: "bb.jpg", url: "/u/cafe/bb.jpg", size: 50 },
+    { name: "aa.png", url: "/u/cafe/aa.png", size: 100, kind: "image" },
+    { name: "bb.jpg", url: "/u/cafe/bb.jpg", size: 50, kind: "image" },
   ]);
   assert.equal(r.body.used, 150);
   assert.equal(r.body.count, 2);

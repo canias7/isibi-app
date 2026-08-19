@@ -536,7 +536,7 @@ export const COMPONENT_API = {
   "door-event": "DoorEvent(door: string, at?: string, outcome: \"granted\" | \"refused\" | \"forced\" | \"held-open\" | \"unknown-credential\", person?: string, badge?: string, reason?: string)",
   "dosage-field": "DosageField(value: string, unit: string, units?: string[] = [\"mg\", \"micrograms\", \"ml\", \"units\"], onValueChange?: (v: string) => void, onUnitChange?: (u: string) => void, usualMin?: number, usualMax?: number, label?: string = \"Dose\")",
   "dot-plot": "DotPlot(items: { label: string; value: number }[], min?: number, max?: number, format?: (n: number) => string)",
-  "download-card": "DownloadCard(name: string, description?: string, size?: number, href: string)",
+  "download-card": "DownloadCard(name: string, description?: string, size?: number, href?: string)",
   "download-menu": "DownloadMenu(formats: { key: string; label: string; hint?: React.ReactNode; size?: React.ReactNode; href?: string; filename?: string }[], onDownload?: (key: string) => void, label?: string = \"Download\")",
   "download-progress": "DownloadProgress(received: number, total?: number, name?: string, remaining?: string, onCancel?: () => void)",
   "downtime-note": "DowntimeNote(machine?: string, minutes: number, cause: \"breakdown\" | \"changeover\" | \"material\" | \"quality\" | \"operator\" | \"planned\" | \"other\", note?: string, at?: string, planned?: boolean, timesThisWeek?: number, lostUnits?: number)",
