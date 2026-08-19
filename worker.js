@@ -12082,7 +12082,23 @@ async function handleRequest(request, env, ctx) {
             // The stored per-page typefaces — see the note on the cheap-edit spine.
             pageFonts: priorPageFonts,
             style: siteStyle,
-            family: look.family,
+            // THE MODEL DESIGNS THE PAGE SHAPE ITSELF — `noFamily: true`.
+            //
+            // A null family makes `layoutDirective` and `familyExemplar` both
+            // answer null, so the page call carries neither the ~960-char
+            // directive (what leads, the section order, the primary verb, the
+            // components to reach for, the page set) nor the ~8,100-char worked
+            // example. Nothing else changes: the component kit, the four cached
+            // reference pages, the theme and the schema are all untouched.
+            //
+            // SUPPRESSED HERE AND NOT IN `look`, deliberately. The family is
+            // still merged, still stored in `site_look`, so a later revise of
+            // the same site behaves exactly as it always has — this switches
+            // off the INPUT to one model call, not the site's record of itself.
+            //
+            // Strictly `=== true`, like every other flag off a request body:
+            // nothing merely truthy may quietly change what a build is shown.
+            family: body && body.noFamily === true ? null : look.family,
             structure: look.structure,
             // Out of the same merged look as the other five, so a revise that
             // does not mention the language keeps it — the field is on

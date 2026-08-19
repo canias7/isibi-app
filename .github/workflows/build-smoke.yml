@@ -81,7 +81,23 @@ jobs:
           # which is what `defaultSort` was wired for and has never run on a
           # real build; and the designer omitting `seed` on a menu, measured
           # twice, which leaves an empty price list and a dead form.
-          SMOKE_BRIEF: "A pizzeria in Bristol called Forno. The menu has starters, pizzas and desserts with prices, and people book a table through a form."
+          # ONE-SHOT, REVERT AFTER THE RUN — the no-family experiment.
+          #
+          # `SMOKE_NO_FAMILY=1` builds with no layout family, so the model
+          # decides the page set, the section order, the primary action and the
+          # components from the brief alone. The kit, the four cached reference
+          # pages, the theme and the schema are all unchanged: this removes the
+          # ~960-char layout directive and the ~8,100-char worked example, and
+          # nothing else.
+          #
+          # `SMOKE_SKIP_JOURNEY=1` so the run is ONE build — no revise, no edit
+          # lanes — and `SMOKE_KEEP_SITE=1` so the site is still standing
+          # afterwards to be looked at. A kept site is a live Neon project;
+          # delete it when the question is answered.
+          SMOKE_BRIEF: "A one-page site for Ridgeway Bindery, a hand bookbinding workshop in Hebden Bridge. Repairs, custom journals and a two-day beginners' course. People enquire through a form."
+          SMOKE_NO_FAMILY: "1"
+          SMOKE_SKIP_JOURNEY: "1"
+          SMOKE_KEEP_SITE: "1"
           # SMOKE_BRIEF overrides the brief in build-smoke.mjs. Left unset here
           # on purpose: the default is the one every assertion below it was
           # calibrated against — a trade with a list to READ and a form to

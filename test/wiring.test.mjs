@@ -598,8 +598,16 @@ test("a revise keeps the site's stored look instead of re-rolling it", () => {
   // an unread state must never let an untold designer re-roll a live site.
   assert.equal(mergeLook(stored, { theme: "zine" }, null).theme, "broadsheet",
     "an uninstructed designer re-themes the site again");
+  // ANCHORED ON THE PROPERTY, NOT THE SPELLING. This asserted the exact text
+  // `family: look.family,` and went red the moment that value legitimately
+  // grew a conditional (`noFamily` — the experiment switch), reporting "family
+  // does not reach the build" about a build it reaches perfectly well. A test
+  // about word order, which is this repo's most repeated own-goal. What has to
+  // hold is that each field is SOURCED from the merged look on its way to the
+  // build — however the expression is written.
   for (const k of ["theme", "family", "structure", "fonts"]) {
-    assert.ok(new RegExp(k + ": look\\." + k + ",").test(worker), k + " does not reach the build from `look`");
+    assert.ok(new RegExp(k + ":[^,\\n]*\\blook\\." + k + "\\b").test(worker),
+      k + " does not reach the build from `look`");
   }
 });
 

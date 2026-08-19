@@ -94,6 +94,21 @@ const SUPPLIED_PASSWORD = String(env.SMOKE_PASSWORD || "");
 const useSupplied = !!(SUPPLIED_EMAIL && SUPPLIED_PASSWORD);
 let createdUser = false;
 
+// ── THE TWO EXPERIMENT SWITCHES, BOTH OFF UNLESS ASKED FOR ──────────────────
+//
+// `SMOKE_NO_FAMILY=1` builds with no layout family, so the model designs the
+// page shape from the brief alone. `SMOKE_KEEP_SITE=1` leaves the published
+// site, its Neon project and its ownership row in place, so a person can go and
+// LOOK at what was built — which is the whole point of running one.
+//
+// Both are strictly `=== "1"`. Keeping a site costs a live Neon project until
+// somebody removes it, so it must never happen because a variable was set to
+// something vaguely truthy; and the checks that assert a deleted site is really
+// gone are skipped rather than failed, because they cannot pass on a site that
+// was deliberately kept.
+const NO_FAMILY = String(env.SMOKE_NO_FAMILY || "") === "1";
+const KEEP_SITE = String(env.SMOKE_KEEP_SITE || "") === "1";
+
 // EVERY LEDGER WRITE GOES THROUGH HERE, AND IT REFUSES FOR A SUPPLIED ACCOUNT.
 //
 // This run tops the account up twice — once to clear the build floor, once to
@@ -292,7 +307,11 @@ try {
   const r = await fetch(`${BASE}/api/site/react-build`, {
     method: "POST",
     headers: { Authorization: `Bearer ${jwt}`, "content-type": "application/json" },
-    body: JSON.stringify({ brief, slug: runSlug }),
+    // `SMOKE_NO_FAMILY=1` runs the build with NO layout family — the model
+    // decides the page set, the section order and the primary action from the
+    // brief alone. Omitted entirely when unset, so an ordinary run posts the
+    // body it always posted.
+    body: JSON.stringify({ brief, slug: runSlug, ...(NO_FAMILY ? { noFamily: true } : {}) }),
   });
   const d = await r.json().catch(() => ({}));
   ok("build returns 200", r.status === 200, r.status + " " + JSON.stringify(d).slice(0, 300));
@@ -1646,7 +1665,18 @@ try {
   // exist. This is cleanup and coverage at once: before this route the R2
   // objects were simply left behind, so every run added a public, half-broken
   // site at a guessable URL.
-  if (slug && jwt) {
+  //
+  // `SMOKE_KEEP_SITE=1` skips ALL THREE removals — the site, its Neon project
+  // and its ownership row — because they are one decision, not three. Deleting
+  // any of them alone leaves the site half-gone: files with no owner, or an
+  // address serving a script whose database has been dropped. The slug is
+  // printed instead, loudly, because a kept site is a live billed resource and
+  // the run must not be the only record that it exists.
+  if (KEEP_SITE) {
+    console.log(`\n  SMOKE_KEEP_SITE=1 — the site is LEFT UP on purpose: ${SITE}`);
+    console.log(`  slug ${slug} · Neon project ${projectId || "(unknown)"} — delete both when you are done with it.`);
+  }
+  if (slug && jwt && !KEEP_SITE) {
     try {
       const del = await fetch(`${BASE}/api/site/${slug}`, { method: "DELETE", headers: { Authorization: `Bearer ${jwt}` } });
       const dd = await del.json().catch(() => ({}));
@@ -1672,7 +1702,7 @@ try {
       console.log("  FAIL could not delete the published site -> " + String(e && e.message));
     }
   }
-  if (projectId && env.NEON_API_KEY) {
+  if (projectId && env.NEON_API_KEY && !KEEP_SITE) {
     // ALREADY-GONE IS THE NORMAL CASE HERE, and reporting it as a failure is
     // what made the first green run read as though it had leaked a project.
     //
@@ -1699,7 +1729,7 @@ try {
   }
   // Belt and braces: the delete above already removes this row, but it must go
   // even when that call failed, or the slug stays claimed forever.
-  if (slug) {
+  if (slug && !KEEP_SITE) {
     try { await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(slug)}`, { method: "DELETE", headers: svc() }); } catch {}
   }
   // THE DESTRUCTIVE HALF, AND IT RUNS ONLY FOR A USER THIS RUN CREATED.
