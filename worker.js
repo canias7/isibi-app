@@ -82,7 +82,7 @@ import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis
 // Game builder (Phase 3): same generate→build→publish pipeline, engine swapped for
 // kaplay + a runtime smoke test. See builder-game/. Parser format is identical.
 import { parseGeneratedFiles as parseGameFiles, GAME_RULES, GAME_ASSET_RULES, GAME_REVISE_RULES, gameFixRules, parseSpriteTokens, GAME_3D_RULES, game3DFixRules } from "./builder-game/game-gen.mjs";
-import { SHORTLIST, resolvePair } from "./builder/site-fonts.mjs";
+import { SHORTLIST, resolvePair, resolvePageFonts, MAX_PAGE_FONTS } from "./builder/site-fonts.mjs";
 import { THEME_SHORTLIST, themeFontPair } from "./builder/site-theme-registry.mjs";
 import { currentStateNote, EDIT_RULE, EDIT_REQUIRED, EDIT_FIELDS, hasValue, mergeLook, movedFields } from "./builder/site-edit.mjs";
 import { READY_FAMILIES, STRUCTURE_NAMES, familiesForPrompt, structuresForPrompt } from "./builder/site-layouts.mjs";
@@ -4048,13 +4048,16 @@ const SITE_SCHEMA_TOOL = {
       tokensPage: {
         type: "string",
         description:
-          "ONLY when the colours above are meant for ONE PAGE rather than the whole site — \"make the booking " +
-          "page darker\", \"the about page should feel calmer\", \"give the menu page a warm background\". " +
+          "ONLY when the colours OR THE TYPEFACE above are meant for ONE PAGE rather than the whole site — " +
+          "\"make the booking page darker\", \"the about page should feel calmer\", \"give the menu page a warm " +
+          "background\", \"the menu page should be in something handwritten\", \"use a serif on the about page\". " +
           "The page's path exactly as listed above: \"/book\", \"/\" for the home page.\n" +
-          "LEAVE IT OUT FOR THE WHOLE SITE, which is what nearly every colour change means. Naming a page when " +
+          "LEAVE IT OUT FOR THE WHOLE SITE, which is what nearly every look change means. Naming a page when " +
           "they meant the site leaves every other page unchanged and reads as the change having half worked.\n" +
-          "COLOURS ONLY. `style` and everything else here is the site's, so a request that is not about this " +
-          "page's colours does not belong with a page name.",
+          "COLOURS AND `fonts` ONLY. `style` and everything else here is the site's, so a request to change one " +
+          "page's CORNERS or spacing is not this — those are derived from the site's and cannot be scoped to a " +
+          "page, so naming one would round some things and not others.\n" +
+          "TO PUT A PAGE BACK to the site's typeface, name the page and send `fonts` with both halves empty.",
       },
       // THE REST OF THE LOOK — the twelve decisions a theme makes that are not
       // colours, and that until now no customer could reach. Ask for square
@@ -6995,10 +6998,15 @@ async function writeSiteDistToR2(env, slug, dist, meta, pages, renamed = null) {
  * that IS installed, so a font we could not reach costs a typeface rather than a
  * site. Bounded by a timeout, because this is a third party on the build path.
  */
-async function fetchSiteFonts(pair) {
+async function fetchSiteFonts(pair, pages = []) {
   const out = {};
-  for (const slot of ["heading", "body"]) {
-    const f = pair && pair[slot];
+  // EVERY SCOPE'S PAIR, not just the site's. A page with its own typeface whose
+  // file was never fetched renders the fallback while the build reports the font
+  // it asked for — the exact failure shape `site-fonts.mjs` is written around.
+  // Deduped by id, so two scopes on one family is one download.
+  const all = [pair, ...(pages || []).map((x) => x && x.pair)];
+  for (const [p, slot] of all.flatMap((x) => [[x, "heading"], [x, "body"]])) {
+    const f = p && p[slot];
     if (!f || f.source !== "fetch" || out[f.id]) continue;
     try {
       const meta = await fetch(f.url, { signal: AbortSignal.timeout(8000) });
@@ -7150,7 +7158,7 @@ function pageTokensFor(stored) {
 }
 
 async function recompileAndPublish(env, { slug, pages, label, renamed = null }) {
-  let look = null, tokens = null, pageTokens = null, style = null, logo = "", icon = ""
+  let look = null, tokens = null, pageTokens = null, pageFonts = null, style = null, logo = "", icon = ""
   let verify = null;
   try {
     // `siteBackendBySlug` RETURNS THE CONNECTION STRING, not a record. This read
@@ -7169,7 +7177,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
     // reported as success, and archived to version history — for a site that
     // is deleted or unresolvable. Same rule as the catch below.
     if (!db) return { ok: false, error: "read", ours: true, detail: "no backend recorded for " + slug + " — the stored look could not be read" };
-    const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_page_tokens','site_style','site_logo','site_icon','site_verify')");
+    const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_page_tokens','site_style','site_logo','site_icon','site_verify','site_page_fonts')");
     for (const r of rows || []) {
       if (r.k === "site_look" && r.v) look = JSON.parse(r.v);
       if (r.k === "site_tokens" && r.v) tokens = JSON.parse(r.v);
@@ -7181,6 +7189,11 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
       // a text fix would republish the site with every page back on the site's
       // colours, which is the `site_logo` failure one scope down.
       if (r.k === "site_page_tokens" && r.v) pageTokens = JSON.parse(r.v);
+      // A PAGE'S OWN TYPEFACE, read here for the reason every other look key is:
+      // the container writes the stylesheet from scratch on every build, so a
+      // path that does not carry this publishes the site font on every page —
+      // silently, on an edit that asked for something else.
+      if (r.k === "site_page_fonts" && r.v) { try { pageFonts = JSON.parse(r.v); } catch { /* a bad row is no override, not a failed publish */ } }
       // READ HERE OR EVERY RECOMPILE UNDOES IT, exactly as `site_logo` below.
       // The container merges this into the theme on EVERY build — it has to,
       // or one site's look decisions leak onto the next — so a path that does
@@ -7223,7 +7236,8 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
   }
 
   const pair = resolvePair((look && look.fonts) || {});
-  const fontFiles = await fetchSiteFonts(pair);
+  const pageFontScopes = resolvePageFonts(pageFonts || {}).pages;
+  const fontFiles = await fetchSiteFonts(pair, pageFontScopes);
   const files = {};
   for (const p of pages || []) files[p.path] = p.source;
 
@@ -7269,6 +7283,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
           // light theme's dark grey — the exact failure the site-wide patch was
           // fixed for, one scope down.
           pageTokens: pageTokensFor(pageTokens),
+          pageFonts: pageFonts || undefined,
           style: Object.keys(style || {}).length ? style : undefined,
           // THE SCRIPT IS REPACKAGED ON EVERY CHEAP EDIT, and it has to be.
           // The script bakes in the shell — which names this build's
@@ -7397,14 +7412,15 @@ async function siteOgImage(env, slug) {
   } catch (e) { console.error("og image lookup failed:", slug, e && e.message); return null; }
 }
 
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, fonts, theme, tokens, pageTokens, style, family, structure, lang, mode, logo, attachments, priorUsage, model, revise, changeNote, priorPages, mark }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, fonts, theme, tokens, pageTokens, pageFonts, style, family, structure, lang, mode, logo, attachments, priorUsage, model, revise, changeNote, priorPages, mark }) {
   // Resolved once, before any model call: the pair always lands on something
   // installed, so a build never waits on a font it cannot get.
   const fontPair = resolvePair(fonts || {});
   // A face that is not bundled is DOWNLOADED here, before any model call. It is
   // network time inside what looked like pure setup, and on a build using two
   // unbundled families it is the whole gap between `og` and the generation.
-  const fontFiles = await fetchSiteFonts(fontPair);
+  const pageFontScopes = resolvePageFonts(pageFonts || {}).pages;
+  const fontFiles = await fetchSiteFonts(fontPair, pageFontScopes);
   try { mark?.("fonts"); } catch { /* a trace must never break a build */ }
   // WHETHER THIS SITE GOT ITS OWN SCRIPT, so the answer leaves the building.
   //
@@ -7525,6 +7541,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
           // on a dark ground needs its own readable text colour, and the site's
           // would leave every line of body copy there in the light theme's grey.
           pageTokens: pageTokensFor(pageTokens),
+          pageFonts: pageFonts || undefined,
           // THE REST OF THE LOOK, sent as the axes the customer named rather
           // than as a resolved theme. The container merges them INTO the theme
           // before rendering it — every axis emitter already reads its value off
@@ -11693,10 +11710,11 @@ async function handleRequest(request, env, ctx) {
       // is exactly today's behaviour, so it can never be worse than what it
       // replaces.
       let priorLook = null, priorTokens = null, priorPageTokens = null, priorStyle = null, priorLogo = "", priorIcon = "";
+      let priorPageFonts = null;
       let priorVerify = null;
       if (priorBrief) {
         try {
-          const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_page_tokens','site_style','site_logo','site_icon','site_verify')");
+          const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_page_tokens','site_style','site_logo','site_icon','site_verify','site_page_fonts')");
           for (const r of rows || []) {
             if (r.k === "site_look" && r.v) priorLook = JSON.parse(r.v);
             if (r.k === "site_tokens" && r.v) priorTokens = JSON.parse(r.v);
@@ -11705,6 +11723,7 @@ async function handleRequest(request, env, ctx) {
             // page is back on the site's — silently, on a build the customer
             // asked for something else entirely.
             if (r.k === "site_page_tokens" && r.v) priorPageTokens = JSON.parse(r.v);
+            if (r.k === "site_page_fonts" && r.v) { try { priorPageFonts = JSON.parse(r.v); } catch { /* see the note on the cheap-edit spine */ } }
             if (r.k === "site_style" && r.v) priorStyle = JSON.parse(r.v);
             // READ HERE OR A REVISE TAKES THE LOGO OFF. The container writes
             // `site-brand.ts` on EVERY build — it has to, or one site's logo
@@ -11923,6 +11942,8 @@ async function handleRequest(request, env, ctx) {
             theme: look.theme,
             tokens: siteTokens,
             pageTokens: priorPageTokens,
+            // The stored per-page typefaces — see the note on the cheap-edit spine.
+            pageFonts: priorPageFonts,
             style: siteStyle,
             family: look.family,
             structure: look.structure,
@@ -13055,12 +13076,14 @@ async function handleRequest(request, env, ctx) {
               const edb = await siteBackendBySlug(env, ownerSlug);
               if (!edb) return escalate("no-backend");
               let priorLook = null, priorTokens = null, priorPageTokens = null, priorStyle = null, eSchema = null;
+              let priorPageFonts = null;
               try {
-                const rows = await sqlQuery(edb, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_page_tokens','site_style','schema')");
+                const rows = await sqlQuery(edb, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_page_tokens','site_page_fonts','site_style','schema')");
                 for (const r of rows || []) {
                   if (r.k === "site_look" && r.v) priorLook = JSON.parse(r.v);
                   if (r.k === "site_tokens" && r.v) priorTokens = JSON.parse(r.v);
                   if (r.k === "site_page_tokens" && r.v) priorPageTokens = JSON.parse(r.v);
+                  if (r.k === "site_page_fonts" && r.v) { try { priorPageFonts = JSON.parse(r.v); } catch { /* a bad row is no override */ } }
                   if (r.k === "site_style" && r.v) priorStyle = JSON.parse(r.v);
                   if (r.k === "schema" && r.v) eSchema = JSON.parse(r.v);
                 }
@@ -13097,20 +13120,32 @@ async function handleRequest(request, env, ctx) {
                 }, { status: 503 });
               }
 
-              const merged = mergeLook(priorLook, designed, {}, { instructed: true });
-              const moved = movedFields(priorLook, merged);
-              // ── WHOSE COLOURS ARE THESE? ────────────────────────────────
+              // ── WHOSE LOOK IS THIS? ─────────────────────────────────────
               //
-              // ABSENT MEANS THE WHOLE SITE, which is what every colour change
+              // ABSENT MEANS THE WHOLE SITE, which is what every look change
               // ever made relies on — so a named page is the narrow case and
               // the default is untouched. A path the site does not have is
               // IGNORED rather than stored: a selector for a page nobody can
               // reach is a change reported as applied that no visitor sees, and
               // the customer's colours would sit in `_meta` forever.
+              //
+              // COMPUTED BEFORE THE MERGE, and that ordering is what makes the
+              // font half correct. `designed.fonts` reaching `mergeLook` would
+              // change the SITE's typeface as well as the page's — so a request
+              // to give the menu page a script font would re-set every heading
+              // on every page, which is the opposite of what was asked. Stripped
+              // from the input rather than patched back out of the result, so
+              // `merged`, `moved` and the `site_look` write are all correct from
+              // one expression instead of three that can disagree.
               const eRoutes = (eSrc || []).map((p) => routeOf(p && p.path)).filter(Boolean);
               const askedPage = typeof (designed && designed.tokensPage) === "string"
                 ? designed.tokensPage.trim() : "";
               const forPage = askedPage && routeSelectorOk(askedPage) && eRoutes.includes(askedPage) ? askedPage : "";
+              const siteDesigned = forPage && designed && designed.fonts
+                ? { ...designed, fonts: undefined } : designed;
+
+              const merged = mergeLook(priorLook, siteDesigned, {}, { instructed: true });
+              const moved = movedFields(priorLook, merged);
 
               // The SITE's colours move only when no page was named.
               const nextTokens = forPage ? (priorTokens || {}) : mergeTokens(priorTokens, designed && designed.tokens);
@@ -13129,6 +13164,25 @@ async function handleRequest(request, env, ctx) {
                 else delete nextPageTokens[forPage];
               }
               const pageTokensMoved = JSON.stringify(nextPageTokens) !== JSON.stringify(priorPageTokens || {});
+              // …AND A PAGE MAY HAVE ITS OWN TYPEFACE, on the same field that
+              // names the page for a colour. One field rather than two, because
+              // two could name different pages in one answer, which is two
+              // changes wearing one.
+              //
+              // REPLACED, NOT ACCUMULATED, unlike the colours. A typeface is a
+              // PAIR — a heading font and a body font — and `resolvePair` fills
+              // in whichever half was not asked for, so merging a new answer
+              // over an old one keeps a half nobody asked to keep. A page put
+              // back to the site's fonts keeps no entry at all, so a site
+              // restored is byte-identical to one that never had an override.
+              const nextPageFonts = { ...(priorPageFonts || {}) };
+              const askedFonts = designed && designed.fonts && typeof designed.fonts === "object" ? designed.fonts : null;
+              if (forPage && askedFonts) {
+                const wantsSite = !String(askedFonts.heading || "").trim() && !String(askedFonts.body || "").trim();
+                if (wantsSite) delete nextPageFonts[forPage];
+                else nextPageFonts[forPage] = { heading: askedFonts.heading || "", body: askedFonts.body || "" };
+              }
+              const pageFontsMoved = JSON.stringify(nextPageFonts) !== JSON.stringify(priorPageFonts || {});
               const nextStyle = mergeStyle(priorStyle, designed && designed.style);
               const styleAsk = parseStyle(designed && designed.style);
               const tokenAsk = parseTokens(designed && designed.tokens);
@@ -13150,7 +13204,7 @@ async function handleRequest(request, env, ctx) {
               // page rewrite that cannot put square buttons on anything either —
               // the rung above recompiles from the same stored look. The whole
               // point of this lane is that a look change costs one cheap call.
-              if (!moved.length && !tokensMoved && !styleMoved && !pageTokensMoved) {
+              if (!moved.length && !tokensMoved && !styleMoved && !pageTokensMoved && !pageFontsMoved) {
                 // NOTHING MOVED HAS TWO CAUSES AND ONLY ONE OF THEM IS AN
                 // ESCALATION, which is what this used to miss. Every escalation
                 // falls through to the full revise by contract, so an ask that
@@ -13203,6 +13257,12 @@ async function handleRequest(request, env, ctx) {
                 if (pageTokensMoved) {
                   await sqlQuery(edb, "INSERT INTO _meta (k,v) VALUES ('site_page_tokens', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v",
                     [JSON.stringify(nextPageTokens)]);
+                }
+                // Same rule, same reason: written whenever it MOVED, including
+                // back to nothing.
+                if (pageFontsMoved) {
+                  await sqlQuery(edb, "INSERT INTO _meta (k,v) VALUES ('site_page_fonts', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v",
+                    [JSON.stringify(nextPageFonts)]);
                 }
               } catch (e) {
                 // Nothing has been published yet, so the site is exactly as it
@@ -13267,7 +13327,7 @@ async function handleRequest(request, env, ctx) {
                   // customer's next unrelated edit — silently, under a version
                   // label naming a typo they were fixing. The same reason the
                   // other two are here.
-                  for (const [k, v] of [["site_tokens", priorTokens], ["site_page_tokens", priorPageTokens], ["site_style", priorStyle]]) {
+                  for (const [k, v] of [["site_tokens", priorTokens], ["site_page_tokens", priorPageTokens], ["site_page_fonts", priorPageFonts], ["site_style", priorStyle]]) {
                     if (v && Object.keys(v).length) {
                       await sqlQuery(edb, "INSERT INTO _meta (k,v) VALUES (?, ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v", [k, JSON.stringify(v)]);
                     } else {

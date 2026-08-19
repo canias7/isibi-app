@@ -186,15 +186,30 @@ test("the designer can name a page, and is told absent means the whole site", ()
   const seg = look.slice(from, next ? from + 9 + next.index : undefined);
   assert.ok(seg.length > 200, "the look clause window collapsed to nothing");
   // NOT `/one page/i` — FOUND BY MUTATION. That matched the clause's own
-  // parenthetical, "a request to change one page's TYPEFACE ... is not this",
-  // which says the OPPOSITE of what is being asserted. A phrase that appears in
-  // both the claim and its exclusion discriminates nothing.
-  assert.match(seg, /colour can be for one page/i,
-    "the router never points a per-page colour at this lane");
-  // AND A WORKED EXAMPLE, because the announcement alone is a sentence the model
+  // parenthetical exclusion, which says the OPPOSITE of what is being asserted.
+  // A phrase that appears in both the claim and its exclusion discriminates
+  // nothing.
+  //
+  // AND NOT THE EXACT SENTENCE EITHER. The first fix pinned "colour can be for
+  // one page" and went red the moment the clause honestly grew to cover a
+  // typeface — a test about word order, which is this repo's most repeated
+  // own-goal. What is asserted is the PROPERTY: both scopable things are named
+  // as belonging here, and the one that is NOT scopable is named as not.
+  assert.match(seg, /for one page/i, "the router never points a per-page look change at this lane");
+  for (const what of [/colour/i, /typeface/i]) {
+    assert.match(seg, what, "the per-page clause does not name " + what + " as something a page can have");
+  }
+  // CORNERS ARE THE MEASURED LIMIT and the clause has to say so, or the model
+  // sends a page-scoped radius that rounds the cards and leaves every chip on
+  // the site's value — the kit derives `--radius-sm` at `:root`, so a page scope
+  // reaches the direct uses and not the derived ones. Driven in a real browser.
+  assert.match(seg, /corners/i, "the clause does not refuse the one thing that cannot be scoped");
+  // AND WORKED EXAMPLES, because the announcement alone is a sentence the model
   // has to generalise from — the examples are what it actually matches against.
   assert.match(seg, /booking page darker|page should feel calmer/i,
-    "the per-page clause has no example of what one sounds like");
+    "the per-page clause has no example of a colour");
+  assert.match(seg, /handwritten|serif on the about page/i,
+    "the per-page clause has no example of a typeface");
 });
 
 test("the look tool offers the page field, and says absent means the site", () => {

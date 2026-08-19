@@ -178,7 +178,15 @@ test("every publish-payload read of _meta loads it, and assigns it", () => {
     assert.match(m[1], /'site_verify'/, "a publish-payload read at " + m.index + " does not load the verification");
     // AND SOMETHING HAS TO ASSIGN FROM IT. Loading a column nothing reads back
     // is the same as not loading it, and it looks identical in the query.
-    const loop = w.slice(m.index, m.index + 2600);
+    //
+    // BOUNDED BY THE LOOP, NOT BY A BYTE COUNT. The first draft sliced 2600
+    // characters and went red the moment another key was added above the one it
+    // was asserting — a test about how much code sits in between, which is this
+    // repo's most repeated own-goal and cost a red suite an hour after it
+    // shipped.
+    const from = w.indexOf("for (const r of rows", m.index);
+    assert.ok(from > 0 && from - m.index < 400, "the read at " + m.index + " has no row loop after it");
+    const loop = w.slice(from, w.indexOf("\n    }", from));
     assert.match(loop, /r\.k === "site_verify"[\s\S]{0,80}=\s*JSON\.parse\(r\.v\)/,
       "the row at " + m.index + " is loaded and never assigned");
   }

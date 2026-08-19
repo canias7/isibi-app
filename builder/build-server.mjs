@@ -23,7 +23,7 @@ import fs from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { resolvePair, fontCss, fontImports } from "./site-fonts.mjs";
+import { resolvePair, resolvePageFonts, fontCss, fontImports } from "./site-fonts.mjs";
 import { themeCss } from "./site-theme.mjs";
 import { resolveTheme } from "./site-theme-registry.mjs";
 import { tokensCss, pageTokensCss, stripThemeRadius, validForWrite } from "./site-tokens.mjs";
@@ -256,8 +256,14 @@ function writeSiteBrand({ title, lang, logo, icon: sent, slug, mode }) {
 // `fontFiles` carries any font that had to be FETCHED, already downloaded by the
 // Worker and passed as base64. The Worker does the fetching because it certainly
 // has network at request time, which is not something to assume of a container.
-function writeFonts(fonts, fontFiles) {
+function writeFonts(fonts, fontFiles, pageFonts) {
   const pair = resolvePair(fonts || {});
+  // A PAGE MAY HAVE ITS OWN TYPEFACE. Resolved here beside the site's, so the
+  // @font-face rules are emitted once for every family any scope references and
+  // the npm imports below cover all of them — a page font that is bundled by
+  // nothing renders the fallback while the build reports success, which is the
+  // failure this whole file is written around.
+  const { pages: pageScopes } = resolvePageFonts(pageFonts || {});
   const written = {};
   const dir = path.join(APP, "public", "fonts");
   fs.rmSync(dir, { recursive: true, force: true });
@@ -304,7 +310,7 @@ function writeFonts(fonts, fontFiles) {
   let base = null;
   try { base = fs.readFileSync(STYLES_BASE, "utf8"); }
   catch { try { base = fs.readFileSync(STYLES, "utf8"); } catch { base = null; } }
-  const decls = fontCss(pair, written);
+  const decls = fontCss(pair, written, pageScopes);
   // Appended at the END of the block, not the start. Within one @theme the later
   // declaration wins, and the template declares its own --font-sans default
   // further down — so inserting at the top wrote the site's choice and then had
@@ -313,10 +319,17 @@ function writeFonts(fonts, fontFiles) {
   const applied = base != null && /@theme\s*\{[^}]*\}/.test(base);
   if (applied) {
     const themed = base.replace(/(@theme\s*\{[^}]*?)(\n?\})/, (_m, body, close) => body + "\n" + decls.vars + "\n" + close);
-    fs.writeFileSync(STYLES, (decls.faces ? decls.faces + "\n" : "") + themed);
+    // THE PAGE SCOPES GO AFTER, OUTSIDE `@theme` — that block may not contain a
+    // scoped rule, and they do not need to be inside it: `body[data-page="/x"]`
+    // is (0,1,1) against `:root`'s (0,1,0), so it wins on SPECIFICITY rather
+    // than on source order. That is what makes it safe here where a second
+    // `:root` was not: the minifier proved that one dead and shipped the
+    // default font while reporting the chosen one.
+    fs.writeFileSync(STYLES, (decls.faces ? decls.faces + "\n" : "") + themed +
+      (decls.scoped ? "\n" + decls.scoped + "\n" : ""));
   }
 
-  const imports = fontImports(pair).map((p) => `import "${p}";`).join("\n");
+  const imports = fontImports(pair, pageScopes).map((p) => `import "${p}";`).join("\n");
   fs.writeFileSync(
     path.join(APP, "src", "fonts.ts"),
     `// Generated per build by build-server.mjs. Do not edit.\n${imports}\n`,
@@ -649,7 +662,7 @@ const server = http.createServer((req, res) => {
       // ONE writer for all four, because they land in ONE generated module and
       // two writers of one file is one of them silently losing.
       const brandUsed = writeSiteBrand({ title: payload.title, lang: payload.lang, logo: payload.logo, icon: payload.icon, slug: payload.slug, mode: payload.mode });
-      const fontsUsed = writeFonts(payload.fonts, payload.fontFiles);
+      const fontsUsed = writeFonts(payload.fonts, payload.fontFiles, payload.pageFonts);
       // ONE reading of the patch, shared: whether a radius was asked for decides
       // both that the theme's own corner rules give way and what is written.
       const wantsRadius = validForWrite(payload.tokens).radius !== undefined;

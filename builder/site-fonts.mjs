@@ -260,18 +260,82 @@ export function resolvePair(req) {
  * own via the package's CSS, and declaring it twice would have the browser load
  * both copies.
  */
-export function fontCss(pair, fetched = {}) {
-  const faces = [];
-  for (const slot of ["heading", "body"]) {
-    const f = pair[slot];
-    if (!f || f.source !== "fetch") continue;
-    const file = fetched[f.id];
-    if (!file) continue;
-    faces.push(
-      `@font-face{font-family:"${f.family}";src:url("${file}") format("woff2");` +
-      `font-weight:100 900;font-style:normal;font-display:swap;}`,
-    );
+/**
+ * HOW MANY PAGES MAY HAVE THEIR OWN TYPEFACE.
+ *
+ * Every extra pair is up to two more woff2 files a VISITOR downloads, on a
+ * platform whose customers' customers are mostly on phones. Two is enough for
+ * the case this exists for — a restaurant's menu, a studio's work page — and
+ * small enough that the site does not quietly become a font showcase.
+ */
+export const MAX_PAGE_FONTS = 2;
+
+/**
+ * A PAGE MAY HAVE ITS OWN TYPEFACE, and the reason it can at all was MEASURED
+ * rather than reasoned.
+ *
+ * The template applies fonts as plain `var()` reads — `body { font-family:
+ * var(--font-sans) }` and `h1,h2,h3,h4 { font-family: var(--font-heading) }` —
+ * so overriding those two properties on `body[data-page="/menu"]` reaches both,
+ * exactly the way the per-page colour scope already reaches `--background`.
+ * Driven in a real browser before a line of this was written: `PageSans` on the
+ * body and `PageHead` on the heading.
+ *
+ * **CORNERS ARE NOT IN THIS, and that is the same measurement saying no.** The
+ * kit derives `--radius-sm`/`--radius-xl` with `calc(var(--radius) ± Npx)` AT
+ * `:root`, and a custom property is computed where it is DECLARED — so a
+ * page-scoped `--radius` moved the cards to 24px and left every chip at 6px and
+ * every panel at 18px. A page rounded in some places and not others reads as a
+ * badly-made site, which is worse than the honest limit. (And independently:
+ * 280 of the 500 themes hard-set `border-radius` as real rules, which no token
+ * scope can reach.)
+ */
+export function resolvePageFonts(req, { max = MAX_PAGE_FONTS } = {}) {
+  const out = [];
+  const notes = [];
+  const src = req && typeof req === "object" && !Array.isArray(req) ? req : {};
+  for (const [route, want] of Object.entries(src)) {
+    // The route lands inside an attribute selector, where a quote closes the
+    // rule and there is no correct escape for arbitrary text. Refused rather
+    // than escaped — the rule `isColor` already lives under, and the same shape
+    // the per-page colour scope uses.
+    if (!/^\/[A-Za-z0-9\-._~/]*$/.test(String(route || ""))) { notes.push(`"${route}" isn't a page address.`); continue; }
+    if (!want || typeof want !== "object") continue;
+    if (out.length >= max) { notes.push(`Only ${max} page${max === 1 ? "" : "s"} can have their own typeface.`); break; }
+    const pair = resolvePair(want);
+    notes.push(...pair.notes);
+    out.push({ route: String(route), pair });
   }
+  return { pages: out, notes };
+}
+
+/**
+ * The CSS for one site's typefaces — the site's own, plus any page overrides.
+ *
+ * TAKES A LIST rather than a pair, because the `@font-face` rules have to be
+ * emitted ONCE for the whole document however many scopes reference a family.
+ * Two scopes asking for the same face would otherwise declare it twice, which
+ * is a second download in some browsers and dead bytes in the rest.
+ */
+export function fontCss(pair, fetched = {}, pages = []) {
+  const faces = [];
+  const seen = new Set();
+  const addFaces = (p) => {
+    for (const slot of ["heading", "body"]) {
+      const f = p && p[slot];
+      if (!f || f.source !== "fetch") continue;
+      const file = fetched[f.id];
+      if (!file || seen.has(f.id)) continue;
+      seen.add(f.id);
+      faces.push(
+        `@font-face{font-family:"${f.family}";src:url("${file}") format("woff2");` +
+        `font-weight:100 900;font-style:normal;font-display:swap;}`,
+      );
+    }
+  };
+  addFaces(pair);
+  for (const p of pages) addFaces(p && p.pair);
+
   const stack = (f) => `"${f.family}", ${stackFor(f.kind)}`;
   return {
     // Declarations only, for the caller to place INSIDE Tailwind's @theme block.
@@ -285,15 +349,27 @@ export function fontCss(pair, fetched = {}) {
       `  --font-heading: ${stack(pair.heading)};`,
     ].join("\n"),
     faces: faces.join("\n"),
+    // OUTSIDE `@theme`, because that block may not contain a scoped rule — and
+    // it does not need to be inside one: `body[data-page="/x"]` is (0,1,1)
+    // against `:root`'s (0,1,0), so it wins on SPECIFICITY rather than on
+    // source order, and the minifier cannot prove it dead the way it proved a
+    // second `:root` dead.
+    scoped: (pages || []).map(({ route, pair: p }) =>
+      `body[data-page="${route}"]{--font-sans:${stack(p.body)};--font-heading:${stack(p.heading)};}`).join("\n"),
   };
 }
 
-/** The npm side-effect imports for whichever of the pair are installed. */
-export function fontImports(pair) {
+export function fontImports(pair, pages = []) {
   const pkgs = [];
-  for (const slot of ["heading", "body"]) {
-    const f = pair[slot];
-    if (f && f.source === "installed" && !pkgs.includes(f.pkg)) pkgs.push(f.pkg);
+  // EVERY PAIR, or a page whose typeface is one of the INSTALLED shortlist is
+  // never bundled and the page renders the fallback — which is the exact failure
+  // shape this file's header describes: the build reports the right font and
+  // ships the default. Deduped, because two scopes on one family is one import.
+  for (const p of [pair, ...(pages || []).map((x) => x && x.pair)]) {
+    for (const slot of ["heading", "body"]) {
+      const f = p && p[slot];
+      if (f && f.source === "installed" && !pkgs.includes(f.pkg)) pkgs.push(f.pkg);
+    }
   }
   return pkgs;
 }

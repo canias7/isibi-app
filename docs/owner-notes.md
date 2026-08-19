@@ -12,6 +12,23 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ## OPEN — waiting to be picked up
 
+**ONE PAGE CAN HAVE ITS OWN TYPEFACE NOW (2026-08-19).** "The menu page should
+be in something handwritten", "use a serif on the about page". Before this the
+builder told you that was not something it did, and paying for a full rebuild
+could not do it either — the whole site got one typeface.
+
+* Same cheap lane as a per-page colour. Name the page, name the font.
+* **Up to two pages** can have their own. Every extra typeface is another font
+  file your visitors download, and most of them are on a phone.
+* To put a page back to the site's font, just ask for that.
+* **Corners cannot be done per page, and that is measured rather than a
+  guess.** The kit works out the small and large corner sizes from the site's
+  one setting, so scoping it to a page rounds the cards and leaves every chip
+  and badge on the site's value — a page rounded in some places and not others
+  looks broken, so it refuses instead.
+* **Not proven live** — the model account is out of credit.
+
+
 **YOU CAN PROVE THE SITE IS YOURS TO GOOGLE NOW (2026-08-19).** Search Console,
 Bing, Pinterest, Facebook and Yandex all ask for the same thing — a small code
 in the head of your site — and there was no way to put one there. Which meant a

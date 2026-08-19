@@ -1393,6 +1393,50 @@ function Home() {
   // one alone is satisfiable by a broken implementation — a build that ignored
   // `mode` entirely gives identical CSS, and one that regenerated a whole
   // second palette gives a different document.
+  // ── ONE PAGE'S OWN TYPEFACE ─────────────────────────────────────────────
+  //
+  // A CSS CHANGE IS INVISIBLE TO `tsc`, TO VITE, TO THE LINT AND TO EVERY UNIT
+  // TEST, which is the lesson of the 70 charts that typechecked perfectly and
+  // rendered grey. So this reads the REAL compiled stylesheet: the scoped rule
+  // has to be in it, the site's own font has to survive beside it, and the
+  // @font-face for the page's family has to be declared.
+  //
+  // TWO BUILDS OF A BYTE-IDENTICAL PAYLOAD, differing only in `pageFonts` —
+  // either check alone is satisfiable by a broken implementation. A build that
+  // ignored the field gives a stylesheet with no scoped rule; one that applied
+  // it site-wide gives one with no @theme font of its own left.
+  console.log("\nbuilding a site with one page's own typeface…");
+  const FONT_PAYLOAD = {
+    files: { "index.tsx": CHROMED }, slug: "font-site", title: "Fold Coffee",
+    fonts: { heading: "geist", body: "geist" }, worker: true,
+  };
+  const plainFonts = await post(FONT_PAYLOAD);
+  const scopedFonts = await post({ ...FONT_PAYLOAD, pageFonts: { "/menu": { heading: "playfair-display", body: "geist" } } });
+  ok("a build with no page typeface succeeds", plainFonts.ok === true,
+    plainFonts.stage + ": " + (plainFonts.error || "").slice(0, 300));
+  ok("a build with one succeeds too", scopedFonts.ok === true,
+    scopedFonts.stage + ": " + (scopedFonts.error || "").slice(0, 300));
+  const fcss = (b) => Object.entries(b.files || {}).filter(([n]) => n.endsWith(".css")).map(([, v]) => (v && v.t) || "").join("");
+  const plainCss = fcss(plainFonts), scopedCss = fcss(scopedFonts);
+  // THE SCOPED RULE IS REALLY IN THE COMPILED SHEET. Not "the container said so"
+  // — the minifier has had its turn by now, and a second `:root` was proved dead
+  // exactly here once before, shipping the default font while reporting the
+  // chosen one.
+  ok("the page's scope reaches the compiled stylesheet",
+    /body\[data-page="\/menu"\]\{[^}]*--font-heading:/.test(scopedCss),
+    scopedCss.length + " bytes and no scoped rule");
+  ok("…and the family it names is in it",
+    /Playfair/i.test(scopedCss), "the page's typeface was resolved to nothing");
+  // AND THE SITE'S OWN FONT SURVIVES BESIDE IT, or this scoped a page by
+  // re-fonting the whole site, which is the opposite of what was asked.
+  ok("the site's own typeface is untouched",
+    /--font-heading:\s*"Geist/.test(scopedCss),
+    "the site's heading font was replaced rather than scoped");
+  // A SITE THAT DOES NOT USE THIS IS BYTE-IDENTICAL to before it existed.
+  ok("a site with no page typeface has no scoped rule at all",
+    plainCss.length > 1000 && !/data-page/.test(plainCss),
+    plainCss.length + " bytes, data-page present: " + /data-page/.test(plainCss));
+
   console.log("\nbuilding the same site light and dark…");
   const MODE_PAYLOAD = { files: { "index.tsx": CHROMED }, slug: "mode-site", title: "Nightshift Records", theme: "noir", worker: true };
   const lightBuild = await post({ ...MODE_PAYLOAD, mode: "light" });

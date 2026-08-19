@@ -222,10 +222,11 @@ export const ASK_TOOL = {
           "rewrite and belongs further up.)\n" +
           "DARK MODE IS THIS LAYER TOO — \"make the whole site dark\", \"I want it on black\", \"put it back to " +
           "light\". The theme already has a dark version drawn for it, so this is cheap and nothing is rewritten.\n" +
-          "A COLOUR CAN BE FOR ONE PAGE — \"make the booking page darker\", \"the about page should feel calmer\", " +
-          "\"give the menu page a warm background\". Still this layer and still cheap; it is the same colour change " +
-          "scoped to the page they named. (Everything else here is the site's, so a request to change one page's " +
-          "TYPEFACE or corners is not this.)\n" +
+          "A COLOUR OR A TYPEFACE CAN BE FOR ONE PAGE — \"make the booking page darker\", \"the about page should " +
+          "feel calmer\", \"give the menu page a warm background\", \"the menu page should be in something " +
+          "handwritten\", \"use a serif on the about page\". Still this layer and still cheap; it is the same look " +
+          "change scoped to the page they named. (Corners and spacing are the SITE's and cannot be scoped to a " +
+          "page, so a request to change one page's corners is not this.)\n" +
           "\"rules\" — WHAT THE SITE DOES WITH WHAT PEOPLE SUBMIT, rather than anything on a page. Who may see an " +
           "entry and who may add one (\"let people browse the listings without signing in\", \"close the booking " +
           "form\"), whether the customer gets an email or a text when they submit, and what the site refuses (\"don't " +
