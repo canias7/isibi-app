@@ -7,17 +7,17 @@ Each check is a property that is true or false, never a judgement about whether 
 
 ## By check
 
-- **seeded** — 13 pass, 2 fail
+- **seeded** — 13 pass, 0 fail, 2 n/a
 - **validFamily** — 20 pass, 0 fail
-- **tablesSurvive** — 20 pass, 0 fail
+- **tablesSurvive** — 18 pass, 2 fail
 - **slotGuarded** — 5 pass, 0 fail
 - **browsable** — 5 pass, 0 fail
-- **capacityFn** — 5 pass, 0 fail
+- **capacityFn** — 3 pass, 2 fail
 
 ## What it cost
 
-- output 1558 tok/sample · fresh in 4725 · cache read 410267 · write 21593
-- 0.686 credits for the run
+- output 1488 tok/sample · fresh in 4725 · cache read 410267 · write 21593
+- 0.665 credits for the run
 
 ## Samples
 
@@ -28,7 +28,7 @@ Each check is a property that is true or false, never a judgement about whether 
 - **menu 5** — clean
 - **booking 1** — clean
 - **booking 2** — clean
-- **booking 3** — seeded (unseeded: services — no `seed` key at all)
+- **booking 3** — clean
 - **booking 4** — clean
 - **booking 5** — clean
 - **marketplace 1** — clean
@@ -37,7 +37,9 @@ Each check is a property that is true or false, never a judgement about whether 
 - **marketplace 4** — clean
 - **marketplace 5** — clean
 - **capacity 1** — clean
-- **capacity 2** — seeded (unseeded: class_availability — class_availability=missing · seed keys present: classes)
+- **capacity 2** — capacityFn (no functions declared at all); tablesSurvive (no tables)
+  - why: `tables` was a string that is NOT valid JSON — a stringified list would have been recovered [stop=tool_use, out=1886 tok]
 - **capacity 3** — clean
 - **capacity 4** — clean
-- **capacity 5** — clean
+- **capacity 5** — capacityFn (no functions declared at all); tablesSurvive (no tables)
+  - why: `tables` was a string that is NOT valid JSON — a stringified list would have been recovered [stop=tool_use, out=1949 tok]
