@@ -205,3 +205,33 @@ test("the charge check compares against a balance read before the build", () => 
   assert.ok(routing > 0 && read > routing,
     "startBalance is read before the routing calls, so the charge check would pass vacuously");
 });
+
+// EVERY `SMOKE_` SWITCH READS `process.env`, NOT THE `env` OBJECT.
+//
+// `env` in that file is deliberately NEON-ONLY — `{ NEON_API_KEY: … }` — so
+// `env.SMOKE_ANYTHING` is `undefined`, always, silently. Measured live
+// 2026-08-19: `SMOKE_NO_FAMILY` and `SMOKE_KEEP_SITE` were both set in the
+// workflow, printed in the job's own env block, and both read as false. The
+// experiment did not run and the site was deleted anyway.
+//
+// AND IT WAS ALREADY TRUE OF `SMOKE_EMAIL`/`SMOKE_PASSWORD`, which is the
+// expensive half: `useSupplied` could never be true, so `build smoke` has
+// ALWAYS created a throwaway account rather than running as the real one the
+// workflow's own comment says it uses. A switch that silently does nothing is
+// worse than one that is missing — the workflow shows it set and the run
+// behaves as though it were not.
+test("every SMOKE_ switch reads process.env, not the Neon-only `env`", () => {
+  const src = CODE;
+  // `\benv\.` MATCHES INSIDE `process.env.` — the word boundary sits between
+  // the dot and the `e`, so the first draft of this guard reported every
+  // correct read as a bug. The lookbehind is what discriminates.
+  const bad = [...src.matchAll(/(?<!process\.)\benv\.(SMOKE_[A-Z_]+)/g)].map((m) => m[1]);
+  assert.deepEqual(bad, [],
+    `these read the Neon-only env object and are therefore always undefined: ${bad.join(", ")}`);
+  // THE FLOOR, so a scan that stopped matching cannot report a clean file.
+  const good = [...src.matchAll(/process\.env\.(SMOKE_[A-Z_]+)/g)].map((m) => m[1]);
+  assert.ok(good.length >= 6, `only found ${good.length} SMOKE_ reads — the scan is broken`);
+  for (const n of ["SMOKE_EMAIL", "SMOKE_NO_FAMILY", "SMOKE_KEEP_SITE"]) {
+    assert.ok(good.includes(n), `${n} is no longer read from process.env`);
+  }
+});

@@ -89,8 +89,8 @@ let SITE = "";
 // a real account that is not a cleanup, it is the account gone — so the
 // destructive half runs ONLY for a user this run created, gated in code and
 // asserted in `test/build-smoke-safety.test.mjs` rather than remembered.
-const SUPPLIED_EMAIL = String(env.SMOKE_EMAIL || "").trim();
-const SUPPLIED_PASSWORD = String(env.SMOKE_PASSWORD || "");
+const SUPPLIED_EMAIL = String(process.env.SMOKE_EMAIL || "").trim();
+const SUPPLIED_PASSWORD = String(process.env.SMOKE_PASSWORD || "");
 const useSupplied = !!(SUPPLIED_EMAIL && SUPPLIED_PASSWORD);
 let createdUser = false;
 
@@ -106,8 +106,8 @@ let createdUser = false;
 // something vaguely truthy; and the checks that assert a deleted site is really
 // gone are skipped rather than failed, because they cannot pass on a site that
 // was deliberately kept.
-const NO_FAMILY = String(env.SMOKE_NO_FAMILY || "") === "1";
-const KEEP_SITE = String(env.SMOKE_KEEP_SITE || "") === "1";
+const NO_FAMILY = String(process.env.SMOKE_NO_FAMILY || "") === "1";
+const KEEP_SITE = String(process.env.SMOKE_KEEP_SITE || "") === "1";
 
 // EVERY LEDGER WRITE GOES THROUGH HERE, AND IT REFUSES FOR A SUPPLIED ACCOUNT.
 //
