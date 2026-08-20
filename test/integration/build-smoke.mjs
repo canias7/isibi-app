@@ -721,8 +721,16 @@ try {
       if (deep) {
         const dr = await fetch(new URL(deep, SITE).href);
         const dh = await dr.text();
+        // BOTH CHECKS HERE WERE PINNED TO `<div id="root">` AND WENT STALE WITH
+        // TANSTACK START, red on three consecutive runs for the wrong reason.
+        // `__root.tsx` IS the shell now — `<html>`, `<head>`, `<body>` rendered
+        // per request — and `server.ts` names that div as the thing Start
+        // replaced. So they were reporting a working deep link as broken, which
+        // this repo rates worse than a miss, AND covering nothing: a genuinely
+        // broken deep link failed identically. Assert the property, not the
+        // spelling, for the umpteenth time.
         ok(`a deep link (/${deep}) answers with the app, not 404`,
-          dr.status === 200 && /id="root"/.test(dh), dr.status + " " + dh.slice(0, 120));
+          dr.status === 200 && /<html[\s>]/i.test(dh), dr.status + " " + dh.slice(0, 120));
 
         // ── AND IT IS ITS OWN DOCUMENT, WITH ITS OWN CARD ──────────────────
         //
@@ -735,9 +743,19 @@ try {
         const descOf = (h) => (h.match(/<meta property="og:description" content="([^"]*)"/i) || [])[1] || "";
         ok(`/${deep} carries its own title, not the home page's`,
           !!titleOf(dh) && titleOf(dh) !== titleOf(html), `${titleOf(html)}  vs  ${titleOf(dh)}`);
+        // SCRIPTS ARE STRIPPED FIRST, AND THAT IS THE LOAD-BEARING PART. Start
+        // streams the router's serialised payload as inline `<script>` in the
+        // body, and it is full of the page's own strings — so counting raw text
+        // would report a page that rendered NOTHING as full of words, on the one
+        // check that exists to catch a blank document. What a crawler reads is
+        // what is left once the scripts are gone.
+        const bodyText = ((dh.match(/<body[^>]*>([\s\S]*)<\/body>/i) || [])[1] || "")
+          .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, " ")
+          .replace(/<[^>]+>/g, " ")
+          .replace(/\s+/g, " ")
+          .trim();
         ok(`/${deep} has words in it before any JavaScript runs`,
-          (((dh.match(/<div id="root">([\s\S]*)<\/div>/) || [])[1] || "").replace(/<[^>]+>/g, " ").trim().length) > 6,
-          dh.slice(dh.indexOf('<div id="root">'), dh.indexOf('<div id="root">') + 160));
+          bodyText.length > 6, `${bodyText.length} chars of prose: ${bodyText.slice(0, 120)}`);
         // THE ONE THAT IS NOT COSMETIC. `siteSlug()` reads this tag, and on a
         // custom domain there is no `/s/<slug>/` in the path — so a prerendered
         // page without it sends a visitor who landed here straight at a
