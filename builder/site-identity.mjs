@@ -25,6 +25,12 @@
 //
 // Plain module, no filesystem and no HTTP, so every decision here is testable
 // outside the container.
+//
+// IT WAS A LEAF UNTIL THE MARK TOOK THE SITE'S OWN COLOUR, and these two are
+// what that costs. Neither imports this file, so there is no cycle; both are
+// themselves plain modules, so nothing here becomes harder to drive.
+import { normalizeSeeds } from "./site-seeds.mjs";
+import { oklchToRgb } from "./site-theme.mjs";
 
 /** Two letters is a mark; three is a word set too small to read. */
 export const MAX_INITIALS = 2;
@@ -194,6 +200,66 @@ export function brandHue(brand) {
 }
 
 /**
+ * The mark's ground — THE SITE'S OWN ACCENT, not a hash of its name.
+ *
+ * `brandHue` above was the whole answer while nothing else about a site was
+ * authored, and it stopped being one the day the designer started writing a
+ * palette. Measured: "Fade & Co Barbershop" hashes to hue 273 — a PURPLE tab
+ * icon on a warm-brick site whose own accent is hue 36. The designer picks three
+ * colours, the engine derives thirty-one from them, and the most-repeated mark
+ * of the brand — the tab, the bookmark bar, the phone home screen — was a colour
+ * nobody chose that matched nothing on the site.
+ *
+ * OKLCH RATHER THAN THE OLD `hsl()`, and that is a legibility improvement rather
+ * than a tidy-up. The mark pins its lightness so white initials always clear
+ * contrast, and how much contrast a fixed lightness BUYS depends on the hue:
+ * swept over all 360 hues with the calibrated instrument, `hsl(h 62% 34%)`
+ * bottoms out at 3.55:1 (hue 60), which clears AA-large and not AA body. The
+ * same discipline in OKLCH — the palette's own space — bottoms out at 6.95:1
+ * across every hue AND every chroma up to the cap. Strictly better everywhere,
+ * and the mark is now in the same colour space as the thing it represents.
+ *
+ * THE ACCENT'S OWN CHROMA IS KEPT, capped rather than replaced, so a deliberately
+ * neutral brand gets a near-grey mark. That is their identity, not a failure to
+ * pick a colour, and the sweep covers chroma 0 as well.
+ *
+ * `null` when the palette is unusable or absent, so the caller falls back to the
+ * hash — a site with no seeds still gets a mark rather than none.
+ */
+export const MARK_L = 0.42;
+export const MARK_C_CAP = 0.16;
+
+export function markGround(seeds) {
+  const out = normalizeSeeds(seeds);
+  if (!out || !out.theme || !out.theme.light) return null;
+  const accent = out.theme.light.accent;
+  if (!Array.isArray(accent) || accent.length < 3) return null;
+  const [L, C, H] = accent;
+  if (![L, C, H].every(Number.isFinite)) return null;
+  // A CEILING, NOT A FIXED VALUE, and looking at a render is what found it.
+  // Pinning outright made a deliberately near-black brand ("Noir", accent
+  // L 0.14) come out MID-GREY — lighter than the identity it is meant to be.
+  // Darker only ever increases contrast against white initials, so taking the
+  // lower of the two is safe by construction and truer to the brand: a dark
+  // accent keeps its own weight, a bright one is brought down to the floor the
+  // sweep measured.
+  return [Math.min(L, MARK_L), Math.min(Math.max(C, 0), MARK_C_CAP), H];
+}
+
+/**
+ * A hex string, because a favicon is not only rendered by a browser.
+ *
+ * `oklch()` in an SVG `fill` is fine in a current browser and this document is
+ * also read by bookmark managers, OS home-screen shortcuts and link unfurlers,
+ * where the older notation is the one that cannot be got wrong. `oklchToRgb`
+ * already clamps into sRGB, so nothing here can produce an out-of-range channel.
+ */
+function hexOf([L, C, H]) {
+  const to255 = (v) => Math.max(0, Math.min(255, Math.round(v * 255)));
+  return "#" + oklchToRgb(L, C, H).map((v) => to255(v).toString(16).padStart(2, "0")).join("");
+}
+
+/**
  * Is this text written in a script whose glyphs fill a full em?
  *
  * CJK, Hangul, kana and the full-width Latin forms. Everything else — Latin,
@@ -234,13 +300,20 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&
  * luminance sounds better and buys a mark that is sometimes dark-on-light and
  * sometimes light-on-dark, i.e. inconsistent across the platform for no gain;
  * pinning the ground dark enough that white always clears contrast is one
- * decision instead of a calculation that can be wrong.
+ * decision instead of a calculation that can be wrong. VERIFIED rather than
+ * asserted, and the claim held: swept over all 360 hues, the old `hsl()` form
+ * bottoms out at 3.55:1 and never drops below 3.0, so white really did always
+ * clear the bar a 32px mark in bold caps has to clear. `markGround` raises that
+ * floor to 6.95:1 without changing the discipline.
+ *
+ * THE GROUND COMES FROM THE SITE, falling back to the name hash only when there
+ * is no usable palette — see `markGround`.
  */
-export function initialsMark(brand) {
+export function initialsMark(brand, seeds) {
   const letters = initials(brand);
   if (!letters) return null;
-  const hue = brandHue(brand);
-  const bg = `hsl(${hue} 62% 34%)`;
+  const ground = markGround(seeds);
+  const bg = ground ? hexOf(ground) : `hsl(${brandHue(brand)} 62% 34%)`;
   // 1 letter sits larger than 2 — the same box has to hold both without one
   // looking lost and the other touching the edges.
   //

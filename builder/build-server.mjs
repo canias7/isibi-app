@@ -124,7 +124,7 @@ function resetRoutes() {
 // asks the generator to do. Before this, `setTitle` at PUBLISH time stamped the
 // brand onto every non-home page after the fact; a default the routes can beat
 // is the same outcome with the ordering the right way round.
-function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, mode }) {
+function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, mode, seeds }) {
   const iconPath = path.join(APP, "public", "icon.svg");
   try { fs.rmSync(iconPath, { force: true }); } catch {}
 
@@ -146,7 +146,10 @@ function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, mode }) {
   let iconType = iconOk ? own.type : "";
   if (!icon) {
     try {
-      const svg = initialsMark(title);
+      // THE SITE'S OWN PALETTE, or the mark is a colour nobody chose. Passing
+      // nothing here is not a smaller version of this feature — it is the whole
+      // of it dead, with `markGround` correct and unreached.
+      const svg = initialsMark(title, seeds);
       if (svg) {
         fs.mkdirSync(path.dirname(iconPath), { recursive: true });
         fs.writeFileSync(iconPath, svg);
@@ -725,7 +728,7 @@ const server = http.createServer((req, res) => {
       resetRoutes();
       // ONE writer for all four, because they land in ONE generated module and
       // two writers of one file is one of them silently losing.
-      const brandUsed = writeSiteBrand({ title: payload.title, lang: payload.lang, langs: payload.langs, logo: payload.logo, icon: payload.icon, slug: payload.slug, mode: payload.mode });
+      const brandUsed = writeSiteBrand({ title: payload.title, lang: payload.lang, langs: payload.langs, logo: payload.logo, icon: payload.icon, slug: payload.slug, mode: payload.mode, seeds: payload.seeds });
       const fontsUsed = writeFonts(payload.fonts, payload.fontFiles, payload.pageFonts);
       // ONE reading of the patch, shared: whether a radius was asked for decides
       // both that the theme's own corner rules give way and what is written.

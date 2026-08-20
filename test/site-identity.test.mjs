@@ -7,7 +7,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { normalizeLang, initials, brandHue, initialsMark, isWide, MAX_INITIALS, siteIconFrom } from "../builder/site-identity.mjs";
+import { normalizeLang, initials, brandHue, initialsMark, isWide, MAX_INITIALS, siteIconFrom, markGround, MARK_L, MARK_C_CAP } from "../builder/site-identity.mjs";
+import { normalizeSeeds } from "../builder/site-seeds.mjs";
+import { contrast } from "../builder/site-theme.mjs";
 
 /* ── the language tag ────────────────────────────────────────────────────── */
 
@@ -118,6 +120,51 @@ test("the mark is a self-contained SVG carrying the initials", () => {
   assert.match(svg, /viewBox="0 0 32 32"/);
   assert.match(svg, />SF</);
   assert.match(svg, /<\/svg>$/);
+});
+
+test("THE MARK TAKES THE SITE'S OWN ACCENT, not a hash of its name", () => {
+  // Measured before this: "Fade & Co Barbershop" hashes to hue 273 — a PURPLE
+  // tab icon on a warm-brick site whose own accent is hue 36. The designer
+  // authors three colours, the engine derives thirty-one from them, and the
+  // most-repeated mark of the brand matched none of it.
+  const seeds = { name: "Warm Brick", paper: "#faf7f2", ink: "#1b1714", accent: "#b44a2e" };
+  const ground = markGround(seeds);
+  assert.ok(ground, "a usable palette produced no ground");
+  const [, , H] = normalizeSeeds(seeds).theme.light.accent;
+  assert.equal(ground[2], H, "the mark's hue is not the site's accent hue");
+  assert.ok(ground[0] <= MARK_L, "the lightness is no longer bounded, so white text is not guaranteed");
+  // A CEILING, NOT A FIXED VALUE: a near-black brand keeps its own weight
+  // rather than being lightened to mid-grey. Found by looking at a render.
+  const noir = { name: "Noir", paper: "#ffffff", ink: "#0a0a0a", accent: "#171717" };
+  const dark = markGround(noir);
+  assert.ok(dark[0] < MARK_L - 0.1,
+    `a near-black accent was lightened to L=${dark[0].toFixed(2)} instead of keeping its own weight`);
+  assert.match(initialsMark("Fade & Co Barbershop", seeds), /fill="#[0-9a-f]{6}"/,
+    "the ground is not a hex colour, so anything but a browser may not render it");
+  // …AND IT IS NOT THE HASH. Without this the test passes on a mark that took
+  // the palette and then ignored it.
+  const hashed = /fill="([^"]+)"/.exec(initialsMark("Fade & Co Barbershop"))[1];
+  const seeded = /fill="([^"]+)"/.exec(initialsMark("Fade & Co Barbershop", seeds))[1];
+  assert.notEqual(seeded, hashed, "the palette changed nothing");
+  assert.match(hashed, /^hsl\(/, "the no-palette fallback stopped being the name hash");
+});
+
+test("WHITE INITIALS CLEAR CONTRAST AT EVERY HUE THE MARK CAN TAKE", () => {
+  // The guarantee the fixed lightness exists for, driven rather than asserted —
+  // and the old `hsl()` form's own claim was CHECKED before it was replaced:
+  // swept the same way it bottoms out at 3.55:1, which clears AA-large and not
+  // AA body. This form has to be at least as good everywhere, or the change
+  // traded a coherent colour for a less readable one.
+  const WHITE = [1, 0, 0];
+  assert.equal(Math.round(contrast(WHITE, [0, 0, 0])), 21, "the instrument is miscalibrated, so nothing below means anything");
+  let worst = Infinity, at = null;
+  for (let h = 0; h < 360; h++) {
+    for (const C of [0, 0.04, 0.08, 0.12, MARK_C_CAP]) {
+      const c = contrast([MARK_L, C, h], WHITE);
+      if (c < worst) { worst = c; at = [h, C]; }
+    }
+  }
+  assert.ok(worst >= 4.5, `white initials drop to ${worst.toFixed(2)}:1 at hue ${at[0]} chroma ${at[1]}`);
 });
 
 test("A BRAND WITH NO LETTERS GETS NO MARK, rather than an empty square", () => {

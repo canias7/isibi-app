@@ -512,7 +512,22 @@ test("the container prefers the owner's icon, declares its real type, and keeps 
   assert.match(b, /writeSiteBrand\(\{[^)]*icon: payload\.icon/);
   // THE DRAWN MARK IS BEHIND THE OWNER'S, not instead of it: a site with no
   // stored icon must behave byte-identically to before this existed.
-  assert.match(b, /if \(!icon\) \{[\s\S]{0,200}initialsMark\(title\)/);
+  // …AND THIS ONE WAS THE SAME OWN-GOAL THE COMMENT ABOVE WARNS ABOUT, twice
+  // over: it pinned the call as `initialsMark(title)` verbatim, so giving the
+  // mark the site's palette turned a correct change red — and its `{0,200}`
+  // byte window was outrun by the comment explaining that argument. Bounded by
+  // the branch's own close and asserted on the ARGUMENTS rather than the text.
+  const fallback = b.slice(b.indexOf("if (!icon) {"), b.indexOf("// ONLY AN ABSOLUTE https URL"));
+  assert.ok(fallback.length > 100, "the drawn-mark fallback moved — rescope this");
+  assert.match(fallback, /initialsMark\(\s*title\s*,\s*seeds\s*\)/,
+    "the drawn mark is no longer given the site's own palette, so its colour is a hash of the name again");
+  // AND THE PALETTE HAS TO REACH THAT CALL, which is the layer this repo has
+  // lost twelve features in: `markGround` can be perfectly correct and never
+  // reached, and the only symptom is a tab icon in a colour nobody chose.
+  assert.match(b, /function writeSiteBrand\(\{[^}]*\bseeds\b[^}]*\}\)/,
+    "writeSiteBrand does not take the seeds");
+  assert.match(b, /writeSiteBrand\(\{[^)]*seeds: payload\.seeds/,
+    "the call site does not pass the seeds, so the mark falls back to the name hash on every build");
   // AND THE OWNER'S ANSWER HAS TO REACH THAT GATE. `writeSiteBrand` writes
   // files, so no unit test can drive it — and a mutation setting `icon` to null
   // outright SURVIVED everything: the gate above still reads correctly, the
