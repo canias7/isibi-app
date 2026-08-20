@@ -1,20 +1,13 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
 
-import {
-  useMember,
-  useLogin,
-  useSignup,
-  useLogout,
-  useRows,
-  useCreateRow,
-  type Row,
-} from "@/lib/rows";
+import { useMember, useLogin, useSignup, useLogout, useRows, type Row } from "@/lib/rows";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { DataList } from "@/components/ui/data-list";
 import {
   Form,
   FormControl,
@@ -24,15 +17,33 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { SiteChrome } from "@/components/ui/site-chrome";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Empty } from "@/components/ui/empty";
 
-export const Route = createFileRoute("/account")({ component: Account });
+export const Route = createFileRoute("/account")({
+  component: Account,
+  head: () => ({
+    meta: [
+      { title: "Your account — Aurora Yoga" },
+      { property: "og:title", content: "Your account — Aurora Yoga" },
+      { name: "description", content: "Sign in to see studio announcements and manage your account." },
+      { property: "og:description", content: "Sign in to see studio announcements and manage your account." },
+    ],
+  }),
+});
 
-type Note = Row & { title: string; body: string };
 type Announcement = Row & { title: string; body: string };
+
+const CHROME = {
+  name: "Aurora Yoga",
+  tagline: "A calm room, a steady practice, six classes a week.",
+  links: [
+    { label: "Home", href: "/" },
+    { label: "Book", href: "/book" },
+    { label: "Notes", href: "/notes" },
+    { label: "Account", href: "/account" },
+  ],
+  action: { label: "Book a class", href: "/book" },
+};
 
 const credentials = z.object({
   email: z.string().email("That doesn't look like an email address"),
@@ -40,25 +51,6 @@ const credentials = z.object({
 });
 
 type Credentials = z.infer<typeof credentials>;
-
-const noteSchema = z.object({
-  title: z.string().min(1, "Give it a title"),
-  body: z.string().min(1, "Write something"),
-});
-
-type NoteForm = z.infer<typeof noteSchema>;
-
-const CHROME = {
-  name: "Aurora Yoga",
-  tagline: "A calm, well-lit studio a short walk from the station.",
-  links: [
-    { label: "Home", href: "/" },
-    { label: "Book", href: "/book" },
-    { label: "The work", href: "/work" },
-    { label: "Account", href: "/account" },
-  ],
-  action: { label: "Check availability", href: "/book" },
-};
 
 function Account() {
   const member = useMember();
@@ -86,7 +78,7 @@ function Account() {
 
   return (
     <SiteChrome {...CHROME}>
-      <div className="mx-auto max-w-2xl px-6 py-16">
+      <div className="mx-auto max-w-md px-6 py-16">
         {member.isPending && <p className="text-muted-foreground">Checking your sign-in…</p>}
 
         {member.data && <SignedIn name={member.data.name} onSignOut={() => logout.mutate()} />}
@@ -95,14 +87,11 @@ function Account() {
           <>
             <h1 className="text-3xl font-semibold tracking-tight">Your account</h1>
             <p className="mt-2 text-muted-foreground">
-              Sign in to keep your own class notes and see studio announcements.
+              Sign in, or make an account, to see studio announcements and keep your notes.
             </p>
 
             <Form {...form}>
-              <form
-                className="mt-8 grid gap-4"
-                onSubmit={form.handleSubmit((v) => submit(login, v))}
-              >
+              <form className="mt-8 grid gap-4" onSubmit={form.handleSubmit((v) => submit(login, v))}>
                 <FormField
                   control={form.control}
                   name="email"
@@ -152,24 +141,7 @@ function Account() {
 }
 
 function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) {
-  const notes = useRows<Note>("my_notes", { order: "id", dir: "desc" });
   const announcements = useRows<Announcement>("announcements", { order: "id", dir: "desc" });
-  const create = useCreateRow<Note>("my_notes");
-
-  const form = useForm<NoteForm>({
-    resolver: zodResolver(noteSchema),
-    defaultValues: { title: "", body: "" },
-  });
-
-  const onSubmit = (values: NoteForm) => {
-    create.mutate(values, {
-      onSuccess: () => {
-        toast.success("Note saved");
-        form.reset();
-      },
-      onError: (e: Error) => toast.error(e.message),
-    });
-  };
 
   return (
     <>
@@ -180,87 +152,31 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
         </Button>
       </div>
 
+      <div className="mt-4">
+        <Link to="/notes" className="text-sm underline text-muted-foreground">
+          Go to your notes
+        </Link>
+      </div>
+
       <Card className="mt-8">
         <CardHeader>
           <CardTitle className="text-base">Studio announcements</CardTitle>
         </CardHeader>
         <CardContent>
-          {announcements.isPending && <Skeleton className="h-20 rounded-lg" />}
-          {announcements.isError && (
-            <p className="text-sm text-destructive">Couldn't load announcements.</p>
-          )}
-          {announcements.data?.length === 0 && (
-            <Empty title="Nothing posted yet" description="The studio hasn't shared anything here yet." />
-          )}
-          {!!announcements.data?.length && (
-            <ul className="grid gap-3 motion-stagger">
-              {announcements.data.map((a) => (
-                <li key={a.id} className="rounded-lg border border-border p-3">
-                  <p className="font-medium">{a.title}</p>
-                  <p className="mt-1 text-sm text-muted-foreground">{a.body}</p>
-                </li>
-              ))}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card className="mt-6">
-        <CardHeader>
-          <CardTitle className="text-base">Your notes</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {notes.isPending && <Skeleton className="h-20 rounded-lg" />}
-          {notes.isError && <p className="text-sm text-destructive">Couldn't load your notes.</p>}
-          {notes.data?.length === 0 && (
-            <Empty title="No notes yet" description="Jot down anything from class you want to remember." />
-          )}
-          {!!notes.data?.length && (
-            <ul className="grid gap-3 motion-stagger">
-              {notes.data.map((n) => (
-                <li key={n.id} className="rounded-lg border border-border p-3">
-                  <p className="font-medium">{n.title}</p>
-                  <p className="mt-1 text-sm text-muted-foreground">{n.body}</p>
-                </li>
-              ))}
-            </ul>
-          )}
-
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="mt-6 grid gap-3 border-t pt-4">
-              <FormField
-                control={form.control}
-                name="title"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Title</FormLabel>
-                    <FormControl>
-                      <Input {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="body"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Note</FormLabel>
-                    <FormControl>
-                      <Textarea rows={3} {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <div>
-                <Button type="submit" className="motion-press" disabled={create.isPending}>
-                  {create.isPending ? "Saving…" : "Save note"}
-                </Button>
+          <DataList
+            query={announcements}
+            className="grid gap-4"
+            skeleton={2}
+            empty={{ title: "No announcements right now", description: "Check back soon." }}
+            error="Couldn't load announcements."
+          >
+            {(a) => (
+              <div key={a.id} className="border-b border-border pb-3 last:border-none last:pb-0">
+                <h3 className="font-medium">{a.title}</h3>
+                <p className="mt-1 text-sm text-muted-foreground whitespace-pre-wrap">{a.body}</p>
               </div>
-            </form>
-          </Form>
+            )}
+          </DataList>
         </CardContent>
       </Card>
     </>
