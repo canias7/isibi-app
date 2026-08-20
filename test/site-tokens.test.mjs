@@ -7,7 +7,7 @@ import {
   TOKENS, SIZES, ASKABLE, WRITABLE, MAX_TOKENS, isColor, isLength, valueHint,
   normalizeLength, stripThemeRadius, validForWrite,
   luminance, withContrast, parseTokens, mergeTokens, tokensCss, tokenNote,
-  PAIRED, saidFor,
+  PAIRED, saidFor, askedNames,
 } from "../builder/site-tokens.mjs";
 import { computedSql } from "../site-schema.mjs";
 
@@ -870,4 +870,61 @@ test("THE CAP DROPS EXACTLY WHAT IT HAS TO, AND NOT ONE MORE", () => {
     "the cap allows " + MAX_TOKENS + " and the merge kept " + Object.keys(out).length);
   assert.equal(out[names[0]], "#ffcc00", "the restated colour kept its OLD value");
   assert.equal(out[extra], "#00ccff", "the new colour was dropped");
+});
+
+test("the reported ask is the names the model gave, not the wrapper's keys", () => {
+  // THE BUG THIS REPLACES, measured live 2026-08-20. The build response did
+  // `Object.keys(tokenAsk)` where `tokenAsk` is `{tokens, dropped}` — so the
+  // field was the constant ["tokens","dropped"] on every build ever made.
+  //
+  // That defeats its whole stated purpose. It exists so "the model never asked
+  // for a colour" and "it asked and we lost it downstream" stop being the same
+  // observation; both wrapper keys are always present, so the field was never
+  // empty and could never say the first one. Telling those apart is worth a
+  // paid build.
+  assert.deepEqual(askedNames({ background: "#ffcc00" }, []), ["background"]);
+
+  // KEPT PLUS DROPPED — a refused name is the strongest evidence the model DID
+  // ask, and it is the case where nothing changed and the cause is ours.
+  assert.deepEqual(askedNames({ background: "#ffcc00" }, ["chart-1"]), ["background", "chart-1"]);
+  assert.deepEqual(askedNames({}, ["chart-1"]), ["chart-1"]);
+
+  // UNDEFINED, NOT [], when the model named nothing — so a build that changed
+  // no look serialises exactly as it did before this field existed, and the
+  // field's ABSENCE is the signal rather than its length.
+  assert.equal(askedNames({}, []), undefined);
+  assert.equal(askedNames(null, null), undefined);
+  assert.equal(askedNames(undefined, undefined), undefined);
+
+  // AND THE WRAPPER ITSELF MUST NOT PRODUCE AN ANSWER. This is the exact shape
+  // that shipped: handed `{tokens, dropped}` where a token map was meant, the
+  // old code answered ["tokens","dropped"]. Passing the wrapper as `kept` now
+  // yields those key names only if somebody re-introduces the mistake, so this
+  // asserts the CALL SITE convention rather than the helper alone.
+  const wrapper = { tokens: { background: "#ffcc00" }, dropped: [] };
+  assert.notDeepEqual(askedNames(wrapper.tokens, wrapper.dropped), ["tokens", "dropped"]);
+});
+
+test("the build response reports the ask through askedNames, with tokenNote's own arguments", () => {
+  // DERIVED FROM THE SOURCE, because the helper being correct proves nothing
+  // about the call site — and the call site is where the bug was. The two lines
+  // sit one apart and must take the SAME arguments, or the reported names and
+  // the customer-facing sentence can disagree about what was asked for.
+  const raw = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  // COMMENTS BLANKED BEFORE THE ABSENCE IS JUDGED. The comment above that line
+  // explains the bug and therefore SPELLS IT — `Object.keys(tokenAsk)` — so the
+  // first draft of this guard went red against the fix it was written for.
+  // Prose describing a deletion contains the deleted thing: the trap this repo
+  // has recorded eight times, committed here on the same day as two others.
+  // Length-preserving, so nothing else shifts.
+  const worker = raw
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+    .replace(/(^|[^:])\/\/[^\n]*/g, (m, p) => p + " ".repeat(m.length - p.length));
+  assert.ok(worker.length === raw.length, "the blanker changed the length — offsets would be wrong");
+  for (const [ask, kept] of [["tokenAsk", "tokens"], ["styleAsk", "style"]]) {
+    assert.match(worker, new RegExp(`askedNames\\(${ask}\\.${kept}, ${ask}\\.dropped\\)`),
+      `the ${ask} report is not built from the same arguments its note is`);
+    assert.doesNotMatch(worker, new RegExp(`Object\\.keys\\(${ask}\\)`),
+      `${ask}'s wrapper keys are being reported again — that field is a constant`);
+  }
 });

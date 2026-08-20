@@ -53,7 +53,7 @@ import { budgetFor, imagesAffordable, planImages, applyImages, countImageSlots, 
 import { renderNote } from "./builder/site-render.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
 import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker } from "./builder/site-dispatch.mjs";
-import { ASKABLE as SITE_TOKEN_NAMES, valueHint as siteTokenHint, mergeTokens, parseTokens, withContrast, tokenNote, saidFor as tokenSaid, routeSelectorOk, MAX_PAGE_TOKENS } from "./builder/site-tokens.mjs";
+import { ASKABLE as SITE_TOKEN_NAMES, valueHint as siteTokenHint, mergeTokens, parseTokens, withContrast, tokenNote, askedNames, saidFor as tokenSaid, routeSelectorOk, MAX_PAGE_TOKENS } from "./builder/site-tokens.mjs";
 import { ASKABLE as SITE_STYLE_AXES, optionsFor as siteStyleOptions, axisHint as siteStyleHint, mergeStyle, parseStyle, styleNote, saidFor as styleSaid } from "./builder/site-style.mjs";
 import { extractText, applyEdits, staleContactLinks } from "./builder/site-text.mjs";
 import { runTextEdit, runDataEdit, renamePages, renameRoute, MAX_DATA_ROWS } from "./builder/site-apply.mjs";
@@ -12270,8 +12270,25 @@ async function handleRequest(request, env, ctx) {
         //
         // OMITTED WHEN EMPTY, so a build that changed no look is byte-identical
         // to what it returned before this existed.
-        tokens: (tokenAsk && Object.keys(tokenAsk).length) ? Object.keys(tokenAsk) : undefined,
-        style: (styleAsk && Object.keys(styleAsk).length) ? Object.keys(styleAsk) : undefined,
+        //
+        // THE NAMES, NOT THE WRAPPER'S KEYS, and the first draft reported the
+        // wrapper. `tokenAsk` is `{tokens, dropped}` — the line below it proves
+        // that, calling `tokenNote(tokenAsk.tokens, tokenAsk.dropped)` — so
+        // `Object.keys(tokenAsk)` was the constant `["tokens","dropped"]` on
+        // every build ever made. Measured live 2026-08-20, which is where it
+        // was found.
+        //
+        // That is worse than useless rather than merely wrong: both keys are
+        // always present, so the field was never empty, and the whole point
+        // stated above is that "an empty list means the model never asked and a
+        // populated one means we lost it downstream". It could not say the
+        // first thing, which is the half a paid build is spent to learn.
+        //
+        // KEPT PLUS DROPPED, because "what the model named" is both. A name the
+        // parser refused is the strongest possible evidence the model DID ask,
+        // and it is exactly the case `tokensNote` explains in a sentence.
+        tokens: askedNames(tokenAsk.tokens, tokenAsk.dropped),
+        style: askedNames(styleAsk.style, styleAsk.dropped),
         page: pages.page, files: pages.files, notes: pages.notes || undefined,
         problems: pages.problems.length ? pages.problems : undefined,
         // THE PHOTOGRAPHS, and this field is how "no pictures" stops being

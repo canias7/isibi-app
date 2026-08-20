@@ -556,6 +556,38 @@ export function saidFor(token) {
  * is told nothing, reads the unchanged page as the builder being broken rather
  * than as a request that did not land.
  */
+/**
+ * The names a designer actually NAMED, kept and refused together — or undefined
+ * when it named nothing.
+ *
+ * WHY THIS EXISTS. The build response reports the ask so that "the model never
+ * asked for a colour" and "the model asked and we lost it downstream" stop
+ * being the same observation — they need opposite fixes, and telling them apart
+ * used to cost a second paid build. The first version reported
+ * `Object.keys(tokenAsk)`, where `tokenAsk` is the `{tokens, dropped}` WRAPPER —
+ * so the field was the constant `["tokens","dropped"]` on every build ever made,
+ * never empty, and therefore unable to say the first of the two things. Measured
+ * live 2026-08-20.
+ *
+ * SAME ARGUMENT SHAPE AS `tokenNote`, deliberately: the call sites sit one line
+ * apart, so a helper taking the wrapper instead would be the exact mistake being
+ * fixed, one refactor later.
+ *
+ * KEPT PLUS DROPPED, because a name the parser REFUSED is the strongest evidence
+ * the model did ask — that is the case where the customer sees no change and the
+ * cause is entirely ours.
+ *
+ * UNDEFINED RATHER THAN `[]` when nothing was named, so a build that changed no
+ * look serialises byte-identically to one from before this field existed.
+ */
+export function askedNames(kept, dropped) {
+  const names = [
+    ...Object.keys(kept && typeof kept === "object" ? kept : {}),
+    ...(Array.isArray(dropped) ? dropped : []),
+  ].map((n) => String(n || "").trim()).filter(Boolean);
+  return names.length ? names : undefined;
+}
+
 export function tokenNote(applied, dropped) {
   const set = Object.keys(parseTokens(applied).tokens);
   const bad = (Array.isArray(dropped) ? dropped : [])
