@@ -12257,6 +12257,26 @@ async function handleRequest(request, env, ctx) {
         // — and the direction it drifts in is a build that read nothing while
         // still claiming it did. One function, one answer, rendered verbatim.
         contextNote: contextSentence(context) || undefined,
+        // WHAT THE DESIGNER ASKED TO CHANGE ABOUT THE LOOK, and it was
+        // computed here and reported NOWHERE until 2026-08-20.
+        //
+        // `tokenAsk`/`styleAsk` are exactly what the model named — the same
+        // shape the LOOK EDIT lane already returns as `tokens`/`style`. The
+        // build path had neither, so when a revise like "make the background
+        // #ffcc00 and round the corners more" came back with the stylesheet
+        // unchanged, there was no field anywhere saying whether the designer
+        // had asked for it and we dropped it, or never asked at all. Those
+        // need opposite fixes and the response could not tell them apart.
+        //
+        // Measured live on a real run: 2 assertions failed with "the colour
+        // did not reach the stylesheet" and the cause could not be established
+        // without paying for another build. That is the shape this repo has
+        // recorded six times — a failure that cannot name itself.
+        //
+        // OMITTED WHEN EMPTY, so a build that changed no look is byte-identical
+        // to what it returned before this existed.
+        tokens: (tokenAsk && Object.keys(tokenAsk).length) ? Object.keys(tokenAsk) : undefined,
+        style: (styleAsk && Object.keys(styleAsk).length) ? Object.keys(styleAsk) : undefined,
         page: pages.page, files: pages.files, notes: pages.notes || undefined,
         problems: pages.problems.length ? pages.problems : undefined,
         // THE PHOTOGRAPHS, and this field is how "no pictures" stops being

@@ -1301,6 +1301,12 @@ try {
       return (html.match(/<script[^>]+src="([^"]+)"/) || [])[1] || "";
     };
     const { css: beforeCss, href: beforeCssHref } = await readCss();
+    // DECLARED HERE, NOT BESIDE THE RESTORE, and the scanner in
+    // test/worker-imports.test.mjs is why. The first draft read `rev.href` down
+    // in the restore block — but `rev` is declared inside the revise block and
+    // that block has closed by then, so it was a genuine ReferenceError at
+    // runtime: the `vidRefN` shape, caught by the guard written for it.
+    let reviseMovedCss = false;
     const beforeFonts = fontsOf(beforeCss);
     ok("the published stylesheet is readable before the revise", beforeCss.length > 1000, String(beforeCss.length));
 
@@ -1423,6 +1429,19 @@ try {
       // off the settled document rather than fetched again, or the line can
       // report a third state neither assertion below ever saw.
       console.log(`   stylesheet: ${beforeCssHref || "?"} -> ${rev.href || "?"}`);
+      reviseMovedCss = !!(rev.href && beforeCssHref && rev.href !== beforeCssHref);
+      // WHAT THE DESIGNER ASKED TO CHANGE, which this could not say until
+      // 2026-08-20. The two assertions below report "the colour did not reach
+      // the stylesheet" — true of THREE different failures that need opposite
+      // fixes: the designer never named the token, it named it and the merge
+      // dropped it, or it reached the container and the container ignored it.
+      //
+      // Measured live: both failed, the stylesheet href had not moved, and the
+      // cause could not be established without paying for another build. The
+      // route now reports `tokens`/`style` (the names the designer named), so
+      // an empty list here means the model never asked and a populated one
+      // means we lost it downstream.
+      console.log(`   the revise asked to change: tokens=${JSON.stringify(rd.tokens || [])} style=${JSON.stringify(rd.style || [])}`);
 
       // ── THE LOOK IS ANCHORED ─────────────────────────────────────────────
       // "make the background yellow" used to re-roll the theme, the page family
@@ -1632,13 +1651,29 @@ try {
       // back verbatim, so the site must end up serving the exact stylesheet it
       // was serving before the revise, which is a sharper question than "the
       // colour is gone" and is the one this feature exists to answer.
+      // VACUOUS WHEN THE REVISE NEVER MOVED THE HREF, which is exactly what
+      // happened on the run this was written after: the revise left the
+      // stylesheet byte-identical, so `h === beforeCssHref` was ALREADY true,
+      // settled in 572ms, and reported "THE LIVE SITE REALLY WENT BACK" about a
+      // site that had never left. It read as the strongest evidence in the run
+      // that the colour had arrived, and it was evidence of nothing.
+      //
+      // Gated on the revise having actually moved the stylesheet. When it did
+      // not, this SKIPS with a reason rather than passing — a check that cannot
+      // discriminate must not report success, which is the rule this file
+      // already applies to its own browser steps.
       const back = await settleCss((c, h) => h === beforeCssHref);
       const restoredCss = back.css;
       console.log(settleNote("the restore", back));
-      ok("THE LIVE SITE REALLY WENT BACK — the revised colour is gone from it",
-        !/--background:\s*(#ffcc00|#fc0)/i.test(restoredCss),
-        `${back.href || "(none)"} (build served ${beforeCssHref || "?"}) :: ` +
-          (restoredCss.match(/--background:[^;]*/g) || []).slice(-3).join(" ; "));
+      if (!reviseMovedCss) {
+        console.log("   SKIP: the restore check cannot discriminate — the revise never moved the stylesheet " +
+          `(${beforeCssHref || "?"} throughout), so "the colour is gone" is true of a site it never reached`);
+      } else {
+        ok("THE LIVE SITE REALLY WENT BACK — the revised colour is gone from it",
+          !/--background:\s*(#ffcc00|#fc0)/i.test(restoredCss),
+          `${back.href || "(none)"} (build served ${beforeCssHref || "?"}) :: ` +
+            (restoredCss.match(/--background:[^;]*/g) || []).slice(-3).join(" ; "));
+      }
       ok("and the restored site still serves its home page",
         (await fetch(SITE)).status === 200);
     }
