@@ -222,36 +222,33 @@ export function parseStyle(input, { max = MAX_STYLE } = {}) {
  * changing, so square buttons asked for today and airy spacing asked for
  * tomorrow have to both survive. A replacing merge hands back the theme's own
  * buttons on the second revise, which reads as the first instruction being
- * forgotten. Bounded with the NEW keys kept — the customer's most recent
- * instruction is the one they are looking at the result of.
+ * forgotten.
  *
- * `max` IS THREADED INTO BOTH INNER CALLS and not only the cap below, because
- * `parseStyle` applies its own — so a build passing `MAX_STYLE_BUILD` here while
- * `parseStyle(next)` still capped at six would have the patch cut to six before
- * the merge ever saw it, and the widening would read as done and do nothing.
+ * THE CAP BOUNDS THE PATCH AND NEVER THE ACCUMULATION, and getting that wrong
+ * was far worse than the bug it was found next to. It used to cap the MERGED
+ * TOTAL, which was indistinguishable from capping the patch for as long as
+ * nothing could author more than six — and the day a first build could author
+ * eighteen, measured: a site built with all eighteen and then asked for round
+ * buttons came back with SIX, losing density, width, border, icon, shadow,
+ * inputs, display, surface, backdrop, decor, ambient and skin. The whole visual
+ * identity stripped to the template's defaults on the customer's first edit,
+ * silently, and reported as a success.
+ *
+ * `MAX_STYLE`'s own paragraph says what it is for: "a customer MOVING half the
+ * look is telling us the theme is wrong". That is a fact about one instruction.
+ * The stored look is not being moved — it is what the site already is — so the
+ * prior is parsed whole and only `next` is bounded. Growth is bounded anyway:
+ * there are only eighteen axes, so the merge can never exceed `ASKABLE.length`.
+ *
+ * `max` REACHES `parseStyle(next)` and not only a check here, because
+ * `parseStyle` applies its own — so a build passing `MAX_STYLE_BUILD` while the
+ * inner call still capped at six would have the patch cut before the merge ever
+ * saw it, and the widening would read as done and do nothing.
  */
 export function mergeStyle(prior, next, { max = MAX_STYLE } = {}) {
-  const a = parseStyle(prior, { max }).style;
+  const a = parseStyle(prior, { max: MAX_STYLE_BUILD }).style;
   const b = parseStyle(next, { max }).style;
-  const merged = { ...a, ...b };
-  const keys = Object.keys(merged);
-  if (keys.length <= max) return merged;
-  // DEDUPED BEFORE THE CAP IS APPLIED, and slicing first was a real loss.
-  // `[...Object.keys(b), ...keys]` lists every key the edit named TWICE when it
-  // restates one the site already had — once from `b`, once from `merged` — so
-  // slicing that list let a duplicate occupy a slot and the Set came out SHORT.
-  // Measured through the real module: six stored axes plus an edit restating one
-  // and adding one merges to seven, the cap allows six, and it kept FIVE. The
-  // customer lost an extra earlier instruction they never asked to change, with
-  // nothing reported — precisely the "first instruction being forgotten" failure
-  // the paragraph above promises to avoid, arriving through the mechanism meant
-  // to prevent it.
-  const keep = new Set();
-  for (const k of [...Object.keys(b), ...keys]) {
-    if (keep.size >= max) break;
-    keep.add(k);
-  }
-  return Object.fromEntries(keys.filter((k) => keep.has(k)).map((k) => [k, merged[k]]));
+  return { ...a, ...b };
 }
 
 /**
@@ -284,10 +281,20 @@ export function mergeStyle(prior, next, { max = MAX_STYLE } = {}) {
  * behalf — it is the change they asked for, working. "Frosted panels" with
  * nothing to frost against is not a cheaper version of the request, it is the
  * request failing.
+ *
+ * IT VALIDATES WITHOUT RE-CAPPING, and this is the THIRD place the cap lived and
+ * the only one the unit suite could not see. `parseStyle` is here to drop an
+ * axis or an option the engine does not know; the CALLER decided how many may
+ * survive, and this runs in the container, downstream of that decision. Left at
+ * the revise cap it kept whichever six `AXES` declares first — measured against
+ * a real compiled stylesheet: an eighteen-axis build came back with the icon
+ * weight at the theme's own value and no world layer at all, so the Worker would
+ * have stored eighteen, sent eighteen, and had twelve thrown away here. The
+ * wiring layer, which is what the container harness exists to catch.
  */
-export function applyStyle(theme, style) {
+export function applyStyle(theme, style, { max = MAX_STYLE_BUILD } = {}) {
   if (!theme || typeof theme !== "object") return theme;
-  const s = parseStyle(style).style;
+  const s = parseStyle(style, { max }).style;
   if (!Object.keys(s).length) return theme;
   const out = { ...theme, ...s };
   if (out.surface === "glass" && !hasBackdrop(out)) out.backdrop = GLASS_BACKDROP;
@@ -302,8 +309,13 @@ export function applyStyle(theme, style) {
  * (`inherit`, `standard`) — those mean "let the radius decide", which is exactly
  * what the strip leaves behind.
  */
-export function explicitRadiusCss(style) {
-  const s = parseStyle(style).style;
+export function explicitRadiusCss(style, { max = MAX_STYLE_BUILD } = {}) {
+  // THE SAME RE-CAP, and here it bites harder than anywhere else: `AXES`
+  // declares `buttons` eleventh and `inputs` twelfth, so at the revise cap an
+  // eighteen-axis patch has both cut before this ever looks for them — measured,
+  // it returned the empty string. That is the corner collision this function
+  // exists to fix, silently failing on exactly the widest patches.
+  const s = parseStyle(style, { max }).style;
   return (s.buttons ? buttonsCss(s.buttons) : "") + (s.inputs ? inputsCss(s.inputs) : "");
 }
 

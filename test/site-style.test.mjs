@@ -93,12 +93,46 @@ test("the newest answer wins on the same axis", () => {
   assert.deepEqual(mergeStyle({ buttons: "sharp" }, { buttons: "pill" }), { buttons: "pill" });
 });
 
-test("over the cap, the NEW keys are the ones kept", () => {
-  const prior = Object.fromEntries(ASKABLE.slice(0, MAX_STYLE).map((a) => [a, optionsFor(a)[1]]));
+test("a stored look is kept WHOLE — the cap bounds the patch, not the site", () => {
+  // THIS TEST USED TO ASSERT THE OPPOSITE, and it was right for as long as
+  // nothing could author more than six. It pinned the MERGED TOTAL at
+  // `MAX_STYLE`, which means an earlier instruction is silently dropped to make
+  // room — the exact "first instruction being forgotten" failure the merge's own
+  // comment promises to avoid. The day a first build could author eighteen that
+  // stopped being a rounding detail: measured, a site built with all eighteen and
+  // then asked for round buttons came back with SIX, its whole visual identity
+  // stripped to the template's defaults on the customer's first edit.
+  // THE PRIOR MUST EXCEED `MAX_STYLE` OR THIS DISCRIMINATES NOTHING. A first
+  // draft used exactly six stored axes, so capping the prior at the revise cap
+  // was a no-op and the mutant that reintroduced the bug SURVIVED the sweep —
+  // a fixture too small to reach the case it was written for. It is built from
+  // every axis the site could have.
+  const prior = Object.fromEntries(ASKABLE.filter((a) => a !== "inputs").map((a) => [a, optionsFor(a)[1]]));
+  assert.ok(Object.keys(prior).length > MAX_STYLE, "the fixture no longer exceeds the cap, so this proves nothing");
   const merged = mergeStyle(prior, { inputs: "filled" });
-  assert.equal(Object.keys(merged).length, MAX_STYLE);
+  assert.equal(Object.keys(merged).length, Object.keys(prior).length + 1,
+    "a stored axis was dropped to make room for the new one");
   assert.equal(merged.inputs, "filled",
     "the instruction the customer is looking at the result of was the one dropped");
+  for (const a of Object.keys(prior)) assert.equal(merged[a], prior[a], a + " was lost from the stored look");
+});
+
+test("…and the PATCH is still capped, which is what MAX_STYLE is for", () => {
+  // "A customer moving half the look is not asking for an adjustment to the
+  // theme they have, they are telling us the theme is wrong." That is a fact
+  // about ONE INSTRUCTION, so it bounds `next` and nothing else.
+  const everything = Object.fromEntries(ASKABLE.map((a) => [a, optionsFor(a)[0]]));
+  assert.equal(Object.keys(mergeStyle({}, everything)).length, MAX_STYLE,
+    "a single revise may now restyle the whole site");
+});
+
+test("growth is bounded by the axis list, so accumulating cannot run away", () => {
+  // The total is uncapped on purpose; what stops it growing without bound is
+  // that there are only eighteen axes to set.
+  let look = {};
+  for (let i = 0; i < 10; i++) look = mergeStyle(look, Object.fromEntries(ASKABLE.map((a) => [a, optionsFor(a)[0]])));
+  assert.ok(Object.keys(look).length <= ASKABLE.length,
+    "the merge produced more axes than exist, so something is inventing keys");
 });
 
 test("a stored patch that has gone bad does not poison the merge", () => {
@@ -779,6 +813,31 @@ test("THE NOTE COUNTS WHAT WAS APPLIED, never re-capping it", () => {
     "an axis the engine refuses is reported to the customer as changed");
 });
 
+test("THE CONTAINER APPLIES WHAT IT IS GIVEN — the third place the cap lived", () => {
+  // FOUND BY THE CONTAINER HARNESS AND BY NOTHING ELSE, which is why it is worth
+  // the twenty minutes. `applyStyle` runs in the build service, downstream of
+  // the Worker's decision, and re-parsed with the REVISE cap — so an eighteen
+  // axis build had the Worker store eighteen, send eighteen, and twelve thrown
+  // away here. Measured against a real compiled stylesheet: the icon weight came
+  // back at the theme's own value and the world layer was absent entirely.
+  const full = Object.fromEntries(ASKABLE.map((a) => [a, optionsFor(a)[optionsFor(a).length - 1]]));
+  const theme = { label: "T", light: { paper: "#fff", ink: "#111", accent: "#b44a2e" } };
+  const out = applyStyle(theme, full);
+  assert.deepEqual(ASKABLE.filter((a) => !(a in out)), [],
+    "the container drops axes the Worker stored, so the widest looks are silently cut");
+  // …and the corner-collision fix, where the re-cap bit hardest: `AXES` declares
+  // `buttons` eleventh and `inputs` twelfth, so at the revise cap an eighteen
+  // axis patch had BOTH cut before this function looked for them and it returned
+  // the empty string — the collision silently un-fixed on the widest patches.
+  for (const axis of RADIUS_AXES) {
+    assert.ok(explicitRadiusCss(full).length > 0,
+      `explicitRadiusCss drops ${axis} out of a wide patch, so a corner change eats the customer's own button shape`);
+  }
+  // The revise cap is still reachable, so a caller that wants one can say so —
+  // this is a DEFAULT that trusts the caller, not the cap being deleted.
+  assert.equal(ASKABLE.filter((a) => a in applyStyle(theme, full, { max: MAX_STYLE })).length, MAX_STYLE);
+});
+
 test("MAX_STYLE_BUILD IS DERIVED, not a generous number that goes stale", () => {
   // Written as a cap rather than as "no cap" so both call sites read the same
   // way — and derived from the axis list so a nineteenth axis is included
@@ -896,34 +955,27 @@ test("THE CUSTOMER IS TOLD, at both ends of the wire", () => {
   assert.match(chat, /concat\(tokens, style\)/, "the client drops the style names from its sentence");
 });
 
-test("THE CAP DROPS EXACTLY WHAT IT HAS TO, AND NOT ONE MORE", () => {
-  // `[...Object.keys(b), ...keys]` lists every key the edit RESTATES twice —
-  // once from the edit, once from the merge — so slicing that list before
-  // deduping let a duplicate occupy a slot and the kept Set came out SHORT.
-  //
-  // Measured through the real module before the fix: six stored axes plus an
-  // edit restating one and adding one merges to seven, the cap allows six, and
-  // it kept FIVE. The customer lost an extra earlier instruction they never
-  // asked to change, with nothing reported — the exact "first instruction being
-  // forgotten" failure the merge exists to prevent, arriving through the
-  // mechanism meant to prevent it.
+test("A RESTATED AXIS TAKES THE NEW VALUE, and nothing else moves", () => {
+  // The dedup-before-the-cap machinery this replaced existed ONLY to make a
+  // total cap correct: `[...Object.keys(b), ...keys]` listed a restated key
+  // twice, so slicing it let a duplicate occupy a slot and the kept set came out
+  // SHORT — a customer losing an extra earlier instruction they never asked to
+  // change. With no total cap there is nothing to make room for and the whole
+  // question goes away, which is the better fix for the same failure.
   const prior = { corner: "bevel", weight: "uniform", density: "airy", icon: "heavy", border: "bold", inputs: "underline" };
   const out = mergeStyle(prior, { corner: "round", ambient: "drift" });
-  assert.equal(Object.keys(out).length, MAX_STYLE,
-    "the cap allows " + MAX_STYLE + " and the merge kept " + Object.keys(out).length);
   assert.equal(out.corner, "round", "the restated axis kept its OLD value");
   assert.equal(out.ambient, "drift", "the new instruction was dropped");
-  // And the one that legitimately goes is the OLDEST, because the customer's
-  // most recent instruction is the one they are looking at the result of.
-  assert.equal(out.border, "bold");
-  assert.equal(out.inputs, undefined, "the cap dropped the wrong end");
+  assert.equal(Object.keys(out).length, 7, "an axis nobody named went missing");
+  for (const a of ["weight", "density", "icon", "border", "inputs"]) {
+    assert.equal(out[a], prior[a], a + " was dropped to make room, which is the bug this replaced");
+  }
 });
 
-test("…and an over-cap merge with no overlap is unchanged", () => {
-  // The regime the existing tests already covered. It must answer exactly what
-  // it did, or the fix moved a case nobody asked it to.
+test("…and a merge with no overlap adds without taking anything away", () => {
   const prior = { corner: "bevel", weight: "uniform", density: "airy", icon: "heavy", border: "bold", inputs: "underline" };
   const out = mergeStyle(prior, { ambient: "drift" });
-  assert.equal(Object.keys(out).length, MAX_STYLE);
+  assert.equal(Object.keys(out).length, 7);
   assert.equal(out.ambient, "drift", "the newest instruction must survive");
+  assert.equal(out.inputs, "underline", "the oldest instruction was dropped for it");
 });
