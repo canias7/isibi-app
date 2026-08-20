@@ -94,19 +94,24 @@ const SUPPLIED_PASSWORD = String(process.env.SMOKE_PASSWORD || "");
 const useSupplied = !!(SUPPLIED_EMAIL && SUPPLIED_PASSWORD);
 let createdUser = false;
 
-// ── THE TWO EXPERIMENT SWITCHES, BOTH OFF UNLESS ASKED FOR ──────────────────
+// ── THE EXPERIMENT SWITCH, OFF UNLESS ASKED FOR ─────────────────────────────
 //
-// `SMOKE_NO_FAMILY=1` builds with no layout family, so the model designs the
-// page shape from the brief alone. `SMOKE_KEEP_SITE=1` leaves the published
-// site, its Neon project and its ownership row in place, so a person can go and
-// LOOK at what was built — which is the whole point of running one.
+// `SMOKE_KEEP_SITE=1` leaves the published site, its Neon project and its
+// ownership row in place, so a person can go and LOOK at what was built — which
+// is the whole point of running one.
 //
-// Both are strictly `=== "1"`. Keeping a site costs a live Neon project until
-// somebody removes it, so it must never happen because a variable was set to
-// something vaguely truthy; and the checks that assert a deleted site is really
-// gone are skipped rather than failed, because they cannot pass on a site that
-// was deliberately kept.
-const NO_FAMILY = String(process.env.SMOKE_NO_FAMILY || "") === "1";
+// Strictly `=== "1"`. Keeping a site costs a live Neon project until somebody
+// removes it, so it must never happen because a variable was set to something
+// vaguely truthy; and the checks that assert a deleted site is really gone are
+// skipped rather than failed, because they cannot pass on a site that was
+// deliberately kept.
+//
+// `SMOKE_NO_FAMILY` STOOD BESIDE IT AND IS GONE. It posted `noFamily: true`,
+// which suppressed the layout family so the model designed the page shape from
+// the brief alone. That is simply what every build does now — the families were
+// deleted on 2026-08-20 — so the flag had nothing left to suppress, and a
+// switch named after a concept the platform no longer has is one somebody
+// eventually reads as still meaning something.
 const KEEP_SITE = String(process.env.SMOKE_KEEP_SITE || "") === "1";
 
 // EVERY LEDGER WRITE GOES THROUGH HERE, AND IT REFUSES FOR A SUPPLIED ACCOUNT.
@@ -307,11 +312,7 @@ try {
   const r = await fetch(`${BASE}/api/site/react-build`, {
     method: "POST",
     headers: { Authorization: `Bearer ${jwt}`, "content-type": "application/json" },
-    // `SMOKE_NO_FAMILY=1` runs the build with NO layout family — the model
-    // decides the page set, the section order and the primary action from the
-    // brief alone. Omitted entirely when unset, so an ordinary run posts the
-    // body it always posted.
-    body: JSON.stringify({ brief, slug: runSlug, ...(NO_FAMILY ? { noFamily: true } : {}) }),
+    body: JSON.stringify({ brief, slug: runSlug }),
   });
   const d = await r.json().catch(() => ({}));
   ok("build returns 200", r.status === 200, r.status + " " + JSON.stringify(d).slice(0, 300));

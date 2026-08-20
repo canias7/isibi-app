@@ -13,6 +13,8 @@ import {
   textRequest, textItems, readTextEdits, textUsage, runTextEdit,
 } from "../builder/site-apply.mjs";
 import { EDIT_LAYERS, ASK_TOOL } from "../builder/site-ask.mjs";
+import { CORPUS_URL } from "./fixtures/corpus.mjs";
+import { PLAN_KEYS } from "../builder/site-plan.mjs";
 
 const HOME = {
   path: "src/routes/index.tsx",
@@ -144,7 +146,7 @@ test("the cap clears every real site, with headroom", async () => {
   // silently half-edited; 600 clears them all and costs nothing on the other 98,
   // because a cap only bills when it binds.
   const { extractText } = await import("../builder/site-text.mjs");
-  const root = new URL("../builder/lovable/template/src/family-pages/", import.meta.url);
+  const root = CORPUS_URL;
   let worst = 0, worstFam = "", counted = 0;
   for (const fam of fs.readdirSync(root)) {
     let n = 0, saw = false;
@@ -589,18 +591,45 @@ test("everything the lane cannot do escalates with a 200, not a refusal", () => 
   }
 });
 
-test("a family or structure change is escalated, never silently stored", () => {
+test("a LAYOUT change is escalated, never silently stored", () => {
   // The container is handed theme, tokens and fonts — those really do change a
-  // recompiled site. `family` and `structure` are what the PAGES were written
-  // against and the container never sees them, so storing one here would report
-  // success, change nothing a visitor can see, and leave the stored look
-  // disagreeing with the pages it describes.
+  // recompiled site. The AUTHORED PLAN is what the PAGES were written against
+  // and the container never sees any of its six fields, so storing one here
+  // would report success, change nothing a visitor can see, and leave the
+  // stored look disagreeing with the pages it describes.
   const b = editBlock();
   const needs = b.indexOf("const needsPages");
   const write = b.indexOf("INSERT INTO _meta (k,v) VALUES ('site_look'");
   assert.ok(needs > 0 && write > 0, "the guard or the write is gone — this assertion cannot hold vacuously");
-  assert.ok(needs < write, "the family/structure check must run BEFORE the look is stored");
+  assert.ok(needs < write, "the needs-pages check must run BEFORE the look is stored");
   assert.match(b, /needsPages\.length\) return escalate\("needs-pages"/);
+
+  // EVERY PLAN KEY, NOT THE TWO THIS USED TO NAME — and this half was held by
+  // NOTHING until a mutation said so. The filter read `k === "family" || k ===
+  // "structure"`, correct while those were the only layout fields there were;
+  // the plan replaced the family on 2026-08-20 and brought five more
+  // (`purpose`, `shape`, `pages`, `action`, `components`), every one a
+  // page-generation input and every one on `EDIT_FIELDS`. So a look edit moving
+  // one would have been stored, reported as done, and never drawn. Reverting to
+  // the two-name form passed the entire 3511-test suite.
+  //
+  // DRIVEN THROUGH THE REAL EXPRESSION rather than matched as text: a filter
+  // that names the right things and compares them the wrong way round reads
+  // identically in a source-read. The line is lifted out and run.
+  const line = b.match(/const needsPages = moved\.filter\((\([\s\S]*?)\);/);
+  assert.ok(line, "the needs-pages filter is gone or no longer a one-line filter");
+  // eslint-disable-next-line no-eval
+  const pred = eval("(" + line[1] + ")");
+  for (const k of PLAN_KEYS) {
+    assert.ok(pred(k), "a look edit moving `" + k + "` is stored and silently never drawn");
+  }
+  assert.ok(pred("family"), "a legacy family change stopped escalating");
+  // …AND NOT EVERYTHING, or the filter would escalate every colour change to a
+  // ~27-credit page rewrite and the cheap lane would be dead. These four are
+  // exactly what the container DOES see.
+  for (const k of ["theme", "fonts", "brand", "mode"]) {
+    assert.ok(!pred(k), "`" + k + "` now buys a page rewrite, which the recompile could have done");
+  }
 });
 
 test("nothing reads a property off siteBackendBySlug — it returns a STRING", () => {
@@ -1357,7 +1386,7 @@ test("the rename holds across all 100 family exemplars", async () => {
   // text editor and is not worth widening a rule for one legal-notice line;
   // recorded here so it is a known number rather than a surprise.
   const { renamePages } = await import("../builder/site-apply.mjs");
-  const root = new URL("../builder/lovable/template/src/family-pages/", import.meta.url);
+  const root = CORPUS_URL;
   let carried = 0, moved = 0, broke = 0, leftovers = 0;
   for (const fam of fs.readdirSync(root)) {
     let src;

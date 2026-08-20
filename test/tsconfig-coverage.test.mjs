@@ -61,31 +61,58 @@ test("and it is picked up by the config that does check it", () => {
 
 test("every excluded directory is checked by something", () => {
   // Derived, not listed: whatever tsconfig.json excludes has to be a CATALOGUE
-  // (never edited by hand, only ever imported), covered by the kit config, or
-  // owned by a named integration harness. A fifth exclusion added for speed
-  // fails here until somebody decides which it is.
+  // (never edited by hand, only ever imported) or covered by the kit config. A
+  // third exclusion added for speed fails here until somebody decides which it
+  // is.
+  //
+  // THERE IS NO `HARNESSED` ESCAPE HATCH ANY MORE, and losing it is the point.
+  // It held `src/family-pages` and `src/variant-pages`, each pointed at
+  // `test/integration/family-apps.mjs` — a real per-family build, because those
+  // pages declared routes the template's own tree never registers. That harness
+  // was deleted with the families on 2026-08-20, at which point the exclusion
+  // was covered by nothing and this test was correct to go red: files excluded
+  // from the build check and checked by nothing else is exactly what it exists
+  // to catch.
+  //
+  // It was answered by MOVING the pages out of the template rather than by
+  // widening the exemption. They are test data now (`test/fixtures/corpus/`),
+  // reach no prompt and ship in nothing, so there is no exclusion left to
+  // justify — and the container stopped carrying 3.4 MB it never used. Adding a
+  // per-directory exemption back is how a real gap gets waved through, so the
+  // shape of this check is deliberately narrower than it was.
   const CATALOGUE = new Set(["src/components/charts"]);
-  // src/family-pages cannot join the kit pass: each family app declares routes
-  // (/listing, /guide …) that only exist in a route tree generated from its
-  // own files, so the honest check is a real per-family build. Owned by
-  // test/integration/family-apps.mjs — asserted to exist and to derive its
-  // coverage from site-layouts.mjs in test/family-pages.test.mjs.
-  // src/variant-pages is the same case for the same reason: a variant app is
-  // the family's declared pages arranged differently, so its routes exist only
-  // in a tree generated from its own files. Same harness owns both.
-  const HARNESSED = new Map([
-    ["src/family-pages", "test/integration/family-apps.mjs"],
-    ["src/variant-pages", "test/integration/family-apps.mjs"],
-  ]);
   const covered = (dir) => kit.include.some((g) => g.replace(/\/\*\*.*$/, "").startsWith(dir));
   for (const dir of base.exclude) {
-    if (HARNESSED.has(dir)) {
-      assert.ok(fs.existsSync(HARNESSED.get(dir)), `${dir}'s harness ${HARNESSED.get(dir)} is gone`);
-      continue;
-    }
     assert.ok(CATALOGUE.has(dir) || covered(dir),
       `${dir} is excluded from the build check and checked by nothing else — add it to tsconfig.kit.json`);
   }
+  // And the exclusions really name directories that exist. `src/variant-pages`
+  // sat in the map above for months after the directory was gone: an exemption
+  // for something absent reads as coverage of something real.
+  for (const dir of base.exclude) {
+    assert.ok(fs.existsSync(path.join(TEMPLATE, dir)), `tsconfig.json excludes ${dir}, which is not on disk`);
+  }
+});
+
+test("the calibration corpus is out of the template, and still there", () => {
+  // BOTH HALVES, because each without the other is a different silent failure.
+  //
+  // Back inside `src/`, it ships in every build container image again (the
+  // Dockerfile copies the template wholesale) and needs an exclusion to keep the
+  // per-build typecheck fast — which is what put this file in the state above.
+  //
+  // Gone entirely, about a dozen checks that measure their FALSE-ALARM RATE
+  // against these pages start walking an empty directory. Most of them assert an
+  // absence — no physical utility, no dangling link, no invented prop — and an
+  // absence over nothing is trivially true, so they would all report clean while
+  // covering nothing at all. Their own floors catch it one at a time; this says
+  // it once, at the cause.
+  assert.ok(!fs.existsSync(path.join(TEMPLATE, "src/family-pages")),
+    "the corpus is back inside the template — it ships in every build image from there");
+  const dir = path.join("test", "fixtures", "corpus");
+  assert.ok(fs.existsSync(dir), "the calibration corpus is gone — every check that measures against it now proves nothing");
+  const count = fs.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory()).length;
+  assert.ok(count > 90, "only " + count + " corpus families found — the corpus is being eaten");
 });
 
 test("no source directory is invisible to both configs", () => {

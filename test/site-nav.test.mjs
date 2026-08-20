@@ -11,6 +11,7 @@ import {
   MAX_LINK_CHANGES, MAX_LINK_LINES, MAX_LINK_SLOTS,
 } from "../builder/site-nav.mjs";
 import { EDIT_LAYERS } from "../builder/site-ask.mjs";
+import { CORPUS_DIR } from "./fixtures/corpus.mjs";
 
 const page = (p, links) => ({
   path: p,
@@ -495,7 +496,7 @@ test("driven over every page the generator learns from: no false positives, and 
       else if (e.name.endsWith(".tsx")) pages.push({ path: r, source: fs.readFileSync(full, "utf8") });
     }
   };
-  walk(path.join(root.pathname, "family-pages"), "");
+  walk(CORPUS_DIR, "");
   walk(path.join(root.pathname, "routes"), "");
 
   // The floor first: a scan that silently stopped matching would report a clean
@@ -719,7 +720,7 @@ test("driven over every real header the generator and the exemplars wrote", () =
       else if (e.name.endsWith(".tsx")) pages.push({ path: r, source: fs.readFileSync(full, "utf8") });
     }
   };
-  walk(path.join(root, "family-pages"), "");
+  walk(CORPUS_DIR, "");
   walk(path.join(root, "routes"), "");
 
   const slots = actionSlots(pages);
@@ -1223,7 +1224,7 @@ test("driven over every page the generator learns from: not one false link", () 
       else if (e.name.endsWith(".tsx")) pages.push({ path: r, source: fs.readFileSync(full, "utf8") });
     }
   };
-  walk(path.join(root, "family-pages"), "");
+  walk(CORPUS_DIR, "");
   walk(path.join(root, "routes"), "");
   assert.ok(pages.length > 300, "the corpus was found: " + pages.length);
 

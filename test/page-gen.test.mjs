@@ -19,6 +19,7 @@ import {
 import { COMPONENT_API, COMPONENT_TYPES } from "../builder/component-api.mjs";
 import { build as buildApi, render as renderApi, extract as extractApi, buildTypes as buildTypesApi, extractTypes as extractTypesApi } from "../builder/gen-component-api.mjs";
 import * as api from "../builder/page-gen.mjs";
+import { CORPUS_DIR, CORPUS_URL } from "./fixtures/corpus.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const TEMPLATE = path.join(ROOT, "builder", "lovable", "template");
@@ -1228,17 +1229,20 @@ test("toast is left out on purpose, because sonner is already here", () => {
 // template. Every number it reported described a pipeline the platform does not
 // run, which is the one failure a measurement cannot survive.
 
-test("briefWithLayout appends the family's directive, and never a null", () => {
-  const withFam = api.briefWithLayout({ brief: "A yoga studio.", family: "salon" });
-  assert.match(withFam, /^A yoga studio\.\n\n/);
-  assert.match(withFam, /LAYOUT — /);
+test("briefWithLayout appends the plan's directive, and never a null", () => {
+  const plan = { purpose: "the class timetable IS the page", structure: "single-scroll",
+    pages: [{ path: "/", role: "when the classes are" }] };
+  const withPlan = api.briefWithLayout({ brief: "A yoga studio.", plan });
+  assert.match(withPlan, /^A yoga studio\.\n\n/);
+  assert.match(withPlan, /LAYOUT — /);
 
-  // layoutDirective answers null for an unknown family or structure, and
+  // `directiveFromPlan` answers null for anything it cannot compose, and
   // interpolating that appends the literal word "null" and LOSES the layout.
   for (const args of [
     { brief: "A yoga studio." },
-    { brief: "A yoga studio.", family: "not-a-family" },
-    { brief: "A yoga studio.", family: "salon", structure: "not-a-structure" },
+    { brief: "A yoga studio.", plan: null },
+    { brief: "A yoga studio.", plan: { purpose: "p", pages: [] } },
+    { brief: "A yoga studio.", plan: { pages: [{ path: "/", role: "r" }] } },
   ]) {
     const out = api.briefWithLayout(args);
     assert.equal(out, "A yoga studio.", JSON.stringify(args));
@@ -1272,39 +1276,6 @@ test("the eval posts a theme, fonts and a title to the build service", () => {
   for (const key of ["theme", "fonts", "title"]) {
     assert.match(post, new RegExp("\\b" + key + "\\b"),
       `the build post must carry ${key}, or every sample renders on the bare template`);
-  }
-});
-
-test("the eval's family, theme and fonts are real ones", async () => {
-  // A name that does not resolve fails SILENTLY — the build falls back to the
-  // default and the sample looks fine. Caught exactly this way while writing it:
-  // the first theme I picked did not exist.
-  // EVERY SCENARIO, not the one that used to be a top-level constant. The eval
-  // samples three site shapes now, each with its own family, theme and font
-  // pair — so there are three of each to get wrong, and the failure mode is
-  // unchanged: a name that does not resolve falls back to the default and the
-  // sample looks fine.
-  const src = fs.readFileSync(new URL("./integration/page-gen-eval.mjs", import.meta.url), "utf8");
-  const [layouts, themes, fonts] = await Promise.all([
-    import("../builder/site-layouts.mjs"),
-    import("../builder/site-theme-registry.mjs"),
-    import("../builder/site-fonts.mjs"),
-  ]);
-
-  const block = src.slice(src.indexOf("const SCENARIOS = ["), src.indexOf("for (const sc of SCENARIOS)"));
-  assert.ok(block.length > 200, "the SCENARIOS block is gone — retarget this test");
-  const scenarios = [...block.matchAll(
-    /key: "([^"]+)",\s*family: "([^"]+)",\s*theme: "([^"]+)",\s*fonts: \{ heading: "([^"]+)", body: "([^"]+)" \}/g,
-  )];
-  assert.ok(scenarios.length >= 2,
-    `only ${scenarios.length} scenario(s) parsed — the eval measures one shape again, or the scan broke`);
-
-  for (const [, key, family, theme, heading, body] of scenarios) {
-    assert.ok(layouts.READY_FAMILIES.includes(family), `${key}: family ${family} is not a ready family`);
-    assert.ok(layouts.layoutDirective(family, {}), `${key}: ${family} produces no directive`);
-    assert.ok(themes.resolveTheme(theme), `${key}: theme ${theme} does not resolve`);
-    const pair = fonts.resolvePair({ heading, body });
-    assert.deepEqual(pair.notes || [], [], `${key}: fonts fell back: ${JSON.stringify(pair.notes)}`);
   }
 });
 
@@ -1367,92 +1338,50 @@ test("the eval's shapes exercise DIFFERENT access levels", () => {
 // reachable by nothing, which is the shape the 27 blocks and 196 examples were
 // deleted for. These are wired instead.
 
-test("every ready family has a baked exemplar", async () => {
-  const [layouts, ex] = await Promise.all([
-    import("../builder/site-layouts.mjs"),
-    import("../builder/family-exemplars.mjs"),
-  ]);
-  for (const f of layouts.READY_FAMILIES) {
-    assert.ok(ex.FAMILY_EXEMPLARS[f], `${f} is offered to the designer with no worked example behind it`);
-  }
-  assert.ok(layouts.READY_FAMILIES.length >= 90, "the family list collapsed");
-});
+/* THE EXEMPLAR'S OWN TESTS WENT WITH IT (2026-08-20).
+ *
+ * Six stood here: that every ready family had a baked worked example, that the
+ * bake had not drifted from the file on disk, that it rode in the USER turn and
+ * never the cached block, that an unknown family cost nothing, that its content
+ * was framed so it would not be copied, and that the eval's chosen family was a
+ * real one. All six were about `familyExemplar`, which is keyed on a trade name
+ * nothing produces any more.
+ *
+ * WHAT THE MODEL GETS INSTEAD is the layout directive `site-plan.mjs` composes
+ * for THIS site, and the four REFERENCE_PAGES — which are not this and stay:
+ * they teach how to CALL the API rather than what a trade looks like, and their
+ * cached-block placement is asserted separately.
+ */
 
-test("the baked exemplar has not drifted from the file on disk", async () => {
-  // Same guarantee PAGE_RULES' copy of the barber page has. A note that
-  // disagrees with the file is worse than no note, and this one is 2,300 tokens
-  // of it on every build.
-  const ex = await import("../builder/family-exemplars.mjs");
-  const dir = path.join(import.meta.dirname, "../builder/lovable/template/src/family-pages");
-  const strip = (src) => src
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/^[ \t]*\/\/[^\n]*\n/gm, "")
-    .replace(/[ \t]+\/\/[^\n]*$/gm, "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-  let checked = 0;
-  for (const [family, baked] of Object.entries(ex.FAMILY_EXEMPLARS)) {
-    const file = path.join(dir, family, "index.tsx");
-    assert.ok(fs.existsSync(file), `${family} has a baked exemplar and no file`);
-    assert.equal(baked, strip(fs.readFileSync(file, "utf8")),
-      `${family}'s exemplar is stale — re-run builder/gen-family-exemplars.mjs`);
-    checked++;
-  }
-  assert.ok(checked >= 90, `only ${checked} exemplars checked`);
-});
-
-test("the exemplar rides in the USER turn and the cached block never varies", () => {
-  // THE EXPENSIVE ONE. A cache entry is keyed on the bytes, so an exemplar that
-  // varies per family inside the system block would make the cached prefix
-  // differ on every build and never hit — $0.0082 becomes $0.1019, thirteen
-  // times, measured. Asserted across two DIFFERENT families, because comparing
-  // a request to itself proves nothing.
-  const spec = { tables: [{ name: "bookings", access: "collect", columns: ["name"] }] };
-  const salon = api.pagesRequest({ brief: "a studio", spec, brand: "A", family: "salon" });
-  const store = api.pagesRequest({ brief: "a shop", spec, brand: "B", family: "store" });
-  const none = api.pagesRequest({ brief: "a studio", spec, brand: "A" });
-
-  assert.equal(salon.system[0].text, store.system[0].text, "the cached block must not vary by family");
-  assert.equal(salon.system[0].text, none.system[0].text, "nor between having a family and not");
-  assert.deepEqual(salon.system[0].cache_control, { type: "ephemeral" });
-
-  const body = salon.messages[0].content;
-  assert.ok(body.includes(api.familyExemplar("salon")), "the salon exemplar must reach the user turn");
-  assert.ok(!salon.system[0].text.includes(api.familyExemplar("salon")), "and must NOT be in the cached block");
-  assert.notEqual(body, store.messages[0].content, "two families must not produce the same user turn");
-});
-
-test("an unknown family costs nothing rather than throwing", () => {
-  const spec = { tables: [] };
-  for (const family of [undefined, null, "", "not-a-family"]) {
-    const r = api.pagesRequest({ brief: "a shop", spec, brand: "A", family });
-    assert.ok(r.messages[0].content.length < 2000, `${family} produced an exemplar`);
-  }
-  assert.equal(api.familyExemplar("not-a-family"), null);
-});
-
-test("the exemplar is framed so its CONTENT is not copied", () => {
-  // The deleted examples tier shipped a real customer's page reading "Our
-  // flagship product combines cutting-edge technology with sleek design." The
-  // example is a shape to follow, and saying so is the only thing standing
-  // between this and that.
-  const spec = { tables: [{ name: "bookings", access: "collect", columns: ["name"] }] };
-  const body = api.pagesRequest({ brief: "a studio", spec, brand: "A", family: "salon" }).messages[0].content;
-  assert.match(body, /DIFFERENT business/i, "the example must be framed as another business");
-  assert.match(body, /Copy none of its words/i, "it must say not to copy the content");
-  // Order matters: the schema is a constraint, the example a shape. Read first,
-  // an example invites reproducing its tables.
-  assert.ok(body.indexOf("THE SCHEMA THAT EXISTS") < body.indexOf("A SITE OF THIS TRADE"),
-    "the schema must come before the example");
-});
-
-test("worker.js and the eval both pass the family to pagesRequest", () => {
+test("worker.js and the eval compose the same user turn", () => {
+  // THIS ASSERTED THE FAMILY, and what it was really protecting is unchanged.
+  // It read "both pass the family to pagesRequest, so no build of it ever gets
+  // an example" — `family` was how `pagesPrompt` looked up the trade exemplar,
+  // and both are gone: the exemplars with the families on 2026-08-20, and the
+  // parameter with them, since nothing read it afterwards.
+  //
+  // THE DURABLE HALF is that the eval sends the turn PRODUCTION sends. That is
+  // the failure `briefWithLayout` was extracted to close — the eval composed its
+  // own user turn and sent the bare brief, ~287 tokens of layout short, so its
+  // compile rate described a prompt the platform does not run. So both files
+  // must compose through that one function, and neither may hand-roll the
+  // directive.
+  //
+  // COMMENTS BLANKED FIRST, length-preserving: this repo's most recorded trap is
+  // that prose explaining a thing contains that thing's spelling, and the note
+  // above literally says `briefWithLayout`.
   for (const f of ["../worker.js", "./integration/page-gen-eval.mjs"]) {
     const src = fs.readFileSync(new URL(f, import.meta.url), "utf8")
       .replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m) => m.replace(/[^\n]/g, " "));
-    assert.match(src, /pagesRequest\(\{[^}]*\bfamily\b[^}]*\}\)/s,
-      `${f} does not pass the family, so no build of it ever gets an example`);
+    assert.match(src, /briefWithLayout\(\{/, `${f} composes the user turn itself instead of through briefWithLayout`);
+    assert.match(src, /pagesRequest\(\{/, `${f} builds the page request itself instead of through pagesRequest`);
   }
+  // AND THE EVAL REALLY HANDS OVER A PLAN. Without one it sends the bare brief
+  // — no page list, no shape, no component manifest — which is precisely the
+  // gap this test's ancestor existed to prevent, arriving one field along.
+  const evalSrc = fs.readFileSync(new URL("./integration/page-gen-eval.mjs", import.meta.url), "utf8");
+  assert.match(evalSrc, /briefWithLayout\(\{[^}]*\bplan\b[^}]*\}\)/,
+    "the eval composes without a plan, so it measures a build with no layout directive");
 });
 
 // ── A write-only table cannot hand the row back ─────────────────────────────
@@ -2170,40 +2099,39 @@ test("images do NOT touch the cached blocks", () => {
   assert.deepEqual(withImgs.tool_choice, bare.tool_choice);
 });
 
-test("the prompt notes the attachments and otherwise stays out of the way", async () => {
-  // TWO CLAUSES, and it shrank twice to get there. The first draft assigned a
-  // purpose per file type; the second explained at length how to work the
-  // purpose out — which is teaching the model something it already knows. An
+test("the prompt notes the attachments and otherwise stays out of the way", () => {
+  // ONE CLAUSE NOW, and it shrank three times to get there. The first draft
+  // assigned a purpose per file type; the second explained at length how to work
+  // the purpose out — which is teaching the model something it already knows. An
   // attachment in a conversation is an ordinary thing and the person attaching
   // it says what it is for.
   const none = api.pagesPrompt("a cafe", SPEC, "Cafe");
-  const one = api.pagesPrompt("a cafe", SPEC, "Cafe", null, 1);
-  const two = api.pagesPrompt("a cafe", SPEC, "Cafe", null, 2);
+  const one = api.pagesPrompt("a cafe", SPEC, "Cafe", 1);
+  const two = api.pagesPrompt("a cafe", SPEC, "Cafe", 2);
   assert.ok(!/WHAT THE USER ATTACHED/.test(none), "the note appears with nothing attached");
   assert.match(one, /1 file, above this text/);
   assert.match(two, /2 files, above this text/);
   assert.match(one, /part of what they are asking for/);
 
-  // THE SECOND CLAUSE IS THE ONE THAT EARNS ITS PLACE. Everything else here the
-  // model gets from the message; what it cannot get is which of this prompt's
-  // TWO "references" wins. The attachment is about THEIR business and the trade
-  // exemplar is a generic shape, so a tie broken the other way makes the
-  // attachment decorative. Asserted in both directions — the sentence, and the
-  // ordering it depends on, since "the attachment wins" read AFTER the example
-  // is a rule about something the model has already copied.
-  const { FAMILY_EXEMPLARS } = await import("../builder/family-exemplars.mjs");
-  const [anyFamily] = Object.keys(FAMILY_EXEMPLARS);
-  const withExample = api.pagesPrompt("a cafe", SPEC, "Cafe", anyFamily, 1);
-  for (const anchor of ["the attachment wins", "A SITE OF THIS TRADE"]) {
-    assert.ok(withExample.includes(anchor), "missing anchor, so the ordering check is vacuous: " + anchor);
-  }
-  assert.ok(withExample.indexOf("the attachment wins") < withExample.indexOf("A SITE OF THIS TRADE"),
-    "the precedence clause reads after the example it takes precedence over");
+  // THE THIRD SHRINK WAS FORCED. The second clause read "where they and the
+  // trade example below disagree, the attachment wins" — it arbitrated between
+  // two references, which was the whole reason it earned its place, and the
+  // trade exemplars are gone. A sentence pointing at a section of the prompt
+  // that no longer exists is worse than no sentence: the model has to work out
+  // what "the trade example below" refers to, and there is no answer.
+  //
+  // Asserted as an ABSENCE, because that is the half that rots. A well-meaning
+  // edit re-pointing it at the plan reads as tidying up and is a real change:
+  // the image budget is derived from the plan's page list before the model is
+  // called, so telling the model an attachment overrules it invites a build
+  // costed against pages it did not write.
+  assert.ok(!/trade example/i.test(one), "the note still arbitrates against an exemplar that no longer exists");
+  assert.ok(!/the attachment wins/i.test(one), "the precedence clause came back with nothing to take precedence over");
 
   // The size is the assertion. Anything longer is the version that had to come
   // out — and a length check is the only thing that catches guidance creeping
   // back in one well-meaning sentence at a time.
-  const note = one.split("WHAT THE USER ATTACHED")[1].split("\n\nA SITE OF")[0].trim();
+  const note = one.split("WHAT THE USER ATTACHED")[1].trim();
   assert.ok(note.length < 220, "the attachment note has grown back: " + note.length + " chars\n" + note);
   assert.ok(note.split("\n").length <= 2, "the note is a paragraph again, not a line");
 });
@@ -2212,8 +2140,7 @@ test("it never prescribes a purpose, and never names a file format", () => {
   // The same PDF is the customer's own price list or a competitor's brochure,
   // and only the brief distinguishes them — so a rule keyed to the extension
   // gets one of the two wrong every time.
-  const note = api.pagesPrompt("a cafe", SPEC, "Cafe", null, 1)
-    .split("WHAT THE USER ATTACHED")[1].split("\n\nA SITE OF")[0];
+  const note = api.pagesPrompt("a cafe", SPEC, "Cafe", 1).split("WHAT THE USER ATTACHED")[1];
   assert.ok(!/\bPDF\b|\.pdf|\bJPEG\b|\bPNG\b|screenshot|logo|brand mark/i.test(note),
     "the note prescribes by file kind again: " + note);
   // ...and it does not ask for seeding, which this step cannot do: `write_pages`
@@ -2225,8 +2152,7 @@ test("with the brief silent, nothing extra is said about it", () => {
   // Deliberately no fallback rule. The earlier version explained how to judge
   // "whose material is this", which is exactly the kind of reasoning the model
   // does unprompted.
-  const note = api.pagesPrompt("a cafe", SPEC, "Cafe", null, 1)
-    .split("WHAT THE USER ATTACHED")[1].split("\n\nA SITE OF")[0];
+  const note = api.pagesPrompt("a cafe", SPEC, "Cafe", 1).split("WHAT THE USER ATTACHED")[1];
   assert.ok(!/If the brief does not say/.test(note));
 });
 
@@ -2238,10 +2164,10 @@ test("a document block rides in the message exactly as an image does", () => {
 
 test("the count is a count, whatever it is handed", () => {
   for (const bad of [-3, "2", 1.7, NaN, null, undefined, {}]) {
-    assert.doesNotThrow(() => api.pagesPrompt("a cafe", SPEC, "Cafe", null, bad));
+    assert.doesNotThrow(() => api.pagesPrompt("a cafe", SPEC, "Cafe", bad));
   }
-  assert.ok(!/WHAT THE USER ATTACHED/.test(api.pagesPrompt("a cafe", SPEC, "Cafe", null, -3)));
-  assert.match(api.pagesPrompt("a cafe", SPEC, "Cafe", null, "2"), /2 files, above this text/);
+  assert.ok(!/WHAT THE USER ATTACHED/.test(api.pagesPrompt("a cafe", SPEC, "Cafe", -3)));
+  assert.match(api.pagesPrompt("a cafe", SPEC, "Cafe", "2"), /2 files, above this text/);
 });
 
 test("the images the caller validated are the ones the model gets", () => {
@@ -2331,21 +2257,28 @@ test("a first build sends nothing extra, so that path is unchanged", async () =>
   }
 });
 
-test("the site to EDIT comes after the site to COPY", () => {
-  // Two references that can disagree: the trade exemplar is a shape to follow
-  // and the prior source is this customer's actual site. Read in the other
-  // order the model treats its own site as one more example to draw from.
+test("the site to EDIT is appended LAST", () => {
+  // THIS USED TO ARBITRATE BETWEEN TWO REFERENCES — the trade exemplar (a shape
+  // to follow) and the prior source (this customer's actual site) — and the
+  // exemplar is gone. What survives is the half that was never about the
+  // exemplar: the prior source is by far the largest block in the prompt, and
+  // read before the brief and the schema the model treats those as commentary on
+  // a site it is already looking at rather than as the instructions.
   const src = fs.readFileSync(new URL("../builder/page-gen.mjs", import.meta.url), "utf8");
   const fn = src.slice(src.indexOf("export function pagesPrompt"), src.indexOf("// A route path the container will accept"));
-  const example = fn.indexOf("A SITE OF THIS TRADE, DONE WELL");
   // ANCHORED ON THE CALL, NOT ITS ARGUMENT LIST. This read
   // `priorPagesBlock(priorPages)` and went red the day the block learned a
   // second parameter — a test about word order failing a change that was
   // correct, which this repo keeps recording. What it protects is the ORDER.
   const prior = fn.indexOf("priorPagesBlock(");
-  assert.ok(example > 0, "the exemplar block is gone — this assertion cannot hold vacuously");
   assert.ok(prior > 0, "pagesPrompt no longer appends the prior source at all");
-  assert.ok(prior > example, "the prior source must be appended last");
+  // Both anchors proved present first: `indexOf(a) < indexOf(b)` passes
+  // VACUOUSLY when `a` is the thing that was deleted.
+  for (const [what, at] of [["the brief", fn.indexOf("BRIEF")], ["the schema", fn.indexOf("THE SCHEMA THAT EXISTS")],
+    ["the attachment note", fn.indexOf("WHAT THE USER ATTACHED")]]) {
+    assert.ok(at > 0, "missing anchor, so the ordering check is vacuous: " + what);
+    assert.ok(prior > at, "the prior source must be appended after " + what);
+  }
 });
 
 test("a site too large to show degrades instead of blowing the prompt", async () => {
@@ -3264,7 +3197,7 @@ test("…and never flags a correct page", () => {
   // innermost braces read as the item (24), prose inside strings scanned as code
   // (14), and a nested element's props read as the outer one's (1).
   const roots = [
-    path.join(import.meta.dirname, "..", "builder", "lovable", "template", "src", "family-pages"),
+    CORPUS_DIR,
     path.join(import.meta.dirname, "..", "builder", "lovable", "template", "src", "routes"),
   ];
   const files = [];
@@ -3601,7 +3534,7 @@ test("the colour rules do not fire on a single page of the corpus the model lear
       else if (e.name.endsWith(".tsx")) files.push(p);
     }
   };
-  walk(new URL("family-pages/", root));
+  walk(CORPUS_URL);
   walk(new URL("routes/", root));
   assert.ok(files.length > 300, "only found " + files.length + " corpus pages — the scan broke");
   const pages = files.map((f) => ({ path: f.pathname, source: fs.readFileSync(f, "utf8") }));
@@ -3927,7 +3860,7 @@ test("ZERO FALSE ALARMS ON THE CORPUS THE MODEL COPIES — measured, not assumed
   // Driven through the REAL `validatePages`, one family at a time, exactly as if
   // the model had returned that family's pages. 500 route hrefs across 324
   // exemplar files, and this must stay at zero.
-  const base = path.join(import.meta.dirname, "../builder/lovable/template/src/family-pages");
+  const base = CORPUS_DIR;
   const fams = fs.readdirSync(base).filter((n) => fs.statSync(path.join(base, n)).isDirectory());
   assert.ok(fams.length >= 90, "only " + fams.length + " families found — the scan stopped working");
   let hrefs = 0;

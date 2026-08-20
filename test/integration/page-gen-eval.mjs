@@ -82,7 +82,33 @@ if (!fs.existsSync(path.join(TEMPLATE, "node_modules"))) {
 const SCENARIOS = [
   {
     key: "booking",
-    family: "salon",
+    // THE AUTHORED PLAN, standing where `family: "salon"` used to.
+    //
+    // It has to be here, and hand-written, for the reason this whole harness
+    // exists: production composes `briefWithLayout({ brief, plan, images })`, so
+    // a scenario with no plan sends the BARE BRIEF and measures a prompt the
+    // platform does not send. That is the ~287-token gap `briefWithLayout` was
+    // extracted to close, reopened one field along.
+    //
+    // Written as the DESIGNER would answer, not as a minimal stub: six fields,
+    // a real page list with roles, and a component manifest — because the
+    // manifest is what `siteComponentApi` builds the per-site signature block
+    // from, and a scenario naming none measures a build with only the cached
+    // core.
+    plan: {
+      purpose: "A yoga studio where people book a class and members keep their own notes",
+      structure: "single-scroll",
+      shape: ["the timetable leads, then the booking form", "the members area is behind sign-in"],
+      pages: [
+        { path: "/", role: "what the studio is, the timetable, and the way to book" },
+        { path: "/book", role: "pick a class and a slot, and leave a name and email" },
+        { path: "/notes", role: "a member's own notes, private to them" },
+        { path: "/account", role: "sign in, sign out, and the announcements" },
+      ],
+      action: ["Book a class"],
+      components: ["site-chrome", "section-header", "data-list", "availability-grid", "form-row",
+                   "busy-button", "week-strip", "empty-state", "safe-image", "faq"],
+    },
     theme: "herbarium",
     fonts: { heading: "fraunces", body: "inter" },
     brand: "Aurora Yoga",
@@ -104,7 +130,19 @@ const SCENARIOS = [
   },
   {
     key: "menu",
-    family: "restaurant",
+    plan: {
+      purpose: "A neighbourhood restaurant showing its menu, its cooks and how to find it",
+      structure: "editorial",
+      shape: ["the menu is the site", "no form anywhere — people phone"],
+      pages: [
+        { path: "/", role: "what the place is, a taste of the menu, the address and the phone number" },
+        { path: "/menu", role: "every dish with its price, grouped by course" },
+        { path: "/about", role: "who cooks, and the opening hours" },
+      ],
+      action: ["Call us"],
+      components: ["site-chrome", "section-header", "data-list", "price-row", "opening-hours",
+                   "location-card", "safe-image", "empty-state"],
+    },
     theme: "herbarium",
     fonts: { heading: "fraunces", body: "inter" },
     brand: "Pell Street Kitchen",
@@ -117,7 +155,20 @@ const SCENARIOS = [
   },
   {
     key: "tool",
-    family: "crm",
+    plan: {
+      purpose: "An internal tool where a small sales team signs in and works its deals",
+      structure: "sidebar",
+      shape: ["everything is behind sign-in", "the deals table is the working surface"],
+      pages: [
+        { path: "/", role: "sign in, then the team's deals" },
+        { path: "/deals", role: "the team's deals, and a way to add one" },
+        { path: "/accounts", role: "the shared list of accounts everyone can see" },
+        { path: "/playbook", role: "what the admins have written down" },
+      ],
+      action: ["Add a deal"],
+      components: ["site-chrome", "data-table", "data-list", "form-row", "busy-button",
+                   "empty-state", "status-dot", "filter-bar", "bulk-actions"],
+    },
     theme: "herbarium",
     fonts: { heading: "fraunces", body: "inter" },
     brand: "Halyard",
@@ -134,7 +185,7 @@ const SCENARIOS = [
 // here in a form production does not send.
 for (const sc of SCENARIOS) {
   sc.spec = normalizeSchema({ tables: sc.tables });
-  sc.composed = briefWithLayout({ brief: sc.brief, family: sc.family });
+  sc.composed = briefWithLayout({ brief: sc.brief, plan: sc.plan });
 }
 
 /**
@@ -173,7 +224,7 @@ async function postWithRetry(body) {
 async function generate(sc) {
   // No timeout, matching production — a harness that gives up sooner than the
   // thing it measures reports a failure the real path would not have had.
-  const r = await postWithRetry(JSON.stringify(pagesRequest({ brief: sc.composed, spec: sc.spec, brand: sc.brand, family: sc.family })));
+  const r = await postWithRetry(JSON.stringify(pagesRequest({ brief: sc.composed, spec: sc.spec, brand: sc.brand })));
   if (!r.ok) throw new Error("anthropic " + r.status + " " + (await r.text().catch(() => "")).slice(0, 200));
   const j = await r.json();
   // USAGE IS THE POINT OF HALF OF THIS FILE NOW AND IT WAS BEING THROWN AWAY.
@@ -319,7 +370,7 @@ try {
   // with zeroes. An outage should not be able to destroy the evidence.
 
   for (const sc of SCENARIOS) {
-   console.log(`— ${sc.key} (${sc.family})`);
+   console.log(`— ${sc.key} (${sc.plan.structure})`);
    for (let n = 1; n <= SAMPLES; n++) {
     const row = { key: sc.key, n, stage: "?", files: [], problems: [], errors: [] };
     try {
@@ -425,14 +476,14 @@ const byShape = SCENARIOS.map((sc) => {
   const rs = results.filter((r) => r.key === sc.key);
   return {
     key: sc.key,
-    family: sc.family,
+    structure: sc.plan.structure,
     ok: rs.filter((r) => r.stage === "ok").length,
     n: rs.length,
     clean: rs.filter((r) => r.stage === "ok" && !r.problems.length).length,
   };
 });
 const shapeLines = byShape.map((b2) =>
-  `${b2.key} (${b2.family}): ${b2.ok}/${b2.n} compiled` + (b2.ok ? `, ${b2.clean} clean` : ""));
+  `${b2.key} (${b2.structure}): ${b2.ok}/${b2.n} compiled` + (b2.ok ? `, ${b2.clean} clean` : ""));
 
 // No "first try" column any more: with the repair pass gone every sample IS a
 // first try, and a second number saying the same thing invites reading it as a

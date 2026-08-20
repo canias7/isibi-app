@@ -12,12 +12,11 @@ import { readFileSync, readdirSync } from "node:fs";
 
 import {
   IMAGE_CAP, IMAGE_ASPECT, MAX_PROMPT_CHARS,
-  imagesForPage, imageBudget, imagesAffordable, picturesAreContent,
+  imagesAffordable,
   parseImageTokens, planImages, applyImages, imagePrompt, imageDirective, imageNote,
   budgetFor, hasBoughtPhotos,
 } from "../builder/site-images.mjs";
 import { uploadUrl } from "../site-uploads.mjs";
-import { FAMILIES, READY_FAMILIES } from "../builder/site-layouts.mjs";
 import { IMAGE_USD, pageCost, pageCredits } from "../builder/publish-pages.mjs";
 import { lintPages, PAGE_RULES, briefWithLayout, SAFE_IMAGE_COMPONENTS, schemaDigest, validatePages } from "../builder/page-gen.mjs";
 
@@ -25,123 +24,28 @@ const page = (path, source) => ({ path, source });
 
 /* ------------------------------------------------------------- the budget */
 
-test("the cap is 6 on a first build", () => {
-  assert.equal(IMAGE_CAP, 6);
+/* THE FAMILY-KEYED BUDGET TESTS WENT WITH THE FUNCTION (2026-08-20).
+ *
+ * `imagesForPage(family, page)`, `imageBudget(family)` and
+ * `picturesAreContent(family)` derived a site's photograph allowance from the
+ * family table, and there is no family table. The SAME three rules are asserted
+ * over the authored plan in `test/site-plan.test.mjs` — terminal gets none, the
+ * home page gets two where the structure is hero-led and one otherwise, any
+ * other page gets one only where the components say pictures are the content —
+ * so nothing about the rule is untested; only its old input is gone.
+ */
+test("A SITE WHOSE PLAN CANNOT BE READ STILL GETS ITS ONE OPENING IMAGE", () => {
+  // The unknown-family default, inherited by the path that replaced it. Zero
+  // would make the placeholder look like a deliberate design choice on a site we
+  // simply could not classify, which is the one place it reads as a bug — and it
+  // is why `planBudget` answers null rather than 0 for an unreadable plan.
+  assert.equal(budgetFor({}), 1, "a build with no plan at all buys nothing");
+  assert.equal(budgetFor({ plan: { purpose: "p", pages: [] } }), 1, "a half-plan reads as a deliberate zero");
 });
 
-test("a terminal family gets no photographs anywhere", () => {
-  // LAYOUTS.md's own words for that structure are "no imagery, no decoration".
-  // A picture on one is not a thin version of the design, it is a different one.
-  const terminal = READY_FAMILIES.filter((n) => FAMILIES[n].structure === "terminal");
-  assert.ok(terminal.length, "there are terminal families to check");
-  for (const n of terminal) {
-    assert.equal(imageBudget(n), 0, n + " is terminal and must get no photographs");
-    for (const p of FAMILIES[n].pages) assert.equal(imagesForPage(n, p), 0, n + "/" + p.file);
-  }
-});
-
-test("the home page carries the opening image, and a hero-led structure gets two", () => {
-  const led = READY_FAMILIES.find((n) => FAMILIES[n].structure === "full-bleed-hero");
-  const plain = READY_FAMILIES.find((n) => FAMILIES[n].structure === "single-scroll");
-  assert.equal(imagesForPage(led, { file: "index" }), 2);
-  assert.equal(imagesForPage(plain, { file: "index" }), 1);
-});
-
-test("an ALTERNATIVE home counts for nothing", () => {
-  // Only one of index and its alternatives is ever built, so budgeting for both
-  // buys a photograph for a page that will not exist.
-  const fam = READY_FAMILIES.find((n) => (FAMILIES[n].pages || []).some((p) => p.alt));
-  assert.ok(fam, "some family declares an alt page");
-  const alt = FAMILIES[fam].pages.find((p) => p.alt);
-  assert.equal(imagesForPage(fam, alt), 0);
-  // And it is the `alt` flag doing it, not the file name: the same entry
-  // without the flag would be budgeted.
-  assert.equal(imagesForPage(fam, { file: alt.file }), FAMILIES[fam].structure === "terminal" ? 0 : (picturesAreContent(fam) ? 1 : 0));
-});
-
-test("a page that is not the home page only gets one where pictures are the content", () => {
-  const led = READY_FAMILIES.find((n) => picturesAreContent(n) && FAMILIES[n].structure !== "terminal");
-  const notLed = READY_FAMILIES.find((n) => !picturesAreContent(n) && FAMILIES[n].structure !== "terminal");
-  assert.equal(imagesForPage(led, { file: "work" }), 1);
-  assert.equal(imagesForPage(notLed, { file: "pricing" }), 0);
-});
-
-test("safe-image does NOT make a family picture-led", () => {
-  // 26 families name it and it is the guard every image goes through, so it says
-  // a page HAS a picture and nothing about whether pictures are what it is for.
-  // Reading it as the signal would have budgeted a photograph on a pricing page.
-  const only = READY_FAMILIES.filter(
-    (n) => (FAMILIES[n].components || []).includes("safe-image") && !picturesAreContent(n));
-  assert.ok(only.length, "some family names safe-image and nothing more picture-led");
-  for (const n of only) assert.equal(picturesAreContent(n), false, n);
-});
-
-test("every ready family lands inside the cap, and the picture trades get the most", () => {
-  let max = 0;
-  for (const n of READY_FAMILIES) {
-    const b = imageBudget(n);
-    assert.ok(b >= 0 && b <= IMAGE_CAP, n + " budget " + b + " is outside 0.." + IMAGE_CAP);
-    max = Math.max(max, b);
-  }
-  assert.ok(max >= 3, "at least one family spends real money on pictures — got " + max);
-  // The gallery trades must beat the paperwork ones, or the derivation is not
-  // saying anything about the type of page.
-  assert.ok(imageBudget("agency") > imageBudget("accountant"),
-    "an agency, whose work IS pictures, must budget more than an accountant");
-});
-
-test("a page may override the derivation, and salon/work is why", () => {
-  // The blind spot the override exists for: the derivation reads the FAMILY's
-  // component list, and salon's is entirely booking widgets — so its `work`
-  // page ("a gallery of finished sets, because nails are a visual trade") got
-  // nothing while being the most visual page on the site.
-  assert.equal(picturesAreContent("salon"), false, "salon names no gallery component");
-  const work = FAMILIES.salon.pages.find((p) => p.file === "work");
-  assert.equal(work.img, 1, "salon/work declares its own");
-  assert.equal(imagesForPage("salon", work), 1);
-  assert.ok(imageBudget("salon") >= 2, "the home page plus the gallery");
-});
-
-test("an override is clamped, so a typo cannot spend the whole cap on one page", () => {
-  assert.equal(imagesForPage("restaurant", { file: "x", img: 999 }), IMAGE_CAP);
-  assert.equal(imagesForPage("restaurant", { file: "x", img: -4 }), 0);
-  assert.equal(imagesForPage("restaurant", { file: "x", img: 2.7 }), 2);
-});
-
-test("an override of zero is honoured, not read as absent", () => {
-  // `img: 0` says "no picture here" and must beat the index default; written
-  // with a truthiness check it would silently fall through to it.
-  assert.equal(imagesForPage("restaurant", { file: "index", img: 0 }), 0);
-});
-
-test("an override cannot resurrect a terminal family or an alt page", () => {
-  const terminal = READY_FAMILIES.find((n) => FAMILIES[n].structure === "terminal");
-  assert.equal(imagesForPage(terminal, { file: "index", img: 4 }), 0);
-  assert.equal(imagesForPage("salon", { file: "call-now", alt: true, img: 4 }), 0);
-});
-
-test("every declared override is a sane whole number", () => {
-  for (const n of READY_FAMILIES) {
-    for (const p of FAMILIES[n].pages) {
-      if (p.img === undefined) continue;
-      assert.ok(Number.isInteger(p.img) && p.img >= 0 && p.img <= 2,
-        n + "/" + p.file + " declares img: " + p.img + " — an override is a correction, not a budget grab");
-    }
-  }
-});
-
-test("an unknown family still gets its one opening image", () => {
-  // Zero would make the fallback look deliberate on a site we simply could not
-  // classify, which is the one place the placeholder reads as a bug.
-  assert.equal(imageBudget("no-such-family"), 1);
-  assert.equal(imageBudget(undefined), 1);
-});
-
-test("the cap argument clamps and can never RAISE the ceiling", () => {
-  assert.equal(imageBudget("agency", { cap: 1 }), 1);
-  assert.equal(imageBudget("agency", { cap: 0 }), 0);
-  assert.ok(imageBudget("agency", { cap: 99 }) <= IMAGE_CAP, "a caller cannot ask for more than the cap");
-  assert.equal(imageBudget("no-such-family", { cap: 0 }), 0, "the unknown-family default is clamped too");
+test("…and a plan that really says none still means none", () => {
+  // The distinction the line above exists to preserve: `terminal` is a REAL zero.
+  assert.equal(budgetFor({ plan: { purpose: "p", structure: "terminal", pages: [{ path: "/", role: "r" }] } }), 0);
 });
 
 /* -------------------------------------------------------- affordability */
@@ -312,14 +216,14 @@ test("the allowance rides in the USER message, appended to the brief", () => {
   // PAGE_RULES sits under cache_control: ephemeral at ~27,000 tokens. A number
   // that changes per build in the system block misses that cache every build —
   // measured at thirteen times the input cost on the family exemplar.
-  const withBudget = briefWithLayout({ brief: "a restaurant in Leeds", family: "restaurant", images: 2 });
+  const withBudget = briefWithLayout({ brief: "a restaurant in Leeds", images: 2 });
   assert.match(withBudget, /this site gets 2 real photographs/);
   assert.ok(!/@@IMG:what the picture shows@@/.test(PAGE_RULES),
     "the per-build count must not be baked into the cached rules");
 });
 
 test("a caller that states no budget sends exactly the request it sent before this existed", () => {
-  const before = briefWithLayout({ brief: "a restaurant in Leeds", family: "restaurant" });
+  const before = briefWithLayout({ brief: "a restaurant in Leeds" });
   assert.ok(!/PHOTOGRAPHS/.test(before), "omitted, not defaulted");
   assert.equal(briefWithLayout({ brief: "x" }), "x");
 });
@@ -328,7 +232,7 @@ test("a stated budget of zero still reaches the model", () => {
   // `images: 0` is a real instruction and `images: undefined` is the absence of
   // one. Written with a truthiness check these collapse, and every terminal
   // family silently stops being told not to write tokens.
-  assert.match(briefWithLayout({ brief: "x", family: "restaurant", images: 0 }), /none on this site/);
+  assert.match(briefWithLayout({ brief: "x", images: 0 }), /none on this site/);
 });
 
 /* ----------------------------------------------------------- the sentence */
@@ -684,15 +588,19 @@ test("a revise buys none — unless the site never got any in the first place", 
   // zero photographs and no way to ever get one.
   const withPhoto = [{ path: "index.tsx", source: '<SafeImage src="/u/cafe/abc123.jpg" alt="the shop" />' }];
   const without = [{ path: "index.tsx", source: "<SafeImage src={row.photo} alt={row.name} />" }];
+  // THE BUDGET COMES FROM THE PLAN NOW, not from a family row. The rule under
+  // test is unchanged; only where the number comes from has moved.
+  const plan = { purpose: "a gallery of finished work", structure: "full-bleed-hero",
+    pages: [{ path: "/", role: "the work" }], components: ["gallery"] };
+  const full = budgetFor({ revise: false, priorPages: null, slug: "cafe", plan });
 
-  assert.equal(budgetFor("marketplace", { revise: false, priorPages: null, slug: "cafe" }), imageBudget("marketplace"),
-    "a first build must get the family's budget");
-  assert.equal(budgetFor("marketplace", { revise: true, priorPages: withPhoto, slug: "cafe" }), 0,
+  assert.equal(full, 2, "a first build must get the plan's own budget");
+  assert.equal(budgetFor({ revise: true, priorPages: withPhoto, slug: "cafe", plan }), 0,
     "a revise of a site that already shows photographs must buy none — this is the ~94-credit bug");
-  assert.equal(budgetFor("marketplace", { revise: true, priorPages: without, slug: "cafe" }), imageBudget("marketplace"),
+  assert.equal(budgetFor({ revise: true, priorPages: without, slug: "cafe", plan }), full,
     "a revise of a site with no photographs is the first build it never got");
   // …and the two assertions above must not agree by accident.
-  assert.ok(imageBudget("marketplace") > 0, "the family under test buys no pictures, so this proves nothing");
+  assert.ok(full > 0, "the plan under test buys no pictures, so this proves nothing");
 });
 
 test("not knowing costs nothing, and one site's pictures are not another's", () => {
@@ -700,18 +608,20 @@ test("not knowing costs nothing, and one site's pictures are not another's", () 
   // hands back null, and reading that as "no photographs" would re-buy the whole
   // set on its next revise — the expensive mistake, and the one this rule exists
   // to prevent. Being wrong the other way costs an unbought picture.
+  const plan = { purpose: "a gallery of finished work", structure: "full-bleed-hero",
+    pages: [{ path: "/", role: "the work" }], components: ["gallery"] };
   for (const bad of [null, undefined, "not an array", {}]) {
-    assert.equal(budgetFor("marketplace", { revise: true, priorPages: bad, slug: "cafe" }), 0, String(bad));
+    assert.equal(budgetFor({ revise: true, priorPages: bad, slug: "cafe", plan }), 0, String(bad));
   }
   // A missing slug is the same kind of not-knowing: with nothing to match on,
   // every page would read as photograph-less and every revise would buy again.
-  assert.equal(budgetFor("marketplace", { revise: true, priorPages: [{ path: "i.tsx", source: 'src="/u/cafe/a.jpg"' }] }), 0,
+  assert.equal(budgetFor({ revise: true, priorPages: [{ path: "i.tsx", source: 'src="/u/cafe/a.jpg"' }], plan }), 0,
     "with no slug the match is meaningless and must not authorise a purchase");
   // And the match is SCOPED — another site's upload URL is not this site's
   // photograph, or one customer's pictures would suppress another's.
   assert.equal(
-    budgetFor("marketplace", { revise: true, priorPages: [{ path: "i.tsx", source: 'src="/u/other-shop/a.jpg"' }], slug: "cafe" }),
-    imageBudget("marketplace"), "another site's uploads must not count as this site's");
+    budgetFor({ revise: true, priorPages: [{ path: "i.tsx", source: 'src="/u/other-shop/a.jpg"' }], slug: "cafe", plan }),
+    2, "another site's uploads must not count as this site's");
 });
 
 test("hasBoughtPhotos matches the URL applyImages actually writes", () => {
@@ -740,7 +650,10 @@ test("…and worker.js actually asks budgetFor, rather than keeping the old rule
   // named; the order they are written in is not a fact about anything.
   const call = w.match(/const imgBudget = budgetFor\(([^;]*?)\);/);
   assert.ok(call, "the image budget is no longer decided by budgetFor — a site whose first build failed can never get a photograph again");
-  for (const arg of ["family", "revise", "priorPages", "slug", "plan"]) {
+  // `family` STOOD IN THIS LIST AND IS GONE. It was the leading argument and
+  // was unread for a while before it was removed — the plan answers every
+  // question this function asks.
+  for (const arg of ["revise", "priorPages", "slug", "plan"]) {
     assert.match(call[1], new RegExp("\\b" + arg + "\\b"),
       "budgetFor is called without `" + arg + "` — it answers for the wrong site, silently");
   }

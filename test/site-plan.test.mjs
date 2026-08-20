@@ -13,8 +13,8 @@ import {
   MAX_SHAPE, MAX_PAGES, MAX_ACTION, MAX_COMPONENTS,
 } from "../builder/site-plan.mjs";
 import { ALWAYS_API_CORE, siteComponentApi, componentApiFor, briefWithLayout, PAGE_RULES } from "../builder/page-gen.mjs";
-import { FAMILIES, layoutDirective, STRUCTURE_NAMES } from "../builder/site-layouts.mjs";
-import { planBudget, imageBudget, budgetFor } from "../builder/site-images.mjs";
+import { STRUCTURE_NAMES, STRUCTURES } from "../builder/site-layouts.mjs";
+import { planBudget, budgetFor } from "../builder/site-images.mjs";
 
 const GOOD = {
   purpose: "the slot picker is the hero; everything else supports the appointment",
@@ -172,38 +172,20 @@ test("it is an ALLOW-LIST — a field nobody added cannot ride along", () => {
 
 /* ── the directive: same format, authored values ────────────────────────── */
 
-test("THE COMPOSED DIRECTIVE IS layoutDirective's FORMAT, LINE FOR LINE", () => {
-  // LOAD-BEARING RATHER THAN TIDY. The page-generation prompt, the four
-  // reference pages and every rule that mentions the layout block were written
-  // against that shape, so a plan emitting a different one would be a change to
-  // the GENERATOR wearing the costume of a change to the designer.
-  //
-  // Driven by feeding each family its OWN row through the authored composer: if
-  // the two agree, the pages call cannot tell which produced it. One word
-  // differs on purpose — a site "has" pages where a family "ships" them.
-  let checked = 0;
-  for (const [name, f] of Object.entries(FAMILIES)) {
-    if (!f.ready) continue;
-    // Families declaring more verbs than MAX_ACTION are the deliberate exception:
-    // the cap is a narrowing this change makes on purpose, since `action` is
-    // "the ONE thing you want a visitor to do" and four alternatives is not one.
-    if (f.cta.length > MAX_ACTION) continue;
-    const composed = directiveFromPlan({
-      purpose: `${f.md}: ${f.label}`,
-      structure: f.structure,
-      shape: f.shape,
-      action: f.cta,
-      components: f.components,
-      pages: f.pages.filter((p) => !p.alt)
-        .map((p) => ({ path: p.file === "index" ? "/" : "/" + p.file, role: p.role })),
-    });
-    const fromTable = layoutDirective(name).replace("This family ships", "This site has");
-    assert.equal(composed, fromTable, `${name} composes differently through the authored path`);
-    checked++;
-  }
-  assert.ok(checked > 80, "the sweep only compared " + checked + " families — it has stopped finding them");
-});
-
+/* THE BYTE-IDENTICAL PROOF WENT WITH THE TABLE IT COMPARED AGAINST (2026-08-20).
+ *
+ * It fed each of the 100 families its OWN row through `directiveFromPlan` and
+ * required the output to equal `layoutDirective(name)` character for character,
+ * one word aside — a site "has" pages where a family "shipped" them. **98 of 100
+ * matched**, and the two that differed were the MAX_ACTION cap biting on
+ * families declaring four verbs, which is the cap working.
+ *
+ * That measurement is why the change was safe to make, and it cannot be re-run:
+ * both the table and `layoutDirective` are deleted. It is recorded here rather
+ * than in a commit message because it is the evidence for the claim the test
+ * below now carries alone — that the format the page-generation call reads did
+ * not change. What survives is the format itself, asserted line by line.
+ */
 test("the directive names every page, the verb and the skeleton", () => {
   const d = directiveFromPlan(GOOD);
   assert.match(d, /^LAYOUT — the slot picker is the hero/);
@@ -307,15 +289,16 @@ test("NULL, NOT ZERO, when there is no usable plan — and that is the whole poi
   assert.equal(planBudget({}), null);
   assert.equal(planBudget({ purpose: "p", pages: [] }), null);
   assert.equal(planBudget("a plan"), null);
-  // And the caller really does fall through rather than reading it as zero.
-  assert.equal(budgetFor("salon", { plan: null }), imageBudget("salon"),
-    "a site with no plan lost the budget its stored family gives it");
-  assert.ok(imageBudget("salon") > 0, "the fallback family budgets nothing, so the assertion above proves nothing");
+  // And the caller really does fall through rather than reading it as zero. The
+  // family fallback it used to reach went with the family table; what is left is
+  // the one opening image a site we cannot classify still deserves.
+  assert.equal(budgetFor({ plan: null }), 1,
+    "a site whose plan cannot be read buys nothing, which reads as a deliberate choice to have none");
 });
 
 test("an authored plan BEATS a stored family, and a terminal plan really means none", () => {
   const plan = { purpose: "p", structure: "terminal", pages: [{ path: "/", role: "r" }] };
-  assert.equal(budgetFor("salon", { plan }), 0,
+  assert.equal(budgetFor({ plan }), 0,
     "the stored family overrode the plan, so the designer's own choice is ignored");
 });
 
@@ -383,8 +366,13 @@ test("A SITE BUILT BEFORE THE PLAN EXISTED KEEPS ITS LAYOUT", () => {
   // broken fallback: a plan present means the plan wins.
   const edit = fs.readFileSync(new URL("../builder/site-edit.mjs", import.meta.url), "utf8");
   assert.match(edit, /EDIT_FIELDS = \[[^\]]*"family"/,
-    "`family` left EDIT_FIELDS, so the next revise of an existing site discards the only record of its layout");
+    "`family` left EDIT_FIELDS — a stored family is the only record an older site has of its layout");
+  // THE FALLBACK ITSELF IS GONE, and so is the table it fell back to. What has
+  // to hold now is the weaker claim that made deleting it acceptable: a REVISE
+  // carries the site's own page source, so its real layout is the pages rather
+  // than the directive. Asserted at the composer, because a revise that stopped
+  // sending them would make the loss total rather than small.
   const gen = fs.readFileSync(new URL("../builder/page-gen.mjs", import.meta.url), "utf8");
-  assert.match(gen, /directiveFromPlan\(plan\)\s*\|\|/,
-    "the fallback order changed — a half-written plan no longer falls through to the stored family");
+  assert.match(gen, /priorPagesBlock\(priorPages, mode, target\)/,
+    "a revise no longer carries the site's own pages — the family fallback was deleted on the premise that it does");
 });

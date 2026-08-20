@@ -42,7 +42,6 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { normalizeSchema } from "../../site-schema.mjs";
 import { resolveAccess } from "../../site-access.mjs";
-import { READY_FAMILIES } from "../../builder/site-layouts.mjs";
 import { pageCost } from "../../builder/publish-pages.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -120,10 +119,23 @@ async function readSchemaTool() {
   const sysEnd = src.indexOf('" }]', sysAt);
   const system = eval("[" + src.slice(sysAt + 6, sysEnd + 1) + "]").join("");
 
-  // Sanity: the enums must be the real size, or something above silently failed.
-  const fam = tool.input_schema.properties.family.enum || [];
-  if (fam.length !== READY_FAMILIES.length) {
-    throw new Error("the family enum read as " + fam.length + " and the module says " + READY_FAMILIES.length);
+  // Sanity: the real fields must have landed, or something above silently
+  // failed. This read `properties.family.enum.length` against `READY_FAMILIES`
+  // — a check that the 100-trade enum was the real one and not a stub — and
+  // `family` left `design_schema` on 2026-08-20 with the families, so it would
+  // have thrown reading `.enum` of undefined on every run.
+  //
+  // The equivalent question for a plan is whether the six authored fields are
+  // all there AND all compelled: a scope that quietly handed over a partial
+  // `PLAN_FIELDS` produces a tool the model can answer without a page list, and
+  // every number in the report would then describe a prompt production does not
+  // send. Derived from `PLAN_KEYS` rather than restated, so a seventh field is
+  // covered without anybody remembering this file.
+  const props = (tool.input_schema && tool.input_schema.properties) || {};
+  const required = new Set(tool.input_schema && tool.input_schema.required);
+  for (const k of plan.PLAN_KEYS) {
+    if (!props[k]) throw new Error("`" + k + "` is not on the tool — the plan fields did not reach it");
+    if (!required.has(k)) throw new Error("`" + k + "` is on the tool but not required — the designer can skip it");
   }
   return { tool, system };
 }

@@ -141,10 +141,31 @@ test("capacityFn — accepts only the pattern that actually works", () => {
     "a closed table with no function cannot be booked at all and must not pass");
 });
 
-test("validFamily — only a family that really exists", () => {
-  assert.equal(score("validFamily", { tables: [], family: "salon" }).ok, true);
-  assert.equal(score("validFamily", { tables: [], family: "barbershop" }).ok, false, "an invented family passed");
-  assert.equal(score("validFamily", { tables: [] }).ok, false, "a missing family passed");
+test("validPlan — a plan the page generator can actually be handed", () => {
+  // WAS `validFamily`, which asked whether the designer had named one of a fixed
+  // 100 trades. It answers a PLAN now, and the equivalent structural question is
+  // whether `normalizePlan` keeps it — because a plan it drops means
+  // `directiveFromPlan` returns null and the generator gets the bare brief with
+  // no page list, no shape and no component manifest, silently.
+  const good = { tables: [], purpose: "A barber shop taking bookings", structure: "booking-first",
+                 shape: ["the chair, then the time"],
+                 pages: [{ path: "/", role: "the shop and its chairs" }, { path: "/book", role: "pick a slot" }],
+                 action: ["Book a chair"], components: ["site-chrome", "booking-form"] };
+  assert.equal(score("validPlan", good).ok, true);
+
+  // Each refusal separately, or one shared cause could be satisfying all three.
+  assert.equal(score("validPlan", { ...good, purpose: "  " }).ok, false, "a plan with no purpose passed");
+  assert.equal(score("validPlan", { ...good, pages: [{ path: "NOT A PATH", role: "x" }] }).ok, false,
+    "a plan with no usable page passed");
+  assert.equal(score("validPlan", { ...good, components: [] }).ok, false, "a plan naming no components passed");
+  assert.equal(score("validPlan", { tables: [] }).ok, false, "an answer with no plan at all passed");
+
+  // The REASON discriminates, or the report says "no purpose" about a plan whose
+  // purpose is fine — which is the whole failure `emptyReason` exists to prevent
+  // one function up.
+  assert.match(score("validPlan", { ...good, purpose: "" }).why, /purpose/);
+  assert.match(score("validPlan", { ...good, pages: [] }).why, /page/);
+  assert.match(score("validPlan", { ...good, components: [] }).why, /component/);
 });
 
 test("tablesSurvive — catches a table the normaliser silently drops", () => {

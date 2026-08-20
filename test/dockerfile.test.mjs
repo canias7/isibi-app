@@ -359,9 +359,31 @@ test("the shared site server is the one copy, and it renders rather than looking
   assert.ok(!/\[\s*["']index\.html["']\s*\]/.test(lib), "the shared server fell back to a shell of its own");
   assert.match(lib, /loadSiteServer/, "the shared server no longer loads a built server at all");
   // And every harness that stands a site up uses it.
+  //
+  // A PROPERTY NOW, NOT A COUNT. This read `users.length >= 4` — a census of the
+  // harnesses that happened to exist the day it was written — so deleting
+  // `family-apps.mjs` with the families turned it red while every remaining
+  // harness was doing exactly the right thing. A test about how many files there
+  // are, failing a change that was correct: this repo's most repeated own-goal.
+  //
+  // What it protects is that nobody hand-rolls a second one, so that is what is
+  // asserted: a harness naming the SSR bundle or the loader must go through the
+  // shared server. `contrast-cases.mjs` runs its own `createServer` and is not a
+  // counter-example — it serves a static page with no built site anywhere near
+  // it, which is why it names neither.
   const dir = new URL("./integration/", import.meta.url).pathname;
-  const users = fs.readdirSync(dir).filter((f) => f.endsWith(".mjs"))
-    .filter((f) => /serveSite\(/.test(fs.readFileSync(path.join(dir, f), "utf8")));
-  assert.ok(users.length >= 4,
-    "only " + users.length + " harnesses use the shared server — one has grown its own again: " + users.join(", "));
+  const files = fs.readdirSync(dir).filter((f) => f.endsWith(".mjs"));
+  const users = [];
+  for (const f of files) {
+    const src = fs.readFileSync(path.join(dir, f), "utf8");
+    const shared = /serveSite\(/.test(src);
+    if (shared) users.push(f);
+    if (/loadSiteServer|dist-ssr/.test(src) && !shared) {
+      assert.fail(f + " loads a built site server without going through serveSite() — a second copy");
+    }
+  }
+  // The floor is what stops the sweep passing vacuously: a scan that silently
+  // stopped matching would report a clean directory and prove nothing.
+  assert.ok(users.length >= 3,
+    "only " + users.length + " harnesses use the shared server, so the scan is not seeing them: " + users.join(", "));
 });

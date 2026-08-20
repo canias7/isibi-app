@@ -19,6 +19,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { dirFor, RTL_SCRIPTS, RTL_LANGS, normalizeLang } from "../builder/site-identity.mjs";
+import { CORPUS_DIR } from "./fixtures/corpus.mjs";
 
 const ROOT = path.join(import.meta.dirname, "..");
 const TPL = path.join(ROOT, "builder/lovable/template");
@@ -190,7 +191,7 @@ function physicalIn(dirs) {
 test("the kit, the exemplars and the reference pages carry no physical side", () => {
   const dirs = [
     path.join(TPL, "src/components/ui"),
-    path.join(TPL, "src/family-pages"),
+    CORPUS_DIR,
     path.join(TPL, "src/routes"),
     path.join(TPL, "src/lib"),
   ];

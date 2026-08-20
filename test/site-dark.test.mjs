@@ -27,6 +27,7 @@ import { normalizeMode } from "../builder/site-identity.mjs";
 import { themeCss } from "../builder/site-theme.mjs";
 import { resolveTheme, THEME_SHORTLIST } from "../builder/site-theme-registry.mjs";
 import { EDIT_FIELDS } from "../builder/site-edit.mjs";
+import { PLAN_KEYS } from "../builder/site-plan.mjs";
 
 const read = (p) => fs.readFileSync(new URL(p, import.meta.url), "utf8");
 const worker = read("../worker.js");
@@ -165,11 +166,19 @@ test("A REVISE THAT DOES NOT MENTION IT KEEPS IT", () => {
   // `look.mode` is permanently undefined, and every revise of a dark site
   // publishes it light.
   assert.ok(EDIT_FIELDS.includes("mode"), EDIT_FIELDS.join(","));
-  // AND IT IS NOT A LAYOUT DECISION. The look lane escalates `family` and
-  // `structure` to a full page rewrite because the container never sees them;
-  // it DOES see this one, so escalating would spend ~27 credits to reach the
-  // same recompile.
-  assert.match(worker, /const needsPages = moved\.filter\(\(k\) => k === "family" \|\| k === "structure"\)/);
+  // AND IT IS NOT A LAYOUT DECISION. The look lane escalates the authored plan
+  // to a full page rewrite because the container never sees it; it DOES see
+  // this one, so escalating would spend ~27 credits to reach the same recompile.
+  //
+  // ASSERTED AS THE PROPERTY, not the spelling. This pinned the exact
+  // expression `k === "family" || k === "structure"` and went red the day that
+  // filter was correctly derived from `PLAN_KEYS` — a test about word order
+  // failing a change that was right, which this repo keeps recording. What it
+  // protects is that `mode` is NOT in the escalating set.
+  assert.ok(!PLAN_KEYS.includes("mode"), "mode became a plan field — a dark request would now buy a page rewrite");
+  const filt = worker.slice(worker.indexOf("const needsPages = moved.filter("));
+  assert.ok(filt, "the needs-pages filter is gone — this assertion cannot hold vacuously");
+  assert.ok(!/"mode"/.test(filt.slice(0, 120)), "the look lane escalates a dark request: " + filt.slice(0, 120));
 });
 
 test("the designer can name it, from a closed set", () => {

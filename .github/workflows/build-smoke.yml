@@ -92,25 +92,24 @@ jobs:
       - name: build smoke
         env:
           SMOKE_BASE_URL: ${{ inputs.base_url || 'https://gofarther.dev' }}
-          # THE NO-FAMILY EXPERIMENT RAN 2026-08-19 AND ITS ENV IS REVERTED.
-          # Kept as a note rather than a commented-out block, because a
-          # commented-out `SMOKE_NO_FAMILY: "1"` is one uncomment away from
-          # spending a paid build on a question already answered.
+          # THE NO-FAMILY EXPERIMENT RAN 2026-08-19 AND ITS SWITCH IS NOW GONE
+          # ENTIRELY, because what it tested is what every build does.
           #
-          # `SMOKE_NO_FAMILY=1` builds with no layout family, so the model
-          # decides the page set, the section order, the primary action and the
-          # components from the brief alone — the kit, the four cached reference
-          # pages, the theme and the schema all unchanged. Two builds ran and
-          # NEITHER compiled, against a documented ~19/21 with families. Both
-          # failed by INVENTING A KIT API, not by laying a page out badly: one
-          # asked `localBusinessJsonLd` for an `email` it did not take, the
-          # other imported `Hero` from `hero-split`. So the measurement is n=2
-          # and half of it was our fault — the prompt's own reference pages
-          # import ten modules the shortlist told the model not to use.
+          # `SMOKE_NO_FAMILY=1` built with no layout family, so the model decided
+          # the page set, the section order, the primary action and the
+          # components from the brief alone. Two builds ran and NEITHER
+          # compiled, against a documented ~19/21 with families — but both
+          # failed by INVENTING A KIT API rather than by laying a page out
+          # badly: one asked `localBusinessJsonLd` for an `email` it did not
+          # take, the other imported `Hero` from `hero-split`. So the
+          # measurement was n=2 and half of it was our fault — the prompt's own
+          # reference pages imported ten modules the shortlist told the model
+          # not to use. Both of those were fixed; the families were deleted on
+          # 2026-08-20 and the designer authors a plan per site instead.
           #
-          # Pair it with `SMOKE_SKIP_JOURNEY=1` (one build, no revise, no edit
-          # lanes) and `SMOKE_KEEP_SITE=1` (the site is left standing to be
-          # looked at). A kept site is a live Neon project, so delete it when
+          # `SMOKE_SKIP_JOURNEY=1` (one build, no revise, no edit lanes) and
+          # `SMOKE_KEEP_SITE=1` (the site is left standing to be looked at) are
+          # still here. A kept site is a live Neon project, so delete it when
           # the question is answered.
           #
           # SMOKE_BRIEF overrides the brief in build-smoke.mjs. Left unset

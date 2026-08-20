@@ -231,7 +231,11 @@ test("every SMOKE_ switch reads process.env, not the Neon-only `env`", () => {
   // THE FLOOR, so a scan that stopped matching cannot report a clean file.
   const good = [...src.matchAll(/process\.env\.(SMOKE_[A-Z_]+)/g)].map((m) => m[1]);
   assert.ok(good.length >= 6, `only found ${good.length} SMOKE_ reads — the scan is broken`);
-  for (const n of ["SMOKE_EMAIL", "SMOKE_NO_FAMILY", "SMOKE_KEEP_SITE"]) {
+  // NAMED SWITCHES, so a scan that matched six other things still proves these
+  // three specifically are read the right way. `SMOKE_NO_FAMILY` stood here and
+  // was removed with the families on 2026-08-20 — its whole job was suppressing
+  // a layout family, and there are none.
+  for (const n of ["SMOKE_EMAIL", "SMOKE_KEEP_SITE", "SMOKE_SKIP_JOURNEY"]) {
     assert.ok(good.includes(n), `${n} is no longer read from process.env`);
   }
 });

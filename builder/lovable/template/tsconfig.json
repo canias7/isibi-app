@@ -22,7 +22,16 @@
   // day inside a customer's build, looking like the model's fault. So the check
   // did not go away, it MOVED — `tsconfig.kit.json` typechecks all 500 and runs
   // in the test suite, once, instead of on every site build.
-  "exclude": ["src/components/charts", "src/components/ui", "src/family-pages"],
+  //
+  // `src/family-pages` WAS A THIRD ENTRY AND IS GONE WITH THE DIRECTORY.
+  // Those 324 pages were the per-trade reference apps; they stopped
+  // reaching the model when the families went (2026-08-20) and are now
+  // test data, so they live at `test/fixtures/corpus/` instead. Out of the
+  // template they cost a build nothing: `builder/Dockerfile` does
+  // `COPY lovable/template/ ./`, so while they sat here they shipped 3.4 MB
+  // into every build container image, excluded from this check, imported by
+  // no page and typechecked by nothing at all once their own harness went.
+  "exclude": ["src/components/charts", "src/components/ui"],
   "compilerOptions": {
     "target": "ES2022",
     "jsx": "react-jsx",

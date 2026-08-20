@@ -17,10 +17,8 @@ import { COMPONENT_API, COMPONENT_TYPES, COMPONENT_TYPE_NAMES } from "./componen
 // The chart half, generated from src/components/charts/lib by
 // builder/gen-chart-api.mjs and kept in step by test/chart-api.test.mjs.
 import { CHART_COMPONENTS, CHART_API } from "./chart-api.mjs";
-import { FAMILIES, layoutDirective } from "./site-layouts.mjs";
 import { directiveFromPlan, KIT_PALETTE } from "./site-plan.mjs";
 import { imageDirective } from "./site-images.mjs";
-import { FAMILY_EXEMPLARS } from "./family-exemplars.mjs";
 import { modelsFor } from "./build-models.mjs";
 // The ONE reading of a page file's URL, shared with the addon lane, the
 // container's prerender and the published route manifest. This file kept a
@@ -3421,17 +3419,23 @@ export function briefForPages({ brief, priorBrief } = {}) {
  * eval and every other caller that has no budget to state then sends exactly the
  * request it sent before this existed.
  */
-export function briefWithLayout({ brief, plan, family, structure, images } = {}) {
-  // THE AUTHORED PLAN WINS, AND THE FAMILY IS THE FALLBACK FOR SITES OLDER THAN
-  // IT (2026-08-20). `family` left `design_schema` when the six authored fields
-  // replaced it, so nothing sets one any more — but every site built before that
-  // has one stored in `_meta`, and a revise of one must not silently lose its
-  // layout. `directiveFromPlan` answers null for anything it cannot compose, so
-  // the two are tried in order rather than chosen between: a half-written plan
-  // falls through to the family exactly as a missing one does.
-  const directive =
-    directiveFromPlan(plan) ||
-    (family ? layoutDirective(family, structure ? { structure } : {}) : null);
+export function briefWithLayout({ brief, plan, images } = {}) {
+  // THE AUTHORED PLAN IS THE ONLY SOURCE NOW. It briefly fell back to
+  // `layoutDirective(family)` for sites built before 2026-08-20; the family
+  // table went the same day, so there is nothing to fall back TO.
+  //
+  // WHAT THAT COSTS, AND WHY IT IS ACCEPTABLE: a site with a stored family and
+  // no plan revises with no layout directive. On a revise that is a much smaller
+  // loss than it sounds — `priorPagesBlock` sends the site's OWN page source and
+  // `EDIT_RULE` tells the model to return every page byte-identical except where
+  // the change was asked for, so the real layout is the pages themselves. A
+  // FIRST build always has a plan, because the six fields are required.
+  //
+  // `family` AND `structure` USED TO BE TAKEN HERE AND ARE GONE. They were kept
+  // for a while as unread parameters "so every caller keeps compiling", which
+  // is how a dead argument reads as a live one — `structure` reaches the model
+  // through the plan, and nothing ever read `family` again.
+  const directive = directiveFromPlan(plan);
   const parts = [String(brief ?? "")];
   if (directive) parts.push(directive);
   // THIS SITE'S OWN COMPONENT SIGNATURES, for the reason the layout directive
@@ -3450,46 +3454,30 @@ export function briefWithLayout({ brief, plan, family, structure, images } = {})
   return parts.join("\n\n");
 }
 
-/**
- * The reference home page for a family, as a worked example — or null.
+/* THE PER-TRADE EXEMPLAR IS GONE (owner's call, 2026-08-20).
  *
- * THE MODEL HAD NEVER SEEN ONE UNTIL 2026-08-04. `src/family-pages` was read by
- * test files and by nothing on the model path, and PAGE_RULES never mentioned
- * it, so the 100 best pages in this repo were on disk, typechecked, rendered,
- * guarded — and reachable by nothing. The same shape as the 27 blocks and the
- * 196 examples, both deleted for exactly that. These are wired instead, because
- * unlike a block they are what a good site of that trade actually looks like.
+ * `familyExemplar(family)` returned one of 100 complete, compiling home pages —
+ * the reference app for that trade — as a worked example in the user turn. It
+ * was the single most valuable thing in the prompt for a while: a model copies a
+ * working page far more reliably than it follows a paragraph.
  *
- * IN THE USER TURN, NEVER THE SYSTEM BLOCK. A cache entry is keyed on the bytes,
- * so an exemplar that varies per family would make the cached prefix differ every
- * build and never hit: $0.0082 a build becomes $0.1019, thirteen times, measured.
- * Here it is ~2,300 tokens of fresh input, about $0.007 — 4% of what a build's
- * output costs.
+ * It went with the families, deliberately and not as collateral. Keyed on the
+ * trade NAME, it had no key left the moment the designer stopped naming trades;
+ * and the obvious rescue — re-key eight of them on `structure` — is the thing
+ * being eliminated wearing a different costume. Worse, it inverts what made the
+ * exemplar safe: matched by trade, a salon brief got the salon page and copying
+ * its CONTENT was correct. Matched by skeleton, a dentist gets shown a
+ * restaurant, and the one thing a model reliably does with a worked example is
+ * copy it.
  *
- * It does NOT replace the barber page in PAGE_RULES. They answer different
- * questions: that one is how to CALL the API and is identical on every build,
- * which is what makes it nearly free; this one is what this TRADE looks like.
+ * WHAT REPLACES IT is the layout directive `site-plan.mjs` composes — what
+ * leads, what the body runs through, the failure this kind of site has, the page
+ * set, the verb — written for THIS site rather than looked up for a trade.
+ *
+ * The four REFERENCE_PAGES above are NOT this and stay: they teach how to CALL
+ * the API, are identical on every build, and ride in the cached block.
  */
-export function familyExemplar(family) {
-  // AND SINCE 2026-08-20 THIS ANSWERS NULL FOR EVERY NEW SITE, which is a real
-  // loss and is recorded here rather than left to be discovered. `family` left
-  // `design_schema` when the six authored plan fields replaced it, so nothing
-  // sets one any more — and this is keyed on the family NAME, so with no trade
-  // to match on there is no exemplar to select. A new build carries the layout
-  // directive (composed from the authored plan) and no worked example; a revise
-  // of a site built before that date still has its stored family and still gets
-  // one.
-  //
-  // THE OPEN QUESTION, stated so it is a decision rather than an oversight: the
-  // 100 exemplars are still on disk and still typechecked, and the obvious
-  // replacement key is `structure` — eight worked examples instead of a hundred,
-  // selected by the skeleton the designer picked. Not done here because choosing
-  // which page best represents each of the eight is a judgement call, and
-  // shipping the wrong eight is worse than shipping none: this file already
-  // records that a worked example is what the model copies.
-  const src = family ? FAMILY_EXEMPLARS[family] : null;
-  return src || null;
-}
+
 
 /**
  * `attachCount` is what the user ATTACHED, and it defaults to none so every
@@ -3621,35 +3609,31 @@ export function priorPagesBlock(pages, mode = "revise", target = "") {
     list.map((p) => "--- " + p.path + " ---\n" + p.source).join("\n\n");
 }
 
-export function pagesPrompt(brief, spec, brand, family, attachCount = 0, priorPages = null, mode = "revise", target = "") {
+export function pagesPrompt(brief, spec, brand, attachCount = 0, priorPages = null, mode = "revise", target = "") {
   const name = String(brand || "").trim();
-  const example = familyExemplar(family);
   const n = Math.max(0, Math.floor(Number(attachCount) || 0));
   return "Build the pages for this site.\n\nBRIEF\n" + String(brief || "").trim() +
     (name ? "\n\nTHE SITE IS CALLED\n" + name + " \u2014 use it as the heading; it is already the page title." : "") +
     "\n\nTHE SCHEMA THAT EXISTS\n" + schemaDigest(spec) +
-    // BEFORE the trade exemplar and saying so, because the two are both
-    // "references" and they can disagree. What the customer attached is about
-    // THEIR business; the exemplar is a generic shape for the trade. When they
-    // conflict the attachment wins, or the feature is decorative.
+    // ONE CLAUSE NOW, and dropping the second one was forced rather than chosen.
+    // It read "where they and the trade example below disagree, the attachment
+    // wins" \u2014 arbitrating between two references, which was the whole reason
+    // it earned its place in the first sweep that tested it. The trade exemplars
+    // are gone, so that sentence pointed at a section of the prompt that no
+    // longer exists: worse than no rule, because the model has to work out what
+    // it refers to.
+    //
+    // Deliberately NOT re-pointed at the PLAN. The plan is a DECISION \u2014 which
+    // pages, which components, how many pictures \u2014 and the image budget is
+    // derived from it before the model is called, so "the attachment wins" there
+    // invites ignoring a page list the build has already been costed against.
+    // This note has shrunk twice; guidance creeps back one sentence at a time.
     (n
-      ? "\n\nWHAT THE USER ATTACHED\n" + n + " file" + (n === 1 ? "" : "s") + ", above this text, part of what they are asking " +
-        "for. Where " + (n === 1 ? "it" : "they") + " and the trade example below disagree, the attachment wins."
+      ? "\n\nWHAT THE USER ATTACHED\n" + n + " file" + (n === 1 ? "" : "s") + ", above this text, part of what they are asking for."
       : "") +
-    // AFTER the schema, deliberately: the schema is a constraint the page must
-    // obey and the example is a shape to follow, and an example read first
-    // invites copying its tables. Framed as a DIFFERENT site of the same trade,
-    // or the model reproduces its content — the failure the deleted examples
-    // tier actually shipped, with a real customer's page reading "Our flagship
-    // product combines cutting-edge technology with sleek design."
-    (example
-      ? "\n\nA SITE OF THIS TRADE, DONE WELL\nThis is a DIFFERENT business, and it compiles today. Copy its SHAPE — " +
-        "what leads, what the sections are and in what order, how dense the real pages are, how specific the " +
-        "writing is. Copy none of its words, its prices, its names or its tables; this site has its own schema " +
-        "above and its own brief.\n\n" + example
-      : "") +
-    // LAST, so the model reads the shape-to-copy first and the site-to-edit
-    // second. Empty on a first build, so nothing about that path changes.
+    // LAST, so the model reads the brief and the schema first and the
+    // site-to-edit second. Empty on a first build, so nothing about that path
+    // changes.
     priorPagesBlock(priorPages, mode, target);
 }
 
@@ -4632,7 +4616,7 @@ export const SITE_PAGES_MAX_TOKENS = 30000;
  * the next call pays the write premium again. That is once per deploy that
  * touches the rules, against a saving on every build in between.
  */
-export function pagesRequest({ brief, spec, brand, family, attachments, model, priorPages, mode = "revise", target = "" } = {}) {
+export function pagesRequest({ brief, spec, brand, attachments, model, priorPages, mode = "revise", target = "" } = {}) {
   // THE ATTACHED FILES \u2014 images and PDFs \u2014 and where they sit is load-bearing
   // twice over.
   //
@@ -4651,7 +4635,7 @@ export function pagesRequest({ brief, spec, brand, family, attachments, model, p
   // caller and test already sees, so adding this feature changes no request that
   // does not use it.
   const blocks = Array.isArray(attachments) ? attachments.filter(Boolean) : [];
-  const text = pagesPrompt(brief, spec, brand, family, blocks.length, priorPages, mode, target);
+  const text = pagesPrompt(brief, spec, brand, blocks.length, priorPages, mode, target);
   return {
     // The composer's Builder picker chooses this; `modelsFor()` with no
     // argument is the default pair, which is what the eval harness and every

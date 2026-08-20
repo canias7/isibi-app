@@ -27,7 +27,6 @@
 // the caller's half; this module decides what to ask for and what to do with the
 // answer.
 
-import { FAMILIES } from "./site-layouts.mjs";
 
 /* ------------------------------------------------------------ the budget */
 
@@ -76,75 +75,24 @@ export function componentsAreContent(components) {
   return Array.isArray(components) && components.some((c) => PICTURE_LED.has(c));
 }
 
-/** Does this family treat pictures as content rather than as decoration? */
-export function picturesAreContent(family) {
-  const f = FAMILIES[family];
-  if (!f) return false;
-  return componentsAreContent(f.components);
-}
-
-/**
- * How many photographs a single page of this family should get.
+/* THE FAMILY-KEYED IMAGE BUDGET IS GONE (2026-08-20).
  *
- * THE "TYPE OF PAGE" RULE, in three lines, first match wins:
+ * `picturesAreContent(family)`, `imagesForPage(family, page)` and
+ * `imageBudget(family)` derived a site's photograph allowance from the family
+ * table's own page set and component list. That table went with the families,
+ * and `planBudget` below applies the SAME three rules — terminal gets none, the
+ * home page gets two where the structure is built around an opening image and
+ * one otherwise, any other page gets one only where the components say pictures
+ * are the content — over the plan the designer wrote for THIS site.
  *
- *  - a `terminal` family gets NONE, anywhere. LAYOUTS.md's own words for that
- *    structure are "no imagery, no decoration" — a photograph on one is not a
- *    thin version of the design, it is the wrong design.
- *  - the HOME page gets the opening image: two where the structure is built
- *    around one, one everywhere else. Every non-terminal business site wants a
- *    picture at the top; this is the cheapest non-zero answer that is true.
- *  - any other page gets one ONLY where pictures are the content. A booking
- *    form, a pricing table and a docs page are all better with nothing, and
- *    they are most of the pages this platform writes.
- *
- * An ALTERNATIVE home (`alt: true`) counts for nothing: only one of index and
- * its alternatives is ever built, so counting both budgets for a page that will
- * not exist.
- *
- * A page may override the answer with its own `img`, and it is there because the
- * derivation has a known blind spot: it reads the FAMILY's component list, so a
- * family whose list names no gallery gets nothing on a page that is one.
- * `salon/work` is the case that proved it — "a gallery of finished sets, because
- * nails are a visual trade" — while salon's components are all booking widgets.
- * The override is NOT a general escape hatch to be filled in everywhere: 324
- * page entries hand-annotated is 324 judgements that go stale the first time a
- * family moves, which is what the derivation exists to avoid. It is for the
- * pages where the family's own declarations point the wrong way.
- *
- * Reading the ROLE TEXT was tried instead and rejected on measurement: scanning
- * 324 roles for picture words finds 12, and four of those are false — a quote
- * form where the VISITOR sends photographs, a page that "answers plainly", a
- * visit you "book a look round" for. A rule wrong on a third of its hits is
- * worse than one that is merely narrow.
+ * TWO THINGS FELL AWAY CLEANLY RATHER THAN NEEDING A REPLACEMENT. `alt` was an
+ * alternative home page, a property of a REFERENCE app so one family could ship
+ * two designs; a generated site has never had one. And the per-page `img`
+ * override existed for a stated blind spot — the derivation read the FAMILY's
+ * component list, so `salon/work` was a gallery on a family whose components are
+ * all booking widgets — which is precisely the question the designer now answers
+ * directly, per site, having written the page list first.
  */
-export function imagesForPage(family, page) {
-  const f = FAMILIES[family];
-  if (!f || !page) return 0;
-  if (f.structure === "terminal") return 0;
-  if (page.alt) return 0;
-  // Clamped, not trusted: a typo in a page entry must not be able to spend the
-  // whole cap on one page, and a negative must not subtract from another's.
-  if (Number.isFinite(page.img)) return Math.max(0, Math.min(IMAGE_CAP, Math.floor(page.img)));
-  if (page.file === "index") return HERO_LED.has(f.structure) ? 2 : 1;
-  return picturesAreContent(family) ? 1 : 0;
-}
-
-/**
- * What this site is allowed to spend on pictures, before money is considered.
- *
- * The sum of the per-page rule over the family's OWN page set, capped. An
- * unknown family gets 1 rather than 0 — a build with no family still has a home
- * page, and answering "no pictures" for a site we simply cannot classify would
- * make the fallback path look like a deliberate design choice.
- */
-export function imageBudget(family, { cap = IMAGE_CAP } = {}) {
-  const lim = Math.max(0, Math.min(IMAGE_CAP, Math.floor(Number(cap))) || 0);
-  const f = FAMILIES[family];
-  if (!f) return Math.min(1, lim);
-  const n = (f.pages || []).reduce((sum, p) => sum + imagesForPage(family, p), 0);
-  return Math.min(n, lim);
-}
 
 /**
  * Does this site ALREADY show photographs it paid for?
@@ -193,16 +141,24 @@ export function hasBoughtPhotos(pages, slug) {
  * budget, a revise of a site that already shows photographs gets nothing, and a
  * revise of a site that has none is treated as the first build it never got.
  */
-export function budgetFor(family, { revise, priorPages, slug, plan } = {}) {
+export function budgetFor({ revise, priorPages, slug, plan } = {}) {
   if (revise && hasBoughtPhotos(priorPages, slug)) return 0;
-  // THE AUTHORED PLAN WINS AND THE FAMILY IS THE FALLBACK, the same order
-  // `briefWithLayout` uses and for the same reason: nothing sets a family any
-  // more, but every site built before 2026-08-20 has one stored. `planBudget`
-  // answers null rather than 0 for a plan it cannot read, so an unusable plan
-  // falls through to the family instead of silently costing the site its
-  // pictures — a 0 here and a "no opinion" here are different answers.
+  // THE PLAN IS THE ONLY SOURCE NOW. It briefly fell back to `imageBudget(family)`
+  // for sites built before 2026-08-20; the family table went the same day.
+  //
+  // A PLAN WE CANNOT READ GETS ONE PICTURE, not zero, and the distinction is the
+  // one `planBudget` returns null to preserve. Zero is a real budget — it is what
+  // `terminal` gets — so answering it for "I cannot read this" would make an
+  // unreadable plan indistinguishable from a deliberate choice to have none, and
+  // would silently suppress photographs on every site with a stored family and no
+  // plan. One is the same answer the old unknown-family path gave, for the same
+  // reason: a site we cannot classify still has a home page.
+  //
+  // THE LEADING `family` ARGUMENT IS GONE. It was kept for a while as an unread
+  // first parameter "so every caller keeps compiling", which is how a dead
+  // argument reads as a live one — every decision here comes from the plan.
   const fromPlan = planBudget(plan);
-  return fromPlan == null ? imageBudget(family) : fromPlan;
+  return fromPlan == null ? Math.min(1, IMAGE_CAP) : fromPlan;
 }
 
 /**

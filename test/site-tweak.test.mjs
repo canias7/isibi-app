@@ -18,6 +18,7 @@ import {
 // offsets, so the negative case covers every page rather than the fifth that
 // happen to carry a long quoted string.
 import { extractText } from "../builder/site-text.mjs";
+import { CORPUS_DIR } from "./fixtures/corpus.mjs";
 
 const read = (p) => fs.readFileSync(new URL(p, import.meta.url), "utf8");
 const PAGE = read("../builder/lovable/template/src/routes/index.tsx");
@@ -69,8 +70,7 @@ test("…and the corpus says it does not cry wolf", () => {
       else if (p.endsWith(".tsx")) files.push(p);
     }
   };
-  for (const d of ["family-pages", "routes"]) {
-    const abs = path.join(root.pathname, d);
+  for (const abs of [CORPUS_DIR, path.join(root.pathname, "routes")]) {
     if (fs.existsSync(abs)) walk(abs);
   }
   assert.ok(files.length >= 300, "only " + files.length + " corpus pages found — the sweep broke");

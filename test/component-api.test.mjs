@@ -12,6 +12,7 @@ import path from "node:path";
 import { build, render, extract } from "../builder/gen-component-api.mjs";
 import { COMPONENT_API, COMPONENT_TYPES } from "../builder/component-api.mjs";
 import { importedComponentApi, repairPrompt, pagesPrompt, UI_COMPONENTS } from "../builder/page-gen.mjs";
+import { CORPUS_DIR } from "./fixtures/corpus.mjs";
 
 const UI_DIR = "builder/lovable/template/src/components/ui";
 
@@ -432,7 +433,7 @@ test("a hard-coded legend never states something false about the caller", () => 
 
   // And the premise: these two only matter while something actually overrides
   // them. A prop nothing passes is a prop that can be quietly broken.
-  const PAGES = path.join(import.meta.dirname, "../builder/lovable/template/src/family-pages");
+  const PAGES = CORPUS_DIR;
   const pages = fs.readdirSync(PAGES, { recursive: true })
     .filter((f) => String(f).endsWith(".tsx"))
     .map((f) => fs.readFileSync(path.join(PAGES, String(f)), "utf8"));
@@ -467,7 +468,7 @@ test("a grid inside a narrow parent is the CALLER's decision, not the viewport's
 
   // The premise: something actually passes it. A prop nothing uses is a prop
   // that gets quietly broken, and both the pages that found this are narrow.
-  const PAGES = path.join(import.meta.dirname, "../builder/lovable/template/src/family-pages");
+  const PAGES = CORPUS_DIR;
   const used = fs.readdirSync(PAGES, { recursive: true })
     .filter((f) => String(f).endsWith(".tsx"))
     .map((f) => fs.readFileSync(path.join(PAGES, String(f)), "utf8"))
@@ -759,7 +760,7 @@ test("text drawn inside a ring is bounded by the ring, not by hope", () => {
   // matter. A guard over geometry nothing exercises is a guard over nothing.
   // The premise, alive again: personal-brand's campaign alt page raises a gauge
   // over £100,000, which is where the overflow this guards actually occurs.
-  const PAGES_ROOT = path.join(import.meta.dirname, "../builder/lovable/template/src/family-pages");
+  const PAGES_ROOT = CORPUS_DIR;
   const famSrc = fs.readdirSync(PAGES_ROOT, { recursive: true })
     .filter((f) => String(f).endsWith(".tsx"))
     .map((f) => fs.readFileSync(path.join(PAGES_ROOT, String(f)), "utf8"));
@@ -888,7 +889,7 @@ test("a block in a lane truncates, and the lane can be told how tall to be", () 
   // The premise: a caller with labels tall enough for any of this to matter.
   // The premise, alive again: salon's class-schedule alt page is the timetable
   // whose four-line labels needed the taller lane in the first place.
-  const PAGES_ROOT = path.join(import.meta.dirname, "../builder/lovable/template/src/family-pages");
+  const PAGES_ROOT = CORPUS_DIR;
   const famSrc = fs.readdirSync(PAGES_ROOT, { recursive: true })
     .filter((f) => String(f).endsWith(".tsx"))
     .map((f) => fs.readFileSync(path.join(PAGES_ROOT, String(f)), "utf8"));

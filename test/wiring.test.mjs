@@ -17,11 +17,11 @@ import path from "node:path";
 import os from "node:os";
 
 import { THEME_IDS, THEME_SHORTLIST, ALL_THEMES, resolveTheme } from "../builder/site-theme-registry.mjs";
-import { budgetFor, imageBudget } from "../builder/site-images.mjs";
+import { budgetFor } from "../builder/site-images.mjs";
 import { mergeLook, movedFields, hasValue, EDIT_RULE, currentStateNote } from "../builder/site-edit.mjs";
 import { themeCss, THEMES } from "../builder/site-theme.mjs";
 import { briefWithLayout } from "../builder/page-gen.mjs";
-import { FAMILY_NAMES, READY_FAMILIES, STRUCTURE_NAMES, STRUCTURES, layoutDirective, familiesForPrompt, structuresForPrompt, FAMILIES } from "../builder/site-layouts.mjs";
+import { STRUCTURE_NAMES, STRUCTURES } from "../builder/site-layouts.mjs";
 import { UI_COMPONENTS, ALWAYS_API_CORE, PAGE_RULES, schemaDigest, lintPages } from "../builder/page-gen.mjs";
 import { PLAN_FIELDS, PLAN_KEYS, PLAN_REQUIRED, KIT_PALETTE, directiveFromPlan } from "../builder/site-plan.mjs";
 
@@ -175,21 +175,22 @@ test("the chosen theme reaches the container, by name", () => {
   assert.match(worker, /async function buildAndPublishPages\(env, \{[^}]*\btheme\b[^}]*\}\)/);
 });
 
-test("the chosen family reaches the PAGE prompt as a directive, not a name", () => {
-  // THIRD TIME THIS WENT RED FOR A CORRECT CHANGE — twice for the variant axis
-  // arriving and leaving, now for the composition moving into page-gen.mjs so
-  // the eval could reach it. Its own comment already called that the sign of an
-  // assertion pinned too tightly, and matching a looser regex was not enough:
-  // the fix is to stop asserting WHERE it happens.
-  //
-  // What must be true: the worker hands BOTH axes to the shared composer, and
-  // that composer really does turn them into a directive. The second half is
-  // behavioural, so it holds wherever the code lives.
-  assert.match(worker, /briefWithLayout\(\{[^}]*\bfamily\b[^}]*\bstructure\b[^}]*\}\)/s,
-    "the worker no longer passes the family and its structure to the composer");
-  const out = briefWithLayout({ brief: "a shop", family: "store", structure: "card-grid" });
+test("the PLAN reaches the PAGE prompt as a directive, not as fields", () => {
+  // FOURTH TIME THIS WENT RED FOR A CORRECT CHANGE — twice for the variant axis
+  // arriving and leaving, once for the composition moving into page-gen.mjs, and
+  // now for the family it named being replaced by the authored plan. Its own
+  // comment already called that the sign of an assertion pinned too tightly, so
+  // it asserts the PROPERTY: the worker hands the plan to the shared composer,
+  // and that composer really does turn it into a directive.
+  const call = worker.match(/briefWithLayout\(\{([^}]*)\}\)/s);
+  assert.ok(call, "the worker no longer composes the brief through the shared function");
+  assert.match(call[1], /\bplan\b/, "the worker no longer passes the authored plan to the composer");
+  const out = briefWithLayout({ brief: "a shop", plan: {
+    purpose: "browsing the stock IS the page", structure: "card-grid",
+    pages: [{ path: "/", role: "the shop" }],
+  } });
   assert.match(out, /^a shop\n\n/, "the brief must still lead");
-  assert.match(out, /LAYOUT — /, "the family must arrive as a directive, not a name");
+  assert.match(out, /LAYOUT — /, "the plan must arrive as a directive, not as fields");
   assert.ok(out.includes(STRUCTURES["card-grid"].text), "the structure must ride with it");
 });
 
@@ -197,7 +198,7 @@ test("a null directive is never interpolated into the brief", () => {
   // layoutDirective answers null for an unknown family or structure, and the
   // unguarded form appends the literal word "null" and LOSES the layout.
   // Asserted behaviourally rather than by matching the guard's spelling.
-  assert.equal(layoutDirective("store", { structure: "nope" }), null, "the null case moved");
+  assert.equal(directiveFromPlan({ purpose: "p", pages: [] }), null, "the null case moved");
   for (const args of [
     { brief: "a shop" },
     { brief: "a shop", family: "not-a-family" },
@@ -236,23 +237,22 @@ test("the structure reaches the route, and the model is told what each one is", 
     "a structure named on the request body no longer reaches the build");
   assert.equal(mergeLook({ structure: "sidebar" }, { structure: "bento" }, null).structure, "sidebar",
     "an uninstructed designer overrides the stored structure again");
-  assert.match(worker, /structure: look\.structure,/, "and the resolved value has to reach the build");
-  assert.match(worker, /async function buildAndPublishPages\(env, \{[^}]*\bstructure\b[^}]*\}\)/);
+  // IT REACHES THE BUILD INSIDE THE PLAN NOW, not as a parameter of its own.
+  // `structure` was passed separately for as long as there was a family table to
+  // look it up in; it is one of the six `PLAN_KEYS`, so the route assembles it
+  // out of the merged look with the other five and `directiveFromPlan` prints
+  // the skeleton line. Asserted through the DERIVED assembly rather than by
+  // naming the field, since a seventh axis must be covered without anybody
+  // editing this file.
+  assert.match(worker, /plan: normalizePlan\(Object\.fromEntries\(PLAN_KEYS\.map\(/,
+    "the plan no longer reaches the build assembled from the merged look");
+  assert.ok(PLAN_KEYS.includes("structure"), "structure left the plan, so nothing carries it to the model");
+  assert.match(worker, /async function buildAndPublishPages\(env, \{[^}]*\bplan\b[^}]*\}\)/);
   // DESCRIBED IN THE FIELD ITSELF NOW, not by a `structuresForPrompt()` call in
   // worker.js. Same guarantee, one layer in: a skeleton offered as a bare name
   // is one the model picks between blind.
   for (const st of STRUCTURE_NAMES) {
     assert.ok(PLAN_FIELDS.structure.description.includes(st + " — "), `${st} is offered undescribed`);
-  }
-});
-
-test("omitting the structure keeps the family's own default", () => {
-  // The whole reason it can be optional. If the override leaked in as undefined
-  // and overwrote the default, every site would land on one shape.
-  for (const name of READY_FAMILIES) {
-    const fam = FAMILIES[name];
-    const d = layoutDirective(name, {});
-    assert.ok(d.includes(STRUCTURES[fam.structure].text), `${name} lost its default structure`);
   }
 });
 
@@ -300,36 +300,15 @@ test("every plan field the designer must answer actually TELLS it something", ()
     "the component field no longer says it decides what the page writer can see");
 });
 
-test("the readiness gate is a real filter, not an alias", () => {
-  // THIS ASSERTION USED TO DEMAND AT LEAST ONE NOT-READY FAMILY, on the ground
-  // that with none the gate is never observed doing anything. True, and it made
-  // the guard depend on the repo staying incomplete — it went red the day the
-  // last family landed, which is the one day it should have been celebrating.
-  //
-  // Checking it against VALUES cannot work once every family is ready: an alias
-  // and a filter agree exactly when nothing is filtered out. So it is checked
-  // against the SOURCE instead, which is what stays true either way. Restore a
-  // not-ready family tomorrow and this still holds.
-  const layouts = fs.readFileSync(path.join(ROOT, "builder/site-layouts.mjs"), "utf8");
-  assert.match(layouts, /READY_FAMILIES\s*=\s*FAMILY_NAMES\.filter\(\s*\(\s*\w+\s*\)\s*=>\s*FAMILIES\[\w+\]\.ready\s*\)/,
-    "READY_FAMILIES no longer derives from the ready flag — a not-ready family would be offered to the designer");
-  assert.match(layouts, /function familiesForPrompt\(\)\s*\{\s*return READY_FAMILIES/,
-    "familiesForPrompt no longer reads READY_FAMILIES, so the gate has stopped applying to the prompt");
-  // And the flag has to mean something: a family carrying `wants` is one the
-  // gate exists for, so it may never also be ready.
-  for (const [id, f] of Object.entries(FAMILIES)) {
-    if (f.wants?.length) assert.equal(f.ready, false, `${id} wants components AND is offered to the designer`);
-  }
-});
-
-test("every family the designer may pick produces a real directive", () => {
-  assert.ok(READY_FAMILIES.length >= 26, `only ${READY_FAMILIES.length} ready families`);
-  for (const name of READY_FAMILIES) {
-    const d = layoutDirective(name);
-    assert.ok(typeof d === "string" && d.length > 60, `${name} gives no usable directive`);
-    assert.match(d, /LAYOUT —/, `${name}'s directive is not shaped like one`);
-  }
-});
+/* THE FAMILY TABLE'S OWN GUARDS WENT WITH IT (2026-08-20).
+ *
+ * Three tests stood here: that `READY_FAMILIES` really filtered on the ready
+ * flag rather than aliasing the full list, that every ready family produced a
+ * directive, and that omitting a structure kept the family's own default. All
+ * three were about a lookup table that no longer exists — the designer writes
+ * the skeleton per site and `structure` is required, so there is no default to
+ * keep and no readiness to gate.
+ */
 
 test("the DESIGNER's palette and the always-on core are all real components", () => {
   // THE SHORTLIST THIS REPLACES WAS DERIVED FROM WHAT THE 100 FAMILIES DECLARED,
@@ -411,7 +390,9 @@ test("the build both ASKS for photographs and BUYS them", () => {
   // same number.
   const call = worker.match(/const imgBudget = budgetFor\(([^;]*?)\);/);
   assert.ok(call, "the budget is no longer derived in one place from the family and the site's own history");
-  for (const arg of ["family", "plan", "revise", "priorPages", "slug"]) {
+  // `family` was the leading argument here until the families were deleted; the
+  // plan answers everything this function asks.
+  for (const arg of ["plan", "revise", "priorPages", "slug"]) {
     assert.match(call[1], new RegExp("\\b" + arg + "\\b"), "budgetFor is called without `" + arg + "`");
   }
   const stated = worker.match(/briefWithLayout\(\{([^}]*)\}\)/);
@@ -610,9 +591,13 @@ test("a REVISE buys no new photographs", () => {
   // function, and the wiring is checked separately below.
   const shown = [{ path: "index.tsx", source: '<SafeImage src="/u/cafe/a.jpg" />' }];
   const none = [{ path: "index.tsx", source: "<SafeImage src={row.photo} />" }];
-  assert.equal(budgetFor("marketplace", { revise: true, priorPages: shown, slug: "cafe" }), 0,
+  // THE BUDGET COMES FROM THE PLAN since the family table went; the rule under
+  // test is unchanged and only its input has moved.
+  const plan = { purpose: "the work is the page", structure: "full-bleed-hero",
+    pages: [{ path: "/", role: "the work" }], components: ["gallery"] };
+  assert.equal(budgetFor({ revise: true, priorPages: shown, slug: "cafe", plan }), 0,
     "a revise re-derives a photo budget and re-bills for pictures the owner has");
-  assert.equal(budgetFor("marketplace", { revise: true, priorPages: none, slug: "cafe" }), imageBudget("marketplace"),
+  assert.equal(budgetFor({ revise: true, priorPages: none, slug: "cafe", plan }), 2,
     "a site that never got a photograph can never get one, however often it is rebuilt");
   // …AND THE ROUTE STILL ASKS IT. Matched on the call rather than on its
   // argument list, for the third time in this file: the list grew a `plan` and
@@ -694,10 +679,21 @@ test("a revise keeps the site's stored look instead of re-rolling it", () => {
   // about word order, which is this repo's most repeated own-goal. What has to
   // hold is that each field is SOURCED from the merged look on its way to the
   // build — however the expression is written.
-  for (const k of ["theme", "family", "structure", "fonts"]) {
+  // THE TWO SHAPES, because the plan stopped being passed field by field.
+  // `theme` and `fonts` are still their own parameters and are sourced from the
+  // merged look by name. The six plan axes — `structure` among them — go as ONE
+  // `plan` object assembled from `PLAN_KEYS`, so naming each of them here would
+  // fail on a correct route; what has to hold there is that the assembly reads
+  // `look`, and that it reads it for EVERY key rather than a remembered few.
+  for (const k of ["theme", "fonts"]) {
     assert.ok(new RegExp(k + ":[^,\\n]*\\blook\\." + k + "\\b").test(worker),
       k + " does not reach the build from `look`");
   }
+  assert.match(worker, /plan: normalizePlan\(Object\.fromEntries\(PLAN_KEYS\.map\(\(k\) => \[k, look\[k\]\]\)\)\)/,
+    "the plan is not assembled from the merged look, so a revise re-rolls the layout");
+  // `family` is deliberately NOT asserted to reach the build any more: nothing
+  // reads it. It stays on `EDIT_FIELDS` so a site built before 2026-08-20 keeps
+  // its record of itself, and `mergeLook` carries it for that reason alone.
 });
 
 test("a prototype key is not a theme", () => {

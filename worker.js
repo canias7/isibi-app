@@ -49,7 +49,7 @@ import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayou
 // to all 1,632 tests (nothing can import a Worker entrypoint); esbuild refuses
 // it at deploy time and the deploy is the first thing that ever sees it.
 import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, MIN_CREDITS, IMAGE_USD as SITE_PHOTO_USD } from "./builder/publish-pages.mjs";
-import { imageBudget, budgetFor, imagesAffordable, planImages, applyImages, countImageSlots, imagePrompt, imageNote, IMAGE_ASPECT } from "./builder/site-images.mjs";
+import { budgetFor, imagesAffordable, planImages, applyImages, countImageSlots, imagePrompt, imageNote, IMAGE_ASPECT } from "./builder/site-images.mjs";
 import { renderNote } from "./builder/site-render.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
 import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker } from "./builder/site-dispatch.mjs";
@@ -4660,12 +4660,12 @@ export async function siteWebResearch(env, brief, queries) {
 //
 // ONE call per build. There is no repair pass — see builder/publish-pages.mjs
 // for the measurement it was removed on.
-async function generateSitePages(env, brief, spec, brand, family, attachments, model, priorPages, mode, target) {
+async function generateSitePages(env, brief, spec, brand, attachments, model, priorPages, mode, target) {
   // One definition, shared with the eval harness — see pagesRequest. Restating
   // it here would mean the harness tunes against a different request from the
   // one production runs. Held in a const so the usage below can be stamped with
   // the model that was actually sent.
-  const req = pagesRequest({ brief, spec, brand, family, attachments, model, priorPages, mode, target });
+  const req = pagesRequest({ brief, spec, brand, attachments, model, priorPages, mode, target });
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
@@ -7531,7 +7531,7 @@ async function siteOgImage(env, slug) {
   } catch (e) { console.error("og image lookup failed:", slug, e && e.message); return null; }
 }
 
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, fonts, theme, tokens, pageTokens, pageFonts, style, plan, family, structure, lang, mode, logo, icon, verify, attachments, priorUsage, model, revise, changeNote, priorPages, mark }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, fonts, theme, tokens, pageTokens, pageFonts, style, plan, lang, mode, logo, icon, verify, attachments, priorUsage, model, revise, changeNote, priorPages, mark }) {
   // Resolved once, before any model call: the pair always lands on something
   // installed, so a build never waits on a font it cannot get.
   const fontPair = resolvePair(fonts || {});
@@ -7582,7 +7582,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
   // Such a site could never get a photograph however many times it was rebuilt.
   // `budgetFor` asks the honest question instead, off the prior pages that are
   // already loaded here.
-  const imgBudget = budgetFor(family, { revise, priorPages, slug, plan });
+  const imgBudget = budgetFor({ revise, priorPages, slug, plan });
   // WHAT THE SITE IS SERVING RIGHT NOW, for the one decision in `salvagePlan`:
   // a page that already works is never replaced with the "not finished yet"
   // stub. `priorPages` is the stored source of the LAST successful publish and
@@ -7594,16 +7594,17 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
     // Throws on failure, and the route logs it. There is no second attempt to
     // swallow one, so nothing needs logging here.
     generate: async () => {
-      // The family reaches the model as a DIRECTIVE appended to the brief, not
-      // as a bare name: `layoutDirective` is where site-layouts.mjs states the
-      // hero, the body and the primary action for that family, and a name on
-      // its own would leave the model to guess all three.
+      // THE PLAN reaches the model as a DIRECTIVE appended to the brief, never
+      // as a bare name. It used to be the FAMILY, and `layoutDirective` was
+      // where site-layouts.mjs stated the hero, the body and the primary action
+      // for that trade; the designer authors those per site now, so the
+      // directive is composed from what it wrote rather than looked up.
       //
       // COMPOSED IN page-gen.mjs, not here. Inline, the eval could not reach it
       // and sent the bare brief — ~287 tokens of layout that every real build
       // carries and no sample ever did, so the compile rate described a prompt
       // the platform does not send.
-      return generateSitePages(env, briefWithLayout({ brief, plan, family, structure, images: imgBudget }), spec, brand, family, attachments, model, priorPages);
+      return generateSitePages(env, briefWithLayout({ brief, plan, images: imgBudget }), spec, brand, attachments, model, priorPages);
     },
     // Runs between the lint and the compile, on the pages the model actually
     // wrote. `publishPages` supplies the two numbers only it knows — the balance
@@ -12064,39 +12065,30 @@ async function handleRequest(request, env, ctx) {
             // The stored per-page typefaces — see the note on the cheap-edit spine.
             pageFonts: priorPageFonts,
             style: siteStyle,
-            // THE MODEL DESIGNS THE PAGE SHAPE ITSELF — `noFamily: true`.
-            //
-            // A null family makes `layoutDirective` and `familyExemplar` both
-            // answer null, so the page call carries neither the ~960-char
-            // directive (what leads, the section order, the primary verb, the
-            // components to reach for, the page set) nor the ~8,100-char worked
-            // example. Nothing else changes: the component kit, the four cached
-            // reference pages, the theme and the schema are all untouched.
-            //
-            // SUPPRESSED HERE AND NOT IN `look`, deliberately. The family is
-            // still merged, still stored in `site_look`, so a later revise of
-            // the same site behaves exactly as it always has — this switches
-            // off the INPUT to one model call, not the site's record of itself.
-            //
-            // Strictly `=== true`, like every other flag off a request body:
-            // nothing merely truthy may quietly change what a build is shown.
             // THE AUTHORED PLAN, assembled from the merged look rather than
             // stored as one object — each of its six axes is its own
             // `EDIT_FIELDS` entry, so a revise that mentions none of them keeps
             // all six and one that mentions the page list keeps the other five.
             // `normalizePlan` answers null for anything that cannot compose a
-            // directive, which is exactly what the family fallback below is for.
+            // directive, and `briefWithLayout` then appends none rather than the
+            // literal word "null".
             //
             // Derived from `PLAN_KEYS`, never a second list: an axis added to
             // `site-plan.mjs` and forgotten here would be answered by the
             // designer, merged into the look, stored — and dropped on the one
             // hop that reaches the model. That is the `teamScope` failure, which
             // this repo has now recorded at five separate layers.
-            plan: body && body.noFamily === true ? null : normalizePlan(
-              Object.fromEntries(PLAN_KEYS.map((k) => [k, look[k]])),
-            ),
-            family: body && body.noFamily === true ? null : look.family,
-            structure: look.structure,
+            //
+            // `noFamily` USED TO GATE BOTH OF THESE AND IS GONE. It was the
+            // experiment switch: pass `noFamily: true` and the build carried
+            // neither the family's layout directive nor its worked example, so
+            // the model designed the page shape from the brief alone. That is
+            // simply what every build does now — there is no family to suppress
+            // — so the flag could only ever have suppressed the PLAN, which is
+            // the opposite of what its name says. A switch named after a
+            // concept the platform no longer has is one somebody eventually
+            // reads as still meaning something.
+            plan: normalizePlan(Object.fromEntries(PLAN_KEYS.map((k) => [k, look[k]]))),
             // Out of the same merged look as the other five, so a revise that
             // does not mention the language keeps it — the field is on
             // `EDIT_FIELDS`, which is what makes "absent means unchanged" true
@@ -13345,14 +13337,26 @@ async function handleRequest(request, env, ctx) {
               // WHAT THIS LANE CAN HONESTLY MOVE, AND WHAT IT ONLY APPEARS TO.
               //
               // The container is handed `theme`, `tokens` and `fonts`, so those
-              // really do change a site that is merely recompiled. `family` and
-              // `structure` are layout decisions the PAGES were written against
-              // and the container never sees — storing a new one here would
-              // change nothing a visitor could see while reporting success, and
-              // would leave the stored look disagreeing with the pages it
-              // describes. "Make it look like a newspaper" is a real request and
-              // it belongs one rung up, where pages are rewritten.
-              const needsPages = moved.filter((k) => k === "family" || k === "structure");
+              // really do change a site that is merely recompiled. The AUTHORED
+              // PLAN is not: its six fields are inputs to page GENERATION —
+              // what leads, the section order, the primary verb, the page set,
+              // the component manifest — and the container never sees any of
+              // them. Storing a new one here would change nothing a visitor
+              // could see while reporting success, and would leave the stored
+              // look disagreeing with the pages it describes. "Make it look like
+              // a newspaper" is a real request and it belongs one rung up, where
+              // pages are rewritten.
+              //
+              // DERIVED FROM `PLAN_KEYS`, not the two names this used to list.
+              // It read `k === "family" || k === "structure"` — correct while
+              // those were the only layout fields there were. The plan replaced
+              // the family on 2026-08-20 and brought five more (`purpose`,
+              // `shape`, `pages`, `action`, `components`), every one of them a
+              // page-generation input and every one of them on `EDIT_FIELDS`,
+              // so a look edit moving one would have been stored and silently
+              // never drawn. `family` is kept beside them: nothing sets it any
+              // more, but a site built before that day still has one recorded.
+              const needsPages = moved.filter((k) => k === "family" || PLAN_KEYS.includes(k));
               if (needsPages.length) return escalate("needs-pages", { moved: needsPages });
               // COUNTED AS A CHANGE, or "square buttons" escalates to a ~27-credit
               // page rewrite that cannot put square buttons on anything either —
@@ -13735,7 +13739,7 @@ async function handleRequest(request, env, ctx) {
                 // Same as the addon lane: a stated zero, because the absence of
                 // one is not an instruction and the model writes tokens anyway.
                 eGen = await generateSitePages(env, briefWithLayout({ brief: eInstruction, images: 0 }),
-                  eSpec, eLook2.brand || ownerSlug, eLook2.family || null, [], eModels.pages, eSrc, "page", target.path);
+                  eSpec, eLook2.brand || ownerSlug, [], eModels.pages, eSrc, "page", target.path);
               } catch (e) {
                 console.error("page edit generate failed:", ownerSlug, e && e.message);
                 const pKind = upstreamKind(e && e.detail);
@@ -13964,7 +13968,7 @@ async function handleRequest(request, env, ctx) {
               // publishes as the literal text `@@IMG:a barber chair@@`: a broken
               // image AND a visible leak of how the site was made.
               aGen = await generateSitePages(env, briefWithLayout({ brief: aInstruction, images: 0 }),
-                aSpec, aLook.brand || ownerSlug, aLook.family || null, [], aModels.pages, aSrc, "addon");
+                aSpec, aLook.brand || ownerSlug, [], aModels.pages, aSrc, "addon");
             } catch (e) {
               console.error("addon generate failed:", ownerSlug, e && e.message);
               const aKind = upstreamKind(e && e.detail);

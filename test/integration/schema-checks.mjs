@@ -9,7 +9,7 @@
 // is the only part of this harness that can be verified while the model account
 // is empty.
 import { resolveAccess, unguardedBookings } from "../../site-access.mjs";
-import { READY_FAMILIES } from "../../builder/site-layouts.mjs";
+import { normalizePlan } from "../../builder/site-plan.mjs";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // THE SCENARIOS, each aimed at a failure this platform has really shipped.
@@ -166,9 +166,28 @@ export const CHECKS = {
   },
   // ALWAYS RUN, on every scenario — these are the ways an answer can be
   // structurally unusable rather than merely thin.
-  validFamily(out) {
-    const f = String((out && out.family) || "");
-    return { ok: READY_FAMILIES.includes(f), why: f ? (READY_FAMILIES.includes(f) ? "" : "not a family: " + f) : "no family" };
+  // WAS `validFamily`, which asked whether the designer had named one of 100
+  // trades. It answers a PLAN now, so the structural question is whether that
+  // plan survives `normalizePlan` — an answer that does not is one where
+  // `directiveFromPlan` returns null and the page generator is handed the bare
+  // brief with no page list, no shape and no component manifest, silently.
+  //
+  // DRIVEN THROUGH THE REAL NORMALISER rather than restating its rules, because
+  // a second copy of "what counts as a usable plan" drifts, and the direction it
+  // drifts in is an eval reporting a clean run on an answer production drops.
+  validPlan(out) {
+    const plan = normalizePlan(out);
+    if (!plan) {
+      const why = !out || !String(out.purpose || "").trim() ? "no purpose" : "no usable page path";
+      return { ok: false, why };
+    }
+    // The manifest is what the per-site signature block is built from, so an
+    // empty one means the model writes pages against the cached core alone.
+    // OPTIONAL ON THE NORMALISED SHAPE — it OMITS a field that came back empty
+    // rather than emitting `[]` — so this reads through, or the check throws and
+    // the whole sample reports as an infrastructure error instead of a thin plan.
+    if (!(plan.components || []).length) return { ok: false, why: "a plan with no components named" };
+    return { ok: true, why: "" };
   },
   tablesSurvive(out, spec) {
     const asked = Array.isArray(out && out.tables) ? out.tables.length : 0;
@@ -176,4 +195,4 @@ export const CHECKS = {
              why: asked ? (spec.tables.length === asked ? "" : asked + " declared, " + spec.tables.length + " survived the normaliser") : "no tables" };
   },
 };
-export const ALWAYS = ["validFamily", "tablesSurvive"];
+export const ALWAYS = ["validPlan", "tablesSurvive"];

@@ -22,6 +22,7 @@ import {
   MAX_UPLOAD_BYTES, MAX_DOC_BYTES, MAX_VISITOR_UPLOAD_BYTES,
   handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload,
 } from "../site-uploads.mjs";
+import { CORPUS_DIR } from "./fixtures/corpus.mjs";
 
 const ROOT = new URL("..", import.meta.url);
 const read = (p) => readFileSync(fileURLToPath(new URL(p, ROOT)), "utf8");
@@ -425,14 +426,22 @@ test("DownloadCard's href is optional AND the rules say to leave it off", () => 
   assert.match(win, /NEVER point it at a route/i, "the rule does not forbid the thing every exemplar used to do");
 });
 
-test("no exemplar writes a DownloadCard href — those are what the model copies", () => {
+test("no corpus page writes a DownloadCard href", () => {
   // All 34 of them pointed at a ROUTE or at `#dl`, so every one downloaded a
-  // page's HTML or reloaded the current page. Corpus-wide, because the model
-  // learns the shape by copying these and fixing the component alone would have
-  // been undone by the examples — the same reasoning as the `#/` href sweep.
-  // BOTH CORPORA. The baked module is what the model is SHOWN; the family pages
-  // on disk are what the baker reads, so a fix in one and not the other comes
-  // straight back the next time anybody regenerates.
+  // page's HTML or reloaded the current page. Swept corpus-wide because fixing
+  // the component alone would have been undone by the examples — the same
+  // reasoning as the `#/` href sweep.
+  //
+  // THE ORIGINAL REASON IS GONE AND THE HONEST REMAINDER IS WEAKER. This ran
+  // over TWO corpora, and the stronger of them — `builder/family-exemplars.mjs`,
+  // the baked pages the model was actually SHOWN — was deleted with the families
+  // on 2026-08-20, so "those are what the model copies" is no longer true of
+  // anything. What is left is `src/family-pages`, which ships in nothing and
+  // reaches no prompt: it is test data, kept because several checks calibrate
+  // their false-alarm rate against it.
+  //
+  // It stays for that narrower reason: a corpus is only evidence while it is
+  // correct, and the link lane reads hrefs out of these pages. Costs nothing.
   const sweep = (src, floor, what) => {
     const calls = src.match(/<DownloadCard\b[\s\S]{0,400}?\/>/g) || [];
     // A scan that silently stopped matching reports a clean corpus, which is the
@@ -440,9 +449,8 @@ test("no exemplar writes a DownloadCard href — those are what the model copies
     assert.ok(calls.length >= floor, what + ": only " + calls.length + " DownloadCard calls found — the scan stopped matching");
     assert.deepEqual(calls.filter((c) => /\shref=/.test(c)), [], what + ": a download still points at a route");
   };
-  sweep(read("builder/family-exemplars.mjs"), 10, "the baked exemplars");
 
-  const dir = fileURLToPath(new URL("builder/lovable/template/src/family-pages/", ROOT));
+  const dir = CORPUS_DIR;
   const walk = (d) => readdirSync(d, { withFileTypes: true }).flatMap((e) =>
     e.isDirectory() ? walk(join(d, e.name)) : (e.name.endsWith(".tsx") ? [join(d, e.name)] : []));
   sweep(walk(dir).map((f) => readFileSync(f, "utf8")).join("\n"), 30, "the family pages on disk");
