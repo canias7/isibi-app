@@ -18,7 +18,7 @@ import { COMPONENT_API, COMPONENT_TYPES, COMPONENT_TYPE_NAMES } from "./componen
 // builder/gen-chart-api.mjs and kept in step by test/chart-api.test.mjs.
 import { CHART_COMPONENTS, CHART_API } from "./chart-api.mjs";
 import { FAMILIES, layoutDirective } from "./site-layouts.mjs";
-import { directiveFromPlan } from "./site-plan.mjs";
+import { directiveFromPlan, KIT_PALETTE } from "./site-plan.mjs";
 import { imageDirective } from "./site-images.mjs";
 import { FAMILY_EXEMPLARS } from "./family-exemplars.mjs";
 import { modelsFor } from "./build-models.mjs";
@@ -1274,9 +1274,26 @@ export function shapeOf(component, prop, tag) {
  */
 export const FREE_PROPS = new Set(["key", "ref", "className", "children", "style", "id", "title", "role", "tabIndex"]);
 
-export const UI_SHORTLIST_API = () => {
+/**
+ * A signature block for a NAMED LIST of components.
+ *
+ * Was `UI_SHORTLIST_API()`, which read one fixed list of 292 and printed it into
+ * the cached prompt. There are two callers now and they want different lists:
+ * the always-on core, which is cached, and THIS SITE's own manifest, which rides
+ * fresh in the user turn. One generator, so the two blocks can never disagree
+ * about how a signature is written.
+ *
+ * A NAME WITH NO SIGNATURE IS SKIPPED, WHICH IS ALSO THE VALIDATION. The designer
+ * writes the manifest and a model can name something that does not exist; there
+ * is nothing to check separately, because a component the kit does not have has
+ * no line to print. The lint refuses an import of it anyway.
+ */
+export const componentApiFor = (names) => {
   const lines = [];
-  for (const n of UI_SHORTLIST) {
+  const seen = new Set();
+  for (const n of names || []) {
+    if (typeof n !== "string" || seen.has(n)) continue;
+    seen.add(n);
     const sig = COMPONENT_API[n];
     if (!sig) continue;
     // THE SHAPE A SIGNATURE STOPS AT. `ActivityFeed(items: Activity[], …)` names
@@ -2460,47 +2477,82 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
 export const REFERENCE_PAGE = REFERENCE_PAGES[0].source;
 
 /**
- * THE COMPONENTS THE MODEL IS TOLD TO REACH FOR.
+ * COMPONENTS THE RULES CITE IN THEIR OWN PROSE rather than in a reference page —
+ * rule 18's worked `localBusinessJsonLd` call. It cannot be derived from the
+ * pages, so it is named, and the always-on signature core folds it in.
  *
- * IT IS TWO SOURCES, AND IT USED TO BE ONE. The list is derived from what the
- * 100 families declare — and the four REFERENCE PAGES, which sit in the same
- * prompt as the worked example, import ten modules no family declares:
- * `hero`, `button`, `card`, `input`, `select`, `textarea`, `form`, `skeleton`,
- * `data-list`, `seo-jsonld`. The primitives, in other words, that every family
- * assumes rather than lists.
+ * `UI_SHORTLIST` USED TO LIVE HERE and went with the per-site change on
+ * 2026-08-20. It was the 292 names the model was told to reach for, derived from
+ * the 100 families' own component lists plus the reference pages' imports — and
+ * with the families gone from the designer's tool there is nothing left to
+ * derive it from, and nothing read it. What replaced it is two lists in two
+ * places: rule 3 now names ALL 2,112 modules (so the model is never wrong about
+ * what exists) and `ALWAYS_API_CORE` carries the signatures every site gets,
+ * with this site's own manifest arriving fresh in the user turn.
  *
- * SO RULE 3 SAID "the only names under that path you should use" AND THEN SHOWED
- * AN EXAMPLE USING TEN NAMES THAT WERE NOT IN IT. Measured live 2026-08-19: the
- * generator, obeying both at once, wrote `import { Hero } from
- * "@/components/ui/hero-split"` — the EXPORT from the reference page, the MODULE
- * from the list. `hero.tsx` exports `Hero` and `hero-split.tsx` exports
- * `HeroSplit`; both are real, and only one was offered. TS2305, and because it
- * was index.tsx the whole site published as the placeholder.
- *
- * A worked example the model may not follow is worse than no example. The union
- * is derived at both ends so neither source can drift out of the other, and a
- * test asserts every reference-page import is in here.
+ * THE FAILURE IT WAS BUILT AROUND IS STILL PREVENTED, by a wider rule rather
+ * than a narrower one. Rule 3 said "the only names under that path you should
+ * use" and then showed a worked example importing ten modules that were not in
+ * it — so the generator, obeying both, wrote `import { Hero } from
+ * "@/components/ui/hero-split"`: the EXPORT from the example, the MODULE from
+ * the list. A list of everything cannot contradict an example.
  */
 export const RULE_CITED_COMPONENTS = ["seo-jsonld"];
 
-export const UI_SHORTLIST = (() => {
-  const wanted = new Set();
-  for (const fam of Object.values(FAMILIES)) for (const c of fam.components || []) wanted.add(c);
+/**
+ * THE SIGNATURES EVERY SITE GETS, cached — 32 components, ~1,112 tokens.
+ *
+ * TWO SETS FOR TWO DIFFERENT REASONS, and neither alone is right.
+ *
+ * The DERIVED half is every component the four reference pages import, plus
+ * anything the rules cite by name. Self-maintaining, survives the deletion of the
+ * family table, and principled: the prompt already SHOWS these in use, so the
+ * model will copy them and needs their real props. Measured at 43.6% of every
+ * reach in the 324-page corpus.
+ *
+ * The FROZEN half is the frequency head that no reference page demonstrates —
+ * `faq` is on 216 of 324 pages and appears in no worked example at all. Used
+ * everywhere, shown nowhere, which is the worst combination there is. Taken off
+ * the front of `KIT_PALETTE` rather than listed again here, so the one frozen
+ * measurement serves both the designer's palette and this core.
+ *
+ * WHERE IT STOPS, and why here: coverage is 43.6% derived-only and 66.9% at this
+ * size, and then about 250 tokens per 3 points after it. The knee is at 20.
+ */
+export const ALWAYS_API_CORE = (() => {
+  const core = new Set(RULE_CITED_COMPONENTS);
   for (const p of REFERENCE_PAGES) {
-    for (const m of String(p.source).matchAll(/from "@\/components\/ui\/([a-z0-9-]+)"/g)) wanted.add(m[1]);
+    for (const m of String(p.source).matchAll(/from "@\/components\/ui\/([a-z0-9-]+)"/g)) core.add(m[1]);
   }
-  // CITED IN THE RULES' OWN PROSE rather than in a reference page — rule 18's
-  // worked `localBusinessJsonLd` call. It cannot be derived here because
-  // PAGE_RULES is assembled from this list, so the scan would be circular;
-  // `test/page-gen.test.mjs` closes it from the other end by requiring every
-  // `@/components/ui/...` import ANYWHERE in the finished prompt to be in here.
-  for (const c of RULE_CITED_COMPONENTS) wanted.add(c);
+  for (const n of KIT_PALETTE.slice(0, 20)) core.add(n);
   const real = new Set(UI_COMPONENTS);
-  // A family naming a component that does not exist would silently shrink this
-  // list; the wiring test asserts that never happens, and this keeps the prompt
-  // honest if it ever does.
-  return UI_COMPONENTS.filter((c) => wanted.has(c) && real.has(c));
+  return [...core].filter((n) => real.has(n));
 })();
+
+/**
+ * THE SIGNATURES THIS SITE GETS, fresh, in the user turn.
+ *
+ * The manifest MINUS whatever the cached core already carries: a component
+ * printed twice is a component paid for twice, at 1x rather than the 0.1x a
+ * cache read costs.
+ *
+ * IN THE USER MESSAGE, NEVER THE CACHED BLOCK — the same reasoning as the layout
+ * directive and the photograph allowance one function below. A cache entry is
+ * keyed on the bytes, so a block that varies per site would miss the ~27,000-token
+ * prefix on every single build: measured at thirteen times the input cost.
+ *
+ * EMPTY STRING WHEN THERE IS NOTHING TO ADD, so a caller with no manifest sends
+ * exactly the request it sent before this existed.
+ */
+export function siteComponentApi(components) {
+  const core = new Set(ALWAYS_API_CORE);
+  const extra = (Array.isArray(components) ? components : []).filter((n) => !core.has(n));
+  const block = componentApiFor(extra);
+  if (!block) return "";
+  return "THE COMPONENTS THIS SITE NEEDS — their exact props, checked against the same rule as the\n" +
+    "core above: a prop that does not exist is a compile error and costs the page.\n" + block;
+}
+
 
 
 export const PAGE_RULES = `You write the pages of a small business website, as TypeScript React route files.
@@ -2532,9 +2584,9 @@ or an access level — anything not in the schema below does not exist.
      dashboard. Build the reading UI and no write UI at all.
 
 3. THE KIT FOR EVERY CONTROL, imported from "@/components/ui/<name>". Never hand-roll a
-   button, input, select, checkbox or dialog. Build from these — they are what the
-   layouts are made of, and the only names under that path you should use:
-   ${UI_SHORTLIST.join(", ")}.
+   button, input, select, checkbox or dialog. These are every name under that path,
+   and nothing else exists there:
+   ${UI_COMPONENTS.join(", ")}.
 
    THE EXPORT NAME IS THE FILE NAME IN PascalCase, EXACTLY — no embellishment.
    \`@/components/ui/faq\` exports \`Faq\`, not \`FaqAccordion\`; \`open-now\` exports
@@ -2549,11 +2601,12 @@ or an access level — anything not in the schema below does not exist.
    and the whole site falls back to its data model. Where a type is a NAME
    (\`Row[]\`, \`Activity[]\`), hand it the rows a hook gave you and do not invent
    fields on it.
-   **These are the components whose props are stated. The kit under that path is
-   larger, and anything not listed here you would be calling blind — prefer one of
-   these, and if you do reach for another, keep the call to \`children\` and
-   \`className\`, which every component in the kit accepts.**
-${UI_SHORTLIST_API()}
+   **Props are stated in two places and they are the whole set you can rely on: the
+   handful below, which every site gets, and a block LATER IN THIS MESSAGE listing the
+   ones chosen for THIS site. Everything else in the list above is real and you may
+   render it — but you would be calling it blind, so keep such a call to \`children\`
+   and \`className\`, which every component in the kit accepts.**
+${componentApiFor(ALWAYS_API_CORE)}
 
    There is no "toast" or "use-toast" component — toasts come from \`import { toast } from "sonner"\`.
    The kit does not stop here: ${CHART_NAME_COUNT} chart components live under
@@ -3381,6 +3434,18 @@ export function briefWithLayout({ brief, plan, family, structure, images } = {})
     (family ? layoutDirective(family, structure ? { structure } : {}) : null);
   const parts = [String(brief ?? "")];
   if (directive) parts.push(directive);
+  // THIS SITE'S OWN COMPONENT SIGNATURES, for the reason the layout directive
+  // and the photograph allowance are here: it varies per site, and the ~45,000
+  // token system block is cached on its exact bytes. A component list that
+  // changed per build would miss that prefix every single build — measured on
+  // the family exemplar, thirteen times the input cost.
+  //
+  // FROM THE PLAN, so the manifest the designer wrote is what decides. Empty
+  // string when there is nothing to add (no plan, or a manifest wholly inside
+  // the cached core), so a caller with neither sends exactly the request it sent
+  // before this existed.
+  const api = siteComponentApi(plan && plan.components);
+  if (api) parts.push(api);
   if (images != null) parts.push(imageDirective(images));
   return parts.join("\n\n");
 }

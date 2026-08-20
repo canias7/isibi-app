@@ -51,6 +51,101 @@ export const PLAN_KEYS = ["purpose", "structure", "shape", "pages", "action", "c
 /** Every plan axis an edit may move — the same six, so `EDIT_FIELDS` derives rather than restates. */
 export const PLAN_EDIT_FIELDS = PLAN_KEYS;
 
+/* -------------------------------------------------------- the kit palette */
+
+/**
+ * WHAT THE DESIGNER PICKS ITS MANIFEST FROM — 279 names, ordered most-used-first.
+ *
+ * IT NEEDED A LIST AND HAD NONE. `components` compels 10-24 names out of a kit of
+ * 2,112, and until this the field described the job and named not one component,
+ * so the designer was answering from imagination. Most of this kit is named
+ * things no model could guess — `stats-band`, `trust-strip`, `rate-card`,
+ * `week-strip` — so an unlisted palette is a manifest of plausible inventions,
+ * every one of which resolves to no signature at all.
+ *
+ * 279 RATHER THAN ALL 2,112, and the reason is a measurement rather than thrift.
+ * The whole kit is 11,392 tokens of names against 1,442 for these, and the
+ * designer's tool block is 24,495 — so all of them is a 46 per cent increase on a
+ * cached block where this is 6. What that buys is nothing: these 279 are EVERY
+ * component the 324 exemplar pages ever reach for, so a site needing something
+ * outside them is needing something no site has yet needed.
+ *
+ * THE PAGE WRITER IS TOLD ABOUT ALL 2,112 ANYWAY, which is the asymmetry that
+ * makes this safe. The two calls ask different questions: the designer PICKS, so
+ * it wants a realistic palette; the page writer WRITES, and `lintPages` permits
+ * any real module — so a name it has never heard of is exactly how an import
+ * gets made blind.
+ *
+ * FROZEN, WITH ITS PROVENANCE, because it cannot be re-derived after the change
+ * it belongs to: the corpus it is measured from is the family table this work
+ * deletes. Ordered by how many of the 324 pages import each one, so the head of
+ * the list is real signal about what a site usually needs — and `page-gen.mjs`
+ * takes the always-on signature core off the front of it rather than keeping a
+ * second list.
+ *
+ * MEASURED FROM WHAT PAGES IMPORT, NEVER FROM WHAT FAMILIES DECLARED, and the
+ * difference is the whole argument for this being a better list than the one it
+ * replaces. Those declarations were wrong in BOTH directions: 42 per cent of
+ * every reach a family's own pages made lay outside its list, and 31 of the 282
+ * names those lists carried were imported by no page at all. A list of what
+ * somebody thought a trade would need is not a list of what its pages used.
+ */
+export const KIT_PALETTE = [
+  "site-chrome", "section-header", "faq", "safe-image", "price-list", "location-card",
+  "testimonial", "gallery", "opening-hours", "stats-band", "trust-strip", "cta-band", "input",
+  "media-grid", "success-panel", "contact-form", "busy-button", "form-row", "rate-card",
+  "steps", "availability-grid", "spec-row", "textarea", "button", "download-card",
+  "event-card", "open-now", "house-rules", "menu-section", "press-quote", "search-input",
+  "pricing-table", "team-grid", "availability-calendar", "contact-card", "date-enquiry",
+  "filter-bar", "result-count", "service-area", "timeline", "triage-banner",
+  "announcement-bar", "prev-next", "product-card", "tag-list", "video-embed",
+  "arrangement-steps", "bento-grid", "checklist-dot", "data-table", "inspection-rating",
+  "practitioner-card", "service-times", "session-table", "side-nav", "size-guide",
+  "status-badge", "turnaround-note", "capacity-table", "category-nav", "code-block",
+  "countdown", "cutoff-time", "eligibility-check", "email-capture", "fare-quote", "figure",
+  "frequency-picker", "label", "plan-card", "subject-list", "ticket-tiers", "tour-dates",
+  "admission-prices", "audio-player", "before-after", "card", "comparison-table",
+  "counter-services", "description-list", "entry-requirements", "produce-calendar", "quote",
+  "search-facets", "amenity-list", "anchor-heading", "article-card", "author-byline", "badge",
+  "cancel-policy", "cart-badge", "committee-list", "donation-tiers", "excess-note",
+  "exhibition-card", "facility-status", "fee-table", "install-command", "interest-rates",
+  "link-card", "live-badge", "marquee", "parallax", "post-meta", "price-tag", "profile-card",
+  "property-card", "rating-summary", "reveal", "seller-card", "social-links", "sort-select",
+  "status-dot", "tap-list", "terms-block", "trade-terms", "week-strip", "add-to-cart",
+  "age-gate", "alarm-state", "allergen-matrix", "audience-switch", "booking-summary",
+  "bulk-pricing", "bundle-row", "calculator-card", "cart-line", "certification-row",
+  "collection-day", "compliance-checklist", "contract-end", "copy-button", "cover-level",
+  "curl-example", "currency-amount", "day-schedule", "deadline-bar", "delivery-estimate",
+  "delivery-slot", "device-picker", "direct-saving", "episode-row", "exchange-rate-note",
+  "feature-grid", "file-list", "fixture-list", "impact-stat", "investment-table", "job-card",
+  "lead-time", "logo-cloud", "media-object", "meeting-papers", "membership-grades", "money",
+  "pitch-types", "place-order-bar", "priority-badge", "progress-ring", "quote-calculator",
+  "quote-request", "radio-cards", "rate-board", "room-card", "sdk-tabs", "season-picker",
+  "sla-clock", "slot-capacity", "stock-badge", "store-locator", "story-lead", "tariff-row",
+  "term-dates", "territory-list", "time-lane-grid", "trading-diary", "unit-card",
+  "vehicle-lookup", "verified-badge", "viewer-count", "waitlist-form", "accordion",
+  "activity-feed", "agenda-list", "arrears-note", "assignee-picker", "avatar-name",
+  "award-badge", "bin-type", "break-even-note", "bulk-actions", "cart-summary",
+  "changelog-entry", "chapter-list", "checkbox", "chunked-upload", "claim-timeline",
+  "click-collect", "cohort-picker", "condition-report", "consent-checkbox", "countdown-ring",
+  "curriculum-path", "date-range-picker", "departure-board", "dish-card", "estimate-band",
+  "exclusion-list", "facet-range", "form-progress", "form-section", "goal-gauge",
+  "incident-report", "kanban-board", "key-points", "league-table", "lineup-grid",
+  "livery-packages", "login-form", "lot-card", "maintenance-page", "masonry",
+  "membership-card", "membership-tier-row", "meter-reading", "min-order-note", "minutes-entry",
+  "not-found", "option-priced-list", "order-summary", "patrol-log", "payback-note",
+  "payment-picker", "paywall", "permit-row", "policy-summary-row", "postcode-input",
+  "prescription-row", "priority-debts", "prompt-box", "provenance-note", "pull-quote",
+  "quantity-break", "reading-time", "receipt", "recent-searches", "record-header",
+  "recurring-picker", "refresh-pill", "repair-job", "repair-status", "repayment-preview",
+  "route-stop", "rsvp-buttons", "search-suggestions", "seat-map", "service-availability",
+  "service-history", "setlist-row", "shift-signup", "shipping-options", "sidebar-layout",
+  "smart-meter-note", "sparkline", "stock-level", "store-badges", "streaming-text",
+  "suggestion-chips", "table-search", "tenancy-costs", "time-until", "travel-time-note",
+  "upgrade-badge", "vehicle-card", "video-hero", "waiting-list-place", "wishlist-button",
+  "word-count", "working-hours",
+];
+
 /* --------------------------------------------------------------- the caps */
 
 // CAPS LIVE HERE, IN CODE, AND ALSO IN THE DESCRIPTIONS — this repo's standing
@@ -96,9 +191,18 @@ const str = (v, cap) => (typeof v === "string" ? v.trim().slice(0, cap) : "");
 function lines(v, { cap, max }) {
   if (!Array.isArray(v)) return [];
   const out = [];
+  const seen = new Set();
   for (const x of v) {
     const s = str(x, cap);
-    if (s) out.push(s);
+    // DEDUPLICATED, and it is the component manifest that makes this matter.
+    // A repeated name spends one of MAX_COMPONENTS on a signature already sent,
+    // so a model that lists `faq` twice gets 23 components' worth of props and
+    // is told it named 24. Found by a mutation on the generator's own dedup,
+    // which showed nothing anywhere held it. Harmless and right for the other
+    // two: a shape line or a verb repeated is a slot spent saying nothing.
+    if (!s || seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
     if (out.length >= max) break;
   }
   return out;
@@ -301,7 +405,13 @@ export const PLAN_FIELDS = {
       "costs that page. You have just written the page list above; name what those pages need, the ordinary " +
       "parts as well as the distinctive ones. A booking page wants availability-grid and week-strip, a menu " +
       "wants menu-section and price-list, a live board wants countdown and live-badge. " +
-      "Naming a component that does not exist is refused and costs nothing; leaving one out is what hurts.",
+      "Naming a component that does not exist is refused and costs nothing; leaving one out is what hurts.\n\n" +
+      // THE PALETTE, MOST-USED FIRST — and the order is information rather than
+      // formatting: the head of this list is what a small business site nearly
+      // always needs and the tail is what one trade in fifty does. Named here
+      // because a compelled field with no list is answered from imagination, and
+      // most of this kit is named things no model would guess.
+      "Pick from these, most-commonly-needed first:\n" + KIT_PALETTE.join(", ") + ".",
   },
 };
 

@@ -22,8 +22,8 @@ import { mergeLook, movedFields, hasValue, EDIT_RULE, currentStateNote } from ".
 import { themeCss, THEMES } from "../builder/site-theme.mjs";
 import { briefWithLayout } from "../builder/page-gen.mjs";
 import { FAMILY_NAMES, READY_FAMILIES, STRUCTURE_NAMES, STRUCTURES, layoutDirective, familiesForPrompt, structuresForPrompt, FAMILIES } from "../builder/site-layouts.mjs";
-import { UI_COMPONENTS, UI_SHORTLIST, PAGE_RULES, schemaDigest, lintPages } from "../builder/page-gen.mjs";
-import { PLAN_FIELDS, PLAN_KEYS, PLAN_REQUIRED, directiveFromPlan } from "../builder/site-plan.mjs";
+import { UI_COMPONENTS, ALWAYS_API_CORE, PAGE_RULES, schemaDigest, lintPages } from "../builder/page-gen.mjs";
+import { PLAN_FIELDS, PLAN_KEYS, PLAN_REQUIRED, KIT_PALETTE, directiveFromPlan } from "../builder/site-plan.mjs";
 
 const ROOT = path.join(import.meta.dirname, "..");
 const worker = fs.readFileSync(path.join(ROOT, "worker.js"), "utf8");
@@ -331,36 +331,60 @@ test("every family the designer may pick produces a real directive", () => {
   }
 });
 
-test("the component shortlist covers every component a family declares", () => {
-  // The floor. Each of the 26 families names the components its pages need, and
-  // a shortlist missing one breaks that family rather than trimming a prompt —
-  // which is why this is 157 and not the 100 originally asked for.
-  const declared = new Set();
-  for (const fam of Object.values(FAMILIES)) for (const c of fam.components || []) declared.add(c);
-  const offered = new Set(UI_SHORTLIST);
-  for (const c of declared) assert.ok(offered.has(c), `${c} is declared by a family and not offered to the model`);
-});
-
-test("every name in the shortlist is a real component", () => {
+test("the DESIGNER's palette and the always-on core are all real components", () => {
+  // THE SHORTLIST THIS REPLACES WAS DERIVED FROM WHAT THE 100 FAMILIES DECLARED,
+  // and its guard was that the shortlist covered every declared name. Both are
+  // gone with the family field. What took its place is two lists with different
+  // jobs, and the one property they share is the one that was always doing the
+  // work: a name offered to a model and absent from the kit is an import that
+  // cannot resolve.
   const real = new Set(UI_COMPONENTS);
-  for (const c of UI_SHORTLIST) assert.ok(real.has(c), `${c} is offered and does not exist`);
+  for (const c of KIT_PALETTE) assert.ok(real.has(c), `${c} is offered to the designer and does not exist`);
+  for (const c of ALWAYS_API_CORE) assert.ok(real.has(c), `${c} is in the always-on core and does not exist`);
+  // Floors, so a list that emptied would pass this vacuously.
+  assert.ok(KIT_PALETTE.length > 200, `the palette shrank to ${KIT_PALETTE.length}`);
+  assert.ok(ALWAYS_API_CORE.length >= 25, `the core shrank to ${ALWAYS_API_CORE.length}`);
 });
 
-test("the LINT still knows all 2,058, so a real import is never refused", () => {
-  // Only the PROMPT was shortened. Narrowing the lint too would turn "a
+test("the LINT knows all 2,112, so a real import is never refused", () => {
+  // Unchanged in substance and MORE load-bearing than it was. The prompt now
+  // names every module, so what the model may render and what the lint permits
+  // are finally the same set — but narrowing the lint would still turn "a
   // component the model was not told about" into "a component the pipeline
   // rejects", which is a much worse failure and a silent one.
   assert.ok(UI_COMPONENTS.length > 2000, `the lint's allow-list shrank to ${UI_COMPONENTS.length}`);
-  assert.ok(UI_SHORTLIST.length < UI_COMPONENTS.length, "the shortlist is not actually shorter");
+  assert.ok(KIT_PALETTE.length < UI_COMPONENTS.length,
+    "the designer's palette is the whole kit — the +6% choice became +46% without anybody deciding it");
 });
 
-test("the rules do not claim the shortlist is everything that exists", () => {
-  // Rule 3 used to say "these exist and nothing else does", which was already
-  // wrong about the 882 charts and would now be wrong about 1,901 components
-  // too. A false absolute in the prompt is how a whole tier goes unused.
+test("rule 3's absolute is SCOPED to the path, and names the whole kit under it", () => {
+  // Rule 3 once said "these exist and nothing else does" about a 292-name
+  // shortlist, ten rules above the one naming 882 chart components. A false
+  // absolute in a prompt is how a whole tier goes unused.
+  //
+  // The sentence is now TRUE — it lists every module under that path — which is
+  // what the per-site change bought: the model can never be wrong about what
+  // exists. The scoping still has to survive, because the charts live elsewhere
+  // and an unscoped "nothing else exists" would deny them all over again.
   const i = PAGE_RULES.indexOf("THE KIT FOR EVERY CONTROL");
   const rule = PAGE_RULES.slice(i, i + 400);
-  assert.ok(!/exist and nothing\s+else does/.test(rule), "rule 3 asserts a falsehood about the kit");
+  assert.match(rule, /nothing else exists there/, "rule 3 no longer tells the model what the kit is");
+  assert.match(rule, /under that path/, "rule 3's absolute is unscoped again — it now denies the charts too");
+
+  // …AND THE LIST REALLY IS THE WHOLE KIT, not a subset wearing an absolute —
+  // which is the half that decides whether the sentence above is true.
+  //
+  // FOUND BY MUTATION. This sampled `UI_COMPONENTS[0]` and the last entry, and
+  // BOTH of them happen to be in the 279-name palette — so swapping rule 3's
+  // list for the palette, leaving 1,833 real modules described as nonexistent,
+  // passed it perfectly. A two-element sample that lands inside what the mutant
+  // still prints discriminates nothing.
+  //
+  // Every name, and the assertion NAMES the missing ones rather than counting
+  // them: "1,833 are absent" sends the reader looking, the list says where.
+  const missing = UI_COMPONENTS.filter((c) => !PAGE_RULES.includes(c));
+  assert.deepEqual(missing.slice(0, 8), [],
+    `${missing.length} kit modules exist and the prompt never names them, e.g. ${missing.slice(0, 8).join(", ")}`);
 });
 
 /* ------------------------------------------------------------ photographs */

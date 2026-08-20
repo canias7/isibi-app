@@ -13,7 +13,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  REFERENCE_PAGE, REFERENCE_PAGES, UI_COMPONENTS, UI_SHORTLIST, UI_SHORTLIST_API, PAGE_RULES, SITE_PAGES_TOOL, MAX_PAGES, MANAGED_COLUMNS,
+  REFERENCE_PAGE, REFERENCE_PAGES, UI_COMPONENTS, ALWAYS_API_CORE, componentApiFor, siteComponentApi, PAGE_RULES, SITE_PAGES_TOOL, MAX_PAGES, MANAGED_COLUMNS,
   schemaDigest, pagesPrompt, repairPrompt, validatePages, lintPages, briefForPages, ACCESS_NOTE, propsOf, UI_EXPORTS,
   repairImports } from "../builder/page-gen.mjs";
 import { COMPONENT_API, COMPONENT_TYPES } from "../builder/component-api.mjs";
@@ -1552,18 +1552,44 @@ test("a navigate({to}) target is covered too, not just <Link>", () => {
 
 // ── The props the model was guessing ────────────────────────────────────────
 
-test("every shortlisted component's props are STATED, not left to a guess", () => {
+test("EVERY COMPONENT WHOSE PROPS ARE PROMISED REALLY HAS THEM STATED", () => {
   // Measured 2026-08-04 on one CRM sample: a `badge` prop that does not exist, a
   // `subtitle` that is really `description`, an `id` on a row type that has none,
   // and `"error"` for a state whose values are success/warning/danger/neutral/
-  // quiet. Four compile errors, one root cause — 282 names and no signatures —
-  // and the whole site published as its data model.
-  const listed = UI_SHORTLIST.filter((n) => COMPONENT_API[n]);
-  assert.ok(listed.length > 250, `only ${listed.length} of the shortlist have a signature`);
-  for (const n of listed.slice(0, 40)) {
+  // quiet. Four compile errors, one root cause — names and no signatures — and
+  // the whole site published as its data model.
+  //
+  // THE INVARIANT SURVIVED THE PER-SITE CHANGE AND ITS SUBJECT MOVED. It used to
+  // read the 292-name shortlist; props now come from two places and the promise
+  // is about both: the always-on core, cached in the rules, and the manifest this
+  // site's designer wrote, fresh in the user turn. Asserted at both, because
+  // either alone passes while the other sends names with nothing behind them.
+  assert.ok(ALWAYS_API_CORE.length >= 25, `the core is only ${ALWAYS_API_CORE.length} components`);
+  for (const n of ALWAYS_API_CORE) {
+    if (!COMPONENT_API[n]) continue;
     assert.ok(PAGE_RULES.includes(n + " — " + COMPONENT_API[n]),
-      `${n} is offered to the model with no props`);
+      `${n} is in the always-on core and the rules state no props for it`);
   }
+  // …and the per-site half, driven with a manifest deliberately OUTSIDE the core
+  // so this cannot pass on what the cache already carries.
+  const outside = UI_COMPONENTS.filter((n) => COMPONENT_API[n] && !ALWAYS_API_CORE.includes(n)).slice(0, 6);
+  assert.equal(outside.length, 6, "could not find six components outside the core — the scan is broken");
+  const block = siteComponentApi(outside);
+  for (const n of outside) {
+    assert.ok(block.includes(n + " — " + COMPONENT_API[n]),
+      `${n} is named in a site's manifest and its props are never stated`);
+  }
+});
+
+test("…and a component the cache ALREADY carries is not sent twice", () => {
+  // A signature printed in both blocks is one paid for twice — at 1x in the user
+  // turn where the cached copy costs 0.1x. The manifest is what the designer
+  // wrote and it will name the obvious things, so the overlap is the common case
+  // rather than the rare one.
+  const inCore = ALWAYS_API_CORE.find((n) => COMPONENT_API[n]);
+  assert.ok(inCore, "the core has no component with a signature");
+  assert.equal(siteComponentApi([inCore]), "",
+    `${inCore} is in the cached core and was sent again in the user turn`);
 });
 
 test("a string-literal union is never truncated — a half-shown enum is worse than none", () => {
@@ -1599,8 +1625,13 @@ test("a signature that names a type also shows that type's SHAPE", () => {
   // `ActivityFeed(items: Activity[], …)` names a type the model cannot see. It
   // passed `{title, description}[]` where Activity is `{who, what, at, avatar?}`
   // — one error, and the only thing between the booking sample and a pass.
-  const line = UI_SHORTLIST_API().split("\n").find((l) => l.includes("activity-feed"));
-  assert.ok(line, "activity-feed left the shortlist — pick another component with a named type");
+  // DRIVEN THROUGH THE GENERATOR WITH THE NAME IN HAND, rather than searched for
+  // in one fixed list. `UI_SHORTLIST_API()` printed 292 components and this
+  // hunted `activity-feed` among them; `componentApiFor` takes whatever list its
+  // caller has, so the component under test is simply asked for — which also
+  // stops the test depending on whether that one happens to be in the core.
+  const line = componentApiFor(["activity-feed"]).split("\n").find((l) => l.includes("activity-feed"));
+  assert.ok(line, "activity-feed has no signature at all — pick another component with a named type");
   assert.match(line, /where Activity = \{ who: string/, line);
 });
 
@@ -1800,7 +1831,7 @@ test("an id put INTO a route without String() is caught", () => {
 });
 
 test("no component with typed props is silently skipped by the extractor", () => {
-  // `UI_SHORTLIST_API` does `if (!sig) continue`, so a component the extractor
+  // `componentApiFor` does `if (!sig) continue`, so a component the extractor
   // cannot parse simply is not described — no error, no gap in the list, nothing
   // to notice. Measured live 2026-08-05: `data-table`'s
   // `<T extends Record<string, unknown>>` defeated the match (the class stopped
@@ -4043,14 +4074,24 @@ test("the digest says a table sends elsewhere, and stays silent when it does not
 // Asserted over the FINISHED PROMPT rather than over the sources it is built
 // from, because that is the artefact the model reads and the only place the
 // two halves meet.
-test("every kit import in the prompt is a name the prompt says to use", () => {
-  const offered = new Set(UI_SHORTLIST);
+test("every kit import in the prompt is real, and its PROPS are stated", () => {
   const cited = [...new Set([...PAGE_RULES.matchAll(/from "@\/components\/ui\/([a-z0-9-]+)"/g)].map((m) => m[1]))];
   // THE FLOOR: a regex that stopped matching would report a clean prompt.
   assert.ok(cited.length >= 15, `only found ${cited.length} kit imports in the prompt — the scan is broken`);
-  const contradictory = cited.filter((m) => !offered.has(m));
-  assert.deepEqual(contradictory, [],
-    `the prompt shows imports it also tells the model not to use: ${contradictory.join(", ")}`);
+  const real = new Set(UI_COMPONENTS);
+  const invented = cited.filter((m) => !real.has(m));
+  assert.deepEqual(invented, [], `the prompt's worked examples import modules that do not exist: ${invented.join(", ")}`);
+
+  // AND THE STRONGER HALF, which is what actually replaces the old check. Rule 3
+  // now names every module in the kit, so "shows an import it tells you not to
+  // use" is no longer expressible — a list of everything cannot contradict an
+  // example. What can still go wrong is the same failure by the other route: the
+  // prompt SHOWS a component in use, the model copies it, and its props were
+  // never stated. `ALWAYS_API_CORE` derives its first half from exactly these
+  // imports precisely so that cannot happen, and this is what holds it.
+  const unstated = cited.filter((m) => COMPONENT_API[m] && !ALWAYS_API_CORE.includes(m));
+  assert.deepEqual(unstated, [],
+    `the prompt demonstrates these and states no props for them: ${unstated.join(", ")}`);
 });
 
 // ── A WRONG EXPORT NAME IS REPAIRED, AND ONLY WHEN IT IS UNAMBIGUOUS ────────

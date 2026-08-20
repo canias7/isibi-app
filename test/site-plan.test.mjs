@@ -8,10 +8,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
-  PLAN_KEYS, PLAN_EDIT_FIELDS, PLAN_FIELDS, PLAN_REQUIRED,
+  PLAN_KEYS, PLAN_EDIT_FIELDS, PLAN_FIELDS, PLAN_REQUIRED, KIT_PALETTE,
   normalizePlan, directiveFromPlan, hasPlan,
   MAX_SHAPE, MAX_PAGES, MAX_ACTION, MAX_COMPONENTS,
 } from "../builder/site-plan.mjs";
+import { ALWAYS_API_CORE, siteComponentApi, componentApiFor, briefWithLayout, PAGE_RULES } from "../builder/page-gen.mjs";
 import { FAMILIES, layoutDirective, STRUCTURE_NAMES } from "../builder/site-layouts.mjs";
 import { planBudget, imageBudget, budgetFor } from "../builder/site-images.mjs";
 
@@ -218,6 +219,69 @@ test("the directive names every page, the verb and the skeleton", () => {
   assert.match(directiveFromPlan({ ...GOOD, pages: [{ path: "/", role: "everything" }] }), /This site has 1 page:/);
 });
 
+/* ── components are per site: names cached, signatures for this manifest ── */
+
+test("THE DESIGNER IS GIVEN A PALETTE, because a compelled field with no list is guesswork", () => {
+  // `components` compels 10-24 names out of a kit of 2,112 and, until this, named
+  // not one of them — so the designer answered from imagination. Most of this kit
+  // is named things no model would guess (`stats-band`, `trust-strip`,
+  // `rate-card`, `week-strip`), and an invented name resolves to no signature at
+  // all: the page writer is then blind on exactly the component the site needed.
+  const d = PLAN_FIELDS.components.description;
+  for (const n of KIT_PALETTE.slice(0, 30)) {
+    assert.ok(d.includes(n), `${n} is in the palette and the designer is never shown it`);
+  }
+  assert.ok(KIT_PALETTE.length > 200, `the palette shrank to ${KIT_PALETTE.length}`);
+});
+
+test("…and it is a PALETTE, not the whole kit — the +6% choice, not the +46% one", () => {
+  // Measured: the whole kit is 11,392 tokens of names against 1,442 for these, on
+  // a designer tool block of 24,495. The palette is every component the 324
+  // exemplar pages ever reach for, so all 2,112 buys nothing a real site has
+  // needed. Asserted as a BOUND rather than an exact count, since the frozen list
+  // is allowed to be corrected — what must not happen is somebody pasting the kit
+  // in and quadrupling a cached block by accident.
+  assert.ok(KIT_PALETTE.length < 400,
+    `the palette is ${KIT_PALETTE.length} — that is the whole kit, and the designer's cached block with it`);
+  assert.equal(new Set(KIT_PALETTE).size, KIT_PALETTE.length, "the palette repeats a name");
+});
+
+test("the palette is ORDERED most-used-first, and the core comes off its front", () => {
+  // The order is information rather than formatting: the head is what a small
+  // business site nearly always needs. `page-gen.mjs` takes the always-on
+  // signature core off that front rather than keeping a second frozen list, so
+  // one measurement serves both — and a re-sort here silently re-picks the core.
+  assert.equal(KIT_PALETTE[0], "site-chrome", "the palette is no longer ordered by how often pages import each one");
+  const head = new Set(KIT_PALETTE.slice(0, 20));
+  const inCore = ALWAYS_API_CORE.filter((n) => head.has(n));
+  assert.ok(inCore.length >= 18,
+    `only ${inCore.length} of the palette's top 20 are in the always-on core — the two lists have come apart`);
+});
+
+test("A NAME LISTED TWICE IS SENT ONCE, and does not spend two slots", () => {
+  // FOUND BY MUTATION, at both ends and held by nothing at either. A repeated
+  // name prints its signature twice — tokens paid for nothing, in the one block
+  // that is billed fresh at 1x — and it spends one of MAX_COMPONENTS, so a model
+  // that lists `faq` twice gets 23 components' props while believing it named 24.
+  assert.equal(
+    componentApiFor(["week-strip", "week-strip"]).split("\n").length, 1,
+    "a component named twice in a manifest is printed twice",
+  );
+  const out = normalizePlan({ ...GOOD, components: ["faq", "faq", "week-strip"] });
+  assert.deepEqual(out.components, ["faq", "week-strip"], "a duplicate spent a slot in the manifest");
+});
+
+test("A MANIFEST NAMING SOMETHING THAT DOES NOT EXIST COSTS NOTHING", () => {
+  // The designer writes this list and a model can name a component the kit does
+  // not have. There is nothing to validate separately — a name with no signature
+  // has no line to print — and the lint refuses an import of it anyway. What
+  // must not happen is the junk name reaching the prompt as an empty entry,
+  // which reads to the model as a component with no props.
+  const block = siteComponentApi(["totally-invented-thing", "week-strip", 7, null, ["a"]]);
+  assert.ok(!block.includes("totally-invented-thing"), "an invented component name reached the prompt");
+  assert.ok(block.includes("week-strip"), "the real one was lost with the junk");
+});
+
 /* ── the image budget follows the plan ──────────────────────────────────── */
 
 test("the SAME three rules, over a plan instead of a family row", () => {
@@ -283,6 +347,32 @@ test("THE BUILD CALL IS HANDED A REAL PLAN, not a null the fallback swallows", (
   assert.match(args, /\bPLAN_KEYS\b/,
     "the plan is assembled from a hand-written list of axes, so a seventh is answered, stored and dropped here");
   assert.doesNotMatch(args, /plan: null,/, "the plan is hardcoded null and the family fallback hides it");
+});
+
+test("THE MANIFEST'S SIGNATURES REACH THE USER TURN, and only there", () => {
+  // FOUND BY THE SAME CLASS OF MUTATION AS THE PLAN ITSELF: `siteComponentApi`
+  // can be perfectly correct and called by nobody, and every module test still
+  // passes while the page writer sees no site-specific props at all.
+  const plan = {
+    ...GOOD,
+    components: ["week-strip", "menu-section", "countdown", "live-badge"],
+  };
+  const turn = briefWithLayout({ brief: "A barber shop in Leeds", plan });
+  assert.match(turn, /THE COMPONENTS THIS SITE NEEDS/, "the manifest's signatures never reach the model");
+  assert.match(turn, /week-strip — WeekStrip\(/, "a named component's props are not stated");
+
+  // IN THE USER TURN, NEVER THE CACHED BLOCK. A block that varies per site would
+  // miss the ~45,000-token prefix on every single build — measured at thirteen
+  // times the input cost on the family exemplar. Asserted as the ABSENCE of the
+  // per-site block's own heading from the cached rules, which is the one place
+  // this could go wrong and is invisible from either side alone.
+  assert.ok(!PAGE_RULES.includes("THE COMPONENTS THIS SITE NEEDS"),
+    "the per-site component block was folded into the CACHED rules — every build now misses the prefix");
+
+  // …and a caller with no plan sends what it always sent.
+  const bare = briefWithLayout({ brief: "A barber shop in Leeds" });
+  assert.ok(!bare.includes("THE COMPONENTS THIS SITE NEEDS"),
+    "a build with no manifest now carries an empty component block");
 });
 
 test("A SITE BUILT BEFORE THE PLAN EXISTED KEEPS ITS LAYOUT", () => {
