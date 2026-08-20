@@ -415,6 +415,47 @@ test("a page that reaches for fetch is caught", () => {
   assert.match(lintPages(page('const r = await fetch("/api/db/x");'), SPEC).join(" "), /calls fetch directly/);
 });
 
+test("a non-home page with no head is reported, and the home page is not", () => {
+  // RULE 19 WENT UNOBEYED FOR TWO DAYS AND NOTHING SAID SO. It landed
+  // 2026-08-18 with a worked example, and three of the four reference pages in
+  // the same prompt demonstrate it. Measured over the pinned generator corpus,
+  // written by a run on 2026-08-20 — so with the rule in front of it —
+  // 5 of 5 non-home pages have no `head`, and every site the builder made in
+  // between had ONE link preview and one search result for the whole site.
+  //
+  // A LINT AND NOT A SIXTH PARAGRAPH: this repo already records five prompt
+  // rewrites spent on a symptom, and the answer there was to check the
+  // mechanism instead.
+  const noHead = 'export const Route = createFileRoute("/book")({ component: P });';
+  const withHead = 'export const Route = createFileRoute("/book")({ head: () => ({ meta: [{ title: "Book — X" }] }), component: P });';
+
+  assert.match(lintPages([{ path: "book.tsx", source: noHead }], SPEC).join(" "), /has no `head` on its route/);
+  assert.deepEqual(lintPages([{ path: "book.tsx", source: withHead }], SPEC), [],
+    "a page that obeys rule 19 is being told off — the direction this repo rates worse than the miss");
+
+  // THE HOME PAGE IS EXEMPT BY THE RULE'S OWN WORDS: its description was
+  // written for exactly this and beats anything the page could say about
+  // itself. BOTH SPELLINGS, because a stored page path carries no
+  // `src/routes/` prefix and a build response does — the mismatch that made the
+  // whole `page` edit layer dead for a day, and the reason this asks `routeOf`
+  // rather than comparing to "index.tsx".
+  for (const p of ["index.tsx", "src/routes/index.tsx"]) {
+    assert.deepEqual(lintPages([{ path: p, source: noHead }], SPEC), [],
+      p + " is the home page and must not be asked for a head");
+  }
+  // AND `index/index.tsx` IS NOT THE HOME PAGE — the directory form routes at
+  // `/index`, the way `menu/index.tsx` routes at `/menu`. Asserted because it
+  // reads like a home-page spelling and is not; assuming it was cost this test
+  // a red run before the code was ever wrong.
+  assert.match(lintPages([{ path: "index/index.tsx", source: noHead }], SPEC).join(" "),
+    /has no `head` on its route/);
+
+  // A FILE WITH NO ROUTE DECLARATION IS NOT JUDGED. `validatePages` owns that
+  // failure and says it far better; flagging it here would report one problem
+  // as two.
+  assert.deepEqual(lintPages([{ path: "book.tsx", source: "export const x = 1;" }], SPEC), []);
+});
+
 test("a route addressed as a fragment is reported", () => {
   // THE BUG THIS RULE EXISTS FOR, live on every site built on 2026-08-09.
   // `#/book` was correct under hash history and became a no-op the moment the

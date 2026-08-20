@@ -515,7 +515,20 @@ function outOfScopeReads(src) {
       const before = hit ? lines[j].slice(0, hit.index + (hit[1] ? hit[1].length : 0)) : "";
       const inString = ((before.match(/"/g) || []).length % 2) || ((before.match(/'/g) || []).length % 2) ||
         ((before.match(/`/g) || []).length % 2);
-      if (hit && !inString) {
+      // A TAG NAME IS NOT A VARIABLE READ. Fifth false alarm from this scan, and
+      // the first from a REGEX literal, where the quote count above cannot help:
+      // `/<body[^>]*>/` matched a `const body` declared in a block far above,
+      // because `<` satisfies the "not a word character" prefix and `[` looks
+      // like an index. Measured 2026-08-20 on a correct change; it also took the
+      // mutant test below red, since that one asserts exactly ONE finding.
+      //
+      // NARROW ON PURPOSE — `<` immediately against the name, no space, which is
+      // the tag shape in a regex, a string and JSX alike. A real comparison is
+      // written `a < b`, and even `a <b` costs a miss rather than a false alarm.
+      // In JSX `<Foo` IS a reference, and a component is imported at module
+      // scope rather than block-scoped, so excluding it costs this scan nothing.
+      const isTag = hit && /<\/?$/.test(before);
+      if (hit && !inString && !isTag) {
         bad.push(name + " declared at " + (i + 1) + ", block closes at " + (close + 1) + ", read at " + (j + 1));
         break;
       }
@@ -575,6 +588,28 @@ test("the integration scope scan fires on the shape it was written for", () => {
   // The same shape with a REAL out-of-scope read still reports.
   const real = quoted.replace('  post({ files: { "index.tsx": INDEX, "menu.tsx": MENU } });', "  use(menu.length);");
   assert.equal(outOfScopeReads(real).length, 1, "narrowed so far it no longer catches the real thing");
+
+  // AND IT MUST NOT FIRE ON A TAG NAME IN A REGEX. The quote count cannot see
+  // inside a `/.../` literal, so `<body[^>]*>` read as an index into a `const
+  // body` declared in a block above it. Both directions, because a scan
+  // narrowed until it matches nothing passes the test above forever.
+  const tag = [
+    "function f() {",
+    "  if (true) {",
+    "    const body = 1;",
+    "    use(body);",
+    "  }",
+    "  const t = (html.match(/<body[^>]*>([\\s\\S]*)<\\/body>/i) || [])[1];",
+    "  return t;",
+    "}",
+  ].join("\n");
+  assert.deepEqual(outOfScopeReads(tag), [], "a tag name inside a regex is being read as an identifier");
+
+  // The same file with a genuine out-of-scope read still reports, so the
+  // exemption above cannot have switched the scan off for that name.
+  const tagReal = tag.replace("  return t;", "  return body.length;");
+  assert.equal(outOfScopeReads(tagReal).length, 1,
+    "the tag exemption swallowed a real read of the same name");
 });
 
 test("a brace in a comment does not move where the block closes", () => {

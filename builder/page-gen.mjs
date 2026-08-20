@@ -3861,6 +3861,32 @@ export function lintPages(pages, spec) {
     if (/\b(?:fetch|XMLHttpRequest)\s*\(/.test(code) || /\baxios\b/.test(code)) {
       say(path, "calls fetch directly. Read with useRows and write with useCreateRow from @/lib/rows — no fetch code in a page.");
     }
+    // RULE 19, ENFORCED RATHER THAN ONLY STATED. A non-home route with no `head`
+    // inherits the site's own title and description, so every page of the site
+    // shares one link preview and one search result — measured live 2026-08-20,
+    // where `/book` and the home page came back with byte-identical titles AND
+    // og:descriptions on a site that published perfectly.
+    //
+    // A LINT AND NOT A SIXTH PARAGRAPH. Rule 19 is emphatic, carries a worked
+    // example, and three of the four reference pages in the same prompt
+    // demonstrate it — and the model skipped it anyway. This file already
+    // records what happens when a prompt is reworded against a symptom five
+    // times; the answer there was to check the mechanism instead.
+    //
+    // ANCHORED AFTER `createFileRoute(` AND DELIBERATELY LOOSE. Route options
+    // follow that call, so a `head:` anywhere after it counts — which means a
+    // page whose COMPONENT happens to contain the word (a column config, say)
+    // passes when it should not. That is the safe direction on purpose: this
+    // repo rates a false alarm worse than a miss, and the miss here costs one
+    // page's share card while a false alarm teaches the model away from a rule
+    // it is following correctly.
+    const decl = code.indexOf("createFileRoute(");
+    if (decl >= 0 && routeOf(path) !== "/" && !/\bhead\s*:/.test(code.slice(decl))) {
+      say(path, "has no `head` on its route, so it inherits the site's own title and description — " +
+        "pasted into WhatsApp it previews as the home page, same headline and same sentence. " +
+        "Add `head: () => ({ meta: [...] })` beside `component`, with a title and a description about THIS page. " +
+        "The home page is the one that leaves this out.");
+    }
     // A PAGE MAY NOT NAME A COLOUR, and the reason is a feature rather than a
     // preference. The site's colours come from its theme and from the per-site
     // token patch, both of which the CONTAINER applies at build time — so a page

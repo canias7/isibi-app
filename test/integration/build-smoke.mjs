@@ -990,12 +990,33 @@ try {
       // could not say which of those two it was. A check that cannot describe
       // its own coverage cannot be acted on.
       const seen = [];
+      // ERRORS ON THE OTHER ROUTES, WHICH NOTHING HAS EVER CHECKED. `pageErrors`
+      // and `consoleErrors` accumulate for the life of the page and keep filling
+      // as this walk navigates — and the two assertions that read them ran above,
+      // before the walk, so everything /book threw was captured and then never
+      // looked at.
+      //
+      // Measured 2026-08-20: /book rendered its own content, had zero inputs and
+      // zero buttons, and made no data call, on a site whose model notes claim a
+      // booking form with live availability. "The page is thin" and "the page is
+      // erroring" produced the identical log line, and only the home page had
+      // ever been asked. One build is 38 credits, so a run that cannot tell those
+      // apart costs another one.
+      const routeErrors = [];
       for (const r of routes) {
         if (formRoute) break;
         if (r === "index") continue;
+        const errMark = pageErrors.length, conMark = consoleErrors.length;
         const nav = await pg.goto(new URL(asPath(r), SITE).href, { waitUntil: "networkidle", timeout: 45000 })
           .then((res) => (res ? res.status() : 0)).catch(() => 0);
         await pg.waitForTimeout(1200);
+        // ATTRIBUTED TO THE ROUTE, not totalled. A count says a page somewhere
+        // broke; the name says which, and that is the whole difference between a
+        // log somebody can act on and one that needs a second paid build.
+        for (const e of pageErrors.slice(errMark)) routeErrors.push(r + " threw: " + e);
+        for (const e of consoleErrors.slice(conMark)) {
+          if (!/cloudflareinsights\.com/.test(e)) routeErrors.push(r + " logged: " + e);
+        }
         // A route that renders identically to home did not navigate. Skipping it
         // is what stops a silent SPA fallback being reported as "no form here".
         if ((await fingerprint()) === homePrint) { seen.push(r + ":same-as-home(" + nav + ")"); continue; }
@@ -1010,9 +1031,22 @@ try {
           inputs: document.querySelectorAll("input, textarea, select").length,
           buttons: document.querySelectorAll("button").length,
         }));
-        seen.push(r + ":" + JSON.stringify(u));
+        // WHAT THE PAGE ACTUALLY SAYS, when it says nothing this walk can use.
+        // The counts alone report `{forms:0,controls:0,inputs:0,buttons:0}` for
+        // a page that rendered an apology, a page that rendered an error state
+        // and a page that rendered a fine brochure — three different problems
+        // wearing one line. `fingerprint()` is already computed one statement
+        // above for the same-as-home test; this spends nothing extra.
+        seen.push(r + ":" + JSON.stringify(u)
+          + (u.inputs === 0 && u.buttons === 0 ? " says<" + (await fingerprint()).replace(/\s+/g, " ").slice(0, 90) + ">" : ""));
         if (u.forms > 0) { formRoute = r; formUi = u; }
       }
+      // THE OTHER ROUTES GET THE SAME TWO CHECKS THE HOME PAGE HAS HAD ALL
+      // ALONG. Named separately rather than folded into those two, because the
+      // home page's are asserted before this walk runs and a combined line
+      // could not say which page broke.
+      ok("no other page of the site threw or logged an error",
+        routeErrors.length === 0, routeErrors.join(" | "));
       ok("the site rendered a form with real controls, on some page",
         !!formRoute && formUi.forms > 0 && formUi.controls > 1,
         `routes=${JSON.stringify(routes)} home=${JSON.stringify(ui)} found=${formRoute} ${JSON.stringify(formUi)}`
@@ -1160,9 +1194,15 @@ try {
       // small lie that costs a round of confusion later.
       if (formRoute && formRoute !== "index") {
         await pg.screenshot({ path: "smoke-form.png", fullPage: true }).catch(() => {});
-        await pg.goto(SITE, { waitUntil: "networkidle", timeout: 45000 }).catch(() => {});
-        await pg.waitForTimeout(1200);
       }
+      // HOME UNCONDITIONALLY, and the old gate is why this was wrong. The
+      // go-home hung off `formRoute` being set, so on the one run where NO form
+      // was found the walk's last page — /manage — was shot and captioned "live
+      // at <site>/". The comment above already called that class of thing a
+      // small lie that costs a round of confusion; it was gated on the wrong
+      // condition. Measured 2026-08-20, and it cost exactly that.
+      await pg.goto(SITE, { waitUntil: "networkidle", timeout: 45000 }).catch(() => {});
+      await pg.waitForTimeout(1200);
       await pg.screenshot({ path: "smoke-site.png", fullPage: true });
       console.log(`   screenshot: smoke-site.png  (live at ${SITE})`
         + (formRoute && formRoute !== "index" ? `, plus smoke-form.png (${asPath(formRoute)})` : ""));

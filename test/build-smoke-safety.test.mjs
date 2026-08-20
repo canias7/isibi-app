@@ -239,3 +239,98 @@ test("every SMOKE_ switch reads process.env, not the Neon-only `env`", () => {
     assert.ok(good.includes(n), `${n} is no longer read from process.env`);
   }
 });
+
+// A SCREENSHOT MUST BE OF THE PAGE IT SAYS IT IS.
+//
+// `smoke-site.png` is captioned `live at <site>/` and is the picture anybody
+// asking "what did the builder make" gets shown. The go-home before it used to
+// hang off `formRoute` being set — so on a run where NO form was found, the
+// walk's last page was shot and captioned as the home page. Measured
+// 2026-08-20: the artifact was `/manage`, reading "This page needs the link
+// from your confirmation", presented as the site's front page.
+//
+// The comment above that block already called this class of thing a small lie
+// that costs a round of confusion. It was right and gated on the wrong
+// condition, which is why the property is asserted here rather than left to
+// the comment.
+//
+// SOURCE-READ BECAUSE NOTHING ELSE CAN SEE IT: the script talks to a deployed
+// Worker, so no unit test runs it, and the only other signal is looking at an
+// artifact from a run that already cost a real build.
+function goesHomeBeforeSiteShot(src) {
+  const shot = src.indexOf('path: "smoke-site.png"');
+  if (shot < 0) return "the smoke-site.png screenshot is gone — re-point this guard";
+  const gate = src.indexOf('if (formRoute && formRoute !== "index") {');
+  if (gate < 0) return "the form-page screenshot block is gone — re-point this guard";
+  // Walk to the end of that block, so "after the gate" means after it CLOSES
+  // rather than merely later in the file.
+  let depth = 0, close = -1;
+  for (let i = src.indexOf("{", gate); i < shot; i++) {
+    if (src[i] === "{") depth++;
+    else if (src[i] === "}" && --depth === 0) { close = i; break; }
+  }
+  if (close < 0) return "could not find the end of the form-page block";
+  return /await pg\.goto\(SITE\b/.test(src.slice(close, shot))
+    ? null
+    : "the site screenshot is taken without returning home first — it will show whichever page the form walk ended on";
+}
+
+test("the site screenshot is taken on the home page, unconditionally", () => {
+  assert.equal(goesHomeBeforeSiteShot(CODE), null);
+});
+
+test("the screenshot guard fires when the go-home is put back inside the gate", () => {
+  // Driven over a mutant rather than asserted on the source: a guard that found
+  // nothing would pass the test above forever. This reproduces the exact shape
+  // that shipped — the goto living inside the `if`, so it runs only when a form
+  // was found.
+  const mutant = CODE.replace(
+    /(if \(formRoute && formRoute !== "index"\) \{\n)([\s\S]*?)(\n      \}\n)/,
+    "$1$2\n        await pg.goto(SITE, { waitUntil: \"networkidle\", timeout: 45000 });$3");
+  assert.notEqual(mutant, CODE, "the anchor this mutation needs is gone — re-point it");
+  const stripped = mutant.replace(/\n      await pg\.goto\(SITE, \{ waitUntil: "networkidle", timeout: 45000 \}\)\.catch\(\(\) => \{\}\);/, "");
+  assert.notEqual(stripped, mutant, "the unconditional goto this mutation removes is gone — re-point it");
+  assert.match(String(goesHomeBeforeSiteShot(stripped)), /without returning home/);
+});
+
+// EVERY ROUTE GETS THE ERROR CHECKS, NOT JUST THE HOME PAGE.
+//
+// `pageErrors` and `consoleErrors` fill for the life of the page and keep
+// filling as the form walk navigates — and the two assertions that read them
+// run ABOVE the walk. So everything /book threw was captured and then never
+// looked at. Measured 2026-08-20: /book rendered its own content with zero
+// inputs, zero buttons and no data call, and "the page is thin" and "the page
+// is erroring" produced an identical log line. One build is 38 credits, so a
+// run that cannot separate those costs another one.
+//
+// ASSERTED ON THE CONDITION, not on the message. A mutation to `true` leaves
+// every string in place and passed a first sweep — the shape this repo has
+// recorded more than once.
+test("the form walk checks the other routes for errors, and asserts on the count", () => {
+  assert.match(CODE, /ok\("no other page of the site threw or logged an error",\s*\n?\s*routeErrors\.length === 0/,
+    "the per-route error assertion is gone or no longer reads the count it collected");
+
+  // DERIVED FROM BOTH SOURCES, because checking only one leaves the other
+  // silently uncovered: a page that THROWS and a page that logs an error are
+  // different failures and both reach the customer.
+  for (const src of ["pageErrors", "consoleErrors"]) {
+    assert.match(CODE, new RegExp("routeErrors\\.push\\([^)]*\\)[\\s\\S]{0,200}?" + src + "\\.slice\\(|" + src + "\\.slice\\([\\s\\S]{0,200}?routeErrors\\.push"),
+      `route errors are not collected from ${src} — that half of the failure is invisible`);
+  }
+
+  // THE EDGE BEACON STAYS EXCLUDED HERE TOO. Cloudflare injects it on this zone
+  // and the home page's check already separates it; counting it per route would
+  // make every run red for something no customer site can control.
+  //
+  // ANCHORED ON THE CONSOLE LOOP, not on a byte window. The first draft was
+  // `routeErrors[\s\S]{0,400}cloudflareinsights` and went red against correct
+  // code, because the comment explaining the collection pushed the two apart —
+  // the window-sized-in-bytes own-goal this repo has recorded several times,
+  // committed here in the guard written to prevent a different one.
+  // AND THE HOSTNAME IS MATCHED WITHOUT ITS `.com`, because the thing being
+  // searched for IS A REGEX IN THE SOURCE: the file contains
+  // `cloudflareinsights\.com`, backslash and all, so a guard written with `\.`
+  // looks for a dot that is not there. Second own-goal in this one assertion.
+  assert.match(CODE, /consoleErrors\.slice\([^)]*\)\)\s*\{[\s\S]*?cloudflareinsights/,
+    "the per-route console check no longer excludes the edge-injected beacon — every run will be red");
+});
