@@ -11,6 +11,7 @@ import {
 } from "../builder/site-fonts.mjs";
 import { themeFontPair, THEME_SHORTLIST } from "../builder/site-theme-registry.mjs";
 import { mergeLook } from "../builder/site-edit.mjs";
+import { PLAN_REQUIRED } from "../builder/site-plan.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -208,10 +209,21 @@ test("the DESIGNER can actually declare a font, and only a real one", () => {
   // generic default. Required, the model answered from a prose hint on every
   // build and could contradict the theme it had just chosen, with nothing
   // checking the two agreed.
-  const required = src.match(/required: \[("[a-z]+",\s*)*"[a-z]+"\],\s*\n\s*\},\s*\n\};/);
+  // ANCHORED ON THE TOOL'S OWN CLOSING SHAPE, not on the shape of its CONTENTS.
+  // It was `\[("[a-z]+",\s*)*"[a-z]+"\]` — a list of nothing but quoted
+  // lowercase names — and went red the day that list stopped being one, when the
+  // six authored plan fields arrived as `...PLAN_REQUIRED`. A test about how the
+  // entries are written, failing a correct change: this repo's most repeated
+  // own-goal, and the same one `site-images.test.mjs` records one file over.
+  const required = src.match(/required: \[[^\]]*\],\s*\n\s*\},\s*\n\};/);
   assert.ok(required, "could not find design_schema's required list");
   assert.doesNotMatch(required[0], /"fonts"/,
     "fonts is required again, so the model overrides the theme's own pairing on every build");
+  // AND THE HALF THE TEXT CANNOT SEE. Part of that list is computed now, so a
+  // source read alone is weaker than it was: `fonts` could be required by what
+  // the spread expands to, with the literal names above it perfectly innocent.
+  assert.ok(!PLAN_REQUIRED.includes("fonts"),
+    "the plan's own required list carries `fonts`, so it is required after all — through the spread");
   // WHICH IS ONLY SAFE BECAUSE THE FALLBACK EXISTS. Optional with nothing behind
   // it is a straight regression to the generic default, so the two halves are
   // asserted together — the field being optional means nothing without this.

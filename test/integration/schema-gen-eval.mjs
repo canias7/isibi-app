@@ -63,19 +63,24 @@ if (!KEY) { console.error("ANTHROPIC_API_KEY is required"); process.exit(1); }
  */
 async function readSchemaTool() {
   const src = fs.readFileSync(path.join(ROOT, "worker.js"), "utf8");
-  const [fonts, layouts, tokens, themes, style] = await Promise.all([
+  const [fonts, plan, tokens, themes, style] = await Promise.all([
     import(path.join(ROOT, "builder", "site-fonts.mjs")),
-    import(path.join(ROOT, "builder", "site-layouts.mjs")),
+    import(path.join(ROOT, "builder", "site-plan.mjs")),
     import(path.join(ROOT, "builder", "site-tokens.mjs")),
     import(path.join(ROOT, "builder", "site-theme-registry.mjs")),
     import(path.join(ROOT, "builder", "site-style.mjs")),
   ]);
   const scope = {
     SITE_FONT_IDS: fonts.SHORTLIST.map((f) => f.id),
-    SITE_FAMILY_IDS: layouts.READY_FAMILIES,
-    SITE_STRUCTURE_IDS: layouts.STRUCTURE_NAMES,
-    familiesForPrompt: layouts.familiesForPrompt,
-    structuresForPrompt: layouts.structuresForPrompt,
+    // THE SIX AUTHORED PLAN FIELDS, where `SITE_FAMILY_IDS` and the two prompt
+    // helpers used to be. `family` left `design_schema` on 2026-08-20 — the
+    // designer writes the purpose, the skeleton, the shape, the page list, the
+    // verb and the component manifest per site instead of naming one of 100
+    // pre-written trades — so the enum and the family blurb this scope used to
+    // supply are gone from the tool entirely. Real objects, never stubs, for the
+    // reason this function's own header gives.
+    PLAN_FIELDS: plan.PLAN_FIELDS,
+    PLAN_REQUIRED: plan.PLAN_REQUIRED,
     SITE_TOKEN_NAMES: tokens.ASKABLE,
     siteTokenHint: tokens.valueHint,
     THEME_SHORTLIST: themes.THEME_SHORTLIST,

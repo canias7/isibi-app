@@ -18,6 +18,14 @@ const STORED = {
   theme: "broadsheet", family: "salon", structure: "sidebar",
   fonts: { heading: "noto-serif", body: "source-sans-3" },
   lang: "en-GB", mode: "light", langs: ["es"],
+  // The five other plan axes, stored per site since 2026-08-20. `family` is
+  // still here beside them ON PURPOSE: nothing sets one any more, and every site
+  // built before that date has one, so the merge has to keep carrying it.
+  purpose: "the slot picker is the hero; everything else supports the appointment",
+  shape: ["the chair list leads", "prices, then the booking form"],
+  action: ["Book now"],
+  pages: [{ path: "/", role: "book a chair" }, { path: "/prices", role: "what each cut costs" }],
+  components: ["availability-grid", "week-strip", "price-list"],
 };
 
 /* ── absent means unchanged ─────────────────────────────────────────────── */
@@ -93,6 +101,17 @@ test("EVERY FIELD AN EDIT CAN MOVE IS ONE THE DESIGNER IS TOLD THE CURRENT VALUE
     brand: "value-of-brand", description: "value-of-description", theme: "value-of-theme",
     family: "value-of-family", structure: "value-of-structure", lang: "value-of-lang",
     mode: "value-of-mode", fonts: { heading: "inter", body: "inter" }, langs: ["value-of-langs"],
+    // THE FIVE OTHER PLAN AXES CARRY THE SHARPEST VERSION OF THIS GUARD'S OWN
+    // ARGUMENT. They are not looked up from a table any more — the designer
+    // wrote them once, for this site — so one that is not shown back is one a
+    // later edit has every reason to answer afresh, re-rolling the layout on a
+    // request that was only ever about a colour. That is precisely the failure
+    // anchoring the look was introduced to stop, arriving through five new doors.
+    purpose: "value-of-purpose",
+    shape: ["value-of-shape"],
+    action: ["value-of-action"],
+    pages: [{ path: "value-of-pages", role: "a role" }],
+    components: ["value-of-components"],
   };
   assert.deepEqual(Object.keys(SAMPLE).sort(), [...EDIT_FIELDS].sort(),
     "a field was added to EDIT_FIELDS without a sample of its shape — this guard would stop exercising it");

@@ -64,11 +64,23 @@ const PICTURE_LED = new Set([
   "gallery", "masonry", "lightbox", "before-after", "progressive-image", "image-strip",
 ]);
 
+/**
+ * Does this component list treat pictures as content rather than as decoration?
+ *
+ * TAKES THE LIST, NOT A FAMILY NAME, since 2026-08-20: the component list is
+ * authored per site now, so the question this asks has one answer and two places
+ * it can come from. One predicate rather than two that can disagree about what
+ * "picture-led" means.
+ */
+export function componentsAreContent(components) {
+  return Array.isArray(components) && components.some((c) => PICTURE_LED.has(c));
+}
+
 /** Does this family treat pictures as content rather than as decoration? */
 export function picturesAreContent(family) {
   const f = FAMILIES[family];
   if (!f) return false;
-  return (f.components || []).some((c) => PICTURE_LED.has(c));
+  return componentsAreContent(f.components);
 }
 
 /**
@@ -181,9 +193,57 @@ export function hasBoughtPhotos(pages, slug) {
  * budget, a revise of a site that already shows photographs gets nothing, and a
  * revise of a site that has none is treated as the first build it never got.
  */
-export function budgetFor(family, { revise, priorPages, slug } = {}) {
+export function budgetFor(family, { revise, priorPages, slug, plan } = {}) {
   if (revise && hasBoughtPhotos(priorPages, slug)) return 0;
-  return imageBudget(family);
+  // THE AUTHORED PLAN WINS AND THE FAMILY IS THE FALLBACK, the same order
+  // `briefWithLayout` uses and for the same reason: nothing sets a family any
+  // more, but every site built before 2026-08-20 has one stored. `planBudget`
+  // answers null rather than 0 for a plan it cannot read, so an unusable plan
+  // falls through to the family instead of silently costing the site its
+  // pictures — a 0 here and a "no opinion" here are different answers.
+  const fromPlan = planBudget(plan);
+  return fromPlan == null ? imageBudget(family) : fromPlan;
+}
+
+/**
+ * The same three rules, over an authored plan instead of a family row.
+ *
+ * IT IS THE SAME DERIVATION, NOT A SECOND ONE. `terminal` gets nothing anywhere;
+ * the home page gets two where the structure is built around an opening image
+ * and one otherwise; any other page gets one only where the components say
+ * pictures are the content. Capped at `IMAGE_CAP`. A family row and a plan
+ * carrying the same structure, page count and components produce the same
+ * number, which is asserted rather than assumed.
+ *
+ * THE TWO THINGS A PLAN HAS NO EQUIVALENT FOR are `alt` and the per-page `img`
+ * override, and both fall away cleanly. An alternative home page is a property
+ * of a REFERENCE app — a family shipped two so one could be shown — and a
+ * generated site has never had one. The `img` override existed because the
+ * derivation read the FAMILY's component list, so `salon/work` could be a
+ * gallery on a family whose components are all booking widgets; with the list
+ * authored for THESE pages that blind spot is what the model is now answering
+ * directly.
+ *
+ * NULL, NOT ZERO, when there is no usable plan. Zero is a real budget — it is
+ * what `terminal` gets — so returning it for "I cannot read this" would make an
+ * unreadable plan indistinguishable from a deliberate choice to have no
+ * pictures, and would silently suppress them on every site with a stored family.
+ */
+export function planBudget(plan, { cap = IMAGE_CAP } = {}) {
+  const p = plan && typeof plan === "object" && !Array.isArray(plan) ? plan : null;
+  const pages = p && Array.isArray(p.pages) ? p.pages : null;
+  if (!pages || !pages.length) return null;
+  const lim = Math.max(0, Math.min(IMAGE_CAP, Math.floor(Number(cap))) || 0);
+  if (p.structure === "terminal") return 0;
+  const led = componentsAreContent(p.components);
+  let n = 0;
+  for (const pg of pages) {
+    const path = pg && typeof pg.path === "string" ? pg.path : "";
+    if (!path) continue;
+    if (path === "/") n += HERO_LED.has(p.structure) ? 2 : 1;
+    else if (led) n += 1;
+  }
+  return Math.min(n, lim);
 }
 
 /**

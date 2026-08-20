@@ -23,6 +23,7 @@ import { themeCss, THEMES } from "../builder/site-theme.mjs";
 import { briefWithLayout } from "../builder/page-gen.mjs";
 import { FAMILY_NAMES, READY_FAMILIES, STRUCTURE_NAMES, STRUCTURES, layoutDirective, familiesForPrompt, structuresForPrompt, FAMILIES } from "../builder/site-layouts.mjs";
 import { UI_COMPONENTS, UI_SHORTLIST, PAGE_RULES, schemaDigest, lintPages } from "../builder/page-gen.mjs";
+import { PLAN_FIELDS, PLAN_KEYS, PLAN_REQUIRED, directiveFromPlan } from "../builder/site-plan.mjs";
 
 const ROOT = path.join(import.meta.dirname, "..");
 const worker = fs.readFileSync(path.join(ROOT, "worker.js"), "utf8");
@@ -66,23 +67,51 @@ test("an unknown theme resolves to null rather than throwing", () => {
   assert.equal(resolveTheme(42), null);
 });
 
-test("the designer is OFFERED a theme and a family, both derived", () => {
+test("the designer is OFFERED a theme, and WRITES its own plan", () => {
   // Derived, not restated: a hand-typed list here would drift from the module
   // and offer a name that resolves to nothing.
   assert.match(worker, /const SITE_THEME_IDS = THEME_SHORTLIST;/);
-  // READY only. The enum used to be every family while familiesForPrompt()
-  // described ready ones alone, so the model could be offered a name it was
-  // told nothing about and whose directive resolves to null.
-  assert.match(worker, /const SITE_FAMILY_IDS = READY_FAMILIES;/);
   assert.match(worker, /enum: SITE_THEME_IDS/);
-  assert.match(worker, /enum: SITE_FAMILY_IDS/);
+  // THE `family` HALF OF THIS TEST IS GONE BECAUSE THE FIELD IS (2026-08-20).
+  // It used to assert `const SITE_FAMILY_IDS = READY_FAMILIES` and an enum built
+  // from it — the 100 pre-written trades the designer picked between. The owner's
+  // call is that the model decides the shape per site, so there is no enum to
+  // derive and no table to stay in step with: the six authored fields are
+  // spread in from `site-plan.mjs`, which is the one definition of them.
+  //
+  // ASSERTED AS AN ABSENCE TOO. A later edit restoring a `family` field would
+  // put a second, contradictory answer to "what are this site's pages" in front
+  // of the designer, and the two would disagree silently — the directive is
+  // composed from whichever the build path happens to read.
+  assert.match(worker, /\.\.\.PLAN_FIELDS,/, "the six authored fields no longer reach the tool");
+  // COMMENTS BLANKED BEFORE THE ABSENCE IS JUDGED, because the lines recording
+  // WHY `SITE_FAMILY_IDS` was removed necessarily contain its spelling — so the
+  // first draft of this assertion failed against the very change it was written
+  // to protect. Eighth recorded instance of that trap in this repo, and the
+  // first inside a guard written the same day as the entry warning about it.
+  const code = worker.replace(/^[ \t]*\/\/.*$/gm, "");
+  assert.doesNotMatch(code, /\bSITE_FAMILY_IDS\b/,
+    "the family enum is back beside the authored plan — two answers to one question");
+  for (const k of PLAN_KEYS) {
+    assert.ok(Object.hasOwn(PLAN_FIELDS, k), `${k} is a plan key with no field for the designer to answer`);
+  }
 });
 
 test("and REQUIRED to choose, or every site silently keeps the default look", () => {
-  const req = worker.match(/required: \[("[a-z]+", ?)+"[a-z]+"\],\s*\n\s*\},\s*\n\};/);
+  // The contents stopped being a list of quoted names when the plan arrived as
+  // a spread, so this is anchored on the tool's own closing shape instead —
+  // exactly the fix `site-fonts.test.mjs` needed for its copy of this read.
+  const req = worker.match(/required: \[[^\]]*\],\s*\n\s*\},\s*\n\};/);
   assert.ok(req, "could not find design_schema's required list");
   assert.match(req[0], /"theme"/);
-  assert.match(req[0], /"family"/);
+  // DERIVED, so a seventh axis is required without anybody editing this file —
+  // and required at all, which is the half that matters: every one of the six is
+  // a LINE of the layout directive, so a skipped answer is a line the page
+  // writer never sees.
+  assert.match(req[0], /\.\.\.PLAN_REQUIRED/,
+    "the plan's fields are no longer required, so a designer may skip the whole layout");
+  assert.ok(PLAN_REQUIRED.length === PLAN_KEYS.length,
+    "some plan axis is optional — a directive composed from it loses that line silently");
 });
 
 test("the shortlist is 100, spread over every category, and still all resolve", () => {
@@ -178,17 +207,25 @@ test("a null directive is never interpolated into the brief", () => {
   }
 });
 
-test("the structure axis is offered, optional, and every name works", () => {
-  // Optional on purpose, unlike the other three: every family declares a
-  // sensible default, so a skipped answer is a good answer. The fonts field is
-  // required because skipping it means no typeface at all — skipping this one
-  // means "the shape this kind of site usually takes".
-  assert.match(worker, /const SITE_STRUCTURE_IDS = STRUCTURE_NAMES;/);
-  assert.match(worker, /enum: SITE_STRUCTURE_IDS/);
-  const req = worker.match(/required: \[("[a-z]+", ?)+"[a-z]+"\],\s*\n\s*\},\s*\n\};/);
-  assert.ok(req && !/"structure"/.test(req[0]), "structure is required, so a good default can never apply");
+test("the structure axis is offered, REQUIRED, and every name works", () => {
+  // IT STOPPED BEING OPTIONAL WHEN THE FAMILY WENT (2026-08-20), and the old
+  // reasoning is exactly why. It could be skipped because "every family declares
+  // a sensible default, so a skipped answer is a good answer" — and with no
+  // family there is nothing to default to, so a skipped answer is now a
+  // directive with no skeleton line in it at all.
+  //
+  // The enum comes from `site-plan.mjs`, built off the registry, so there is no
+  // `SITE_STRUCTURE_IDS` constant here to keep in step any more.
+  assert.deepEqual(PLAN_FIELDS.structure.enum, STRUCTURE_NAMES,
+    "the eight skeletons offered to the designer are not the eight the engine has");
+  assert.ok(PLAN_REQUIRED.includes("structure"),
+    "structure is optional again, and with no family there is no default behind it");
+  // EVERY NAME REACHES A DIRECTIVE, driven through the composer the build now
+  // uses rather than through the table it replaced.
   for (const st of STRUCTURE_NAMES) {
-    const d = layoutDirective("store", { structure: st });
+    const d = directiveFromPlan({
+      purpose: "a purpose", structure: st, pages: [{ path: "/", role: "the home page" }],
+    });
     assert.ok(d && d.includes(STRUCTURES[st].text), `${st} is offered and does not reach the directive`);
   }
 });
@@ -201,9 +238,12 @@ test("the structure reaches the route, and the model is told what each one is", 
     "an uninstructed designer overrides the stored structure again");
   assert.match(worker, /structure: look\.structure,/, "and the resolved value has to reach the build");
   assert.match(worker, /async function buildAndPublishPages\(env, \{[^}]*\bstructure\b[^}]*\}\)/);
-  assert.match(worker, /structuresForPrompt\(\)/, "the eight are offered as bare names with no description");
-  const blurbs = structuresForPrompt();
-  for (const st of STRUCTURE_NAMES) assert.ok(blurbs.includes(st + " —"), `${st} is offered undescribed`);
+  // DESCRIBED IN THE FIELD ITSELF NOW, not by a `structuresForPrompt()` call in
+  // worker.js. Same guarantee, one layer in: a skeleton offered as a bare name
+  // is one the model picks between blind.
+  for (const st of STRUCTURE_NAMES) {
+    assert.ok(PLAN_FIELDS.structure.description.includes(st + " — "), `${st} is offered undescribed`);
+  }
 });
 
 test("omitting the structure keeps the family's own default", () => {
@@ -235,15 +275,29 @@ test("the theme write fails soft — a bad name never costs the site", () => {
   assert.ok(!/throw/.test(body), "writeTheme can throw, which would take the build with it");
 });
 
-test("the designer is told what each family BUILDS, derived from the module", () => {
-  // It described four of the 26 by hand and left the other 22 to be chosen from
-  // a bare name. A hand-written sample is also the shape that drifts: the module
-  // gains a family, the description does not, and nothing says so.
-  assert.match(worker, /familiesForPrompt\(\)/, "the family field no longer carries the descriptions");
-  const blurbs = familiesForPrompt();
-  for (const name of READY_FAMILIES) {
-    assert.ok(blurbs.includes(name + " —"), `${name} is offered with no description of what it builds`);
+test("every plan field the designer must answer actually TELLS it something", () => {
+  // THE REPLACEMENT FOR "the designer is told what each family BUILDS". That one
+  // asserted `familiesForPrompt()` reached the tool and described all 100 —
+  // right up until 2026-08-20, when the enum it described stopped existing.
+  //
+  // The invariant it was really protecting survives the change and is what is
+  // asserted here: a field the model MUST answer and is told nothing about is a
+  // field answered from the bare name, which is the failure that test existed
+  // for. Six compelled fields, each carrying real instruction rather than a
+  // label — and `shape` is the one that matters most, because it is 294 lines of
+  // hand-written layout opinion being replaced by per-site writing, so a thin
+  // description there produces a thin site.
+  for (const k of PLAN_KEYS) {
+    const d = PLAN_FIELDS[k] && PLAN_FIELDS[k].description;
+    assert.ok(typeof d === "string" && d.length > 120,
+      `\`${k}\` is compelled on every build and described in ${d ? d.length : 0} characters`);
   }
+  // …AND THE ONE THAT DECIDES WHETHER THIS WHOLE CHANGE WORKS. `components` is a
+  // manifest now, not a hint: the page writer sees the props of what it names
+  // and nothing else. A description that still reads as "reach for these first"
+  // is one that produces an 8-name list where the pages need 12.
+  assert.match(PLAN_FIELDS.components.description, /MANIFEST, NOT A SHORTLIST/,
+    "the component field no longer says it decides what the page writer can see");
 });
 
 test("the readiness gate is a real filter, not an alias", () => {
@@ -324,14 +378,22 @@ test("the build both ASKS for photographs and BUYS them", () => {
   // becomes a placeholder); supply the dep with no allowance and nothing ever
   // writes a token for it to find. The two live ~10 lines apart and it is
   // entirely possible to add one and forget the other.
-  // ANCHORED ON THE DECISION, NOT ITS SPELLING. This named the exact expression
-  // `revise ? 0 : imageBudget(family)`, so a correct change failed a test about
-  // word order — the trap this repo keeps recording. What matters is that ONE
-  // call decides the budget and the model is told that same number.
-  assert.match(worker, /const imgBudget = budgetFor\(family, \{ revise, priorPages, slug \}\)/,
-    "the budget is no longer derived in one place from the family and the site's own history");
-  assert.match(worker, /briefWithLayout\(\{ brief, family, structure, images: imgBudget \}\)/,
-    "and stated to the model in the user turn");
+  // ANCHORED ON THE DECISION, NOT ITS SPELLING — which is what the comment
+  // already claimed while pinning `budgetFor(family, { revise, priorPages,
+  // slug })` character for character, so it went red the day `plan` joined the
+  // call. Rewriting the argument list is not a change to the decision, and a
+  // guard that cannot tell the two apart is a guard that fails correct work.
+  // What matters is that ONE call decides the budget and the model is told that
+  // same number.
+  const call = worker.match(/const imgBudget = budgetFor\(([^;]*?)\);/);
+  assert.ok(call, "the budget is no longer derived in one place from the family and the site's own history");
+  for (const arg of ["family", "plan", "revise", "priorPages", "slug"]) {
+    assert.match(call[1], new RegExp("\\b" + arg + "\\b"), "budgetFor is called without `" + arg + "`");
+  }
+  const stated = worker.match(/briefWithLayout\(\{([^}]*)\}\)/);
+  assert.ok(stated, "the layout directive is no longer composed for the model");
+  assert.match(stated[1], /\bimages: imgBudget\b/, "and stated to the model in the user turn");
+  assert.match(stated[1], /\bplan\b/, "the authored plan never reaches the directive");
   assert.match(worker, /images: \(pages, \{ balance, reserve \}\) =>\s*\n?\s*buySitePhotos\(/,
     "and the dep that buys them is supplied to publishPages");
 });
@@ -528,7 +590,10 @@ test("a REVISE buys no new photographs", () => {
     "a revise re-derives a photo budget and re-bills for pictures the owner has");
   assert.equal(budgetFor("marketplace", { revise: true, priorPages: none, slug: "cafe" }), imageBudget("marketplace"),
     "a site that never got a photograph can never get one, however often it is rebuilt");
-  assert.match(worker, /const imgBudget = budgetFor\(family, \{ revise, priorPages, slug \}\)/,
+  // …AND THE ROUTE STILL ASKS IT. Matched on the call rather than on its
+  // argument list, for the third time in this file: the list grew a `plan` and
+  // three separate guards went red on a change none of them was about.
+  assert.match(worker, /const imgBudget = budgetFor\(/,
     "…and the route no longer asks that question");
   // AND THE FLAG HAS TO ARRIVE. The budget line above is correct and inert if
   // nothing ever passes `revise` — four of five layers working is this repo's

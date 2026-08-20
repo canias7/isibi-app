@@ -87,7 +87,7 @@ import { parseGeneratedFiles as parseGameFiles, GAME_RULES, GAME_ASSET_RULES, GA
 import { SHORTLIST, resolvePair, resolvePageFonts, MAX_PAGE_FONTS } from "./builder/site-fonts.mjs";
 import { THEME_SHORTLIST, themeFontPair } from "./builder/site-theme-registry.mjs";
 import { currentStateNote, EDIT_RULE, EDIT_REQUIRED, EDIT_FIELDS, hasValue, mergeLook, movedFields } from "./builder/site-edit.mjs";
-import { READY_FAMILIES, STRUCTURE_NAMES, familiesForPrompt, structuresForPrompt } from "./builder/site-layouts.mjs";
+import { PLAN_FIELDS, PLAN_KEYS, PLAN_REQUIRED, normalizePlan } from "./builder/site-plan.mjs";
 
 // Game build-service container (Phase 3). The image (./builder-game/Dockerfile)
 // bakes kaplay + a headless Chromium for the smoke test. Runs to zero after idle.
@@ -3329,16 +3329,12 @@ const SITE_FONT_IDS = SHORTLIST.map((f) => f.id);
 // shortlist bounds is what the MODEL chooses between — the same bargain fonts
 // made when it left 2,072 families off its own list.
 const SITE_THEME_IDS = THEME_SHORTLIST;
-// Derived, never restated: a family named here that site-layouts.mjs does not
-// declare produces a directive of nothing, and the page prompt silently loses
-// its layout while every test still passes.
-// READY only, and it must stay that way: familiesForPrompt() describes ready
-// families alone, so an enum of all of them offers the model a name it is told
-// nothing about and whose layoutDirective resolves to null.
-const SITE_FAMILY_IDS = READY_FAMILIES;
-// The eight page ARRANGEMENTS. Derived like the rest; 8 names and their
-// descriptions together cost ~195 tokens, so there is no shortlist to make.
-const SITE_STRUCTURE_IDS = STRUCTURE_NAMES;
+// `SITE_FAMILY_IDS` AND `SITE_STRUCTURE_IDS` WENT WITH THE `family` FIELD
+// (2026-08-20). The first was the 100-name enum and the second the eight
+// arrangements; both are now inside `PLAN_FIELDS`, which builds its structure
+// enum from the registry directly. Removed rather than left declared, because a
+// constant nothing reads is the on-disk-and-reachable-by-nothing shape this repo
+// has deleted 289 files over.
 
 const SITE_SCHEMA_TOOL = {
   name: "design_schema",
@@ -4088,41 +4084,20 @@ const SITE_SCHEMA_TOOL = {
           description: siteStyleHint(a),
         }])),
       },
-      // The SHAPE. Distinct from the theme on purpose: a theme decides how a
-      // site looks, a family decides what its pages ARE and in what order.
-      family: {
-        type: "string",
-        enum: SITE_FAMILY_IDS,
-        // DERIVED, not a hand-written sample. This described four of the 26 and
-        // left the other 22 to be picked from a bare name — the same
-        // restated-instead-of-derived trap that makes a list drift from the
-        // module it describes. `familiesForPrompt` is site-layouts.mjs's own
-        // one-line-per-family blurb, and each line carries the trades it suits,
-        // which is what actually makes the choice accurate. ~954 tokens.
-        description:
-          "The kind of site this is: it decides what the PAGES are, not what they look like. " +
-          "Each line is a family and the trades it covers — match the brief's own words against " +
-          "those trades, and where none is exact pick the family whose trades are nearest. " +
-          "How the pages are then arranged is not your problem here; that is sent to the step " +
-          "that writes them.\n\n" + familiesForPrompt(),
-      },
-      // The third axis: a family says what the PAGES are, a structure says how one
-      // is arranged. `store` on card-grid and `store` on sidebar are the same
-      // pages in genuinely different shapes.
+      // THE SHAPE — SIX AUTHORED FIELDS WHERE `family` USED TO BE (owner's call,
+      // 2026-08-20). Distinct from the theme on purpose: a theme decides how a
+      // site looks, these decide what its pages ARE and in what order.
       //
-      // OPTIONAL, UNLIKE THE OTHER THREE, and deliberately. Every family already
-      // declares a sensible default — a store browses (card-grid), a firm reads
-      // (editorial), a departures board is a terminal — so a skipped answer is a
-      // good answer here. The fonts field is required because skipping it means
-      // no typeface was chosen at all; skipping this one means "the shape this
-      // kind of site usually takes", which is right far more often than not.
-      structure: {
-        type: "string",
-        enum: SITE_STRUCTURE_IDS,
-        description:
-          "How the pages are ARRANGED — optional. Every family already has a sensible default, so leave this out " +
-          "unless the brief asks for a shape that is not the usual one for this kind of site.\n\n" + structuresForPrompt(),
-      },
+      // Until this, one field named one of 100 pre-written families and the
+      // platform looked the answers up — so every barber shop got the barber
+      // shop's page set and verb, decided by a person, for a trade, before any
+      // particular site existed. The owner's direction is that the model decides
+      // per site; `site-plan.mjs` is that decision as a plain module, and
+      // spreading it here means the tool has ONE definition of the six.
+      //
+      // ORDER MATTERS AND IS ASSERTED: `components` is LAST, so it is picked
+      // after the page list above it has been written. See PLAN_KEYS.
+      ...PLAN_FIELDS,
       // WHAT LANGUAGE THE SITE IS WRITTEN IN, which nothing could say until
       // 2026-08-12 — the template hardcodes `<html lang="en">`, so a peluquería
       // in Madrid published as English and Chrome offered its own customers a
@@ -4224,7 +4199,14 @@ const SITE_SCHEMA_TOOL = {
     // already carried a curated, validated pair that nothing read. Optional, the
     // ordinary build inherits the theme's own pairing and the two cannot
     // disagree; a brief with an opinion about type still overrides it.
-    required: ["brand", "slug", "tables", "seed", "description", "theme", "family"],
+    // THE SIX PLAN FIELDS ARE ALL REQUIRED, where `family` was one field. Every
+    // one of them is a LINE of the layout directive, so a skipped answer is a
+    // line the page writer never sees — and `structure` in particular stopped
+    // being optional here: it used to default to whatever the family declared,
+    // and with no family there is nothing to default to. Derived from
+    // `PLAN_REQUIRED` rather than listed, so a seventh axis cannot be added to
+    // the tool and forgotten here.
+    required: ["brand", "slug", "tables", "seed", "description", "theme", ...PLAN_REQUIRED],
   },
 };
 
@@ -7549,7 +7531,7 @@ async function siteOgImage(env, slug) {
   } catch (e) { console.error("og image lookup failed:", slug, e && e.message); return null; }
 }
 
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, fonts, theme, tokens, pageTokens, pageFonts, style, family, structure, lang, mode, logo, icon, verify, attachments, priorUsage, model, revise, changeNote, priorPages, mark }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, fonts, theme, tokens, pageTokens, pageFonts, style, plan, family, structure, lang, mode, logo, icon, verify, attachments, priorUsage, model, revise, changeNote, priorPages, mark }) {
   // Resolved once, before any model call: the pair always lands on something
   // installed, so a build never waits on a font it cannot get.
   const fontPair = resolvePair(fonts || {});
@@ -7600,7 +7582,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
   // Such a site could never get a photograph however many times it was rebuilt.
   // `budgetFor` asks the honest question instead, off the prior pages that are
   // already loaded here.
-  const imgBudget = budgetFor(family, { revise, priorPages, slug });
+  const imgBudget = budgetFor(family, { revise, priorPages, slug, plan });
   // WHAT THE SITE IS SERVING RIGHT NOW, for the one decision in `salvagePlan`:
   // a page that already works is never replaced with the "not finished yet"
   // stub. `priorPages` is the stored source of the LAST successful publish and
@@ -7621,7 +7603,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       // and sent the bare brief — ~287 tokens of layout that every real build
       // carries and no sample ever did, so the compile rate described a prompt
       // the platform does not send.
-      return generateSitePages(env, briefWithLayout({ brief, family, structure, images: imgBudget }), spec, brand, family, attachments, model, priorPages);
+      return generateSitePages(env, briefWithLayout({ brief, plan, family, structure, images: imgBudget }), spec, brand, family, attachments, model, priorPages);
     },
     // Runs between the lint and the compile, on the pages the model actually
     // wrote. `publishPages` supplies the two numbers only it knows — the balance
@@ -12098,6 +12080,21 @@ async function handleRequest(request, env, ctx) {
             //
             // Strictly `=== true`, like every other flag off a request body:
             // nothing merely truthy may quietly change what a build is shown.
+            // THE AUTHORED PLAN, assembled from the merged look rather than
+            // stored as one object — each of its six axes is its own
+            // `EDIT_FIELDS` entry, so a revise that mentions none of them keeps
+            // all six and one that mentions the page list keeps the other five.
+            // `normalizePlan` answers null for anything that cannot compose a
+            // directive, which is exactly what the family fallback below is for.
+            //
+            // Derived from `PLAN_KEYS`, never a second list: an axis added to
+            // `site-plan.mjs` and forgotten here would be answered by the
+            // designer, merged into the look, stored — and dropped on the one
+            // hop that reaches the model. That is the `teamScope` failure, which
+            // this repo has now recorded at five separate layers.
+            plan: body && body.noFamily === true ? null : normalizePlan(
+              Object.fromEntries(PLAN_KEYS.map((k) => [k, look[k]])),
+            ),
             family: body && body.noFamily === true ? null : look.family,
             structure: look.structure,
             // Out of the same merged look as the other five, so a revise that

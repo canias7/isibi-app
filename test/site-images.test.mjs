@@ -731,8 +731,19 @@ test("…and worker.js actually asks budgetFor, rather than keeping the old rule
   // the whole file while `budgetFor` sat there correct and unused. That shape is
   // recorded in this repo more times than any other.
   const w = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.match(w, /const imgBudget = budgetFor\(family, \{ revise, priorPages, slug \}\)/,
-    "the image budget is no longer decided by budgetFor — a site whose first build failed can never get a photograph again");
+  // ASSERT THE PROPERTY, NOT THE SPELLING. This was pinned to the exact argument
+  // list `budgetFor(family, { revise, priorPages, slug })` and went red the day
+  // `plan` was added beside them — a test about word order failing a correct
+  // change, which is this repo's most repeated own-goal and which its own
+  // neighbours already record. What has to hold is that `imgBudget` comes from
+  // `budgetFor` and that every input it needs to answer for the right site is
+  // named; the order they are written in is not a fact about anything.
+  const call = w.match(/const imgBudget = budgetFor\(([^;]*?)\);/);
+  assert.ok(call, "the image budget is no longer decided by budgetFor — a site whose first build failed can never get a photograph again");
+  for (const arg of ["family", "revise", "priorPages", "slug", "plan"]) {
+    assert.match(call[1], new RegExp("\\b" + arg + "\\b"),
+      "budgetFor is called without `" + arg + "` — it answers for the wrong site, silently");
+  }
   assert.doesNotMatch(w, /const imgBudget = revise \? 0 :/,
     "the old rule is back: a revise buys nothing even when the site has no pictures at all");
   // budgetFor needs all three or it silently answers for the wrong site. Read

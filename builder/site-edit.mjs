@@ -29,8 +29,31 @@
 // Plain module with no I/O, like `site-ask.mjs` and `publish-pages.mjs`, so the
 // whole decision is tested without a Worker, a model or a database.
 
-/** The look/identity fields an edit may move. `tables` and `tokens` merge on their own paths. */
-export const EDIT_FIELDS = ["brand", "description", "theme", "family", "structure", "fonts", "lang", "mode", "langs"];
+import { PLAN_EDIT_FIELDS } from "./site-plan.mjs";
+
+/**
+ * The look/identity fields an edit may move. `tables` and `tokens` merge on their own paths.
+ *
+ * THE SIX PLAN AXES ARE SPREAD IN RATHER THAN LISTED, so a seventh added to
+ * `site-plan.mjs` becomes editable without anybody remembering this file — the
+ * failure that left `teamScope` dead at five separate layers. `structure` comes
+ * from there now; it used to be written here by hand.
+ *
+ * EACH AXIS IS ITS OWN FIELD, deliberately, rather than one nested `plan`
+ * object. `mergeLook` replaces a field whole, so a single object would mean a
+ * revise that changes only the page list has to hand back the purpose, the
+ * shape, the verb and the component list unchanged — which is exactly the
+ * "restate what you are keeping" habit this module exists to remove, and a model
+ * asked to restate a value will eventually restate it slightly differently.
+ * Per-axis, omission still means unchanged for the five nobody mentioned.
+ *
+ * `family` STAYS, AND IT IS NO LONGER IN THE TOOL. Nothing can set it any more —
+ * the six authored fields replaced it on 2026-08-20 — but every site built
+ * before that has one stored, and `mergeLook` rebuilds its output from this list
+ * alone. Drop the name and the next revise of an existing site silently discards
+ * the only record of what its layout was, taking the fallback with it.
+ */
+export const EDIT_FIELDS = ["brand", "description", "theme", "family", ...PLAN_EDIT_FIELDS, "fonts", "lang", "mode", "langs"];
 
 /**
  * Nothing is required of an EDIT.
@@ -71,6 +94,24 @@ export function currentStateNote(current) {
   add("family", c.family);
   add("mode", c.mode);
   add("structure", c.structure);
+  // THE FIVE OTHER PLAN AXES, for the reason every line here exists and with the
+  // same edge as `lang` below. These replaced `family` on 2026-08-20, so they are
+  // no longer looked up from a table — they are values THIS site's designer wrote
+  // once and a later edit inherits. A designer not shown them has every reason to
+  // answer them afresh on a request that was only ever about a colour, which is
+  // the re-roll that anchoring the look was introduced to stop, arriving through
+  // six new doors. Stated compactly: the shape lines and the page roles are
+  // prose, so the whole set is capped rather than each line being spelled out.
+  add("what the site is organised around", c.purpose);
+  if (Array.isArray(c.shape) && c.shape.length) lines.push("layout: " + c.shape.map(str).filter(Boolean).join(" · ").slice(0, 400));
+  if (Array.isArray(c.action) && c.action.length) lines.push("primary action: " + c.action.map(str).filter(Boolean).join(" / ").slice(0, 120));
+  if (Array.isArray(c.pages) && c.pages.length) {
+    const p = c.pages.filter((x) => x && typeof x === "object").map((x) => str(x.path)).filter(Boolean);
+    if (p.length) lines.push("pages it already has: " + p.join(", ").slice(0, 300));
+  }
+  if (Array.isArray(c.components) && c.components.length) {
+    lines.push("components it already uses: " + c.components.map(str).filter(Boolean).join(", ").slice(0, 500));
+  }
   // THE LANGUAGE THE PAGES ARE WRITTEN IN. Stated for the same reason as
   // everything else here and with a sharper edge than most: this note is written
   // in English and so is the tool schema, so a designer that is NOT told a site

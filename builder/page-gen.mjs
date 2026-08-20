@@ -18,6 +18,7 @@ import { COMPONENT_API, COMPONENT_TYPES, COMPONENT_TYPE_NAMES } from "./componen
 // builder/gen-chart-api.mjs and kept in step by test/chart-api.test.mjs.
 import { CHART_COMPONENTS, CHART_API } from "./chart-api.mjs";
 import { FAMILIES, layoutDirective } from "./site-layouts.mjs";
+import { directiveFromPlan } from "./site-plan.mjs";
 import { imageDirective } from "./site-images.mjs";
 import { FAMILY_EXEMPLARS } from "./family-exemplars.mjs";
 import { modelsFor } from "./build-models.mjs";
@@ -3367,8 +3368,17 @@ export function briefForPages({ brief, priorBrief } = {}) {
  * eval and every other caller that has no budget to state then sends exactly the
  * request it sent before this existed.
  */
-export function briefWithLayout({ brief, family, structure, images } = {}) {
-  const directive = family ? layoutDirective(family, structure ? { structure } : {}) : null;
+export function briefWithLayout({ brief, plan, family, structure, images } = {}) {
+  // THE AUTHORED PLAN WINS, AND THE FAMILY IS THE FALLBACK FOR SITES OLDER THAN
+  // IT (2026-08-20). `family` left `design_schema` when the six authored fields
+  // replaced it, so nothing sets one any more — but every site built before that
+  // has one stored in `_meta`, and a revise of one must not silently lose its
+  // layout. `directiveFromPlan` answers null for anything it cannot compose, so
+  // the two are tried in order rather than chosen between: a half-written plan
+  // falls through to the family exactly as a missing one does.
+  const directive =
+    directiveFromPlan(plan) ||
+    (family ? layoutDirective(family, structure ? { structure } : {}) : null);
   const parts = [String(brief ?? "")];
   if (directive) parts.push(directive);
   if (images != null) parts.push(imageDirective(images));
@@ -3396,6 +3406,22 @@ export function briefWithLayout({ brief, family, structure, images } = {}) {
  * which is what makes it nearly free; this one is what this TRADE looks like.
  */
 export function familyExemplar(family) {
+  // AND SINCE 2026-08-20 THIS ANSWERS NULL FOR EVERY NEW SITE, which is a real
+  // loss and is recorded here rather than left to be discovered. `family` left
+  // `design_schema` when the six authored plan fields replaced it, so nothing
+  // sets one any more — and this is keyed on the family NAME, so with no trade
+  // to match on there is no exemplar to select. A new build carries the layout
+  // directive (composed from the authored plan) and no worked example; a revise
+  // of a site built before that date still has its stored family and still gets
+  // one.
+  //
+  // THE OPEN QUESTION, stated so it is a decision rather than an oversight: the
+  // 100 exemplars are still on disk and still typechecked, and the obvious
+  // replacement key is `structure` — eight worked examples instead of a hundred,
+  // selected by the skeleton the designer picked. Not done here because choosing
+  // which page best represents each of the eight is a judgement call, and
+  // shipping the wrong eight is worse than shipping none: this file already
+  // records that a worked example is what the model copies.
   const src = family ? FAMILY_EXEMPLARS[family] : null;
   return src || null;
 }

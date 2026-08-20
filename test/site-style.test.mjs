@@ -625,7 +625,15 @@ test("THE BUILD PATH HANDS IT TO THE PUBLISHER", () => {
     else if (worker[end] === "}") { depth--; if (!depth) { end++; break; } }
   }
   const args = worker.slice(i, end);
-  assert.ok(args.length > 200 && args.length < 6000, "the argument scan is broken: " + args.length + " chars");
+  // THE BOUND IS ON CODE, NOT ON PROSE. It exists to catch a scan that matched
+  // the wrong brace and ran away — not to police how well this block is
+  // documented — and it went red the day the authored plan arrived with its
+  // reasoning written above it, on a change that was entirely correct. That is
+  // the same fix `api-auth.test.mjs` already made to its own window, for the
+  // same reason: a repo that puts its arguments in comments cannot size a
+  // window in bytes of file.
+  const code = args.replace(/^[ \t]*\/\/.*$/gm, "");
+  assert.ok(code.length > 200 && code.length < 6000, "the argument scan is broken: " + code.length + " chars of code");
   assert.match(args, /tokens: siteTokens/, "the scan is wrong — it cannot even see the colours");
   assert.match(args, /style: siteStyle/, "the merged patch never reaches the publisher");
 });
