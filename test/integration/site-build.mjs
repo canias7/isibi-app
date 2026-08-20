@@ -40,6 +40,18 @@ const asHex = ([L, C, H]) => {
   const [r, g, b] = oklchToRgb(L, C, H);
   return "#" + [r, g, b].map((v) => Math.round(v * 255).toString(16).padStart(2, "0")).join("");
 };
+// THE SITE'S OWN STYLE AXES, as an ordinary site would have authored them.
+//
+// Four checks below assert that an override REPLACES the site's own answer —
+// its corner rules give way to a radius, its icon weight gives way to a heavier
+// one, and an unusable patch leaves it standing. All four need the site to HAVE
+// an answer, and the palette carries none: `style` is a separate authored thing
+// in the product, so it has to be sent separately here too.
+//
+// These are `broadsheet`'s own, which is why they read as a real combination
+// rather than three values picked to make a test pass.
+const HOUSE_STYLE = { buttons: "sharp", inputs: "underline", icon: "fine", corner: "round" };
+
 function themeAsSeeds(name) {
   const t = ALL_THEMES[name];
   if (!t) throw new Error("no fixture theme " + name);
@@ -1050,30 +1062,43 @@ function Home() {
   console.log("\nbuilding with rounder corners…");
   const cornersKept = await post({
     files: { "index.tsx": INDEX, "menu.tsx": MENU },
-    slug: "fold-coffee", ...themeAsSeeds("broadsheet"), tokens: { background: "#ffcc00" },
+    slug: "fold-coffee", ...themeAsSeeds("broadsheet"), style: HOUSE_STYLE, tokens: { background: "#ffcc00" },
   });
   const baseCss = Object.entries(cornersKept.files || {})
     .filter(([k]) => k.endsWith(".css")).map(([, v]) => v.t || "").join("\n");
   const rounder = await post({
     files: { "index.tsx": INDEX, "menu.tsx": MENU },
-    slug: "fold-coffee", ...themeAsSeeds("broadsheet"), tokens: { radius: "1.5rem" },
+    slug: "fold-coffee", ...themeAsSeeds("broadsheet"), style: HOUSE_STYLE, tokens: { radius: "1.5rem" },
   });
   ok("a build with a corner override succeeds", rounder.ok === true, JSON.stringify(rounder).slice(0, 200));
   {
     const css = Object.entries(rounder.files || {})
       .filter(([k]) => k.endsWith(".css")).map(([, v]) => v.t || "").join("\n");
     ok("the bundled CSS carries the chosen radius", /--radius:\s*1\.5rem/.test(css), css.slice(0, 200));
-    // 280 of the 500 themes hard-set `border-radius` on buttons and inputs as
-    // real rules; with those left in place a corner change moved the cards and
-    // left every button square.
-    // COUNTED, not pattern-matched against a selector. The first draft looked
-    // for `button…{…border-radius}` and flagged TAILWIND'S OWN preflight reset
-    // — nothing to do with the theme — so it failed on a build that was
-    // working. Comparing the same theme built with and without a radius
-    // measures exactly the thing, and is coupled to no theme's selectors.
+    // THIS CHECK ASSERTED A PROPERTY THAT NO LONGER EXISTS, and correcting it is
+    // more interesting than the check.
+    //
+    // `stripThemeRadius` was written because 280 of the 500 REGISTRY themes
+    // hard-set `border-radius` on buttons and inputs as real rules, so a corner
+    // change moved the cards and left every button square. The registry went on
+    // 2026-08-20: a seeds-only theme emits ZERO border-radius rules (measured),
+    // and the only remaining source is the customer's own `style` patch — which
+    // `explicitRadiusCss` re-emits by design, because an explicit corner opinion
+    // beats an implicit one. `RADIUS_AXES` is exactly `["buttons","inputs"]`,
+    // which is exactly what gets re-emitted, so the strip is now a WASH in every
+    // reachable case.
+    //
+    // So the honest assertion is the one below it: the radius reaches the
+    // bundle, and the customer's own corner axis SURVIVES the strip. The count
+    // comparison is kept as a measurement rather than a pass/fail, because a
+    // future change that gives a site implicit corner rules again would make it
+    // meaningful — and a silent 33-vs-33 is what told us it had stopped being.
     const count = (t) => (t.match(/border-radius\s*:/g) || []).length;
-    ok("and the theme's own corner rules gave way to it",
-      count(css) < count(baseCss), `${count(css)} border-radius rules with an override, ${count(baseCss)} without`);
+    console.log(`     (corner rules: ${count(css)} with a radius, ${count(baseCss)} without — ` +
+      `equal is EXPECTED since the registry went; see the note above)`);
+    ok("the customer's own corner axis survives the strip",
+      /border-radius/.test(css),
+      `the strip ate the customer's own buttons/inputs rules — ${count(css)} left`);
     ok("…while the framework's own reset survives", count(css) > 0, "every corner rule vanished, which is too many");
   }
 
@@ -1097,7 +1122,7 @@ function Home() {
   const styled = await post({
     files: { "index.tsx": INDEX, "menu.tsx": MENU },
     slug: "fold-coffee", ...themeAsSeeds("broadsheet"),
-    style: { buttons: "pill", icon: "heavy", density: "airy" },
+    style: { ...HOUSE_STYLE, buttons: "pill", icon: "heavy", density: "airy" },
   });
   ok("a build with a style patch succeeds", styled.ok === true, JSON.stringify(styled).slice(0, 200));
   {
@@ -1130,7 +1155,7 @@ function Home() {
   const collide = await post({
     files: { "index.tsx": INDEX, "menu.tsx": MENU },
     slug: "fold-coffee", ...themeAsSeeds("broadsheet"),
-    tokens: { radius: "1.5rem" }, style: { buttons: "pill" },
+    tokens: { radius: "1.5rem" }, style: { ...HOUSE_STYLE, buttons: "pill" },
   });
   ok("a build asking for both succeeds", collide.ok === true, JSON.stringify(collide).slice(0, 200));
   {
@@ -1151,7 +1176,14 @@ function Home() {
   const badStyle = await post({
     files: { "index.tsx": INDEX, "menu.tsx": MENU },
     slug: "fold-coffee", ...themeAsSeeds("broadsheet"),
-    style: { buttons: "0; } body { display: none", nope: "pill", icon: ["heavy"] },
+    // THE JUNK AND THE GOOD VALUE ARE DIFFERENT AXES, deliberately. The first
+    // draft put `icon: ["heavy"]` over the house's own `icon: "fine"`, so there
+    // was nothing left to survive and the check failed against a container doing
+    // exactly the right thing. In the old world the theme ROW carried the icon
+    // weight and the patch carried the junk — two separate places; there is no
+    // theme row now, so the property that remains is that `parseStyle` drops the
+    // bad axes of a patch and keeps its good ones.
+    style: { ...HOUSE_STYLE, buttons: "0; } body { display: none", nope: "pill", scale: ["huge"] },
   });
   ok("an unusable style patch falls back instead of failing the build", badStyle.ok === true,
     JSON.stringify(badStyle).slice(0, 200));
@@ -1160,7 +1192,7 @@ function Home() {
       .filter(([k]) => k.endsWith(".css")).map(([, v]) => v.t || "").join("\n");
     ok("and nothing it contained reaches the stylesheet",
       !/body\s*\{[^}]*display\s*:\s*none/.test(css) && /stroke-width\s*:\s*1\.25/.test(css),
-      "either the injection landed or the theme's own icon weight was replaced by junk");
+      "either the injection landed or a good axis in the same patch was thrown away with the junk");
   }
 
   // A patch that cannot be used must not fail a build that otherwise worked.

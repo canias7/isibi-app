@@ -30,6 +30,7 @@
 // whole decision is tested without a Worker, a model or a database.
 
 import { PLAN_EDIT_FIELDS } from "./site-plan.mjs";
+import { normalizeSeeds } from "./site-seeds.mjs";
 
 /**
  * The look/identity fields an edit may move. `tables` and `tokens` merge on their own paths.
@@ -256,7 +257,23 @@ export function hasValue(v) {
     if ("heading" in v || "body" in v) return !!(h && b);
     // Recognised by the anchors rather than by the field name, because this
     // function never learns which key it is answering for.
-    if (SEED_ANCHORS.some((k) => k in v)) return SEED_ANCHORS.every((k) => typeof v[k] === "string" && v[k].trim() !== "");
+    //
+    // AND "USABLE", NOT MERELY "COMPLETE" — which is the stricter half and the
+    // one that matters. A palette the engine refuses is not an answer, exactly
+    // as a half `fonts` pair is not: counting it means a complete-but-illegible
+    // one REPLACES a good stored palette, the container then refuses it on every
+    // publish, and the site is stuck on the default look until somebody asks for
+    // a different colour. Measured: `{paper:"#8a8a8a", ink:"#6f6f6f"}` is a
+    // well-formed object and 1.5:1 body text.
+    //
+    // This was impossible before 2026-08-20, when a theme was a NAME from an
+    // enum — an authored palette is the first look value that can be well-formed
+    // and unusable, so the guard arrives with it.
+    //
+    // THE SAME VALIDATOR, NEVER A SECOND OPINION. `normalizeSeeds` is the one
+    // place a palette is judged; this asks it whether an answer counts, which is
+    // a different question at a different moment, not a rival ruling.
+    if (SEED_ANCHORS.some((k) => k in v)) return !!normalizeSeeds(v).theme;
     return Object.keys(v).length > 0;
   }
   return true;

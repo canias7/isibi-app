@@ -80,6 +80,36 @@ test("EVERY FIELD THE PUBLISH PATH READS OFF THE LOOK IS ONE THE MERGE PRODUCES"
   assert.ok(read.has("lang"), "nothing in the publish path reads the site's language any more");
 });
 
+test("an UNUSABLE palette is not an answer, so a good stored one survives", () => {
+  // THE ONE HAZARD THE AUTHORED PALETTE INTRODUCED. A theme used to be a name
+  // from an enum, so an invalid one was impossible; three hex colours can be
+  // perfectly well-formed and illegible. Counting that as an answer means it
+  // REPLACES the stored palette, the container then refuses it on every publish,
+  // and the site is stuck on the default look until somebody happens to ask for
+  // a different colour — the damage is silent and it persists.
+  //
+  // Measured: `{paper:"#8a8a8a", ink:"#6f6f6f"}` is a complete object and 1.5:1
+  // body text.
+  const BAD = { name: "Fog", paper: "#8a8a8a", ink: "#6f6f6f", accent: "#7a7a90" };
+  assert.equal(hasValue(BAD), false, "an illegible palette counts as an answer");
+  assert.deepEqual(mergeLook(STORED, { seeds: BAD }, null, { instructed: true }).seeds, STORED.seeds,
+    "an illegible palette displaced the stored one");
+  assert.deepEqual(movedFields(STORED, mergeLook(STORED, { seeds: BAD }, null, { instructed: true })), [],
+    "and it reports having changed the look");
+
+  // …AND A USABLE ONE STILL LANDS, or the guard above is satisfied by a merge
+  // that refuses every palette — which would make the whole field unreachable.
+  const OK = { name: "Sea Glass", paper: "#f2f7f6", ink: "#1c2a28", accent: "#2b7a6b" };
+  assert.equal(hasValue(OK), true);
+  assert.deepEqual(mergeLook(STORED, { seeds: OK }, null, { instructed: true }).seeds, OK,
+    "a good palette can no longer be asked for");
+
+  // A FIRST BUILD WITH A BAD PALETTE STORES NOTHING rather than storing a fault.
+  // The site publishes on the template's own look either way; what this avoids is
+  // a stored value that can never render.
+  assert.equal(mergeLook(null, { seeds: BAD }, null).seeds, null);
+});
+
 test("EVERY FIELD AN EDIT CAN MOVE IS ONE THE DESIGNER IS TOLD THE CURRENT VALUE OF", () => {
   // DERIVED, because `currentStateNote` is a hand-written list and `EDIT_FIELDS`
   // is not — so adding a seventh field silently produced a value the model could
