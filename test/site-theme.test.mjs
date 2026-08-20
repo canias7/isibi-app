@@ -23,7 +23,7 @@ import { SHORTLIST } from "../builder/site-fonts.mjs";
 // The 500 shipped themes. `site-theme.mjs` carries two; the border assertions
 // below are about a property that has to hold across the whole registry, not
 // across a fixture that was written to pass them.
-import { THEME_IDS, resolveTheme } from "../builder/site-theme-registry.mjs";
+import { THEME_IDS, resolveTheme } from "./fixtures/themes.mjs";
 
 /**
  * THE ENGINE IS TESTED AGAINST THIS, NOT AGAINST WHATEVER IS SHIPPED.
@@ -1037,14 +1037,19 @@ test("the shortlist is usable as a tool enum", () => {
 test("this IS wired now, and the chain is guarded next door", () => {
   // Was "nothing imports this yet, and that is deliberate", whose own comment
   // asked for exactly this replacement once the module was wired: an assertion
-  // of the opposite, plus a reachability chain. The chain is test/wiring.test.mjs
-  // — it drives every one of the 500 themes through the engine and follows the
-  // name from the designer's enum to real CSS in a built dist.
+  // of the opposite, plus a reachability chain. The chain is test/wiring.test.mjs.
+  //
+  // THE WORKER'S HALF MOVED ON 2026-08-20. It used to import the theme REGISTRY
+  // and hand the container a name; the registry is gone and the designer authors
+  // three anchor colours per site, so what the Worker must carry is the field
+  // that collects them. The engine below is unchanged — it derives the same 31
+  // tokens it always did — and the container is still where a palette becomes
+  // CSS, which is why only the first of these two reads moved.
   const fs = require$("node:fs");
-  assert.ok(/site-theme/.test(fs.readFileSync("worker.js", "utf8")),
-    "worker.js no longer imports the theme registry — no site can wear a theme");
+  assert.ok(/site-seeds/.test(fs.readFileSync("worker.js", "utf8")),
+    "worker.js no longer offers a palette field — no site can wear one");
   assert.ok(/site-theme/.test(fs.readFileSync("builder/build-server.mjs", "utf8")),
-    "the container no longer turns a theme name into CSS");
+    "the container no longer turns a palette into CSS");
   assert.ok(fs.existsSync("test/wiring.test.mjs"),
     "the reachability chain that guards this has been deleted");
 });

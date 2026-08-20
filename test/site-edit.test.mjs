@@ -15,7 +15,7 @@ import {
 const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 const STORED = {
   brand: "Sharp Fade", description: "A barber shop in Leeds.",
-  theme: "broadsheet", family: "salon", structure: "sidebar",
+  seeds: { name: "Warm Brick", paper: "#f7f2ea", ink: "#332a26", accent: "#b44a2e" }, family: "salon", structure: "sidebar",
   fonts: { heading: "noto-serif", body: "source-sans-3" },
   lang: "en-GB", mode: "light", langs: ["es"],
   // The five other plan axes, stored per site since 2026-08-20. `family` is
@@ -98,7 +98,7 @@ test("EVERY FIELD AN EDIT CAN MOVE IS ONE THE DESIGNER IS TOLD THE CURRENT VALUE
   // stop being derived. Requiring the map to match the list means a field with a
   // NEW shape fails here, loudly, at the fixture.
   const SAMPLE = {
-    brand: "value-of-brand", description: "value-of-description", theme: "value-of-theme",
+    brand: "value-of-brand", description: "value-of-description", seeds: { name: "Cool Slate", paper: "#f4f6f8", ink: "#20262b", accent: "#2f6f85" },
     family: "value-of-family", structure: "value-of-structure", lang: "value-of-lang",
     mode: "value-of-mode", fonts: { heading: "inter", body: "inter" }, langs: ["value-of-langs"],
     // THE FIVE OTHER PLAN AXES CARRY THE SHARPEST VERSION OF THIS GUARD'S OWN
@@ -117,7 +117,17 @@ test("EVERY FIELD AN EDIT CAN MOVE IS ONE THE DESIGNER IS TOLD THE CURRENT VALUE
     "a field was added to EDIT_FIELDS without a sample of its shape — this guard would stop exercising it");
   const note = currentStateNote(SAMPLE);
   for (const k of EDIT_FIELDS) {
+    // Two fields carry no "value-of-x" string because their shape has no room
+    // for one — checked by what they DO put in the note instead.
     if (k === "fonts") { assert.match(note, /fonts:/, "the note does not state the fonts"); continue; }
+    if (k === "seeds") {
+      // All three anchors, or a designer shown only some of them fills the rest
+      // in — which is a new palette on a request that was about something else.
+      for (const hex of [SAMPLE.seeds.paper, SAMPLE.seeds.ink, SAMPLE.seeds.accent]) {
+        assert.ok(note.includes(hex), "the note does not state the site's current " + hex);
+      }
+      continue;
+    }
     assert.ok(note.includes("value-of-" + k),
       "`" + k + "` can be moved by an edit and the designer is never shown the site's current one");
   }
@@ -133,11 +143,11 @@ test("…and the rule tells it not to restate the language, in the terms the mer
 });
 
 test("naming one field moves exactly that one", () => {
-  const out = mergeLook(STORED, { theme: "zine" }, null, { instructed: true });
-  assert.equal(out.theme, "zine", "an edit that asks for a new look cannot get one");
+  const out = mergeLook(STORED, { seeds: { name: "Cool Slate", paper: "#f4f6f8", ink: "#20262b", accent: "#2f6f85" } }, null, { instructed: true });
+  assert.deepEqual(out.seeds, { name: "Cool Slate", paper: "#f4f6f8", ink: "#20262b", accent: "#2f6f85" }, "an edit that asks for a new look cannot get one");
   assert.equal(out.family, "salon");
   assert.equal(out.brand, "Sharp Fade");
-  assert.deepEqual(movedFields(STORED, out), ["theme"]);
+  assert.deepEqual(movedFields(STORED, out), ["seeds"]);
 });
 
 test("the two that used to move on their own are held now", () => {
@@ -163,7 +173,7 @@ test("without `instructed` the OLD precedence holds, exactly", () => {
   // would re-roll the look on every edit. The failure direction is "the edit did
   // not take", which the customer can see and say again — never "the site
   // re-themed itself".
-  for (const k of ["theme", "family", "structure", "brand", "description"]) {
+  for (const k of ["seeds", "family", "structure", "brand", "description"]) {
     const out = mergeLook(STORED, { [k]: "something-else" }, null);
     assert.equal(out[k], STORED[k], `${k} was overridden by an uninstructed designer`);
   }
@@ -171,12 +181,12 @@ test("without `instructed` the OLD precedence holds, exactly", () => {
 });
 
 test("a first build is unaffected, because there is nothing stored", () => {
-  const out = mergeLook(null, { brand: "New Co", theme: "glass", family: "salon" }, null, { instructed: false });
+  const out = mergeLook(null, { brand: "New Co", seeds: { name: "Cool Slate", paper: "#f4f6f8", ink: "#20262b", accent: "#2f6f85" }, family: "salon" }, null, { instructed: false });
   assert.equal(out.brand, "New Co");
-  assert.equal(out.theme, "glass");
+  assert.deepEqual(out.seeds, { name: "Cool Slate", paper: "#f4f6f8", ink: "#20262b", accent: "#2f6f85" });
   // …and the body remains the last resort, which is what keeps an off-list theme
   // reachable by name.
-  assert.equal(mergeLook(null, null, { theme: "off-list" }).theme, "off-list");
+  assert.deepEqual(mergeLook(null, null, { seeds: { name: "Off List", paper: "#ffffff", ink: "#111111", accent: "#7a3ba0" } }).seeds, { name: "Off List", paper: "#ffffff", ink: "#111111", accent: "#7a3ba0" });
   // Every field answers, so a caller can read them without guarding each one.
   for (const k of EDIT_FIELDS) assert.ok(k in out, `${k} missing from the merge`);
 });
@@ -186,10 +196,10 @@ test("a first build is unaffected, because there is nothing stored", () => {
 test("an empty answer is not an answer", () => {
   // "" and {} are how a model says nothing while appearing to answer, and
   // treating either as a value is how the empty string becomes a site's name.
-  const out = mergeLook(STORED, { brand: "   ", description: "", theme: null, fonts: {} }, null, { instructed: true });
+  const out = mergeLook(STORED, { brand: "   ", description: "", seeds: null, fonts: {} }, null, { instructed: true });
   assert.equal(out.brand, "Sharp Fade");
   assert.equal(out.description, "A barber shop in Leeds.");
-  assert.equal(out.theme, "broadsheet");
+  assert.deepEqual(out.seeds, STORED.seeds);
   assert.deepEqual(out.fonts, STORED.fonts);
 });
 
@@ -214,7 +224,7 @@ test("the state note names the current values, so `unchanged` is answerable", ()
   // A rule to omit what is unchanged is unusable if the model does not know what
   // is unchanged — the designer was never told an edit was an edit.
   const note = currentStateNote({ ...STORED, tables: ["bookings", "services"] });
-  for (const v of ["Sharp Fade", "A barber shop in Leeds.", "broadsheet", "salon", "sidebar", "noto-serif", "bookings"]) {
+  for (const v of ["Sharp Fade", "A barber shop in Leeds.", "Warm Brick", "#b44a2e", "salon", "sidebar", "noto-serif", "bookings"]) {
     assert.ok(note.includes(v), `the note does not name ${v}`);
   }
   // Empty in, empty out — a first build must add nothing to the message at all.
@@ -277,7 +287,7 @@ test("the route reads the current state and hands it to the designer", () => {
 
 test("the designer's tool drops its required list on an edit ONLY", () => {
   assert.match(worker, /if \(current\) req\.tools = \[\{ \.\.\.req\.tools\[0\], input_schema: \{ \.\.\.SITE_SCHEMA_TOOL\.input_schema, required: EDIT_REQUIRED \} \}\]/,
-    "an edit still requires brand/description/theme/family, which is what moves them");
+    "an edit still requires brand/description/seeds/fonts, which is what moves them");
   // A FIRST BUILD IS UNTOUCHED. The whole change is gated on `current`, so a
   // build sends the request it has always sent — including the cached tool block.
   // THE PROPERTY IS WHAT THE MESSAGE SAYS, not how it is assembled. This pinned

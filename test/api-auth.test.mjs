@@ -14,6 +14,10 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+// THE SCHEMA FRAGMENTS `design_schema` COMPOSES ITSELF FROM. Bound for real in
+// the shape check below, never stubbed — see `REAL` there for why.
+import { SEEDS_FIELD } from "../builder/site-seeds.mjs";
+import { PLAN_FIELDS } from "../builder/site-plan.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = fs.readFileSync(path.join(ROOT, "worker.js"), "utf8");
@@ -285,6 +289,24 @@ test("every tool the model is given is a schema the API will accept", () => {
     }
   };
 
+  // A NAME THAT IS ITSELF A SCHEMA GETS THE REAL THING, NEVER THE STUB — and
+  // this is the FOURTH time this stand-in has been too simple, which is the
+  // pattern worth naming rather than the individual fix.
+  //
+  // A whole sub-schema composed in another module (`seeds: SEEDS_FIELD`) reads
+  // as a Proxy with no `type`, so the walk below reported "needs a type" about a
+  // field that has one — a false alarm — and, had the walk been written the
+  // other way round, would instead have skipped it silently. Either way
+  // `design_schema.seeds` would be covered by nothing, which is precisely the
+  // gap that let `unique`'s empty `items` through and took the builder's main
+  // path down for three merges.
+  //
+  // The stub still stands in for everything else; only names that ARE schema
+  // fragments are bound for real, because those are the ones this test exists
+  // to inspect. A fragment added later and not listed here fails loudly on its
+  // first missing `type` rather than passing quietly.
+  const REAL = { SEEDS_FIELD, PLAN_FIELDS };
+
   // Every tool definition in worker.js, found by its input_schema.
   const tools = [...SRC.matchAll(/name:\s*"([a-z_]+)",\s*\n\s*description:[\s\S]{0,400}?input_schema:\s*\{/g)];
   assert.ok(tools.length >= 1, "no tool definitions found — has worker.js changed shape?");
@@ -343,7 +365,7 @@ test("every tool the model is given is a schema the API will accept", () => {
     let schema, names = [];
     for (let attempt = 0; attempt < 12; attempt++) {
       try {
-        schema = new Function(...names, "return (" + literal + ")")(...names.map(() => stub));
+        schema = new Function(...names, "return (" + literal + ")")(...names.map((n) => REAL[n] ?? stub));
         break;
       } catch (e) {
         const m = /^(\w+) is not defined$/.exec(e.message || "");

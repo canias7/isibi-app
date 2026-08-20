@@ -16,62 +16,67 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
-import { THEME_IDS, THEME_SHORTLIST, ALL_THEMES, resolveTheme } from "../builder/site-theme-registry.mjs";
 import { budgetFor } from "../builder/site-images.mjs";
 import { mergeLook, movedFields, hasValue, EDIT_RULE, currentStateNote } from "../builder/site-edit.mjs";
-import { themeCss, THEMES } from "../builder/site-theme.mjs";
 import { briefWithLayout } from "../builder/page-gen.mjs";
 import { STRUCTURE_NAMES, STRUCTURES } from "../builder/site-layouts.mjs";
 import { UI_COMPONENTS, ALWAYS_API_CORE, PAGE_RULES, schemaDigest, lintPages } from "../builder/page-gen.mjs";
 import { PLAN_FIELDS, PLAN_KEYS, PLAN_REQUIRED, KIT_PALETTE, directiveFromPlan } from "../builder/site-plan.mjs";
+import { normalizeSeeds } from "../builder/site-seeds.mjs";
 
 const ROOT = path.join(import.meta.dirname, "..");
 const worker = fs.readFileSync(path.join(ROOT, "worker.js"), "utf8");
 const buildServer = fs.readFileSync(path.join(ROOT, "builder/build-server.mjs"), "utf8");
 
-test("every theme the designer may pick actually resolves and renders", () => {
-  assert.equal(THEME_IDS.length, Object.keys(ALL_THEMES).length);
-  assert.ok(THEME_IDS.length >= 500, `only ${THEME_IDS.length} themes reachable`);
-  for (const id of THEME_IDS) {
-    const t = resolveTheme(id);
-    assert.ok(t, `${id} is offered and does not resolve`);
-    const css = themeCss(t);
-    assert.ok(typeof css === "string" && css.length > 200, `${id} renders nothing usable`);
-  }
+test("THE PALETTE IS AUTHORED, AND THE WHOLE CHAIN IS WIRED", () => {
+  // THE REPLACEMENT FOR SIX REGISTRY TESTS. They asserted that 500 named themes
+  // resolved, that a promoted one beat its candidate, that worlds merged under,
+  // and that the shortlist spread over every category. All six were about a
+  // lookup table that left the product on 2026-08-20 — the designer writes three
+  // anchor colours per site now and `paletteFor` derives the other 28 tokens,
+  // which is what every one of those 500 already did.
+  //
+  // What replaces them is the CHAIN, asserted link by link, because this repo has
+  // recorded a dozen features that were correct at every layer and dead at one:
+  // the tool must offer the field, the field must be the real module's (not a
+  // second copy that can drift), the route must merge it, the look must carry it,
+  // the build must pass it, and the container must render it.
+  assert.match(worker, /seeds: SEEDS_FIELD,/, "design_schema no longer offers a palette at all");
+  assert.match(worker, /import \{[^}]*SEEDS_FIELD[^}]*\} from "\.\/builder\/site-seeds\.mjs"/,
+    "SEEDS_FIELD is referenced and never imported — a ReferenceError building the tool");
+  assert.match(worker, /const merged = mergeLook\(priorLook, designed, body/, "the route does not merge the look");
+  assert.match(worker, /\n\s*seeds: merged\.seeds,/, "the look no longer carries the authored palette");
+  assert.match(worker, /\n\s*seeds: look\.seeds,/, "the merged palette never reaches buildAndPublishPages");
+  assert.match(worker, /async function buildAndPublishPages\(env, \{[^}]*\bseeds\b[^}]*\}\)/,
+    "buildAndPublishPages is passed a palette it does not destructure");
+  assert.match(worker, /\n\s*seeds: seeds \|\| null,/, "the palette never reaches the container payload");
+
+  // AND THE NAME IS GONE, asserted as an ABSENCE with COMMENTS BLANKED — the
+  // notes recording why `theme` was removed necessarily spell it, and this repo
+  // has been caught by that more than half a dozen times.
+  const code = worker.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  assert.doesNotMatch(code, /\bTHEME_SHORTLIST\b|\bthemeFontPair\b|\bSITE_THEME_IDS\b/,
+    "the theme registry is back in the Worker — two answers to what colour a site is");
 });
 
-test("a promoted theme wins over its candidate of the same name", () => {
-  // The registry spreads THEMES last precisely so promotion — the version whose
-  // `needs` capability is actually built — beats the swatch. Asserted rather
-  // than left to the reader, because the ordering looks arbitrary.
-  for (const name of Object.keys(THEMES)) {
-    assert.deepEqual(ALL_THEMES[name], THEMES[name], `${name} is not the promoted version`);
-  }
+test("the container is the ONE place a palette is judged", () => {
+  // `normalizeSeeds` runs next to the `themeCss` call that consumes its answer,
+  // so there is exactly one place a palette can be refused. Judging in the Worker
+  // as well would put the derived 31-token result on the wire beside the three
+  // seeds and let the two copies drift.
+  assert.match(buildServer, /import \{[^}]*normalizeSeeds[^}]*\} from "\.\/site-seeds\.mjs"/,
+    "the container does not import the normaliser");
+  const code = worker.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  assert.doesNotMatch(code, /normalizeSeeds\(/,
+    "the Worker judges the palette too — one of the two will eventually disagree");
 });
 
-test("a world is merged UNDER its theme, so a hand-authored axis wins", () => {
-  // worlds.mjs states this rule in its own header. Reversed, a generated world
-  // silently overwrites an axis somebody chose by hand — invisible, because both
-  // values are valid and the site still builds.
-  const zine = resolveTheme("zine");
-  assert.equal(zine.decor, "paper", "the world was not merged at all");
-  assert.equal(zine.inputs, "underline", "the world overwrote the theme's own axis");
-});
-
-test("an unknown theme resolves to null rather than throwing", () => {
-  // A theme is decoration on a site whose data layer is already live. Losing a
-  // build over a misspelt name would be the tail wagging the dog.
-  assert.equal(resolveTheme("no-such-theme"), null);
-  assert.equal(resolveTheme(""), null);
-  assert.equal(resolveTheme(undefined), null);
-  assert.equal(resolveTheme(42), null);
-});
-
-test("the designer is OFFERED a theme, and WRITES its own plan", () => {
-  // Derived, not restated: a hand-typed list here would drift from the module
-  // and offer a name that resolves to nothing.
-  assert.match(worker, /const SITE_THEME_IDS = THEME_SHORTLIST;/);
-  assert.match(worker, /enum: SITE_THEME_IDS/);
+test("the designer WRITES its own plan, and its own palette", () => {
+  // Derived, not restated: a hand-typed copy here would drift from the module.
+  // The palette half is asserted in full by "THE PALETTE IS AUTHORED" above; what
+  // this adds is that the two authored tiers are BOTH spread in from their own
+  // modules rather than either being restated in the tool.
+  assert.match(worker, /seeds: SEEDS_FIELD,/, "the palette field is not the module's own");
   // THE `family` HALF OF THIS TEST IS GONE BECAUSE THE FIELD IS (2026-08-20).
   // It used to assert `const SITE_FAMILY_IDS = READY_FAMILIES` and an enum built
   // from it — the 100 pre-written trades the designer picked between. The owner's
@@ -103,7 +108,10 @@ test("and REQUIRED to choose, or every site silently keeps the default look", ()
   // exactly the fix `site-fonts.test.mjs` needed for its copy of this read.
   const req = worker.match(/required: \[[^\]]*\],\s*\n\s*\},\s*\n\};/);
   assert.ok(req, "could not find design_schema's required list");
-  assert.match(req[0], /"theme"/);
+  assert.match(req[0], /"seeds"/,
+    "the palette is optional, so a designer may skip it and the site keeps the template's own look");
+  assert.match(req[0], /"fonts"/,
+    "the typeface is optional again — with no registry to recommend a pairing that means the default face");
   // DERIVED, so a seventh axis is required without anybody editing this file —
   // and required at all, which is the half that matters: every one of the six is
   // a LINE of the layout directive, so a skipped answer is a line the page
@@ -114,46 +122,26 @@ test("and REQUIRED to choose, or every site silently keeps the default look", ()
     "some plan axis is optional — a directive composed from it loses that line silently");
 });
 
-test("the shortlist is 100, spread over every category, and still all resolve", () => {
-  // A flat first-100 would be every print and tech theme and nothing else — a
-  // shortlist that cannot dress a bakery. The round-robin is what stops that,
-  // and it is invisible unless something checks the spread.
-  assert.equal(THEME_SHORTLIST.length, 100);
-  const allCats = new Set(Object.values(ALL_THEMES).map((t) => t.cat || "shipped"));
-  const listCats = new Set(THEME_SHORTLIST.map((n) => ALL_THEMES[n].cat || "shipped"));
-  assert.equal(listCats.size, allCats.size, `only ${listCats.size} of ${allCats.size} categories are offered`);
-  for (const n of THEME_SHORTLIST) assert.ok(resolveTheme(n), `${n} is offered and does not resolve`);
-  assert.equal(new Set(THEME_SHORTLIST).size, 100, "the shortlist repeats a theme");
+test("a caller-supplied palette is still the last resort", () => {
+  // WHAT SURVIVES OF "the other 400 are bounded, not lost". That test was about a
+  // registry: the shortlist bounded what the MODEL picked between, and a caller
+  // naming any of the 500 directly on the request body reached it. There is no
+  // list any more — the model authors the palette — but the precedence it rested
+  // on is still real and still load-bearing, so it is asserted as the property
+  // rather than deleted with the list.
+  //
+  // DRIVEN, NOT SPELLED. Its predecessor pinned the inline
+  // `(priorLook && …) || (designed && …) || (body && …)` chain twice over and
+  // went red when the merge moved into `mergeLook` — a correct change failing a
+  // test about word order.
+  const A = { name: "From Body", paper: "#ffffff", ink: "#111111", accent: "#c04a2e" };
+  const B = { name: "Designed", paper: "#f7f2ea", ink: "#332a26", accent: "#b44a2e" };
+  assert.deepEqual(mergeLook(null, null, { seeds: A }).seeds, A,
+    "a palette named on the request body no longer reaches the build");
+  assert.deepEqual(mergeLook(null, { seeds: B }, { seeds: A }).seeds, B,
+    "the designer outranks the body on a first build");
 });
 
-test("the promoted themes are always offered", () => {
-  // They are the two whose `needs` are actually built. Losing one because a
-  // category lane filled first would make the best-supported themes the least
-  // likely to be chosen.
-  for (const name of Object.keys(THEMES)) {
-    assert.ok(THEME_SHORTLIST.includes(name), `${name} is promoted and not offered`);
-  }
-});
-
-test("the other 400 are bounded, not lost — any of the 500 still resolves", () => {
-  // The fonts bargain: the shortlist bounds what the MODEL picks between, and a
-  // caller naming one directly on the request body reaches any of them.
-  const offList = THEME_IDS.filter((n) => !THEME_SHORTLIST.includes(n));
-  assert.equal(offList.length, THEME_IDS.length - 100);
-  for (const n of offList) assert.ok(resolveTheme(n), `${n} is unreachable even by name`);
-  // DRIVEN, NOT SPELLED. This pinned the inline `(priorLook && …) || (designed
-  // && …) || (body && …)` chain twice over and went red when the merge moved
-  // into `mergeLook` — a correct change failing a test about word order. The
-  // property that keeps an off-list theme reachable is that a body-supplied
-  // theme survives when nothing else names one, whoever implements it.
-  assert.equal(mergeLook(null, null, { theme: "off-list-one" }).theme, "off-list-one",
-    "a theme named on the request body no longer reaches the build");
-  assert.equal(mergeLook(null, { theme: "designed" }, { theme: "off-list-one" }).theme, "designed",
-    "the body outranks the designer on a first build");
-  // …and the route has to actually use it, or the merge is correct and unread.
-  assert.match(worker, /const merged = mergeLook\(priorLook, designed, body/, "the route does not merge the look");
-  assert.match(worker, /\n\s*theme: lookTheme,/, "the look no longer uses the resolved theme");
-});
 
 test("the DESIGN call is cached, like the page call", () => {
   // It carries ~6,800 tokens that are byte-identical every build and was paying
@@ -165,14 +153,6 @@ test("the DESIGN call is cached, like the page call", () => {
   assert.match(call, /tools: \[\{ \.\.\.SITE_SCHEMA_TOOL, cache_control: \{ type: "ephemeral" \} \}\]/);
   assert.match(call, /system: \[\{ type: "text", cache_control: \{ type: "ephemeral" \}/,
     "the system block must be a block array, or cache_control has nowhere to live");
-});
-
-test("the chosen theme reaches the container, by name", () => {
-  // The seam that was missing entirely: the enum existed in an earlier draft and
-  // the value went nowhere, so the model chose a theme on every build and no
-  // site ever wore one.
-  assert.match(worker, /theme: theme \|\| null,/);
-  assert.match(worker, /async function buildAndPublishPages\(env, \{[^}]*\btheme\b[^}]*\}\)/);
 });
 
 test("the PLAN reaches the PAGE prompt as a directive, not as fields", () => {
@@ -256,9 +236,9 @@ test("the structure reaches the route, and the model is told what each one is", 
   }
 });
 
-test("the container turns that name into real CSS, after the font write", () => {
+test("the container turns the palette into real CSS, after the font write", () => {
   assert.match(buildServer, /function writeTheme\(/);
-  assert.match(buildServer, /resolveTheme\(name\)/);
+  assert.match(buildServer, /normalizeSeeds\(seeds\)/, "writeTheme no longer derives a theme from the seeds");
   // Ordering is the correctness argument: writeFonts restores styles.css from
   // the pristine base, so a theme written first is overwritten by it.
   const fontsAt = buildServer.indexOf("const fontsUsed = writeFonts(");
@@ -267,7 +247,7 @@ test("the container turns that name into real CSS, after the font write", () => 
   assert.ok(themeAt > fontsAt, "writeTheme runs BEFORE writeFonts and will be overwritten");
 });
 
-test("the theme write fails soft — a bad name never costs the site", () => {
+test("the theme write fails soft — an unusable palette never costs the site", () => {
   const fn = buildServer.slice(buildServer.indexOf("function writeTheme("));
   const body = fn.slice(0, fn.indexOf("\n}\n"));
   assert.match(body, /if \(!theme\) return \{ applied: false/);
@@ -655,23 +635,24 @@ test("a revise keeps the site's stored look instead of re-rolling it", () => {
   // AND THE GUARANTEE ITSELF, driven rather than spelled. "A revise keeps the
   // stored look" is now "stored unless the change named it" — the same
   // protection, expressed so that asking CAN change it.
-  const stored = { theme: "broadsheet", family: "salon", structure: "sidebar", brand: "Sharp Fade", description: "A barber shop." };
+  const stored = { seeds: { name: "Cool Slate", paper: "#f4f6f8", ink: "#20262b", accent: "#2f6f85" }, family: "salon", structure: "sidebar", brand: "Sharp Fade", description: "A barber shop." };
   // An instructed designer that named nothing changes nothing. This is the case
   // that used to re-roll the look, and it is the ordinary edit.
   const quiet = mergeLook(stored, { tokens: { background: "#ffff00" } }, null, { instructed: true });
-  for (const k of ["theme", "family", "structure", "brand", "description"]) {
-    assert.equal(quiet[k], stored[k], `a colour-only edit moved ${k}`);
+  for (const k of ["seeds", "family", "structure", "brand", "description"]) {
+    assert.deepEqual(quiet[k], stored[k], `a colour-only edit moved ${k}`);
   }
   assert.deepEqual(movedFields(stored, quiet), [], "a colour-only edit reports having moved something");
   // …and naming one moves exactly that one.
-  const rethemed = mergeLook(stored, { theme: "zine" }, null, { instructed: true });
-  assert.equal(rethemed.theme, "zine", "an edit that asks for a new theme cannot get one");
-  assert.equal(rethemed.family, "salon", "re-theming also changed the family");
-  assert.deepEqual(movedFields(stored, rethemed), ["theme"]);
+  const NEW = { name: "Sea Glass", paper: "#f2f7f6", ink: "#1c2a28", accent: "#2b7a6b" };
+  const rethemed = mergeLook(stored, { seeds: NEW }, null, { instructed: true });
+  assert.deepEqual(rethemed.seeds, NEW, "an edit that asks for a new palette cannot get one");
+  assert.equal(rethemed.family, "salon", "re-colouring also changed the family");
+  assert.deepEqual(movedFields(stored, rethemed), ["seeds"]);
   // WITHOUT the instruction the OLD precedence holds, which is the interlock:
   // an unread state must never let an untold designer re-roll a live site.
-  assert.equal(mergeLook(stored, { theme: "zine" }, null).theme, "broadsheet",
-    "an uninstructed designer re-themes the site again");
+  assert.deepEqual(mergeLook(stored, { seeds: { name: "Sea Glass", paper: "#f2f7f6", ink: "#1c2a28", accent: "#2b7a6b" } }, null).seeds,
+    stored.seeds, "an uninstructed designer re-themes the site again");
   // ANCHORED ON THE PROPERTY, NOT THE SPELLING. This asserted the exact text
   // `family: look.family,` and went red the moment that value legitimately
   // grew a conditional (`noFamily` — the experiment switch), reporting "family
@@ -680,12 +661,14 @@ test("a revise keeps the site's stored look instead of re-rolling it", () => {
   // hold is that each field is SOURCED from the merged look on its way to the
   // build — however the expression is written.
   // THE TWO SHAPES, because the plan stopped being passed field by field.
-  // `theme` and `fonts` are still their own parameters and are sourced from the
-  // merged look by name. The six plan axes — `structure` among them — go as ONE
+  // `seeds` and `fonts` are still their own parameters and are sourced from the
+  // merged look by name — `seeds` being the authored palette that replaced the
+  // theme NAME on 2026-08-20, and the one field where a re-roll changes every
+  // colour on every page at once. The six plan axes — `structure` among them — go as ONE
   // `plan` object assembled from `PLAN_KEYS`, so naming each of them here would
   // fail on a correct route; what has to hold there is that the assembly reads
   // `look`, and that it reads it for EVERY key rather than a remembered few.
-  for (const k of ["theme", "fonts"]) {
+  for (const k of ["seeds", "fonts"]) {
     assert.ok(new RegExp(k + ":[^,\\n]*\\blook\\." + k + "\\b").test(worker),
       k + " does not reach the build from `look`");
   }
@@ -696,14 +679,18 @@ test("a revise keeps the site's stored look instead of re-rolling it", () => {
   // its record of itself, and `mergeLook` carries it for that reason alone.
 });
 
-test("a prototype key is not a theme", () => {
-  // `ALL_THEMES["__proto__"]` is the object prototype — truthy, so it walked past
-  // the `|| null` and came back as `{}`: neither a real theme nor the null every
-  // caller fails soft on. Same bug that shipped once in the Stripe plan lookup.
+test("a prototype key cannot masquerade as a palette", () => {
+  // `ALL_THEMES["__proto__"]` was the object prototype — truthy, so it walked
+  // past `|| null` and came back as `{}`: neither a real theme nor the null every
+  // caller failed soft on. The registry that lookup guarded is gone, and the
+  // hazard is not: the palette is an object off a model's tool call now, so the
+  // same keys arrive as `seeds` instead. Asserted where the question moved to.
   for (const k of ["__proto__", "constructor", "toString", "valueOf", "hasOwnProperty"]) {
-    assert.equal(resolveTheme(k), null, k + " resolves to something");
+    const r = normalizeSeeds({ name: "x", paper: k, ink: k, accent: k });
+    assert.equal(r.theme, null, k + " was accepted as a colour");
   }
-  assert.ok(resolveTheme(THEME_SHORTLIST[0]), "a real theme still resolves");
+  assert.ok(normalizeSeeds({ name: "Real", paper: "#f7f2ea", ink: "#332a26", accent: "#b44a2e" }).theme,
+    "a real palette still resolves");
 });
 
 test("the third-party api tier is reachable by a generated page", () => {

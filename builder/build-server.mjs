@@ -25,7 +25,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { resolvePair, resolvePageFonts, fontCss, fontImports } from "./site-fonts.mjs";
 import { themeCss } from "./site-theme.mjs";
-import { resolveTheme } from "./site-theme-registry.mjs";
+import { normalizeSeeds } from "./site-seeds.mjs";
 import { tokensCss, pageTokensCss, stripThemeRadius, validForWrite } from "./site-tokens.mjs";
 import { applyStyle, explicitRadiusCss } from "./site-style.mjs";
 import { dirFor, initialsMark, normalizeLang, normalizeMode, siteIconFrom } from "./site-identity.mjs";
@@ -548,10 +548,21 @@ async function loadSiteServer() {
 // pages compiled should not be lost over decoration: an unknown name, an
 // unreadable stylesheet or a throwing engine all leave the template's own look
 // in place and say so in the notes.
-function writeTheme(name, { dropRadius = false, style = null } = {}) {
-  if (!name) return { applied: false, theme: null, notes: [] };
-  const theme = resolveTheme(name);
-  if (!theme) return { applied: false, theme: null, notes: [`No theme called "${String(name).slice(0, 40)}" — the site kept the default look.`] };
+// TAKES AN AUTHORED PALETTE, NOT A NAME (2026-08-20). `resolveTheme` looked a
+// name up in a 500-row registry; the designer writes three colours per site now
+// and `normalizeSeeds` turns them into the same theme object the engine has
+// always taken. Everything below this line is unchanged, which is the point —
+// the seam was already exactly here, because every one of those 500 declared
+// only `paper`/`ink`/`accent` and let `paletteFor` derive the other 28 tokens.
+//
+// THE REFUSAL IS NAMED. `normalizeSeeds` returns a reason precisely because four
+// different failures — nothing sent, an unreadable colour, swapped modes, an
+// illegible palette — need four different responses, and a note saying only
+// "the site kept the default look" is one nobody can act on.
+function writeTheme(seeds, { dropRadius = false, style = null } = {}) {
+  if (!seeds) return { applied: false, theme: null, notes: [] };
+  const { theme, why } = normalizeSeeds(seeds);
+  if (!theme) return { applied: false, theme: null, notes: [`The colours could not be used (${String(why).slice(0, 80)}) — the site kept the default look.`] };
   let css;
   // THE SITE'S OWN LOOK DECISIONS, merged into the theme BEFORE it is rendered
   // rather than patched over it afterwards. Every axis emitter already reads its
@@ -579,7 +590,8 @@ function writeTheme(name, { dropRadius = false, style = null } = {}) {
   // named, so nothing changes for a patch that did not mention them.
   const shaped = dropRadius ? stripThemeRadius(css) + explicitRadiusCss(style) : css;
   fs.writeFileSync(STYLES, base + "\n" + shaped + "\n");
-  return { applied: true, theme: name, notes: [] };
+  // The palette's own NAME, not an id — there is no registry to look one up in.
+  return { applied: true, theme: theme.label, notes: [] };
 }
 
 // The site's OWN colours, written AFTER the theme.
@@ -707,7 +719,7 @@ const server = http.createServer((req, res) => {
       // ONE reading of the patch, shared: whether a radius was asked for decides
       // both that the theme's own corner rules give way and what is written.
       const wantsRadius = validForWrite(payload.tokens).radius !== undefined;
-      const themeUsed = writeTheme(payload.theme, { dropRadius: wantsRadius, style: payload.style });
+      const themeUsed = writeTheme(payload.seeds, { dropRadius: wantsRadius, style: payload.style });
       // AFTER the theme, never before — later wins, and that IS the override.
       const tokensUsed = writeTokens(payload.tokens);
       // AND AFTER THOSE, one page's own. Same mechanism, one scope down.

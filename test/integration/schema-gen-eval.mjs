@@ -48,6 +48,9 @@ import { pageCost } from "../../builder/publish-pages.mjs";
 // below is a ReferenceError at startup, which is the `vidRefN` shape this
 // repo has recorded twice.
 import { PLAN_KEYS } from "../../builder/site-plan.mjs";
+// AT MODULE SCOPE, like `PLAN_KEYS` — a dynamic import inside the function that
+// builds the scope is the `vidRefN` shape, correct until somebody moves a call.
+import { SEEDS_FIELD } from "../../builder/site-seeds.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const SAMPLES = Math.max(1, Math.min(Number(process.env.EVAL_SAMPLES) || 2, 10));
@@ -67,11 +70,10 @@ if (!KEY) { console.error("ANTHROPIC_API_KEY is required"); process.exit(1); }
  */
 async function readSchemaTool() {
   const src = fs.readFileSync(path.join(ROOT, "worker.js"), "utf8");
-  const [fonts, plan, tokens, themes, style] = await Promise.all([
+  const [fonts, plan, tokens, style] = await Promise.all([
     import(path.join(ROOT, "builder", "site-fonts.mjs")),
     import(path.join(ROOT, "builder", "site-plan.mjs")),
     import(path.join(ROOT, "builder", "site-tokens.mjs")),
-    import(path.join(ROOT, "builder", "site-theme-registry.mjs")),
     import(path.join(ROOT, "builder", "site-style.mjs")),
   ]);
   const scope = {
@@ -87,8 +89,12 @@ async function readSchemaTool() {
     PLAN_REQUIRED: plan.PLAN_REQUIRED,
     SITE_TOKEN_NAMES: tokens.ASKABLE,
     siteTokenHint: tokens.valueHint,
-    THEME_SHORTLIST: themes.THEME_SHORTLIST,
-    SITE_THEME_IDS: themes.THEME_SHORTLIST,
+    // THE AUTHORED PALETTE, where the 100-name theme enum used to be. `theme`
+    // left `design_schema` on 2026-08-20 with the registry it named — the
+    // designer writes the site's own three anchor colours now. The REAL field,
+    // never a stub, for the reason this function's own header gives: a stubbed
+    // schema measures a prompt nobody sends.
+    SEEDS_FIELD,
     // The style axes. Added 2026-08-13, after this harness had been dead for a
     // day: the axes landed in `design_schema` and nothing added them here, so
     // every run since died on the line below with `SITE_STYLE_AXES is not

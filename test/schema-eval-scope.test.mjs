@@ -48,18 +48,32 @@ function balanced(src, from) {
 
 /** The identifiers the eval binds into scope, read from the eval itself. */
 function scopeNames() {
-  const at = evalSrc.indexOf("const scope = {");
+  return scopeNamesIn(evalSrc);
+}
+
+/** The same reading, over any source — so the scanner itself can be driven. */
+function scopeNamesIn(src) {
+  const at = src.indexOf("const scope = {");
   if (at < 0) return null;
-  const block = balanced(evalSrc, at);
+  const block = balanced(src, at);
   if (!block) return null;
-  // Top-level `key:` only. Comments are stripped first — this file explains
+  // Top-level entries only. Comments are stripped first — this file explains
   // itself at length, and prose containing a colon reads as a key otherwise.
+  //
+  // BOTH `key: value` AND ES6 SHORTHAND (`SEEDS_FIELD,`). Matching only the
+  // colon form is a scanner that cannot see a perfectly valid entry, so it
+  // reports a name MISSING that is right there — a false alarm on correct code,
+  // which this repo rates strictly worse than a miss, and which happened the
+  // first time a shorthand entry was added here. The `[,}]` anchor is what keeps
+  // it from matching a bare identifier inside a nested expression.
   const bare = block.replace(/\/\/.*$/gm, "");
   const out = [];
   let depth = 0;
   for (const line of bare.split("\n")) {
-    const m = depth === 1 && line.match(/^\s*([A-Za-z_$][\w$]*)\s*:/);
-    if (m) out.push(m[1]);
+    if (depth === 1) {
+      const m = line.match(/^\s*([A-Za-z_$][\w$]*)\s*:/) || line.match(/^\s*([A-Za-z_$][\w$]*)\s*[,}]\s*$/);
+      if (m) out.push(m[1]);
+    }
     for (const c of line) { if (c === "{") depth++; else if (c === "}") depth--; }
   }
   return out;
@@ -107,6 +121,12 @@ test("the eval's scope and the tool it evaluates are both still findable", () =>
   // recorded more than once, most recently in the kit-wide bg-background scan.
   assert.ok(names && names.length >= 5, `the eval's scope literal moved — found ${names ? names.length : "none"}`);
   assert.ok(block && block.length > 2000, `SITE_SCHEMA_TOOL moved in worker.js — found ${block ? block.length : 0} chars`);
+  // AND IT SEES BOTH ENTRY FORMS. A scanner blind to shorthand accuses correct
+  // code of a missing binding; one blind to `key: value` would miss most of the
+  // scope. Driven rather than asserted about the regex, so a rewrite that keeps
+  // the patterns and breaks the loop still fails.
+  const both = scopeNamesIn("const scope = {\n  alpha: 1,\n  beta,\n  gamma: { nested: 2 },\n};");
+  assert.deepEqual(both, ["alpha", "beta", "gamma"], "the scope scanner cannot read both entry forms");
 });
 
 /**

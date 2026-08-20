@@ -9,7 +9,7 @@ import {
   normalizeFontName, matchFontName, nearestFontName,
   resolveFont, resolvePair, fontCss, fontImports, shortlistForPrompt, stackFor,
 } from "../builder/site-fonts.mjs";
-import { themeFontPair, THEME_SHORTLIST } from "../builder/site-theme-registry.mjs";
+
 import { mergeLook } from "../builder/site-edit.mjs";
 import { PLAN_REQUIRED } from "../builder/site-plan.mjs";
 
@@ -201,14 +201,22 @@ test("the DESIGNER can actually declare a font, and only a real one", () => {
     "the enum must be derived from site-fonts.mjs, not a second copy that can drift");
   assert.match(src, /heading:\s*\{ type: "string", enum: SITE_FONT_IDS/);
   assert.match(src, /body:\s*\{ type: "string", enum: SITE_FONT_IDS/);
-  // `fonts` IS DELIBERATELY OPTIONAL NOW, and this assertion is the inverse of
-  // what it used to be. The old reasoning was sound on its own premise — "an
-  // optional font field is one the model will usually skip" — and the fix
-  // inverts the premise: skipping is the CORRECT answer, because an absent pair
-  // is filled from the theme's own curated recommendation rather than from a
-  // generic default. Required, the model answered from a prose hint on every
-  // build and could contradict the theme it had just chosen, with nothing
-  // checking the two agreed.
+  // `fonts` IS REQUIRED AGAIN, AND THIS ASSERTION HAS NOW BEEN INVERTED TWICE —
+  // which is worth reading as one story rather than as a flip-flop, because each
+  // position was right on its own premise and the premise is what moved.
+  //
+  //   1. Required. The model answered from a prose hint on every build and could
+  //      contradict the theme it had just chosen, with nothing checking the two
+  //      agreed.
+  //   2. Optional. Right once `themeFontPair` existed: an omitted pair was
+  //      filled from the curated recommendation carried by whichever of the 500
+  //      registry themes had been named, so skipping was the BETTER answer.
+  //   3. Required again (2026-08-20). The registry is deleted — the designer
+  //      authors the palette per site now — so there is no theme to recommend a
+  //      pairing, and "usually leave it out" would put every site whose designer
+  //      took that advice on the template's default face. The typeface is part
+  //      of the same authoring act as the colours.
+  //
   // ANCHORED ON THE TOOL'S OWN CLOSING SHAPE, not on the shape of its CONTENTS.
   // It was `\[("[a-z]+",\s*)*"[a-z]+"\]` — a list of nothing but quoted
   // lowercase names — and went red the day that list stopped being one, when the
@@ -217,20 +225,22 @@ test("the DESIGNER can actually declare a font, and only a real one", () => {
   // own-goal, and the same one `site-images.test.mjs` records one file over.
   const required = src.match(/required: \[[^\]]*\],\s*\n\s*\},\s*\n\};/);
   assert.ok(required, "could not find design_schema's required list");
-  assert.doesNotMatch(required[0], /"fonts"/,
-    "fonts is required again, so the model overrides the theme's own pairing on every build");
-  // AND THE HALF THE TEXT CANNOT SEE. Part of that list is computed now, so a
-  // source read alone is weaker than it was: `fonts` could be required by what
-  // the spread expands to, with the literal names above it perfectly innocent.
-  assert.ok(!PLAN_REQUIRED.includes("fonts"),
-    "the plan's own required list carries `fonts`, so it is required after all — through the spread");
-  // WHICH IS ONLY SAFE BECAUSE THE FALLBACK EXISTS. Optional with nothing behind
-  // it is a straight regression to the generic default, so the two halves are
-  // asserted together — the field being optional means nothing without this.
-  assert.match(src, /\|\| themeFontPair\(lookTheme\)/,
-    "nothing fills the fonts in when the designer omits them — an omitted pair now means the default face");
-  assert.match(src, /import \{[^}]*themeFontPair[^}]*\} from "\.\/builder\/site-theme-registry\.mjs"/,
-    "themeFontPair is called and never imported — a ReferenceError on the build path");
+  assert.match(required[0], /"fonts"/,
+    "fonts is optional again — with no registry to recommend a pairing, that means the default face on every site whose designer omits it");
+  // AND THE PREMISE THAT MAKES IT REQUIRED RATHER THAN MERELY WISHED FOR: there
+  // is no longer any fallback to fill an omitted pair from. Asserted as an
+  // ABSENCE, because restoring one without making the field optional again is
+  // harmless, and making it optional without restoring one is the regression.
+  //
+  // COMMENTS BLANKED FIRST, and this guard caught its own author on the way in:
+  // the note in worker.js recording that `themeFontPair` was removed CONTAINS
+  // the name, so the check went red against a file that is exactly right. Prose
+  // explaining a deletion spells the deleted thing — recorded here more than
+  // half a dozen times, and the reason a negative assertion never reads raw
+  // source.
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  assert.doesNotMatch(code, /themeFontPair/,
+    "themeFontPair is back — decide which of the two fills an omitted pair, rather than having both");
   // Resolved through the `look` object now — a revise keeps the fonts the site
   // already wears rather than re-rolling them from the instruction — but the
   // designer's answer is still what a FIRST build uses, and both halves of that
@@ -265,41 +275,3 @@ test("an off-shortlist font is FETCHED by the Worker, and fails soft", () => {
   assert.match(fn, /f\.source !== "fetch"/, "an installed font must never be fetched");
 });
 
-test("a theme's own pairing is what an omitted `fonts` resolves to", () => {
-  // THE FIX, AS A PROPERTY RATHER THAN A WIRE. `themeFontPair` is the one place
-  // that answers "what type does this theme want", and it has to survive every
-  // shape a stored or model-supplied theme name can take — `resolveTheme` is
-  // already hardened against `__proto__`, and this leans on that rather than
-  // re-checking it.
-  const pair = themeFontPair("broadsheet");
-  assert.ok(pair && pair.heading && pair.body, "a real theme recommends nothing");
-  // AND THE RECOMMENDATION HAS TO BE USABLE. site-theme.test.mjs already asserts
-  // every theme's pair is a real entry in the shortlist; this is the half that
-  // matters here — the value handed to the build must resolve to an installed
-  // font, or an omitted `fonts` silently ships the fallback face.
-  const r = resolvePair(pair);
-  assert.equal(r.heading.ok, true, "the theme's heading face is not installable");
-  assert.equal(r.body.ok, true, "the theme's body face is not installable");
-  assert.equal(r.notes.length, 0, "the theme recommends a font that had to be substituted: " + JSON.stringify(r.notes));
-  // Unknown, malformed and hostile names answer null rather than a half-pair,
-  // because the caller ORs on it and `{heading:"x"}` would reach the build.
-  for (const bad of ["nope", "__proto__", "constructor", "", null, 42, {}]) {
-    assert.equal(themeFontPair(bad), null, `themeFontPair(${JSON.stringify(bad)}) should be null`);
-  }
-});
-
-test("every offered theme recommends a pair the build can actually install", () => {
-  // The fallback is only as good as the weakest theme behind it. Optional
-  // `fonts` means ONE of these being wrong ships a site in the default face with
-  // nothing reported — so all 100 are driven, not a sample.
-  let checked = 0;
-  for (const id of THEME_SHORTLIST) {
-    const pair = themeFontPair(id);
-    assert.ok(pair, `${id} recommends no font pair, so omitting fonts falls through to the default`);
-    const r = resolvePair(pair);
-    assert.equal(r.notes.length, 0, `${id} recommends a font that is not installed: ${JSON.stringify(r.notes)}`);
-    checked++;
-  }
-  assert.equal(checked, THEME_SHORTLIST.length);
-  assert.ok(checked >= 100, "the shortlist shrank — this check is no longer covering what it claims");
-});

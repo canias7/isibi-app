@@ -286,12 +286,12 @@ test("the container asks ONE question about the radius", () => {
   const server = fs.readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8");
   assert.match(server, /const wantsRadius = validForWrite\(payload\.tokens\)\.radius !== undefined;/);
   // THE PROPERTY, NOT THE ARGUMENT LIST. This was pinned to the exact call
-  // `writeTheme(payload.theme, { dropRadius: wantsRadius })` and went red the
+  // `writeTheme(payload.seeds, { dropRadius: wantsRadius })` and went red the
   // day a second option was passed beside it — a test about word order failing
   // a correct change. What it protects is that the ONE reading above is what
   // decides the strip.
-  const call = /writeTheme\(payload\.theme,\s*\{([^}]*)\}\)/.exec(server);
-  assert.ok(call, "nothing calls writeTheme with the payload's theme");
+  const call = /writeTheme\(payload\.seeds,\s*\{([^}]*)\}\)/.exec(server);
+  assert.ok(call, "nothing calls writeTheme with the payload's palette");
   assert.match(call[1], /dropRadius:\s*wantsRadius/, "the strip is decided by a second reading of the patch");
   const i = server.indexOf("function writeTheme(");
   const body = server.slice(i, server.indexOf("\n}", i));

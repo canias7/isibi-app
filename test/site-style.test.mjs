@@ -553,7 +553,7 @@ test("THE CONTAINER MERGES BEFORE IT RENDERS", () => {
   const i = server.indexOf("function writeTheme(");
   const sig = server.slice(i, server.indexOf(")", i) + 1);
   assert.match(sig, /style/, "writeTheme cannot be given a style patch");
-  assert.match(server, /writeTheme\(payload\.theme, \{[^}]*style: payload\.style/,
+  assert.match(server, /writeTheme\(payload\.seeds, \{[^}]*style: payload\.style/,
     "the payload's style never reaches writeTheme");
   // AND THE COLLISION, which a mutation proved was covered by nothing: the
   // module's own test drives `explicitRadiusCss` in isolation, and the container
