@@ -137,3 +137,38 @@ test("the CI job that runs the kit check exists and is triggered by a change to 
   assert.match(wf, /kit-typecheck\.mjs/, "site-build must run the full-kit typecheck");
   assert.match(wf, /'builder\/\*\*'/, "and must trigger on any change under builder/, which is where the kit lives");
 });
+
+test("the generated corpus is pinned, and out of the eval's own output directory", () => {
+  // BOTH HALVES, like the calibration corpus above, and for a reason that is not
+  // hypothetical: it happened on 2026-08-20.
+  //
+  // Four checks read the only pages in this repo the GENERATOR wrote — the nav
+  // slot-finder, the anchor rule and two order-lane checks — and they used to
+  // read them straight out of `docs/auth-audit/pages/`, which is `page gen
+  // eval`'s per-run output. The eval `git add`s that directory wholesale, so a
+  // run whose menu and tool scenarios both failed committed one site and DELETED
+  // the other two: 8 pages across 3 sites became 4 across 1, and four floor
+  // guards went red on main for a reason unrelated to any change.
+  //
+  // Gone the other way — no floors — those checks would have gone quietly
+  // VACUOUS instead, which is the worse of the two.
+  const dir = path.join("test", "fixtures", "generated");
+  assert.ok(fs.existsSync(dir), "the generated corpus is gone — four checks now measure against nothing");
+  const sites = fs.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory());
+  assert.ok(sites.length >= 3, "only " + sites.length + " generated sites — the corpus is being eaten");
+
+  // AND NOTHING READS THE EVAL'S OUTPUT DIRECTORY AS A CORPUS ANY MORE. Restoring
+  // one of those reads is what brings the coupling straight back, and it reads as
+  // an innocent path change.
+  // THE NEEDLE IS BUILT AT RUNTIME, so this file does not match itself — the
+  // alternative is a self-exemption, which is a hole somebody later widens. Same
+  // trick `test/source-bytes.test.mjs` uses for the same reason. Comments are
+  // blanked too, because prose explaining why the coupling was removed spells
+  // the path it was removed from: the trap this repo has recorded eight times.
+  const needle = ["docs", "auth-audit", "pages"].join("/");
+  for (const f of fs.readdirSync("test").filter((n) => n.endsWith(".test.mjs"))) {
+    const src = fs.readFileSync(path.join("test", f), "utf8").replace(/^\s*\/\/.*$/gm, "");
+    assert.ok(!src.includes(needle),
+      f + " reads the eval's own output directory as a corpus — a failed run will eat it");
+  }
+});

@@ -12,6 +12,7 @@ import {
 } from "../builder/site-nav.mjs";
 import { EDIT_LAYERS } from "../builder/site-ask.mjs";
 import { CORPUS_DIR } from "./fixtures/corpus.mjs";
+import { GENERATED_DIR } from "./fixtures/generated.mjs";
 
 const page = (p, links) => ({
   path: p,
@@ -524,7 +525,7 @@ test("driven over the only pages in this repo the GENERATOR wrote", () => {
   // are committed eval output — the only corpus here written by the generator —
   // and they are what changed the anchor rule: `booking-1`'s home page carries
   // three bare `#` anchors in its menu and its other three pages carry none.
-  const dir = new URL("../docs/auth-audit/pages/", import.meta.url).pathname;
+  const dir = GENERATED_DIR;
   const sites = fs.readdirSync(dir).filter((d) => fs.statSync(path.join(dir, d)).isDirectory());
   assert.ok(sites.length >= 3, "the generated samples were found: " + sites.length);
 
@@ -1278,7 +1279,7 @@ test("driven over every page the generator learns from: not one false link", () 
 test("driven over the only pages in this repo the GENERATOR wrote", () => {
   // The exemplars are pages WE wrote, in the house style, so a rule tuned on
   // them is tuned to us. These are committed eval output.
-  const dir = new URL("../docs/auth-audit/pages/", import.meta.url).pathname;
+  const dir = GENERATED_DIR;
   const sites = fs.readdirSync(dir).filter((d) => fs.statSync(path.join(dir, d)).isDirectory());
   let found = 0;
   for (const site of sites) {

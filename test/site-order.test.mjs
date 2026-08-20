@@ -6,6 +6,7 @@ import {
   sortSlots, applySort, sortDigest, sortColumns, sortReply, sortRefusal, SORT_DIRS, MAX_SORT_SLOTS,
 } from "../builder/site-order.mjs";
 import { DATA_TOOL, readSortChange, dataRequest, runDataEdit } from "../builder/site-apply.mjs";
+import { GENERATED_DIR } from "./fixtures/generated.mjs";
 
 const page = (p, body) => ({ path: p, source: `export default function P() {\n  ${body}\n  return null;\n}\n` });
 const TABLES = [
@@ -483,7 +484,7 @@ test("driven over every page the GENERATOR wrote: every slot is a real write poi
   const read = (dir) => fs.readdirSync(dir).filter((f) => f.endsWith(".tsx"))
     .map((f) => ({ path: f, source: fs.readFileSync(path.join(dir, f), "utf8") }));
 
-  const evals = new URL("../docs/auth-audit/pages/", import.meta.url).pathname;
+  const evals = GENERATED_DIR;
   for (const site of fs.readdirSync(evals)) {
     const d = path.join(evals, site);
     if (!fs.statSync(d).isDirectory()) continue;
@@ -526,7 +527,7 @@ test("A REAL GENERATED PAGE'S OPENING HOURS CAN BE REORDERED", () => {
   // reads `useRows<Hour>("hours", { order: "day", dir: "asc" })` — a week of
   // opening hours sorted ALPHABETICALLY, so the site reads Friday, Monday,
   // Saturday, Sunday, Thursday, Tuesday, Wednesday.
-  const f = new URL("../docs/auth-audit/pages/menu-1/index.tsx", import.meta.url).pathname;
+  const f = path.join(GENERATED_DIR, "menu-1", "index.tsx");
   const pages = [{ path: "index.tsx", source: fs.readFileSync(f, "utf8") }];
   const before = sortSlots(pages).find((s) => s.table === "hours");
   assert.ok(before, "the alphabetical-hours case is still in the corpus");
