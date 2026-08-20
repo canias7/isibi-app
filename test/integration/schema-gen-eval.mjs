@@ -43,6 +43,11 @@ import { fileURLToPath } from "node:url";
 import { normalizeSchema } from "../../site-schema.mjs";
 import { resolveAccess } from "../../site-access.mjs";
 import { pageCost } from "../../builder/publish-pages.mjs";
+// MODULE SCOPE, deliberately. `readSchemaTool` binds its own `plan` from a
+// dynamic import, and that binding does NOT exist out here — reaching for it
+// below is a ReferenceError at startup, which is the `vidRefN` shape this
+// repo has recorded twice.
+import { PLAN_KEYS } from "../../builder/site-plan.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const SAMPLES = Math.max(1, Math.min(Number(process.env.EVAL_SAMPLES) || 2, 10));
@@ -195,8 +200,15 @@ const totals = { in: 0, out: 0, cacheRead: 0, cacheWrite: 0, model: MODEL };
 let reachedModel = false;
 
 const loaded = await readSchemaTool();
-console.log("tool read: " + (loaded.tool.input_schema.properties.family.enum || []).length + " families, "
-  + JSON.stringify(loaded.tool).length + " chars · system " + loaded.system.length + " chars");
+// PRINTED FROM THE PLAN, not from a family enum. This read
+// `properties.family.enum.length` — a SECOND copy of the same dead expression
+// the sanity check above carried, 74 lines apart, and fixing one and not the
+// other is how the run died at startup with a TypeError before reaching the
+// model. Derived from `PLAN_KEYS`, so a seventh axis needs no edit here.
+console.log("tool read: " + PLAN_KEYS.length + " plan fields ("
+  + PLAN_KEYS.join("/") + "), " + Object.keys(loaded.tool.input_schema.properties).length
+  + " properties, " + JSON.stringify(loaded.tool).length + " chars · system "
+  + loaded.system.length + " chars");
 console.log(SCENARIOS.length + " scenarios × " + SAMPLES + " samples, model " + MODEL + "\n");
 
 for (const sc of SCENARIOS) {
