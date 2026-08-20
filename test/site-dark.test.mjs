@@ -25,7 +25,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { normalizeMode } from "../builder/site-identity.mjs";
 import { themeCss } from "../builder/site-theme.mjs";
-import { resolveTheme, THEME_SHORTLIST } from "../builder/site-theme-registry.mjs";
+import { resolveTheme, THEME_IDS } from "./fixtures/themes.mjs";
 import { EDIT_FIELDS } from "../builder/site-edit.mjs";
 import { PLAN_KEYS } from "../builder/site-plan.mjs";
 
@@ -50,12 +50,14 @@ test("THE DARK VARIANT IS A CLASS, which is the whole reason this is one line", 
 });
 
 test("EVERY THEME ALREADY CARRIES A DARK PALETTE, and it is a DIFFERENT one", () => {
-  // Driven over the shortlist rather than one hand-picked theme: the claim is
-  // about the registry, and a single theme happening to have a dark half proves
-  // nothing about the other 499. `--background` is the load-bearing one — it is
+  // Driven over the whole corpus rather than one hand-picked theme: the claim
+  // is about the DERIVATION, and a single palette happening to have a dark half
+  // proves nothing about the other 499. These are test fixtures now — the theme
+  // registry left the product on 2026-08-20 — but they remain the only body of
+  // hand-designed palettes there is to drive the engine over. `--background` is the load-bearing one — it is
   // what `bg-background` on every generated page's root div reads.
   let checked = 0;
-  for (const id of THEME_SHORTLIST) {
+  for (const id of THEME_IDS) {
     const t = resolveTheme(id);
     if (!t) continue;
     const css = themeCss(t);

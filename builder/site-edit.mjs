@@ -30,6 +30,7 @@
 // whole decision is tested without a Worker, a model or a database.
 
 import { PLAN_EDIT_FIELDS } from "./site-plan.mjs";
+import { normalizeSeeds } from "./site-seeds.mjs";
 
 /**
  * The look/identity fields an edit may move. `tables` and `tokens` merge on their own paths.
@@ -53,7 +54,11 @@ import { PLAN_EDIT_FIELDS } from "./site-plan.mjs";
  * alone. Drop the name and the next revise of an existing site silently discards
  * the only record of what its layout was, taking the fallback with it.
  */
-export const EDIT_FIELDS = ["brand", "description", "theme", "family", ...PLAN_EDIT_FIELDS, "fonts", "lang", "mode", "langs"];
+// `theme` WAS A NAME AND IS NOW `seeds`, AN AUTHORED PALETTE (2026-08-20). The
+// field moved rather than being added beside it: a site cannot wear a registry
+// name and an authored palette at once, and keeping both would leave two answers
+// to "what colour is this site" with the wrong one winning on some path.
+export const EDIT_FIELDS = ["brand", "description", "seeds", "family", ...PLAN_EDIT_FIELDS, "fonts", "lang", "mode", "langs"];
 
 /**
  * Nothing is required of an EDIT.
@@ -90,7 +95,23 @@ export function currentStateNote(current) {
   const add = (label, v) => { const s = str(v); if (s) lines.push(label + ": " + s.slice(0, 300)); };
   add("name", c.brand);
   add("one-line description", c.description);
-  add("theme", c.theme);
+  // THE PALETTE THE SITE IS ALREADY WEARING, spelled out as the three colours
+  // rather than as a name — there is no registry to name one from since
+  // 2026-08-20, and a designer shown nothing here has every reason to author a
+  // fresh palette on a request that was only ever about a phone number. That is
+  // the re-roll anchoring the look exists to stop, and this is its widest door:
+  // the seeds are the one field where "answer it afresh" changes every colour on
+  // every page at once.
+  //
+  // The NAME goes with them, because it is what the reply says out loud ("Warm
+  // Brick") and a designer that cannot see it will rename a palette it did not
+  // change.
+  const sd = c.seeds && typeof c.seeds === "object" ? c.seeds : null;
+  if (sd && str(sd.paper) && str(sd.ink) && str(sd.accent)) {
+    lines.push("palette" + (str(sd.name) ? " (" + str(sd.name).slice(0, 40) + ")" : "") +
+      ": paper " + str(sd.paper) + ", ink " + str(sd.ink) + ", accent " + str(sd.accent) +
+      (sd.dark && typeof sd.dark === "object" && str(sd.dark.paper) ? " · its own dark half" : " · dark derived"));
+  }
   add("family", c.family);
   add("mode", c.mode);
   add("structure", c.structure);
@@ -215,8 +236,17 @@ export function mergeLook(prior, designed, body, { instructed = false } = {}) {
  * appearing to answer, and treating either as a value is how "" becomes the
  * site's name. `fonts` is the object case: `{}` and `{heading:"x"}` are both
  * absent, because a half pair reaching the build silently defaults the other
- * face — the same reason `themeFontPair` refuses one.
+ * face.
+ *
+ * `seeds` IS THE SAME SHAPE ONE FIELD OVER, and it has to be, because the cost
+ * of getting it wrong is higher. A palette naming one or two of its three
+ * anchors is not a palette — `normalizeSeeds` refuses it and the site falls back
+ * to the default look. Counting it as a value means a partial answer REPLACES a
+ * good stored palette on a revise, so an edit about a phone number could strip
+ * the colours off a live site. Absent unless all three are there.
  */
+const SEED_ANCHORS = ["paper", "ink", "accent"];
+
 export function hasValue(v) {
   if (v == null) return false;
   if (typeof v === "string") return v.trim() !== "";
@@ -225,6 +255,25 @@ export function hasValue(v) {
     const h = typeof v.heading === "string" ? v.heading.trim() : "";
     const b = typeof v.body === "string" ? v.body.trim() : "";
     if ("heading" in v || "body" in v) return !!(h && b);
+    // Recognised by the anchors rather than by the field name, because this
+    // function never learns which key it is answering for.
+    //
+    // AND "USABLE", NOT MERELY "COMPLETE" — which is the stricter half and the
+    // one that matters. A palette the engine refuses is not an answer, exactly
+    // as a half `fonts` pair is not: counting it means a complete-but-illegible
+    // one REPLACES a good stored palette, the container then refuses it on every
+    // publish, and the site is stuck on the default look until somebody asks for
+    // a different colour. Measured: `{paper:"#8a8a8a", ink:"#6f6f6f"}` is a
+    // well-formed object and 1.5:1 body text.
+    //
+    // This was impossible before 2026-08-20, when a theme was a NAME from an
+    // enum — an authored palette is the first look value that can be well-formed
+    // and unusable, so the guard arrives with it.
+    //
+    // THE SAME VALIDATOR, NEVER A SECOND OPINION. `normalizeSeeds` is the one
+    // place a palette is judged; this asks it whether an answer counts, which is
+    // a different question at a different moment, not a rival ruling.
+    if (SEED_ANCHORS.some((k) => k in v)) return !!normalizeSeeds(v).theme;
     return Object.keys(v).length > 0;
   }
   return true;

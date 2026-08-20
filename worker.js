@@ -85,7 +85,7 @@ import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis
 // kaplay + a runtime smoke test. See builder-game/. Parser format is identical.
 import { parseGeneratedFiles as parseGameFiles, GAME_RULES, GAME_ASSET_RULES, GAME_REVISE_RULES, gameFixRules, parseSpriteTokens, GAME_3D_RULES, game3DFixRules } from "./builder-game/game-gen.mjs";
 import { SHORTLIST, resolvePair, resolvePageFonts, MAX_PAGE_FONTS } from "./builder/site-fonts.mjs";
-import { THEME_SHORTLIST, themeFontPair } from "./builder/site-theme-registry.mjs";
+import { SEEDS_FIELD, normalizeSeeds } from "./builder/site-seeds.mjs";
 import { currentStateNote, EDIT_RULE, EDIT_REQUIRED, EDIT_FIELDS, hasValue, mergeLook, movedFields } from "./builder/site-edit.mjs";
 import { PLAN_FIELDS, PLAN_KEYS, PLAN_REQUIRED, normalizePlan } from "./builder/site-plan.mjs";
 
@@ -3317,18 +3317,13 @@ const SITE_BUILD_FEE = 2;
 // points at a font that was never bundled, and it renders as the fallback.
 const SITE_FONT_IDS = SHORTLIST.map((f) => f.id);
 
-// A SHORTLIST, exactly as the fonts enum is one — 100 of the 500, spread across
-// all 53 categories so the list can dress a bakery as well as a SaaS. All 500
-// names cost ~1,525 tokens on every design call and the shortlist costs ~312;
-// the same list carrying each theme's one-line label would cost ~7,019, which is
-// the figure the fonts field refused when it declined to name 2,096 Fontsource
-// families. The names carry their own meaning (`broadsheet`, `bauhaus`, `zine`).
-//
-// The other 400 are NOT lost: `resolveTheme` takes any of the 500, and the route
-// falls back to `body.theme`, so a caller can name one directly. What the
-// shortlist bounds is what the MODEL chooses between — the same bargain fonts
-// made when it left 2,072 families off its own list.
-const SITE_THEME_IDS = THEME_SHORTLIST;
+// `SITE_THEME_IDS` WENT WITH THE `theme` FIELD (2026-08-20, owner's call). It
+// was a 100-name shortlist out of a 500-row registry, and the whole registry is
+// gone: the designer AUTHORS a palette per site now (`SEEDS_FIELD`) instead of
+// naming one somebody wrote months earlier for nobody in particular. Removed
+// rather than left declared, for the reason the family ids were — a constant
+// nothing reads is the on-disk-and-reachable-by-nothing shape this repo has
+// deleted 289 files over.
 // `SITE_FAMILY_IDS` AND `SITE_STRUCTURE_IDS` WENT WITH THE `family` FIELD
 // (2026-08-20). The first was the 100-name enum and the second the eight
 // arrangements; both are now inside `PLAN_FIELDS`, which builds its structure
@@ -3963,32 +3958,22 @@ const SITE_SCHEMA_TOOL = {
       fonts: {
         type: "object",
         description:
-          "OPTIONAL, AND USUALLY LEAVE IT OUT. Every theme already carries a typeface pairing chosen to go with it — " +
-          "the one you pick above brings its own, and that is what the site gets when this is absent. Setting it anyway " +
-          "means overriding a considered pair with a guess.\n" +
-          "Set it ONLY when the brief asks for something about the type that the theme would not give: a named " +
-          "typeface, or an explicit instruction about the feel of the lettering. Then pick for the BUSINESS, not for " +
-          "fashion — a law firm or a restaurant can carry a serif, a gym or a studio wants a confident sans, a plain " +
-          "sans is right for most. The two may be the same. A display serif set as the body face is tiring to read at " +
-          "14px — pair it with a sans instead.",
+          "The site's typeface pairing, chosen for THIS business alongside its colours — the two are one decision.\n" +
+          "Pick for the BUSINESS, not for fashion: a law firm or a restaurant can carry a serif, a gym or a studio " +
+          "wants a confident sans, and a plain sans is right for most. The two may be the same. A display serif set " +
+          "as the body face is tiring to read at 14px — pair it with a sans instead.",
         properties: {
           heading: { type: "string", enum: SITE_FONT_IDS, description: "Face for h1-h4." },
           body: { type: "string", enum: SITE_FONT_IDS, description: "Face for everything else." },
         },
         required: ["heading", "body"],
       },
-      // The LOOK, as an enum for the same reason the typeface is one: a name
-      // outside this list would render as the untouched template while the
-      // response claimed a theme, which is the failure shape the font write
-      // exists to end.
-      theme: {
-        type: "string",
-        enum: SITE_THEME_IDS,
-        description:
-          "The site's visual world. Pick for the TRADE and its mood, not for novelty — the name says what it is " +
-          "(broadsheet, bauhaus, zine, apothecary). A barber shop and a law firm want different worlds; " +
-          "most businesses want a quiet one. This sets colour, type feeling, corners, borders and shadows together.",
-      },
+      // THE LOOK, AUTHORED RATHER THAN NAMED (2026-08-20, owner's call). This was
+      // an enum over 100 registry themes; the model writes the site's own three
+      // anchor colours now and `paletteFor` derives the other 28 tokens from
+      // them, exactly as it did for every one of those 500. See
+      // builder/site-seeds.mjs — including why three and not thirty-one.
+      seeds: SEEDS_FIELD,
       // ONE COLOUR, CHANGED — the thing a revise could not do at all.
       //
       // Anchoring the look in `_meta` stopped "make the background yellow"
@@ -4206,7 +4191,7 @@ const SITE_SCHEMA_TOOL = {
     // and with no family there is nothing to default to. Derived from
     // `PLAN_REQUIRED` rather than listed, so a seventh axis cannot be added to
     // the tool and forgotten here.
-    required: ["brand", "slug", "tables", "seed", "description", "theme", ...PLAN_REQUIRED],
+    required: ["brand", "slug", "tables", "seed", "description", "seeds", "fonts", ...PLAN_REQUIRED],
   },
 };
 
@@ -7394,7 +7379,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
           mode: (look && look.mode) || null,
           logo,
           fonts: { heading: pair.heading.id, body: pair.body.id },
-          theme: (look && look.theme) || null,
+          seeds: (look && look.seeds) || null,
           tokens: Object.keys(tokens || {}).length ? withContrast(tokens) : undefined,
           // `withContrast` PER PAGE, not once for the site: a page put on a dark
           // ground needs ITS OWN derived foregrounds, and deriving them from the
@@ -7531,7 +7516,7 @@ async function siteOgImage(env, slug) {
   } catch (e) { console.error("og image lookup failed:", slug, e && e.message); return null; }
 }
 
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, fonts, theme, tokens, pageTokens, pageFonts, style, plan, lang, mode, logo, icon, verify, attachments, priorUsage, model, revise, changeNote, priorPages, mark }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, fonts, seeds, tokens, pageTokens, pageFonts, style, plan, lang, mode, logo, icon, verify, attachments, priorUsage, model, revise, changeNote, priorPages, mark }) {
   // Resolved once, before any model call: the pair always lands on something
   // installed, so a build never waits on a font it cannot get.
   const fontPair = resolvePair(fonts || {});
@@ -7644,15 +7629,21 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
           // real answer and the container draws the initials mark instead.
           icon: icon || "",
           fonts: { heading: fontPair.heading.id, body: fontPair.body.id },
-          // Passed by NAME, resolved inside the container against the same
-          // registry the enum came from. Sending the resolved object instead
-          // would put a second copy of the theme on the wire and let the two
-          // drift; the name is the whole contract.
-          theme: theme || null,
+          // THE THREE ANCHOR COLOURS, as the designer wrote them. Passed raw
+          // rather than resolved: `normalizeSeeds` runs inside the container,
+          // next to the `themeCss` call that consumes its answer, so there is
+          // exactly one place a palette is judged and one place it can be
+          // refused. Resolving here would put the derived 31-token palette on
+          // the wire as well and let the two copies drift.
+          //
+          // It USED to be a theme NAME resolved against a 500-row registry.
+          // Both halves went on 2026-08-20 — see builder/site-seeds.mjs.
+          seeds: seeds || null,
           // THE SITE'S OWN COLOURS, written after the theme inside the
-          // container — later wins, and that IS the override. Sent resolved
-          // rather than by name, unlike the theme: there is no registry to
-          // resolve against, these ARE the values. `withContrast` runs here so
+          // container — later wins, and that IS the override. A patch of single
+          // tokens over the derived palette, so it is narrower than the seeds
+          // above rather than a second way to say the same thing. `withContrast`
+          // runs here so
           // what is stored stays what the customer asked for and the readable
           // text colour follows whatever the surface currently is.
           tokens: Object.keys(tokens || {}).length ? withContrast(tokens) : undefined,
@@ -11883,25 +11874,29 @@ async function handleRequest(request, env, ctx) {
       // direction is "the edit did not take" rather than "the site re-themed
       // itself". See builder/site-edit.mjs.
       const merged = mergeLook(priorLook, designed, body, { instructed: !!editState });
-      const lookTheme = merged.theme;
       const look = {
-        theme: lookTheme,
+        seeds: merged.seeds,
         family: merged.family,
         structure: merged.structure,
         // …AND THE THEME'S OWN RECOMMENDATION IS THE LAST RESORT.
         //
         // Every theme carries a curated `fonts` pair, validated against the same
-        // 24-font shortlist the designer picks from — and it was read by
-        // NOTHING: `themeCss` emits no `font-family`, and every reader here took
-        // the designer's separate pick. So `broadsheet`, which is designed around
-        // a serif, would happily render in whatever was chosen independently from
-        // a prose hint, and every test passed.
+        // THE THEME'S OWN RECOMMENDATION WAS THE LAST RESORT AND THERE IS NO
+        // THEME TO ASK ANY MORE (2026-08-20).
         //
-        // LAST, not first: a brief that really asks for a feel must still win,
-        // and a revise must keep the fonts the site already wears. This only
-        // decides the case where nobody expressed a preference — which is now the
-        // ordinary case, since `fonts` stopped being a required field.
-        fonts: merged.fonts || themeFontPair(lookTheme),
+        // `themeFontPair` read a curated pair off whichever of the 500 registry
+        // themes the designer had named. With the registry deleted there is
+        // nothing to read it from, so removing it alone would have left every
+        // site whose designer omitted `fonts` on the template's default face —
+        // and the field's own description said to omit it, on the grounds that
+        // "every theme already carries a typeface pairing chosen to go with it".
+        //
+        // So `fonts` became REQUIRED in the same change, which is the coherent
+        // answer rather than a patch: the designer is already authoring the
+        // palette, and the typeface is part of the same act. The fallback chain
+        // is gone with it, because there is now exactly one place a font pair
+        // can come from and a second one could only ever disagree with it.
+        fonts: merged.fonts,
         // THE TWO THAT MOVED WHEN NOBODY ASKED, now stored like the rest.
         //
         // Neither had an anchor at all: `brand` was `designed.brand || slug` and
@@ -12059,7 +12054,7 @@ async function handleRequest(request, env, ctx) {
             // has never been sent by the client, so a revise re-rolled theme,
             // family and fonts from the instruction alone.
             fonts: look.fonts,
-            theme: look.theme,
+            seeds: look.seeds,
             tokens: siteTokens,
             pageTokens: priorPageTokens,
             // The stored per-page typefaces — see the note on the cheap-edit spine.
@@ -12257,6 +12252,26 @@ async function handleRequest(request, env, ctx) {
         // — and the direction it drifts in is a build that read nothing while
         // still claiming it did. One function, one answer, rendered verbatim.
         contextNote: contextSentence(context) || undefined,
+        // WHAT THE DESIGNER ASKED TO CHANGE ABOUT THE LOOK, and it was
+        // computed here and reported NOWHERE until 2026-08-20.
+        //
+        // `tokenAsk`/`styleAsk` are exactly what the model named — the same
+        // shape the LOOK EDIT lane already returns as `tokens`/`style`. The
+        // build path had neither, so when a revise like "make the background
+        // #ffcc00 and round the corners more" came back with the stylesheet
+        // unchanged, there was no field anywhere saying whether the designer
+        // had asked for it and we dropped it, or never asked at all. Those
+        // need opposite fixes and the response could not tell them apart.
+        //
+        // Measured live on a real run: 2 assertions failed with "the colour
+        // did not reach the stylesheet" and the cause could not be established
+        // without paying for another build. That is the shape this repo has
+        // recorded six times — a failure that cannot name itself.
+        //
+        // OMITTED WHEN EMPTY, so a build that changed no look is byte-identical
+        // to what it returned before this existed.
+        tokens: (tokenAsk && Object.keys(tokenAsk).length) ? Object.keys(tokenAsk) : undefined,
+        style: (styleAsk && Object.keys(styleAsk).length) ? Object.keys(styleAsk) : undefined,
         page: pages.page, files: pages.files, notes: pages.notes || undefined,
         problems: pages.problems.length ? pages.problems : undefined,
         // THE PHOTOGRAPHS, and this field is how "no pictures" stops being
@@ -13397,7 +13412,7 @@ async function handleRequest(request, env, ctx) {
 
               try {
                 await sqlQuery(edb, "INSERT INTO _meta (k,v) VALUES ('site_look', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v",
-                  [JSON.stringify({ ...merged, fonts: merged.fonts || themeFontPair(merged.theme) })]);
+                  [JSON.stringify(merged)]);
                 if (Object.keys(nextTokens).length) {
                   await sqlQuery(edb, "INSERT INTO _meta (k,v) VALUES ('site_tokens', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v",
                     [JSON.stringify(nextTokens)]);

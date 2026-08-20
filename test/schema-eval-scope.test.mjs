@@ -48,18 +48,32 @@ function balanced(src, from) {
 
 /** The identifiers the eval binds into scope, read from the eval itself. */
 function scopeNames() {
-  const at = evalSrc.indexOf("const scope = {");
+  return scopeNamesIn(evalSrc);
+}
+
+/** The same reading, over any source — so the scanner itself can be driven. */
+function scopeNamesIn(src) {
+  const at = src.indexOf("const scope = {");
   if (at < 0) return null;
-  const block = balanced(evalSrc, at);
+  const block = balanced(src, at);
   if (!block) return null;
-  // Top-level `key:` only. Comments are stripped first — this file explains
+  // Top-level entries only. Comments are stripped first — this file explains
   // itself at length, and prose containing a colon reads as a key otherwise.
+  //
+  // BOTH `key: value` AND ES6 SHORTHAND (`SEEDS_FIELD,`). Matching only the
+  // colon form is a scanner that cannot see a perfectly valid entry, so it
+  // reports a name MISSING that is right there — a false alarm on correct code,
+  // which this repo rates strictly worse than a miss, and which happened the
+  // first time a shorthand entry was added here. The `[,}]` anchor is what keeps
+  // it from matching a bare identifier inside a nested expression.
   const bare = block.replace(/\/\/.*$/gm, "");
   const out = [];
   let depth = 0;
   for (const line of bare.split("\n")) {
-    const m = depth === 1 && line.match(/^\s*([A-Za-z_$][\w$]*)\s*:/);
-    if (m) out.push(m[1]);
+    if (depth === 1) {
+      const m = line.match(/^\s*([A-Za-z_$][\w$]*)\s*:/) || line.match(/^\s*([A-Za-z_$][\w$]*)\s*[,}]\s*$/);
+      if (m) out.push(m[1]);
+    }
     for (const c of line) { if (c === "{") depth++; else if (c === "}") depth--; }
   }
   return out;
@@ -107,6 +121,12 @@ test("the eval's scope and the tool it evaluates are both still findable", () =>
   // recorded more than once, most recently in the kit-wide bg-background scan.
   assert.ok(names && names.length >= 5, `the eval's scope literal moved — found ${names ? names.length : "none"}`);
   assert.ok(block && block.length > 2000, `SITE_SCHEMA_TOOL moved in worker.js — found ${block ? block.length : 0} chars`);
+  // AND IT SEES BOTH ENTRY FORMS. A scanner blind to shorthand accuses correct
+  // code of a missing binding; one blind to `key: value` would miss most of the
+  // scope. Driven rather than asserted about the regex, so a rewrite that keeps
+  // the patterns and breaks the loop still fails.
+  const both = scopeNamesIn("const scope = {\n  alpha: 1,\n  beta,\n  gamma: { nested: 2 },\n};");
+  assert.deepEqual(both, ["alpha", "beta", "gamma"], "the scope scanner cannot read both entry forms");
 });
 
 /**
@@ -211,4 +231,41 @@ test("a name the scope does not define really is caught", () => {
     () => vm.runInContext("(" + toolBlock() + ")", ctx, { timeout: 5000 }),
     isReferenceError,
     "removing SITE_STYLE_AXES from scope should make the tool unresolvable — if it does not, the tool stopped using it and this guard is watching nothing");
+});
+
+test("the eval never reads a tool property that does not exist", () => {
+  // THE BUG THIS EXISTS FOR, and it cost a CI run. `family` left `design_schema`
+  // with the families on 2026-08-20 and the eval referenced
+  // `input_schema.properties.family.enum` in TWO places, 74 lines apart — a
+  // sanity check and a startup `console.log`. Fixing one and not the other made
+  // the run die at startup with `Cannot read properties of undefined (reading
+  // 'enum')`, before any model call.
+  //
+  // A grep for the DELETED name would not have found it: the expression names
+  // `family` as a property key, not as an imported symbol, so the sweep that
+  // caught every `READY_FAMILIES` and `layoutDirective` walked straight past it.
+  // Derived at both ends instead — every `properties.<name>` the eval reads must
+  // be a property the real tool actually has.
+  const src = fs.readFileSync(new URL("./integration/schema-gen-eval.mjs", import.meta.url), "utf8")
+    // Comments blanked LENGTH-PRESERVINGLY first: the fix is explained in prose
+    // directly above the fixed line, and prose about a bug contains the bug's
+    // spelling. Seventh recorded instance of that trap in this repo.
+    .replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m) => m.replace(/[^\n]/g, " "));
+  const read = [...src.matchAll(/input_schema\.properties\.([A-Za-z_$][\w$]*)/g)].map((m) => m[1]);
+  const names = scopeNames();
+  const ctx = vm.createContext(Object.fromEntries(names.map((n) => [n, stub()])));
+  const tool = vm.runInContext("(" + toolBlock() + ")", ctx, { timeout: 5000 });
+  const have = new Set(Object.keys(tool.input_schema.properties));
+  for (const name of read) {
+    assert.ok(have.has(name),
+      "the eval reads `input_schema.properties." + name + "`, which design_schema does not have — "
+      + "it will throw at startup before any model call");
+  }
+  // THE FLOOR. A scan that silently stopped matching would report a clean file,
+  // which is the reassuring way to say nothing was checked — so the tool must
+  // really have properties, and the pattern must really be able to find one.
+  assert.ok(have.size >= 10, "only " + have.size + " tool properties — the tool did not evaluate");
+  const probe = "input_schema.properties.brand.enum";
+  assert.deepEqual([...probe.matchAll(/input_schema\.properties\.([A-Za-z_$][\w$]*)/g)].map((m) => m[1]), ["brand"],
+    "the scan pattern no longer matches a known-good reference");
 });

@@ -25,7 +25,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { resolvePair, resolvePageFonts, fontCss, fontImports } from "./site-fonts.mjs";
 import { themeCss } from "./site-theme.mjs";
-import { resolveTheme } from "./site-theme-registry.mjs";
+import { normalizeSeeds } from "./site-seeds.mjs";
 import { tokensCss, pageTokensCss, stripThemeRadius, validForWrite } from "./site-tokens.mjs";
 import { applyStyle, explicitRadiusCss } from "./site-style.mjs";
 import { dirFor, initialsMark, normalizeLang, normalizeMode, siteIconFrom } from "./site-identity.mjs";
@@ -548,10 +548,21 @@ async function loadSiteServer() {
 // pages compiled should not be lost over decoration: an unknown name, an
 // unreadable stylesheet or a throwing engine all leave the template's own look
 // in place and say so in the notes.
-function writeTheme(name, { dropRadius = false, style = null } = {}) {
-  if (!name) return { applied: false, theme: null, notes: [] };
-  const theme = resolveTheme(name);
-  if (!theme) return { applied: false, theme: null, notes: [`No theme called "${String(name).slice(0, 40)}" — the site kept the default look.`] };
+// TAKES AN AUTHORED PALETTE, NOT A NAME (2026-08-20). `resolveTheme` looked a
+// name up in a 500-row registry; the designer writes three colours per site now
+// and `normalizeSeeds` turns them into the same theme object the engine has
+// always taken. Everything below this line is unchanged, which is the point —
+// the seam was already exactly here, because every one of those 500 declared
+// only `paper`/`ink`/`accent` and let `paletteFor` derive the other 28 tokens.
+//
+// THE REFUSAL IS NAMED. `normalizeSeeds` returns a reason precisely because four
+// different failures — nothing sent, an unreadable colour, swapped modes, an
+// illegible palette — need four different responses, and a note saying only
+// "the site kept the default look" is one nobody can act on.
+function writeTheme(seeds, { dropRadius = false, style = null } = {}) {
+  if (!seeds) return { applied: false, theme: null, notes: [] };
+  const { theme, why } = normalizeSeeds(seeds);
+  if (!theme) return { applied: false, theme: null, notes: [`The colours could not be used (${String(why).slice(0, 80)}) — the site kept the default look.`] };
   let css;
   // THE SITE'S OWN LOOK DECISIONS, merged into the theme BEFORE it is rendered
   // rather than patched over it afterwards. Every axis emitter already reads its
@@ -564,11 +575,22 @@ function writeTheme(name, { dropRadius = false, style = null } = {}) {
   let base;
   try { base = fs.readFileSync(STYLES, "utf8"); }
   catch { return { applied: false, theme: null, notes: ["The stylesheet could not be read, so the site kept the default look."] }; }
-  // 280 OF THE 500 THEMES hard-set `border-radius` on buttons and inputs as real
-  // rules rather than through `--radius`, so on a majority of sites a corner
-  // override moved the cards and left every button square — a feature reported
-  // as broken. When the customer has actually asked for a radius, the theme's
-  // own corner rules give way to it; with no override nothing changes at all.
+  // THE STRIP IS NOW INERT, AND THIS COMMENT USED TO CLAIM OTHERWISE.
+  //
+  // It read: "280 OF THE 500 THEMES hard-set `border-radius` on buttons and
+  // inputs as real rules rather than through `--radius`, so on a majority of
+  // sites a corner override moved the cards and left every button square." That
+  // was true of the REGISTRY, which went on 2026-08-20. Measured since: a
+  // seeds-only theme emits ZERO border-radius rules, so with no style patch
+  // there is nothing to strip — and `RADIUS_AXES` is exactly `["buttons",
+  // "inputs"]`, which is exactly what `explicitRadiusCss` re-emits, so with one
+  // the strip removes precisely what is put straight back. A wash either way.
+  //
+  // KEPT RATHER THAN DELETED IN THAT CHANGE, deliberately: it is provably
+  // harmless, and folding an unrelated removal into the palette work would make
+  // both harder to review and to revert. The comment is corrected because a
+  // false one is what gets believed — this is a decision to revisit, not an
+  // oversight, and `site-build` prints the 33-vs-33 measurement that shows it.
   //
   // AND THEN THE CUSTOMER'S OWN CORNER OPINIONS GO BACK, which is the one place
   // the two patches interact. `stripThemeRadius` is a regex and cannot tell a
@@ -579,7 +601,8 @@ function writeTheme(name, { dropRadius = false, style = null } = {}) {
   // named, so nothing changes for a patch that did not mention them.
   const shaped = dropRadius ? stripThemeRadius(css) + explicitRadiusCss(style) : css;
   fs.writeFileSync(STYLES, base + "\n" + shaped + "\n");
-  return { applied: true, theme: name, notes: [] };
+  // The palette's own NAME, not an id — there is no registry to look one up in.
+  return { applied: true, theme: theme.label, notes: [] };
 }
 
 // The site's OWN colours, written AFTER the theme.
@@ -707,7 +730,7 @@ const server = http.createServer((req, res) => {
       // ONE reading of the patch, shared: whether a radius was asked for decides
       // both that the theme's own corner rules give way and what is written.
       const wantsRadius = validForWrite(payload.tokens).radius !== undefined;
-      const themeUsed = writeTheme(payload.theme, { dropRadius: wantsRadius, style: payload.style });
+      const themeUsed = writeTheme(payload.seeds, { dropRadius: wantsRadius, style: payload.style });
       // AFTER the theme, never before — later wins, and that IS the override.
       const tokensUsed = writeTokens(payload.tokens);
       // AND AFTER THOSE, one page's own. Same mechanism, one scope down.

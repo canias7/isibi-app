@@ -540,9 +540,24 @@ test("the journey proves RESTORE changed the live site, not just answered 200", 
   // exactly what it used to return.
   const i = smoke.indexOf("restoring an earlier build answers 200");
   assert.ok(i > 0, "the restore step is gone");
-  const after = smoke.slice(i, i + 1200);
+  // BOUNDED BY A LANDMARK, NOT BY BYTES. This read `slice(i, i + 1200)` and
+  // went red the day a comment was added above `restoredCss` — a test about how
+  // much prose sits in the window, failing a change that was correct. This
+  // repo's most repeated own-goal, and the file's own neighbours already record
+  // it. The restore section ends where the delete section begins.
+  const end = smoke.indexOf("an unauthenticated delete is refused", i);
+  assert.ok(end > i, "the restore section no longer ends at the delete checks — re-anchor this window");
+  const after = smoke.slice(i, end);
   assert.match(after, /restoredCss/, "nothing re-reads the published stylesheet after restoring");
   assert.match(after, /!\/--background/, "the revised colour must be asserted GONE from the live site");
+  // AND IT MUST NOT PASS WHEN IT CANNOT DISCRIMINATE. Measured live 2026-08-20:
+  // the revise left the stylesheet byte-identical, so the restore's predicate
+  // (`h === beforeCssHref`) was ALREADY satisfied, it settled in 572ms, and it
+  // reported "THE LIVE SITE REALLY WENT BACK" about a site that had never left.
+  // It read as the strongest evidence in the run that the colour had arrived
+  // and was evidence of nothing.
+  assert.match(after, /reviseMovedCss/,
+    "the restore assertion is not gated on the revise having moved the stylesheet — it passes vacuously when the revise did nothing");
 });
 
 // ─────────────────────────────────────────── real addresses for published pages

@@ -20,6 +20,44 @@ import { validatePages } from "../../builder/page-gen.mjs";
 // The REAL stub, not a copy of it. A hand-written imitation here would prove that
 // some file compiles and say nothing about the one the salvage actually writes.
 import { stubPage } from "../../builder/publish-pages.mjs";
+import { oklchToRgb } from "../../builder/site-theme.mjs";
+import { ALL_THEMES } from "../fixtures/themes.mjs";
+
+// THE PAYLOADS BELOW USED TO NAME A THEME. The registry left the product on
+// 2026-08-20 — the designer authors three anchor colours per site — so what the
+// container takes is a palette. The 500 survive as fixtures and are still the
+// right thing to drive this with: real hand-designed colours rather than three
+// hex values invented here for the purpose.
+//
+// THE PALETTE ONLY, NEVER THE FIXTURE'S STYLE AXES, and that is the correction
+// to the first draft. A theme row carries both, but in the product they are two
+// separate authored things — the palette is `seeds` and the axes are the `style`
+// patch. Spreading both meant a check that then set `style: { width: "wide" }`
+// REPLACED the fixture's axes wholesale, so its two builds differed in more than
+// the one axis under test and the comparison measured the wrong thing. A check
+// that genuinely wants a world backdrop asks for it by name.
+const asHex = ([L, C, H]) => {
+  const [r, g, b] = oklchToRgb(L, C, H);
+  return "#" + [r, g, b].map((v) => Math.round(v * 255).toString(16).padStart(2, "0")).join("");
+};
+// THE SITE'S OWN STYLE AXES, as an ordinary site would have authored them.
+//
+// Four checks below assert that an override REPLACES the site's own answer —
+// its corner rules give way to a radius, its icon weight gives way to a heavier
+// one, and an unusable patch leaves it standing. All four need the site to HAVE
+// an answer, and the palette carries none: `style` is a separate authored thing
+// in the product, so it has to be sent separately here too.
+//
+// These are `broadsheet`'s own, which is why they read as a real combination
+// rather than three values picked to make a test pass.
+const HOUSE_STYLE = { buttons: "sharp", inputs: "underline", icon: "fine", corner: "round" };
+
+function themeAsSeeds(name) {
+  const t = ALL_THEMES[name];
+  if (!t) throw new Error("no fixture theme " + name);
+  return { seeds: { name, paper: asHex(t.light.paper), ink: asHex(t.light.ink), accent: asHex(t.light.accent),
+    dark: { paper: asHex(t.dark.paper), ink: asHex(t.dark.ink), accent: asHex(t.dark.accent) } } };
+}
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const TEMPLATE = path.join(ROOT, "builder", "lovable", "template");
@@ -986,7 +1024,7 @@ function Home() {
   console.log("\nbuilding with a colour override…");
   const withTokens = await post({
     files: { "index.tsx": INDEX, "menu.tsx": MENU },
-    slug: "fold-coffee", theme: "broadsheet",
+    slug: "fold-coffee", ...themeAsSeeds("broadsheet"),
     tokens: { background: "#ffcc00", foreground: "#0a0a0a" },
   });
   ok("a build with a colour override succeeds", withTokens.ok === true, JSON.stringify(withTokens).slice(0, 200));
@@ -1024,30 +1062,43 @@ function Home() {
   console.log("\nbuilding with rounder corners…");
   const cornersKept = await post({
     files: { "index.tsx": INDEX, "menu.tsx": MENU },
-    slug: "fold-coffee", theme: "broadsheet", tokens: { background: "#ffcc00" },
+    slug: "fold-coffee", ...themeAsSeeds("broadsheet"), style: HOUSE_STYLE, tokens: { background: "#ffcc00" },
   });
   const baseCss = Object.entries(cornersKept.files || {})
     .filter(([k]) => k.endsWith(".css")).map(([, v]) => v.t || "").join("\n");
   const rounder = await post({
     files: { "index.tsx": INDEX, "menu.tsx": MENU },
-    slug: "fold-coffee", theme: "broadsheet", tokens: { radius: "1.5rem" },
+    slug: "fold-coffee", ...themeAsSeeds("broadsheet"), style: HOUSE_STYLE, tokens: { radius: "1.5rem" },
   });
   ok("a build with a corner override succeeds", rounder.ok === true, JSON.stringify(rounder).slice(0, 200));
   {
     const css = Object.entries(rounder.files || {})
       .filter(([k]) => k.endsWith(".css")).map(([, v]) => v.t || "").join("\n");
     ok("the bundled CSS carries the chosen radius", /--radius:\s*1\.5rem/.test(css), css.slice(0, 200));
-    // 280 of the 500 themes hard-set `border-radius` on buttons and inputs as
-    // real rules; with those left in place a corner change moved the cards and
-    // left every button square.
-    // COUNTED, not pattern-matched against a selector. The first draft looked
-    // for `button…{…border-radius}` and flagged TAILWIND'S OWN preflight reset
-    // — nothing to do with the theme — so it failed on a build that was
-    // working. Comparing the same theme built with and without a radius
-    // measures exactly the thing, and is coupled to no theme's selectors.
+    // THIS CHECK ASSERTED A PROPERTY THAT NO LONGER EXISTS, and correcting it is
+    // more interesting than the check.
+    //
+    // `stripThemeRadius` was written because 280 of the 500 REGISTRY themes
+    // hard-set `border-radius` on buttons and inputs as real rules, so a corner
+    // change moved the cards and left every button square. The registry went on
+    // 2026-08-20: a seeds-only theme emits ZERO border-radius rules (measured),
+    // and the only remaining source is the customer's own `style` patch — which
+    // `explicitRadiusCss` re-emits by design, because an explicit corner opinion
+    // beats an implicit one. `RADIUS_AXES` is exactly `["buttons","inputs"]`,
+    // which is exactly what gets re-emitted, so the strip is now a WASH in every
+    // reachable case.
+    //
+    // So the honest assertion is the one below it: the radius reaches the
+    // bundle, and the customer's own corner axis SURVIVES the strip. The count
+    // comparison is kept as a measurement rather than a pass/fail, because a
+    // future change that gives a site implicit corner rules again would make it
+    // meaningful — and a silent 33-vs-33 is what told us it had stopped being.
     const count = (t) => (t.match(/border-radius\s*:/g) || []).length;
-    ok("and the theme's own corner rules gave way to it",
-      count(css) < count(baseCss), `${count(css)} border-radius rules with an override, ${count(baseCss)} without`);
+    console.log(`     (corner rules: ${count(css)} with a radius, ${count(baseCss)} without — ` +
+      `equal is EXPECTED since the registry went; see the note above)`);
+    ok("the customer's own corner axis survives the strip",
+      /border-radius/.test(css),
+      `the strip ate the customer's own buttons/inputs rules — ${count(css)} left`);
     ok("…while the framework's own reset survives", count(css) > 0, "every corner rule vanished, which is too many");
   }
 
@@ -1070,8 +1121,8 @@ function Home() {
   console.log("\nbuilding with a style patch…");
   const styled = await post({
     files: { "index.tsx": INDEX, "menu.tsx": MENU },
-    slug: "fold-coffee", theme: "broadsheet",
-    style: { buttons: "pill", icon: "heavy", density: "airy" },
+    slug: "fold-coffee", ...themeAsSeeds("broadsheet"),
+    style: { ...HOUSE_STYLE, buttons: "pill", icon: "heavy", density: "airy" },
   });
   ok("a build with a style patch succeeds", styled.ok === true, JSON.stringify(styled).slice(0, 200));
   {
@@ -1103,8 +1154,8 @@ function Home() {
   console.log("\nbuilding with a radius AND a corner axis…");
   const collide = await post({
     files: { "index.tsx": INDEX, "menu.tsx": MENU },
-    slug: "fold-coffee", theme: "broadsheet",
-    tokens: { radius: "1.5rem" }, style: { buttons: "pill" },
+    slug: "fold-coffee", ...themeAsSeeds("broadsheet"),
+    tokens: { radius: "1.5rem" }, style: { ...HOUSE_STYLE, buttons: "pill" },
   });
   ok("a build asking for both succeeds", collide.ok === true, JSON.stringify(collide).slice(0, 200));
   {
@@ -1124,8 +1175,15 @@ function Home() {
   // parser follows for the same reason: this goes into CSS.
   const badStyle = await post({
     files: { "index.tsx": INDEX, "menu.tsx": MENU },
-    slug: "fold-coffee", theme: "broadsheet",
-    style: { buttons: "0; } body { display: none", nope: "pill", icon: ["heavy"] },
+    slug: "fold-coffee", ...themeAsSeeds("broadsheet"),
+    // THE JUNK AND THE GOOD VALUE ARE DIFFERENT AXES, deliberately. The first
+    // draft put `icon: ["heavy"]` over the house's own `icon: "fine"`, so there
+    // was nothing left to survive and the check failed against a container doing
+    // exactly the right thing. In the old world the theme ROW carried the icon
+    // weight and the patch carried the junk — two separate places; there is no
+    // theme row now, so the property that remains is that `parseStyle` drops the
+    // bad axes of a patch and keeps its good ones.
+    style: { ...HOUSE_STYLE, buttons: "0; } body { display: none", nope: "pill", scale: ["huge"] },
   });
   ok("an unusable style patch falls back instead of failing the build", badStyle.ok === true,
     JSON.stringify(badStyle).slice(0, 200));
@@ -1134,7 +1192,7 @@ function Home() {
       .filter(([k]) => k.endsWith(".css")).map(([, v]) => v.t || "").join("\n");
     ok("and nothing it contained reaches the stylesheet",
       !/body\s*\{[^}]*display\s*:\s*none/.test(css) && /stroke-width\s*:\s*1\.25/.test(css),
-      "either the injection landed or the theme's own icon weight was replaced by junk");
+      "either the injection landed or a good axis in the same patch was thrown away with the junk");
   }
 
   // A patch that cannot be used must not fail a build that otherwise worked.
@@ -1482,7 +1540,7 @@ function Home() {
   // emits — same specificity, decided by source order after the minifier has had
   // its turn. A second `:root` was proved DEAD exactly here once before.
   console.log("\nbuilding the same site at three page widths…");
-  const W_PAYLOAD = { files: { "index.tsx": CHROMED }, slug: "width-site", title: "Fold Coffee", theme: "noir" };
+  const W_PAYLOAD = { files: { "index.tsx": CHROMED }, slug: "width-site", title: "Fold Coffee", ...themeAsSeeds("noir") };
   const stdW = await post(W_PAYLOAD);
   const wideW = await post({ ...W_PAYLOAD, style: { width: "wide" } });
   ok("a build with no width axis succeeds", stdW.ok === true, stdW.stage + ": " + (stdW.error || "").slice(0, 300));
@@ -1520,7 +1578,7 @@ function Home() {
   // unit test reads the string the module returns and not what the compiler did
   // with it. Only a real build can tell those apart.
   console.log("\nbuilding a site with brand-coloured headings…");
-  const D_PAYLOAD = { files: { "index.tsx": CHROMED }, slug: "display-site", title: "Fold Coffee", theme: "citrus" };
+  const D_PAYLOAD = { files: { "index.tsx": CHROMED }, slug: "display-site", title: "Fold Coffee", ...themeAsSeeds("citrus") };
   const inkB = await post({ ...D_PAYLOAD, style: { display: "ink" } });
   const accB = await post({ ...D_PAYLOAD, style: { display: "accent" } });
   ok("an ink build succeeds", inkB.ok === true, inkB.stage + ": " + (inkB.error || "").slice(0, 300));
@@ -1555,8 +1613,11 @@ function Home() {
   // dropped, reporting the chosen font while serving the default.
   console.log("\nbuilding a site whose dividers sit on a background wash…");
   const B_PAYLOAD = { files: { "index.tsx": CHROMED }, slug: "border-site", title: "Fold Coffee" };
-  const washB = await post({ ...B_PAYLOAD, theme: "citrus" });   // backdrop: wash
-  const plainB = await post({ ...B_PAYLOAD, theme: "noir" });    // backdrop: plain
+  // The WORLD is what this check is about, so it is asked for by name rather
+  // than inherited from a fixture — `citrus` happens to declare `backdrop: wash`
+  // and `noir` declares none, which is why those two are the pair.
+  const washB = await post({ ...B_PAYLOAD, ...themeAsSeeds("citrus"), style: { backdrop: "wash" } });
+  const plainB = await post({ ...B_PAYLOAD, ...themeAsSeeds("noir") });   // no backdrop at all
   ok("a build on a world theme succeeds", washB.ok === true, washB.stage + ": " + (washB.error || "").slice(0, 300));
   ok("a build on a plain theme succeeds", plainB.ok === true, plainB.stage + ": " + (plainB.error || "").slice(0, 300));
   const bcss = (b) => Object.entries(b.files || {}).filter(([n]) => n.endsWith(".css")).map(([, v]) => (v && v.t) || "").join("");
@@ -1609,7 +1670,7 @@ function Home() {
     "last .dark --border is L " + darkL + " — the palette's own 0.31, so the override did not survive");
 
   console.log("\nbuilding the same site light and dark…");
-  const MODE_PAYLOAD = { files: { "index.tsx": CHROMED }, slug: "mode-site", title: "Nightshift Records", theme: "noir", worker: true };
+  const MODE_PAYLOAD = { files: { "index.tsx": CHROMED }, slug: "mode-site", title: "Nightshift Records", ...themeAsSeeds("noir"), worker: true };
   const lightBuild = await post({ ...MODE_PAYLOAD, mode: "light" });
   const darkBuild = await post({ ...MODE_PAYLOAD, mode: "dark" });
   ok("a light build succeeds", lightBuild.ok === true, lightBuild.stage + ": " + (lightBuild.error || "").slice(0, 300));

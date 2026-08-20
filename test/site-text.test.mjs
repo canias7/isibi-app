@@ -256,7 +256,8 @@ test("the site's own look is carried through the recompile", () => {
   // meant nothing by it.
   assert.ok(!/function recompileAndPublish\(env, \{[^}]*\blook\b/.test(worker),
     "the spine takes a look from its caller, so a caller can re-theme a site by accident");
-  assert.match(block, /theme: \(look && look\.theme\) \|\| null/);
+  assert.match(block, /seeds: \(look && look\.seeds\) \|\| null/,
+    "the spine no longer carries the site's own palette, so a typo fix would re-colour it");
   assert.match(block, /withContrast\(tokens\)/);
   assert.match(block, /resolvePair\(\(look && look\.fonts\) \|\| \{\}\)/);
 });
