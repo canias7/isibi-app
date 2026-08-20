@@ -147,7 +147,7 @@ test("validPlan — a plan the page generator can actually be handed", () => {
   // whether `normalizePlan` keeps it — because a plan it drops means
   // `directiveFromPlan` returns null and the generator gets the bare brief with
   // no page list, no shape and no component manifest, silently.
-  const good = { tables: [], purpose: "A barber shop taking bookings", structure: "booking-first",
+  const good = { tables: [], purpose: "A barber shop taking bookings",
                  shape: ["the chair, then the time"],
                  pages: [{ path: "/", role: "the shop and its chairs" }, { path: "/book", role: "pick a slot" }],
                  action: ["Book a chair"], components: ["site-chrome", "booking-form"] };

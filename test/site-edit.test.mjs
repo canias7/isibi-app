@@ -15,7 +15,7 @@ import {
 const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 const STORED = {
   brand: "Sharp Fade", description: "A barber shop in Leeds.",
-  seeds: { name: "Warm Brick", paper: "#f7f2ea", ink: "#332a26", accent: "#b44a2e" }, family: "salon", structure: "sidebar",
+  seeds: { name: "Warm Brick", paper: "#f7f2ea", ink: "#332a26", accent: "#b44a2e" }, family: "salon",
   fonts: { heading: "noto-serif", body: "source-sans-3" },
   lang: "en-GB", mode: "light", langs: ["es"],
   // The five other plan axes, stored per site since 2026-08-20. `family` is
@@ -129,7 +129,7 @@ test("EVERY FIELD AN EDIT CAN MOVE IS ONE THE DESIGNER IS TOLD THE CURRENT VALUE
   // NEW shape fails here, loudly, at the fixture.
   const SAMPLE = {
     brand: "value-of-brand", description: "value-of-description", seeds: { name: "Cool Slate", paper: "#f4f6f8", ink: "#20262b", accent: "#2f6f85" },
-    family: "value-of-family", structure: "value-of-structure", lang: "value-of-lang",
+    family: "value-of-family", lang: "value-of-lang",
     mode: "value-of-mode", fonts: { heading: "inter", body: "inter" }, langs: ["value-of-langs"],
     // THE FIVE OTHER PLAN AXES CARRY THE SHARPEST VERSION OF THIS GUARD'S OWN
     // ARGUMENT. They are not looked up from a table any more — the designer
@@ -203,7 +203,7 @@ test("without `instructed` the OLD precedence holds, exactly", () => {
   // would re-roll the look on every edit. The failure direction is "the edit did
   // not take", which the customer can see and say again — never "the site
   // re-themed itself".
-  for (const k of ["seeds", "family", "structure", "brand", "description"]) {
+  for (const k of ["seeds", "family", "brand", "description"]) {
     const out = mergeLook(STORED, { [k]: "something-else" }, null);
     assert.equal(out[k], STORED[k], `${k} was overridden by an uninstructed designer`);
   }
@@ -254,7 +254,7 @@ test("the state note names the current values, so `unchanged` is answerable", ()
   // A rule to omit what is unchanged is unusable if the model does not know what
   // is unchanged — the designer was never told an edit was an edit.
   const note = currentStateNote({ ...STORED, tables: ["bookings", "services"] });
-  for (const v of ["Sharp Fade", "A barber shop in Leeds.", "Warm Brick", "#b44a2e", "salon", "sidebar", "noto-serif", "bookings"]) {
+  for (const v of ["Sharp Fade", "A barber shop in Leeds.", "Warm Brick", "#b44a2e", "salon", "noto-serif", "bookings"]) {
     assert.ok(note.includes(v), `the note does not name ${v}`);
   }
   // Empty in, empty out — a first build must add nothing to the message at all.

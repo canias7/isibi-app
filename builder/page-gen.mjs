@@ -3429,12 +3429,13 @@ export function briefWithLayout({ brief, plan, images } = {}) {
   // loss than it sounds — `priorPagesBlock` sends the site's OWN page source and
   // `EDIT_RULE` tells the model to return every page byte-identical except where
   // the change was asked for, so the real layout is the pages themselves. A
-  // FIRST build always has a plan, because the six fields are required.
+  // FIRST build always has a plan, because the plan fields are required.
   //
   // `family` AND `structure` USED TO BE TAKEN HERE AND ARE GONE. They were kept
-  // for a while as unread parameters "so every caller keeps compiling", which
-  // is how a dead argument reads as a live one — `structure` reaches the model
-  // through the plan, and nothing ever read `family` again.
+  // for a while as unread parameters "so every caller keeps compiling", which is
+  // how a dead argument reads as a live one. `structure` outlived that as a plan
+  // field until 2026-08-20 and is now gone from the platform entirely; nothing
+  // ever read `family` again.
   const directive = directiveFromPlan(plan);
   const parts = [String(brief ?? "")];
   if (directive) parts.push(directive);

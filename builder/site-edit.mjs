@@ -114,7 +114,6 @@ export function currentStateNote(current) {
   }
   add("family", c.family);
   add("mode", c.mode);
-  add("structure", c.structure);
   // THE FIVE OTHER PLAN AXES, for the reason every line here exists and with the
   // same edge as `lang` below. These replaced `family` on 2026-08-20, so they are
   // no longer looked up from a table — they are values THIS site's designer wrote
@@ -182,7 +181,7 @@ export const EDIT_RULE =
   "Return ONLY the fields this change actually asks you to alter. Omit every other field — an omitted field keeps " +
   "exactly what the site has now, and that is how you say \"leave it alone\".\n" +
   "DO NOT RESTATE A VALUE TO KEEP IT. Naming the theme it already has achieves nothing, and naming a DIFFERENT one " +
-  "re-themes the entire site — so if the change is not about the look, return no theme, no family, no structure and " +
+  "re-themes the entire site — so if the change is not about the look, return no theme, no family and " +
   "no fonts at all. The same for the name, the description and the LANGUAGE: leave them out unless this change is " +
   "about them. This conversation is in English and the site may not be — return a language only if the change is " +
   "asking you to alter what language its pages are written in.\n" +

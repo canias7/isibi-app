@@ -4210,13 +4210,12 @@ const SITE_SCHEMA_TOOL = {
     // already carried a curated, validated pair that nothing read. Optional, the
     // ordinary build inherits the theme's own pairing and the two cannot
     // disagree; a brief with an opinion about type still overrides it.
-    // THE SIX PLAN FIELDS ARE ALL REQUIRED, where `family` was one field. Every
-    // one of them is a LINE of the layout directive, so a skipped answer is a
-    // line the page writer never sees — and `structure` in particular stopped
-    // being optional here: it used to default to whatever the family declared,
-    // and with no family there is nothing to default to. Derived from
-    // `PLAN_REQUIRED` rather than listed, so a seventh axis cannot be added to
-    // the tool and forgotten here.
+    // THE PLAN FIELDS ARE ALL REQUIRED, where `family` was one field. Every one
+    // of them is a LINE of the layout directive, so a skipped answer is a line
+    // the page writer never sees. Derived from `PLAN_REQUIRED` rather than
+    // listed, so an axis cannot be added to the tool and forgotten here — or
+    // removed from it and left required, which is how `structure` leaving on
+    // 2026-08-20 cost nothing at this call site.
     required: ["brand", "slug", "tables", "seed", "description", "seeds", "fonts", ...PLAN_REQUIRED],
   },
 };
@@ -11907,7 +11906,6 @@ async function handleRequest(request, env, ctx) {
       const look = {
         seeds: merged.seeds,
         family: merged.family,
-        structure: merged.structure,
         // …AND THE THEME'S OWN RECOMMENDATION IS THE LAST RESORT.
         //
         // Every theme carries a curated `fonts` pair, validated against the same

@@ -8,8 +8,33 @@
 //
 // The owner's direction: "the model alone decides how to shape it". The FIELDS
 // were right — a purpose, a shape, a page set, a verb, a component list — and
-// pre-filling them per trade was the wrong move. So the six fields the table
-// held become six fields the designer answers, per site, having read the brief.
+// pre-filling them per trade was the wrong move. So the fields the table held
+// become fields the designer answers, per site, having read the brief.
+//
+// `structure` WENT ENTIRELY 2026-08-20 (owner's call) — six fields to five, and
+// the last two exports of `site-layouts.mjs` with it, so that file went too. It
+// named one of eight page skeletons: single-scroll, bento, sidebar,
+// split-screen, full-bleed-hero, card-grid, editorial, terminal.
+//
+// MEASURED AS IGNORED, which is why it was not merely re-shaped into free text.
+// Over the pinned generator corpus: `sidebar` produced no page importing
+// `sidebar-layout`; `single-scroll` — "one page, sections in sequence, the nav
+// is anchor links" — produced four routes navigated by `<Link>`, the opposite
+// on both halves of its own definition; `editorial` produced a centred column.
+// Three scenarios, three disobeyed.
+//
+// AND `shape` ALREADY ASKS THE QUESTION, which is what settled it. That field
+// takes two or three lines on what LEADS, what the body runs through and the
+// rule this kind of site fails by breaking — authored per site, in the
+// designer's own words. A second free-text field about the arrangement is the
+// same answer twice, and the two would eventually disagree; the old `shape`
+// description had to spend a clause telling the model not to restate the
+// skeleton it had just picked, which is the tell.
+//
+// WHAT REALLY WENT WITH IT IS THE PHOTOGRAPH BUDGET, a cost rather than an
+// intention. Two branches keyed on the enum's own names — `terminal` bought
+// nothing and the two hero-led skeletons bought two. Recorded where it
+// happened, on `planBudget` in `site-images.mjs`.
 //
 // WHAT THIS DELIBERATELY DOES NOT CHANGE: the directive's FORMAT. `layoutDirective`
 // composes a block that the page-generation call has been reading since it
@@ -21,7 +46,6 @@
 // Plain module with no I/O, like `site-edit.mjs` and `publish-pages.mjs`, so the
 // whole decision is tested without a Worker, a model or a database.
 
-import { STRUCTURES, STRUCTURE_NAMES } from "./site-layouts.mjs";
 
 /**
  * THE FIELD ORDER IS THE FIX, AND IT IS THE WHOLE REASON `components` IS LAST.
@@ -46,9 +70,9 @@ import { STRUCTURES, STRUCTURE_NAMES } from "./site-layouts.mjs";
  * Guarded by a test, because a later edit that adds a field or reorders this
  * list for tidiness would put the pick back in front of the pages silently.
  */
-export const PLAN_KEYS = ["purpose", "structure", "shape", "pages", "action", "components"];
+export const PLAN_KEYS = ["purpose", "shape", "pages", "action", "components"];
 
-/** Every plan axis an edit may move — the same six, so `EDIT_FIELDS` derives rather than restates. */
+/** Every plan axis an edit may move — the same five, so `EDIT_FIELDS` derives rather than restates. */
 export const PLAN_EDIT_FIELDS = PLAN_KEYS;
 
 /* -------------------------------------------------------- the kit palette */
@@ -263,12 +287,6 @@ export function normalizePlan(input) {
   if (!purpose || !pages.length) return null;
 
   const out = { purpose, pages };
-  // AN UNRECOGNISED STRUCTURE IS DROPPED, NOT REFUSED. The directive already
-  // treats the structure line as optional — `layoutDirective` omits it when the
-  // family declares none — so a plan whose skeleton we cannot name is a plan
-  // missing one line, not a plan that cannot be used. Refusing here would throw
-  // away a good purpose and a good page set over a typo in an enum.
-  if (typeof p.structure === "string" && Object.hasOwn(STRUCTURES, p.structure)) out.structure = p.structure;
   const shape = lines(p.shape, { cap: MAX_LINE, max: MAX_SHAPE });
   if (shape.length) out.shape = shape;
   const action = lines(p.action, { cap: 80, max: MAX_ACTION });
@@ -309,24 +327,13 @@ export function directiveFromPlan(plan) {
   if (p.components && p.components.length) lines2.push(`Reach first for: ${p.components.join(", ")}.`);
   lines2.push(`This site has ${p.pages.length} page${p.pages.length === 1 ? "" : "s"}:`);
   for (const pg of p.pages) lines2.push(`- ${pg.path} — ${pg.role}`);
-  if (p.structure) lines2.push(`Structure — ${p.structure}: ${STRUCTURES[p.structure].text}.`);
   return lines2.join("\n");
 }
 
 /* ------------------------------------------------------- the tool schema */
 
 /**
- * The eight skeletons, printed from the registry rather than retyped.
- *
- * A second copy here is two things that can disagree about what `sidebar`
- * means, and the one that the designer reads is not the one the directive
- * prints — so the model would pick against one description and the page writer
- * would be handed another.
- */
-const STRUCTURE_LIST = STRUCTURE_NAMES.map((n) => `- ${n} — ${STRUCTURES[n].text}`).join("\n");
-
-/**
- * The six fields, in the order they must be generated. Spread into
+ * The five fields, in the order they must be generated. Spread into
  * `design_schema.properties` so the tool has ONE definition of them.
  */
 export const PLAN_FIELDS = {
@@ -338,16 +345,6 @@ export const PLAN_FIELDS = {
       'page: "the list of things IS the page." "live state is the content — countdowns, and freshness shown." ' +
       '"the slot picker is the hero; everything else supports the appointment." ' +
       "A description of the trade is not a purpose.",
-  },
-
-  structure: {
-    type: "string",
-    enum: STRUCTURE_NAMES,
-    description:
-      "The page skeleton. Pick for what the content IS, not for novelty.\n" +
-      STRUCTURE_LIST +
-      "\n`terminal` sets this site's photograph budget to ZERO. Pick it when imagery would be noise, " +
-      "not when the brief simply did not mention pictures.",
   },
 
   shape: {
@@ -363,7 +360,7 @@ export const PLAN_FIELDS = {
       '"every page links sideways — dead ends are the failure" · ' +
       '"stale-looking data is the failure" · ' +
       '"hours and the address stay within one scroll of wherever the visitor is". ' +
-      "A vague line here produces a vague site. Do not restate the structure you already picked — say what goes IN it.",
+      "A vague line here produces a vague site.",
   },
 
   pages: {
@@ -415,5 +412,5 @@ export const PLAN_FIELDS = {
   },
 };
 
-/** The six are all required — every one is a line of the directive. */
+/** All five are required — every one is a line of the directive. */
 export const PLAN_REQUIRED = PLAN_KEYS.slice();

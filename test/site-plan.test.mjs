@@ -13,12 +13,10 @@ import {
   MAX_SHAPE, MAX_PAGES, MAX_ACTION, MAX_COMPONENTS,
 } from "../builder/site-plan.mjs";
 import { ALWAYS_API_CORE, siteComponentApi, componentApiFor, briefWithLayout, PAGE_RULES } from "../builder/page-gen.mjs";
-import { STRUCTURE_NAMES, STRUCTURES } from "../builder/site-layouts.mjs";
 import { planBudget, budgetFor } from "../builder/site-images.mjs";
 
 const GOOD = {
   purpose: "the slot picker is the hero; everything else supports the appointment",
-  structure: "sidebar",
   shape: ["the chair list leads", "prices, then the form", "a dead end is the failure"],
   pages: [{ path: "/", role: "book a chair" }, { path: "/prices", role: "what each cut costs" }],
   action: ["Book now"],
@@ -133,15 +131,23 @@ test("two entries for one path is a page set with a bug — first wins", () => {
   assert.equal(out.pages[0].role, "the real home page");
 });
 
-test("an unrecognised structure is dropped and the rest of the plan survives", () => {
-  // The directive already treats the skeleton line as optional, so a plan whose
-  // structure we cannot name is a plan missing one line — not one that cannot be
-  // used. Refusing here would throw away a good purpose and a good page set over
-  // a typo in an enum.
-  const out = normalizePlan({ ...GOOD, structure: "hexagonal" });
-  assert.equal(out.structure, undefined);
+test("a plan STORED BEFORE `structure` went still normalises, and the skeleton never reaches the directive", () => {
+  // `structure` left `design_schema` on 2026-08-20 and every site built before
+  // that has one in its stored look. So this is a live shape, not a hypothetical:
+  // a revise reads that object back and hands it to `normalizePlan`.
+  //
+  // BOTH HALVES MATTER AND ONLY THE SECOND IS OBVIOUS. Dropping it is right —
+  // nothing reads it any more — and the reason to assert it is that the OTHER
+  // outcome is a plan refused over a field we deleted, which would take a good
+  // purpose and a good page set with it. And the directive must not print the
+  // line, or the page writer is still being told a skeleton nothing enforces.
+  const out = normalizePlan({ ...GOOD, structure: "sidebar" });
+  assert.equal(out.structure, undefined, "a stored skeleton survived the normaliser");
   assert.equal(out.purpose, GOOD.purpose);
-  assert.ok(directiveFromPlan(out), "a plan with an unusable structure stopped composing a directive");
+  const d = directiveFromPlan(out);
+  assert.ok(d, "a plan carrying a legacy structure stopped composing a directive");
+  assert.ok(!/Structure —/.test(d), "the directive still prints a Structure line");
+  assert.ok(!/sidebar/.test(d), "the stored skeleton leaked into the directive");
 });
 
 test("a plan that cannot compose a directive answers NULL, not a half-plan", () => {
@@ -186,7 +192,7 @@ test("it is an ALLOW-LIST — a field nobody added cannot ride along", () => {
  * below now carries alone — that the format the page-generation call reads did
  * not change. What survives is the format itself, asserted line by line.
  */
-test("the directive names every page, the verb and the skeleton", () => {
+test("the directive names every page and the verb", () => {
   const d = directiveFromPlan(GOOD);
   assert.match(d, /^LAYOUT — the slot picker is the hero/);
   assert.match(d, /- the chair list leads/);
@@ -195,7 +201,6 @@ test("the directive names every page, the verb and the skeleton", () => {
   assert.match(d, /This site has 2 pages:/);
   assert.match(d, /- \/ — book a chair/);
   assert.match(d, /- \/prices — what each cut costs/);
-  assert.match(d, /Structure — sidebar: /);
   // Singular reads correctly, because a one-page café is the commonest shape
   // this platform builds and "1 pages" is the sort of thing a model copies.
   assert.match(directiveFromPlan({ ...GOOD, pages: [{ path: "/", role: "everything" }] }), /This site has 1 page:/);
@@ -266,25 +271,36 @@ test("A MANIFEST NAMING SOMETHING THAT DOES NOT EXIST COSTS NOTHING", () => {
 
 /* ── the image budget follows the plan ──────────────────────────────────── */
 
-test("the SAME three rules, over a plan instead of a family row", () => {
-  // terminal → nothing anywhere; the home page gets two where the structure is
-  // built around an opening image and one otherwise; any other page gets one
-  // only where the components say pictures are the content.
+test("TWO rules now: the home page gets one, another page gets one only if pictures are the content", () => {
   const base = { purpose: "p", pages: [{ path: "/", role: "r" }] };
-  assert.equal(planBudget({ ...base, structure: "terminal" }), 0, "a terminal site was budgeted a photograph");
-  assert.equal(planBudget({ ...base, structure: "full-bleed-hero" }), 2, "a hero-led home page lost its second image");
-  assert.equal(planBudget({ ...base, structure: "sidebar" }), 1);
+  assert.equal(planBudget(base), 1);
   const two = { ...base, pages: [{ path: "/", role: "r" }, { path: "/work", role: "r" }] };
-  assert.equal(planBudget({ ...two, structure: "sidebar" }), 1, "a second page was budgeted with no gallery in the kit list");
-  assert.equal(planBudget({ ...two, structure: "sidebar", components: ["gallery"] }), 2,
+  assert.equal(planBudget(two), 1, "a second page was budgeted with no gallery in the kit list");
+  assert.equal(planBudget({ ...two, components: ["gallery"] }), 2,
     "a picture-led component list did not earn the second page an image");
 });
 
+test("A STORED `structure` BUYS AND SAVES NOTHING — the two branches it drove are gone", () => {
+  // The cost of deleting the field, asserted rather than left to be discovered
+  // on a bill. `terminal` used to return 0 and the two hero-led skeletons used
+  // to give the home page 2; both are now the ordinary 1. A site built before
+  // 2026-08-20 still carries one of these in its stored look, so this is the
+  // shape a real revise hands in — and the number must not depend on it either
+  // way, or the field is still live through a back door.
+  const base = { purpose: "p", pages: [{ path: "/", role: "r" }] };
+  for (const s of ["terminal", "full-bleed-hero", "editorial", "sidebar", "hexagonal"]) {
+    assert.equal(planBudget({ ...base, structure: s }), 1,
+      `a stored "${s}" still moved the photograph budget`);
+  }
+});
+
 test("NULL, NOT ZERO, when there is no usable plan — and that is the whole point", () => {
-  // Zero is a REAL budget: it is what `terminal` gets. Returning it for "I
-  // cannot read this" would make an unreadable plan indistinguishable from a
-  // deliberate choice to have no pictures, and would silently suppress
-  // photographs on every site that still has a stored family.
+  // Zero is a REAL budget — `planBudget` returns it for a plan whose pages all
+  // fail the path check. Returning it for "I cannot read this" would make an
+  // unreadable plan indistinguishable from a site that genuinely wants no
+  // pictures, and would silently suppress them on every site with a stored
+  // family. (Until 2026-08-20 the worked example of a real zero was `terminal`;
+  // that skeleton is gone and the distinction it illustrated is not.)
   assert.equal(planBudget(null), null);
   assert.equal(planBudget({}), null);
   assert.equal(planBudget({ purpose: "p", pages: [] }), null);
@@ -296,10 +312,10 @@ test("NULL, NOT ZERO, when there is no usable plan — and that is the whole poi
     "a site whose plan cannot be read buys nothing, which reads as a deliberate choice to have none");
 });
 
-test("an authored plan BEATS a stored family, and a terminal plan really means none", () => {
-  const plan = { purpose: "p", structure: "terminal", pages: [{ path: "/", role: "r" }] };
-  assert.equal(budgetFor({ plan }), 0,
-    "the stored family overrode the plan, so the designer's own choice is ignored");
+test("an authored plan is what the budget follows", () => {
+  const plan = { purpose: "p", pages: [{ path: "/", role: "r" }, { path: "/work", role: "r" }], components: ["gallery"] };
+  assert.equal(budgetFor({ plan }), 2,
+    "the plan's own page list and components did not decide the budget");
 });
 
 /* ── the transition: sites older than the change keep working ───────────── */

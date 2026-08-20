@@ -19,10 +19,10 @@
 // `imageBudget` is its sum over the family's own page set — so a docs site and a
 // wedding photographer do not get the same allowance because they do not have
 // the same pages. Nothing here is hand-authored per family: it reads what
-// site-layouts.mjs already declares, which is what stops 324 page entries from
+// the family table already declared, which is what stopped 324 page entries from
 // needing 324 judgement calls that would go stale the first time a family moved.
 //
-// Pure logic, no I/O — the same shape as site-layouts.mjs and site-fonts.mjs, so
+// Pure logic, no I/O — the same shape as site-plan.mjs and site-fonts.mjs, so
 // all of it is tested outside the Worker. Generating and storing the bytes is
 // the caller's half; this module decides what to ask for and what to do with the
 // answer.
@@ -40,13 +40,6 @@
  * placeholder for the rest, which is a site that still works.
  */
 export const IMAGE_CAP = 6;
-
-/**
- * Structures where the opening image IS the page rather than decorating it.
- * `full-bleed-hero` is an edge-to-edge opening by definition and `editorial` is
- * magazine spreads; both read as unfinished with one small picture in them.
- */
-const HERO_LED = new Set(["editorial", "full-bleed-hero"]);
 
 /**
  * Components a family reaches for when pictures are the CONTENT — a gallery, a
@@ -80,10 +73,11 @@ export function componentsAreContent(components) {
  * `picturesAreContent(family)`, `imagesForPage(family, page)` and
  * `imageBudget(family)` derived a site's photograph allowance from the family
  * table's own page set and component list. That table went with the families,
- * and `planBudget` below applies the SAME three rules — terminal gets none, the
- * home page gets two where the structure is built around an opening image and
- * one otherwise, any other page gets one only where the components say pictures
- * are the content — over the plan the designer wrote for THIS site.
+ * and `planBudget` below applies what is left of those rules — the home page
+ * gets one, any other page gets one only where the components say pictures are
+ * the content — over the plan the designer wrote for THIS site. (The third,
+ * which keyed on `structure`, went with that field on 2026-08-20; the cost is
+ * recorded on `planBudget` itself.)
  *
  * TWO THINGS FELL AWAY CLEANLY RATHER THAN NEEDING A REPLACEMENT. `alt` was an
  * alternative home page, a property of a REFERENCE app so one family could ship
@@ -147,8 +141,10 @@ export function budgetFor({ revise, priorPages, slug, plan } = {}) {
   // for sites built before 2026-08-20; the family table went the same day.
   //
   // A PLAN WE CANNOT READ GETS ONE PICTURE, not zero, and the distinction is the
-  // one `planBudget` returns null to preserve. Zero is a real budget — it is what
-  // `terminal` gets — so answering it for "I cannot read this" would make an
+  // one `planBudget` returns null to preserve. Zero is a real budget — a page
+  // list the pipeline cannot address produces one, and until 2026-08-20 the
+  // worked example was `terminal` — so answering it for "I cannot read this"
+  // would make an
   // unreadable plan indistinguishable from a deliberate choice to have none, and
   // would silently suppress photographs on every site with a stored family and no
   // plan. One is the same answer the old unknown-family path gave, for the same
@@ -162,14 +158,30 @@ export function budgetFor({ revise, priorPages, slug, plan } = {}) {
 }
 
 /**
- * The same three rules, over an authored plan instead of a family row.
+ * Two rules now: the home page gets one, and any other page gets one only where
+ * the components say pictures are the content. Capped at `IMAGE_CAP`.
  *
- * IT IS THE SAME DERIVATION, NOT A SECOND ONE. `terminal` gets nothing anywhere;
- * the home page gets two where the structure is built around an opening image
- * and one otherwise; any other page gets one only where the components say
- * pictures are the content. Capped at `IMAGE_CAP`. A family row and a plan
- * carrying the same structure, page count and components produce the same
- * number, which is asserted rather than assumed.
+ * IT WAS THREE UNTIL `structure` WENT (owner's call, 2026-08-20), and the two
+ * branches that went with it are recorded here rather than lost, because each
+ * is a real behaviour this no longer has and both cost money in one direction
+ * or the other:
+ *
+ *   `terminal` RETURNED 0. A site whose whole premise is "no imagery, no
+ *   decoration" now buys one photograph for its home page — ~19 credits of real
+ *   fal spend on a picture it should not have. Bounded to one, and to the rare
+ *   site that would have picked that skeleton.
+ *
+ *   `editorial` AND `full-bleed-hero` GOT TWO on the home page, on the grounds
+ *   that an opening image IS the page there and one small picture reads as
+ *   unfinished. They get one now.
+ *
+ * NEITHER WAS REPLACED BY AN INFERENCE, deliberately. The obvious move is to
+ * key both on `components` — the manifest is a concrete list the model really
+ * wrote, where the skeleton was an adjective it measurably ignored — and the
+ * home page defeats it: a barber's home page wants exactly one photograph and
+ * would name `hero` and `safe-image`, neither of which is picture-led. Guessing
+ * a new signal on no data is how a budget starts being wrong quietly, so the
+ * cost is taken and stated instead.
  *
  * THE TWO THINGS A PLAN HAS NO EQUIVALENT FOR are `alt` and the per-page `img`
  * override, and both fall away cleanly. An alternative home page is a property
@@ -180,9 +192,10 @@ export function budgetFor({ revise, priorPages, slug, plan } = {}) {
  * authored for THESE pages that blind spot is what the model is now answering
  * directly.
  *
- * NULL, NOT ZERO, when there is no usable plan. Zero is a real budget — it is
- * what `terminal` gets — so returning it for "I cannot read this" would make an
- * unreadable plan indistinguishable from a deliberate choice to have no
+ * NULL, NOT ZERO, when there is no usable plan. Zero is a real budget — a page
+ * list the pipeline cannot address produces one, and until 2026-08-20 `terminal`
+ * was the worked example — so returning it for "I cannot read this" would make
+ * an unreadable plan indistinguishable from a site that genuinely wants no
  * pictures, and would silently suppress them on every site with a stored family.
  */
 export function planBudget(plan, { cap = IMAGE_CAP } = {}) {
@@ -190,13 +203,12 @@ export function planBudget(plan, { cap = IMAGE_CAP } = {}) {
   const pages = p && Array.isArray(p.pages) ? p.pages : null;
   if (!pages || !pages.length) return null;
   const lim = Math.max(0, Math.min(IMAGE_CAP, Math.floor(Number(cap))) || 0);
-  if (p.structure === "terminal") return 0;
   const led = componentsAreContent(p.components);
   let n = 0;
   for (const pg of pages) {
     const path = pg && typeof pg.path === "string" ? pg.path : "";
     if (!path) continue;
-    if (path === "/") n += HERO_LED.has(p.structure) ? 2 : 1;
+    if (path === "/") n += 1;
     else if (led) n += 1;
   }
   return Math.min(n, lim);

@@ -14,7 +14,7 @@ import {
   IMAGE_CAP, IMAGE_ASPECT, MAX_PROMPT_CHARS,
   imagesAffordable,
   parseImageTokens, planImages, applyImages, imagePrompt, imageDirective, imageNote,
-  budgetFor, hasBoughtPhotos,
+  budgetFor, planBudget, hasBoughtPhotos,
 } from "../builder/site-images.mjs";
 import { uploadUrl } from "../site-uploads.mjs";
 import { IMAGE_USD, pageCost, pageCredits } from "../builder/publish-pages.mjs";
@@ -28,11 +28,12 @@ const page = (path, source) => ({ path, source });
  *
  * `imagesForPage(family, page)`, `imageBudget(family)` and
  * `picturesAreContent(family)` derived a site's photograph allowance from the
- * family table, and there is no family table. The SAME three rules are asserted
- * over the authored plan in `test/site-plan.test.mjs` — terminal gets none, the
- * home page gets two where the structure is hero-led and one otherwise, any
- * other page gets one only where the components say pictures are the content —
- * so nothing about the rule is untested; only its old input is gone.
+ * family table, and there is no family table. The rules that remain are asserted
+ * over the authored plan in `test/site-plan.test.mjs` — the home page gets one,
+ * any other page gets one only where the components say pictures are the
+ * content — so nothing about the rule is untested; only its old input is gone.
+ * (The `terminal` zero and the hero-led two went with `structure` on
+ * 2026-08-20; that cost is asserted there too.)
  */
 test("A SITE WHOSE PLAN CANNOT BE READ STILL GETS ITS ONE OPENING IMAGE", () => {
   // The unknown-family default, inherited by the path that replaced it. Zero
@@ -43,9 +44,18 @@ test("A SITE WHOSE PLAN CANNOT BE READ STILL GETS ITS ONE OPENING IMAGE", () => 
   assert.equal(budgetFor({ plan: { purpose: "p", pages: [] } }), 1, "a half-plan reads as a deliberate zero");
 });
 
-test("…and a plan that really says none still means none", () => {
-  // The distinction the line above exists to preserve: `terminal` is a REAL zero.
-  assert.equal(budgetFor({ plan: { purpose: "p", structure: "terminal", pages: [{ path: "/", role: "r" }] } }), 0);
+test("…and a plan whose pages are all unaddressable still means none", () => {
+  // The distinction the line above exists to preserve: zero is a REAL budget, so
+  // it must stay reachable and stay distinct from "I could not read this". Until
+  // 2026-08-20 the worked example was `terminal`; with that skeleton gone, a page
+  // list the pipeline cannot address is what still produces an honest zero.
+  assert.equal(budgetFor({ plan: { purpose: "p", pages: [{ path: "no-slash", role: "r" }] } }), 0,
+    "a page list the pipeline cannot address stopped producing an honest zero");
+  assert.equal(budgetFor({ plan: { purpose: "p", pages: [{ role: "no path at all" }] } }), 0);
+  // …and that zero is still DISTINCT from not knowing, which is the whole reason
+  // `planBudget` answers null rather than 0 when it cannot read a plan at all.
+  assert.equal(planBudget({ purpose: "p", pages: [] }), null);
+  assert.equal(budgetFor({ plan: null }), 1, "an unreadable plan was read as a deliberate zero");
 });
 
 /* -------------------------------------------------------- affordability */
@@ -590,8 +600,8 @@ test("a revise buys none — unless the site never got any in the first place", 
   const without = [{ path: "index.tsx", source: "<SafeImage src={row.photo} alt={row.name} />" }];
   // THE BUDGET COMES FROM THE PLAN NOW, not from a family row. The rule under
   // test is unchanged; only where the number comes from has moved.
-  const plan = { purpose: "a gallery of finished work", structure: "full-bleed-hero",
-    pages: [{ path: "/", role: "the work" }], components: ["gallery"] };
+  const plan = { purpose: "a gallery of finished work",
+    pages: [{ path: "/", role: "the work" }, { path: "/work", role: "the gallery" }], components: ["gallery"] };
   const full = budgetFor({ revise: false, priorPages: null, slug: "cafe", plan });
 
   assert.equal(full, 2, "a first build must get the plan's own budget");
@@ -608,8 +618,8 @@ test("not knowing costs nothing, and one site's pictures are not another's", () 
   // hands back null, and reading that as "no photographs" would re-buy the whole
   // set on its next revise — the expensive mistake, and the one this rule exists
   // to prevent. Being wrong the other way costs an unbought picture.
-  const plan = { purpose: "a gallery of finished work", structure: "full-bleed-hero",
-    pages: [{ path: "/", role: "the work" }], components: ["gallery"] };
+  const plan = { purpose: "a gallery of finished work",
+    pages: [{ path: "/", role: "the work" }, { path: "/work", role: "the gallery" }], components: ["gallery"] };
   for (const bad of [null, undefined, "not an array", {}]) {
     assert.equal(budgetFor({ revise: true, priorPages: bad, slug: "cafe", plan }), 0, String(bad));
   }

@@ -29,7 +29,6 @@ on:
       # without changing the model's answer at all.
       - "site-access.mjs"
       - "site-schema.mjs"
-      - "builder/site-layouts.mjs"
       - "test/integration/schema-gen-eval.mjs"
       - "test/integration/schema-checks.mjs"
       # ITS OWN CONFIG. Missing until 2026-08-13, and it bit immediately: the

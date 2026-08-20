@@ -97,7 +97,6 @@ const SCENARIOS = [
     // core.
     plan: {
       purpose: "A yoga studio where people book a class and members keep their own notes",
-      structure: "single-scroll",
       shape: ["the timetable leads, then the booking form", "the members area is behind sign-in"],
       pages: [
         { path: "/", role: "what the studio is, the timetable, and the way to book" },
@@ -132,7 +131,6 @@ const SCENARIOS = [
     key: "menu",
     plan: {
       purpose: "A neighbourhood restaurant showing its menu, its cooks and how to find it",
-      structure: "editorial",
       shape: ["the menu is the site", "no form anywhere — people phone"],
       pages: [
         { path: "/", role: "what the place is, a taste of the menu, the address and the phone number" },
@@ -157,7 +155,6 @@ const SCENARIOS = [
     key: "tool",
     plan: {
       purpose: "An internal tool where a small sales team signs in and works its deals",
-      structure: "sidebar",
       shape: ["everything is behind sign-in", "the deals table is the working surface"],
       pages: [
         { path: "/", role: "sign in, then the team's deals" },
@@ -370,7 +367,7 @@ try {
   // with zeroes. An outage should not be able to destroy the evidence.
 
   for (const sc of SCENARIOS) {
-   console.log(`— ${sc.key} (${sc.plan.structure})`);
+   console.log(`— ${sc.key} (${sc.plan.pages.length} pages)`);
    for (let n = 1; n <= SAMPLES; n++) {
     const row = { key: sc.key, n, stage: "?", files: [], problems: [], errors: [] };
     try {
@@ -476,14 +473,14 @@ const byShape = SCENARIOS.map((sc) => {
   const rs = results.filter((r) => r.key === sc.key);
   return {
     key: sc.key,
-    structure: sc.plan.structure,
+    pages: sc.plan.pages.length,
     ok: rs.filter((r) => r.stage === "ok").length,
     n: rs.length,
     clean: rs.filter((r) => r.stage === "ok" && !r.problems.length).length,
   };
 });
 const shapeLines = byShape.map((b2) =>
-  `${b2.key} (${b2.structure}): ${b2.ok}/${b2.n} compiled` + (b2.ok ? `, ${b2.clean} clean` : ""));
+  `${b2.key} (${b2.pages}p): ${b2.ok}/${b2.n} compiled` + (b2.ok ? `, ${b2.clean} clean` : ""));
 
 // No "first try" column any more: with the repair pass gone every sample IS a
 // first try, and a second number saying the same thing invites reading it as a

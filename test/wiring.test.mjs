@@ -17,9 +17,8 @@ import path from "node:path";
 import os from "node:os";
 
 import { budgetFor } from "../builder/site-images.mjs";
-import { mergeLook, movedFields, hasValue, EDIT_RULE, currentStateNote } from "../builder/site-edit.mjs";
+import { mergeLook, movedFields, hasValue, EDIT_RULE, currentStateNote, EDIT_FIELDS } from "../builder/site-edit.mjs";
 import { briefWithLayout } from "../builder/page-gen.mjs";
-import { STRUCTURE_NAMES, STRUCTURES } from "../builder/site-layouts.mjs";
 import { UI_COMPONENTS, ALWAYS_API_CORE, PAGE_RULES, schemaDigest, lintPages } from "../builder/page-gen.mjs";
 import { PLAN_FIELDS, PLAN_KEYS, PLAN_REQUIRED, KIT_PALETTE, directiveFromPlan } from "../builder/site-plan.mjs";
 import { normalizeSeeds } from "../builder/site-seeds.mjs";
@@ -166,12 +165,12 @@ test("the PLAN reaches the PAGE prompt as a directive, not as fields", () => {
   assert.ok(call, "the worker no longer composes the brief through the shared function");
   assert.match(call[1], /\bplan\b/, "the worker no longer passes the authored plan to the composer");
   const out = briefWithLayout({ brief: "a shop", plan: {
-    purpose: "browsing the stock IS the page", structure: "card-grid",
+    purpose: "browsing the stock IS the page",
     pages: [{ path: "/", role: "the shop" }],
   } });
   assert.match(out, /^a shop\n\n/, "the brief must still lead");
   assert.match(out, /LAYOUT — /, "the plan must arrive as a directive, not as fields");
-  assert.ok(out.includes(STRUCTURES["card-grid"].text), "the structure must ride with it");
+  assert.match(out, /browsing the stock IS the page/, "the purpose must ride with it");
 });
 
 test("a null directive is never interpolated into the brief", () => {
@@ -182,58 +181,61 @@ test("a null directive is never interpolated into the brief", () => {
   for (const args of [
     { brief: "a shop" },
     { brief: "a shop", family: "not-a-family" },
-    { brief: "a shop", family: "store", structure: "nope" },
   ]) {
     assert.equal(briefWithLayout(args), "a shop", JSON.stringify(args));
   }
 });
 
-test("the structure axis is offered, REQUIRED, and every name works", () => {
-  // IT STOPPED BEING OPTIONAL WHEN THE FAMILY WENT (2026-08-20), and the old
-  // reasoning is exactly why. It could be skipped because "every family declares
-  // a sensible default, so a skipped answer is a good answer" — and with no
-  // family there is nothing to default to, so a skipped answer is now a
-  // directive with no skeleton line in it at all.
+test("`structure` IS GONE FROM EVERY LAYER IT LIVED AT", () => {
+  // THE INVERSE OF THE TWO TESTS THAT STOOD HERE (owner's call, 2026-08-20), on
+  // the precedent that replaced the repair-pass tests with "a second call never
+  // happens": the field is deleted, so what has to be held is its ABSENCE, and
+  // an absence rots silently where a presence goes red.
   //
-  // The enum comes from `site-plan.mjs`, built off the registry, so there is no
-  // `SITE_STRUCTURE_IDS` constant here to keep in step any more.
-  assert.deepEqual(PLAN_FIELDS.structure.enum, STRUCTURE_NAMES,
-    "the eight skeletons offered to the designer are not the eight the engine has");
-  assert.ok(PLAN_REQUIRED.includes("structure"),
-    "structure is optional again, and with no family there is no default behind it");
-  // EVERY NAME REACHES A DIRECTIVE, driven through the composer the build now
-  // uses rather than through the table it replaced.
-  for (const st of STRUCTURE_NAMES) {
-    const d = directiveFromPlan({
-      purpose: "a purpose", structure: st, pages: [{ path: "/", role: "the home page" }],
-    });
-    assert.ok(d && d.includes(STRUCTURES[st].text), `${st} is offered and does not reach the directive`);
-  }
-});
-
-test("the structure reaches the route, and the model is told what each one is", () => {
-  // The property rather than the spelling — same move as the theme chain above.
-  assert.equal(mergeLook(null, null, { structure: "bento" }).structure, "bento",
-    "a structure named on the request body no longer reaches the build");
-  assert.equal(mergeLook({ structure: "sidebar" }, { structure: "bento" }, null).structure, "sidebar",
-    "an uninstructed designer overrides the stored structure again");
-  // IT REACHES THE BUILD INSIDE THE PLAN NOW, not as a parameter of its own.
-  // `structure` was passed separately for as long as there was a family table to
-  // look it up in; it is one of the six `PLAN_KEYS`, so the route assembles it
-  // out of the merged look with the other five and `directiveFromPlan` prints
-  // the skeleton line. Asserted through the DERIVED assembly rather than by
-  // naming the field, since a seventh axis must be covered without anybody
-  // editing this file.
-  assert.match(worker, /plan: normalizePlan\(Object\.fromEntries\(PLAN_KEYS\.map\(/,
-    "the plan no longer reaches the build assembled from the merged look");
-  assert.ok(PLAN_KEYS.includes("structure"), "structure left the plan, so nothing carries it to the model");
-  assert.match(worker, /async function buildAndPublishPages\(env, \{[^}]*\bplan\b[^}]*\}\)/);
-  // DESCRIBED IN THE FIELD ITSELF NOW, not by a `structuresForPrompt()` call in
-  // worker.js. Same guarantee, one layer in: a skeleton offered as a bare name
-  // is one the model picks between blind.
-  for (const st of STRUCTURE_NAMES) {
-    assert.ok(PLAN_FIELDS.structure.description.includes(st + " — "), `${st} is offered undescribed`);
-  }
+  // It named one of eight page skeletons and was MEASURED as ignored — over the
+  // pinned generator corpus `sidebar` produced no page importing `sidebar-layout`,
+  // `single-scroll` produced four `<Link>`-navigated routes against its own
+  // "one page, anchor links" definition, and `editorial` produced a centred
+  // column. What it really decided was the photograph budget, and that cost is
+  // asserted in `site-plan.test.mjs` rather than here.
+  //
+  // EVERY LAYER, because this feature was live at five and a half-deletion is
+  // how a field comes back through one of them.
+  assert.ok(!PLAN_KEYS.includes("structure"), "structure is back in the plan keys");
+  assert.ok(!Object.hasOwn(PLAN_FIELDS, "structure"), "the designer is offered the skeleton again");
+  assert.ok(!PLAN_REQUIRED.includes("structure"), "structure is required again");
+  assert.ok(!EDIT_FIELDS.includes("structure"), "an edit can move the skeleton again");
+  // The two places it reached CODE. A stored one is still legal input — every
+  // site built before today carries one — so what must be true is that neither
+  // the look the route stores nor the directive the model reads carries it on.
+  assert.equal(mergeLook({ structure: "sidebar" }, { structure: "bento" }, null).structure, undefined,
+    "the merged look still carries a skeleton, so the route would store it again");
+  const d = directiveFromPlan({
+    purpose: "a purpose", structure: "sidebar", pages: [{ path: "/", role: "the home page" }],
+  });
+  assert.ok(d, "a plan carrying a legacy skeleton stopped composing a directive");
+  // BELT-AND-BRACES, AND IT SAYS SO RATHER THAN READING AS INDEPENDENT. Measured
+  // by mutation: restoring the `Structure —` line to `directiveFromPlan` on its
+  // own SURVIVES this, because `directiveFromPlan` normalises first and the
+  // normaliser drops the field — so nothing is left for the restored line to
+  // print. The assertion that does the work is the `mergeLook` one above and the
+  // normaliser's own in `site-plan.test.mjs`; this one holds by a property of a
+  // function one edit away from changing, which is exactly when this repo keeps
+  // a guard and states what it rests on.
+  assert.ok(!/Structure —|sidebar/.test(d), "the skeleton still reaches the page writer");
+  // AND THE MODULE IT WAS THE LAST READER OF. `site-layouts.mjs` held STRUCTURES
+  // and STRUCTURE_NAMES and nothing else, so it went with the field; a file
+  // restored without a reader is the on-disk-and-reachable-by-nothing shape this
+  // repo has deleted 289 files over.
+  assert.ok(!fs.existsSync(new URL("../builder/site-layouts.mjs", import.meta.url)),
+    "site-layouts.mjs is back, and nothing reads it");
+  // AN IMPORT, NOT A MENTION. `worker.js` explains in prose where the directive
+  // used to come from and that prose names the module — the trap this repo has
+  // recorded in a lint, a router guard, an absence check, a scope scan and a
+  // mutation. Prose describing a deletion spells the deleted thing, so the scan
+  // reads code.
+  assert.ok(!/from\s*["'][^"']*site-layouts/.test(worker),
+    "worker.js imports the deleted layouts module");
 });
 
 test("the container turns the palette into real CSS, after the font write", () => {
@@ -573,8 +575,8 @@ test("a REVISE buys no new photographs", () => {
   const none = [{ path: "index.tsx", source: "<SafeImage src={row.photo} />" }];
   // THE BUDGET COMES FROM THE PLAN since the family table went; the rule under
   // test is unchanged and only its input has moved.
-  const plan = { purpose: "the work is the page", structure: "full-bleed-hero",
-    pages: [{ path: "/", role: "the work" }], components: ["gallery"] };
+  const plan = { purpose: "the work is the page",
+    pages: [{ path: "/", role: "the work" }, { path: "/work", role: "the gallery" }], components: ["gallery"] };
   assert.equal(budgetFor({ revise: true, priorPages: shown, slug: "cafe", plan }), 0,
     "a revise re-derives a photo budget and re-bills for pictures the owner has");
   assert.equal(budgetFor({ revise: true, priorPages: none, slug: "cafe", plan }), 2,
@@ -635,11 +637,11 @@ test("a revise keeps the site's stored look instead of re-rolling it", () => {
   // AND THE GUARANTEE ITSELF, driven rather than spelled. "A revise keeps the
   // stored look" is now "stored unless the change named it" — the same
   // protection, expressed so that asking CAN change it.
-  const stored = { seeds: { name: "Cool Slate", paper: "#f4f6f8", ink: "#20262b", accent: "#2f6f85" }, family: "salon", structure: "sidebar", brand: "Sharp Fade", description: "A barber shop." };
+  const stored = { seeds: { name: "Cool Slate", paper: "#f4f6f8", ink: "#20262b", accent: "#2f6f85" }, family: "salon", brand: "Sharp Fade", description: "A barber shop." };
   // An instructed designer that named nothing changes nothing. This is the case
   // that used to re-roll the look, and it is the ordinary edit.
   const quiet = mergeLook(stored, { tokens: { background: "#ffff00" } }, null, { instructed: true });
-  for (const k of ["seeds", "family", "structure", "brand", "description"]) {
+  for (const k of ["seeds", "family", "brand", "description"]) {
     assert.deepEqual(quiet[k], stored[k], `a colour-only edit moved ${k}`);
   }
   assert.deepEqual(movedFields(stored, quiet), [], "a colour-only edit reports having moved something");
