@@ -201,6 +201,49 @@ test("the designer is told publicView is what makes a listing browsable", () => 
   assert.match(desc, /BOOKING TABLE/, "the taken-slots use was lost");
 });
 
+test("the designer's own prompt offers all three member shapes, not two", () => {
+  // THE SENTENCE THAT CAUSED IT, and this is why the fixes above were not
+  // enough. `publicView`'s description and the read/write pair were both added
+  // after the 2026-08-10 marketplace failure — and the SYSTEM PROMPT kept
+  // saying "anything a visitor keeps as 'theirs' → a 'user' table (or 'feed'
+  // when members are meant to see each other's)". A marketplace IS things
+  // visitors keep as theirs, so the model was steered into the one shape a
+  // stranger cannot read, by the most authoritative text in the call, while
+  // the correction sat in a per-field description it only reads if it is
+  // already looking at that field.
+  //
+  // Measured 2026-08-20: `schema gen eval` browsable 3 pass / 2 FAIL, both
+  // marketplace samples, "no table a signed-out visitor can read" — the same
+  // failure the axes were built to end, ten days later.
+  //
+  // NOT ANOTHER PARAGRAPH — a correction. The prompt enumerated two of three
+  // options and the missing one is exactly the cell CLAUDE.md calls "the
+  // commonest missing": anyone reads, members write their own.
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const at = w.indexOf('text: "You design the data model behind a small business website.');
+  assert.ok(at > 0, "the designer's system prompt is gone — re-point this guard");
+  const sys = w.slice(at, w.indexOf("}]", at));
+
+  // ALL THREE NAMED. `user` and `feed` alone are what shipped the bug.
+  for (const [needle, why] of [
+    [/'user'/, "the private-per-member shape is not named"],
+    [/'feed'/, "the members-see-each-other shape is not named"],
+    [/read: \\"public\\"/, "the public-read/own-write PAIR is not offered — this is the cell a marketplace needs"],
+  ]) assert.match(sys, needle, why);
+
+  // AND THE CONSEQUENCE OF THE WRONG ONE IS STATED. Naming the third option
+  // without saying why the other two hide a listing leaves the model with
+  // three choices and no way to pick — the state `publicView` was in when its
+  // description named only the booking slot.
+  assert.match(sys, /401/, "the designer is not told what a stranger actually gets from a 'user' table");
+  assert.match(sys, /signed-OUT|signed-out|never signed in/,
+    "nothing in the prompt puts the designer in a stranger's shoes, which is the question it keeps getting wrong");
+
+  // THE TEST A MARKETPLACE FAILS, phrased so the model applies it per table.
+  assert.match(sys, /marketplace|listings|classifieds|directory/i,
+    "the shapes this applies to are not named, so the rule reads as abstract");
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // A FIELD THE TOOL TELLS THE MODEL TO OMIT MAY NOT BE REQUIRED.
 //

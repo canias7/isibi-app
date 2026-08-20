@@ -4292,7 +4292,11 @@ async function designSiteSchema(env, brief, model = modelsFor().design, current 
               "Use 'collect' for anything a visitor submits — bookings, orders, enquiries, signups. Those are write-only on purpose: the visitor sends one in, " +
               "and only the business reads them, so customer names and phone numbers are never served back to the public. " +
               "Prefer few columns with obvious names. Turn on fts only where someone would genuinely search free text. " +
-              "If the brief mentions accounts, signing in, members, or anything a visitor keeps as 'theirs', give that data a 'user' table (or 'feed' when members are meant to see each other's) — visitor accounts are real and the pages can build a sign-in. " +
+              "If the brief mentions accounts, signing in, members, or anything a visitor keeps as 'theirs', give that data a members table — visitor accounts are real and the pages can build a sign-in. " +
+              "THERE ARE THREE OF THOSE AND THE DIFFERENCE IS WHO CAN SEE A ROW. 'user' is private per member — a signed-OUT visitor gets 401 and a signed-in one sees only their own. " +
+              "'feed' widens that to every signed-in member. Neither shows a stranger anything. " +
+              "When the PUBLIC is meant to browse what members post — a marketplace, listings, classifieds, a directory, a job board, reviews — you need the third: set `read: \"public\"` and `write: \"own\"` on that table instead of an `access` name. " +
+              "Ask it of every table: can somebody who has never signed in see this? If the brief says people browse the site, at least one table must answer yes, or there is no page worth opening and the site cannot be built. " +
               "Do NOT invent a signups/members table to hold accounts: the platform stores those itself, so a table for emails and passwords is both unnecessary and unusable. " +
               "Then fill every 'display' table with 3-6 realistic starter rows in `seed`. This is not optional and it is not decoration: " +
               "nothing can write to a display table after the build, so an unseeded table is an empty list forever, and any form field that " +
