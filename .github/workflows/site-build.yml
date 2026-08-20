@@ -60,8 +60,25 @@ jobs:
       # modules are dependency-free, so no install is needed.
       - run: node --test "test/page-gen.test.mjs" "test/publish-pages.test.mjs"
 
+      # EVERY INDEPENDENT CHECK BELOW RUNS EVEN WHEN AN EARLIER ONE FAILED, and
+      # that is a fix for a measured incident rather than tidiness. Actions stops
+      # a job at the first failing step, so on 2026-08-19 one component missing
+      # from an allow-list took `kit-render` down and, with it, the NINE checks
+      # after it — including `site-build` itself, the strongest free signal in
+      # the repo. Four consecutive runs went red for the same known reason and
+      # nobody read past the first line, so a SECOND real bug (matrix-table's
+      # numbers at 3.21:1 in dark) sat behind it for fifteen hours.
+      #
+      # The condition gates on the SETUP rather than on the previous check: with
+      # a bare `success() || failure()` a broken `npm ci` produces eleven
+      # identical module-not-found failures instead of one that names the cause,
+      # which is the opposite of a failure that can name itself. `!cancelled()`
+      # rather than `always()`, so a cancelled run stops rather than spending a
+      # runner on eleven doomed steps.
+      #
       # The same dependency set the container image bakes, from the same lockfile.
       - run: npm ci --no-audit --no-fund --loglevel=error
+        id: deps
         working-directory: builder/lovable/template
 
       # The whole 500-component kit, in one pass. tsconfig.json excludes it from
@@ -69,6 +86,7 @@ jobs:
       # only thing that would catch a break in a component no generated page
       # happens to import yet.
       - run: node test/integration/kit-typecheck.mjs
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
 
       # And the step above is not enough, which is the whole reason this one
       # exists. Compiling is not working: 158 chart components typechecked and
@@ -79,6 +97,7 @@ jobs:
       # prerenders with, four ways — realistic props, everything empty, every
       # number zero, every list empty — and reads what came out.
       - run: node test/integration/kit-render.mjs
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
 
       # THE RENDER CHECK'S DRIVER, AT THE REPO ROOT — not in the template.
       # `builder/render-check.mjs` does `import("playwright-core")`, and Node
@@ -113,9 +132,11 @@ jobs:
       # is what theme-render did on its first run on main, and then what the
       # render check did when it landed above this line.
       - run: npx playwright install --with-deps chromium
+        id: browser
         working-directory: builder/lovable/template
 
       - run: node test/integration/site-build.mjs
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' && steps.browser.outcome == 'success' }}
 
       # THE FALSE-ALARM RATE OF THE CONTRAST CHECK, which is the number that
       # decides whether that check may exist at all: its verdict goes to the
@@ -130,11 +151,13 @@ jobs:
       # checked, the ancestor with no box) rather than only the two shapes a
       # compiled site can show.
       - run: node test/integration/contrast-cases.mjs
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' && steps.browser.outcome == 'success' }}
 
       # Does a theme reach the DIST? The response cannot answer that — the font
       # write shipped defaults while reporting the right choice, and a theme has
       # the same failure available to it.
       - run: node test/integration/theme-seam.mjs
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
 
       # WHAT EACH CONTROL IS CALLED, asked of Chromium's own accessibility tree
       # rather than guessed from the source. A name can come from six different
@@ -145,6 +168,7 @@ jobs:
       # with nothing to attach it to, and three listboxes called "listbox".
       # Needs the browser, so it sits after the install above.
       - run: node test/integration/kit-a11y.mjs
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
 
       # MOUNTED, then taken away again. `kit-render.mjs` above goes through
       # `renderToString`, and server rendering NEVER RUNS AN EFFECT — so the
@@ -155,6 +179,7 @@ jobs:
       # focus. It also drives the three listboxes whose arrow keys were written
       # and then verified by typechecking alone.
       - run: node test/integration/kit-effects.mjs
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
 
       # CAN THE TEXT BE READ. Everything above checks the kit as STRUCTURE — it
       # compiles, it renders, it mounts, its controls have names — and none of
@@ -167,11 +192,13 @@ jobs:
       # every piece of text in both modes, plus the kit's own bg/foreground
       # token pairings. Needs the browser, so it sits after the install above.
       - run: node test/integration/kit-paint.mjs
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' && steps.browser.outcome == 'success' }}
 
       # What a themed site LOOKS like. The seam test proves the CSS reaches the
       # dist; this proves the page is not blank, nothing throws, and the two
       # modes actually differ — the checks a picture can be held to.
       - run: node test/integration/theme-render.mjs
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' && steps.browser.outcome == 'success' }}
         env:
           SHOT_DIR: theme-shots
 
@@ -192,9 +219,11 @@ jobs:
       # right word. Driven at BOTH mounts — /s/<slug>/ and / — because one
       # bundle serves both.
       - run: node test/integration/site-routing.mjs
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' && steps.browser.outcome == 'success' }}
 
       # Compiling is not working. This drives the reference page in a real
       # browser against a stub of the data API, so the four list states, the
       # form's success and failure paths, and the toast actually being mounted
       # are all checked rather than assumed.
       - run: node test/integration/site-runtime.mjs
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' && steps.browser.outcome == 'success' }}

@@ -43,6 +43,21 @@ const CANNOT_RENDER = {
   // Both ARE driven for real there, in a real browser, at both mounts.
   "site-chrome.SiteChrome": "needs a RouterProvider",
   "site-header.SiteHeader": "needs a RouterProvider",
+  // JOINED 2026-08-19 with the bilingual work, which rewrote this from a
+  // `value`/`onChange` picker into the thing `SiteHeader` renders: it reads
+  // `useMatches` to find the page it is on, so it offers the OTHER language's
+  // copy of THIS page rather than that language's front door. That makes it
+  // router-dependent for the same reason as the two above — and it is rendered
+  // BY `SiteHeader`, which is already here, so the list was always going to
+  // need it. Driven for real in `site-build.mjs`: a two-language site is built
+  // through the real container and the switcher's hrefs are read off the
+  // SERVED document at `/es/services`.
+  //
+  // IT WENT RED AND STAYED RED FOR FIFTEEN HOURS, four `site build` runs, and
+  // nobody read them. Worth stating plainly because this repo's own argument
+  // about the Cloudflare beacon applies here: a check that is red for a reason
+  // everybody knows about trains everybody to ignore the next red one.
+  "lang-switch.LangSwitch": "needs a RouterProvider",
   // A RECURSIVE PROP TYPE — `children?: Clade[]` on the thing being built — so
   // the synthesiser bottoms out at its depth cap and hands over a tree that is
   // not one. Real data renders it fine; there is no way to invent a tree from a

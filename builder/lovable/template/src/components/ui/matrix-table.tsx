@@ -21,11 +21,40 @@ import { cn } from "@/lib/utils";
  * as a loading skeleton, which is what they looked like the first time this was
  * photographed.
  *
- * The text flips to the background colour only past 0.66, not at the midpoint.
- * A cell at half intensity is a mid grey, where dark text is around 5.5:1 and
- * light text around 3.4:1 — so the naive "past halfway, go light" makes the
- * middle of the ramp the least readable part of the table.
+ * The text flips to the background colour past the CROSSOVER, not at the
+ * midpoint. A cell at half intensity is a mid grey, where one ink is around
+ * 5.5:1 and the other around 3.4:1 — so the naive "past halfway, go light"
+ * makes the middle of the ramp the least readable part of the table.
+ *
+ * THE CROSSOVER IS NOT THE SAME IN BOTH THEMES, and a single 0.66 was
+ * calibrated on the light one only — which is how this shipped with unreadable
+ * cells in dark and nothing noticed. Measured against the template's own
+ * tokens, at a 4.5:1 bar:
+ *
+ *   light  the page ink reads to t=0.620, the reverse from t=0.625
+ *   dark   the page ink reads to t=0.505, the reverse from t=0.530
+ *
+ * So dark crosses over a full tenth of the ramp earlier, and every cell in
+ * 0.53..0.66 was printed in the ink with LESS contrast — down to 2.99:1 at
+ * the top of that band, measured. Both flips are emitted and CSS picks.
+ *
+ * THE RESIDUE, STATED RATHER THAN PAPERED OVER: at the crossover itself the
+ * best either ink can do is 4.40:1 in dark and 4.50:1 in light, so a sliver of
+ * the ramp sits just under AA. That is INHERENT to printing text on a shade
+ * rather than a bug in these numbers — the theoretical ceiling with pure black
+ * and pure white is 4.59:1, and with this template's own inks it is 4.49:1.
+ * Measured three ways before settling: shortening the ramp to 72% or 62% moves
+ * the band and does not remove it (4.39:1), and flipping to pure black instead
+ * of `--background` gets 4.49:1. Closing it properly means not putting the
+ * number on the shade at all, which is a different component.
+ *
+ * Both numbers are calibrated on the DEFAULT palette. A generated site can
+ * move `--foreground` and `--background`, which moves the crossover with them;
+ * that was equally true of the single 0.66 and is strictly less wrong now.
  */
+const FLIP_LIGHT = 0.62;
+const FLIP_DARK = 0.52;
+
 export function MatrixTable({
   rows, columns, value, format, rowLabel, max, className,
 }: {
@@ -88,7 +117,14 @@ export function MatrixTable({
                       style={has ? { backgroundColor: `color-mix(in oklab, var(--foreground) ${Math.round(t * 88)}%, transparent)` } : undefined}
                       className={cn("flex min-w-10 items-center justify-center rounded-sm px-1.5 py-1.5 text-xs tabular-nums",
                         !has && "border border-dashed border-border text-muted-foreground",
-                        has && t > 0.66 ? "font-medium text-background" : "text-foreground")}>
+                        // BOTH DECISIONS ARE EMITTED AND CSS PICKS, because the
+                        // two themes cross over at different points and the
+                        // component is prerendered — it cannot know which theme
+                        // the page will be in. The `dark:` variant is
+                        // `&:is(.dark *)`, so it outranks the bare class in dark
+                        // and does not apply at all in light.
+                        has && (t > FLIP_LIGHT ? "font-medium text-background" : "text-foreground"),
+                        has && (t > FLIP_DARK ? "dark:font-medium dark:text-background" : "dark:text-foreground"))}>
                       {has ? fmt(v) : "–"}
                     </div>
                   </td>
