@@ -321,10 +321,9 @@ test("no block-scoped const/let in worker.js is read after its block closes", ()
     let depth = 0, close = -1;
     for (let j = i; j < lines.length && close < 0; j++) {
       if (wholeLineComment(lines[j])) continue;
-      for (const ch of lines[j]) {
-        if (ch === "{") depth++;
-        else if (ch === "}") { depth--; if (depth < 0) { close = j; break; } }
-      }
+      const step = scanBraces(lines[j], depth);
+      depth = step.depth;
+      if (step.closed) close = j;
     }
     if (close < 0) continue;                          // never closes: top level
 
@@ -447,6 +446,42 @@ test("the handler-local scan actually fires on the shape it was written for", ()
 // and truncating there would delete real code from the count.
 const wholeLineComment = (l) => /^\s*(\/\/|\*)/.test(l);
 
+/**
+ * The braces one line contributes to BLOCK depth, with anything inside `[…]`
+ * skipped — and the skip is the whole reason this exists.
+ *
+ * SIXTH FALSE ALARM FROM THIS SCAN, and the second from a REGEX literal: a
+ * character class is allowed to hold an unmatched brace, so
+ * `/defaultViewTransition:\s*([^,}\s]+)/` contributes a closing brace that
+ * closes nothing. Measured 2026-08-20 on a correct change — it took an
+ * arrow-function `const` to read as out of scope one line after its own
+ * declaration, which is the least plausible finding this scan can produce and
+ * still cost a hunt. A check that cries wolf on correct code is worse here than
+ * the miss it prevents, which is why the SCAN moves rather than the code.
+ *
+ * SAFE BECAUSE BRACES INSIDE BRACKETS ARE BALANCED IN REAL CODE. The shapes
+ * that put one there are `const [{ a }] = xs` and `x[`a${b}c`]`, both balanced,
+ * so skipping the pair leaves the count exactly where it was. What is NOT
+ * balanced is precisely the case being fixed: a lone brace in a character class
+ * or a string. Per line, because a character class cannot span one — a
+ * destructuring that does simply behaves as it did before.
+ *
+ * SHARED BY BOTH WALKS rather than written twice, the `wholeLineComment` rule:
+ * two copies of "what counts as a brace" is two things that can disagree, and
+ * the disagreement is silent.
+ */
+function scanBraces(line, depth) {
+  let br = 0;
+  for (const ch of line) {
+    if (ch === "[") br++;
+    else if (ch === "]") br = Math.max(0, br - 1);
+    else if (br > 0) continue;
+    else if (ch === "{") depth++;
+    else if (ch === "}") { depth--; if (depth < 0) return { depth, closed: true }; }
+  }
+  return { depth, closed: false };
+}
+
 function outOfScopeReads(src) {
   const lines = src.split("\n");
   const declCount = new Map();
@@ -490,10 +525,9 @@ function outOfScopeReads(src) {
     let depth = 0, close = -1;
     for (let j = i; j < lines.length && close < 0; j++) {
       if (wholeLineComment(lines[j])) continue;
-      for (const ch of lines[j]) {
-        if (ch === "{") depth++;
-        else if (ch === "}") { depth--; if (depth < 0) { close = j; break; } }
-      }
+      const step = scanBraces(lines[j], depth);
+      depth = step.depth;
+      if (step.closed) close = j;
     }
     if (close < 0) continue;
     const re = new RegExp("(^|[^.\\w$])" + name.replace(/\$/g, "\\$") + "\\s*[.([]");
@@ -656,11 +690,18 @@ test("every depth walk in this file skips comment lines", () => {
   // ask `wholeLineComment` first. Derived, so a third walk is covered without
   // anybody remembering this test.
   const self = readFileSync(new URL("./worker-imports.test.mjs", import.meta.url), "utf8");
-  const walks = [...self.matchAll(/for \(let j = i; j < lines\.length && close < 0; j\+\+\) \{\n([^\n]*)\n/g)];
+  const walks = [...self.matchAll(/for \(let j = i; j < lines\.length && close < 0; j\+\+\) \{\n((?:[^\n]*\n){3})/g)];
   assert.ok(walks.length >= 2, "found " + walks.length + " depth walks — the scan for them broke");
   for (const w of walks) {
     assert.match(w[1], /if \(wholeLineComment\(lines\[j\]\)\) continue;/,
       "a depth walk counts braces inside comments: " + w[1].trim());
+    // AND THE SAME ARGUMENT FOR THE BRACES THEMSELVES. A walk that counts them
+    // inline is one that counts the unmatched `}` in a regex character class —
+    // the sixth false alarm this scan produced, and it accused an arrow
+    // function of being out of scope one line below its own declaration. Both
+    // go through `scanBraces` so there is ONE answer to what a brace is.
+    assert.match(w[1], /scanBraces\(lines\[j\], depth\)/,
+      "a depth walk counts braces itself rather than through the shared reading: " + w[1].trim());
   }
 });
 

@@ -24,10 +24,10 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { resolvePair, resolvePageFonts, fontCss, fontImports } from "./site-fonts.mjs";
-import { themeCss } from "./site-theme.mjs";
+import { themeCss, transitionOn } from "./site-theme.mjs";
 import { normalizeSeeds } from "./site-seeds.mjs";
 import { tokensCss, pageTokensCss, stripThemeRadius, validForWrite } from "./site-tokens.mjs";
-import { applyStyle, explicitRadiusCss } from "./site-style.mjs";
+import { applyStyle, explicitRadiusCss, parseStyle, MAX_STYLE_BUILD } from "./site-style.mjs";
 import { dirFor, initialsMark, normalizeLang, normalizeMode, siteIconFrom } from "./site-identity.mjs";
 import { langLabel, resolveLangs } from "./site-langs.mjs";
 import { exitReason } from "./exit-reason.mjs";
@@ -124,7 +124,7 @@ function resetRoutes() {
 // asks the generator to do. Before this, `setTitle` at PUBLISH time stamped the
 // brand onto every non-home page after the fact; a default the routes can beat
 // is the same outcome with the ordering the right way round.
-function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, mode, seeds }) {
+function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, mode, seeds, transition }) {
   const iconPath = path.join(APP, "public", "icon.svg");
   try { fs.rmSync(iconPath, { force: true }); } catch {}
 
@@ -219,6 +219,13 @@ function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, mode, seed
   // this function writes files, so nothing here can be driven by a unit test,
   // and every shape the value can arrive in has to be answerable without one.
   const modeValue = normalizeMode(mode);
+  // WHETHER THE ROUTER STARTS A VIEW TRANSITION AT ALL — the half of the page
+  // transition that cannot live in the stylesheet. `transitionOn` is the ONE
+  // question, shared with `pageCss`, because the two disagreeing is silent both
+  // ways: a flag with no CSS hands the site the browser's own cross-fade, and
+  // CSS with no flag is a rule nothing ever triggers. FALSE unless the site
+  // asked, so every site published before this navigates exactly as it does now.
+  const transitionValue = transitionOn(transition);
 
   // WRITTEN ON EVERY BUILD, INCLUDING WHEN A VALUE IS ABSENT. This container is
   // long-lived and serves every build on the platform, so a file left behind by
@@ -272,6 +279,13 @@ function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, mode, seed
       // unannotated const has the LITERAL type of whichever value was written,
       // and `SITE_MODE === "dark"` then fails to compile on a light site.
       'export const SITE_MODE: "light" | "dark" = ' + JSON.stringify(modeValue) + ";\n" +
+      // THE ROUTER'S HALF OF THE PAGE TRANSITION. `defaultViewTransition` in
+      // `router.tsx` reads this; `pageCss` writes what it looks like. Both come
+      // from `transitionOn`, once. ANNOTATED for the `SITE_MODE` reason — an
+      // unannotated const has the literal type of whichever value was written,
+      // so the generated file and the template placeholder would disagree the
+      // moment anything compares them.
+      "export const SITE_PAGE_TRANSITION: boolean = " + JSON.stringify(transitionValue) + ";\n" +
       "export const SITE_ICON = " + JSON.stringify(icon || "/favicon.svg") + ";\n" +
       "export const SITE_ICON_TYPE = " + JSON.stringify(iconType || "image/svg+xml") + ";\n" +
       "export const SITE_NAME = " + JSON.stringify(titleValue) + ";\n" +
@@ -281,7 +295,7 @@ function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, mode, seed
   // a site drawing its initials and a site serving the owner's own artwork
   // both answered true, so a favicon that was stored and then refused by the
   // shape check reported as a working icon.
-  return { lang: langValue, dir: dirValue, langs: langsValue, mode: modeValue, icon: !!icon, ownIcon: iconOk, logo: !!logoValue, slug: !!slugValue,
+  return { lang: langValue, dir: dirValue, langs: langsValue, mode: modeValue, transition: transitionValue, icon: !!icon, ownIcon: iconOk, logo: !!logoValue, slug: !!slugValue,
     refused: (!!raw && !logoOk) || !!(own && own.refused), build: buildValue };
 }
 
@@ -728,12 +742,20 @@ const server = http.createServer((req, res) => {
       resetRoutes();
       // ONE writer for all four, because they land in ONE generated module and
       // two writers of one file is one of them silently losing.
-      const brandUsed = writeSiteBrand({ title: payload.title, lang: payload.lang, langs: payload.langs, logo: payload.logo, icon: payload.icon, slug: payload.slug, mode: payload.mode, seeds: payload.seeds });
+      // ONE READING OF THE STYLE PATCH, and this is the whole reason it is
+      // parsed here rather than inside each writer. The page transition has two
+      // halves in two files — `pageCss` says what it looks like, `site-brand.ts`
+      // says whether the router starts one at all — and if they read the patch
+      // separately they can disagree about whether the axis was named. Parsed
+      // once, passed to both, and `parseStyle` is idempotent so `applyStyle`
+      // re-reading it downstream cannot change the answer.
+      const styleUsed = parseStyle(payload.style, { max: MAX_STYLE_BUILD }).style;
+      const brandUsed = writeSiteBrand({ title: payload.title, lang: payload.lang, langs: payload.langs, logo: payload.logo, icon: payload.icon, slug: payload.slug, mode: payload.mode, seeds: payload.seeds, transition: styleUsed.transition });
       const fontsUsed = writeFonts(payload.fonts, payload.fontFiles, payload.pageFonts);
       // ONE reading of the patch, shared: whether a radius was asked for decides
       // both that the theme's own corner rules give way and what is written.
       const wantsRadius = validForWrite(payload.tokens).radius !== undefined;
-      const themeUsed = writeTheme(payload.seeds, { dropRadius: wantsRadius, style: payload.style });
+      const themeUsed = writeTheme(payload.seeds, { dropRadius: wantsRadius, style: styleUsed });
       // AFTER the theme, never before — later wins, and that IS the override.
       const tokensUsed = writeTokens(payload.tokens);
       // AND AFTER THOSE, one page's own. Same mechanism, one scope down.

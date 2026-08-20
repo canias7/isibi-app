@@ -83,6 +83,20 @@ export const SITE_LANGS: ReadonlyArray<{ lang: string; dir: "ltr" | "rtl"; prefi
 // `SiteLayout` lesson one folder over, where a closed literal type met a value
 // that had to widen.
 export const SITE_MODE: "light" | "dark" = "light";
+// WHETHER THE ROUTER STARTS A VIEW TRANSITION BETWEEN PAGES — the half of the
+// page-transition axis that cannot live in the stylesheet, because a transition
+// has to be STARTED before there is anything for CSS to animate.
+//
+// FALSE HERE AND ON EVERY SITE THAT DID NOT ASK, and that is not caution: the
+// browser's UA stylesheet animates the view-transition pseudo-elements by
+// default, so turning this on without CSS gives every site a cross-fade nobody
+// chose. `transitionOn` in `site-theme.mjs` is the ONE question both halves ask
+// — this flag and the animation come from the same call, so they cannot end up
+// saying different things about the same site.
+//
+// A browser with no support is unaffected either way: the router feature-detects
+// (`"startViewTransition" in document`) and does an ordinary navigation.
+export const SITE_PAGE_TRANSITION: boolean = false;
 // The tab's mark. `/icon.svg` when the build wrote one from the business's
 // initials, and the template's own `favicon.svg` otherwise — never overwritten,
 // because this container is long-lived and the first site's mark would become

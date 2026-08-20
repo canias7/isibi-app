@@ -45,7 +45,7 @@
 import {
   CORNERS, TYPE_SCALES, TRACKINGS, LEADINGS, WEIGHTS, DENSITIES, WIDTHS, BORDERS,
   ICON_STROKES, SHADOWS, BUTTONS, INPUTS, DISPLAYS,
-  MOTIONS, HOVERS, FOCUSES, REVEALS,
+  MOTIONS, HOVERS, FOCUSES, REVEALS, TRANSITIONS,
   SURFACES, BACKDROPS, DECORS, AMBIENTS, SKINS,
   buttonsCss, inputsCss,
 } from "./site-theme.mjs";
@@ -117,6 +117,14 @@ export const AXES = Object.freeze({
   hover:    { options: HOVERS,       said: "pointer response" },
   focus:    { options: FOCUSES,      said: "keyboard focus" },
   reveal:   { options: REVEALS,      said: "scroll arrival" },
+  // AND THE FIFTH, one scale up from the other four: they decide what one
+  // ELEMENT does when somebody touches it, this decides what the whole
+  // DOCUMENT does between one route and the next. It is the one axis with a
+  // half outside the stylesheet — the router has to be told to start a
+  // transition at all — so `transitionOn` is asked once and both halves read
+  // it. `said` is what changes rather than what it is, or "transition" would
+  // sit next to `motion`'s "response speed" and read as the same thing.
+  transition: { options: TRANSITIONS, said: "page change" },
 });
 
 /**

@@ -33,6 +33,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { routeTree } from "./routeTree.gen";
 import { ErrorPage } from "./lib/error-page";
 import { NotFound } from "@/components/ui/not-found";
+import { SITE_PAGE_TRANSITION } from "./site-brand";
 
 export function getRouter() {
   // The retry policy is tuned for THIS API rather than left at the library
@@ -65,6 +66,21 @@ export function getRouter() {
     routeTree,
     context: { queryClient },
     scrollRestoration: true,
+    // WHETHER A NAVIGATION IS WRAPPED IN `document.startViewTransition`, baked
+    // per site. The theme's `pageCss` decides what it LOOKS like; this decides
+    // whether there is anything to look at, and both come from one call to
+    // `transitionOn` at build time so they cannot disagree.
+    //
+    // CONDITIONAL, NOT ALWAYS ON. `true` with no CSS is not "no transition" —
+    // the UA stylesheet cross-fades these pseudo-elements by default, so an
+    // unconditional flag would hand a cross-fade to every site on the platform,
+    // including every one built before the axis existed. It also costs a full
+    // document snapshot on every navigation, which is real work to do for a
+    // feature nobody asked for.
+    //
+    // The router feature-detects before using it, so a browser without support
+    // navigates normally rather than failing.
+    defaultViewTransition: SITE_PAGE_TRANSITION,
     // The whole reason a thrown route does not white-screen: without it React
     // unmounts the tree and the visitor gets a blank page with the error only
     // in the console.

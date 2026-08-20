@@ -1187,14 +1187,22 @@ function Home() {
   const reactive = await post({
     files: { "index.tsx": INDEX, "menu.tsx": MENU },
     slug: "fold-coffee", ...themeAsSeeds("broadsheet"),
-    style: { ...HOUSE_STYLE, motion: "brisk", hover: "lift", focus: "bold", reveal: "rise" },
+    style: { ...HOUSE_STYLE, motion: "brisk", hover: "lift", focus: "bold", reveal: "rise", transition: "rise" },
   });
   ok("a build carrying the interactive axes succeeds", reactive.ok === true,
     JSON.stringify(reactive).slice(0, 200));
   {
     const css = Object.entries(reactive.files || {})
       .filter(([k]) => k.endsWith(".css")).map(([, v]) => v.t || "").join("\n");
-    ok("the transition survived the build", /--site-duration:\s*120ms/.test(css), css.slice(0, 200));
+    // THE VALUE, NOT THE SPELLING. This was `/--site-duration:\s*120ms/` and
+    // went red against a perfectly correct build: Lightning CSS normalises
+    // `120ms` to `.12s`, so a check pinned to the source form describes a
+    // stylesheet that is never produced. The same class as `41.17%` for
+    // `0.4117` one feature over — read the number and compare it.
+    const dur = /--site-duration:\s*([\d.]+)(ms|s)/.exec(css);
+    ok("the transition survived the build",
+      !!dur && Math.round(+dur[1] * (dur[2] === "s" ? 1000 : 1)) === 120,
+      dur ? dur[0] : "no --site-duration in the bundle at all");
     ok("…and the hover rule is inside the touch guard",
       /@media\s*\(hover:\s*hover\)/.test(css) && /:hover/.test(css), css.slice(0, 200));
     ok("…and the focus ring is on :focus-visible", /:focus-visible/.test(css), css.slice(0, 200));
@@ -1203,14 +1211,109 @@ function Home() {
     // asserted on the COMPILED output rather than only on the module's: a bare
     // member in a :hover list matches ALWAYS, which is every button on the site
     // permanently raised. It shipped that way for one draft.
+    //
+    // A FLAT `split(",")` IS WRONG HERE AND IT FALSE-ALARMED ON THE FIRST RUN,
+    // which is the fourth time this repo has written one where a depth-aware
+    // splitter was needed. Tailwind emits arbitrary variants as escaped class
+    // names — `.has-\[\>a\,button\]\:x:hover` carries a `\,` INSIDE the
+    // selector — so a naive split cut it into `.has-\[\>a\` and reported two
+    // perfectly correct kit rules as bare. A check that cries wolf on correct
+    // code is worse than the miss it prevents.
+    const splitSel = (sel) => {
+      const out = [];
+      let cur = "", depth = 0, quote = "";
+      for (let i = 0; i < sel.length; i++) {
+        const c = sel[i];
+        if (c === "\\") { cur += c + (sel[i + 1] || ""); i++; continue; }
+        if (quote) { cur += c; if (c === quote) quote = ""; continue; }
+        if (c === '"' || c === "'") { quote = c; cur += c; continue; }
+        if (c === "[" || c === "(") depth++;
+        else if (c === "]" || c === ")") depth = Math.max(0, depth - 1);
+        else if (c === "," && depth === 0) { out.push(cur); cur = ""; continue; }
+        cur += c;
+      }
+      out.push(cur);
+      return out;
+    };
     const bare = [];
     for (const m of css.matchAll(/([^{}]+)\{[^{}]*\}/g)) {
       const sel = m[1].trim();
       if (!/:hover|:focus-visible/.test(sel) || sel.startsWith("@")) continue;
-      for (const part of sel.split(",")) if (!/:hover|:focus-visible/.test(part)) bare.push(part.trim());
+      for (const part of splitSel(sel)) if (!/:hover|:focus-visible/.test(part)) bare.push(part.trim());
     }
     ok("…and no selector in a hover or focus rule matches without the pseudo",
       bare.length === 0, "these match always: " + bare.slice(0, 4).join(" | "));
+    // THE PAGE TRANSITION, and it is checked HERE rather than only in the unit
+    // suite because the minifier is the layer that decides whether it survives:
+    // `::view-transition-*` is a pseudo-element neither the kit nor Tailwind
+    // ever emits, so it is exactly the shape a stylesheet compiler could drop
+    // or rewrite without anything else in the build noticing.
+    ok("the page transition survived the build", /::view-transition-new\(root\)/.test(css),
+      "no view-transition rule in the compiled bundle");
+    // AND ITS REDUCED-MOTION ANSWER SUPPRESSES rather than omits — the polarity
+    // that is the opposite of every other interactive axis. Dropping our rule
+    // there leaves the BROWSER'S own cross-fade standing, so a visitor who
+    // asked for less motion would get more of it than one who did not.
+    //
+    // READ OUT OF THE BLOCK, NOT MATCHED AS A LINE. Lightning CSS SPLITS a
+    // selector list into one rule per selector — measured — so a pattern
+    // written against the source's `old(root), new(root) { … }` describes a
+    // stylesheet that is never produced. What has to hold is that BOTH pseudos
+    // are switched off inside that block, however it chose to write them.
+    //
+    // AND IT IS NOT THE FIRST SUCH BLOCK. Tailwind emits its own
+    // `motion-reduce:*` utilities under exactly this at-rule, on EVERY build
+    // including one with no transition axis at all — measured, 203 characters
+    // of it — so a check that takes the first match reads a block that has
+    // nothing to do with this feature and reports the same verdict either way.
+    // The block wanted is the one that mentions the pseudo-elements.
+    let rmBlock = "", rmAt = -1;
+    for (const m of css.matchAll(/@media\s*\(prefers-reduced-motion:\s*reduce\)/g)) {
+      let d = 0, i = css.indexOf("{", m.index);
+      for (let j = i; j < css.length; j++) {
+        if (css[j] === "{") d++;
+        else if (css[j] === "}" && --d === 0) {
+          const b = css.slice(i, j);
+          if (b.includes("view-transition")) { rmBlock = b; rmAt = m.index; }
+          break;
+        }
+      }
+      if (rmBlock) break;
+    }
+    const offIn = (pseudo) => new RegExp(`::view-transition-${pseudo}\\(root\\)[^{}]*\\{[^{}]*animation:\\s*none`).test(rmBlock);
+    ok("…and reduced motion suppresses it, rather than leaving the browser's own",
+      !!rmBlock && offIn("old") && offIn("new"),
+      rmAt < 0 ? "no reduced-motion block at all" : "the block does not switch both pseudos off: " + rmBlock.slice(0, 200));
+    // AND THE ROUTER'S HALF, which no amount of CSS can substitute for: without
+    // the flag there is no transition to animate and the whole axis is a rule
+    // nothing ever triggers.
+    //
+    // AGAINST A CONTROL, because `startViewTransition` is in the ROUTER LIBRARY
+    // on every build ever made — a bare grep for it is satisfied by a site with
+    // the axis switched off, which is the vacuous-assertion shape this repo has
+    // shipped more than once. `rounder` above carries no transition axis, so
+    // the two bundles differing IS the flag.
+    //
+    // AND IT IS A MINIFIED VARIABLE, NOT A LITERAL — measured: the bundle says
+    // `defaultViewTransition:IE` and elsewhere `IE=!0`, with the SAME name on
+    // both builds, so comparing the two references would report a site that
+    // asked and a site that did not as identical. Resolved to its definition,
+    // which is the only reading that can tell them apart.
+    const flagIn = (r) => {
+      const js = Object.entries(r.files || {})
+        .filter(([k]) => k.endsWith(".js")).map(([, v]) => v.t || "").join("\n");
+      const m = /defaultViewTransition:\s*([^,}\s]+)/.exec(js);
+      if (!m) return null;
+      if (!/^[A-Za-z_$][\w$]*$/.test(m[1])) return m[1];
+      const id = m[1].replace(/\$/g, "\\$");
+      const def = new RegExp(`(?:^|[^.\\w$])${id}\\s*=\\s*([^,;)\\s]+)`).exec(js);
+      return def ? def[1] : m[1];
+    };
+    const onFlag = flagIn(reactive), offFlag = flagIn(rounder);
+    ok("…and the router was told to start one", /^(!0|true)$/.test(String(onFlag)),
+      "the compiled bundle asks for a view transition as " + onFlag);
+    ok("…and a site that did NOT ask for one still does not", /^(!1|false)$/.test(String(offFlag)),
+      "a site with no transition axis carries " + offFlag);
   }
 
   // THE ONE PLACE TWO PATCHES COLLIDE, and it was a live bug before this: the

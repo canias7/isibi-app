@@ -16693,3 +16693,57 @@ a protection that wasn't there, which is how it survives the next edit.
 than what it does, so it passed on the broken version and would have failed on
 the fix. It now runs the real expression with a hostile input and checks the
 token survives. Fixed, and the old order turns the test red.
+
+## 20 Aug, night — the sites can move now, including between pages
+
+You asked what was missing on the **look** side that wasn't components — motion,
+effects, that kind of thing. I measured it before answering, and the answer was
+stark: across the whole theme engine there was **one** animation (the background
+drift) and **nothing at all** for what happens when somebody points at a button,
+tabs to a field, scrolls down a page, or moves from one page to the next. So a
+site could have glass panels, a coloured wash and twenty textures, and still feel
+like a printed page rather than something that answers you.
+
+**Five new things a site can be given, and every one is optional.** A site that
+doesn't ask for them looks and behaves exactly as it does today.
+
+* **How quickly it answers** — instant (a hard cut, for a brutalist or terminal
+  look), slow and soft, quick and crisp, or a little bouncy.
+* **What the pointer does** — nothing, a warm tint, cards and buttons lifting
+  slightly, or the brand colour drawing round the edge.
+* **The keyboard's answer** — the focus ring, in three weights. **There is no
+  "off" here on purpose**: switching it off is switching off the only way
+  somebody using a keyboard can tell where they are.
+* **Content arriving as you scroll** — off, fading in, or rising into place.
+* **What happens between pages** — the next page simply being there, a fade, or
+  rising into place. This is the one you asked for last.
+
+**The things I was careful about, because each one is a way to make a site
+worse rather than better.**
+
+* **On a phone, "hover" sticks after a tap.** Without a guard, tapping one card
+  would leave it lit up until you tapped another. Most visitors to these sites
+  are on a phone, so every hover effect is switched off on touch screens.
+* **Nothing can ever be trapped invisible.** The scroll effect only exists where
+  the browser can definitely run it — no support, or a visitor who has asked
+  their phone for less motion, and the section is simply there.
+* **Somebody who asks for less motion gets less, not more.** Between pages this
+  needed the opposite treatment from the others: browsers cross-fade pages *by
+  default* once you turn transitions on, so simply removing our animation would
+  have left theirs. It's switched off explicitly instead.
+* **The page transition doesn't slide sideways**, deliberately. A sideways slide
+  has a direction, and we support sites that read right-to-left; getting that
+  wrong is worse than not offering it. It rises instead, which reads the same
+  either way.
+
+**Cost: about 85 extra words in the instructions we send the model**, and nothing
+on a visitor's page — these are CSS rules, not a library.
+
+**Proven against the real build container: 195 checks, all green** — the most
+that check has ever run. Not yet proven on a real site, because that needs a paid
+build; the account is still empty.
+
+**Three of my own checks were reporting the wrong thing**, and only running them
+found it. Two were reading the *source* spelling of a rule when the compiler
+rewrites it (`120ms` becomes `.12s`), and one was reading a completely unrelated
+block that every site has. All three now read what the compiler actually produces.

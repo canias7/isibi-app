@@ -274,6 +274,7 @@ test("EVERY AXIS IS THE ENGINE'S OWN LIST, in both directions", () => {
     surface: T.SURFACES, backdrop: T.BACKDROPS, decor: T.DECORS,
     ambient: T.AMBIENTS, skin: T.SKINS,
     motion: T.MOTIONS, hover: T.HOVERS, focus: T.FOCUSES, reveal: T.REVEALS,
+    transition: T.TRANSITIONS,
   };
   assert.deepEqual(ASKABLE.slice().sort(), Object.keys(byName).sort(),
     "AXES and this test disagree about which axes exist");
@@ -314,14 +315,25 @@ test("EVERY INTERACTIVE AXIS MOVES THE STYLESHEET", () => {
   // focus before these existed, so an axis that changes nothing is the whole
   // feature dead rather than one option missing.
   const bare = cssFor(undefined);
-  for (const a of ["motion", "hover", "focus", "reveal"]) {
+  for (const a of ["motion", "hover", "focus", "reveal", "transition"]) {
     const moved = optionsFor(a).filter((o) => cssFor({ [a]: o }) !== bare);
     assert.ok(moved.length >= 2, `${a} changes the stylesheet on ${moved.length} of its options`);
+  }
+  // AND THE DERIVED HALF, which needs no list and cannot go stale: an axis
+  // whose every option leaves the stylesheet byte-identical is a knob wired to
+  // nothing — the `display` failure, where a rule named `.font-heading` and no
+  // file in the kit or the corpus carried that class, so the axis was stored,
+  // reported as applied, and changed nothing on any site for as long as it
+  // existed. `surface` moves on one of two because `solid` IS the default,
+  // which is why the floor here is one rather than the two above.
+  for (const a of ASKABLE) {
+    const moved = optionsFor(a).filter((o) => cssFor({ [a]: o }) !== bare);
+    assert.ok(moved.length >= 1, a + " is a knob wired to nothing — no option changes the stylesheet");
   }
   // …and a site that asks for none of them is unchanged, so no existing site
   // is re-drawn by this shipping.
   assert.equal(cssFor({ corner: "bevel" }), cssFor({ corner: "bevel" }));
-  assert.equal(/--site-duration|:focus-visible|isibi-reveal|@media \(hover/.test(bare), false,
+  assert.equal(/--site-duration|:focus-visible|isibi-reveal|@media \(hover|view-transition/.test(bare), false,
     "an interactive rule is emitted with no axis asked for");
 });
 
@@ -373,6 +385,59 @@ test("MOTION ZEROES THE DURATION rather than dropping the rule", () => {
   // `hover: lift` jumps.
   assert.match(css, /transition-property: color, background-color, border-color, box-shadow, transform/);
   assert.equal(/transition:\s*all/.test(css), false, "the transition is unbounded");
+});
+
+test("A PAGE TRANSITION IS SUPPRESSED, not omitted, under reduced motion", () => {
+  // THE POLARITY IS THE OPPOSITE OF EVERY OTHER AXIS HERE, and getting it
+  // backwards is invisible. A reveal that emits nothing leaves the section
+  // VISIBLE; a page transition that emits nothing leaves the BROWSER'S OWN
+  // cross-fade, because the UA stylesheet animates these pseudo-elements by
+  // default. So "drop the rule under `reduce`" — which is what the reveal does
+  // and what looks consistent — would hand a visitor who asked for LESS motion
+  // strictly MORE of it than one who did not.
+  for (const o of ["fade", "rise"]) {
+    const css = cssFor({ transition: o });
+    assert.match(css, /::view-transition-new\(root\)/, o + " emits no page transition");
+    const at = css.indexOf("prefers-reduced-motion: reduce");
+    assert.ok(at > 0, o + " has no reduced-motion answer at all");
+    const block = css.slice(at, css.indexOf("}\n", css.indexOf("{", at)) + 2);
+    assert.match(block, /::view-transition-old\(root\), ::view-transition-new\(root\) \{ animation: none/,
+      o + " drops its own rule under reduced motion and leaves the browser's cross-fade standing");
+  }
+});
+
+test("A PAGE TRANSITION HAS ITS OWN DURATION, so `motion: none` cannot silently void it", () => {
+  // The obvious move is to hang this off `--site-duration` like the other three,
+  // and it creates a change reported as applied that does nothing: `motion:
+  // "none"` pins that variable to 0, so a site asking for BOTH would be told
+  // the fade landed and get a cut. The CURVE still follows the motion axis,
+  // through a var with a fallback — a missing custom property falls back rather
+  // than voiding the declaration, which would drop the whole `animation`
+  // shorthand and hand the page straight back to the UA's default cross-fade.
+  const both = cssFor({ transition: "fade", motion: "none" });
+  const at = both.indexOf("::view-transition-old(root)");
+  const rule = both.slice(at, both.indexOf("\n", at));
+  assert.equal(/var\(--site-duration/.test(rule), false, "the page transition is voided by `motion: none`");
+  assert.match(rule, /animation: \d+ms /, "the page transition has no duration of its own");
+  assert.match(rule, /var\(--site-ease, [^)]*\)\)/, "the curve does not fall back when no motion axis was named");
+});
+
+test("THE ROUTER FLAG AND THE ANIMATION ASK ONE QUESTION", () => {
+  // Two copies of "is the transition on" disagree silently in BOTH directions:
+  // a flag with no CSS is the browser's own cross-fade on a site that asked for
+  // `cut`, and CSS with no flag is a rule nothing ever triggers. So `pageCss`
+  // and `writeSiteBrand` go through `transitionOn` rather than each testing the
+  // value, and the emitter is asserted to agree with it on every option there
+  // is — including the ones that are not options at all.
+  for (const o of [...optionsFor("transition"), undefined, null, "nonsense", ["fade"], 0]) {
+    const on = T.transitionOn(o);
+    const css = T.pageCss({ transition: o });
+    assert.equal(css.length > 0, on, `transitionOn and pageCss disagree about ${JSON.stringify(o)}`);
+  }
+  // `cut` IS AN ANSWER AND IT IS OFF. It reads like the absence of a choice and
+  // it is the choice every site published before this axis existed already has.
+  assert.equal(T.transitionOn("cut"), false);
+  assert.equal(optionsFor("transition")[0], "cut", "the default option is not the one that changes nothing");
 });
 
 test("EVERY STYLE TARGET SELECTS SOMETHING THE KIT REALLY RENDERS", () => {
@@ -681,8 +746,19 @@ test("THE CONTAINER MERGES BEFORE IT RENDERS", () => {
   const i = server.indexOf("function writeTheme(");
   const sig = server.slice(i, server.indexOf(")", i) + 1);
   assert.match(sig, /style/, "writeTheme cannot be given a style patch");
-  assert.match(server, /writeTheme\(payload\.seeds, \{[^}]*style: payload\.style/,
+  // THE PROPERTY, NOT THE SPELLING. This was pinned to `style: payload.style`
+  // and went red the day the patch started being parsed ONCE at the call site
+  // and handed to both writers — a test about word order, which is this repo's
+  // most repeated own-goal. What has to hold is that the patch off the wire
+  // reaches `writeTheme` through something, and that the something is the SAME
+  // variable `writeSiteBrand` was given, or the page transition's two halves
+  // can disagree about whether the axis was named.
+  const parsed = server.match(/const (\w+) = parseStyle\(payload\.style/);
+  assert.ok(parsed, "the container never parses the payload's style");
+  assert.match(server, new RegExp(`writeTheme\\(payload\\.seeds, \\{[^}]*style: ${parsed[1]}\\b`),
     "the payload's style never reaches writeTheme");
+  assert.match(server, new RegExp(`writeSiteBrand\\([^)]*transition: ${parsed[1]}\\.transition`),
+    "the router's half of the page transition reads a different patch from the CSS half");
   // AND THE COLLISION, which a mutation proved was covered by nothing: the
   // module's own test drives `explicitRadiusCss` in isolation, and the container
   // is where it has to be APPENDED. Deleting the append left "rounder corners
@@ -694,6 +770,38 @@ test("THE CONTAINER MERGES BEFORE IT RENDERS", () => {
     "the strip runs without re-emitting the corner axes the customer named");
   assert.ok(stmt.indexOf("stripThemeRadius") < stmt.indexOf("explicitRadiusCss"),
     "the re-emit runs BEFORE the strip, which eats it");
+});
+
+test("THE PAGE TRANSITION'S OTHER HALF REACHES THE ROUTER", () => {
+  // THE ONE AXIS WITH A HALF OUTSIDE THE STYLESHEET. Everything else here is
+  // finished the moment `themeCss` emits it; this needs the router to wrap the
+  // navigation in `document.startViewTransition` before there is anything for
+  // the CSS to animate. So there is a value in the bundle and a flag on the
+  // router, and each end is checked separately — either alone passes perfectly
+  // while the wire between them is cut, which is how twelve features in this
+  // repo shipped dead.
+  const router = fs.readFileSync(new URL("../builder/lovable/template/src/router.tsx", import.meta.url), "utf8");
+  const brand = fs.readFileSync(new URL("../builder/lovable/template/src/site-brand.ts", import.meta.url), "utf8");
+  assert.match(server, /const transitionValue = transitionOn\(transition\)/,
+    "the container decides the flag some other way than the shared question");
+  assert.match(server, /import \{[^}]*\btransitionOn\b[^}]*\} from "\.\/site-theme\.mjs"/,
+    "the container never imports the shared question — a bare read is a ReferenceError");
+  // ANNOTATED at BOTH ends, the `SITE_MODE` lesson: an unannotated const has
+  // the literal type of whichever value was written, so the generated file and
+  // the template placeholder stop agreeing the moment anything compares them.
+  assert.match(server, /export const SITE_PAGE_TRANSITION: boolean = /);
+  assert.match(brand, /export const SITE_PAGE_TRANSITION: boolean = false/,
+    "the template's own answer is not the one that changes nothing");
+  assert.match(router, /import \{ SITE_PAGE_TRANSITION \} from "\.\/site-brand"/);
+  assert.match(router, /defaultViewTransition: SITE_PAGE_TRANSITION/,
+    "the router decides for itself whether to transition");
+  // AND NEVER UNCONDITIONALLY, which is the failure that reads as a feature.
+  // `defaultViewTransition: true` with no CSS is not "no transition" — the UA
+  // stylesheet cross-fades these pseudo-elements by default — so a hardcoded
+  // flag would hand a cross-fade to every site on the platform, including
+  // every one built before the axis existed.
+  assert.equal(/defaultViewTransition:\s*true/.test(router), false,
+    "every site transitions, whether or not it asked");
 });
 
 test("THE CONTAINER IMAGE CARRIES THE MODULE", () => {

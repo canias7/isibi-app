@@ -1679,6 +1679,36 @@ export const REVEALS = {
   rise: { label: "sections rise into place as they come into view" },
 };
 
+/**
+ * WHAT HAPPENS BETWEEN ONE PAGE AND THE NEXT.
+ *
+ * The View Transitions API, and it needs BOTH halves or it is worse than
+ * absent: the router has to be told to start one (`defaultViewTransition`,
+ * baked per site as `SITE_PAGE_TRANSITION`) and this has to say what it looks
+ * like. The router feature-detects — `"startViewTransition" in document` — so a
+ * browser without support does an ordinary navigation and nothing here runs.
+ *
+ * THE POLARITY IS THE OPPOSITE OF `REVEALS` AND THAT IS THE TRAP. A reveal that
+ * emits no rule leaves the section VISIBLE, which is the safe end. A page
+ * transition that emits no rule leaves the browser's OWN cross-fade, because
+ * the UA stylesheet animates these pseudo-elements by default — so "emit
+ * nothing" here is not "no transition", it is "somebody else's transition".
+ * That is why `cut` is a real rule (`animation: none`) rather than an absence,
+ * and why the reduced-motion guard SUPPRESSES rather than simply not emitting.
+ *
+ * NO HORIZONTAL SLIDE, and it is left out rather than forgotten. A slide has a
+ * direction and the kit is on logical utilities precisely because half these
+ * sites may read right to left; flipping it needs `html[dir="rtl"]` to select
+ * through to a view-transition pseudo-element, which is not a thing that has
+ * been rendered here. `rise` is direction-neutral, so it is identical in both
+ * and needs nothing verified that has not been.
+ */
+export const TRANSITIONS = {
+  cut: { label: "the next page is simply there — no transition" },
+  fade: { label: "one page fades out as the next fades in" },
+  rise: { label: "the next page rises into place as it arrives" },
+};
+
 export const SKINS = {
   flat: { label: "cards as the kit draws them" },
   frame: { label: "a museum mat — a second rule floated round the card" },
@@ -1791,6 +1821,52 @@ export function revealCss(theme) {
     `    section { animation: isibi-reveal linear both; animation-timeline: view(); animation-range: entry 0% entry 40%; }\n` +
     `    @keyframes isibi-reveal { from { ${from} } to { opacity: 1; transform: none; } }\n` +
     `  }\n}\n`;
+}
+
+/**
+ * DOES THIS SITE TRANSITION BETWEEN PAGES — asked ONCE, by both halves.
+ *
+ * `pageCss` writes the animation and `writeSiteBrand` writes the flag that
+ * makes the router start a transition at all, and the two disagreeing is
+ * silent in both directions: a flag with no CSS gives the browser's own
+ * cross-fade on a site that asked for `cut`, and CSS with no flag is a rule
+ * nothing ever triggers. Two copies of "is it on" is how that happens, so
+ * there is one.
+ */
+export function transitionOn(style) {
+  return Object.hasOwn(TRANSITIONS, String(style)) && style !== "cut";
+}
+
+/**
+ * PAGE TRANSITION — what the visitor sees between one route and the next.
+ *
+ * ITS OWN DURATION, NOT `--site-duration`, and that was a deliberate call. The
+ * obvious move is to hang this off `motion` like the other three, and it
+ * creates a silent no-op: `motion: "none"` pins the duration to 0, so a site
+ * that asked for `transition: "fade"` AND `motion: "none"` would be told the
+ * fade was applied and get nothing. The CURVE still follows the motion axis
+ * where there is one — `var(--site-ease, …)` costs nothing when it is absent,
+ * because a missing custom property falls back rather than voiding the
+ * declaration (which would drop the whole `animation` shorthand and hand the
+ * page back to the UA's default cross-fade).
+ *
+ * REDUCED MOTION SUPPRESSES RATHER THAN OMITS — see the note on `TRANSITIONS`.
+ * Dropping our rules there leaves the browser's own animation standing, so a
+ * visitor who asked for less motion would get MORE than one who did not.
+ */
+export function pageCss(theme) {
+  const style = theme && theme.transition;
+  if (!transitionOn(style)) return "";
+  const ms = style === "rise" ? 260 : 220;
+  const ease = "var(--site-ease, cubic-bezier(.4,0,.2,1))";
+  const from = style === "rise" ? "opacity: 0; transform: translateY(14px);" : "opacity: 0;";
+  return `::view-transition-old(root) { animation: ${ms}ms ${ease} both isibi-page-out; }\n` +
+    `::view-transition-new(root) { animation: ${ms}ms ${ease} both isibi-page-in; }\n` +
+    `@keyframes isibi-page-out { to { opacity: 0; } }\n` +
+    `@keyframes isibi-page-in { from { ${from} } to { opacity: 1; transform: none; } }\n` +
+    `@media (prefers-reduced-motion: reduce) {\n` +
+    `  ::view-transition-old(root), ::view-transition-new(root) { animation: none; }\n` +
+    `}\n`;
 }
 
 export function skinCss(style) {
@@ -2104,7 +2180,12 @@ export function themeCss(nameOrTheme) {
     motionCss(theme.motion) +
     hoverCss(theme) +
     focusCss(theme) +
-    revealCss(theme);
+    revealCss(theme) +
+    // AND LAST, the only one that paints outside the page: the view-transition
+    // pseudo-elements are the document's, not any element's, so nothing above
+    // can collide with them. It is here rather than absent for a site that
+    // asked for `cut`, because absent means the BROWSER'S own cross-fade.
+    pageCss(theme);
 }
 
 /** What the model may choose from — an enum, so an invalid theme is impossible. */
