@@ -1142,6 +1142,43 @@ function Home() {
       /--spacing:\s*0?\.29rem/.test(css), css.slice(0, 200));
   }
 
+  // A WHOLE AUTHORED LOOK, which is what a FIRST BUILD may now send. The cap
+  // that bounds a revise at six is not applied there (see `MAX_STYLE_BUILD`),
+  // so the widest patch the container can receive went from seven axes to
+  // eighteen — and nothing had ever driven one that wide through a real
+  // compile. Every axis is set to an option `broadsheet` does not already
+  // carry, so a build where the patch did nothing cannot pass.
+  console.log("\nbuilding with an eighteen-axis authored look…");
+  const AUTHORED = {
+    corner: "bevel", scale: "grand", tracking: "open", leading: "open", weight: "uniform",
+    density: "airy", width: "wide", border: "bold", icon: "heavy", shadow: "offset",
+    buttons: "pill", inputs: "filled", display: "accent", surface: "glass",
+    backdrop: "glow", decor: "marble", ambient: "lively", skin: "tilt",
+  };
+  const authored = await post({
+    files: { "index.tsx": INDEX, "menu.tsx": MENU },
+    slug: "fold-coffee", ...themeAsSeeds("broadsheet"), style: AUTHORED,
+  });
+  ok("a build carrying every style axis at once succeeds", authored.ok === true,
+    JSON.stringify(authored).slice(0, 200));
+  {
+    const css = Object.entries(authored.files || {})
+      .filter(([k]) => k.endsWith(".css")).map(([, v]) => v.t || "").join("\n");
+    // ONE ASSERTION PER LAYER, because they fail differently and a single check
+    // on the stylesheet's LENGTH would pass with any of them silently dropped:
+    // a custom property, an ordinary rule, the corner shape, and the world
+    // layer. The world one is measured against `cornersKept`, which names four
+    // axes and no world axis — so it is a real control for THIS marker rather
+    // than a length comparison against a build that has a patch of its own.
+    ok("…and a custom-property axis reached the stylesheet",
+      /--spacing:\s*0?\.29rem/.test(css), css.slice(0, 200));
+    ok("…and a rule axis did too", /stroke-width\s*:\s*2\.5/.test(css), css.slice(0, 200));
+    ok("…and the corner shape", /corner-shape\s*:\s*bevel/.test(css), css.slice(0, 200));
+    ok("…and the world layer, which only the widest patches can reach",
+      /isibi-ambient/.test(css) && !/isibi-ambient/.test(baseCss),
+      "either the ambient axis never reached the stylesheet, or the control build already had it");
+  }
+
   // THE ONE PLACE TWO PATCHES COLLIDE, and it was a live bug before this: the
   // radius strip is a regex and cannot tell a theme's hard-set button radius
   // from the one the customer just asked for, so "rounder corners AND pill

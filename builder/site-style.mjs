@@ -128,15 +128,36 @@ export function optionsFor(axis) {
 }
 
 /**
- * More than this and it is a re-theme, which is a rebuild.
+ * More than this ON A REVISE and it is a re-theme, which is a rebuild.
  *
- * Six of twelve, the same proportion `MAX_TOKENS` allows of the palette — and
- * the same reasoning. A customer moving half the look is not asking for an
- * adjustment to the theme they have, they are telling us the theme is wrong,
- * and the honest answer to that is a different theme rather than a patch big
- * enough to hide which one they are on.
+ * Six of twelve when it was written, the same proportion `MAX_TOKENS` allows of
+ * the palette — and the same reasoning. A customer moving half the look is not
+ * asking for an adjustment to the theme they have, they are telling us the theme
+ * is wrong, and the honest answer to that is a different theme rather than a
+ * patch big enough to hide which one they are on. (There are eighteen axes now,
+ * so the proportion has slipped to a third; the number stays because it is the
+ * size of an ADJUSTMENT, which does not grow when the axis list does.)
  */
 export const MAX_STYLE = 6;
+
+/**
+ * …AND IT DOES NOT APPLY TO A FIRST BUILD, because its premise does not.
+ *
+ * The paragraph above is about a customer PATCHING a design they already have.
+ * On a first build there is no design to be moving half of — the designer is
+ * stating what the look IS, and every axis it names is the first statement about
+ * that axis rather than a departure from one. Capped at six there, the merge
+ * keeps whichever six `AXES` happens to declare first (corner, scale, tracking,
+ * leading, weight, density) and silently drops buttons, inputs, shadows, icon
+ * weight and the whole world layer — an arbitrary cut nobody designed, reported
+ * to the customer through `styleNote` as axes we refused.
+ *
+ * DERIVED FROM THE AXIS LIST, so it is a no-op by construction rather than a
+ * generous number that goes stale the day a nineteenth axis lands. It is written
+ * as a cap and not as "no cap" so the two paths read the same way at the call
+ * site, and so a real bound can be put here later without moving anything else.
+ */
+export const MAX_STYLE_BUILD = ASKABLE.length;
 
 /**
  * THE TWO AXES THAT SET A CORNER RADIUS, which matters for exactly one reason.
@@ -203,13 +224,18 @@ export function parseStyle(input, { max = MAX_STYLE } = {}) {
  * buttons on the second revise, which reads as the first instruction being
  * forgotten. Bounded with the NEW keys kept — the customer's most recent
  * instruction is the one they are looking at the result of.
+ *
+ * `max` IS THREADED INTO BOTH INNER CALLS and not only the cap below, because
+ * `parseStyle` applies its own — so a build passing `MAX_STYLE_BUILD` here while
+ * `parseStyle(next)` still capped at six would have the patch cut to six before
+ * the merge ever saw it, and the widening would read as done and do nothing.
  */
-export function mergeStyle(prior, next) {
-  const a = parseStyle(prior).style;
-  const b = parseStyle(next).style;
+export function mergeStyle(prior, next, { max = MAX_STYLE } = {}) {
+  const a = parseStyle(prior, { max }).style;
+  const b = parseStyle(next, { max }).style;
   const merged = { ...a, ...b };
   const keys = Object.keys(merged);
-  if (keys.length <= MAX_STYLE) return merged;
+  if (keys.length <= max) return merged;
   // DEDUPED BEFORE THE CAP IS APPLIED, and slicing first was a real loss.
   // `[...Object.keys(b), ...keys]` lists every key the edit named TWICE when it
   // restates one the site already had — once from `b`, once from `merged` — so
@@ -222,7 +248,7 @@ export function mergeStyle(prior, next) {
   // to prevent it.
   const keep = new Set();
   for (const k of [...Object.keys(b), ...keys]) {
-    if (keep.size >= MAX_STYLE) break;
+    if (keep.size >= max) break;
     keep.add(k);
   }
   return Object.fromEntries(keys.filter((k) => keep.has(k)).map((k) => [k, merged[k]]));
@@ -304,9 +330,17 @@ export function saidFor(axis) {
  * A REFUSED AXIS IS NAMED. Somebody who asks for something we cannot do, and is
  * told nothing, reads the unchanged page as the builder being broken rather than
  * as a request that did not land.
+ *
+ * IT VALIDATES WITHOUT RE-CAPPING, and the difference started mattering the day
+ * a first build could author all eighteen. `parseStyle` is here to drop an axis
+ * or an option the engine does not know — the CALLER has already decided how
+ * many may survive — so re-applying the revise cap here made the sentence report
+ * six of eighteen and call it what changed. A reporter that quietly counts fewer
+ * than were applied is the "change reported as applied" failure pointed the
+ * other way round.
  */
 export function styleNote(applied, dropped) {
-  const set = Object.keys(parseStyle(applied).style);
+  const set = Object.keys(parseStyle(applied, { max: MAX_STYLE_BUILD }).style);
   const bad = (Array.isArray(dropped) ? dropped : [])
     .map((d) => String(d || "").trim().toLowerCase())
     .filter(Boolean);

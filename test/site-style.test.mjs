@@ -9,12 +9,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
-  AXES, ASKABLE, MAX_STYLE, RADIUS_AXES,
+  AXES, ASKABLE, MAX_STYLE, MAX_STYLE_BUILD, RADIUS_AXES,
   optionsFor, parseStyle, mergeStyle, applyStyle, explicitRadiusCss,
   styleNote, saidFor, axisHint,
 } from "../builder/site-style.mjs";
 import * as T from "../builder/site-theme.mjs";
 import { stripThemeRadius, ASKABLE as TOKEN_NAMES, saidFor as tokenSaid, valueHint } from "../builder/site-tokens.mjs";
+import { normalizeSeeds } from "../builder/site-seeds.mjs";
 
 const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 const server = fs.readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8");
@@ -673,8 +674,119 @@ test("THE DESIGNER CAN ASK FOR IT, with the engine's own options", () => {
   assert.match(field, /enum: siteStyleOptions\(a\)/,
     "an option the engine would refuse is merely dropped rather than impossible");
   assert.match(field, /description: siteStyleHint\(a\)/, "the options reach the model unlabelled");
-  assert.match(field, /Omit it entirely otherwise/,
-    "nothing tells the model to leave it out on a first build");
+});
+
+test("A FIRST BUILD AUTHORS THE AXES — nothing else decides them", () => {
+  // THE PREMISE FIRST, because the description is only honest while this holds.
+  // It used to read "omit it entirely otherwise — on a first build the theme
+  // already decides all of these", which was TRUE while a theme was a row from
+  // the 500-strong registry: every one of those rows carried all eighteen axes.
+  // The registry went the same day the seeds landed and an authored theme is
+  // `{label, light, dark}`, so the clause outlived its own premise by hours and
+  // every site since has shipped the template's plain defaults while the model
+  // was told they were already designed.
+  //
+  // DRIVEN THROUGH THE REAL NORMALISER rather than asserted about the shape, so
+  // the day seeds legitimately start carrying axes this goes red and points at
+  // the sentence that would then need to change back.
+  const seeded = normalizeSeeds({ name: "Warm Brick", paper: "#faf7f2", ink: "#1b1714", accent: "#b44a2e" });
+  assert.ok(seeded.theme, "the fixture palette is refused, so this proves nothing: " + seeded.why);
+  const carried = ASKABLE.filter((a) => a in seeded.theme);
+  assert.deepEqual(carried, [],
+    "an authored theme carries style axes again, so the field description may say the theme decides them: " + carried.join(","));
+  // And the same fact one layer down: with no patch, none of the eighteen is
+  // attached, so an omitted axis is the template's plain default rather than a
+  // design choice — which is exactly what the description now tells the model.
+  assert.deepEqual(ASKABLE.filter((a) => a in applyStyle(seeded.theme, undefined)), [],
+    "applyStyle attaches axes with no patch, so an omitted axis is no longer the plain default");
+
+  // THEN THE SENTENCE. Read from the DESCRIPTION alone and never from the file:
+  // the comment above the field explains the deleted clause, and prose about a
+  // removal spells the removed thing — this repo's most repeated own-goal.
+  const at = worker.indexOf("      style: {");
+  const raw = worker.slice(worker.indexOf("description:", at), worker.indexOf("properties:", at));
+  // Adjacent string literals joined, so a rule split across a line break by the
+  // concatenation still reads as one sentence — a phrase assertion that has to
+  // know where the `" +` falls is a test about line wrapping.
+  const desc = raw.replace(/"\s*\+\s*\n\s*"/g, "");
+  assert.match(desc, /ON A FIRST BUILD/, "nothing tells the model to author the axes on a first build");
+  assert.equal(/theme already decides/.test(desc), false,
+    "the description claims the theme decides the axes, which stopped being true when the registry went");
+  assert.equal(/[Oo]mit it entirely otherwise/.test(desc), false,
+    "the description tells the model to omit the axes on a first build");
+  // The revise half is unchanged and must stay: naming an axis nobody asked
+  // about is how a colour change silently re-styles a live site.
+  assert.match(desc, /ON A REVISE/, "the revise rule is gone, so an edit may move axes nobody asked about");
+  assert.match(desc, /only the axes the customer actually asked about/,
+    "the revise half no longer says to name only what was asked");
+});
+
+test("THE CAP IS A REVISE RULE — a first build is not cut to six", () => {
+  // The behaviour first, driven through the real module. Capped at six on a
+  // build, the merge keeps whichever six `AXES` declares first and drops the
+  // buttons, the shadows, the icon weight and the whole world layer — an
+  // arbitrary cut nobody designed, which `styleNote` then reports to the
+  // customer as twelve axes we refused.
+  const full = Object.fromEntries(ASKABLE.map((a) => [a, optionsFor(a)[0]]));
+  assert.equal(Object.keys(mergeStyle(null, full, { max: MAX_STYLE_BUILD })).length, ASKABLE.length,
+    "a first build's whole authored look does not survive the merge");
+  assert.equal(parseStyle(full, { max: MAX_STYLE_BUILD }).dropped.length, 0,
+    "a first build is told axes were refused that were not");
+  // …and the revise cap is UNTOUCHED, which is the half a widening quietly
+  // takes with it: an edit naming half the look is a re-theme wearing a patch.
+  assert.equal(Object.keys(mergeStyle(null, full)).length, MAX_STYLE,
+    "the revise cap moved, so a look edit may now restyle a live site wholesale");
+
+  // AND THE WIRING, because a module that is correct and never called the right
+  // way is this repo's most-recorded bug. `parseStyle` applies its OWN cap, so
+  // the bound has to reach both calls or the patch is cut to six before the
+  // merge sees it and the widening reads as done while doing nothing.
+  const at = worker.indexOf("const styleMax =");
+  assert.ok(at > 0, "the build path no longer chooses a cap, so it uses the revise one on a first build");
+  const block = worker.slice(at, worker.indexOf("tr.at(\"merge\")", at));
+  assert.match(block, /existing \? MAX_STYLE : MAX_STYLE_BUILD/,
+    "the cap is not chosen by whether this site already exists");
+  assert.match(block, /mergeStyle\(priorStyle, designed && designed\.style, \{ max: styleMax \}\)/,
+    "the merge does not get the build cap");
+  assert.match(block, /parseStyle\(designed && designed\.style, \{ max: styleMax \}\)/,
+    "the note and the stored patch can disagree about what was kept");
+  assert.match(worker, /import \{[^}]*MAX_STYLE_BUILD[^}]*\} from "\.\/builder\/site-style\.mjs"/,
+    "MAX_STYLE_BUILD is read without being imported, which is a ReferenceError on the build path");
+
+  // The look edit lane must NOT take the build cap — checked apart from the
+  // build path, since one `mergeStyle` call site carrying it is satisfied by
+  // the other.
+  const look = worker.indexOf("const nextStyle = mergeStyle(");
+  assert.ok(look > 0, "the look lane's merge moved");
+  assert.equal(/MAX_STYLE_BUILD/.test(worker.slice(look, look + 200)), false,
+    "the look edit lane took the build cap, so an edit may restyle a live site wholesale");
+});
+
+test("THE NOTE COUNTS WHAT WAS APPLIED, never re-capping it", () => {
+  // `styleNote` re-parsed with the DEFAULT cap, so handed the eighteen axes a
+  // first build may now author it named SIX of them and called that what
+  // changed. The caller decides how many survive; a reporter that quietly
+  // counts fewer is the "change reported as applied" failure the other way up.
+  const full = Object.fromEntries(ASKABLE.map((a) => [a, optionsFor(a)[0]]));
+  const kept = parseStyle(full, { max: MAX_STYLE_BUILD }).style;
+  const note = styleNote(kept, []);
+  for (const a of ASKABLE) {
+    assert.ok(note.includes(saidFor(a)), `"${saidFor(a)}" is missing from the sentence, so the note undercounts`);
+  }
+  // …and it still DROPS what the engine does not know, which is the reason it
+  // parses at all rather than listing the keys it was handed.
+  assert.equal(styleNote({ nope: "pill", buttons: "not-an-option" }, []), "",
+    "an axis the engine refuses is reported to the customer as changed");
+});
+
+test("MAX_STYLE_BUILD IS DERIVED, not a generous number that goes stale", () => {
+  // Written as a cap rather than as "no cap" so both call sites read the same
+  // way — and derived from the axis list so a nineteenth axis is included
+  // without anybody remembering this file.
+  assert.equal(MAX_STYLE_BUILD, ASKABLE.length);
+  const src = fs.readFileSync(new URL("../builder/site-style.mjs", import.meta.url), "utf8");
+  assert.match(src, /MAX_STYLE_BUILD = ASKABLE\.length/,
+    "the build cap is a literal, so it silently stops covering the axis list");
 });
 
 test("A LOOK EDIT COUNTS IT AS A CHANGE", () => {
@@ -728,10 +840,25 @@ test("AN ASK THAT IS ALREADY SATISFIED IS ANSWERED, NOT ESCALATED", () => {
 test("THE CUSTOMER IS TOLD, at both ends of the wire", () => {
   // Composed on the server because `public/chat.js` cannot import this module,
   // and a second copy there drifts toward claiming a change that did not happen.
-  assert.match(worker, /styleNote: styleNote\(styleAsk\.style, styleAsk\.dropped\) \|\| undefined/);
-  assert.equal((worker.match(/styleNote: styleNote\(/g) || []).length, 2,
-    "the build path and the look edit must both say what happened");
+  // THE PROPERTY, NOT THE SPELLING. This pinned the exact expression and went
+  // red the moment the build path's copy legitimately became conditional — a
+  // test about word order failing a correct change, which is this repo's most
+  // repeated own-goal. What has to hold is that BOTH replies compose the
+  // sentence through this module rather than restating it in the client.
+  assert.equal((worker.match(/styleNote: [^,\n]*styleNote\(styleAsk\.style, styleAsk\.dropped\)/g) || []).length, 2,
+    "the build path and the look edit must both say what happened, through the module");
   assert.match(chat, /d\.styleNote === 'string'/, "the client never renders the sentence");
+
+  // …AND THE BUILD PATH SAYS IT ONLY ON A REVISE. A first build CHANGED
+  // nothing, so "Changed the corner shape, text size and letter spacing" is
+  // said to somebody seeing their site for the first time, about a site they
+  // never asked to style. It became reachable the day a first build could
+  // author the axes at all; before that `designed.style` was always absent
+  // there and the note was always empty by accident.
+  const bAt = worker.indexOf("styleNote: existing ?");
+  assert.ok(bAt > 0, "the build reply's style sentence is no longer gated on this being a revise");
+  assert.ok(bAt < worker.indexOf("styleNote: styleNote(styleAsk.style", bAt),
+    "the gated copy is the look lane's, not the build reply's");
 
   // SCOPED TO THE LOOK BRANCH, and it was not. That match above is satisfied by
   // the BUILD reply's note block, which is a different code path — so this test

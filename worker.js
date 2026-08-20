@@ -54,7 +54,7 @@ import { renderNote } from "./builder/site-render.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
 import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker } from "./builder/site-dispatch.mjs";
 import { ASKABLE as SITE_TOKEN_NAMES, valueHint as siteTokenHint, mergeTokens, parseTokens, withContrast, tokenNote, askedNames, saidFor as tokenSaid, routeSelectorOk, MAX_PAGE_TOKENS } from "./builder/site-tokens.mjs";
-import { ASKABLE as SITE_STYLE_AXES, optionsFor as siteStyleOptions, axisHint as siteStyleHint, mergeStyle, parseStyle, styleNote, saidFor as styleSaid } from "./builder/site-style.mjs";
+import { ASKABLE as SITE_STYLE_AXES, MAX_STYLE, MAX_STYLE_BUILD, optionsFor as siteStyleOptions, axisHint as siteStyleHint, mergeStyle, parseStyle, styleNote, saidFor as styleSaid } from "./builder/site-style.mjs";
 import { extractText, applyEdits, staleContactLinks } from "./builder/site-text.mjs";
 import { runTextEdit, runDataEdit, renamePages, renameRoute, MAX_DATA_ROWS } from "./builder/site-apply.mjs";
 import { runRulesEdit } from "./builder/site-rules.mjs";
@@ -4042,27 +4042,53 @@ const SITE_SCHEMA_TOOL = {
           "page, so naming one would round some things and not others.\n" +
           "TO PUT A PAGE BACK to the site's typeface, name the page and send `fonts` with both halves empty.",
       },
-      // THE REST OF THE LOOK — the twelve decisions a theme makes that are not
-      // colours, and that until now no customer could reach. Ask for square
-      // buttons and one of two things happened: nothing, or the whole theme was
-      // swapped looking for one that has them, which changes the colours and the
-      // fonts and the spacing too — one thing asked for, a different site given.
+      // THE REST OF THE LOOK — the eighteen decisions a design makes that are
+      // not colours, and that until 2026-08-08 no customer could reach. Ask for
+      // square buttons and one of two things happened: nothing, or the whole
+      // theme was swapped looking for one that has them, which changes the
+      // colours and the fonts and the spacing too — one thing asked for, a
+      // different site given.
+      //
+      // AND ON A FIRST BUILD IT IS AUTHORED NOW (2026-08-20). The description
+      // used to say "omit it entirely — on a first build the theme already
+      // decides all of these", which was TRUE while a theme was a row from the
+      // 500-strong registry: every one of those rows carried all eighteen axes,
+      // so the designer naming a theme really did pick them. That registry went
+      // the same day the seeds landed, and an authored theme is `{label, light,
+      // dark}` and nothing else — `applyStyle(theme, undefined)` attaches ZERO
+      // of the eighteen. So the clause survived its own premise by hours and
+      // every site since has shipped the template's plain defaults while the
+      // model was told they were already designed. Measured: the axes move
+      // `--text-5xl` 2.986rem → 4.398rem, the whole weight ramp, all six
+      // tracking steps, all four leading steps, `--spacing`, and the corner
+      // shape. That is most of what makes two sites look unlike each other.
+      //
+      // IT COSTS NO NEW TOKENS TO ASK FOR. One tool serves the build and the
+      // revise (only `required` is swapped), so the eighteen axes and their 66
+      // options were already in front of the model on every build — read on a
+      // first build and then told not to use them.
       //
       // AN ENUM PER AXIS, not a free string, so an option the engine would
       // refuse is impossible rather than merely dropped. The options and their
       // descriptions are DERIVED from the theme engine's own constants (see
       // builder/site-style.mjs): a restated list drifts, and the direction it
       // drifts in is describing something to the model that is then refused and
-      // reported to the customer as a change that did not happen. ~508 tokens,
-      // in the cached block.
+      // reported to the customer as a change that did not happen. ~1,921 tokens
+      // of options, in the cached block.
       style: {
         type: "object",
         description:
-          "ONLY when the message asks for a specific LOOK change to an existing site that is not a colour — " +
-          "\"square buttons\", \"make it feel more spacious\", \"bigger text\", \"lose the shadows\", " +
-          "\"thinner icons\". Omit it entirely otherwise — on a first build the theme already decides all of " +
-          "these, and on any revise about content, pages or layout. Name only the axes the customer actually " +
-          "asked about; anything left out keeps whatever the site wears today.",
+          "THE REST OF THE LOOK — every design decision that is not a colour: type size and weight, letter " +
+          "and line spacing, page density, corners, borders, shadows, icon weight, and what sits behind the page.\n" +
+          "ON A FIRST BUILD, author these for this business, the same act as authoring the palette. THE " +
+          "PALETTE DOES NOT DECIDE THEM: `seeds` is three colours and nothing else, so an axis you leave out " +
+          "is not a design choice, it is the plain default. That default suits plenty of businesses, so name " +
+          "the axes that carry THIS one's character and leave the rest — a law firm and a skate shop can " +
+          "share a palette and must not share a type scale.\n" +
+          "ON A REVISE, only when the message asks for a look change that is not a colour — \"square buttons\", " +
+          "\"make it feel more spacious\", \"bigger text\", \"lose the shadows\", \"thinner icons\". Name only " +
+          "the axes the customer actually asked about; anything left out keeps whatever the site wears today. " +
+          "Omit it entirely on a revise about content, pages or layout.",
         properties: Object.fromEntries(SITE_STYLE_AXES.map((a) => [a, {
           type: "string",
           enum: siteStyleOptions(a),
@@ -11968,8 +11994,19 @@ async function handleRequest(request, env, ctx) {
       // `mergeLook` rebuilds its output from `EDIT_FIELDS` alone and would drop
       // anything else stored there — the reason `site_tokens` and `site_logo`
       // are separate keys too.
-      const siteStyle = mergeStyle(priorStyle, designed && designed.style);
-      const styleAsk = parseStyle(designed && designed.style);
+      //
+      // THE CAP IS A REVISE RULE AND `existing` IS THE FREE SIGNAL FOR IT. Six
+      // is the size of an ADJUSTMENT to a design somebody already has; a first
+      // build is the design being stated, so capped there the merge keeps
+      // whichever six `AXES` declares first and silently drops the buttons, the
+      // shadows, the icon weight and the whole world layer — and `styleNote`
+      // then tells the customer we refused twelve axes on a build where nothing
+      // was refused for any reason they could act on. The SAME bound goes to
+      // `parseStyle`, or the note and the stored patch disagree about what was
+      // kept.
+      const styleMax = existing ? MAX_STYLE : MAX_STYLE_BUILD;
+      const siteStyle = mergeStyle(priorStyle, designed && designed.style, { max: styleMax });
+      const styleAsk = parseStyle(designed && designed.style, { max: styleMax });
       if (Object.keys(siteStyle).length) {
         try {
           await sqlQuery(db, "INSERT INTO _meta (k,v) VALUES ('site_style', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v", [JSON.stringify(siteStyle)]);
@@ -12319,7 +12356,14 @@ async function handleRequest(request, env, ctx) {
         // the background" on a revise that only touched the text is worse than
         // saying nothing.
         tokensNote: tokenNote(tokenAsk.tokens, tokenAsk.dropped) || undefined,
-        styleNote: styleNote(styleAsk.style, styleAsk.dropped) || undefined,
+        // …AND THE SAME FOR THE REST OF THE LOOK, but ONLY on a revise. A first
+        // build CHANGED nothing — the designer is stating what the look is — so
+        // "Changed the corner shape, text size, letter spacing and line spacing"
+        // is said to somebody seeing their site for the first time, about a site
+        // they never asked to style. Silent on a build keeps the reply
+        // byte-identical to what it has always been there, and nothing is lost
+        // for us: `style` above carries the axes the model named either way.
+        styleNote: existing ? (styleNote(styleAsk.style, styleAsk.dropped) || undefined) : undefined,
         // WHICH PAGE CAME BACK AS A STUB. One bad file no longer costs the whole
         // site — it is replaced by a placeholder page and the rest publishes — so
         // there is now an outcome between "your site" and "the data model", and
