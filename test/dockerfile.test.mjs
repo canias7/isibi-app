@@ -90,6 +90,54 @@ function spawnedSiblings(entry, root) {
   return [...out];
 }
 
+/**
+ * Every source path the COPY lines name, as `{src, staged}`.
+ *
+ * ONE READER, because two consumers ask opposite questions of the same lines —
+ * "is everything we import copied" and "does everything we copy exist" — and two
+ * copies of the parse drift toward one of them silently seeing a shorter list
+ * than the other. `staged` marks a `--from=` copy, whose source is a previous
+ * build stage rather than the build context, so it is not a path on disk.
+ */
+function copySources(df) {
+  const out = [];
+  for (const m of df.matchAll(/^COPY\s+(.+?)\s+\S+\s*$/gm)) {
+    const parts = m[1].trim().split(/\s+/);
+    const staged = parts.some((p) => p.startsWith("--from="));
+    for (const src of parts) {
+      if (src.startsWith("--")) continue; // a flag, not a path
+      out.push({ src, staged });
+    }
+  }
+  return out;
+}
+
+test("the COPY parser skips flags and multi-stage sources", () => {
+  // NEITHER DOCKERFILE HAS EITHER SHAPE TODAY, so a mutation removing these two
+  // rules changes no answer and survives a sweep — which reads exactly like the
+  // rules being pointless. They are not, and both failures land in the direction
+  // this repo rates worse than a miss: without the flag skip, `--chown=node:node`
+  // is looked for as a file and a correct Dockerfile is reported broken; without
+  // the `--from=` rule, a multi-stage copy of an artefact BUILT in an earlier
+  // stage is looked for on disk, and a perfectly good multi-stage build fails a
+  // test. So they are driven here rather than left to a Dockerfile that does not
+  // exist yet.
+  const flagged = copySources("COPY --chown=node:node build-server.mjs ./\n");
+  assert.deepEqual(flagged, [{ src: "build-server.mjs", staged: false }],
+    "a COPY flag was read as a path — a correct Dockerfile would be reported as missing a file");
+
+  const staged = copySources("COPY --from=builder /app/dist/ ./dist/\n");
+  assert.deepEqual(staged, [{ src: "/app/dist/", staged: true }],
+    "a multi-stage source was not marked staged — it would be looked for in the build context, where it never is");
+});
+
+/** Of those sources, the ones that are not in the build context at `dir`. */
+function missingFromContext(sources, dir) {
+  return sources
+    .filter(({ src }) => !fs.existsSync(path.join(dir, src.replace(/\/$/, ""))))
+    .map(({ src }) => src);
+}
+
 for (const svc of SERVICES) {
 test(`the ${svc.name} image copies everything build-server.mjs imports, transitively`, () => {
   const entry = path.join(svc.dir, "build-server.mjs");
@@ -100,11 +148,9 @@ test(`the ${svc.name} image copies everything build-server.mjs imports, transiti
   // What each COPY brings in: either a named file or a directory prefix.
   const files = new Set();
   const dirs = [];
-  for (const m of df.matchAll(/^COPY\s+(.+?)\s+\S+\s*$/gm)) {
-    for (const src of m[1].trim().split(/\s+/)) {
-      if (src.endsWith("/")) dirs.push(src);
-      else files.add(src);
-    }
+  for (const { src } of copySources(df)) {
+    if (src.endsWith("/")) dirs.push(src);
+    else files.add(src);
   }
   assert.ok(files.size || dirs.length, "no COPY lines found — retarget this test");
 
@@ -115,6 +161,38 @@ test(`the ${svc.name} image copies everything build-server.mjs imports, transiti
   assert.deepEqual(missing, [],
     `the ${svc.name} build-server.mjs imports these and the image does not contain ` +
     `them, so the service cannot start: ${missing.join(", ")}`);
+});
+
+test(`every path the ${svc.name} Dockerfile COPYs exists on disk`, () => {
+  // THE OTHER DIRECTION FROM THE TEST ABOVE, AND IT FAILS HARDER.
+  //
+  // That one catches an import with no COPY: the image builds and the service
+  // dies at startup. This catches a COPY with no file, which does not degrade at
+  // all — buildx cannot compute a checksum for a path missing from the build
+  // context, the image never builds, and `wrangler deploy` fails, so THE WHOLE
+  // WORKER DOES NOT SHIP. Measured 2026-08-20 on `COPY theme-candidates/`, which
+  // outlived its directory by one commit when the 500 hand-written themes moved
+  // to `test/fixtures/themes/`.
+  //
+  // The import walk is structurally blind to it — nothing imports a directory
+  // that is gone — which is exactly why the two checks are separate rather than
+  // one cleverer one.
+  const df = fs.readFileSync(path.join(svc.dir, "Dockerfile"), "utf8");
+  const named = copySources(df).filter((c) => !c.staged);
+  assert.ok(named.length >= 3,
+    `only ${named.length} COPY sources found in the ${svc.name} Dockerfile — the parse stopped working, ` +
+    "and an absence check over an empty list is a clean sweep over nothing");
+  assert.deepEqual(missingFromContext(named, svc.dir), [],
+    `the ${svc.name} Dockerfile COPYs paths that are not in its build context (${svc.dir}), ` +
+    "so `docker build` fails and the deploy ships nothing");
+});
+
+test(`the ${svc.name} COPY-exists check can actually fail`, () => {
+  // Driven rather than asserted: a checker that returns [] for everything passes
+  // the test above perfectly, on a Dockerfile naming a path that is not there.
+  const bogus = copySources("COPY build-server.mjs theme-candidates/ ./\n").filter((c) => !c.staged);
+  assert.deepEqual(missingFromContext(bogus, svc.dir), ["theme-candidates/"],
+    "the checker did not flag a path that is not on disk — it would pass on the exact Dockerfile that broke the deploy");
 });
 
 test(`the ${svc.name} entrypoint is the file whose imports were just checked`, () => {

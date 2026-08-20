@@ -79,10 +79,19 @@ RUN mkdir -p /app/.routes-base \
 # as flaky infrastructure for a day.
 #
 # That is exactly what the previous version of this comment warned about for
-# site-fonts.mjs — and then `themeCss` and `resolveTheme` were imported without
-# anything being added here. `test/dockerfile.test.mjs` walks the imports from
-# build-server.mjs and fails if one is not copied, so the warning is enforced
-# rather than written down.
+# site-fonts.mjs — and then `themeCss` was imported without anything being added
+# here. `test/dockerfile.test.mjs` walks the imports from build-server.mjs and
+# fails if one is not copied, so the warning is enforced rather than written
+# down.
+#
+# THE OTHER DIRECTION BIT TOO, AND IT IS WORSE. `COPY theme-candidates/` outlived
+# the directory by one commit: the 500 hand-written themes moved to
+# `test/fixtures/themes/` when the registry stopped being a product feature, and
+# a COPY naming a path that is not in the build context does not degrade — buildx
+# fails to compute a checksum, the image never builds, and THE WHOLE DEPLOY
+# FAILS. Measured 2026-08-20: the Worker did not ship. The import walk cannot see
+# it (nothing imports a directory that is gone), so the guard that catches it is
+# the one below it — every path a COPY names must exist on disk.
 # NO `prerender-child.mjs` AND NO `site-worker/` ANY MORE. Both were spawned or
 # read off disk rather than imported, so the import walk could not see either and
 # each carried its own hand-written assertion. TanStack Start removed the need
@@ -90,7 +99,6 @@ RUN mkdir -p /app/.routes-base \
 # Start's build produces, so there is no build-time snapshot to render in a
 # subprocess and no entry to stage into the template.
 COPY build-server.mjs exit-reason.mjs site-addon.mjs site-fonts.mjs font-index.json site-theme.mjs site-seeds.mjs site-tokens.mjs site-style.mjs site-identity.mjs site-langs.mjs render-check.mjs site-render.mjs site-worker.mjs ./
-COPY theme-candidates/ ./theme-candidates/
 
 # NOTHING IN THIS IMAGE EXECUTES MODEL-WRITTEN CODE ANY MORE, which is why the
 # `PRERENDER_USER=node` privilege drop went with the prerender.
