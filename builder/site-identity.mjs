@@ -235,6 +235,12 @@ export function markGround(seeds) {
   const accent = out.theme.light.accent;
   if (!Array.isArray(accent) || accent.length < 3) return null;
   const [L, C, H] = accent;
+  // BELT-AND-BRACES AND IT CANNOT FIRE, said here rather than left to read as
+  // protection: `normalizeSeeds` refuses a palette whose accent is not a real
+  // colour, so by the time it hands back a theme the three are finite —
+  // measured, and a mutation to `if (false)` changes no answer. Kept because
+  // that guarantee lives in another module one edit away from changing, and
+  // what it would produce here is `NaN` written into a customer's tab icon.
   if (![L, C, H].every(Number.isFinite)) return null;
   // A CEILING, NOT A FIXED VALUE, and looking at a render is what found it.
   // Pinning outright made a deliberately near-black brand ("Noir", accent

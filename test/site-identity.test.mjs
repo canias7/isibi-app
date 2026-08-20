@@ -149,6 +149,23 @@ test("THE MARK TAKES THE SITE'S OWN ACCENT, not a hash of its name", () => {
   assert.match(hashed, /^hsl\(/, "the no-palette fallback stopped being the name hash");
 });
 
+test("THE CHROMA CAP IS REACHABLE, and it is a style bound rather than a safety one", () => {
+  // A mutation removing it SURVIVED, so it needed measuring rather than
+  // assuming. Both halves came back: it is reachable — 38 of the 500 pinned
+  // palettes carry an accent above the cap, up to 0.220 — and it is NOT what
+  // keeps the mark legible, since white clears 5.36:1 even at chroma 0.37. So
+  // what it bounds is how saturated a 32px square gets, which no contrast test
+  // can see and this one asserts directly.
+  const loud = markGround({ name: "x", paper: "#fffdf5", ink: "#1a1a12", accent: "#ff0000" });
+  assert.ok(loud, "the fixture palette was refused, so this proves nothing");
+  assert.ok(loud[1] <= MARK_C_CAP, `the mark took chroma ${loud[1].toFixed(3)}, above the cap`);
+  // …and the cap must still be REACHABLE, or this goes vacuous the day the
+  // palette engine starts clamping chroma below it and nobody notices.
+  const raw = normalizeSeeds({ name: "x", paper: "#fffdf5", ink: "#1a1a12", accent: "#ff0000" });
+  assert.ok(raw.theme.light.accent[1] > MARK_C_CAP,
+    "no palette can exceed the cap any more, so it bounds nothing");
+});
+
 test("WHITE INITIALS CLEAR CONTRAST AT EVERY HUE THE MARK CAN TAKE", () => {
   // The guarantee the fixed lightness exists for, driven rather than asserted —
   // and the old `hsl()` form's own claim was CHECKED before it was replaced:
