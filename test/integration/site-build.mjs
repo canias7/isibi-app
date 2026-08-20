@@ -1179,6 +1179,40 @@ function Home() {
       "either the ambient axis never reached the stylesheet, or the control build already had it");
   }
 
+  // THE INTERACTIVE AXES, through a real Tailwind build. Everything else the
+  // theme emits is a value; these are RULES with pseudo-classes, an @supports
+  // and two @media blocks, and a minifier is entitled to rewrite all of it —
+  // so what the module returns is a different claim from what a browser gets.
+  console.log("\nbuilding with the interactive axes…");
+  const reactive = await post({
+    files: { "index.tsx": INDEX, "menu.tsx": MENU },
+    slug: "fold-coffee", ...themeAsSeeds("broadsheet"),
+    style: { ...HOUSE_STYLE, motion: "brisk", hover: "lift", focus: "bold", reveal: "rise" },
+  });
+  ok("a build carrying the interactive axes succeeds", reactive.ok === true,
+    JSON.stringify(reactive).slice(0, 200));
+  {
+    const css = Object.entries(reactive.files || {})
+      .filter(([k]) => k.endsWith(".css")).map(([, v]) => v.t || "").join("\n");
+    ok("the transition survived the build", /--site-duration:\s*120ms/.test(css), css.slice(0, 200));
+    ok("…and the hover rule is inside the touch guard",
+      /@media\s*\(hover:\s*hover\)/.test(css) && /:hover/.test(css), css.slice(0, 200));
+    ok("…and the focus ring is on :focus-visible", /:focus-visible/.test(css), css.slice(0, 200));
+    ok("…and the reveal is behind @supports", /@supports[^{]*animation-timeline/.test(css), css.slice(0, 200));
+    // THE ONE THAT MATTERS. A minifier may merge selector lists, so this is
+    // asserted on the COMPILED output rather than only on the module's: a bare
+    // member in a :hover list matches ALWAYS, which is every button on the site
+    // permanently raised. It shipped that way for one draft.
+    const bare = [];
+    for (const m of css.matchAll(/([^{}]+)\{[^{}]*\}/g)) {
+      const sel = m[1].trim();
+      if (!/:hover|:focus-visible/.test(sel) || sel.startsWith("@")) continue;
+      for (const part of sel.split(",")) if (!/:hover|:focus-visible/.test(part)) bare.push(part.trim());
+    }
+    ok("…and no selector in a hover or focus rule matches without the pseudo",
+      bare.length === 0, "these match always: " + bare.slice(0, 4).join(" | "));
+  }
+
   // THE ONE PLACE TWO PATCHES COLLIDE, and it was a live bug before this: the
   // radius strip is a regex and cannot tell a theme's hard-set button radius
   // from the one the customer just asked for, so "rounder corners AND pill

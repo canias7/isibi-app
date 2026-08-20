@@ -45,6 +45,7 @@
 import {
   CORNERS, TYPE_SCALES, TRACKINGS, LEADINGS, WEIGHTS, DENSITIES, WIDTHS, BORDERS,
   ICON_STROKES, SHADOWS, BUTTONS, INPUTS, DISPLAYS,
+  MOTIONS, HOVERS, FOCUSES, REVEALS,
   SURFACES, BACKDROPS, DECORS, AMBIENTS, SKINS,
   buttonsCss, inputsCss,
 } from "./site-theme.mjs";
@@ -102,6 +103,20 @@ export const AXES = Object.freeze({
   decor:    { options: DECORS,       said: "page texture" },
   ambient:  { options: AMBIENTS,     said: "background motion" },
   skin:     { options: SKINS,        said: "card style" },
+  // THE INTERACTIVE HALF (2026-08-20). Everything above decides what the page
+  // LOOKS like standing still; these four decide what it does when somebody
+  // uses it. Measured before they existed: the engine emitted one keyframe and
+  // zero rules for transition, hover, focus or scroll, so every site answered
+  // the pointer identically out of 632 hover utilities hardcoded in the kit.
+  //
+  // The `said` names have to read differently from every other axis AND from
+  // `site-tokens.mjs`, since both compose into one sentence — "motion" would
+  // sit next to `ambient`'s "background motion" and print two lines nobody can
+  // tell apart, so this one is what it decides rather than what it is.
+  motion:   { options: MOTIONS,      said: "response speed" },
+  hover:    { options: HOVERS,       said: "pointer response" },
+  focus:    { options: FOCUSES,      said: "keyboard focus" },
+  reveal:   { options: REVEALS,      said: "scroll arrival" },
 });
 
 /**

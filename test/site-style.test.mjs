@@ -273,6 +273,7 @@ test("EVERY AXIS IS THE ENGINE'S OWN LIST, in both directions", () => {
     shadow: T.SHADOWS, buttons: T.BUTTONS, inputs: T.INPUTS, display: T.DISPLAYS,
     surface: T.SURFACES, backdrop: T.BACKDROPS, decor: T.DECORS,
     ambient: T.AMBIENTS, skin: T.SKINS,
+    motion: T.MOTIONS, hover: T.HOVERS, focus: T.FOCUSES, reveal: T.REVEALS,
   };
   assert.deepEqual(ASKABLE.slice().sort(), Object.keys(byName).sort(),
     "AXES and this test disagree about which axes exist");
@@ -280,6 +281,98 @@ test("EVERY AXIS IS THE ENGINE'S OWN LIST, in both directions", () => {
     assert.deepEqual(optionsFor(a), Object.freeze(Object.keys(real)), a + " restates the engine's options");
     assert.ok(optionsFor(a).length >= 2, a + " has fewer than two options — it is not a choice");
   }
+});
+
+/* ------------------------------------------- the interactive half of the look */
+
+const seedTheme = () => normalizeSeeds({ name: "W", paper: "#faf7f2", ink: "#1b1714", accent: "#b44a2e" }).theme;
+const cssFor = (patch) => T.themeCss(applyStyle(seedTheme(), patch));
+
+test("A PSEUDO-CLASS REACHES EVERY MEMBER OF THE SELECTOR LIST", () => {
+  // THE BUG THIS SHIPPED WITH FOR ONE DRAFT, and it is silently catastrophic.
+  // `${LIST}:hover` where LIST is itself comma-separated attaches the pseudo to
+  // the LAST selector only, so `[data-slot="button"], button.justify-center,
+  // a.x:hover` matches every button on the site ALWAYS. Measured on the first
+  // emit: `lift` left every button permanently raised and shadowed and
+  // `focus: bold` a permanent 3px outline round every card and input. It is
+  // valid CSS, it compiles, it bundles, and only reading the rules shows it.
+  for (const patch of [{ hover: "lift" }, { hover: "tint" }, { hover: "edge" }, { focus: "bold" }, { focus: "inset" }]) {
+    for (const line of cssFor(patch).split("\n")) {
+      if (!/:hover|:focus-visible/.test(line)) continue;
+      const sel = /^\s*(\S.*?)\s*\{/.exec(line);
+      if (!sel) continue;
+      for (const part of sel[1].split(",")) {
+        assert.match(part, /:hover|:focus-visible/,
+          `${JSON.stringify(patch)} emits a bare selector that matches ALWAYS: ${part.trim()}`);
+      }
+    }
+  }
+});
+
+test("EVERY INTERACTIVE AXIS MOVES THE STYLESHEET", () => {
+  // The engine emitted ONE keyframe and zero rules for transition, hover or
+  // focus before these existed, so an axis that changes nothing is the whole
+  // feature dead rather than one option missing.
+  const bare = cssFor(undefined);
+  for (const a of ["motion", "hover", "focus", "reveal"]) {
+    const moved = optionsFor(a).filter((o) => cssFor({ [a]: o }) !== bare);
+    assert.ok(moved.length >= 2, `${a} changes the stylesheet on ${moved.length} of its options`);
+  }
+  // …and a site that asks for none of them is unchanged, so no existing site
+  // is re-drawn by this shipping.
+  assert.equal(cssFor({ corner: "bevel" }), cssFor({ corner: "bevel" }));
+  assert.equal(/--site-duration|:focus-visible|isibi-reveal|@media \(hover/.test(bare), false,
+    "an interactive rule is emitted with no axis asked for");
+});
+
+test("HOVER IS GUARDED FOR TOUCH, where :hover STICKS after a tap", () => {
+  // Without `@media (hover: hover)` a lift stays on the last card somebody
+  // pressed until they press another — and most visitors to these sites are on
+  // a phone.
+  for (const o of ["tint", "lift", "edge"]) {
+    assert.match(cssFor({ hover: o }), /@media \(hover: hover\)/, o + " is applied on touch screens too");
+  }
+});
+
+test("FOCUS HAS NO 'none', because it is an accessibility decision", () => {
+  assert.equal(optionsFor("focus").includes("none"), false, "the focus indicator can be switched off");
+  // …and it is `:focus-visible`, or a mouse click leaves a ring behind it.
+  for (const o of ["bold", "inset"]) {
+    const css = cssFor({ focus: o });
+    assert.match(css, /:focus-visible/);
+    assert.equal(/[^-]:focus\b(?!-visible)/.test(css), false, o + " rings on plain :focus");
+  }
+});
+
+test("REVEAL CANNOT TRAP CONTENT INVISIBLE — the double guard", () => {
+  // The failure mode of every reveal-on-scroll. The from-state exists ONLY
+  // where the mechanism provably runs, so no support or reduced motion means
+  // no rule at all and the section is simply visible.
+  for (const o of ["fade", "rise"]) {
+    const css = cssFor({ reveal: o });
+    const at = css.indexOf("isibi-reveal");
+    assert.ok(at > 0, o + " emits no reveal");
+    const before = css.slice(0, at);
+    assert.match(before, /@supports \(animation-timeline: view\(\)\)/,
+      o + " sets an opacity-0 from-state outside the support guard");
+    assert.match(before, /prefers-reduced-motion: no-preference/,
+      o + " hides content from a visitor who asked for less motion");
+    assert.match(css, /animation-range: entry/,
+      o + " has no entry range, so anything already on screen fades in after the fact");
+  }
+});
+
+test("MOTION ZEROES THE DURATION rather than dropping the rule", () => {
+  // The end state has to be identical for a visitor who asked for less motion —
+  // only the travel goes. Dropping the transition instead would be the same
+  // outcome; zeroing it keeps ONE definition of what eases.
+  const css = cssFor({ motion: "calm" });
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{ :root \{ --site-duration: 0ms/);
+  // `transition: all` would animate layout properties and make every resize a
+  // slideshow, so the list is explicit — and `transform` must be on it, or
+  // `hover: lift` jumps.
+  assert.match(css, /transition-property: color, background-color, border-color, box-shadow, transform/);
+  assert.equal(/transition:\s*all/.test(css), false, "the transition is unbounded");
 });
 
 test("EVERY STYLE TARGET SELECTS SOMETHING THE KIT REALLY RENDERS", () => {

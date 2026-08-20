@@ -1585,6 +1585,100 @@ export function ambientCss(theme) {
     `@media (prefers-reduced-motion: reduce) { body::after { animation: none; } }\n`;
 }
 
+/* ── THE INTERACTIVE HALF OF THE LOOK ──────────────────────────────────────
+ *
+ * MEASURED BEFORE ANY OF THIS EXISTED: the whole theme engine emitted ONE
+ * keyframe — `isibi-ambient`, the background drift — and ZERO rules for
+ * `transition`, `hover`, `:focus`, `scroll-behavior` or `view-transition`. So
+ * the platform could make a site feel like marble, glass or scanlines and could
+ * not make one feel quick, calm or alive, because none of that was in a
+ * stylesheet the theme wrote.
+ *
+ * Everything a visitor's POINTER or KEYBOARD touches was hardcoded per
+ * component instead — 632 hover utilities baked into the kit, `hover:bg-muted`
+ * 288 times — identical on a funeral director and a skate shop. These four axes
+ * are the site-level decision that was missing, and they are deliberately the
+ * SAFE half of the seven candidates: page transitions and scroll-snap are left
+ * out below with their reasons.
+ */
+
+/**
+ * HOW QUICKLY THE SITE ANSWERS. The axis the other three hang off, because a
+ * hover with no easing is a jump-cut and a focus ring that snaps reads as a
+ * bug. One duration and one curve, named once and referenced everywhere.
+ *
+ * `none` IS A REAL CHOICE, not the absence of one: a brutalist or terminal
+ * site wants the jump-cut, and pinning the duration to 0 gets it without the
+ * other axes having to know.
+ */
+export const MOTIONS = {
+  none: { label: "instant — nothing eases, the jump-cut", ms: 0, ease: "linear" },
+  calm: { label: "slow and soft — considered, unhurried", ms: 260, ease: "cubic-bezier(.4,0,.2,1)" },
+  brisk: { label: "quick and crisp — a tool that answers at once", ms: 120, ease: "cubic-bezier(.3,0,.2,1)" },
+  springy: { label: "a little overshoot — playful, with some bounce", ms: 220, ease: "cubic-bezier(.34,1.56,.64,1)" },
+};
+
+/**
+ * WHAT ANSWERS THE POINTER.
+ *
+ * SCOPED TO THE STABLE HOOKS AND NOTHING ELSE. The kit's own 632 `hover:`
+ * utilities are Tailwind's, so they sit in `@layer utilities` and these
+ * unlayered rules beat them — which is exactly the mechanism the `display`
+ * axis already relies on, and exactly why the selector must be narrow. Widened
+ * to "everything", this would override the tint a dropdown item uses to show
+ * which row is under the cursor.
+ *
+ * WRAPPED IN `@media (hover: hover)`, which is the part that is easy to skip.
+ * On a touch screen `:hover` STICKS after a tap, so a lift or a tint stays on
+ * the last card somebody pressed until they press another. Most visitors to
+ * these sites are on a phone.
+ */
+export const HOVERS = {
+  none: { label: "nothing beyond the kit's own tint" },
+  tint: { label: "the surface warms toward the brand colour" },
+  lift: { label: "cards and buttons rise a little as you point at them" },
+  edge: { label: "the brand colour draws round the edge" },
+};
+
+/**
+ * THE KEYBOARD'S ANSWER, and the one axis here that is an accessibility
+ * decision rather than a taste one — so there is no `none`. Every option is a
+ * VISIBLE focus indicator; what changes is its weight and where it sits.
+ *
+ * `:focus-visible` rather than `:focus`, or a mouse click on a button leaves a
+ * ring behind it and the site looks broken to somebody who never used the
+ * keyboard at all.
+ */
+export const FOCUSES = {
+  ring: { label: "the ordinary ring, in the brand colour" },
+  bold: { label: "a thicker ring — a site people work in on a keyboard" },
+  inset: { label: "the ring sits just inside the element, for tight layouts" },
+};
+
+/**
+ * CONTENT ARRIVING AS YOU SCROLL.
+ *
+ * CSS SCROLL-DRIVEN, NOT JAVASCRIPT, and the guard is the whole design. The
+ * failure mode of every reveal-on-scroll is content trapped INVISIBLE when the
+ * mechanism does not run, so the from-state is emitted ONLY inside
+ * `@supports (animation-timeline: view())` AND only under
+ * `prefers-reduced-motion: no-preference`. A browser without support, or a
+ * visitor who asked for less motion, gets no rule at all — so the section is
+ * simply visible, which is the state it was in before this axis existed.
+ *
+ * `animation-range: entry` is what makes it safe on load as well: anything
+ * already on screen is PAST its entry range, so it renders at the `to` state
+ * rather than fading in after the fact.
+ *
+ * The hook is `section`, measured: 1,040 sections across the 329 pinned corpus
+ * pages, median 3 a page. It is the unit a generated page is built out of.
+ */
+export const REVEALS = {
+  none: { label: "everything is simply there" },
+  fade: { label: "sections fade in as they come into view" },
+  rise: { label: "sections rise into place as they come into view" },
+};
+
 export const SKINS = {
   flat: { label: "cards as the kit draws them" },
   frame: { label: "a museum mat — a second rule floated round the card" },
@@ -1598,6 +1692,107 @@ export const SKINS = {
  * layers union by default, and the union of two mostly-black layers is
  * everything — the notches only survive where BOTH layers agree.
  */
+/**
+ * THE INTERACTIVE HOOKS, shared by the three axes that respond to a person.
+ *
+ * `STYLE_TARGETS` plus the class fallback the buttons already need — the same
+ * union `BUTTON_SEL` is built from, for the same reason: `calendar.tsx` hands
+ * `buttonVariants()` to react-day-picker as a `classNames` map, so those
+ * elements can carry a class and never an attribute.
+ */
+const REACTIVE = [BUTTON_SEL, STYLE_TARGETS.card.sel, STYLE_TARGETS.input.sel, STYLE_TARGETS.badge.sel]
+  .join(", ").split(",").map((s) => s.trim()).filter(Boolean);
+const REACTIVE_SEL = REACTIVE.join(", ");
+
+/**
+ * A PSEUDO-CLASS ON EVERY MEMBER OF A SELECTOR LIST, and this exists because
+ * the obvious form is silently catastrophic.
+ *
+ * `${LIST}:hover` where LIST is itself comma-separated attaches the pseudo to
+ * the LAST selector only — so `[data-slot="button"], button.justify-center,
+ * a.x:hover` matches every button on the site ALWAYS, not on hover. Measured
+ * on the first emit: a `lift` would have left every button permanently raised
+ * and shadowed, and `focus: bold` a permanent 3px outline round every card and
+ * input. It renders, it compiles, and nothing but reading the CSS shows it.
+ */
+const each = (list, pseudo) => list.map((s) => s + pseudo).join(", ");
+
+/**
+ * MOTION — one duration and one curve, named once and referenced by the rest.
+ *
+ * The transition list is EXPLICIT rather than `transition: all`, which would
+ * animate layout properties and make every resize a slideshow. Five properties,
+ * and `transform` is on it because `hover: lift` moves one.
+ *
+ * REDUCED MOTION ZEROES THE DURATION rather than dropping the rule, so the
+ * end state is identical and only the travel goes — a visitor who asked for
+ * less motion still sees the hover answer, instantly.
+ */
+export function motionCss(style) {
+  const m = Object.hasOwn(MOTIONS, style) ? MOTIONS[style] : null;
+  if (!m) return "";
+  const props = "color, background-color, border-color, box-shadow, transform";
+  return `:root { --site-duration: ${m.ms}ms; --site-ease: ${m.ease}; }\n` +
+    (m.ms === 0 ? "" :
+      `${REACTIVE_SEL}, a { transition-property: ${props}; transition-duration: var(--site-duration); transition-timing-function: var(--site-ease); }\n` +
+      `@media (prefers-reduced-motion: reduce) { :root { --site-duration: 0ms; } }\n`);
+}
+
+/**
+ * HOVER — what answers the pointer, on the stable hooks only.
+ *
+ * `@media (hover: hover)` is not decoration: on a touch screen `:hover` sticks
+ * after a tap, so without it a lift stays on the last card somebody pressed.
+ */
+export function hoverCss(theme) {
+  const style = theme && theme.hover;
+  if (!Object.hasOwn(HOVERS, String(style)) || style === "none") return "";
+  // LIFT MOVES ONLY WHAT SHOULD MOVE. A raised input box reads as a fault, and
+  // a badge is a label rather than something you press.
+  const lifts = [...BUTTON_SEL.split(",").map((s) => s.trim()), STYLE_TARGETS.card.sel];
+  const rule = style === "lift"
+    ? `  ${each(lifts, ":hover")} { transform: translateY(-2px); box-shadow: 0 10px 24px -12px oklch(0 0 0 / 0.28); }`
+    : style === "edge"
+      ? `  ${each(REACTIVE, ":hover")} { border-color: var(--primary); }`
+      : `  ${each(REACTIVE, ":hover")} { background-color: color-mix(in oklab, var(--primary) 8%, var(--card)); }`;
+  return `@media (hover: hover) {\n${rule}\n}\n`;
+}
+
+/**
+ * FOCUS — the keyboard's answer. No `none`: every option is visible.
+ *
+ * `:focus-visible`, or a mouse click leaves a ring behind and the site reads as
+ * broken to somebody who never touched the keyboard.
+ */
+export function focusCss(theme) {
+  const style = theme && theme.focus;
+  if (!Object.hasOwn(FOCUSES, String(style)) || style === "ring") return "";
+  const width = style === "bold" ? "3px" : "2px";
+  const offset = style === "inset" ? "-3px" : "2px";
+  return `${each([...REACTIVE, "a"], ":focus-visible")} { outline: ${width} solid var(--primary); outline-offset: ${offset}; }\n`;
+}
+
+/**
+ * REVEAL — sections arriving as they scroll into view.
+ *
+ * DOUBLE-GUARDED, and that is the whole design rather than caution: the
+ * from-state exists ONLY where the mechanism provably runs. No
+ * `animation-timeline` support, or a visitor who asked for less motion, and
+ * not one rule is emitted — so a section is simply visible, exactly as it was
+ * before this axis existed. There is no path here that can trap content
+ * invisible, which is the failure every reveal-on-scroll has.
+ */
+export function revealCss(theme) {
+  const style = theme && theme.reveal;
+  if (!Object.hasOwn(REVEALS, String(style)) || style === "none") return "";
+  const from = style === "rise" ? "opacity: 0; transform: translateY(14px);" : "opacity: 0;";
+  return `@supports (animation-timeline: view()) {\n` +
+    `  @media (prefers-reduced-motion: no-preference) {\n` +
+    `    section { animation: isibi-reveal linear both; animation-timeline: view(); animation-range: entry 0% entry 40%; }\n` +
+    `    @keyframes isibi-reveal { from { ${from} } to { opacity: 1; transform: none; } }\n` +
+    `  }\n}\n`;
+}
+
 export function skinCss(style) {
   if (style === "frame") {
     return `.bg-card { outline: 1px solid var(--border); outline-offset: 5px; }\n`;
@@ -1900,7 +2095,16 @@ export function themeCss(nameOrTheme) {
     surfaceCss(theme) +
     worldCss(theme) +
     skinCss(theme.skin) +
-    ambientCss(theme);
+    ambientCss(theme) +
+    // THE INTERACTIVE HALF, and it goes AFTER the world paint for the reason
+    // the comment above gives about glass: these re-decide colours the blocks
+    // above set (a hover tint over `--card`, a focus ring in `--primary`), and
+    // source order is what makes them win. `motionCss` is first of the four
+    // because the other three animate through the duration it names.
+    motionCss(theme.motion) +
+    hoverCss(theme) +
+    focusCss(theme) +
+    revealCss(theme);
 }
 
 /** What the model may choose from — an enum, so an invalid theme is impossible. */
