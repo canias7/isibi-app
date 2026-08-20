@@ -346,6 +346,25 @@ test("HOVER IS GUARDED FOR TOUCH, where :hover STICKS after a tap", () => {
   }
 });
 
+test("LIFT MOVES ONLY WHAT SHOULD MOVE — not the inputs, not the badges", () => {
+  // The source says exactly this and nothing held it: a mutation replacing the
+  // lift's own list with the full interactive set survived the entire suite.
+  // A raised input box reads as a fault rather than as an answer, and a badge
+  // is a label rather than something you press — and every OTHER assertion
+  // about `lift` passes either way, because they are about the pseudo-class
+  // reaching each member rather than about which members there are.
+  const rule = cssFor({ hover: "lift" }).split("\n").find((l) => /translateY/.test(l));
+  assert.ok(rule, "lift emits no transform at all");
+  for (const t of ["input", "badge"]) {
+    assert.equal(rule.includes(T.STYLE_TARGETS[t].sel), false,
+      `lift raises the ${t}s: ${rule.trim().slice(0, 120)}`);
+  }
+  // …and it really does still reach the two that SHOULD move, or the check
+  // above passes just as well against a lift that raises nothing.
+  assert.ok(rule.includes(T.STYLE_TARGETS.card.sel), "lift no longer raises the cards");
+  assert.match(rule, /\[data-slot="button"\]:hover/, "lift no longer raises the buttons");
+});
+
 test("FOCUS HAS NO 'none', because it is an accessibility decision", () => {
   assert.equal(optionsFor("focus").includes("none"), false, "the focus indicator can be switched off");
   // …and it is `:focus-visible`, or a mouse click leaves a ring behind it.
