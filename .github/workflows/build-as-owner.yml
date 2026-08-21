@@ -67,7 +67,15 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           OWNER_EMAIL: aniascristian@gmail.com
           OWNER_BASE_URL: https://gofarther.dev
-          OWNER_BRIEF: "A platform for event hosts and vendors. Hosts list their events — weddings, birthday parties, corporate dos — and people browse vendors for hire: photographers, caterers, DJs, florists, decorators. A visitor can browse the vendors and events without signing in, book a vendor for their event with a booking form, and vendors can sign up to list their services with their rates."
+          # RUN 3 (2026-08-21): the right-to-left trick. The brief is IN ARABIC
+          # on purpose — the site's language is derived from the brief's own
+          # language, so an English brief about Dubai would come out as an
+          # English LTR site and test nothing. RTL shipped 2026-08-19, proven
+          # in the container, NEVER run on a real customer build until this.
+          # A fine-dining halal restaurant: menu (display), booking form
+          # (collect), a photo page (picture-led -> real photographs), prices
+          # in dirhams.
+          OWNER_BRIEF: "مطعم فاخر للمأكولات الحلال في دبي. يقدّم أطباقاً إماراتية وخليجية راقية. يتصفح الزوار قائمة الطعام مع الأسعار بالدرهم الإماراتي دون تسجيل دخول، ويحجزون طاولة عبر نموذج حجز بسيط — الاسم ورقم الهاتف والتاريخ والوقت وعدد الضيوف — ويقرؤون قصة المطعم وموقعه في وسط المدينة. أضيفوا صفحة لصور الأطباق وقاعة المطعم."
         run: node scripts/build-as-owner.mjs
       - uses: actions/upload-artifact@v4
         if: always()
