@@ -21,7 +21,13 @@ import fs from "node:fs";
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://ujrqdmmtcptvimazlhom.supabase.co";
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || "";
-const ANON_KEY = process.env.SUPABASE_ANON_KEY || "";
+// The anon key is the PUBLIC client key — it ships in public/auth.js on
+// every page load, so defaulting it here is reading our own frontend, not
+// weakening anything. The first run died on `secrets.SUPABASE_ANON_KEY`
+// being unset in the repo; the smoke workflow lists the same name, which
+// means its own anon-dependent paths inherit the same hole — recorded, not
+// chased tonight.
+const ANON_KEY = process.env.SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVqcnFkbW10Y3B0dmltYXpsaG9tIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg3ODUyNTUsImV4cCI6MjA5NDM2MTI1NX0.F-af9iC-BWTZN2hQ5cD1Keke8qXARhqPwxOgSHhNLK4";
 const BASE = process.env.OWNER_BASE_URL || "https://gofarther.dev";
 const EMAIL = String(process.env.OWNER_EMAIL || "").trim();
 const BRIEF = process.env.OWNER_BRIEF || "";
