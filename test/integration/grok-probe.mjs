@@ -23,6 +23,7 @@ import { readSchemaTool } from "./schema-tool.mjs";
 import { toXaiRequest, fromXaiResponse, XAI_ENDPOINT } from "../../builder/model-xai.mjs";
 import { BUILD_MODELS } from "../../builder/build-models.mjs";
 import { normalizeSchema } from "../../site-schema.mjs";
+import { normalizeSeeds as normalizeSeeds_ } from "../../builder/site-seeds.mjs";
 import { MODEL_RATES } from "../../builder/publish-pages.mjs";
 
 const KEY = process.env.XAI_API_KEY || "";
@@ -123,14 +124,20 @@ ok(displays.length === 0 || seeded.length === displays.length, "every display ta
 
 // The authored theme and the plan — the two newest required blocks, and the ones
 // most likely to defeat a model that is merely filling in a form.
-// THE DETAIL IS THE WHOLE POINT WHEN THIS FAILS, and the first run proved it:
-// this check went red printing NOTHING, because the detail was conditioned on
-// the very shape being tested. So it said "the colours are wrong" without
-// saying what came back — a failure that cannot name itself, which is the thing
-// this repo records more than any other, arriving in a probe written to
-// diagnose. It dumps whatever `seeds` actually is now.
-ok(input.seeds && /^#[0-9a-fA-F]{6}$/.test(String((input.seeds.light || {}).paper || "")), "seeds carry real hex colours",
-  "got: " + JSON.stringify(input.seeds).slice(0, 240));
+// THROUGH THE REAL `normalizeSeeds`, NEVER A SHAPE RESTATED HERE — and this one
+// is a lesson about the probe rather than about Grok. The first two runs failed
+// it, because I asserted `seeds.light.paper` against a field that is FLAT
+// (`{name, paper, ink, accent, dark?}`). Grok had answered it perfectly both
+// times; the harness was wrong, and it nearly bought a "tolerance fix" to a
+// normaliser that was already correct.
+//
+// A restated shape can disagree with the real one, and when it does the harness
+// reports a failure that is not there — the mirror of a vacuous pass, and just
+// as expensive. So this asks the engine the only question that matters: would
+// we accept this palette and build a site out of it?
+const seedRes = normalizeSeeds_(input.seeds);
+ok(!!seedRes.theme, "the authored palette is one our engine accepts",
+  seedRes.theme ? `"${seedRes.theme.label}"` : seedRes.why + " · got: " + JSON.stringify(input.seeds).slice(0, 200));
 ok(Array.isArray(input.pages) && input.pages.length > 0, "the plan names pages",
   Array.isArray(input.pages) ? input.pages.map((p) => p && p.path).join(" ") : "");
 ok(Array.isArray(input.components) && input.components.length > 0, "the plan names a component manifest",
