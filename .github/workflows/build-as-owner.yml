@@ -1,0 +1,57 @@
+# ONE build as the owner's own account, with a full step log — see
+# scripts/build-as-owner.mjs for what it does and does not do (no password,
+# no teardown of anything).
+#
+# Fires only on a push touching its own two files, so it cannot ride along
+# with ordinary work; each run is a deliberate edit to this file. The commit
+# that lands it carries the repo's skip marker so `build smoke` does not ALSO
+# burn a build on the same push.
+name: build as owner
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-as-owner.yml'
+      - 'scripts/build-as-owner.mjs'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # The deploy for this same push replaces the Worker (~3.5 min). Wait it
+      # out so the build runs against the code that just shipped rather than
+      # racing the rollout — the exact mistake edit-smoke recorded on
+      # 2026-08-12, when 90s of sleep tested a Worker mid-replacement.
+      - name: wait for this push's deploy
+        run: |
+          for i in $(seq 1 40); do
+            state=$(curl -sf "https://api.github.com/repos/${{ github.repository }}/actions/runs?head_sha=${{ github.sha }}&per_page=10" \
+              | node -e 'let s="";process.stdin.on("data",(c)=>s+=c).on("end",()=>{const d=JSON.parse(s);const r=(d.workflow_runs||[]).find((x)=>x.name==="Deploy to Cloudflare");console.log(r?r.status+"/"+r.conclusion:"none");})') || state=err
+            echo "deploy: $state (poll $i)"
+            case "$state" in
+              completed/success) exit 0 ;;
+              completed/*) echo "the deploy failed — building against it proves nothing"; exit 1 ;;
+            esac
+            sleep 15
+          done
+          echo "deploy never finished in 10 minutes"; exit 1
+      - name: build as the owner
+        env:
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          OWNER_EMAIL: aniascristian@gmail.com
+          OWNER_BASE_URL: https://gofarther.dev
+          OWNER_BRIEF: "A platform for event hosts and vendors. Hosts list their events — weddings, birthday parties, corporate dos — and people browse vendors for hire: photographers, caterers, DJs, florists, decorators. A visitor can browse the vendors and events without signing in, book a vendor for their event with a booking form, and vendors can sign up to list their services with their rates."
+        run: node scripts/build-as-owner.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: build-as-owner-log
+          path: build-as-owner-log.md
+          if-no-files-found: ignore
