@@ -104,6 +104,12 @@ jobs:
           # claimed name would test the edit path when what is wanted is a first
           # build.
           #
+          # FIRED against a tree measured green at 3718 passing / 0 failing,
+          # with `site build` (the real container), `neon e2e` (a real Postgres)
+          # and the Cloudflare deploy all green on the merged commit. What this
+          # run adds is the one thing none of those can: a real customer build,
+          # end to end, through the rebuilt sandbox.
+          #
           # THE BRIEF IS RUN 3's, VERBATIM, and that is the point. It died at
           # 286s and again at 301s, which is exactly the cluster `limits.cpu_ms`
           # has since been raised for. Changing a single word would make a
