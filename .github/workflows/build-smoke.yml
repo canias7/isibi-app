@@ -141,6 +141,24 @@ jobs:
           # fallback would invent a credential rather than prevent a failure.
           SMOKE_EMAIL: ${{ secrets.SMOKE_EMAIL }}
           SMOKE_PASSWORD: ${{ secrets.SMOKE_PASSWORD }}
+          #
+          # ── A ONE-OFF MARKETPLACE RUN (owner's call, 2026-08-21) ──────────
+          # The first live build since the look store was fixed — the run that
+          # answers whether the authored plan reaches page generation on the
+          # REAL route for the first time (it never had: `look[PLAN_KEYS]` read
+          # a five-field literal that dropped the plan since the families went).
+          # A two-sided marketplace is also the shape that produced the worst
+          # recorded schema failure — every listing private, no page to write —
+          # so the browsable-read fixes are on trial too.
+          #
+          # REVERT ALL THREE WHEN THE QUESTION IS ANSWERED. A kept site is a
+          # live Neon project against a capped-per-account limit, and the checks
+          # below were calibrated against the default trade brief, so a
+          # marketplace will fail some of them HONESTLY. Read the failures
+          # before believing them.
+          SMOKE_BRIEF: "A platform for event hosts and vendors. Hosts list their events — weddings, birthday parties, corporate dos — and people browse vendors for hire: photographers, caterers, DJs, florists, decorators. A visitor can browse the vendors and events without signing in, book a vendor for their event with a booking form, and vendors can sign up to list their services with their rates."
+          SMOKE_KEEP_SITE: "1"
+          SMOKE_SKIP_JOURNEY: "1"
         run: node test/integration/build-smoke.mjs
 
       # What the site actually looked like to a visitor, kept whether or not the
