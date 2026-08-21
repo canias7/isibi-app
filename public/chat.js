@@ -2427,6 +2427,7 @@ function toggleDirMenu(e) {
 const BUILD_PICKERS = {
   sonnet: { label: 'Sonnet 5', desc: 'Fast, and what most sites want' },
   opus:   { label: 'Opus 5',   desc: 'Most capable — slower, and costs about 1.7×' },
+  grok:   { label: 'Grok 4.6', desc: 'About half the price — newest here, less proven' },
 };
 const BUILD_PICKER_KEY = 'zephyr_build_picker_v1';
 // `auto` is still in some browsers' localStorage from the hours it existed, so
@@ -2438,7 +2439,7 @@ function buildPickerHTML() {
   return '<span class="st-buildsel-wrap">' +
     '<button type="button" class="st-buildsel" id="stBuildSel" title="Which model builds the site">Builder: <b id="stBuildLabel">' + BUILD_PICKERS[buildPicker].label + '</b> ▾</button>' +
     '<div class="model-menu drop-up build-menu" id="stBuildMenu">' +
-      ['sonnet', 'opus'].map((k) => { const m = BUILD_PICKERS[k]; return '<div class="model-item build-item' + (k === buildPicker ? ' selected' : '') + '" data-pick="' + k + '"><span class="txt"><b>' + m.label + '</b><small>' + m.desc + '</small></span><span class="check">✓</span></div>'; }).join('') +
+      Object.keys(BUILD_PICKERS).map((k) => { const m = BUILD_PICKERS[k]; return '<div class="model-item build-item' + (k === buildPicker ? ' selected' : '') + '" data-pick="' + k + '"><span class="txt"><b>' + m.label + '</b><small>' + m.desc + '</small></span><span class="check">✓</span></div>'; }).join('') +
     '</div></span>';
 }
 function setBuildPicker(p) {

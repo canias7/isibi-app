@@ -20,9 +20,24 @@
 // Research (the web-search step) deliberately does NOT follow the picker — see
 // the note at its call site in worker.js.
 
+// GROK IS A THIRD OPTION AND NOT THE DEFAULT (owner's call, 2026-08-21), and
+// that split is the whole safety of the change. It is a DIFFERENT PROVIDER —
+// OpenAI-shaped, translated at the boundary by `model-xai.mjs` — and the entire
+// pipeline rests on a forced tool call returning a well-formed object against a
+// 23-field schema. Whether Grok holds up there is unknown until it has run, and
+// making it the default before then would break every build on the platform at
+// once rather than the one somebody deliberately picked.
+//
+// Why it is worth trying: output is ~92% of a build's cost and Grok 4.6 is
+// $6/M against Sonnet's $15/M, so a build prices at roughly half. Measured
+// against GatherHire's real token counts: cold ~34 credits of model spend
+// against ~71, warm ~24 against ~50.
+//
+// Flipping DEFAULT_PICKER is one line once a build has been watched end to end.
 export const BUILD_MODELS = {
   sonnet: { design: "claude-sonnet-5", pages: "claude-sonnet-5" },
   opus: { design: "claude-opus-5", pages: "claude-opus-5" },
+  grok: { design: "grok-4.6", pages: "grok-4.6" },
 };
 
 // What a request that says nothing gets — and what the composer defaults to, so

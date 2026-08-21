@@ -1098,7 +1098,12 @@ test("every model priced is a model a build can actually send, and back", () => 
   // The other direction is looser on purpose — the ask router's Haiku is priced
   // here and is not a picker choice — but every rate row must be a real model id
   // rather than a leftover, and the default must be one of them.
-  for (const m of Object.keys(MODEL_RATES)) assert.match(m, /^claude-[a-z0-9-]+$/, m);
+  // TWO PROVIDERS SINCE 2026-08-21, and the dot matters: `grok-4.6` carries one
+  // where every Anthropic id does not, so the old `[a-z0-9-]` class refused a
+  // perfectly real model. Kept as a shape check rather than widened to
+  // anything-goes — its job is catching a leftover row, and a row naming a
+  // provider we do not call is exactly that.
+  for (const m of Object.keys(MODEL_RATES)) assert.match(m, /^(claude|grok)-[a-z0-9.-]+$/, m);
   assert.ok(Object.hasOwn(MODEL_RATES, DEFAULT_RATE_MODEL), "the default rate names no row");
   assert.equal(RATES, MODEL_RATES[DEFAULT_RATE_MODEL], "RATES must stay the default column");
 });

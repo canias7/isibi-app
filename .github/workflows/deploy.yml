@@ -67,9 +67,22 @@ jobs:
             CLOUDFLARE_API_TOKEN
             CLOUDFLARE_ACCOUNT_ID
             DOMAIN_CONNECT_KEY
+            XAI_API_KEY
         env:
           FAL_KEY: ${{ secrets.FAL_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # OPTIONAL, SO IT CARRIES A FALLBACK — the rule test/deploy-secrets.test.mjs
+          # enforces, and the one that took three consecutive deploys down on
+          # 2026-08-07: wrangler-action fails the WHOLE run with "Value for secret X
+          # not found in environment" when a name in its `secrets:` list has an empty
+          # value, and the error names a feature the change never touched.
+          #
+          # The fallback cannot be a working key, so `grok` simply fails at the
+          # provider with a named 401 rather than a mystery. The cost of the trick,
+          # stated: the deploy log prints `XAI_API_KEY: ***` either way, so a masked
+          # value here no longer proves the secret has been set — the proof is a
+          # `grok` build that gets past the key check.
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY || 'not-a-key' }}
           # Website Builder engine (Gemini = design pass; Opus = architecture).
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}

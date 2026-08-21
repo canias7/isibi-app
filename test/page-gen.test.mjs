@@ -1034,12 +1034,18 @@ test("the Worker and the eval issue the SAME generation request", () => {
   // Builder picker needed — the usage has to be stamped with the model that was
   // actually sent). What must not happen is building one request and posting a
   // different one, so the const form is followed through to the stringify.
+  // A THIRD SHAPE SINCE 2026-08-21: the request is handed WHOLE to
+  // `callBuilderModel`, which decides the provider and does the stringify. That
+  // is at least as strong as posting it here — the object cannot be swapped on
+  // the way — so the invariant is unchanged and only the spelling of "sent"
+  // moved. Both forms are accepted, still followed through by VARIABLE NAME.
   const held = gen.match(/const\s+(\w+)\s*=\s*pagesRequest\(/);
   if (held) {
-    assert.ok(gen.includes("JSON.stringify(" + held[1] + ")"),
-      "generateSitePages builds a request with pagesRequest and then posts something else");
+    const sent = gen.includes("JSON.stringify(" + held[1] + ")") ||
+      new RegExp("callBuilderModel\\(env,\\s*" + held[1] + "\\)").test(gen);
+    assert.ok(sent, "generateSitePages builds a request with pagesRequest and then sends something else");
   } else {
-    assert.match(gen, /JSON\.stringify\(pagesRequest\(/, "generateSitePages must use pagesRequest");
+    assert.match(gen, /(JSON\.stringify|callBuilderModel\(env,\s*)\(?pagesRequest\(/, "generateSitePages must use pagesRequest");
   }
   assert.ok(!/model:\s*"claude-/.test(gen), "the model must come from pagesRequest, not be restated here");
   assert.ok(!/tool_choice/.test(gen), "the tool choice must come from pagesRequest");

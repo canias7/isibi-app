@@ -338,10 +338,19 @@ test("the composer offers exactly the pickers that exist, and no more", () => {
   // to the default, so the customer picks Opus-plans-Sonnet-builds and silently
   // gets Sonnet — a control lying about what it does, which is the exact state
   // this whole feature was fixing.
+  // THE RENDERED LIST IS NOW DERIVED FROM `BUILD_PICKERS` (2026-08-21), which
+  // is strictly better than the hand-written array this used to read: a fourth
+  // picker added to the map renders without anybody remembering the loop. So
+  // the drift that remains — and what this now checks — is between that MAP and
+  // the server's own. Asserted that the menu really is derived, or a later edit
+  // could hardcode a list again and this guard would be measuring the map while
+  // the screen showed something else.
   const declared = Object.keys(BUILD_MODELS).sort();
-  const listed = (chat.match(/\[((?:'\w+',?\s*)+)\]\.map\(\(k\) => \{ const m = BUILD_PICKERS/) || [])[1];
-  assert.ok(listed, "the picker menu no longer renders from a list; this guard checks nothing");
-  const offered = listed.split(",").map((s) => s.trim().replace(/'/g, "")).filter(Boolean).sort();
+  assert.match(chat, /Object\.keys\(BUILD_PICKERS\)\.map\(\(k\) => \{ const m = BUILD_PICKERS/,
+    "the picker menu no longer renders from BUILD_PICKERS; this guard would check the wrong thing");
+  const block = chat.slice(chat.indexOf("const BUILD_PICKERS = {"), chat.indexOf("const BUILD_PICKER_KEY"));
+  assert.ok(block.length > 50, "could not read BUILD_PICKERS — this guard would be vacuous");
+  const offered = [...block.matchAll(/^\s*(\w+):\s*\{\s*label:/gm)].map((m) => m[1]).sort();
   assert.deepEqual(offered, declared,
     "the composer offers " + offered.join("/") + " and the server knows " + declared.join("/"));
 

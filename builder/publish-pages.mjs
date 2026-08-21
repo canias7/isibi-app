@@ -48,6 +48,18 @@ export const MODEL_RATES = {
   "claude-opus-5": { in: 5e-6, out: 25e-6, cacheRead: 0.50e-6, cacheWrite: 6.25e-6 },
   "claude-sonnet-5": { in: 3e-6, out: 15e-6, cacheRead: 0.30e-6, cacheWrite: 3.75e-6 },
   "claude-haiku-4-5": { in: 1e-6, out: 5e-6, cacheRead: 0.10e-6, cacheWrite: 1.25e-6 },
+  // xAI, priced from their published rates 2026-08-21: $2/M in, $6/M out,
+  // $0.50/M cached in. `cacheWrite` MATCHES `in` because there is no write
+  // surcharge — a cached prefix is written at the ordinary input rate — and
+  // `fromXaiResponse` therefore reports 0 cacheWrite tokens and leaves them
+  // inside `in`, where that rate already prices them. The column is filled
+  // rather than left out so a future response that DID report writes is priced
+  // honestly instead of falling to the dearest-known row.
+  //
+  // NOT the long-context tier: over 200K tokens xAI bills the whole request at
+  // $4/$12, and the biggest call here carries ~52K. Adding a second row for a
+  // ceiling nothing approaches would be a rate that can only ever be wrong.
+  "grok-4.6": { in: 2e-6, out: 6e-6, cacheRead: 0.50e-6, cacheWrite: 2e-6 },
 };
 
 // What a usage object that names no model is priced at. NOT a fallback: it is a

@@ -78,6 +78,7 @@ import { takeOffline, putBackOnline } from "./site-live.mjs";
 import { readLinkedPages, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, attachments, MAX_QUERIES } from "./builder/site-context.mjs";
 import { routeMessage, clarifiedBrief } from "./builder/site-ask.mjs";
 import { modelsFor } from "./builder/build-models.mjs";
+import { isXaiModel, toXaiRequest, fromXaiResponse, XAI_ENDPOINT } from "./builder/model-xai.mjs";
 import { verifyStripeSignature, mintFromEvent } from "./stripe-webhook.mjs";
 import { selectPurchase, checkoutForm, LIVE_SUBSCRIPTION_STATUSES, falRequestId, refundVerdict, refundOnResultStatus } from "./billing.mjs";
 import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis, eoqCalc, breakevenCalc, demandForecast, installmentPlan, taxCalc, commissionCalc } from "./worker-finance.mjs";
@@ -4312,6 +4313,64 @@ const SITE_SCHEMA_MAX_TOKENS = 16000;
  * work, and 700 max_tokens on Haiku that has not answered in 20 seconds is not
  * going to.
  */
+/**
+ * Send a builder request, to whichever provider its model belongs to.
+ *
+ * ONE PLACE THE PROVIDER IS DECIDED, and that is the point. The design call and
+ * the pages call each had their own `fetch` with their own headers, and adding a
+ * second provider to both would be two copies of the routing — which is how one
+ * of them ends up still talking to Anthropic with a Grok model id and 400s on a
+ * path nobody drove. Both call sites now hand their request here and read the
+ * same Anthropic-shaped answer back.
+ *
+ * NO TIMEOUT, preserved from both call sites (owner's call 2026-08-04): the
+ * tokens are generated and billed whether or not we are still listening, so
+ * cutting the connection means paying in full and handing the customer a
+ * failure.
+ *
+ * A MISSING KEY IS NAMED. Without this, an unset XAI_API_KEY sends `undefined`
+ * as a bearer token and comes back a 401 that reads exactly like a bad key —
+ * and the one thing an operator needs to know is which of the two it is.
+ */
+async function callBuilderModel(env, req) {
+  if (isXaiModel(req.model)) {
+    if (!env.XAI_API_KEY) {
+      const e = new Error("XAI_API_KEY is not set on the Worker");
+      e.status = 503;
+      throw e;
+    }
+    const { body, droppedDocs } = toXaiRequest(req);
+    const r = await fetch(XAI_ENDPOINT, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${env.XAI_API_KEY}`, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+      const e = new Error("xai " + r.status);
+      e.status = r.status;
+      e.detail = (await r.text().catch(() => "")).slice(0, 300);
+      throw e;
+    }
+    const out = fromXaiResponse(await r.json());
+    // Reported rather than swallowed: a PDF cannot cross into the chat shape, so
+    // a customer whose attached price list was ignored has a reason for it.
+    if (droppedDocs) console.error("xai: dropped", droppedDocs, "document attachment(s) — no chat-shape equivalent");
+    return out;
+  }
+  const r = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+    body: JSON.stringify(req),
+  });
+  if (!r.ok) {
+    const e = new Error("anthropic " + r.status);
+    e.status = r.status;
+    e.detail = (await r.text().catch(() => "")).slice(0, 300);
+    throw e;
+  }
+  return r.json();
+}
+
 async function anthropicMessages(env, body) {
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -4400,33 +4459,24 @@ async function designSiteSchema(env, brief, model = modelsFor().design, current 
   // Emptied on an edit, and only on an edit. `required` is a static part of the
   // tool, so this is the one place it can vary per call.
   if (current) req.tools = [{ ...req.tools[0], input_schema: { ...SITE_SCHEMA_TOOL.input_schema, required: EDIT_REQUIRED } }];
-  const r = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-    body: JSON.stringify(req),
-    // NO TIMEOUT ON EITHER BUILDER CALL (owner's call, 2026-08-04). A timeout
-    // here does not save anything: the tokens are generated and billed to us
-    // whether or not we are still listening, so cutting the connection means
-    // paying in full and handing the customer a failure. The schema call was
-    // 60s and the page call 240s against a 24,000-token ceiling, which a large
-    // generation goes straight past — so the cap was most likely to fire on
-    // exactly the elaborate site somebody most wanted.
-    //
-    // "No timeout" means the platform's, not none: Cloudflare still bounds the
-    // request, and a genuinely hung upstream ends there rather than hanging on
-    // forever. What changes is that a SLOW answer is now allowed to finish.
-  });
-  if (!r.ok) {
-    const e = new Error("anthropic " + r.status);
-    // Carried so the caller can say WHICH failure this was. The builder's main
-    // path has now gone down twice behind one unchanging "the designer is busy",
-    // and both times the only way to tell a transient overload from a request we
-    // are getting wrong was to read Cloudflare's logs.
-    e.status = r.status;
-    e.detail = (await r.text().catch(() => "")).slice(0, 300);
-    throw e;
-  }
-  const j = await r.json();
+  // Provider decided in ONE place — see callBuilderModel, which also carries the
+  // status and detail onto the error so the caller can say WHICH failure this
+  // was. The builder's main path has gone down twice behind one unchanging "the
+  // designer is busy", and both times telling a transient overload from a
+  // request we are getting wrong meant reading Cloudflare's logs.
+  //
+  // NO TIMEOUT ON EITHER BUILDER CALL (owner's call, 2026-08-04). A timeout here
+  // does not save anything: the tokens are generated and billed to us whether or
+  // not we are still listening, so cutting the connection means paying in full
+  // and handing the customer a failure. The schema call was 60s and the page
+  // call 240s against a 24,000-token ceiling, which a large generation goes
+  // straight past — so the cap was most likely to fire on exactly the elaborate
+  // site somebody most wanted.
+  //
+  // "No timeout" means the platform's, not none: Cloudflare still bounds the
+  // request, and a genuinely hung upstream ends there rather than hanging on
+  // forever. What changes is that a SLOW answer is now allowed to finish.
+  const j = await callBuilderModel(env, req);
   // A tool_use block cut off at max_tokens carries half-written JSON, so `input`
   // is a partial schema — usually missing `seed`, sometimes missing `tables`
   // entirely. Returning it silently made the caller answer "that brief didn't
@@ -4722,20 +4772,12 @@ async function generateSitePages(env, brief, spec, brand, attachments, model, pr
   // one production runs. Held in a const so the usage below can be stamped with
   // the model that was actually sent.
   const req = pagesRequest({ brief, spec, brand, attachments, model, priorPages, mode, target });
-  const r = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-    body: JSON.stringify(req),
-    // No timeout — see designSiteSchema. This is the call it mattered most for:
-    // three pages against a 24,000-token ceiling is the one that runs long.
-  });
-  if (!r.ok) {
-    const e = new Error("anthropic " + r.status);
-    e.status = r.status;
-    e.detail = (await r.text().catch(() => "")).slice(0, 300);
-    throw e;
-  }
-  const j = await r.json();
+  // Provider decided in ONE place — see callBuilderModel. It answers in
+  // Anthropic's shape whichever one served it, so every line below this is
+  // unchanged and cannot tell the difference. No timeout, for the reason stated
+  // there: this is the call it mattered most for, since three pages against a
+  // 24,000-token ceiling is the one that runs long.
+  const j = await callBuilderModel(env, req);
   const usage = j.usage || {};
   // CACHED TOKENS ARE REPORTED SEPARATELY AND WERE NOT BEING COUNTED. The
   // Anthropic API excludes cache hits from `input_tokens` and returns them as
