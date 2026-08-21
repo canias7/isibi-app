@@ -78,7 +78,7 @@ import { takeOffline, putBackOnline } from "./site-live.mjs";
 import { readLinkedPages, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, attachments, MAX_QUERIES } from "./builder/site-context.mjs";
 import { routeMessage, clarifiedBrief } from "./builder/site-ask.mjs";
 import { modelsFor } from "./builder/build-models.mjs";
-import { isXaiModel, toXaiRequest, fromXaiResponse, XAI_ENDPOINT } from "./builder/model-xai.mjs";
+import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, XAI_ENDPOINT } from "./builder/model-xai.mjs";
 import { verifyStripeSignature, mintFromEvent } from "./stripe-webhook.mjs";
 import { selectPurchase, checkoutForm, LIVE_SUBSCRIPTION_STATUSES, falRequestId, refundVerdict, refundOnResultStatus } from "./billing.mjs";
 import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis, eoqCalc, breakevenCalc, demandForecast, installmentPlan, taxCalc, commissionCalc } from "./worker-finance.mjs";
@@ -6845,8 +6845,35 @@ function confirmFields(wput) {
 async function putSiteWorker(env, slug, worker) {
   // The container returns `{ok, why, code}` and packages only when asked, so
   // "no worker" is the ordinary answer on every path that did not request one.
+  //
+  // A PACKAGING FAILURE IS NOT THAT ANSWER, and returning `null` for it made
+  // three different outcomes indistinguishable to every caller: nothing was
+  // asked for, the packaging FAILED with a real reason, and there are no
+  // dispatch credentials. Both call sites gate their response field on this
+  // being truthy, so all three produced a response with no `worker` key at all
+  // beside `ok:true`, `page:"app"` and a url — and the response comment said
+  // the absence meant "there was nothing to say".
+  //
+  // THAT WAS TRUE BEFORE START AND IS NOT NOW. When a published site was
+  // prerendered documents plus a bundle, no script meant no script. Under Start
+  // the script is the only thing that renders a document, so "no script
+  // packaged" is a site with NO PAGE AT ANY ADDRESS — and the customer was
+  // charged, told "✅ Built", and handed a link to it. `readSiteWorker` returns
+  // a real `why` for the reachable case ("the server bundle is N bytes — its
+  // dependencies were externalised and it cannot run in a Worker"), and that
+  // one string went to a Cloudflare log the owner cannot read: the sixth
+  // recorded instance of a failure that cannot name itself.
+  //
+  // SHAPED AS AN UPLOAD FAILURE so both existing failure branches carry it with
+  // no new wiring — `status: 0` is what an upload that never happened has. Its
+  // own `stage` keeps the two apart, because they need opposite actions: `pack`
+  // is our container shipping something that cannot run, `upload` is a token
+  // scope or an entitlement.
   if (!worker || worker.ok !== true || !worker.code) {
-    if (worker && worker.ok === false) console.error("site worker packaging failed:", slug, worker.why);
+    if (worker && worker.ok === false) {
+      console.error("site worker packaging failed:", slug, worker.why);
+      return { ok: false, stage: "pack", status: 0, error: String(worker.why || "the script could not be packaged") };
+    }
     return null;
   }
   const creds = dispatchCreds(env);
@@ -7502,6 +7529,25 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
           // put a dark site back into light. Absent means light.
           mode: (look && look.mode) || null,
           logo,
+          // THE TAB ICON, for the same reason as `logo` one line up — and it
+          // was read here and never put on the wire.
+          //
+          // The container writes the mark on EVERY build (it must: otherwise
+          // one site's icon leaks into the next), so a publish path that does
+          // not send the stored value sends `undefined`, `siteIconFrom` answers
+          // null, and the site falls back to its drawn initials. That is the
+          // argument the read at 7375 already makes in as many words — the
+          // payload it was written for just never carried the field.
+          //
+          // WHICH KILLED THE ICON LANE ON ITS OWN LANE. `runLogoEdit` saves the
+          // icon and then publishes through THIS spine, so the owner uploaded a
+          // favicon, was told it was saved, and got the initials back. It
+          // appeared only by accident on a later full revise (`buildAndPublish`
+          // sends `icon` one line after `logo`, so the pair was updated on one
+          // path of two) and the next cheap edit removed it again — a favicon
+          // flipping between the owner's artwork and a drawn mark depending on
+          // which lane published last.
+          icon: icon || "",
           fonts: { heading: pair.heading.id, body: pair.body.id },
           seeds: (look && look.seeds) || null,
           tokens: Object.keys(tokens || {}).length ? withContrast(tokens) : undefined,
@@ -7615,7 +7661,14 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
     // and the field's PRESENCE is the alarm. The build response uses the same
     // shape and the same rule.
     worker: wput && wput.ok === false
-      ? { uploaded: false, status: wput.status, error: String(wput.error || "").slice(0, 200) }
+      ? { uploaded: false, status: wput.status, error: String(wput.error || "").slice(0, 200),
+          // See the build path's twin: `pack` is our container shipping a
+          // bundle that cannot run, `upload` is Cloudflare refusing one. On
+          // THIS lane the distinction matters more, because the standing script
+          // keeps serving on the sweep's one-publish grace and the site goes
+          // blank on the NEXT publish — with nothing connecting it to the edit
+          // that caused it.
+          ...(wput.stage === "pack" ? { stage: "pack" } : {}) }
       : wput && wput.ok && confirmFields(wput).confirmMs !== undefined
         ? { uploaded: true, ...confirmFields(wput) }
         : undefined };
@@ -7703,8 +7756,26 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
   // stub. `priorPages` is the stored source of the LAST successful publish and
   // is already loaded here for the image budget and for the edit prompt, so
   // this costs no read; a first build has none and behaves exactly as before.
-  const livePages = (Array.isArray(priorPages) ? priorPages : [])
-    .map((p) => p && p.path).filter((x) => typeof x === "string");
+  //
+  // AND "WE COULD NOT TELL" IS PASSED THROUGH AS UNKNOWN, never flattened into
+  // an empty list. `salvagePlan` refuses to stub anything when it was not told
+  // what is live — that refusal is what keeps salvage from being a regression
+  // on every site that already exists — and `Array.isArray(x) ? x : []`
+  // defeated it at the call site: an unreadable prior source arrived as an
+  // explicit `[]`, which does not mean "unknown", it means "nothing is live".
+  // Every working page then went into `stub`, published over the customer's
+  // live menu, and was charged for. The guard watching the layer below the
+  // break, one call site above the module written to hold it.
+  //
+  // A FIRST BUILD SAYS `[]` EXPLICITLY and costs nothing by it: there is
+  // genuinely nothing published, so stubbing a page that failed is strictly
+  // better than losing the whole site. Only a REVISE that could not read its
+  // own stored source is unknown — and `hasBoughtPhotos` already reads that
+  // exact null as "unknown → spend nothing", so this makes the two consumers
+  // of one value agree instead of disagreeing about what null means.
+  const livePages = Array.isArray(priorPages)
+    ? priorPages.map((p) => p && p.path).filter((x) => typeof x === "string")
+    : (revise ? undefined : []);
   const out = await publishPages({
     // Throws on failure, and the route logs it. There is no second attempt to
     // swallow one, so nothing needs logging here.
@@ -7981,7 +8052,12 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
   if (workerUpload) {
     out.worker = workerUpload.ok
       ? { uploaded: true, ...confirmFields(workerUpload) }
-      : { uploaded: false, status: workerUpload.status, error: String(workerUpload.error || "").slice(0, 200) };
+      // `stage` SEPARATES OUR CONTAINER FROM CLOUDFLARE. `pack` means the SSR
+      // bundle came back unusable and nothing was ever sent; `upload` means it
+      // was sent and refused. Only carried when it is `pack`, so an ordinary
+      // upload failure's shape is unchanged.
+      : { uploaded: false, status: workerUpload.status, error: String(workerUpload.error || "").slice(0, 200),
+          ...(workerUpload.stage === "pack" ? { stage: "pack" } : {}) };
   }
   return out;
 }
@@ -11434,24 +11510,43 @@ async function handleRequest(request, env, ctx) {
       // whatever arrived, up to the plan limit, inside a 128MB isolate whose
       // other occupants are other customers' requests. Legitimate build
       // payloads top out ~12MB (three images and a PDF); 24MB is double that.
-      { const tlB = tooLargeBody(request, 24_000_000); if (tlB) return tlB; }
+      // THE CAP IS MEASURED NOW, NOT DECLARED. `tooLargeBody` reads
+      // `content-length` and NOTHING ELSE, and that header is written by the
+      // caller: absent yields 0, non-numeric yields NaN, and `NaN > max` is
+      // false — so all three walked straight past it and the body was buffered
+      // and JSON-parsed anyway, up to the plan limit, inside a 128MB isolate
+      // shared with other customers' requests. The comment that stood here
+      // claimed the opposite ("CAPPED BEFORE BUFFERING") on the priciest route
+      // on the platform, which is the shape this file has litigated most: a
+      // guard whose own description is the reason nobody re-reads it.
+      //
+      // `readJsonBody` is the control request-limits.mjs says supersedes it for
+      // JSON routes — it measures the REAL byte count after arrival (encoded
+      // bytes, not `.length`, or a caller sends three times the limit in emoji)
+      // and it does the parse and the object-shape check in the same place. It
+      // was already imported here and already used one route over; this one was
+      // the exception.
+      const rb = await readJsonBody(request, { max: 24_000_000 });
+      if (!rb.ok) {
+        // The three refusals kept their own wording, because they are not one
+        // failure: too big, unreadable, and not-an-object send the caller in
+        // three different directions and this route already made that argument
+        // for its own hand-rolled version.
+        return Response.json({ ok: false, error: rb.code === "too_big" ? "body too large" : rb.error }, { status: rb.status });
+      }
       tr.at("auth");
-      // A BROKEN BODY IS ITS OWN ANSWER, not "no brief". This was
-      // `.catch(() => ({}))`, so invalid JSON became an empty object and then
-      // failed a thousand lines later as `no brief` — a failure wearing another
-      // failure's message, which is the defect class this file has litigated
-      // more than any other. An integrator with a trailing comma was told the
-      // one field they had definitely sent was missing.
+      // A BROKEN BODY IS ITS OWN ANSWER, not "no brief", and `readJsonBody`
+      // makes that so rather than a hand-rolled parse doing it here. This route
+      // used `.catch(() => ({}))`, so invalid JSON became an empty object and
+      // then failed a thousand lines later as `no brief` — a failure wearing
+      // another failure's message, which is the defect class this file has
+      // litigated more than any other. An integrator with a trailing comma was
+      // told the one field they had definitely sent was missing.
       //
       // The shape check is the same refusal for the same reason: `null` and `[]`
       // are both valid JSON and neither has a `.brief`, and reading through one
       // of them is a TypeError rather than a 400.
-      let body;
-      try { body = await request.json(); }
-      catch { return Response.json({ ok: false, error: "body is not valid JSON" }, { status: 400 }); }
-      if (!body || typeof body !== "object" || Array.isArray(body)) {
-        return Response.json({ ok: false, error: "body must be a JSON object" }, { status: 400 });
-      }
+      const body = rb.body;
       tr.at("body");
       // ONE READING OF "WHICH SITE IS THIS", and there were two. `editSlug`
       // below was trimmed and lowercased; the claim further down was ALSO
@@ -11489,6 +11584,47 @@ async function handleRequest(request, env, ctx) {
       // Safe to add rather than a rename: `site_backends` was measured with no
       // edge-hyphen slug in it before this landed, so no live site changes name.
       const cleanSlug = (v) => (typeof v === "string" ? v : "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 60).replace(/^-+|-+$/g, "");
+
+      // ── OWNERSHIP, BEFORE ANY MONEY MOVES ───────────────────────────────
+      //
+      // The ownership check sat ~400 lines below, AFTER `designSiteSchema`,
+      // after the seed top-up, after the deposit settled and after the research
+      // call had been started. On somebody else's slug it answered 409 and
+      // refunded IN FULL — so the caller's ledger moved by nothing while the
+      // model tokens had already been generated and billed to US. Any signed-in
+      // account could spend our model budget without limit by naming a slug it
+      // does not own, in a loop.
+      //
+      // It costs nothing to ask early WHEN THE CALLER NAMED THE SLUG, which is
+      // the only case that can be abused: on a first build the designer invents
+      // the name, so an attacker cannot choose the target and is simply paying
+      // for their own site. `bu` is known and the body is parsed, so this
+      // refuses before a single credit or token is spent, and there is nothing
+      // to refund.
+      //
+      // IT HAS TO SIT BELOW `cleanSlug`, AND THE FIRST DRAFT DID NOT. Placed
+      // above the declaration it reads a `const` in its temporal dead zone —
+      // `node --check` passes, esbuild bundles it, and EVERY revise throws
+      // `Cannot access 'cleanSlug' before initialization` on the one path that
+      // names a slug. The `vidRefN` and `du.id` class, written by the hand
+      // fixing that class, and invisible to the block-scope scanner because
+      // that walks FORWARD from a declaration and this was a read BEHIND one.
+      //
+      // FAILS OPEN, DELIBERATELY, AND THAT IS SAFE HERE. This is a cheap early
+      // refusal, NOT the authority: the late check below still runs, still
+      // fails CLOSED on an unreadable lookup, and is still what protects a
+      // cross-account write. Making this one fail closed would turn a Supabase
+      // blip into a refused build for the rightful owner.
+      {
+        const named = cleanSlug(body.slug);
+        if (named) {
+          const early = await siteBackendRowFresh(env, named).catch(() => null);
+          if (early && early.uid && early.uid !== bu.id) {
+            return Response.json({ ok: false, error: "that name is taken", cost: 0, msg: "That site name is taken by another account. Say a different name in your next message — e.g. \"call it sunset-cuts\" — and I’ll build it under that." }, { status: 409 });
+          }
+        }
+      }
+
       // Revise sends {slug, instruction} for an existing site; build sends
       // {brief}. Re-applying a schema is safe (all its DDL is additive or
       // IF NOT EXISTS), so both take the same path.
@@ -11719,8 +11855,32 @@ async function handleRequest(request, env, ctx) {
               { send: (req) => anthropicMessages(env, req) },
               {
                 brief: briefWithLinks,
-                spec: knownTables.size
-                  ? { ...designed, tables: (designed.tables || []).filter((t) => t && !knownTables.has(String(t.name).toLowerCase())) }
+                // ONLY AN ARRAY IS NARROWED, and the guard is the whole point.
+                //
+                // `designed` is RAW model output, not a normalised spec, and
+                // `tables` is deliberately tolerated in two NON-ARRAY shapes:
+                // a name→definition MAP, and a JSON STRING (measured at ~1
+                // sample in 20 by `schema gen eval`, which is why
+                // `normalizeSchema` parses it back). `.filter` exists on
+                // neither, so calling it here threw `TypeError: … is not a
+                // function` inside the design try — returned as a 503 reading
+                // "The designer is busy", blaming the provider for our own
+                // crash and throwing away a schema `normalizeSchema` would
+                // have recovered perfectly.
+                //
+                // `seedGaps` was taught both shapes ON PURPOSE by the
+                // 2026-08-13 audit, whose own note says the net built to
+                // rescue a build crashed it instead. This narrowing sat one
+                // layer ABOVE that tolerance and re-opened it — the fix
+                // defeated before the module it fixed ever saw the value.
+                //
+                // Not-an-array therefore passes `designed` through untouched:
+                // `seedGaps` recovers the shape and the worst case is the
+                // pre-narrowing behaviour (a Haiku call that buys rows for a
+                // table the seeder then skips). The addon lane has always
+                // guarded exactly this way; only the build lane did not.
+                spec: knownTables.size && Array.isArray(designed.tables)
+                  ? { ...designed, tables: designed.tables.filter((t) => t && !knownTables.has(String(t.name).toLowerCase())) }
                   : designed,
                 seed: designed.seed,
               },
@@ -12428,7 +12588,32 @@ async function handleRequest(request, env, ctx) {
         facts: (researched && researched.facts) || "",
         sources: (researched && researched.sources) || [],
         searches: (researched && researched.searches) || 0,
-        skipped: attached.skipped,
+        // WHAT THE PROVIDER CANNOT TAKE, beside what `attachments()` could not
+        // turn into a block at all. Two different refusals, one list, because
+        // from the customer's side they are one fact: this file did not reach
+        // the model.
+        //
+        // A PDF ON THE GROK PICKER IS THE CASE. `attachments()` accepts it and
+        // puts it in `blocks`, so it is in NEITHER list — and `toXaiRequest`
+        // then drops it at the boundary, because chat/completions has no
+        // document part. The count it returns was read by one `console.error`
+        // and nothing else, while `model-xai.mjs`'s own header said "the caller
+        // can tell them". It could not: this summary is built BEFORE page
+        // generation and is provider-blind, so a drop discovered inside
+        // `callBuilderModel` has nowhere left to go. A café attached its price
+        // list, paid ~24-38 credits, got an invented menu, and every field on
+        // the response said the file was used.
+        //
+        // ANSWERED BEFORE THE CALL, from the blocks and the model, which is why
+        // `xaiSkipped` exists as a separate export rather than a return value —
+        // and it shares `toXaiRequest`'s one sentence, so the pre-call answer
+        // and the post-translation one cannot disagree. Empty on every
+        // non-Grok build, so nothing else changes shape.
+        //
+        // `models.pages` and not `models.design`: both calls drop it, and one
+        // sentence is what the customer needs. `BUILD_MODELS` sends both halves
+        // to the same provider today, so naming either is the same answer.
+        skipped: [...attached.skipped, ...xaiSkipped(attached.blocks, models.pages)],
         converted: attached.converted,
         // A research promise EXISTED means the designer said the pages need
         // current facts — so a zero-search outcome here is a failed lookup the
@@ -12476,9 +12661,25 @@ async function handleRequest(request, env, ctx) {
             revise: existing,
             // THE SITE AS IT STANDS, so a revise EDITS it rather than writing
             // every page again from the brief. Read only on a revise — a first
-            // build has nothing to edit — and best-effort, because losing it
-            // costs the anchor and nothing else.
-            priorPages: priorBrief ? await loadSiteSource(env, slug) : null,
+            // build has nothing to edit.
+            //
+            // OWNERSHIP, NOT THE STORED BRIEF — the same correction the `revise`
+            // field one line up already carries, and the partner gate was never
+            // moved with it. `!!priorBrief` is the right answer for every site
+            // built since that column started being written and the wrong one
+            // for anything older: such a revise read as a first build, skipped
+            // the read entirely, and so lost BOTH things this value protects —
+            // the edit anchor (so the revise rewrites every page's copy from
+            // the brief, the exact bug the source store exists to prevent) and
+            // the live-page set that stops salvage stubbing a working page.
+            //
+            // "Best-effort, because losing it costs the anchor and nothing
+            // else" was the claim here and it was the more expensive half that
+            // was wrong: losing it also costs the salvage guard. It still does
+            // not fail the build — `livePages` turns an unreadable read into
+            // `undefined` rather than `[]`, so salvage refuses instead of
+            // destroying.
+            priorPages: existing ? await loadSiteSource(env, slug) : null,
             // WHAT THE CUSTOMER TYPED THIS TURN, for the Versions list alone.
             // The composed `brief` above is the anchor plus the change plus the
             // linked pages plus the researched facts — thousands of characters,

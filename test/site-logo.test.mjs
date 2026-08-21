@@ -489,6 +489,32 @@ test("the two slots are two _meta keys, and the icon reaches the container from 
   // and sent on both
   assert.match(w, /\n {10}icon: icon \|\| "",/);
   assert.match(w, /\n {12}icon: priorIcon,/);
+  // …AND "BOTH" WAS TWO HOPS OF ONE PATH. This test's own title says both
+  // publish paths and neither assertion above reached the cheap-edit spine:
+  // `icon: icon || ""` matched `buildAndPublishPages` alone, and
+  // `icon: priorIcon` is the route feeding that same function. So the spine —
+  // which is what the icon lane ITSELF publishes through, along with every
+  // text fix, colour change and picture swap — read `site_icon` out of `_meta`
+  // and never put it on the wire, and this guard was green throughout. Vacuous
+  // by scope, on the one path the feature lives on.
+  //
+  // DERIVED FROM `logo`, NOT A LIST OF THE HOPS THERE ARE TODAY. The pair
+  // travels together by construction: same `_meta` read, same `writeSiteBrand`
+  // call, same silent loss when a payload omits one — so "everywhere one goes,
+  // the other goes" is the property, and a fourth hop written tomorrow is
+  // covered without anybody remembering this file.
+  const logoHops = [...w.matchAll(/^(\s*)logo(?:,|: [^,\n]+,)$/gm)];
+  assert.ok(logoHops.length >= 2,
+    "the scan found only " + logoHops.length + " logo hops, so it has stopped scanning");
+  for (const m of logoHops) {
+    // The next few properties, not strictly the next one, and comments skipped
+    // — this repo puts its reasoning between the two lines, which is exactly
+    // how the sibling `lang`/`mode` guard was made to fail on a correct change.
+    const after = w.slice(m.index + m[0].length, m.index + m[0].length + 2000);
+    const props = after.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("//")).slice(0, 4);
+    assert.ok(props.some((l) => /^icon:/.test(l)),
+      "a `logo` hop with no `icon` beside it: " + props.join(" ").slice(0, 90));
+  }
   // ...which needs both SELECTs to ask for it, or the read is of a row that
   // was never fetched and every publish silently drops the icon.
   const selects = [...w.matchAll(/SELECT k, v FROM _meta WHERE k IN \(([^)]*)\)/g)].map((m) => m[1]);

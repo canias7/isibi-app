@@ -799,8 +799,32 @@ test("the route sorts the body through this function", () => {
   assert.match(worker, /const attached = attachments\(body\.images\)/, "the route never sorts body.images");
   assert.match(worker, /attachments: attached\.blocks/, "the blocks never reach page generation");
   assert.match(worker, /files: attached\.texts/, "the attached text never reaches the brief");
-  assert.match(worker, /skipped: attached\.skipped/, "the refusals never reach the response");
+  // ANCHORED ON THE PROPERTY, NOT THE SPELLING. This pinned
+  // `skipped: attached.skipped` verbatim and went red the moment a SECOND
+  // source of refusals was folded in beside it — a test about word order, on a
+  // correct change, which is this repo's most-repeated own-goal. What it is for
+  // is that the refusals reach the summary at all.
+  const skippedLine = worker.match(/^\s*skipped: .*$/m);
+  assert.ok(skippedLine && skippedLine[0].includes("attached.skipped"),
+    "the refusals never reach the response: " + (skippedLine ? skippedLine[0].trim() : "no `skipped:` on the summary"));
   assert.match(worker, /converted: attached\.converted/, "the still-frame note never reaches the response");
+});
+
+test("a provider that cannot take an attachment says so, on the same list", () => {
+  // A PDF ON THE GROK PICKER IS IN NEITHER LIST WITHOUT THIS. `attachments()`
+  // accepts it into `blocks`, so it is not in `attached.skipped`; `toXaiRequest`
+  // then drops it at the boundary, and the count it returns had ONE reader
+  // anywhere — a `console.error` — while `model-xai.mjs`'s own header claimed
+  // "the caller can tell them". The customer paid for a build that ignored
+  // their price list and every field on the response said it was used.
+  //
+  // BOTH ENDS, because either alone passes while the wire is cut: the module
+  // exports the answer (its own tests cover what it says) and the route has to
+  // FOLD IT IN — the layer this repo has lost twelve features in.
+  assert.match(worker, /import \{[^}]*\bxaiSkipped\b[^}]*\} from "\.\/builder\/model-xai\.mjs"/,
+    "xaiSkipped is not imported, so naming it is a ReferenceError on the build path");
+  assert.match(worker, /^\s*skipped: .*xaiSkipped\(attached\.blocks, /m,
+    "the provider's own refusals never reach the summary the customer reads");
 });
 
 test("the client sends every kind, and refuses none of them at the picker", () => {
