@@ -72,9 +72,37 @@ jobs:
           # (`mathaq-alemarat`, `mathaq-dubai`), so neither name can be reused:
           # ownership is what decides `revise`, and re-running one would be read
           # as an edit of an empty husk rather than the first build it never got.
-          OWNER_SLUG: layali-dubai
-          # RUN 7 (2026-08-21): THE ARABIC BRIEF, THIRD ATTEMPT — the experiment
-          # runs 5 and 6 were deliberately NOT.
+          OWNER_SLUG: fold-lane-bakery
+          # RUN 8 (2026-08-21): THE AUDIT FIXES, AGAINST A REAL BUILD.
+          #
+          # 80 findings, 60 confirmed by an independent skeptic, and everything
+          # merged so far is verified by the unit suite (3693), a real Postgres
+          # (`neon e2e`) and the real container (`site build`) — and by NO live
+          # build, because `build smoke` cannot run: the Anthropic account has no
+          # credit, so it refuses at `stage: design` in about a second.
+          #
+          # GROK IS WHAT MAKES THIS RUNNABLE AT ALL. The design and pages calls
+          # go to xAI; the Anthropic-pinned calls (the router, the seed top-up)
+          # fail soft by design — `readRouting`'s unclear-resolves-to-build rule
+          # and `topUpSeed`'s can-never-fail-a-build contract — so an empty
+          # Anthropic balance costs a routing decision and a seed net, not the
+          # build. Runs 6 and 7 both proved that live.
+          #
+          # WHY THIS BRIEF. It is deliberately the ordinary shape rather than the
+          # demanding one, because what is under test is the FIXES, not the wall:
+          #   - a public menu the visitor reads signed out, which is the
+          #     read/write pair whose access `coerceTable` was silently flipping
+          #     to `collect` on a revise — the critical, exercised in the
+          #     direction that publishes a table rather than hides one
+          #   - seeded display rows, so an unseeded menu would show as empty
+          #   - a booking form (a `collect` table), which is the write half of
+          #     the same grid and must stay unreadable to the public
+          #   - enough pages to make the render check and the prerender do real
+          #     work in the rebuilt spawned child — the sandbox critical
+          #
+          # A FRESH SLUG, because ownership is what decides `revise`: reusing a
+          # claimed name would test the edit path when what is wanted is a first
+          # build.
           #
           # THE BRIEF IS RUN 3's, VERBATIM, and that is the point. It died at
           # 286s and again at 301s, which is exactly the cluster `limits.cpu_ms`
@@ -100,7 +128,7 @@ jobs:
           # account is out of credit (measured 2026-08-21: `billing: true` at
           # `stage: design`), so `sonnet` and `opus` refuse in about a second.
           OWNER_PICKER: grok
-          OWNER_BRIEF: "مطعم فاخر للمأكولات الحلال في دبي. يقدّم أطباقاً إماراتية وخليجية راقية. يتصفح الزوار قائمة الطعام مع الأسعار بالدرهم الإماراتي دون تسجيل دخول، ويحجزون طاولة عبر نموذج حجز بسيط — الاسم ورقم الهاتف والتاريخ والوقت وعدد الضيوف — ويقرؤون قصة المطعم وموقعه في وسط المدينة. أضيفوا صفحة لصور الأطباق وقاعة المطعم."
+          OWNER_BRIEF: "A neighbourhood sourdough bakery in Bristol. Visitors browse the daily bake list with prices in pounds without signing in, and order a collection slot through a short form — name, phone, the loaf they want, and a pickup time. There is a page about the starter and how the bread is made, and a page with the opening hours and the address."
         run: node scripts/build-as-owner.mjs
       - uses: actions/upload-artifact@v4
         if: always()
