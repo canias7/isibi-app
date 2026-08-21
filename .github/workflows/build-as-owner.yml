@@ -67,40 +67,40 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           OWNER_EMAIL: aniascristian@gmail.com
           OWNER_BASE_URL: https://gofarther.dev
-          # A FRESH SLUG FOR RUN 6, and this is not tidiness. Run 5 died at the
-          # wall AFTER claiming `bristol-bean` — a dead build still leaves a
-          # claimed slug and a live Neon project behind — and ownership is what
-          # decides `revise`. Re-running the same name would be read as an edit
-          # of an empty husk rather than the first build it never got, which
-          # answers a different question and buys no photographs.
-          OWNER_SLUG: harbourside-roast
-          # RUN 6 (2026-08-21): the same Grok brief, against the raised CPU
-          # ceiling.
+          # A FRESH SLUG AGAIN. Runs 3 and 4 both died at the wall on THIS
+          # brief and each left a claimed slug plus a live Neon project behind
+          # (`mathaq-alemarat`, `mathaq-dubai`), so neither name can be reused:
+          # ownership is what decides `revise`, and re-running one would be read
+          # as an edit of an empty husk rather than the first build it never got.
+          OWNER_SLUG: layali-dubai
+          # RUN 7 (2026-08-21): THE ARABIC BRIEF, THIRD ATTEMPT — the experiment
+          # runs 5 and 6 were deliberately NOT.
           #
-          # WHAT CHANGED SINCE RUN 5 IS ONE SETTING. `wall probe` ruled out
-          # duration outright (a request that only waits returns at 420s) and
-          # memory (192MB held fine), and found that this project had never set
-          # `limits.cpu_ms` — so every build the platform has ever run had 30
-          # seconds of CPU. It is 300 now, and a runaway spin measured 264s
-          # where it would have died at 30, so the ceiling demonstrably moved.
+          # THE BRIEF IS RUN 3's, VERBATIM, and that is the point. It died at
+          # 286s and again at 301s, which is exactly the cluster `limits.cpu_ms`
+          # has since been raised for. Changing a single word would make a
+          # success unattributable — this is the same input against one changed
+          # setting, which is the only shape that can settle it.
           #
-          # NOT PROVEN TO BE THE WALL, though: the burn test was flawed (Workers
-          # freeze `Date.now()` between I/O, so its "50ms slice" never
-          # terminated). The old 30s default FITS the cluster — 272s published,
-          # 286/291/301 died — and a fit is not a measurement. This build is
-          # the measurement.
+          # AND IT IS DELIBERATELY THE DEMANDING ONE. Runs 5 and 6 were cut down
+          # to isolate Grok from the wall; that was right then and it is the
+          # wrong test now. Four-plus pages, a booking form, AED prices and an
+          # explicit gallery page — Arabic also costs more tokens per character,
+          # so page generation runs longer, and run 6 was already 156s of
+          # generation inside a 378s build. If five minutes of CPU has a floor
+          # under real work, this is what finds it.
           #
-          # THE BRIEF STAYS MODEST for the same reason as run 5: Grok's schema
-          # call measured ~88s against Sonnet's ~29s, and page generation is the
-          # longer of the two. A run that dies at a wall answers nothing about
-          # the model, which is the question this build exists to settle.
+          # WHAT IT PROVES BEYOND THE WALL: right-to-left has never run live.
+          # It shipped 2026-08-19 and every claim about it comes from local
+          # renders and unit tests — no customer build has ever carried
+          # `dir="rtl"`, so `normalizeLang` reading `ar` out of a real designer
+          # answer is itself untested end to end.
           #
-          # AND IT IS THE ONLY PICKER THAT CAN BUILD AT ALL TODAY. The Anthropic
+          # GROK BECAUSE IT IS THE ONLY PICKER THAT CAN BUILD. The Anthropic
           # account is out of credit (measured 2026-08-21: `billing: true` at
-          # `stage: design` on every Sonnet call), so `sonnet` and `opus` both
-          # refuse in about a second. Grok runs on xAI.
+          # `stage: design`), so `sonnet` and `opus` refuse in about a second.
           OWNER_PICKER: grok
-          OWNER_BRIEF: "A small independent coffee shop in Bristol. Visitors read the drinks and food menu with prices, see the opening hours and where to find us, and send a message through a short contact form — name, email, message."
+          OWNER_BRIEF: "مطعم فاخر للمأكولات الحلال في دبي. يقدّم أطباقاً إماراتية وخليجية راقية. يتصفح الزوار قائمة الطعام مع الأسعار بالدرهم الإماراتي دون تسجيل دخول، ويحجزون طاولة عبر نموذج حجز بسيط — الاسم ورقم الهاتف والتاريخ والوقت وعدد الضيوف — ويقرؤون قصة المطعم وموقعه في وسط المدينة. أضيفوا صفحة لصور الأطباق وقاعة المطعم."
         run: node scripts/build-as-owner.mjs
       - uses: actions/upload-artifact@v4
         if: always()
