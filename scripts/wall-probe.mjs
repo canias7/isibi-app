@@ -62,7 +62,7 @@ function get(path, token) {
   return new Promise((resolve) => {
     const u = new URL(BASE + path);
     const t0 = Date.now();
-    let bytes = 0, firstByteAt = 0, ticks = 0;
+    let bytes = 0, firstByteAt = 0, ticks = 0, text = "";
     const req = https.request({
       hostname: u.hostname, path: u.pathname + u.search, method: "GET",
       headers: { Authorization: `Bearer ${token}` },
@@ -70,9 +70,21 @@ function get(path, token) {
       res.on("data", (c) => {
         if (!firstByteAt) firstByteAt = Date.now() - t0;
         bytes += c.length;
-        ticks += (c.toString().match(/"tick"/g) || []).length;
+        const s = c.toString();
+        // Bounded: a heartbeat stream is unbounded and only the LAST line is
+        // ever read, so keeping the whole thing would grow without limit for
+        // nothing.
+        text = (text + s).slice(-4096);
+        ticks += (s.match(/"tick"/g) || []).length;
       });
-      res.on("end", () => resolve({ ok: true, status: res.statusCode, ms: Date.now() - t0, bytes, firstByteAt, ticks }));
+      res.on("end", () => {
+        // The final line is the JSON result in every mode, so the fields a mode
+        // reports about ITSELF are readable here. That is what lets a row be
+        // judged on whether it did the work rather than on its status code.
+        let body = null;
+        try { body = JSON.parse(text.trim().split("\n").pop()); } catch { /* not JSON, or truncated */ }
+        resolve({ ok: true, status: res.statusCode, ms: Date.now() - t0, bytes, firstByteAt, ticks, body });
+      });
       res.on("error", (e) => resolve({ ok: false, why: e.code || e.message, ms: Date.now() - t0, firstByteAt, ticks }));
     });
     req.on("error", (e) => resolve({ ok: false, why: e.code || e.message, ms: Date.now() - t0, firstByteAt, ticks }));
@@ -120,21 +132,61 @@ for (const mode of MODES) {
       : `/api/_slow?ms=${n * 1000}` + (mode === "plain" ? "" : `&${mode}=1`);
     process.stdout.write(`  ${mode.padEnd(6)} ${String(n).padStart(4)}${unit} ... `);
     const r = await get(q, session.access_token);
-    const verdict = r.ok && r.status === 200 ? "RETURNED" : "DIED (" + (r.why || r.status) + ")";
+    const returned = r.ok && r.status === 200;
+
+    // DID THE ROW ACTUALLY DO ITS WORK? A 200 alone is not survival — a `sub`
+    // request whose inner fetch never waited comes back 200 in a tenth of a
+    // second and, scored on status, reads as having held a subrequest open for
+    // four minutes. That is precisely what the first run reported. `valid` is
+    // the difference between a measurement and a green tick.
+    const b = r.body || {};
+    let valid = true, note = "";
+    if (mode === "sub") {
+      const inner = Number(b.innerMs || 0);
+      if (inner < n * 1000 * 0.8) {
+        valid = false;
+        note = ` · INVALID: the inner fetch took ${(inner / 1000).toFixed(1)}s, not ${n}s` +
+          (b.innerStatus ? ` (inner status ${b.innerStatus})` : "") +
+          (b.why ? ` (${b.why})` : "");
+      }
+    }
+    if (mode === "mem" && returned && Number(b.heldMb || 0) < n) {
+      valid = false;
+      note = ` · INVALID: held ${b.heldMb}MB, not ${n}MB`;
+    }
+
+    const verdict = returned ? (valid ? "RETURNED" : "NOT MEASURED") : "DIED (" + (r.why || r.status) + ")";
     console.log(`${verdict} after ${(r.ms / 1000).toFixed(1)}s` +
       (r.firstByteAt ? ` · first byte ${(r.firstByteAt / 1000).toFixed(1)}s` : "") +
-      (r.ticks ? ` · ${r.ticks} heartbeats` : ""));
-    rows.push({ mode, n, ok: r.ok && r.status === 200, ms: r.ms });
+      (r.ticks ? ` · ${r.ticks} heartbeats` : "") +
+      (mode === "burn" && b.slices ? ` · ${b.slices} slices` : "") +
+      note);
+    rows.push({ mode, n, ok: returned && valid, invalid: returned && !valid, ms: r.ms });
     // A mode that has already died will die at every larger step too, and each
-    // costs its full wall-clock to prove. Stop that mode there.
-    if (!(r.ok && r.status === 200)) break;
+    // costs its full wall-clock to prove. Stop that mode there. An INVALID row
+    // stops it as well: every larger step would be invalid for the same reason,
+    // and re-running it just prints the same non-answer more slowly.
+    if (!returned || !valid) break;
   }
 }
 
-const last = (m) => rows.filter((r) => r.mode === m && r.ok).map((r) => r.n).pop() || 0;
+const of = (m) => rows.filter((r) => r.mode === m);
+const last = (m) => of(m).filter((r) => r.ok).map((r) => r.n).pop() || 0;
 const top = (m) => (m === "mem" ? MB : STEPS)[(m === "mem" ? MB : STEPS).length - 1];
+const unit = (m) => (m === "mem" ? "MB" : "s");
+// A mode that never produced a valid row measured NOTHING, and must not be
+// given a verdict. Reporting `last(m)` of 0 as "stops at 0s" is how the first
+// run printed a ceiling for a mode that had simply not run.
+const measured = (m) => of(m).some((r) => r.ok);
+const cutOff = (m) => of(m).some((r) => !r.ok && !r.invalid);   // genuinely died
+const firstBad = (m) => (of(m).find((r) => !r.ok) || {}).n;
+
 console.log("");
-for (const m of MODES) console.log(`  ${m.padEnd(6)} survived up to ${last(m)}${m === "mem" ? "MB" : "s"}`);
+for (const m of MODES) {
+  if (!measured(m) && !cutOff(m)) console.log(`  ${m.padEnd(6)} NOT MEASURED — see the row above`);
+  else if (cutOff(m)) console.log(`  ${m.padEnd(6)} survived up to ${last(m)}${unit(m)}, cut off at ${firstBad(m)}${unit(m)}`);
+  else console.log(`  ${m.padEnd(6)} survived up to ${last(m)}${unit(m)}`);
+}
 
 // The control every other verdict is read against: either measured in THIS run,
 // or the first run's number, named as such.
@@ -147,35 +199,39 @@ if (MODES.includes("plain") && last("plain") >= top("plain")) {
   console.log(`  => NOT A DURATION WALL: a request that only WAITS returns fine at ${top("plain")}s,`);
   console.log(`     which is well past every build that died (272s published; 286/291/301s did not).`);
 }
+// EVERY VERDICT IS GATED ON THE MODE HAVING MEASURED SOMETHING. A mode whose
+// rows were all invalid gets a sentence saying so and no ceiling — the
+// alternative is what the first run did: print a confident diagnosis sourced
+// from a request that never happened.
 if (MODES.includes("burn")) {
-  if (last("burn") < top("burn")) {
-    console.log(`  => THE WALL IS CPU: burning stops at ${last("burn")}s while waiting survives ${waits}.`);
-    console.log(`     limits.cpu_ms in wrangler.jsonc is the fix (Workers Paid allows up to 300000).`);
-  } else {
-    console.log(`  => CPU IS NOT THE WALL at this level of work: burning survives ${top("burn")}s.`);
-  }
+  if (!measured("burn") && !cutOff("burn")) console.log(`  => CPU: NOT MEASURED. No verdict.`);
+  else if (cutOff("burn")) {
+    console.log(`  => THE WALL IS CPU: burning is cut off at ${firstBad("burn")}s while waiting survives ${waits}.`);
+    console.log(`     limits.cpu_ms in wrangler.jsonc is the lever (Workers Paid allows up to 300000).`);
+  } else console.log(`  => CPU IS NOT THE WALL at this level of work: burning survives ${top("burn")}s.`);
 }
 if (MODES.includes("mem")) {
-  if (last("mem") < top("mem")) {
+  if (!measured("mem") && !cutOff("mem")) console.log(`  => MEMORY: NOT MEASURED. No verdict.`);
+  else if (cutOff("mem")) {
     console.log(`  => MEMORY IS A CEILING, at somewhere over ${last("mem")}MB.`);
     console.log(`     NO CONFIG RAISES IT — the publish path has to stream the dist rather than`);
     console.log(`     buffer it as JSON plus base64. That is a real change, not a setting.`);
-  } else {
-    console.log(`  => MEMORY IS NOT THE WALL up to ${top("mem")}MB held at once.`);
-  }
+  } else console.log(`  => MEMORY IS NOT THE WALL up to ${top("mem")}MB held at once.`);
 }
 if (MODES.includes("sub")) {
-  if (last("sub") < top("sub")) {
-    console.log(`  => THE WALL IS A SUBREQUEST: an outbound fetch stops being held at ${last("sub")}s`);
+  if (!measured("sub") && !cutOff("sub")) {
+    console.log(`  => SUBREQUESTS: NOT MEASURED — the inner fetch did not wait, so nothing`);
+    console.log(`     about holding one open was tested. No verdict.`);
+  } else if (cutOff("sub")) {
+    console.log(`  => THE WALL IS A SUBREQUEST: an outbound fetch stops being held at ${firstBad("sub")}s`);
     console.log(`     while the same wait on a timer survives ${waits}. A build's model`);
     console.log(`     calls and container build are exactly this shape.`);
-  } else {
-    console.log(`  => A SUBREQUEST CAN BE HELD FOR ${top("sub")}s, so no single outbound wait is the wall.`);
-  }
+  } else console.log(`  => A SUBREQUEST CAN BE HELD FOR ${top("sub")}s, so no single outbound wait is the wall.`);
 }
-// Only ever printed when something is left unexplained, so a clean sweep does
-// not end on a shrug.
-if (MODES.every((m) => last(m) >= top(m))) {
+// Only ever printed when everything really was measured and everything really
+// survived, so a clean sweep does not end on a shrug — and an UNMEASURED sweep
+// can never reach it and claim one.
+if (MODES.every((m) => measured(m) && last(m) >= top(m))) {
   console.log(`  => NOTHING TESTED HERE IS THE WALL. Whatever ends a build is about what it`);
-  console.log(`     DOES — a subrequest, the container, or a step with its own timeout.`);
+  console.log(`     DOES — the container, or a step with its own timeout.`);
 }

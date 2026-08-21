@@ -9865,18 +9865,31 @@ async function handleRequest(request, env, ctx) {
       // `?burn=1` SPENDS CPU INSTEAD OF WAITING, which is the half that matters
       // once duration is ruled out. Waiting on the network does not count toward
       // a Worker's CPU budget, so a sleeping request proves only that the clock
-      // is not the ceiling — it says nothing about the one limit a build could
-      // plausibly be hitting. This does real work in small slices, yielding
-      // between them so the runtime is not merely blocked, and reports how much
-      // it managed before it was stopped.
+      // is not the ceiling.
+      //
+      // THE CLOCK IS FROZEN INSIDE A SLICE, AND THE FIRST DRAFT DID NOT KNOW IT.
+      // Workers hold `Date.now()` still between I/O operations — a documented
+      // timing-attack mitigation — so `while (Date.now() - slice < 50)` compares
+      // one frozen reading against itself and NEVER TERMINATES. Measured
+      // 2026-08-21: it ran as an unbounded spin and was killed at 264.5s, which
+      // reads in a report as "240s of CPU was refused" and is not that at all.
+      // A probe that cannot say what it measured is the failure this whole file
+      // exists to avoid.
+      //
+      // Counted work instead of a timed slice: `SPINS_PER_SLICE` is a fixed
+      // amount of arithmetic, so each slice ends whatever the clock says, and
+      // the yield between them lets the clock advance. What the loop then
+      // reports is how much work it got through — a NUMBER rather than a
+      // duration, which is the honest unit for a CPU ceiling anyway.
       if (url.searchParams.get("burn") === "1") {
-        let spins = 0, x = 0;
+        const SPINS_PER_SLICE = 2000000;
+        let spins = 0, x = 0, slices = 0;
         while (Date.now() - t0 < ms) {
-          const slice = Date.now();
-          while (Date.now() - slice < 50) { x += Math.sqrt(spins++ % 9973); }
-          await sleep(0);   // yield, so this is CPU pressure rather than a hang
+          for (let i = 0; i < SPINS_PER_SLICE; i++) x += Math.sqrt(spins++ % 9973);
+          slices++;
+          await sleep(0);   // yield: lets the clock advance and the loop end
         }
-        return Response.json({ ok: true, mode: "burn", askedMs: ms, tookMs: Date.now() - t0, spins, x: Math.round(x) });
+        return Response.json({ ok: true, mode: "burn", askedMs: ms, tookMs: Date.now() - t0, slices, spins, x: Math.round(x) });
       }
       // `?mem=1` HOLDS MEMORY, the other candidate and the one with a completely
       // different fix. A Worker has 128MB, and the publish path buffers the
@@ -9915,12 +9928,27 @@ async function handleRequest(request, env, ctx) {
       if (url.searchParams.get("sub") === "1") {
         const inner = new URL(url.toString());
         inner.searchParams.delete("sub");
+        // `innerMs` IS WHAT MAKES THE RESULT READABLE, and its absence is what
+        // made the first run's answer worthless. Measured 2026-08-21: a 240s
+        // `sub` request came back in 0.1 SECONDS — the inner fetch never waited
+        // at all — and the probe counted that as "a subrequest can be held for
+        // 240s" because all it looked at was a 200 and a wall-clock. A mode has
+        // to prove it did the thing before its result may be read, so the
+        // duration of the inner call travels back and the probe refuses to
+        // score a `sub` row that did not actually wait.
+        const s0 = Date.now();
         try {
           const r = await fetch(inner.toString(), { headers: { Authorization: request.headers.get("Authorization") || "" } });
           const body = await r.text();
-          return Response.json({ ok: r.ok, mode: "sub", askedMs: ms, tookMs: Date.now() - t0, innerStatus: r.status, innerBody: body.slice(0, 200) });
+          return Response.json({
+            ok: r.ok, mode: "sub", askedMs: ms, tookMs: Date.now() - t0,
+            innerMs: Date.now() - s0, innerStatus: r.status, innerBody: body.slice(0, 200),
+          });
         } catch (e) {
-          return Response.json({ ok: false, mode: "sub", askedMs: ms, tookMs: Date.now() - t0, why: String((e && e.message) || e).slice(0, 200) }, { status: 502 });
+          return Response.json({
+            ok: false, mode: "sub", askedMs: ms, tookMs: Date.now() - t0,
+            innerMs: Date.now() - s0, why: String((e && e.message) || e).slice(0, 200),
+          }, { status: 502 });
         }
       }
       if (url.searchParams.get("stream") === "1") {

@@ -52,6 +52,56 @@ test("cpu_ms stays inside what Workers Paid accepts — over it fails the deploy
   assert.ok(config().limits.cpu_ms <= 300000);
 });
 
+// THE PROBE MUST NOT SCORE A ROW THAT DID NOT DO ITS WORK.
+//
+// Its first run printed two verdicts it had not earned. `sub` came back 200 in
+// 0.1 SECONDS for a 240-second request — the inner fetch never waited — and the
+// script reported "A SUBREQUEST CAN BE HELD FOR 420s", because all it looked at
+// was a status code and a wall-clock. And `burn` was scored `last() || 0`, so a
+// mode that died on its FIRST step printed "burning stops at 0s".
+//
+// Both are the same defect: survival inferred from a green tick rather than
+// from evidence the work happened. A harness that cannot fail honestly is worse
+// than no harness, and this one goes on to decide whether a ~130-credit build
+// is worth spending.
+const PROBE = readFileSync(new URL("../scripts/wall-probe.mjs", import.meta.url), "utf8");
+
+test("a probe row is scored on doing the work, not on returning 200", () => {
+  // The inner duration has to travel back from the Worker and be read here, or
+  // a subrequest that never waited is indistinguishable from one held open.
+  assert.match(PROBE, /innerMs/, "the probe does not read how long the inner fetch actually took");
+  assert.match(PROBE, /valid\s*=\s*false/, "nothing in the probe can mark a row as not-measured");
+  // And a row that did not measure must stop the mode rather than being
+  // counted: every larger step would be invalid the same way.
+  assert.match(PROBE, /if \(!returned \|\| !valid\) break/);
+});
+
+test("a mode that measured nothing gets no ceiling", () => {
+  // The failure this replaces printed a confident diagnosis sourced from a
+  // request that never happened. Every verdict is gated on `measured`.
+  assert.match(PROBE, /const measured =/);
+  for (const m of ["burn", "mem", "sub"]) {
+    const at = PROBE.indexOf(`MODES.includes("${m}")`);
+    assert.ok(at > 0, `no verdict block for ${m}`);
+    const block = PROBE.slice(at, at + 700);
+    assert.match(block, /!measured\(/, `${m}'s verdict is not gated on having measured anything`);
+  }
+});
+
+test("the Worker reports what its burn loop got through, not just that it ran", () => {
+  const w = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const at = w.indexOf('url.searchParams.get("burn")');
+  assert.ok(at > 0);
+  const block = w.slice(at, at + 900);
+  // A TIMED inner slice cannot work: Workers freeze `Date.now()` between I/O,
+  // so `while (Date.now() - slice < N)` compares one frozen reading against
+  // itself and never terminates. That is not a slow test, it is a different
+  // test — an unbounded spin wearing the label of a bounded one.
+  assert.doesNotMatch(block, /while \(Date\.now\(\) - slice/,
+    "the burn slice is timed again — a frozen clock makes that an unbounded spin");
+  assert.match(block, /SPINS_PER_SLICE/, "the slice is not a counted amount of work");
+});
+
 test("the reasoning is recorded where the setting is, not only in a commit", () => {
   // A bare `"limits": { "cpu_ms": 300000 }` reads as a magic number somebody
   // can safely tidy away. The four dead builds are why it is there.
