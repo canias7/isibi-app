@@ -8,7 +8,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { isXaiModel, toXaiRequest, fromXaiResponse, XAI_ENDPOINT } from "../builder/model-xai.mjs";
+import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, XAI_ENDPOINT } from "../builder/model-xai.mjs";
+import { contextSummary, contextSentence } from "../builder/site-context.mjs";
 
 /* --------------------------------------------------------- which provider */
 
@@ -81,6 +82,58 @@ test("an image crosses as a data URI and a PDF is dropped AND counted", () => {
   // REPORTED, because a build that silently ignored the customer's attached
   // price list is indistinguishable from one that read it and disagreed.
   assert.equal(droppedDocs, 1);
+});
+
+test("A DROPPED PDF REACHES THE CUSTOMER'S SENTENCE, not just a log line", () => {
+  // The count was the whole report, and its only reader anywhere was a
+  // `console.error` — while the comment above `contentPart` said "the caller
+  // can tell them". One line of a Cloudflare log is not a surface a small
+  // business has, and the Attach control's documented headline use is a menu or
+  // a price list, so this is the customer's most concrete input going missing.
+  const { skipped } = toXaiRequest({
+    ...REQ,
+    messages: [{ role: "user", content: [
+      { type: "document", source: { type: "base64", media_type: "application/pdf", data: "BBBB" } },
+      { type: "text", text: "use this" },
+    ] }],
+  });
+  assert.equal(skipped.length, 1);
+  // Driven all the way through the real reporting chain, because a `{name,
+  // reason}` that never becomes a sentence is the same silence one layer down.
+  const s = contextSentence(contextSummary({ skipped }));
+  assert.match(s, /Couldn't use the PDF you attached/);
+  assert.match(s, /can't read PDFs/);
+  assert.match(s, /Builder picker|paste/, "the refusal must say what to do instead");
+  // A build with no PDF says nothing extra, so an ordinary response is
+  // byte-identical to what it was before this existed.
+  assert.deepEqual(toXaiRequest(REQ).skipped, []);
+  assert.equal(contextSummary({ skipped: [] }).skipped, undefined);
+});
+
+test("the pre-call answer and the translator's agree, and only for grok", () => {
+  // The route cannot use the translator's copy: `contextSummary` — the one
+  // thing that reports refused attachments — is built BEFORE page generation
+  // and is provider-blind, so the drop has to be knowable from the blocks and
+  // the model alone. Two answers to one question is how they come to disagree,
+  // so both are asserted against each other rather than each against a fixture.
+  const blocks = [
+    { type: "image", source: { type: "base64", media_type: "image/png", data: "AA" } },
+    { type: "document", source: { type: "base64", media_type: "application/pdf", data: "BB" } },
+    { type: "document", source: { type: "base64", media_type: "application/pdf", data: "CC" } },
+  ];
+  // Exactly how `pagesRequest` and `designSiteSchema` place them: blocks first,
+  // then the text, in the user message.
+  const req = { ...REQ, messages: [{ role: "user", content: [...blocks, { type: "text", text: "a cafe" }] }] };
+  assert.deepEqual(xaiSkipped(blocks, "grok-4.6"), toXaiRequest(req).skipped);
+  assert.match(xaiSkipped(blocks, "grok-4.6")[0].name, /^2 PDFs/, "the count must survive into the name");
+
+  // NOT ON THE ANTHROPIC PATH, which reads PDFs natively — reporting a refusal
+  // there would tell a customer their menu was ignored when it was read.
+  assert.deepEqual(xaiSkipped(blocks, "claude-sonnet-5"), []);
+  assert.deepEqual(xaiSkipped(blocks, undefined), []);
+  // Junk in never throws: this sits on the build path, before the model call.
+  for (const bad of [null, undefined, "no", [null, 7, {}]]) assert.doesNotThrow(() => xaiSkipped(bad, "grok-4.6"));
+  assert.deepEqual(xaiSkipped([{ type: "image" }], "grok-4.6"), [], "an image is not a dropped document");
 });
 
 test("a request with no tools or no forced choice still translates", () => {

@@ -580,7 +580,13 @@ export function repairImports(pages) {
 // does not do. site-access.mjs is dependency-free, so this module stays
 // importable without the Worker's node_modules.
 export { MANAGED_COLUMNS } from "../site-access.mjs";
-import { MANAGED_COLUMNS, canReadAccess, canWriteAccess, whyNotReadable, needsMember, hasPublicView, canMemberWrite, resolveAccess, accessNameFor, accessLabel, readNeedsMember } from "../site-access.mjs";
+import { MANAGED_COLUMNS, canReadAccess, canWriteAccess, whyNotReadable, needsMember, hasPublicView, canMemberWrite, resolveAccess, accessNameFor, accessLabel, readNeedsMember, isImageColumn } from "../site-access.mjs";
+// WHETHER A FORM MAY TAKE A FILE, asked of the function the ROUTE asks — never
+// re-derived here. `handleVisitorUpload` gates on `acceptsVisitorUploads` and
+// answers 403 `no_uploads` when it is false, and a second copy of that rule in
+// this file would drift into a digest promising an upload the route refuses.
+// site-uploads.mjs imports only site-access.mjs, so this stays dependency-free.
+import { acceptsVisitorUploads } from "../site-uploads.mjs";
 
 export const MAX_PAGES = 6;
 export const MAX_PAGE_CHARS = 24000;
@@ -1769,7 +1775,7 @@ or an access level — anything not in the schema below does not exist.
    - \`admin\` — SHARED, READ-ONLY FROM THE SITE. Anyone signed in reads every row, and
      NOBODY writes one from a published page — not a form, not \`useCreateRow\`, not an
      edit, whatever role the member holds. The table is granted SELECT and nothing else,
-     so a write is 403 for everyone; the business maintains those rows from its isibi
+     so a write is 403 for everyone; the business maintains those rows from its Go Farther
      dashboard. Build the reading UI and no write UI at all.
 
 3. THE KIT FOR EVERY CONTROL, imported from "@/components/ui/<name>". Never hand-roll a
@@ -1837,8 +1843,12 @@ ${componentApiFor(ALWAYS_API_CORE)}
      page, it does not download) and never invent a path under /u/. Write these where the
      brief names a real document; do not invent a library of them.
 
-8. A FORM MAY LET THE VISITOR ATTACH ONE, but only when its table declares an image
-   column. Upload first, then submit the URL as an ordinary text field:
+8. A FORM MAY LET THE VISITOR ATTACH ONE, but ONLY where the table above says
+   \`FILE UPLOAD: YES\`. That line names the column to put the URL in. Where it says NO
+   there is no attach control at all — the upload endpoint answers 403 for that table,
+   so a file picker on it is a control that visibly fails. Do not work it out from the
+   column names; the line is the answer.
+   Upload first, then submit the URL as an ordinary text field:
 
    \`\`\`tsx
    const upload = useUploadFile("bookings");           // from "@/lib/rows"
@@ -2187,7 +2197,7 @@ ${CHART_CATALOGUE}
 
 ## Visitor accounts
 
-A site can have members — its own customers, nothing to do with isibi accounts.
+A site can have members — its own customers, nothing to do with Go Farther accounts.
 Everything comes from \`@/lib/rows\`; there is no other auth API and no \`fetch\`:
 
 - \`useMember()\` → \`{ data: member | null, isPending }\`. **Render neither view until it
@@ -2222,7 +2232,7 @@ friction nobody asked for — for somebody returning to a form they filled in, t
   Nesting them under \`values\` works too, if that reads better to you. A DELETE takes the id on
   its own: \`remove.mutate(deal.id)\`.
 - No owner/admin dashboard IN THE SITE — a \`collect\` table cannot be read back from a page.
-  Its owner reads those submissions inside isibi, which is not something you build.
+  Its owner reads those submissions inside Go Farther, which is not something you build.
 If the brief asks for one of these, build everything else and say plainly in \`notes\` what was
 left out and why. Never generate UI that cannot work.
 
@@ -2344,13 +2354,38 @@ export function accessNote(t) {
   return "reads — " + (READ_NOTE[read] || READ_NOTE.none) + " writes — " + (WRITE_NOTE[write] || WRITE_NOTE.none);
 }
 
-export const ACCESS_NOTE = {
-  display: "visitors READ it. List it, show it, search it. Writing to it returns 403.",
-  collect: "visitors WRITE to it. Submit a form. Reading it returns 403 — never list these rows.",
-  user: "PRIVATE PER MEMBER. Signed in, a member reads and writes only their OWN rows; signed out, both return 401. Build the signed-in view AND a sign-in prompt for when there is no member.",
-  feed: "SHARED, MEMBER-AUTHORED. Anyone signed in reads every row; a signed-in member writes rows that become theirs. Signed out, both return 401.",
-  admin: "SHARED, READ-ONLY FROM THE SITE. Anyone signed in reads every row; NOBODY writes to it from a published page — no form, no useCreateRow, no edit, whatever role they hold. The business maintains these rows from its isibi dashboard. Build the reading and listing UI and no write UI at all.",
-};
+// `ACCESS_NOTE` — the five-preset map — WAS DELETED HERE, and its absence is
+// asserted rather than left to memory.
+//
+// It had no production reader. `schemaDigest` describes access through
+// `accessNote(t)`, composed from `READ_NOTE` and `WRITE_NOTE` above, and
+// `grep -rn "ACCESS_NOTE\b"` outside its own definition found only
+// `test/page-gen.test.mjs` — whose guard, titled "the rules and ACCESS_NOTE
+// agree about every access level", asserted that three phrases appeared in both
+// `PAGE_RULES` and this map. Its own comment said why it existed: "Two
+// descriptions of the same rule in one prompt is how they drifted apart the
+// first time." It was reading a constant nothing sends, so that is exactly what
+// it could no longer catch — edit `READ_NOTE.own` or `WRITE_NOTE.members`, the
+// strings the model really receives, and the suite stayed green.
+//
+// THE DRIFT WAS NOT HYPOTHETICAL, and it is what proved the guard vacuous.
+// `WRITE_NOTE.none`, which the digest SENDS, said "its Go Farther dashboard";
+// rule 2's `admin` bullet and this map both said "its isibi dashboard" — a
+// product that has not existed since the rebrand — so the highest-leverage
+// prompt on the platform told a business owner to maintain their rows somewhere
+// they cannot go, in three places, while a test claimed the two halves agreed.
+// Two of the three were in text a build actually sends.
+//
+// Only two of its five entries were even reachable as CLAIMS: measured,
+// "SHARED, MEMBER-AUTHORED" and "SHARED, READ-ONLY FROM THE SITE" appear nowhere
+// in what `accessNote` composes, so the guard's own phrase list described the
+// dead constant rather than the live one.
+//
+// Deleting it is what makes the replacement guard honest: with one description
+// of access in this file, "the two descriptions agree" becomes "rule 2 agrees
+// with what the digest emits", which the test now reads by driving
+// `schemaDigest` itself. Restoring a second unread map brings the vacuity
+// straight back, so its absence is a test.
 
 /** The tables, exactly as they exist, in the least ambiguous form we can put them. */
 export function schemaDigest(spec) {
@@ -2511,6 +2546,42 @@ export function schemaDigest(spec) {
         + "The page sends only { id, qty } per line — never a price, total or currency — plus the customer's own declared fields.");
     } else if (canWriteAccess(t)) {
       lines.push("  PAID: NO — this is an ordinary form. Submit it with useCreateRow; there is no payment on this table.");
+    }
+    // WHETHER THE FORM MAY TAKE A FILE — the third instance of a rule conditioned
+    // on a fact this digest never stated, after `publicView` twice.
+    //
+    // Rule 8 says a form may accept an attachment "only when its table declares an
+    // image column", and whether it does is decided by `acceptsVisitorUploads` →
+    // `isImageColumn`, a NAMING regex the model has never been shown. So the model
+    // was asked to evaluate a condition it could not see. Measured: a `bookings`
+    // table with `name · email · attachment · notes` — `attachment` being the
+    // natural name for "a photo of the job" — prints those four columns, states
+    // nothing about uploads, and `handleVisitorUpload` answers 403
+    // `{code:"no_uploads"}` to every visitor who picks a file.
+    //
+    // STATED YES *AND* NO, for the reason `usePublicRows` is: the page has to
+    // DECIDE whether to draw an attach control, and an absent line reads as an
+    // omission rather than an answer.
+    //
+    // GATED LIKE `PAID`, on the table being writable from a page at all: a table
+    // nothing may write to can never take a visitor's file, and a form on it is
+    // already refused by the access rule above. `acceptsVisitorUploads` is asked
+    // FIRST and independently, so if its own write test ever widens, the YES line
+    // still prints — the gate can only ever suppress a NO.
+    const takesFiles = acceptsVisitorUploads(t);
+    if (takesFiles) {
+      // The COLUMN, not just the permission. Rule 8's worked example ends
+      // `form.setValue("photo", url)` and the model has to know which column that
+      // is; naming it is the difference between a control that works and one that
+      // uploads a file and drops the URL. Same `isImageColumn` the permission was
+      // decided by, so the two cannot disagree.
+      const shot = cols.map((c) => c.name).find(isImageColumn);
+      lines.push("  FILE UPLOAD: YES — a visitor may attach one picture. Upload it with useUploadFile(\"" + t.name + "\")" +
+        (shot ? " and submit the returned URL as the `" + shot + "` field" : "") +
+        ". PNG, JPEG, WebP or GIF only, 2 MB max.");
+    } else if (canWriteAccess(t) || canMemberWrite(t)) {
+      lines.push("  FILE UPLOAD: NO — this table declares no picture column, so useUploadFile on it is a 403. " +
+        "Build the form without an attach control.");
     }
     // STATED ONLY WHEN IT IS ON, unlike `usePublicRows` directly above. That one
     // prints YES *and* NO because a page has to DECIDE something and an absent
@@ -2971,6 +3042,41 @@ export function validatePages(input, { partial = false, knownRoutes = null } = {
   // a working link, while a wrong exemption in a REPORT costs one noisy
   // sentence. The corpus offers no evidence about those cases at all (0 of 500
   // use them), which is exactly where a false alarm would come from.
+  // A PARAMETERISED ROUTE IS MATCHED AS A PATTERN, NOT COMPARED AS A STRING.
+  //
+  // `live` holds what `routeOf` derives, and for `deals.$id.tsx` that is the
+  // route ID `/deals/$id` — the literal the router registers. The `to=` rewrite
+  // above is right to compare it literally: TanStack types `to` against the route
+  // union, so a typed link says `to="/deals/$id"` with a `params` prop and a
+  // concrete `to="/deals/123"` is a TS2322 the rewrite exists to save the build
+  // from. A plain `<a href="/deals/123">` is the opposite case — the router
+  // resolves it perfectly — and it matched no entry in `live`, so it was reported
+  // to the CUSTOMER as a link landing on "not found". Driven against this module:
+  // pages `index.tsx` (with that anchor) and `deals.$id.tsx` came back with
+  // `These links go to pages that do not exist … /deals/123.`
+  //
+  // A false alarm on correct code, which this file rates strictly worse than the
+  // miss — and this widening can only ever REMOVE a report, never add one, so its
+  // false-alarm rate cannot go up. What it gives up: `/deals/999` where no row 999
+  // exists is no longer reported, which is right — the router does resolve it, and
+  // whether the ROW exists is a runtime question no lint can answer.
+  //
+  // `$name` takes exactly one segment; a bare `$` is TanStack's splat and takes
+  // the rest. Both are compiled from the route ID rather than pattern-matched as
+  // text, so a literal segment still has to be equal.
+  const dynamic = [...live].filter((r) => r.includes("$")).map((r) => r.split("/"));
+  const resolvedByRoute = (target) => {
+    const got = target.split("/");
+    return dynamic.some((pat) => {
+      for (let i = 0; i < pat.length; i++) {
+        if (pat[i] === "$") return got.length > i;            // splat: one or more left
+        if (i >= got.length) return false;
+        if (pat[i].startsWith("$")) { if (!got[i]) return false; continue; }
+        if (pat[i] !== got[i]) return false;
+      }
+      return got.length === pat.length;
+    });
+  };
   const deadHrefs = new Set();
   if (canJudge) {
     for (const p of pages) {
@@ -2981,6 +3087,7 @@ export function validatePages(input, { partial = false, knownRoutes = null } = {
         if (/^\/(u|api|s)\//.test(target)) continue;      // uploads, the data API, the internal mount
         if (/\.[a-z0-9]{1,8}$/i.test(target)) continue;   // sitemap.xml, robots.txt, a download
         if (live.has(target)) continue;
+        if (resolvedByRoute(target)) continue;
         deadHrefs.add(target);
       }
     }
@@ -3029,9 +3136,54 @@ export function lintPages(pages, spec) {
   const internalFns = new Set(allFns.filter((f) => f.internal).map((f) => String(f.name).toLowerCase()));
   const declaredApis = new Set((spec && Array.isArray(spec.apis) ? spec.apis : [])
     .map((a) => String((a && a.name) || "").toLowerCase()).filter(Boolean));
+  // A RETIRED TABLE IS NOT IN `tables`, AND THAT IS THE SAME FILTER `schemaDigest`
+  // APPLIES 670 LINES ABOVE.
+  //
+  // What was broken: this map took EVERY declared table, retired or not, so a
+  // page submitting to a closed one resolved `t`, passed `canWriteAccess(t)`
+  // (the stored spec keeps the write side it was built with), and the write
+  // branch reported NOTHING. Measured against the real modules — spec
+  // `[{name:"enquiries", access:"collect", retired:true, columns:[{name:"name"}]}]`
+  // with a page calling `useCreateRow("enquiries")`: `grantsFor` emits ONLY
+  // `REVOKE ALL … FROM anonymous` and `… FROM authenticated`, `publicViewSql`
+  // DROPs the projection, `schemaDigest` says "(the schema declares no tables)",
+  // and `lintPages` returned `[]`. That is the exact class this lint's own header
+  // says it exists for — "the class of page that typechecks, bundles and then
+  // 403s" — arriving through the one table state the digest already hides.
+  //
+  // HOW IT IS REACHED, since a fresh generation cannot name a table it was never
+  // offered: retire a table (the `rules` lane's only removal verb), then make any
+  // later page-generating change. The revise contract hands the model its own
+  // prior pages and tells it to return them byte-identical except where the
+  // change was asked for — so the existing form comes back unchanged, is linted
+  // silently, and republishes. The owner believes the form works; the enquiries
+  // stop arriving.
+  //
+  // FILTERED RATHER THAN GATED PER LOOP. Six loops resolve a table name and each
+  // would have needed its own `if (t.retired)` — six places to forget, which is
+  // precisely the shape of this bug (the digest got it right and this did not).
+  // Dropping it from the map makes every `else if` branch below unreachable for a
+  // retired table by construction, so there is no double-reporting and no
+  // misleading access sentence; the ONE thing that has to be right is the
+  // sentence for a name that is not in the map, and that lives in `noTable`.
+  const closedTables = new Map();
   for (const t of (spec && Array.isArray(spec.tables) ? spec.tables : [])) {
-    if (t && t.name) tables.set(String(t.name).toLowerCase(), t);
+    if (!t || !t.name) continue;
+    const key = String(t.name).toLowerCase();
+    if (t.retired) closedTables.set(key, t); else tables.set(key, t);
   }
+  /**
+   * Why a table name a Data-API hook reached for cannot be used.
+   *
+   * ONE reading, because six loops ask it. "does not declare" and "has been
+   * closed" send whoever reads the reply in opposite directions — the first says
+   * look for a typo, the second says the feature was removed and the UI has to
+   * go with it — and only one of them is ever true.
+   */
+  const noTable = (name) => closedTables.has(String(name).toLowerCase())
+    ? 'which the schema has CLOSED (retired) — its grants are revoked and its public view dropped, ' +
+      "so every read and write on it returns 403. Take this out of the page."
+    : "which the schema does not declare.";
   const ui = new Set(UI_COMPONENTS);
   const say = (path, msg) => problems.push(path + ": " + msg);
   const memberTables = [...tables.values()].filter((t) => needsMember(t));
@@ -3195,7 +3347,7 @@ export function lintPages(pages, spec) {
     const editTargets = [...code.matchAll(/\buse(?:Update|Delete)Row\s*(?:<[^>]*>)?\s*\(\s*"([^"]+)"/g)];
     for (const m of editTargets) {
       const t = tables.get(m[1].toLowerCase());
-      if (!t) { say(path, 'edits table "' + m[1] + '", which the schema does not declare.'); continue; }
+      if (!t) { say(path, 'edits table "' + m[1] + '", ' + noTable(m[1])); continue; }
       if (!canMemberWrite(t)) {
         say(path, 'edits "' + m[1] + '", which is access "' + accessLabel(t) + '" — PATCH and DELETE on it return 403. Only `user` and `feed` rows have an owner who may change them.');
       } else if (!/\buseMember\b/.test(code)) {
@@ -3217,8 +3369,17 @@ export function lintPages(pages, spec) {
     }
     // And the other way round: checkout on a table that takes no payment. The
     // route answers 404 for it, so the button would simply never work.
+    //
+    // CHECKOUT RESOLVES A RETIRED TABLE TOO, and that is measured rather than
+    // tidy. Every other hook here goes to `/api/db/<slug>/data/…`, the Neon Data
+    // API, whose grants `retired` revokes — so those really do 403. `useCheckout`
+    // posts to `/api/db/<slug>/checkout`, and `handleCheckout` prices the cart and
+    // INSERTs the order with `sqlQuery(conn, …)` on the site's own owner
+    // connection, which bypasses grants entirely. So checkout on a retired table
+    // still works, and reporting it as closed would be a false alarm on correct
+    // code — which this file rates strictly worse than the miss.
     for (const m of code.matchAll(/\buseCheckout\s*(?:<[^>]*>)?\s*\(\s*"([^"]+)"/g)) {
-      const t = tables.get(m[1].toLowerCase());
+      const t = tables.get(m[1].toLowerCase()) || closedTables.get(m[1].toLowerCase());
       if (!t) { say(path, 'takes payment for table "' + m[1] + '", which the schema does not declare.'); continue; }
       if (!normalizePayment(t)) {
         say(path, 'calls useCheckout("' + m[1] + '"), but that table declares no payment — checkout answers 404 for it. Submit it with useCreateRow.');
@@ -3577,7 +3738,7 @@ export function lintPages(pages, spec) {
       if (t && readNeedsMember(t) && !/\buseMember\b/.test(code)) {
         say(path, 'reads "' + m[1] + '" (access "' + accessLabel(t) + '") without useMember(). Signed out that returns 401, so the page must offer a sign-in rather than an error.');
       }
-      if (!t) say(path, 'reads table "' + m[1] + '", which the schema does not declare.');
+      if (!t) say(path, 'reads table "' + m[1] + '", ' + noTable(m[1]));
       // A member table is handled by the rule above: it is readable, just not
       // anonymously. Saying both would report one page twice and pay for a
       // repair pass to fix a problem that was already described.
@@ -3592,7 +3753,7 @@ export function lintPages(pages, spec) {
     // and what the schema actually permits, caught without running anything.
     for (const m of code.matchAll(/\busePublicRows\s*(?:<[^>]*>)?\s*\(\s*"([^"]+)"/g)) {
       const t = tables.get(m[1].toLowerCase());
-      if (!t) say(path, 'reads table "' + m[1] + '", which the schema does not declare.');
+      if (!t) say(path, 'reads table "' + m[1] + '", ' + noTable(m[1]));
       else if (!hasPublicView(t)) {
         say(path, 'calls usePublicRows("' + m[1] + '"), but that table declares no publicView — the request is a 404. Build the page without the taken-slots hint; the server still refuses a taken slot on submit.');
       }
@@ -3605,7 +3766,7 @@ export function lintPages(pages, spec) {
     // bundles it, the site publishes, and the page 404s in front of a visitor.
     for (const m of code.matchAll(/\buseRow\s*(?:<[^>]*>)?\s*\(\s*"([^"]+)"/g)) {
       const t = tables.get(m[1].toLowerCase());
-      if (!t) say(path, 'reads one row of table "' + m[1] + '", which the schema does not declare.');
+      if (!t) say(path, 'reads one row of table "' + m[1] + '", ' + noTable(m[1]));
       else if (readNeedsMember(t) && !/\buseMember\b/.test(code)) {
         say(path, 'reads one row of "' + m[1] + '" (access "' + accessLabel(t) + '") without useMember(). Signed out that returns 401.');
       } else if (!canReadAccess(t) && !readNeedsMember(t)) {
@@ -3628,7 +3789,7 @@ export function lintPages(pages, spec) {
     }
     for (const m of code.matchAll(/\buseCreateRow\s*(?:<[^>]*>)?\s*\(\s*"([^"]+)"/g)) {
       const t = tables.get(m[1].toLowerCase());
-      if (!t) say(path, 'writes to table "' + m[1] + '", which the schema does not declare.');
+      if (!t) say(path, 'writes to table "' + m[1] + '", ' + noTable(m[1]));
       // A member table accepts writes from someone signed in — that is the whole
       // point of the level — so the question is whether the page has a member,
       // not whether the table is writable.
@@ -3655,6 +3816,34 @@ export function lintPages(pages, spec) {
         // was the CRIT-D fix stopping one expression short.
         say(path, 'submits to "' + m[1] + '", which is access "' + accessLabel(t) + '" — writing to it returns 403. Only a table whose write side is open to anyone accepts a form from a published site.');
       }
+    }
+    // AN ATTACH CONTROL ON A TABLE THAT TAKES NO FILE — the same
+    // compiles-then-403s class as its neighbours, and it had NO rule at all.
+    //
+    // `useUploadFile` appeared exactly once in this whole file before now, inside
+    // rule 8's own worked example, so a call to it was checked by nothing:
+    // `handleVisitorUpload` gates on `acceptsVisitorUploads` and answers 403
+    // `{code:"no_uploads"}`, while `tsc` sees a string, vite bundles it and the
+    // site publishes. Measured: `bookings` with an `attachment` column returned
+    // `[]` from this lint and 403 at runtime.
+    //
+    // THE FALSE-ALARM RATE IS THE ONLY THING THAT LETS THIS EXIST, and it is
+    // measured rather than argued: **0 calls across the 324 pinned exemplars and
+    // 0 across the 8 pinned generator pages**, so nothing written the way we
+    // teach — or the way the model actually wrote — is touched by it. It also
+    // asks `acceptsVisitorUploads`, the SAME function the route gates on, so a
+    // hit is the route's own refusal predicted rather than a rule of our own.
+    //
+    // SKIPPED for a table the schema does not declare: `useCreateRow` and the
+    // read hooks already report an unknown name, and saying it twice reports one
+    // mistake as two. A computed table name is skipped by the literal-only
+    // pattern, like every other hook here.
+    for (const m of code.matchAll(/\buseUploadFile\s*(?:<[^>]*>)?\s*\(\s*"([^"]+)"/g)) {
+      const t = tables.get(m[1].toLowerCase()) || closedTables.get(m[1].toLowerCase());
+      if (!t || acceptsVisitorUploads(t)) continue;
+      say(path, 'calls useUploadFile("' + m[1] + '"), but that table takes no file — the upload returns 403. ' +
+        "A form may attach a picture only where the table declares a picture column (the digest says FILE UPLOAD: YES). " +
+        "Build the form without an attach control.");
     }
   }
   return [...new Set(problems)];

@@ -15,9 +15,14 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
   extractUrls, pageText, readLinkedPages, normalizeQueries,
-  contextBrief, contextSummary, contextSentence, attachments, shouldSearch,
+  contextBrief, contextSummary, contextSentence, attachments, shouldSearch, capSkipped,
   MAX_URLS, MAX_QUERIES, MAX_ATTACHMENTS,
+  IMAGE_FILE_BYTES, DOC_FILE_BYTES, IMAGE_BYTES, DOC_BYTES, BLOCK_TOTAL,
+  TEXT_CHARS, TEXT_TOTAL, MAX_SCAN, MAX_SKIPPED,
 } from "../builder/site-context.mjs";
+
+// A data URL of a file of exactly `bytes`, in the shape the composer sends.
+const sized = (type, bytes) => "data:" + type + ";base64," + "A".repeat(4 * Math.ceil(bytes / 3));
 
 // ── what counts as a link ──────────────────────────────────────────────────
 
@@ -556,38 +561,97 @@ test("an oversized file is skipped without consuming the budget — EITHER kind"
   // Both branches, because they carry their own cap. A sweep found the PDF one
   // untested: every size test used an image, so `DOC_BYTES` could be deleted
   // and the whole suite stayed green.
-  const hugeImg = "data:image/png;base64," + "A".repeat(3_000_000);
-  const img = attachments([hugeImg, dataUrl(), dataUrl()]);
+  //
+  // DERIVED FROM THE CAPS, not from the numbers that used to be in the source.
+  // This test read `"A".repeat(3_000_000)` and therefore described one spelling
+  // of the threshold rather than the property — so it went red on a correct
+  // change, which is this repo's most repeated own-goal.
+  const over = (type, bytes) => sized(type, bytes + 1024);
+  const img = attachments([over("image/png", IMAGE_FILE_BYTES), dataUrl(), dataUrl()]);
   assert.equal(img.blocks.length, 2, "a rejected oversized image consumed the budget");
   assert.match(img.skipped[0].reason, /image is too large/);
 
-  const hugePdf = "data:application/pdf;base64," + "A".repeat(4_200_000);
-  const pdf = attachments([hugePdf, dataUrl(), dataUrl()]);
+  const pdf = attachments([over("application/pdf", DOC_FILE_BYTES), dataUrl(), dataUrl()]);
   assert.equal(pdf.blocks.length, 2, "a rejected oversized PDF consumed the budget");
   assert.match(pdf.skipped[0].reason, /PDF is too large/);
 });
 
-test("the total is bounded even when each file is legal on its own — EITHER kind", () => {
-  // THE GUARD HAS TO BE ABLE TO FIRE. An earlier version set the total above
-  // what the per-file cap times the count could ever reach, so it read in the
-  // source as a bound on the outbound request and was never one.
-  //
-  // Driven through BOTH branches for the same reason as the caps above: the
-  // image branch keeps its own copy of this check, and a sweep found it
-  // unexercised because every total test happened to use PDFs.
-  const bigPdf = "data:application/pdf;base64," + "A".repeat(3_900_000);
+test("THE SERVER ADMITS WHAT THE COMPOSER SENDS — the pair was half-mirrored", () => {
+  // The measured failure: `IMAGE_BYTES` was a flat 2,800,000 data-URL
+  // characters, which is 2,099,982 FILE bytes, against a composer that accepts
+  // 5,242,880. A 3 MiB phone photo — the commonest attachment there is — was
+  // thumbnailed, uploaded and then refused in the build reply, after the build
+  // had been paid for. The two thresholds were in different units, which is why
+  // it was invisible to everyone reading either side.
+  for (const [type, cap] of [["image/jpeg", IMAGE_FILE_BYTES], ["application/pdf", DOC_FILE_BYTES]]) {
+    const got = attachments([{ name: "f", data: sized(type, cap) }]);
+    assert.equal(got.blocks.length, 1, "a file of exactly the composer's cap must not be refused: " + type);
+    assert.deepEqual(got.skipped, []);
+  }
+  // The measured case, driven directly rather than at the boundary.
+  const photo = attachments([{ name: "shop.jpg", data: sized("image/jpeg", 3 * 1024 * 1024) }]);
+  assert.equal(photo.blocks.length, 1, "a 3 MiB phone photo is still refused");
+});
+
+test("the block total is bounded, and BOTH branches can still reach it", () => {
+  // THE GUARD HAS TO BE ABLE TO FIRE. Twice now this constant has been a bound
+  // that could never bind, both times from raising a per-file cap without
+  // re-deriving the total. Asserted as the PROPERTY — one file at either cap
+  // fits, `MAX_ATTACHMENTS` of them do not — so it holds whatever the numbers
+  // become, which is what a hand-written total could not promise.
+  assert.ok(BLOCK_TOTAL >= IMAGE_BYTES, "one image at the cap does not fit in the total");
+  assert.ok(BLOCK_TOTAL >= DOC_BYTES, "one PDF at the cap does not fit in the total");
+  assert.ok(BLOCK_TOTAL < MAX_ATTACHMENTS * IMAGE_BYTES, "the image branch can never reach the total");
+  assert.ok(BLOCK_TOTAL < MAX_ATTACHMENTS * DOC_BYTES, "the document branch can never reach the total");
+
+  // ...and it really binds, driven through both branches: the image branch
+  // keeps its own copy of the check, and a sweep once found it unexercised
+  // because every total test happened to use PDFs.
+  const bigPdf = { name: "p", data: sized("application/pdf", DOC_FILE_BYTES) };
   const pdf = attachments([bigPdf, bigPdf, bigPdf]);
   assert.equal(pdf.blocks.length, 2, "the total cap did not bind on documents");
   assert.match(pdf.skipped[0].reason, /room/);
 
-  const bigImg = "data:image/png;base64," + "A".repeat(2_700_000);
+  const bigImg = { name: "i", data: sized("image/png", IMAGE_FILE_BYTES) };
   const img = attachments([bigImg, bigImg, bigImg]);
   assert.equal(img.blocks.length, 2, "the total cap did not bind on images");
   assert.match(img.skipped[0].reason, /room/);
 
   // ...and it is not so tight that ordinary attachments trip it.
-  const normal = "data:image/png;base64," + "A".repeat(800_000);
+  const normal = { name: "n", data: sized("image/png", 600_000) };
   assert.equal(attachments([normal, normal, normal]).blocks.length, 3);
+});
+
+test("TEXT IS BOUNDED TOO — the total's stated scope was false", () => {
+  // `BLOCK_TOTAL`'s comment said "ACROSS EVERYTHING THE MODEL IS SHOWN" and the
+  // text branch never touched `total`. Measured: three 200,000-character files
+  // came back as 360,000 characters of brief with an empty `skipped` — ~90k
+  // tokens of uncached input, sent to the design call and again to the pages
+  // call, with no cap anywhere saying so.
+  const big = { name: "a.csv", text: "x".repeat(TEXT_CHARS * 2) };
+  const got = attachments([{ ...big, name: "a.csv" }, { ...big, name: "b.csv" }, { ...big, name: "c.csv" }]);
+  const chars = got.texts.reduce((n, f) => n + f.text.length, 0);
+  assert.ok(chars <= TEXT_TOTAL, "the text budget did not bind: " + chars);
+  assert.equal(got.skipped.length, 1, "the file that did not fit must be named");
+  assert.match(got.skipped[0].reason, /room/);
+
+  // Same property as the block total: one whole file fits, three cannot — so
+  // the bound is reachable rather than decorative.
+  assert.ok(TEXT_TOTAL >= TEXT_CHARS);
+  assert.ok(TEXT_TOTAL < MAX_ATTACHMENTS * TEXT_CHARS);
+});
+
+test("a truncated text file says it was truncated", () => {
+  // The composer accepts a text file up to 400 KiB and this keeps 120,000
+  // characters of it, so most of a long price list went missing in silence —
+  // the invisible-degradation class this module exists to close, one branch
+  // over from the link it could not read.
+  const got = attachments([{ name: "prices.csv", text: "x".repeat(TEXT_CHARS + 500) }]);
+  assert.equal(got.texts[0].text.length, TEXT_CHARS);
+  assert.equal(got.converted.length, 1, "a truncated file is used but not in the form it arrived in");
+  assert.match(contextSentence(contextSummary({ converted: got.converted })), /Used the first \d+ characters from prices\.csv/);
+  // A file that fits says nothing extra, so an ordinary build is unchanged.
+  assert.deepEqual(attachments([{ name: "small.csv", text: "a,b" }]).converted, []);
 });
 
 test("attached text reaches the model, framed as reference", () => {
@@ -607,6 +671,128 @@ test("a refused attachment reaches the customer's sentence", () => {
   // ...and an ordinary build still says nothing.
   assert.equal(contextSentence(contextSummary({})), "");
   assert.equal(contextSummary({}).skipped, undefined);
+});
+
+test("EVERY WAY THE CLIENT CAN FAIL GETS ITS OWN SENTENCE", () => {
+  // `siteAttachOne` reports its own failures on the wire — `note: 'too large'`
+  // and the file's declared `type` — and this module read NEITHER. Measured
+  // before the fix: all four of these came back "we couldn't read that file".
+  const said = (a) => attachments([a]).skipped[0].reason;
+  assert.match(said({ name: "menu.pdf", type: "application/pdf", note: "too large" }), /PDF is too large/);
+  assert.match(said({ name: "shop.jpg", type: "image/jpeg", note: "too large" }), /image is too large/);
+  assert.match(said({ name: "prices.csv", type: "text/csv", note: "too large" }), /file is too large/);
+  assert.match(said({ name: "photo.heic", type: "image/heic" }), /JPEG or PNG/);
+  assert.match(said({ name: "brochure.zip", type: "application/zip" }), /images, PDFs and text files work/);
+  // Nothing to go on at all keeps the old generic — it is the honest answer
+  // when we were told nothing, and only then.
+  assert.equal(said({ name: "mystery" }), "we couldn't read that file");
+  // Five distinct causes, five distinct sentences.
+  const all = [
+    { name: "a", type: "application/pdf", note: "too large" },
+    { name: "b", type: "image/jpeg", note: "too large" },
+    { name: "c", type: "video/mp4" },
+    { name: "d", type: "image/heic" },
+    { name: "e", type: "application/zip" },
+  ].map(said);
+  assert.equal(new Set(all).size, all.length, "two causes share a sentence: " + JSON.stringify(all));
+});
+
+test("the video advice is reachable from the shape the REAL client sends", () => {
+  // `videoPoster` resolves to a JPEG data URL or REJECTS, so the client never
+  // sends `data:video/…` — it sends `{name, type:'video/mp4'}` with no data.
+  // The one message this module was written to produce was therefore
+  // unreachable from the product, while its own comment argued it is the
+  // actionable one.
+  const got = attachments([{ name: "promo.mp4", type: "video/mp4" }]);
+  assert.match(got.skipped[0].reason, /can't watch video/);
+  assert.match(got.skipped[0].reason, /screenshot/, "it must say what to do instead");
+  assert.match(attachments([{ name: "jingle.mp3", type: "audio/mpeg" }]).skipped[0].reason, /can't listen to audio/);
+  // A caller holding real data cannot talk itself into a refusal by claiming a
+  // note — the note is consulted only when there is nothing to send.
+  assert.equal(attachments([{ name: "logo.png", data: dataUrl(), note: "too large" }]).blocks.length, 1);
+});
+
+test("the composer's own caps are the ones this module mirrors", () => {
+  // DERIVED FROM public/chat.js, because the pair being half-mirrored is what
+  // the fix was for, and a number typed here would only pin one side of it.
+  // Read out of `siteAttachOne`, with comments blanked first: the prose above
+  // those branches spells the very thing being matched.
+  const chat = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+  const blanked = chat.replace(/^.*$/gm, (l) => (/^\s*\/\//.test(l) ? " ".repeat(l.length) : l));
+  const at = blanked.indexOf("async function siteAttachOne(");
+  assert.ok(at > 0, "siteAttachOne is gone — this check would be vacuous");
+  // Bounded by the NEXT declaration rather than a byte count.
+  const end = blanked.indexOf("\nfunction ", at);
+  const body = blanked.slice(at, end > at ? end : blanked.length);
+  assert.ok(body.length > 300, "siteAttachOne's body did not slice — this check would be vacuous");
+
+  const caps = {};
+  for (const m of body.matchAll(/f\.size\s*>\s*([\d.]+)\s*\*\s*1024(\s*\*\s*1024)?/g)) {
+    // Landmarks, not a window: which branch a cap belongs to is decided by the
+    // condition above it, never by how many characters away it sits. Two levels
+    // back, because the NEAREST `if (` is the size check itself — the first
+    // draft took it and classified all three caps as unknown.
+    const inner = body.lastIndexOf("if (", m.index);
+    const cond = body.slice(body.lastIndexOf("if (", inner - 1), m.index);
+    const which = /NATIVE_IMAGE/.test(cond) ? "image" : /application\/pdf/.test(cond) ? "pdf" : /TEXTISH|text\//.test(cond) ? "text" : "";
+    if (which) caps[which] = Number(m[1]) * 1024 * (m[2] ? 1024 : 1);
+  }
+  assert.deepEqual(Object.keys(caps).sort(), ["image", "pdf", "text"], "the scan stopped finding the composer's caps: " + JSON.stringify(caps));
+
+  // NOTHING THE COMPOSER ACCEPTS MAY BE REFUSED HERE FOR SIZE. That is the
+  // whole property; the failure it prevents is a file thumbnailed, uploaded and
+  // then refused in the build reply after the build was paid for.
+  assert.ok(caps.image <= IMAGE_FILE_BYTES, `the composer accepts ${caps.image} image bytes and this module takes ${IMAGE_FILE_BYTES}`);
+  assert.ok(caps.pdf <= DOC_FILE_BYTES, `the composer accepts ${caps.pdf} PDF bytes and this module takes ${DOC_FILE_BYTES}`);
+  // Text is deliberately NOT in that rule: the composer allows more than
+  // `TEXT_CHARS` and the answer there is to truncate and SAY SO, not to refuse
+  // a file that is perfectly usable for the first 120,000 characters.
+  assert.ok(caps.text > TEXT_CHARS, "if the composer's text cap ever fits, the truncation report becomes dead code");
+});
+
+test("BOUNDED WORK IN, BOUNDED WORK OUT — the refusal list had no cap", () => {
+  // Measured before the fix, against the route's own 24 MB body cap: a
+  // 780,012-byte body of `{"name":"a"}` entries produced 60,000 skipped
+  // objects, a 2,699,999-character chat sentence and a 5,760,093-byte response
+  // — 7.4x amplification and ~18 MB of heap inside a 128 MB isolate shared with
+  // other customers' requests, all of it before any credit check.
+  const flood = Array(60_000).fill(0).map(() => ({ name: "a" }));
+  const got = attachments(flood);
+  assert.ok(got.skipped.length <= MAX_SCAN + 1, "the loop is still unbounded: " + got.skipped.length);
+  const sum = contextSummary({ skipped: got.skipped });
+  assert.ok(sum.skipped.length <= MAX_SKIPPED + 1, "the response list is still unbounded: " + sum.skipped.length);
+  const wire = JSON.stringify({ context: sum, contextNote: contextSentence(sum) });
+  assert.ok(wire.length < 4000, "a small body still amplifies into a large response: " + wire.length);
+
+  // ...and the ones we never looked at are COUNTED rather than dropped, or the
+  // cap added to fix an amplification reintroduces the silent drop this whole
+  // module exists to stop.
+  assert.match(JSON.stringify(got.skipped), /more files/);
+  assert.match(contextSentence(sum), /more files/);
+});
+
+test("a usable attachment behind a few junk ones is still found", () => {
+  // The scan cap must not make the accept cap unreachable: everything before
+  // the good file is refused, and it still lands.
+  const junk = Array(MAX_SCAN - 1).fill(0).map((_, i) => ({ name: "j" + i }));
+  const got = attachments([...junk, { name: "logo.png", data: dataUrl() }]);
+  assert.equal(got.blocks.length, 1, "the good file inside the scan window was lost");
+});
+
+test("capSkipped names as many as a person can read and counts the rest", () => {
+  const many = Array(50).fill(0).map((_, i) => ({ name: "f" + i, reason: "we couldn't read that file" }));
+  const out = capSkipped(many);
+  assert.equal(out.length, MAX_SKIPPED + 1);
+  assert.equal(out[MAX_SKIPPED].name, (50 - MAX_SKIPPED) + " more files");
+  // Under the cap it is a pass-through, so an ordinary build's response is
+  // byte-identical to what it was before the cap existed.
+  const few = [{ name: "a.zip", reason: "nope" }];
+  assert.deepEqual(capSkipped(few), few);
+  assert.deepEqual(capSkipped(null), []);
+  // A name or a reason from somewhere else is re-bounded here, because by this
+  // point the list may be a concatenation of more than one module's output.
+  const [one] = capSkipped([{ name: "x".repeat(500), reason: "y".repeat(500) }]);
+  assert.ok(one.name.length <= 80 && one.reason.length <= 200);
 });
 
 test("the route sorts the body through this function", () => {

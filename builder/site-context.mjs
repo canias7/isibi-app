@@ -364,7 +364,14 @@ export function contextSummary({ pages = [], facts = "", sources = [], searches 
   // An attachment we could not use travels the same way a link we could not
   // read does — dropping a file somebody deliberately attached, in silence, is
   // the same failure this whole module exists to stop.
-  if (skipped && skipped.length) out.skipped = skipped.map((a) => ({ name: a.name, reason: a.reason }));
+  //
+  // THROUGH `capSkipped`, because this is the point where the list becomes a
+  // response body and a chat sentence, and it is no longer only this module's
+  // output by the time it gets here — the route folds in the refusals from the
+  // xAI translator as well. `MAX_SCAN` bounds what `attachments` produces;
+  // this bounds what any caller can turn into a message.
+  const named = capSkipped(skipped);
+  if (named.length) out.skipped = named;
   if (converted && converted.length) out.converted = converted.map((a) => ({ name: a.name, as: a.as }));
   if (facts) out.sources = (sources || []).map((s) => (s && s.url) || s).filter(Boolean).slice(0, 6);
   return out;
@@ -435,17 +442,83 @@ export function contextSentence(summary) {
 
 /** Attachments carried on one message. Matches what the composer allows. */
 export const MAX_ATTACHMENTS = 3;
-const IMAGE_BYTES = 2_800_000;  // per image, as a data URL
-const DOC_BYTES = 4_000_000;    // per PDF, as a data URL (~2.9 MB of file)
-// ACROSS EVERYTHING THE MODEL IS SHOWN, and the number is chosen so that BOTH
-// branches can actually reach it. At 12,000,000 the image branch could not:
-// three images of the per-image maximum come to 8,400,000, so its copy of this
-// check was unreachable and read in the source as a bound it never was. Found
-// by mutation — deleting it changed nothing and no test noticed. This is the
-// second time the same dead-guard shape has appeared here, both times from
-// raising a per-file cap without re-deriving the total.
-const BLOCK_TOTAL = 8_000_000;
-const TEXT_CHARS = 120_000;     // per text file folded into the brief
+
+// THE SIZE CAPS WERE HALF-MIRRORED, AND THE TWO HALVES WERE IN DIFFERENT UNITS,
+// which is the whole reason nobody saw it. `siteAttachOne` in public/chat.js
+// caps a native image on FILE size (`f.size > 5 * 1024 * 1024`); this module
+// capped the DATA URL LENGTH at a flat 2,800,000. base64 is 4 characters per 3
+// bytes, so those are 5,242,880 bytes against 2,099,982 — a factor of 2.4.
+// Measured: a 3 MiB phone photo — the single commonest attachment there is —
+// is accepted by the composer, thumbnailed, uploaded inside a 24 MB body, and
+// then refused HERE with "that image is too large", in the build reply, after
+// the build has been paid for. The PDF pair was mismatched the same way, by
+// 1.2x (3,670,016 bytes against 2,999,979).
+//
+// SO THE CAP IS STATED IN FILE BYTES AND THE DATA-URL LENGTH IS DERIVED. Two
+// numbers in two units cannot be compared by eye, and a test can only hold them
+// together if both sides speak the same one — `test/site-context.test.mjs`
+// reads the composer's own caps out of chat.js and asserts this module admits
+// everything it sends.
+//
+// MIRRORING THE COMPOSER RATHER THAN MEETING IN THE MIDDLE: only one of the two
+// is this module's to move, and the composer is the half the customer sees. A
+// smaller mismatch is the same bug wearing a smaller number — the failure is
+// "accepted, uploaded, charged for, then refused", and it does not get better
+// by moving the threshold, only by removing it.
+/** Per-image FILE size, mirroring `siteAttachOne`'s `f.size > 5 * 1024 * 1024`. */
+export const IMAGE_FILE_BYTES = 5 * 1024 * 1024;
+/** Per-PDF FILE size, mirroring `siteAttachOne`'s `f.size > 3.5 * 1024 * 1024`. */
+export const DOC_FILE_BYTES = 3.5 * 1024 * 1024;
+// base64 is 4 characters per 3 bytes, rounded up to a whole 4-character group,
+// behind `data:<media type>;base64,`. 40 characters covers every prefix this
+// module admits (`data:application/pdf;base64,` is the longest, at 28).
+const asDataUrl = (fileBytes) => 40 + 4 * Math.ceil(fileBytes / 3);
+export const IMAGE_BYTES = asDataUrl(IMAGE_FILE_BYTES);
+export const DOC_BYTES = asDataUrl(DOC_FILE_BYTES);
+
+// WHAT THE MODEL IS SHOWN AS CONTENT BLOCKS — images and PDFs, and nothing
+// else. It said "ACROSS EVERYTHING THE MODEL IS SHOWN" and that was false: the
+// text branch below has never touched `total`, so `TEXT_CHARS` x
+// `MAX_ATTACHMENTS` was 360,000 uncapped characters (~90k tokens) folded into
+// the brief and sent UNCACHED to the design call and again to the pages call.
+// Measured before the fix: three 200,000-character files came back as 360,000
+// characters of brief with an empty `skipped`. A comment that outlived its
+// premise, and the premise was never true.
+//
+// DERIVED FROM THE PER-FILE CAP, so it cannot go stale again in either
+// direction. A hand-written total has been wrong here twice, both times because
+// a per-file cap moved underneath it: at 12,000,000 the image branch could not
+// reach it at all (three images of the then-maximum came to 8,400,000), and at
+// 8,000,000 against the caps above it would bind on an ordinary PAIR of 3 MiB
+// photos (8,388,654) rather than on anything excessive. Two of the largest file
+// we accept: one at the cap always fits, three never do, so BOTH branches can
+// still reach it. That property is asserted directly rather than left to
+// arithmetic in a comment.
+export const BLOCK_TOTAL = 2 * Math.max(IMAGE_BYTES, DOC_BYTES);
+
+/** Characters kept from one text file folded into the brief. */
+export const TEXT_CHARS = 120_000;
+// THE OTHER HALF OF THE SAME BOUND, in the other currency. Base64 characters
+// and prose characters are not comparable — an image is ~1,600 tokens whatever
+// its byte count, and 120,000 characters of prose is ~30,000 — so one budget
+// spanning both would either never bind on text or refuse every picture.
+// Same derivation and the same property: one whole file fits, three cannot.
+export const TEXT_TOTAL = 2 * TEXT_CHARS;
+
+// HOW MANY ENTRIES ARE LOOKED AT AT ALL. The loop used to run the whole of
+// `body.images`, and only ACCEPTED items were bounded — every refused one
+// pushed a fresh `{name, reason}`. Measured against the route's own 24 MB body
+// cap: a 780,012-byte body of `{"name":"a"}` entries produced 60,000 skipped
+// objects, a 2,699,999-character chat sentence and a 5,760,093-byte response —
+// 7.4x amplification, plus ~18 MB of heap inside a 128 MB isolate shared with
+// other customers' requests, all of it before any credit check.
+//
+// IN THE LOOP, NOT AT THE CALL SITE. The route could slice `body.images` before
+// handing it over, and that is the guard a caller eventually forgets — the
+// `safe-image` rule. Bounded work in has to mean bounded work out here.
+export const MAX_SCAN = 20;
+/** How many refusals are named individually before the rest are counted. */
+export const MAX_SKIPPED = 6;
 
 // The four the API accepts as image input. The regex IS the allow-list: the
 // media type inside a data URL is whatever the client wrote, and it is echoed
@@ -457,14 +530,101 @@ const DOC_URL = /^data:(application\/pdf);base64,([A-Za-z0-9+/=]+)$/;
 
 const nameOf = (a, i) => String((a && a.name) || "").trim().slice(0, 80) || ("attachment " + (i + 1));
 
+// THE KIND OF FILE, FROM WHATEVER THE CALLER TOLD US ABOUT IT. Used only to
+// pick one of a fixed set of sentences — the raw media type is never echoed
+// anywhere, so a caller-controlled string cannot reach the customer.
+const kindOf = (mime) => {
+  const t = String(mime || "").toLowerCase();
+  if (/^application\/pdf\b/.test(t)) return "pdf";
+  const top = (t.match(/^([a-z]+)\//) || [])[1];
+  return top === "image" || top === "video" || top === "audio" ? top : "";
+};
+// The declared media type, preferring the one INSIDE a data URL when there is
+// one — that is the string the block would carry — and falling back to the
+// `type` field the composer sends beside a file it could not read.
+const mimeOf = (a, s) => (s ? (s.match(/^data:([^;,]+)/i) || [])[1] || "" : String((a && a.type) || ""));
+
+// ONE SENTENCE PER KIND, because a size refusal is now raised from two places
+// — this module's own cap firing on data it holds, and the composer's cap
+// reported back through `note` — and the customer must not be able to tell
+// which side refused their file, or need to. Two copies of one message are two
+// things that eventually disagree. `Object.hasOwn`, not a truthiness lookup:
+// this codebase has shipped `PLANS[String(body.plan)]` accepting
+// `"constructor"` once already, and a closed range today is one edit from not
+// being one.
+const TOO_LARGE = { image: "that image is too large", pdf: "that PDF is too large", any: "that file is too large" };
+const tooLargeFor = (kind) => (Object.hasOwn(TOO_LARGE, kind) && kind !== "any" ? TOO_LARGE[kind] : TOO_LARGE.any);
+
+// WHY A FILE WITH NO DATA COULD NOT BE USED.
+//
+// `siteAttachOne` reports its own failures on the wire and this module read
+// NEITHER field: not `type`, not `note`. So a 6 MB PDF (client note "too
+// large"), a clip whose codec Chrome cannot decode (`{name, type:"video/mp4"}`),
+// a HEIC that `imageToPng` threw on, and an unrecognised file all landed on the
+// one line "we couldn't read that file". Measured — four distinct causes, one
+// sentence, none of them actionable.
+//
+// It was worse than a missing sentence: `videoPoster` resolves to a JPEG data
+// URL or REJECTS, so the client never sends `data:video/...` at all, and the
+// one message this module was written to produce — "we can't watch video —
+// attach a screenshot from it instead", whose own comment argues it is the
+// actionable one — was unreachable from the product.
+//
+// `note` is consulted ONLY when there is no data, so a caller holding a valid
+// image cannot talk itself into a refusal, and it is compared strictly against
+// the one string the composer sends rather than for truthiness — the
+// `blocked: "false"` lesson.
+function refusalFor(a, s) {
+  const mime = mimeOf(a, s);
+  const kind = kindOf(mime);
+  if (!s && a && a.note === "too large") return tooLargeFor(kind);
+  if (kind === "video") return "we can't watch video — attach a screenshot from it instead";
+  if (kind === "audio") return "we can't listen to audio";
+  if (kind === "image") return "we couldn't read that image — try saving it as a JPEG or PNG";
+  if (kind === "pdf") return "we couldn't read that PDF";
+  // A kind we were TOLD and do not take (a .zip, a .docx) is a different story
+  // from a file we were told nothing about and could not read, and only the
+  // first of the two has anything the person can do about it.
+  if (mime) return "that kind of file can't be read — images, PDFs and text files work";
+  return "we couldn't read that file";
+}
+
+/**
+ * The refusals as many as a person can read, and a count for the rest.
+ *
+ * `skipped` is the one list here with nothing bounding it. `converted` needs no
+ * cap because it is pushed only on an ACCEPTED file, which `MAX_ATTACHMENTS`
+ * already bounds; a refusal was pushed on every item that failed, and nothing
+ * bounded THAT. Its neighbour `sources` has been `.slice(0, 6)` since it was
+ * written, which is the same answer to the same question.
+ *
+ * The names and reasons are re-bounded on the way through as well, because this
+ * is the point where a list becomes a response and a chat sentence, and by then
+ * it may be a concatenation of lists from more than one module.
+ */
+export function capSkipped(list) {
+  const all = Array.isArray(list) ? list : [];
+  const kept = all.slice(0, MAX_SKIPPED).map((a) => ({
+    name: String((a && a.name) || "attachment").slice(0, 80),
+    reason: String((a && a.reason) || "we couldn't use it").slice(0, 200),
+  }));
+  const rest = all.length - kept.length;
+  // NAMED AS A COUNT, because the alternative is dropping them in silence —
+  // which is the failure this whole module exists to stop, arriving through the
+  // cap that was added to fix a different one.
+  if (rest > 0) kept.push({ name: rest + " more file" + (rest === 1 ? "" : "s"), reason: "there were more problems than we can list" });
+  return kept;
+}
+
 /**
  * Sort the attachments into what the model sees, what it reads, and what it
  * cannot be given at all.
  *
- * Returns `{ blocks, texts, skipped }`:
- *   blocks  — image/document content blocks, in the order attached
- *   texts   — [{name, text}] to fold into the brief
- *   skipped — [{name, reason}] to tell the user about
+ * Returns `{ blocks, texts, skipped, converted }`:
+ *   blocks    — image/document content blocks, in the order attached
+ *   texts     — [{name, text}] to fold into the brief
+ *   skipped   — [{name, reason}] to tell the user about
+ *   converted — [{name, as}] files used, but not in the form they arrived in
  *
  * Never throws. An attachment nobody can make sense of becomes a `skipped`
  * entry, never an exception and never silence.
@@ -473,15 +633,23 @@ export function attachments(list) {
   const blocks = [];
   const texts = [];
   const skipped = [];
-  // Files that WERE used, but not in the form they arrived in. Today that is
-  // only a video: the client extracts a still because the API takes no video in
-  // any encoding, and telling the customer we "used" their clip would overstate
-  // what happened by a lot.
+  // Files that WERE used, but not in the form they arrived in. Two of them now:
+  // a video, where the client extracts a still because the API takes no video in
+  // any encoding and telling the customer we "used" their clip would overstate
+  // what happened by a lot; and a text file longer than `TEXT_CHARS`, which is
+  // kept up to the cap and cut after it. Both are the same statement — here is
+  // what we did with your file — and it is the one that stops a truncation
+  // being a silent degradation.
   const converted = [];
   let total = 0;
+  let textTotal = 0;
   const items = Array.isArray(list) ? list : [];
+  // BOUNDED WORK, whatever arrives. See MAX_SCAN — the route's only bound is a
+  // 24 MB body, which admits hundreds of thousands of minimal entries, and this
+  // loop pushed an object for every one of them.
+  const scanned = Math.min(items.length, MAX_SCAN);
 
-  for (let i = 0; i < items.length; i++) {
+  for (let i = 0; i < scanned; i++) {
     const a = items[i];
     const name = nameOf(a, i);
     if (blocks.length + texts.length >= MAX_ATTACHMENTS) {
@@ -498,15 +666,27 @@ export function attachments(list) {
     if (a && typeof a.text === "string") {
       const t = a.text.trim();
       if (!t) { skipped.push({ name, reason: "it was empty" }); continue; }
-      texts.push({ name, text: t.slice(0, TEXT_CHARS) });
+      const kept = t.slice(0, TEXT_CHARS);
+      // Counted the way the block branches count, and for the same reason: a
+      // file that does not fit must not consume the budget one behind it needed.
+      if (textTotal + kept.length > TEXT_TOTAL) { skipped.push({ name, reason: "there wasn't room for it" }); continue; }
+      textTotal += kept.length;
+      texts.push({ name, text: kept });
+      // TRUNCATION IS REPORTED, not silent. The composer accepts a text file up
+      // to 400 KiB and this keeps 120,000 characters of it, so a long price list
+      // arrives with most of it gone — used, but not in the form it was sent,
+      // which is exactly what `converted` says. Plain digits rather than
+      // `toLocaleString`: this codebase has already been bitten by two ICU
+      // versions disagreeing about one locale.
+      if (kept.length < t.length) converted.push({ name, as: "the first " + kept.length + " characters" });
       continue;
     }
 
-    if (!s) { skipped.push({ name, reason: "we couldn't read that file" }); continue; }
+    if (!s) { skipped.push({ name, reason: refusalFor(a, s) }); continue; }
 
     const img = s.match(IMAGE_URL);
     if (img) {
-      if (s.length > IMAGE_BYTES) { skipped.push({ name, reason: "that image is too large" }); continue; }
+      if (s.length > IMAGE_BYTES) { skipped.push({ name, reason: tooLargeFor("image") }); continue; }
       // Counted AFTER the match, so a rejected file cannot consume the budget a
       // valid one behind it needed.
       if (total + s.length > BLOCK_TOTAL) { skipped.push({ name, reason: "there wasn't room for it" }); continue; }
@@ -518,22 +698,28 @@ export function attachments(list) {
 
     const doc = s.match(DOC_URL);
     if (doc) {
-      if (s.length > DOC_BYTES) { skipped.push({ name, reason: "that PDF is too large" }); continue; }
+      if (s.length > DOC_BYTES) { skipped.push({ name, reason: tooLargeFor("pdf") }); continue; }
       if (total + s.length > BLOCK_TOTAL) { skipped.push({ name, reason: "there wasn't room for it" }); continue; }
       total += s.length;
       blocks.push({ type: "document", source: { type: "base64", media_type: doc[1], data: doc[2] } });
       continue;
     }
 
-    // Everything else. The reason names the KIND where the data URL declares
-    // one, because "we can't read video" is actionable and "we couldn't read
-    // that file" is not.
-    const kind = (s.match(/^data:([a-z]+)\//i) || [])[1];
+    // Everything else. The reason names the KIND wherever we know one, because
+    // "we can't read video" is actionable and "we couldn't read that file" is
+    // not — see `refusalFor`, which is now the one place that decision is made
+    // for a file with a data URL and for one that arrived without.
+    skipped.push({ name, reason: refusalFor(a, s) });
+  }
+
+  // The ones never looked at. A count rather than an entry each, and said out
+  // loud rather than dropped: the scan cap exists to bound the work, and a
+  // bound that hides what it discarded is the silent-drop failure again.
+  const unscanned = items.length - scanned;
+  if (unscanned > 0) {
     skipped.push({
-      name,
-      reason: kind === "video" ? "we can't watch video — attach a screenshot from it instead"
-        : kind === "audio" ? "we can't listen to audio"
-          : "that kind of file can't be read — images, PDFs and text files work",
+      name: unscanned + " more file" + (unscanned === 1 ? "" : "s"),
+      reason: "we only look at the first " + MAX_SCAN + " attachments",
     });
   }
   return { blocks, texts, skipped, converted };

@@ -46,14 +46,52 @@ function systemText(system) {
   return system.map((b) => (b && typeof b.text === "string" ? b.text : "")).filter(Boolean).join("\n\n");
 }
 
+// WHAT A DROPPED PDF SAYS TO THE CUSTOMER.
+//
+// Anthropic takes `{type:"document"}` natively and the chat/completions shape
+// has no equivalent, so an attached PDF cannot reach Grok at all — and a menu
+// or a price list is the documented headline use of the Attach control.
+//
+// THE SENTENCE IS COMPOSED HERE, where the fact is known, in the shape
+// `contextSummary`/`contextSentence` already consume (`{name, reason}`). The
+// alternative is the caller inventing its own wording from a bare count, which
+// is how two copies of one message come to disagree — the reason the whole
+// context summary is server-composed rather than assembled in the client.
+//
+// It names no picker label: the composer spells them "Sonnet 5" / "Opus 5" /
+// "Grok 4.6", and pinning one here would couple this module to a string in
+// public/chat.js and keep this file from being the leaf it is.
+const NO_PDF = "the Grok builder can't read PDFs; switch the Builder picker to another model, or paste what it says into your message";
+
+const droppedReport = (n) => (n > 0
+  ? [{ name: n === 1 ? "the PDF you attached" : n + " PDFs you attached", reason: NO_PDF }]
+  : []);
+
+/**
+ * The attachments that cannot cross to xAI, as refusals a customer can read.
+ *
+ * ANSWERED BEFORE THE CALL, from the blocks and the model alone, because that
+ * is the only place the route can use it: `contextSummary` — the one thing that
+ * reports refused attachments — is built from `attachments(body.images)` before
+ * page generation runs, and it is provider-blind, so a drop discovered inside
+ * `callBuilderModel` has nowhere left to go. The route folds this in beside
+ * `attached.skipped`; see the note on `toXaiRequest`.
+ *
+ * The same list `toXaiRequest` returns, from the same one sentence, so the
+ * pre-call answer and the post-translation one cannot disagree.
+ */
+export function xaiSkipped(blocks, model) {
+  if (!isXaiModel(model)) return [];
+  let docs = 0;
+  for (const b of Array.isArray(blocks) ? blocks : []) if (b && b.type === "document") docs++;
+  return droppedReport(docs);
+}
+
 /**
  * One Anthropic content block as an OpenAI content part, or null to drop it.
  *
- * A PDF IS DROPPED AND SAID SO. Anthropic takes `{type:"document"}` natively and
- * the chat/completions shape has no equivalent, so an attached PDF cannot reach
- * Grok at all. Silently sending the rest would produce a build that ignored the
- * customer's price list with nothing anywhere saying why — so `toXaiRequest`
- * reports what it dropped and the caller can tell them.
+ * A PDF IS DROPPED, COUNTED, AND GIVEN A SENTENCE — see `NO_PDF` above and
+ * `toXaiRequest`'s return.
  */
 function contentPart(b) {
   if (!b || typeof b !== "object") return null;
@@ -80,6 +118,23 @@ function contentPart(b) {
  * there is no per-block marker to carry them to. What survives is the PROPERTY
  * the markers exist for — the big invariant blocks stay at the front of the
  * request — because the caller already orders them that way.
+ *
+ * RETURNS `{ body, droppedDocs, skipped }`. `skipped` is the customer-facing
+ * half and it is new: this returned a bare COUNT, whose only reader anywhere
+ * was a `console.error` in `callBuilderModel`, while the comment above
+ * `contentPart` claimed "the caller can tell them". It could not — the build's
+ * attachment reporting is `contextSummary({… skipped: attached.skipped …})`,
+ * built before page generation and provider-blind. So a customer who picked the
+ * Grok builder and attached their price list paid for a full build that ignored
+ * it and was told nothing, with one line of a Cloudflare log as the only trace:
+ * the invisible-failure class the attachment reporting exists to close, and the
+ * same shape as the link that nothing fetched.
+ *
+ * The route folds `xaiSkipped(attached.blocks, models.pages)` into that summary
+ * — the pre-call form, because by the time a response comes back the summary
+ * has already been built. `droppedDocs` stays for the log line, which is worth
+ * having on its own: it says a translation dropped something, where `skipped`
+ * says a customer lost something.
  */
 export function toXaiRequest(req) {
   const r = req && typeof req === "object" ? req : {};
@@ -122,7 +177,9 @@ export function toXaiRequest(req) {
   // different invariant prefixes and should not chase each other's cache.
   const key = (r.tool_choice && r.tool_choice.name) || (tools[0] && tools[0].function.name);
   if (key) body.prompt_cache_key = `gofarther-${key}`;
-  return { body, droppedDocs };
+  // ONE SENTENCE, from one place, so the count the log prints and the refusal
+  // the customer reads can never describe different work.
+  return { body, droppedDocs, skipped: droppedReport(droppedDocs) };
 }
 
 /**

@@ -14,13 +14,19 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   REFERENCE_PAGE, REFERENCE_PAGES, UI_COMPONENTS, ALWAYS_API_CORE, componentApiFor, siteComponentApi, PAGE_RULES, SITE_PAGES_TOOL, MAX_PAGES, MANAGED_COLUMNS,
-  schemaDigest, pagesPrompt, repairPrompt, validatePages, lintPages, briefForPages, ACCESS_NOTE, propsOf, UI_EXPORTS,
+  schemaDigest, pagesPrompt, repairPrompt, validatePages, lintPages, briefForPages, READ_NOTE, WRITE_NOTE, accessNote, propsOf, UI_EXPORTS,
   repairImports } from "../builder/page-gen.mjs";
+import { accessNameFor } from "../site-access.mjs";
 import { COMPONENT_API, COMPONENT_TYPES } from "../builder/component-api.mjs";
 import { normalizePlan } from "../builder/site-plan.mjs";
 import { build as buildApi, render as renderApi, extract as extractApi, buildTypes as buildTypesApi, extractTypes as extractTypesApi } from "../builder/gen-component-api.mjs";
 import * as api from "../builder/page-gen.mjs";
 import { CORPUS_DIR, CORPUS_URL } from "./fixtures/corpus.mjs";
+import { generatedPages } from "./fixtures/generated.mjs";
+// The function the ROUTE gates on, asked directly rather than restated — a
+// second copy of "does this table take a file" is a digest promising an upload
+// the route refuses.
+import { acceptsVisitorUploads } from "../site-uploads.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const TEMPLATE = path.join(ROOT, "builder", "lovable", "template");
@@ -731,8 +737,19 @@ test("the rules tell the model how a visitor attaches a picture", () => {
   // Upload first, submit the URL as an ordinary text field. The row write stays
   // plain JSON — a model reaching for multipart would produce a form that 400s.
   assert.match(PAGE_RULES, /useUploadFile/);
-  // The rules text wraps, so anything asserted across a line break needs \s+.
-  assert.match(PAGE_RULES, /only when its table declares an image\s+column/i);
+  // THE PROPERTY, NOT THE SPELLING. This pinned "only when its table declares an
+  // image column" — the exact wording, and a rule that CONDITIONED THE MODEL ON A
+  // FACT NOBODY GAVE IT. Whether a table declares one is decided by
+  // `acceptsVisitorUploads` → `isImageColumn`, a naming regex the generator has
+  // never seen, and the digest stated nothing about uploads at all: measured, a
+  // `bookings` table with an `attachment` column printed its four columns, said
+  // nothing, and the route answered 403 `no_uploads` to every visitor who picked
+  // a file. The rule now points at the digest's own FILE UPLOAD line, so this
+  // asserts that it does rather than asserting how it is worded.
+  assert.match(PAGE_RULES, /FILE UPLOAD: YES/,
+    "rule 8 must point at the digest's own line, not at a fact the model has to derive");
+  assert.ok(!/declares an image\s+column\./i.test(PAGE_RULES),
+    "rule 8 still asks the model to work uploads out from the column names");
   assert.match(PAGE_RULES, /still plain JSON/);
   assert.match(PAGE_RULES, /SVG is refused/);
   assert.match(PAGE_RULES, /2 MB/, "say the cap next to the control, not after the pick");
@@ -844,20 +861,104 @@ test("the rules describe member tables as they actually behave", () => {
   assert.match(PAGE_RULES, /signed out, both return 401/i, "signed out is 401, not 403");
 });
 
-test("the rules and ACCESS_NOTE agree about every access level", () => {
-  // Two descriptions of the same rule in one prompt is how they drifted apart
-  // the first time.
-  for (const level of ["user", "feed", "admin"]) {
-    assert.ok(ACCESS_NOTE[level], level);
+// ─────────────────────────────────────────────────────────────────────────────
+// RULE 2 AND THE SENTENCES THE DIGEST ACTUALLY SENDS
+//
+// This guard used to be titled "the rules and ACCESS_NOTE agree about every
+// access level", and it read `ACCESS_NOTE` — a five-preset map with NO
+// production reader. `schemaDigest` describes access through `accessNote(t)`,
+// composed from `READ_NOTE` and `WRITE_NOTE`, so the guard was watching a
+// constant nothing sends: change `READ_NOTE.own` or `WRITE_NOTE.members`, the
+// strings the model really receives, and it stayed green. Its own comment said
+// what it was for — "Two descriptions of the same rule in one prompt is how they
+// drifted apart the first time" — which is precisely what it could no longer see.
+//
+// It had also gone stale in its own terms: measured, two of the three phrases it
+// pinned ("SHARED, MEMBER-AUTHORED", "SHARED, READ-ONLY FROM THE SITE") appear
+// nowhere in what `accessNote` composes, so its list described the dead map.
+//
+// The replacement drives `schemaDigest` — the thing that is SENT — and derives
+// the preset list from `accessNameFor` rather than naming three by hand.
+// ─────────────────────────────────────────────────────────────────────────────
+test("the digest really sends the access sentences, and rule 2 covers every preset it can name", () => {
+  // DERIVED, not a hand-list: whatever `accessNameFor` can answer over the 4x4
+  // grid is what the digest can print, so a sixth preset is covered here without
+  // anybody remembering this file.
+  const presets = new Set();
+  for (const read of READ_LEVELS) {
+    for (const write of WRITE_LEVELS) {
+      const name = accessNameFor({ read, write });
+      if (name) presets.add(name);
+    }
   }
+  assert.ok(presets.size >= 5, "the preset scan found almost nothing: " + [...presets]);
+
+  for (const preset of presets) {
+    // THE SENTENCE THE MODEL RECEIVES, read off a real digest rather than off a
+    // constant beside it. This is the half the old guard could not do.
+    const digest = schemaDigest({ tables: [{ name: "t", access: preset, columns: [{ name: "x" }] }] });
+    assert.ok(digest.includes(accessNote({ access: preset })),
+      "the digest does not carry accessNote for " + preset);
+    // And rule 2 has to describe it at all.
+    assert.ok(PAGE_RULES.includes("`" + preset + "`"), "rule 2 never names the preset " + preset);
+  }
+
   // "SHARED, ROLE-WRITABLE" is gone: admin is granted SELECT and nothing else, so
   // describing it as writable-by-a-role was a promise about the deleted Worker
   // data API, which is the only thing that ever checked `writeRoles`.
   assert.ok(!PAGE_RULES.includes("ROLE-WRITABLE"), "the rules still call admin writable");
-  for (const phrase of ["PRIVATE PER MEMBER", "SHARED, MEMBER-AUTHORED", "SHARED, READ-ONLY FROM THE SITE"]) {
-    assert.ok(PAGE_RULES.includes(phrase), "rule 2 must match ACCESS_NOTE: " + phrase);
-    assert.ok(Object.values(ACCESS_NOTE).some((v) => v.includes(phrase)), phrase);
+  // The claim rule 2 and the live notes genuinely share, kept from the old guard
+  // because that half was real — it is in READ_NOTE.own and in rule 2's `user`
+  // bullet, and a page that drops the sign-in prompt is the failure it prevents.
+  for (const phrase of ["PRIVATE PER MEMBER", "Build the signed-in view AND a sign-in prompt"]) {
+    assert.ok(PAGE_RULES.includes(phrase), "rule 2 lost: " + phrase);
+    assert.ok(Object.values(READ_NOTE).some((v) => v.includes(phrase)), "the notes lost: " + phrase);
   }
+});
+
+test("no prompt text names the retired brand", () => {
+  // THE DRIFT THAT PROVED THE OLD GUARD VACUOUS, now asserted. `WRITE_NOTE.none`
+  // said "its Go Farther dashboard" while rule 2's `admin` bullet and the deleted
+  // `ACCESS_NOTE.admin` both said "its isibi dashboard" — a product that has not
+  // existed since the rebrand — so a build told a business owner to maintain
+  // their rows somewhere they cannot go, and the guard meant to hold those two
+  // halves together reported agreement.
+  //
+  // ASSERTED ON THE RUNTIME STRINGS, NOT THE SOURCE, and that is deliberate:
+  // what matters is what the model receives, and a source read would match the
+  // comment in page-gen.mjs that EXPLAINS this deletion — prose describing a
+  // thing spells that thing, this repo's most repeated own-goal.
+  //
+  // WORD-BOUNDED, because a substring scan is worthless here: `visibility-toggle`
+  // is a real kit component and contains the old name (v-ISIBI-lity). A bare
+  // /isibi/i over PAGE_RULES matches it and reports a clean file as dirty.
+  const OLD_BRAND = /\bisibi\b/i;
+  assert.ok(/visibility-toggle/.test(PAGE_RULES),
+    "the substring trap this pattern is anchored against is gone — re-check the anchoring");
+  const digest = schemaDigest({
+    tables: ["display", "collect", "user", "feed", "admin"]
+      .map((access, i) => ({ name: "t" + i, access, columns: [{ name: "x" }] })),
+  });
+  for (const [what, text] of [
+    ["PAGE_RULES", PAGE_RULES],
+    ["schemaDigest", digest],
+    ...Object.entries(READ_NOTE).map(([k, v]) => ["READ_NOTE." + k, v]),
+    ...Object.entries(WRITE_NOTE).map(([k, v]) => ["WRITE_NOTE." + k, v]),
+  ]) {
+    assert.ok(!OLD_BRAND.test(text), what + " still names the retired brand");
+  }
+  // And it must be named SOMEWHERE, or this passes on a prompt that stopped
+  // telling the owner where their rows live at all.
+  assert.match(WRITE_NOTE.none, /Go Farther/);
+  assert.match(PAGE_RULES, /Go Farther/);
+});
+
+test("ACCESS_NOTE stays deleted", () => {
+  // A SECOND, UNREAD DESCRIPTION OF ACCESS IS WHAT MADE THE GUARD ABOVE VACUOUS,
+  // so its absence is the durable half of the fix. Restoring the map without
+  // restoring a reader brings the whole failure back: the suite goes green while
+  // rule 2 and the sentences the digest sends drift apart.
+  assert.ok(!("ACCESS_NOTE" in api), "ACCESS_NOTE is back — it has no production reader; the digest uses accessNote()");
 });
 
 
@@ -2058,6 +2159,194 @@ test("LINT: the write gate resolves the pair — the blind spot and the false al
   // with the flag's own message printing the correctly-resolved label. This
   // repo's own bar says the false-alarm direction is the worse one.
   assert.deepEqual(lintPages(page('const c = useCreateRow("wall");'), spec), []);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A RETIRED TABLE IS CLOSED, AND EVERY DATA-API HOOK HAS TO SAY SO
+//
+// `schemaDigest` has filtered retired tables out since retiring existed;
+// `lintPages` built its map from every declared table with no such filter. So a
+// form against a closed table resolved, passed `canWriteAccess` (the stored spec
+// keeps the write side it was built with) and reported NOTHING — while
+// `grantsFor` emits only the two REVOKEs and `publicViewSql` drops the
+// projection, so every read and write on it is 403.
+//
+// Reachable by the ordinary path: retire a table, then make any later
+// page-generating change. The revise contract hands the model its own prior
+// pages back and asks for them byte-identical except where the change was
+// asked, so the existing form returns unchanged, lints silently, republishes,
+// and the owner's enquiries simply stop arriving.
+// ─────────────────────────────────────────────────────────────────────────────
+const RETIRED_SPEC = {
+  tables: [
+    { name: "enquiries", access: "collect", retired: true, columns: [{ name: "name" }] },
+    { name: "menu", access: "display", retired: true, columns: [{ name: "dish" }] },
+    { name: "open", access: "collect", columns: [{ name: "name" }] },
+  ],
+};
+
+test("LINT: a form submitting to a RETIRED table is refused, and says it is closed", () => {
+  const out = lintPages(page('const c = useCreateRow("enquiries");'), RETIRED_SPEC);
+  assert.equal(out.length, 1, JSON.stringify(out));
+  // THE SENTENCE MATTERS AS MUCH AS THE HIT. "does not declare" sends whoever
+  // reads the reply looking for a typo; the table is there and was closed on
+  // purpose, and the UI has to go with it.
+  assert.match(out[0], /CLOSED/);
+  assert.ok(!/does not declare/.test(out[0]), "a retired table is declared — it is withdrawn");
+});
+
+test("LINT: every read hook refuses a RETIRED table too", () => {
+  // DERIVED OVER THE HOOKS, not one spot-check: the map is shared, and the whole
+  // point of filtering it rather than gating six loops is that no loop can be
+  // forgotten. Each of these resolves a table name and each goes to the Data
+  // API, whose grants `retired` revokes.
+  for (const call of [
+    'const r = useRows("menu");',
+    'const r = usePublicRows("menu");',
+    'const r = useRow("menu", id);',
+    'const u = useUpdateRow("enquiries");',
+    'const d = useDeleteRow("enquiries");',
+  ]) {
+    const out = lintPages(page(call), RETIRED_SPEC);
+    assert.ok(out.length >= 1, call + " reported nothing: " + JSON.stringify(out));
+    assert.ok(out.some((p) => /CLOSED/.test(p)), call + " → " + JSON.stringify(out));
+  }
+});
+
+test("...and a table that is NOT retired is untouched", () => {
+  // The direction that would make this worse than the bug: if filtering the map
+  // leaked into ordinary tables, every form on the platform would be told its
+  // table does not exist.
+  assert.deepEqual(lintPages(page('const c = useCreateRow("open");'), RETIRED_SPEC), []);
+});
+
+test("...and useCheckout on a retired table is NOT refused, which is measured", () => {
+  // THE ONE HOOK THAT STILL WORKS ON A CLOSED TABLE, and it is a fact about the
+  // route rather than a judgement. Every other hook here goes to
+  // `/api/db/<slug>/data/…`, the Neon Data API, whose grants `retired` revokes.
+  // `useCheckout` posts to `/api/db/<slug>/checkout`, and `handleCheckout` prices
+  // the cart and INSERTs the order over the site's own owner connection, which
+  // bypasses grants entirely. Reporting it would be a false alarm on correct
+  // code — worse than the miss, by this file's own standing rule.
+  const spec = { tables: [{
+    name: "orders", access: "collect", retired: true,
+    columns: [{ name: "email" }],
+    payment: { from: "menu", name: "dish", price: "price", currency: "gbp" },
+  }, { name: "menu", access: "display", columns: [{ name: "dish" }, { name: "price" }] }] };
+  assert.deepEqual(lintPages(page('const c = useCheckout("orders");'), spec), []);
+});
+
+test("...and the retired filter is the SAME one schemaDigest applies", () => {
+  // The bug in one sentence: two readers of "which tables may a page use" and
+  // only one of them filtered. Asserted as agreement rather than as two
+  // spellings — a retired table must be absent from the digest AND unusable by
+  // the lint, and a live one present in both.
+  const digest = schemaDigest(RETIRED_SPEC);
+  assert.ok(!digest.includes("TABLE enquiries"), "the digest offers a retired table");
+  assert.ok(!digest.includes("TABLE menu"), "the digest offers a retired table");
+  assert.ok(digest.includes("TABLE open"), "the digest dropped a live table");
+  assert.ok(lintPages(page('const c = useCreateRow("enquiries");'), RETIRED_SPEC).length,
+    "the lint accepts a table the digest refuses to offer");
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WHETHER A FORM MAY TAKE A FILE — a rule conditioned on a fact nobody supplied
+//
+// Rule 8 said a form may accept an attachment "only when its table declares an
+// image column", and whether it does is decided by `acceptsVisitorUploads` →
+// `isImageColumn`, a NAMING regex the generator has never been shown. The digest
+// printed every column and stated nothing about uploads, so the model was asked
+// to evaluate a condition it could not see. Third instance of this shape, after
+// `publicView` twice — and that one cost a whole site.
+// ─────────────────────────────────────────────────────────────────────────────
+const UPLOAD_NO = { tables: [{ name: "bookings", access: "collect",
+  columns: [{ name: "name" }, { name: "email" }, { name: "attachment" }, { name: "notes" }] }] };
+const UPLOAD_YES = { tables: [{ name: "bookings", access: "collect",
+  columns: [{ name: "name" }, { name: "photo" }, { name: "notes" }] }] };
+
+test("DIGEST: it states whether a form may take a file, YES and NO", () => {
+  // The measured case: `attachment` is the natural name for "a photo of the job"
+  // and the heuristic rejects it, so the digest has to say so — the model cannot
+  // work it out and the route answers 403 `no_uploads` to every visitor.
+  assert.match(schemaDigest(UPLOAD_NO), /FILE UPLOAD: NO/);
+  assert.match(schemaDigest(UPLOAD_YES), /FILE UPLOAD: YES/);
+  // And it NAMES the column, which is the half that makes the YES usable: rule
+  // 8's worked example ends `form.setValue("photo", url)` and the model has to
+  // know which field that is.
+  assert.match(schemaDigest(UPLOAD_YES), /`photo` field/);
+});
+
+test("DIGEST: the upload line is derived from acceptsVisitorUploads, not from a copy", () => {
+  // ONE QUESTION, ONE ANSWER. `handleVisitorUpload` gates on that function; a
+  // second copy of the naming rule here would drift into a digest promising an
+  // upload the route refuses — which is the bug, pointed the other way.
+  //
+  // Driven over the shapes that differ, including the member cell
+  // `{read:"public", write:"own"}` that `acceptsVisitorUploads` names in its own
+  // comment as the case it exists for.
+  const cases = [
+    { name: "t", access: "collect", columns: [{ name: "photo" }] },
+    { name: "t", access: "collect", columns: [{ name: "attachment" }] },
+    { name: "t", access: "display", columns: [{ name: "image_url" }] },
+    { name: "t", read: "public", write: "own", columns: [{ name: "photo" }] },
+    { name: "t", read: "public", write: "own", columns: [{ name: "caption" }] },
+  ];
+  let sawYes = 0, sawNo = 0;
+  for (const t of cases) {
+    const digest = schemaDigest({ tables: [t] });
+    if (acceptsVisitorUploads(t)) {
+      assert.match(digest, /FILE UPLOAD: YES/, "accepts uploads but the digest does not say so: " + JSON.stringify(t));
+      sawYes++;
+    } else if (/FILE UPLOAD:/.test(digest)) {
+      assert.match(digest, /FILE UPLOAD: NO/, JSON.stringify(t));
+      sawNo++;
+    }
+  }
+  // FLOORS ON BOTH, or a scan that stopped producing either reports a clean run.
+  assert.ok(sawYes >= 2 && sawNo >= 1, "the upload matrix went vacuous: yes=" + sawYes + " no=" + sawNo);
+});
+
+test("LINT: useUploadFile on a table that takes no file is refused", () => {
+  const out = lintPages(page('const up = useUploadFile("bookings");'), UPLOAD_NO);
+  assert.equal(out.length, 1, JSON.stringify(out));
+  assert.match(out[0], /takes no file/);
+  assert.match(out[0], /403/);
+});
+
+test("...and useUploadFile on a table that DOES take one passes", () => {
+  assert.deepEqual(lintPages(page('const up = useUploadFile("bookings");'), UPLOAD_YES), []);
+});
+
+test("...and it says nothing about a table the schema never declared", () => {
+  // `useCreateRow` and the read hooks already report an unknown name; saying it
+  // twice reports one mistake as two.
+  const out = lintPages(page('const up = useUploadFile("ghost");'), UPLOAD_YES);
+  assert.deepEqual(out, [], JSON.stringify(out));
+});
+
+test("...and the upload rule cannot fire on either pinned corpus", () => {
+  // THE MEASUREMENT THAT LETS THE RULE EXIST. It can only ever fire on a
+  // `useUploadFile` call, so counting them IS the false-alarm rate: **0 across
+  // the 324 hand-written exemplars and 0 across the 8 pinned generator pages**.
+  // The generated corpus matters more than ours here — it is the only corpus in
+  // this repo written by the thing being linted.
+  //
+  // Floors on both, because a walk that found nothing would report a clean sweep
+  // over nothing, which is the reassuring way to say the check ran on no pages.
+  const files = [];
+  const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+    const p = path.join(d, e.name);
+    if (e.isDirectory()) walk(p); else if (e.name.endsWith(".tsx")) files.push(p);
+  } };
+  walk(CORPUS_DIR);
+  assert.ok(files.length > 300, "the corpus scan found only " + files.length + " pages");
+  const gen = generatedPages();
+  assert.ok(gen.length >= 4, "the generated corpus went thin: " + gen.length);
+  const hits = [];
+  for (const src of [...files.map((f) => fs.readFileSync(f, "utf8")), ...gen.map((g) => g.src)]) {
+    for (const m of src.matchAll(/\buseUploadFile\s*\(/g)) hits.push(m[0]);
+  }
+  assert.deepEqual(hits, [], "a pinned corpus calls useUploadFile — measure the rule against it before shipping");
 });
 
 test("LINT: useCreateRow on a paid table is refused", () => {
@@ -3286,17 +3575,30 @@ test("…and never flags a correct page", () => {
   // guard (121 pages), a module documenting one of its several exports (55), the
   // innermost braces read as the item (24), prose inside strings scanned as code
   // (14), and a nested element's props read as the outer one's (1).
-  const roots = [
-    CORPUS_DIR,
-    path.join(import.meta.dirname, "..", "builder", "lovable", "template", "src", "routes"),
-  ];
-  const files = [];
-  const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) {
-    const p = path.join(d, e.name);
-    if (e.isDirectory()) walk(p); else if (e.name.endsWith(".tsx") && e.name !== "__root.tsx") files.push(p);
-  } };
-  for (const r of roots) if (fs.existsSync(r)) walk(r);
-  assert.ok(files.length > 300, "the corpus scan found only " + files.length + " pages — it has drifted");
+  const REF_DIR = path.join(import.meta.dirname, "..", "builder", "lovable", "template", "src", "routes");
+  // KEYED ON THE ROOT, NOT ON A PATH SUBSTRING — and this had already rotted.
+  // The split below used to be `f.includes("family-pages") ? fam : bad`, which
+  // was true while the exemplars lived at `template/src/family-pages`. They moved
+  // to `test/fixtures/corpus` when the families were deleted, so that test became
+  // FALSE FOR EVERY FILE: all 324 fell into `bad`, which filters to two prop-lint
+  // message shapes, and the "whole lint" sweep this test's own comment argues for
+  // stopped happening. Measured: the full lint over the 324 reports 322 problems
+  // and the filtered bucket saw none of them. A path substring is a fact about
+  // where a directory sits; the roots are what the walk already knows.
+  const collect = (root) => {
+    const out = [];
+    const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) walk(p); else if (e.name.endsWith(".tsx") && e.name !== "__root.tsx") out.push(p);
+    } };
+    if (fs.existsSync(root)) walk(root);
+    return out;
+  };
+  const corpusFiles = collect(CORPUS_DIR);
+  const refFiles = collect(REF_DIR);
+  const files = [...corpusFiles, ...refFiles];
+  assert.ok(corpusFiles.length > 300, "the corpus scan found only " + corpusFiles.length + " pages — it has drifted");
+  assert.ok(refFiles.length >= 4, "the reference-page scan found only " + refFiles.length + " pages");
   // JUDGED BY ROOT, and the split is required rather than tidy.
   //
   // A family exemplar is presentational by design — `family-pages.test.mjs`
@@ -3311,16 +3613,31 @@ test("…and never flags a correct page", () => {
   // a test was written for is how ~18 of the ~20 rules ended up swept by nothing
   // — and the first unfiltered run found 4 pages flagged for
   // `import { X, type Y }`, the idiom these very exemplars teach.
+  // RULE 19 IS THE ONE DOCUMENTED EXCEPTION, and it is excluded by name rather
+  // than by letting the whole sweep stay filtered. These pages predate the
+  // per-page `head` rule by months and reach no prompt now, so their 322 hits are
+  // evidence about the corpus's AGE and not a false-alarm rate — the reference
+  // pages, which the model really is shown, are clean of it and are what
+  // calibrates that rule. Excluding one named rule keeps the other ~19 swept;
+  // filtering to a message family is what silently stopped sweeping them at all.
+  const AGE = /has no `head` on its route/;
   const fam = [];
   const bad = [];
   for (const f of files) {
-    const all = lintPages([{ path: "x.tsx", source: fs.readFileSync(f, "utf8") }], { tables: [] });
-    const where = f.includes("family-pages") ? fam : bad;
-    const out = where === fam ? all : all.filter((x) => /not part of that shape|does not take/.test(x));
+    const all = lintPages([{ path: "x.tsx", source: fs.readFileSync(f, "utf8") }], { tables: [] })
+      .filter((x) => !AGE.test(x));
+    const isCorpus = corpusFiles.includes(f);
+    const where = isCorpus ? fam : bad;
+    const out = isCorpus ? all : all.filter((x) => /not part of that shape|does not take/.test(x));
     if (out.length) where.push(path.basename(path.dirname(f)) + "/" + path.basename(f) + ": " + out[0]);
   }
   assert.deepEqual(bad, [], "the prop lint flags known-good pages:\n  " + bad.slice(0, 8).join("\n  "));
-  assert.deepEqual(fam, [], "the FULL lint flags known-good family exemplars:\n  " + fam.slice(0, 8).join("\n  "));
+  assert.deepEqual(fam, [], "the FULL lint flags known-good exemplars:\n  " + fam.slice(0, 8).join("\n  "));
+  // AND THE SWEEP IS NOT VACUOUS: the exclusion must be the only thing keeping it
+  // quiet, or a filter that stopped matching would report a clean corpus.
+  const unfiltered = corpusFiles.reduce((n, f) =>
+    n + lintPages([{ path: "x.tsx", source: fs.readFileSync(f, "utf8") }], { tables: [] }).length, 0);
+  assert.ok(unfiltered > 300, "the full lint found almost nothing over 324 pages — the sweep has gone vacuous");
 });
 
 test("a TYPE import is not judged against the export list", () => {
@@ -3939,6 +4256,46 @@ test("the exemptions hold, because a wrong one breaks a working link", () => {
   // is the same address.
   assert.deepEqual(dead('<a href="/book?svc=cut#top">Book</a>', [p("book.tsx")]), []);
   assert.deepEqual(dead('<a href="/book/">Book</a>', [p("book.tsx")]), []);
+});
+
+test("a link to a concrete instance of a DYNAMIC route is not called dead", () => {
+  // THE FALSE ALARM THIS CLOSES. `live` holds what `routeOf` derives, and for
+  // `deals.$id.tsx` that is the route ID `/deals/$id` — the literal the router
+  // registers. A plain `<a href="/deals/123">` matched no entry and was reported
+  // to the CUSTOMER as a link landing on "not found", while the router resolves
+  // it perfectly. Driven against the real module before the fix: `problems` came
+  // back naming `/deals/123`.
+  //
+  // Cheap to have wrong: this widening can only ever REMOVE a report, so the
+  // false-alarm rate cannot go up. What it gives up is `/deals/999` where no row
+  // 999 exists — right, because whether the ROW exists is a runtime question no
+  // lint can answer.
+  const p = (path, body) => ({ path, source:
+    'import { createFileRoute } from "@tanstack/react-router";\n' +
+    'export const Route = createFileRoute("/x")({});\n' +
+    "function P() { return <div>" + (body || "") + "</div>; }" });
+  const dead = (body, extra = []) => validatePages({ pages: [p("index.tsx", body), ...extra] })
+    .problems.filter((x) => x.includes("not found"));
+
+  const detail = [p("deals.$id.tsx")];
+  assert.deepEqual(dead('<a href="/deals/123">Deal</a>', detail), [],
+    "a concrete link under a $param route was called dead");
+  assert.deepEqual(dead('<a href="/deals/summer-sale">Deal</a>', detail), []);
+  // The nested-directory spelling of the same route resolves it too.
+  assert.deepEqual(dead('<a href="/deals/123">Deal</a>', [p("deals/$id.tsx")]), []);
+  // A splat takes the rest, and needs at least one segment to take.
+  assert.deepEqual(dead('<a href="/docs/a/b/c">Docs</a>', [p("docs.$.tsx")]), []);
+  assert.equal(dead('<a href="/docs">Docs</a>', [p("docs.$.tsx")]).length, 1,
+    "a splat matched with nothing left to take");
+
+  // AND IT STAYS NARROW, which is what stops the fix trading a false alarm for a
+  // check that reports nothing. A `$param` is exactly ONE segment, and a literal
+  // segment still has to be equal.
+  assert.equal(dead('<a href="/deals/1/2">Deal</a>', detail).length, 1, "a $param swallowed two segments");
+  assert.equal(dead('<a href="/offers/1">Offer</a>', detail).length, 1, "a wrong literal prefix was resolved");
+  assert.equal(dead('<a href="/quote">Quote</a>', detail).length, 1, "a genuinely dead link stopped being reported");
+  // With no dynamic route on the site at all, nothing changes.
+  assert.equal(dead('<a href="/deals/123">Deal</a>').length, 1);
 });
 
 test("ZERO FALSE ALARMS ON THE CORPUS THE MODEL COPIES — measured, not assumed", () => {
