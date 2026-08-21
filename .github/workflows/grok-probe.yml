@@ -30,6 +30,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      # NEEDED, and the first run proved it by dying here in 16 seconds. The
+      # probe's final gate is our own `normalizeSchema`, which reaches
+      # site-schema.mjs -> site-db.mjs -> @neondatabase/serverless. Nothing is
+      # CALLED against a database — the import chain alone is enough to need the
+      # package present. Cheap, and it cost nothing to learn: the run failed
+      # before the model call.
+      - run: npm ci --no-audit --no-fund
       - name: probe grok with the real tool
         env:
           # No fallback here, deliberately, and it is the opposite call from
