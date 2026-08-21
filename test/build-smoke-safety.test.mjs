@@ -334,3 +334,32 @@ test("the form walk checks the other routes for errors, and asserts on the count
   assert.match(CODE, /consoleErrors\.slice\([^)]*\)\)\s*\{[\s\S]*?cloudflareinsights/,
     "the per-route console check no longer excludes the edge-injected beacon — every run will be red");
 });
+
+// ── a kept site keeps its owner ─────────────────────────────────────────────
+//
+// `site_backends.uid` cascades with `auth.users`, so deleting the throwaway
+// deletes the kept site's ownership row with it — and that row is what every
+// `/api/db/<slug>/…` call resolves the site through. Measured live 2026-08-21
+// on the marketplace run: SMOKE_KEEP_SITE kept the files, the script and the
+// Neon project, the user delete ran anyway, and minutes later every list on
+// the kept site rendered "Couldn't load" over a 503. The keep is ONE decision
+// and the account is the fourth thing it covers.
+test("SMOKE_KEEP_SITE keeps the throwaway user — a kept site's owner must stay alive", () => {
+  const gate = CODE.indexOf(GATE);
+  assert.ok(gate > 0, "the gate is missing entirely");
+  const calls = [...CODE.matchAll(/\$\{SUPABASE_URL\}\/[^`\n]*\$\{userId\}[^`\n]*/g)]
+    .map((m) => m.index).filter((at) => at > gate);
+  assert.ok(calls.length >= 2, "the teardown's by-id calls moved — re-anchor this test");
+  // KEEP_SITE must be consulted INSIDE the gate, before the first destructive
+  // call — being checked somewhere else in the file satisfies nothing, which
+  // is exactly how the bug shipped: KEEP_SITE gated three removals in other
+  // blocks and this one never asked.
+  const between = CODE.slice(gate, Math.min(...calls));
+  assert.match(between, /KEEP_SITE/,
+    "the user delete no longer consults KEEP_SITE — a kept site's ownership row " +
+    "cascades away with the throwaway and every data call on it 503s");
+  // …and the kept branch says so out loud: a kept account is a live login that
+  // owns a live site, and the run must not be the only record it exists.
+  assert.match(between, /kept the throwaway user/,
+    "the kept-account branch is silent — nothing records that the account must outlive the run");
+});

@@ -1760,10 +1760,13 @@ try {
   // objects were simply left behind, so every run added a public, half-broken
   // site at a guessable URL.
   //
-  // `SMOKE_KEEP_SITE=1` skips ALL THREE removals — the site, its Neon project
-  // and its ownership row — because they are one decision, not three. Deleting
-  // any of them alone leaves the site half-gone: files with no owner, or an
-  // address serving a script whose database has been dropped. The slug is
+  // `SMOKE_KEEP_SITE=1` skips ALL FOUR removals — the site, its Neon project,
+  // its ownership row AND the throwaway account — because they are one
+  // decision, not four. Deleting any of them alone leaves the site half-gone:
+  // files with no owner, an address serving a script whose database has been
+  // dropped — or, the one this list was missing until 2026-08-21, a kept site
+  // whose OWNER was deleted, which cascades the ownership row away and turns
+  // every data call into a 503 while the pages still serve. The slug is
   // printed instead, loudly, because a kept site is a live billed resource and
   // the run must not be the only record that it exists.
   if (KEEP_SITE) {
@@ -1848,11 +1851,26 @@ try {
   // Asserted structurally in `test/build-smoke-safety.test.mjs` rather than
   // remembered, because a gate somebody has to remember is one somebody drops.
   if (userId && createdUser) {
-    try {
-      await fetch(`${SUPABASE_URL}/rest/v1/user_site_project?uid=eq.${userId}`, { method: "DELETE", headers: svc() });
-      await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${userId}`, { method: "DELETE", headers: svc() });
-      console.log("  removed the throwaway user");
-    } catch { console.log("  WARNING: could not remove user " + userId); }
+    // A KEPT SITE NEEDS ITS OWNER ALIVE. `site_backends.uid` cascades with
+    // `auth.users`, so deleting the throwaway here deletes the site's
+    // ownership row with it — and that row is what every `/api/db/<slug>/…`
+    // call resolves the site through. Measured live 2026-08-21 on the
+    // marketplace run: SMOKE_KEEP_SITE kept the files, the script and the
+    // Neon project, this delete ran anyway, and minutes later every list on
+    // the kept site rendered "Couldn't load" over a 503 — a site kept in
+    // body and shot through the one record that made it work. The keep is
+    // ONE decision (the teardown's own comment says so about the other
+    // three removals), and the account is the fourth thing it covers.
+    if (KEEP_SITE) {
+      console.log(`  kept the throwaway user too — the site's ownership row cascades with it (${email})`);
+      console.log("  delete that user when you delete the site; deleting the user alone orphans the site");
+    } else {
+      try {
+        await fetch(`${SUPABASE_URL}/rest/v1/user_site_project?uid=eq.${userId}`, { method: "DELETE", headers: svc() });
+        await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${userId}`, { method: "DELETE", headers: svc() });
+        console.log("  removed the throwaway user");
+      } catch { console.log("  WARNING: could not remove user " + userId); }
+    }
   } else if (userId) {
     console.log("  left the supplied account alone — no user delete, no project-record wipe");
   }
