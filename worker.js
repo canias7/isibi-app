@@ -7587,7 +7587,13 @@ async function siteOgImage(env, slug) {
   } catch (e) { console.error("og image lookup failed:", slug, e && e.message); return null; }
 }
 
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, fonts, seeds, tokens, pageTokens, pageFonts, style, plan, lang, mode, logo, icon, verify, attachments, priorUsage, model, revise, changeNote, priorPages, mark }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, fonts, seeds, tokens, pageTokens, pageFonts, style, plan, lang, langs, langStrings, mode, logo, icon, verify, attachments, priorUsage, model, revise, changeNote, priorPages, mark }) {
+  // THE TRANSLATION CACHE, IN A CLOSURE SHARED BY BOTH COMPILE CALLS. Salvage
+  // runs the compile dep TWICE — one page swapped for a stub — and a cache that
+  // lived inside the dep would pay a second Haiku call for strings answered
+  // seconds earlier. Keyed by the English string, so the second call finds
+  // everything but the stub's own words already there.
+  const langCache = langStrings && typeof langStrings === "object" ? { ...langStrings } : {};
   // Resolved once, before any model call: the pair always lands on something
   // installed, so a build never waits on a font it cannot get.
   const fontPair = resolvePair(fonts || {});
@@ -7671,6 +7677,59 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
     compile: async (pages) => {
       const files = {};
       for (const p of pages) files[p.path] = p.source;
+      // ── THE SITE'S OTHER LANGUAGES, ON THE BUILD PATH (2026-08-21) ─────────
+      //
+      // THE BUILD NEVER TRANSLATED, and the old assertion holding that was
+      // right about half of it: sending `langs` alone bakes a switcher whose
+      // `/es` link 404s, because SITE_LANGS with no translated routes behind it
+      // is a menu pointing at nothing. The other half was wrong — the spine
+      // proves translating AT PUBLISH is the ordinary thing, and the build is a
+      // publish. So a first build that asked for a bilingual site in as many
+      // words published monolingual, and (before the look store was fixed the
+      // same day) the answer was stored nowhere, so it never came right later
+      // either. The two halves travel together now: the translated pages join
+      // `files` and `langs` joins the payload, in the same request.
+      //
+      // MIRRORS THE SPINE BLOCK FOR BLOCK — same resolvers, same cache key,
+      // same failure rule (a failed translation is not a failed build: the
+      // second language is merely behind). NOT BILLED, which mirrors the spine
+      // too: its own `langUsage` is accumulated and read by nothing, a
+      // pre-existing gap, and folding a billing change for both paths into
+      // this fix would make both harder to review. A translation is one Haiku
+      // call per language.
+      const extraLangs = Array.isArray(langs) ? langs : [];
+      const primaryRoutes = pages.map((p) => routeOf(p.path)).filter(Boolean);
+      const { langs: siteLangs } = resolveLangs(lang || "en", extraLangs, { routes: primaryRoutes });
+      let langsChanged = false;
+      for (const l of siteLangs) {
+        if (l.primary) continue;
+        const { strings, dropped } = collectStrings(pages);
+        const have = langCache[l.tag] && typeof langCache[l.tag] === "object" ? langCache[l.tag] : {};
+        const missing = missingFrom(have, strings);
+        let fresh = {};
+        if (missing.length) {
+          const got = await translateStrings(env, l.tag, missing);
+          if (got.ok) missing.forEach((sTxt, i) => { fresh[sTxt] = got.strings[i]; });
+          else console.error("translate failed", slug, l.tag, got.why || got.error);
+        }
+        const mergedStrings = nextCache(have, strings, fresh);
+        langsChanged = langsChanged || JSON.stringify(mergedStrings) !== JSON.stringify(have);
+        langCache[l.tag] = mergedStrings;
+        const t = translatePages(pages, l.prefix, strings, strings.map((sTxt) => mergedStrings[sTxt]), { routes: primaryRoutes });
+        for (const tp of t.pages) files[tp.path] = tp.source;
+        if (dropped) console.error("translate truncated", slug, l.tag, dropped + " strings over the cap");
+      }
+      // Written back only when it moved, best-effort — a lost cache means the
+      // next publish re-translates, slower and never wrong. The spine's rule.
+      if (langsChanged) {
+        try {
+          const db2 = await siteBackendBySlug(env, slug);
+          if (db2) {
+            await sqlQuery(db2, "INSERT INTO _meta (k,v) VALUES ('site_lang_strings', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v",
+              [JSON.stringify(langCache)]);
+          }
+        } catch (e) { console.error("lang cache write failed", slug, String((e && e.message) || e)); }
+      }
       const c = getContainer(env.SITE_BUILD_CONTAINER);
       const r = await c.fetch(new Request("http://build/build", {
         method: "POST",
@@ -7682,6 +7741,10 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
           // well-formed tag, so a model that answers with a country name is a
           // site that keeps the attribute it had.
           lang: lang || null,
+          // AND WHICH OTHERS — only ever beside the translated routes added to
+          // `files` above, or the switcher points at a 404. Same shape as the
+          // spine's payload.
+          langs: extraLangs.length ? { extra: extraLangs, routes: primaryRoutes } : undefined,
           // LIGHT OR DARK, and it is one class on `<html>` rather than a second
           // palette. Every theme in the registry already ships its own designed
           // dark half — 31 colour properties, solved by whoever drew the theme —
@@ -11894,9 +11957,15 @@ async function handleRequest(request, env, ctx) {
       let priorLook = null, priorTokens = null, priorPageTokens = null, priorStyle = null, priorLogo = "", priorIcon = "";
       let priorPageFonts = null;
       let priorVerify = null;
+      // THE TRANSLATION CACHE, for the same reason the logo is read here: the
+      // build path now translates (see the compile dep), and a revise that does
+      // not read the cache re-translates the whole site — slower and never
+      // wrong, but a Haiku call spent on strings already answered. Empty on a
+      // first build, which is the ordinary case.
+      let priorLangStrings = null;
       if (priorBrief) {
         try {
-          const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_page_tokens','site_style','site_logo','site_icon','site_verify','site_page_fonts')");
+          const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_page_tokens','site_style','site_logo','site_icon','site_verify','site_page_fonts','site_lang_strings')");
           for (const r of rows || []) {
             if (r.k === "site_look" && r.v) priorLook = JSON.parse(r.v);
             if (r.k === "site_tokens" && r.v) priorTokens = JSON.parse(r.v);
@@ -11906,6 +11975,7 @@ async function handleRequest(request, env, ctx) {
             // asked for something else entirely.
             if (r.k === "site_page_tokens" && r.v) priorPageTokens = JSON.parse(r.v);
             if (r.k === "site_page_fonts" && r.v) { try { priorPageFonts = JSON.parse(r.v); } catch { /* see the note on the cheap-edit spine */ } }
+            if (r.k === "site_lang_strings" && r.v) { try { priorLangStrings = JSON.parse(r.v); } catch { /* a lost cache re-translates; never worse */ } }
             if (r.k === "site_style" && r.v) priorStyle = JSON.parse(r.v);
             // READ HERE OR A REVISE TAKES THE LOGO OFF. The container writes
             // `site-brand.ts` on EVERY build — it has to, or one site's logo
@@ -11979,40 +12049,35 @@ async function handleRequest(request, env, ctx) {
       const merged = forPage && designed && designed.fonts
         ? mergeLook(priorLook, { ...designed, fonts: undefined }, body, { instructed: !!editState })
         : probeLook;
-      const look = {
-        seeds: merged.seeds,
-        family: merged.family,
-        // …AND THE THEME'S OWN RECOMMENDATION IS THE LAST RESORT.
-        //
-        // Every theme carries a curated `fonts` pair, validated against the same
-        // THE THEME'S OWN RECOMMENDATION WAS THE LAST RESORT AND THERE IS NO
-        // THEME TO ASK ANY MORE (2026-08-20).
-        //
-        // `themeFontPair` read a curated pair off whichever of the 500 registry
-        // themes the designer had named. With the registry deleted there is
-        // nothing to read it from, so removing it alone would have left every
-        // site whose designer omitted `fonts` on the template's default face —
-        // and the field's own description said to omit it, on the grounds that
-        // "every theme already carries a typeface pairing chosen to go with it".
-        //
-        // So `fonts` became REQUIRED in the same change, which is the coherent
-        // answer rather than a patch: the designer is already authoring the
-        // palette, and the typeface is part of the same act. The fallback chain
-        // is gone with it, because there is now exactly one place a font pair
-        // can come from and a second one could only ever disagree with it.
-        fonts: merged.fonts,
-        // THE TWO THAT MOVED WHEN NOBODY ASKED, now stored like the rest.
-        //
-        // Neither had an anchor at all: `brand` was `designed.brand || slug` and
-        // `description` was `designed.description || priorBrief`, so on an edit
-        // a designer that had seen only "fix the typo" decided what the site was
-        // called. It became the <title>, the og:title and the og:description,
-        // while the pages kept the real name — so the tab and the link preview
-        // disagreed with the page. They are the two most visible strings on the
-        // site and they were the only two with nothing holding them.
-        brand: merged.brand,
-        description: merged.description,
-      };
+      // THE WHOLE MERGE, NEVER A HAND-PICKED SUBSET (2026-08-21).
+      //
+      // This was a literal restating FIVE of `mergeLook`'s thirteen fields —
+      // seeds, family, fonts, brand, description — under a comment claiming
+      // "the value written is the MERGED one". It was a subset of the merge,
+      // and the eight it dropped were exactly the ones this route reads back
+      // off `look` a few hundred lines down: `lang: look.lang` had been
+      // `undefined` since the day it was written (2026-08-12, a Welsh café
+      // publishing as English), `mode: look.mode` since dark mode landed
+      // (2026-08-18), and `plan: normalizePlan({look[PLAN_KEYS]})` since the
+      // families were deleted (2026-08-20) — so THE AUTHORED PLAN NEVER
+      // REACHED PAGE GENERATION ON THE LIVE ROUTE: no layout directive, no
+      // per-site component manifest, the bare brief. The live CRM build that
+      // came back as a login page over a working backend is this bug's shape.
+      //
+      // AND A REVISE DESTROYED AN EDIT'S WORK. The look edit lane stores the
+      // FULL merge (JSON.stringify(merged) at its own write), so a language,
+      // a dark mode or a plan changed by an edit was stored — and the next
+      // revise through THIS route overwrote `site_look` with the five-field
+      // subset, wiping them. A dark bilingual site reverted to light English
+      // on a revise about a menu item, silently.
+      //
+      // `merged` IS the right object by construction: `mergeLook` rebuilds its
+      // output from `EDIT_FIELDS` alone, so storing it whole stores exactly
+      // the editable look and nothing else. The provenance stories that lived
+      // on the literal's fields (fonts required since the registry went;
+      // brand/description anchored so an edit cannot rename the site) are
+      // `mergeLook`'s own and are told in builder/site-edit.mjs.
+      const look = merged;
       // WRITTEN ON EVERY BUILD, not only the first.
       //
       // It was `if (!priorLook)`, which was correct while the look could never
@@ -12261,6 +12326,12 @@ async function handleRequest(request, env, ctx) {
             // `EDIT_FIELDS`, which is what makes "absent means unchanged" true
             // of it without a second rule here.
             lang: look.lang,
+            // AND THE OTHERS IT IS OFFERED IN — dead on this route until
+            // 2026-08-21: never in the stored look (the five-field literal) and
+            // never sent, so a first build asking for a bilingual site in as
+            // many words published monolingual, and the answer sat nowhere.
+            langs: look.langs,
+            langStrings: priorLangStrings,
             // And the same again for light/dark: on `EDIT_FIELDS`, so a revise
             // that does not mention it keeps whichever the site is.
             mode: look.mode,

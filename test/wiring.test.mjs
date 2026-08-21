@@ -48,7 +48,9 @@ test("THE PALETTE IS AUTHORED, AND THE WHOLE CHAIN IS WIRED", () => {
   // which page a colour is for, which must run before the merge it feeds. What
   // has to hold is that the route merges the look at all.
   assert.match(worker, /mergeLook\(priorLook, [a-zA-Z]+, body/, "the route does not merge the look");
-  assert.match(worker, /\n\s*seeds: merged\.seeds,/, "the look no longer carries the authored palette");
+  // The store is the WHOLE merge — the five-field literal this used to pin was
+  // itself the bug, dropping lang, mode, langs and the plan on every build.
+  assert.match(worker, /const look = merged;/, "the look no longer carries the authored palette");
   assert.match(worker, /\n\s*seeds: look\.seeds,/, "the merged palette never reaches buildAndPublishPages");
   assert.match(worker, /async function buildAndPublishPages\(env, \{[^}]*\bseeds\b[^}]*\}\)/,
     "buildAndPublishPages is passed a palette it does not destructure");

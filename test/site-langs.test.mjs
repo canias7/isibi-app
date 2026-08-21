@@ -435,15 +435,49 @@ test("the spine translates, caches, and never fails a publish over it", () => {
   assert.match(body, /site_lang_strings/);
 });
 
-test("THE BUILD PATH DELIBERATELY SENDS NO LANGUAGES, and that is not an omission", () => {
-  // `SITE_LANGS` NON-EMPTY WITH NO TRANSLATED ROUTES IS A SWITCHER POINTING AT A
-  // 404. The build path publishes only the pages the generator wrote, so baking
-  // the list there would put a link to `/es` in the header of a site that has no
-  // `/es`. A second language is added by an EDIT, which goes through the spine
-  // above and produces the pages in the same publish.
-  //
-  // Asserted so nobody "completes" it into exactly that broken state.
+test("THE BUILD PATH TRANSLATES, AND ONLY THEN SENDS THE LANGUAGES", () => {
+  // THIS TEST USED TO HOLD THE OPPOSITE — "the build path deliberately sends no
+  // languages" — and its reason was right about half of the problem: SITE_LANGS
+  // with no translated routes behind it is a switcher pointing at a 404. The
+  // other half was wrong. The spine proves translating AT PUBLISH is the
+  // ordinary thing, and a build is a publish — so the old rule meant a first
+  // build that asked for a bilingual site in as many words published
+  // monolingual, and the designer's answer sat nowhere (the look store dropped
+  // `langs` too, fixed the same day). What has to hold is not the ABSENCE of
+  // `langs` but the PAIRING: the translated pages join `files` and `langs`
+  // joins the payload in the same request, or neither.
   const build = worker.slice(worker.indexOf("async function buildAndPublishPages"));
-  const payload = build.slice(build.indexOf("http://build/build"), build.indexOf("http://build/build") + 3000);
-  assert.doesNotMatch(payload, /^\s*langs:/m, "the build path bakes SITE_LANGS with no translated routes behind it");
+  const dep = build.slice(build.indexOf("compile: async (pages)"), build.indexOf("http://build/build"));
+  // The translation runs BEFORE the request is built — same resolvers as the
+  // spine, into the same `files` map the payload carries.
+  assert.match(dep, /resolveLangs\(lang \|\| "en", extraLangs/,
+    "the build dep never resolves the site's languages");
+  assert.match(dep, /translatePages\(pages, l\.prefix/,
+    "the build dep sends langs with no translated routes behind them — a switcher pointing at a 404");
+  assert.match(dep, /for \(const tp of t\.pages\) files\[tp\.path\] = tp\.source;/,
+    "the translated pages never join the files the container builds");
+  // …and the payload's langs key is derived from the SAME list the translation
+  // loop ran over, so the two halves cannot disagree about what was offered.
+  const payload = build.slice(build.indexOf("http://build/build"), build.indexOf("http://build/build") + 4000);
+  assert.match(payload, /langs: extraLangs\.length \? \{ extra: extraLangs, routes: primaryRoutes \} : undefined/,
+    "the build payload does not carry the languages the dep just translated");
+  // The cache round-trips: read on the route, written back when it moved, so a
+  // revise does not re-buy strings already answered.
+  // ON THE ASSIGNMENT'S RIGHT-HAND SIDE — a mutant that parsed the row and
+  // discarded it (`void JSON.parse(r.v)`) survived a match on the key alone:
+  // the cache then arrives null on every revise and the whole site re-translates
+  // each time, slower and never wrong, a Haiku call per language spent on
+  // strings already answered.
+  assert.match(worker, /priorLangStrings = JSON\.parse\(r\.v\)/,
+    "the route reads the translation cache row and throws it away");
+  assert.match(dep, /if \(langsChanged\)/, "the cache is never written back");
+  // THE ROUTE'S OWN THREADING, apart from the dep — not-called and
+  // called-with-undefined are two deaths that look identical from inside the
+  // dep: `langs` undefined makes `extraLangs` [] and the whole feature is off
+  // with every spelling above still present. So the hop that fills it is held
+  // separately, on the assignment's right-hand side.
+  assert.match(worker, /langs: look\.langs,/, "the route never passes the stored languages to the build");
+  assert.match(worker, /langStrings: priorLangStrings,/, "the route never passes the translation cache to the build");
+  assert.match(worker, /const extraLangs = Array\.isArray\(langs\) \? langs : \[\];/,
+    "the dep no longer derives its language list from the argument the route passes");
 });

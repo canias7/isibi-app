@@ -383,10 +383,20 @@ test("the stored look is written on EVERY build, not just the first", () => {
   assert.ok(!/if \(!priorLook\) \{/.test(worker),
     "the look is written only on a first build again");
   assert.match(worker, /INSERT INTO _meta \(k,v\) VALUES \('site_look'[\s\S]{0,120}JSON\.stringify\(look\)/);
-  // brand and description have to be IN what gets stored, or the next edit reads
-  // a look that never held them and they go back to being re-derived.
-  assert.match(worker, /brand: merged\.brand,\s*\n\s*description: merged\.description,/,
+  // THE STORE IS THE WHOLE MERGE, NEVER A HAND-PICKED SUBSET. This assertion
+  // used to pin `brand: merged.brand, description: merged.description` — the
+  // literal's own spelling — and the literal was the bug: five of mergeLook's
+  // thirteen fields, silently dropping lang, mode, langs and the whole plan on
+  // every build (found 2026-08-21; `lang: look.lang` had been undefined since
+  // the day it was written). brand and description are carried because the
+  // merge carries them, which the mergeLook tests above hold behaviourally.
+  assert.match(worker, /const look = merged;/,
     "the stored look does not carry the name and description");
+  assert.doesNotMatch(worker, /const look = \{\s*\n\s*seeds:/,
+    "the hand-picked look literal is back — it drops every field it does not restate");
+  const m = mergeLook(null, { brand: "Sharp Fade", description: "A barber shop." }, null);
+  assert.equal(m.brand, "Sharp Fade");
+  assert.equal(m.description, "A barber shop.");
 });
 
 /* ── the free text edit publishes the SAME meta a build does ─────────────── */
@@ -422,8 +432,9 @@ test("a text edit keeps the site's name, description and preview image", () => {
   assert.match(worker, /recompileAndPublish\(env, \{\s*\n?\s*slug: ownerSlug, pages: ed\.pages/,
     "the text route no longer publishes through the shared spine");
   // The look it reads has to be the one that CARRIES those, or all three read
-  // undefined and the guard above passes on a site with no name.
-  assert.match(worker, /brand: merged\.brand,\s*\n\s*description: merged\.description,/,
+  // undefined and the guard above passes on a site with no name. The store is
+  // the whole merge now — see "the stored look is written on EVERY build".
+  assert.match(worker, /const look = merged;/,
     "the stored look does not carry the name and description the recompile reads");
 });
 

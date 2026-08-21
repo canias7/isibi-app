@@ -357,7 +357,21 @@ test("THE BUILD STORES BOTH PER-PAGE MAPS, AND CARRIES THEM TO THE CONTAINER", (
   assert.equal(gates.length, 2,
     "the build's per-page writes are not gated on the map having moved — either dead (`if (false)`: " +
     "the override renders once and is lost) or unconditional (every build rewrites two rows that did not change)");
-  const call = worker.slice(worker.indexOf("plan: normalizePlan(") - 3500, worker.indexOf("plan: normalizePlan("));
+  // LANDMARKS, NOT A BYTE COUNT. This was `indexOf("plan: normalizePlan(") -
+  // 3500`, and it lasted ONE HOUR: the langs threading added two lines above
+  // the plan and pushed `pageTokens:` out of the window, turning this red on a
+  // correct change. The call block starts at the fonts line and ends at the
+  // plan line, whatever sits between.
+  // …AND THE END ANCHOR MUST BE THE CODE FORM, NOT A PHRASE PROSE ALSO USES.
+  // `indexOf("plan: normalizePlan(")` found the COMMENT explaining the look
+  // literal's bug — which spells the code it describes — 260 lines above the
+  // call, so callTo < callFrom and the floor fired on correct code. Prose
+  // describing a thing contains that thing's spelling; the full call spelling
+  // appears only in the call.
+  const callFrom = worker.indexOf("fonts: look.fonts,");
+  const callTo = worker.indexOf("plan: normalizePlan(Object.fromEntries(");
+  assert.ok(callFrom > 0 && callTo > callFrom, "the build call block moved — re-anchor this test");
+  const call = worker.slice(callFrom, callTo);
   // THROUGH `pageTokensFor`, NOT RAW — my own first draft sent the bare map, and
   // that function derives the readable ink PER PAGE (`withContrast`): raw, a
   // page moved onto a dark ground keeps the light theme's dark grey body copy,
