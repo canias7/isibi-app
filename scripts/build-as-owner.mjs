@@ -71,6 +71,9 @@ const BASE = process.env.OWNER_BASE_URL || "https://gofarther.dev";
 const EMAIL = String(process.env.OWNER_EMAIL || "").trim();
 const BRIEF = process.env.OWNER_BRIEF || "";
 const SLUG = String(process.env.OWNER_SLUG || "").trim().toLowerCase();
+// Which model builds. Unset sends nothing and the Worker uses its own default,
+// so a run that does not care is byte-identical to what this script always sent.
+const PICKER = String(process.env.OWNER_PICKER || "").trim();
 
 const LOG_FILE = "build-as-owner-log.md";
 const t0 = Date.now();
@@ -129,7 +132,8 @@ log(`step 3 — balance BEFORE: ${JSON.stringify(before)}`);
 // whoever builds it first, including by a build that then died, so a retry of a
 // failed run would be read as a REVISE of the husk it left. Naming a fresh one
 // keeps a re-run a genuine first build. Left unset, the designer names the site.
-log(`step 4 — POST /api/site/react-build (${SLUG ? `slug "${SLUG}"` : "the designer names the site and the slug"})`);
+log(`step 4 — POST /api/site/react-build (${SLUG ? `slug "${SLUG}"` : "the designer names the site and the slug"}` +
+  `${PICKER ? `, picker "${PICKER}"` : ""})`);
 const bt = Date.now();
 // A DEAD CONNECTION IS A DIAGNOSIS, NOT A STACK TRACE. Both Arabic attempts
 // ended here — one at 301s (our own fetch ceiling, since fixed) and one at 286s
@@ -139,8 +143,14 @@ const bt = Date.now();
 // ran past the wall rather than failing at it.
 let build;
 try {
-  build = await postLong(`${BASE}/api/site/react-build`, auth,
-    JSON.stringify(SLUG ? { brief: BRIEF, slug: SLUG } : { brief: BRIEF }));
+  build = await postLong(`${BASE}/api/site/react-build`, auth, JSON.stringify({
+    brief: BRIEF,
+    ...(SLUG ? { slug: SLUG } : {}),
+    // OMITTED WHEN UNSET rather than defaulted here. `modelsFor` is an
+    // allow-list with its own default, and a second copy of that default in the
+    // harness is a way for the two to disagree about what a plain run sends.
+    ...(PICKER ? { picker: PICKER } : {}),
+  }));
 } catch (e) {
   const secs = ((Date.now() - bt) / 1000).toFixed(1);
   log(`step 4 — THE CONNECTION DIED after ${secs}s (${(e && e.code) || (e && e.message) || e})`);
@@ -162,6 +172,11 @@ log(JSON.stringify(d, null, 2));
 // ── step 5: what the images did (the first funded run ever) ─────────────────
 log(`step 5 — page=${d.page} slug=${d.slug} url=${d.url}`);
 log(`step 5 — cost=${JSON.stringify(d.cost)} charged=${d.charged}`);
+// WHICH MODELS ACTUALLY RAN, read off the response rather than assumed from
+// what was asked for. `modelsFor` ignores a picker it does not recognise and
+// falls back to the default — silently, by design — so a typo'd picker produces
+// a perfectly good Sonnet build that would be reported here as a Grok one.
+if (d.models) log(`step 5 — models: ${JSON.stringify(d.models)}`);
 if (d.images) log(`step 5 — images: ${JSON.stringify(d.images)}`);
 if (d.imageNote || d.imagesNote) log(`step 5 — image note: ${d.imageNote || d.imagesNote}`);
 if (d.notes) log(`step 5 — the builder's own reply: ${d.notes}`);
