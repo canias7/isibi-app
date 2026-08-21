@@ -220,6 +220,42 @@ funded**, so every `SafeImage` on every published site is drawing its placeholde
 and no photograph has ever been generated. The upload half needs no image model
 and is what works today — which is why the tool prefers it.
 
+## 2026-08-21 — WE TRIED TO TRICK THE BUILDER AND IT BROKE: an Arabic site cannot be built
+
+**Deliberate test: a fine-dining halal restaurant in Dubai, brief written in
+Arabic** — because a site's reading direction is derived from the language of
+the brief, so an English brief would have proved nothing. Right-to-left support
+shipped 2026-08-19 and had never once run on a real build.
+
+**It never got that far. Two attempts, both died before the site existed.**
+
+* **The wall is around 4¾ minutes.** The first attempt was our own tooling giving
+  up at 5 minutes exactly — fixed. The second went through a connection with no
+  time limit of ours at all and **the other end cut it off at 4m46s**. An English
+  brief through the identical path finished at 4m32s an hour earlier and worked.
+* **So an Arabic build is slower than an English one, and it runs off the end of
+  what the platform allows.** We have not proved WHY. Two candidates: Arabic
+  costs a lot more per word for the AI to write, or the designer decided the site
+  should also be offered in English and the translation step (wired the same
+  morning, never run live) pushed it over. Telling them apart costs one more build.
+* **WHAT THIS COSTS A REAL CUSTOMER, and it is the part that matters:** each
+  failed attempt still claims their site name, still creates their database, and
+  **still charges them ~20 credits**, and they are left with nothing to look at
+  and no explanation. That is now true of any build slow enough to run past the
+  wall — not only Arabic ones.
+* **It is also reachable by an ordinary accident**: closing the tab or losing
+  signal mid-build does the same thing, because the build dies the moment the
+  browser stops waiting.
+* **Cost of the experiment: 40 credits (705 → 665), and two empty half-built
+  sites to clean up** — `mathaq-alemarat` and `mathaq-dubai`, each holding a
+  database. Add them to the delete list with the others.
+* **Nothing in our automatic checks could have caught this.** They drive the
+  build machinery directly and never go through the front door, and the English
+  test brief sits about 30 seconds under the wall.
+
+**Right-to-left is still unproven on a real site.** It works in the machinery
+(checked in a real browser at the time), but no designer has ever chosen it.
+
 ## 2026-08-21 — the first build on your own account, and what the red ✗ was
 
 **The build itself was a full success**: GatherHire, four pages, 128 credits

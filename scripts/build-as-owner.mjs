@@ -131,8 +131,24 @@ log(`step 3 — balance BEFORE: ${JSON.stringify(before)}`);
 // keeps a re-run a genuine first build. Left unset, the designer names the site.
 log(`step 4 — POST /api/site/react-build (${SLUG ? `slug "${SLUG}"` : "the designer names the site and the slug"})`);
 const bt = Date.now();
-const build = await postLong(`${BASE}/api/site/react-build`, auth,
-  JSON.stringify(SLUG ? { brief: BRIEF, slug: SLUG } : { brief: BRIEF }));
+// A DEAD CONNECTION IS A DIAGNOSIS, NOT A STACK TRACE. Both Arabic attempts
+// ended here — one at 301s (our own fetch ceiling, since fixed) and one at 286s
+// with ECONNRESET from the far end — and the second printed a raw
+// `Error: read ECONNRESET` with no elapsed time and no hint that the BUILD was
+// the thing that died. The seconds are the whole diagnosis: they say the build
+// ran past the wall rather than failing at it.
+let build;
+try {
+  build = await postLong(`${BASE}/api/site/react-build`, auth,
+    JSON.stringify(SLUG ? { brief: BRIEF, slug: SLUG } : { brief: BRIEF }));
+} catch (e) {
+  const secs = ((Date.now() - bt) / 1000).toFixed(1);
+  log(`step 4 — THE CONNECTION DIED after ${secs}s (${(e && e.code) || (e && e.message) || e})`);
+  log("step 4 — Cloudflare cancels a Worker when the client goes away, so the build was almost");
+  log("         certainly killed mid-flight: expect a claimed slug, a live Neon project and a");
+  log("         schema charge with no site. Check the ledger and site_backends before retrying.");
+  fail("the build connection did not survive — nothing to report from this run");
+}
 const raw = build.text;
 let d = null; try { d = JSON.parse(raw); } catch { /* logged below */ }
 log(`step 4 — build answered ${build.status} after ${((Date.now() - bt) / 1000).toFixed(1)}s`);
