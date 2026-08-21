@@ -114,17 +114,30 @@ const after = await fetch(`${BASE}/api/credits`, { headers: auth }).then((r) => 
 log(`step 6 — balance AFTER: ${JSON.stringify(after)}`);
 if (before && after) log(`step 6 — spent this run: ${Number(before.balance) - Number(after.balance)} credits`);
 
-// ── step 7: is it actually up ───────────────────────────────────────────────
-if (d.url) {
-  const site = await fetch(d.url, { redirect: "follow" });
-  const html = await site.text().catch(() => "");
-  log(`step 7 — GET ${d.url} -> ${site.status} (${html.length} bytes)`);
-  const m = html.match(/<title>([^<]*)<\/title>/);
-  log(`step 7 — <title>: ${m ? m[1] : "(none found)"}`);
-  // Photographs land under /u/<slug>/ — count references in the served page.
-  const photos = (html.match(new RegExp("/u/" + d.slug + "/", "g")) || []).length;
-  log(`step 7 — references to bought photographs in the home document: ${photos}`);
+// ── step 7: is it actually up (best-effort — the build is already done) ─────
+// TWO LESSONS FROM RUN 2, WHICH DIED RIGHT HERE WITH A GREEN BUILD BEHIND IT.
+// The response's `url` can be RELATIVE — the internal `/s/<slug>/` path — and
+// fetch() outside a browser refuses a relative URL, so this threw
+// `TypeError: Invalid URL` and painted a red ✗ on a run whose build had
+// succeeded and been paid for. Resolve it against BASE (an absolute URL passes
+// through `new URL` unchanged). And the probe can no longer fail the process:
+// it OBSERVES the outcome, it is not part of it — by this line the money is
+// spent and the site is published, so an exception here misreports both.
+const siteUrl = d.url ? new URL(d.url, BASE).href : "";
+try {
+  if (siteUrl) {
+    const site = await fetch(siteUrl, { redirect: "follow" });
+    const html = await site.text().catch(() => "");
+    log(`step 7 — GET ${siteUrl} -> ${site.status} (${html.length} bytes)`);
+    const m = html.match(/<title>([^<]*)<\/title>/);
+    log(`step 7 — <title>: ${m ? m[1] : "(none found)"}`);
+    // Photographs land under /u/<slug>/ — count references in the served page.
+    const photos = (html.match(new RegExp("/u/" + d.slug + "/", "g")) || []).length;
+    log(`step 7 — references to bought photographs in the home document: ${photos}`);
+  }
+} catch (e) {
+  log(`step 7 — could not probe the site (${String((e && e.message) || e).slice(0, 120)}) — the build itself already succeeded`);
 }
 
 log("done — NOTHING is torn down: the site, its database and the account all stay up");
-log(`the site: ${d.url || "(no url in the response)"}`);
+log(`the site: ${siteUrl || "(no url in the response)"}`);

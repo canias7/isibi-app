@@ -2,10 +2,15 @@
 # scripts/build-as-owner.mjs for what it does and does not do (no password,
 # no teardown of anything).
 #
-# Fires only on a push touching its own two files, so it cannot ride along
-# with ordinary work; each run is a deliberate edit to this file. The commit
-# that lands it carries the repo's skip marker so `build smoke` does not ALSO
-# burn a build on the same push.
+# Fires only on a push touching its own two files AND whose commit message
+# carries `[owner build]` — OPT-IN, because a run spends the owner's real
+# credits (~130 on a cold build). The path filter alone was the whole gate at
+# first, and it fired on the wrong thing immediately: the fix for run 2's
+# step-7 crash touches the script, so pushing it would have bought a third
+# build nobody asked for. A trigger that spends money is asked for by name,
+# never inherited from a file path. The commit that DOES run it should also
+# carry the repo's skip marker so `build smoke` does not burn a second build
+# on the same push.
 name: build as owner
 
 on:
@@ -17,6 +22,9 @@ on:
 
 jobs:
   build:
+    # The opt-in gate. Without the marker a push here (this very fix, say)
+    # skips instantly and spends nothing.
+    if: contains(github.event.head_commit.message, '[owner build]')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
