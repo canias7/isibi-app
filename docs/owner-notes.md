@@ -16747,3 +16747,40 @@ build; the account is still empty.
 found it. Two were reading the *source* spelling of a rule when the compiler
 rewrites it (`120ms` becomes `.12s`), and one was reading a completely unrelated
 block that every site has. All three now read what the compiler actually produces.
+
+---
+
+## The builder could only reach 279 of its 2,112 components (2026-08-21)
+
+**You asked for a CRM and got a login page over a working database.** Part of
+the reason: when the model picks which components a site is made of, it was
+being handed a shortlist of 279 — and that shortlist was worked out by counting
+what the *brochure* examples used. A barber shop never needs a records table, so
+`data-table`, `row-actions`, `pagination` and `stat-card` were never on the list,
+even though all four are built, documented and tested.
+
+**It picks from all 2,112 now.** The 279 stay at the front of the list, in the
+order they were measured in, because the twenty most-used names feed a separate
+mechanism and shuffling them would change something else quietly.
+
+**Cost: about 0.37 credits on a warm build**, because that list sits in the
+cached part of the request. Nothing on a visitor's page.
+
+**Not yet proven on a real site** — that needs a paid build, and I have not spent
+one. What is proven is every layer below it.
+
+## And a check that had been red for a day, hiding what it was for
+
+`site build` — the free check that builds real sites in a real container — had
+been failing on four lines since the theme change. Two of the test harnesses were
+still asking for a theme *by name*, and the name stopped meaning anything when
+the model started writing its own colours. So four "themed" sites were quietly
+built with **no palette at all**, screenshotted, and filed as if they were the
+theme's.
+
+**Five of that check's six assertions passed on a site with no theme on it** —
+including one called "light and dark actually differ", which was never really
+about the theme at all. There is a new one now that can't pass that way: four
+sites built with four different palettes have to actually *look* different.
+
+**`site build` is green on main for the first time since the theme change.**
