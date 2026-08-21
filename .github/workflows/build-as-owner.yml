@@ -11,6 +11,18 @@
 # never inherited from a file path. The commit that DOES run it should also
 # carry the repo's skip marker so `build smoke` does not burn a second build
 # on the same push.
+#
+# AND THE GATE FIRED ON ITS OWN FIRST OUTING (2026-08-21): the commit that
+# ADDED it spelled the marker while explaining it, contains() matched the
+# explanation, and the run had to be stopped mid-flight — a one-minute
+# sign-in block on the build account, so the script died at its own step 2
+# with nothing spent and the ledger untouched. The same shape this repo has
+# recorded twice for the skip-CI marker and across nine guards: prose about
+# a rule, tripping the rule. The discipline is therefore the skip marker's,
+# applied here: in a commit message, write "the owner-build marker" and
+# never spell it — spell it ONLY in the one commit deliberately buying a
+# build. (Cancelling the run from a session is not a fallback: the API
+# answers 403, the same scope wall as workflow_dispatch.)
 name: build as owner
 
 on:

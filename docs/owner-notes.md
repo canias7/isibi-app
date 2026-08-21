@@ -220,6 +220,36 @@ funded**, so every `SafeImage` on every published site is drawing its placeholde
 and no photograph has ever been generated. The upload half needs no image model
 and is what works today — which is why the tool prefers it.
 
+## 2026-08-21 — the first build on your own account, and what the red ✗ was
+
+**The build itself was a full success**: GatherHire, four pages, 128 credits
+(833 → 705), and **the first real photographs the platform has ever generated**
+— three of them, now that fal is funded. Live at https://gatherhire.gofarther.app/.
+
+* **"Why did the 4th image fail?" — it didn't.** The AI was ALLOWED up to 4
+  photos and chose to place 3 (home, events, vendor sign-up; none on /vendors,
+  where the pictures are each vendor's own profile photo). All 3 worked, and
+  you were charged for exactly 3 — the maths of the 128 credits confirms it.
+  Its chat message saying "the 4 real photos" was the AI miscounting in its
+  sentence, not on the site.
+* **The red ✗ on the workflow run was OUR logging script, not the build.** After
+  the build had finished and been paid for, the script fetched the site using
+  the response's short internal address and crashed. Fixed: the address is
+  resolved properly now, and that final look-at-the-site step can never again
+  fail the run — by that point the build is already done either way.
+* **Running an owner build is now OPT-IN.** The workflow used to fire on any
+  push touching its own files — so pushing the bug fix above would itself have
+  bought a ~130-credit build. It now runs only when the commit message asks for
+  one by its marker.
+* **And the new gate misfired once, on us, before it ever protected anything**:
+  the commit that added it named the marker while explaining it, which IS asking
+  for a run. It was caught in time — the sign-in for aniascristian@gmail.com was
+  blocked for about one minute so the run died before touching anything, then
+  unblocked. **Nothing was spent (balance verified still 705) and the site was
+  untouched.** Recorded because it is the same trap as the skip-CI marker,
+  which has now fired three times in this repo: writing about a marker summons
+  the marker.
+
 ## 2026-08-18 — dark mode, and it was already drawn
 
 **You can ask for a dark site now.** *"Make the whole site dark"*, *"I want it on
