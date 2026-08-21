@@ -1,0 +1,42 @@
+# One Grok call against the real design_schema tool — see
+# test/integration/grok-probe.mjs for why this exists and what it does not do.
+#
+# NO OPT-IN MARKER, unlike `build as owner`, and the difference is the cost. That
+# one spends ~130 platform credits of the owner's money per run; this spends
+# about two cents of xAI and NOTHING from the ledger — no Neon project, no
+# container, no publish, no account. A path filter is proportionate protection
+# for that, and the whole point is to run it freely before betting a build.
+#
+# It needs NO DEPLOY: it calls xAI directly with the runner's secret, so it
+# answers before the Worker has ever been given the key.
+name: grok probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/grok-probe.yml'
+      - 'test/integration/grok-probe.mjs'
+      - 'test/integration/schema-tool.mjs'
+      - 'builder/model-xai.mjs'
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: probe grok with the real tool
+        env:
+          # No fallback here, deliberately, and it is the opposite call from
+          # deploy.yml's. There a missing value fails the WHOLE deploy, so the
+          # placeholder is what keeps the platform shipping. Here an empty value
+          # means the probe cannot run, and the script says so and exits 1 —
+          # a probe that goes green having tested nothing is the failure mode
+          # this repo has recorded twice.
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+        run: node test/integration/grok-probe.mjs

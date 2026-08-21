@@ -30,7 +30,13 @@ import vm from "node:vm";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
-const EVAL_PATH = path.join(ROOT, "test", "integration", "schema-gen-eval.mjs");
+// THE SCOPE MOVED TO `schema-tool.mjs` ON 2026-08-21, extracted so the Grok
+// probe could read the same tool without importing the eval (a top-level
+// script: importing it RUNS it and spends model credits). The invariant is
+// unchanged — a hand-maintained scope drifts the moment the tool grows — and
+// this guard now watches the file that holds it. It went red on the move,
+// which is the guard working.
+const EVAL_PATH = path.join(ROOT, "test", "integration", "schema-tool.mjs");
 const evalSrc = fs.readFileSync(EVAL_PATH, "utf8");
 const workerSrc = fs.readFileSync(path.join(ROOT, "worker.js"), "utf8");
 
@@ -149,10 +155,10 @@ test("every identifier design_schema references is in the eval's scope", () => {
   } catch (e) {
     if (isReferenceError(e)) {
       // The message is always "<name> is not defined", which is exactly the
-      // instruction: add that name to `scope` in schema-gen-eval.mjs.
+      // instruction: add that name to `scope` in schema-tool.mjs.
       assert.fail(
-        `schema-gen-eval cannot build design_schema: ${e.message}. ` +
-        `Add it to \`scope\` in test/integration/schema-gen-eval.mjs — do not stub it, ` +
+        `schema-tool cannot build design_schema: ${e.message}. ` +
+        `Add it to \`scope\` in test/integration/schema-tool.mjs — do not stub it, ` +
         `a stubbed enum measures a prompt nobody sends.`);
     }
     throw e;
@@ -246,7 +252,7 @@ test("the eval never reads a tool property that does not exist", () => {
   // caught every `READY_FAMILIES` and `layoutDirective` walked straight past it.
   // Derived at both ends instead — every `properties.<name>` the eval reads must
   // be a property the real tool actually has.
-  const src = fs.readFileSync(new URL("./integration/schema-gen-eval.mjs", import.meta.url), "utf8")
+  const src = fs.readFileSync(new URL("./integration/schema-tool.mjs", import.meta.url), "utf8")
     // Comments blanked LENGTH-PRESERVINGLY first: the fix is explained in prose
     // directly above the fixed line, and prose about a bug contains the bug's
     // spelling. Seventh recorded instance of that trap in this repo.
