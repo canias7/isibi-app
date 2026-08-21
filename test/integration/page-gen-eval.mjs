@@ -30,6 +30,8 @@ import { fileURLToPath } from "node:url";
 import { pagesRequest, briefWithLayout, validatePages, lintPages } from "../../builder/page-gen.mjs";
 import { pageCost } from "../../builder/publish-pages.mjs";
 import { normalizeSchema } from "../../site-schema.mjs";
+import { ALL_THEMES } from "../fixtures/themes.mjs";
+import { oklchToRgb } from "../../builder/site-theme.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const TEMPLATE = path.join(ROOT, "builder", "lovable", "template");
@@ -294,18 +296,38 @@ async function startServer() {
   return false;
 }
 
+// A SCENARIO NAMES A FIXTURE PALETTE AND THE CONTAINER TAKES THREE COLOURS. The
+// registry left the product on 2026-08-20 and `payload.theme` stopped being read
+// anywhere — so this posted a name into a void for a day and every sample was
+// compiled against the template's own default palette, which is the exact state
+// the comment below says is worse than no harness. Same conversion
+// `theme-seam.mjs` and `theme-render.mjs` make: the fixture's OKLCH is the input,
+// hex is what travels, and `normalizeSeeds` in the container derives the rest.
+const asHex = ([L, C, H]) => {
+  const [r, g, b] = oklchToRgb(L, C, H);
+  return "#" + [r, g, b].map((v) => Math.round(v * 255).toString(16).padStart(2, "0")).join("");
+};
+function seedsFor(name) {
+  const t = ALL_THEMES[name];
+  if (!t) return null;
+  return {
+    name, paper: asHex(t.light.paper), ink: asHex(t.light.ink), accent: asHex(t.light.accent),
+    dark: { paper: asHex(t.dark.paper), ink: asHex(t.dark.ink), accent: asHex(t.dark.accent) },
+  };
+}
+
 /** Takes the pages ARRAY and sends what worker.js sends: {path: source}. */
 async function compile(pages, sc) {
   const files = {};
   for (const p of pages) files[p.path] = p.source;
   const r = await fetch(`http://127.0.0.1:${PORT}/build`, {
     method: "POST", headers: { "content-type": "application/json" },
-    // theme/fonts/title, exactly as worker.js posts them. Without these the
+    // seeds/fonts/title, exactly as worker.js posts them. Without these the
     // build is the bare template — default palette, system font stack — so a
     // sample could be LOOKED at and still not show what a customer gets.
     // `fontFiles` is production-only: the Worker has no npm, the container does,
     // and the build service resolves the pair itself when they are absent.
-    body: JSON.stringify({ files, slug: "eval-" + sc.key, title: sc.brand, theme: sc.theme, fonts: sc.fonts }),
+    body: JSON.stringify({ files, slug: "eval-" + sc.key, title: sc.brand, seeds: seedsFor(sc.theme), fonts: sc.fonts }),
   });
   return r.json();
 }
