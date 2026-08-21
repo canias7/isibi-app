@@ -46,6 +46,12 @@
 // Plain module with no I/O, like `site-edit.mjs` and `publish-pages.mjs`, so the
 // whole decision is tested without a Worker, a model or a database.
 
+// THE WHOLE KIT, FROM A LEAF. `page-gen.mjs` imports THIS file, so the names
+// could not be taken from there without a cycle — which is exactly why the
+// designer was offered 279 of 2,112 until 2026-08-21. `ui-components.mjs`
+// imports nothing, so both sides can read the one list.
+import { UI_COMPONENTS } from "./ui-components.mjs";
+
 
 /**
  * THE FIELD ORDER IS THE FIX, AND IT IS THE WHOLE REASON `components` IS LAST.
@@ -177,6 +183,49 @@ export const KIT_PALETTE = [
   "upgrade-badge", "vehicle-card", "video-hero", "waiting-list-place", "wishlist-button",
   "word-count", "working-hours",
 ];
+
+/**
+ * WHAT THE DESIGNER ACTUALLY PICKS FROM — the whole kit (owner's call, 2026-08-21).
+ *
+ * `KIT_PALETTE` above is 279 names and stays exactly as it is, because it does a
+ * SECOND job: `ALWAYS_API_CORE` takes its first 20 as the signatures every site
+ * gets whether or not the designer asks. That head is a frozen measurement and
+ * must not move. What changes is only what the `components` FIELD offers.
+ *
+ * WHY 279 WAS WRONG, MEASURED RATHER THAN ARGUED. Those names are every
+ * component the 324 exemplar pages imported — and all 324 are small-business
+ * brochures, so "no site has yet needed it" meant "no brochure has". Over the
+ * corpus, a funeral director's components sit at median position #4 and a CRM's
+ * at #154, with 9 of its 18 past #150; an ai-tool's at #266. Twelve app parts —
+ * `stat-card`, `metric-delta`, `row-actions`, `pagination`, `multi-sort`,
+ * `split-view`, `detail-panel`, `inline-edit`, `saved-views`, `toolbar`,
+ * `export-button`, `data-list` — were in the kit and nameable by nobody.
+ *
+ * AND THE 279 NEVER LIMITED WHAT A SITE COULD USE, which is what makes the old
+ * shape worse than it looks. `lintPages` permits any real module and the page
+ * writer is told all 2,112 names, so an unnameable component was not forbidden —
+ * it was imported with NO SIGNATURE SENT. That is the invented-prop failure that
+ * costs a page. The narrow list bought nothing and hid that.
+ *
+ * THE COST, MEASURED: +9,950 tokens on a block that is cached, so 0.37 credits a
+ * build warm (1% of a 38-credit build) and 4.66 once per prompt version. The old
+ * comment's "46 per cent increase" was true of the token count and misleading as
+ * money.
+ *
+ * ORDER IS KEPT, AND IT IS THE HALF THAT STILL EARNS ITS PLACE. The 279 lead, in
+ * their measured frequency order, then everything else alphabetically — so the
+ * head of the list is still real signal about what a site usually needs, and the
+ * tail is there for the site that needs something else. `MAX_COMPONENTS` is
+ * unchanged, so the MANIFEST does not grow; only the menu it is chosen from.
+ *
+ * Derived from both lists rather than written out, or it goes stale the first
+ * time a component is added to the kit.
+ */
+export const COMPONENT_MENU = (() => {
+  const seen = new Set(KIT_PALETTE);
+  const rest = UI_COMPONENTS.filter((n) => !seen.has(n)).sort();
+  return [...KIT_PALETTE, ...rest];
+})();
 
 /* --------------------------------------------------------------- the caps */
 
@@ -394,13 +443,20 @@ export const PLAN_FIELDS = {
       "costs that page. You have just written the page list above; name what those pages need, the ordinary " +
       "parts as well as the distinctive ones. A booking page wants availability-grid and week-strip, a menu " +
       "wants menu-section and price-list, a live board wants countdown and live-badge. " +
+      "A records screen wants data-table with row-actions, pagination and stat-card, not a stack of cards. " +
       "Naming a component that does not exist is refused and costs nothing; leaving one out is what hurts.\n\n" +
-      // THE PALETTE, MOST-USED FIRST — and the order is information rather than
-      // formatting: the head of this list is what a small business site nearly
-      // always needs and the tail is what one trade in fifty does. Named here
-      // because a compelled field with no list is answered from imagination, and
-      // most of this kit is named things no model would guess.
-      "Pick from these, most-commonly-needed first:\n" + KIT_PALETTE.join(", ") + ".",
+      // THE WHOLE KIT, MOST-USED FIRST — and the order is information rather than
+      // formatting: the head is what a small business site nearly always needs
+      // and the tail is what one site in fifty does. Named here because a
+      // compelled field with no list is answered from imagination, and most of
+      // this kit is named things no model would guess.
+      //
+      // ALL 2,112 SINCE 2026-08-21. It was the 279-name `KIT_PALETTE`, measured
+      // off 324 brochure pages — so a CRM's own components sat at median
+      // position #154 and twelve app parts were nameable by nobody. See
+      // COMPONENT_MENU for the measurement and the cost.
+      "Pick from these — the whole kit, most-commonly-needed first. The head is what most sites need; " +
+      "read further for a records screen, a dashboard or an internal tool:\n" + COMPONENT_MENU.join(", ") + ".",
   },
 };
 

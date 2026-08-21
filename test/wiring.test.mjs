@@ -20,7 +20,7 @@ import { budgetFor } from "../builder/site-images.mjs";
 import { mergeLook, movedFields, hasValue, EDIT_RULE, currentStateNote, EDIT_FIELDS } from "../builder/site-edit.mjs";
 import { briefWithLayout } from "../builder/page-gen.mjs";
 import { UI_COMPONENTS, ALWAYS_API_CORE, PAGE_RULES, schemaDigest, lintPages } from "../builder/page-gen.mjs";
-import { PLAN_FIELDS, PLAN_KEYS, planFieldFor, PLAN_REQUIRED, KIT_PALETTE, directiveFromPlan } from "../builder/site-plan.mjs";
+import { PLAN_FIELDS, PLAN_KEYS, planFieldFor, PLAN_REQUIRED, KIT_PALETTE, COMPONENT_MENU, directiveFromPlan } from "../builder/site-plan.mjs";
 import { normalizeSeeds } from "../builder/site-seeds.mjs";
 
 const ROOT = path.join(import.meta.dirname, "..");
@@ -314,6 +314,17 @@ test("the DESIGNER's palette and the always-on core are all real components", ()
   // jobs, and the one property they share is the one that was always doing the
   // work: a name offered to a model and absent from the kit is an import that
   // cannot resolve.
+  // THE LEAF MUST STAY A LEAF. `ui-components.mjs` exists only because
+  // `page-gen.mjs` imports `site-plan.mjs`, so the kit's names could not be read
+  // from there without a cycle — which is why the designer was offered 279 of
+  // 2,112 until 2026-08-21. One import here and the cycle is back, and an ESM
+  // cycle does not throw: `KIT_PALETTE` would simply be undefined at the moment
+  // the field's description is built, and the designer would be offered nothing.
+  const leaf = fs.readFileSync(new URL("../builder/ui-components.mjs", import.meta.url), "utf8")
+    .replace(/^\s*\/\/.*$/gm, "");
+  assert.doesNotMatch(leaf, /^\s*import\s/m,
+    "builder/ui-components.mjs imports something — it is the cycle break and must stay a leaf");
+
   const real = new Set(UI_COMPONENTS);
   for (const c of KIT_PALETTE) assert.ok(real.has(c), `${c} is offered to the designer and does not exist`);
   for (const c of ALWAYS_API_CORE) assert.ok(real.has(c), `${c} is in the always-on core and does not exist`);
@@ -329,8 +340,16 @@ test("the LINT knows all 2,112, so a real import is never refused", () => {
   // component the model was not told about" into "a component the pipeline
   // rejects", which is a much worse failure and a silent one.
   assert.ok(UI_COMPONENTS.length > 2000, `the lint's allow-list shrank to ${UI_COMPONENTS.length}`);
-  assert.ok(KIT_PALETTE.length < UI_COMPONENTS.length,
-    "the designer's palette is the whole kit — the +6% choice became +46% without anybody deciding it");
+  // THE ASSERTION THAT STOOD HERE SAID THE OPPOSITE and was removed rather than
+  // relaxed: "the designer's palette is the whole kit — the +6% choice became
+  // +46% without anybody deciding it". Somebody decided it (owner's call,
+  // 2026-08-21) and the +46% is a token count, not a cost — the block is cached,
+  // so it is 0.37 credits a build. What that guard was really protecting is the
+  // ONE thing that still must not drift, and it is asserted here instead: the
+  // lint and the menu are now the same set, so a name the designer may choose is
+  // always a name the pipeline will accept.
+  assert.equal(COMPONENT_MENU.length, UI_COMPONENTS.length,
+    "the designer's menu and the lint's allow-list have come apart — a nameable component the lint refuses");
 });
 
 test("rule 3's absolute is SCOPED to the path, and names the whole kit under it", () => {

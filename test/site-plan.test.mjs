@@ -9,11 +9,11 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { readFileSync } from "node:fs";
 import {
-  PLAN_KEYS, PLAN_EDIT_FIELDS, PLAN_FIELDS, PLAN_REQUIRED, KIT_PALETTE, SHAPE_FIELD,
+  PLAN_KEYS, PLAN_EDIT_FIELDS, PLAN_FIELDS, PLAN_REQUIRED, KIT_PALETTE, COMPONENT_MENU, SHAPE_FIELD,
   normalizePlan, directiveFromPlan, hasPlan,
   MAX_SHAPE, MAX_PAGES, MAX_ACTION, MAX_COMPONENTS,
 } from "../builder/site-plan.mjs";
-import { ALWAYS_API_CORE, siteComponentApi, componentApiFor, briefWithLayout, PAGE_RULES } from "../builder/page-gen.mjs";
+import { ALWAYS_API_CORE, UI_COMPONENTS, siteComponentApi, componentApiFor, briefWithLayout, PAGE_RULES } from "../builder/page-gen.mjs";
 import { planBudget, budgetFor } from "../builder/site-images.mjs";
 
 const GOOD = {
@@ -251,16 +251,47 @@ test("THE DESIGNER IS GIVEN A PALETTE, because a compelled field with no list is
   assert.ok(KIT_PALETTE.length > 200, `the palette shrank to ${KIT_PALETTE.length}`);
 });
 
-test("…and it is a PALETTE, not the whole kit — the +6% choice, not the +46% one", () => {
-  // Measured: the whole kit is 11,392 tokens of names against 1,442 for these, on
-  // a designer tool block of 24,495. The palette is every component the 324
-  // exemplar pages ever reach for, so all 2,112 buys nothing a real site has
-  // needed. Asserted as a BOUND rather than an exact count, since the frozen list
-  // is allowed to be corrected — what must not happen is somebody pasting the kit
-  // in and quadrupling a cached block by accident.
-  assert.ok(KIT_PALETTE.length < 400,
-    `the palette is ${KIT_PALETTE.length} — that is the whole kit, and the designer's cached block with it`);
+test("the designer is offered the WHOLE KIT, not the 279 (owner's call, 2026-08-21)", () => {
+  // THIS TEST IS THE INVERSE OF THE ONE IT REPLACES, which asserted the opposite
+  // — "it is a PALETTE, not the whole kit, the +6% choice not the +46% one". That
+  // was right on its own premise and the premise was measured wrong: the 279 are
+  // every component the 324 exemplar pages import, and all 324 are brochures. So
+  // "all 2,112 buys nothing a real site has needed" meant "nothing a BROCHURE has
+  // needed" — a CRM's own components sit at median position #154 of that list and
+  // twelve app parts are in it nowhere.
+  //
+  // AND THE COST WAS THE HALF THAT WAS OVERSTATED. +9,950 tokens on a block that
+  // is CACHED: 0.37 credits a build warm, 1% of a 38-credit build, and 4.66 once
+  // per prompt version. "+46%" is true of the token count and misleading as money.
+  assert.equal(COMPONENT_MENU.length, UI_COMPONENTS.length,
+    `the designer is offered ${COMPONENT_MENU.length} of ${UI_COMPONENTS.length} components again`);
+  assert.equal(new Set(COMPONENT_MENU).size, COMPONENT_MENU.length, "the menu repeats a name");
+  const real = new Set(UI_COMPONENTS);
+  for (const c of COMPONENT_MENU) assert.ok(real.has(c), `${c} is offered and does not exist`);
+
+  // AND IT REACHES THE FIELD. The menu can be perfectly correct and the
+  // description still built from `KIT_PALETTE` — which is what every other test
+  // in this file would still pass with, because the palette is deliberately
+  // unchanged. Twelve features in this repo have died at exactly that seam.
+  const d = PLAN_FIELDS.components.description;
+  const deep = COMPONENT_MENU.slice(-40).filter((n) => !KIT_PALETTE.includes(n));
+  assert.ok(deep.length > 10, "the tail of the menu is inside the old palette — this proves nothing");
+  for (const n of deep.slice(0, 12)) {
+    assert.ok(d.includes(n), `${n} is in the menu and the designer is never shown it — the field is still on KIT_PALETTE`);
+  }
+});
+
+test("…and KIT_PALETTE stays frozen at 279, because the always-on core comes off its head", () => {
+  // The palette does a SECOND job and that is why widening the menu did not
+  // widen it: `ALWAYS_API_CORE` takes its first 20 as the signatures every site
+  // gets. Re-sorting or growing this list silently re-picks that core.
+  assert.ok(KIT_PALETTE.length > 200 && KIT_PALETTE.length < 400,
+    `the palette is ${KIT_PALETTE.length} — it is the frozen measurement, not the menu`);
   assert.equal(new Set(KIT_PALETTE).size, KIT_PALETTE.length, "the palette repeats a name");
+  // The menu leads with it, in order, so the head still carries the frequency
+  // signal the field's own wording promises.
+  assert.deepEqual(COMPONENT_MENU.slice(0, KIT_PALETTE.length), KIT_PALETTE,
+    "the menu no longer leads with the measured order — its head stopped being 'most-commonly-needed first'");
 });
 
 test("the palette is ORDERED most-used-first, and the core comes off its front", () => {
