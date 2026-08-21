@@ -16893,3 +16893,48 @@ names the wall or rules all three out, and either answer is worth having before
 another build is spent.
 
 **Balance is 661 and none of this touched it.**
+
+## 21 Aug — the wall is fixed, and Grok built its first site
+
+**It worked.** The build ran **378 seconds** and published. Every build that died
+did so between 286 and 301 seconds, and the longest one that ever succeeded was
+272. So this went 77 seconds past the wall, and the only thing that changed was
+the one setting.
+
+**Your site:** https://harbourside-roast.gofarther.app
+
+**So the wall was CPU, and now I can say that rather than guess it.** Cloudflare
+gives a request 30 seconds of processing time by default and this project had
+never raised it. A build spends most of its time *waiting* — for the model, for
+the container — and waiting doesn't count. But the work in between does, and it
+grows with the build. That's why it looked like a time limit and wasn't: 272
+seconds of building stayed under 30 seconds of work; 290 didn't.
+
+**Grok cost 37 credits.** The last comparable site on Sonnet cost 128. That's
+about three and a half times cheaper, for a site I'd be happy to hand a real
+customer: a hero, a real photograph it bought and placed itself, the menu, a full
+opening-hours table with a live "open now" badge, directions, and a working
+contact form. It also wrote its own note explaining that it had invented the
+opening hours and the address because your brief didn't give them, and that it
+left the phone number out on purpose *"so nobody rings a number that isn't
+yours."*
+
+**Where the time went:** the container took 261 of the 378 seconds, and 156 of
+those were Grok writing the pages. That's the slow part, and it's exactly why the
+ceiling was being hit — Grok is about three times slower than Sonnet on that
+call, so it was the first model to reliably tip over a limit that had always been
+there.
+
+**Two things worth knowing.**
+
+First, my screenshots came out blank in the middle twice, and the site was fine
+both times — once because my local copy couldn't reach the database, and once
+because the sections fade in as you scroll and a full-page screenshot doesn't
+scroll. I checked each section individually before believing either picture.
+
+Second, my own wall probe printed two conclusions it hadn't earned — it called a
+request that took a tenth of a second "held open for 420 seconds". Fixed: a test
+now has to prove it did the thing before its result counts for anything.
+
+**Balance 661 → 624.** Still to do: Anthropic needs topping up, or Grok is the
+only picker that can build.
