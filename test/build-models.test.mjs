@@ -14,7 +14,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { BUILD_MODELS, DEFAULT_PICKER, modelsFor } from "../builder/build-models.mjs";
-import { MODEL_RATES, buildFloor, MIN_CREDITS, SCHEMA_PROFILE, pageCredits } from "../builder/publish-pages.mjs";
+import { MODEL_RATES, buildFloor, MIN_CREDITS, SCHEMA_PROFILE, SEED_PROFILE, pageCredits } from "../builder/publish-pages.mjs";
 import { pagesRequest } from "../builder/page-gen.mjs";
 
 // What `use_credits` grants an account on first touch — the Postgres RPC's
@@ -58,9 +58,33 @@ test("the default picker's build fits inside the free grant", () => {
   // No unit test could have caught it: they all asserted the picker sends the
   // right model and prices it correctly, which it did. Nothing modelled a whole
   // build against a real starting balance. This is that test.
-  assert.ok(buildFloor(modelsFor().design) <= FREE_GRANT,
-    "a new account cannot finish its own first build on the default picker: needs " +
-    buildFloor(modelsFor().design) + ", has " + FREE_GRANT);
+  // THE SHORTFALL IS PINNED, NOT WISHED AWAY, and that reversal is the point.
+  //
+  // This used to assert the floor FITS. It stopped being true twice over, and
+  // the second time is an audit fix rather than a regression: `buildFloor`
+  // priced the designer call alone while the same deposit settles designer PLUS
+  // the seed top-up, so the gate passed and the build was then refused for want
+  // of credits HAVING ALREADY CHARGED. Pricing both is correct and moved the
+  // floor 20 -> 22.
+  //
+  // It was already false before that, for a different reason nobody had folded
+  // in: the routing call spends 1 credit BEFORE the gate is reached, so a floor
+  // of exactly the grant was still one credit short. The owner's decision
+  // (recorded in CLAUDE.md) is NOT to raise the grant — `build smoke` runs as a
+  // funded account instead — so what this file owes the reader is the number,
+  // kept current, rather than a green tick over a claim that stopped holding.
+  //
+  // Asserted as an EXACT relationship so movement in EITHER direction goes red:
+  // shrinking the cold schema call, or raising the grant, must come here and
+  // re-record it. A `>=` would let the gap widen silently, which is how the
+  // original claim rotted.
+  const ROUTING_BEFORE_GATE = 1;
+  const floor = buildFloor(modelsFor().design);
+  const short = floor + ROUTING_BEFORE_GATE - FREE_GRANT;
+  assert.equal(short, 3,
+    "the cold-start shortfall moved and nobody re-recorded it: floor " + floor +
+    " + " + ROUTING_BEFORE_GATE + " routing - grant " + FREE_GRANT + " = " + short +
+    " (was 3). If this got smaller, say so here; if it got bigger, a new account is further from building.");
   // And the expensive option genuinely does not fit, or this guard is passing
   // because the floor stopped meaning anything.
   assert.ok(buildFloor(BUILD_MODELS.opus.design) > FREE_GRANT,
@@ -323,9 +347,23 @@ test("the floor is derived from the price table, not a number somebody typed", (
   const o = buildFloor("claude-opus-5");
   assert.ok(o > s, "an Opus build's floor is not higher than a Sonnet one's");
   assert.ok(s > MIN_CREDITS, "the floor forgot the schema call entirely");
-  // Exactly the schema call plus what the pages call needs, so the two halves
-  // stay visible rather than being folded into one tuned number.
-  assert.equal(s, pageCredits({ ...SCHEMA_PROFILE, model: "claude-sonnet-5" }) + MIN_CREDITS);
+  // Exactly the calls the same deposit settles, plus what the pages call needs,
+  // so every half stays visible rather than being folded into one tuned number.
+  //
+  // THE SEED CALL BELONGS IN HERE, and leaving it out was the defect: the gate
+  // priced the designer alone while `schemaSettlement` bills designer AND seed
+  // top-up, so the floor passed and the build was then refused for want of
+  // credits having already charged the customer.
+  //
+  // PASSED AS SEPARATE PARTS, never pre-added: `pageCredits` is variadic and
+  // rounds ONCE, and summing two separately-rounded figures charges twice for
+  // the rounding — this repo's own lesson, and the reason the assertion mirrors
+  // the call shape instead of the arithmetic.
+  assert.equal(s, pageCredits({ ...SCHEMA_PROFILE, model: "claude-sonnet-5" }, SEED_PROFILE) + MIN_CREDITS);
+  // And the seed half is REALLY in there. Without this the line above is
+  // satisfied by a floor that dropped it, since it restates the same call.
+  assert.ok(s > pageCredits({ ...SCHEMA_PROFILE, model: "claude-sonnet-5" }) + MIN_CREDITS,
+    "the floor stopped pricing the seed top-up — the gate is back to under-estimating the bill it guards");
   // The profile is a MEASUREMENT and is cold on purpose: a gate that
   // under-estimates takes the money and then refuses to finish.
   assert.ok(SCHEMA_PROFILE.cacheWrite > 0 && SCHEMA_PROFILE.cacheRead === 0,

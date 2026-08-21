@@ -348,8 +348,20 @@ test("the container RUNS the check and puts it on its response", () => {
   // That is strictly better — the bytes it inspects are the bytes a visitor
   // receives, from the same code that will serve them, rather than a snapshot
   // that could be wrong in a way the live page was not.
-  assert.match(src, /checkRender\(CLIENT_DIST, routePaths\(\), ssrFetch\)/,
-    "the check is not fed the site's own routes and its own server");
+  // ASSERTED AS A PROPERTY, NOT AS AN ARGUMENT LIST. This pinned the exact call
+  // `checkRender(CLIENT_DIST, routePaths(), ssrFetch)` and went red the moment
+  // the server moved behind a process boundary and gained a `down()` — a guard
+  // about word order failing a correct change, which the comment block above
+  // this test says has now happened four times. Five.
+  //
+  // What has to hold is that the check is fed THIS site's client dist, THIS
+  // site's routes, and a handle on the server that renders them. How many
+  // arguments that takes is not the invariant.
+  const call = src.slice(src.indexOf("checkRender(CLIENT_DIST"));
+  const args = call.slice(0, call.indexOf("\n"));
+  assert.ok(/checkRender\(CLIENT_DIST\b/.test(args), "the check is not fed this site's own client dist");
+  assert.ok(/\broutePaths\(\)/.test(args), "the check is not fed the routes the router actually has");
+  assert.ok(/\bssr\b/.test(args), "the check is not fed the server that renders those routes");
   // THE CLIENT HALF, NOT `dist`. Start emits `dist/client` and `dist/server`;
   // pointed at `dist` the static branch would serve assets one directory too
   // deep and every one would 404 inside the check.
@@ -372,7 +384,11 @@ test("THE CHECK RUNS AFTER THE BUILD, because there is nothing to look at before
   // SERVER BUNDLE still has to exist before it can be loaded and driven, so the
   // property is the same one against the thing that now produces the document.
   const vite = src.indexOf('timed("viteMs"');
-  const load = src.indexOf("await loadSiteServer()");
+  // THE SERVER IS STARTED, NOT IMPORTED, and the anchor had to follow it.
+  // `loadSiteServer()` did `await import(...)` of the model's own bundle into
+  // this process; it is a spawned child now, so the thing that has to happen
+  // after the bundle exists and before the check runs is the START.
+  const load = src.indexOf("await startSiteServerForCheck()");
   const chk = src.indexOf("checkRender(CLIENT_DIST");
   assert.ok(vite > 0 && load > 0 && chk > 0, "all three anchors must exist or this passes vacuously");
   assert.ok(vite < load, "the server bundle has to be built before it can be loaded");
@@ -388,8 +404,22 @@ test("THE CHECK RUNS AFTER THE BUILD, because there is nothing to look at before
   const win = src.slice(load, chk + 200);
   assert.ok(!/if\s*\(\s*ssrFetch\s*\)|ssrFetch\s*\?/.test(win),
     "checkRender is gated on the server bundle loading — a bundle that will not load silences the report that would say so");
-  assert.match(src, /const render = await timed\("renderMs"/,
-    "the render check is no longer called unconditionally");
+  // CALLED UNCONDITIONALLY, asserted as a property rather than as a spelling.
+  // This pinned `const render = await timed("renderMs"` and went red on a
+  // correct change: the assignment moved into a `try` so the spawned server is
+  // reaped in a `finally`, which turns the `const` into a `let` on the line
+  // above. Sixth time in this file — see the note on the call-shape guard.
+  assert.ok(/\brender = await timed\("renderMs"/.test(src),
+    "the render check is no longer called and its report captured");
+  assert.ok(!/\bif\s*\([^)]*\)\s*\{?\s*(const |let )?render = await timed\("renderMs"/.test(src),
+    "the render check is gated again — the builds that most need a report are the ones a gate silences");
+  // AND THE SERVER IS REAPED WHATEVER HAPPENS. It is a spawned child now, so a
+  // check that throws without this leaks one process per build into a container
+  // shared by every customer — the same unbounded-retention class the in-process
+  // import was removed for, arriving through the exception path instead.
+  const win2 = src.slice(load, chk + 400);
+  assert.ok(/finally\s*\{[^}]*\.stop\(\)/.test(win2),
+    "the render server is not stopped in a finally — a throwing check leaks a child process per build");
 });
 
 test("publish-pages carries the report through, and ASSIGNS rather than accumulates", () => {

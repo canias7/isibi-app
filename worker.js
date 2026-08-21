@@ -42,7 +42,7 @@ import { scrubSecrets, neonConfigured, sqlQuery, sqlExec, createUserProject, cre
 import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlIdent, seedSiteRows, droppedFields, refusedFields } from "./site-schema.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
-import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, lintPages, SITE_PAGES_MAX_TOKENS } from "./builder/page-gen.mjs";
+import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, lintPages, repairImports, SITE_PAGES_MAX_TOKENS } from "./builder/page-gen.mjs";
 // ALIASED, because worker.js already has an `IMAGE_USD` — the per-model price
 // map for the image GENERATOR the customer drives directly. Imported under its
 // own name the two collide, and the collision is invisible to `node --check` and
@@ -4969,7 +4969,15 @@ async function siteBackendRowFresh(env, slug) {
 async function siteNeonProject(env, slug) {
   const g = await fetch(
     `${SUPABASE_URL}/rest/v1/site_project?slug=eq.${encodeURIComponent(String(slug || "").toLowerCase())}` +
-    "&select=neon_project,neon_branch,neon_role,neon_conn&limit=1",
+    // `uid` IS PART OF THE ANSWER, NOT A CONVENIENCE. `site-provision.mjs`
+    // refuses a project row it cannot prove belongs to this caller — a site was
+    // otherwise provisionable INSIDE ANOTHER ACCOUNT'S Neon project, handing
+    // that account's host, role and password to a stranger. That refusal is
+    // enforced in the module and the column it refuses on is selected HERE, so
+    // omitting it turns the guard into a permanent 502 on the retry path
+    // instead of a check. `site_project.uid` is NOT NULL, so an absent key can
+    // only ever mean this SELECT did not ask for it.
+    "&select=uid,neon_project,neon_branch,neon_role,neon_conn&limit=1",
     { headers: svcHeaders(env), signal: AbortSignal.timeout(12000) });
   // Throws rather than answering null: "Supabase is down" must not read as
   // "this site has no project", which on the write path would create another.
@@ -14266,8 +14274,20 @@ async function handleRequest(request, env, ctx) {
               });
               const pSlots = countImageSlots(pValid.pages);
               pValid.pages = applyImages(pValid.pages, {});
-              // Same as the addon lane: the shape check is not the lint, and the
-              // lint is the one that matters.
+              // AND THE INVENTED EXPORT NAME IS REPAIRED, on this lane too. It
+              // was wired into the build path alone, and these two lanes
+              // generate whole pages exactly as that path does — so a model
+              // reaching for `FaqAccordion` on a module that exports `Faq` cost
+              // the customer their whole change here while the build path
+              // silently fixed it. Deterministic and single-answer-only: no
+              // model call, and a module with more than one candidate is left
+              // for tsc rather than guessed at.
+              //
+              // BEFORE THE LINT, or the lint reports an import the repair has
+              // already fixed and the customer is told about a problem that no
+              // longer exists.
+              const pRepair = repairImports(pValid.pages);
+              pValid.pages = pRepair.pages;
               const pProblems = pValid.problems.concat(lintPages(pValid.pages, eSpec));
               // ONLY THE PAGE THAT WAS ASKED FOR. A page edit that returns a
               // different file is not a page edit, and taking it would let one
@@ -14510,6 +14530,12 @@ async function handleRequest(request, env, ctx) {
             // were publishing without any of it. It does not block publishing,
             // by design; what it does is report, and reporting nothing was the
             // bug.
+            // AND REPAIRED BEFORE IT, for the reason on the page-edit lane: an
+            // invented export name is a tsc failure that costs the whole change,
+            // and the build path has fixed it deterministically since it shipped
+            // while both generating lanes did not.
+            const aRepair = repairImports(aValid.pages);
+            aValid.pages = aRepair.pages;
             const aProblems = aValid.problems.concat(lintPages(aValid.pages, aSpec));
             // `remove` IS OPTIONAL ON THE TOOL and the build prompt never mentions
             // it, so no build request changes shape. Only the addon prompt

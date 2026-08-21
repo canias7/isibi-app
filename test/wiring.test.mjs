@@ -839,11 +839,37 @@ test("every build output is wiped before the next build starts", () => {
   // own isolate on Cloudflare's side, which is a stronger boundary than a uid in
   // a shared container was.
   //
-  // ASSERTED AS AN ABSENCE TOO, because the render check DOES still load the
-  // bundle in this process — to answer a browser — and that is a diagnostic
-  // rather than a render, one whose failure costs a report and never the site.
-  assert.match(src, /pathToFileURL\(SERVER_BUNDLE\)\.href \+ "\?b=" \+ Date\.now\(\)/,
-    "the render check's import lost its cache buster — every report after the first would describe another site");
+  // AND NOW THE OPPOSITE IS ASSERTED, because the mechanism this guarded was
+  // deliberately removed and the replacement is strictly stronger.
+  //
+  // It used to demand a CACHE BUSTER on an in-process `import()` of the site's
+  // server bundle: `?b=` + Date.now(), so the module cache could not hand back
+  // the previous customer's server. That worked and it bought an unbounded
+  // leak — a unique specifier per build means Node's ESM registry retains
+  // EVERY site's bundle for the life of the container, so the fix for one leak
+  // was the cause of another.
+  //
+  // Worse, the import itself was the sandbox hole: it ran model-written page
+  // components in the build service's own event loop, as root, with no timeout,
+  // in the same loop that answers /health and drives oneAtATime. The Dockerfile
+  // claimed nothing in the image executed model code and contradicted itself
+  // eleven lines later.
+  //
+  // The bundle is loaded by a SPAWNED CHILD now, so both go at once: nothing is
+  // retained because nothing is registered, and a wedged render costs a child
+  // rather than the container. The property to hold is therefore the ABSENCE of
+  // the in-process load; `test/render-sandbox.test.mjs` drives the child itself.
+  // COMMENTS BLANKED FIRST, and for an absence check that is not optional: the
+  // moment somebody documents in build-server.mjs WHY the in-process import was
+  // removed, the prose spells the very call being forbidden and this goes red
+  // against correct code. Blanked line-wise and length-preserving, so nothing
+  // shifts. This repo has recorded that trap ten-plus times, including inside
+  // guards written the same day as the warning about it.
+  const noComments = src.split("\n")
+    .map((l) => (/^\s*(\/\/|\*|\/\*)/.test(l) ? " ".repeat(l.length) : l))
+    .join("\n");
+  assert.ok(!/await import\(pathToFileURL\(SERVER_BUNDLE\)/.test(noComments),
+    "the model's server bundle is imported into the build service's own process again — that is the sandbox hole and the ESM leak, both back");
   assert.ok(!fs.existsSync(new URL("../builder/prerender-child.mjs", import.meta.url)),
     "the prerender child is back without its spawn and privilege-drop guards, which went with it");
 });

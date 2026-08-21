@@ -162,14 +162,23 @@ test("a wedged render does not stop the caller's clock", async () => {
     ticks = 0;
     iv = setInterval(() => { ticks++; }, 20);
     await assert.rejects(() => ssr.fetch(new Request("http://127.0.0.1/")), /did not finish rendering/);
-    clearInterval(iv);
     assert.ok(ticks > 5,
       `the caller's event loop only turned ${ticks} times — the render is still blocking this process`);
     // AND THE SERVER IS MARKED DOWN, deliberately. It is single-threaded, so the
     // next request would time out too and the report would come back as "every
     // page threw" — a finding against pages nobody ever opened.
     assert.match(ssr.down(), /did not finish rendering/);
-  } finally { ssr.stop(); }
+    // THE INTERVAL IS CLEARED IN THE `finally`, NOT AFTER THE ASSERTION ABOVE
+    // IT, AND THAT PLACEMENT IS THE WHOLE POINT. Cleared inline, a failing
+    // assertion skips the clear and leaves a live 20ms timer holding the event
+    // loop open — so the FILE never exits and `npm test` runs forever with no
+    // output at all. Measured: one wrong assertion here turned a 31-second
+    // suite into a >600-second hang that had to be killed by PID, and the
+    // reason was invisible because node's runner had emitted nothing.
+    //
+    // A test that WEDGES THE RUNNER when it fails is worse than one that fails:
+    // the failure it was written to report is the one thing you cannot read.
+  } finally { clearInterval(iv); ssr.stop(); }
 });
 
 test("a bundle that will not load is a dead handle that says why, never a throw", async () => {

@@ -290,7 +290,16 @@ test("the save deps read the column the project row actually has", () => {
   // read forward past the concatenation.
   const at = src.indexOf("site_project?slug=eq");
   assert.ok(at > 0, "the project lookup is gone");
-  const sel = src.slice(at, at + 400).match(/select=([a-z_,]+)/);
+  // RUN TO A LANDMARK, NOT A BYTE COUNT. This was `at + 400` and went red the
+  // moment the select gained a comment explaining WHY it carries `uid` — the
+  // sized-window own-goal, which this repo has recorded a dozen times and which
+  // is especially cruel here: comments are blanked length-preservingly above,
+  // so documenting the line pushes the thing being asserted out of range while
+  // leaving the file correct. The URL's arguments end at `svcHeaders`, which is
+  // a property of the call rather than of how much prose sits inside it.
+  const end = src.indexOf("svcHeaders", at);
+  assert.ok(end > at, "the project lookup's headers argument moved — rescope this");
+  const sel = src.slice(at, end).match(/select=([a-z_,]+)/);
   assert.ok(sel, "the project lookup no longer selects named columns");
   const columns = sel[1].split(",");
   assert.ok(columns.includes("neon_conn"), `the lookup selects ${sel[1]} — no connection column`);

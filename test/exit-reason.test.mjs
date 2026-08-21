@@ -134,7 +134,20 @@ test("every failure that reports a child process goes through it", () => {
   assert.deepEqual(handRolled.map(([, stage]) => stage), [],
     "these build their own error string, so they can still report a killed step as nothing");
 
-  // `run` must actually CARRY the signal, or exitReason can never see one.
-  assert.match(src, /child\.on\("close", \(code, signal\)/,
-    "run() drops the signal again, so a SIGKILL reads as an ordinary non-zero exit");
+  // THE SPAWN MUST CARRY THE SIGNAL, or exitReason can never see one — and it
+  // is now one file over. `run()` in build-server.mjs is a thin wrapper that
+  // delegates to `runStep`, which is where the child and its `close` handler
+  // actually live; the extraction happened so this layer could be DRIVEN rather
+  // than only read (build-server.mjs listens on a port at import time and
+  // cannot be imported by a test, run-step.mjs can).
+  //
+  // So the assertion follows the property to wherever the spawn is, and holds
+  // the delegation as well: re-inlining the spawn into the wrapper without the
+  // signal is exactly the regression this line existed for, and reading only
+  // the wrapper's file would miss it in both directions.
+  const stepSrc = fs.readFileSync(new URL("../builder/run-step.mjs", import.meta.url), "utf8");
+  assert.match(stepSrc, /child\.on\("close", \(code, signal\)/,
+    "the spawn drops the signal again, so a SIGKILL reads as an ordinary non-zero exit");
+  assert.match(bare(src), /const run = \([^)]*\) =>\s*runStep\(/,
+    "run() no longer delegates to runStep — whatever spawns now has to be the thing carrying the signal");
 });

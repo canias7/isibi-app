@@ -210,7 +210,21 @@ export function startSiteServer(bundle, opts = {}) {
               // page that hangs is reported as a check that could not finish
               // rather than as a serious finding, so the customer-facing note is
               // silent on it. A lie about seven other pages is worse.
-              state.down = state.down || "";
+              // AND THE MESSAGE HAS TO CARRY THE ROUTE, or this whole branch is
+              // the failure it was written to prevent. `state.down || ""` left
+              // an Error with an EMPTY message, which stringifies to the bare
+              // word "Error" — so the one report that exists to say WHICH page
+              // wedged said nothing at all, and the check above it could not
+              // tell a timeout from any other throw. Measured: the guard
+              // asserting /did not finish rendering/ got 'Error'.
+              //
+              // `state.down ||` is KEPT and the precedence is deliberate: the
+              // lifetime timer sets its own reason first, and running past the
+              // whole budget is the more fundamental fact about the server than
+              // whichever request happened to be in flight when it fired.
+              state.down = state.down ||
+                u.pathname + " did not finish rendering within " +
+                Math.round(requestMs / 1000) + "s, so the server was stopped";
               stop();
               throw new Error(state.down);
             }
