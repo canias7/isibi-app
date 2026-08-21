@@ -1,0 +1,50 @@
+# Where is the build wall, and which kind is it? See scripts/wall-probe.mjs.
+#
+# NO MARKER GATE, because it spends nothing: `/api/_slow` sleeps and returns —
+# no model call, no Neon project, no container, no ledger. The only cost is
+# runner wall-clock, which is why the timeout is generous rather than tight.
+#
+# It DOES need the deploy that carries `/api/_slow`, so it waits for it the same
+# way build-as-owner does.
+name: wall probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wall-probe.yml'
+      - 'scripts/wall-probe.mjs'
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    # Four durations in two modes, each running to its own ceiling: the worst
+    # case is roughly 240+300+360+420 twice. Bounded well above that so a slow
+    # answer is a RESULT rather than a cancelled job reporting nothing.
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: wait for this push's deploy
+        run: |
+          for i in $(seq 1 40); do
+            state=$(curl -sf "https://api.github.com/repos/${{ github.repository }}/actions/runs?head_sha=${{ github.sha }}&per_page=10" \
+              | node -e 'let s="";process.stdin.on("data",(c)=>s+=c).on("end",()=>{const d=JSON.parse(s);const r=(d.workflow_runs||[]).find((x)=>x.name==="Deploy to Cloudflare");console.log(r?r.status+"/"+r.conclusion:"none");})') || state=err
+            echo "deploy: $state (poll $i)"
+            case "$state" in
+              completed/success) exit 0 ;;
+              completed/*) echo "the deploy failed — /api/_slow will not be there"; exit 1 ;;
+            esac
+            sleep 15
+          done
+          echo "deploy never finished in 10 minutes"; exit 1
+      - name: find the wall
+        env:
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          OWNER_EMAIL: aniascristian@gmail.com
+          OWNER_BASE_URL: https://gofarther.dev
+        run: node scripts/wall-probe.mjs

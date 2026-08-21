@@ -9839,6 +9839,53 @@ async function handleRequest(request, env, ctx) {
       return Response.json({ usd, note: usd === null ? "balance unreadable (endpoint down or key not admin-scoped) — the guard FAILS OPEN on this" : usd < 0.5 ? "below the $0.50 guard threshold — generations are being refused" : "above threshold — guard passes" });
     }
 
+    // HOW LONG MAY A RESPONSE TAKE? A diagnostic, and it exists because guessing
+    // cost real builds.
+    //
+    // Four builds hit a wall at 286s, 291s and 301s while one at 272s published
+    // (2026-08-21) — a tight cluster that says a ceiling exists and says nothing
+    // about WHICH. The two candidate fixes have opposite requirements: streaming
+    // a response fixes a CONNECTION timeout and does nothing if the Worker is
+    // being killed, and moving work off the request is the reverse. So the wrong
+    // guess is another dead ~130-credit build.
+    //
+    // This answers it for nothing: no model call, no Neon project, no container.
+    // `?stream=1` returns a body IMMEDIATELY and heartbeats, so the difference
+    // between the two modes at the same duration IS the diagnosis.
+    //
+    // AUTH-GATED, and that is not ceremony. An open endpoint that pins a Worker
+    // for ten minutes is a denial-of-service primitive anybody could aim at us,
+    // and `MAX` bounds even an authenticated caller.
+    if (url.pathname === "/api/_slow" && request.method === "GET") {
+      if (!(await authUser(request))) return UNAUTHED();
+      const MAX = 900000;
+      const ms = Math.max(0, Math.min(MAX, Number(url.searchParams.get("ms")) || 0));
+      const t0 = Date.now();
+      const sleep = (n) => new Promise((res) => setTimeout(res, n));
+      if (url.searchParams.get("stream") === "1") {
+        // A heartbeat every 5s. NEWLINE-DELIMITED so a reader can find the last
+        // line without buffering rules, and the final line is the JSON result —
+        // the same shape the build route would take if this turns out to be the
+        // fix.
+        const { readable, writable } = new TransformStream();
+        const w = writable.getWriter();
+        const enc = new TextEncoder();
+        ctx.waitUntil((async () => {
+          try {
+            for (let sent = 0; sent < ms; sent += 5000) {
+              await w.write(enc.encode(JSON.stringify({ tick: Math.round((Date.now() - t0) / 1000) }) + "\n"));
+              await sleep(Math.min(5000, ms - sent));
+            }
+            await w.write(enc.encode(JSON.stringify({ ok: true, mode: "stream", askedMs: ms, tookMs: Date.now() - t0 }) + "\n"));
+          } catch { /* the reader went away */ }
+          try { await w.close(); } catch { /* already closed */ }
+        })());
+        return new Response(readable, { headers: { "content-type": "application/x-ndjson", "cache-control": "no-store" } });
+      }
+      await sleep(ms);
+      return Response.json({ ok: true, mode: "plain", askedMs: ms, tookMs: Date.now() - t0 });
+    }
+
     // Current credit balance (creates the row with the signup grant on first touch).
     if (url.pathname === "/api/credits" && request.method === "GET") {
       if (!(await authUser(request))) return UNAUTHED();
