@@ -12,7 +12,7 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   readTweak, runTweak, tweakable, sameProse, proseOf, routeIdOf, tweakUsage,
-  tweakRequest, tweakReply, tweakLint, TWEAK_MODEL, TWEAK_TOOL, TWEAK_RULES, MAX_TWEAK_CHARS,
+  tweakRequest, tweakReply, tweakLint, lintOne, TWEAK_MODEL, TWEAK_TOOL, TWEAK_RULES, MAX_TWEAK_CHARS,
 } from "../builder/site-tweak.mjs";
 // The extractor the guarantee is built on — used here to splice at its OWN
 // offsets, so the negative case covers every page rather than the fifth that
@@ -366,13 +366,19 @@ test("…and the corpus says the differential does not cry wolf", () => {
   const shown = [];
   for (const f of files) {
     const src = fs.readFileSync(f, "utf8");
+    // THE BASELINE IS HOISTED, which is why `lintOne` is exported. A lint is
+    // ~4ms and `tweakLint` does two per call, so re-deriving one page's
+    // baseline for each of its eight tweaks doubled this sweep's cost for no
+    // extra coverage. The composition is asserted separately, so the sweep is
+    // still measuring the real difference and not a second implementation.
+    const before = lintOne(src);
     // The number that makes the differential necessary rather than merely tidy.
-    if (tweakLint("", src).length) withBase++;
+    if (before.size) withBase++;
     for (const fn of TWEAKS) {
       const out = fn(src);
       if (out === src) continue;
       applied++;
-      const p = tweakLint(src, out);
+      const p = [...lintOne(out)].filter((x) => !before.has(x));
       if (p.length) { flagged++; if (shown.length < 3) shown.push(f.split("/").slice(-2).join("/") + " :: " + p[0]); }
     }
   }
@@ -413,4 +419,56 @@ test("THE WIRING: the lint really is called, and the prose is not what says so",
   assert.ok(fn.length > 200, "readTweak not found — re-point this guard");
   assert.match(fn, /tweakLint\(before, after\)/, "readTweak does not run the lint");
   assert.match(fn, /reason: "lint"/, "…and does not refuse on it");
+});
+
+test("`tweakLint` IS exactly the difference of two `lintOne`s", () => {
+  // THE COMPOSITION THE SWEEP ABOVE RESTS ON. It hoists the baseline for speed,
+  // so without this it would be measuring its own arithmetic rather than the
+  // function the lane really calls — the shape where a harness and the thing it
+  // harnesses agree with each other and with neither end.
+  const dirty = PAGE.replace(/<Hero\b/, "<Hero wobble={3}");
+  assert.notEqual(dirty, PAGE);
+  for (const [a, b] of [[PAGE, dirty], [dirty, PAGE], [PAGE, PAGE], [dirty, dirty]]) {
+    const base = lintOne(a);
+    assert.deepEqual(tweakLint(a, b), [...lintOne(b)].filter((p) => !base.has(p)));
+  }
+  // And `lintOne` says "could not answer" distinctly from "nothing wrong", or a
+  // crash in the scanner reads as a clean page.
+  assert.ok(lintOne(PAGE) instanceof Set);
+  assert.ok(lintOne(dirty).size > lintOne(PAGE).size);
+});
+
+test("a scanner that CANNOT answer does not report every problem as introduced", () => {
+  // FOUND BY MUTATION. `lintOne` returning an empty Set on a throw instead of
+  // `null` survived the whole file — and it is not inert: `tweakLint` would then
+  // subtract nothing, so EVERY problem the page was already carrying would read
+  // as this edit's. Measured over the corpus, 326 of 329 pages carry at least
+  // one, so that is a refusal on essentially every tweak — the permanent silent
+  // fall-through this rung cannot afford.
+  //
+  // Driven through the real branch rather than asserted at the source: the throw
+  // is raised inside `lintOne`'s own `String(source)`, by a value that refuses to
+  // become one. Contrived, and it is the only handle there is on a scanner that
+  // does not throw today.
+  const boom = { toString() { throw new Error("scanner is unavailable"); } };
+  assert.equal(lintOne(boom), null, "an unanswerable page must not read as a clean one");
+  const dirty = PAGE.replace(/<Hero\b/, "<Hero wobble={3}");
+  assert.ok(lintOne(dirty).size > 0, "the fixture carries no problem — this proves nothing");
+  assert.deepEqual(tweakLint(boom, dirty), [], "an unreadable baseline blamed the page's own problems on the edit");
+  assert.deepEqual(tweakLint(PAGE, boom), [], "an unreadable result was reported as a broken one");
+});
+
+test("a rewording that ALSO breaks something is still reported as a rewording", () => {
+  // THE ORDER IS THE CLAIM, and a mutant moving the lint above `sameProse`
+  // survived until this existed: every fixture either reworded or broke
+  // something, never both. A model that rewrites a section can easily do both,
+  // and "it reworded the page" is the specific, actionable reason — reported as
+  // a lint problem it sends whoever reads it at the wrong thing entirely.
+  const both = PAGE
+    .replace("Walk-ins welcome", "Walk in whenever")
+    .replace(/<Hero\b/, "<Hero wobble={3}");
+  assert.notEqual(both, PAGE, "the fixture did not apply");
+  assert.ok(!sameProse(PAGE, both), "the fixture did not actually reword");
+  assert.ok(tweakLint(PAGE, both).length > 0, "the fixture did not actually break anything");
+  assert.equal(readTweak(reply({ source: both }), { source: PAGE }).reason, "reworded");
 });

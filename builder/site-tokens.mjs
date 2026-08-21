@@ -272,9 +272,14 @@ const COLOR_FUNCS = Object.freeze({
 /** The notations this file reads, so a guard can sweep them without a hand list. */
 export const COLOR_NOTATIONS = Object.freeze(Object.keys(COLOR_FUNCS));
 
-// LONGEST NAME FIRST. `rgb|rgba` only works because JS alternation backtracks
-// past `rgb` when the `\(` fails against the `a`; sorting removes the dependence
-// on that entirely, and the set of strings matched is identical either way.
+// LONGEST NAME FIRST, and it is PROVABLY INERT today — said so rather than
+// deleted, because a guard that cannot fire reads as protection that is not
+// there. `rgb|rgba` accepts `rgba(…)` only because JS alternation backtracks
+// past `rgb` when the `\(` fails against the `a`; removing the sort was
+// measured and changes not one answer. It is kept because the property it rests
+// on belongs to the regex engine rather than to this file, and the failure it
+// would produce — one notation silently unrecognised — is the exact shape this
+// whole section exists to make impossible.
 const FUNC = new RegExp(
   "^(" + [...COLOR_NOTATIONS].sort((a, b) => b.length - a.length).join("|") + ")\\(\\s*" +
   "(?:" + NUM + ")(?:" + SEP + "(?:" + NUM + ")){2,3}" +

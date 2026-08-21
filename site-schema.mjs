@@ -29,6 +29,73 @@ const SAFE_IDENT = /^[a-z_][a-z0-9_]{0,40}$/i;
 
 export function sqlIdent(name) { if (!SAFE_IDENT.test(String(name || ""))) throw Object.assign(new Error("bad identifier: " + name), { bad: true }); return '"' + name + '"'; }
 
+/**
+ * A DERIVED name — `ck_<table>_<col>_<op>_<col>`, `ux_<table>_g_0`,
+ * `ex_<table>_nooverlap`, `trg_<table>_aud_i_fn` — is not a declared name and
+ * must not be judged by a declared name's rule.
+ *
+ * `SAFE_IDENT` caps an identifier at 41 characters. That bound is a POLICY about
+ * what a customer's table may be CALLED, and it was applied unchanged to names
+ * composed FROM a table name plus a prefix and a suffix. Postgres's own limit is
+ * 63 (NAMEDATALEN - 1), so the engine was refusing 22 characters Postgres would
+ * have accepted, on names nobody chose.
+ *
+ * MEASURED 2026-08-21 by executing `sqlIdent` on the tool's OWN worked example
+ * for `checks` — `["end_time","gt","start_time"]`:
+ *
+ *   ck_booking_requests_end_time_gt_start_time   42 chars  → THROWS
+ *   ex_<29-char table>_nooverlap                 42 chars  → THROWS
+ *
+ * `booking_requests` is 16 characters and is an ordinary snake_case plural the
+ * tool asks for. Three of those throws were computed OUTSIDE any try and there
+ * is no per-table try in the apply loop, so they propagated to the route's catch
+ * — 502 "could not apply the schema" on a build whose database was already
+ * provisioned, with the log reading as the schema engine failing when the cause
+ * was a name seven characters too long. That is exactly the failure the
+ * table-name check in `coerceTable` was added to end ("lose one table, not the
+ * site"), reappearing one layer down on the names WE compose.
+ *
+ * OVER 63 IT SHORTENS RATHER THAN THROWING, and the shortening has to be
+ * DETERMINISTIC: every one of these names is used twice — `DROP … IF EXISTS`
+ * then `CREATE`/`ADD` — and a revise re-applies the whole schema, so a name that
+ * differed between runs would leave the old constraint standing and add a second
+ * one beside it. A stable digest of the full name is what gives that: same input,
+ * same name, every run, every isolate.
+ *
+ * Truncating without the digest is the obvious alternative and is wrong: the
+ * parts are `ck_` + table(≤41) + col(≤40) + op + col(≤40), so two rules on one
+ * table can share a 63-character prefix and would collide into one constraint —
+ * silently keeping whichever applied last. Letting Postgres do its own silent
+ * truncation has the identical failure.
+ *
+ * Nothing existing changes: every name that applied successfully before was
+ * ≤41 characters and is returned untouched.
+ */
+export const MAX_PG_IDENT = 63; // Postgres NAMEDATALEN - 1
+const SAFE_DERIVED_IDENT = /^[a-z_][a-z0-9_]{0,62}$/i;
+
+// FNV-1a, 32-bit. Not a security property — the only requirement is that it is
+// stable across runs and processes, which rules out anything seeded or
+// insertion-ordered.
+function identDigest(s) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return h.toString(36).padStart(7, "0").slice(-7);
+}
+
+export function derivedName(...parts) {
+  const raw = parts.map((p) => String(p == null ? "" : p)).join("");
+  if (raw.length <= MAX_PG_IDENT) return raw;
+  // 63 = head + "_" + 7 digest chars.
+  return raw.slice(0, MAX_PG_IDENT - 8) + "_" + identDigest(raw);
+}
+
+export function derivedIdent(...parts) {
+  const name = derivedName(...parts);
+  if (!SAFE_DERIVED_IDENT.test(name)) throw Object.assign(new Error("bad derived identifier: " + name), { bad: true });
+  return '"' + name + '"';
+}
+
 // SQLite let a trigger carry its body inline (CREATE TRIGGER … BEGIN … END).
 // Postgres does not: every trigger is a function plus a trigger that calls it.
 // This emits both, and is idempotent — CREATE OR REPLACE on the function, and a
@@ -117,7 +184,13 @@ export function checkSql(t, colSet) {
     const rhs = /^\d+$/.test(b) ? b : (colSet.has(b) ? sqlIdent(b) : null);
     if (rhs === null) continue;
     out.push({
-      name: "ck_" + t.name + "_" + a + "_" + op + "_" + b,
+      // `derivedName`, not raw concatenation: `ck_` + table + col + op + col
+      // overflows the 41-character bound `sqlIdent` used to apply here at any
+      // table name over ~15 characters, and the tool's own worked example
+      // (`["end_time","gt","start_time"]`) on a table called `booking_requests`
+      // is 42. The rule was then thrown away with only a `refused` entry that
+      // reached nobody. See `derivedName` for why it shortens rather than throws.
+      name: derivedName("ck_", t.name, "_", a, "_", op, "_", b),
       sql: sqlIdent(a) + " " + sym + " " + rhs,
     });
   }
@@ -329,7 +402,7 @@ export function normalizeSchema(spec) {
     // and undefined when absent, because `resolveAccess` is the one place that
     // decides what a missing or unrecognised half means, and a second opinion
     // here is how the two start disagreeing.
-    out.push({ name, access, read: def.read, write: def.write, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, retired: retiredOf(def), trash: boolOf(def, ["trash", "softDelete", "soft"]), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp), ordered: !!(def.ordered || def.position || def.sortable || def.reorderable), expires: boolOf(def, ["expires", "ttl", "expiry", "expiring"]), pinnable: !!(def.pinnable || def.pinned || def.featurable || def.sticky), defaultSort: (() => { const s = def.defaultSort || def.default_sort || def.orderBy || def.order_by; return (typeof s === "string" && /^[-+a-z0-9_,\s]{1,80}$/i.test(s)) ? s : null; })(), scheduled: boolOf(def, ["publishable", "scheduled", "publishAt", "publish_at", "scheduling"]), uniqueCI: def.uniqueCI || def.uniqueCaseInsensitive || def.ciUnique || null, maxRows: (() => { const n = parseInt(def.maxRows != null ? def.maxRows : (def.max_rows != null ? def.max_rows : (def.rowLimit != null ? def.rowLimit : def.cap)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000000) : 0; })(), checks: (() => { const raw = def.checks || def.validate || def.constraints; if (!Array.isArray(raw)) return null; const OPS = new Set(["gt", "gte", "lt", "lte", "eq", "ne"]); const out = []; for (const ch of raw) { if (!Array.isArray(ch) || ch.length < 3) continue; const a = String(ch[0]).toLowerCase(), op = String(ch[1]).toLowerCase(), b = String(ch[2]).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(a) && OPS.has(op) && /^[a-z0-9_]{1,40}$/.test(b)) out.push([a, op, b]); } return out.length ? out.slice(0, 12) : null; })(), enforceRefs: !!(def.enforceRefs || def.refIntegrity || def.strictRefs), computed: (() => { const src = def.computed || def.derived || def.virtual; if (!src || typeof src !== "object" || Array.isArray(src)) return null; const out = {}; for (const [name, tpl] of Object.entries(src)) { if (!/^[a-z0-9_]{1,40}$/i.test(name)) continue; const arr = Array.isArray(tpl) ? tpl : (typeof tpl === "string" ? [tpl] : null); if (!arr) continue; const toks = arr.filter((x) => typeof x === "string" && x.length <= 60).slice(0, 8); if (toks.length) out[name.toLowerCase()] = toks; } return Object.keys(out).length ? out : null; })(), requireVerified: !!(def.requireVerified || def.verifiedOnly || def.emailVerified), audit: !!(def.audit || def.auditLog || def.changelog), history: !!(def.history || def.versions || def.snapshots || def.revisions), archivable: !!(def.archivable || def.archive), sync: !!(def.sync || def.syncable || def.offline), searchWeights: (() => { const w = def.searchWeights || def.searchRank || def.searchBoost; if (!w || typeof w !== "object" || Array.isArray(w)) return null; const out = {}; for (const [k, v] of Object.entries(w)) { const n = Number(v); if (/^[a-z0-9_]{1,40}$/i.test(k) && Number.isFinite(n) && n > 0) out[k.toLowerCase()] = Math.min(n, 100); } return Object.keys(out).length ? out : null; })(), rateLimit: (() => { const n = parseInt(def.rateLimit != null ? def.rateLimit : (def.writeLimit != null ? def.writeLimit : (def.throttle != null ? def.throttle : def.maxPerMinute)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000) : 0; })(), geo: (() => { const g = def.geo || def.location; if (g && typeof g === "object" && g.lat && g.lng) { const la = String(g.lat).toLowerCase(), ln = String(g.lng).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(la) && /^[a-z0-9_]{1,40}$/.test(ln)) return { lat: la, lng: ln }; } return null; })(), transitions: (() => { const raw = def.transitions || def.stateMachine || def.stages; if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null; const out = {}; for (const [col, m] of Object.entries(raw)) { if (!/^[a-z0-9_]{1,40}$/i.test(col) || !m || typeof m !== "object" || Array.isArray(m)) continue; const cm = {}; for (const [from, tos] of Object.entries(m)) { if (String(from).length > 60) continue; const arr = (Array.isArray(tos) ? tos : [tos]).map((x) => String(x)).filter((x) => x.length <= 60).slice(0, 24); if (arr.length) cm[from] = arr; } if (Object.keys(cm).length) out[col.toLowerCase()] = cm; } return Object.keys(out).length ? out : null; })(), formulas: (() => { const src = def.formulas || def.formula || def.calc; if (!src || typeof src !== "object" || Array.isArray(src)) return null; const out = {}; for (const [name, tpl] of Object.entries(src)) { if (!/^[a-z0-9_]{1,40}$/i.test(name)) continue; const arr = Array.isArray(tpl) ? tpl : (typeof tpl === "string" ? tpl.trim().split(/\s+/) : null); if (!arr) continue; const toks = arr.filter((x) => (typeof x === "string" || typeof x === "number") && String(x).length <= 40).map(String).slice(0, 24); if (toks.length) out[name.toLowerCase()] = toks; } return Object.keys(out).length ? out : null; })(), fieldRoles: (() => { const raw = def.fieldRoles || def.fieldSecurity || def.secureFields; if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null; const out = {}; for (const [col, roles] of Object.entries(raw)) { if (!/^[a-z0-9_]{1,40}$/i.test(col)) continue; const arr = (Array.isArray(roles) ? roles : [roles]).map((x) => String(x).toLowerCase()).filter((x) => /^[a-z0-9_]{1,24}$/.test(x)).slice(0, 24); if (arr.length) out[col.toLowerCase()] = arr; } return Object.keys(out).length ? out : null; })(), teamRead: !!(def.teamRead || def.teamVisible || def.managerRead || def.hierarchyRead), teamScope: boolOf(def, ["teamScope", "teamShared", "sharedWithTeam", "teamOwned"]), currency: (() => { const c = def.currency || def.money || def.multiCurrency; if (!c || typeof c !== "object" || Array.isArray(c)) return null; const amount = String(c.amount || c.value || c.field || "").toLowerCase(); const code = String(c.code || c.currency || c.currencyField || c.codeField || "").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(amount) || !/^[a-z0-9_]{1,40}$/.test(code)) return null; const base = String(c.base || c.baseCurrency || "USD").toUpperCase().slice(0, 8); if (!/^[A-Z]{2,8}$/.test(base)) return null; const rates = {}; const raw = c.rates || c.rate; if (raw && typeof raw === "object" && !Array.isArray(raw)) { for (const [k, v] of Object.entries(raw)) { const cc = String(k).toUpperCase(); const n = Number(v); if (/^[A-Z]{2,8}$/.test(cc) && Number.isFinite(n) && n > 0) rates[cc] = n; } } rates[base] = 1; let as = String(c.as || c.into || (amount + "_base")).toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(as)) as = amount + "_base"; return { amount, code, base, rates, as }; })(), approval: (() => { const a = def.approval || def.approvals || def.signoff; if (!a || typeof a !== "object" || Array.isArray(a)) return null; const src = Array.isArray(a.approvers) ? a.approvers : (Array.isArray(a.roles) ? a.roles : [a.approvers || a.roles]); const approvers = src.map((x) => String(x == null ? "" : x).toLowerCase()).filter((x) => /^[a-z0-9_]{1,24}$/.test(x)); const uniq = [...new Set(approvers)].slice(0, 12); if (!uniq.length) return null; let status = String(a.status || a.field || a.statusField || "approval_status").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(status)) status = "approval_status"; return { approvers: uniq, status }; })(), sequence: (() => { const s = def.sequence || def.autoNumber || def.recordNumber || def.numbering; if (!s || typeof s !== "object" || Array.isArray(s)) return null; const field = String(s.field || s.column || s.into || "number").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(field)) return null; let prefix = String(s.prefix == null ? "" : s.prefix).slice(0, 16); if (!/^[A-Za-z0-9_\-\/#.]*$/.test(prefix)) prefix = ""; let pad = parseInt(s.pad != null ? s.pad : s.padding, 10); pad = (Number.isFinite(pad) && pad > 0) ? Math.min(pad, 12) : 0; let start = parseInt(s.start != null ? s.start : s.from, 10); start = Number.isFinite(start) ? start : 1; return { field, prefix, pad, start }; })(), roundRobin: (() => { const r = def.roundRobin || def.autoAssign || def.leadRouting || def.assignRoundRobin; if (!r) return null; const src = r === true ? ["user"] : (Array.isArray(r) ? r : (Array.isArray(r.among) ? r.among : (Array.isArray(r.roles) ? r.roles : [r.among || r.roles || r.role]))); const among = src.map((x) => String(x == null ? "" : x).toLowerCase()).filter((x) => /^[a-z0-9_]{1,24}$/.test(x)); const uniq = [...new Set(among)].slice(0, 24); return uniq.length ? { among: uniq } : null; })(), assignBy: (() => { const a = def.assignBy || def.territory || def.assignmentRules || def.routeBy; if (!a || typeof a !== "object" || Array.isArray(a)) return null; const field = String(a.field || a.on || a.by || "").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(field)) return null; const rawMap = a.map || a.rules || a.routes; const map = {}; if (rawMap && typeof rawMap === "object" && !Array.isArray(rawMap)) { for (const [k, v] of Object.entries(rawMap)) { const key = String(k).toLowerCase().trim(); const val = String(v == null ? "" : v).trim(); if (key && val && (/^\d+$/.test(val) || val.includes("@")) && val.length <= 120) map[key] = val; } } if (!Object.keys(map).length) return null; const d0 = a.default != null ? String(a.default).trim() : ""; const dfl = (d0 && (/^\d+$/.test(d0) || d0.includes("@")) && d0.length <= 120) ? d0 : null; return { field, map, default: dfl }; })(), sla: (() => { const s = def.sla || def.deadline || def.responseTime; if (!s || typeof s !== "object" || Array.isArray(s)) return null; const mins = slaMinutes(s.mins != null ? s.mins : (s.within != null ? s.within : (s.minutes != null ? s.minutes : s.duration))); if (!mins) return null; let start = String(s.start || s.from || s.since || "created_at").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(start)) start = "created_at"; let doneField = null, doneValues = null; const d = s.done || s.until || s.stopWhen; if (d && typeof d === "object" && !Array.isArray(d)) { const df = String(d.field || d.column || "").toLowerCase(); const vals = (Array.isArray(d.values) ? d.values : (d.value != null ? [d.value] : [])).map((x) => String(x)).filter((x) => x.length <= 60).slice(0, 24); if (/^[a-z0-9_]{1,40}$/.test(df) && vals.length) { doneField = df; doneValues = vals; } } let escalate = null; const e = s.escalate || s.then || s.onBreach; if (e && typeof e === "object" && !Array.isArray(e)) { const to0 = e.to != null ? String(e.to).trim() : ""; const toV = (to0 && (/^\d+$/.test(to0) || to0.includes("@")) && to0.length <= 120) ? to0 : null; const ef = String(e.field || e.column || "").toLowerCase(); const efV = /^[a-z0-9_]{1,40}$/.test(ef) ? ef : null; const ev = e.value != null ? String(e.value).slice(0, 120) : null; const hasField = !!(efV && ev != null); if (toV || hasField) escalate = { to: toV, field: hasField ? efV : null, value: hasField ? ev : null }; } return { start, mins, doneField, doneValues, escalate }; })(), mask: (() => { const m0 = def.mask || def.maskFields; if (!m0 || typeof m0 !== "object") return null; /* The designer emits an ARRAY of {column,roles,keep}. A map with arbitrary keys needs `additionalProperties` in the tool schema, and an under-specified schema THERE is what took the builder down for three merges. Both shapes are accepted; the stored shape stays the map the enforcement reads. */ const m = Array.isArray(m0) ? Object.fromEntries(m0.filter((e) => e && typeof e === "object" && e.column).map((e) => [String(e.column), e])) : m0; const out = {}; for (const [col, cfg] of Object.entries(m)) { if (!/^[a-z0-9_]{1,40}$/i.test(col)) continue; const c = (cfg && typeof cfg === "object" && !Array.isArray(cfg)) ? cfg : {}; const roles = (Array.isArray(c.roles) ? c.roles : []).map((x) => String(x).toLowerCase()).filter((x) => /^[a-z0-9_]{1,24}$/.test(x)).slice(0, 24); let keep = parseInt(c.keep != null ? c.keep : c.show, 10); keep = (Number.isFinite(keep) && keep >= 0) ? Math.min(keep, 12) : 4; const char = (String(c.char || "•").slice(0, 1)) || "•"; out[col.toLowerCase()] = { roles, keep, char }; } return Object.keys(out).length ? out : null; })(), jsonShapes: (() => { const raw = def.jsonShapes || def.jsonShape || def.shapes; if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null; const TYPES = new Set(["string", "number", "boolean", "array", "object"]); const out = {}; for (const [col, shape] of Object.entries(raw)) { if (!/^[a-z0-9_]{1,40}$/i.test(col) || !shape || typeof shape !== "object" || Array.isArray(shape)) continue; const fields = {}; for (const [f, ty] of Object.entries(shape)) { const t2 = String(ty).toLowerCase(); if (/^[a-z0-9_]{1,40}$/i.test(f) && TYPES.has(t2)) fields[f] = t2; } if (Object.keys(fields).length) out[col.toLowerCase()] = fields; } return Object.keys(out).length ? out : null; })(), fts: (() => { const x = def.fts || def.fullText || def.fullTextSearch; if (x === true || x === 1) return true; if (Array.isArray(x)) { const cols = x.map((c) => String(c).toLowerCase()).filter((c) => /^[a-z0-9_]{1,40}$/.test(c)).slice(0, 12); return cols.length ? cols : null; } return null; })(), webhooks: (() => { const w = def.webhooks || def.emitEvents || def.fireWebhooks; if (w === true || w === 1) return true; if (Array.isArray(w)) { const acts = [...new Set(w.map((a) => String(a).toLowerCase()).filter((a) => ["created", "updated", "deleted"].includes(a)))]; return acts.length ? acts : null; } return null; })(), noOverlap: (() => { /* INTERVAL exclusivity: no two live rows may occupy overlapping [start,end) ranges within the same group. A partial UNIQUE index only catches EXACT collisions, which is wrong the moment services have different lengths — a 60-minute booking at 10:00 and a 30-minute one at 10:30 are distinct (date,time) pairs and both would be accepted. Enforced as a single atomic INSERT..WHERE NOT EXISTS, so it is race-free rather than a check-then-write. */ const o = def.noOverlap || def.noDoubleBooking || def.exclusive; if (!o || typeof o !== "object" || Array.isArray(o)) return null; const start = String(o.start || o.from || "").toLowerCase(), end = String(o.end || o.to || "").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(start) || !/^[a-z0-9_]{1,40}$/.test(end) || start === end) return null; const on = (Array.isArray(o.on) ? o.on : (o.on != null ? [o.on] : [])).map((x) => String(x).toLowerCase()).filter((x) => /^[a-z0-9_]{1,40}$/.test(x)).slice(0, 4); /* This predicate is a runtime query, not DDL, so the value is a bound parameter and needs no character restriction — unlike the partial-index WHERE above. */ const wm = String(o.where == null ? "" : o.where).match(/^([a-z_][a-z0-9_]{0,40}):(eq|ne):([\s\S]{0,80})$/i); const where = wm ? { col: wm[1].toLowerCase(), op: wm[2].toLowerCase(), val: wm[3] } : null; return { start, end, on, where }; })(), payment: normalizePayment(def), /* Confirm the SUBMITTER, using the owner's own provider key. The model owns which column holds the address, the subject and the words; the platform owns only the wire, because a public page cannot hold a key and Postgres has no HTTP client. Validated against `cols` — the columns that actually survive — so a recipient column that got dropped cannot leave a table looking as though it confirms. */ confirm: normalizeConfirm({ ...def, columns: cols }), /* The same thing by text message. Separate from `confirm` rather than a channel on it, because a site may want either or both — an emailed receipt AND a texted reminder — and because SMS costs the owner money per message, which is a decision worth declaring on its own. */ sms: normalizeSms({ ...def, columns: cols }), publicView: (() => { /* A PII-filtered, read-only projection of an owner-scoped table, readable by ANYONE. The case it exists for: a booking app whose `bookings` are `user`-scoped, where a visitor must see which slots are taken without seeing who took them. Columns are an explicit allow-list — never a wildcard, never id/owner_id — so a table can only leak exactly what it declares. */ const p = def.publicView || def.publicFields || def.sharedView; if (!p || typeof p !== "object" || Array.isArray(p)) return null; const cols = (Array.isArray(p.columns) ? p.columns : (Array.isArray(p.fields) ? p.fields : [])).map((c) => String(c).toLowerCase()).filter((c) => /^[a-z0-9_]{1,40}$/.test(c) && c !== "owner_id" && c !== "id"); const uniq = [...new Set(cols)].slice(0, 12); if (!uniq.length) return null; const rawW = p.where != null ? (Array.isArray(p.where) ? p.where : [p.where]) : []; const where = rawW.map((w) => String(w)).filter((w) => /^[a-z_][a-z0-9_]{0,40}:(eq|ne|lt|lte|gt|gte|contains|startswith|endswith|in|nin|between|isnull|notnull):[\s\S]{0,80}$/i.test(w)).slice(0, 6); let lim = parseInt(p.limit, 10); lim = (Number.isFinite(lim) && lim > 0) ? Math.min(lim, 2000) : 500; return { columns: uniq, where, limit: lim }; })() });
+    out.push({ name, access, read: def.read, write: def.write, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, retired: retiredOf(def), trash: boolOf(def, ["trash", "softDelete", "soft"]), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: boolOf(def, ["version", "optimisticLock", "concurrency"]), timestamps: boolOf(def, ["timestamps", "updatedAt", "updated_at", "timestamp"]), ordered: boolOf(def, ["ordered", "position", "sortable", "reorderable"]), expires: boolOf(def, ["expires", "ttl", "expiry", "expiring"]), pinnable: boolOf(def, ["pinnable", "pinned", "featurable", "sticky"]), defaultSort: (() => { const s = def.defaultSort || def.default_sort || def.orderBy || def.order_by; return (typeof s === "string" && /^[-+a-z0-9_,\s]{1,80}$/i.test(s)) ? s : null; })(), scheduled: boolOf(def, ["publishable", "scheduled", "publishAt", "publish_at", "scheduling"]), uniqueCI: def.uniqueCI || def.uniqueCaseInsensitive || def.ciUnique || null, maxRows: numOf(def, ["maxRows", "max_rows", "rowLimit", "cap"], 10000000), checks: (() => { const raw = def.checks || def.validate || def.constraints; if (!Array.isArray(raw)) return null; const OPS = new Set(["gt", "gte", "lt", "lte", "eq", "ne"]); const out = []; for (const ch of raw) { if (!Array.isArray(ch) || ch.length < 3) continue; const a = String(ch[0]).toLowerCase(), op = String(ch[1]).toLowerCase(), b = String(ch[2]).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(a) && OPS.has(op) && /^[a-z0-9_]{1,40}$/.test(b)) out.push([a, op, b]); } return out.length ? out.slice(0, 12) : null; })(), enforceRefs: boolOf(def, ["enforceRefs", "refIntegrity", "strictRefs"]), computed: (() => { const src = def.computed || def.derived || def.virtual; if (!src || typeof src !== "object" || Array.isArray(src)) return null; const out = {}; for (const [name, tpl] of Object.entries(src)) { if (!/^[a-z0-9_]{1,40}$/i.test(name)) continue; const arr = Array.isArray(tpl) ? tpl : (typeof tpl === "string" ? [tpl] : null); if (!arr) continue; const toks = arr.filter((x) => typeof x === "string" && x.length <= 60).slice(0, 8); if (toks.length) out[name.toLowerCase()] = toks; } return Object.keys(out).length ? out : null; })(), requireVerified: boolOf(def, ["requireVerified", "verifiedOnly", "emailVerified"]), audit: boolOf(def, ["audit", "auditLog", "changelog"]), history: boolOf(def, ["history", "versions", "snapshots", "revisions"]), archivable: boolOf(def, ["archivable", "archive"]), sync: boolOf(def, ["sync", "syncable", "offline"]), searchWeights: (() => { const w = def.searchWeights || def.searchRank || def.searchBoost; if (!w || typeof w !== "object" || Array.isArray(w)) return null; const out = {}; for (const [k, v] of Object.entries(w)) { const n = Number(v); if (/^[a-z0-9_]{1,40}$/i.test(k) && Number.isFinite(n) && n > 0) out[k.toLowerCase()] = Math.min(n, 100); } return Object.keys(out).length ? out : null; })(), rateLimit: numOf(def, ["rateLimit", "writeLimit", "throttle", "maxPerMinute"], 10000), geo: (() => { const g = def.geo || def.location; if (g && typeof g === "object" && g.lat && g.lng) { const la = String(g.lat).toLowerCase(), ln = String(g.lng).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(la) && /^[a-z0-9_]{1,40}$/.test(ln)) return { lat: la, lng: ln }; } return null; })(), transitions: (() => { const raw = def.transitions || def.stateMachine || def.stages; if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null; const out = {}; for (const [col, m] of Object.entries(raw)) { if (!/^[a-z0-9_]{1,40}$/i.test(col) || !m || typeof m !== "object" || Array.isArray(m)) continue; const cm = {}; for (const [from, tos] of Object.entries(m)) { if (String(from).length > 60) continue; const arr = (Array.isArray(tos) ? tos : [tos]).map((x) => String(x)).filter((x) => x.length <= 60).slice(0, 24); if (arr.length) cm[from] = arr; } if (Object.keys(cm).length) out[col.toLowerCase()] = cm; } return Object.keys(out).length ? out : null; })(), formulas: (() => { const src = def.formulas || def.formula || def.calc; if (!src || typeof src !== "object" || Array.isArray(src)) return null; const out = {}; for (const [name, tpl] of Object.entries(src)) { if (!/^[a-z0-9_]{1,40}$/i.test(name)) continue; const arr = Array.isArray(tpl) ? tpl : (typeof tpl === "string" ? tpl.trim().split(/\s+/) : null); if (!arr) continue; const toks = arr.filter((x) => (typeof x === "string" || typeof x === "number") && String(x).length <= 40).map(String).slice(0, 24); if (toks.length) out[name.toLowerCase()] = toks; } return Object.keys(out).length ? out : null; })(), fieldRoles: (() => { const raw = def.fieldRoles || def.fieldSecurity || def.secureFields; if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null; const out = {}; for (const [col, roles] of Object.entries(raw)) { if (!/^[a-z0-9_]{1,40}$/i.test(col)) continue; const arr = (Array.isArray(roles) ? roles : [roles]).map((x) => String(x).toLowerCase()).filter((x) => /^[a-z0-9_]{1,24}$/.test(x)).slice(0, 24); if (arr.length) out[col.toLowerCase()] = arr; } return Object.keys(out).length ? out : null; })(), teamRead: boolOf(def, ["teamRead", "teamVisible", "managerRead", "hierarchyRead"]), teamScope: boolOf(def, ["teamScope", "teamShared", "sharedWithTeam", "teamOwned"]), currency: (() => { const c = def.currency || def.money || def.multiCurrency; if (!c || typeof c !== "object" || Array.isArray(c)) return null; const amount = String(c.amount || c.value || c.field || "").toLowerCase(); const code = String(c.code || c.currency || c.currencyField || c.codeField || "").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(amount) || !/^[a-z0-9_]{1,40}$/.test(code)) return null; const base = String(c.base || c.baseCurrency || "USD").toUpperCase().slice(0, 8); if (!/^[A-Z]{2,8}$/.test(base)) return null; const rates = {}; const raw = c.rates || c.rate; if (raw && typeof raw === "object" && !Array.isArray(raw)) { for (const [k, v] of Object.entries(raw)) { const cc = String(k).toUpperCase(); const n = Number(v); if (/^[A-Z]{2,8}$/.test(cc) && Number.isFinite(n) && n > 0) rates[cc] = n; } } rates[base] = 1; let as = String(c.as || c.into || (amount + "_base")).toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(as)) as = amount + "_base"; return { amount, code, base, rates, as }; })(), approval: (() => { const a = def.approval || def.approvals || def.signoff; if (!a || typeof a !== "object" || Array.isArray(a)) return null; const src = Array.isArray(a.approvers) ? a.approvers : (Array.isArray(a.roles) ? a.roles : [a.approvers || a.roles]); const approvers = src.map((x) => String(x == null ? "" : x).toLowerCase()).filter((x) => /^[a-z0-9_]{1,24}$/.test(x)); const uniq = [...new Set(approvers)].slice(0, 12); if (!uniq.length) return null; let status = String(a.status || a.field || a.statusField || "approval_status").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(status)) status = "approval_status"; return { approvers: uniq, status }; })(), sequence: (() => { const s = def.sequence || def.autoNumber || def.recordNumber || def.numbering; if (!s || typeof s !== "object" || Array.isArray(s)) return null; const field = String(s.field || s.column || s.into || "number").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(field)) return null; let prefix = String(s.prefix == null ? "" : s.prefix).slice(0, 16); if (!/^[A-Za-z0-9_\-\/#.]*$/.test(prefix)) prefix = ""; let pad = parseInt(s.pad != null ? s.pad : s.padding, 10); pad = (Number.isFinite(pad) && pad > 0) ? Math.min(pad, 12) : 0; let start = parseInt(s.start != null ? s.start : s.from, 10); start = Number.isFinite(start) ? start : 1; return { field, prefix, pad, start }; })(), roundRobin: (() => { const r = def.roundRobin || def.autoAssign || def.leadRouting || def.assignRoundRobin; if (!r) return null; const src = r === true ? ["user"] : (Array.isArray(r) ? r : (Array.isArray(r.among) ? r.among : (Array.isArray(r.roles) ? r.roles : [r.among || r.roles || r.role]))); const among = src.map((x) => String(x == null ? "" : x).toLowerCase()).filter((x) => /^[a-z0-9_]{1,24}$/.test(x)); const uniq = [...new Set(among)].slice(0, 24); return uniq.length ? { among: uniq } : null; })(), assignBy: (() => { const a = def.assignBy || def.territory || def.assignmentRules || def.routeBy; if (!a || typeof a !== "object" || Array.isArray(a)) return null; const field = String(a.field || a.on || a.by || "").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(field)) return null; const rawMap = a.map || a.rules || a.routes; const map = {}; if (rawMap && typeof rawMap === "object" && !Array.isArray(rawMap)) { for (const [k, v] of Object.entries(rawMap)) { const key = String(k).toLowerCase().trim(); const val = String(v == null ? "" : v).trim(); if (key && val && (/^\d+$/.test(val) || val.includes("@")) && val.length <= 120) map[key] = val; } } if (!Object.keys(map).length) return null; const d0 = a.default != null ? String(a.default).trim() : ""; const dfl = (d0 && (/^\d+$/.test(d0) || d0.includes("@")) && d0.length <= 120) ? d0 : null; return { field, map, default: dfl }; })(), sla: (() => { const s = def.sla || def.deadline || def.responseTime; if (!s || typeof s !== "object" || Array.isArray(s)) return null; const mins = slaMinutes(s.mins != null ? s.mins : (s.within != null ? s.within : (s.minutes != null ? s.minutes : s.duration))); if (!mins) return null; let start = String(s.start || s.from || s.since || "created_at").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(start)) start = "created_at"; let doneField = null, doneValues = null; const d = s.done || s.until || s.stopWhen; if (d && typeof d === "object" && !Array.isArray(d)) { const df = String(d.field || d.column || "").toLowerCase(); const vals = (Array.isArray(d.values) ? d.values : (d.value != null ? [d.value] : [])).map((x) => String(x)).filter((x) => x.length <= 60).slice(0, 24); if (/^[a-z0-9_]{1,40}$/.test(df) && vals.length) { doneField = df; doneValues = vals; } } let escalate = null; const e = s.escalate || s.then || s.onBreach; if (e && typeof e === "object" && !Array.isArray(e)) { const to0 = e.to != null ? String(e.to).trim() : ""; const toV = (to0 && (/^\d+$/.test(to0) || to0.includes("@")) && to0.length <= 120) ? to0 : null; const ef = String(e.field || e.column || "").toLowerCase(); const efV = /^[a-z0-9_]{1,40}$/.test(ef) ? ef : null; const ev = e.value != null ? String(e.value).slice(0, 120) : null; const hasField = !!(efV && ev != null); if (toV || hasField) escalate = { to: toV, field: hasField ? efV : null, value: hasField ? ev : null }; } return { start, mins, doneField, doneValues, escalate }; })(), mask: (() => { const m0 = def.mask || def.maskFields; if (!m0 || typeof m0 !== "object") return null; /* The designer emits an ARRAY of {column,roles,keep}. A map with arbitrary keys needs `additionalProperties` in the tool schema, and an under-specified schema THERE is what took the builder down for three merges. Both shapes are accepted; the stored shape stays the map the enforcement reads. */ const m = Array.isArray(m0) ? Object.fromEntries(m0.filter((e) => e && typeof e === "object" && e.column).map((e) => [String(e.column), e])) : m0; const out = {}; for (const [col, cfg] of Object.entries(m)) { if (!/^[a-z0-9_]{1,40}$/i.test(col)) continue; const c = (cfg && typeof cfg === "object" && !Array.isArray(cfg)) ? cfg : {}; const roles = (Array.isArray(c.roles) ? c.roles : []).map((x) => String(x).toLowerCase()).filter((x) => /^[a-z0-9_]{1,24}$/.test(x)).slice(0, 24); let keep = parseInt(c.keep != null ? c.keep : c.show, 10); keep = (Number.isFinite(keep) && keep >= 0) ? Math.min(keep, 12) : 4; const char = (String(c.char || "•").slice(0, 1)) || "•"; out[col.toLowerCase()] = { roles, keep, char }; } return Object.keys(out).length ? out : null; })(), jsonShapes: (() => { const raw = def.jsonShapes || def.jsonShape || def.shapes; if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null; const TYPES = new Set(["string", "number", "boolean", "array", "object"]); const out = {}; for (const [col, shape] of Object.entries(raw)) { if (!/^[a-z0-9_]{1,40}$/i.test(col) || !shape || typeof shape !== "object" || Array.isArray(shape)) continue; const fields = {}; for (const [f, ty] of Object.entries(shape)) { const t2 = String(ty).toLowerCase(); if (/^[a-z0-9_]{1,40}$/i.test(f) && TYPES.has(t2)) fields[f] = t2; } if (Object.keys(fields).length) out[col.toLowerCase()] = fields; } return Object.keys(out).length ? out : null; })(), fts: (() => { const x = def.fts || def.fullText || def.fullTextSearch; if (x === true || x === 1) return true; if (Array.isArray(x)) { const cols = x.map((c) => String(c).toLowerCase()).filter((c) => /^[a-z0-9_]{1,40}$/.test(c)).slice(0, 12); return cols.length ? cols : null; } return null; })(), webhooks: (() => { const w = def.webhooks || def.emitEvents || def.fireWebhooks; if (w === true || w === 1) return true; if (Array.isArray(w)) { const acts = [...new Set(w.map((a) => String(a).toLowerCase()).filter((a) => ["created", "updated", "deleted"].includes(a)))]; return acts.length ? acts : null; } return null; })(), noOverlap: (() => { /* INTERVAL exclusivity: no two live rows may occupy overlapping [start,end) ranges within the same group. A partial UNIQUE index only catches EXACT collisions, which is wrong the moment services have different lengths — a 60-minute booking at 10:00 and a 30-minute one at 10:30 are distinct (date,time) pairs and both would be accepted. Enforced as a single atomic INSERT..WHERE NOT EXISTS, so it is race-free rather than a check-then-write. */ const o = def.noOverlap || def.noDoubleBooking || def.exclusive; if (!o || typeof o !== "object" || Array.isArray(o)) return null; const start = String(o.start || o.from || "").toLowerCase(), end = String(o.end || o.to || "").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(start) || !/^[a-z0-9_]{1,40}$/.test(end) || start === end) return null; const on = (Array.isArray(o.on) ? o.on : (o.on != null ? [o.on] : [])).map((x) => String(x).toLowerCase()).filter((x) => /^[a-z0-9_]{1,40}$/.test(x)).slice(0, 4); /* This predicate is a runtime query, not DDL, so the value is a bound parameter and needs no character restriction — unlike the partial-index WHERE above. */ const wm = String(o.where == null ? "" : o.where).match(/^([a-z_][a-z0-9_]{0,40}):(eq|ne):([\s\S]{0,80})$/i); const where = wm ? { col: wm[1].toLowerCase(), op: wm[2].toLowerCase(), val: wm[3] } : null; return { start, end, on, where }; })(), payment: normalizePayment(def), /* Confirm the SUBMITTER, using the owner's own provider key. The model owns which column holds the address, the subject and the words; the platform owns only the wire, because a public page cannot hold a key and Postgres has no HTTP client. Validated against `cols` — the columns that actually survive — so a recipient column that got dropped cannot leave a table looking as though it confirms. */ confirm: normalizeConfirm({ ...def, columns: cols }), /* The same thing by text message. Separate from `confirm` rather than a channel on it, because a site may want either or both — an emailed receipt AND a texted reminder — and because SMS costs the owner money per message, which is a decision worth declaring on its own. */ sms: normalizeSms({ ...def, columns: cols }), publicView: (() => { /* A PII-filtered, read-only projection of an owner-scoped table, readable by ANYONE. The case it exists for: a booking app whose `bookings` are `user`-scoped, where a visitor must see which slots are taken without seeing who took them. Columns are an explicit allow-list — never a wildcard, never id/owner_id — so a table can only leak exactly what it declares. */ const p = def.publicView || def.publicFields || def.sharedView; if (!p || typeof p !== "object" || Array.isArray(p)) return null; const cols = (Array.isArray(p.columns) ? p.columns : (Array.isArray(p.fields) ? p.fields : [])).map((c) => String(c).toLowerCase()).filter((c) => /^[a-z0-9_]{1,40}$/.test(c) && c !== "owner_id" && c !== "id"); const uniq = [...new Set(cols)].slice(0, 12); if (!uniq.length) return null; const rawW = p.where != null ? (Array.isArray(p.where) ? p.where : [p.where]) : []; const where = rawW.map((w) => String(w)).filter((w) => /^[a-z_][a-z0-9_]{0,40}:(eq|ne|lt|lte|gt|gte|contains|startswith|endswith|in|nin|between|isnull|notnull):[\s\S]{0,80}$/i.test(w)).slice(0, 6); let lim = parseInt(p.limit, 10); lim = (Number.isFinite(lim) && lim > 0) ? Math.min(lim, 2000) : 500; return { columns: uniq, where, limit: lim }; })() });
   };
   let t = spec.tables || spec;
   // A STRINGIFIED LIST, recovered rather than dropped. Measured 2026-08-13 in
@@ -601,8 +674,14 @@ export function normalizeSchema(spec) {
 }
 
 async function pgTrigger(db, name, { timing, event, table, when, body, returns }) {
-  const fn = sqlIdent(name + "_fn");
-  const trg = sqlIdent(name);
+  // DERIVED, so the 41-character declared-name bound does not apply. Both are
+  // composed from a table name — `trg_<table>_aud_i` and its `_fn` companion,
+  // which is three characters longer again — so an ordinary long table name made
+  // `sqlIdent` throw here at 29 characters. Every call site catches, so the cost
+  // was a silently missing trigger rather than a lost build; the names are ≤63
+  // and stable now, which is what `DROP … IF EXISTS` on the next revise needs.
+  const fn = derivedIdent(name, "_fn");
+  const trg = derivedIdent(name);
   await sqlQuery(db,
     "CREATE OR REPLACE FUNCTION " + fn + "() RETURNS TRIGGER AS $trg$ BEGIN " + body +
     " RETURN " + (returns || (timing === "BEFORE" ? "NEW" : "NULL")) + "; END; $trg$ LANGUAGE plpgsql");
@@ -934,7 +1013,7 @@ export async function applySiteSchema(uuid, spec) {
     // fail the build — but it is now catching real failures rather than our own
     // malformed SQL.
     for (const suf of ["_del", "_pos", "_max", "_aud_i", "_aud_u", "_aud_d", "_hist"]) {
-      try { await sqlQuery(uuid, "DROP TRIGGER IF EXISTS " + sqlIdent("trg_" + t.name + suf) + " ON " + tn); } catch {}
+      try { await sqlQuery(uuid, "DROP TRIGGER IF EXISTS " + derivedIdent("trg_", t.name, suf) + " ON " + tn); } catch {}
     }
     // Sync (offline-first) — record deletes as tombstones so a client can pull edits AND
     // deletes since a timestamp via /changes?sync=. `updated_at` (above) covers inserts+edits.
@@ -956,7 +1035,13 @@ export async function applySiteSchema(uuid, spec) {
       try { await sqlQuery(uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "position" REAL'); } catch {}
       try { await sqlQuery(uuid, "UPDATE " + tn + ' SET "position"=id WHERE "position" IS NULL'); } catch {}
       const scoped = (rw.write === "own");
-      const trg = sqlIdent("trg_" + t.name + "_pos");
+      // `const trg = sqlIdent("trg_" + t.name + "_pos")` STOOD HERE, ASSIGNED AND
+      // NEVER READ — the `pgTrigger` call below is handed the raw string, which
+      // does its own quoting. Its only observable effect was the throw: computed
+      // outside every try, and there is no per-table try in this loop, so a table
+      // name over 33 characters took the whole build to the route's 502 with a
+      // live Neon project already provisioned. Deleted rather than widened: a
+      // dead statement whose only behaviour is to fail is not a guard.
       // Postgres can assign the position in a BEFORE INSERT instead of updating the
       // row back afterwards. `IS NOT DISTINCT FROM` is the null-safe comparison
       // SQLite spelled `IS`.
@@ -979,7 +1064,7 @@ export async function applySiteSchema(uuid, spec) {
     // collisions (SQLite lets a UNIQUE index hold many NULLs, so slug-less rows are fine).
     if (slugFrom) {
       try { await sqlQuery(uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "slug" TEXT'); } catch {}
-      try { await sqlQuery(uuid, "CREATE UNIQUE INDEX IF NOT EXISTS " + sqlIdent("ux_" + t.name + "_slug") + " ON " + tn + ' ("slug")'); } catch (e) { console.error("slug index failed:", t.name, e && e.detail); }
+      try { await sqlQuery(uuid, "CREATE UNIQUE INDEX IF NOT EXISTS " + derivedIdent("ux_", t.name, "_slug") + " ON " + tn + ' ("slug")'); } catch (e) { console.error("slug index failed:", t.name, e && e.detail); }
     }
     // Composite UNIQUE constraints (declared at the TABLE level, race-free — enforced
     // by a real UNIQUE INDEX in D1; a violation surfaces to the data API as a 409).
@@ -1017,8 +1102,22 @@ export async function applySiteSchema(uuid, spec) {
           if (!gcols.length) continue;
           const idxCols = (perUser && hasOwner ? ["owner_id"] : []).concat(gcols);
           const where = isObj ? partialWhere(g.where) : null;
-          const idxName = sqlIdent("ux_" + t.name + "_" + (perUser ? "u" : "g") + "_" + (gi++));
-          try { await sqlQuery(uuid, "CREATE UNIQUE INDEX IF NOT EXISTS " + idxName + " ON " + tn + " (" + idxCols.map(sqlIdent).join(",") + ")" + (where ? " WHERE " + where : "")); } catch (e) { console.error("unique index failed:", t.name, e && e.detail); }
+          // INSIDE the try, and derived. It was computed above it, so a name
+          // `sqlIdent` refused threw out of `mkIndexes`, out of the awaiting
+          // table loop and into the route's catch — 502 for the whole build over
+          // one index. `gi` is still incremented on every group, so the numbering
+          // does not shift when one is refused.
+          const gn = gi++;
+          try {
+            const idxName = derivedIdent("ux_", t.name, "_", perUser ? "u" : "g", "_", gn);
+            await sqlQuery(uuid, "CREATE UNIQUE INDEX IF NOT EXISTS " + idxName + " ON " + tn + " (" + idxCols.map(sqlIdent).join(",") + ")" + (where ? " WHERE " + where : ""));
+          } catch (e) {
+            // REPORTED, not only logged: `unique` on a booking table is the
+            // headline guarantee — two customers in one chair is what it stops —
+            // and a console line in Cloudflare is not somewhere an owner looks.
+            refused.push({ table: t.name, feature: perUser ? "oncePerUser" : "unique", rule: idxCols.join("+"), why: (e && e.detail) || String((e && e.message) || e).slice(0, 160) });
+            console.error("unique index failed:", t.name, e && e.detail);
+          }
         }
       };
       await mkIndexes(t.unique, false);
@@ -1042,15 +1141,38 @@ export async function applySiteSchema(uuid, spec) {
           // exclusion alongside the range's `&&`.
           try { await sqlQuery(uuid, "CREATE EXTENSION IF NOT EXISTS btree_gist"); } catch {}
           const where = partialWhere(no.where);
-          const cname = sqlIdent("ex_" + t.name + "_nooverlap");
+          // DERIVED AND INSIDE A TRY. `sqlIdent("ex_" + t.name + "_nooverlap")`
+          // stood here, outside every try: `ex_` + table + `_nooverlap` is 42
+          // characters at a 29-character table name, and a booking table called
+          // `table_reservations`-and-a-bit is exactly the shape that declares
+          // `noOverlap`. Uncaught, that 502'd the whole build. Now the site keeps
+          // its other tables and the ONE guarantee it could not have is named.
+          let cname = null;
+          try { cname = derivedIdent("ex_", t.name, "_nooverlap"); }
+          catch (e) { refused.push({ table: t.name, feature: "noOverlap", rule: sc + "/" + ec, why: String((e && e.message) || e).slice(0, 160) }); }
+          if (cname) {
           const parts = on.map((c) => sqlIdent(c) + " WITH =")
             .concat(["int4range(" + sqlIdent(sc) + ", " + sqlIdent(ec) + ") WITH &&"]);
           try { await sqlQuery(uuid, "ALTER TABLE " + tn + " DROP CONSTRAINT IF EXISTS " + cname); } catch {}
           try {
             await sqlQuery(uuid, "ALTER TABLE " + tn + " ADD CONSTRAINT " + cname +
               " EXCLUDE USING gist (" + parts.join(", ") + ")" + (where ? " WHERE (" + where + ")" : ""));
-          } catch (e) { console.error("noOverlap constraint failed:", t.name, e && e.detail); }
+          } catch (e) {
+            // REPORTED as well as logged, for the reason `checks` already is: a
+            // double booking is the exact thing this constraint exists to refuse,
+            // and "the guarantee you asked for is not there" is not discoverable
+            // from the outside until two customers turn up for one slot.
+            refused.push({ table: t.name, feature: "noOverlap", rule: sc + "/" + ec, why: (e && e.detail) || String((e && e.message) || e).slice(0, 160) });
+            console.error("noOverlap constraint failed:", t.name, e && e.detail);
+          }
+          }
         } else {
+          // SILENTLY SKIPPED UNTIL NOW. The engine emits only the integer range
+          // form, so a text/date start column produces no constraint at all —
+          // and a booking table with no overlap guarantee accepts two customers
+          // for one slot, which is the failure this repo has already measured
+          // live. Same channel as every other refused guarantee.
+          refused.push({ table: t.name, feature: "noOverlap", rule: sc + "/" + ec, why: "start and end must be integer columns" });
           console.error("noOverlap skipped (start/end must be numeric columns):", t.name);
         }
       }
@@ -1062,7 +1184,7 @@ export async function applySiteSchema(uuid, spec) {
         for (const raw of (Array.isArray(t.uniqueCI) ? t.uniqueCI : (t.uniqueCI ? [t.uniqueCI] : []))) {
           const col = String(Array.isArray(raw) ? raw[0] : raw).toLowerCase();
           if (!colSet.has(col)) continue;
-          try { await sqlQuery(uuid, "CREATE UNIQUE INDEX IF NOT EXISTS " + sqlIdent("ux_" + t.name + "_ci_" + (ci++)) + " ON " + tn + " (lower(" + sqlIdent(col) + "))"); } catch (e) { console.error("uniqueCI index failed:", t.name, e && e.detail); }
+          try { await sqlQuery(uuid, "CREATE UNIQUE INDEX IF NOT EXISTS " + derivedIdent("ux_", t.name, "_ci_", ci++) + " ON " + tn + " (lower(" + sqlIdent(col) + "))"); } catch (e) { console.error("uniqueCI index failed:", t.name, e && e.detail); }
         }
       }
     }
@@ -1154,7 +1276,7 @@ export async function applySiteSchema(uuid, spec) {
           await sqlQuery(uuid, "ALTER TABLE " + tn + " DROP COLUMN IF EXISTS " + tsv);
           await sqlQuery(uuid, "ALTER TABLE " + tn + " ADD COLUMN " + tsv +
             " tsvector GENERATED ALWAYS AS (" + doc + ") STORED");
-          await sqlQuery(uuid, "CREATE INDEX IF NOT EXISTS " + sqlIdent("idx_" + t.name + "_fts") +
+          await sqlQuery(uuid, "CREATE INDEX IF NOT EXISTS " + derivedIdent("idx_", t.name, "_fts") +
             " ON " + tn + " USING GIN (" + tsv + ")");
         }
       } catch (e) { console.error("fts setup failed:", t.name, e && e.detail); }
@@ -1178,8 +1300,8 @@ export async function applySiteSchema(uuid, spec) {
         // DROP-then-ADD: Postgres has no ADD CONSTRAINT IF NOT EXISTS, and a
         // revise re-applies the whole schema. Dropping first also lets a
         // changed rule replace an old one rather than silently keeping both.
-        await sqlQuery(uuid, "ALTER TABLE " + tn + " DROP CONSTRAINT IF EXISTS " + sqlIdent(ck.name));
-        await sqlQuery(uuid, "ALTER TABLE " + tn + " ADD CONSTRAINT " + sqlIdent(ck.name) + " CHECK (" + ck.sql + ")");
+        await sqlQuery(uuid, "ALTER TABLE " + tn + " DROP CONSTRAINT IF EXISTS " + derivedIdent(ck.name));
+        await sqlQuery(uuid, "ALTER TABLE " + tn + " ADD CONSTRAINT " + derivedIdent(ck.name) + " CHECK (" + ck.sql + ")");
       } catch (e) {
         // The commonest cause is EXISTING ROWS that violate the new rule, and
         // that is worth saying out loud rather than logging: the owner asked
@@ -1583,9 +1705,40 @@ export async function seedSiteRows(uuid, spec, seed, deps) {
     const rows = Array.isArray(rawRows) ? rawRows.slice(0, MAX_SEED_ROWS) : [];
     if (!rows.length) continue;
 
-    const allowed = new Set((Array.isArray(t.columns) ? t.columns : [])
-      .map((c) => String(typeof c === "string" ? c : (c && c.name) || "").toLowerCase())
-      .filter((n) => SAFE_IDENT.test(n) && !isManagedColumn(n)));
+    // THE DECLARED CASING IS WHAT THE COLUMN IS CALLED, and this lower-cased it.
+    //
+    // `applySiteSchema` creates a column with `sqlIdent(c.name)` — quoted and
+    // case-PRESERVED — and a quoted identifier is case-sensitive in Postgres. So
+    // a designer that emitted `priceGbp` gets a real column `"priceGbp"`, and
+    // this function emitted `INSERT INTO "menu_items" ("name","pricegbp")`.
+    // Measured 2026-08-21 by driving the real `seedSiteRows` with a recording
+    // fake against columns `Name` and `priceGbp`; that is exactly the statement
+    // it produced.
+    //
+    // The cost is total per table, not per column: one INSERT carries every
+    // column of the row, so ONE capital letter loses EVERY row — and nothing can
+    // write to a `display` table after the build, so the price list is empty
+    // forever and any form whose required Select reads it renders with zero
+    // options. The exact failure this whole tier exists to prevent.
+    //
+    // KEYED BY LOWERCASE, VALUED BY THE DECLARED NAME. Lower-casing the lookup is
+    // deliberate rather than an accident to undo: `builder/site-seed.mjs`'s
+    // top-up asks the model for lower-cased keys (`writableColumns`) and stores
+    // them lower-cased (`readSeedRows`), so a case-sensitive match would break
+    // the rescue path on the same column. Matching case-insensitively and
+    // emitting the DECLARED name fixes both ends at once.
+    //
+    // FIRST DECLARATION WINS, to agree with the DDL loop, which dedupes on the
+    // lower-cased name with `seen` and keeps the first. Two columns differing
+    // only in case are ONE column in the database, and the seeder must name the
+    // one that exists.
+    const allowed = new Map();
+    for (const c of (Array.isArray(t.columns) ? t.columns : [])) {
+      const name = String(typeof c === "string" ? c : (c && c.name) || "");
+      const low = name.toLowerCase();
+      if (!SAFE_IDENT.test(low) || isManagedColumn(low) || allowed.has(low)) continue;
+      allowed.set(low, name);
+    }
     if (!allowed.size) { out.skipped.push(t.name + ": no writable columns"); continue; }
 
     // Idempotence, and the reason this is safe to run on a revise. Checked per
@@ -1603,10 +1756,15 @@ export async function seedSiteRows(uuid, spec, seed, deps) {
     for (const row of rows) {
       if (!row || typeof row !== "object" || Array.isArray(row)) continue;
       const cols = [], vals = [];
+      const used = new Set();
       for (const [k, v] of Object.entries(row)) {
         const key = String(k).toLowerCase();
-        if (!allowed.has(key) || v === undefined) continue;
-        cols.push(sqlIdent(key));
+        // `used` because the lookup is case-insensitive and a row may carry both
+        // `Name` and `name` — two keys resolving to ONE declared column, which
+        // would emit `("Name","Name")` and lose the whole row to a duplicate.
+        if (!allowed.has(key) || used.has(key) || v === undefined) continue;
+        used.add(key);
+        cols.push(sqlIdent(allowed.get(key)));
         // Same coercion the data API applies: objects/arrays live in TEXT columns
         // as JSON, booleans as 0/1 (PG_TYPES maps boolean → INTEGER).
         vals.push(v !== null && typeof v === "object" ? JSON.stringify(v)
@@ -1669,10 +1827,54 @@ function retiredOf(def) {
  * removal verb — exactly `retired`'s contract, stated there since it was
  * written. Every consumer tests these flags by truthiness, so `undefined`
  * behaves as `false` everywhere else.
+ *
+ * APPLIED TO FOUR OF FOURTEEN, AND THE OTHER TEN WERE STILL LOSING THEIR DDL
+ * (2026-08-21 audit). This helper was written for exactly this class and the
+ * 2026-08-14 fix reached `trash`/`expires`/`scheduled`/`teamScope` only; every
+ * other flag stayed `!!(def.x || def.y)`. Measured by storing a table with all
+ * of them, re-declaring it bare — the ordinary revise, since the designer sees
+ * only the instruction — and running the real `normalizeSchema` + `fillFromStored`:
+ *
+ *   audit true→false · history true→false · sync true→false · ordered true→false
+ *   maxRows 50→0 · version · timestamps · archivable · pinnable · enforceRefs
+ *
+ * and the trigger-hygiene loop DROPs `_del`/`_pos`/`_max`/`_aud_*`/`_hist`
+ * unconditionally while each recreate is gated on its flag — so the triggers
+ * were removed and not put back. Real DDL deleted, reported as a successful
+ * build: the row cap gone, new rows getting a NULL position, delete tombstones
+ * stopping, and the audit trail — the record somebody reaches for after an
+ * incident — silently no longer recording.
+ *
+ * Everything else in `coerceTable` was already safe by accident: the `null`-
+ * returning validators (`checks`, `computed`, `uniqueCI`, `defaultSort`, …) are
+ * restored because `fillFromStored` reads null as silence too.
  */
 function boolOf(def, keys) {
   for (const k of keys) {
     if (def && def[k] !== undefined) return !!def[k];
+  }
+  return undefined;
+}
+
+/**
+ * `boolOf` for the two NUMERIC guarantees — `maxRows` and `rateLimit`.
+ *
+ * `parseInt(…) || 0` had the identical defect one type over: an omitted cap
+ * became `0`, which is a real value the absent-means-unchanged merge keeps, so a
+ * bare re-declaration silently uncapped a table that had `maxRows: 50`.
+ *
+ * `== null` SKIPS RATHER THAN ANSWERING, which preserves the alias chaining the
+ * old expression had (`def.maxRows != null ? … : def.max_rows != null ? …`) — so
+ * an explicit null on the first alias still falls through to the second. An
+ * explicit 0 is the removal verb and still clears, exactly as `false` does for a
+ * boolean; a garbage value on a named alias also clears, which is what the old
+ * `|| 0` did and is the conservative direction for a cap.
+ */
+function numOf(def, keys, cap) {
+  for (const k of keys) {
+    if (!def || def[k] == null) continue;
+    const n = parseInt(def[k], 10);
+    return (Number.isFinite(n) && n > 0) ? Math.min(n, cap) : 0;
   }
   return undefined;
 }

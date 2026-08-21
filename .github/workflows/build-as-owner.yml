@@ -38,7 +38,23 @@ jobs:
     # skips instantly and spends nothing.
     if: contains(github.event.head_commit.message, '[owner build]')
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 15 WAS TOO TIGHT AND IT COST US THE DIAGNOSTICS WE PAID FOR.
+    #
+    # Run 8 (2026-08-21) signed in, POSTed the build, and was killed by this cap
+    # at 11m58s into the request with no response. THE SITE PUBLISHED ANYWAY —
+    # `fold-lane-bakery` served 200 with seeded rows — so nothing was lost but
+    # the answer: the cost breakdown, the generator's own notes, and the render
+    # report all ride on that response, and 94 credits bought a site we then had
+    # to verify by hand with curl.
+    #
+    # The deploy wait alone takes ~3.5 minutes of this budget before the build
+    # starts, which is what makes 15 tighter than it reads. Measured build
+    # durations: 378s (run 6), 507s (run 7), >718s (run 8, unfinished).
+    #
+    # 30 rather than 20: the point of the cap is to stop a wedged runner billing
+    # for an hour, not to bound a build we already know can take twelve minutes.
+    # A build that outruns THIS is a real finding rather than a tight budget.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

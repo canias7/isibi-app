@@ -117,9 +117,23 @@ test("maxRows survives and is bounded", () => {
   assert.equal(one({ maxRows: 500 }).maxRows, 500);
   assert.equal(one({ cap: "250" }).maxRows, 250);
   assert.equal(one({ maxRows: 99_999_999 }).maxRows, 10_000_000, "clamped, not honoured verbatim");
-  for (const bad of [0, -5, "lots", null, undefined, NaN]) {
+  // A NAMED alias with a value we cannot use clears the cap — that is the
+  // removal verb, and it is what `|| 0` always did.
+  for (const bad of [0, -5, "lots", NaN]) {
     assert.equal(one({ maxRows: bad }).maxRows, 0, String(bad));
   }
+  // SILENCE IS NOT ZERO, and this test pinned the bug (2026-08-21 audit). It
+  // asserted `0` for `null`/`undefined` — i.e. for a table that never mentioned
+  // a cap — and `0` is a value the absent-means-unchanged merge KEEPS, so a
+  // revise that re-declared a table to add a column silently uncapped it.
+  // `boolOf` made exactly this move for four flags; `numOf` is it for the two
+  // numeric ones. See site-schema.mjs.
+  for (const silent of [{ maxRows: null }, { maxRows: undefined }, {}]) {
+    assert.equal(one(silent).maxRows, undefined, JSON.stringify(silent));
+  }
+  // The alias chain still falls through an explicit null, exactly as the old
+  // `def.maxRows != null ? … : def.max_rows != null ? …` did.
+  assert.equal(one({ maxRows: null, max_rows: 40 }).maxRows, 40);
 });
 
 test("boolean feature flags survive", () => {

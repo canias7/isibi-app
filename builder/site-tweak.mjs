@@ -234,15 +234,26 @@ export function routeIdOf(source) {
  * a bug in a scanner. `lintPages` is regex-based and does not throw on malformed
  * input today; this is the guard for the day it does.
  */
+/**
+ * One page's problems, with no schema — the half of `tweakLint` that costs
+ * anything (~4ms), exported so a caller sweeping many variants of one page can
+ * hold its baseline instead of recomputing it. NOT a check on its own: read
+ * absolutely it fires on nearly every page ever generated, which is the whole
+ * reason `tweakLint` subtracts.
+ *
+ * `null` means the scanner could not answer. Distinct from an empty set, or a
+ * crash reads as a clean page.
+ */
+export function lintOne(source) {
+  try {
+    // ONE path for every call, or the `path + ": "` prefix differs between the
+    // two sides and nothing cancels — every problem would read as introduced.
+    return new Set(lintPages([{ path: "page.tsx", source: String(source == null ? "" : source) }], undefined));
+  } catch { return null; }
+}
+
 export function tweakLint(before, after) {
-  const at = (src) => {
-    try {
-      // ONE path for both, or the `path + ": "` prefix differs and nothing
-      // cancels — every problem would read as introduced.
-      return new Set(lintPages([{ path: "page.tsx", source: String(src == null ? "" : src) }], undefined));
-    } catch { return null; }
-  };
-  const b = at(before), a = at(after);
+  const b = lintOne(before), a = lintOne(after);
   if (!b || !a) return [];
   return [...a].filter((p) => !b.has(p));
 }
