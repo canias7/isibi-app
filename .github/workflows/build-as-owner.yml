@@ -67,6 +67,12 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           OWNER_EMAIL: aniascristian@gmail.com
           OWNER_BASE_URL: https://gofarther.dev
+          # Naming the slug because the first attempt at this brief DIED at the
+          # client's 300s ceiling and claimed `mathaq-alemarat` on its way past.
+          # Ownership is what decides `revise`, so re-running without this would
+          # be read as an edit of that empty husk rather than the first build it
+          # never got.
+          OWNER_SLUG: mathaq-dubai
           # RUN 3 (2026-08-21): the right-to-left trick. The brief is IN ARABIC
           # on purpose — the site's language is derived from the brief's own
           # language, so an English brief about Dubai would come out as an

@@ -18,6 +18,45 @@
 // owner can read the whole run afterwards.
 
 import fs from "node:fs";
+import https from "node:https";
+
+/**
+ * POST with NO HEADERS TIMEOUT, because `fetch` has one and a build can outrun it.
+ *
+ * MEASURED, NOT GUESSED: undici — the engine behind Node's global fetch — gives up
+ * if response headers have not arrived in 300s, and it is not overridable through
+ * the fetch options (an AbortSignal set longer does not raise it; the headers
+ * timeout fires first). GatherHire returned in 272.2s and the Arabic build ran
+ * past 300s, so the ceiling had always been one slow build away.
+ *
+ * AND THE COST OF HITTING IT IS NOT A LOST LOG LINE. Cloudflare cancels a Worker
+ * when the client goes away, so hanging up KILLS THE BUILD MID-FLIGHT: measured
+ * on that run, the customer was left with a claimed slug, a live Neon project, a
+ * 20-credit schema charge and no site. So this is not harness tidiness — the
+ * client staying connected is what lets the build finish at all.
+ *
+ * `node:https` has no such timeout of its own, which is the whole reason it is
+ * here rather than fetch. Everything else in this file still uses fetch: those
+ * calls answer in milliseconds and none of them can be worth a second mechanism.
+ */
+function postLong(url, headers, body) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const payload = Buffer.from(body, "utf8");
+    const req = https.request({
+      hostname: u.hostname, path: u.pathname + u.search, method: "POST",
+      headers: { ...headers, "content-length": payload.length },
+    }, (res) => {
+      let text = "";
+      res.setEncoding("utf8");
+      res.on("data", (c) => { text += c; });
+      res.on("end", () => resolve({ status: res.statusCode, text }));
+    });
+    req.on("error", reject);
+    req.write(payload);
+    req.end();
+  });
+}
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://ujrqdmmtcptvimazlhom.supabase.co";
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || "";
@@ -31,6 +70,7 @@ const ANON_KEY = process.env.SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6I
 const BASE = process.env.OWNER_BASE_URL || "https://gofarther.dev";
 const EMAIL = String(process.env.OWNER_EMAIL || "").trim();
 const BRIEF = process.env.OWNER_BRIEF || "";
+const SLUG = String(process.env.OWNER_SLUG || "").trim().toLowerCase();
 
 const LOG_FILE = "build-as-owner-log.md";
 const t0 = Date.now();
@@ -85,13 +125,15 @@ const before = await fetch(`${BASE}/api/credits`, { headers: auth }).then((r) =>
 log(`step 3 — balance BEFORE: ${JSON.stringify(before)}`);
 
 // ── step 4: the build ───────────────────────────────────────────────────────
-log("step 4 — POST /api/site/react-build (one build; the designer names the site and the slug)");
+// An explicit slug is OPTIONAL and exists for one reason: a slug is claimed by
+// whoever builds it first, including by a build that then died, so a retry of a
+// failed run would be read as a REVISE of the husk it left. Naming a fresh one
+// keeps a re-run a genuine first build. Left unset, the designer names the site.
+log(`step 4 — POST /api/site/react-build (${SLUG ? `slug "${SLUG}"` : "the designer names the site and the slug"})`);
 const bt = Date.now();
-const build = await fetch(`${BASE}/api/site/react-build`, {
-  method: "POST", headers: auth,
-  body: JSON.stringify({ brief: BRIEF }),
-});
-const raw = await build.text().catch(() => "");
+const build = await postLong(`${BASE}/api/site/react-build`, auth,
+  JSON.stringify(SLUG ? { brief: BRIEF, slug: SLUG } : { brief: BRIEF }));
+const raw = build.text;
 let d = null; try { d = JSON.parse(raw); } catch { /* logged below */ }
 log(`step 4 — build answered ${build.status} after ${((Date.now() - bt) / 1000).toFixed(1)}s`);
 if (!d) fail("the build response was not JSON: " + raw.slice(0, 500));
