@@ -16938,3 +16938,42 @@ now has to prove it did the thing before its result counts for anything.
 
 **Balance 661 → 624.** Still to do: Anthropic needs topping up, or Grok is the
 only picker that can build.
+
+## 21 Aug — the menu that slid the wrong way
+
+You found a real one, and it's the kind only a person tapping a phone ever
+finds: it compiles, it bundles, it publishes, and the menu ends up in exactly
+the right place. It just gets there the long way round.
+
+**The bug.** On an Arabic site the panel belongs on the left, and it is on the
+left — but it *flies in from the right edge*, across the whole screen. One line
+of CSS positions it using a rule that flips with the language; another animates
+it using a rule that never does.
+
+**Why the right-to-left work missed it.** That sweep converted a thousand
+"left/right" rules into "start/end" ones, which is why the position is correct.
+But Tailwind has no start/end version of the *slide* — I checked, it's zero hits
+in the built stylesheet — so the animation had nothing to convert to and got
+left behind quietly, on a sweep that otherwise reported a clean pass.
+
+**Fixed**, four lines, and verified in a real browser both ways: right-to-left
+now slides from the left, and left-to-right is untouched, so no existing English
+site changes at all.
+
+**One thing about the fix worth knowing.** The two rules are exactly equally
+"strong" in CSS terms, so the correction only wins because Tailwind happens to
+write it second. If a future Tailwind update reordered them the fix would go
+dead silently, and the only symptom would be Arabic menus sliding wrong again —
+which nobody would connect to a dependency upgrade. So the test compiles the
+real stylesheet and checks it in a real browser rather than just reading our
+source.
+
+**Two other things in that screenshot are NOT bugs, and I've left them alone.**
+The "احجز طاولة" button isn't inside the menu — it's in the bar behind it, so
+while the menu is open the main action isn't reachable. And the panel is mostly
+empty, two links in a tall wide box. Both are true of every site we build,
+English included. They're design decisions to make on purpose, not something to
+slip into a bug fix.
+
+**It reaches Liwan on its next publish** — any small edit will do it, no rebuild
+and no credits.

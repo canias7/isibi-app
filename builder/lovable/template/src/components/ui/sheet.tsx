@@ -51,9 +51,33 @@ const sheetVariants = cva(
         top: "inset-x-0 top-0 border-b data-[state=closed]:slide-out-to-top data-[state=open]:slide-in-from-top",
         bottom:
           "inset-x-0 bottom-0 border-t data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom",
-        left: "inset-y-0 start-0 h-full w-3/4 border-e data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left sm:max-w-sm",
+        // THE HORIZONTAL SIDES MIXED ONE LOGICAL PROPERTY WITH ONE PHYSICAL ONE,
+        // and on a right-to-left site the panel therefore flew across the whole
+        // screen to get where it was going. Found on a real published Arabic
+        // site (`layali-dubai`, 2026-08-21) by tapping the menu on a phone.
+        //
+        // `end-0` is LOGICAL and flips — measured, the panel lands at `left: 0`
+        // in RTL, which is correct. `slide-in-from-right` compiles to
+        // `translate3d(100%, 0, 0)`, and a CSS transform is PHYSICAL: `dir` does
+        // not touch it, so the entrance still started off the right-hand edge.
+        // Position mirrored, motion not — the half-mirrored failure this repo
+        // already records as worse than not mirroring at all.
+        //
+        // Tailwind ships NO logical slide utility (`slide-in-from-start/end`:
+        // zero hits in a compiled bundle), so the direction has to be selected
+        // rather than expressed. `top`/`bottom` need nothing — vertical motion
+        // does not mirror.
+        //
+        // THE OVERRIDE WINS ON SOURCE ORDER, NOT SPECIFICITY, which is why
+        // `test/sheet-rtl.test.mjs` asserts the COMPILED output rather than
+        // these strings: `rtl:` expands through `:where(…)`, which contributes
+        // nothing, so both rules land at (0,2,0) and only Tailwind emitting the
+        // rtl one second makes this work. If that ever changed the fix would go
+        // silently dead, and the only symptom would be a menu sliding the wrong
+        // way on Arabic sites — which nobody would connect to a Tailwind bump.
+        left: "inset-y-0 start-0 h-full w-3/4 border-e data-[state=closed]:slide-out-to-left rtl:data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-left rtl:data-[state=open]:slide-in-from-right sm:max-w-sm",
         right:
-          "inset-y-0 end-0 h-full w-3/4 border-s data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right sm:max-w-sm",
+          "inset-y-0 end-0 h-full w-3/4 border-s data-[state=closed]:slide-out-to-right rtl:data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-right rtl:data-[state=open]:slide-in-from-left sm:max-w-sm",
       },
     },
     defaultVariants: {
