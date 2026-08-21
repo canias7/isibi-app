@@ -1107,6 +1107,28 @@ function Home() {
   ok("a colour-only change leaves the theme's corners alone",
     /border-radius/.test(baseCss), "the theme's corner rules vanished on a build that never asked");
 
+  // NO CUSTOM PROPERTY MAY HOLD THE WORD `undefined`, and this is the check that
+  // was missing rather than the radius one.
+  //
+  // `cornerCss` emitted `:root { --radius: ${theme.radius} }` and a seeds theme
+  // has no radius, so every site built between 2026-08-20 and 2026-08-21 shipped
+  // `--radius: undefined`. It is a VALID declaration — a custom property accepts
+  // any token sequence — so nothing errored anywhere: it typechecked, it bundled,
+  // it published, and 3580 unit tests were green. It failed at SUBSTITUTION,
+  // where every derived step is `calc(var(--radius) ± Npx)`, and the measured
+  // result in a real browser was `border-radius: 0px` on every button and every
+  // card of every site, whatever the corner axis said.
+  //
+  // Asserted over the whole compiled bundle rather than on `--radius`, because
+  // the interesting class is "a theme property the seeds change stopped
+  // supplying" and there is no reason the next one would be this token.
+  {
+    const bad = [...baseCss.matchAll(/(--[\w-]+)\s*:\s*([^;}]*\b(?:undefined|NaN|\[object Object\])[^;}]*)/g)]
+      .map((m) => m[1] + ": " + m[2].trim());
+    ok("no custom property in the bundle holds `undefined`", bad.length === 0,
+      bad.slice(0, 6).join(" · ") || "none");
+  }
+
   // ── THE REST OF THE LOOK ─────────────────────────────────────────────────
   //
   // The twelve axes that are not colours, and the reason they cannot be a token

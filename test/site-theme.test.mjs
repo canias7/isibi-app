@@ -20,6 +20,7 @@ import {
   worldBorderColor, rgbToOklch,
 } from "../builder/site-theme.mjs";
 import { SHORTLIST } from "../builder/site-fonts.mjs";
+import { normalizeSeeds } from "../builder/site-seeds.mjs";
 // The 500 shipped themes. `site-theme.mjs` carries two; the border assertions
 // below are about a property that has to hold across the whole registry, not
 // across a fixture that was written to pass them.
@@ -286,6 +287,44 @@ test("every corner treatment emits valid css, and only the usable ones are offer
   // Asserted so that "we forgot" and "we tried it and it broke" cannot be
   // confused a year from now.
   assert.ok(!("notch" in CORNERS) && !("scoop" in CORNERS));
+});
+
+test("A THEME WITH NO RADIUS WRITES NO RADIUS — never the word `undefined`", () => {
+  // EVERY TEST ABOVE PASSES `radius` EXPLICITLY, which is why none of them saw
+  // this and why it stood for a day: the fixture was more capable than reality.
+  // All 500 registry rows carried a radius, the registry was deleted 2026-08-20,
+  // and a seeds-authored theme has exactly `label` / `light` / `dark` — so
+  // `cornerCss` interpolated the word straight into the stylesheet on every site
+  // built since.
+  //
+  // The failure is TOTAL rather than cosmetic, and that is why this asserts the
+  // absence rather than the spelling. A custom property accepts any token
+  // sequence, so `--radius: undefined` parses and nothing errors; it dies at
+  // substitution, because the template derives every step as
+  // `calc(var(--radius) ± Npx)`. Measured in a real browser: button and card
+  // `border-radius: 0px` on a build that asked for `corner: "pill"`.
+  const { theme } = normalizeSeeds({ name: "Warm Brick", paper: "#f7f2ec", ink: "#231b16", accent: "#b4432a" });
+  assert.equal(theme.radius, undefined, "a seeds theme grew a radius — this guard's premise has moved");
+
+  for (const style of ["round", ...Object.keys(CORNERS)]) {
+    const css = cornerCss({ ...theme, corner: style });
+    assert.ok(!/--radius/.test(css), `${style} wrote a radius it does not have:\n${css}`);
+    assert.ok(!/undefined|NaN/.test(css), `${style} emitted ${css}`);
+  }
+  // …and the whole stylesheet, because `themeCss` is what a site is built from
+  // and a second emitter would be just as fatal.
+  assert.ok(!/--radius/.test(themeCss(theme)), "themeCss still writes a radius for a theme that has none");
+
+  // THE SHAPE RULES SURVIVE THE ABSENCE. `corner-shape` needs no token, so a
+  // squircle theme with no radius must still be a squircle — dropping the whole
+  // function's output would trade one silent failure for another.
+  assert.match(cornerCss({ ...theme, corner: "squircle" }), /corner-shape: squircle/);
+
+  // An authored radius is still honoured, or the fix is a deletion wearing a
+  // guard: this branch is unreachable today and is the honest handling if a
+  // radius is ever authored again.
+  assert.match(cornerCss({ ...theme, radius: "1rem" }), /--radius: 1rem/);
+  assert.match(cornerCss({ ...theme, radius: "1rem", corner: "bevel" }), /--radius: 1rem[\s\S]*corner-shape: bevel/);
 });
 
 test("no corner treatment writes a radius token the bundle cannot read", () => {

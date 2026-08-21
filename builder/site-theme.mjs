@@ -1937,15 +1937,42 @@ export const CORNERS = {
  * box property and box properties do not inherit — set on one element it styles
  * that element and nothing inside it, which renders identically to a plain
  * rounded corner and reads as the browser not supporting it.
+ *
+ * A THEME WITH NO RADIUS WRITES NO RADIUS, and until 2026-08-21 it wrote
+ * `--radius: undefined`. Every one of the 500 registry rows carried a radius; the
+ * registry was deleted on 2026-08-20 and a seeds-authored theme has exactly three
+ * keys — `label`, `light`, `dark` — so this interpolated the word straight into
+ * the stylesheet on EVERY site built since.
+ *
+ * IT IS NOT A COSMETIC TOKEN AND THE FAILURE IS TOTAL. A custom property accepts
+ * any token sequence, so `--radius: undefined` parses, and nothing anywhere
+ * errors. It fails at SUBSTITUTION: the template derives every step as
+ * `calc(var(--radius) ± Npx)`, `calc(undefined - 2px)` is invalid at
+ * computed-value time, and the property falls back to its initial value. Measured
+ * in a real browser against a build asking for `corner: "pill"`: button
+ * `border-radius: 0px`, card `0px`. Square corners on every button and every card
+ * of every site, whatever the corner axis said.
+ *
+ * WRITING NOTHING RATHER THAN A DEFAULT, and that is the choice worth keeping.
+ * The template already declares `--radius: .625rem` at `:root`; restating it here
+ * is a second copy of one value, and the day they disagree the theme silently
+ * wins. Emitting no declaration lets the template be the single source — measured
+ * on the control build, which sends no style at all and renders the same `8px`
+ * button the template intends.
+ *
+ * The branch stays rather than being deleted: `theme.radius` is unsupplied on
+ * every path TODAY, and this is the honest handling if a radius is ever authored
+ * again. `--radius` is separately writable by the customer through
+ * `site-tokens.mjs`, which appends its own `:root` block after this one.
  */
 export function cornerCss(theme) {
   const style = theme.corner ?? "round";
   const r = theme.radius;
+  const radius = r ? `:root { --radius: ${r}; }\n` : "";
   if (style === "squircle" || style === "bevel") {
-    return `:root { --radius: ${r}; }\n` +
-      `body, body * { corner-shape: ${style}; }\n`;
+    return radius + `body, body * { corner-shape: ${style}; }\n`;
   }
-  return `:root { --radius: ${r}; }\n`;
+  return radius;
 }
 
 /**
