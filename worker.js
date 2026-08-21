@@ -4236,7 +4236,29 @@ const SITE_SCHEMA_TOOL = {
     // listed, so an axis cannot be added to the tool and forgotten here — or
     // removed from it and left required, which is how `structure` leaving on
     // 2026-08-20 cost nothing at this call site.
-    required: ["brand", "slug", "tables", "seed", "description", "seeds", "fonts", ...PLAN_REQUIRED],
+    //
+    // `style` IS REQUIRED ON A FIRST BUILD (owner's call, 2026-08-21) AND THIS
+    // LIST IS THE ONLY PLACE THAT IS TRUE. A revise replaces the whole array
+    // with `EDIT_REQUIRED`, which is empty — so compelling it here compels it
+    // exactly where the site is being designed, and a revise about a phone
+    // number still carries no style patch at all. That asymmetry is not new:
+    // `MAX_STYLE_BUILD` already lets a first build move all 23 axes while a
+    // revise is capped at six, on the reasoning that a customer moving half the
+    // look is telling us the theme is wrong rather than adjusting the one they
+    // have. This is the same argument one field up.
+    //
+    // WHAT IT BUYS, STATED PRECISELY: the description has told the model to
+    // author these on a first build since 2026-08-20, and telling is not
+    // compelling — the whole reason `PLAN_REQUIRED` exists. `seeds` is three
+    // colours and decides none of the other 23 axes, so an unanswered `style`
+    // is not a design choice, it is the template's plain default wearing one.
+    //
+    // WHAT IT DOES NOT BUY: content. Structured outputs are unavailable on this
+    // tool (`seed` is keyed by table name, so it needs `additionalProperties`,
+    // which strict validation refuses), so `required` compels the KEY and the
+    // description is still what asks for axes worth having. An answer of `{}`
+    // is legal and behaves exactly as an absent one did.
+    required: ["brand", "slug", "tables", "seed", "description", "seeds", "fonts", "style", ...PLAN_REQUIRED],
   },
 };
 

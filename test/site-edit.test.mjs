@@ -290,6 +290,14 @@ test("an edit requires nothing of the model", () => {
   // A required field is one the model MUST answer, and answering it is exactly
   // what moves a value nobody asked to move.
   assert.deepEqual(EDIT_REQUIRED, []);
+  // THIS IS THE OTHER HALF OF `style` BECOMING REQUIRED (2026-08-21). One tool
+  // serves the build and the revise, and the build's list now compels it — so
+  // the ONLY thing keeping a phone-number correction from carrying a style patch
+  // is that a revise REPLACES this array wholesale. Emptiness is not a tidy
+  // default here; it is load-bearing, and it is named so a later "surely the
+  // look should be required everywhere" cannot be made without reading this.
+  assert.ok(!EDIT_REQUIRED.includes("style"),
+    "a revise now compels a style answer, so every content edit re-rolls the look");
 });
 
 /* ── the wiring, which is where this dies silently ──────────────────────── */

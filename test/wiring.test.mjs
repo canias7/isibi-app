@@ -121,6 +121,14 @@ test("and REQUIRED to choose, or every site silently keeps the default look", ()
     "the palette is optional, so a designer may skip it and the site keeps the template's own look");
   assert.match(req[0], /"fonts"/,
     "the typeface is optional again — with no registry to recommend a pairing that means the default face");
+  // THE OTHER 23 DECISIONS, COMPELLED ON A FIRST BUILD (owner's call,
+  // 2026-08-21). The description has told the model to author them since the
+  // registry went, and telling is not compelling — which is the entire reason
+  // `PLAN_REQUIRED` exists one line below. `seeds` is three colours and decides
+  // none of these, so an unanswered `style` is not a design choice, it is the
+  // template's plain default wearing one.
+  assert.match(req[0], /"style"/,
+    "style is optional on a first build, so every site can silently keep the template's type scale, corners, shadows and world layer");
   // DERIVED, so a seventh axis is required without anybody editing this file —
   // and required at all, which is the half that matters: every one of the six is
   // a LINE of the layout directive, so a skipped answer is a line the page

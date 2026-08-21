@@ -23,6 +23,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { EDIT_REQUIRED } from "../builder/site-edit.mjs";
 
 const read = (f) => fs.readFileSync(new URL("../" + f, import.meta.url), "utf8");
 
@@ -320,6 +321,45 @@ const ownText = (body) => {
   return out;
 };
 
+/**
+ * A description's own sentences, as the MODEL receives them.
+ *
+ * Two bits of source noise have to go first or the split is nonsense. The
+ * `" + "` between adjacent fragments is not in the value (each fragment already
+ * carries its own trailing space), and a `\n` inside a source literal is the two
+ * characters backslash-n rather than a line break — and it is a real paragraph
+ * boundary in every one of these descriptions.
+ *
+ * THE GLUE STRIP IS INERT TODAY AND KEPT ANYWAY — measured across all 14
+ * omit-instructions in the tool, removing it changes not one verdict, because
+ * every description puts each fragment on its own source line and the real
+ * newlines already separate them. It binds the day a sentence SPANS a fragment
+ * boundary, and there the failure is a FALSE ALARM on correct code: the omit
+ * half would come out as `… omit it on a " +`, which names no revise, reads as
+ * build-scoped, and reports a contradiction that is not there.
+ */
+const sentences = (body) =>
+  body
+    .replace(/"\s*\+\s*"/g, "")
+    .replace(/\\n/g, "\n")
+    .split(/(?<=\.)\s+|\n/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+/**
+ * Does this omit-instruction bind the BUILD call?
+ *
+ * A sentence that names a revise and no build speaks only to the revise, where
+ * the required list is `EDIT_REQUIRED` and empty. Anything else — unscoped, or
+ * naming a build — is live on the build and contradicts the build list.
+ *
+ * FAILS TOWARD RED, which is what makes the scoping safe to do by reading. If
+ * the splitter ever breaks and hands back a whole description, `style`'s carries
+ * both "ON A FIRST BUILD" and "ON A REVISE", so it binds the build and this test
+ * goes red rather than quietly exempting a field.
+ */
+const bindsBuild = (line) => !(/\brevise\b/i.test(line) && !/\bbuild\b/i.test(line));
+
 test("no field the tool tells the model to omit is also required", () => {
   // TWO VIEWS OF THE SAME TEXT, at identical offsets. `struct` has strings
   // blanked and is what the brace counting runs on; `w` keeps them and is what
@@ -392,22 +432,55 @@ test("no field the tool tells the model to omit is also required", () => {
   const perTable = struct.indexOf("properties:", tablesAt);
   const topLevel = struct.indexOf("properties:", struct.indexOf("input_schema:", at));
 
+  // THE PREMISE THAT LETS A REVISE-SCOPED OMIT-INSTRUCTION STAND. There are two
+  // calls and each has its own required list: the one read below is the BUILD's,
+  // and `worker.js` replaces it wholesale with `EDIT_REQUIRED` on a revise. So a
+  // description saying "omit it on a revise" contradicts nothing — while that
+  // list is empty. The day it is not, the exemption's premise is gone and this
+  // fails here, naming what to do, rather than silently waving a field through.
+  //
+  // REDUNDANT TODAY WITH `site-edit.test.mjs`'s "an edit requires nothing of the
+  // model", and kept for the reason that test is not enough: it holds emptiness
+  // as a rule about a REVISE, and could legitimately be relaxed one day by
+  // somebody who has never read this file. This assertion is what makes that
+  // relaxation land HERE, where the exemption it invalidates actually lives.
+  assert.deepEqual(EDIT_REQUIRED, [],
+    "`EDIT_REQUIRED` is no longer empty, so a revise now compels fields too — the revise-scoped " +
+    "exemption below is unsound until this test checks omit-instructions against that list as well");
+
   const checked = [];
+  const onBuild = [];
   for (const [where, propsAt] of [["per-table", perTable], ["top-level", topLevel]]) {
     const fields = fieldsIn(propsAt);
     const required = new Set(requiredAfter(propsAt));
     assert.ok(fields.size > 5, where + ": read only " + fields.size + " fields — the scan is broken");
     assert.ok(required.size > 0, where + ": read no required list — the scan is broken");
     for (const [name, body] of fields) {
-      if (!OMIT.test(body)) continue;
+      const says = sentences(body).filter((s) => OMIT.test(s));
+      if (!says.length) continue;
       checked.push(where + "." + name);
+      // Per SENTENCE, never per description. `style` says to author the axes on
+      // a first build AND to omit them on a revise about content — two true
+      // instructions about two different calls, which read as a contradiction
+      // the moment they are judged as one blob.
+      const live = says.filter(bindsBuild);
+      if (!live.length) continue;
+      onBuild.push(where + "." + name);
       assert.ok(!required.has(name),
-        where + " field `" + name + "` tells the model to leave it out AND is in `required` — " +
-        "a model obeying the description writes an invalid tool call, and one obeying the schema " +
-        "overrides the instruction. Drop it from `required` or drop the instruction.");
+        where + " field `" + name + "` tells the model to leave it out on a BUILD AND is in the " +
+        "build `required` list — a model obeying the description writes an invalid tool call, and " +
+        "one obeying the schema overrides the instruction. Drop it from `required`, drop the " +
+        "instruction, or scope the instruction to a revise if that is what it means. The sentence: " +
+        JSON.stringify(live[0]));
     }
   }
   assert.ok(checked.length > 0,
     "found no field carrying an omit-instruction inside a properties block — the extraction is broken, " +
     "because `access` and `fonts` both carry one");
+  // The exemption must not have swallowed the check. Every field whose omit is
+  // unscoped still has to be judged against the build list, or a splitter that
+  // reported everything as revise-scoped would pass this test with nothing held.
+  assert.ok(onBuild.length > 1,
+    "every omit-instruction in the tool read as revise-scoped (" + checked.join(", ") + ") — the " +
+    "scoping is too generous and this test is now holding nothing");
 });
