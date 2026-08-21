@@ -13,7 +13,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { pageTokensCss, routeSelectorOk, MAX_PAGE_TOKENS, validForWrite } from "../builder/site-tokens.mjs";
+import { pageTokensCss, routeSelectorOk, pageScopeFor, MAX_PAGE_TOKENS, validForWrite } from "../builder/site-tokens.mjs";
 import { ASK_TOOL } from "../builder/site-ask.mjs";
 
 const R = (f) => fs.readFileSync(path.join(import.meta.dirname, "..", f), "utf8");
@@ -128,8 +128,15 @@ test("BOTH publish paths read the stored map and send it", () => {
   // asked for something else entirely. The `site_logo` failure exactly.
   assert.equal((worker.match(/'site_page_tokens'/g) || []).length >= 3, true,
     "not every path that reads the look asks for the per-page map");
+  // A FLOOR, NOT AN EXACT COUNT. `assert.equal(sends, 2)` went red the day the
+  // BUILD route started sending its own merged map — a third payload, and the
+  // fix for the field being dead there. An exact count reads as precision and is
+  // a bet that the set never grows for a good reason; what has to hold is that
+  // no payload sends the map RAW (skipping the per-page `withContrast`).
   const sends = (worker.match(/pageTokens: pageTokensFor\(/g) || []).length;
-  assert.equal(sends, 2, "found " + sends + " container payloads carrying it — both paths must");
+  assert.ok(sends >= 3, "found " + sends + " container payloads carrying it — the spine, the shell and the build all must");
+  const raw = (worker.match(/pageTokens: (?!pageTokensFor\()/g) || []).length;
+  assert.equal(raw, 0, raw + " payload(s) send the per-page map raw — no derived ink on a dark page");
 });
 
 test("`withContrast` runs PER PAGE", () => {
@@ -158,8 +165,28 @@ test("a named page's colours never touch the SITE's", () => {
 test("a page the site does not have is ignored", () => {
   // A selector for a page nobody can reach is a change reported as applied that
   // no visitor sees, and the customer's colours would sit in `_meta` forever.
-  assert.match(worker, /eRoutes\.includes\(askedPage\)/,
+  // DRIVEN, NOT READ. This matched `eRoutes.includes(askedPage)` — one lane's
+  // spelling of a rule BOTH lanes need — and went red the day the reading was
+  // shared. `pageScopeFor` is a plain function, so the rule can be exercised
+  // rather than described.
+  assert.equal(pageScopeFor({ tokensPage: "/ghost" }, ["/", "/book"]), "",
     "a path the site does not have is stored anyway");
+  assert.equal(pageScopeFor({ tokensPage: "/book" }, ["/", "/book"]), "/book",
+    "a page the site really has is refused");
+  // …and the shapes that are not a scope at all.
+  // THE DANGEROUS PATH IS IN THE ROUTE LIST, which is the only case the selector
+  // check can be the one refusing. The first draft passed a path that was ALSO
+  // absent from the list, so `includes` caught it and dropping `routeSelectorOk`
+  // changed no answer — a test green for the wrong reason. The value lands inside
+  // an attribute selector, so a quote closes the rule and everything after it is
+  // live CSS on a customer's site.
+  assert.equal(pageScopeFor({ tokensPage: '/x"]{color:red}' }, ['/x"]{color:red}', "/"]), "",
+    "a path that would close the CSS selector is accepted when the site has one");
+  assert.equal(pageScopeFor({ tokensPage: '/x"]{color:red}' }, ["/"]), "",
+    "a path that would close the CSS selector is accepted");
+  assert.equal(pageScopeFor({}, ["/"]), "", "an unanswered field reads as a page");
+  assert.equal(pageScopeFor({ tokensPage: ["/book"] }, ["/book"]), "",
+    "a non-string is coerced into a page name");
 });
 
 test("it counts as a change, and is stored even when it goes back to nothing", () => {
@@ -243,4 +270,108 @@ test("validForWrite is what bounds a page's tokens, shared with the site's", () 
   // that nothing reads.
   const t = validForWrite({ background: "#101418", nonsense: "x" });
   assert.deepEqual(Object.keys(t), ["background"]);
+});
+
+// ── THE BUILD ROUTE ─────────────────────────────────────────────────────────
+//
+// `tokensPage` was read at exactly two places and BOTH were the look edit lane,
+// so on the build route the field was dead — and dead in the direction that
+// still changes the site. `mergeTokens(priorTokens, designed.tokens)` takes the
+// colours regardless, so a brief asking for a warmer MENU page got a warmer
+// WHOLE SITE: the field's own description warns about that mistake pointed the
+// other way, and this one was ours rather than the model's. Nothing stored it
+// either, so it never came right later the way a deferred value would.
+
+test("THE BUILD ROUTE ASKS WHICH PAGE, AND ASKS THE SAME FUNCTION THE EDIT LANE DOES", () => {
+  // ONE READING, DERIVED. Two lanes answering "which page is this for"
+  // differently is the bug itself, not a tidiness question: `""` means the site,
+  // so a lane that reads a named page as no-page is a lane that applies a page
+  // request to every page. Asserted as a count over the whole file, so a third
+  // lane cannot quietly hand-roll a third answer.
+  const rolled = [...worker.matchAll(/\.tokensPage\b/g)];
+  assert.ok(rolled.length <= 1,
+    "tokensPage is read in " + rolled.length + " places — every lane must ask pageScopeFor, " +
+    "or two of them will disagree about whether a page was named");
+  const scopes = [...worker.matchAll(/pageScopeFor\(designed, ([^)]*)\)/g)].map((m) => m[1]);
+  assert.equal(scopes.length, 2, "expected the build route and the look edit lane to ask, found " + scopes.length);
+  // THE ROUTE LISTS DIFFER ON PURPOSE and that is the whole reason the list is a
+  // parameter: on a build the page SOURCE does not exist yet, so the only
+  // authority on which pages the site has is the plan the designer just wrote.
+  assert.ok(scopes.some((s) => /pages/.test(s)),
+    "no lane resolves against a page list at all: " + JSON.stringify(scopes));
+  assert.ok(scopes.some((s) => /eRoutes/.test(s)),
+    "the look edit lane stopped resolving against the stored source: " + JSON.stringify(scopes));
+});
+
+test("A PAGE COLOUR ON A BUILD DOES NOT REPAINT THE WHOLE SITE", () => {
+  // The bug itself. Without the gate the site's map takes the answer and every
+  // page changes — reported as a success, on the one route where the customer
+  // has no earlier version to compare against.
+  assert.match(worker, /const siteTokens = forPage \? \(priorTokens \|\| \{\}\) : mergeTokens\(priorTokens/,
+    "a page colour is merged into the SITE's map on a build");
+  // …and the page's map accumulates, so a later build naming one colour keeps
+  // the ones it did not mention.
+  const at = worker.indexOf("const nextPageTokens");
+  assert.ok(at > 0, "the build route computes no per-page map");
+  assert.match(worker.slice(at, at + 500), /mergeTokens\(nextPageTokens\[forPage\]/,
+    "a page's colours are replaced rather than accumulated, so an earlier one is lost");
+});
+
+test("A PAGE TYPEFACE ON A BUILD DOES NOT RE-FONT THE WHOLE SITE", () => {
+  // `designed.fonts` reaching `mergeLook` sets the SITE's typeface, so "the menu
+  // page should be handwritten" would re-set every heading on every page.
+  // Stripped from the INPUT, so `look`, the trace and the `site_look` write are
+  // all correct from one expression rather than three that can disagree.
+  assert.match(worker, /forPage && designed && designed\.fonts\s*\n?\s*\?\s*mergeLook\(priorLook, \{ \.\.\.designed, fonts: undefined \}/,
+    "a page typeface on a build re-fonts the whole site");
+});
+
+test("THE BUILD STORES BOTH PER-PAGE MAPS, AND CARRIES THEM TO THE CONTAINER", () => {
+  // The wiring layer, where this repo has recorded a dozen features that were
+  // correct everywhere else. Computing the map and handing the container the
+  // STORED one is exactly what was wrong before: `pageTokens: priorPageTokens`
+  // read as plumbing and was the reason the whole field was dead.
+  // PER WRITE, NEVER ONE REGEX ACROSS BOTH LANES. The first draft was
+  // `VALUES ('site_page_tokens', ?)[\s\S]{0,200}JSON.stringify(next` — and there
+  // are TWO such writes, the build route's and the look edit lane's, whose value
+  // sits on the following line. So a mutation making the BUILD store the prior
+  // map (a write that changes nothing, and the whole feature dead again) was
+  // satisfied by the OTHER lane's write 1,500 lines away. Vacuous by scope, this
+  // repo's most-recorded test failure, found by mutation and not by reading.
+  for (const key of ["site_page_tokens", "site_page_fonts"]) {
+    const writes = [...worker.matchAll(new RegExp("VALUES \\('" + key + "', \\?\\)[^;]*?;", "g"))];
+    assert.equal(writes.length, 2,
+      "expected the build route and the look edit lane to write " + key + ", found " + writes.length);
+    for (const wm of writes) assert.match(wm[0], /JSON\.stringify\(next/,
+      "a " + key + " write at " + wm.index + " stores the PRIOR map — it changes nothing, and the " +
+      "page override is lost the moment the build ends: " + wm[0].replace(/\s+/g, " ").slice(0, 160));
+  }
+  // AND THE BUILD'S WRITES ARE GATED ON MOVEMENT, NOT DEAD. A mutant replacing
+  // the gate with `if (false)` survived the sweep: the statement still exists
+  // for the source-read above, the merged map still reaches the container (so
+  // the page renders right ON THIS BUILD), and the row is never written — so the
+  // override vanishes on the customer's next edit, which reads the store. The
+  // condition is what does the work, so the condition is what is held: each gate
+  // must be a real next-vs-prior comparison.
+  const gates = [...worker.matchAll(/if \(JSON\.stringify\(next(PageTokens|PageFonts)\) !== JSON\.stringify\(prior\1 \|\| \{\}\)\) \{/g)];
+  assert.equal(gates.length, 2,
+    "the build's per-page writes are not gated on the map having moved — either dead (`if (false)`: " +
+    "the override renders once and is lost) or unconditional (every build rewrites two rows that did not change)");
+  const call = worker.slice(worker.indexOf("plan: normalizePlan(") - 3500, worker.indexOf("plan: normalizePlan("));
+  // THROUGH `pageTokensFor`, NOT RAW — my own first draft sent the bare map, and
+  // that function derives the readable ink PER PAGE (`withContrast`): raw, a
+  // page moved onto a dark ground keeps the light theme's dark grey body copy,
+  // the exact bug the function was written for.
+  assert.match(call, /pageTokens: pageTokensFor\(nextPageTokens\)/,
+    "the build hands the container the STORED page colours, or the raw map with no derived ink");
+  assert.match(call, /pageFonts: nextPageFonts/, "the build hands the container the STORED page fonts, not the merged ones");
+});
+
+test("a build that names no page is byte-identical to before", () => {
+  // The safety property. Every site ever built answered no `tokensPage`, so the
+  // fix must be a no-op for all of them — asserted through the real function
+  // rather than by reading the branch, since what matters is the value the
+  // branches key on.
+  assert.equal(pageScopeFor({ tokens: { background: "#fff" } }, ["/", "/book"]), "",
+    "a colour change with no page named reads as page-scoped, so the site would stop changing");
 });

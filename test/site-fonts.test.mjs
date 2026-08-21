@@ -259,7 +259,11 @@ test("the DESIGNER can actually declare a font, and only a real one", () => {
   // …and a half pair is NOT an answer, or `{heading:"x"}` reaches the build and
   // the body silently defaults — the same rule `themeFontPair` follows.
   assert.equal(mergeLook(null, { fonts: { heading: "lora" } }, null).fonts, null);
-  assert.match(src, /const merged = mergeLook\(priorLook, designed, body/, "the route does not merge the look");
+  // THE PROPERTY, NOT THE SPELLING. This pinned `const merged = mergeLook(...)`
+  // and went red when the route grew a SECOND call — the probe that answers
+  // which page a colour is for, which must run before the merge it feeds. What
+  // has to hold is that the route merges the look at all.
+  assert.match(src, /mergeLook\(priorLook, [a-zA-Z]+, body/, "the route does not merge the look");
   assert.match(src, /fonts: look\.fonts,/, "the resolved fonts never reach buildAndPublishPages");
   assert.match(src, /fonts: \{ heading: fontPair\.heading\.id, body: fontPair\.body\.id \}/,
     "and the build request has to carry it");

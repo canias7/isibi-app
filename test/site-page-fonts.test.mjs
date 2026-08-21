@@ -183,7 +183,13 @@ test("the store is read on every publish path, and carried on every payload", ()
     assert.match(loop, /r\.k === "site_page_fonts"[\s\S]{0,120}=\s*JSON\.parse\(r\.v\)/,
       "the row at " + m.index + " is loaded and never assigned");
   }
-  const payloads = [...w.matchAll(/pageTokens: (?:pageTokensFor\(pageTokens\)|priorPageTokens),/g)];
+  // MATCHED ON THE KEY, NOT ON THE VALUE. This was an alternation of the two
+  // spellings that existed — `pageTokensFor(pageTokens)` and `priorPageTokens` —
+  // so the day the build route started sending its own MERGED map the count
+  // silently dropped from 3 to 2 and the guard reported a missing payload on a
+  // change that fixed one. The value is nobody's business here; what has to hold
+  // is that a payload carrying the colours also carries the typefaces.
+  const payloads = [...w.matchAll(/pageTokens: [^,\n]+,/g)];
   assert.ok(payloads.length >= 3, "only " + payloads.length + " container payloads found");
   for (const m of payloads) {
     assert.match(w.slice(m.index, m.index + 260), /pageFonts:/, "a container payload at " + m.index + " drops it");

@@ -462,6 +462,35 @@ export function routeSelectorOk(p) {
 }
 
 /**
+ * WHICH PAGE — if any — the designer's colours and typeface are meant for.
+ *
+ * ONE READING, SHARED BY THE BUILD ROUTE AND THE LOOK EDIT LANE, because the
+ * two answering this differently is not a cosmetic drift: `""` means the change
+ * is the SITE's, so a lane that reads a named page as "no page" applies a
+ * request about the menu page to every page there is. That was live on the build
+ * route until 2026-08-21 — `designed.tokensPage` was read at exactly two places
+ * and both were the edit lane, so a first build asking for a warmer menu page
+ * got a warmer WHOLE SITE, which is the field's own warning pointed the other
+ * way and made by us rather than by the model.
+ *
+ * `routes` IS WHATEVER THAT LANE KNOWS THE SITE'S PAGES TO BE — the plan's page
+ * list on a build (the designer has just written it; the source does not exist
+ * yet) and the stored source on an edit. Passed in rather than derived here, so
+ * this function needs neither.
+ *
+ * A PAGE THE SITE HAS NOT GOT IS NOT A SCOPE. Refusing it back to `""` is
+ * deliberately NOT the safe direction here — it widens the change to the site —
+ * but the alternative is worse: a selector for a page no visitor can reach is a
+ * change reported as applied that nothing on the site shows, and the customer's
+ * colours sit in `_meta` for ever. The caller is expected to say which happened.
+ */
+export function pageScopeFor(designed, routes) {
+  const asked = typeof (designed && designed.tokensPage) === "string" ? designed.tokensPage.trim() : "";
+  if (!asked || !routeSelectorOk(asked)) return "";
+  return (Array.isArray(routes) ? routes : []).includes(asked) ? asked : "";
+}
+
+/**
  * ONE PAGE'S OWN COLOURS.
  *
  * WHY A SELECTOR AND NOT A SECOND STYLESHEET. The tokens are CSS custom

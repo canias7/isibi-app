@@ -43,7 +43,11 @@ test("THE PALETTE IS AUTHORED, AND THE WHOLE CHAIN IS WIRED", () => {
   assert.match(worker, /seeds: SEEDS_FIELD,/, "design_schema no longer offers a palette at all");
   assert.match(worker, /import \{[^}]*SEEDS_FIELD[^}]*\} from "\.\/builder\/site-seeds\.mjs"/,
     "SEEDS_FIELD is referenced and never imported — a ReferenceError building the tool");
-  assert.match(worker, /const merged = mergeLook\(priorLook, designed, body/, "the route does not merge the look");
+  // THE PROPERTY, NOT THE SPELLING. This pinned `const merged = mergeLook(...)`
+  // and went red when the route grew a SECOND call — the probe that answers
+  // which page a colour is for, which must run before the merge it feeds. What
+  // has to hold is that the route merges the look at all.
+  assert.match(worker, /mergeLook\(priorLook, [a-zA-Z]+, body/, "the route does not merge the look");
   assert.match(worker, /\n\s*seeds: merged\.seeds,/, "the look no longer carries the authored palette");
   assert.match(worker, /\n\s*seeds: look\.seeds,/, "the merged palette never reaches buildAndPublishPages");
   assert.match(worker, /async function buildAndPublishPages\(env, \{[^}]*\bseeds\b[^}]*\}\)/,

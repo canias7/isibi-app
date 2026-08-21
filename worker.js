@@ -53,7 +53,7 @@ import { budgetFor, imagesAffordable, planImages, applyImages, countImageSlots, 
 import { renderNote } from "./builder/site-render.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
 import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker } from "./builder/site-dispatch.mjs";
-import { ASKABLE as SITE_TOKEN_NAMES, valueHint as siteTokenHint, mergeTokens, parseTokens, withContrast, tokenNote, askedNames, saidFor as tokenSaid, routeSelectorOk, MAX_PAGE_TOKENS } from "./builder/site-tokens.mjs";
+import { ASKABLE as SITE_TOKEN_NAMES, valueHint as siteTokenHint, mergeTokens, parseTokens, withContrast, tokenNote, askedNames, saidFor as tokenSaid, routeSelectorOk, pageScopeFor, MAX_PAGE_TOKENS } from "./builder/site-tokens.mjs";
 import { ASKABLE as SITE_STYLE_AXES, MAX_STYLE, MAX_STYLE_BUILD, optionsFor as siteStyleOptions, axisHint as siteStyleHint, mergeStyle, parseStyle, styleNote, saidFor as styleSaid } from "./builder/site-style.mjs";
 import { extractText, applyEdits, staleContactLinks } from "./builder/site-text.mjs";
 import { runTextEdit, runDataEdit, renamePages, renameRoute, MAX_DATA_ROWS } from "./builder/site-apply.mjs";
@@ -11944,7 +11944,41 @@ async function handleRequest(request, env, ctx) {
       // caller all fall back to the previous precedence, so the failure
       // direction is "the edit did not take" rather than "the site re-themed
       // itself". See builder/site-edit.mjs.
-      const merged = mergeLook(priorLook, designed, body, { instructed: !!editState });
+      // WHICH PAGE THE COLOURS AND THE TYPEFACE ARE FOR, decided before the
+      // merge that would otherwise spend them on the whole site.
+      //
+      // `tokensPage` was read at exactly two places and both were the look edit
+      // lane, so on THIS route it was discarded — and discarding it is not the
+      // harmless half. `mergeTokens` below takes `designed.tokens` regardless,
+      // so a brief asking for a warmer MENU page got a warmer WHOLE SITE, and
+      // the field's own description warns about exactly that mistake pointed the
+      // other way ("naming a page when they meant the site … reads as the change
+      // having half worked").
+      //
+      // THE ROUTE LIST IS THE PLAN'S PAGE LIST, not the stored source, because
+      // on a build the source does not exist yet — the designer has just written
+      // the page list and page generation has not run. It comes off the MERGED
+      // look rather than `designed` so a revise that does not re-answer `pages`
+      // still resolves against the pages the site has; that is `mergeLook`'s own
+      // stored-unless-named rule, asked once rather than restated here.
+      //
+      // TWO MERGES, ONE RULE. `forPage` needs the page list and the strip needs
+      // `forPage`, which is circular — so the first merge answers the page list
+      // and the second is the one that is used. `mergeLook` is a pure function
+      // over plain objects, so the probe costs nothing and there is no second
+      // reading of precedence to drift.
+      const probeLook = mergeLook(priorLook, designed, body, { instructed: !!editState });
+      const forPage = pageScopeFor(designed, (probeLook.pages || []).map((p) => p && p.path).filter(Boolean));
+      // THE FONT STRIP IS WHY THIS RUNS BEFORE THE MERGE AT ALL. `designed.fonts`
+      // reaching `mergeLook` sets the SITE's typeface, so "the menu page should
+      // be in something handwritten" would re-set every heading on every page —
+      // the opposite of what was asked. Stripped from the INPUT rather than
+      // patched out of the result, so `look`, the trace and the `site_look`
+      // write are all correct from one expression instead of three that can
+      // disagree. Same shape as the look edit lane's `siteDesigned`.
+      const merged = forPage && designed && designed.fonts
+        ? mergeLook(priorLook, { ...designed, fonts: undefined }, body, { instructed: !!editState })
+        : probeLook;
       const look = {
         seeds: merged.seeds,
         family: merged.family,
@@ -12018,12 +12052,56 @@ async function handleRequest(request, env, ctx) {
       // derived text colour follows whatever the surface is at build time.
       // Written on EVERY build that has one, unlike the look above, because
       // this is the thing being changed.
-      const siteTokens = mergeTokens(priorTokens, designed && designed.tokens);
+      // THE SITE'S COLOURS MOVE ONLY WHEN NO PAGE WAS NAMED — see `forPage`.
+      const siteTokens = forPage ? (priorTokens || {}) : mergeTokens(priorTokens, designed && designed.tokens);
       const tokenAsk = parseTokens(designed && designed.tokens);
       if (Object.keys(siteTokens).length) {
         try {
           await sqlQuery(db, "INSERT INTO _meta (k,v) VALUES ('site_tokens', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v", [JSON.stringify(siteTokens)]);
         } catch (e) { console.error("token write failed:", slug, e && e.message); }
+      }
+
+      // …AND THE PAGE'S MOVE ONLY WHEN ONE WAS, ACCUMULATED like the site's: a
+      // later build names one colour and everything it did not mention has to
+      // survive. Byte-for-byte the look edit lane's rule, because a page put
+      // back through one lane must look the same as one put back through the
+      // other.
+      const nextPageTokens = { ...(priorPageTokens || {}) };
+      if (forPage) {
+        const mergedPage = mergeTokens(nextPageTokens[forPage], designed && designed.tokens);
+        // A page whose overrides all went back to the theme's keeps NO ENTRY,
+        // so a site put back is byte-identical to one that never had a page
+        // override — the rule every other removal here lives under.
+        if (Object.keys(mergedPage).length) nextPageTokens[forPage] = mergedPage;
+        else delete nextPageTokens[forPage];
+      }
+      // …AND A PAGE MAY HAVE ITS OWN TYPEFACE, off the same field. REPLACED, not
+      // accumulated, unlike the colours: a typeface is a PAIR and `resolvePair`
+      // fills in whichever half was not asked for, so merging a new answer over
+      // an old one keeps a half nobody asked to keep. Both halves empty is the
+      // removal verb.
+      const nextPageFonts = { ...(priorPageFonts || {}) };
+      const askedPageFonts = forPage && designed && designed.fonts && typeof designed.fonts === "object" ? designed.fonts : null;
+      if (askedPageFonts) {
+        const wantsSite = !String(askedPageFonts.heading || "").trim() && !String(askedPageFonts.body || "").trim();
+        if (wantsSite) delete nextPageFonts[forPage];
+        else nextPageFonts[forPage] = { heading: askedPageFonts.heading || "", body: askedPageFonts.body || "" };
+      }
+      // WRITTEN ONLY WHEN THEY MOVED, and to `{}` as readily as to a value: a
+      // build that put the last page override back has to clear the row, or the
+      // container keeps painting a scope the customer just removed. Both are
+      // best-effort — the site is worth more than the bookkeeping — and both are
+      // separate keys rather than fields on `site_look`, because `mergeLook`
+      // rebuilds its output from `EDIT_FIELDS` and would drop anything else.
+      if (JSON.stringify(nextPageTokens) !== JSON.stringify(priorPageTokens || {})) {
+        try {
+          await sqlQuery(db, "INSERT INTO _meta (k,v) VALUES ('site_page_tokens', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v", [JSON.stringify(nextPageTokens)]);
+        } catch (e) { console.error("page token write failed:", slug, e && e.message); }
+      }
+      if (JSON.stringify(nextPageFonts) !== JSON.stringify(priorPageFonts || {})) {
+        try {
+          await sqlQuery(db, "INSERT INTO _meta (k,v) VALUES ('site_page_fonts', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v", [JSON.stringify(nextPageFonts)]);
+        } catch (e) { console.error("page font write failed:", slug, e && e.message); }
       }
 
       // ── AND THE REST OF THE LOOK THEY ASKED TO CHANGE ──────────────────────
@@ -12137,9 +12215,22 @@ async function handleRequest(request, env, ctx) {
             fonts: look.fonts,
             seeds: look.seeds,
             tokens: siteTokens,
-            pageTokens: priorPageTokens,
-            // The stored per-page typefaces — see the note on the cheap-edit spine.
-            pageFonts: priorPageFonts,
+            // THE MERGED PER-PAGE VALUES, not the stored ones. These were
+            // `priorPageTokens`/`priorPageFonts` — the stored row passed
+            // straight through — which is what made `tokensPage` dead on this
+            // route: the designer's answer was computed nowhere and the
+            // container was handed whatever a previous EDIT had left.
+            //
+            // THROUGH `pageTokensFor`, LIKE EVERY OTHER PAYLOAD. My own first
+            // draft sent the raw map, and that function is not plumbing: it
+            // derives the readable ink PER PAGE (`withContrast`), so raw, a page
+            // moved onto a dark ground kept the light theme's dark grey body
+            // copy — the exact bug the function was written for, reintroduced by
+            // the fix for the field that feeds it. It also answers `undefined`
+            // for an empty map, so a build with no page override sends the
+            // request it always sent.
+            pageTokens: pageTokensFor(nextPageTokens),
+            pageFonts: nextPageFonts,
             style: siteStyle,
             // THE AUTHORED PLAN, assembled from the merged look rather than
             // stored as one object — each of its six axes is its own
@@ -13403,10 +13494,15 @@ async function handleRequest(request, env, ctx) {
               // from the input rather than patched back out of the result, so
               // `merged`, `moved` and the `site_look` write are all correct from
               // one expression instead of three that can disagree.
+              // ONE READING, SHARED WITH THE BUILD ROUTE — `pageScopeFor`. It was
+              // three expressions here and NOTHING there, which is what made a
+              // first build's page-scoped colours land on every page; two lanes
+              // answering "which page is this for" differently is the bug, so
+              // they ask one function. What differs is only where the route list
+              // comes from: the stored source here, the plan's page list there,
+              // because on a build the source does not exist yet.
               const eRoutes = (eSrc || []).map((p) => routeOf(p && p.path)).filter(Boolean);
-              const askedPage = typeof (designed && designed.tokensPage) === "string"
-                ? designed.tokensPage.trim() : "";
-              const forPage = askedPage && routeSelectorOk(askedPage) && eRoutes.includes(askedPage) ? askedPage : "";
+              const forPage = pageScopeFor(designed, eRoutes);
               const siteDesigned = forPage && designed && designed.fonts
                 ? { ...designed, fonts: undefined } : designed;
 

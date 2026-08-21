@@ -314,8 +314,26 @@ test("the route reads the current state and hands it to the designer", () => {
     "the designer is not given the site's current state, so it is still told nothing");
   assert.match(worker, /SELECT k, v FROM _meta WHERE k IN \('site_look','schema'\)/,
     "nothing reads the stored look and schema before the design call");
-  assert.match(worker, /const merged = mergeLook\(priorLook, designed, body, \{ instructed: !!editState \}\)/,
-    "the interlock is gone — an untold designer can re-roll a live site again");
+  // EVERY `mergeLook` CALL, not one pinned expression. This matched the exact
+  // `const merged = mergeLook(priorLook, designed, body, …)` and went red when
+  // the route grew a SECOND call — the probe that answers which page a colour is
+  // for, which has to run before the merge it feeds. A test about word order, on
+  // a change that strengthened the thing it guards.
+  //
+  // TWO CLAIMS, because the lanes encode the interlock differently and both are
+  // right: the look edit lane passes a literal `true` (it runs only when the
+  // customer asked for a look change, so the designer was told by construction),
+  // while the build route has to ASK, which is `!!editState`. So: no call
+  // anywhere may drop it, and the calls taking `body` — the build route's shape —
+  // must derive it rather than assert it.
+  const calls = [...worker.matchAll(/mergeLook\(priorLook,[^;]*?\)/g)].map((x) => x[0]);
+  assert.ok(calls.length >= 2, "only " + calls.length + " mergeLook calls found — the scan is broken");
+  for (const c of calls) assert.match(c, /instructed:/,
+    "a mergeLook call drops the interlock entirely: " + c);
+  const onBuild = calls.filter((c) => /,\s*body\s*,/.test(c));
+  assert.ok(onBuild.length >= 1, "no build-route mergeLook found — the scan is broken");
+  for (const c of onBuild) assert.match(c, /instructed: !!editState/,
+    "the interlock is gone — an untold designer can re-roll a live site again: " + c);
   // `editState` must be declared at the OUTER scope: it is read hundreds of
   // lines below the block that fills it, and inside that block it is a
   // ReferenceError on every build. Caught exactly that way on the first run.
