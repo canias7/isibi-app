@@ -99,7 +99,17 @@ const SCENARIOS = [
     // core.
     plan: {
       purpose: "A yoga studio where people book a class and members keep their own notes",
-      shape: ["the timetable leads, then the booking form", "the members area is behind sign-in"],
+      // PER PAGE SINCE 2026-08-21, and this harness's own header is why it had to
+      // be rewritten rather than left: a flat shape buys nothing now, so a
+      // scenario keeping one would send a directive with no arrangement in it
+      // while production sends one with — a harness measuring a different
+      // pipeline, which is worse than no harness.
+      shape: [
+        { path: "/", sections: ["hero — what the studio is, and the Book a class button", "week-strip — this week's timetable", "faq — what to bring, and whether it suits a beginner"] },
+        { path: "/book", sections: ["availability-grid — the free slots, taken ones struck through", "form-row — a name and an email", "busy-button — the one submit"] },
+        { path: "/notes", sections: ["data-list — this member's own notes", "empty-state — before they have written one"] },
+        { path: "/account", sections: ["form-row — sign in", "data-list — the announcements"] },
+      ],
       pages: [
         { path: "/", role: "what the studio is, the timetable, and the way to book" },
         { path: "/book", role: "pick a class and a slot, and leave a name and email" },
@@ -133,7 +143,11 @@ const SCENARIOS = [
     key: "menu",
     plan: {
       purpose: "A neighbourhood restaurant showing its menu, its cooks and how to find it",
-      shape: ["the menu is the site", "no form anywhere — people phone"],
+      shape: [
+        { path: "/", sections: ["hero — the place, and the phone number as the action", "data-list — a taste of the menu, six dishes", "location-card — the address", "opening-hours — the week"] },
+        { path: "/menu", sections: ["section-header — one per course", "price-row — every dish with its price", "empty-state — when a course has nothing in it"] },
+        { path: "/about", sections: ["data-list — who cooks", "opening-hours — the week again, because this is where people look"] },
+      ],
       pages: [
         { path: "/", role: "what the place is, a taste of the menu, the address and the phone number" },
         { path: "/menu", role: "every dish with its price, grouped by course" },
@@ -157,7 +171,12 @@ const SCENARIOS = [
     key: "tool",
     plan: {
       purpose: "An internal tool where a small sales team signs in and works its deals",
-      shape: ["everything is behind sign-in", "the deals table is the working surface"],
+      shape: [
+        { path: "/", sections: ["form-row — sign in, because everything here is behind it", "data-table — the team's deals once they are in"] },
+        { path: "/deals", sections: ["filter-bar — search, and a filter by stage", "data-table — every deal, with status-dot and bulk-actions", "form-row — add a deal", "empty-state — when the filter matches nothing"] },
+        { path: "/accounts", sections: ["data-table — the shared accounts, everyone sees the same rows"] },
+        { path: "/playbook", sections: ["data-list — what the admins have written down"] },
+      ],
       pages: [
         { path: "/", role: "sign in, then the team's deals" },
         { path: "/deals", role: "the team's deals, and a way to add one" },

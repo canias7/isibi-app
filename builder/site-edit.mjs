@@ -123,7 +123,23 @@ export function currentStateNote(current) {
   // six new doors. Stated compactly: the shape lines and the page roles are
   // prose, so the whole set is capped rather than each line being spelled out.
   add("what the site is organised around", c.purpose);
-  if (Array.isArray(c.shape) && c.shape.length) lines.push("layout: " + c.shape.map(str).filter(Boolean).join(" · ").slice(0, 400));
+  // PER PAGE SINCE 2026-08-21, and the old one-liner did not merely go stale —
+  // it printed `layout: ` with nothing after it, because `str` of an object is
+  // the empty string and every entry filtered away. A label with no content says
+  // less than the omission it replaced.
+  //
+  // A stored FLAT array (every site built before that day) still yields nothing
+  // usable, and that is the same answer `normalizePlan` gives it: the value buys
+  // nothing rather than breaking the note. It is skipped rather than printed
+  // empty, so such a site reads exactly as it did before this line existed.
+  if (Array.isArray(c.shape) && c.shape.length) {
+    const arranged = c.shape
+      .filter((s) => s && typeof s === "object" && !Array.isArray(s) && Array.isArray(s.sections))
+      .map((s) => [str(s.path), s.sections.map(str).filter(Boolean).join(" → ")])
+      .filter(([path, bands]) => path && bands)
+      .map(([path, bands]) => path + " = " + bands);
+    if (arranged.length) lines.push("layout, page by page: " + arranged.join(" | ").slice(0, 700));
+  }
   if (Array.isArray(c.action) && c.action.length) lines.push("primary action: " + c.action.map(str).filter(Boolean).join(" / ").slice(0, 120));
   if (Array.isArray(c.pages) && c.pages.length) {
     const p = c.pages.filter((x) => x && typeof x === "object").map((x) => str(x.path)).filter(Boolean);

@@ -138,7 +138,12 @@ test("EVERY FIELD AN EDIT CAN MOVE IS ONE THE DESIGNER IS TOLD THE CURRENT VALUE
     // request that was only ever about a colour. That is precisely the failure
     // anchoring the look was introduced to stop, arriving through five new doors.
     purpose: "value-of-purpose",
-    shape: ["value-of-shape"],
+    // PER PAGE SINCE 2026-08-21. The old fixture was `["value-of-shape"]`, and
+    // the field's own comment above is why that mattered: a flat array now
+    // yields nothing the note can print, so keeping it here would have let the
+    // note go silent about the layout while this guard stayed green on a string
+    // it found somewhere else. It caught exactly that on the way in.
+    shape: [{ path: "value-of-pages", sections: ["value-of-shape"] }],
     action: ["value-of-action"],
     pages: [{ path: "value-of-pages", role: "a role" }],
     components: ["value-of-components"],

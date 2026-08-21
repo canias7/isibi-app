@@ -232,12 +232,28 @@ export const COMPONENT_MENU = (() => {
 // CAPS LIVE HERE, IN CODE, AND ALSO IN THE DESCRIPTIONS — this repo's standing
 // distinction, and the reason `MAX_CLARIFY` is arithmetic rather than a
 // sentence. A cap a model is merely told about is not a cap.
-export const MAX_SHAPE = 3;
 export const MAX_PAGES = 6;
 export const MAX_ACTION = 3;
 export const MAX_COMPONENTS = 24;
+
+/**
+ * How many bands one page may declare, MEASURED rather than chosen.
+ *
+ * Counted over the 324 pinned exemplars — the pages WE wrote in the house style,
+ * which is the only corpus of finished pages there is: 284 of them carry a
+ * top-level `<section>`, and the distribution is min 1 · median 4 · p90 5 ·
+ * p95 6 · max 9. Eight covers everything but the tail, and the tail is a handful
+ * of pages rather than a shape the cap should be sized for.
+ *
+ * IT ALSO BOUNDS THE OUTPUT BILL, which is the half a generous number gets wrong
+ * quietly. This field is written per page, so the worst case is
+ * MAX_PAGES × MAX_SECTIONS × MAX_SECTION characters of model OUTPUT — billed at
+ * 5x input — and output is the one part of the designer's answer that no cache
+ * ever absorbs.
+ */
+export const MAX_SECTIONS = 8;
 const MAX_PURPOSE = 400;
-const MAX_LINE = 300;
+const MAX_SECTION = 120;
 const MAX_ROLE = 200;
 
 /**
@@ -319,6 +335,53 @@ function pageList(v) {
 }
 
 /**
+ * The per-page arrangement: `{path, sections}`, one entry per page, in order.
+ *
+ * VALIDATED AGAINST THE PAGE LIST, which is the whole reason this is a function
+ * rather than another `lines()` call. A shape for `/pricing` on a site whose
+ * pages are `/` and `/book` is an instruction to arrange a page that will never
+ * be written — printed in the directive it reads as a fourth page the generator
+ * forgot, and the likeliest thing a model does with it is write one. So an entry
+ * whose path is not in `pages` is DROPPED rather than repaired: repairing means
+ * guessing which page was meant, and this file already refuses that guess one
+ * function up for the same reason.
+ *
+ * A PAGE WITH NO ENTRY IS LEGAL and is the reason `sections` is not compelled
+ * per page. Six pages × eight bands is a very long answer, and a model made to
+ * fill every one pads the thin pages rather than admitting they are thin — the
+ * arrangement of a two-band contact page is not worth the tokens. An absent page
+ * is simply one the page writer lays out itself, exactly as every page was
+ * before this field existed.
+ *
+ * ORDER IS THE CONTENT. `sections` is the page top to bottom and the first entry
+ * is what leads, so nothing is sorted and nothing is re-ordered; the directive
+ * numbers them so the instruction cannot be read as a set.
+ *
+ * Deduplicated within a page for the reason `lines()` gives — a band repeated is
+ * a slot spent saying nothing — and never ACROSS pages, because two pages
+ * legitimately share one (a closing "book a chair" band belongs on all of them).
+ */
+function pageShapes(v, pages) {
+  if (!Array.isArray(v)) return [];
+  const known = new Set(pages.map((p) => p.path));
+  const out = [];
+  const seen = new Set();
+  for (const s of v) {
+    if (!s || typeof s !== "object" || Array.isArray(s)) continue;
+    const path = str(s.path, 80).toLowerCase();
+    if (!known.has(path) || seen.has(path)) continue;
+    const sections = lines(s.sections, { cap: MAX_SECTION, max: MAX_SECTIONS });
+    // AN ENTRY WITH NO USABLE BAND IS NOT AN ARRANGEMENT. Kept, it prints a page
+    // heading with nothing under it, which says less than the page's own role
+    // line already did and reads as an arrangement we lost.
+    if (!sections.length) continue;
+    seen.add(path);
+    out.push({ path, sections });
+  }
+  return out;
+}
+
+/**
  * The authored plan, narrowed to what the rest of the pipeline can use.
  *
  * ALLOW-LIST, NOT A FILTER, and that is deliberate: it builds its output field
@@ -344,7 +407,13 @@ export function normalizePlan(input) {
   if (!purpose || !pages.length) return null;
 
   const out = { purpose, pages };
-  const shape = lines(p.shape, { cap: MAX_LINE, max: MAX_SHAPE });
+  // AFTER `pages`, because it is checked against them. A stored `shape` from
+  // before 2026-08-21 is a flat string array and `pageShapes` answers `[]` for
+  // it — so the plan still normalises and the old value simply buys nothing,
+  // which is the rule the deleted `structure` field already established: a value
+  // WE changed the meaning of must never cost a customer their purpose and their
+  // page set on a revise.
+  const shape = pageShapes(p.shape, pages);
   if (shape.length) out.shape = shape;
   const action = lines(p.action, { cap: 80, max: MAX_ACTION });
   if (action.length) out.action = action;
@@ -375,7 +444,6 @@ export function directiveFromPlan(plan) {
   const p = normalizePlan(plan);
   if (!p) return null;
   const lines2 = [`LAYOUT — ${p.purpose}.`];
-  for (const s of p.shape || []) lines2.push(`- ${s}`);
   if (p.action && p.action.length) {
     lines2.push(
       `Primary action: ${p.action.map((c) => `"${c}"`).join(" / ")} — this verb leads the header, the hero, and the closing band.`,
@@ -383,7 +451,22 @@ export function directiveFromPlan(plan) {
   }
   if (p.components && p.components.length) lines2.push(`Reach first for: ${p.components.join(", ")}.`);
   lines2.push(`This site has ${p.pages.length} page${p.pages.length === 1 ? "" : "s"}:`);
-  for (const pg of p.pages) lines2.push(`- ${pg.path} — ${pg.role}`);
+  // THE ARRANGEMENT SITS UNDER THE PAGE IT ARRANGES, which is the whole change
+  // (owner's call 2026-08-21). It was three lines about the SITE printed between
+  // the purpose and the page list — so a four-page site got one paragraph of
+  // layout and the page writer decided, per page, which of the 24 components in
+  // the manifest went where. Under the page, in order, it is an instruction
+  // rather than a mood.
+  //
+  // NUMBERED rather than bulleted: `sections` is the page top to bottom and a
+  // bullet list reads as a set of things the page contains, which is the one
+  // reading that loses the only fact this field carries.
+  const shapeFor = new Map((p.shape || []).map((s) => [s.path, s.sections]));
+  for (const pg of p.pages) {
+    lines2.push(`- ${pg.path} — ${pg.role}`);
+    const sections = shapeFor.get(pg.path);
+    if (sections) sections.forEach((s, n) => lines2.push(`    ${n + 1}. ${s}`));
+  }
   return lines2.join("\n");
 }
 
@@ -476,6 +559,22 @@ export const PLAN_FIELDS = {
  * arranging a page whose parts are all decided rather than guessing at a
  * layout for parts it has not chosen yet.
  *
+ * AND IT IS PER PAGE (owner's call, 2026-08-21): *"the only thing I want in this
+ * step is that it organises where the components and everything else goes —
+ * per page."* It was three lines about the SITE, printed between the purpose and
+ * the page list, so a four-page site got one paragraph of layout and the page
+ * writer decided — page by page — which of the 24 components in the manifest
+ * went where, and in what order. Nothing said. Now each entry names a page and
+ * lists its bands top to bottom, and the directive nests them under that page.
+ *
+ * WHAT LEFT WITH THE OLD FORM, stated rather than quietly dropped: line 3 was
+ * "the rule this kind of site fails by breaking" — *"stale-looking data is the
+ * failure"*, *"dead ends are the failure"* — which is a genuinely site-wide fact
+ * and has no home in a per-page field. It is NOT relocated into `purpose`: that
+ * field answers what the site is organised around, and a second question folded
+ * into it is the "two answers about one thing" trap this file already records.
+ * If it turns out to have been doing work, it comes back as its own field.
+ *
  * Its own description had said the purpose is "the sentence every other choice
  * on this call follows from" while sitting fourteenth of twenty-three — so the
  * plan block as a whole was answered after most of what it claimed to lead.
@@ -492,18 +591,36 @@ export const PLAN_FIELDS = {
  */
 export const SHAPE_FIELD = {
   type: "array",
-  items: { type: "string" },
+  items: {
+    type: "object",
+    properties: {
+      path: { type: "string", description: "One of the paths you listed in `pages`. Anything else is dropped." },
+      sections: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          `The page TOP TO BOTTOM, one short line a band, in order — at most ${MAX_SECTIONS}. ` +
+          "The first is what LEADS. Name the component that carries the band and say what goes in it.",
+      },
+    },
+    required: ["path", "sections"],
+  },
   description:
-    "How the page is laid out, in two or three lines.\n" +
-    "Line 1 — what LEADS: the first thing on screen.\n" +
-    "Line 2 — what the body runs through, in order.\n" +
-    "Line 3 — the rule this kind of site fails by breaking.\n" +
-    "Be specific, and name the failure. Real examples: " +
-    '"the menu itself, sectioned, prices on the right" · ' +
-    '"every page links sideways — dead ends are the failure" · ' +
-    '"stale-looking data is the failure" · ' +
-    '"hours and the address stay within one scroll of wherever the visitor is". ' +
-    "A vague line here produces a vague site.",
+    "WHERE EVERYTHING GOES, ONE ENTRY PER PAGE.\n" +
+    "You answer this last, so the pages, the primary action and the component manifest are " +
+    "already decided — arrange what you have chosen rather than describing a mood.\n" +
+    "Examples:\n" +
+    '  {"path": "/", "sections": [' +
+    '"hero — the shop, the town, and the Book a chair button", ' +
+    '"service-list — the price list, sectioned, prices on the right", ' +
+    '"team-grid — the four barbers", ' +
+    '"map-card — the address and the opening hours"]}\n' +
+    '  {"path": "/deals", "sections": [' +
+    '"filter-bar — search, and a filter by stage", ' +
+    '"data-table — every deal, with row-actions and pagination", ' +
+    '"empty-state — when nothing matches"]}\n' +
+    "A page you leave out is one the page writer arranges itself, so leave out the ones with " +
+    "nothing to say. A vague band produces a vague page.",
 };
 
 /**

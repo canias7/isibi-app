@@ -17,6 +17,7 @@ import {
   schemaDigest, pagesPrompt, repairPrompt, validatePages, lintPages, briefForPages, ACCESS_NOTE, propsOf, UI_EXPORTS,
   repairImports } from "../builder/page-gen.mjs";
 import { COMPONENT_API, COMPONENT_TYPES } from "../builder/component-api.mjs";
+import { normalizePlan } from "../builder/site-plan.mjs";
 import { build as buildApi, render as renderApi, extract as extractApi, buildTypes as buildTypesApi, extractTypes as extractTypesApi } from "../builder/gen-component-api.mjs";
 import * as api from "../builder/page-gen.mjs";
 import { CORPUS_DIR, CORPUS_URL } from "./fixtures/corpus.mjs";
@@ -1302,7 +1303,13 @@ test("worker.js and the eval both compose the brief through briefWithLayout", ()
   }
 });
 
-test("the eval posts a theme, fonts and a title to the build service", () => {
+test("the eval posts a palette, fonts and a title to the build service", () => {
+  // `theme` UNTIL 2026-08-21, AND THE OLD SPELLING PASSED FOR THE WRONG REASON.
+  // The registry left the product, so the post carries `seeds` — and this went on
+  // matching, because the conversion reads the fixture by name (`seedsFor(sc.theme)`)
+  // and `\btheme\b` finds that argument. A key that is no longer sent and an
+  // argument that happens to share its name are the same substring; the dead-key
+  // direction is `test/build-payload-keys.test.mjs`, and this is the live one.
   // COMMENTS BLANKED FIRST. The comment above that body names theme/fonts/title
   // in order to explain them, so a raw scan is satisfied by the explanation —
   // caught by mutation: stripping the whole post down to `{files}` passed. Third
@@ -1313,10 +1320,46 @@ test("the eval posts a theme, fonts and a title to the build service", () => {
   const body = src.slice(src.indexOf("async function compile"), src.indexOf("const shapeOf"));
   assert.ok(body.length > 100, "the guard must actually be looking at the function");
   // Asserted on what the POST BODY carries, not on the function generally.
-  const post = (body.match(/JSON\.stringify\(\{[^}]*\}/) || [""])[0];
-  for (const key of ["theme", "fonts", "title"]) {
-    assert.match(post, new RegExp("\\b" + key + "\\b"),
-      `the build post must carry ${key}, or every sample renders on the bare template`);
+  const post = (body.match(/JSON\.stringify\(\{[\s\S]*?\}\),/) || [""])[0];
+  assert.ok(post.includes("files"), "the post body was not found");
+  // Asserted as KEYS — `key:` or the shorthand — never as a bare word, which is
+  // what let the dead `theme` survive as somebody else's argument.
+  for (const key of ["seeds", "fonts", "title"]) {
+    assert.match(post, new RegExp("(?:^|[,{]\\s*)" + key + "\\s*[,:]"),
+      `the build post must carry ${key} as a key, or every sample renders on the bare template`);
+  }
+  assert.ok(!/(?:^|[,{]\s*)theme\s*[,:]/.test(post),
+    "the eval posts `theme`, which the container has not read since the registry went");
+});
+
+test("EVERY EVAL SCENARIO'S ARRANGEMENT SURVIVES THE REAL NORMALISER", () => {
+  // This harness's own header states the rule it exists under: a harness that
+  // measures a different pipeline is worse than no harness. `shape` went per-page
+  // on 2026-08-21, and a scenario left on the old flat form still LOOKS like a
+  // plan — it normalises, the eval runs, the compile rate comes out — while the
+  // directive it sends carries no arrangement at all and production's carries one.
+  //
+  // Driven through the REAL `normalizePlan` rather than shape-checked here, so a
+  // later cap or rule change is covered without this file restating it. Every
+  // declared entry must survive: a path that does not match a page is dropped
+  // silently, which is exactly the typo a hand-written scenario makes.
+  const src = fs.readFileSync(new URL("./integration/page-gen-eval.mjs", import.meta.url), "utf8");
+  const at = src.indexOf("const SCENARIOS");
+  assert.ok(at > 0, "SCENARIOS is gone from the eval — retarget this guard");
+  let depth = 0, i = src.indexOf("[", at), j = i;
+  for (; j < src.length; j++) {
+    if (src[j] === "[") depth++;
+    else if (src[j] === "]") { depth--; if (!depth) { j++; break; } }
+  }
+  const scenarios = eval("(" + src.slice(i, j) + ")");
+  assert.ok(scenarios.length >= 3, `only ${scenarios.length} scenarios found — the scan is broken`);
+  for (const s of scenarios) {
+    const plan = normalizePlan(s.plan);
+    assert.ok(plan, `the ${s.key} scenario's plan does not normalise at all`);
+    assert.ok(Array.isArray(s.plan.shape) && s.plan.shape.length,
+      `the ${s.key} scenario declares no arrangement, so it measures a directive production does not send`);
+    assert.equal((plan.shape || []).length, s.plan.shape.length,
+      `the ${s.key} scenario lost an arrangement entry — a path that names no page, or a flat shape`);
   }
 });
 
