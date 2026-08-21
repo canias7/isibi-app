@@ -76,7 +76,13 @@ const r = await fetch(XAI_ENDPOINT, {
 });
 const secs = ((Date.now() - t0) / 1000).toFixed(1);
 const raw = await r.text();
-console.log(`\n  xAI answered ${r.status} in ${secs}s (${raw.length} bytes)\n`);
+console.log(`\n  xAI answered ${r.status} in ${secs}s (${raw.length} bytes)`);
+// THE SECONDS ARE A FINDING IN THEIR OWN RIGHT, not a progress line. A build
+// dies somewhere past ~285s at the edge — measured twice on 2026-08-21 — and
+// Sonnet's cold schema call is 29s of that budget. A designer four times slower
+// spends the headroom the page call needs, so this number decides whether Grok
+// is usable at all, separately from whether its answer is good.
+console.log(`  (Sonnet's cold schema call is ~29s; a build dies past ~285s at the edge)\n`);
 if (!r.ok) {
   // The provider's own words. This is where a wrong tool SHAPE lands, which is
   // the one thing the docs were ambiguous about — so the message is the fix.
@@ -117,8 +123,14 @@ ok(displays.length === 0 || seeded.length === displays.length, "every display ta
 
 // The authored theme and the plan — the two newest required blocks, and the ones
 // most likely to defeat a model that is merely filling in a form.
+// THE DETAIL IS THE WHOLE POINT WHEN THIS FAILS, and the first run proved it:
+// this check went red printing NOTHING, because the detail was conditioned on
+// the very shape being tested. So it said "the colours are wrong" without
+// saying what came back — a failure that cannot name itself, which is the thing
+// this repo records more than any other, arriving in a probe written to
+// diagnose. It dumps whatever `seeds` actually is now.
 ok(input.seeds && /^#[0-9a-fA-F]{6}$/.test(String((input.seeds.light || {}).paper || "")), "seeds carry real hex colours",
-  input.seeds && input.seeds.light ? JSON.stringify(input.seeds.light) : "");
+  "got: " + JSON.stringify(input.seeds).slice(0, 240));
 ok(Array.isArray(input.pages) && input.pages.length > 0, "the plan names pages",
   Array.isArray(input.pages) ? input.pages.map((p) => p && p.path).join(" ") : "");
 ok(Array.isArray(input.components) && input.components.length > 0, "the plan names a component manifest",
