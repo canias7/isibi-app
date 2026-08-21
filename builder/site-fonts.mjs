@@ -231,8 +231,15 @@ export function resolveFont(input) {
  * build, because a site in the wrong typeface is a far smaller problem than a
  * site that did not publish. What was asked for and what was used are both
  * returned, so the caller can say so.
+ *
+ * `fillUnasked: false` LEAVES AN UNNAMED SLOT NULL, and that option exists for
+ * exactly one caller — see `resolvePageFonts`. A SITE has to end up with two
+ * real faces, because there is nothing underneath it to fall back to; a PAGE
+ * has the site, and filling its unasked half from the platform default
+ * overrides the site rather than deferring to it. Default true, so every
+ * existing caller behaves byte-identically.
  */
-export function resolvePair(req) {
+export function resolvePair(req, { fillUnasked = true } = {}) {
   const out = { heading: null, body: null, notes: [] };
   for (const slot of ["heading", "body"]) {
     const asked = req && req[slot];
@@ -241,10 +248,15 @@ export function resolvePair(req) {
     if (asked) {
       out.notes.push(
         `"${asked}" isn't a font we can get` +
-        (r.suggestion ? ` — did you mean ${r.suggestion}?` : "") + ". Used the default instead.",
+        (r.suggestion ? ` — did you mean ${r.suggestion}?` : "") +
+        // THE SENTENCE HAS TO MATCH WHAT REALLY HAPPENS. A page that keeps the
+        // site's typeface is not "the default" — telling a customer we fell
+        // back to the platform font when we did not is the same class of
+        // inaccuracy this file's own header is written against.
+        (fillUnasked ? ". Used the default instead." : ". Kept the site's instead."),
       );
     }
-    out[slot] = resolveFont(DEFAULT_FONTS[slot]);
+    if (fillUnasked) out[slot] = resolveFont(DEFAULT_FONTS[slot]);
   }
   return out;
 }
@@ -289,6 +301,35 @@ export const MAX_PAGE_FONTS = 2;
  * badly-made site, which is worse than the honest limit. (And independently:
  * 280 of the 500 themes hard-set `border-radius` as real rules, which no token
  * scope can reach.)
+ *
+ * A HALF-NAMED PAIR KEEPS THE SITE'S OTHER HALF, and getting that wrong was a
+ * live bug. "Use something handwritten for the headings on the menu page" names
+ * ONE slot — which is the ordinary shape of this ask — and both lanes store it
+ * verbatim as `{heading: "caveat", body: ""}`. This then called `resolvePair`,
+ * which fills an unasked slot from `DEFAULT_FONTS`, and `fontCss` emits BOTH
+ * properties for the scope — so the derived half actively OVERRODE the site's
+ * own. Measured through the real module against a site pair of fraunces/inter:
+ *
+ *   resolvePageFonts({'/menu': {heading:'caveat', body:''}})
+ *     -> page pair: caveat / geist        // the site's Inter, replaced
+ *   notes: []                             // and nothing said so
+ *
+ * The customer asked to restyle one page's headings and lost that page's body
+ * typeface as well, silently, because `resolvePair` only ever notes a font it
+ * could not RESOLVE and there was nothing to resolve.
+ *
+ * THE FIX IS TO EMIT NOTHING FOR THE UNASKED HALF rather than to thread the
+ * site's pair through here. An override should only override what was named:
+ * with no declaration the site's own `--font-sans` cascades into the scope on
+ * its own, which is the right answer and needs no second opinion about what the
+ * site's typeface is. Threading the pair in would have needed both lanes in
+ * `worker.js` to pass it — one more wire to cut, on a feature whose failure is
+ * invisible.
+ *
+ * A PAGE THAT RESOLVED NOTHING IS NOT A SCOPE. Both halves unusable means the
+ * page simply keeps the site's typeface, so emitting `body[data-page=…]{}` is
+ * an empty rule and counting it against `max` would spend a slot on a page that
+ * changes nothing.
  */
 export function resolvePageFonts(req, { max = MAX_PAGE_FONTS } = {}) {
   const out = [];
@@ -302,8 +343,9 @@ export function resolvePageFonts(req, { max = MAX_PAGE_FONTS } = {}) {
     if (!/^\/[A-Za-z0-9\-._~/]*$/.test(String(route || ""))) { notes.push(`"${route}" isn't a page address.`); continue; }
     if (!want || typeof want !== "object") continue;
     if (out.length >= max) { notes.push(`Only ${max} page${max === 1 ? "" : "s"} can have their own typeface.`); break; }
-    const pair = resolvePair(want);
+    const pair = resolvePair(want, { fillUnasked: false });
     notes.push(...pair.notes);
+    if (!pair.heading && !pair.body) continue;
     out.push({ route: String(route), pair });
   }
   return { pages: out, notes };
@@ -354,8 +396,19 @@ export function fontCss(pair, fetched = {}, pages = []) {
     // against `:root`'s (0,1,0), so it wins on SPECIFICITY rather than on
     // source order, and the minifier cannot prove it dead the way it proved a
     // second `:root` dead.
-    scoped: (pages || []).map(({ route, pair: p }) =>
-      `body[data-page="${route}"]{--font-sans:${stack(p.body)};--font-heading:${stack(p.heading)};}`).join("\n"),
+    //
+    // ONLY THE HALF THAT WAS NAMED. This emitted both properties unconditionally
+    // and `resolvePageFonts` filled the unasked one from the platform default,
+    // so a page asked to change its HEADINGS silently lost the site's body
+    // typeface too — see that function for the measurement. A slot left out here
+    // is the site's own value cascading in, which is exactly what "keep the rest
+    // of the site's typeface" means in CSS.
+    scoped: (pages || []).map(({ route, pair: p }) => {
+      const decls = [];
+      if (p && p.body) decls.push(`--font-sans:${stack(p.body)}`);
+      if (p && p.heading) decls.push(`--font-heading:${stack(p.heading)}`);
+      return decls.length ? `body[data-page="${route}"]{${decls.join(";")};}` : "";
+    }).filter(Boolean).join("\n"),
   };
 }
 

@@ -471,6 +471,24 @@ test("the restore route's id is shape-checked exactly once", () => {
     "a second copy of the check drifts from the first — the module is the one place");
 });
 
+test("the versions route hands the module's answer through, unprojected", () => {
+  // THE WIRING LAYER, where this repo has recorded twelve dead features. The
+  // module now carries `restorable: false` on a version whose script was lost,
+  // and its only consumer is the wire: a route that projected the array — even
+  // innocently, to rename a field — would drop it, and the panel would offer a
+  // Restore button that can only ever fail with nothing anywhere saying why.
+  //
+  // BOUNDED BY THE END OF THE LINE, not by a byte count: the call and the
+  // response literal are one statement, so the landmark is `\n`. If the route
+  // legitimately grows a projection, re-point this at whatever preserves the
+  // flag rather than deleting it.
+  const i = worker.indexOf("versions: await listVersions(");
+  assert.ok(i > 0, "the versions listing route is gone — re-point this guard");
+  const stmt = worker.slice(i, worker.indexOf("\n", i));
+  assert.ok(!/\.map\(|\.filter\(|\.slice\(/.test(stmt),
+    "the route projects the version list — `restorable` would never reach the panel: " + stmt.trim());
+});
+
 test("deleting a site deletes its versions, after the live files", async () => {
   // Ordering: the published prefix is what the caller asked to take down, so
   // the archive sweep must not be able to answer an error before it happens.
@@ -684,22 +702,48 @@ test("A CLAIMED SCRIPT THAT IS MISSING REFUSES, BEFORE ANY FILE IS COPIED", asyn
   assert.deepEqual([...b.store.keys()].sort(), [...before.keys()].sort(), "a refused rollback still wrote something");
 });
 
-test("A FAILED SCRIPT WRITE DOES NOT CLAIM ONE", async () => {
-  // A flag set over a write that failed is a version reporting itself
-  // restorable and restoring a site with no document — strictly worse than one
-  // that honestly has no script, because that one still falls back.
-  const b = bucket(published());
-  const id = versionId(1000, "aa");
+/** An archive whose script put throws, which is the whole subject below. */
+function scriptWriteFails(b) {
   const put = b.deps.put;
   b.deps.put = async (key, text, ct) => {
     if (key.endsWith("_worker.js")) throw new Error("r2 down");
     return put(key, text, ct);
   };
+  return b;
+}
+
+test("A FAILED SCRIPT WRITE DOES NOT CLAIM ONE", async () => {
+  // A flag set over a write that failed is a version reporting itself
+  // restorable and restoring a site with no document — strictly worse than one
+  // that honestly has no script, because that one still falls back.
+  const b = scriptWriteFails(bucket(published()));
+  const id = versionId(1000, "aa");
   const r = await archiveVersion(b.deps, { slug: "cafe", id, files: DIST, worker: "export default 1" });
   assert.equal(r.ok, true, "a failed script write must not fail the archive — the site is already live");
   assert.equal(r.worker, false);
-  assert.equal(JSON.parse(b.store.get("versions/cafe/" + id + "/_manifest.json")).worker, undefined,
-    "the manifest claims a script that is not there");
+  // AND IT SAYS SO RATHER THAN SAYING NOTHING. This asserted `worker` was
+  // `undefined` on the manifest — i.e. it pinned the bug: absent is what a
+  // PRE-START version says, and a rollback reads that as "drop whatever script
+  // is standing". See the test below for what that cost.
+  const m = JSON.parse(b.store.get("versions/cafe/" + id + "/_manifest.json"));
+  assert.equal(m.worker, false, "a lost script must be recorded as lost, not as never-existed");
+  assert.ok(m.workerError, "nothing records WHY the script was lost");
+  assert.equal(r.workerLost, true, "the caller cannot tell a lost script from a build that had none");
+
+  // AND THE REASON IS READABLE WHATEVER WAS THROWN. `String(undefined)` is the
+  // literal "undefined", which reads like a bug in whoever wrote the field
+  // rather than a store that would not say why. Asserted as a PROPERTY — the
+  // recorded reason is never a stringified nothing — not on the fallback's
+  // wording.
+  const nul = bucket(published("bar"));
+  nul.deps.put = async (k, v) => { if (k.endsWith("_worker.js")) throw null; nul.store.set(k, v); };
+  const nid = versionId(2000, "bb");
+  const nr = await archiveVersion(nul.deps, { slug: "bar", id: nid, files: DIST, worker: "export default 1" });
+  const nm = JSON.parse(nul.store.get("versions/bar/" + nid + "/_manifest.json"));
+  assert.equal(nm.worker, false);
+  for (const [where, why] of [["manifest", nm.workerError], ["return", nr.workerError]]) {
+    assert.ok(why && !/^(undefined|null)$/.test(why), where + " recorded a stringified nothing: " + JSON.stringify(why));
+  }
 });
 
 test("a non-string script is ignored rather than stored", async () => {
@@ -711,6 +755,126 @@ test("a non-string script is ignored rather than stored", async () => {
     const id = versionId(1000, "a" + String(bad).slice(0, 1));
     const r = await archiveVersion(b.deps, { slug: "cafe", id, files: DIST, worker: bad });
     assert.equal(r.worker, false, "a " + typeof bad + " was archived as a script");
+  }
+});
+
+/* ── a lost script is not a pre-Start version ───────────────────────────────
+ *
+ * MEASURED AGAINST THE REAL MODULE 2026-08-21, before a line was changed. An
+ * archive whose script put threw produced a manifest byte-identical to a
+ * pre-Start one — `{"id","at","label","files"}`, no `worker` key — `listVersions`
+ * offered it like any other, and `rollbackVersion` answered `worker: null`. The
+ * restore route reads `rb.worker ? putSiteWorker : dropSiteWorker`, so that
+ * `null` took the LIVE script down. Under Start there is nothing to fall back
+ * onto (`dist/client` holds no HTML), so the site 404s at its own front door —
+ * a transient R2 blip turned into an outage days later, at the moment somebody
+ * was trying to fix their site.
+ *
+ * Every test here needs BOTH halves. "A lost script refuses" is satisfied by a
+ * module that refuses everything, and that would break every pre-Start rollback
+ * on the platform — so the counter-case is asserted beside it each time.
+ */
+
+test("A LOST SCRIPT REFUSES THE RESTORE, and a version that never had one still restores", async () => {
+  const lost = scriptWriteFails(bucket(published()));
+  const lostId = versionId(1000, "aa");
+  await archiveVersion(lost.deps, { slug: "cafe", id: lostId, files: DIST, worker: "export default 1" });
+
+  // NOTHING MAY BE WRITTEN BY THE REFUSAL. Restoring the files and then
+  // discovering there is no script is the half-restore: the standing script
+  // names the previous build's assets, which this would have just swept away.
+  const before = new Map(lost.store);
+  const rb = await rollbackVersion(lost.deps, { slug: "cafe", id: lostId });
+  assert.equal(rb.ok, false, "a version whose script was lost restored as though it never had one");
+  assert.equal(rb.status, 409);
+  assert.notEqual(rb.worker, null,
+    "`worker: null` is the caller's instruction to DROP the standing script — a lost script must never produce it");
+  assert.deepEqual([...lost.store.keys()].sort(), [...before.keys()].sort(),
+    "a refused rollback still wrote something");
+
+  // THE COUNTER-CASE, in the same test so neither can be satisfied alone. A
+  // version that genuinely never had a script is a pre-Start archive: it
+  // carries real prerendered documents, the static path is where it belongs,
+  // and refusing these would break every rollback on the platform.
+  const pre = bucket(published());
+  const preId = versionId(1000, "bb");
+  await archiveVersion(pre.deps, { slug: "cafe", id: preId, files: DIST });
+  const ok = await rollbackVersion(pre.deps, { slug: "cafe", id: preId });
+  assert.equal(ok.ok, true, "a pre-Start version must still restore");
+  assert.equal(ok.worker, null, "…and must still tell the caller to drop the standing script");
+});
+
+test("a manifest written before this shipped behaves exactly as it did", async () => {
+  // THE DEPLOYMENT-SAFETY PROPERTY. Ten versions per site are already in R2 and
+  // none of them carries a `worker` key, so the absence has to keep meaning what
+  // it has always meant. Planted as literal old-format JSON rather than produced
+  // by `archiveVersion`, because what is being asserted is a fact about the
+  // BYTES already in the store, not about today's writer.
+  const b = bucket(published());
+  const id = versionId(2000, "aa");
+  b.store.set("versions/cafe/" + id + "/_manifest.json",
+    JSON.stringify({ id, at: 2000, label: "Old build", files: DIST }));
+  for (const f of DIST) b.store.set("versions/cafe/" + id + "/" + f, "old:" + f);
+
+  assert.deepEqual(await listVersions(b.deps, { slug: "cafe" }),
+    [{ id, at: 2000, label: "Old build", files: DIST.length }],
+    "an old manifest grew a field — the listing is not byte-identical to before");
+  const rb = await rollbackVersion(b.deps, { slug: "cafe", id });
+  assert.equal(rb.ok, true);
+  assert.equal(rb.worker, null);
+  assert.equal(b.store.get("sites/cafe/index.html"), "old:index.html", "the old build did not come back");
+});
+
+test("the list says which versions cannot be put back", async () => {
+  // OFFERED AND FLAGGED, rather than dropped the way an unreadable manifest is.
+  // Dropping it makes the loss silent — the owner sees yesterday's build simply
+  // missing with nothing anywhere to explain it, which is the class of failure
+  // the flag exists to end.
+  const b = scriptWriteFails(bucket(published()));
+  const bad = versionId(1000, "aa");
+  await archiveVersion(b.deps, { slug: "cafe", id: bad, files: DIST, worker: "export default 1" });
+
+  const list = await listVersions(b.deps, { slug: "cafe" });
+  assert.equal(list.length, 1, "the version was hidden rather than flagged");
+  assert.equal(list[0].restorable, false);
+
+  // PRESENT ONLY WHEN FALSE, so a healthy list is byte-identical to before and
+  // the field's PRESENCE is the alarm. Asserted with `in` rather than on the
+  // value: `restorable: true` and no key at all both read as truthy.
+  const good = bucket(published());
+  await archiveVersion(good.deps, { slug: "cafe", id: versionId(2000, "bb"), files: DIST, worker: "export default 1" });
+  await archiveVersion(good.deps, { slug: "cafe", id: versionId(3000, "cc"), files: DIST });
+  for (const v of await listVersions(good.deps, { slug: "cafe" })) {
+    assert.ok(!("restorable" in v), "a healthy version carries the flag: " + JSON.stringify(v));
+  }
+});
+
+test("the two ways a script can be unrestorable are said APART", async () => {
+  // Both are "no script to restore" and they have different causes — one never
+  // stored the object, one lost it afterwards — and a single sentence for both
+  // is a failure that cannot name itself. The owner's next move is the same
+  // either way, so both are 409.
+  const lostB = scriptWriteFails(bucket(published()));
+  const lostId = versionId(1000, "aa");
+  await archiveVersion(lostB.deps, { slug: "cafe", id: lostId, files: DIST, worker: "export default 1" });
+  const lost = await rollbackVersion(lostB.deps, { slug: "cafe", id: lostId });
+
+  const goneB = bucket(published());
+  const goneId = versionId(1000, "bb");
+  await archiveVersion(goneB.deps, { slug: "cafe", id: goneId, files: DIST, worker: "export default 1" });
+  goneB.store.delete("versions/cafe/" + goneId + "/_worker.js");
+  const gone = await rollbackVersion(goneB.deps, { slug: "cafe", id: goneId });
+
+  assert.equal(lost.status, 409);
+  assert.equal(gone.status, 409);
+  assert.notEqual(lost.error, gone.error, "two different causes wear one sentence");
+  // A SENTENCE, NOT A TOKEN. `public/chat.js` puts `d.error` straight into a
+  // toast the owner reads, so `worker-lost` would be shown to a customer.
+  // Asserted as a property rather than on the wording, which is this repo's
+  // most repeated own-goal.
+  for (const [what, e] of [["lost", lost.error], ["gone", gone.error]]) {
+    assert.equal(typeof e, "string", what + " has no message");
+    assert.ok(/\s/.test(e) && e.length > 20, what + " is a token, not something an owner can read: " + e);
   }
 });
 

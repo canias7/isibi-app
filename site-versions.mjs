@@ -110,7 +110,30 @@ const WORKER_FILE = "_worker.js";
  * A VERSION WITH NO SCRIPT IS STILL RESTORABLE, and must be: every version
  * archived before this carries real prerendered documents, so the static path is
  * genuinely what it should go back to. `worker` on the manifest is what tells
- * the two apart, and its absence means the old behaviour, unchanged.
+ * these cases apart, and its ABSENCE means the old behaviour, unchanged.
+ *
+ * `worker` IS THREE STATES, NOT TWO, AND THAT IS THE WHOLE OF THE 2026-08-21 FIX.
+ * It used to be `true` or absent, and absent meant BOTH "this version predates
+ * the script" and "this version had one and the put failed" — which are opposite
+ * facts with opposite correct answers. Measured against the real module: an
+ * archive whose script write threw produced a manifest byte-identical to a
+ * pre-Start one (`{id, at, label, files}`), `rollbackVersion` answered
+ * `worker: null`, and the restore route reads that as "drop whatever script is
+ * standing". Under Start there is no static path to drop back onto — `dist/client`
+ * holds no HTML — so a transient R2 blip during an archive became a site
+ * answering 404 at its own front door days later, at the exact moment somebody
+ * was trying to put it right.
+ *
+ *   `worker: true`   the script is stored beside this manifest — restore it
+ *   `worker: false`  this build HAD a script and we could not store it — refuse
+ *   absent           this build never had one — drop the standing script
+ *
+ * ONE FIELD, NOT TWO, and the absence carries the old meaning unchanged. A
+ * separate `workerLost` flag beside `worker` is two things to keep in step, and
+ * the failure two drifting flags produce is exactly the one being fixed. Both
+ * live states are read STRICTLY (`=== true` / `=== false`), so anything else a
+ * manifest could hold — including every manifest already in R2 — falls through
+ * to the pre-Start behaviour it has today.
  *
  * BEST-EFFORT BY CONSTRUCTION, and the caller must treat it that way: the site
  * is already live by the time this runs, so a failed archive costs a rollback
@@ -129,10 +152,34 @@ export async function archiveVersion(deps, { slug, id, label, files, worker, bui
   // version that reports itself restorable and restores a site with no document
   // — strictly worse than one that honestly says it has no script, because that
   // one still falls back to the static path.
+  //
+  // `wanted` IS THE FACT THE OLD CODE THREW AWAY. `hasWorker` alone cannot tell
+  // "nobody offered a script" from "a script was offered and the put failed",
+  // and the manifest was written from `hasWorker` — so the second collapsed into
+  // the first and a rollback took a live site down. It is a separate local for
+  // exactly that reason, and it is read from the SAME expression that decides
+  // whether to attempt the put, so the two can never disagree about whether
+  // this build had a script.
   let hasWorker = false;
+  let wanted = false;
+  let lost = "";
   if (typeof worker === "string" && worker) {
+    wanted = true;
     try { await deps.put(dest + WORKER_FILE, worker, "application/javascript"); hasWorker = true; }
-    catch (e) { hasWorker = false; }
+    catch (e) {
+      hasWorker = false;
+      // WHY, NOT JUST THAT. This was `catch (e) { hasWorker = false; }` with `e`
+      // unused and no log anywhere, and both call sites discard this function's
+      // return — so the one event that makes a version unrestorable was
+      // completely silent at every layer. Bounded like `detail` elsewhere: it is
+      // a provider string, and the manifest is not a place to put an unbounded
+      // one.
+      // `|| "unknown"` LAST, so a thrown null does not get recorded as the
+      // literal string "undefined" — a reason that reads like a bug in the
+      // reader rather than a store that would not say why.
+      lost = String((e && e.message) || e || "unknown").replace(/\s+/g, " ").trim().slice(0, 200);
+      console.error("version script NOT archived — this version cannot be restored:", slug, id, lost);
+    }
   }
 
   // The manifest is what makes a version restorable: R2 has no way to ask "which
@@ -142,7 +189,17 @@ export async function archiveVersion(deps, { slug, id, label, files, worker, bui
     id, at: Number(String(id).slice(0, 14)) || 0,
     label: String(label || "Build").slice(0, MAX_LABEL),
     files: names,
-    ...(hasWorker ? { worker: true } : {}),
+    // THREE STATES ON ONE FIELD — see the header. `wanted` decides whether the
+    // key exists at all (a build that never had a script says nothing, exactly
+    // as every manifest already in R2 does) and `hasWorker` decides its value.
+    // Written from `hasWorker` alone, a failed put was indistinguishable from a
+    // pre-Start build and a restore silently took the site down.
+    ...(wanted ? { worker: hasWorker } : {}),
+    // AND WHAT WENT WRONG, so the next person does not have to reconstruct it.
+    // Only ever beside `worker: false`, and never returned to a caller: this
+    // manifest is internal, and `listVersions` projects the fields the owner
+    // sees one at a time.
+    ...(wanted && !hasWorker && lost ? { workerError: lost } : {}),
     // AND WHICH BUILD THAT SCRIPT IS. A restore uploads it again, and the
     // platform waits for the site to actually serve what it uploaded before it
     // says the rollback is done — which it can only do if it knows what to wait
@@ -154,7 +211,15 @@ export async function archiveVersion(deps, { slug, id, label, files, worker, bui
     ...(hasWorker && typeof build === "string" && build ? { build } : {}),
   }), "application/json");
   const pruned = await pruneVersions(deps, { slug });
-  return { ok: true, id, files: names.length, worker: hasWorker, pruned };
+  // `worker: false` HAS THE SAME TWO MEANINGS ON THE RETURN as it used to have
+  // in the manifest, so the return carries the distinction too. Present only
+  // when a script was really lost, so an ordinary archive's answer is
+  // byte-identical to before and its PRESENCE is the alarm — the same contract
+  // as `render`/`salvage` on the build response.
+  return {
+    ok: true, id, files: names.length, worker: hasWorker, pruned,
+    ...(wanted && !hasWorker ? { workerLost: true, workerError: lost } : {}),
+  };
 }
 
 /** Newest first. Reads manifests only — the object bodies are never touched. */
@@ -175,7 +240,26 @@ export async function listVersions(deps, { slug } = {}) {
     // mean guessing its file list, and a wrong guess publishes a mixture of two
     // builds — which is worse than the version simply not being there.
     if (m && Array.isArray(m.files) && m.files.length) {
-      out.push({ id, at: Number(m.at) || 0, label: String(m.label || "Build").slice(0, MAX_LABEL), files: m.files.length });
+      out.push({
+        id, at: Number(m.at) || 0, label: String(m.label || "Build").slice(0, MAX_LABEL), files: m.files.length,
+        // A VERSION WHOSE SCRIPT WAS LOST IS STILL OFFERED, AND SAYS SO. The
+        // alternative — dropping it from the list the way an unreadable
+        // manifest is dropped — makes the loss silent, which is the class of
+        // failure this flag exists to end: the owner would see yesterday's build
+        // simply missing with nothing anywhere to explain it. `rollbackVersion`
+        // refuses it with a sentence, and this is what lets a panel say so
+        // before they click.
+        //
+        // PRESENT ONLY WHEN FALSE, so a healthy list is byte-identical to
+        // before and the field's presence is the alarm.
+        //
+        // IT IS A CLAIM ABOUT THE MANIFEST, NOT A PROMISE ABOUT THE STORE. A
+        // version that says `worker: true` whose object has since gone also
+        // refuses at restore time, and this cannot see that without an extra R2
+        // read per row — so absence means "nothing recorded a problem", never
+        // "guaranteed restorable".
+        ...(m.worker === false ? { restorable: false } : {}),
+      });
     }
   }
   return out.sort((a, b) => (a.id < b.id ? 1 : -1));
@@ -204,6 +288,12 @@ export async function listVersions(deps, { slug } = {}) {
  * standing taken down, which is what puts a pre-Start version back on the
  * static path it really belongs to.
  *
+ * `null` NOW MEANS ONLY THE PRE-START CASE, which is what makes that contract
+ * safe to act on. It used to mean that OR "we lost this version's script", and
+ * the caller cannot tell them apart — so a lost script was answered by taking
+ * the live script down, on a platform where that leaves no document at any
+ * address. The lost case is a 409 before anything is copied; see below.
+ *
  * AFTER THE FILES, always. The script serves this site's assets out of R2 and
  * its document names them, so uploading it before they are copied in means every
  * stylesheet and bundle 404s for as long as the copies take — the same ordering
@@ -223,12 +313,36 @@ export async function rollbackVersion(deps, { slug, id } = {}) {
   // standing script would still name the previous build's assets, and the site
   // would be blank with the customer told it was restored. Refusing here leaves
   // them the site they had.
+  //
+  // AND A VERSION THAT RECORDS A LOST SCRIPT IS REFUSED WITHOUT A LOOKUP. That
+  // is the third state `archiveVersion` now writes, and it is the whole 2026-08-21
+  // fix at this end: it used to be indistinguishable from a pre-Start version, so
+  // this returned `worker: null` and the caller read that as "drop whatever is
+  // standing" — which under Start leaves the site 404ing, because there is no
+  // static path to drop back onto.
+  //
+  // REFUSED RATHER THAN RESTORED-WITH-THE-STANDING-SCRIPT, and the choice is
+  // between two broken sites rather than between broken and working: the
+  // standing script bakes in a DIFFERENT build's hashed asset names, which this
+  // restore has just swept away, so keeping it renders a document pointing at
+  // nothing. Both alternatives are a site that does not work; refusing is the
+  // only one that leaves the owner the site they already had.
   let worker = null;
   if (manifest && manifest.worker === true) {
     try { worker = await deps.read(src + WORKER_FILE); } catch { worker = null; }
     if (typeof worker !== "string" || !worker) {
       return { ok: false, error: "that version's script is missing, so it cannot be put back", status: 409 };
     }
+  } else if (manifest && manifest.worker === false) {
+    // SAID APART FROM THE ONE ABOVE. Both are "no script to restore" and they
+    // have different causes — one lost the object after the fact, one never
+    // stored it — and a single sentence for both is a failure that cannot name
+    // itself. The owner's next move is the same either way, so both are 409 and
+    // both point at it.
+    return {
+      ok: false, status: 409,
+      error: "that version's script was never saved, so it cannot be put back — pick another build, or make any change to publish a fresh one",
+    };
   }
 
   const ordered = names.slice().sort((a, b) =>

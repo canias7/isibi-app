@@ -12,8 +12,14 @@
 // across revises. Two properties do the work — the token list is an ALLOW-LIST,
 // and the value must be a colour we can PARSE, not a string we pass through.
 //
-// A plain module with no imports, so all of it is tested outside the Worker and
-// outside the container.
+// ONE IMPORT, and it is the palette generator itself. `oklchToRgb` is what
+// writes every colour on every site the platform builds, so reading one back
+// through the SAME function is exact by construction rather than by a second
+// implementation that agrees today — see `COLOR_FUNCS` below for why this file
+// had to learn to read colours at all. `site-theme.mjs` has no imports of its
+// own and is already COPYd into the build image beside this file, so nothing
+// about where this module can run changes.
+import { oklchToRgb } from "./site-theme.mjs";
 
 /**
  * WHAT MAY BE CHANGED, and nothing else.
@@ -138,10 +144,180 @@ const NUM = "[-+]?(?:\\d+\\.?\\d*|\\.\\d+)%?";
 // syntactically wrong colour through to the stylesheet, where a browser drops
 // the declaration and the customer is told the change was applied.
 const SEP = "(?:\\s*,\\s*|\\s*/\\s*|\\s+)";
+
+/* ── reading a colour, not merely recognising one ──────────────────────────── */
+
+/**
+ * sRGB, gamma-encoded and clamped to 0..255. Every converter below ends here,
+ * so an out-of-gamut triple lands where a browser would put it rather than as a
+ * negative number that quietly poisons a luminance.
+ */
+const enc255 = (v) => {
+  const c = v <= 0.0031308 ? 12.92 * v : 1.055 * Math.pow(Math.max(v, 0), 1 / 2.4) - 0.055;
+  return Math.min(255, Math.max(0, c * 255));
+};
+
+/** A component as written: the number, and whether it carried a `%`. */
+const num255 = (c) => (c.pct ? (c.n / 100) * 255 : c.n);
+/** 0..1 scale — `oklch(50% …)` and `oklch(0.5 …)` are the same lightness. */
+const unit01 = (c) => (c.pct ? c.n / 100 : c.n);
+/** A percentage reference range: `100%` means `ref`, a bare number is itself. */
+const ref = (c, r) => (c.pct ? (c.n / 100) * r : c.n);
+
+/** CSS Color 4's own HSL algorithm, verified against three known values. */
+function hslToRgb(hDeg, s, l) {
+  const h = ((hDeg % 360) + 360) % 360;
+  const a = s * Math.min(l, 1 - l);
+  const f = (n) => {
+    const k = (n + h / 30) % 12;
+    return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+  };
+  return [f(0), f(8), f(4)].map((v) => Math.min(255, Math.max(0, v * 255)));
+}
+
+/**
+ * CIE Lab -> sRGB, and the D50 is the part that is easy to get wrong.
+ *
+ * CSS `lab()` and `lch()` are defined against the **D50** white point, while
+ * sRGB is D65 — so the chain is Lab(D50) -> XYZ(D50) -> Bradford-adapt to D65
+ * -> linear sRGB -> gamma. Skipping the adaptation gives colours that are
+ * plausible and wrong, which is the worst kind here because the answer still
+ * looks like a colour.
+ *
+ * Verified rather than reasoned: `lab(100 0 0)` -> 255,255,255, `lab(0 0 0)` ->
+ * 0,0,0, `lab(50 0 0)` -> 119,119,119 (mid grey, as L* 50 must be), and
+ * `lab(54.29 80.8 69.89)` -> exactly 255,0,0, which is sRGB red expressed in
+ * D50 Lab. That last one exercises the whole chain including the adaptation.
+ */
+function labToRgb(L, A, B) {
+  const e = 216 / 24389, k = 24389 / 27;
+  const fy = (L + 16) / 116, fx = fy + A / 500, fz = fy - B / 200;
+  const fx3 = fx ** 3, fz3 = fz ** 3;
+  const xr = fx3 > e ? fx3 : (116 * fx - 16) / k;
+  const yr = L > k * e ? ((L + 16) / 116) ** 3 : L / k;
+  const zr = fz3 > e ? fz3 : (116 * fz - 16) / k;
+  // D50 white, from the chromaticity CSS Color 4 names.
+  const X = (xr * 0.3457) / 0.3585, Y = yr, Z = (zr * (1 - 0.3457 - 0.3585)) / 0.3585;
+  const D50_TO_D65 = [
+    [0.9554734527042182, -0.023098536874261423, 0.0632593086610217],
+    [-0.028369706963208136, 1.0099954580058226, 0.021041398966943008],
+    [0.012314001688319899, -0.020507696433477912, 1.3303659366080753],
+  ];
+  const XYZ_TO_LINEAR = [
+    [3.2409699419045226, -1.537383177570094, -0.4986107602930034],
+    [-0.9692436362808796, 1.8759675015077202, 0.04155505740717559],
+    [0.05563007969699366, -0.20397695888897652, 1.0569715142428786],
+  ];
+  const d65 = D50_TO_D65.map((r) => r[0] * X + r[1] * Y + r[2] * Z);
+  return XYZ_TO_LINEAR.map((r) => r[0] * d65[0] + r[1] * d65[1] + r[2] * d65[2]).map(enc255);
+}
+
+/** Polar to cartesian, for the two notations that write an angle. */
+const polar = (C, hDeg) => [C * Math.cos((hDeg * Math.PI) / 180), C * Math.sin((hDeg * Math.PI) / 180)];
+
+/**
+ * EVERY NOTATION THIS FILE ACCEPTS, WITH ITS PARSER, IN ONE TABLE — because two
+ * lists is exactly how this broke.
+ *
+ * WHAT WAS WRONG. `isColor` named eight function notations and `luminance` could
+ * read TWO of them. Measured through the real module: `oklch(0.15 0.02 260)`
+ * answered `isColor: true, luminance: null`, and `withContrast` then derived NO
+ * `--foreground` and no `--muted-foreground`, so `tokensCss` emitted
+ * `--background: oklch(0.15 0.02 260)` on its own. That is the exact failure
+ * `withContrast`'s own docstring says it exists to prevent — a near-black page
+ * carrying the light theme's near-black ink, a site that renders perfectly and
+ * cannot be read — and the null branch's justification ("leaves the pairing as
+ * it was, which is the direction that cannot make things worse") is false for a
+ * surface that HAS moved: leaving the partner alone there is guaranteed
+ * unreadable rather than merely risky.
+ *
+ * IT WAS REACHABLE BY ORDINARY MODEL OUTPUT, not by an exotic answer. The
+ * template's own palette is oklch and `styles.css` tells the model every colour
+ * must be, so a designer following the platform's own convention wrote the one
+ * notation this could not read. `valueHint` only SUGGESTS `#rrggbb`; nothing
+ * gates on it. Six of the eight were blind: `hsl`, `hsla`, `oklch`, `oklab`,
+ * `lab`, `lch`.
+ *
+ * WHY A TABLE AND NOT A SECOND CASE IN `luminance`. The notation exists BECAUSE
+ * it has a parser — `FUNC` is built from these keys — so "accepted but
+ * unreadable" is not a thing to remember, it is unrepresentable. Adding `hwb`
+ * later means adding a parser, or the name simply is not accepted.
+ *
+ * NARROWING `isColor` INSTEAD WAS THE OTHER OBVIOUS FIX AND IS WRONG: it refuses
+ * colours a customer can legitimately ask for, in the notation the platform's
+ * own stylesheet is written in, and turns a legibility bug into "we couldn't use
+ * that colour" on a perfectly good answer.
+ */
+const COLOR_FUNCS = Object.freeze({
+  rgb: (p) => p.slice(0, 3).map(num255),
+  rgba: (p) => p.slice(0, 3).map(num255),
+  // A bare number in `hsl()` is the same scale as the percentage, per CSS
+  // Color 4 — `hsl(210 33 9)` and `hsl(210 33% 9%)` are one colour.
+  hsl: (p) => hslToRgb(p[0].n, p[1].n / 100, p[2].n / 100),
+  hsla: (p) => hslToRgb(p[0].n, p[1].n / 100, p[2].n / 100),
+  oklch: (p) => oklchToRgb(unit01(p[0]), ref(p[1], 0.4), p[2].n).map((v) => v * 255),
+  oklab: (p) => {
+    const [L, a, b] = [unit01(p[0]), ref(p[1], 0.4), ref(p[2], 0.4)];
+    return oklchToRgb(L, Math.hypot(a, b), ((Math.atan2(b, a) * 180) / Math.PI + 360) % 360).map((v) => v * 255);
+  },
+  // `lab()`'s L is 0..100 and `100%` MEANS 100, so the percentage and the bare
+  // number are the same value — unlike every other component here.
+  lab: (p) => labToRgb(p[0].n, ref(p[1], 125), ref(p[2], 125)),
+  lch: (p) => {
+    const [a, b] = polar(ref(p[1], 150), p[2].n);
+    return labToRgb(p[0].n, a, b);
+  },
+});
+
+/** The notations this file reads, so a guard can sweep them without a hand list. */
+export const COLOR_NOTATIONS = Object.freeze(Object.keys(COLOR_FUNCS));
+
+// LONGEST NAME FIRST. `rgb|rgba` only works because JS alternation backtracks
+// past `rgb` when the `\(` fails against the `a`; sorting removes the dependence
+// on that entirely, and the set of strings matched is identical either way.
 const FUNC = new RegExp(
-  "^(rgb|rgba|hsl|hsla|oklch|oklab|lab|lch)\\(\\s*" +
+  "^(" + [...COLOR_NOTATIONS].sort((a, b) => b.length - a.length).join("|") + ")\\(\\s*" +
   "(?:" + NUM + ")(?:" + SEP + "(?:" + NUM + ")){2,3}" +
   "\\s*\\)$", "i");
+
+/**
+ * The components of a function colour, as written.
+ *
+ * Only ever reached for a string `FUNC` has already accepted, so the shape is
+ * known: three or four numbers with a legal separator between them. Split on the
+ * SAME separator set the pattern names, or the two can disagree about what
+ * counts as one component.
+ */
+function componentsOf(s) {
+  const open = s.indexOf("("), close = s.lastIndexOf(")");
+  if (open < 0 || close <= open) return null;
+  return s.slice(open + 1, close).trim().split(/\s*,\s*|\s*\/\s*|\s+/).filter(Boolean)
+    .map((t) => ({ n: parseFloat(t), pct: t.endsWith("%") }));
+}
+
+/** A function colour as sRGB 0..255, or null if it is not one. */
+function funcRgb(s) {
+  const m = FUNC.exec(s);
+  if (!m) return null;
+  const name = m[1].toLowerCase();
+  // `Object.hasOwn`, not a truthiness check: `COLOR_FUNCS["constructor"]` is a
+  // real function, and this repo has shipped that exact bug twice. Unreachable
+  // through `FUNC` — which only matches the eight names — and cheap enough that
+  // the next person to hand this a raw string does not have to notice.
+  if (!Object.hasOwn(COLOR_FUNCS, name)) return null;
+  const p = componentsOf(s);
+  if (!p || p.length < 3 || !p.slice(0, 3).every((c) => Number.isFinite(c.n))) return null;
+  return COLOR_FUNCS[name](p);
+}
+
+/** A hex colour as sRGB 0..255, or null. */
+function hexRgb(s) {
+  if (!HEX.test(s)) return null;
+  let h = s.slice(1);
+  if (h.length === 3 || h.length === 4) h = h.slice(0, 3).split("").map((c) => c + c).join("");
+  else h = h.slice(0, 6);
+  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+}
 
 /**
  * Is this a colour, or is it CSS?
@@ -276,26 +452,25 @@ export function valueHint(name) {
 }
 
 /**
- * sRGB relative luminance, from a hex or an `rgb()`.
+ * sRGB relative luminance, from ANY notation `isColor` accepts.
  *
- * Only used to pick between near-black and near-white text, so a colour it
- * cannot read answers null and the caller leaves the pairing alone — a guess
- * here is worse than no change, because the wrong guess is unreadable text.
+ * THE INVARIANT, and it is the whole point of the table above: every value
+ * `isColor` says yes to, this reads. So `null` here means the value was never a
+ * colour, never that it was one we happen not to understand — which is what lets
+ * `withContrast` treat a readable surface as guaranteed rather than as luck.
+ * Asserted by a derived sweep over `COLOR_NOTATIONS` rather than by a hand list,
+ * because a hand list is what let six notations go unread for as long as they
+ * did.
+ *
+ * Only used to pick between near-black and near-white text, so precision past a
+ * light/dark decision buys nothing — but it is exact for the platform's own
+ * palettes anyway, since `oklch` goes back through the function that wrote them.
  */
 export function luminance(v) {
   const s = String(v == null ? "" : v).trim();
-  let r, g, b;
-  if (HEX.test(s)) {
-    let h = s.slice(1);
-    if (h.length === 3 || h.length === 4) h = h.slice(0, 3).split("").map((c) => c + c).join("");
-    else h = h.slice(0, 6);
-    r = parseInt(h.slice(0, 2), 16); g = parseInt(h.slice(2, 4), 16); b = parseInt(h.slice(4, 6), 16);
-  } else {
-    const m = /^rgba?\(\s*([-+.\d]+%?)\s*[,\s]\s*([-+.\d]+%?)\s*[,\s]\s*([-+.\d]+%?)/i.exec(s);
-    if (!m) return null;
-    const to255 = (t) => (t.endsWith("%") ? (parseFloat(t) / 100) * 255 : parseFloat(t));
-    r = to255(m[1]); g = to255(m[2]); b = to255(m[3]);
-  }
+  const rgb = hexRgb(s) || funcRgb(s);
+  if (!rgb) return null;
+  const [r, g, b] = rgb;
   if (![r, g, b].every((n) => Number.isFinite(n))) return null;
   const lin = (c) => {
     const x = Math.min(255, Math.max(0, c)) / 255;
@@ -315,9 +490,20 @@ export function luminance(v) {
  * ask for the second one.
  *
  * Only fills a partner the caller did NOT set — an explicit pair is the
- * customer's own choice and is left alone, however bad. And only when the
- * luminance can actually be measured; an unreadable colour leaves the pairing
- * as it was, which is the direction that cannot make things worse.
+ * customer's own choice and is left alone, however bad.
+ *
+ * THE `l == null` BRANCH IS UNREACHABLE THROUGH THE REAL PATH, and it is said so
+ * here rather than deleted or pretended to be tested. Everything that gets this
+ * far has been through `parseTokens`, which refuses anything `isColor` refuses,
+ * and `luminance` now reads every notation `isColor` accepts (see `COLOR_FUNCS`)
+ * — so a surface that is present is a surface that can be measured. It is kept
+ * for a caller that has not validated, and NOT as a fail-open policy: the old
+ * comment here claimed skipping was "the direction that cannot make things
+ * worse", which was simply false for a surface, because the surface has already
+ * MOVED and its partner has not. That reading is what let six of the eight
+ * notations ship an unreadable page. The property that makes it unreachable
+ * lives in another function and is asserted directly, so this cannot quietly
+ * become live again.
  */
 export function withContrast(patch) {
   const out = { ...patch };

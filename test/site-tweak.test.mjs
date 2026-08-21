@@ -12,7 +12,7 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   readTweak, runTweak, tweakable, sameProse, proseOf, routeIdOf, tweakUsage,
-  tweakRequest, tweakReply, TWEAK_MODEL, TWEAK_TOOL, TWEAK_RULES, MAX_TWEAK_CHARS,
+  tweakRequest, tweakReply, tweakLint, TWEAK_MODEL, TWEAK_TOOL, TWEAK_RULES, MAX_TWEAK_CHARS,
 } from "../builder/site-tweak.mjs";
 // The extractor the guarantee is built on — used here to splice at its OWN
 // offsets, so the negative case covers every page rather than the fifth that
@@ -264,4 +264,153 @@ test("the reply names the page and the promise", () => {
   assert.match(said, /\/book/);
   assert.match(said, /wording/i, "the reply does not state the guarantee that makes this rung worth using");
   assert.ok(!tweakReply("").includes("undefined"));
+});
+
+/* ── what the tweak BROKE ─────────────────────────────────────────────────── */
+
+test("THE LANE LINTS ITS OWN OUTPUT — it did not, and its comment said it did", () => {
+  // WHAT WAS BROKEN. `site-tweak.mjs`'s header gave "`lintPages` still runs on
+  // the result, so an import that does not exist is caught either way" as the
+  // justification for sending a short prompt instead of the full generator
+  // rules. Nothing ran it: `runTweak` returned and `worker.js` went straight to
+  // `recompileAndPublish` — no `validatePages`, no `lintPages`, no
+  // `repairImports` anywhere on the path. So the one lane EVERY page edit tries
+  // first was the only one with no runtime-correctness check, while its own
+  // rules invite exactly the prop changes the lint was built for.
+  //
+  // Each of these compiles, bundles and publishes. Nothing else in the pipeline
+  // has an opinion about any of them.
+  const bad = {
+    "require()": (s) => s.replace("export const Route", "const x = require('fs');\nexport const Route"),
+    "a literal colour class": (s) => s.replace(/className="/, 'className="text-red-500 '),
+    "a demo chart import": (s) =>
+      s.replace(/^import /m, 'import { Component } from "@/components/charts/bar/chart-bar-default";\nimport '),
+    "an invented prop": (s) => s.replace(/<Hero\b/, "<Hero wobble={3}"),
+    "a #/ navigation": (s) =>
+      s.replace("export const Route", 'const go = () => { location.hash = "#/book"; };\nexport const Route'),
+  };
+  for (const [what, fn] of Object.entries(bad)) {
+    const after = fn(PAGE);
+    assert.notEqual(after, PAGE, "the fixture for " + what + " did not apply");
+    const r = readTweak(reply({ source: after }), { source: PAGE });
+    assert.equal(r.ok, false, what + " published with nothing reported");
+    assert.equal(r.reason, "lint", what + " was refused for the wrong reason: " + r.reason);
+    // CARRIED, not merely counted. "The cheap rung keeps refusing" and "the
+    // cheap rung keeps breaking pages" want opposite fixes and are one log line
+    // without the strings.
+    assert.ok(Array.isArray(r.problems) && r.problems.length, what + ": no problem was carried");
+    assert.match(r.problems[0], /\S/, what + ": the problem is empty");
+  }
+});
+
+test("…and a clean tweak carries no problems at all", () => {
+  // The negative, or "refuse on a problem" is equally satisfied by refusing
+  // everything — which is the failure this rung cannot afford, because it would
+  // be a permanent silent fall-through to the 10-credit rewrite.
+  const bigger = PAGE.replace(/\btext-(xs|sm|base|lg|xl|2xl|3xl|4xl)\b/, "text-6xl");
+  assert.notEqual(bigger, PAGE);
+  const r = readTweak(reply({ source: bigger }), { source: PAGE });
+  assert.equal(r.ok, true, "a plain size change was refused: " + r.reason);
+  assert.equal("problems" in r, false, "a working tweak's result grew a field");
+});
+
+test("the lint is DIFFERENTIAL — a problem the page already had is not this edit's", () => {
+  // THE MEASUREMENT THAT DECIDES WHETHER THIS CAN EXIST AT ALL. This lane has no
+  // schema — the route reads `_meta` after the cheap attempt — so an ABSOLUTE
+  // lint judges every `useRows("menu")` against a spec it does not have. Over
+  // the corpus that is 326 of 329 pages carrying at least one spec-less problem,
+  // i.e. an absolute lint refuses essentially every tweak on the platform.
+  const dirty = PAGE.replace("export const Route", "const x = require('fs');\nexport const Route");
+  assert.notEqual(dirty, PAGE);
+  // The problem is in BOTH, so a size change on that page is still a clean tweak.
+  const bigger = dirty.replace(/\btext-(xs|sm|base|lg|xl|2xl|3xl|4xl)\b/, "text-6xl");
+  assert.notEqual(bigger, dirty);
+  assert.deepEqual(tweakLint(dirty, bigger), [], "a pre-existing problem was blamed on this edit");
+  assert.equal(readTweak(reply({ source: bigger }), { source: dirty }).ok, true);
+  // And REMOVING one is not a problem either.
+  assert.deepEqual(tweakLint(dirty, PAGE), []);
+  // …while introducing it is.
+  assert.equal(tweakLint(PAGE, dirty).length, 1);
+});
+
+test("…and the corpus says the differential does not cry wolf", () => {
+  // 1,640 real tweaks across 329 pages, 0 introduced problems. Kept as a test
+  // rather than as a number in a comment, because a lint that starts firing on
+  // correct tweaks turns the cheap path into a permanent 10-credit
+  // fall-through — silently, since every refusal here escalates by design.
+  const root = new URL("../builder/lovable/template/src/", import.meta.url);
+  const files = [];
+  const walk = (d) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (p.endsWith(".tsx")) files.push(p);
+    }
+  };
+  for (const abs of [CORPUS_DIR, path.join(root.pathname, "routes")]) {
+    if (fs.existsSync(abs)) walk(abs);
+  }
+  assert.ok(files.length >= 300, "only " + files.length + " corpus pages found — the sweep broke");
+
+  const TWEAKS = [
+    (s) => s.replace(/\btext-(xs|sm|base|lg|xl|2xl|3xl|4xl)\b/, "text-6xl"),
+    (s) => s.replace(/\bp([xyby]?)-(\d+)\b/, (m, a) => "p" + a + "-24"),
+    (s) => s.replace(/\bgap-(\d+)\b/, "gap-1"),
+    (s) => s.replace(/<SectionHeader\b(?![^>]*align=)/, '<SectionHeader align="center"'),
+    (s) => s.replace(/columns=\{[234]\}/, "columns={4}"),
+    (s) => s.replace(/ratio="[^"]+"/, 'ratio="4/3"'),
+    (s) => s.replace(/\brounded-(sm|md|lg|xl|2xl)\b/, "rounded-xl border"),
+    (s) => s.replace(/\bmax-w-(sm|md|lg|xl|2xl|3xl|4xl|5xl|6xl|prose)\b/, "max-w-6xl"),
+  ];
+  let applied = 0, flagged = 0, withBase = 0;
+  const shown = [];
+  for (const f of files) {
+    const src = fs.readFileSync(f, "utf8");
+    // The number that makes the differential necessary rather than merely tidy.
+    if (tweakLint("", src).length) withBase++;
+    for (const fn of TWEAKS) {
+      const out = fn(src);
+      if (out === src) continue;
+      applied++;
+      const p = tweakLint(src, out);
+      if (p.length) { flagged++; if (shown.length < 3) shown.push(f.split("/").slice(-2).join("/") + " :: " + p[0]); }
+    }
+  }
+  assert.ok(applied >= 1000, "only " + applied + " tweaks applied — the sweep is not exercising the lint");
+  assert.equal(flagged, 0, flagged + " of " + applied + " real tweaks were flagged: " + shown.join(" | "));
+  // A FLOOR ON THE THING THE DESIGN RESTS ON. If the corpus ever stopped
+  // carrying spec-less problems, "differential" would be indistinguishable from
+  // "absolute" and this test would pass while proving nothing about the choice.
+  assert.ok(withBase >= 200,
+    "only " + withBase + " of " + files.length + " pages carry a spec-less problem — an absolute lint " +
+    "may now be affordable, but check that before simplifying this");
+});
+
+test("a lint that throws costs the CHECK, never the rung", () => {
+  // The direction is deliberate: this sits in front of a path that already
+  // works and that has never had a lint at all, so a crash in a scanner must
+  // not make every page edit on the platform pay for the rewrite for ever.
+  // Driven with input that is not a string at all.
+  assert.deepEqual(tweakLint(null, undefined), []);
+  assert.deepEqual(tweakLint(PAGE, PAGE), []);
+});
+
+test("THE WIRING: the lint really is called, and the prose is not what says so", () => {
+  // BLANKED FIRST, because this module's header and `tweakLint`'s own docstring
+  // both spell `lintPages` at length — prose describing a thing contains that
+  // thing's spelling, which this repo has recorded ten-plus times, and a raw
+  // source-read here would match the explanation and pass against a module that
+  // never calls it. Length-preserving and line-wise.
+  const raw = read("../builder/site-tweak.mjs");
+  const code = raw.split("\n").map((l) => (/^\s*(\/\/|\*|\/\*)/.test(l) ? " ".repeat(l.length) : l)).join("\n");
+  assert.match(code, /^import \{ lintPages \} from "\.\/page-gen\.mjs";$/m,
+    "site-tweak.mjs does not import the lint");
+  assert.match(code, /lintPages\(\[\{ path:/, "the lint is imported and never called");
+  // And `readTweak` is where it runs — a `tweakLint` nothing calls is the dead
+  // feature this whole finding is an instance of. Anchored on the function, not
+  // on a byte window.
+  const fn = code.slice(code.indexOf("export function readTweak"), code.indexOf("export function tweakable"));
+  assert.ok(fn.length > 200, "readTweak not found — re-point this guard");
+  assert.match(fn, /tweakLint\(before, after\)/, "readTweak does not run the lint");
+  assert.match(fn, /reason: "lint"/, "…and does not refuse on it");
 });

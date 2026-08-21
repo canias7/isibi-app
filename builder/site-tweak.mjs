@@ -32,6 +32,11 @@
 // Plain module with no I/O, like `site-ask.mjs` and `site-rules.mjs`: the model
 // call is injected, so every decision here is tested without a Worker.
 import { extractText } from "./site-text.mjs";
+// The runtime-correctness check. Imported rather than injected because it is
+// pure — no Worker, no container, no network — so importing it costs this
+// module none of the properties above, and injecting it would put the one thing
+// that makes the rung safe behind a caller remembering to pass it.
+import { lintPages } from "./page-gen.mjs";
 
 /** Haiku. Editing a className is not a design task, and the saving IS the model. */
 export const TWEAK_MODEL = "claude-haiku-4-5";
@@ -97,8 +102,16 @@ export const TWEAK_TOOL = {
  * WRITES a page. This one edits an existing file, so the components in front of
  * it are already used correctly and the rules describing them buy nothing: on a
  * warm cache that block is ~$0.011 a call, which is most of the difference
- * between 3 credits and 10. `lintPages` still runs on the result, so an import
- * that does not exist is caught either way.
+ * between 3 credits and 10.
+ *
+ * SENDING SHORT RULES IS ONLY SAFE BECAUSE `lintPages` RUNS ON THE RESULT —
+ * `tweakLint` below, in `readTweak`. This comment used to claim that as an
+ * accomplished fact and it was false: `runTweak` returned, `worker.js` went
+ * straight to `recompileAndPublish`, and no `validatePages`, no `lintPages` and
+ * no `repairImports` ran anywhere on the path. So the ONE lane every page edit
+ * tries first was the only one with no runtime-correctness check, on a rung
+ * whose own rules invite prop changes — which is the invented-prop class the
+ * lint was built for.
  */
 export const TWEAK_RULES =
   "You are editing ONE file of a small business's website. The customer has asked for one visual change.\n\n" +
@@ -191,6 +204,50 @@ export function routeIdOf(source) {
 }
 
 /**
+ * What this tweak BROKE — never what the page was already carrying.
+ *
+ * WHY DIFFERENTIAL, AND IT IS NOT caution: it is the only honest question this
+ * rung can ask. `lintPages(pages, spec)` judges table names, function names and
+ * API names against the site's schema, and this lane has no schema — the route
+ * reads `_meta` AFTER the cheap attempt, deliberately, so that a tweak costs
+ * nothing when it works. Run absolutely with no spec, EVERY `useRows("menu")`
+ * on the page reads as a table the schema does not declare. Measured over the
+ * 329-page corpus: **326 of them carry at least one spec-less problem**, so an
+ * absolute lint would refuse essentially every tweak on the platform and the
+ * cheap rung would be dead — silently, as a permanent 10-credit fall-through.
+ *
+ * Differentially those cancel: the same problem string is produced before and
+ * after, so what is left is exactly what this edit introduced. That is also the
+ * only thing the rung is answerable for — it did not write the rest of the file.
+ *
+ * CALIBRATED THE WAY EVERY CHECK IN THIS REPO HAS TO BE, against the corpus:
+ * **1,640 real tweaks across 329 pages, 0 differential false alarms**, and it
+ * catches a `require(`, a literal colour class, a demo chart import, a
+ * `location.hash` navigation and an invented prop on the first try. A guard that
+ * fires on a correct tweak would turn the cheap path into a permanent
+ * fall-through, which is worse than the miss it prevents.
+ *
+ * FAILS OPEN ON A THROW, and that direction is deliberate. This sits in front of
+ * a path that already works and that has never had a lint at all, so a crash
+ * here must cost the check rather than the rung: failing the other way would
+ * make every page edit on the platform pay for the rewrite, for ever, because of
+ * a bug in a scanner. `lintPages` is regex-based and does not throw on malformed
+ * input today; this is the guard for the day it does.
+ */
+export function tweakLint(before, after) {
+  const at = (src) => {
+    try {
+      // ONE path for both, or the `path + ": "` prefix differs and nothing
+      // cancels — every problem would read as introduced.
+      return new Set(lintPages([{ path: "page.tsx", source: String(src == null ? "" : src) }], undefined));
+    } catch { return null; }
+  };
+  const b = at(before), a = at(after);
+  if (!b || !a) return [];
+  return [...a].filter((p) => !b.has(p));
+}
+
+/**
  * What came back, and whether to use it.
  *
  * EVERY REFUSAL ESCALATES rather than answering the customer, and the asymmetry
@@ -235,6 +292,25 @@ export function readTweak(reply, { source } = {}) {
   // THE PROMISE. Measured over the corpus at a 0% false-alarm rate across 1,657
   // real tweaks, and it catches a rewording on 329 of 329 pages.
   if (!sameProse(before, after)) return { ok: false, reason: "reworded" };
+
+  // WHAT IT BROKE. Last, so the cheaper and more specific refusals above keep
+  // their own names — a rewording reported as a lint problem sends whoever
+  // reads it at the wrong thing.
+  //
+  // ESCALATES RATHER THAN ANSWERING, like every other refusal here, and that is
+  // what makes this fixable inside this module: the rung above sends the full
+  // generator rules and lints its own output, so a page this rung got wrong
+  // gets a genuinely different attempt rather than a published fault. Reporting
+  // instead would leave the customer a live site carrying a `require(` or a
+  // hard-coded colour with nothing said about it, which is the state this was
+  // in.
+  //
+  // `problems` IS CARRIED ON THE REFUSAL so the reason is nameable — "the cheap
+  // rung keeps refusing" and "the cheap rung keeps breaking pages" want
+  // opposite fixes, and without the strings they are one log line. Absent on
+  // success, so a working tweak's result is unchanged.
+  const problems = tweakLint(before, after);
+  if (problems.length) return { ok: false, reason: "lint", problems };
 
   return { ok: true, source: after };
 }

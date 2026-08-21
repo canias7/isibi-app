@@ -7,7 +7,7 @@ import {
   TOKENS, SIZES, ASKABLE, WRITABLE, MAX_TOKENS, isColor, isLength, valueHint,
   normalizeLength, stripThemeRadius, validForWrite,
   luminance, withContrast, parseTokens, mergeTokens, tokensCss, tokenNote,
-  PAIRED, saidFor, askedNames,
+  PAIRED, saidFor, askedNames, COLOR_NOTATIONS,
 } from "../builder/site-tokens.mjs";
 import { computedSql } from "../site-schema.mjs";
 
@@ -81,8 +81,19 @@ test("both patterns are anchored, which is what refuses CSS", () => {
   const hex = src.match(/const HEX = (\/.*\/i?);/);
   assert.ok(hex, "the hex pattern moved — re-point this guard");
   assert.ok(hex[1].startsWith("/^") && /\$\/i?$/.test(hex[1]), "the hex pattern must be anchored at both ends: " + hex[1]);
-  assert.match(src, /"\^\(rgb\|/, "the function pattern must start anchored");
+  // THE PROPERTY, NOT THE SPELLING. This used to pin the literal `"^(rgb|`,
+  // which is a fact about the order the notations happen to be written in — it
+  // went red the moment the pattern was built from `COLOR_NOTATIONS` instead of
+  // typed out, on a change that altered nothing it was written to protect.
+  // Driven instead: anchoring is exactly the thing that makes a trailing `;}`
+  // stop being a colour, so that is what is asserted.
+  assert.match(src, /"\^\(" \+/, "the function pattern must START anchored");
   assert.match(src, /"\\\\s\*\\\\\)\$"/, "…and end anchored");
+  for (const n of COLOR_NOTATIONS) {
+    assert.equal(isColor(n + "(1 2 3); } body { display: none }"), false,
+      n + " must not accept a value that closes the declaration");
+    assert.equal(isColor("x" + n + "(1 2 3)"), false, n + " must be anchored at the start");
+  }
   assert.equal(isColor("#" + "f".repeat(200)), false, "and an absurd input is still refused");
   assert.equal(isColor("rgb(" + "1,".repeat(60) + "1)"), false);
 });
@@ -342,11 +353,103 @@ test("an explicitly chosen pair is left alone, however bad", () => {
   assert.equal(out.foreground, "#111111", "the customer named both — that is their call");
 });
 
-test("a surface whose luminance cannot be read leaves its partner alone", () => {
-  // A guess here is worse than no change: the wrong guess is unreadable text.
-  const out = withContrast({ background: "oklch(0.85 0.18 95)" });
-  assert.equal("foreground" in out, false);
-  assert.equal(out.background, "oklch(0.85 0.18 95)", "the surface itself still applies");
+test("EVERY NOTATION `isColor` ACCEPTS GETS ITS PARTNER — the six that did not", () => {
+  // THE BUG THIS REPLACES, and the test that stood here asserted it. `isColor`
+  // named eight function notations and `luminance` read TWO, so `hsl`, `hsla`,
+  // `oklch`, `oklab`, `lab` and `lch` all came back null and `withContrast`
+  // derived nothing. Measured through the real module before the fix:
+  //
+  //   withContrast({background:'oklch(0.15 0.02 260)'})
+  //     -> {"background":"oklch(0.15 0.02 260)"}          // and nothing else
+  //   tokensCss(...) -> ":root { --background: oklch(0.15 0.02 260); }"
+  //
+  // i.e. a near-black page shipped carrying the light theme's near-black ink —
+  // the exact total failure `withContrast` exists to prevent, reachable by a
+  // designer answering in the notation the template's own stylesheet is written
+  // in. The old test's title ("a surface whose luminance cannot be read leaves
+  // its partner alone") was true, and what it was really pinning was blindness.
+  //
+  // DERIVED FROM `COLOR_NOTATIONS`, not a list of the six known today: a
+  // notation added without a parser is precisely how this happened, so the
+  // sweep has to grow on its own.
+  assert.ok(COLOR_NOTATIONS.length >= 8, "only " + COLOR_NOTATIONS.length + " notations — the table shrank");
+  for (const n of COLOR_NOTATIONS) {
+    // One synthetic value parses in all eight: three plain numbers. What is
+    // being asserted is that it is READ, not what colour it comes out.
+    const v = n + "(0.5 0.2 120)";
+    assert.equal(isColor(v), true, v + " should be a colour");
+    assert.equal(typeof luminance(v), "number", v + " is accepted and cannot be read");
+    const out = withContrast({ background: v });
+    assert.ok("foreground" in out, v + " left the page with the theme's old ink on it");
+    assert.ok("muted-foreground" in out, v + " left the quiet text on the theme's own ground");
+    assert.equal(out.background, v, "the surface itself still applies");
+  }
+});
+
+test("…and the derived partner reaches the stylesheet in every notation", () => {
+  // The end of the wire, because `tokensCss` re-validates: a partner derived and
+  // then dropped on the way to the CSS is the same unreadable page.
+  for (const n of COLOR_NOTATIONS) {
+    const css = tokensCss(withContrast({ background: n + "(0.06 0.02 260)" }));
+    assert.match(css, /--foreground: #/, n + ": no ink reached the stylesheet");
+    assert.match(css, /--muted-foreground: #/, n + ": no quiet ink reached the stylesheet");
+  }
+});
+
+test("THE INVARIANT: everything `isColor` accepts, `luminance` reads", () => {
+  // WHAT MAKES `withContrast`'s NULL BRANCH UNREACHABLE, asserted where it can
+  // be seen rather than assumed at the branch. The two used to be separate
+  // lists and drifted; they are one table now, and this is the property that
+  // table exists to guarantee. Swept over shapes a model really writes —
+  // percentages, alpha, commas, negatives, the platform's own oklch.
+  const values = [
+    "#fc0", "#ff00", "#ffcc00", "#ffcc0080", "#FFCC00",
+    "rgb(255, 204, 0)", "rgb(255 204 0)", "rgba(255,204,0,0.5)", "rgb(100% 80% 0%)",
+    "hsl(48, 100%, 50%)", "hsl(210 33% 9%)", "hsla(210,33%,9%,0.9)", "hsl(210 33 9)",
+    "oklch(0.85 0.18 95)", "oklch(0.85 0.18 95 / 0.5)", "oklch(50% 40% 260)",
+    "oklab(0.15 0.02 -0.03)", "oklab(70% -25% 30%)",
+    "lab(10 2 -8)", "lab(54.29 80.8 69.89)", "lab(50% 10% -10%)",
+    "lch(10 5 260)", "lch(90 20 90)", "lch(50% 40% 200)",
+  ];
+  let accepted = 0;
+  for (const v of values) {
+    if (!isColor(v)) continue;
+    accepted++;
+    const l = luminance(v);
+    assert.equal(typeof l, "number", v + " is accepted and cannot be read");
+    assert.ok(l >= 0 && l <= 1, v + " gave a luminance outside 0..1: " + l);
+  }
+  // A floor, because a sweep over nothing satisfies every assertion inside it.
+  assert.ok(accepted >= 20, "only " + accepted + " of the shapes were accepted — the sweep is not exercising this");
+  // And the other direction still holds: a value that is NOT a colour reads as
+  // one that could not be measured, which is what `null` is allowed to mean.
+  for (const v of ["nonsense", "red", "var(--x)", "url(x)", "", null, undefined, {}, []]) {
+    assert.equal(isColor(v), false, String(v) + " must not be a colour");
+    assert.equal(luminance(v), null, String(v) + " must not be readable");
+  }
+});
+
+test("the conversions agree with values measured outside this file", () => {
+  // Each notation checked against something independent of it, or "it reads"
+  // is satisfied by a parser that returns a plausible wrong number — and a
+  // wrong number here picks the wrong ink, which is the bug being fixed.
+  const near = (a, b, why) => assert.ok(Math.abs(a - b) < 0.02, why + " (" + a + " vs " + b + ")");
+  // hsl against sRGB primaries.
+  near(luminance("hsl(0 100% 50%)"), luminance("#ff0000"), "hsl red");
+  near(luminance("hsl(120 100% 25%)"), luminance("#008000"), "hsl dark green");
+  near(luminance("hsl(0 0% 50%)"), luminance("#808080"), "hsl mid grey");
+  // CIE Lab is D50 and sRGB is D65 — skip the chromatic adaptation and these
+  // come out plausible and wrong, which is why they are checked at all.
+  // Not exact equality: the D50->D65->sRGB chain lands white at 0.9999999937,
+  // which is a float fact rather than a colour one — and `luminance` only ever
+  // decides light-or-dark against 0.45, so a tolerance here is honest.
+  near(luminance("lab(100 0 0)"), 1, "lab white");
+  near(luminance("lab(0 0 0)"), 0, "lab black");
+  near(luminance("lab(54.29 80.8 69.89)"), luminance("#ff0000"), "sRGB red as D50 Lab");
+  near(luminance("lch(54.29 106.84 40.85)"), luminance("#ff0000"), "…and the same colour in polar form");
+  // oklab is oklch in cartesian form, so the two must agree on one colour.
+  near(luminance("oklab(0.6279554 0.2248631 0.1258463)"), luminance("oklch(0.6279554 0.2576833 29.2338851)"),
+    "oklab and oklch disagree about one colour");
 });
 
 test("the quiet text follows the GROUND, not its own token's name", () => {
@@ -454,7 +557,11 @@ test("luminance reads the shapes it claims to", () => {
   assert.ok(luminance("#fff") === 1, "shorthand hex expands");
   assert.ok(Math.abs(luminance("rgb(255,255,255)") - 1) < 1e-9);
   assert.ok(Math.abs(luminance("rgb(100%, 100%, 100%)") - 1) < 1e-9);
-  assert.equal(luminance("oklch(0.5 0 0)"), null, "unreadable is null, never a guess");
+  // `oklch(0.5 0 0)` was pinned as `null` here, which pinned the blindness: it
+  // is a mid grey and reads as one now. `null` is reserved for a value that is
+  // not a colour at all — see the invariant test below.
+  assert.ok(Math.abs(luminance("oklch(0.5 0 0)") - luminance("#636363")) < 0.02,
+    "a neutral oklch is a mid grey, not unreadable");
   assert.equal(luminance("nonsense"), null);
   assert.equal(luminance(null), null);
 });

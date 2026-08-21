@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import {
   SHORTLIST, DEFAULT_FONTS, SYSTEM_STACK,
   normalizeFontName, matchFontName, nearestFontName,
-  resolveFont, resolvePair, fontCss, fontImports, shortlistForPrompt, stackFor,
+  resolveFont, resolvePair, resolvePageFonts, fontCss, fontImports, shortlistForPrompt, stackFor,
 } from "../builder/site-fonts.mjs";
 
 import { mergeLook } from "../builder/site-edit.mjs";
@@ -279,3 +279,83 @@ test("an off-shortlist font is FETCHED by the Worker, and fails soft", () => {
   assert.match(fn, /f\.source !== "fetch"/, "an installed font must never be fetched");
 });
 
+
+/* ── a page's own typeface may not replace the site's other half ──────────── */
+
+test("A HALF-NAMED PAGE PAIR KEEPS THE SITE'S OTHER HALF", () => {
+  // WHAT WAS BROKEN. "Use something handwritten for the headings on the menu
+  // page" names ONE slot, which is the ordinary shape of this ask, and both
+  // lanes store it as `{heading:"caveat", body:""}`. `resolvePageFonts` handed
+  // that to `resolvePair`, which fills an unasked slot from `DEFAULT_FONTS`,
+  // and `fontCss` emitted BOTH properties for the scope — so the derived half
+  // actively overrode the site's. Measured through the real module against a
+  // site pair of fraunces/inter:
+  //
+  //   resolvePageFonts({'/menu':{heading:'caveat', body:''}})
+  //     -> page pair: caveat / geist
+  //   notes: []
+  //
+  // The page the customer asked to restyle lost the site's body typeface as
+  // well, replaced by the PLATFORM default, and nothing reported it: the pair
+  // produced no note because `resolvePair` only speaks up about a font it could
+  // not resolve, and there was nothing to resolve.
+  const site = resolvePair({ heading: "fraunces", body: "inter" });
+  assert.equal(site.body.id, "inter", "the fixture's site body font is not what this test thinks");
+
+  const { pages, notes } = resolvePageFonts({ "/menu": { heading: "caveat", body: "" } });
+  assert.equal(pages.length, 1, "the page scope was dropped entirely");
+  assert.equal(pages[0].pair.heading.id, "caveat", "the half that WAS asked for must still apply");
+  assert.equal(pages[0].pair.body, null,
+    "the unasked half was filled in — from " + (pages[0].pair.body && pages[0].pair.body.id));
+  assert.deepEqual(notes, [], "a half-named pair is not a problem to report");
+
+  // THE END OF THE WIRE, because a slot left null in the pair and then emitted
+  // anyway is the same bug one function later. This is what actually reaches
+  // the customer's stylesheet.
+  const css = fontCss(site, {}, pages);
+  assert.match(css.scoped, /--font-heading:"Caveat"/, "the asked-for half never reached the scope");
+  assert.doesNotMatch(css.scoped, /--font-sans:/,
+    "the scope declares a body font nobody asked for, overriding the site's: " + css.scoped);
+  // And the site's own value is still declared, which is what the scope now
+  // defers to — the whole reason emitting nothing is the right answer.
+  assert.match(css.vars, /--font-sans: "Inter Variable"/, "the site's own body font is not being declared");
+});
+
+test("…and naming BOTH halves still overrides both", () => {
+  // The negative, or "emit nothing" is equally satisfied by a scope that emits
+  // nothing at all and the feature is dead rather than fixed.
+  const site = resolvePair({ heading: "fraunces", body: "inter" });
+  const { pages } = resolvePageFonts({ "/menu": { heading: "caveat", body: "lobster" } });
+  const css = fontCss(site, {}, pages);
+  assert.match(css.scoped, /--font-heading:"Caveat"/);
+  assert.match(css.scoped, /--font-sans:"Lobster"/);
+});
+
+test("a page whose ONLY named font cannot be got is not a scope at all", () => {
+  // Both halves unusable means the page simply keeps the site's typeface, so an
+  // empty `body[data-page=…]{}` rule would be dead bytes — and counting it
+  // against MAX_PAGE_FONTS would spend one of the two slots on a page that
+  // changes nothing.
+  const site = resolvePair({ heading: "fraunces", body: "inter" });
+  const { pages, notes } = resolvePageFonts({ "/menu": { heading: "helvetica" } });
+  assert.equal(pages.length, 0, "an empty scope was kept");
+  assert.equal(fontCss(site, {}, pages).scoped, "");
+  // AND THE SENTENCE HAS TO BE TRUE. "Used the default instead" is what a SITE
+  // does; a page keeps the site's, and telling the customer otherwise is a
+  // claim about their site that is simply wrong.
+  assert.equal(notes.length, 1, "a font we could not get must still be reported");
+  assert.match(notes[0], /Kept the site's instead\./, notes[0]);
+  assert.doesNotMatch(notes[0], /Used the default instead\./, notes[0]);
+});
+
+test("a SITE's pair is still always filled — there is nothing under it", () => {
+  // The asymmetry is the whole design, so it is asserted rather than left to
+  // the default argument: a site with one half named has to end up with two
+  // real faces, because `--font-sans` has no site-level value to cascade from.
+  const site = resolvePair({ heading: "caveat" });
+  assert.equal(site.heading.id, "caveat");
+  assert.equal(site.body.id, DEFAULT_FONTS.body, "a site's unasked half must still fall back");
+  assert.equal(resolvePair({}).body.id, DEFAULT_FONTS.body);
+  assert.match(resolvePair({ heading: "helvetica" }).notes[0], /Used the default instead\./,
+    "a site really does use the default, and must say so");
+});
