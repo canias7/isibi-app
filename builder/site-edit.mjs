@@ -30,7 +30,7 @@
 // whole decision is tested without a Worker, a model or a database.
 
 import { PLAN_EDIT_FIELDS } from "./site-plan.mjs";
-import { normalizeSeeds } from "./site-seeds.mjs";
+import { normalizeSeeds, SEEDS_FIELD } from "./site-seeds.mjs";
 
 /**
  * The look/identity fields an edit may move. `tables` and `tokens` merge on their own paths.
@@ -333,11 +333,59 @@ export function mergeLook(prior, designed, body, { instructed = false } = {}) {
   const b = body && typeof body === "object" ? body : {};
   const out = {};
   for (const k of EDIT_FIELDS) {
+    // THE REMOVAL VERB, AND IT CAN ONLY EVER COME FROM THE DESIGNER.
+    //
+    // It is applied here rather than by making `[]` count as a value in the
+    // chain below, because the two slots mean different things: an empty list on
+    // the DESIGNER's answer is "take them all off", and an empty list on the
+    // STORED look is the site simply having none. Let the stored one into the
+    // chain and, on the un-instructed path where stored comes first, a site
+    // recorded as `langs: []` could never be given a second language again.
+    //
+    // Gated on `instructed` for the same reason the precedence is: without the
+    // current-state note the model is answering the way it always did, and an
+    // empty field is far more likely to be silence than a decision.
+    if (instructed && clearsField(k, d[k])) { out[k] = d[k]; continue; }
     const order = instructed ? [d[k], p[k], b[k]] : [p[k], d[k], b[k]];
-    out[k] = order.find((v) => hasValue(v)) ?? null;
+    // FIELD-AWARE, so a palette is judged by `normalizeSeeds` whatever shape it
+    // arrived in rather than by a heuristic that has an outside. See `keepsValue`.
+    out[k] = order.find((v) => keepsValue(k, v)) ?? null;
   }
   return out;
 }
+
+/**
+ * THE KEYS A PALETTE ANSWER CAN CARRY, DERIVED FROM THE TOOL FIELD ITSELF.
+ *
+ * This used to be a hand-written `["paper", "ink", "accent"]` and the gap that
+ * left was a HIGH, measured 2026-08-21: an answer carrying only `dark`, or only
+ * `name`, has NONE of the three at the top level, so it walked past the
+ * validator in `hasValue` and was counted a value by the generic object test —
+ * the exact outcome that function's own doc block says it prevents ("Absent
+ * unless all three are there").
+ *
+ *   hasValue({ dark: { paper: "#101418", ink: "#f2f2f2", accent: "#e08a4a" } })
+ *     → true   (and `normalizeSeeds` of it → "light paper is not a #rrggbb colour")
+ *   hasValue({ name: "Coastal Fog" }) → true
+ *
+ * `dark` is the natural answer to "make the dark mode moodier": the tool offers
+ * it as its own nested object with its own `required`, and nested `required` is
+ * advisory here because structured outputs are unavailable on this tool. So it
+ * is a shape a model reaches for, not a contrived one.
+ *
+ * DERIVED rather than re-listed, because the hand-written list is what went
+ * stale: a sixth property added to `SEEDS_FIELD` is covered here without anybody
+ * remembering this file.
+ *
+ * THE ONE OVERLAP WITH ANOTHER FIELD'S VOCABULARY IS `accent`, which is also an
+ * askable TOKEN name — so a token patch of exactly `{accent:"#f00"}` is read as a
+ * palette answer and refused. That is unchanged by this widening (`accent` was
+ * already an anchor) and it is low-stakes, because `tokens` is not an
+ * `EDIT_FIELDS` key: nothing about the token patch's APPLICATION goes through
+ * here. `keepsValue` below is what makes the high-stakes path exact. A test
+ * pins the overlap, so a token named `name` or `dark` cannot arrive quietly.
+ */
+export const SEED_KEYS = Object.freeze(Object.keys(SEEDS_FIELD.properties));
 
 /**
  * What counts as NAMED.
@@ -355,8 +403,6 @@ export function mergeLook(prior, designed, body, { instructed = false } = {}) {
  * good stored palette on a revise, so an edit about a phone number could strip
  * the colours off a live site. Absent unless all three are there.
  */
-const SEED_ANCHORS = ["paper", "ink", "accent"];
-
 export function hasValue(v) {
   if (v == null) return false;
   if (typeof v === "string") return v.trim() !== "";
@@ -365,8 +411,8 @@ export function hasValue(v) {
     const h = typeof v.heading === "string" ? v.heading.trim() : "";
     const b = typeof v.body === "string" ? v.body.trim() : "";
     if ("heading" in v || "body" in v) return !!(h && b);
-    // Recognised by the anchors rather than by the field name, because this
-    // function never learns which key it is answering for.
+    // Recognised by the palette's own key names rather than by the field name,
+    // because this function never learns which key it is answering for.
     //
     // AND "USABLE", NOT MERELY "COMPLETE" — which is the stricter half and the
     // one that matters. A palette the engine refuses is not an answer, exactly
@@ -383,10 +429,84 @@ export function hasValue(v) {
     // THE SAME VALIDATOR, NEVER A SECOND OPINION. `normalizeSeeds` is the one
     // place a palette is judged; this asks it whether an answer counts, which is
     // a different question at a different moment, not a rival ruling.
-    if (SEED_ANCHORS.some((k) => k in v)) return !!normalizeSeeds(v).theme;
+    if (SEED_KEYS.some((k) => k in v)) return !!normalizeSeeds(v).theme;
     return Object.keys(v).length > 0;
   }
   return true;
+}
+
+/**
+ * Fields where an explicit EMPTY list is a real answer meaning "none".
+ *
+ * `langs` is documented to the model, in the tool field itself, as "to keep what
+ * the site has, leave it out; to remove every extra language, answer `[]`" — and
+ * `hasValue([])` is false, so the merge read the removal verb as silence, the
+ * prior list survived, and `movedFields` reported nothing moved. Measured
+ * 2026-08-21 with prior `{lang:"en", langs:["es"]}` and designed `{langs: []}`:
+ * `merged.langs` came back `["es"]`. So the ONE documented way to take a
+ * language off a site could not do it at any price — and, because the look
+ * lane's `named` guard is built from `hasValue` too, an ask that named nothing
+ * else fell through to `escalate("no-change")`, buying a ~21-27-credit page
+ * rewrite that could not remove it either.
+ *
+ * A LIST, NOT A RULE ABOUT ARRAYS. `pages`, `components`, `action` and `shape`
+ * are also arrays on `EDIT_FIELDS`, and none of them has a removal verb: a site
+ * with no pages is not a thing anybody can ask for, and reading `[]` there as an
+ * answer would let a model that filled the field in with nothing wipe the plan.
+ * Only the field whose tool description promises the verb gets it.
+ */
+export const CLEARABLE_LISTS = Object.freeze(["langs"]);
+
+/** The removal verb: an explicitly empty list on a field that has one. */
+export function clearsField(field, v) {
+  return CLEARABLE_LISTS.includes(field) && Array.isArray(v) && v.length === 0;
+}
+
+/**
+ * IS THIS A VALUE WORTH KEEPING FOR **THIS** FIELD — the field-aware half.
+ *
+ * `hasValue` never learns which key it is answering for, so its palette test is
+ * a heuristic on the object's own shape, and a heuristic has an outside: a
+ * designer that nests the light half the way the tool nests the dark one
+ * (`{light:{paper,ink,accent}}`) carries no seed key at all, falls through to the
+ * generic object test, and poisons the stored look exactly as `{dark:{…}}` did.
+ * Here the field IS known, so the palette goes through `normalizeSeeds` whatever
+ * shape it arrived in, and the hole has no outside.
+ *
+ * The invariant this buys, and it is what the test asserts: `mergeLook` can
+ * never return a `seeds` value that `normalizeSeeds` refuses. That matters
+ * because nothing downstream re-validates it — `_meta.site_look` is written
+ * whole, and every later cheap edit re-sends it, so one poisoned store leaves a
+ * site on the template's default look for good.
+ *
+ * `Object.hasOwn`, not a truthiness test: `FIELD_KEEPS["constructor"]` is
+ * `Object`, so an empty value comes back as a String OBJECT — truthy — and the
+ * merge would keep `""` as somebody's brand. The exact bug this codebase shipped
+ * once in the Stripe plan lookup.
+ *
+ * NO LIVE CALL SITE CAN REACH THAT TODAY, and it is said here rather than left
+ * looking load-bearing: every caller passes a name out of `EDIT_FIELDS`, or
+ * `tokens`/`style`/`tokensPage`. What it holds is the CONTRACT of an exported
+ * function that takes a field name from whoever calls it, which is one new
+ * caller away from mattering; the test drives it directly for that reason.
+ */
+const FIELD_KEEPS = { seeds: (v) => !!normalizeSeeds(v).theme };
+
+export function keepsValue(field, v) {
+  return Object.hasOwn(FIELD_KEEPS, field) ? FIELD_KEEPS[field](v) : hasValue(v);
+}
+
+/**
+ * DID THE MODEL SAY ANYTHING ABOUT THIS FIELD — including "none".
+ *
+ * For the look lane's `named` guard, which asks whether the designer named
+ * anything at all and escalates to a full revise when it did not. A removal verb
+ * IS naming something: without this, "stop offering the Spanish version" on a
+ * site that has no extra languages reads as "I could not express this" and buys
+ * a rebuild that cannot express it either.
+ */
+export function namesValue(field, v) {
+  return clearsField(field, v) || keepsValue(field, v);
 }
 
 /**
@@ -402,7 +522,14 @@ export function movedFields(prior, merged) {
   const m = merged && typeof merged === "object" ? merged : {};
   return EDIT_FIELDS.filter((k) => {
     const a = p[k], b = m[k];
-    if (!hasValue(a) && !hasValue(b)) return false;
+    // FIELD-AWARE, like the merge, and for a case that is live rather than
+    // hypothetical: a site poisoned by the `{dark:{…}}` bug has a stored `seeds`
+    // the engine refuses. With the generic test that reads as a value, so the
+    // first unrelated edit — which correctly merges it away to `null` — would
+    // report "the look changed" to a customer who asked about a phone number.
+    // Both sides unusable is both sides absent, which is the truth: the site was
+    // on the default look before and still is.
+    if (!keepsValue(k, a) && !keepsValue(k, b)) return false;
     return JSON.stringify(a ?? null) !== JSON.stringify(b ?? null);
   });
 }

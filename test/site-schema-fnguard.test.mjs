@@ -70,7 +70,14 @@ test("the guard is in the normaliser, which every build passes through", () => {
   // does not use it.
   const src = fs.readFileSync(path.join(import.meta.dirname, "..", "site-schema.mjs"), "utf8");
   const norm = src.slice(src.indexOf("export function normalizeSchema"), src.indexOf("async function pgTrigger"));
-  assert.match(norm, /_\(secrets\|meta\|users/, "the refusal must live inside normalizeSchema");
+  assert.ok(norm.length > 1000, "the window is empty — retarget this guard");
+  // ASSERT THE PROPERTY, NOT THE SPELLING. This pinned the regex's own text
+  // (`/_\(secrets\|meta\|users/`) and therefore went red on a correct change —
+  // the deny-list is DERIVED from the tables this file creates now, precisely
+  // because a hand-written one went stale and left `_errors` out. What has to be
+  // true is that the refusal is applied HERE, in the one function every build
+  // passes through, rather than in a caller a second caller could skip.
+  assert.match(norm, /INTERNAL_TABLE_RE\.test\(body\)/, "the refusal must live inside normalizeSchema");
 });
 
 test("neon_auth is refused — it is where the live sessions actually are", () => {

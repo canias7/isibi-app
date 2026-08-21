@@ -336,8 +336,34 @@ export function whyNotReadable(access) {
  * route that decides whether a form may accept a visitor's file at all — and
  * that last one is a security decision.
  */
+// `_url$` WAS A PURE HOLE AND IS GONE. This is not a naming heuristic like the
+// rest of the pattern — it decides whether `acceptsVisitorUploads` says yes,
+// and that opens `handleVisitorUpload`, which is UNAUTHENTICATED by design (a
+// customer attaching a photo to a booking has no account). So a column name
+// alone was turning a table into an anonymous file-upload endpoint on the
+// customer's own origin.
+//
+// MEASURED BOTH WAYS BEFORE REMOVING IT, because narrowing a match can silently
+// take a working feature away:
+//   - every image-ish `*_url` — photo_url, image_url, avatar_url, cover_url,
+//     logo_url, banner_url, thumbnail_url, picture_url, hero_url — is ALREADY
+//     matched by the first alternative. The arm admitted no legitimate case.
+//   - what it DID admit: website_url, booking_url, menu_url, instagram_url,
+//     map_url, video_url, source_url. Ordinary link columns, on ordinary
+//     tables, none of them a picture.
+// So this is lossless: it removes only the hole.
+//
+// KNOWN AND DELIBERATELY NOT WIDENED: `attachment`, `file`, `upload`,
+// `receipt`, `document`, `screenshot` and `artwork` all answer NO, so an owner
+// who names the column the most natural thing gets a form that refuses the
+// upload with `no_uploads`. That is a real gap and the fix is one word list —
+// but adding words WIDENS an unauthenticated endpoint, which is a decision to
+// take deliberately rather than fold into a security fix. The generator is no
+// longer misled either way: `schemaDigest` now states FILE UPLOAD YES/NO per
+// table from THIS function, so what the model is told matches what the route
+// enforces.
 export function isImageColumn(name) {
-  return /(^|_)(image|images|img|photo|photos|picture|pic|avatar|logo|cover|thumbnail|thumb|banner|hero)(_|$)|_url$/i
+  return /(^|_)(image|images|img|photo|photos|picture|pic|avatar|logo|cover|thumbnail|thumb|banner|hero)(_|$)/i
     .test(String(name || ""));
 }
 

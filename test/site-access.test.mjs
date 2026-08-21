@@ -10,7 +10,7 @@ import { readFileSync } from "node:fs";
 import {
   resolveAccess, ACCESS_PRESETS, READ_LEVELS, WRITE_LEVELS,
   MANAGED_COLUMNS, isManagedColumn, ACCESS_LEVELS, normalizeAccess,
-  normalizeRole, rolesForSchema, teamReadable, DEFAULT_ROLE, whyNotReadable, needsMember, canReadAccess, canWriteAccess, canMemberWrite, readNeedsMember, accessLabel, unguardedBookings } from "../site-access.mjs";
+  normalizeRole, rolesForSchema, teamReadable, DEFAULT_ROLE, whyNotReadable, needsMember, canReadAccess, canWriteAccess, canMemberWrite, readNeedsMember, accessLabel, unguardedBookings, isImageColumn } from "../site-access.mjs";
 
 test("managed columns are never writable, whatever case they arrive in", () => {
   for (const c of MANAGED_COLUMNS) {
@@ -345,4 +345,32 @@ test("the build response reports the RESOLVED access level, not the stamped one"
   const pair = { name: "menu", access: "collect", read: "public", write: "none" };
   assert.equal(pair.access, "collect", "fixture drifted");
   assert.equal(accessLabel(pair), "display", "a pair-declared display table no longer resolves");
+});
+
+// AN ORDINARY LINK COLUMN MUST NOT OPEN AN ANONYMOUS UPLOAD ENDPOINT.
+//
+// `isImageColumn` is not decoration: `acceptsVisitorUploads` asks it, and a YES
+// opens `handleVisitorUpload`, which is UNAUTHENTICATED by design — a customer
+// attaching a photo to a booking has no account. The pattern carried a `_url$`
+// alternative, so `website_url` on a bookings table made that table an
+// anonymous file-upload endpoint on the customer's own origin.
+//
+// Asserted in BOTH directions, because the danger of fixing it is taking a
+// working feature away: every image-ish `*_url` must STILL match (they do, via
+// the first alternative — which is why removing the arm was lossless), and the
+// ordinary link columns must not.
+test("an ordinary *_url column is not a picture, and no image column was lost", () => {
+  for (const c of ["website_url", "booking_url", "menu_url", "instagram_url",
+                   "map_url", "video_url", "source_url", "checkout_url"]) {
+    assert.equal(isImageColumn(c), false,
+      c + " opens handleVisitorUpload — an anonymous file-upload endpoint on the site's own origin");
+  }
+  // The floor. Without this the test above is satisfied by a function that
+  // answers false to everything, which would disable visitor uploads entirely
+  // and read as a pass.
+  for (const c of ["photo_url", "image_url", "avatar_url", "cover_url", "logo_url",
+                   "banner_url", "thumbnail_url", "picture_url", "hero_url",
+                   "photo", "images", "hero_image"]) {
+    assert.equal(isImageColumn(c), true, c + " stopped being an image column — visitor uploads just broke");
+  }
 });

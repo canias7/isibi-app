@@ -30,6 +30,44 @@ const SAFE_IDENT = /^[a-z_][a-z0-9_]{0,40}$/i;
 export function sqlIdent(name) { if (!SAFE_IDENT.test(String(name || ""))) throw Object.assign(new Error("bad identifier: " + name), { bad: true }); return '"' + name + '"'; }
 
 /**
+ * THE TABLES THE ENGINE OWNS, and the list a model-written function body may
+ * never name.
+ *
+ * DERIVED FROM THE FILE'S OWN `CREATE TABLE IF NOT EXISTS _x` STATEMENTS rather
+ * than hand-maintained, because a hand-maintained list is what went stale:
+ * `_errors` was created 2026-08-14 to hold reported stacks and routes, and was
+ * never added to the deny-list. `_deletes` and `_history` were missing too. A
+ * derived list covers the next internal table without anybody remembering to
+ * come back here — the same move `app_` made from a named helper to a prefix.
+ *
+ * `test/site-schema-audit.test.mjs` asserts this set is exactly what this file
+ * creates plus the historic names below, and the scan is asserted to still find
+ * something — a regex that silently stopped matching would report a clean file.
+ *
+ * THE HISTORIC NAMES STAY. Most went with the hand-built auth layer on
+ * 2026-07-30 and nothing creates them here any more, so a derived-only list
+ * would drop them — and a site provisioned before that date still has the
+ * tables. Keeping a name that names nothing costs a function that mentions it;
+ * dropping one that still exists costs the rows in it.
+ */
+export const HISTORIC_INTERNAL_TABLES = ["_users", "_sessions", "_invites", "_identities", "_credentials", "_auth_codes", "_auth_events", "_teams"];
+
+export const INTERNAL_TABLES = (() => {
+  const names = new Set(HISTORIC_INTERNAL_TABLES);
+  // `import.meta` cannot read this module's own text in a Worker bundle, so the
+  // engine's own tables are listed here and the TEST derives the expected set
+  // from the source. Guarded at both ends: the list may not shrink below what
+  // the file creates, and the file may not create one the list does not hold.
+  for (const n of ["_meta", "_secrets", "_errors", "_deletes", "_audit", "_history"]) names.add(n);
+  return [...names];
+})();
+
+// Word-bounded on both sides: `_users` must not match `site_users_archive`, and
+// a quoted or schema-qualified form (`"_secrets"`, `public._secrets`) reduces to
+// the same word because `"` and `.` are non-word characters.
+export const INTERNAL_TABLE_RE = new RegExp("\\b_(" + INTERNAL_TABLES.map((n) => n.replace(/^_/, "")).join("|") + ")\\b", "i");
+
+/**
  * A DERIVED name — `ck_<table>_<col>_<op>_<col>`, `ux_<table>_g_0`,
  * `ex_<table>_nooverlap`, `trg_<table>_aud_i_fn` — is not a declared name and
  * must not be judged by a declared name's rule.
@@ -47,13 +85,16 @@ export function sqlIdent(name) { if (!SAFE_IDENT.test(String(name || ""))) throw
  *   ex_<29-char table>_nooverlap                 42 chars  → THROWS
  *
  * `booking_requests` is 16 characters and is an ordinary snake_case plural the
- * tool asks for. Three of those throws were computed OUTSIDE any try and there
- * is no per-table try in the apply loop, so they propagated to the route's catch
- * — 502 "could not apply the schema" on a build whose database was already
- * provisioned, with the log reading as the schema engine failing when the cause
- * was a name seven characters too long. That is exactly the failure the
- * table-name check in `coerceTable` was added to end ("lose one table, not the
- * site"), reappearing one layer down on the names WE compose.
+ * tool asks for. TWO DIFFERENT COSTS, depending on where the name was computed.
+ * The `checks` one was inside a try, so it lost only the constraint — into
+ * `refused`, which until this same audit reached nobody. THREE were computed
+ * outside every try (`trg_<table>_pos`, `ux_<table>_…`, `ex_<table>_nooverlap`)
+ * and there is no per-table try in the apply loop, so they propagated to the
+ * route's catch — 502 "could not apply the schema" on a build whose Neon project
+ * was already provisioned, with the log reading as the schema engine failing
+ * when the cause was a name seven characters too long. That is exactly the
+ * failure the table-name check in `coerceTable` was added to end ("lose one
+ * table, not the site"), reappearing one layer down on the names WE compose.
  *
  * OVER 63 IT SHORTENS RATHER THAN THROWING, and the shortening has to be
  * DETERMINISTIC: every one of these names is used twice — `DROP … IF EXISTS`
@@ -339,7 +380,38 @@ export function normalizeSchema(spec) {
   // Names this refused, so the caller can say which table went rather than
   // leaving the customer with a site quietly missing one.
   const refusedNames = [];
+  // The same, one level down. No response field, deliberately: a column is lost
+  // where a table is lost outright, and inventing a field nothing reads is the
+  // computed-and-dropped shape this audit is full of. Logged instead, which is
+  // what makes it findable at all — it was not, before.
+  const refusedCols = [];
+  // A COLUMN NAME IS JUDGED HERE, FOR THE REASON THE TABLE NAME IS.
+  //
+  // `coerceCol` validated every other property and let ANY truthy name through,
+  // so the name was first judged at the DDL loop's `const cn = sqlIdent(c.name)`
+  // — which is outside every try, and there is no per-table try in that loop, so
+  // one bad column name reached the route's catch and 502'd the WHOLE build with
+  // a Neon project already provisioned. Measured 2026-08-21: a 50-character name
+  // and one carrying a quote and a comment marker both survived normalisation
+  // and both throw there. The fourth uncaught `sqlIdent` site, and the same
+  // failure `coerceTable`'s own name check was added to end: lose one column,
+  // not the site.
+  //
+  // The example is described rather than spelled, deliberately: a neighbouring
+  // guard asserts this engine never emits a table drop by scanning the RAW
+  // source, so a comment quoting one fails it against correct code. Prose
+  // describing a thing spells that thing — this repo's most repeated own-goal.
+  //
+  // NO SAFETY CHANGE — `sqlIdent` is still the boundary and it still holds. What
+  // moves is the SHAPE of the failure, and the bound is `sqlIdent`'s own so the
+  // two cannot disagree about what is renderable. A 43-character name like
+  // `estimated_completion_date_confirmed_by_owner` is ordinary model output, not
+  // an attack, and this is the difference between losing that field and losing
+  // the customer's site.
+  const renderable = (name) => { try { sqlIdent(name); return true; } catch { return false; } };
   const coerceCol = (c) => {
+    const named = typeof c === "string" ? c : (c && typeof c === "object" ? c.name : null);
+    if (named && !renderable(named)) { refusedCols.push(String(named).slice(0, 40)); return null; }
     if (typeof c === "string") return { name: c, type: "text" };
     if (c && typeof c === "object" && c.name) return { name: c.name, type: c.type || c.dataType || "text", pk: c.pk || c.primary, notnull: c.notnull || c.required || c.notNull, unique: c.unique, ref: c.ref || c.references || c.foreignKey || c.fk, max: (c.max !== undefined ? c.max : (c.maxLength !== undefined ? c.maxLength : c.maxlength)), min: (c.min !== undefined ? c.min : c.minLength), format: c.format, enum: c.enum || c.oneOf || c.values, pattern: c.pattern || c.regex, default: (c.default !== undefined ? c.default : c.defaultValue), immutable: !!(c.immutable || c.readonly || c.readOnly || c.writeOnce), onDelete: (() => { const m = String(c.onDelete || c.on_delete || c.onDeleteAction || "").toLowerCase().replace(/[^a-z]/g, ""); return (m === "setnull" || m === "cascade" || m === "restrict") ? m : null; })() };
     return null;
@@ -577,7 +649,36 @@ export function normalizeSchema(spec) {
     // body that wanted `_secrets` is not a body to repair, and a half-edited
     // one fails at CREATE time anyway. Nothing legitimate needs these — the
     // declared tables are the model's whole surface.
-    if (/\b_(secrets|meta|users|sessions|invites|identities|credentials|auth_codes|auth_events|audit|teams)\b/i.test(body)) {
+    if (INTERNAL_TABLE_RE.test(body)) {
+      continue;
+    }
+    // AND THE SUBSTRING MATCH ABOVE IS ONLY A GUARD IF THE NAME HAS TO APPEAR.
+    //
+    // The body's language may be `plpgsql`, where a table name need not be
+    // written in one piece: `EXECUTE 'SELECT cipher FROM ' || '_sec' || 'rets'`
+    // — or `EXECUTE format(%I, …)` — composes it at run time and every literal
+    // deny-list above matches nothing. Measured 2026-08-21: that exact body
+    // passed `normalizeSchema` and came back as a live function.
+    //
+    // DYNAMIC SQL IS THE ONE MECHANISM, which is what makes this a cut rather
+    // than an arms race: with no `EXECUTE` a plpgsql body's table references are
+    // literal, which is precisely the premise the deny-list rests on. A plain
+    // `sql` body has no dynamic SQL at all, so refusing it there costs nothing.
+    // `format()` and `||` on their own build a string and run nothing.
+    //
+    // `dblink` / `postgres_fdw` go with it and are not redundant: both are
+    // installable on Neon (measured in `neon-e2e`, which prints "EGRESS IS OPEN
+    // via: dblink, postgres_fdw"), and `dblink('…', 'SELECT cipher FROM ' ||
+    // '_sec' || 'rets')` composes the same name inside a remote query string
+    // with no EXECUTE anywhere.
+    //
+    // RUN ON THE RAW BODY, comments included, deliberately. Blanking `--` to end
+    // of line would eat a `_secrets` sitting after a `--` inside a string
+    // literal — a hole opened by the tidying — and the cost of not blanking is a
+    // function refused because it says "execute" in a comment. For a guard whose
+    // miss is a definer function reading every member's session token, the
+    // false alarm is the cheaper side.
+    if (/\b(execute|dblink[a-z_]*|postgres_fdw[a-z_]*)\b/i.test(body)) {
       continue;
     }
     // NEON_AUTH IS THE LIVE SESSION STORE, and the list above never covered it.
@@ -670,6 +771,7 @@ export function normalizeSchema(spec) {
   // there. Only when there is one, so every ordinary spec returns exactly the
   // shape it did before this existed.
   if (refusedNames.length) extra.refusedTables = refusedNames.slice(0, 6);
+  if (refusedCols.length) console.warn("refused column names:", refusedCols.slice(0, 8).join(","));
   return { tables: out, ...extra };
 }
 
@@ -1290,9 +1392,18 @@ export async function applySiteSchema(uuid, spec) {
     //
     // NON-FATAL, one statement at a time, like every other rule in this loop: a
     // constraint that will not apply must not lose a build whose tables and
-    // rows are already in place. But NOT silent — `refused` rides back on the
-    // response, because "the guarantee you asked for is not there" is the one
-    // thing an owner cannot discover for themselves.
+    // rows are already in place. But NOT silent — `refused` is hung off the
+    // returned array as `refusedRules` and logged, because "the guarantee you
+    // asked for is not there" is the one thing an owner cannot discover for
+    // themselves.
+    //
+    // THIS PARAGRAPH SAID "rides back on the response" AND THAT WAS NOT TRUE
+    // (2026-08-21 audit): nothing outside this file read `refusedRules`, and the
+    // response's own `refused` key is `refusedFields` — a different list, of
+    // fields the tool does not offer — so anyone reading it to answer "which
+    // constraints were refused?" got the wrong answer and concluded none were.
+    // Corrected rather than deleted, because a false claim in a comment is what
+    // gets believed; carrying it onto the response is a worker.js change.
     const colSet = new Set(colNames.map((c) => String(c).toLowerCase()));
 
     for (const ck of checkSql(t, colSet)) {
@@ -1615,7 +1726,26 @@ export async function applySiteSchema(uuid, spec) {
   made.authGrants = authGrants;
   // Only when there is something to say, so a clean apply's shape is unchanged
   // and the field's PRESENCE is the signal rather than its value.
-  if (refused.length) made.refusedRules = refused.slice(0, 20);
+  //
+  // AND LOGGED, BECAUSE THE FIELD REACHED NOBODY (2026-08-21 audit). The comment
+  // in the constraint tier says `refused` "rides back on the response, because
+  // 'the guarantee you asked for is not there' is the one thing an owner cannot
+  // discover for themselves" — and a repo-wide grep for `refusedRules` outside
+  // this file returned only a test asserting THIS LINE EXISTS, which passes
+  // whether or not any caller reads it: the layer below the break. The sibling
+  // on the same object (`functionErrors`) IS wired end to end, which is what
+  // makes the omission an omission rather than a decision.
+  //
+  // The route still has to carry it — that fix is in worker.js, not here — but a
+  // value nothing reads and nothing even logs is strictly worse than one an
+  // operator can find, and the seed skips beside it already log. NAMES ONLY:
+  // `uuid` is the site's Neon CONNECTION STRING, which carries a password, so it
+  // must never reach a log line; the table, the feature and the rule are what
+  // identify the failure anyway.
+  if (refused.length) {
+    made.refusedRules = refused.slice(0, 20);
+    console.warn("refused rules:", refused.slice(0, 20).map((r) => r.table + "." + r.feature + ":" + r.rule).join(","));
+  }
   return made;
 }
 // Load the persisted access rules for a site's tables (from its own _meta.schema).
@@ -2017,10 +2147,41 @@ export const TOOL_TABLE_FIELDS = new Set([
  */
 const NOT_A_GUARANTEE = new Set(["name", "access", "read", "write"]);
 
+/**
+ * The declared tables, as a list, from any shape `normalizeSchema` accepts.
+ *
+ * ONE READING, SHARED. `refusedFields` and `droppedFields` each carried their
+ * own copy — array or object, nothing else — while `normalizeSchema` also
+ * recovers a STRINGIFIED list, deliberately, because that shape was measured in
+ * `schema gen eval` at about 1 sample in 20. So on exactly those builds the
+ * tables were real and both diagnostics reported `[]`: a clean sweep over
+ * nothing, indistinguishable from a designer that stayed inside the tool.
+ * `reached` exists so "do we need another capability?" is a count rather than an
+ * opinion, and `refused` is the only trace of a declared guarantee that failed
+ * its shape check — a `publicView` whose every column was stripped as PII,
+ * leaving a marketplace with no browsable listing.
+ *
+ * Both are called on the RAW answer, before normalisation, which is correct for
+ * their purpose and is precisely what exposed them to the un-recovered shape.
+ *
+ * Deliberately NOT the bare-map fallback (`spec.tables || spec`): that one is
+ * about a spec with no `tables` key at all, and reading every top-level key of a
+ * raw answer as a table would report `fonts`/`seed`/`functions` as reached-for
+ * fields. `normalizeSchema` has its own evidence test for that case; these two
+ * only need the `tables` value, whatever shape it arrived in.
+ */
+function declaredTables(spec) {
+  let t = spec && spec.tables;
+  if (typeof t === "string") {
+    try { const parsed = JSON.parse(t); if (parsed && typeof parsed === "object") t = parsed; } catch { return []; }
+  }
+  if (Array.isArray(t)) return t;
+  return (t && typeof t === "object") ? Object.values(t) : [];
+}
+
 export function refusedFields(spec) {
   if (!spec || typeof spec !== "object") return [];
-  const raw = Array.isArray(spec.tables) ? spec.tables
-    : (spec.tables && typeof spec.tables === "object") ? Object.values(spec.tables) : [];
+  const raw = declaredTables(spec);
   const seen = new Set();
   for (const def of raw) {
     if (!def || typeof def !== "object" || Array.isArray(def)) continue;
@@ -2044,8 +2205,7 @@ export function refusedFields(spec) {
 
 export function droppedFields(spec) {
   if (!spec || typeof spec !== "object") return [];
-  const raw = Array.isArray(spec.tables) ? spec.tables
-    : (spec.tables && typeof spec.tables === "object") ? Object.values(spec.tables) : [];
+  const raw = declaredTables(spec);
   const seen = new Set();
   for (const def of raw) {
     if (!def || typeof def !== "object" || Array.isArray(def)) continue;

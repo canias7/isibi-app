@@ -206,7 +206,20 @@ test("the constraint tier is APPLIED, and a failure is reported rather than logg
   // REPORTED. A `checks` rule usually fails because the ROWS ALREADY BREAK IT,
   // and swallowing that leaves the site claiming a guarantee it does not have.
   assert.match(src, /refused\.push\(\{ table: t\.name, feature: "checks"/);
-  assert.match(src, /made\.refusedRules = refused/, "…and it has to reach the caller");
+  // ATTACHED **AND** LOGGED. This line alone said "…and it has to reach the
+  // caller", which is the layer below the break: it passes whether or not any
+  // caller reads the field, and the 2026-08-21 audit measured that none does —
+  // a repo-wide grep for `refusedRules` outside site-schema.mjs returns only
+  // this file. Carrying it onto the build response is a worker.js change and is
+  // in the handoff; what site-schema.mjs owes is that the value exists and that
+  // an operator can find it, so both halves are asserted here.
+  assert.match(src, /made\.refusedRules = refused/, "the value has to exist on the returned array");
+  assert.match(src, /console\.warn\("refused rules:"/, "…and be findable, since no caller reads it yet");
+  // NEVER THE CONNECTION STRING. `uuid` is the site's Neon URI and carries a
+  // password; the log line may name the table, the feature and the rule only.
+  const logAt = src.indexOf('console.warn("refused rules:"');
+  assert.ok(logAt > 0);
+  assert.ok(!/\buuid\b/.test(src.slice(logAt, src.indexOf("\n", logAt))), "a Neon URI must never reach a log line");
 });
 
 test("the digest really states the default order", () => {
@@ -227,6 +240,13 @@ test("a clean apply's shape is unchanged", () => {
   // `refusedRules` rides only when there is something to say, so the field's
   // PRESENCE is the signal and every existing caller reading `made` as an array
   // of names is untouched.
+  // ASSERT THE PROPERTY, NOT THE SPELLING: this pinned the one-line form
+  // `if (refused.length) made.refusedRules` and went red the moment the branch
+  // legitimately grew a second statement. What matters is that the attachment is
+  // GATED — a clean apply must return exactly the array it always did.
   const src = fs.readFileSync(new URL("../site-schema.mjs", import.meta.url), "utf8");
-  assert.match(src, /if \(refused\.length\) made\.refusedRules/);
+  const at = src.indexOf("made.refusedRules");
+  assert.ok(at > 0, "the attachment is gone — retarget this guard");
+  assert.match(src.slice(src.lastIndexOf("if (", at), at), /refused\.length/,
+    "the nearest enclosing condition must be `refused.length`, so a clean apply adds no field");
 });

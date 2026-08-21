@@ -204,6 +204,25 @@ export function routeIdOf(source) {
 }
 
 /**
+ * One page's problems, with no schema — the expensive half of `tweakLint`
+ * (~4ms a call), exported so a caller sweeping many variants of ONE page can
+ * hold its baseline instead of re-deriving it per variant.
+ *
+ * NOT A CHECK ON ITS OWN, and reading it as one is the trap: absolutely it
+ * fires on nearly every page the generator has ever written. See `tweakLint`.
+ *
+ * `null` means the scanner could not ANSWER, which has to stay distinct from an
+ * empty set — collapse the two and a crash reads as a clean page.
+ */
+export function lintOne(source) {
+  try {
+    // ONE path for every call, or the `path + ": "` prefix differs between the
+    // two sides and nothing cancels — every problem would read as introduced.
+    return new Set(lintPages([{ path: "page.tsx", source: String(source == null ? "" : source) }], undefined));
+  } catch { return null; }
+}
+
+/**
  * What this tweak BROKE — never what the page was already carrying.
  *
  * WHY DIFFERENTIAL, AND IT IS NOT caution: it is the only honest question this
@@ -227,31 +246,14 @@ export function routeIdOf(source) {
  * fires on a correct tweak would turn the cheap path into a permanent
  * fall-through, which is worse than the miss it prevents.
  *
- * FAILS OPEN ON A THROW, and that direction is deliberate. This sits in front of
- * a path that already works and that has never had a lint at all, so a crash
- * here must cost the check rather than the rung: failing the other way would
- * make every page edit on the platform pay for the rewrite, for ever, because of
- * a bug in a scanner. `lintPages` is regex-based and does not throw on malformed
- * input today; this is the guard for the day it does.
+ * FAILS OPEN WHEN THE SCANNER CANNOT ANSWER, and that direction is deliberate.
+ * This sits in front of a path that already works and that has never had a lint
+ * at all, so a crash here must cost the CHECK rather than the rung: failing the
+ * other way would make every page edit on the platform pay for the rewrite, for
+ * ever, because of a bug in a scanner. And it is the false-alarm direction
+ * twice over — with no baseline to subtract, every problem the page already had
+ * would be blamed on this edit.
  */
-/**
- * One page's problems, with no schema — the half of `tweakLint` that costs
- * anything (~4ms), exported so a caller sweeping many variants of one page can
- * hold its baseline instead of recomputing it. NOT a check on its own: read
- * absolutely it fires on nearly every page ever generated, which is the whole
- * reason `tweakLint` subtracts.
- *
- * `null` means the scanner could not answer. Distinct from an empty set, or a
- * crash reads as a clean page.
- */
-export function lintOne(source) {
-  try {
-    // ONE path for every call, or the `path + ": "` prefix differs between the
-    // two sides and nothing cancels — every problem would read as introduced.
-    return new Set(lintPages([{ path: "page.tsx", source: String(source == null ? "" : source) }], undefined));
-  } catch { return null; }
-}
-
 export function tweakLint(before, after) {
   const b = lintOne(before), a = lintOne(after);
   if (!b || !a) return [];

@@ -10,7 +10,10 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
   mergeLook, movedFields, hasValue, currentStateNote, EDIT_RULE, EDIT_REQUIRED, EDIT_FIELDS,
+  SEED_KEYS, CLEARABLE_LISTS, clearsField, keepsValue, namesValue,
 } from "../builder/site-edit.mjs";
+import { normalizeSeeds, SEEDS_FIELD } from "../builder/site-seeds.mjs";
+import { ASKABLE } from "../builder/site-tokens.mjs";
 
 const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 const STORED = {
@@ -108,6 +111,134 @@ test("an UNUSABLE palette is not an answer, so a good stored one survives", () =
   // The site publishes on the template's own look either way; what this avoids is
   // a stored value that can never render.
   assert.equal(mergeLook(null, { seeds: BAD }, null).seeds, null);
+});
+
+/**
+ * A PALETTE ANSWER THAT NAMES NO ANCHOR AT THE TOP LEVEL IS STILL NOT AN ANSWER.
+ *
+ * The guard above only routed an object through `normalizeSeeds` when one of
+ * `paper`/`ink`/`accent` was a TOP-LEVEL key. Measured 2026-08-21, three shapes
+ * walked past it and were counted values by the generic object test:
+ *
+ *   {dark:{paper,ink,accent}}      — "make the dark mode moodier"
+ *   {name:"Coastal Fog"}           — a rename with no colours
+ *   {light:{paper,ink,accent}}     — the light half nested the way `dark` is
+ *
+ * All three are shapes a model reaches for: the tool offers `dark` as its own
+ * nested object with its own `required`, and nested `required` is advisory
+ * because structured outputs are unavailable on this tool.
+ *
+ * The cost is not one bad publish. `_meta.site_look` is written whole and every
+ * later cheap edit re-sends `look.seeds`, so a typo fix, a colour change, a
+ * picture swap and a logo all re-offer the poisoned object, the container
+ * refuses it again, and the site ships the template's default look for good.
+ */
+test("a palette answer with no anchors at the top level cannot displace a good stored one", () => {
+  const PARTIAL = [
+    ["dark only", { dark: { paper: "#101418", ink: "#f2f2f2", accent: "#e08a4a" } }],
+    ["name only", { name: "Coastal Fog" }],
+    // The heuristic in `hasValue` cannot see this one — it carries no seed key at
+    // all — which is exactly why the MERGE asks the field rather than the shape.
+    ["light nested like dark", { light: { paper: "#fffaf5", ink: "#141414", accent: "#b44a2e" } }],
+  ];
+  for (const [why, seeds] of PARTIAL) {
+    assert.equal(normalizeSeeds(seeds).theme, null, `${why}: the engine accepts it after all`);
+    const out = mergeLook(STORED, { seeds }, null, { instructed: true });
+    assert.deepEqual(out.seeds, STORED.seeds, `${why} displaced the stored palette`);
+    assert.deepEqual(movedFields(STORED, out), [], `${why} reported having changed the look`);
+    assert.equal(mergeLook(null, { seeds }, null, { instructed: true }).seeds, null,
+      `${why} was stored on a first build`);
+  }
+  // AND ON `hasValue` DIRECTLY, for the two shapes its heuristic can see —
+  // because that is the function `worker.js`'s look-lane `named` guard calls,
+  // and its answer decides whether an ask that named only a broken palette
+  // escalates to a full revise. The nested-`light` shape is deliberately NOT
+  // asserted here: it carries no seed key at all, so no shape heuristic can
+  // reach it, which is the whole reason `keepsValue` asks the field instead.
+  assert.equal(hasValue({ dark: { paper: "#101418", ink: "#f2f2f2", accent: "#e08a4a" } }), false,
+    "a dark-only palette still counts as a value");
+  assert.equal(hasValue({ name: "Coastal Fog" }), false, "a name-only palette still counts as a value");
+});
+
+test("THE MERGE CAN NEVER RETURN A PALETTE THE ENGINE REFUSES", () => {
+  // THE INVARIANT, not a list of the shapes that were wrong today — because
+  // NOTHING DOWNSTREAM RE-VALIDATES IT. `_meta.site_look` is written whole and
+  // `recompileAndPublish` reads `look.seeds` straight back out, so whatever this
+  // function returns is what the container is handed for the life of the site.
+  //
+  // Driven over every wrong shape a model can produce AND over a good one, so a
+  // merge that simply refused every palette — which would satisfy the negative
+  // half perfectly — fails here.
+  const JUNK = [
+    {}, { name: "" }, { name: "Coastal Fog" }, { dark: {} },
+    { dark: { paper: "#101418", ink: "#f2f2f2", accent: "#e08a4a" } },
+    { light: { paper: "#fffaf5", ink: "#141414", accent: "#b44a2e" } },
+    { paper: "#fffaf5" }, { paper: "#fffaf5", ink: "#141414" },
+    { name: "Fog", paper: "#8a8a8a", ink: "#6f6f6f", accent: "#7a7a90" },   // legible object, 1.5:1 text
+    { name: "Inverted", paper: "#141414", ink: "#fffaf5", accent: "#b44a2e" }, // modes swapped
+    { paper: 1, ink: 2, accent: 3 }, "#b44a2e", [], 7, true,
+  ];
+  const GOOD = { name: "Sea Glass", paper: "#f2f7f6", ink: "#1c2a28", accent: "#2b7a6b" };
+  let landed = 0;
+  for (const prior of [null, STORED, { seeds: { dark: { paper: "#101418", ink: "#f2f2f2", accent: "#e08a4a" } } }]) {
+    for (const seeds of [...JUNK, GOOD]) {
+      for (const instructed of [true, false]) {
+        const got = mergeLook(prior, { seeds }, null, { instructed }).seeds;
+        if (got === null) continue;
+        assert.ok(normalizeSeeds(got).theme,
+          `the merge stored a palette the engine refuses: ${JSON.stringify(got)}`);
+        landed++;
+      }
+    }
+  }
+  assert.ok(landed > 0, "no palette survived any merge, so the invariant is vacuous");
+});
+
+test("A SITE ALREADY POISONED HEALS, AND ITS UNRELATED EDITS DO NOT LIE", () => {
+  // Every site hit by the bug above has an unusable `seeds` stored right now, so
+  // both halves here are about real rows rather than hypotheses.
+  //
+  // BOTH POISONED SHAPES, and the second is the one that discriminates. A stored
+  // `{dark:{…}}` is refused by `hasValue`'s heuristic too, so a `movedFields`
+  // that judged by shape would agree with one that judges by field and the
+  // difference would be invisible. `{light:{…}}` carries no seed key at all —
+  // only asking the FIELD gets it right.
+  const POISONED = [
+    { seeds: { dark: { paper: "#101418", ink: "#f2f2f2", accent: "#e08a4a" } }, brand: "Sharp Fade" },
+    { seeds: { light: { paper: "#fffaf5", ink: "#141414", accent: "#b44a2e" } }, brand: "Sharp Fade" },
+  ];
+  const OK = { name: "Sea Glass", paper: "#f2f7f6", ink: "#1c2a28", accent: "#2b7a6b" };
+  for (const site of POISONED) {
+    // A good answer is no longer blocked by it — the stored value stopped
+    // counting as a value, so it cannot win the precedence chain any more.
+    assert.deepEqual(mergeLook(site, { seeds: OK }, null, { instructed: true }).seeds, OK);
+    // …and an edit about something else merges it away to null WITHOUT reporting
+    // a look change. The site was on the template's default before and still is;
+    // saying "the look changed" to somebody who asked about a phone number is the
+    // false claim `movedFields` exists to prevent.
+    const quiet = mergeLook(site, { brand: "Sharp Fade Barbers" }, null, { instructed: true });
+    assert.equal(quiet.seeds, null);
+    assert.deepEqual(movedFields(site, quiet), ["brand"],
+      `an unrelated edit reported a look change on ${JSON.stringify(site.seeds)}`);
+  }
+});
+
+test("the palette's key names are DERIVED from the tool field, and one overlaps a token name", () => {
+  // The list that went stale was hand-written `["paper","ink","accent"]`, so a
+  // sixth property on `SEEDS_FIELD` would go stale the same way. Derived at both
+  // ends, and asserted non-empty first — a scan that stopped matching would leave
+  // `SEED_KEYS` empty and report a clean sweep over nothing.
+  assert.ok(SEED_KEYS.length >= 5, "the seeds field stopped declaring properties");
+  assert.deepEqual([...SEED_KEYS].sort(), Object.keys(SEEDS_FIELD.properties).sort());
+
+  // THE OVERLAP IS A TRIPWIRE, not decoration. `hasValue` never learns which key
+  // it is answering for, so any askable TOKEN name that is also a seed key makes
+  // a single-token patch read as a palette answer. Today that is exactly
+  // `accent`, and it is harmless — `tokens` is not an `EDIT_FIELDS` key, so
+  // nothing about applying a token patch goes through `hasValue`. A token called
+  // `name` or `dark` would not be harmless, and this fails the day one arrives.
+  assert.deepEqual(ASKABLE.filter((t) => SEED_KEYS.includes(t)), ["accent"],
+    "a token name now collides with a palette key — see hasValue's comment");
 });
 
 test("EVERY FIELD AN EDIT CAN MOVE IS ONE THE DESIGNER IS TOLD THE CURRENT VALUE OF", () => {
@@ -251,6 +382,121 @@ test("a half font pair is absent, not a pair", () => {
 test("hasValue on the shapes a model actually returns", () => {
   for (const v of [null, undefined, "", "  ", [], {}]) assert.equal(hasValue(v), false, JSON.stringify(v));
   for (const v of ["x", [1], { a: 1 }, 0, false]) assert.equal(hasValue(v), true, JSON.stringify(v));
+});
+
+/* ── the removal verb ───────────────────────────────────────────────────── */
+
+/**
+ * `[]` ON `langs` REALLY REMOVES, because that is what the model is told it does.
+ *
+ * The tool field says, in as many words: "to keep what the site has, leave it
+ * out; to remove every extra language, answer `[]`". `hasValue([])` is false, so
+ * the merge read the removal verb as SILENCE. Measured 2026-08-21 with prior
+ * `{lang:"en", langs:["es"]}` and designed `{langs: []}`: `merged.langs` came
+ * back `["es"]` and `movedFields` was `[]`.
+ *
+ * So the one documented way to take a language off a site could not do it at any
+ * price — and the extra language's routes, prefix and switcher kept being
+ * generated on every publish.
+ */
+test("an empty langs list is the removal verb, and it takes the language off", () => {
+  const out = mergeLook(STORED, { langs: [] }, null, { instructed: true });
+  assert.deepEqual(out.langs, [], "the removal verb was read as silence");
+  assert.deepEqual(movedFields(STORED, out), ["langs"], "removing a language reported nothing moved");
+  // …and it is exactly the one field. A removal must not be a re-theme.
+  for (const k of EDIT_FIELDS) {
+    if (k === "langs") continue;
+    assert.deepEqual(out[k], STORED[k], `removing a language moved ${k}`);
+  }
+});
+
+test("ONLY THE FIELD WHOSE TOOL DESCRIPTION PROMISES THE VERB HAS ONE", () => {
+  // `pages`, `components`, `action` and `shape` are arrays on `EDIT_FIELDS` too
+  // and none of them has a removal verb — a site with no pages is not something
+  // anybody can ask for, and reading `[]` there as an answer would let a model
+  // that filled the field in with nothing wipe the authored plan.
+  for (const k of EDIT_FIELDS) {
+    if (CLEARABLE_LISTS.includes(k)) continue;
+    const out = mergeLook(STORED, { [k]: [] }, null, { instructed: true });
+    assert.deepEqual(out[k], STORED[k], `an empty ${k} wiped the stored value`);
+  }
+  // The list is a subset of what an edit can move at all, or it names a field
+  // the merge never looks at and the verb is unreachable.
+  for (const k of CLEARABLE_LISTS) assert.ok(EDIT_FIELDS.includes(k), `${k} is not an editable field`);
+});
+
+test("a STORED empty list is the site having none, never a request to have none", () => {
+  // The asymmetry, and it is the reason the verb is applied to the designer's
+  // slot rather than made a value in the precedence chain. On the un-instructed
+  // path the STORED value comes first — so if `[]` counted there, a site
+  // recorded as `langs: []` could never be given a second language again.
+  assert.deepEqual(mergeLook({ langs: [] }, { langs: ["cy"] }, null, { instructed: false }).langs, ["cy"],
+    "a stored empty list beat a real answer");
+  assert.deepEqual(mergeLook({ langs: [] }, { langs: ["cy"] }, null, { instructed: true }).langs, ["cy"]);
+  // And the verb is gated on `instructed` for the reason the precedence is: an
+  // untold designer's empty field is far more likely to be silence than a
+  // decision, and being wrong toward "stored" costs an edit that can be repeated.
+  assert.deepEqual(mergeLook(STORED, { langs: [] }, null, { instructed: false }).langs, STORED.langs);
+  assert.equal(clearsField("langs", []), true);
+  assert.equal(clearsField("langs", ["es"]), false);
+  assert.equal(clearsField("pages", []), false);
+});
+
+test("removing a language a site has not got is not a change", () => {
+  // It must not read as a move — there is nothing to move — but it MUST read as
+  // the designer having named something, or the look lane's `named` guard sends
+  // it to `escalate("no-change")`, which by contract runs the full revise: a
+  // ~21-27-credit page rewrite that cannot remove a language either.
+  const none = { brand: "Sharp Fade", lang: "en" };
+  const out = mergeLook(none, { langs: [] }, null, { instructed: true });
+  assert.deepEqual(movedFields(none, out), []);
+  assert.equal(namesValue("langs", []), true, "the removal verb reads as naming nothing");
+  assert.equal(namesValue("pages", []), false, "an empty plan field reads as an answer");
+  // `namesValue` answers the palette question through the engine too, so the
+  // guard cannot be fooled by a shape `hasValue`'s heuristic never sees.
+  assert.equal(namesValue("seeds", { light: { paper: "#fffaf5", ink: "#141414", accent: "#b44a2e" } }), false);
+  assert.equal(namesValue("seeds", { name: "Sea Glass", paper: "#f2f7f6", ink: "#1c2a28", accent: "#2b7a6b" }), true);
+  assert.equal(keepsValue("brand", "Sharp Fade"), true);
+
+  // A FIELD NAME OFF `Object.prototype` IS NOT A FIELD WITH A RULE. Both are
+  // exported and take a field name from their caller, so the contract has to
+  // hold for any string — and a truthiness lookup does not: `FIELD_KEEPS
+  // ["constructor"]` is `Object`, so an empty value comes back as a String
+  // object, which is truthy, and the merge would keep "" as somebody's brand.
+  // The exact bug this codebase shipped once in the Stripe plan lookup.
+  //
+  // No LIVE call site can reach it — every one passes an `EDIT_FIELDS` name, or
+  // `tokens`/`style`/`tokensPage` — so this holds a contract rather than a
+  // reachable path, and the source says so.
+  for (const proto of ["constructor", "toString", "__proto__", "hasOwnProperty"]) {
+    assert.equal(keepsValue(proto, ""), false, `${proto} is treated as a field with a rule`);
+    assert.equal(namesValue(proto, null), false, `${proto} is treated as a field with a rule`);
+    assert.equal(keepsValue(proto, "Sharp Fade"), true, `${proto} refused an ordinary value`);
+  }
+});
+
+test("THE TOOL STILL PROMISES THE VERB THIS MODULE IMPLEMENTS", () => {
+  // The coupling, in both directions: the module special-cases `langs` BECAUSE
+  // the tool field tells the model `[]` removes. Drop the promise and the
+  // special case is a surprise; make the promise for a second field and
+  // `CLEARABLE_LISTS` has to grow with it.
+  //
+  // COMMENTS BLANKED FIRST, length-preservingly. The comment ABOVE this field
+  // also says "To REMOVE one, answer with an empty array" — prose describing a
+  // thing spells that thing — so a raw scan is satisfied by the explanation even
+  // when the description the model actually reads has lost it.
+  const bare = worker.replace(/^([^\n]*?)\/\/[^\n]*$/gm, (line, keep) => keep + " ".repeat(line.length - keep.length));
+  // ANCHORED ON LANDMARKS, never a byte window: the next field's own key ends the
+  // block, so documenting this one cannot push the promise out of range.
+  const at = bare.indexOf("langs: {");
+  const end = bare.indexOf("mode: {", at);
+  assert.ok(at > 0 && end > at, "the langs tool field is no longer where this test looks");
+  const field = bare.slice(at, end);
+  assert.match(field, /remove/i, "the langs field no longer documents how to remove a language");
+  assert.match(field, /\[\]/, "the langs field no longer promises `[]` as the removal verb");
+  for (const k of CLEARABLE_LISTS) {
+    assert.ok(bare.includes(k + ": {"), `${k} has a removal verb but is not a field the designer can answer`);
+  }
 });
 
 /* ── what the model is shown and told ───────────────────────────────────── */
