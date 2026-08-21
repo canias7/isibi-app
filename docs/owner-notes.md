@@ -16850,3 +16850,46 @@ about the theme at all. There is a new one now that can't pass that way: four
 sites built with four different palettes have to actually *look* different.
 
 **`site build` is green on main for the first time since the theme change.**
+
+## 21 Aug — the build wall: what it is NOT, and the setting nobody had ever set
+
+Four builds hit a ceiling in one day. One published at 272 seconds; three died at
+286, 291 and 301 — across two different model providers and two languages. So the
+wall is real and it is not about Anthropic, not about Grok, and not about Arabic.
+
+**The obvious fix would have been wrong, and I measured before buying it.** The
+natural answer to "my request dies at five minutes" is to stream the response so
+the connection stays alive. That only works if the *connection* is what times
+out. If instead the *Worker* is being stopped, streaming changes nothing and the
+build has to be moved off the request entirely — a much bigger change. Guessing
+costs a dead ~130-credit build each time.
+
+So there is a probe now (`wall probe`) that costs **nothing**: a route that just
+waits and returns. No model call, no database, no container, no credits. The only
+thing it spends is time.
+
+**First result: it is not the clock.** A request that merely waits came back fine
+at 240s, 300s, 360s and **420s** — well past every build that died — both plain
+and streamed. That kills the streaming fix before it cost anything, which is what
+the probe was for.
+
+**What that leaves is what a build DOES between the waits**, and I found one
+thing straight away: Cloudflare gives a request **30 seconds of CPU by default**
+and lets you raise it to 5 minutes — and this project had never set it. Every
+build the platform has ever run has been against that default. Waiting on a model
+doesn't count toward it, but a build does real work between the waits: a very
+large prompt assembled, model answers parsed, and then the whole built site
+handled in memory before it reaches storage.
+
+**It is now set to the maximum, which is your "for now, no wall".** It does not
+change the bill — Workers charge for CPU actually used, so this only stops a build
+being killed part-way.
+
+**I have not called it solved.** Setting it is one line; proving it was the cause
+is a measurement, and the probe now has three more modes to settle it in one run:
+spend CPU, hold memory, and wait on an outbound request (the shape a build
+actually has — it waits on the model, then on the container). One of those either
+names the wall or rules all three out, and either answer is worth having before
+another build is spent.
+
+**Balance is 661 and none of this touched it.**

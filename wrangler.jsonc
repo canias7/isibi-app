@@ -2,6 +2,27 @@
   "name": "isibi-app",
   "compatibility_date": "2026-07-02",
   "main": "worker.js",
+  // THE BUILD WALL (2026-08-21). Four builds clustered on one ceiling — 272s
+  // published, then 286s, 291s and 301s died, across two providers and two
+  // languages — and `wall probe` then ruled out a DURATION limit outright: a
+  // request that merely sleeps returns fine well past every one of those times.
+  //
+  // So what ends a build is not the clock, and the remaining documented ceiling
+  // is CPU. Workers Paid defaults to **30 seconds** of CPU per request and
+  // allows up to 5 minutes; this file had no `limits` block at all, so every
+  // build the platform has ever run has been against that 30-second default.
+  // Waiting on the network does not count toward it — but a build does real
+  // work between the waits: an 80KB tool schema and a ~36,000-token prompt
+  // stringified, model answers parsed, and then the container's whole dist
+  // handled as JSON plus base64 before it reaches R2.
+  //
+  // RAISED TO THE MAXIMUM rather than to a tuned number, because "for now put
+  // no wall" is the owner's call and there is no evidence yet for where a
+  // sensible ceiling would be. It does NOT change the bill: Workers charge for
+  // CPU actually used, so this only stops a build being killed part-way. What
+  // it does cost is that a genuinely runaway request can now burn 5 minutes of
+  // CPU rather than 30 seconds before the platform stops it.
+  "limits": { "cpu_ms": 300000 },
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",

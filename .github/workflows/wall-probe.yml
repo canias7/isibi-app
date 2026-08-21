@@ -19,9 +19,11 @@ on:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    # Four durations in two modes, each running to its own ceiling: the worst
-    # case is roughly 240+300+360+420 twice. Bounded well above that so a slow
-    # answer is a RESULT rather than a cancelled job reporting nothing.
+    # The default is three modes: `burn` and `sub` each sweep four durations to
+    # their own ceiling (240+300+360+420 = 22 minutes apiece if nothing stops
+    # them) and `mem` is seconds. Plus the deploy wait, so the worst case is
+    # around 50 minutes. Bounded well above that, because a cancelled job
+    # reports NOTHING and this probe's whole value is its answer.
     timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4

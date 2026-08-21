@@ -9862,6 +9862,67 @@ async function handleRequest(request, env, ctx) {
       const ms = Math.max(0, Math.min(MAX, Number(url.searchParams.get("ms")) || 0));
       const t0 = Date.now();
       const sleep = (n) => new Promise((res) => setTimeout(res, n));
+      // `?burn=1` SPENDS CPU INSTEAD OF WAITING, which is the half that matters
+      // once duration is ruled out. Waiting on the network does not count toward
+      // a Worker's CPU budget, so a sleeping request proves only that the clock
+      // is not the ceiling — it says nothing about the one limit a build could
+      // plausibly be hitting. This does real work in small slices, yielding
+      // between them so the runtime is not merely blocked, and reports how much
+      // it managed before it was stopped.
+      if (url.searchParams.get("burn") === "1") {
+        let spins = 0, x = 0;
+        while (Date.now() - t0 < ms) {
+          const slice = Date.now();
+          while (Date.now() - slice < 50) { x += Math.sqrt(spins++ % 9973); }
+          await sleep(0);   // yield, so this is CPU pressure rather than a hang
+        }
+        return Response.json({ ok: true, mode: "burn", askedMs: ms, tookMs: Date.now() - t0, spins, x: Math.round(x) });
+      }
+      // `?mem=1` HOLDS MEMORY, the other candidate and the one with a completely
+      // different fix. A Worker has 128MB, and the publish path buffers the
+      // container's whole built site — JS bundles, prerendered HTML, assets — as
+      // JSON and base64 before any of it reaches R2. A few megabytes of dist can
+      // become tens of megabytes of live JS strings, and an out-of-memory Worker
+      // is killed exactly the way an over-CPU one is: the client sees a reset.
+      // If this is the wall, no config raises it — the dist has to be streamed
+      // rather than held.
+      if (url.searchParams.get("mem") === "1") {
+        const held = [];
+        const mb = Math.max(1, Math.min(400, Number(url.searchParams.get("mb")) || 100));
+        try {
+          for (let i = 0; i < mb; i++) {
+            // A real, distinct megabyte each time: a repeated constant can be
+            // interned, which would measure nothing.
+            held.push(new Uint8Array(1024 * 1024).fill(i % 251));
+            await sleep(10);
+          }
+        } catch (e) {
+          return Response.json({ ok: false, mode: "mem", heldMb: held.length, why: String((e && e.message) || e).slice(0, 120) }, { status: 500 });
+        }
+        return Response.json({ ok: true, mode: "mem", askedMb: mb, heldMb: held.length, tookMs: Date.now() - t0 });
+      }
+      // `?sub=1` WAITS ON A SUBREQUEST, which is the shape a build actually has
+      // and the one shape `/api/_slow` had never tested. A build is not a Worker
+      // doing arithmetic for five minutes — it is a Worker waiting on Anthropic,
+      // then on Neon, then on the container, each for a minute or more. A
+      // ceiling on how long ONE outbound fetch may take, or on how long a Worker
+      // may hold one open, would look exactly like the observed cluster and is
+      // invisible to a request that makes no subrequests at all.
+      //
+      // It calls THIS SAME ROUTE on our own hostname, so the far end is known to
+      // survive the duration (`plain` proved that) and anything that goes wrong
+      // is the hop rather than the destination.
+      if (url.searchParams.get("sub") === "1") {
+        const inner = new URL(url.toString());
+        inner.searchParams.delete("sub");
+        try {
+          const r = await fetch(inner.toString(), { headers: { Authorization: request.headers.get("Authorization") || "" } });
+          const body = await r.text();
+          return Response.json({ ok: r.ok, mode: "sub", askedMs: ms, tookMs: Date.now() - t0, innerStatus: r.status, innerBody: body.slice(0, 200) });
+        } catch (e) {
+          return Response.json({ ok: false, mode: "sub", askedMs: ms, tookMs: Date.now() - t0, why: String((e && e.message) || e).slice(0, 200) }, { status: 502 });
+        }
+      }
       if (url.searchParams.get("stream") === "1") {
         // A heartbeat every 5s. NEWLINE-DELIMITED so a reader can find the last
         // line without buffering rules, and the final line is the JSON result —
