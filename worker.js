@@ -87,7 +87,7 @@ import { parseGeneratedFiles as parseGameFiles, GAME_RULES, GAME_ASSET_RULES, GA
 import { SHORTLIST, resolvePair, resolvePageFonts, MAX_PAGE_FONTS } from "./builder/site-fonts.mjs";
 import { SEEDS_FIELD, normalizeSeeds } from "./builder/site-seeds.mjs";
 import { currentStateNote, EDIT_RULE, EDIT_REQUIRED, EDIT_FIELDS, hasValue, mergeLook, movedFields } from "./builder/site-edit.mjs";
-import { PLAN_FIELDS, PLAN_KEYS, PLAN_REQUIRED, normalizePlan } from "./builder/site-plan.mjs";
+import { PLAN_FIELDS, PLAN_KEYS, PLAN_REQUIRED, SHAPE_FIELD, normalizePlan } from "./builder/site-plan.mjs";
 
 // Game build-service container (Phase 3). The image (./builder-game/Dockerfile)
 // bakes kaplay + a headless Chromium for the smoke test. Runs to zero after idle.
@@ -4104,10 +4104,15 @@ const SITE_SCHEMA_TOOL = {
       // shop's page set and verb, decided by a person, for a trade, before any
       // particular site existed. The owner's direction is that the model decides
       // per site; `site-plan.mjs` is that decision as a plain module, and
-      // spreading it here means the tool has ONE definition of the six.
+      // spreading it here means the tool has ONE definition of them.
       //
-      // ORDER MATTERS AND IS ASSERTED: `components` is LAST, so it is picked
-      // after the page list above it has been written. See PLAN_KEYS.
+      // FOUR OF THE FIVE ARE HERE. `shape` is spliced in after `mode` instead,
+      // so it is answered once the look is settled too — see the comment there
+      // and `SHAPE_FIELD`. `PLAN_KEYS` is still all five and is still what
+      // every guard derives from; it is the semantic set, not this order.
+      //
+      // ORDER MATTERS AND IS ASSERTED: `components` is LAST of these four, so
+      // it is picked after the page list above it has been written.
       ...PLAN_FIELDS,
       // WHAT LANGUAGE THE SITE IS WRITTEN IN, which nothing could say until
       // 2026-08-12 — the template hardcodes `<html lang="en">`, so a peluquería
@@ -4177,6 +4182,21 @@ const SITE_SCHEMA_TOOL = {
           "tattoo parlour, a cinema, a gaming or crypto brand. This is NOT a colour: the theme already has a dark half " +
           "drawn for it, so do not also send tokens trying to darken the background.",
       },
+      // SHAPE IS LAST OF THE FRONT-END FIELDS, ON PURPOSE, AND IT IS A PLAN
+      // FIELD SITTING AWAY FROM THE OTHER FOUR (owner's call, 2026-08-21).
+      //
+      // A tool's property order is its generation order — the reason
+      // `components` is pinned last inside `PLAN_FIELDS` is that it is picked
+      // after the page list it has to serve. `shape` is the field that says
+      // where everything GOES, so it is the one that gains most from being
+      // answered last: written here, the purpose, the page set, the verb, the
+      // component manifest, the typeface, the palette, all 23 style axes and
+      // light-or-dark are already decided, and it arranges a page whose parts
+      // it has actually chosen rather than one it is still guessing at.
+      //
+      // It stays in `PLAN_KEYS`, `PLAN_REQUIRED` and `PLAN_EDIT_FIELDS` — this
+      // moves WHEN it is answered, nothing about what it is. See SHAPE_FIELD.
+      shape: SHAPE_FIELD,
       // THE WEB-SEARCH GATE, RIDING ON A CALL THAT ALREADY HAPPENS. Searching
       // costs real money per search and is worth it on a small minority of
       // briefs, so it has to be gated — and the obvious way to gate it, a small

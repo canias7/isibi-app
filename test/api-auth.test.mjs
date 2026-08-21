@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
 // THE SCHEMA FRAGMENTS `design_schema` COMPOSES ITSELF FROM. Bound for real in
 // the shape check below, never stubbed — see `REAL` there for why.
 import { SEEDS_FIELD } from "../builder/site-seeds.mjs";
-import { PLAN_FIELDS } from "../builder/site-plan.mjs";
+import { PLAN_FIELDS, SHAPE_FIELD } from "../builder/site-plan.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = fs.readFileSync(path.join(ROOT, "worker.js"), "utf8");
@@ -305,7 +305,7 @@ test("every tool the model is given is a schema the API will accept", () => {
   // fragments are bound for real, because those are the ones this test exists
   // to inspect. A fragment added later and not listed here fails loudly on its
   // first missing `type` rather than passing quietly.
-  const REAL = { SEEDS_FIELD, PLAN_FIELDS };
+  const REAL = { SEEDS_FIELD, PLAN_FIELDS, SHAPE_FIELD };
 
   // Every tool definition in worker.js, found by its input_schema.
   const tools = [...SRC.matchAll(/name:\s*"([a-z_]+)",\s*\n\s*description:[\s\S]{0,400}?input_schema:\s*\{/g)];

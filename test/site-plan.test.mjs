@@ -7,8 +7,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { readFileSync } from "node:fs";
 import {
-  PLAN_KEYS, PLAN_EDIT_FIELDS, PLAN_FIELDS, PLAN_REQUIRED, KIT_PALETTE,
+  PLAN_KEYS, PLAN_EDIT_FIELDS, PLAN_FIELDS, PLAN_REQUIRED, KIT_PALETTE, SHAPE_FIELD,
   normalizePlan, directiveFromPlan, hasPlan,
   MAX_SHAPE, MAX_PAGES, MAX_ACTION, MAX_COMPONENTS,
 } from "../builder/site-plan.mjs";
@@ -51,8 +52,37 @@ test("…and the TOOL's own key order is that order, which is what makes it true
   // `PLAN_KEYS` is a list in a module; what the model reads is the object spread
   // into `design_schema.properties`. If the two disagree the constant above is a
   // claim about nothing — asserted because it is invisible from either side.
-  assert.deepEqual(Object.keys(PLAN_FIELDS), PLAN_KEYS,
-    "the tool's fields are in a different order from PLAN_KEYS, so the ordering guard above proves nothing");
+  //
+  // THE TWO DELIBERATELY DISAGREE BY EXACTLY ONE FIELD SINCE 2026-08-21.
+  // `shape` is spliced into the tool after `mode` rather than beside its
+  // siblings, so it is answered last of every front-end field. Everything else
+  // still has to line up, or the `components`-is-last guard above proves
+  // nothing — which is why this asserts the split rather than dropping.
+  assert.deepEqual(Object.keys(PLAN_FIELDS), PLAN_KEYS.filter((k) => k !== "shape"),
+    "the tool's plan fields are in a different order from PLAN_KEYS, so the ordering guard above proves nothing");
+  assert.ok(!("shape" in PLAN_FIELDS),
+    "shape is back in the PLAN_FIELDS spread, so it is answered fifteenth again rather than last");
+  assert.ok(SHAPE_FIELD && SHAPE_FIELD.type === "array",
+    "SHAPE_FIELD is not a usable schema fragment — the tool would splice in nothing");
+});
+
+test("shape is answered LAST of the front-end fields, in the tool itself", () => {
+  // THE MODULE CANNOT HOLD THIS. `site-plan.mjs` exports a fragment; whether it
+  // lands after `mode` is a fact about `design_schema` in worker.js, and this
+  // repo has recorded twelve features that were correct in a module and dead at
+  // the wiring. Asserted on the source, comment-stripped, because the paragraph
+  // explaining the move necessarily spells the field names it moves.
+  const src = readFileSync(new URL("../worker.js", import.meta.url), "utf8")
+    .replace(/^\s*\/\/.*$/gm, "");
+  const tool = src.slice(src.indexOf("const SITE_SCHEMA_TOOL"));
+  const at = (re) => tool.search(re);
+  const spread = at(/\n\s*\.\.\.PLAN_FIELDS,/);
+  const mode = at(/\n\s*mode:\s*\{/);
+  const shape = at(/\n\s*shape:\s*SHAPE_FIELD,/);
+  assert.ok(spread > 0 && mode > 0 && shape > 0,
+    `an anchor is missing — spread ${spread}, mode ${mode}, shape ${shape}`);
+  assert.ok(shape > spread, "shape is spliced in before the plan spread, not after it");
+  assert.ok(shape > mode, "shape is answered before `mode`, so it is not last of the front-end fields");
 });
 
 test("every axis is required, and the edit list is the same six", () => {

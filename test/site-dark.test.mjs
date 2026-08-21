@@ -187,7 +187,17 @@ test("the designer can name it, from a closed set", () => {
   // A cap the model is merely told about is not a cap — the `MAX_CLARIFY`
   // lesson. `enum` is what makes an unrecognised answer impossible rather than
   // merely unlikely, and `normalizeMode` is the belt behind it.
-  const field = worker.slice(worker.indexOf("      mode: {"), worker.indexOf("      needsWeb: {"));
+  // BOUNDED BY `mode`'s OWN CLOSING BRACE, not by whichever field happens to
+  // come next. It ran to `needsWeb:` until 2026-08-21, when `shape` was spliced
+  // in between the two and the window swallowed it — a guard about the mode
+  // field going red over a field that is not the mode field. This repo's most
+  // repeated own-goal, and the fix is always the same: anchor on something only
+  // the thing being asserted can have.
+  const at = worker.indexOf("      mode: {");
+  assert.ok(at > 0, "the mode field is gone from design_schema");
+  const end = worker.indexOf("\n      },", at);
+  assert.ok(end > at, "the mode field never closes — the window would run to the end of the file");
+  const field = worker.slice(at, end);
   assert.ok(field.length > 100 && field.length < 2000, "the mode field window is " + field.length + " bytes");
   assert.match(field, /enum: \["light", "dark"\]/);
   // OPTIONAL AND LEFT OUT BY DEFAULT. Every business is light unless it says

@@ -86,6 +86,12 @@ async function readSchemaTool() {
     // supply are gone from the tool entirely. Real objects, never stubs, for the
     // reason this function's own header gives.
     PLAN_FIELDS: plan.PLAN_FIELDS,
+    // `shape` is spliced into the tool after `mode` rather than beside its four
+    // siblings (2026-08-21), so it is a second name the tool references and the
+    // eval has to bind. NOT STUBBED — a stubbed description measures a prompt
+    // nobody sends, which is what `schema-eval-scope.test.mjs` says when it
+    // catches a missing one, and it caught this one.
+    SHAPE_FIELD: plan.SHAPE_FIELD,
     PLAN_REQUIRED: plan.PLAN_REQUIRED,
     SITE_TOKEN_NAMES: tokens.ASKABLE,
     siteTokenHint: tokens.valueHint,

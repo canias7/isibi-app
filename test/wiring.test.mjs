@@ -20,7 +20,7 @@ import { budgetFor } from "../builder/site-images.mjs";
 import { mergeLook, movedFields, hasValue, EDIT_RULE, currentStateNote, EDIT_FIELDS } from "../builder/site-edit.mjs";
 import { briefWithLayout } from "../builder/page-gen.mjs";
 import { UI_COMPONENTS, ALWAYS_API_CORE, PAGE_RULES, schemaDigest, lintPages } from "../builder/page-gen.mjs";
-import { PLAN_FIELDS, PLAN_KEYS, PLAN_REQUIRED, KIT_PALETTE, directiveFromPlan } from "../builder/site-plan.mjs";
+import { PLAN_FIELDS, PLAN_KEYS, planFieldFor, PLAN_REQUIRED, KIT_PALETTE, directiveFromPlan } from "../builder/site-plan.mjs";
 import { normalizeSeeds } from "../builder/site-seeds.mjs";
 
 const ROOT = path.join(import.meta.dirname, "..");
@@ -97,7 +97,17 @@ test("the designer WRITES its own plan, and its own palette", () => {
   assert.doesNotMatch(code, /\bSITE_FAMILY_IDS\b/,
     "the family enum is back beside the authored plan — two answers to one question");
   for (const k of PLAN_KEYS) {
-    assert.ok(Object.hasOwn(PLAN_FIELDS, k), `${k} is a plan key with no field for the designer to answer`);
+    // `planFieldFor`, not `PLAN_FIELDS` — the fragments are in two places since
+    // `shape` moved to last (2026-08-21) and this asks whether the designer can
+    // answer the key at all, which is true wherever its fragment happens to sit.
+    assert.ok(planFieldFor(k), `${k} is a plan key with no field for the designer to answer`);
+    // …AND IT REALLY REACHES THE TOOL. A fragment that exists and is spliced in
+    // nowhere is the wiring failure this repo has recorded twelve times: every
+    // module-level guard passes while the model is never asked the question.
+    const reaches = k === "shape"
+      ? /\n\s*shape:\s*SHAPE_FIELD,/.test(worker)
+      : /\n\s*\.\.\.PLAN_FIELDS,/.test(worker);
+    assert.ok(reaches, `${k}'s field exists but never reaches design_schema`);
   }
 });
 
@@ -270,7 +280,12 @@ test("every plan field the designer must answer actually TELLS it something", ()
   // hand-written layout opinion being replaced by per-site writing, so a thin
   // description there produces a thin site.
   for (const k of PLAN_KEYS) {
-    const d = PLAN_FIELDS[k] && PLAN_FIELDS[k].description;
+    // THROUGH `planFieldFor`, NOT `PLAN_FIELDS` DIRECTLY. `shape` is spliced
+    // into the tool after `mode` since 2026-08-21, so it is a plan key whose
+    // fragment lives elsewhere — looking it up in `PLAN_FIELDS` alone would
+    // report the most important field in the plan as described in 0 characters.
+    const f = planFieldFor(k);
+    const d = f && f.description;
     assert.ok(typeof d === "string" && d.length > 120,
       `\`${k}\` is compelled on every build and described in ${d ? d.length : 0} characters`);
   }

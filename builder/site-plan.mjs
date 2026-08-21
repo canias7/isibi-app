@@ -69,6 +69,14 @@
  *
  * Guarded by a test, because a later edit that adds a field or reorders this
  * list for tidiness would put the pick back in front of the pages silently.
+ *
+ * THIS IS THE SEMANTIC SET, NOT THE TOOL'S PROPERTY ORDER — they agreed until
+ * 2026-08-21 and no longer do. `shape` is spliced into `design_schema` after
+ * `mode` (see `SHAPE_FIELD`), so the order the model answers in is purpose,
+ * pages, action, components, … , shape. What this list is for is everything
+ * else: what `normalizePlan` may produce, what an edit may move, and what a
+ * look change escalates on. Every guard derives from it rather than restating
+ * it, which is why it must stay all five.
  */
 export const PLAN_KEYS = ["purpose", "shape", "pages", "action", "components"];
 
@@ -347,22 +355,6 @@ export const PLAN_FIELDS = {
       "A description of the trade is not a purpose.",
   },
 
-  shape: {
-    type: "array",
-    items: { type: "string" },
-    description:
-      "How the page is laid out, in two or three lines.\n" +
-      "Line 1 — what LEADS: the first thing on screen.\n" +
-      "Line 2 — what the body runs through, in order.\n" +
-      "Line 3 — the rule this kind of site fails by breaking.\n" +
-      "Be specific, and name the failure. Real examples: " +
-      '"the menu itself, sectioned, prices on the right" · ' +
-      '"every page links sideways — dead ends are the failure" · ' +
-      '"stale-looking data is the failure" · ' +
-      '"hours and the address stay within one scroll of wherever the visitor is". ' +
-      "A vague line here produces a vague site.",
-  },
-
   pages: {
     type: "array",
     items: {
@@ -411,6 +403,71 @@ export const PLAN_FIELDS = {
       "Pick from these, most-commonly-needed first:\n" + KIT_PALETTE.join(", ") + ".",
   },
 };
+
+/**
+ * `shape` IS A PLAN FIELD AND IS NOT IN `PLAN_FIELDS`, which is the one thing to
+ * understand about this file's shape (owner's call, 2026-08-21).
+ *
+ * It is spliced into `design_schema` AFTER `mode` — last of every front-end
+ * field — rather than beside its four plan siblings. A tool's property order is
+ * its generation order, which is why `components` is pinned last inside
+ * `PLAN_FIELDS`: it is chosen after the page list it has to serve. The same
+ * argument runs one level up and further. `shape` is the field that says where
+ * things GO, so it is worth the least when it is answered first and the most
+ * when it is answered last: written after `mode`, the model has already fixed
+ * the purpose, the page set, the primary verb, the component manifest, the
+ * typeface, the palette, all 23 style axes and light-or-dark, and it is
+ * arranging a page whose parts are all decided rather than guessing at a
+ * layout for parts it has not chosen yet.
+ *
+ * Its own description had said the purpose is "the sentence every other choice
+ * on this call follows from" while sitting fourteenth of twenty-three — so the
+ * plan block as a whole was answered after most of what it claimed to lead.
+ * Moving `shape` does not fix that for `purpose`; it fixes it for the field
+ * where the ordering does the most work.
+ *
+ * THE COST, STATED: the five plan fields are no longer contiguous in the tool,
+ * so reading `design_schema` no longer shows the plan in one place. `PLAN_KEYS`
+ * is still all five and is still what every guard derives from — it is the
+ * SEMANTIC set (what `normalizePlan` produces, what `EDIT_FIELDS` allows, what
+ * a look edit escalates on), and it deliberately no longer mirrors the tool's
+ * property order. The test that asserted those two agreed now asserts the
+ * split instead, or it would be a claim about nothing.
+ */
+export const SHAPE_FIELD = {
+  type: "array",
+  items: { type: "string" },
+  description:
+    "How the page is laid out, in two or three lines.\n" +
+    "Line 1 — what LEADS: the first thing on screen.\n" +
+    "Line 2 — what the body runs through, in order.\n" +
+    "Line 3 — the rule this kind of site fails by breaking.\n" +
+    "Be specific, and name the failure. Real examples: " +
+    '"the menu itself, sectioned, prices on the right" · ' +
+    '"every page links sideways — dead ends are the failure" · ' +
+    '"stale-looking data is the failure" · ' +
+    '"hours and the address stay within one scroll of wherever the visitor is". ' +
+    "A vague line here produces a vague site.",
+};
+
+/**
+ * The schema fragment for a plan key, wherever it happens to live.
+ *
+ * ONE READER OF THE SPLIT. Four of the five are in `PLAN_FIELDS` and `shape` is
+ * its own export, so every caller that walks `PLAN_KEYS` and looks the field up
+ * would otherwise need its own copy of that fact — and a copy is what drifts.
+ * Two guards walk the keys today ("every plan key has a field the designer can
+ * answer" and "every compelled field TELLS it something"); both go through here,
+ * so a sixth field placed somewhere else again is covered by both without
+ * anybody remembering either file.
+ *
+ * Returns undefined for a key with no fragment, which is exactly what those
+ * guards are looking for.
+ */
+export function planFieldFor(key) {
+  if (key === "shape") return SHAPE_FIELD;
+  return PLAN_FIELDS[key];
+}
 
 /** All five are required — every one is a line of the directive. */
 export const PLAN_REQUIRED = PLAN_KEYS.slice();
