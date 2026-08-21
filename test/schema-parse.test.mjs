@@ -16,6 +16,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { normalizeSchema, sqlIdent, looksLikeTable, refusedFields, TOOL_TABLE_FIELDS } from "../site-schema.mjs";
+import { resolveAccess } from "../site-access.mjs";
 import fs from "node:fs";
 
 const one = (def) => normalizeSchema({ tables: [{ name: "t", ...def }] }).tables[0];
@@ -69,8 +70,18 @@ test("an unrecognised access level falls back to collect, not display", () => {
   // The safe direction. `collect` is write-only, so a typo makes the table
   // unreadable — visibly broken — rather than publishing rows that were meant to
   // be private. Getting this backwards would leak submissions.
+  //
+  // ASKED OF THE RESOLVED PAIR, NOT OF THE FIELD, and the difference is the
+  // 2026-08-21 fix. This pinned `t.access === "collect"` — the STAMP — and the
+  // stamp is what made a re-declared table unrestorable, because it is
+  // indistinguishable from a designer that really said `collect`. What has to
+  // hold is the behaviour (nothing is readable) plus the thing the stamp
+  // destroyed: silence must still LOOK like silence, so `fillFromStored` can
+  // tell it from an answer.
   for (const access of ["public", "Display", "readonly", "", null, undefined, 1, {}]) {
-    assert.equal(one({ access }).access, "collect", JSON.stringify(access));
+    const t = one({ access });
+    assert.deepEqual(resolveAccess(t), { read: "none", write: "anyone" }, JSON.stringify(access));
+    assert.equal(t.access, undefined, "an unrecognised level must not read as a declaration: " + JSON.stringify(access));
   }
 });
 

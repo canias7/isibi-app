@@ -238,16 +238,51 @@ export async function launchChromium(chromium) {
 }
 
 /**
- * Look at every prerendered route at every width.
+ * Look at every route the router has, at every width.
  *
- * `routes` is what `prerender()` actually wrote, so this checks the documents a
- * visitor really gets rather than a list of what should exist.
+ * `routes` is what the site's own router declares, so this checks the documents
+ * a visitor really gets rather than a list of what should exist.
+ *
+ * `serverDown` is optional and answers `""` while the site's server is healthy
+ * and a REASON once it is not. It exists because those are the two cases this
+ * check must never confuse:
+ *
+ *   THE BUNDLE WOULD NOT LOAD → every extensionless path fell through to the
+ *   static branch, `dist/client` holds no HTML at all under Start, every route
+ *   404'd, `page.goto` came back not-ok, and `readPage` turned that into a
+ *   `threw` finding for EVERY route at EVERY width — on a build that compiled,
+ *   bundled and published perfectly. `renderReport` still answered `ok: true`,
+ *   so `renderNote` was not suppressed and the customer was told their site's
+ *   every page threw an error. A false alarm from the one check whose charter is
+ *   that a false alarm is strictly worse than a miss, repeated on every later
+ *   text fix and colour change, because the same report rides on every edit lane.
+ *
+ * So an unavailable server is reported as a check that could not run, and the
+ * pages are not blamed for it.
  */
-export async function checkRender(distDir, routes, ssrFetch) {
+export async function checkRender(distDir, routes, ssrFetch, serverDown) {
   const list = (Array.isArray(routes) ? routes : []).filter(Boolean);
-  if (!list.length) return renderReport([], { ok: false, error: "no routes to look at" });
+  // THE VERDICT IS ASKED FOR, NEVER DEFAULTED. This was a local initialised to
+  // `true` and overwritten only after the browser launched, so every failure
+  // before that — a port that would not listen, a missing `playwright-core`, a
+  // Chromium that would not start — reported a run whose sandbox state was never
+  // determined as confined. That is the one direction this signal must not fail
+  // in, and it is the same defect this function's own docstring describes at
+  // length, reappearing in the error path rather than the happy one.
+  const sandboxed = chromiumSandboxed();
+  if (!list.length) return renderReport([], { ok: false, error: "no routes to look at", sandboxed });
 
-  let server = null, browser = null, cut = false, sandboxed = true;
+  // WHY THERE IS NOTHING TO LOOK AT, IN ONE EXPRESSION. Either the caller has
+  // told us its server is down, or there is no server AND no document on disk to
+  // fall back to — which is derived from the dist rather than assuming Start, so
+  // a build that really does ship HTML still gets checked.
+  const unavailable = (typeof serverDown === "function" ? String(serverDown() || "") : "")
+    || (!ssrFetch && !fs.existsSync(path.join(distDir, fileForRoute("/")))
+      ? "the site's server did not start, so there were no pages to look at"
+      : "");
+  if (unavailable) return renderReport([], { ok: false, error: unavailable, sandboxed });
+
+  let server = null, browser = null, cut = false;
   const seen = [];
   try {
     server = serveDist(distDir, ssrFetch);
@@ -255,9 +290,7 @@ export async function checkRender(distDir, routes, ssrFetch) {
     const port = server.address().port;
 
     const { chromium } = await import("playwright-core");
-    const launched = await launchChromium(chromium);
-    browser = launched.browser;
-    sandboxed = launched.sandboxed;
+    browser = (await launchChromium(chromium)).browser;
 
     const until = Date.now() + TOTAL_MS;
     for (const vp of VIEWPORTS) {
@@ -306,6 +339,14 @@ export async function checkRender(distDir, routes, ssrFetch) {
         }
       } finally { await ctx.close().catch(() => {}); }
     }
+    // AND ASKED AGAIN AT THE END, because the server can go down PART-WAY —
+    // killed for wedging on one route, or gone of its own accord — and every
+    // route after that point failed to load for a reason that is ours rather
+    // than the site's. `seen` is kept so a page really looked at is still
+    // counted, and `ok:false` is what stops the customer being told anything
+    // about a run that could not finish.
+    const stopped = typeof serverDown === "function" ? String(serverDown() || "") : "";
+    if (stopped) return renderReport(seen, { ok: false, error: stopped, cut, sandboxed });
     return renderReport(seen, { cut, sandboxed });
   } catch (e) {
     // The check could not run. Reported as such rather than as a clean pass —

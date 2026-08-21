@@ -92,33 +92,49 @@ RUN mkdir -p /app/.routes-base \
 # FAILS. Measured 2026-08-20: the Worker did not ship. The import walk cannot see
 # it (nothing imports a directory that is gone), so the guard that catches it is
 # the one below it — every path a COPY names must exist on disk.
-# NO `prerender-child.mjs` AND NO `site-worker/` ANY MORE. Both were spawned or
-# read off disk rather than imported, so the import walk could not see either and
-# each carried its own hand-written assertion. TanStack Start removed the need
-# for both: the document is rendered per REQUEST by the site's own script, which
-# Start's build produces, so there is no build-time snapshot to render in a
-# subprocess and no entry to stage into the template.
-COPY build-server.mjs exit-reason.mjs site-addon.mjs site-fonts.mjs font-index.json site-theme.mjs site-seeds.mjs site-tokens.mjs site-style.mjs site-identity.mjs site-langs.mjs render-check.mjs site-render.mjs site-worker.mjs ./
+# NO `site-worker/` ANY MORE — it was read off disk rather than imported, so the
+# import walk could not see it and it carried its own hand-written assertion.
+# TanStack Start removed the need for it: the document is rendered per REQUEST by
+# the site's own script, which Start's build produces, so there is no entry to
+# stage into the template.
+#
+# `render-server-child.mjs` IS SPAWNED, NOT IMPORTED, so the import walk cannot
+# see it either — and a missing COPY here would not fail that walk. It would fail
+# every build's render check at runtime with MODULE_NOT_FOUND, and since the
+# check is best-effort by design the build would SUCCEED with the boundary
+# silently gone. `test/dockerfile.test.mjs` names it explicitly for that reason.
+COPY build-server.mjs exit-reason.mjs run-step.mjs site-ssr.mjs render-server-child.mjs site-addon.mjs site-fonts.mjs font-index.json site-theme.mjs site-seeds.mjs site-tokens.mjs site-style.mjs site-identity.mjs site-langs.mjs render-check.mjs site-render.mjs site-worker.mjs ./
 
-# NOTHING IN THIS IMAGE EXECUTES MODEL-WRITTEN CODE ANY MORE, which is why the
-# `PRERENDER_USER=node` privilege drop went with the prerender.
+# THIS IMAGE DOES EXECUTE MODEL-WRITTEN CODE, AND THIS COMMENT USED TO DENY IT.
 #
-# It existed because the prerender `import()`ed the generated SSR bundle and
-# CALLED it, so a hostile brief's code ran with the build service's privileges,
-# in the loop that answers /health, in a container shared by every customer.
-# Dropping the render to an unprivileged uid meant it could read the bundle and
-# node_modules and write nothing.
+# It read "NOTHING IN THIS IMAGE EXECUTES MODEL-WRITTEN CODE ANY MORE, which is
+# why the `PRERENDER_USER=node` privilege drop went with the prerender" — and
+# then said four paragraphs later that the render check still drives the server
+# bundle. Both cannot be true. The second one was: `dist/server/server.js` IS the
+# model's `src/routes/*.tsx`, and the check was `import()`ing it into the build
+# service's own process and calling it per request, as root, with no timeout —
+# `STEP_TIMEOUT` only ever applied to subprocesses. A `while (true)` in a
+# component blocks the event loop that answers /health and drives `oneAtATime`,
+# so one customer's brief could hang every build on the platform until Cloudflare
+# recycled the instance.
 #
-# Under Start that code is COMPILED here and RUN in the customer's own Worker —
-# a separate isolate on Cloudflare's side, which is a stronger boundary than a
-# uid in a shared container ever was. The container still runs `vite` and `tsc`
-# over that source, exactly as it did before the prerender existed.
+# THE DROP IS BACK, against `render-server-child.mjs` — a spawned, SIGKILL-able,
+# uid-dropped child that WRITES NOTHING. That last property is what makes the
+# drop possible at all: the parent does every write there is, so the child needs
+# no write access anywhere.
 #
-# THE ONE THING THAT STILL DRIVES IT IS THE RENDER CHECK, and it is not the same
-# exposure: it loads the server bundle to answer a browser, and the browser runs
-# the CLIENT half. `render-check.mjs` reports whether that browser is sandboxed
-# rather than assuming it, and running this service as non-root is the real fix
-# there — which is a change to this file, not to that one.
+# `node` IS THE USER, uid 1000 in the node:22-slim base, and `RENDER_USER`
+# overrides it. `site-ssr.mjs` resolves it out of /etc/passwd and answers null
+# when it cannot — a developer's machine, a CI runner, an image that already runs
+# unprivileged — and the build response then carries `ssrUnprivileged: false`, so
+# a drop that silently did not happen is visible rather than assumed.
+#
+# WHAT IS STILL NOT CONFINED, stated rather than left to be discovered: the
+# render check launches Chromium as root and that browser runs the model's CLIENT
+# bundle. `render-check.mjs` reports it (`sandboxed: false`) rather than claiming
+# otherwise. The real fix is running this whole service as a non-root user, which
+# needs `/app` to be owned by that user — a change to this file, not to that one,
+# and one that cannot be verified without building the image.
 
 ENV NODE_ENV=production
 EXPOSE 8080

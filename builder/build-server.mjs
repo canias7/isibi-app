@@ -18,11 +18,9 @@
 // previous build's pages — and the template's own reference page, which queries a
 // schema this site does not have — can never leak into someone's site.
 import http from "node:http";
-import { spawn } from "node:child_process";
 import fs from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
 import { resolvePair, resolvePageFonts, fontCss, fontImports } from "./site-fonts.mjs";
 import { themeCss, transitionOn } from "./site-theme.mjs";
 import { normalizeSeeds } from "./site-seeds.mjs";
@@ -31,6 +29,8 @@ import { applyStyle, explicitRadiusCss, parseStyle, MAX_STYLE_BUILD } from "./si
 import { dirFor, initialsMark, normalizeLang, normalizeMode, siteIconFrom } from "./site-identity.mjs";
 import { langLabel, resolveLangs } from "./site-langs.mjs";
 import { exitReason } from "./exit-reason.mjs";
+import { runStep } from "./run-step.mjs";
+import { startSiteServer } from "./site-ssr.mjs";
 import { checkRender } from "./render-check.mjs";
 import { routeOf, fileForRoute } from "./site-addon.mjs";
 
@@ -405,21 +405,21 @@ function writeFonts(fonts, fontFiles, pageFonts) {
 // `resetRoutes` and the per-build icon already guard against. An empty string is
 // a real answer here and has to be written as one.
 //
-function run(cmd, args, env, opts) {
-  return new Promise((resolve) => {
-    const child = spawn(cmd, args, { cwd: APP, env: { ...process.env, ...(env || {}) }, ...(opts || {}) });
-    let err = "", out = "";
-    child.stdout.on("data", (d) => { out += d; });
-    child.stderr.on("data", (d) => { err += d; });
-    const to = setTimeout(() => { try { child.kill("SIGKILL"); } catch {} resolve({ code: -1, signal: null, out, err: "timed out after " + Math.round(STEP_TIMEOUT / 1000) + "s" }); }, STEP_TIMEOUT);
-    // THE SIGNAL, not just the code. A killed process closes with `code: null`
-    // and the signal that killed it — and `null !== 0` reads as an ordinary
-    // failure, so a SIGKILL was reported as a build that failed for no stated
-    // reason. See `exitReason` for what that cost.
-    child.on("close", (code, signal) => { clearTimeout(to); resolve({ code, signal, out, err }); });
-    child.on("error", (e) => { clearTimeout(to); resolve({ code: -1, signal: null, out, err: String((e && e.message) || e) }); });
-  });
-}
+// A THIN WRAPPER OVER `runStep`, which is where the spawn discipline lives now.
+//
+// It moved because the two things that were wrong with it are invisible from
+// outside this container and untestable inside it: on a timeout the old version
+// signalled ONLY its direct child — every step is `npx <tool>`, so `vite`/`tsc`
+// carried on — and it resolved beside the kill rather than after the child's
+// `close`, so `oneAtATime` released while an orphan was still emitting into
+// `dist/client/assets/` that the next build's `resetRoutes()` was about to wipe.
+// `build-server.mjs` listens on a port at import time and cannot be imported by
+// a test; `run-step.mjs` can, and is.
+//
+// The wrapper stays so every call site and every timing guard is unchanged: the
+// only thing that moved is what happens when a step will not stop.
+const run = (cmd, args, env, opts) =>
+  runStep(cmd, args, { cwd: APP, env: { ...process.env, ...(env || {}) }, timeout: STEP_TIMEOUT, ...(opts || {}) });
 
 
 function collectDist(dir = DIST, base = "") {
@@ -527,28 +527,42 @@ function readSiteWorker() {
 }
 
 /**
- * The built server's `fetch`, for the render check to drive.
+ * The built server, for the render check to drive — IN A PROCESS OF ITS OWN.
  *
- * NULL RATHER THAN A THROW. This is a diagnostic's dependency, not the build's:
- * a bundle that will not load costs a render report and must never cost the
- * site. `checkRender` answers honestly when it gets nothing.
+ * IT USED TO BE AN `import()` INTO THIS PROCESS, and the Dockerfile deleted the
+ * prerender's sandbox on the premise that "nothing in this image executes
+ * model-written code any more" while the next paragraph of the same comment
+ * block said the render check still does. Both cannot be true, and the second
+ * one was: `dist/server/server.js` IS the model's `src/routes/*.tsx`, and it was
+ * being called per request inside the long-lived, shared, root-owned build
+ * service, in the loop that answers `/health` and drives `oneAtATime`.
  *
- * CACHE-BUSTED PER CALL. This container is long-lived and serves every build on
- * the platform, so Node's module cache would hand back the PREVIOUS site's
- * server and every render report after the first would be a statement about
- * somebody else's pages — the one-build-leaks-into-the-next class `resetRoutes`
- * and the per-build icon already guard against.
+ * THREE THINGS FELL OUT OF THAT, and the child fixes all three:
+ *
+ *   • NO TIMEOUT COULD EXIST. `STEP_TIMEOUT` only ever applied to subprocesses
+ *     via `run()`, and `checkRender`'s own budget is a timer in the same event
+ *     loop a synchronous `while (true)` in a component blocks. A wedge took the
+ *     whole platform's build queue with it until Cloudflare recycled the
+ *     instance.
+ *   • THE FILESYSTEM WAS SHARED. `resetRoutes` restores `src/routes` and nothing
+ *     else, so a write into `node_modules`, `src/components` or a pristine base
+ *     would be in every later customer's build.
+ *   • THE MODULE REGISTRY GREW FOREVER. `?b=<now>` stopped build two being
+ *     handed build one's server — correctly — and Node keys the ESM registry on
+ *     the whole URL with no unload, so every build's multi-megabyte bundle was
+ *     retained for the life of the container. A fresh process has an empty
+ *     registry, so the buster is not needed and its absence is the fix.
+ *
+ * See `site-ssr.mjs` for the boundary and `render-server-child.mjs` for what the
+ * child is allowed to do (read the bundle, answer requests, write nothing).
+ *
+ * NEVER THROWS. A handle comes back either way: a dead one carries `fetch: null`
+ * and a `down()` that says why, which is what lets the render check report "the
+ * check could not run" instead of blaming every page of a perfectly good site
+ * for 404ing.
  */
-async function loadSiteServer() {
-  try {
-    const mod = await import(pathToFileURL(SERVER_BUNDLE).href + "?b=" + Date.now());
-    const app = mod && mod.default;
-    if (!app || typeof app.fetch !== "function") return null;
-    return (request) => app.fetch(request, {});
-  } catch (e) {
-    console.error("could not load the server bundle for the render check:", String((e && e.message) || e));
-    return null;
-  }
+function startSiteServerForCheck() {
+  return startSiteServer(SERVER_BUNDLE, { cwd: APP });
 }
 
 // The theme's own CSS, appended to whatever writeFonts left behind.
@@ -828,12 +842,27 @@ const server = http.createServer((req, res) => {
       // better: the bytes it inspects are the bytes a visitor receives, from the
       // same code that will serve them.
       //
-      // Best-effort by construction: `loadSiteServer` returns null rather than
-      // throwing, and `checkRender` has a try around everything and reports
-      // rather than throwing, so a bundle that will not load costs a report and
-      // never a build. Reporting only — nothing here refuses a publish.
-      const ssrFetch = await loadSiteServer();
-      const render = await timed("renderMs", null, null, () => checkRender(CLIENT_DIST, routePaths(), ssrFetch));
+      // Best-effort by construction: `startSiteServerForCheck` returns a dead
+      // handle rather than throwing, and `checkRender` has a try around
+      // everything and reports rather than throwing, so a bundle that will not
+      // load costs a report and never a build. Reporting only — nothing here
+      // refuses a publish.
+      //
+      // STOPPED IN A `finally`, and that is not tidiness: the child is a
+      // process, in a container that serves every build on the platform, and one
+      // left running per build is the module-registry leak this replaced wearing
+      // a different costume. `stop()` is idempotent and kills the group.
+      //
+      // `ssr.down` GOES WITH `ssr.fetch`, so the check can tell "the site's
+      // server never started" from "every page of this site is broken". Passing
+      // the fetch alone is what made a bundle that would not load read as eight
+      // pages that threw — the one false alarm this check's charter rates worse
+      // than any miss.
+      const ssr = await startSiteServerForCheck();
+      let render;
+      try {
+        render = await timed("renderMs", null, null, () => checkRender(CLIENT_DIST, routePaths(), ssr.fetch, ssr.down));
+      } finally { ssr.stop(); }
 
       // ONLY THE CLIENT HALF IS PUBLISHED. Start emits `dist/client/**` (what a
       // visitor downloads) and `dist/server/server.js` (the script that renders).
@@ -896,12 +925,20 @@ const server = http.createServer((req, res) => {
       // nothing to confirm.
       if (worker && worker.ok && brandUsed.build) worker.build = brandUsed.build;
 
-      // `prerendered`/`prerenderSkipped`/`prerenderUnprivileged` ARE GONE, not
-      // emptied. The step does not exist under Start, and reporting an empty
-      // list for it would read to every caller as "the prerender ran and
-      // produced nothing" — the one state that used to mean every page of the
-      // site published blank. An absent field says the step is absent.
-      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, fonts: fontsUsed, theme: themeUsed, tokens: tokensUsed, pageTokens: pageTokensUsed, brand: brandUsed, render, worker });
+      // `prerendered`/`prerenderSkipped` ARE GONE, not emptied. The step does not
+      // exist under Start, and reporting an empty list for it would read to every
+      // caller as "the prerender ran and produced nothing" — the one state that
+      // used to mean every page of the site published blank. An absent field
+      // says the step is absent.
+      //
+      // `ssrUnprivileged` IS `prerenderUnprivileged` BACK, with the reporting
+      // rule `sandboxed` uses: carried ONLY when it is false, so an ordinary
+      // response is byte-identical and the field's PRESENCE is the alarm.
+      // DERIVED from whether the drop really happened — never a constant —
+      // because "we thought this was sandboxed" is a worse position than knowing
+      // it is not, and the one thing a check like this must not do is report a
+      // confinement that is not there.
+      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, fonts: fontsUsed, theme: themeUsed, tokens: tokensUsed, pageTokens: pageTokensUsed, brand: brandUsed, render, worker, ...(ssr.unprivileged ? {} : { ssrUnprivileged: false }) });
     } catch (e) {
       return send(res, 200, { ok: false, stage: "build", error: String((e && e.message) || e).slice(0, 2000), ms: Date.now() - t0, ...times });
     }

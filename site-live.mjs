@@ -80,14 +80,71 @@ export async function takeOffline(deps, { slug } = {}) {
 }
 
 /**
+ * THE FILES ARE HALF A SITE. THE SCRIPT IS THE OTHER HALF.
+ *
+ * `rollbackVersion` RETURNS the archived script rather than uploading it — that
+ * module is driveable with a fake store and no Cloudflare account, so the caller
+ * owns the dispatch namespace — and its docstring states the contract in as many
+ * words: "a version WITH a script needs it uploaded, and one WITHOUT needs
+ * whatever is standing taken down". `/versions/restore` obeys it. This module
+ * dropped `out.worker` on the floor.
+ *
+ * WHAT THAT COST, and why it is not cosmetic: `takeOffline` deliberately removes
+ * the script BEFORE it wipes R2, because the script renders the document from its
+ * own baked shell and would otherwise keep serving a fully rendered page over no
+ * assets. So by the time anybody says "put it back" there is NO script standing —
+ * and under Start there is no static path to fall back to either (`dist/client`
+ * holds no HTML, measured). The platform's static branch finds nothing and
+ * answers 404. Every address: the site's own hostname, `/s/<slug>/`, and any
+ * custom domain. The response said `{ok:true, live:true, msg:"✅ Back online"}`.
+ *
+ * IT NEEDS TWO DEPS, NOT ONE, and the split is the contract rather than tidiness:
+ * a version with a script and a version without need OPPOSITE actions, and the
+ * decision is exactly the thing that was missing. `putWorker` for the first,
+ * `dropWorker` for the second — each maps to one real function at the call site,
+ * so neither can be half-wired without showing up here.
+ *
+ * A version with no script is a PRE-START archive: those carry real prerendered
+ * documents, so the static path genuinely is where they belong, and leaving a
+ * newer script over them would name assets the restore has just swept away.
+ */
+async function settleWorker(deps, { slug, code, build }) {
+  const has = typeof code === "string" && !!code;
+  const fn = has ? (deps && deps.putWorker) : (deps && deps.dropWorker);
+  const how = has ? "upload" : "drop";
+  // A CALLER THAT HAS NOT WIRED THIS CANNOT BE TOLD THE SITE IS LIVE. The
+  // precedent one module over (`rollbackVersion`'s optional `sweep`) makes a
+  // missing dep behave "exactly as before" — right there, because before was
+  // correct. Here before was the bug, so the safe direction is the opposite:
+  // report that the script half did not happen and let the caller fall through
+  // to the recompile, which uploads one of its own.
+  if (typeof fn !== "function") return { ok: false, how, reason: "no-dep" };
+  let r = null;
+  try { r = has ? await fn({ slug, code, build }) : await fn({ slug }); }
+  catch (e) { return { ok: false, how, error: e }; }
+  // `null` IS NOT A FAILURE — it is what both of these answer when the dispatch
+  // namespace is not configured at all, which is a platform with no scripts
+  // anywhere rather than this site's problem. Same reading as `/versions/restore`,
+  // which treats only an explicit `ok === false` as a failure.
+  if (r && r.ok === false) return { ok: false, how, status: r.status, error: r.error };
+  // PAST TENSE ON SUCCESS, PRESENT ON A FAILURE — `uploaded`/`dropped` say what
+  // happened, `upload`/`drop` say what was attempted. The caller puts one of
+  // these on the response either way, and "dropped" on a refusal would read as a
+  // script that was taken down when in fact nothing was.
+  return { ok: true, how: has ? "uploaded" : "dropped" };
+}
+
+/**
  * Put it back at the same address.
  *
- * `deps.rollback({slug, id})`   → restore an archived version.
- * `deps.recompile({slug})`      → rebuild from the stored source and publish.
+ * `deps.rollback({slug, id})`          → restore an archived version.
+ * `deps.putWorker({slug, code, build})`→ upload that version's own script.
+ * `deps.dropWorker({slug})`            → take down whatever script is standing.
+ * `deps.recompile({slug})`             → rebuild from the stored source and publish.
  *
- * NO MODEL CALL ON EITHER PATH, so coming back is free. A version restore is
- * also containerless; the recompile fallback costs container time and nothing
- * else, which is worth saying to somebody who is waiting.
+ * NO MODEL CALL ON ANY PATH, so coming back is free. A version restore is also
+ * containerless; the recompile fallback costs container time and nothing else,
+ * which is worth saying to somebody who is waiting.
  */
 export async function putBackOnline(deps, { slug } = {}) {
   if (!slug) return { ok: false, reason: "no-slug" };
@@ -102,16 +159,56 @@ export async function putBackOnline(deps, { slug } = {}) {
   if (back.how === "version") {
     let out = null;
     try { out = await deps.rollback({ slug, id: back.id }); } catch (e) { out = { ok: false, error: e }; }
-    if (out && out.ok) return { ok: true, live: true, how: "version", files: out.files, msg: "✅ Back online at the same address." };
+    if (out && out.ok) {
+      // AFTER THE FILES, ALWAYS. `rollbackVersion` has already copied them by
+      // the time it returns, which is why the script rides on the RETURN rather
+      // than being something a caller could sequence wrongly: a script uploaded
+      // first serves a document naming assets that are not back yet.
+      const w = await settleWorker(deps, { slug, code: out.worker, build: out.build });
+      if (w.ok) {
+        return {
+          ok: true, live: true, how: "version", files: out.files,
+          // WHICH OF THE TWO HAPPENED, because they are not the same site.
+          // "uploaded" is the archived script serving again; "dropped" is a
+          // pre-Start version back on the static path it belongs to. A boolean
+          // cannot tell those apart, and the owner has no other signal.
+          worker: w.how,
+          msg: "✅ Back online at the same address.",
+        };
+      }
+      // THE FILES ARE BACK AND THE SITE IS NOT SERVING, which is the one outcome
+      // this route must never report as success. The recompile below publishes
+      // its own script, so it is a real recovery rather than a retry of the same
+      // failure — and with no source there is nothing left to try.
+      if (!hasSource) {
+        return {
+          ok: false, reason: "worker", worker: w.how,
+          msg: "Your pages are back but the site isn't serving them yet — I couldn't put its script up. Try again in a moment.",
+        };
+      }
     // A VERSION THAT WILL NOT RESTORE FALLS THROUGH TO THE RECOMPILE rather than
     // failing. The archive is best-effort by design — an unreadable manifest is
     // exactly the case `listVersions` is written to skip — and the source is a
-    // second, independent copy. Refusing here would strand a site over a
-    // convenience path when the real one was available all along.
-    if (!hasSource) return { ok: false, reason: "restore", msg: "Couldn't put it back just now — try again in a moment." };
+    // second, independent copy. Refusing whenever the convenience path fails
+    // would strand a site while the real way back was available all along. So
+    // this refuses ONLY when there is nothing left to fall through to.
+    } else if (!hasSource) {
+      return { ok: false, reason: "restore", msg: "Couldn't put it back just now — try again in a moment." };
+    }
   }
   let pub = null;
   try { pub = await deps.recompile({ slug }); } catch (e) { pub = { ok: false, error: e }; }
   if (!pub || !pub.ok) return { ok: false, reason: "recompile", msg: "Couldn't put it back just now — try again in a moment." };
+  // THE SAME HALF-SITE ON THE OTHER BRANCH. `recompileAndPublish` uploads the
+  // script itself and reports `worker.uploaded === false` ONLY when the upload
+  // really failed (nothing to upload answers `null` and says nothing) — so this
+  // is the recompile's version of exactly the defect above, and reading `pub.ok`
+  // alone would call a 404 site live for the same reason.
+  if (pub.worker && pub.worker.uploaded === false) {
+    return {
+      ok: false, reason: "worker", worker: "upload", files: pub.files,
+      msg: "Your pages are back but the site isn't serving them yet — I couldn't put its script up. Try again in a moment.",
+    };
+  }
   return { ok: true, live: true, how: "recompile", files: pub.files, msg: "✅ Back online at the same address." };
 }

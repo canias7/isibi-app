@@ -12,7 +12,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { policiesFor, grantsFor, APP_USER_FN, APP_USER_FN_NATIVE, APP_USER_FN_FALLBACK, SESSION_JWT_EXT, SESSION_JWT_GRANTS, APP_TEAM_FN, POLICY_PREFIX } from "../site-rls.mjs";
+import { policiesFor, grantsFor, publicViewSql, liveConditions, APP_USER_FN, APP_USER_FN_NATIVE, APP_USER_FN_FALLBACK, SESSION_JWT_EXT, SESSION_JWT_GRANTS, APP_TEAM_FN, POLICY_PREFIX } from "../site-rls.mjs";
 import { ACCESS_PRESETS, resolveAccess } from "../site-access.mjs";
 
 const sql = (t) => policiesFor(t).join("\n");
@@ -673,4 +673,191 @@ test("a payable table gets no write policy on any pair", () => {
     .some((s) => /FOR SELECT/.test(s)), "a payable table stopped being readable");
   // And an ORDINARY table still gets its write policy, or this removed the tier.
   assert.ok(policiesFor({ name: "b", access: "collect" }).some((s) => /FOR INSERT/.test(s)));
+});
+
+/* ---------------------------------------------------------------------------
+ * THE 4x4 GRID, ASKED OF ALL THREE OBJECTS AT ONCE.
+ *
+ * All three failures below are the same shape: a rule applied to one object in
+ * the grid and not to its partner. `retired` was honoured by `policiesFor` and
+ * `grantsFor` and ignored by `publicViewSql`; the `live` clause was added to
+ * `policiesFor` and to nothing else; the REVOKE pair was emitted on eight of the
+ * sixteen cells while its own comment claimed every table. A fix aimed at the
+ * one cell each finding named would have left the other fifteen, so every
+ * assertion here is driven over the whole grid AND over the five presets — and
+ * each is paired with a floor, since a loop over an emitter that has stopped
+ * emitting anything satisfies every absence in it.
+ * ------------------------------------------------------------------------- */
+
+const READS = ["none", "own", "members", "public"];
+const WRITES = ["none", "own", "members", "anyone"];
+/** Every way a table's access can be spelled: the 16 cells and the 5 shorthands. */
+const CELLS = [];
+for (const read of READS) for (const write of WRITES) CELLS.push({ read, write });
+for (const access of Object.keys(ACCESS_PRESETS)) CELLS.push({ access });
+const cellName = (c) => c.access ? `access:${c.access}` : `read:${c.read} write:${c.write}`;
+
+/** The projection a real booking table declares — the case both view findings name. */
+const PV = { columns: ["appointment_date", "appointment_time"], where: ["status:ne:cancelled"] };
+const PV_COLS = ["appointment_date", "appointment_time", "status"];
+
+test("a retired table publishes NOTHING — not its rows, and not a projection of them", () => {
+  // MEASURED BEFORE THE FIX, on `{name:"bookings", access:"collect", retired:true,
+  // publicView:{columns:[...]}}`: policiesFor emitted the DROPs and stopped,
+  // grantsFor emitted only the two REVOKEs — and publicViewSql went on to
+  // `CREATE VIEW … security_invoker = false` and `GRANT SELECT … TO anonymous`.
+  // applySiteSchema runs the three lists in order, so the retire was undone one
+  // statement later, on that apply and on every apply after it.
+  //
+  // Asserted over the CONCATENATION rather than over publicViewSql alone,
+  // because that is what the engine actually executes — a per-function
+  // assertion passes while the three lists still disagree with each other.
+  for (const cell of CELLS) {
+    const t = { name: "bookings", ...cell, retired: true, publicView: PV };
+    const all = policiesFor(t).concat(grantsFor(t)).concat(publicViewSql(t, PV_COLS));
+    const opens = all.filter((s) => /^(CREATE POLICY|CREATE VIEW|GRANT )/.test(s));
+    assert.deepEqual(opens, [],
+      cellName(cell) + ": a retired table still opens something:\n" + opens.join("\n"));
+    // …and the withdrawal has to TAKE EFFECT on a table that already had these
+    // objects, which is what the unconditional DROPs are for.
+    assert.ok(all.some((s) => /^DROP VIEW IF EXISTS "bookings_public";/.test(s)),
+      cellName(cell) + ": retiring stops dropping the view it already published");
+    assert.ok(all.some((s) => /^DROP POLICY IF EXISTS/.test(s)), cellName(cell));
+    assert.ok(all.some((s) => /^REVOKE ALL ON "bookings"/.test(s)), cellName(cell));
+  }
+  // THE FLOOR. Un-retired, the same table really does create and grant the view
+  // — without this every assertion above is satisfied by an emitter that has
+  // stopped producing a projection at all.
+  const live = publicViewSql({ name: "bookings", access: "collect", publicView: PV }, PV_COLS);
+  assert.ok(live.some((s) => /^CREATE VIEW "bookings_public"/.test(s)), live.join("\n"));
+  assert.ok(live.some((s) => /^GRANT SELECT ON "bookings_public" TO anonymous;/.test(s)));
+  // Reversible in both directions, like the grants: the withdrawal is the
+  // absence of the CREATE, not a destroyed declaration.
+  assert.deepEqual(publicViewSql({ name: "bookings", access: "collect", publicView: PV, retired: false }, PV_COLS), live);
+});
+
+test("the public projection hides the same rows the read policy hides", () => {
+  // THE VIEW IS `security_invoker = false`, so it runs as the table owner and
+  // bypasses RLS entirely — the read policy's `live` clause never applies to it.
+  // Measured before the fix on a table carrying all three flags: the view came
+  // out as a bare `SELECT <cols> FROM <table>`, so a cancelled booking greyed
+  // out its slot for ever, an expired offer stayed published and a scheduled
+  // post went public before its date, on exactly the path a stranger reads.
+  //
+  // DRIVEN THROUGH `liveConditions` rather than against a pattern, so this is an
+  // agreement between the two objects rather than two spellings that can drift.
+  const FLAGS = [{ trash: true }, { expires: true }, { scheduled: true },
+                 { trash: true, expires: true, scheduled: true }];
+  for (const cell of CELLS) for (const flags of FLAGS) {
+    const t = { name: "bookings", ...cell, ...flags, publicView: PV };
+    const want = liveConditions(t);
+    assert.ok(want.length, "the fixture declares no live flags at all: " + JSON.stringify(flags));
+    const create = publicViewSql(t, PV_COLS).find((s) => /^CREATE VIEW/.test(s));
+    assert.ok(create, cellName(cell) + " " + JSON.stringify(flags) + ": no view was created");
+    for (const cond of want) {
+      assert.ok(create.includes(cond),
+        cellName(cell) + " " + JSON.stringify(flags) + ": the view publishes rows the policy hides — missing " +
+        cond + "\n" + create);
+    }
+    // The DECLARED filter is not replaced by them. Losing it fails outward:
+    // `status:ne:cancelled` dropped is a view that also publishes the
+    // cancellations, which is the one direction that must never happen quietly.
+    assert.ok(create.includes(`"status" <> 'cancelled'`), create);
+    // ANDed, never ORed — ORed, `deleted_at IS NULL` would publish every live
+    // row regardless of the declared filter.
+    assert.ok(!/\bOR\b\s+"bookings"\."deleted_at"/.test(create), create);
+  }
+  // AND THE TWO OBJECTS AGREE, checked where both exist: every condition the
+  // SELECT policy applies is one the view applies. A view filtering MORE than
+  // the policy would be a smaller answer; filtering less is the bug.
+  for (const cell of CELLS) {
+    const t = { name: "bookings", ...cell, trash: true, expires: true, scheduled: true, publicView: PV };
+    const sel = policiesFor(t).find((s) => /FOR SELECT/.test(s));
+    if (!sel) continue; // read:none has no read policy at all — by design
+    const create = publicViewSql(t, PV_COLS).find((s) => /^CREATE VIEW/.test(s));
+    for (const cond of liveConditions(t)) {
+      assert.ok(sel.includes(cond) && create.includes(cond),
+        cellName(cell) + ": the policy and the projection disagree about " + cond);
+    }
+  }
+  // …AND A TABLE DECLARING NONE OF THEM IS UNTOUCHED, so no existing site's
+  // projection changes shape.
+  const plain = publicViewSql({ name: "bookings", access: "collect", publicView: PV }, PV_COLS)
+    .find((s) => /^CREATE VIEW/.test(s));
+  assert.equal(plain.includes("deleted_at"), false, plain);
+  assert.equal(plain.includes("expires_at"), false, plain);
+  assert.equal(plain.includes("publish_at"), false, plain);
+  assert.ok(plain.includes(`WHERE "status" <> 'cancelled'`), plain);
+});
+
+test("the live filter is driven by the FLAG, never by the projection's column list", () => {
+  // NOT A STYLE CHOICE. The engine stamps `deleted_at`/`expires_at`/`publish_at`
+  // into the DDL and NOT into `colNames`, which is what publicViewSql receives
+  // as `columns` — so checking them against the projection's `known` set would
+  // drop the filter on every table that has one, i.e. on all of them.
+  const t = { name: "bookings", access: "collect", trash: true, expires: true, scheduled: true, publicView: PV };
+  const create = publicViewSql(t, PV_COLS).find((s) => /^CREATE VIEW/.test(s));
+  for (const c of ["deleted_at", "expires_at", "publish_at"]) {
+    assert.ok(create.includes(c), c + " was dropped although the table declares it:\n" + create);
+    assert.equal(PV_COLS.includes(c), false, c + " is in the fixture's column list, so this proves nothing");
+  }
+  // NULL means "never expires" / "already live", and it has to be admitted
+  // explicitly or every row without a date set vanishes from the projection —
+  // which for a booking table is every row.
+  assert.ok(create.includes(`"bookings"."expires_at" IS NULL OR`), create);
+  assert.ok(create.includes(`"bookings"."publish_at" IS NULL OR`), create);
+});
+
+test("EVERY cell revokes before it grants, and no privilege is granted twice", () => {
+  // THE COMMENT ON THE REVOKE PAIR SAYS "emitted for EVERY table including a
+  // retired one, which is what makes the withdrawal real". Measured across all
+  // 16 cells, it was emitted on eight: the member-write branch returned a
+  // freshly-built array instead of pushing onto `out`, so `revoke=N` on exactly
+  // the write-own / write-members cells — including both member presets `user`
+  // and `feed`. A revise moving a table toward a member-write shape left its
+  // prior `GRANT INSERT … TO anonymous` standing for ever.
+  for (const cell of CELLS) for (const extra of [{}, { payment: { from: "p", amount: "price" } }, { retired: true }]) {
+    const g = grantsFor({ name: "t", ...cell, ...extra });
+    const where = cellName(cell) + " " + JSON.stringify(extra);
+    assert.equal(g[0], 'REVOKE ALL ON "t" FROM anonymous;', where);
+    assert.equal(g[1], 'REVOKE ALL ON "t" FROM authenticated;', where);
+    // ORDER, which is the half that makes it correct rather than merely present:
+    // a REVOKE after a GRANT takes the privilege straight back off and the table
+    // is unreachable by anybody.
+    const firstGrant = g.findIndex((s) => /^GRANT /.test(s));
+    const lastRevoke = g.findLastIndex((s) => /^REVOKE /.test(s));
+    if (firstGrant >= 0) assert.ok(firstGrant > lastRevoke, where + ": a grant is undone by a later revoke");
+    // NO GRANT IS REDUNDANT AGAINST ANOTHER. The member-write cells fold the
+    // member's SELECT into the four-verb statement rather than emitting it
+    // twice — the old returning form got that right by rebuilding the list from
+    // scratch, and pushing onto `out` instead is where it could be lost.
+    //
+    // ASSERTED AS SUBSET-OF-ANOTHER, NOT AS AN EXACT DUPLICATE. The first draft
+    // was `new Set(g).size === g.length`, which reads as this property and is
+    // not it: `GRANT SELECT … TO authenticated` and `GRANT SELECT, INSERT,
+    // UPDATE, DELETE … TO authenticated` are different strings, so a mutation
+    // dropping the fold SURVIVED it while granting the same role SELECT twice.
+    // A subset test is the property; it leaves the anyone-write cells alone,
+    // where SELECT and INSERT go to one role in two statements and neither
+    // contains the other.
+    const granted = g.filter((s) => /^GRANT /.test(s)).map((s) => {
+      const m = /^GRANT (.+) ON (".*?") TO (\w+);$/.exec(s);
+      assert.ok(m, where + ": a grant this test cannot read — retarget it: " + s);
+      return { stmt: s, table: m[2], role: m[3], verbs: new Set(m[1].split(",").map((v) => v.trim())) };
+    });
+    for (const a of granted) for (const b of granted) {
+      if (a === b || a.role !== b.role || a.table !== b.table) continue;
+      assert.ok(![...a.verbs].every((v) => b.verbs.has(v)),
+        where + ": one grant subsumes another for the same role:\n" + a.stmt + "\n" + b.stmt);
+    }
+  }
+  // THE FLOOR, per cell rather than once: without it every assertion above is
+  // satisfied by an emitter that grants nothing to anybody. Exactly the cells
+  // that should open something must open something.
+  for (const cell of CELLS) {
+    const { read, write } = resolveAccess(cell.access ? { access: cell.access } : cell);
+    const opens = grantsFor({ name: "t", ...cell }).some((s) => /^GRANT /.test(s));
+    assert.equal(opens, read !== "none" || write !== "none",
+      cellName(cell) + (opens ? " grants something it should not" : " grants nothing at all"));
+  }
 });

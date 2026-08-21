@@ -207,15 +207,110 @@ export const EDIT_RULE =
   // THE TWO FEATURES THAT NEED A PAGE AS WELL AS A SCHEMA, and the reason this
   // sentence exists at all: the designer could already emit them on an existing
   // table and they were dropped silently, so a site built without a price could
-  // never start taking money. The access warning is the important half — the
-  // tool COMPELS `access` on every table, so a designer naming an existing one
-  // has to answer it, and an answer that is compliance rather than intent would
-  // have opened a booking list to the public if the merge trusted it.
+  // never start taking money.
+  //
+  // THE LAST CLAUSE IS A PROMISE AND IT WAS NOT KEPT ON THIS ROUTE UNTIL
+  // 2026-08-21. Its justification was also wrong — it said the tool COMPELS
+  // `access`, and the required list is `["name", "columns"]`, so an omission was
+  // possible too and was the WORSE half: the normaliser stamped `collect` over
+  // it, which no later merge could tell from a real answer. `keepStoredAccess`
+  // below is the implementation; obeying this sentence literally is what used to
+  // publish a menu table to anonymous writers.
   "YOU MAY NAME A TABLE THE SITE ALREADY HAS, for exactly two things: to add a column to it, and to make it take " +
   "PAYMENTS or publish a read-only `publicView` of it. Those two need a page as well, which is why they come here. " +
   "Anything else about an existing table — who may read it, who may write it, whether it emails, what it refuses — " +
   "is changed elsewhere and is IGNORED here, so the `access` you have to fill in for an existing table is discarded " +
   "and the site keeps its own.";
+
+/**
+ * Who may read and who may write, as three names.
+ *
+ * `access` is the preset, `read`/`write` are the axes it is shorthand for. Any
+ * of the three decides the table's grants and its RLS policies, so all three are
+ * one question and a guard that holds two of them holds none.
+ */
+export const ACCESS_AXES = ["access", "read", "write"];
+
+/**
+ * MAKE `EDIT_RULE`'S LAST SENTENCE TRUE.
+ *
+ * That sentence promises, in as many words, that "the `access` you have to fill
+ * in for an existing table is discarded and the site keeps its own". Nothing
+ * implemented it on the build/revise route, and the comment justifying the
+ * promise was stale twice over — it said the tool COMPELS `access`, when the
+ * required list is `["name", "columns"]`, so BOTH an omission and an answer had
+ * to be handled and neither was.
+ *
+ * MEASURED 2026-08-21, on a site whose `menu_items` was `display`, revised to add
+ * a `photo` column exactly as the rule above instructs:
+ *
+ *   grantsFor   → GRANT INSERT ON "menu_items" TO anonymous
+ *   policiesFor → DROP POLICY "isibi_menu_items_read"   (no SELECT policy recreated)
+ *
+ * So one ordinary edit made a stranger able to write rows into the business's
+ * menu through the Data API and made the site's own menu page 403 for every
+ * visitor — permanently, since `_meta` is the only copy the request path reads.
+ * Reported as `ok: true`. A model OBEYING OUR OWN INSTRUCTION is what triggered it.
+ *
+ * NOTE THE INVERSION of the usual pair bug: a table declared as a `read`/`write`
+ * PAIR was SAFE, because both halves are stored and restored. It is the ordinary
+ * preset-declared table — the common case — that was exposed.
+ *
+ * TWO HALVES, AND ONLY BOTH TOGETHER ARE A FIX. `site-schema.mjs` stopped
+ * stamping `"collect"` over an absent level, so silence survives the normaliser
+ * and `fillFromStored` can restore it; this drops a level that WAS declared,
+ * because the model may answer one as compliance with a schema rather than as a
+ * decision about who may read a real business's booking list. The addon lane has
+ * made exactly this argument since it shipped (`ADDON_TABLE_FIELDS`), and the
+ * build/revise route is the one that never learned it.
+ *
+ * DROPPED, NOT OVERWRITTEN WITH THE STORED VALUE, and that is what keeps it
+ * honest: this module has never seen the stored schema and would be guessing.
+ * `applySiteSchema` holds the stored table already — `fillFromStored` fills any
+ * silence from it before a single grant or policy is emitted — so removing the
+ * field is precisely "say nothing and let the site keep its own".
+ *
+ * WHY NOT IN `applySiteSchema`, where the stored table is in hand: the `rules`
+ * lane exists to CHANGE access on an existing table, and it applies through the
+ * same function. A stored-always-wins rule there would silently break the one
+ * lane whose job this is. Two intents, so two call sites, rather than a flag on
+ * the shared function — the same reasoning `mergeRules` gives for not being
+ * `normalizeSchema`'s merge.
+ *
+ * `known` is the names the site already has. An EMPTY set changes nothing, which
+ * is the right direction and not merely the convenient one: on a first build
+ * there is no stored level to keep, and a revise declaring a genuinely NEW table
+ * must keep the level it just declared or every table added after a site exists
+ * would come out `collect`.
+ *
+ * Returns the guarded spec plus what it overruled, so the route can say it. A
+ * designer repeatedly trying to re-level an existing table is the same class of
+ * evidence `droppedFields` was added to collect.
+ */
+export function keepStoredAccess(spec, known) {
+  const names = new Set([...(known || [])].map((n) => String(n == null ? "" : n).toLowerCase()).filter(Boolean));
+  const tables = (spec && Array.isArray(spec.tables)) ? spec.tables : [];
+  if (!names.size || !tables.length) return { spec, held: [] };
+  const held = [];
+  const out = tables.map((t) => {
+    if (!t || !t.name || !names.has(String(t.name).toLowerCase())) return t;
+    const fields = [];
+    const copy = { ...t };
+    for (const k of ACCESS_AXES) {
+      // Absent and null are both SILENCE — the normaliser turns an unmentioned
+      // half into undefined and `fillFromStored` reads either as unchanged — so
+      // neither is something we overruled, and reporting it as such would make
+      // every ordinary column edit look like a refused access change.
+      if (copy[k] === undefined || copy[k] === null) continue;
+      delete copy[k];
+      fields.push(k);
+    }
+    if (!fields.length) return t;
+    held.push({ table: t.name, fields });
+    return copy;
+  });
+  return { spec: { ...spec, tables: out }, held };
+}
 
 /**
  * Stored-unless-named, for the six fields an edit may move.

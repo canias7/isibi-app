@@ -195,8 +195,8 @@ test("a display table declared as a read/write pair is seeded", async () => {
   const spec = normalizeSchema({
     tables: [{ name: "services", read: "public", write: "none", columns: [{ name: "name" }, { name: "price" }] }],
   });
-  assert.equal(spec.tables[0].access, "collect",
-    "the premise: the allow-list coerces a pair-declared table's access, which is why the preset name cannot be the question");
+  assert.notEqual(spec.tables[0].access, "display",
+    "the premise: a pair-declared table carries no preset NAME, which is why the preset name cannot be the question");
   const { deps, calls } = db();
   const out = await seedSiteRows("conn", spec, { services: [{ name: "Skin fade", price: 28 }] }, deps);
   assert.deepEqual(out.seeded, { services: 1 }, JSON.stringify(out.skipped));

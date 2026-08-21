@@ -288,7 +288,29 @@ export function normalizeSchema(spec) {
     // this is purely about the shape of the failure: lose one table, not the
     // site. Refusing here is also what makes `refusedTables` able to SAY so.
     if (!SAFE_IDENT.test(String(name))) { refusedNames.push(String(name).slice(0, 60)); return; }
-    const access = ["collect", "display", "user", "feed", "admin"].includes(def.access) ? def.access : "collect";
+    // SILENCE STAYS SILENCE. This STAMPED `"collect"` on any table that did not
+    // declare a recognised preset, and the stamp is indistinguishable from a
+    // designer that really said `collect` — so `fillFromStored`, whose whole job
+    // is "absent means unchanged", could never restore this one field while it
+    // restored the other ~140. Measured 2026-08-21 on a revise that re-declared
+    // an existing `display` table to add a column, exactly as `EDIT_RULE`
+    // instructs: after `fillFromStored` the access was still `collect`, so
+    // `applySiteSchema` re-emitted `GRANT INSERT … TO anonymous` and dropped the
+    // SELECT policy — a stranger could write to the business's menu and no
+    // visitor could read it, on a live site, reported as `ok: true`.
+    //
+    // `undefined` rather than a stamp, which is exactly what `read` and `write`
+    // eight lines below already do and for the same stated reason: `resolveAccess`
+    // is the one place that decides what a missing or unrecognised level means,
+    // and it answers `collect` — so a FIRST build is byte-identical (nothing has
+    // a stored self to be filled from) and only a re-declaration changes.
+    // `boolOf` made the same move for the four policy flags after the same audit.
+    //
+    // This is HALF the fix and cannot be the whole of it: the tool compels a
+    // shape, so a designer may answer `access: "collect"` as compliance rather
+    // than intent, which is a declared value and survives this. `keepStoredAccess`
+    // in builder/site-edit.mjs is the other half — see the call site in worker.js.
+    const access = ["collect", "display", "user", "feed", "admin"].includes(def.access) ? def.access : undefined;
     const src = def.columns || def.fields || def.cols || def.schema;
     let cols = [];
     if (Array.isArray(src)) cols = src.map(coerceCol);

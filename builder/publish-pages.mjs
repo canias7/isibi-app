@@ -15,6 +15,13 @@
 // model call, no container and no R2.
 
 import { validatePages, lintPages, repairImports } from "./page-gen.mjs";
+// The seed top-up's OWN model and OWN hard output cap, imported rather than
+// restated. `buildFloor` has to price that call (see `SEED_PROFILE`), and a
+// second copy of either number here is a gate that drifts away from the thing
+// it guards — which is precisely the bug being fixed. `site-seed.mjs` imports
+// only `site-access.mjs`, a leaf, so this adds no cycle; and nothing in the
+// build container's import graph reaches this file, so the image is unaffected.
+import { SEED_MODEL, SEED_MAX_TOKENS } from "./site-seed.mjs";
 
 // List rates over the platform's $0.008/credit basis, PER MODEL.
 //
@@ -200,6 +207,46 @@ export const MIN_CREDITS = 8;
 export const SCHEMA_PROFILE = { in: 236, out: 1490, cacheRead: 0, cacheWrite: 19008 };
 
 /**
+ * What the SEED TOP-UP can cost, at its own ceiling.
+ *
+ * THE GATE PRICED ONE CALL AND THE BILL SETTLED TWO. `buildFloor` profiled the
+ * DESIGNER call alone, and the route settles the same deposit against
+ * `schemaSettlement([schemaUsage, seedUsage], SITE_BUILD_FEE)` — the designer
+ * PLUS the Haiku top-up that fires whenever the designer omits its required
+ * `seed`. So the affordability gate measured a smaller set of calls than the
+ * charge, and the gate was the smaller one.
+ *
+ * MEASURED THROUGH THE REAL MODULE 2026-08-21, with a modest top-up
+ * (in 1500 / out 900): sonnet floor 20 against a real need of 21, grok 14
+ * against 15, opus 28 against 29. A balance anywhere in that one-credit band
+ * passes the gate, is charged the full schema cost (13 sonnet, 21 opus, 7 grok),
+ * and is then refused by `publishPages`'s own `MIN_CREDITS` floor with
+ * `stage: "credits"` — verbatim the failure `SCHEMA_PROFILE`'s docstring says
+ * this gate exists to prevent, recurring through a second call the gate never
+ * learned about. Balances are `numeric(16,6)`, so the band is continuous rather
+ * than one integer, and grok's floor of 14 sits well inside a new account's
+ * 20-credit grant, so it is reachable with no top-up at all.
+ *
+ * A BOUND, NOT A LIVE MEASUREMENT, and that is the difference from
+ * `SCHEMA_PROFILE` beside it. `out` is `SEED_MAX_TOKENS`, which the API enforces
+ * — the call CANNOT produce more — and `in` is 2000 against a worst-case
+ * request measured at 6,504 characters (~1,860 tokens: a 4,000-character brief,
+ * `MAX_GAP_TABLES` × `MAX_GAP_COLS` of table spec, and the tool schema), with no
+ * cache to read or write. So this is the most the top-up can ever cost, which is
+ * the only direction a gate may be wrong in. Both numbers come from the seed
+ * module itself, so raising its cap raises this with it.
+ *
+ * COUNTED UNCONDITIONALLY, though the top-up only runs on a build that came back
+ * short. Whether it will fire cannot be known at the gate — it depends on what
+ * the designer returns, which has not happened yet — and CLAUDE.md records it
+ * firing on ~60% of menu-shaped builds, so it is the common path rather than the
+ * edge. Over-estimating costs an occasional "top up" message to somebody who
+ * would just have squeezed through; under-estimating charges them for a
+ * placeholder. That asymmetry is the whole reason this file has a floor at all.
+ */
+export const SEED_PROFILE = { in: 2000, out: SEED_MAX_TOKENS, cacheRead: 0, cacheWrite: 0, model: SEED_MODEL };
+
+/**
  * The balance a build needs BEFORE it starts, for a given designer model.
  *
  * THE BUG THIS EXISTS FOR, measured live and caused by the picker: the route
@@ -212,9 +259,17 @@ export const SCHEMA_PROFILE = { in: 236, out: 1490, cacheRead: 0, cacheWrite: 19
  * pages model was never called at all: we spent their budget on step one and
  * then declined to do step two, which is ours and not theirs. So the whole
  * build is affordable before anything is spent, or nothing is.
+ *
+ * THE SCHEMA STEP IS TWO CALLS, and this priced one of them until 2026-08-21 —
+ * see `SEED_PROFILE`. They are passed as SEPARATE PARTS rather than added into
+ * one usage object, for the reason `schemaSettlement` states one screen down:
+ * they are on different models and merging them prices one at the other's rate.
+ * `pageCredits` is variadic and rounds ONCE, so the gate and the settlement now
+ * do the same arithmetic on the same shape — which is the property that was
+ * missing, not the number.
  */
 export const buildFloor = (designModel) =>
-  pageCredits({ ...SCHEMA_PROFILE, model: designModel }) + MIN_CREDITS;
+  pageCredits({ ...SCHEMA_PROFILE, model: designModel }, SEED_PROFILE) + MIN_CREDITS;
 
 /**
  * Whose fault was this failure — ours, or the output's?
@@ -425,6 +480,32 @@ function Unfinished() {
  * back. The rule is therefore about what would be DESTROYED, not about build vs
  * revise — a first build passes an empty `live` and behaves exactly as before.
  *
+ * "NOTHING IS LIVE" AND "WE COULD NOT TELL" ARE DIFFERENT ANSWERS, and reading
+ * the second as the first is what made this destructive. `live` was coerced with
+ * `new Set(Array.isArray(live) ? live : [])`, so a caller that could not read the
+ * site's stored source got an empty set — indistinguishable from a first build —
+ * and every working page went into `stub`. The route reaches that state two ways
+ * on a site that is genuinely live: an empty stored brief, and `loadSiteSource`
+ * answering null on ANY read failure. The consequence is the exact regression
+ * `live` exists to prevent, arriving through the gate rather than past it: a
+ * live menu replaced with "this page isn't finished yet", published, and
+ * charged.
+ *
+ * So an absent `live` REFUSES salvage. `hasBoughtPhotos` already reads the same
+ * null the same way — "unknown → spend nothing" — and one consumer of that value
+ * treating unknown as "do nothing" while the other treats it as "nothing is
+ * live" is the disagreement itself. A caller that has not said what is live may
+ * not be allowed to destroy pages, so an omitted argument fails SAFE rather than
+ * open: the caller's fallback is leaving the published site exactly as it is,
+ * which is the answer they had before salvage existed. A first build says so
+ * explicitly with `[]`, which costs it nothing.
+ *
+ * It is checked LAST of the refusals, deliberately. Everything above it is a
+ * fact about the ERROR rather than about what is published — a kit file, a
+ * failure naming no page, the home page being the one that broke — and each of
+ * those is the more useful thing to say. Checked first, all three would report
+ * "we couldn't tell", which is true and useless.
+ *
  * `foreign` is returned rather than folded into `reason` because a kit file
  * turning up here is US shipping something broken — `fallbackSeed`, `require()`
  * and `FaqAccordion` all really happened — and that has to be findable without
@@ -433,6 +514,9 @@ function Unfinished() {
  */
 export function salvagePlan(error, pages, live) {
   const known = new Set((pages || []).map((p) => p.path));
+  // The two questions kept apart: WHAT is published, and whether we were told at
+  // all. Only an explicit Set or Array counts as an answer.
+  const toldWhatIsLive = live instanceof Set || Array.isArray(live);
   const published = live instanceof Set ? live : new Set(Array.isArray(live) ? live : []);
   const stub = new Set();
   const foreign = new Set();
@@ -457,6 +541,20 @@ export function salvagePlan(error, pages, live) {
   }
   if (!stub.size) return { stub: [], foreign: [], kept: [], reason: "the error names no page" };
   if (stub.has("index.tsx")) return { stub: [], foreign: [], kept: [], reason: "the home page is the one that failed" };
+  if (!toldWhatIsLive) {
+    // UNKNOWN, NOT EMPTY. Stubbing from here is a coin flip on whether the page
+    // about to be replaced with an apology is one a visitor can load right now,
+    // and losing that flip publishes over a working site and bills for it.
+    //
+    // LAST of the refusals on purpose. Every check above is a fact about the
+    // ERROR rather than about what is published — a kit file, a failure naming
+    // no page, the home page being the one that broke — and each is the more
+    // useful thing to say. Put this first and all three would report "we
+    // couldn't tell", which is true and unhelpful. `kept` is necessarily empty
+    // here (nothing can be matched against an unknown set), so that branch
+    // cannot be reached past this one either way.
+    return { stub: [], foreign: [], kept: [], reason: "we couldn't tell which pages the site is already serving" };
+  }
   return { stub: [...stub].sort(), foreign: [], kept: [], reason: "" };
 }
 
@@ -529,10 +627,16 @@ export function salvageNote(stubbed) {
  *                     nothing while reporting `charged: true`.
  *
  * `livePages` is what this slug is SERVING right now — the paths of the pages a
- * visitor can load today, empty on a first build. It exists for exactly one
+ * visitor can load today, `[]` on a first build. It exists for exactly one
  * decision, in `salvagePlan`: a page that already works is never replaced with
  * an apology, because the alternative on a revise is the customer's old working
  * site rather than nothing.
+ *
+ * OMITTING IT MEANS "WE DON'T KNOW", NOT "NOTHING IS LIVE", and that distinction
+ * is load-bearing — see `salvagePlan`. A caller that cannot read the stored
+ * source must pass nothing rather than `[]`, and salvage then refuses instead of
+ * gambling a live page. A first build passes `[]` and behaves exactly as it
+ * always has.
  *
  * `priorUsage` is what an EARLIER model call in this same build already spent —
  * today that is the web-research step, which runs before page generation. It is
@@ -607,6 +711,17 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages } =
   // there were two; with one call it is simply that call, and the accumulator is
   // kept so the field never silently changes meaning if a second one returns.
   const compile = async (pages) => {
+    // COUNTED HERE, WHERE A CONTAINER ACTUALLY RUNS, and that is the fix rather
+    // than the number. `compileWithRetry` ASSIGNED `out.builds = 1` (then 2 on a
+    // retry), and the salvage path calls it a second time — so the second call
+    // reset the counter and the manual `+ 1` beside it added to a total that had
+    // just been erased. A build killed mid-bundle, retried, failing at typecheck
+    // and then salvaged really runs the container three times and reported two.
+    // Derived from the function that spawns one, so a fourth call site cannot
+    // undercount. Incremented BEFORE the call, because a run that throws is
+    // still a run: `deps.compile` rejecting lands in the catch below and the
+    // container time was spent either way.
+    out.builds = (out.builds || 0) + 1;
     const t0 = Date.now();
     let bd;
     try { bd = await deps.compile(pages); }
@@ -628,16 +743,17 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages } =
     // the two would report findings about a file the customer never receives.
     // A failed compile never reaches the render step at all, so it carries none.
     if (bd && bd.render && typeof bd.render === "object") out.render = bd.render;
-    // WHY A PAGE HAS NO SNAPSHOT. The container reports per-route prerender
-    // skips ("rendered no text", a throw during SSR) on every build, and
-    // nothing in production carried them (2026-08-13 audit) — so a page whose
-    // snapshot silently failed was indistinguishable from one that never had a
-    // problem, until a link preview showed an empty card. Assigned like
-    // `render`, from the compile whose files are kept; bounded, because it is
-    // a diagnosis and not a transcript.
-    if (bd && Array.isArray(bd.prerenderSkipped) && bd.prerenderSkipped.length) {
-      out.prerenderSkipped = bd.prerenderSkipped.slice(0, 6).map((s) => String(s).slice(0, 200));
-    }
+    // THERE IS NO `prerenderSkipped` READER ANY MORE, and its absence is
+    // deliberate rather than an oversight. A reader stood here for the container
+    // field of that name, carrying per-route snapshot failures onto the response
+    // — and the prerender step went with the move to Start. `build-server.mjs`
+    // says so in as many words: "`prerendered`/`prerenderSkipped` ARE GONE, not
+    // emptied… an absent field says the step is absent." So the reader could
+    // never fire, while reading in this file as a live diagnosis. Per-route
+    // failures are `out.render`'s job now — `checkRender` loads every route in a
+    // real browser and reports per route — which is a stronger signal than the
+    // one this replaced, since it asks whether the page WORKS rather than
+    // whether a snapshot was written.
     // THE LOOK THAT FAILED SOFT. `writeTheme` and `writeFonts` never fail a
     // build — a site whose data layer is live must not be lost over a typeface —
     // so they return `applied:false` with a sentence saying what happened
@@ -659,15 +775,29 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages } =
       soft.push({ what, notes: said.slice(0, 2) });
     }
     if (soft.length) out.lookSoft = soft;
-    // WAS THE RENDER SANDBOXED. The prerender executes model-written page code,
-    // and it is dropped to an unprivileged user so it cannot write to the shared
-    // container — but the drop needs the service to be running as root and needs
-    // that user to exist, neither of which the code can guarantee. So the answer
-    // is reported rather than assumed: "we thought this was sandboxed" is a
-    // worse position than knowing it is not. Carried only when it is FALSE, so
-    // the ordinary response is byte-identical and the field's presence is
-    // itself the alarm.
-    if (bd && bd.prerenderUnprivileged === false) out.prerenderUnprivileged = false;
+    // WAS THE MODEL'S OWN CODE CONFINED WHEN WE RAN IT. Rendering a generated
+    // site executes model-written page code, and the process that does it is
+    // dropped to an unprivileged user so it cannot write into the container
+    // every customer's build shares — but the drop needs the service running as
+    // root and needs that user to exist, neither of which the code can
+    // guarantee. So the answer is reported rather than assumed: "we thought this
+    // was sandboxed" is a worse position than knowing it is not. Carried only
+    // when it is FALSE, so the ordinary response is byte-identical and the
+    // field's presence is itself the alarm.
+    //
+    // READS `ssrUnprivileged`, WHICH IS WHAT THE CONTAINER EMITS. It was
+    // `prerenderUnprivileged` and the field was RENAMED when the prerender
+    // became Start's SSR (`build-server.mjs`: "`ssrUnprivileged` IS
+    // `prerenderUnprivileged` BACK"). The reader was not moved with it, so the
+    // one warning that model code ran unconfined has been watching a field that
+    // no longer exists — a presence-is-the-alarm contract with nothing able to
+    // set off the alarm.
+    //
+    // THE OUTWARD NAME IS KEPT ON PURPOSE. `worker.js` and `build smoke` both
+    // read `prerenderUnprivileged` off the response, and renaming here without
+    // them would swap a dead reader for a dead reporter — the same bug one hop
+    // further out. Aligning all three is a follow-up, not this fix.
+    if (bd && bd.ssrUnprivileged === false) out.prerenderUnprivileged = false;
     // WHICH TEMPLATE BUILT THIS. Cloudflare rolls a container image out
     // asynchronously, so a build minutes after a deploy can still be served by
     // the previous image — and its published bundle is that older code. Carried
@@ -727,11 +857,15 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages } =
    */
   const compileWithRetry = async (pages) => {
     let bd = await compile(pages);
-    out.builds = 1;
     if (!bd.ok && bd.stage === "build") {
-      out.retriedBuild = String(bd.error || "").slice(0, 200);
+      // THE FIRST DRAIN IS THE DIAGNOSIS, so it is written once and not
+      // overwritten. This was an unconditional assignment and the salvage path
+      // calls this function again, so a build drained mid-bundle, retried, and
+      // then salvaged reported whatever the SALVAGE compile happened to see
+      // rather than the drain that caused the retry — the one thing the field
+      // exists to name.
+      if (!out.retriedBuild) out.retriedBuild = String(bd.error || "").slice(0, 200);
       bd = await compile(pages);
-      out.builds = 2;
     }
     return bd;
   };
@@ -928,6 +1062,33 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages } =
         // visible from `made` alone, and only one of those is a problem.
         overflow: Math.max(0, Number(r && r.overflow) || 0),
       };
+      // `full` AND `empty` RIDE THROUGH, and without them two of `imageNote`'s
+      // four sentences are unreachable in production.
+      //
+      // This object is rebuilt field by field from a fixed list, and the two
+      // facts that separate causes which otherwise wear each other's sentence
+      // were not on it. `imageNote(pages.images)` reads THIS object, never the
+      // one `buySitePhotos` returned, so:
+      //   - a library at MAX_FILES_PER_SITE clamps the budget to zero and the
+      //     customer was told "not enough credits for photographs" — advice that
+      //     cannot possibly work, on the one build where the fix is free (delete
+      //     a few uploads). `site-images.mjs` names that exact outcome as the
+      //     thing `full` exists to avoid.
+      //   - a `@@IMG:@@` token with nothing inside it is deliberately never sent,
+      //     and the customer was told "couldn't make the photographs" — blaming
+      //     us for something nobody attempted, instead of asking them what the
+      //     picture should show.
+      // The fix that computed them one layer down was never mirrored here.
+      //
+      // Both carried ONLY when they say something, like `error` beside them, so
+      // an ordinary build's response is byte-identical and each field's presence
+      // is the signal. `full` is strictly `=== true` — the caller sets it only
+      // when the library is what took the budget to zero, so an unreadable
+      // listing keeps the credit sentence, which is the honest answer when we
+      // could not look.
+      if (r && r.full === true) out.images.full = true;
+      const undescribed = Math.max(0, Number(r && r.empty) || 0);
+      if (undescribed) out.images.empty = undescribed;
       if (r && r.error) out.images.error = String(r.error).slice(0, 200);
     } catch (e) {
       // Named rather than swallowed. A site that silently has no pictures looks
@@ -980,8 +1141,9 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages } =
       // salvageable site into the data-model placeholder for a reason that had
       // nothing to do with the customer's pages. The money is unaffected either
       // way; what was lost was the outcome.
+      // NO MANUAL COUNT HERE. `compile` counts its own runs now, so this line
+      // was adding one to a total the call on the line above had just reset.
       const second = await compileWithRetry(patched);
-      out.builds = (out.builds || 0) + 1;
       if (second.ok) {
         built = second;
         // THE STUB IS WHAT GETS STORED, and a revise therefore edits the stub

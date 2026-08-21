@@ -48,15 +48,23 @@ export const ADDON_TABLE_FIELDS = ["payment", "publicView"];
  * dropped SILENTLY. Measured through the real normaliser. That is why a site
  * built without a price could never start taking money.
  *
- * A COMPELLED FIELD IS NOT A STATEMENT OF INTENT, AND THAT IS THE WHOLE SAFETY
- * ARGUMENT HERE. `design_schema` requires `["name", "access", "columns"]` on
- * every table, so a designer asked to make `bookings` payable MUST also answer
- * `access` — and whatever it answers is compliance with a schema, not a decision
- * about who may read a real business's booking list. Taking it would let "let
- * people pay for these" quietly publish every customer's name and phone number.
- * So `access`, `read` and `write` are IGNORED on a table that already exists;
- * moving them is the `rules` layer, whose own tool leaves them optional, so a
- * value there really is something somebody asked for.
+ * AN ANSWER IS NOT A STATEMENT OF INTENT, AND THAT IS THE WHOLE SAFETY ARGUMENT
+ * HERE. A designer asked to make `bookings` payable is filling in a schema, and
+ * an access level it puts there on the way past is compliance rather than a
+ * decision about who may read a real business's booking list. Taking it would
+ * let "let people pay for these" quietly publish every customer's name and phone
+ * number. So `access`, `read` and `write` are IGNORED on a table that already
+ * exists; moving them is the `rules` layer, whose own tool leaves them optional,
+ * so a value there really is something somebody asked for.
+ *
+ * THIS PARAGRAPH USED TO SAY `design_schema` REQUIRES `["name","access",
+ * "columns"]` AND IT DOES NOT — the required list is `["name","columns"]`, and
+ * was relaxed so a table could declare a `read`/`write` pair instead. Corrected
+ * 2026-08-21: the conclusion never depended on the field being compelled (an
+ * answer is not intent whether or not it was demanded), but the stale premise
+ * was cited as the reason the build/revise route did not need the same guard.
+ * It did — see `keepStoredAccess` in site-edit.mjs, which is this rule applied
+ * there after a live re-levelling was measured.
  *
  * A COLUMN IS NEVER REMOVED AND A TABLE IS NEVER DROPPED, for the reason
  * `mergeRules` gives: `_meta` is what the data API derives from, so dropping a

@@ -87,7 +87,7 @@ import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis
 import { parseGeneratedFiles as parseGameFiles, GAME_RULES, GAME_ASSET_RULES, GAME_REVISE_RULES, gameFixRules, parseSpriteTokens, GAME_3D_RULES, game3DFixRules } from "./builder-game/game-gen.mjs";
 import { SHORTLIST, resolvePair, resolvePageFonts, MAX_PAGE_FONTS } from "./builder/site-fonts.mjs";
 import { SEEDS_FIELD, normalizeSeeds } from "./builder/site-seeds.mjs";
-import { currentStateNote, EDIT_RULE, EDIT_REQUIRED, EDIT_FIELDS, hasValue, mergeLook, movedFields } from "./builder/site-edit.mjs";
+import { currentStateNote, EDIT_RULE, EDIT_REQUIRED, EDIT_FIELDS, hasValue, keepStoredAccess, mergeLook, movedFields } from "./builder/site-edit.mjs";
 import { PLAN_FIELDS, PLAN_KEYS, PLAN_REQUIRED, SHAPE_FIELD, normalizePlan } from "./builder/site-plan.mjs";
 
 // Game build-service container (Phase 3). The image (./builder-game/Dockerfile)
@@ -3896,8 +3896,11 @@ const SITE_SCHEMA_TOOL = {
           // read/write pair was added to prevent.
           //
           // THE COST, STATED: a table declaring neither `access` nor a pair is
-          // now possible, and `coerceTable` gives it the collect shape — write
-          // only, readable by nobody. That is the fail-safe direction and the
+          // now possible, and it RESOLVES to the collect shape — write only,
+          // readable by nobody. (`coerceTable` used to stamp the word `collect`
+          // on it; it leaves the silence alone since 2026-08-21 so a revise can
+          // tell it from an answer, and `resolveAccess` supplies the same
+          // fallback.) That is the fail-safe direction and the
           // reason this is safe to relax: the wrong answer is an invisible menu,
           // which the owner sees at once and a revise fixes, rather than a
           // `collect` table of customer phone numbers served to the public.
@@ -11918,7 +11921,7 @@ async function handleRequest(request, env, ctx) {
       // is worse than no step at all: it attributes the wait to the wrong thing.
       tr.at("owner");
 
-      const spec = normalizeSchema(body.schema || designed || {});
+      let spec = normalizeSchema(body.schema || designed || {});
       tr.at("normalize");
       // A BOOKING TABLE WITH NOTHING STOPPING A DOUBLE BOOKING, named rather
       // than discovered by a customer. Making the four constraints declarable
@@ -11928,6 +11931,33 @@ async function handleRequest(request, env, ctx) {
       // and no I/O: it reads the spec that is already in hand.
       const unguarded = unguardedBookings(spec);
       if (unguarded.length) console.warn("unguarded booking table:", slug, unguarded.join(","));
+      // WHO MAY READ AND WRITE AN EXISTING TABLE IS NOT THIS CALL'S TO MOVE.
+      //
+      // `EDIT_RULE` promises the designer, twice, that an omitted field keeps
+      // what the site has and that "the `access` you have to fill in for an
+      // existing table is discarded". Nothing implemented it here, so a revise
+      // that named an existing table — which that same rule explicitly invites,
+      // to add a column or make it payable — re-levelled it to `collect`:
+      // `GRANT INSERT … TO anonymous` on the business's own menu, and the SELECT
+      // policy dropped so no visitor could read it. Measured 2026-08-21. The
+      // addon lane has guarded exactly this since it shipped; this one never did.
+      //
+      // AFTER the booking check above on purpose: that one is about what the
+      // DESIGNER answered, and reading a stripped table would let a re-declared
+      // `display` table false-alarm as an unguarded booking table.
+      //
+      // `editState.tables` is the site's own table names, already in hand from
+      // the `_meta` read the designer prompt needed — no round trip. Empty (a
+      // first build, or a read that failed) strips nothing, which is the only
+      // safe direction: a revise that declares a genuinely NEW table has to keep
+      // the level it just gave it. `site-schema.mjs` no longer stamps an absent
+      // level, so the omission half is covered even when this set is empty.
+      const heldAccess = keepStoredAccess(spec, (editState && editState.tables) || []);
+      spec = heldAccess.spec;
+      if (heldAccess.held.length) {
+        console.warn("kept stored access:", slug,
+          heldAccess.held.map((h) => h.table + ":" + h.fields.join("+")).join(","));
+      }
       // WHAT THE DESIGNER REACHED FOR AND WE DO NOT HAVE. `coerceTable` is an
       // allow-list, so a field the tool never offered is dropped without a
       // trace — which is the right protection and also throws away the only
@@ -12656,6 +12686,14 @@ async function handleRequest(request, env, ctx) {
         // …AND A TABLE NAME THE ENGINE COULD NOT USE, which used to take the
         // whole build down instead of one table.
         refusedTables: badNames.length ? badNames : undefined,
+        // …AND AN ACCESS LEVEL WE OVERRULED ON A TABLE THE SITE ALREADY HAS.
+        // Not an error and not the customer's problem — the site kept the level
+        // it had, which is what `EDIT_RULE` promised. It is here for the same
+        // reason `reached` is: a designer that keeps trying to re-level an
+        // existing table is evidence about the prompt, and until this shipped
+        // the attempt was not merely unreported, it SUCCEEDED. Undefined when
+        // nothing was overruled, so an ordinary build answers as it did before.
+        heldAccess: heldAccess.held.length ? heldAccess.held.slice(0, 6) : undefined,
         // WHAT WAS READ FOR THIS BUILD, and what could not be. The whole reason
         // link-reading exists is that the old behaviour — a URL in the brief
         // that nothing fetched — was invisible: the model inferred a business
@@ -15059,6 +15097,22 @@ async function handleRequest(request, env, ctx) {
                 return deleteSitePrefix(env, slug);
               },
               rollback: ({ slug, id }) => rollbackVersion(versionDepsWithSweep(env), { slug, id }),
+              // AND THE SCRIPT THAT MAKES THOSE FILES A SITE. `rollbackVersion`
+              // RETURNS the archived script instead of uploading it — it is
+              // driveable with a fake store and no Cloudflare account, so the
+              // dispatch namespace is the caller's — and this call site read
+              // only `ok` and `files`. `/versions/restore` has obeyed the same
+              // contract since it shipped; this one never did, so "put the site
+              // back online" restored the pages over NO script (takeOffline
+              // removes it first, deliberately) and the platform answered 404 at
+              // every address while the reply said "✅ Back online".
+              //
+              // TWO FUNCTIONS BECAUSE THERE ARE TWO ANSWERS: a version with a
+              // script needs it up, one without needs whatever is standing taken
+              // down. Same pair, same order, same reading of `ok === false` as
+              // the restore route one screen up.
+              putWorker: ({ slug, code, build }) => putSiteWorker(env, slug, { ok: true, code, build }),
+              dropWorker: ({ slug }) => dropSiteWorker(env, slug),
               recompile: async ({ slug }) => {
                 const src = await loadSiteSource(env, slug).catch(() => null);
                 if (!src || !src.length) return { ok: false };

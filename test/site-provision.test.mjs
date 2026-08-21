@@ -11,7 +11,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ensureSiteBackend } from "../site-provision.mjs";
 
-const PROJ = { neon_project: "p1", neon_branch: "br-1", neon_role: "owner", neon_conn: "postgres://u:p@h/neondb" };
+// `uid` is on the fixture because it is on the ROW: site_project.uid is NOT NULL
+// (measured against the live schema 2026-08-21). A project row is an ownership
+// record and the module now reads it — a fixture without one would be a shape
+// Supabase cannot produce, which is how a harness comes to be less capable than
+// the thing it stands in for.
+const PROJ = { uid: "u1", neon_project: "p1", neon_branch: "br-1", neon_role: "owner", neon_conn: "postgres://u:p@h/neondb" };
 
 // Records every effect so a test can assert on what was NOT done — the project
 // that should have been cleaned up, the database never created.
@@ -207,7 +212,11 @@ test("a first build gets a project, recorded before anything else", async () => 
   const { deps, calls } = harness({ lookupProject: async () => null });
   await run(deps);
   assert.equal(calls.createProject, 1);
-  assert.deepEqual(calls.saveProject[0].p, PROJ);
+  // The four Neon fields, not the whole fixture: the owner is a separate
+  // argument (the worker spreads both into one row), so comparing against a
+  // fixture that also carries `uid` would be a test about the fixture.
+  const { uid: _fixtureOwner, ...neonFields } = PROJ;
+  assert.deepEqual(calls.saveProject[0].p, neonFields);
   // Recorded against BOTH the slug and the owner: the slug is how a retry finds
   // it, the owner is how account deletion can ever find it.
   assert.equal(calls.saveProject[0].s, "cafe");
@@ -635,7 +644,10 @@ test("a failed Data API enable FAILS the build and names its stage", async () =>
 // the row already existed, and the module decides what losing means at each of
 // the two sites — CONVERGE at the project, REFUSE at the slug.
 
-const WINNER = { neon_project: "p-winner", neon_branch: "br-w", neon_role: "owner", neon_conn: "postgres://w:w@win/neondb" };
+// The same owner's other build — two tabs, or a retry that overlapped. A racer
+// from a DIFFERENT account is its own case further down: converging onto that
+// project is the cross-account state the ownership check now refuses.
+const WINNER = { uid: "u1", neon_project: "p-winner", neon_branch: "br-w", neon_role: "owner", neon_conn: "postgres://w:w@win/neondb" };
 
 test("losing the PROJECT claim converges on the winner's project, orphaning nothing", async () => {
   let lookups = 0;
@@ -701,4 +713,186 @@ test("the worker's two slug-keyed writes are CLAIMS, not upserts", () => {
     "claim() no longer sends ignore-duplicates + representation — it cannot tell winning from losing");
   assert.match(body, /claimed: Array\.isArray\(rows\) && rows\.length > 0/,
     "claim() no longer derives `claimed` from the representation");
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// THE LEAK THE CLEANUP COULD NOT REACH, AND THE OWNERSHIP NOBODY READ
+// (2026-08-21 audit). Both are about a Neon project: a capped, billed resource
+// whose only record is a Supabase row.
+
+test("A PROJECT CREATED BY A CREATE THAT THREW IS DESTROYED, not left behind", async () => {
+  // Neon creates the project when the POST returns, and `createSiteProject` then
+  // runs a response-shape guard and `waitForProject` — either can throw. The
+  // record-it-or-destroy-it rule below was keyed on that call having RETURNED,
+  // so this project had no row, no `neon_teardown` entry (the queue's trigger is
+  // a row DELETE and no row was ever written) and nothing anywhere pointing at
+  // it. The next build of the slug creates another.
+  const { deps, calls } = harness({
+    lookupProject: async () => null,
+    createProject: async () => { throw Object.assign(new Error("neon operation setup failed"), { projectId: "p-leaked" }); },
+  });
+  const e = await run(deps).catch((x) => x);
+  assert.match(String(e.message), /setup failed/, "the original diagnosis must survive — it is the useful part");
+  assert.equal(e.stage, "create_project", "a failure here used to be reported as whatever ran before it");
+  assert.deepEqual(calls.dropProject, ["p-leaked"], "the project Neon had already made was left billing forever");
+  assert.deepEqual(calls.createDatabase, [], "and nothing may be built on top of a failed create");
+});
+
+test("a create that failed with nothing to drop makes no cleanup call", async () => {
+  // A POST refused at the door creates nothing, and calling Neon to delete
+  // `undefined` would be a second failure reported over the first.
+  const { deps, calls } = harness({
+    lookupProject: async () => null,
+    createProject: async () => { throw Object.assign(new Error("neon api POST /projects failed: 422"), { status: 422 }); },
+  });
+  await assert.rejects(run(deps), /422/);
+  assert.deepEqual(calls.dropProject, []);
+});
+
+test("ANOTHER ACCOUNT'S PROJECT IS NEVER BUILT INTO", async () => {
+  // `lookupSite` decides ownership for site_backends and throws `conflict` when
+  // the uid differs. `lookupProject` is the parallel slug-keyed lookup and had
+  // no such check — so when site_project holds a row and site_backends does not
+  // (which is what ANY failure between the two writes leaves behind), a
+  // different account building that slug was handed the first account's project.
+  // Measured 2026-08-21: B's database was created inside A's project and B's
+  // returned connection string was A's host, role and PASSWORD. A deleting their
+  // account cascades site_project, which enqueues that project for teardown and
+  // destroys B's live site.
+  const OTHERS = { uid: "account-A", neon_project: "p-A", neon_branch: "br-A", neon_role: "owner", neon_conn: "postgres://a:a@hostA/neondb" };
+  const { deps, calls } = harness({ lookupSite: async () => null, lookupProject: async () => OTHERS });
+  const e = await ensureSiteBackend(deps, { slug: "cafe", uid: "account-B" }).catch((x) => x);
+  assert.equal(e.conflict, true, "the route must turn this into the 409 it gives any taken name");
+  assert.deepEqual(calls.createDatabase, [], "a database was created inside another account's project");
+  assert.deepEqual(calls.saveBackend, [], "and the slug was claimed on top of it");
+  assert.equal(calls.createProject, 0, "nothing should be created on the way to refusing");
+});
+
+test("a project row read WITHOUT its owner is refused loudly, not adopted", async () => {
+  // site_project.uid is NOT NULL (live schema, 2026-08-21), so a row can never
+  // lack an owner — an absent KEY means the dep's SELECT did not ask for it,
+  // i.e. our own wiring. Failing open there is the bug above and it is silent;
+  // this fails closed, names the dep and the column, and is NOT a conflict —
+  // telling a customer their name is taken would be a lie about our own mistake.
+  const { deps, calls } = harness({
+    lookupSite: async () => null,
+    lookupProject: async () => ({ neon_project: "p1", neon_branch: "b", neon_role: "o", neon_conn: "postgres://u:p@h/neondb" }),
+  });
+  const e = await run(deps).catch((x) => x);
+  assert.equal(e.stage, "project_owner");
+  assert.ok(!e.conflict, "our wiring being wrong is not the customer's name being taken");
+  assert.match(String(e.detail), /uid/, "the failure must name what is missing, or it is one more 502");
+  assert.deepEqual(calls.createDatabase, []);
+});
+
+test("losing the project race to ANOTHER ACCOUNT refuses instead of converging", async () => {
+  // The second door onto the same cross-account state, and the converge opened
+  // it by design: the loser adopted the winner's project unconditionally, so two
+  // different accounts racing one free slug put B's database inside A's project.
+  let lookups = 0;
+  const OTHERS = { uid: "account-A", neon_project: "p-A", neon_branch: "br-A", neon_role: "owner", neon_conn: "postgres://a:a@hostA/neondb" };
+  const { deps, calls } = harness({
+    lookupSite: async () => null,
+    lookupProject: async () => (++lookups === 1 ? null : OTHERS),
+    saveProject: async () => ({ ok: true, claimed: false }),
+  });
+  const e = await ensureSiteBackend(deps, { slug: "cafe", uid: "account-B" }).catch((x) => x);
+  assert.equal(e.conflict, true);
+  assert.deepEqual(calls.dropProject, ["p1"], "the loser's own project must still be destroyed — refusing must not orphan");
+  assert.deepEqual(calls.createDatabase, [], "nothing may be created inside the winner's project");
+});
+
+// ────────────────────────────────── the caller's own row is not somebody else's
+
+test("THE OWNER'S OWN ROW IS NOT 'TAKEN BY ANOTHER ACCOUNT'", async () => {
+  // `claimed === false` says only that a row exists, and by that point the reuse
+  // branch has established that any existing row is THIS uid's. The second cause
+  // is the caller's own row, skipped at the top because `existing.conn` was null
+  // — which `siteBackendRowFresh` answers whenever the site_project row cannot
+  // be resolved, exactly what a half-failed delete leaves behind. Measured
+  // 2026-08-21: the owner rebuilding their own slug was told the name belonged
+  // to another account, every retry repeated it, and each attempt created and
+  // recorded a brand-new billed Neon project no site would ever use.
+  let reads = 0;
+  const { deps, calls } = harness({
+    lookupSite: async () => { reads++; return { conn: null, uid: "u1", brief: "" }; },
+    lookupProject: async () => null,
+    saveBackend: async () => ({ ok: true, claimed: false }),
+  });
+  const conn = await run(deps);
+  assert.equal(conn, "postgres://u:p@h/site_cafe", "the owner's own site must heal, not 409 forever");
+  assert.equal(reads, 2, "the winner was never asked about — the answer was inferred");
+  assert.ok(calls.marks.includes("reclaim"), "re-adopting an existing row is not the same as recording a fresh one");
+});
+
+test("…but a genuine racer still gets the 409", async () => {
+  // The property the claim was introduced for. Losing the slug to another
+  // account must stay the same refusal, or this fix is the race silently back.
+  let reads = 0;
+  const { deps, calls } = harness({
+    lookupSite: async () => (++reads === 1 ? null : { conn: "postgres://x:x@h/site_cafe", uid: "someone-else" }),
+    saveBackend: async () => ({ ok: true, claimed: false }),
+  });
+  await assert.rejects(run(deps), (e) => e.conflict === true && e.stage === "save_backend");
+  assert.deepEqual(calls.dropProject, [], "refusing the slug must not destroy the shared project");
+});
+
+test("a read-back that cannot answer refuses", async () => {
+  // Fail-closed is the cheap direction: refusing costs the customer a retry,
+  // while adopting a slug we cannot prove is ours writes a schema, seeds rows
+  // and publishes over another account's site.
+  for (const bad of [async () => { throw new Error("supabase down"); }, async () => null, async () => ({ conn: null, uid: null })]) {
+    let reads = 0;
+    const { deps } = harness({
+      lookupSite: async (s) => (++reads === 1 ? null : bad(s)),
+      saveBackend: async () => ({ ok: true, claimed: false }),
+    });
+    await assert.rejects(run(deps), (e) => e.conflict === true, "an unprovable slug was adopted");
+  }
+});
+
+// ───────────────────────────────────── the one event this module exists to show
+
+test("A CLEANUP THAT FAILED IS SAID OUT LOUD, at every site that drops one", async () => {
+  // Both cleanups swallowed the rejection under a comment saying the caller
+  // logged it — and the caller logs only the ATTEMPT, before making the call. So
+  // a successful cleanup and a failed one emitted byte-identical output, and the
+  // failed one is the single event this module exists to make visible: a billed
+  // project we could not record and could not remove. Nothing else holds it —
+  // `neon_teardown` is fired by a trigger on the row that was never written.
+  const cases = {
+    "the create threw": { lookupProject: async () => null, createProject: async () => { throw Object.assign(new Error("boom"), { projectId: "p-leaked" }); } },
+    "the record failed": { lookupProject: async () => null, saveProject: async () => ({ ok: false }) },
+    "the slug race was lost": { lookupProject: async () => null, saveProject: async () => ({ ok: true, claimed: false }) },
+  };
+  for (const [why, over] of Object.entries(cases)) {
+    const warned = [];
+    const { deps } = harness({ ...over, dropProject: async () => { throw new Error("neon 503"); } });
+    deps.warn = (m) => warned.push(m);
+    await run(deps).catch(() => {});
+    assert.ok(warned.some((m) => /p-leaked|p1/.test(m) && /orphan/i.test(m)),
+      why + ": a project we could not drop left no trace — " + JSON.stringify(warned));
+  }
+});
+
+test("a cleanup that WORKED says nothing — the log means what it says", async () => {
+  // The mirror. A warning on every successful cleanup is a warning nobody reads,
+  // which is how the failed one goes unnoticed again.
+  const warned = [];
+  const { deps } = harness({ lookupProject: async () => null, saveProject: async () => ({ ok: false }) });
+  deps.warn = (m) => warned.push(m);
+  await run(deps).catch(() => {});
+  assert.deepEqual(warned, []);
+});
+
+test("the project row is read WITH its owner, or the check above cannot work", () => {
+  // The wiring layer, where this repo has recorded a dozen dead features. The
+  // module refuses a row it cannot prove is ours; that refusal is a permanent
+  // 502 on the retry path unless the SELECT actually fetches the column.
+  const fn = WORKER.match(/async function siteNeonProject\(env, slug\)[\s\S]*?\n\}/);
+  assert.ok(fn, "siteNeonProject was not found");
+  const select = fn[0].match(/select=([^&`"'\s]+)/);
+  assert.ok(select, "the select list was not found");
+  assert.ok(select[1].split(",").includes("uid"),
+    "site_project is read without its owner, so ensureSiteBackend cannot tell whose project it is: " + select[1]);
 });

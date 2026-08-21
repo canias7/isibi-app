@@ -13,9 +13,14 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { publishPages, pageCredits, pageCost, citedLines, totalCost, RATES, MODEL_RATES,
   DEFAULT_RATE_MODEL, ratesFor, SEARCH_USD, MIN_CREDITS,
-  ourFault, CHARGED_STAGES, schemaSettlement, salvagePlan, stubPage, routeIdFor, salvageNote, wasKilled } from "../builder/publish-pages.mjs";
+  ourFault, CHARGED_STAGES, schemaSettlement, salvagePlan, stubPage, routeIdFor, salvageNote, wasKilled,
+  buildFloor, SCHEMA_PROFILE, SEED_PROFILE } from "../builder/publish-pages.mjs";
 import { exitReason } from "../builder/exit-reason.mjs";
 import { BUILD_MODELS } from "../builder/build-models.mjs";
+// The real consumer of `out.images`, so the note a customer reads is what these
+// tests assert rather than the field names it happens to branch on today.
+import { imageNote } from "../builder/site-images.mjs";
+import { SEED_MODEL, SEED_MAX_TOKENS } from "../builder/site-seed.mjs";
 
 const SPEC = {
   tables: [
@@ -172,6 +177,77 @@ test("a bought photograph reaches the compiler, and the placeholder does not", a
   assert.match(calls.compile[0][0].source, /\/u\/x\/ab\.jpg/);
   assert.ok(!/@@IMG:/.test(calls.compile[0][0].source), "no token survives to the container");
   assert.deepEqual(out.images, { made: 1, planned: 1, budget: 1, overflow: 0 });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE TWO FACTS THAT STOP US GIVING ADVICE THAT CANNOT WORK.
+//
+// `out.images` is rebuilt field by field from a fixed list, and `full` and
+// `empty` were not on it — so `imageNote`, which reads THIS object and not the
+// one `buySitePhotos` returned, could never reach two of its four sentences.
+// An owner whose upload library is at its cap was told to buy credits, on the
+// one build where the fix is free; a picture nobody described was reported as
+// our failure to make it, which gives them nothing to do.
+//
+// Driven THROUGH `imageNote` rather than asserting the field names, because the
+// field is not the point — the sentence a customer reads is, and pinning the
+// key would go green against a note that stopped branching on it.
+test("a full upload library reaches the note that says so", async () => {
+  const { deps } = harness({
+    images: async (pages) => ({ pages, made: 0, planned: 3, budget: 0, overflow: 0, full: true }),
+  });
+  const out = await publishPages(deps, { spec: SPEC, slug: "x" });
+  assert.equal(out.images.full, true);
+  assert.match(imageNote(out.images), /library is full/,
+    "the owner is told to buy credits when what they need is to delete a few uploads");
+  // The discrimination is only real if the other cause still gets the other
+  // sentence — otherwise this passes by making every zero-budget build say the
+  // same new thing.
+  const { deps: poor } = harness({
+    images: async (pages) => ({ pages, made: 0, planned: 3, budget: 0, overflow: 0 }),
+  });
+  const broke = await publishPages(poor, { spec: SPEC, slug: "x" });
+  assert.ok(!("full" in broke.images), "a build that could merely not afford them claimed a full library");
+  assert.match(imageNote(broke.images), /credits/);
+});
+
+test("a picture nobody described reaches the note that asks what it should show", async () => {
+  const { deps } = harness({
+    images: async (pages) => ({ pages, made: 0, planned: 2, budget: 2, overflow: 0, empty: 2 }),
+  });
+  const out = await publishPages(deps, { spec: SPEC, slug: "x" });
+  assert.equal(out.images.empty, 2);
+  assert.match(imageNote(out.images), /weren't described/,
+    "we blamed ourselves for something the pipeline deliberately never attempted");
+  // A REAL failure keeps its own sentence — `error` is the discriminator and it
+  // cannot be faked, so an attempt that failed must not be reported as one that
+  // was never made.
+  const { deps: broke } = harness({
+    images: async (pages) => ({ pages, made: 0, planned: 2, budget: 2, overflow: 0, empty: 1, error: "fal 500" }),
+  });
+  const failed = await publishPages(broke, { spec: SPEC, slug: "x" });
+  assert.match(imageNote(failed.images), /Couldn't make/);
+});
+
+test("neither field appears on a build that has nothing to say", async () => {
+  // Presence is the signal, so an ordinary response has to be byte-identical.
+  const { deps } = harness({
+    images: async (pages) => ({ pages, made: 1, planned: 1, budget: 1, overflow: 0 }),
+  });
+  const out = await publishPages(deps, { spec: SPEC, slug: "x" });
+  assert.deepEqual(out.images, { made: 1, planned: 1, budget: 1, overflow: 0 });
+});
+
+test("`full` is strictly true and `empty` is a real count", async () => {
+  // `full` merely truthy would let an unreadable listing claim a full library,
+  // which is the one wrong answer here that sends somebody deleting photographs
+  // they did not need to delete. A zero `empty` is not a fact worth carrying.
+  const { deps } = harness({
+    images: async (pages) => ({ pages, made: 0, planned: 1, budget: 0, overflow: 0, full: "yes", empty: 0 }),
+  });
+  const out = await publishPages(deps, { spec: SPEC, slug: "x" });
+  assert.ok(!("full" in out.images), "a non-boolean was promoted into a claim about the owner's library");
+  assert.ok(!("empty" in out.images));
 });
 
 test("the images dep is given the balance and the MEASURED cost of this build", async () => {
@@ -993,6 +1069,42 @@ test("a killed container is retried once, and the retry publishes", async () => 
   assert.equal(out.cost, pageCredits(USAGE));
 });
 
+test("EVERY CONTAINER RUN IS COUNTED, retry and salvage together", async () => {
+  // `compileWithRetry` ASSIGNED `out.builds`, and the salvage path calls it a
+  // second time — so the second call reset the counter and the manual `+ 1`
+  // beside it added to a total that had just been erased. Three runs reported
+  // two, on exactly the path where the retry mechanism is doing its job.
+  //
+  // The drain diagnostic went the same way: unconditional, so the salvage
+  // compile overwrote the drain that caused the retry — the one thing the field
+  // exists to name.
+  // TWO DRAINS, because one cannot show the overwrite. With the salvage compile
+  // succeeding, `compileWithRetry`'s second call never reaches its own retry
+  // branch and an unconditional `retriedBuild` is never exercised — a mutant
+  // proved exactly that, and the fixture was the thing at fault.
+  let n = 0;
+  const { deps, calls } = harness({
+    generate: async () => gen([good(), good("menu.tsx")]),
+    compile: async () => {
+      n++;
+      // 1: drained mid-bundle. 2: the retry, which fails at typecheck.
+      // 3: the salvage recompile, drained too. 4: its retry, which works.
+      if (n === 1) return { ok: false, stage: "build", error: "vite build was killed by SIGTERM (drain one)" };
+      if (n === 2) return { ok: false, stage: "typecheck", error: "src/routes/menu.tsx(4,1): error TS2322: x" };
+      if (n === 3) return { ok: false, stage: "build", error: "vite build was killed by SIGTERM (drain two)" };
+      return { ok: true, files: { "index.html": { t: "<ok>" } } };
+    },
+  });
+  const out = await publishPages(deps, { spec: SPEC, slug: "x", livePages: [] });
+  assert.equal(out.page, "app");
+  assert.equal(calls.compile.length, 4, "the fixture no longer drives four runs — retarget this test");
+  assert.equal(out.builds, calls.compile.length,
+    "the container ran " + calls.compile.length + " times and the response says " + out.builds);
+  assert.match(out.retriedBuild, /drain one/,
+    "the drain that caused the retry was overwritten by a later compile");
+  assert.doesNotMatch(out.retriedBuild, /drain two/, "the two must differ, or this assertion proves nothing");
+});
+
 test("a typecheck failure is NEVER retried", async () => {
   // The exclusion that stops this being a slow no-op on the common failure: a
   // page that does not compile does not compile the second time either, and the
@@ -1281,6 +1393,62 @@ test("a publish that throws bills nothing, because it never reaches the charge",
 
 // ── the schema deposit, settled against what the call really used ────────────
 
+// ─────────────────────────────────────────────────────────────────────────────
+// THE GATE AND THE BILL MEASURE THE SAME SET OF CALLS.
+//
+// `buildFloor` priced the DESIGNER call and the route settles the same deposit
+// against `schemaSettlement([schemaUsage, seedUsage], …)` — the designer PLUS
+// the Haiku top-up that fires whenever the designer omits its required `seed`.
+// So the gate measured a smaller set than the charge, and the gate was the
+// smaller one: a balance in that one-credit band passed, was charged the full
+// schema cost, and was then refused by this module's own `MIN_CREDITS` floor
+// with `stage: "credits"`. That is verbatim the failure `SCHEMA_PROFILE`'s
+// docstring says the gate exists to prevent.
+//
+// Asserted as a PROPERTY — the floor covers what the settlement will bill —
+// rather than as a number, so re-measuring either profile does not go red for a
+// reason that is not a bug.
+test("BUILDFLOOR COVERS THE SEED TOP-UP THE SAME DEPOSIT SETTLES", () => {
+  for (const design of Object.keys(MODEL_RATES)) {
+    const schema = { ...SCHEMA_PROFILE, model: design };
+    // What the route really settles, through the real `schemaSettlement`, with
+    // the deposit trued up: this is the whole schema step's bill.
+    const billed = pageCredits(schema, SEED_PROFILE);
+    assert.ok(buildFloor(design) >= billed + MIN_CREDITS,
+      design + ": the gate admits " + buildFloor(design) + " and the schema step can bill " + billed +
+      ", leaving less than MIN_CREDITS " + MIN_CREDITS + " — charged, then refused");
+    // …and the two halves stay visible rather than folded into one tuned number.
+    assert.equal(buildFloor(design), billed + MIN_CREDITS);
+  }
+});
+
+test("…and the seed half really moves it, or the guard above is vacuous", () => {
+  // A `SEED_PROFILE` cheap enough to vanish inside the existing rounding would
+  // satisfy every assertion here while leaving the gate exactly as short as it
+  // was. Measured 2026-08-21: sonnet 20 → 22, grok 14 → 16, opus 28 → 30.
+  for (const design of Object.keys(MODEL_RATES)) {
+    const designerOnly = pageCredits({ ...SCHEMA_PROFILE, model: design }) + MIN_CREDITS;
+    assert.ok(buildFloor(design) > designerOnly,
+      design + ": counting the seed call changed nothing — the floor is still the designer alone");
+  }
+});
+
+test("the seed profile is the seed call's own ceiling, not a number typed here", () => {
+  // A BOUND rather than a live reading, and both halves come from the seed
+  // module: `out` is the cap the API enforces, so the call cannot produce more,
+  // and the model decides which rate column prices it. Restating either here is
+  // how a gate drifts away from the thing it guards — which is the bug.
+  assert.equal(SEED_PROFILE.out, SEED_MAX_TOKENS, "the output ceiling stopped tracking the seed call's cap");
+  assert.equal(SEED_PROFILE.model, SEED_MODEL, "the seed call is priced at another model's rates");
+  // No cache to read or write: the seed request carries no cached prefix, and
+  // claiming one would price the gate BELOW what the call costs.
+  assert.equal(SEED_PROFILE.cacheRead, 0);
+  assert.equal(SEED_PROFILE.cacheWrite, 0);
+  // The input bound has to cover the worst request the module can build.
+  assert.ok(SEED_PROFILE.in >= 1900,
+    "the input bound is under the ~1,860 tokens a worst-case seed request measured at");
+});
+
 test("schemaSettlement trues a deposit up to the measured cost", () => {
   // Costlier than the deposit: charge the difference.
   const big = { in: 40000, out: 4000, cacheRead: 0, cacheWrite: 0 };
@@ -1375,7 +1543,10 @@ test("a refusal AFTER the design call refunds the schema charge", () => {
 
 test("salvagePlan stubs the page the compiler named", () => {
   const pages = [good(), good("menu.tsx")];
-  const p = salvagePlan('src/routes/menu.tsx(9,10): error TS2305: no exported member', pages);
+  // `[]` SAID EXPLICITLY, which is the first-build contract. Omitting it means
+  // "we don't know what is live" and refuses — see the unknown-vs-empty tests
+  // below. A test that relied on omission would pass against the fail-open bug.
+  const p = salvagePlan('src/routes/menu.tsx(9,10): error TS2305: no exported member', pages, []);
   assert.deepEqual(p.stub, ["menu.tsx"]);
   assert.equal(p.reason, "");
 });
@@ -1448,7 +1619,10 @@ test("one bad page costs one page, not the whole site", async () => {
         ? { ok: false, stage: "typecheck", error: "src/routes/menu.tsx(4,1): error TS2322: x" }
         : { ok: true, files: { "index.html": { t: "<ok>" } } },
   });
-  const out = await publishPages(deps, { spec: SPEC, slug: "x" });
+  // A FIRST BUILD SAYS SO: `livePages: []` is "nothing is published yet", which
+  // is the only thing that lets salvage stub anything. Omitting it now means
+  // "we could not tell", and that refuses.
+  const out = await publishPages(deps, { spec: SPEC, slug: "x", livePages: [] });
   assert.equal(out.page, "app", "the site published instead of falling back");
   assert.deepEqual(out.salvaged, ["menu.tsx"]);
   assert.equal(calls.publish.length, 1);
@@ -1478,7 +1652,7 @@ test("a salvage that still fails falls back exactly as before", async () => {
     generate: async () => gen([good(), good("menu.tsx")]),
     compile: async () => ({ ok: false, stage: "typecheck", error: "src/routes/menu.tsx(4,1): error TS2322: x" }),
   });
-  const out = await publishPages(deps, { spec: SPEC, slug: "x" });
+  const out = await publishPages(deps, { spec: SPEC, slug: "x", livePages: [] });
   assert.equal(out.page, "placeholder");
   assert.equal(out.stage, "typecheck");
   assert.equal(calls.publish.length, 0);
@@ -1700,19 +1874,118 @@ test("the pages trace can carry every timing the build reports", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PRERENDER'S DIAGNOSIS REACHES THE CALLER (2026-08-13 audit: the container
-// reported per-route skips on every build and nothing in production carried
-// them, so a page that lost its snapshot was indistinguishable from one that
-// never had a problem). Both ends, because either alone passes with the wire
-// cut — the module must carry it off the build result, and the worker must
-// forward it on the response.
-test("prerender skips are carried by the module and forwarded by the worker", () => {
-  const pub = fs.readFileSync(new URL("../builder/publish-pages.mjs", import.meta.url), "utf8");
-  assert.match(pub, /out\.prerenderSkipped = bd\.prerenderSkipped/,
-    "publish-pages no longer carries the container's prerender skips");
-  const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.match(worker, /prerenderSkipped:\s*pages\.prerenderSkipped \|\| undefined/,
-    "the worker response drops prerender skips — a lost snapshot is invisible again");
+// EVERY LANE THAT WRITES WHOLE PAGES GETS THE FREE EXPORT-NAME REPAIR.
+//
+// `repairImports` rewrites an import of a member a kit module does not export —
+// the `TS2305 has no exported member` class its own docstring records as costing
+// a customer an entire site on 2026-08-19. It had exactly ONE call site in the
+// repo, here in the build path. The addon lane and the page-edit lane both
+// generate brand-new page source from scratch, validate it, lint it, and go
+// straight to `recompileAndPublish`, which has no repair in it — so the two
+// lanes at the highest risk of an invented export name were the two that did
+// not get the deterministic fix. `lintPages` had already printed the wrong name
+// and the right one into `problems` on the same request, and the customer's
+// addon was lost to a defect the platform knows how to fix for nothing.
+//
+// DERIVED FROM THE CALL SITES, not a list of the lanes that exist today: any
+// place that judges fresh model output with `validatePages` and then publishes
+// it has the same exposure, so a third lane is covered without anybody editing
+// this file. Each window runs from the `validatePages(` call to the publish that
+// consumes it, so it cannot be outrun by a comment the way a byte-sized one can.
+// Comments are blanked first — this file and worker.js both SPELL the function's
+// name in prose explaining it, so a raw scan matches the explanation.
+test("the addon and page-edit lanes repair invented export names too", () => {
+  const blank = (s) => s.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m) => m.replace(/[^\n]/g, " "));
+  const worker = blank(fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8"));
+
+  // A call to a name that was never imported is a ReferenceError on the build
+  // path, not a lint error — the OWN_ZONES failure, which took every custom
+  // domain down while `node --check` passed.
+  //
+  // `assert.ok(re.test(…))`, NEVER `assert.match(worker, …)`. A failed `match`
+  // puts the WHOLE subject in `actual` — ~850KB of blanked worker.js — which is
+  // unreadable, and worse: it overran `execSync`'s 1MB buffer during this
+  // change's own mutation sweep and truncated every result after it, so four
+  // mutants read as caught when nothing had run.
+  assert.ok(/import \{[^}]*\brepairImports\b[^}]*\} from "\.\/builder\/page-gen\.mjs"/.test(worker),
+    "worker.js calls repairImports without importing it, or does not call it at all");
+
+  const at = [...worker.matchAll(/\bvalidatePages\(/g)].map((m) => m.index);
+  assert.ok(at.length >= 2,
+    "found " + at.length + " validatePages call sites in worker.js — the scan is not seeing the lanes");
+  for (const i of at) {
+    // Bounded by the publish that consumes these pages: the repair has to happen
+    // somewhere between generating them and shipping them.
+    const end = worker.indexOf("recompileAndPublish(", i);
+    assert.ok(end > i, "a validatePages call site at " + i + " publishes through something else — retarget this guard");
+    const win = worker.slice(i, end);
+    assert.ok(win.includes("repairImports("),
+      "a lane validates fresh pages at offset " + i + " and never repairs their imports — " +
+      "an invented export name reaches tsc and costs the customer the whole change");
+    // BEFORE the lint, so a repaired page does not also carry a problem about
+    // the import that is no longer there.
+    const lint = win.indexOf("lintPages(");
+    if (lint >= 0) {
+      assert.ok(win.indexOf("repairImports(") < lint,
+        "the repair runs after the lint at offset " + i + ", so it reports a name it has already fixed");
+    }
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE "IS MODEL CODE CONFINED" SIGNAL READS A FIELD THAT EXISTS.
+//
+// Two readers stood here for container fields the move to Start deleted or
+// renamed, and both were dead — a reader watching a field nothing emits is a
+// presence-is-the-alarm contract with nothing able to set off the alarm.
+//
+//   `prerenderSkipped` — GONE. `build-server.mjs` says so in as many words
+//   ("ARE GONE, not emptied… an absent field says the step is absent"), so the
+//   reader was removed rather than left reading as a live diagnosis.
+//   `prerenderUnprivileged` — RENAMED to `ssrUnprivileged` when the prerender
+//   became Start's SSR. The reader was not moved with it, so the one warning
+//   that model-written code ran unconfined in a container every customer's
+//   build shares could never fire.
+//
+// DERIVED FROM THE CONTAINER, not from a remembered name: whatever
+// `build-server.mjs` really puts on a successful response is what this module
+// has to read. Comments are blanked first at both ends — the container's own
+// comment SPELLS the deleted names while saying they are gone, and this
+// module's comment spells them while saying the same, so a raw scan matches
+// prose either way and proves nothing.
+test("the unprivileged-render warning reads the field the container emits", () => {
+  const blank = (s) => s.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m) => m.replace(/[^\n]/g, " "));
+  const server = blank(fs.readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8"));
+  const pub = blank(fs.readFileSync(new URL("../builder/publish-pages.mjs", import.meta.url), "utf8"));
+
+  // The container's own success response is the authority on the name.
+  const emitted = new Set([...server.matchAll(/\b(\w*[Uu]nprivileged)\b\s*:/g)].map((m) => m[1]));
+  assert.ok(emitted.size, "no *Unprivileged field found in build-server.mjs — retarget this guard");
+  for (const name of emitted) {
+    assert.ok(pub.includes("bd." + name),
+      "publish-pages reads no `bd." + name + "` — the confinement warning is watching a field " +
+      "the container does not emit, which is how it went dead in the first place");
+  }
+
+  // …and it must not still be reading one the container stopped emitting.
+  for (const dead of ["prerenderSkipped", "prerenderUnprivileged"]) {
+    if (emitted.has(dead) || new RegExp("\\b" + dead + "\\b\\s*:").test(server)) continue;
+    assert.ok(!pub.includes("bd." + dead),
+      "publish-pages still reads `bd." + dead + "`, which the container no longer emits");
+  }
+});
+
+test("…and it is carried only when the answer is FALSE", async () => {
+  // Presence IS the alarm: an ordinary response has to be byte-identical, or
+  // the field is noise and nobody reads it.
+  const clean = await publishPages(harness({ compile: async () => ({ ok: true, files: {}, ssrUnprivileged: true }) }).deps,
+    { spec: SPEC, slug: "x" });
+  assert.ok(!("prerenderUnprivileged" in clean), "a confined render still set the alarm");
+
+  const loud = await publishPages(harness({ compile: async () => ({ ok: true, files: {}, ssrUnprivileged: false }) }).deps,
+    { spec: SPEC, slug: "x" });
+  assert.equal(loud.prerenderUnprivileged, false,
+    "the container said the render was NOT confined and the response says nothing");
 });
 
 // A SALVAGED BUILD KEEPS ITS FIRST FAILURE'S RECORD. The module preserves
@@ -1817,16 +2090,73 @@ test("a NEW page that fails is still stubbed, even on a site with live pages", (
 });
 
 test("a first build behaves EXACTLY as it did before this existed", () => {
-  // Every site published before `livePages` passes nothing, and so does every
-  // first build. Driven three ways, because the safe direction here is the one
-  // that silently disables the protection.
+  // A first build SAYS nothing is live, and it is the saying that matters —
+  // both empty shapes the caller might use are answers, and both stub.
   const pages = [good(), good("menu.tsx")];
   const err = 'src/routes/menu.tsx(9,10): error TS2305: x';
-  for (const live of [undefined, null, [], new Set()]) {
+  for (const live of [[], new Set()]) {
     const p = salvagePlan(err, pages, live);
-    assert.deepEqual(p.stub, ["menu.tsx"], "live=" + JSON.stringify(live) + " changed the answer");
+    assert.deepEqual(p.stub, ["menu.tsx"], "live=" + JSON.stringify([...live]) + " changed the answer");
     assert.deepEqual(p.kept, []);
   }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// "NOTHING IS LIVE" AND "WE COULDN'T TELL" ARE DIFFERENT ANSWERS.
+//
+// The whole live-page protection was `new Set(Array.isArray(live) ? live : [])`,
+// so an absent answer became an empty one — and every working page then went
+// into `stub`. The route reaches that state on a genuinely live site two ways:
+// an empty stored brief, and `loadSiteSource` returning null on ANY read
+// failure. What it produces is the exact regression `live` was added to
+// prevent: a live menu replaced with "this page isn't finished yet", published
+// over the customer's site, and charged for.
+//
+// `hasBoughtPhotos` reads the identical null as "unknown → spend nothing", so
+// before this one consumer of that value treated unknown as do-nothing and the
+// other as nothing-is-live. This is the disagreement resolved in the safe
+// direction.
+test("SALVAGE REFUSES WHEN IT WAS NEVER TOLD WHAT IS LIVE", () => {
+  const pages = [good(), good("menu.tsx")];
+  const err = 'src/routes/menu.tsx(9,10): error TS2305: x';
+  for (const live of [undefined, null, "menu.tsx", 0, {}]) {
+    const p = salvagePlan(err, pages, live);
+    assert.deepEqual(p.stub, [],
+      "live=" + JSON.stringify(live) + " stubbed a page that might be live and working");
+    assert.match(p.reason, /couldn't tell/,
+      "live=" + JSON.stringify(live) + " refused for the wrong reason, or did not refuse");
+  }
+});
+
+test("…and the refusals that name the ERROR still win over it", () => {
+  // Every other refusal is a fact about the compile failure rather than about
+  // what is published, and each is the more useful thing to say. Checked first,
+  // "we couldn't tell" would swallow all three — true, and useless to whoever
+  // reads it.
+  const pages = [good(), good("menu.tsx")];
+  const kit = salvagePlan('src/components/ui/faq.tsx(3,1): error TS1005: x', pages, undefined);
+  assert.deepEqual(kit.foreign, ["src/components/ui/faq.tsx"], "a kit file stopped being named");
+  const home = salvagePlan('src/routes/index.tsx(4,1): error TS2322: x', pages, undefined);
+  assert.match(home.reason, /home page/);
+  const nowhere = salvagePlan("vite build was killed by SIGTERM", pages, undefined);
+  assert.match(nowhere.reason, /names no page/);
+});
+
+test("an unknown live set refuses at the dep boundary too, buying no container run", async () => {
+  // AT THE BOUNDARY, because the rule can be perfectly right inside the module
+  // while the caller's fallback still publishes over the site. The published
+  // site must be left exactly as it was — the answer they had before salvage
+  // existed — and the wasted recompile must not be bought either.
+  const { deps, calls } = harness({
+    generate: async () => gen([good(), good("menu.tsx")]),
+    compile: async () => ({ ok: false, stage: "typecheck", error: "src/routes/menu.tsx(4,1): error TS2322: x" }),
+  });
+  const out = await publishPages(deps, { spec: SPEC, slug: "x" });
+  assert.equal(out.page, "placeholder", "a page that may be live was replaced with the stub");
+  assert.equal(calls.publish.length, 0, "the published site must be left exactly as it was");
+  assert.equal(calls.compile.length, 1, "a refused salvage must not buy a container run");
+  assert.deepEqual(out.salvage.stubbed, []);
+  assert.equal(out.salvaged, undefined);
 });
 
 test("a Set is accepted as well as a list", () => {
@@ -1878,7 +2208,7 @@ test("THE SALVAGE RECOMPILE IS RETRIED WHEN THE CONTAINER IS DRAINED", async () 
       return { ok: true, files: { "index.html": { t: "<ok>" } } };
     },
   });
-  const out = await publishPages(deps, { spec: SPEC, slug: "x" });
+  const out = await publishPages(deps, { spec: SPEC, slug: "x", livePages: [] });
   assert.equal(out.page, "app", "a drained recompile lost a site that was salvageable");
   assert.deepEqual(out.salvaged, ["menu.tsx"]);
   assert.equal(calls.compile.length, 3, "the recompile was not retried");

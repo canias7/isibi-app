@@ -4,6 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
+  NEON_OP_WINDOW_MS,
   toPgPlaceholders,
   pgParams,
   dbNameForSite,
@@ -643,4 +644,158 @@ test("a Neon blip is not cached as 'this key has no org'", async () => {
     console.error = quiet;
     (await import("../site-db.mjs"))._resetNeonOrgCache();
   }
+});
+
+// ───────────────────────────────────── waiting on a project, and creating one
+//
+// Both of these are about the same fact: a Neon project is a BILLED resource
+// that exists from the moment the POST returns, and `waitForProject` is what
+// every provisioning step runs afterwards.
+
+test("A HISTORICAL failed operation does not make a site permanently unbuildable", async () => {
+  // `waitForProject` scanned the WHOLE operations list — a project's entire
+  // history — and threw on any `failed` entry. It runs on every build, not only
+  // at creation (after createSiteDatabase, after enableNeonAuth, after
+  // enableDataApi), so ONE Neon hiccup ever made that slug unbuildable for good:
+  // every retry reuses the project (lookupProject is keyed by slug), polls,
+  // re-finds the same old failure and throws again — and both enables are
+  // deliberately fatal, so the route answered 502 forever.
+  const { waitForProject } = await import("../site-db.mjs");
+  const real = globalThis.fetch;
+  try {
+    // Nothing pending; one failure from days ago and one finished operation.
+    globalThis.fetch = async () => new Response(JSON.stringify({
+      operations: [
+        { id: "op-old", action: "apply_schema", status: "failed", created_at: "2020-01-01T00:00:00Z" },
+        { id: "op-done", action: "create_database", status: "finished", created_at: "2026-01-01T00:00:00Z" },
+      ],
+    }), { status: 200 });
+    await assert.doesNotReject(waitForProject({ NEON_API_KEY: "k" }, "p1"),
+      "a failure this call did not cause is not this call's to report");
+  } finally { globalThis.fetch = real; }
+});
+
+test("…but a failure that appears WHILE we wait still fails the build", async () => {
+  // The other half, and without it the fix above is just the scan switched off.
+  // The first poll is the snapshot (history); anything failing after it is ours.
+  const { waitForProject } = await import("../site-db.mjs");
+  const real = globalThis.fetch;
+  let polls = 0;
+  try {
+    globalThis.fetch = async () => {
+      polls++;
+      return new Response(JSON.stringify({
+        operations: [
+          { id: "op-old", action: "apply_schema", status: "failed", created_at: "2020-01-01T00:00:00Z" },
+          { id: "op-mine", action: "create_database", status: polls === 1 ? "running" : "failed", created_at: new Date().toISOString() },
+        ],
+      }), { status: 200 });
+    };
+    await assert.rejects(waitForProject({ NEON_API_KEY: "k" }, "p1"), /create_database failed/,
+      "the operation this call was waiting on failed and it was not reported");
+  } finally { globalThis.fetch = real; }
+});
+
+test("A PROJECT CREATED BY A CALL THAT THEN THREW CARRIES ITS ID OUT", async () => {
+  // Neon makes the project when the POST returns, and `createSiteProject` then
+  // does two more things that can throw. The only cleanup in site-provision.mjs
+  // is keyed on this function having RETURNED, so a project created by a call
+  // that threw was invisible: no Supabase row, and therefore no `neon_teardown`
+  // entry either — that queue's trigger is a row DELETE, and no row was ever
+  // written. It bills forever against a cap the whole platform shares.
+  const { createSiteProject, _resetNeonOrgCache } = await import("../site-db.mjs");
+  const real = globalThis.fetch;
+  let created = null, polls = 0;
+  try {
+    _resetNeonOrgCache();
+    globalThis.fetch = async (u, init) => {
+      const url = String(u);
+      if (url.includes("/users/me")) return new Response(JSON.stringify({ organizations: [] }), { status: 200 });
+      if (url.endsWith("/projects") && init && init.method === "POST") {
+        created = "proj-123";
+        return new Response(JSON.stringify({
+          project: { id: "proj-123" }, branch: { id: "br-1" }, roles: [{ name: "owner" }],
+          connection_uris: [{ connection_uri: "postgres://u:pw@h/neondb" }],
+        }), { status: 200 });
+      }
+      polls++;
+      return new Response(JSON.stringify({ operations: [{ id: "op-1", action: "setup", status: polls === 1 ? "running" : "failed" }] }), { status: 200 });
+    };
+    const e = await createSiteProject({ NEON_API_KEY: "k" }, "cafe").then(() => null, (x) => x);
+    assert.ok(e, "the setup operation failed — this must not report success");
+    assert.equal(created, "proj-123", "Neon really did create a project");
+    assert.equal(e.projectId, "proj-123", "the caller has nothing to drop — the project is a silent leak");
+  } finally { globalThis.fetch = real; _resetNeonOrgCache(); }
+});
+
+test("a create whose response makes no sense never puts a password in the error", async () => {
+  // The shape guard stringified the WHOLE response body into `detail`, and that
+  // body is `connection_uris` — a live `postgres://` URI with a PASSWORD in it.
+  // `detail` is returned to the caller and logged; `neonApiOnce` already scrubs
+  // for exactly this reason and this one line did not.
+  const { createSiteProject, _resetNeonOrgCache } = await import("../site-db.mjs");
+  const real = globalThis.fetch;
+  try {
+    _resetNeonOrgCache();
+    globalThis.fetch = async (u, init) => {
+      const url = String(u);
+      if (url.includes("/users/me")) return new Response(JSON.stringify({ organizations: [] }), { status: 200 });
+      if (url.endsWith("/projects") && init && init.method === "POST") {
+        // No `project` key — so the guard fires — but the URI is there.
+        return new Response(JSON.stringify({ connection_uris: [{ connection_uri: "postgres://u:SECRETPW@h/neondb" }] }), { status: 200 });
+      }
+      return new Response("{}", { status: 200 });
+    };
+    const e = await createSiteProject({ NEON_API_KEY: "k" }, "cafe").then(() => null, (x) => x);
+    assert.ok(e && /unexpected response/.test(e.message));
+    assert.equal(/SECRETPW/.test(String(e.detail)), false, "a connection password reached the error detail");
+    assert.match(String(e.detail), /redacted/, "the body should still be reported, scrubbed — losing it entirely is the other bug");
+    assert.equal(e.projectId, null, "with no id from Neon there is nothing to drop, and the caller must be able to tell");
+  } finally { globalThis.fetch = real; _resetNeonOrgCache(); }
+});
+
+test("both create functions go through the one post-create step", () => {
+  // ONE COPY. The id-carrying and the scrub are the whole fix, and a second
+  // hand-rolled tail that forgets either is the same silent leak again.
+  const src = fs.readFileSync(new URL("../site-db.mjs", import.meta.url), "utf8");
+  const body = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  for (const fn of ["createUserProject", "createSiteProject"]) {
+    const at = body.indexOf("export async function " + fn);
+    assert.ok(at > 0, fn + " was not found");
+    const block = body.slice(at, body.indexOf("\n}", at));
+    assert.match(block, /projectFromCreate\(/, fn + " hand-rolls the post-create step again");
+    assert.equal(/waitForProject\(/.test(block), false, fn + " waits on its own — a throw there carries no project id");
+  }
+});
+
+test("A FRESH FAILURE IS REPORTED AND A WEEK-OLD ONE IS NOT", async () => {
+  // ABSOLUTE AGES, NOT MULTIPLES OF THE CONSTANT. The first draft asked about
+  // `NEON_OP_WINDOW_MS / 2` and `NEON_OP_WINDOW_MS + 60000`, so setting the
+  // window to ZERO — which ignores every dated failure there will ever be —
+  // moved the test with it and SURVIVED. An assertion written in terms of the
+  // thing under test is an assertion about nothing.
+  //
+  // The near case is also what made the cheaper design (snapshot the first
+  // poll, judge only what appears after) wrong: OUR operation can be failed and
+  // visible the first time we look.
+  const { waitForProject } = await import("../site-db.mjs");
+  const real = globalThis.fetch;
+  const at = (ms) => new Date(Date.now() - ms).toISOString();
+  try {
+    for (const [label, age, reported] of [["five seconds", 5000, true], ["a week", 7 * 86400000, false]]) {
+      globalThis.fetch = async () => new Response(JSON.stringify({
+        operations: [{ id: "op", action: "start_compute", status: "failed", created_at: at(age) }],
+      }), { status: 200 });
+      const e = await waitForProject({ NEON_API_KEY: "k" }, "p1").then(() => null, (x) => x);
+      assert.equal(!!e, reported, "a failure " + label + " old was " + (reported ? "ignored" : "reported"));
+    }
+  } finally { globalThis.fetch = real; }
+});
+
+test("…and the window is bounded on both sides, or those two ages mean nothing", () => {
+  // The floor is what keeps "five seconds ago is ours" a real assertion; the
+  // ceiling is what keeps "a week ago is history" one. Without this the pair
+  // above goes vacuous the day somebody widens the window to a fortnight.
+  assert.ok(NEON_OP_WINDOW_MS > 5000, "the window is too tight for the POST that precedes it: " + NEON_OP_WINDOW_MS);
+  assert.ok(NEON_OP_WINDOW_MS < 7 * 86400000, "a week-old failure would still fail a build: " + NEON_OP_WINDOW_MS);
 });

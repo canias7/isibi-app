@@ -161,6 +161,63 @@ export const POLICY_PREFIX = "isibi_";
 const q = (name) => '"' + String(name).replace(/"/g, '""') + '"';
 
 /**
+ * WHAT COUNTS AS A LIVE ROW, in ONE place because TWO objects serve it.
+ *
+ * `trash` has always filtered here. `expires` and `scheduled` did NOT, and their
+ * own comments in the schema engine claim they do — "reads hide rows past it",
+ * "hidden until this time". That filtering lived in the Worker's own read path,
+ * which was deleted when the data layer moved to Neon: the columns stayed and
+ * the WHERE that used them did not. So an expiring offer never expired and a
+ * scheduled post was public the moment it was written.
+ *
+ * IN THE POLICY RATHER THAN IN THE PAGE, deliberately, and this is the
+ * `safe-image` argument applied to data: a rule the generator must remember on
+ * every list of every page is one it will eventually forget, and forgetting
+ * means a shop advertising last month's price. A policy cannot be forgotten, it
+ * applies to the owner's dashboard and the public API alike, and it is one
+ * clause instead of a sentence in the prompt.
+ *
+ * EXTRACTED 2026-08-21 BECAUSE THE POLICY WAS NOT THE ONLY READER. `publicView`
+ * is served from a VIEW with `security_invoker = false`, so it runs as the table
+ * owner and bypasses RLS entirely — the read policy's clause never applies to
+ * it. Measured on `{trash, expires, scheduled}` plus a projection: the view came
+ * out as a bare `SELECT <cols> FROM <table>`, so a cancelled booking went on
+ * greying out its slot for ever, an expired offer stayed published and a
+ * scheduled post went public before its date, on exactly the path a stranger
+ * reads, while the same rows were correctly hidden from every policy-governed
+ * read. Two copies of "which rows are live" would drift in precisely that
+ * direction, so both objects ask this one question.
+ *
+ * DRIVEN BY THE FLAG, NEVER BY THE COLUMN LIST, and that is not laziness: the
+ * engine stamps `deleted_at`/`expires_at`/`publish_at` into the DDL but NOT into
+ * `colNames`, which is what `publicViewSql` receives — so checking the projection's
+ * `known` set here would drop the filter on every table that has one.
+ *
+ * COMPARED AS TEXT, which is correct here rather than lucky: these columns are
+ * TEXT holding `YYYY-MM-DD HH24:MI:SS` UTC, a zero-padded format whose
+ * lexicographic order IS its chronological order. `NOW_UTC` is the same
+ * expression the engine's own defaults use, so a row written and a row read are
+ * measured on one clock.
+ *
+ * Qualified with the table name, so the conditions read the same in a policy on
+ * the table and in the WHERE of a view selecting FROM it.
+ */
+const NOW_UTC = "to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS')";
+
+export function liveConditions(t) {
+  const tn = q((t && t.name) || "");
+  const out = [];
+  if (t && t.trash) out.push(`${tn}."deleted_at" IS NULL`);
+  // NULL means "never expires" / "already live", so both are written to admit it
+  // explicitly. Left implicit, `expires_at > now` is NULL for an unset column,
+  // which is not true — and every row without one would vanish. This is the
+  // clause that decides whether the feature is useful or catastrophic.
+  if (t && t.expires) out.push(`(${tn}."expires_at" IS NULL OR ${tn}."expires_at" > ${NOW_UTC})`);
+  if (t && t.scheduled) out.push(`(${tn}."publish_at" IS NULL OR ${tn}."publish_at" <= ${NOW_UTC})`);
+  return out;
+}
+
+/**
  * The policies for one table.
  *
  * Returns a list of statements. Ordering matters only in that the DROPs come
@@ -221,38 +278,14 @@ export function policiesFor(t) {
   // Reads are untouched — a customer must still see what they are buying.
   const payable = !!(t && t.payment);
 
-  // A soft-deleted row is gone as far as any reader is concerned. Applied in the
-  // policy as well as in the Worker's query, or the Data API would serve rows the
-  // site itself treats as deleted.
-  // WHAT COUNTS AS A LIVE ROW, enforced where it cannot be forgotten.
+  // A soft-deleted, expired or not-yet-published row is gone as far as any
+  // reader is concerned. Applied in the policy as well as in the Worker's query,
+  // or the Data API would serve rows the site itself treats as deleted.
   //
-  // `trash` has always filtered here. `expires` and `scheduled` did NOT, and
-  // their own comments in the schema engine claim they do — "reads hide rows
-  // past it", "hidden until this time". That filtering lived in the Worker's own
-  // read path, which was deleted when the data layer moved to Neon: the columns
-  // stayed and the WHERE that used them did not. So an expiring offer never
-  // expired and a scheduled post was public the moment it was written.
-  //
-  // IN THE POLICY RATHER THAN IN THE PAGE, deliberately, and this is the
-  // `safe-image` argument applied to data: a rule the generator must remember on
-  // every list of every page is one it will eventually forget, and forgetting
-  // means a shop advertising last month's price. A policy cannot be forgotten,
-  // it applies to the owner's dashboard and the public API alike, and it is one
-  // clause instead of a sentence in the prompt.
-  //
-  // COMPARED AS TEXT, which is correct here rather than lucky: these columns are
-  // TEXT holding `YYYY-MM-DD HH24:MI:SS` UTC, a zero-padded format whose
-  // lexicographic order IS its chronological order. `NOW_UTC` is the same
-  // expression the engine's own defaults use, so a row written and a row read
-  // are measured on one clock.
-  const NOW_UTC = "to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS')";
-  const live =
-    (t && t.trash ? ` AND ${tn}."deleted_at" IS NULL` : "") +
-    // NULL means "never expires" / "already live", so both are written to admit
-    // it explicitly. Left implicit, `expires_at > now` is NULL for an unset
-    // column, which is not true — and every row without one would vanish.
-    (t && t.expires ? ` AND (${tn}."expires_at" IS NULL OR ${tn}."expires_at" > ${NOW_UTC})` : "") +
-    (t && t.scheduled ? ` AND (${tn}."publish_at" IS NULL OR ${tn}."publish_at" <= ${NOW_UTC})` : "");
+  // ONE QUESTION, ASKED HERE AND IN `publicViewSql` — see `liveConditions`. The
+  // clause used to be built inline here and nowhere else, so the projection a
+  // stranger actually reads bypassed all three filters.
+  const live = liveConditions(t).map((c) => " AND " + c).join("");
   const signedIn = "app_user_id() IS NOT NULL";
   // The team widening, and the null case is the one that matters: a member in no
   // organization must fall back to their own rows. `team_id = app_...` would be
@@ -377,10 +410,40 @@ export function grantsFor(t) {
   const { anon, user } = DATA_API_ROLES;
   const out = [...revoke];
 
+  // A MEMBER-WRITE CELL EMITS ONE FOUR-VERB STATEMENT, and knowing that HERE is
+  // what stops the member's SELECT being granted twice.
+  //
+  // THE BUG THIS REPLACES. The member-write branch below used to `return` a
+  // freshly-built array instead of pushing onto `out`, which dropped both
+  // REVOKEs — measured across all 16 cells, `revoke=N` on exactly the eight
+  // write-own / write-members cells, including both member presets `user` and
+  // `feed`. The comment above says the pair is "emitted for EVERY table … which
+  // is what makes the withdrawal real"; it was emitted for half the grid. So a
+  // revise moving a table toward a member-write shape — `collect` → `user`,
+  // `display` → `feed`, or a pair whose write becomes `own` — left the prior
+  // `GRANT INSERT … TO anonymous` or `GRANT SELECT … TO anonymous` standing for
+  // ever, since a GRANT persists and nothing else takes one back.
+  //
+  // STATED HONESTLY: RLS still refuses those rows, because the new policy
+  // evaluates `app_user_id()` as NULL for `anonymous`. This is defence-in-depth
+  // regained rather than live exposure closed — and it is exactly the lifecycle
+  // the REVOKE was added for, on roles left holding privileges the schema says
+  // they may not have. The one failure that makes it live is the one this file
+  // already plans for: `applySiteSchema` logs a failed statement and carries on,
+  // so an `ENABLE ROW LEVEL SECURITY` that did not take leaves the stale grant
+  // as the only thing deciding.
+  //
+  // Payable is folded in because the payable early return sits between the read
+  // grants and the write grants: a payable table emits no write grant at all, so
+  // its member SELECT must still be emitted here.
+  const memberWrite = !(t && t.payment) && (write === "own" || write === "members");
+
   // WHO MAY ASK TO READ. `none` grants nothing, which is the other half of the
   // write-only guarantee: no policy AND no grant.
-  if (read === "public") out.push(`GRANT SELECT ON ${tn} TO ${anon};`, `GRANT SELECT ON ${tn} TO ${user};`);
-  else if (read === "members" || read === "own") out.push(`GRANT SELECT ON ${tn} TO ${user};`);
+  if (read === "public") out.push(`GRANT SELECT ON ${tn} TO ${anon};`);
+  if ((read === "public" || read === "members" || read === "own") && !memberWrite) {
+    out.push(`GRANT SELECT ON ${tn} TO ${user};`);
+  }
 
   // WHO MAY ASK TO WRITE.
   //
@@ -416,22 +479,23 @@ export function grantsFor(t) {
   if (t && t.payment) return out;
   if (write === "anyone") {
     out.push(`GRANT INSERT ON ${tn} TO ${anon};`, `GRANT INSERT ON ${tn} TO ${user};`);
-  } else if (write === "own" || write === "members") {
+  } else if (memberWrite) {
     // ONE STATEMENT FOR THE MEMBER, matching what `user` and `feed` have always
     // emitted: they may ask for all four verbs and the POLICIES decide which
     // rows. But it must NOT swallow the anonymous read granted above — an
     // earlier draft returned here and dropped it, which silently broke the one
     // cell this whole change exists for: "anyone reads, members write their
     // own" published a listings table the public still could not read. Caught by
-    // printing the new cells rather than by trusting the composition.
+    // printing the new cells rather than by trusting the composition. Pushing
+    // onto `out` rather than returning a new list is what keeps that fixed AND
+    // keeps the REVOKEs, which the returning form dropped on eight cells.
     // THE VERBS FOLLOW THE READ AXIS TOO. `user` and `feed` both read, so both
     // keep the four-verb statement they have always emitted. A pair that writes
     // per-member and reads NOTHING gets no SELECT: the policy would never return
     // a row anyway, so the grant buys nothing — and a privilege with no purpose
     // is one that stops being harmless the day somebody adds a policy by mistake.
     const verbs = read === "none" ? "INSERT, UPDATE, DELETE" : "SELECT, INSERT, UPDATE, DELETE";
-    const forMember = `GRANT ${verbs} ON ${tn} TO ${user};`;
-    return read === "public" ? [`GRANT SELECT ON ${tn} TO ${anon};`, forMember] : [forMember];
+    out.push(`GRANT ${verbs} ON ${tn} TO ${user};`);
   }
   return out;
 }
@@ -513,9 +577,15 @@ export function publicViewPredicate(w, known) {
  * asked for — a projection naming a column nothing created is a view that fails
  * to compile, which is the 403 again wearing a different cause.
  *
- * THE DROP ALWAYS RUNS, even for a table with no publicView. A revise that
- * removed one would otherwise leave the old view standing and still published —
- * the same reasoning that drops every policy shape before creating any.
+ * THE DROP ALWAYS RUNS, even for a table with no publicView and even for a
+ * RETIRED one. A revise that removed one would otherwise leave the old view
+ * standing and still published — the same reasoning that drops every policy
+ * shape before creating any, and the same reasoning that makes `retired` mean
+ * something here rather than only in the other two lists.
+ *
+ * WHAT IT PUBLISHES IS FILTERED BY `liveConditions`, exactly as the read policy
+ * is. The view bypasses RLS by construction, so it is the only place that filter
+ * can be applied to this object at all.
  *
  * ALL OR NOTHING. If a declared column is missing, or a filter will not compile,
  * the view is not created at all. Publishing a subset of the columns is a
@@ -544,6 +614,28 @@ export function publicViewSql(t, columns, tableNames) {
   const view = publicViewName(name);
   const out = [`DROP VIEW IF EXISTS ${q(view)};`];
 
+  // A RETIRED TABLE PUBLISHES NOTHING — not its rows, and not a projection of
+  // them. `policiesFor` and `grantsFor` both honoured `retired` and this
+  // function had no branch for it at all, which made the withdrawal a lie in the
+  // one direction that survives it: `applySiteSchema` runs all three lists in
+  // order, so retiring dropped every policy, revoked every table grant, and then
+  // CREATEd the projection again with `security_invoker = false` (owner rights,
+  // RLS bypassed) and `GRANT SELECT … TO anonymous`. The retire was undone one
+  // statement later, on that apply and on every apply after it, because
+  // `retiredOf`/`fillFromStored` keep `retired: true` in the spec for ever.
+  //
+  // The exact pair the rules lane advertises: `publicView` is the taken-slots
+  // projection on a bookings table, and `retired` is offered to the model as
+  // "close the form, we're fully booked". So the owner asked for a feature to be
+  // removed, was told it was, and the declared columns of that table stayed
+  // readable by any anonymous caller of the Data API — with no path to remove
+  // them, since retiring again re-created the view.
+  //
+  // The DROP above still runs, which is what makes the withdrawal real, and it
+  // is reversible in both directions: un-retiring re-creates the view on the
+  // next apply, exactly like the grants.
+  if (t && t.retired) return out;
+
   const pv = t && t.publicView;
   if (!hasPublicView(t)) return out;
   // A declared table already owning that name: the CREATE would fail anyway, and
@@ -560,6 +652,18 @@ export function publicViewSql(t, columns, tableNames) {
     if (!sql) return out;
     where.push(sql);
   }
+
+  // AND THE SAME "IS THIS ROW LIVE" TEST THE READ POLICY APPLIES. The view runs
+  // as its owner and therefore bypasses RLS entirely, so nothing else can put it
+  // there — see `liveConditions`, which is the one place the question is asked.
+  // Without it a cancelled booking greyed out its slot for ever, an expired
+  // offer stayed published and a scheduled post went public before its date, on
+  // the one path a stranger reads.
+  //
+  // Appended after the declared predicates, and outside the loop above, because
+  // these cannot fail: they are stamped by the engine from the same flags, so
+  // there is no "will not compile" case for the all-or-nothing rule to catch.
+  where.push(...liveConditions(t));
 
   const { anon, user } = DATA_API_ROLES;
   out.push(

@@ -209,9 +209,58 @@ export function connForDatabase(projectConn, dbName) {
 // ("project already has running conflicting operations"), so every provisioning
 // step waits for quiet before the next one starts.
 const OP_PENDING = new Set(["scheduling", "running", "cancelling"]);
+const OP_BAD = new Set(["failed", "error"]);
+
+/**
+ * How far back a failed operation still counts as this call's.
+ *
+ * Exported so the test drives the real number rather than restating it — a
+ * window asserted against a copy of itself proves nothing.
+ *
+ * The op being waited on was scheduled moments before this call, so anything
+ * this wide is generous: the only thing that stretches the gap is the POST
+ * itself being retried through the 423 lock budget. Both directions of being
+ * wrong are graceful and neither is silent. Too WIDE and a retry inside the
+ * window re-reports the previous attempt's failure — the bug below, bounded to
+ * minutes instead of forever. Too NARROW and a failure from a heavily-retried
+ * POST reads as history and surfaces later as a connection error, which is what
+ * every unpolled failure already does.
+ */
+export const NEON_OP_WINDOW_MS = 120000;
 
 export async function waitForProject(env, projectId, timeoutMs = 90000) {
   const deadline = Date.now() + timeoutMs;
+  // A FAILURE THIS CALL DID NOT CAUSE IS NOT THIS CALL'S TO REPORT.
+  //
+  // The scan below used to read the WHOLE operations list — a project's entire
+  // history — and this function runs on every build, not only at creation:
+  // after createSiteDatabase, after enableNeonAuth, after enableDataApi. So one
+  // Neon hiccup, ever, made that slug PERMANENTLY unbuildable. Every retry
+  // reuses the project (lookupProject is keyed by slug), polls, re-finds the
+  // same historical `failed` op and throws again — with a message about an
+  // operation that stopped running days ago — and both enables are deliberately
+  // fatal, so the route answers 502 "could not provision the database" forever
+  // and the only escape is abandoning the slug. Measured 2026-08-21 against a
+  // list holding one old `failed` op and nothing pending: it threw.
+  //
+  // `created_at` IS THE DISCRIMINATOR, and the obvious alternative was tried
+  // first and is worse. Snapshotting the failures the FIRST poll shows and
+  // judging only what appears afterwards needs no clock — but the first poll can
+  // legitimately already hold OUR operation, failed, beside something still
+  // pending, and that snapshot throws it away. `test/neon-wait.test.mjs` pins
+  // exactly that case ("a failure is only reported once the work is quiet"), so
+  // the coarse rule trades a permanent-unbuildable bug for a silent-miss one.
+  //
+  // AN OPERATION WITH NO USABLE TIMESTAMP IS JUDGED, deliberately. That is the
+  // pre-fix behaviour, so nothing we cannot date is newly ignored, and every
+  // real Neon operation carries `created_at` — the narrowing only ever applies
+  // to a row that says how old it is.
+  const startedAt = Date.now();
+  const mine = (o) => {
+    if (!OP_BAD.has(String(o && o.status))) return false;
+    const at = Date.parse((o && o.created_at) || "");
+    return !Number.isFinite(at) || at >= startedAt - NEON_OP_WINDOW_MS;
+  };
   for (;;) {
     const d = await neonApi(env, `/projects/${projectId}/operations`);
     const ops = (d && d.operations) || [];
@@ -219,7 +268,7 @@ export async function waitForProject(env, projectId, timeoutMs = 90000) {
     if (!pending.length) {
       // A failed setup operation would otherwise surface later as a confusing
       // connection error, so surface it here where the cause is obvious.
-      const bad = ops.find((o) => ["failed", "error"].includes(String(o && o.status)));
+      const bad = ops.find(mine);
       if (bad) throw Object.assign(new Error("neon operation " + bad.action + " " + bad.status), { detail: JSON.stringify(bad).slice(0, 300) });
       return;
     }
@@ -232,9 +281,63 @@ export async function waitForProject(env, projectId, timeoutMs = 90000) {
   }
 }
 
+/**
+ * The half of a create that runs AFTER Neon has already made the project.
+ *
+ * NEON CREATES THE PROJECT WHEN THE POST RETURNS, so every throw from this
+ * point on leaves a BILLED resource behind — and the only record a project has
+ * is a Supabase row that has not been written yet. site-provision.mjs's
+ * record-it-or-destroy-it rule was keyed on `createSiteProject` having RETURNED,
+ * so neither of the two throws below could ever be cleaned up: the shape guard,
+ * and `waitForProject` (a 90s deadline, or a failed operation). Measured
+ * 2026-08-21 — Neon answered with project `proj-123`, this threw, and the error
+ * carried nothing the caller could drop.
+ *
+ * So the id TRAVELS ON THE ERROR. One copy for both create functions, because a
+ * second copy that forgets to attach it is the same silent leak again.
+ *
+ * The one case that still cannot be cleaned up is a POST whose response never
+ * reaches us — the 30s `AbortSignal.timeout` in `neonApiOnce`, or a dropped
+ * connection, after Neon has already created the project. There is no id to
+ * drop and nothing in this repo reconciles Neon's project list against
+ * Supabase, so that orphan is invisible. Left as a stated gap rather than
+ * guessed at: a reconciliation sweep is a product decision, not a repair.
+ */
+async function projectFromCreate(env, d, name) {
+  const projectId = (d && d.project && d.project.id) || null;
+  const conn = (((d && d.connection_uris) || [])[0] || {}).connection_uri;
+  if (!projectId || !conn) {
+    throw Object.assign(new Error("neon create project: unexpected response"), {
+      // SCRUBBED. This body holds `connection_uris`, which carry a PASSWORD, and
+      // the detail is returned to the caller and logged — `neonApiOnce` already
+      // scrubs for exactly this reason and this line did not. Measured
+      // 2026-08-21: a response missing `project` put a live `postgres://` URI
+      // straight into the error.
+      detail: scrubSecrets(JSON.stringify(d)).slice(0, 300),
+      // null when Neon told us nothing to drop; the caller's cleanup is a no-op
+      // then, and the orphan (if any) is the invisible class described above.
+      projectId,
+      projectName: name,
+    });
+  }
+  // The project exists but is still being built; nothing may touch it until quiet.
+  try { await waitForProject(env, projectId); }
+  catch (e) {
+    if (e && typeof e === "object") { e.projectId = projectId; e.projectName = name; }
+    throw e;
+  }
+  return {
+    projectId,
+    branchId: (d.branch && d.branch.id) || null,
+    roleName: ((d.roles || [])[0] || {}).name || null,
+    conn, // points at the project's default database
+  };
+}
+
 // Create a user's Neon project. Returns everything needed to address it later.
 export async function createUserProject(env, uid) {
-  const project = { name: projectNameForUser(uid), region_id: NEON_REGION };
+  const name = projectNameForUser(uid);
+  const project = { name, region_id: NEON_REGION };
   const org = await neonOrgId(env);
   if (org) project.org_id = org;
 
@@ -242,22 +345,7 @@ export async function createUserProject(env, uid) {
     method: "POST",
     body: JSON.stringify({ project }),
   });
-
-  const conn = ((d.connection_uris || [])[0] || {}).connection_uri;
-  if (!d.project || !d.project.id || !conn) {
-    throw Object.assign(new Error("neon create project: unexpected response"), {
-      detail: JSON.stringify(d).slice(0, 300),
-    });
-  }
-  // The project exists but is still being built; nothing may touch it until quiet.
-  await waitForProject(env, d.project.id);
-
-  return {
-    projectId: d.project.id,
-    branchId: (d.branch && d.branch.id) || null,
-    roleName: ((d.roles || [])[0] || {}).name || null,
-    conn, // points at the project's default database
-  };
+  return projectFromCreate(env, d, name);
 }
 
 /**
@@ -269,25 +357,15 @@ export async function createUserProject(env, uid) {
  * legacy rows that predate the change.
  */
 export async function createSiteProject(env, slug) {
-  const project = { name: projectNameForSite(slug), region_id: NEON_REGION };
+  const name = projectNameForSite(slug);
+  const project = { name, region_id: NEON_REGION };
   const org = await neonOrgId(env);
   if (org) project.org_id = org;
 
   const d = await neonApi(env, "/projects", { method: "POST", body: JSON.stringify({ project }) });
-  const conn = ((d.connection_uris || [])[0] || {}).connection_uri;
-  if (!d.project || !d.project.id || !conn) {
-    throw Object.assign(new Error("neon create project: unexpected response"), {
-      detail: JSON.stringify(d).slice(0, 300),
-    });
-  }
-  // Scheduled, not built. Nothing may touch it until quiet — see waitForProject.
-  await waitForProject(env, d.project.id);
-  return {
-    projectId: d.project.id,
-    branchId: (d.branch && d.branch.id) || null,
-    roleName: ((d.roles || [])[0] || {}).name || null,
-    conn,
-  };
+  // Scheduled, not built — and already BILLED. `projectFromCreate` owns the rest
+  // so a throw carries the id the caller has to drop.
+  return projectFromCreate(env, d, name);
 }
 
 /**
