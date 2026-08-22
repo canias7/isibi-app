@@ -12,6 +12,47 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ## OPEN — waiting to be picked up
 
+**WHY BUILDS KEPT FAILING — IT WAS NOT THE AUDIT (2026-08-22).** You said *"idk
+why it's failing now, it used to work before the audit"*. That was the obvious
+suspect and I checked it properly rather than guessing: **the audit changed
+nothing about how a site gets built.** The instruction sent to the model is
+byte-for-byte identical before and after, and so is every piece of code that
+does the building. Two things I had told you were also wrong, and they matter:
+
+* **The "last good build" was not really good.** It ran out of time too — it was
+  cut off at 12 minutes and the site only appeared afterwards, by luck. The
+  builds have been getting steadily slower for days: 6 minutes, then 8, then over
+  12, then failing. **The slowdown started before the audit, not after it.**
+* **The Arabic theory was wrong too.** An Arabic site published fine at 8
+  minutes; an English one failed at 4.5. It was never the language.
+
+**THE REAL PROBLEM WAS THAT NOTHING COULD EVER STOP A BUILD.** There were
+exactly two time limits anywhere near it, both on the AI calls. Once the AI
+answered, the rest — compiling and publishing the site — had **no time limit at
+all**, so a build that got stuck simply ran forever until something outside
+killed it. That is what produced the 25- and 27-minute failures.
+
+**And it was worse than one customer's build.** All sites are compiled by a
+single shared machine, one at a time — so one stuck build **holds up everybody
+else's**, on a step that also could not time out.
+
+**FIXED, four ways:**
+
+1. **A build no longer dies when you close the tab.** Before, closing the page or
+   losing signal killed the build mid-flight and left you with a half-made site
+   you had already paid for. Now the work carries on and finishes.
+2. **A build has a fifteen-minute limit as a whole**, not per step. If it runs
+   out, you get a plain sentence saying what did and did not get set up —
+   instead of a page that hangs for half an hour and then fails silently.
+3. **The compile step has a ten-minute limit**, which it never had.
+4. **Every build now writes down what it is doing as it goes.** Before, the
+   step-by-step record only came back with the finished answer — so a build that
+   never answered told us nothing at all. Now, even a build that dies completely
+   can be looked up afterwards and asked *where did it get to*.
+
+**Still to prove:** a real build has not run against any of this yet. One is
+running now (`lantern-lido`).
+
 **THE BUILDER NOW USES GROK BY DEFAULT (2026-08-22, your call).** It was using
 Claude, and **the Claude account is out of credit — so anybody who signed in and
 asked for a site got an error in about a second.** The platform's main feature
