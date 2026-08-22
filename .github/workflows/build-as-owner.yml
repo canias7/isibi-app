@@ -88,56 +88,40 @@ jobs:
           # (`mathaq-alemarat`, `mathaq-dubai`), so neither name can be reused:
           # ownership is what decides `revise`, and re-running one would be read
           # as an edit of an empty husk rather than the first build it never got.
-          OWNER_SLUG: lido-and-lamplight
-          # RUN 11 (2026-08-22): THE FIRST BUILD WHERE THE MODEL CAN WRITE ITS
-          # OWN BACKDROP, asked for by the owner — "build one with it and show
-          # me, use grok".
+          OWNER_SLUG: sunwater-lido
+          # RUN 12 (2026-08-22): THE SAME BRIEF, WITH THE DISCONNECT FIXED.
           #
-          # ENGLISH, NOT THE ARABIC BRIEF, and that is the whole reason this can
-          # show anything. The scoreboard is FOUR Arabic attempts and ZERO sites
-          # (runs 3, 4, 9, 10 — 301s, 286s, 1546s, 285s) against TWO English
-          # attempts and TWO published sites. What is under test here is a LOOK,
-          # so the run has to produce a page somebody can open; re-running the
-          # brief that has never finished would buy the same husk and show
-          # nothing. The RTL question is still open and is not this run's.
+          # RUN 11 IS WHY THIS IS WORTH SPENDING AGAIN RATHER THAN A REPEAT. It
+          # used this exact brief, in English, and died at 274.3s with
+          # ECONNRESET — the third instance of a reset this file had recorded as
+          # Arabic-only (286.0s, 285.3s), on a brief of the shape that had
+          # published twice. That killed the language theory and left the real
+          # cause where it was: Cloudflare cancels a Worker when its client goes
+          # away, and this route runs for minutes.
           #
-          # THE BRIEF CARRIES AN ATMOSPHERE THE SIX NAMED OPTIONS CANNOT SAY.
-          # `backdrop` offers plain / wash / aurora / field / horizon / glow —
-          # generic grounds, chosen by us, before any particular site existed.
-          # Low sun on an open-air pool is a specific gradient, and if the
-          # feature is worth having this is the shape of brief that shows it.
-          # DELIBERATELY NOT AN INSTRUCTION TO WRITE CSS: nobody types that, and
-          # a run that had to be told would prove the plumbing rather than the
-          # feature. Whether it reaches for an authored value is the measurement.
+          # ONE THING CHANGED, AND IT CHANGES WHICH HALF IS LOST. The build is
+          # registered on `ctx.waitUntil`, so the work outlives the response. A
+          # reset now costs the ANSWER and not the SITE.
           #
-          # WHAT MAKES A WASH LIKELY TO SURVIVE, measured rather than hoped. The
-          # legibility gate computes the quiet ink against the DARKEST stop
-          # wherever it sits, so a near-black brand colour in a light wash is
-          # refused — driven locally against `broadsheet`, whose `--primary` is
-          # oklch L 0.30: the same gradient came back "would leave the quiet text
-          # at 4.1:1". A warm mid-toned identity is what gives an authored light
-          # wash room to clear the floor, which is why this is a sunlit lido and
-          # not a candlelit basement.
+          # SO BOTH OUTCOMES PRODUCE A URL, which is what makes this a good spend
+          # rather than a coin flip re-run:
+          #   - it connects  -> the full response, the cost breakdown, and
+          #     whether the model wrote its own backdrop
+          #   - it resets    -> the harness FATALs exactly as run 11 did, and the
+          #     site publishes anyway. `sunwater-lido.gofarther.app` answering
+          #     200 after a dead socket IS the proof, and it is a stronger one
+          #     than a clean run: it is the failure the fix was built for.
           #
-          # THE SHAPE IS RUN 6/8's, the two that published: a publicly readable
-          # menu (a read/write pair, seeded), a `collect` booking form that must
-          # stay unreadable to the public, an about page and an hours page.
+          # A FRESH SLUG, because run 11 claimed `lido-and-lamplight` and
+          # ownership is what decides `revise` — re-running that name would be
+          # read as an edit of the husk rather than the first build it never got.
           #
-          # WHAT THE RESPONSE CAN NOW SAY THAT IT COULD NOT BEFORE: `authored`
-          # lists the axes the model WROTE rather than chose, and a wash refused
-          # for contrast arrives in the theme notes with its ratio. Without those
-          # two this run would have had to be verified by curling the stylesheet
-          # and guessing.
+          # THE BRIEF IS RUN 11's VERBATIM. The only variable is the fix;
+          # changing a word would make either outcome unattributable.
           #
-          # BOTH OUTCOMES ARE WORTH THE SPEND:
-          #   - it authors one -> the feature is proven live, end to end, and
-          #     there is a page to look at
-          #   - it names an option instead -> the wiring is still proven (the
-          #     enum path is unchanged) and the finding is that the tool's own
-          #     description is not inviting enough, which is a prompt fix
-          #
-          # GROK, because the Anthropic account is out of credit — `sonnet` and
-          # `opus` answer `billing: true` at `stage: design` in about a second.
+          # WHAT IT ALSO ANSWERS, unchanged from run 11: whether the designer
+          # reaches for an AUTHORED backdrop rather than one of the six named
+          # options. `authored` on the response names the axes it wrote.
           OWNER_PICKER: grok
           OWNER_BRIEF: "An open-air lido cafe on the south coast, beside a 1930s seawater swimming pool. Visitors read the menu of coffee, ice cream and toasties with prices in pounds without signing in, and book a poolside table with a short form - name, phone, how many people, and what time. There is a page about the lido's restoration and one with opening hours, the address and how to find the entrance. The feel is late afternoon sun on the water: faded pastel paintwork, sun-bleached concrete, long low light."
         run: node scripts/build-as-owner.mjs

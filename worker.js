@@ -12052,6 +12052,48 @@ async function handleRequest(request, env, ctx) {
     // This builds the DATA layer only — the page it publishes describes the
     // model it created. Generating the site itself is the next piece.
     if ((url.pathname === "/api/site/react-build" || url.pathname === "/api/site/build" || url.pathname === "/api/site/react-revise") && request.method === "POST") {
+      // ── THE BUILD SURVIVES THE CLIENT GOING AWAY ────────────────────────────
+      //
+      // Cloudflare CANCELS A WORKER WHEN ITS CLIENT DISCONNECTS, and this route
+      // is the one that runs for minutes. So every disconnect killed the build
+      // mid-flight and left the customer a claimed slug, a live Neon project, a
+      // settled schema charge and NO SITE — work and money gone, with the only
+      // symptom a dead socket.
+      //
+      // MEASURED FOUR TIMES, and the fourth is what killed the language theory
+      // this repo had been carrying. Runs 4 and 10 died at 286.0s and 285.3s on
+      // an Arabic brief; run 11 (2026-08-22) died at 274.3s on an ENGLISH one
+      // of exactly the shape that had published twice. So the reset is not a
+      // property of the brief — the two successes were the lucky side of
+      // something intermittent, and reading them as a pattern was wrong.
+      //
+      // `waitUntil` IS THE WHOLE FIX AND IT IS FIVE LINES. It is the documented
+      // mechanism for exactly this: the work registered on it outlives the
+      // response, so a reset connection costs the ANSWER and no longer costs
+      // the SITE. The customer's build finishes and publishes; what they lose
+      // is being told about it in that request.
+      //
+      // AND A TIMEOUT IN EITHER DIRECTION IS NOT THIS. A shorter bound refuses
+      // sooner and still produces no site; a longer one changes nothing,
+      // because the connection dies at ~285s regardless. `BUILDER_CALL_MS` is
+      // ten minutes and has never fired — both times it was measured, something
+      // else reached the customer first.
+      //
+      // THE BODY IS NOT RE-INDENTED, deliberately. This is 1,800 lines and the
+      // one route every site on the platform is built by; re-indenting it makes
+      // a diff nobody can review for a change that is four lines of behaviour.
+      //
+      // EVERY EXIT IS A `return` INSIDE THE WRAPPER, so `return buildDone`
+      // forwards it unchanged — including the refusals, which resolve in
+      // milliseconds and are unaffected by any of this. Verified that the block
+      // has no fall-through path: its last top-level statement is an
+      // unconditional `Response.json(...)`, so this can never resolve undefined.
+      //
+      // A REJECTION BEHAVES EXACTLY AS BEFORE. `handleRequest` already returns a
+      // promise, so returning this one propagates the same throw to the same
+      // catch — the `.then(noop, noop)` exists only so `waitUntil` is never
+      // handed an unhandled rejection, and must not swallow it from the caller.
+      const buildDone = (async () => {
       // THE TRACE, started BEFORE the auth check rather than after it. `authUser`
       // is a round trip to GoTrue — a real network call on every build — and
       // starting the trace below it put that call outside `totalMs` entirely, so
@@ -13859,6 +13901,13 @@ async function handleRequest(request, env, ctx) {
         // which is which.
         models: { picker: models.picker, design: models.design, pages: models.pages },
       });
+      })();
+      // GUARDED, because `ctx` is a runtime argument rather than a language
+      // guarantee: there is one caller today and it always passes one, and a
+      // second added later without it would otherwise turn every build into a
+      // TypeError. Without it the build simply behaves as it did before.
+      if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(buildDone.then(() => {}, () => {}));
+      return buildDone;
     }
 
     // GET /api/site/<slug>/rows[/<table>] — the OWNER reading their own site.
