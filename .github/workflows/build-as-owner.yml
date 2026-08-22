@@ -133,7 +133,7 @@ jobs:
           # variable rather than removing one), same feel description word for
           # word, because the feel is what a CSS experiment is actually about.
           # Both arms share it, so the comparison is untouched.
-          OWNER_SLUG: lido-axes
+          OWNER_SLUG: lido-b-axes
           # RUN 14 (2026-08-22): THE FIRST BUILD THAT CANNOT BE SILENT.
           #
           # WHAT RUN 13 MEASURED, and it is a finding rather than another failed
@@ -188,7 +188,7 @@ jobs:
           # WHAT IT ALSO ANSWERS, unchanged since run 11: whether the designer
           # reaches for an AUTHORED backdrop rather than one of the six named
           # options. `authored` on the response names the axes it wrote.
-          OWNER_PICKER: grok
+          OWNER_PICKER: sonnet
           # ARM B — the 29 axes, which is today's path and needs no flag. Build
           # 2 sets `OWNER_FREE_CSS: "1"` here and moves the slug; nothing else
           # in this file changes between the two runs.
