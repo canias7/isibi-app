@@ -12,6 +12,34 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ## OPEN — waiting to be picked up
 
+**THE ARABIC BUILD DID NOT WORK, AND IT COST YOU 5 CREDITS (2026-08-22).** You
+said "use grok", so I ran one real build on your account with an Arabic brief —
+a Dubai café — because right-to-left shipped three days ago and has never once
+run on a real site. **It did not publish.** Balance 430 → 425.
+
+* **How far it got.** Signing in worked, the designer read the Arabic brief and
+  answered correctly, and your database was created — all in 79 seconds. Then
+  the step that writes the actual pages ran for **26 minutes without ever
+  answering**, and the run was killed. So the site does not exist.
+* **What that leaves behind:** the name `qahwa-almadina` is claimed and there is
+  a live database with nothing in it. You said you would clear those yourself,
+  so I have left it.
+* **The comparison is clean and that is the useful part.** The English bakery
+  build the day before used the same model, the same settings and the same four
+  page shapes, and it published. The *only* thing different here was the
+  language. So the problem is writing pages from an Arabic brief, not the
+  builder generally.
+* **The real bug it exposed, which is worth fixing before trying again:** a
+  build has no time limit. Every other thing the platform does gives up after a
+  few seconds; the build waits forever. So a customer whose build hangs sits
+  there with no message, no ceiling and no refund — which is exactly what
+  happened here. I have not retried, because a second attempt buys the same
+  26-minute wait; it is worth spending again once a build that runs too long
+  stops and says so.
+* **Everything else on that push was green** — the deploy, the unit tests, and
+  all four free checks.
+
+
 **THE AUDIT IS DONE — ALL 80 FINDINGS FIXED (2026-08-22).** You asked for an
 honest audit of the whole build route and then "ok go fix all of it". 74 agents
 found 3 critical, 27 high, 31 medium, 18 low and 1 note; every one is fixed and
