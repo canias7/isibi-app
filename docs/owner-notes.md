@@ -44,6 +44,15 @@ the suite went 3617 → 3788 tests.
   empty, `build smoke`, `edit smoke` and both quality evals cannot run at all —
   they refuse in about a second and nothing is spent. Grok is the only picker
   that can build a site right now.
+* **AND THE FIX FOR ONE OF THOSE 80 BROKE EVERY BUILD FOR ABOUT AN HOUR, which
+  is worth telling you rather than quietly repairing.** One of the small fixes
+  read a value from the wrong place in the code — legal JavaScript, so nothing
+  refused it, and all 3,788 tests passed. The build route answered a bare
+  `500` to everything for roughly an hour after that merge. **Nothing was
+  charged and no site was damaged** — it died before any money moved. Caught by
+  two of the paid-for checks going red on a run where nothing they cover had
+  changed, which is exactly what those checks are for. Fixed, and there is now
+  a check that refuses this whole class rather than this one instance.
 
 
 **ONE PAGE CAN HAVE ITS OWN TYPEFACE NOW (2026-08-19).** "The menu page should
