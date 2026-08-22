@@ -88,14 +88,44 @@ jobs:
           # (`mathaq-alemarat`, `mathaq-dubai`), so neither name can be reused:
           # ownership is what decides `revise`, and re-running one would be read
           # as an edit of an empty husk rather than the first build it never got.
-          OWNER_SLUG: fold-lane-bakery
-          # RUN 8 (2026-08-21): THE AUDIT FIXES, AGAINST A REAL BUILD.
+          OWNER_SLUG: qahwa-almadina
+          # RUN 9 (2026-08-22): RIGHT-TO-LEFT, LIVE, FOR THE FIRST TIME.
           #
-          # 80 findings, 60 confirmed by an independent skeptic, and everything
-          # merged so far is verified by the unit suite (3693), a real Postgres
-          # (`neon e2e`) and the real container (`site build`) — and by NO live
-          # build, because `build smoke` cannot run: the Anthropic account has no
-          # credit, so it refuses at `stage: design` in about a second.
+          # THE WHOLE AUDIT ROUND IS MERGED NOW — 80 findings, and the last of
+          # them shipped a `ReferenceError` that answered `500 {}` to every
+          # build for about an hour (`sourceStored` declared in one function and
+          # read in another). That is fixed and `confirm smoke` / `member smoke`
+          # went back green on it, which proves the route ANSWERS. It does not
+          # prove the route BUILDS: run 8 predates most of this round, so no
+          # live build has ever carried the merged tree.
+          #
+          # WHY ARABIC RATHER THAN A SECOND BAKERY. Right-to-left shipped
+          # 2026-08-19 and every claim about it rests on local renders and unit
+          # tests — 1,946 physical utilities converted, a compiled-CSS cascade
+          # check, an icon mirror — and NOT ONE customer build has ever carried
+          # `dir="rtl"`. `normalizeLang` reading `ar` out of a real designer
+          # answer is itself untested end to end, and the failure it guards is
+          # total for the customer: an Arabic site laid out left to right reads
+          # as broken rather than as imperfect.
+          #
+          # THE BRIEF MIRRORS RUN 8's SHAPE ON PURPOSE — a publicly readable
+          # menu, a `collect` booking form, an about page, an hours page — so
+          # the only variable against a known-good run is the LANGUAGE. Same
+          # picker, same slug discipline, same four page shapes.
+          #
+          # WHAT IT ALSO EXERCISES FROM THIS ROUND, without needing a revise:
+          #   - the pair-declared public table publishing readable, which is the
+          #     misread `coerceTable` was making in four separate readers
+          #   - the placeholder page's own pair sentence, if the build falls back
+          #   - the spawned-child prerender and the render check doing real work
+          #   - `xaiSkipped` folding into `skipped` (no attachment, so empty —
+          #     a non-empty list here would itself be the bug)
+          #   - the script upload, and `stage: "pack"` if packaging fails
+          #
+          # NOT EXERCISED, AND SAID SO RATHER THAN CLAIMED: the revise-side
+          # critical, the redirect map, the icon lane and the bilingual ledger
+          # all need an EDIT, and this script deliberately drives a first build
+          # only. Those stay unproven live after this run.
           #
           # GROK IS WHAT MAKES THIS RUNNABLE AT ALL. The design and pages calls
           # go to xAI; the Anthropic-pinned calls (the router, the seed top-up)
@@ -150,7 +180,7 @@ jobs:
           # account is out of credit (measured 2026-08-21: `billing: true` at
           # `stage: design`), so `sonnet` and `opus` refuse in about a second.
           OWNER_PICKER: grok
-          OWNER_BRIEF: "A neighbourhood sourdough bakery in Bristol. Visitors browse the daily bake list with prices in pounds without signing in, and order a collection slot through a short form — name, phone, the loaf they want, and a pickup time. There is a page about the starter and how the bread is made, and a page with the opening hours and the address."
+          OWNER_BRIEF: "مقهى ومحمصة قهوة في دبي. يتصفح الزوار قائمة القهوة والحلويات بالأسعار بالدرهم دون تسجيل الدخول، ويحجزون طاولة عبر نموذج قصير — الاسم ورقم الهاتف وعدد الأشخاص ووقت الحضور. توجد صفحة عن المحمصة وطريقة التحميص، وصفحة بأوقات العمل والعنوان."
         run: node scripts/build-as-owner.mjs
       - uses: actions/upload-artifact@v4
         if: always()
