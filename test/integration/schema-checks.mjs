@@ -10,6 +10,7 @@
 // is empty.
 import { resolveAccess, unguardedBookings } from "../../site-access.mjs";
 import { normalizePlan } from "../../builder/site-plan.mjs";
+import { parseStyle, ASKABLE, MAX_STYLE_BUILD } from "../../builder/site-style.mjs";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // THE SCENARIOS, each aimed at a failure this platform has really shipped.
@@ -91,6 +92,68 @@ export function emptyReason(input, called, stopReason, outTokens) {
   if (!Array.isArray(input.tables)) return "`tables` came back as " + typeof input.tables + ", not a list" + tail;
   if (!input.tables.length) return "the model sent `tables: []` — it answered 'none' deliberately" + tail;
   return "";
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * WHAT THE DESIGNER DID WITH THE 23 STYLE AXES.
+ *
+ * NOTHING HAS EVER MEASURED THIS HALF. The eval judges tables, seeds, access
+ * and the plan; the style block is the other thing every `design_schema` call
+ * answers, and the harness had no opinion about it at all — so the only
+ * evidence about it is whatever a live build happens to publish.
+ *
+ * Measured on run 14 (`pierhead-lido`, 2026-08-22), the first build since the
+ * axes became authorable: the model set roughly SEVEN of twenty-three, wrote
+ * its own CSS for `backdrop`, named `plaster` for `decor`, and left `corner`
+ * and `hover` at the template's defaults. One data point, and no way at all to
+ * tell "the designer uses the axes sparingly" from "that build was quiet".
+ *
+ * DRIVEN THROUGH THE REAL `parseStyle` rather than counting keys, because the
+ * question is not what the model NAMED — it is what SURVIVES, which is what a
+ * customer's site gets. An axis the engine does not know, an option outside its
+ * enum and a refused authored value are all answers spent on nothing, and none
+ * of them is visible from the raw object.
+ *
+ * `MAX_STYLE_BUILD` because that is what the build path passes. It is
+ * `ASKABLE.length` — a no-op by construction — so `dropped` here can never mean
+ * "past the cap", which is exactly what makes every entry in it a real fault.
+ *
+ * THE ONE THING THIS CANNOT SEE, and it is stated so nobody reads a clean run
+ * as more than it is: with no palette, an authored layer naming `var(--accent)`
+ * is DEFERRED rather than refused — `normalizeSeeds` runs in the container, so
+ * the Worker holds three hex seeds and none of the 31 derived tokens. So the
+ * refusals this reports are the ones decidable from the TEXT (a `url()`, a
+ * semicolon, an unbalanced bracket, a bad unit) and the container is still the
+ * only place the rest are judged.
+ */
+export function styleReport(out) {
+  const raw = (out && out.style && typeof out.style === "object" && !Array.isArray(out.style)) ? out.style : {};
+  const asked = Object.keys(raw);
+  const r = parseStyle(raw, { max: MAX_STYLE_BUILD });
+  const kept = Object.keys(r.style || {});
+  const authored = Object.keys(r.authored || {});
+  const refused = r.refused || [];
+  // `dropped` carries the axis name AFTER the `backdropCss` fold, so a refused
+  // authored value appears in both bags under one name. Named apart here, or a
+  // single refusal is reported twice and reads as two faults.
+  const refusedNames = new Set(refused.map((x) => x.axis));
+  return {
+    asked: asked.length,
+    kept, authored, refused,
+    dropped: (r.dropped || []).filter((n) => !refusedNames.has(String(n).trim().toLowerCase())),
+    total: ASKABLE.length,
+  };
+}
+
+/** The per-sample line: how much of the look the designer actually authored. */
+export function styleLine(out) {
+  const s = styleReport(out);
+  if (!s.asked) return "style: none of " + s.total;
+  const set = s.kept.length + s.authored.length;
+  return "style: " + set + "/" + s.total
+    + (s.authored.length ? " (authored: " + s.authored.join(",") + ")" : "")
+    + " · " + [...s.kept, ...s.authored].sort().join(" ");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -194,5 +257,33 @@ export const CHECKS = {
     return { ok: asked > 0 && spec.tables.length === asked,
              why: asked ? (spec.tables.length === asked ? "" : asked + " declared, " + spec.tables.length + " survived the normaliser") : "no tables" };
   },
+  /**
+   * EVERY AXIS THE DESIGNER NAMED SURVIVED THE ENGINE.
+   *
+   * SETTING FEW AXES IS NOT A FAILURE and is deliberately not judged here — how
+   * much of a look to author is the designer's call, and this file's own rule is
+   * that a check is a property and never a judgement. `styleLine` carries the
+   * count so the series accumulates; only the count is not a verdict.
+   *
+   * What IS a property: an answer the engine threw away. An unknown axis, an
+   * option outside its own enum, a non-string where a name belongs, or authored
+   * CSS `site-css.mjs` refuses — each is a slot spent producing nothing, and the
+   * customer is told the axis was refused on a site that then renders the
+   * default. Exactly the class `seeded` catches one field over.
+   *
+   * REFUSALS ARE NAMED WITH THEIR REASON, because "dropped: backdrop" is true of
+   * a misspelt enum option and of a gradient carrying a `url()`, and those want
+   * opposite fixes — one is a prompt problem and one is the authored hint not
+   * naming its own refusals. The `emptyReason` lesson, on the style half.
+   */
+  styleClean(out) {
+    const s = styleReport(out);
+    if (!s.asked) return { ok: null, why: "the designer named no style axis" };
+    if (!s.dropped.length && !s.refused.length) return { ok: true, why: "" };
+    const parts = [];
+    if (s.refused.length) parts.push("REFUSED " + s.refused.map((x) => x.axis + " (" + x.why + ")").join("; "));
+    if (s.dropped.length) parts.push("dropped " + s.dropped.join(","));
+    return { ok: false, why: parts.join(" · ") + " — of " + s.asked + " named" };
+  },
 };
-export const ALWAYS = ["validPlan", "tablesSurvive"];
+export const ALWAYS = ["validPlan", "tablesSurvive", "styleClean"];

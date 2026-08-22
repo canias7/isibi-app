@@ -64,7 +64,7 @@ if (!KEY) { console.error("ANTHROPIC_API_KEY is required"); process.exit(1); }
 // measure the tool production actually sends.
 import { readSchemaTool } from "./schema-tool.mjs";
 
-import { SCENARIOS, CHECKS, ALWAYS, emptyReason } from "./schema-checks.mjs";
+import { SCENARIOS, CHECKS, ALWAYS, emptyReason, styleLine } from "./schema-checks.mjs";
 
 
 async function designOnce({ tool, system }, brief) {
@@ -154,7 +154,17 @@ for (const sc of SCENARIOS) {
       }
       row.ok = row.checks.every((c) => c.ok !== false);
       row.tables = spec.tables.map((t) => t.name + ":" + resolveAccess(t).read + "/" + resolveAccess(t).write);
-      row.family = input.family;
+      // THE THIRD COPY OF THE DEAD `family` READ, and the note 35 lines above
+      // is about the first two: `family` went with the layout families on
+      // 2026-08-20, so this printed `undefined ·` in front of every sample's
+      // table list from that day. Harmless and misleading in the one place a
+      // reader looks to see what the designer made.
+      //
+      // WHAT REPLACES IT IS THE HALF NOTHING MEASURED. The style block is the
+      // other thing every call answers and the eval had no opinion about it —
+      // so this line is what turns "run 14 set seven of twenty-three axes"
+      // from an anecdote into a series.
+      row.style = styleLine(input);
     } catch (e) {
       row.error = String(e.message) + (e.detail ? " " + e.detail : "");
     }
@@ -166,7 +176,8 @@ for (const sc of SCENARIOS) {
     // The DIAGNOSIS, printed only when there is one — a clean run's output is
     // byte-identical to before. `row.why` is empty whenever tables came back.
     if (row.why) console.log("        why: " + row.why);
-    if (row.tables) console.log("        " + row.family + " · " + row.tables.join("  "));
+    if (row.tables) console.log("        " + row.tables.join("  "));
+    if (row.style) console.log("        " + row.style);
   }
 }
 

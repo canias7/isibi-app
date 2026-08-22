@@ -12,7 +12,8 @@
 // designer eval that can be verified today.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { CHECKS, SCENARIOS, ALWAYS, emptyReason } from "./integration/schema-checks.mjs";
+import { CHECKS, SCENARIOS, ALWAYS, emptyReason, styleReport, styleLine } from "./integration/schema-checks.mjs";
+import { ASKABLE } from "../builder/site-style.mjs";
 import { normalizeSchema } from "../site-schema.mjs";
 
 /** An answer, scored the way the harness scores one: through the normaliser. */
@@ -252,4 +253,107 @@ test("an answer that really has tables says NOTHING", () => {
   // happen — the `salvage: { reason: … }` mistake, which reads in a report as a
   // build that nearly broke.
   assert.equal(emptyReason({ tables: [{ name: "classes" }] }, true, "tool_use", 900), "");
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE STYLE HALF. Nothing measured it until 2026-08-22 — the eval judged
+// tables, seeds, access and the plan, and had no opinion about the other thing
+// every `design_schema` call answers.
+
+test("styleClean — an answer the engine threw away is a failure", () => {
+  // Each of these is a slot spent producing nothing, on a site that then
+  // renders the default while the customer is told the axis was refused.
+  const bad = CHECKS.styleClean({ style: { corner: "round", nonsense: "x" } });
+  assert.equal(bad.ok, false, "an axis the engine does not know must be reported");
+  assert.match(bad.why, /nonsense/);
+
+  const opt = CHECKS.styleClean({ style: { icon: "purple" } });
+  assert.equal(opt.ok, false, "an option outside its own enum must be reported");
+  assert.match(opt.why, /icon/);
+
+  // `String(["pill"])` is `"pill"` — the coercion this repo has shipped as a
+  // real bug three times. A one-element array must not read as a named option.
+  const arr = CHECKS.styleClean({ style: { buttons: ["pill"] } });
+  assert.equal(arr.ok, false, "a non-string must not set an axis");
+});
+
+test("styleClean — a REFUSED authored value names its reason", () => {
+  // "dropped: backdrop" is true of a misspelt enum option AND of a gradient
+  // carrying a url(), and those want opposite fixes: one is a prompt problem,
+  // the other is the authored hint not naming its own refusals.
+  const r = CHECKS.styleClean({ style: { backdropCss: { light: ["url(https://x/y.png)"], dark: ["#000"] } } });
+  assert.equal(r.ok, false);
+  assert.match(r.why, /REFUSED/, "a refusal must be named apart from an unknown option");
+  assert.match(r.why, /url\(\)/, "the reason must travel, or the report cannot say which fix");
+  // ONE fault, not two. `dropped` and `refused` both carry the axis name after
+  // the `backdropCss` fold, so a single refusal reported twice reads as two.
+  assert.equal((r.why.match(/backdrop/g) || []).length, 1, "the same refusal was counted twice");
+});
+
+test("styleClean — setting FEW axes is not a failure", () => {
+  // How much of a look to author is the designer's call. This file's own rule
+  // is that a check is a property and never a judgement — `styleLine` carries
+  // the count so the series accumulates, and only the count is not a verdict.
+  assert.equal(CHECKS.styleClean({ style: { corner: "round" } }).ok, true, "one clean axis must pass");
+  const none = CHECKS.styleClean({ style: {} });
+  assert.equal(none.ok, null, "naming no axis must SKIP, not fail");
+  assert.equal(CHECKS.styleClean({}).ok, null, "no style block at all must skip");
+});
+
+test("styleClean — an authored value that only the CONTAINER can judge is deferred", () => {
+  // With no palette a layer naming `var(--accent)` fails for a reason about US
+  // and not about the value: `normalizeSeeds` runs in the container, so the
+  // Worker holds three hex seeds and none of the 31 derived tokens. Reported as
+  // refused, the eval would tell us the model wrote a bad backdrop on every
+  // sample that names a theme colour — the false alarm this repo rates worse
+  // than the miss.
+  const r = CHECKS.styleClean({ style: { backdropCss: { light: ["radial-gradient(40rem at 24% 28%, var(--primary), transparent 65%)"], dark: ["#000"] } } });
+  assert.notEqual(r.ok, false, "a deferred value must not be reported as refused: " + r.why);
+});
+
+test("styleReport — counts what SURVIVES, not what was named", () => {
+  const s = styleReport({ style: { corner: "round", icon: "fine", nonsense: "x" } });
+  assert.equal(s.asked, 3, "asked counts the raw keys");
+  assert.deepEqual(s.kept.sort(), ["corner", "icon"]);
+  assert.deepEqual(s.dropped, ["nonsense"]);
+  assert.equal(s.total, ASKABLE.length, "the denominator is the engine's own list, never a number here");
+});
+
+test("styleReport — an authored axis is counted apart from a named one", () => {
+  // The distinction the whole 2026-08-22 change exists for: `backdrop: "wash"`
+  // and a hand-written gradient are both one axis and are not the same answer,
+  // and a report that merges them cannot say whether option (b) is ever used.
+  const named = styleReport({ style: { backdrop: "wash" } });
+  assert.deepEqual(named.kept, ["backdrop"]);
+  assert.deepEqual(named.authored, []);
+
+  const own = styleReport({ style: { backdropCss: { light: ["#f0a"], dark: ["#204"] } } });
+  assert.deepEqual(own.kept, [], "an authored value must NOT land in the enum map");
+  assert.deepEqual(own.authored, ["backdrop"], "and must be reported under the axis, not the wire name");
+});
+
+test("styleLine — says how much of the look was set, and flags authored CSS", () => {
+  assert.match(styleLine({ style: {} }), /none of \d+/);
+  const l = styleLine({ style: { corner: "round", backdropCss: { light: ["#f0a"], dark: ["#204"] } } });
+  assert.match(l, /2\/\d+/, "the count is what makes a series out of one build");
+  assert.match(l, /authored: backdrop/, "option \\(b\\) being used at all has to be visible");
+  assert.match(l, /corner/, "and the axes themselves, or a run cannot be compared to the next");
+});
+
+test("styleClean is in ALWAYS — the style block is answered on every scenario", () => {
+  // Not per-scenario: every `design_schema` call answers it, so a refusal on
+  // the café brief is the same fault as one on the marketplace brief.
+  assert.ok(ALWAYS.includes("styleClean"));
+});
+
+test("every check still answers rather than throwing, with the style ones", () => {
+  // The report is driven from model output, so it meets every shape the wire
+  // can carry. A throw here reports as an infrastructure error and hides a
+  // thin answer behind it.
+  for (const junk of [null, undefined, {}, { style: null }, { style: [] }, { style: "round" },
+                      { style: { backdropCss: null } }, { style: { backdropCss: "x" } },
+                      { style: { corner: null } }]) {
+    assert.doesNotThrow(() => CHECKS.styleClean(junk), "styleClean threw on " + JSON.stringify(junk));
+    assert.doesNotThrow(() => styleLine(junk), "styleLine threw on " + JSON.stringify(junk));
+  }
 });
