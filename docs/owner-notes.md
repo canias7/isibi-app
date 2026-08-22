@@ -489,6 +489,74 @@ funded**, so every `SafeImage` on every published site is drawing its placeholde
 and no photograph has ever been generated. The upload half needs no image model
 and is what works today — which is why the tool prefers it.
 
+## 2026-08-22 — THE MENUS ARE GONE: the model writes its own CSS on all 23 style axes
+
+**You said: *"i thought for all of them it was gonna be authored dude, and no
+names, i just want the model to write its own css cmon, lets make it no name."***
+Done. Every one of the 23 style axes used to be a menu — `hover: lift | tint |
+edge | none`, `icon: fine | regular | heavy`, and so on. The model picked from
+the list. Now it writes the CSS.
+
+**FIRST, A CORRECTION I OWE YOU.** Earlier today I told you the Dubai lido site
+(`pierhead-lido`) proved the model had started writing its own CSS. **It had
+not.** I looked at a gradient in that site's stylesheet and read it as the
+model's own work; it is actually one of our own named options (`drift`) that the
+CSS compiler had rewritten slightly. I checked the site's real background: one
+texture, no gradients, and the backdrop menu was never touched. **The model had
+the escape hatch on two axes and picked a name on both.** A hatch beside a full
+menu is a hatch nobody opens — which is exactly the argument for taking the
+menus away.
+
+**WHAT CHANGED, IN PLAIN TERMS.** There were two kinds of axis and they needed
+two different answers:
+
+* **Fourteen of them ARE a block of CSS.** `hover: lift` is really *"move it up
+  2 pixels and put a shadow under it"*. The name was the only thing standing
+  between the model and writing that itself. Those now take the CSS directly.
+* **Nine of them are NUMBERS, not CSS.** `scale` is a ratio that eight text
+  sizes are derived from; `tracking` is six letter-spacing steps. There is no
+  CSS to write there, so authoring them means writing **the numbers** — which is
+  what the menu was holding anyway.
+
+**WHAT WE STILL CONTROL, AND WHY.** The model writes the *declarations*; it
+never writes the *rule*. We keep the selector and the guard — which sounds
+technical and is really about four things that break silently on somebody else's
+device:
+
+* A hover effect **only applies to a mouse.** On a phone, a tap leaves the
+  hover stuck on until you tap something else.
+* A focus ring **only shows for the keyboard.** Otherwise every mouse click
+  leaves a ring behind and the site reads as broken.
+* Scroll-in animations **only run where the browser supports them**, and never
+  for someone who has asked their device for less motion.
+* The page-transition fade **is suppressed** for that person rather than
+  removed — remove it and the browser puts its own back, so asking for less
+  motion would give you more.
+
+Because we write the final CSS ourselves out of what the model sent, nothing it
+writes can escape into the rest of the page.
+
+**IT ALSO GOT CHEAPER.** The instruction we send the designer is **33% smaller**
+(122,556 → 82,651 characters), because 23 spelled-out menus were bigger than the
+descriptions that replaced them.
+
+**NOTHING ON YOUR EXISTING SITES CHANGES.** Every site already published stores
+the old names, and they still work exactly as before — a site that authors
+nothing comes out byte-for-byte identical.
+
+**THREE OLD BUGS FELL OUT OF THIS, none of them from today's work.** All three
+were the same shape in `site-theme.mjs`: a lookup that could be tricked into
+matching a name that was never in the list, which would have crashed the theme
+step. They were unreachable because something upstream happened to refuse those
+names first — a guarantee living in a different file, which is not a guarantee.
+Fixed.
+
+**WHAT IS STILL UNPROVEN: no model has written a single line of this yet.** The
+Anthropic account is empty and the eval that would measure it is pointed at
+Anthropic rather than Grok (where the funds are). Every layer beneath the model
+call is proved against the real build container; the model's own answers are
+not. **Nothing has been spent on this.**
+
 ## 2026-08-21 — WE TRIED TO TRICK THE BUILDER AND IT BROKE: an Arabic site cannot be built
 
 **Deliberate test: a fine-dining halal restaurant in Dubai, brief written in

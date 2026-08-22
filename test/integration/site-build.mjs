@@ -1217,9 +1217,26 @@ function Home() {
   // working rather than the path being broken. A light palette token proves the
   // same two things — that a token resolves, and that the literal is what ships
   // — without fighting a floor this theme cannot clear.
+  // THE DARK HALF LEADS WITH A HEX FOR THE SAME REASON THE LIGHT ONE DOES, and
+  // the two runs it took to learn that are the point. It was two `oklch()`
+  // stops, and Lightning CSS DOWNLEVELS a colour it thinks the build's targets
+  // cannot take: measured through the real compiler, `oklch(0.26 0.05 62)`
+  // becomes a `#351e07` fallback plus `lab(13.9817% 9.90278 17.9453)` in a
+  // second declaration, and the string `oklch` is nowhere in the rule. So an
+  // assertion pinned to `oklch(…)` describes a stylesheet this build never
+  // produces — the `41.17%`-for-`0.4117` class, FOURTH instance in this repo,
+  // and the SECOND in this one check, whose neighbour four lines up already
+  // says to assert a stop the compiler has no other form for.
+  //
+  // A hex with no shorter form is that stop: driven both ways, `#2b1a07`
+  // survives byte-for-byte with modern targets AND with downlevelled ones, in
+  // the fallback declaration and the modern one alike. The oklch stop STAYS
+  // beside it, so the parser is still exercised end to end on a colour
+  // notation a model would really write — it just is not what the value is
+  // recognised by.
   const OWN_WASH = {
     light: ["linear-gradient(155deg, #f4dfc6 0%, var(--muted) 45%, #ffffff 100%)"],
-    dark: ["linear-gradient(155deg, oklch(0.26 0.05 62) 0%, oklch(0.14 0.02 62) 100%)"],
+    dark: ["linear-gradient(155deg, #2b1a07 0%, oklch(0.14 0.02 62) 100%)"],
   };
   const own = await post({
     files: { "index.tsx": INDEX, "menu.tsx": MENU },
@@ -1236,18 +1253,13 @@ function Home() {
     ok("…and the light wash the model wrote is in the stylesheet",
       /#f4dfc6/i.test(css), css.slice(0, 300));
     // THE DARK STOP IS ASSERTED ON WHAT SURVIVES NORMALISATION, NOT ON ITS
-    // SPELLING — and its first run is why. It pinned `oklch(0.26 0.05 62)` and
-    // Lightning CSS emits `oklch(26% .05 62)`: the LIGHTNESS becomes a
-    // percentage. Measured through the real compiler rather than reasoned:
-    //
-    //   in   linear-gradient(155deg, oklch(0.26 0.05 62) 0%, …)
-    //   out  linear-gradient(155deg, oklch(26% .05 62) 0%, …)
-    //
-    // That is the `41.17%`-for-`0.4117` class, third instance in this repo, in
-    // the guard I wrote for it. The chroma and the hue have no shorter form, so
-    // they are what the value is recognised by; the lightness is allowed to
-    // arrive in either notation.
-    const darkStop = /oklch\(\s*(?:26%|\.?0?\.26)\s+\.?0?\.?05\s+62\s*\)/;
+    // SPELLING — and it took two runs and two wrong answers to land on one.
+    // The first pinned `oklch(0.26 0.05 62)`; Lightning CSS emits `oklch(26%
+    // .05 62)`, the lightness becoming a percentage. The second allowed both of
+    // those and still failed, because with this build's targets the compiler
+    // does not emit `oklch` here AT ALL — see the fixture's own note above. A
+    // hex with no shorter form is the one thing measured to survive every path.
+    const darkStop = /#2b1a07\b/i;
     // AND IT MUST BE IN A `.dark` RULE, or "the value is somewhere in the file"
     // passes on a build that wrote the dark wash into `body` and left `.dark
     // body` carrying the light one — which is the failure this check exists for.
@@ -1263,15 +1275,22 @@ function Home() {
     const carrying = rules.filter((r) => darkStop.test(r[2].replace(/\s+/g, " ")));
     ok("…and the dark one, which is a SEPARATE authored value",
       carrying.length > 0 && carrying.some((r) => r[1].includes(".dark")),
-      // THE DETAIL SHOWS THE RELEVANT PART, never the head of the file. This
-      // printed `css.slice(0, 300)` — Lightning CSS's `@layer properties{@supports
-      // …}` preamble, byte-identical on every build whatever went wrong — so the
-      // one run that failed said nothing at all and the answer needed a dig
-      // through the CI log.
+      // THE DETAIL PRINTS THE RULE THIS CHECK IS ABOUT, and its second draft is
+      // why. It listed the oklch stops present anywhere in the file — which on
+      // any build is Tailwind's own palette, in source order, so the first eight
+      // are the same eight whatever happened here. It said "the value is not in
+      // the file" and left the two causes that need OPPOSITE fixes looking
+      // identical: the dark half never reached the stylesheet, or it reached it
+      // in a form this assertion does not recognise. The rule itself separates
+      // them in one line.
       (carrying.length
         ? "found in: " + carrying.map((r) => r[1].trim()).join(" | ")
-        : "the authored dark stop is in NO rule. oklch stops present: "
-          + JSON.stringify((css.match(/oklch\([^)]*\)/g) || []).slice(0, 8))).slice(0, 400));
+        : "the authored dark stop is in NO rule. " + (() => {
+            const dark = rules.filter((r) => /(^|,)\s*\.dark body\s*$/.test(r[1].split("}").pop().trim()));
+            return dark.length
+              ? "`.dark body` IS in the sheet, carrying: " + dark.map((r) => r[2]).join(" || ")
+              : "and there is no `.dark body` rule at all — the dark half never reached the stylesheet";
+          })()).slice(0, 500));
     // `var(--primary)` IS RESOLVED, NOT PASSED THROUGH, and that is the whole
     // reason the parser exists: an unresolved token is a stop whose colour we
     // cannot read, so the contrast floor it was measured against is unprovable.
@@ -1463,6 +1482,116 @@ function Home() {
   // `9999px` can legitimately come from Tailwind's own `rounded-full` if a page
   // happens to use it, which would make a bare match vacuous; the same build
   // with and without the axis is coupled to nothing in the fixtures.
+  // ── THE MODEL'S OWN CSS, THROUGH A REAL TAILWIND BUILD ────────────────────
+  //
+  // The enums left `design_schema` on 2026-08-22 (owner's call: "no names, i
+  // just want the model to write its own css"), and the unit suite can only
+  // read the string a module RETURNS. Whether that string survives Lightning
+  // CSS is a different claim, and this feature is exactly the shape that gets
+  // rewritten: arbitrary declarations from outside the kit, inside guards the
+  // compiler is entitled to reorder, normalise or merge.
+  //
+  // THREE SHAPES IN ONE BUILD, because they fail differently. A DECLARATION
+  // BLOCK could lose its guard; a RAMP is a number interpolated into a token
+  // and could land with the wrong unit; a REFUSED block must leave the axis's
+  // own default standing rather than nothing at all — that last one is the
+  // difference between a site that ignored one instruction and a site with no
+  // hover state, no focus ring and square corners.
+  console.log("\nbuilding with the model's own CSS on every shape…");
+  const authoredBuild = await post({
+    files: { "index.tsx": INDEX, "menu.tsx": MENU },
+    slug: "fold-coffee", ...themeAsSeeds("broadsheet"),
+    style: {
+      ...HOUSE_STYLE,
+      // A declaration block, on the axis whose guard matters most.
+      hover: "transform: translateY(-7px); box-shadow: 0 14px 30px -16px oklch(0 0 0 / 0.34)",
+      focus: "outline-width: 5px; outline-style: dashed",
+      // A ramp, on the two whose units differ from each other.
+      icon: { width: 2.85 },
+      motion: { ms: 417, ease: "ease-in-out" },
+      // AND ONE THE ENGINE MUST REFUSE, in the same build: `display` is not a
+      // property `hover` owns, and a page whose cards vanish is not a look.
+      skin: "display: none",
+    },
+  });
+  ok("a build carrying the model's own CSS succeeds", authoredBuild.ok === true, JSON.stringify(authoredBuild).slice(0, 200));
+  {
+    const css = Object.entries(authoredBuild.files || {})
+      .filter(([k]) => k.endsWith(".css")).map(([, v]) => v.t || "").join("\n");
+    // THE DECLARATION, AND ITS GUARD. Either alone proves nothing: the rule
+    // without the media query is every button on the site stuck raised after a
+    // tap on a phone, and the media query without the rule is an empty block.
+    // A BRACE SCAN, NOT A NEWLINE. The first draft ended the block at `\n}` and
+    // reported "there is no @media (hover: hover) block" on a build that has
+    // one — Lightning CSS emits it minified, so there is no newline before the
+    // close. The `41.17%`-for-`0.4117` class again: a pattern written against
+    // the SOURCE's formatting describes a stylesheet that is never produced.
+    const blockAfter = (text, at) => {
+      const open = text.indexOf("{", at);
+      if (open < 0) return "";
+      let d = 0;
+      for (let i = open; i < text.length; i++) {
+        if (text[i] === "{") d++;
+        else if (text[i] === "}") { d--; if (!d) return text.slice(open + 1, i); }
+      }
+      return "";
+    };
+    // EVERY `@media (hover: hover)` BLOCK, NEVER THE FIRST ONE — and its first
+    // run is why. Tailwind emits its own for the `group-hover:*` utilities, so
+    // `css.search(...)` found `.group-hover\:pointer-events-auto{…}` and
+    // reported the authored rule missing from a stylesheet that carries it.
+    // That is the trap this repo already recorded on the transition axis, where
+    // `@media (prefers-reduced-motion: reduce)` appears on every build for the
+    // same reason: **a guard the framework also uses cannot be located by
+    // taking the first match.**
+    const guards = [];
+    for (const m of css.matchAll(/@media\s*\(hover:\s*hover\)/g)) guards.push(blockAfter(css, m.index));
+    ok("an authored hover block reached the compiled stylesheet",
+      /translateY\(-7px\)/.test(css), css.length ? "no translateY(-7px) in " + css.length + " chars" : "no css at all");
+    ok("…and it is still inside the touch guard",
+      guards.some((b) => /translateY\(-7px\)/.test(b)),
+      guards.length
+        ? guards.length + " hover guards, none carrying it: "
+          + guards.map((b) => b.slice(0, 60)).join(" || ").slice(0, 300)
+        : "there is no @media (hover: hover) block at all");
+    ok("…and the authored focus ring is still on :focus-visible",
+      new RegExp(":focus-visible[^{}]*\\{[^{}]*(outline-width:\\s*5px|outline:[^;}]*5px)").test(css)
+        || (/:focus-visible/.test(css) && /outline-width:\s*5px|outline:[^;}]*\b5px/.test(css)),
+      "no 5px outline on a :focus-visible rule");
+    // THE RAMPS, READ AS NUMBERS. Lightning CSS normalises `417ms` to `.417s`
+    // — the `41.17%`-for-`0.4117` class, which this repo has now walked into
+    // three times, once in the guard written for it — so the VALUE is compared
+    // rather than the spelling.
+    ok("an authored icon stroke reached the stylesheet", /stroke-width:\s*2\.85/.test(css),
+      (css.match(/stroke-width:[^;}]*/g) || ["none at all"]).slice(0, 3).join(" | "));
+    const dur = /--site-duration:\s*([\d.]+)(ms|s)/.exec(css);
+    ok("an authored duration reached it, whatever the compiler spelled it",
+      !!dur && Math.round(+dur[1] * (dur[2] === "s" ? 1000 : 1)) === 417,
+      dur ? dur[0] : "no --site-duration in the bundle");
+    // THE REFUSAL, AND THE THING THAT MAKES IT SAFE. `display: none` is not a
+    // property `skin` owns, so the block is dropped — and the axis has to fall
+    // back to its own default rather than to nothing, or one bad answer costs
+    // the whole look.
+    ok("a refused block does NOT reach the stylesheet",
+      !/\[data-slot="card"\][^{}]*\{[^{}]*display:\s*none/.test(css),
+      "an unowned property was emitted onto the card selector");
+    // AND THE AXES AROUND IT ARE UNTOUCHED, which is the property this layer
+    // CAN see. `styleDropped`/`styleNote` are composed in the WORKER — the
+    // container is handed a patch and reports `styleUsed`, the enum map — so
+    // asserting them here would be testing a layer that never had them, which
+    // is the wrong-layer mistake this repo keeps recording. What the container
+    // decides is whether one refusal costs the rest of the look, and
+    // `site-style.test.mjs` holds the reporting half.
+    ok("…and the site's own axes are still standing beside the refusal",
+      new RegExp(HOUSE_STYLE.buttons === "sharp" ? "border-radius:\\s*0" : "border-radius").test(css),
+      "a refused block took the site's own button shape with it");
+    // AND THE REST OF THE BUILD IS UNHARMED, which is the property a refusal
+    // must have: the four axes that read clean are all still there.
+    ok("…and one refused axis did not cost the four that were fine",
+      /translateY\(-7px\)/.test(css) && /stroke-width:\s*2\.85/.test(css) && !!dur,
+      "a refusal took working axes down with it");
+  }
+
   console.log("\nbuilding with a radius AND a corner axis…");
   const collide = await post({
     files: { "index.tsx": INDEX, "menu.tsx": MENU },

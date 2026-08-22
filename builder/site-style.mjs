@@ -656,7 +656,17 @@ export function axisHint(axis) {
 export function authoredHint(axis) {
   const grads = [...IMAGE_FUNCS].filter((f) => f.endsWith("-gradient"));
   return (
-    "OR WRITE YOUR OWN: instead of one of those names, send " +
+    // IT OPENED "OR WRITE YOUR OWN: instead of one of those names", WHICH WAS
+    // TRUE FOR ABOUT SIX HOURS. This axis carried a six-name enum beside it and
+    // the hint's job was to point past the list; the enums went the same day
+    // (owner's call — "no names, i just want the model to write its own css"),
+    // and a sentence telling the model to write CSS *rather than* pick from a
+    // list it can no longer see is a reference to something that is not there.
+    // The other twenty-one axes had their descriptions rewritten with the enum;
+    // this one is composed here instead and was missed. Same drift as the
+    // "described then refused" class one direction over: an accurate hint is
+    // one that matches the wire, and the wire has no names on it any more.
+    "WRITE THIS ONE YOURSELF: send " +
     "{\"light\": [\"<css>\"], \"dark\": [\"<css>\"]} — the value of `background-image` for this axis, " +
     "authored for this business. BOTH MODES ARE REQUIRED; a light wash on a dark page is unreadable, so " +
     "an answer with only one is refused whole. Up to " + MAX_LAYERS + " layers per mode (first paints on " +
