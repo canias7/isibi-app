@@ -348,3 +348,37 @@ test("THE UPLOAD'S ANSWER IS KEPT ON BOTH COMPILING PATHS", () => {
   assert.match(code, /uploaded: false, status: workerUpload\.status/,
     "the build path no longer reports a failed upload");
 });
+
+test("A PACKAGING FAILURE IS TOLD APART FROM AN UPLOAD FAILURE, all the way out", () => {
+  // TWO FAILURES WEARING ONE SHAPE. `putSiteWorker` reports a bundle that
+  // cannot run in a Worker as an upload that never happened (`status: 0`),
+  // deliberately — it rides both existing failure branches with no new wiring.
+  // What keeps them apart is the stage, and they need OPPOSITE actions: `pack`
+  // is our own container shipping something unrunnable, an upload failure is a
+  // token scope or an entitlement on the account. Collapsed into one, an
+  // operator reads "check the dispatch credentials" about a bug in our build.
+  //
+  // FOUND BY MUTATION, HELD BY NOTHING. Deleting `stage: "pack"` from the
+  // packaging branch survived all 3,788 tests: the field was produced in three
+  // places and asserted in none.
+  assert.match(code, /return \{ ok: false, stage: "pack", status: 0, error:/,
+    "the packaging failure no longer names its own stage — it now reads as a refused upload");
+
+  // AND IT REACHES THE CALLER ON BOTH COMPILING PATHS. A stage computed and
+  // dropped at the response is this repo's most-recorded failure; the module is
+  // correct and the wire is cut. Derived from the failure objects themselves,
+  // so a third compiling path added later is covered without anybody
+  // remembering this file.
+  const reports = [...code.matchAll(/uploaded: false, status: (\w+)\.status/g)].map((m) => m[1]);
+  assert.ok(reports.length >= 2, "expected a failed-upload report on both compiling paths; found " + reports.length);
+  for (const v of reports) {
+    assert.ok(code.includes(`...(${v}.stage === "pack" ? { stage: "pack" } : {})`),
+      `the ${v} path reports a failed upload without forwarding its stage — a packaging bug reads as a credentials problem`);
+  }
+
+  // ONLY WHEN IT IS A PACKAGING FAILURE. Sending the stage unconditionally
+  // would label every refused upload `pack` too, which is the same collapse
+  // pointed the other way.
+  assert.ok(!/stage: wput\.stage/.test(code) && !/stage: workerUpload\.stage/.test(code),
+    "the stage is forwarded unconditionally — an upload refusal would now claim to be a packaging failure");
+});
