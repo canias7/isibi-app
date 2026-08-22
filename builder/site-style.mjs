@@ -45,7 +45,7 @@
 import {
   CORNERS, TYPE_SCALES, TRACKINGS, LEADINGS, WEIGHTS, DENSITIES, WIDTHS, BORDERS,
   ICON_STROKES, SHADOWS, BUTTONS, INPUTS, DISPLAYS,
-  MOTIONS, HOVERS, FOCUSES, REVEALS, TRANSITIONS,
+  MOTIONS, HOVERS, PRESSED, FOCUSES, REVEALS, TRANSITIONS,
   SURFACES, BACKDROPS, DECORS, AMBIENTS, SKINS,
   worldMutedFit, themeVars,
 } from "./site-theme.mjs";
@@ -119,6 +119,7 @@ export const AXES = Object.freeze({
   // tell apart, so this one is what it decides rather than what it is.
   motion:   { options: MOTIONS,      said: "response speed" },
   hover:    { options: HOVERS,       said: "pointer response" },
+  pressed:  { options: PRESSED,      said: "press response" },
   focus:    { options: FOCUSES,      said: "keyboard focus" },
   reveal:   { options: REVEALS,      said: "scroll arrival" },
   // AND THE FIFTH, one scale up from the other four: they decide what one

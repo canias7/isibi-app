@@ -291,7 +291,7 @@ test("EVERY AXIS IS THE ENGINE'S OWN LIST, in both directions", () => {
     shadow: T.SHADOWS, buttons: T.BUTTONS, inputs: T.INPUTS, display: T.DISPLAYS,
     surface: T.SURFACES, backdrop: T.BACKDROPS, decor: T.DECORS,
     ambient: T.AMBIENTS, skin: T.SKINS,
-    motion: T.MOTIONS, hover: T.HOVERS, focus: T.FOCUSES, reveal: T.REVEALS,
+    motion: T.MOTIONS, hover: T.HOVERS, pressed: T.PRESSED, focus: T.FOCUSES, reveal: T.REVEALS,
     transition: T.TRANSITIONS,
   };
   assert.deepEqual(ASKABLE.slice().sort(), Object.keys(byName).sort(),

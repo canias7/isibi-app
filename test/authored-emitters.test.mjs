@@ -34,6 +34,7 @@ const AUTHORED = {
   skin: "transform: rotate(-1deg)",
   ambient: "animation-duration: 44s",
   hover: "transform: translateY(-5px)",
+  pressed: "transform: scale(0.97)",
   focus: "outline-width: 4px",
   reveal: "opacity: 0; transform: translateY(22px)",
   transition: "opacity: 0; transform: translateY(9px)",
@@ -343,4 +344,72 @@ test("the legibility gate still refuses a wash the quiet ink cannot survive", ()
     backdrop: { light: ["linear-gradient(#fff6,#0000)"], dark: ["linear-gradient(#0006,#0000)"] },
   });
   assert.equal(Object.keys(bad.authored || {}).length, 0, "an illegible wash reached the stylesheet");
+});
+
+/* ------------------------------------------------- pressed, and its one difference */
+
+test("PRESSED CARRIES NO HOVER GUARD — that guard is why it exists", () => {
+  // `hoverCss` wraps itself in `@media (hover: hover)` because on a touch screen
+  // `:hover` STICKS after a tap. The consequence nobody had followed through: on
+  // a phone the hover state is deliberately dead and there was NOTHING behind
+  // it. Measured before this axis: `:active` in 0 of 2,112 kit components and 0
+  // of 329 corpus pages, and `button.tsx` carrying hover/focus-visible/disabled
+  // and no active at all.
+  //
+  // So repeating the guard here would switch off the only feedback a phone gets
+  // — the exact bug being fixed, restored by copying its sibling too faithfully.
+  // DRIVEN THROUGH THE REAL VALIDATOR, never a raw string on the theme. The
+  // first draft of this test did exactly that and reported the whole axis dead:
+  // `authored()` reads `{css}`, so a bare string falls through to the named
+  // branch, misses `PRESSED`, and emits nothing. The test was wrong and the
+  // code was right — the same shape as a fixture more capable than reality, in
+  // the other direction.
+  const press = (decls) => {
+    const r = readAuthoredAxis("pressed", decls);
+    assert.equal(r.ok, true, "the validator refused: " + r.why);
+    return T.themeCss({ ...theme, pressed: { css: r.css } });
+  };
+  const css = press("transform: scale(0.97)");
+  assert.match(css, /scale\(0?\.97\)/, "the authored press never reached the stylesheet");
+  const at = css.indexOf("scale(0.97)");
+  const before = css.slice(0, at);
+  const guardsOpen = (before.match(/@media[^{]*\(hover:\s*hover\)\s*\{/g) || []).length;
+  const closes = (before.match(/\}/g) || []).length;
+  assert.ok(guardsOpen === 0 || closes >= guardsOpen,
+    "the press rule is inside @media (hover: hover) — a phone would never see it");
+  assert.match(css, /:active/, "the press does not use :active at all");
+});
+
+test("the press selector follows what the block DOES, like hover's", () => {
+  // A block that MOVES something reaches buttons and cards only — a squeezing
+  // input box reads as a fault and a badge is a label rather than something you
+  // press. One that only RECOLOURS reaches everything reactive. Asking the model
+  // to know that would be a rule it eventually forgets.
+  const press = (decls) => {
+    const r = readAuthoredAxis("pressed", decls);
+    assert.equal(r.ok, true, "the validator refused: " + r.why);
+    return T.themeCss({ ...theme, pressed: { css: r.css } });
+  };
+  const moves = press("transform: translateY(1px)");
+  const tints = press("opacity: 0.85");
+  const line = (css) => (css.split("\n").find((l) => l.includes(":active")) || "");
+  assert.ok(!line(moves).includes('[data-slot="input"]'),
+    "a press that MOVES reached the input boxes");
+  assert.ok(line(tints).includes('[data-slot="input"]'),
+    "a press that only recolours did NOT reach everything reactive");
+  for (const css of [moves, tints]) {
+    assert.ok(line(css).includes('[data-slot="button"]:active'), "the press never reached a button");
+  }
+});
+
+test("a site that asks for nothing gets NO press rule, so no existing site moves", () => {
+  // `applyStyle` runs on EVERY publish of EVERY site — a text fix, a colour
+  // change, a swapped picture. A non-`none` default would change how every
+  // existing customer's buttons behave on touch on their next unrelated edit,
+  // which is the "platform re-styled by a typo fix" failure this repo records.
+  assert.equal(T.themeCss({ ...theme, pressed: undefined }), BARE);
+  assert.equal(T.themeCss({ ...theme, pressed: "none" }), BARE);
+  // And a nonsense value degrades to the same nothing rather than to a broken
+  // rule — the fallthrough every axis here shares.
+  assert.equal(T.themeCss({ ...theme, pressed: "constructor" }), BARE);
 });

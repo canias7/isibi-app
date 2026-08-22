@@ -1900,6 +1900,39 @@ export const HOVERS = {
 };
 
 /**
+ * THE PRESS — and it exists because `hover` is switched OFF on a phone.
+ *
+ * `hoverCss` wraps itself in `@media (hover: hover)` for a good reason: on a
+ * touch screen `:hover` STICKS after a tap, so a lift stays on the last card
+ * somebody pressed until they press another. The consequence nobody had
+ * followed through: on the device most visitors to these sites use, the hover
+ * state is deliberately dead and there was NOTHING behind it. Measured before
+ * this axis existed — `:active` appeared in 0 of the 2,112 kit components and 0
+ * of the 329 corpus pages, and `button.tsx` carries `hover:`, `focus-visible:`
+ * and `disabled:` variants and no `active:` at all. Somebody taps "Book now"
+ * and the button does not move until the page changes.
+ *
+ * SO THERE IS NO MEDIA QUERY HERE, which is the one structural difference from
+ * its sibling. `:active` IS the touch case; guarding it the way `hover` is
+ * guarded would switch off the only feedback a phone gets, which is the bug.
+ *
+ * THE DEFAULT IS `none`, deliberately, and the reasoning is the `transition`
+ * axis's verbatim. `applyStyle` runs on EVERY publish of EVERY site — a text
+ * fix, a colour change, a swapped picture — so a non-`none` default would
+ * change how every existing customer's buttons behave on touch, on their next
+ * unrelated edit. That is the "platform re-styled by a typo fix" failure this
+ * repo keeps recording. The cost, stated: a site gets touch feedback only if it
+ * asks for one. Flipping the default is one line once a real build has been
+ * watched, which is the `DEFAULT_PICKER` precedent.
+ */
+export const PRESSED = {
+  none: { label: "nothing — the button does not answer a tap" },
+  sink: { label: "it presses in a little, the way a real button would" },
+  dim: { label: "it darkens under the finger" },
+  firm: { label: "it squeezes slightly, then springs back" },
+};
+
+/**
  * THE KEYBOARD'S ANSWER, and the one axis here that is an accessibility
  * decision rather than a taste one — so there is no `none`. Every option is a
  * VISIBLE focus indicator; what changes is its weight and where it sits.
@@ -2066,6 +2099,33 @@ export function hoverCss(theme) {
  * `:focus-visible`, or a mouse click leaves a ring behind and the site reads as
  * broken to somebody who never touched the keyboard.
  */
+/**
+ * PRESSED — what a tap does, and the only feedback a phone gets.
+ *
+ * The selector is picked from what the block DOES, exactly as `hoverCss` does
+ * and for the same reason: a block that MOVES something reaches buttons and
+ * cards only (a squeezing input box reads as a fault, a badge is a label), one
+ * that only recolours reaches everything reactive. Asking the model to know
+ * that would be a rule it eventually forgets.
+ *
+ * NO `@media (hover: hover)`. See `PRESSED` — that guard is what makes this
+ * axis necessary, so repeating it here would switch off the thing being added.
+ */
+export function pressedCss(theme) {
+  const style = theme && theme.pressed;
+  const own = authored(style);
+  if (own) {
+    const moves = /(^|[\s;])(transform|box-shadow)\s*:/.test(own);
+    const on = moves ? [...BUTTON_SEL.split(",").map((s) => s.trim()), STYLE_TARGETS.card.sel] : REACTIVE;
+    return `${each(on, ":active")} { ${own} }\n`;
+  }
+  if (!Object.hasOwn(PRESSED, String(style)) || style === "none") return "";
+  const presses = [...BUTTON_SEL.split(",").map((s) => s.trim()), STYLE_TARGETS.card.sel];
+  if (style === "dim") return `${each(REACTIVE, ":active")} { opacity: 0.85; }\n`;
+  const move = style === "firm" ? "scale(0.98)" : "translateY(1px)";
+  return `${each(presses, ":active")} { transform: ${move}; }\n`;
+}
+
 export function focusCss(theme) {
   const style = theme && theme.focus;
   const own = authored(style);
@@ -2572,6 +2632,7 @@ export function themeCss(nameOrTheme) {
     // because the other three animate through the duration it names.
     motionCss(theme.motion) +
     hoverCss(theme) +
+    pressedCss(theme) +
     focusCss(theme) +
     revealCss(theme) +
     // AND LAST, the only one that paints outside the page: the view-transition

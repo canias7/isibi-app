@@ -228,6 +228,7 @@ export const AXIS_DECLS = Object.freeze({
   // writes — `@media (hover: hover)` so a tap does not leave a phone stuck in a
   // hover state, `:focus-visible` so a mouse click leaves no ring behind.
   hover:   { sel: "buttons and cards, on pointer devices only", props: { transform: "transform", "box-shadow": "shadow", "background-color": "color", "border-color": "color", opacity: "number", filter: "filter" } },
+  pressed: { sel: "buttons and cards, while a finger or the mouse is down — this is the ONLY feedback a phone gets, since hover is switched off there", props: { transform: "transform", "box-shadow": "shadow", "background-color": "color", "border-color": "color", opacity: "number", filter: "filter" } },
   focus:   { sel: "anything the keyboard lands on", props: { "outline-width": "length", "outline-color": "color", "outline-offset": "length", "outline-style": ["solid", "dashed", "dotted", "double"], "box-shadow": "shadow" } },
   reveal:  { sel: "each section, as it scrolls into view — write where it STARTS", props: { opacity: "number", transform: "transform", filter: "filter" } },
   transition: { sel: "the outgoing page, between one route and the next", props: { opacity: "number", transform: "transform", filter: "filter" } },
