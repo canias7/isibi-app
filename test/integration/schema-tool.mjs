@@ -87,6 +87,17 @@ export async function readSchemaTool() {
     // sends, and this block is the one whose rejection 400s every build.
     siteStyleSaid: style.saidFor,
     siteAuthoredSchema: authored.authoredFieldSchema,
+    // …AND THE WIRE NAME (2026-08-22). `border` goes out as `borderWeight`
+    // because a field called `border` reads as the border COLOUR, which is a
+    // token — so the tool speaks the wire name and `parseStyle` folds it back
+    // at the door. Real, never a stub: it decides what the field is CALLED, and
+    // a stub names every one of the 29 axis fields `x`.
+    //
+    // ITS ABSENCE KILLED BOTH HARNESSES AND THE GUARD STAYED GREEN — see the
+    // note in `schema-eval-scope.test.mjs`. This is the second time this scope
+    // has drifted the moment the tool grew, which is why that guard exists at
+    // all; what was new is that a permissive stub hid it.
+    siteWireName: style.wireName,
     SITE_AUTHORED_IMAGE: Object.entries(authored.AXIS_DECLS).filter(([, v]) => v.image).map(([k]) => k),
   };
   for (const [k, v] of Object.entries(scope)) globalThis[k] = v;

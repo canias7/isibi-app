@@ -105,7 +105,7 @@ function toolBlock() {
  * reason. Hence entry PAIRS: they satisfy `fromEntries` and array destructuring
  * alike.
  */
-function stub() {
+function stub(yes) {
   const f = function () { return f; };
   return new Proxy(f, {
     get(_t, prop) {
@@ -113,11 +113,88 @@ function stub() {
       if (prop === "then") return undefined;                 // not a thenable
       if (prop === Symbol.iterator) return function* () { yield ["x", "x"]; };
       if (prop === "length") return 1;
-      return stub();
+      // A CALLBACK IS ACTUALLY CALLED, which is what makes its BODY reachable
+      // at all. See `CALLBACKS` below.
+      if (CALLBACKS.has(prop)) {
+        return (fn) => {
+          if (typeof fn === "function") {
+            try { fn(stub(yes), 0, stub(yes)); }
+            catch (e) {
+              // A MISSING NAME PROPAGATES; anything else is the stub not being a
+              // real array and must not stop the walk, or one TypeError early on
+              // hides every ReferenceError after it. That is the header's own
+              // rule — the evaluation has to run to the end.
+              if (isReferenceError(e)) throw e;
+            }
+          }
+          return PREDICATES.has(prop) ? yes : stub(yes);
+        };
+      }
+      // A PREDICATE ANSWERS A REAL BOOLEAN, and that is what makes both arms of
+      // a ternary reachable. See `PREDICATES` below.
+      if (PREDICATES.has(prop)) return () => yes;
+      return stub(yes);
     },
-    apply() { return stub(); },
+    apply() { return stub(yes); },
   });
 }
+
+/**
+ * THE METHODS WHOSE RESULT DECIDES A BRANCH — and this list exists because a
+ * permissive stub made half the tool unreachable, silently, for a day.
+ *
+ * `worker.js` builds the 29 style fields as
+ * `SITE_AUTHORED_IMAGE.includes(a) ? [imageShape] : [siteWireName(a), …]`.
+ * A stub returns another stub from `.includes()`, an object is always truthy,
+ * so EVERY pass took the image arm and `siteWireName` was never evaluated. It
+ * was missing from the scope; both harnesses died at startup on
+ * `siteWireName is not defined`; this guard stayed green.
+ *
+ * That is the 2026-08-13 failure recurring THROUGH the guard written to stop
+ * it, and it is the same "too simple a stand-in" class this repo has now
+ * recorded six times — with the rule already written down: bind for real
+ * anything that IS a schema and anything that DECIDES one. What was new is
+ * that the decider was bound, correctly, and the STUB in the checker was not.
+ *
+ * SO THE BLOCK IS EVALUATED TWICE, once with every predicate true and once
+ * false, and a `ReferenceError` in either pass is a missing binding. That is a
+ * bounded fix and it says so: it covers the `X.includes(a) ? A : B` shape,
+ * which is the one that bit, and NOT a ternary on a bare property or a
+ * `&&`/`||` chain. Covering those needs a real parser over a 74KB literal,
+ * which this repo tried once and abandoned with measurements.
+ */
+const PREDICATES = new Set(["includes", "has", "some", "every", "startsWith", "endsWith", "test"]);
+
+/**
+ * …AND THE METHODS THAT TAKE A CALLBACK, which is the LARGER half of the same
+ * hole and the one that actually hid `siteWireName`.
+ *
+ * The 29 style fields are built as `SITE_STYLE_AXES.map((a) => …)`, and
+ * `SITE_STYLE_AXES` is a scope name, so the checker stubs it. A stub's `.map()`
+ * returned another stub WITHOUT EVER CALLING THE CALLBACK — so the whole
+ * per-axis block, every identifier in it and both arms of its ternary, was
+ * never evaluated in any pass. The predicate fix above was necessary and on its
+ * own reached nothing here.
+ *
+ * Invoking the callback is what makes a body reachable; the two passes are what
+ * make both arms of a ternary INSIDE that body reachable.
+ *
+ * WHICH HALF ACTUALLY CAUGHT `siteWireName` WAS MEASURED RATHER THAN ASSUMED,
+ * because crediting both would be a comment somebody later believes. Removing
+ * the two passes and keeping the callback fix: STILL CAUGHT. Keeping the two
+ * passes and not invoking the callback: NOT caught — only the synthetic case
+ * below failed. So the callback half did the work here, and the two-pass half
+ * is belt-and-braces, held by a property of another line: `siteWireName` is
+ * ALSO used unconditionally further up the same tool, so it is reached whichever
+ * arm the ternary takes.
+ *
+ * IT IS KEPT ANYWAY, and the test below is why: a name appearing ONLY in an
+ * else arm needs it, that line one edit away from changing is the only thing
+ * making the belt redundant today, and this guard exists precisely because the
+ * cheap version of it was green for a day.
+ */
+const CALLBACKS = new Set(["map", "filter", "flatMap", "forEach", "find", "findIndex",
+  "some", "every", "sort", "reduce"]);
 
 test("the eval's scope and the tool it evaluates are both still findable", () => {
   const names = scopeNames();
@@ -149,20 +226,56 @@ const isReferenceError = (e) => !!e && e.name === "ReferenceError";
 test("every identifier design_schema references is in the eval's scope", () => {
   const names = scopeNames();
   const block = toolBlock();
-  const ctx = vm.createContext(Object.fromEntries(names.map((n) => [n, stub()])));
-  try {
-    vm.runInContext("(" + block + ")", ctx, { timeout: 5000 });
-  } catch (e) {
-    if (isReferenceError(e)) {
-      // The message is always "<name> is not defined", which is exactly the
-      // instruction: add that name to `scope` in schema-tool.mjs.
-      assert.fail(
-        `schema-tool cannot build design_schema: ${e.message}. ` +
-        `Add it to \`scope\` in test/integration/schema-tool.mjs — do not stub it, ` +
-        `a stubbed enum measures a prompt nobody sends.`);
+  // BOTH PASSES, or half the tool is never evaluated — see `PREDICATES`.
+  for (const yes of [true, false]) {
+    const ctx = vm.createContext(Object.fromEntries(names.map((n) => [n, stub(yes)])));
+    try {
+      vm.runInContext("(" + block + ")", ctx, { timeout: 5000 });
+    } catch (e) {
+      if (isReferenceError(e)) {
+        // The message is always "<name> is not defined", which is exactly the
+        // instruction: add that name to `scope` in schema-tool.mjs.
+        assert.fail(
+          `schema-tool cannot build design_schema: ${e.message} ` +
+          `(with predicates ${yes}). Add it to \`scope\` in ` +
+          `test/integration/schema-tool.mjs — do not stub it, a stubbed enum ` +
+          `measures a prompt nobody sends.`);
+      }
+      throw e;
     }
-    throw e;
   }
+});
+
+test("THE CHECKER EXPLORES BOTH ARMS — a truthy stub hid a missing name for a day", () => {
+  // The regression, restored as a shape rather than as the one name. Without
+  // the falsy pass this block resolves cleanly and `ONLY_IN_ELSE` is never
+  // touched; with it, the missing binding surfaces. Driven rather than asserted
+  // about the code, so a rewrite that keeps `PREDICATES` and drops the second
+  // pass still fails.
+  // THE REAL SHAPE, not a simplification of it: a name that appears ONLY in the
+  // else arm of a ternary INSIDE a mapped callback. That is exactly how
+  // `siteWireName` sat unbound while this guard was green.
+  const shape = "{ p: Object.fromEntries(AXES.map((a) => IMAGES.includes(a) ? [a, 1] : [ONLY_IN_ELSE(a), 2])) }";
+  const run = (yes) => {
+    const ctx = vm.createContext({ AXES: stub(yes), IMAGES: stub(yes), Object });
+    try { vm.runInContext("(" + shape + ")", ctx, { timeout: 2000 }); return null; }
+    catch (e) { return isReferenceError(e) ? e.message : "other: " + e.message; }
+  };
+  assert.equal(run(true), null, "the truthy pass should reach only the first arm");
+  assert.match(String(run(false)), /ONLY_IN_ELSE is not defined/,
+    "the falsy pass did not reach the else arm inside the callback — the checker is back to seeing half the tool");
+  // …and BOTH halves are load-bearing. With the callback never invoked, the
+  // falsy pass reaches nothing either — which is the state this guard was in.
+  const inert = (yes) => {
+    const bare = (y) => { const f = function () { return f; };
+      return new Proxy(f, { get(_t, k) { if (k === Symbol.iterator) return function* () { yield ["x", "x"]; };
+        return PREDICATES.has(k) ? () => y : bare(y); }, apply() { return bare(y); } }); };
+    const ctx = vm.createContext({ AXES: bare(yes), IMAGES: bare(yes), Object });
+    try { vm.runInContext("(" + shape + ")", ctx, { timeout: 2000 }); return null; }
+    catch (e) { return isReferenceError(e) ? e.message : "other: " + e.message; }
+  };
+  assert.equal(inert(false), null,
+    "a stub that does not CALL the callback reaches the missing name anyway — this half is not what it claims");
 });
 
 /**
@@ -195,7 +308,7 @@ test("every identifier design_schema references is in the eval's scope", () => {
  */
 test("design_schema is not marked strict while its schema cannot be", () => {
   const names = scopeNames();
-  const ctx = vm.createContext(Object.fromEntries(names.map((n) => [n, stub()])));
+  const ctx = vm.createContext(Object.fromEntries(names.map((n) => [n, stub(true)])));
   const tool = vm.runInContext("(" + toolBlock() + ")", ctx, { timeout: 5000 });
 
   // Every object node whose `additionalProperties` is present and not `false` —
