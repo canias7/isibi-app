@@ -724,7 +724,15 @@ test("the BUILD route folds the answers in, and does it in one place", () => {
   assert.match(w, /import \{ routeMessage, clarifiedBrief \}/, "the build route cannot compose the brief");
   const i = w.indexOf("const brief = clarifiedBrief(");
   assert.ok(i > 0, "the build route no longer folds the answers into the brief");
-  assert.match(w.slice(i, i + 300), /body\.qa/, "the answers never reach it");
+  // TO THE CALL'S OWN CLOSE, not `i + 300` — and the guard directly above this
+  // one says exactly that about itself, having already been bitten. This is the
+  // ninth byte-sized window in this repo outrun by its own subject: the brief
+  // argument grew a comment explaining that a non-string is no longer coerced
+  // (the `String(["a","b"])` class, which the two readers beside it already
+  // refused), and `body.qa` on the next line fell out of range.
+  const callEnd = w.indexOf("\n      ).slice(", i);
+  assert.ok(callEnd > i, "the clarifiedBrief call was reshaped — rescope this");
+  assert.match(w.slice(i, callEnd), /body\.qa/, "the answers never reach it");
   // ONE implementation. The composer cannot import the module, so a copy there
   // is a second version of the sentence the designer reads.
   assert.ok(!/They were asked/.test(chat()), "public/chat.js is composing the brief itself");

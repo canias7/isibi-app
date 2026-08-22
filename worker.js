@@ -64,7 +64,7 @@ import { runNavEdit } from "./builder/site-nav.mjs";
 import { runLogoEdit } from "./builder/site-logo.mjs";
 import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
 import { runNightlyBackups, dumpSite, backupKey, backupListing, backupDayParam, BACKUP_META_KEYS } from "./site-backup.mjs";
-import { resolveAccess, accessLabel, ACCESS_PRESETS, unguardedBookings } from "./site-access.mjs";
+import { resolveAccess, accessNameFor, accessLabel, ACCESS_PRESETS, unguardedBookings } from "./site-access.mjs";
 // The pair a `display` table resolves to. Named once, from the presets, so the
 // data layer's gate cannot drift from the vocabulary again — it was compared
 // against "anyone", which is a WRITE level, and matched nothing on any site.
@@ -4292,11 +4292,16 @@ const SITE_SCHEMA_TOOL = {
         items: { type: "string" },
       },
     },
-    // `fonts` IS DELIBERATELY NOT HERE. It was required, so the model answered it
-    // on every build from a prose hint — while the theme it had just picked
-    // already carried a curated, validated pair that nothing read. Optional, the
-    // ordinary build inherits the theme's own pairing and the two cannot
-    // disagree; a brief with an opinion about type still overrides it.
+    // `fonts` IS REQUIRED, and the comment that stood here said the opposite.
+    //
+    // It argued the field should be optional because "the theme it had just
+    // picked already carried a curated, validated pair that nothing read" —
+    // whose premise was the 500-theme registry and `themeFontPair`, both
+    // DELETED on 2026-08-20. With no registry there is no pair to inherit,
+    // which is exactly why `fonts` was made required in the same change; the
+    // comment describing it as absent survived directly above the line adding
+    // it. A rule true because of a layer one level down expires when that layer
+    // moves, and nothing announces it — the `#/` href class, in a comment.
     // THE PLAN FIELDS ARE ALL REQUIRED, where `family` was one field. Every one
     // of them is a LINE of the layout directive, so a skipped answer is a line
     // the page writer never sees. Derived from `PLAN_REQUIRED` rather than
@@ -4401,9 +4406,17 @@ const SITE_SCHEMA_MAX_TOKENS = 16000;
 async function callBuilderModel(env, req) {
   if (isXaiModel(req.model)) {
     if (!env.XAI_API_KEY) {
-      const e = new Error("XAI_API_KEY is not set on the Worker");
-      e.status = 503;
-      throw e;
+      // NO `status`, DELIBERATELY. This used to synthesise 503, and the route
+      // returns `upstream: (e && e.status) || null` under a comment saying that
+      // field is "the numeric status from the model API and nothing else" — so
+      // a key we forgot to set was byte-identical on the wire to xAI answering
+      // 503 (overloaded), on the one field built to tell those apart. One is a
+      // deploy we have to fix and the other is a retry that will work.
+      //
+      // The route's own `kind` carries `Error` for this, and the message names
+      // the variable, so the diagnosis is not lost — it just stops pretending
+      // to be a provider's answer.
+      throw new Error("XAI_API_KEY is not set on the Worker");
     }
     const { body, droppedDocs } = toXaiRequest(req);
     const r = await fetch(XAI_ENDPOINT, {
@@ -4647,10 +4660,36 @@ async function siteReadUrl(url) {
   // it" — which is true and does not tell a prober which hosts we refuse.
   if (!r) return { ok: false };
   if (!r.ok) return { ok: false, status: r.status };
-  const contentType = ((r.headers.get("content-type") || "").split(";")[0] || "").trim().toLowerCase();
+  // THE CHARSET IS USED, NOT ISOLATED AND THROWN AWAY. This split on `;`, kept
+  // the media type and discarded the `charset=` parameter it had just separated
+  // out — so a page served `text/html; charset=windows-1252` (or ISO-8859-1, or
+  // Shift-JIS) was decoded as UTF-8 and came back peppered with U+FFFD. It
+  // still had text in it, so `readLinkedPages` took the `ok: true` branch, the
+  // customer was told the link was read, and the mojibake went to the designer
+  // as evidence about their business.
+  //
+  // AN UNKNOWN LABEL FALLS BACK TO UTF-8 rather than throwing: `TextDecoder`
+  // refuses a label it does not know, and a page whose charset we cannot honour
+  // is still better read as UTF-8 than not read at all — which is what it was
+  // before this, for every page.
+  const ctRaw = (r.headers.get("content-type") || "");
+  const contentType = ((ctRaw.split(";")[0] || "").trim().toLowerCase());
+  const charset = (ctRaw.match(/charset\s*=\s*"?([\w-]+)"?/i) || [])[1] || "utf-8";
   let body = "";
-  try { body = new TextDecoder().decode(await readCapped(r, SITE_LINK_BYTES)); }
-  catch { return { ok: false, status: r.status }; }
+  try {
+    const bytes = await readCapped(r, SITE_LINK_BYTES);
+    try { body = new TextDecoder(charset).decode(bytes); }
+    catch { body = new TextDecoder().decode(bytes); }
+  } catch (e) {
+    // A BODY THAT FAILED MID-READ IS NOT "IT ANSWERED 200". `r.ok` was checked
+    // above, so `r.status` here is a success code — and `readLinkedPages`'s
+    // reason ladder has no branch for a 2xx, so it fell through to the generic
+    // "it answered " + status and the customer's chat read
+    // `Couldn't read example.com — it answered 200`. A sentence that describes
+    // the opposite of what happened is worse than no sentence.
+    console.error("link body read failed:", e && e.message);
+    return { ok: false };
+  }
   return { ok: true, status: r.status, contentType, body };
 }
 
@@ -4903,6 +4942,37 @@ async function generateSitePages(env, brief, spec, brand, attachments, model, pr
 
 // Placeholder published page. Deliberately plain: it reports what was actually
 // created so a build is verifiable end to end before page generation exists.
+/**
+ * What a read/write pair MEANS, for a cell none of the five presets names.
+ *
+ * WITHOUT THIS, `accessNameFor` answering null fell through to the `collect`
+ * sentence — so a marketplace's `{read: "public", write: "own"}` listings table
+ * was described as "visitors submit to this; only you can read it", which is
+ * the opposite of what it does, on the one page a failed build leaves the
+ * owner. That is the same lie the preset lookup was just fixed for, one step
+ * further along the same expression.
+ *
+ * Composed from the two axes rather than enumerated: there are sixteen cells
+ * and only five have names, so a list would go stale the first time somebody
+ * used a combination nobody wrote a sentence for.
+ */
+function pairSays(pair) {
+  const p = pair || {};
+  const reads = {
+    none: "nobody can read it",
+    own: "each visitor sees only their own rows",
+    members: "signed-in visitors read it",
+    public: "anyone can read this",
+  }[p.read] || "only you can read it";
+  const writes = {
+    none: "only you can add to it",
+    own: "signed-in visitors write their own",
+    members: "signed-in visitors can write to it",
+    anyone: "anyone can submit to it",
+  }[p.write] || "only you can add to it";
+  return reads + ", and " + writes;
+}
+
 function schemaPlaceholderPage(brand, spec) {
   const esc = (v) => String(v == null ? "" : v).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const tables = (spec.tables || []).map((t) => {
@@ -4911,13 +4981,22 @@ function schemaPlaceholderPage(brand, spec) {
     // WRITE-ONLY — calling it "shared across visitors" on the owner's fallback
     // page says the opposite of what it does, and this page is the only thing a
     // failed build leaves them.
+    const pair = resolveAccess(t);
     const says = {
       display: "anyone can read this",
       collect: "visitors submit to this; only you can read it",
       user: "each visitor sees only their own rows",
       feed: "signed-in visitors read all of it, and write their own",
       admin: "signed-in visitors read it; only an admin writes it",
-    }[String(t.access || "collect").toLowerCase()] || "visitors submit to this; only you can read it";
+      // …AND IT ASKS THE RESOLVED PAIR, not the stamped preset. `normalizeSchema`
+      // stamps `access: "collect"` on any table declared with a `read`/`write`
+      // pair — and the design tool tells the model to do exactly that when no
+      // preset fits — so a PUBLIC menu was described here as "visitors submit to
+      // this; only you can read it", the precise opposite of what it does. On
+      // the ONE page a failed build leaves the owner. The fourth place this
+      // misread has been found, after the lint's write gate, the digest's PAID
+      // line and the response's own `schema` field.
+    }[accessNameFor(pair)] || pairSays(pair);
     return "<section><h2>" + esc(t.name) + "</h2><p>" + esc(says) +
            "</p><ul>" + cols + "</ul></section>";
   }).join("");
@@ -7855,6 +7934,9 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
   // assigned inside ONE function, four statements apart, and `deps.publish`'s
   // return value is already spoken for.
   let workerUpload = null;
+  // WHETHER THE SOURCE STORE LANDED — see the call. `true` on every ordinary
+  // build, so the response's field is omitted and nothing changes shape.
+  let sourceStored = true;
   // HOW MANY PHOTOGRAPHS THIS SITE MAY HAVE, derived once from the family's own
   // page set. It is stated to the model BEFORE generation and cut down to what
   // the balance carries AFTER it, and those cannot be the same number: what a
@@ -8166,7 +8248,15 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       // same reason the archive is not: the site is already live, and losing
       // this costs the next revise its anchor — which is exactly the behaviour
       // it replaces.
-      await saveSiteSource(env, slug, pages);
+      // AND WHETHER IT LANDED. `saveSiteSource` swallows its own throw and
+      // returns a boolean, and both call sites awaited it and discarded the
+      // answer — so a lost source store turned the NEXT revise into a full
+      // rewrite of every page's copy from the brief (the exact bug the source
+      // store exists to prevent) with nothing on the response saying it had
+      // happened. The comment above this call already said losing it "costs the
+      // next revise its anchor", which is accurate about the consequence and
+      // gave the caller no way to know.
+      sourceStored = await saveSiteSource(env, slug, pages);
       // AND THE SITE'S OWN WORKER, LAST — after the files it serves are all in
       // R2. See `putSiteWorker`: the dispatch answers ahead of the static read,
       // so a script that lands first renders a document naming assets that have
@@ -8237,6 +8327,16 @@ async function deleteSiteFor(env, uid, dslug) {
     let srow;
     try {
       const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(dslug)}&select=uid`, { headers: svcHeaders(env) });
+      // THE STATUS IS CHECKED, and it was not. PostgREST answers an error with
+      // a JSON OBJECT rather than an array, so `Array.isArray(rows)` was false,
+      // `srow` became null, and the very next line answered 404 — telling the
+      // owner their site does not exist because Supabase was down. The build
+      // path's equivalent lookup was deliberately made to throw for exactly
+      // this reason: `siteBackendRowFresh`'s own comment says it "throws rather
+      // than returning null when the lookup itself fails", because "cannot tell"
+      // and "no such site" are different answers and only one of them is
+      // retryable. The catch below already says the retryable thing.
+      if (!g.ok) throw new Error("site_backends " + g.status);
       const rows = await g.json().catch(() => []);
       srow = (Array.isArray(rows) && rows[0]) || null;
     } catch {
@@ -11861,7 +11961,15 @@ async function handleRequest(request, env, ctx) {
       // cannot import the module and a second copy of a prompt fragment is two
       // things that can disagree about what the designer reads.
       const brief = clarifiedBrief(
-        String(body.brief || body.prompt || body.instruction || "").trim().slice(0, 4000),
+        // A NON-STRING IS NOT COERCED, matching the two readers beside it.
+        // `cleanSlug` two screens up refuses one explicitly and `modelsFor`
+        // does too, both citing the `String(["a","b"]) === "a,b"` class — and
+        // the BRIEF, the single most consequential field on this route, went
+        // through a bare `String()`. An array of sentences became one
+        // comma-joined line, an object became `[object Object]`, and either was
+        // designed from and charged for.
+        [body.brief, body.prompt, body.instruction].find((v) => typeof v === "string" && v.trim()) ?
+          String([body.brief, body.prompt, body.instruction].find((v) => typeof v === "string" && v.trim())).trim().slice(0, 4000) : "",
         body.qa,
       ).slice(0, 5000);
 
@@ -13075,15 +13183,34 @@ async function handleRequest(request, env, ctx) {
       // revise path, and a revise whose pages fail to compile must leave the site
       // that IS working alone — replacing it with the placeholder would take down
       // a live site to report a failure the response already reports.
+      //
+      // AND THE GUARD ASKS THE LIVENESS MARKER, NOT `index.html`. It HEADed
+      // that document — which was the whole truth until Start, and Start emits
+      // no top-level HTML at all: `writeSiteDistToR2`'s own comment says the
+      // previous manifest can no longer be read from `index.html` "because
+      // under Start it does not exist". So the head always missed, `!live` was
+      // always true, and the one guard standing between a failed revise and a
+      // customer's working site could not fire on any site built since.
+      //
+      // `SITE_LIVE_FILE` is the marker written for exactly this question: put
+      // into the dist on EVERY publish, INSIDE `sites/<slug>/` so the same
+      // prefix sweep that takes a site down takes it with them — its own
+      // docstring says a present marker means a live site and an absent one
+      // means somebody deleted it.
+      //
+      // A READ THAT THROWS IS NOT "NOTHING IS PUBLISHED". An R2 blip would
+      // otherwise be read as an empty slug and overwrite a live site with the
+      // placeholder, which is precisely the outcome this exists to prevent —
+      // so the catch skips the write rather than falling through to it.
       if (pages.page !== "app" && env.SITES_BUCKET) {
         try {
-          const live = await env.SITES_BUCKET.head("sites/" + slug + "/index.html");
+          const live = await env.SITES_BUCKET.head("sites/" + slug + "/" + SITE_LIVE_FILE);
           if (!live) {
             await env.SITES_BUCKET.put("sites/" + slug + "/index.html", schemaPlaceholderPage(brand, spec), {
               httpMetadata: { contentType: "text/html; charset=utf-8" },
             });
           }
-        } catch (e) { console.error("placeholder publish failed:", slug, e && e.message); }
+        } catch (e) { console.error("placeholder publish skipped, liveness unreadable:", slug, e && e.message); }
       }
       // SPLIT, not one number. `pages` was the model call, the container compile
       // and ~20 R2 puts together — the majority of a build's wall clock with no
@@ -13310,6 +13437,13 @@ async function handleRequest(request, env, ctx) {
         // that "`prerendered`/`prerenderSkipped` ARE GONE, not emptied". So
         // this carries nothing today and costs nothing, and it is the field a
         // restored per-route snapshot step would report through.
+        // AND WHETHER THE SITE'S OWN SOURCE WAS STORED. Only ever present as
+        // `false`: `saveSiteSource` swallows its throw and returns a boolean
+        // that both call sites discarded, so a lost store silently turned the
+        // NEXT revise into a full rewrite of every page's copy from the brief —
+        // the exact bug the source store exists to prevent — with nothing
+        // anywhere saying it had happened.
+        sourceStored: sourceStored === false ? false : undefined,
         prerenderSkipped: pages.prerenderSkipped || undefined,
         // AND WHETHER MODEL-WRITTEN CODE RAN SANDBOXED. Only ever present as
         // `false` — the ordinary answer is silence and the field's PRESENCE is

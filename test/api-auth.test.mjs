@@ -1048,3 +1048,48 @@ test("the build route's server-side link fetch is metered", () => {
   assert.ok(!/QUOTA_EXCEEDED\(\)/.test(block), "an over-quota link read now kills the whole build");
   assert.match(block, /readLinkedPages\(brief/, "the read itself is gone");
 });
+
+test("the last of the audit lows: honest statuses, honest sentences, honest fields", () => {
+  const w = WORKER_SRC;
+
+  // (1) A LOCAL MISCONFIGURATION MUST NOT WEAR A PROVIDER'S STATUS. The missing
+  // XAI key synthesised `e.status = 503`, and the route returns
+  // `upstream: e.status` under a comment saying that field is "the numeric
+  // status from the model API and nothing else" — so a key we forgot to set was
+  // byte-identical on the wire to xAI answering 503 (overloaded). One is a
+  // deploy we have to fix; the other is a retry that will work.
+  const xai = w.slice(w.indexOf("if (!env.XAI_API_KEY) {"), w.indexOf("const { body, droppedDocs }"));
+  assert.ok(xai.length > 50, "the XAI key check moved — rescope this");
+  assert.ok(!/e\.status = 503/.test(xai), "a missing local key invents a provider status again");
+  assert.match(xai, /throw new Error\("XAI_API_KEY is not set/, "the diagnosis is gone as well as the status");
+
+  // (2) THE PLACEHOLDER'S GUARD ASKS THE LIVENESS MARKER. It HEADed
+  // `index.html`, which Start does not publish — so the head always missed and
+  // the one guard between a failed revise and a customer's working site could
+  // not fire on any site built since.
+  const ph = w.slice(w.indexOf('if (pages.page !== "app" && env.SITES_BUCKET) {'), w.indexOf("// SPLIT, not one number."));
+  assert.ok(ph.length > 200 && ph.length < 2500, "the placeholder guard scan lost its bounds");
+  assert.match(ph, /head\("sites\/" \+ slug \+ "\/" \+ SITE_LIVE_FILE\)/,
+    "the placeholder guard heads a document Start never publishes");
+  // AND AN UNREADABLE ANSWER SKIPS THE WRITE. Reading an R2 blip as "nothing is
+  // published" overwrites a live site with the placeholder, which is precisely
+  // the outcome the guard exists to prevent.
+  assert.match(ph, /placeholder publish skipped, liveness unreadable/,
+    "a failed liveness read falls through to the write again");
+
+  // (3) THE DELETE LOOKUP CHECKS ITS STATUS. PostgREST answers an error with a
+  // JSON OBJECT, so `Array.isArray(rows)` was false, `srow` became null and the
+  // next line answered 404 — telling an owner their site does not exist because
+  // Supabase was down. "Cannot tell" and "no such site" are different answers
+  // and only one is retryable.
+  assert.match(w, /if \(!g\.ok\) throw new Error\("site_backends " \+ g\.status\);/,
+    "deleteSiteFor reads a failed lookup as an absent site again");
+
+  // (4) THE SOURCE STORE'S ANSWER IS READ AND CARRIED. Discarded, a lost store
+  // silently turned the next revise into a full rewrite of every page's copy
+  // from the brief. Only ever present as `false`, so a clean build is unchanged.
+  assert.match(w, /sourceStored = await saveSiteSource\(env, slug, pages\);/,
+    "the source store's answer is discarded again");
+  assert.match(w, /sourceStored: sourceStored === false \? false : undefined,/,
+    "…and it never reaches the caller");
+});
