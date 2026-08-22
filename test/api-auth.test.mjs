@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 // the shape check below, never stubbed — see `REAL` there for why.
 import { SEEDS_FIELD } from "../builder/site-seeds.mjs";
 import { PLAN_FIELDS, SHAPE_FIELD } from "../builder/site-plan.mjs";
+import { AUTHORED_AXES, ASKABLE as STYLE_AXES } from "../builder/site-style.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = fs.readFileSync(path.join(ROOT, "worker.js"), "utf8");
@@ -281,9 +282,21 @@ test("every tool the model is given is a schema the API will accept", () => {
       assert.ok(node.items.type, `${path}.items: needs a type`);
       walk(node.items, path + ".items");
     }
+    // A PROPERTY MAY BE A CHOICE OF SHAPES, and each branch is a schema in its
+    // own right. `design_schema` gives its two authored axes an `anyOf` — the
+    // named option or a hand-written value — so a walk that demands a bare
+    // `type` reports a false alarm on a correct tool, and one that skips a
+    // typeless node instead lets a malformed branch through. Both are checked.
+    if (Array.isArray(node.anyOf)) {
+      assert.ok(node.anyOf.length, `${path}.anyOf: an empty choice is not a schema`);
+      node.anyOf.forEach((b, i) => {
+        assert.ok(b && b.type, `${path}.anyOf[${i}]: needs a type`);
+        walk(b, `${path}.anyOf[${i}]`);
+      });
+    }
     if (node.type === "object" && node.properties) {
       for (const [k, v] of Object.entries(node.properties)) {
-        assert.ok(v && v.type, `${path}.${k}: needs a type`);
+        assert.ok(v && (v.type || Array.isArray(v.anyOf)), `${path}.${k}: needs a type`);
         walk(v, path + "." + k);
       }
     }
@@ -305,7 +318,28 @@ test("every tool the model is given is a schema the API will accept", () => {
   // fragments are bound for real, because those are the ones this test exists
   // to inspect. A fragment added later and not listed here fails loudly on its
   // first missing `type` rather than passing quietly.
-  const REAL = { SEEDS_FIELD, PLAN_FIELDS, SHAPE_FIELD };
+  // …AND SO DOES A NAME THAT DECIDES WHICH SHAPE IS BUILT, which is the FIFTH
+  // time this stand-in has been too simple and the first where the miss was
+  // silent rather than loud. `design_schema` gives two of its style axes an
+  // `anyOf` — `SITE_AUTHORED_AXES.includes(a)` picks it — and against the stub
+  // that test is `["x"].includes("backdrop")`, i.e. always false. So the tool
+  // still resolved, still walked, and the ONE branch with a new sub-schema in it
+  // was never reached: a clean pass over a shape nobody looked at, which is
+  // worse than the false alarm the `seeds` fragment produced.
+  //
+  // The rule this generalises to: bind for real anything that IS a schema and
+  // anything that DECIDES a schema. Everything else is genuinely just a value.
+  //
+  // AND BINDING ONE OF A PAIR IS BINDING NEITHER, which is how the first attempt
+  // at this passed while checking nothing. `SITE_AUTHORED_AXES.includes(a)` is
+  // asked about a name from `SITE_STYLE_AXES` — stubbed, so the property was
+  // called "x", the membership test was `["backdrop","decor"].includes("x")`,
+  // and the branch stayed unbuilt. Both halves of a decision have to be real or
+  // the decision is not being made.
+  const REAL = {
+    SEEDS_FIELD, PLAN_FIELDS, SHAPE_FIELD,
+    SITE_STYLE_AXES: STYLE_AXES, SITE_AUTHORED_AXES: AUTHORED_AXES,
+  };
 
   // Every tool definition in worker.js, found by its input_schema.
   const tools = [...SRC.matchAll(/name:\s*"([a-z_]+)",\s*\n\s*description:[\s\S]{0,400}?input_schema:\s*\{/g)];
@@ -362,8 +396,14 @@ test("every tool the model is given is a schema the API will accept", () => {
         return Reflect.get(target, k);
       },
     });
+    // THE BOUND IS A SAFETY NET, NOT A BUDGET, and it was a budget until it ran
+    // out. Each attempt binds exactly ONE more undefined name, so a tool needing
+    // a thirteenth reported `unresolved` — the tool went unchecked and the
+    // failure named neither the tool's shape nor the missing name. It happened
+    // on a change that added two identifiers to `design_schema`. High enough
+    // that only a genuine cycle reaches it, and the message says which it was.
     let schema, names = [];
-    for (let attempt = 0; attempt < 12; attempt++) {
+    for (let attempt = 0; attempt < 64; attempt++) {
       try {
         schema = new Function(...names, "return (" + literal + ")")(...names.map((n) => REAL[n] ?? stub));
         break;
@@ -373,7 +413,7 @@ test("every tool the model is given is a schema the API will accept", () => {
         names.push(m[1]);
       }
     }
-    if (!schema) { if (!skipped.length || !skipped[skipped.length - 1].startsWith(t[1])) skipped.push(`${t[1]}: unresolved`); continue; }
+    if (!schema) { if (!skipped.length || !skipped[skipped.length - 1].startsWith(t[1])) skipped.push(`${t[1]}: unresolved after binding ${names.length} names (last: ${names[names.length - 1] || "none"})`); continue; }
     walk(schema, t[1]);
   }
 

@@ -11,8 +11,9 @@ import fs from "node:fs";
 import {
   AXES, ASKABLE, MAX_STYLE, MAX_STYLE_BUILD, RADIUS_AXES,
   optionsFor, parseStyle, mergeStyle, applyStyle, explicitRadiusCss,
-  styleNote, saidFor, axisHint,
+  styleNote, saidFor, axisHint, AUTHORED_AXES, authoredHint,
 } from "../builder/site-style.mjs";
+import { IMAGE_FUNCS, MAX_LAYER, MAX_LAYERS } from "../builder/site-css.mjs";
 import * as T from "../builder/site-theme.mjs";
 import { stripThemeRadius, ASKABLE as TOKEN_NAMES, saidFor as tokenSaid, valueHint } from "../builder/site-tokens.mjs";
 import { normalizeSeeds } from "../builder/site-seeds.mjs";
@@ -774,8 +775,20 @@ test("THE CONTAINER MERGES BEFORE IT RENDERS", () => {
   // can disagree about whether the axis was named.
   const parsed = server.match(/const (\w+) = parseStyle\(payload\.style/);
   assert.ok(parsed, "the container never parses the payload's style");
-  assert.match(server, new RegExp(`writeTheme\\(payload\\.seeds, \\{[^}]*style: ${parsed[1]}\\b`),
-    "the payload's style never reaches writeTheme");
+  // …AND `writeTheme` GETS THE WHOLE PATCH, NEVER THE PARSED ENUM MAP. That
+  // variable is `parseStyle(...).style`, which is exactly right for reading one
+  // axis off — and an AUTHORED value never appears in it, because `parseStyle`
+  // keeps those in `.authored`. So handing it here drops a hand-written backdrop
+  // silently: validated by the Worker, stored in `_meta`, sent over the wire, and
+  // thrown away one line before the only function that could render it.
+  assert.match(server, /writeTheme\(payload\.seeds, \{[^}]*style: payload\.style\b/,
+    "writeTheme is given the parsed enum map, so an authored backdrop can never reach applyStyle");
+  // BOTH HALVES OF THE PAGE TRANSITION STILL READ ONE SOURCE, which is what this
+  // assertion has always been for. They are no longer the same EXPRESSION — one
+  // is the patch, the other its parse — and that is not a disagreement: they are
+  // rooted at the same `payload.style` and `parseStyle` is idempotent (asserted
+  // separately), so the two cannot answer differently about whether the axis was
+  // named. What must not happen is a second SOURCE, which is what is checked.
   assert.match(server, new RegExp(`writeSiteBrand\\([^)]*transition: ${parsed[1]}\\.transition`),
     "the router's half of the page transition reads a different patch from the CSS half");
   // AND THE COLLISION, which a mutation proved was covered by nothing: the
@@ -1198,4 +1211,207 @@ test("…and a merge with no overlap adds without taking anything away", () => {
   assert.equal(Object.keys(out).length, 7);
   assert.equal(out.ambient, "drift", "the newest instruction must survive");
   assert.equal(out.inputs, "underline", "the oldest instruction was dropped for it");
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE AUTHORED HALF REACHES A STYLESHEET
+//
+// Every layer below the tool was built and tested before the tool could send
+// one, so the whole path was correct and unreachable — and that is not a
+// hypothetical: `mergeStyle` returned `.style` alone, so the stored patch and
+// the container payload both dropped an authored value on the floor. These hold
+// the four hops the value has to survive, because a module test at either end
+// passes perfectly while the wire between them is cut.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const AUTHORED_WASH = Object.freeze({
+  light: ["linear-gradient(160deg, #f6e3d2 0%, #ffffff 70%)"],
+  dark: ["linear-gradient(160deg, oklch(0.28 0.06 40) 0%, oklch(0.16 0.02 40) 70%)"],
+});
+
+test("the merged patch carries an authored value, not just the enum axes", () => {
+  // THE HOP THAT WAS CUT. `siteStyle` is what is written to `_meta.site_style`
+  // and what is sent to the container, so a merge that keeps only `.style`
+  // makes the entire authored path unreachable from a real build — validated,
+  // reported, and thrown away before anything could render it.
+  const merged = mergeStyle(null, { backdrop: AUTHORED_WASH, corner: "bevel" }, { max: MAX_STYLE_BUILD });
+  assert.equal(typeof merged.backdrop, "object", "the authored value did not survive the merge");
+  assert.deepEqual(merged.backdrop, AUTHORED_WASH, "the RAW spec must survive, or the container cannot re-read it");
+  assert.equal(merged.corner, "bevel", "the enum axes still merge as strings");
+});
+
+test("the merged patch round-trips: what is stored is what parseStyle takes", () => {
+  // The reason the spec travels raw rather than validated. `applyStyle` re-reads
+  // the stored patch, so the merge's OUTPUT has to be legal INPUT — and it is
+  // exactly the shape the tool sends, which is what keeps one reader for both.
+  const merged = mergeStyle(null, { backdrop: AUTHORED_WASH, corner: "bevel" }, { max: MAX_STYLE_BUILD });
+  const again = parseStyle(merged, { max: MAX_STYLE_BUILD });
+  assert.deepEqual(again.dropped, [], "the stored patch is not readable by the thing that has to read it");
+  assert.ok(again.authored && again.authored.backdrop && again.authored.backdrop.ok);
+  assert.equal(again.style.corner, "bevel");
+});
+
+test("an axis can change KIND across a merge, both ways", () => {
+  // A site on `aurora` asks for its own wash, and then asks for `aurora` back.
+  // Each side's enum and authored bags are disjoint, so the only thing that can
+  // get this wrong is the spread order.
+  const toAuthored = mergeStyle({ backdrop: "aurora" }, { backdrop: AUTHORED_WASH });
+  assert.equal(typeof toAuthored.backdrop, "object", "an authored value did not replace the named one");
+  const toNamed = mergeStyle({ backdrop: AUTHORED_WASH }, { backdrop: "aurora" });
+  assert.equal(toNamed.backdrop, "aurora", "a named option did not replace the authored one");
+});
+
+test("an authored wash reaches the compiled stylesheet, in BOTH modes", () => {
+  const theme = normalizeSeeds({ name: "Fold", paper: "#faf7f2", ink: "#1a1613", accent: "#b4542e" }).theme;
+  const merged = mergeStyle(null, { backdrop: AUTHORED_WASH }, { max: MAX_STYLE_BUILD });
+  const css = T.themeCss(applyStyle(theme, merged));
+  assert.match(css, /#f6e3d2/, "the light wash never reached the stylesheet");
+  assert.match(css, /oklch\(0\.28 0\.06 40\)/, "the dark wash never reached the stylesheet");
+});
+
+test("`var()` resolves against THIS site's palette, and the literal is what ships", () => {
+  // The whole reason `themeVars` exists. Without it every layer naming a token
+  // is refused for "names a colour the theme does not define" — a permission in
+  // the allow-list that could never be exercised.
+  const theme = normalizeSeeds({ name: "Fold", paper: "#faf7f2", ink: "#1a1613", accent: "#b4542e" }).theme;
+  const wash = { light: ["linear-gradient(160deg, var(--primary) 0%, #ffffff 70%)"], dark: AUTHORED_WASH.dark };
+  const css = T.themeCss(applyStyle(theme, mergeStyle(null, { backdrop: wash })));
+  const layers = (css.match(/background-image:[^;]*/g) || []).join("\n");
+  assert.ok(layers.length, "no wash was emitted at all");
+  assert.doesNotMatch(layers, /var\(/, "a var() survived into the stylesheet — the floor was measured against a colour nobody can read");
+  // …AND IT IS THIS SITE'S OWN BRAND, not some default. `--primary` is the seed
+  // accent; the pinned value is what `paletteFor` derives from #b4542e.
+  const vars = T.themeVars(theme);
+  assert.match(layers, new RegExp(vars.light["--primary"].replace(/[.()]/g, "\\$&")),
+    "the resolved colour is not the one the palette defines");
+});
+
+test("`applyStyle` supplies the palette, and no other caller can", () => {
+  // The split, asserted rather than left to reading: this is the only place both
+  // the value and the palette are in hand, so it is the only place a var() can
+  // be judged. The other call sites answer "did the model name this axis".
+  const src = fs.readFileSync(new URL("../builder/site-style.mjs", import.meta.url), "utf8");
+  const body = src.slice(src.indexOf("export function applyStyle("));
+  assert.match(body.slice(0, body.indexOf("\n}")), /parseStyle\(style, \{ max, vars: themeVars\(theme\) \}\)/,
+    "applyStyle no longer supplies the palette, so every var() in an authored layer is refused");
+});
+
+test("a var() the Worker cannot resolve is DEFERRED, never reported as refused", () => {
+  // The customer-facing half. `normalizeSeeds` runs in the container, so the
+  // Worker holds three hex seeds and none of the 31 derived tokens — and telling
+  // somebody their backdrop failed while it paints on their site is the
+  // two-readings-disagree failure landing on the half they read.
+  const wash = { light: ["linear-gradient(160deg, var(--primary), #fff)"], dark: AUTHORED_WASH.dark };
+  const worker = parseStyle({ backdrop: wash }, { max: MAX_STYLE_BUILD });
+  assert.deepEqual(worker.dropped, [], "the Worker reports a refusal it is not in a position to make");
+  assert.deepEqual(worker.refused || [], []);
+  assert.equal(worker.authored.backdrop.ok, false, "…and it must not pretend it read it, either");
+  assert.deepEqual(worker.authored.backdrop.spec, wash, "the raw spec is what lets the container judge it");
+});
+
+test("a value wrong for a reason that has nothing to do with the palette is refused with NO palette", () => {
+  // The other side of the deferral, and what stops it becoming "the Worker never
+  // refuses anything". Every failure but the unresolved token is decidable from
+  // the text, so they must still be caught where the customer is told.
+  for (const [why, layer] of [
+    ["url", "linear-gradient(160deg, url(http://x/y.png), #fff)"],
+    ["color-mix", "linear-gradient(160deg, color-mix(in oklch, #fff, #000), #fff)"],
+    ["a semicolon", "linear-gradient(160deg, #fff, #000); background: red"],
+  ]) {
+    const r = parseStyle({ backdrop: { light: [layer], dark: AUTHORED_WASH.dark } }, { max: MAX_STYLE_BUILD });
+    assert.deepEqual(r.dropped, ["backdrop"], `${why} was not refused without a palette`);
+    assert.ok((r.refused || []).length, `${why} was refused with no reason for the customer`);
+  }
+});
+
+test("a DEFERRED value never becomes a layer, however it reaches applyStyle", () => {
+  // A deferred entry has no `layers`, so attaching it would emit `undefined`
+  // into a customer's stylesheet. It cannot arise through `applyStyle` (which
+  // always supplies the palette) and the guarantee is held here rather than left
+  // to that, since the failure is silent and reaches a published page.
+  const theme = { label: "T", light: {}, dark: {} };  // themeVars reads nothing from it
+  const wash = { light: ["linear-gradient(160deg, var(--primary), #fff)"], dark: AUTHORED_WASH.dark };
+  const out = applyStyle(theme, { backdrop: wash });
+  assert.equal(out.authored, undefined, "a value nothing could read was attached as a layer");
+});
+
+test("the tool offers an authored value on exactly the axes the engine accepts one on", () => {
+  // DERIVED AT BOTH ENDS. An axis taught to accept a value in `parseStyle` and
+  // not offered by the tool is a capability nothing can reach; one offered and
+  // not accepted is a look reported as applied that never arrives.
+  const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(worker, /SITE_AUTHORED_AXES/, "the tool no longer knows which axes take an authored value");
+  assert.match(worker, /AUTHORED_AXES as SITE_AUTHORED_AXES/, "…and it must be the engine's own list, not a copy");
+  assert.match(worker, /SITE_AUTHORED_AXES\.map\(\(a\) => \[a \+ "Css"/,
+    "the authored field is gone, so the enum is the only thing the model can send");
+  // AND NO UNION, which is a decision rather than a style. The `webhooks` field
+  // in this same tool refused one for a reason that still holds — an untested
+  // JSON Schema construct here 400s EVERY build rather than degrading — and the
+  // first draft of the authored value shipped one anyway. Asserted so it cannot
+  // come back as a tidy-up; overturning it means proving the API takes one.
+  // …and this reads the CODE, not the prose. The comment at that field explains
+  // the decision and therefore SPELLS the thing it forbids, so an absence check
+  // over the raw text matches its own explanation and fails against correct
+  // code. Blanked by whole line and length-preserving, the trap this repo has
+  // now recorded in a lint, a router guard, an absence check and a scope scan.
+  const code = worker.split("\n").map((l) => (/^\s*(\/\/|\*|\/\*)/.test(l) ? "" : l)).join("\n");
+  assert.doesNotMatch(code.slice(code.indexOf('name: "design_schema"')), /anyOf|oneOf/,
+    "design_schema grew a union — prove the API accepts one before relying on it");
+  // …AND EVERY ENUM SURVIVES, which is what the sibling buys. A union means
+  // dropping `type: "string"`, and the enum is what makes an option the engine
+  // would refuse impossible rather than merely dropped.
+  for (const a of AUTHORED_AXES) {
+    assert.ok(optionsFor(a).length, `${a} has no options to keep`);
+  }
+  // The hint has to name the refusals, not only the permissions: `url()` and
+  // `color-mix()` are the two a model reaches for unprompted, and an answer
+  // spent on either is an axis silently dropped.
+  for (const axis of AUTHORED_AXES) {
+    const hint = authoredHint(axis);
+    assert.match(hint, /url\(\)/, `${axis}: the hint does not warn about url()`);
+    assert.match(hint, /color-mix\(\)/, `${axis}: the hint does not warn about color-mix()`);
+    assert.match(hint, /BOTH MODES ARE REQUIRED/, `${axis}: a one-mode answer is refused and the hint does not say so`);
+    assert.match(hint, /var\(--primary\)/, `${axis}: the hint does not name the brand colour`);
+    // MEASURED, not assumed: `--accent` in this palette is a pale hover surface
+    // (oklch L 0.94 against the brand's 0.56), so a hint recommending it would
+    // produce a wash nobody asked for.
+    assert.match(hint, /NOT `var\(--accent\)`/, `${axis}: the hint does not warn off the token that is not the brand`);
+  }
+});
+
+test("the authored hint is derived from the validator, not restated", () => {
+  const hint = authoredHint("backdrop");
+  for (const f of [...IMAGE_FUNCS].filter((n) => n.endsWith("-gradient"))) {
+    assert.ok(hint.includes(f), `the hint does not offer ${f}, which the validator accepts`);
+  }
+  assert.ok(hint.includes(String(MAX_LAYERS)), "the layer cap is restated rather than derived");
+  assert.ok(hint.includes(String(MAX_LAYER)), "the length cap is restated rather than derived");
+});
+
+test("the wire name folds onto the axis at the door", () => {
+  // The tool sends `backdropCss`; everything below `parseStyle` sees `backdrop`.
+  // Without the fold the field is an unknown axis, so it lands in `dropped` and
+  // the customer is told their own wash "isn't one of the options for it".
+  const r = parseStyle({ backdropCss: AUTHORED_WASH }, { max: MAX_STYLE_BUILD, vars: {} });
+  assert.deepEqual(r.dropped, [], "the tool's own field name was read as an unknown axis");
+  assert.ok(r.authored && r.authored.backdrop, "the value did not land on the axis it belongs to");
+  assert.equal(r.style.backdrop, undefined, "an authored value must not also set the enum axis");
+});
+
+test("a refusal is reported against the axis, not the field name nobody saw", () => {
+  const r = parseStyle({ backdropCss: { light: ["url(http://x/y.png)"], dark: AUTHORED_WASH.dark } },
+    { max: MAX_STYLE_BUILD, vars: {} });
+  assert.deepEqual(r.dropped, ["backdrop"], "the customer is shown a field name from our wire format");
+  assert.equal((r.refused || [])[0].axis, "backdrop");
+});
+
+test("the authored field beats a bare one on the same axis, and costs one slot", () => {
+  // Both together is one question answered twice; the authored half is the more
+  // specific answer. And it must count ONCE against the cap, or a model sending
+  // both quietly buys itself an extra axis.
+  const r = parseStyle({ backdrop: "aurora", backdropCss: AUTHORED_WASH }, { max: 1, vars: {} });
+  assert.ok(r.authored && r.authored.backdrop, "the authored value lost to the named one");
+  assert.equal(r.style.backdrop, undefined);
+  const two = parseStyle({ backdrop: "aurora", backdropCss: AUTHORED_WASH, corner: "bevel" }, { max: 1, vars: {} });
+  assert.deepEqual(two.dropped, ["corner"], "one axis answered twice consumed one slot, not two");
 });

@@ -1201,6 +1201,50 @@ function Home() {
       "either the ambient axis never reached the stylesheet, or the control build already had it");
   }
 
+  // AN AUTHORED VALUE ON A WORLD AXIS — the model writing its own CSS instead of
+  // naming one of the six options (owner's call, 2026-08-22). Only a real build
+  // can prove this: a CSS change is invisible to `tsc`, to vite, to the lint and
+  // to every unit test — the grey-charts lesson — and the whole path was cut in
+  // THREE places when it was written, each of them a hop a module test at either
+  // end cannot see.
+  console.log("\nbuilding with an AUTHORED backdrop…");
+  const OWN_WASH = {
+    light: ["linear-gradient(155deg, #f4dfc6 0%, var(--primary) 45%, #ffffff 100%)"],
+    dark: ["linear-gradient(155deg, oklch(0.26 0.05 62) 0%, oklch(0.14 0.02 62) 100%)"],
+  };
+  const own = await post({
+    files: { "index.tsx": INDEX, "menu.tsx": MENU },
+    slug: "fold-coffee", ...themeAsSeeds("broadsheet"),
+    style: { ...HOUSE_STYLE, backdrop: OWN_WASH },
+  });
+  ok("a build carrying an authored backdrop succeeds", own.ok === true, JSON.stringify(own).slice(0, 200));
+  {
+    const css = Object.entries(own.files || {})
+      .filter(([k]) => k.endsWith(".css")).map(([, v]) => v.t || "").join("\n");
+    // THE LITERAL THE MODEL WROTE, in the mode it wrote it for. Lightning CSS
+    // may rewrite `#ffffff` and the whitespace, so the stop that is asserted is
+    // one it has no shorter form for.
+    ok("…and the light wash the model wrote is in the stylesheet",
+      /#f4dfc6/i.test(css), css.slice(0, 300));
+    ok("…and the dark one, which is a SEPARATE authored value",
+      /oklch\(\.?0?\.?26 \.?0?\.?05 62\)/.test(css.replace(/\s+/g, " ")) || /0\.26 0\.05 62/.test(css),
+      css.slice(0, 300));
+    // `var(--primary)` IS RESOLVED, NOT PASSED THROUGH, and that is the whole
+    // reason the parser exists: an unresolved token is a stop whose colour we
+    // cannot read, so the contrast floor it was measured against is unprovable.
+    // The site's own brand colour is what has to be there.
+    const layers = (css.match(/background-image:[^;]*/g) || []).join("\n");
+    ok("…and a var() in it resolved to this site's own palette, never shipped as a var()",
+      layers.length > 0 && !/var\(/.test(layers), layers.slice(0, 300) || "no background-image at all");
+    // THE CONTROL, and the first draft of it was `x === x` — a check that cannot
+    // fail, which this repo rates worse than none because it is the one that
+    // says a broken thing works. What discriminates is that the SAME template
+    // built WITHOUT the authored patch does not carry the model's own colour, so
+    // nothing but the authored path can have put it there.
+    ok("…and the control build, which authored nothing, does not carry it",
+      !/#f4dfc6/i.test(baseCss), "the literal is in a build that never asked for it");
+  }
+
   // THE INTERACTIVE AXES, through a real Tailwind build. Everything else the
   // theme emits is a value; these are RULES with pseudo-classes, an @supports
   // and two @media blocks, and a minifier is entitled to rewrite all of it —

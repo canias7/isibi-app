@@ -2307,6 +2307,57 @@ export function paletteFor(theme, mode) {
  * emptying that list broke four of them at once. A build resolving a theme from
  * somewhere other than the shortlist gets the same door.
  */
+/**
+ * This theme's palette as CSS custom properties, per mode.
+ *
+ * THE ONE READER IS THE AUTHORED-VALUE PARSER, and it exists so a model writing
+ * its own backdrop can reach for `var(--accent)` and get THIS site's accent.
+ * Without it `resolveVars` has nothing to substitute, so every layer naming a
+ * token is refused for "names a colour the theme does not define" — a
+ * permission in the allow-list that could never be exercised, which is the
+ * described-then-refused drift the tool's own hint is written to avoid.
+ *
+ * IT USES THE SAME `css` EMITTER AS `themeCss`, deliberately: that is the one
+ * place this platform decides how a palette colour is spelled, and a second
+ * formatter here would drift on rounding — which for a stop being read back for
+ * a contrast floor is a floor computed against a colour the page does not have.
+ *
+ * WHAT SHIPS IS THE SUBSTITUTED LITERAL, not the `var()`. `readLayer` returns
+ * the resolved text and that is what `worldCss` emits, so the colour the floor
+ * was measured against is exactly the colour that paints — no runtime token read
+ * to diverge from it. The cost, stated: an authored layer freezes the palette at
+ * build time, so a later colour change moves the page and not the wash. That is
+ * the right way round — the wash was authored against those colours — and it is
+ * the same publish that would re-run this anyway.
+ *
+ * Every token the palette defines, never a hand-picked few: a subset is a list
+ * to keep in step, and the day it drifts the model is refused for naming a real
+ * token. A mode the theme does not have contributes nothing rather than throwing.
+ */
+export function themeVars(theme) {
+  const out = {};
+  for (const mode of ["light", "dark"]) {
+    if (!theme || typeof theme !== "object" || !theme[mode]) continue;
+    // A MODE IT CANNOT READ CONTRIBUTES NOTHING RATHER THAN THROWING, and that
+    // is load-bearing rather than defensive. `applyStyle` calls this on whatever
+    // theme it was handed, and it never touched the palette before — so a throw
+    // here is a NEW way for a malformed theme to lose its whole look, since the
+    // container's catch answers "the theme could not be rendered, so the site
+    // kept the default". Measured: a theme whose seeds are raw hex strings
+    // rather than the parsed triples `paletteFor` expects throws in `mix`.
+    //
+    // Per mode, not per theme: a readable light half still resolves its own
+    // tokens, and an authored value naming one in the mode that failed is then
+    // refused by `readAuthored` — which is the honest answer, since both modes
+    // are required and one of them could not be read.
+    try {
+      const p = paletteFor(theme, mode);
+      out[mode] = Object.fromEntries(Object.entries(p).map(([k, v]) => ["--" + k, css(v)]));
+    } catch { /* not a palette we can read — no tokens from this mode */ }
+  }
+  return out;
+}
+
 export function themeCss(nameOrTheme) {
   const named = typeof nameOrTheme === "string";
   const theme = named ? THEMES[nameOrTheme] : nameOrTheme;

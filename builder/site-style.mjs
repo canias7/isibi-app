@@ -47,11 +47,11 @@ import {
   ICON_STROKES, SHADOWS, BUTTONS, INPUTS, DISPLAYS,
   MOTIONS, HOVERS, FOCUSES, REVEALS, TRANSITIONS,
   SURFACES, BACKDROPS, DECORS, AMBIENTS, SKINS,
-  buttonsCss, inputsCss, worldMutedFit,
+  buttonsCss, inputsCss, worldMutedFit, themeVars,
 } from "./site-theme.mjs";
 // THE AUTHORED HALF. `site-css.mjs` is a leaf — it imports only the colour
 // parser — so pulling it in here cannot cycle back through the theme engine.
-import { readAuthored } from "./site-css.mjs";
+import { readAuthored, IMAGE_FUNCS, MAX_LAYER, MAX_LAYERS } from "./site-css.mjs";
 
 /**
  * WHAT MAY BE CHANGED, and nothing else.
@@ -232,12 +232,36 @@ export const RADIUS_AXES = Object.freeze(["buttons", "inputs"]);
  */
 export const AUTHORED_AXES = Object.freeze(["backdrop", "decor"]);
 
+/**
+ * The tool's name for an authored value → the axis it belongs to.
+ *
+ * `design_schema` sends `backdropCss` rather than overloading `backdrop`,
+ * because that field carries an `enum` and a union would mean dropping it — see
+ * the comment at the tool. THE FOLD HAPPENS HERE, AT THE DOOR, so everything
+ * below this function sees one axis with one value: the cap counts it once, the
+ * merge stores it under the axis, and a refusal is reported against the name the
+ * customer would recognise instead of a field they never saw.
+ *
+ * The suffixed name wins over a bare one on the same axis. Both together is a
+ * model answering the same question twice, and the authored half is the more
+ * specific answer — it is what somebody sends when the named options were not
+ * what they wanted.
+ */
+const authoredKey = (a) => a + "Css";
+
 export function parseStyle(input, { max = MAX_STYLE, vars = null } = {}) {
   const out = {}, dropped = [], authored = {}, refused = [];
-  const src = input && typeof input === "object" && !Array.isArray(input) ? input
+  const raw = input && typeof input === "object" && !Array.isArray(input) ? input
     : Array.isArray(input) ? Object.fromEntries(input
         .filter((e) => e && typeof e === "object")
         .map((e) => [String(e.axis || e.name || ""), e.option || e.value])) : {};
+  const src = { ...raw };
+  for (const a of AUTHORED_AXES) {
+    const k = authoredKey(a);
+    if (!Object.hasOwn(src, k)) continue;
+    src[a] = src[k];
+    delete src[k];
+  }
   for (const [rawName, rawVal] of Object.entries(src)) {
     const name = String(rawName || "").trim().toLowerCase();
     // `Object.hasOwn`, NOT a plain lookup. `AXES["constructor"]` is a function —
@@ -260,8 +284,22 @@ export function parseStyle(input, { max = MAX_STYLE, vars = null } = {}) {
     if (rawVal && typeof rawVal === "object" && !Array.isArray(rawVal) && AUTHORED_AXES.includes(name)) {
       if (Object.keys(out).length + Object.keys(authored).length >= max) { dropped.push(rawName); continue; }
       const read = readAuthored(rawVal, { vars });
-      if (!read.ok) { dropped.push(rawName); refused.push({ axis: name, why: read.why }); continue; }
-      authored[name] = read;
+      // ── "I CANNOT JUDGE THIS HERE" IS NOT A REFUSAL ──────────────────────────
+      //
+      // With no palette supplied, a layer naming `var(--accent)` fails for a
+      // reason that is about US and not about the value: `normalizeSeeds` runs in
+      // the CONTAINER, so the Worker holds three hex seeds and none of the 31
+      // derived tokens, and the same value the Worker cannot read `applyStyle`
+      // reads perfectly one hop later.
+      //
+      // Counted against the cap and kept as its raw SPEC, so `mergeStyle` stores
+      // it and the container gets the chance to judge it — but never pushed into
+      // `dropped` or `refused`, or the customer is told their backdrop failed
+      // while it is painting on their site. A caller that DOES supply a palette
+      // gets the strict verdict, which is the one that decides what ships.
+      const deferred = !read.ok && read.needsVars && !vars;
+      if (!read.ok && !deferred) { dropped.push(rawName); refused.push({ axis: name, why: read.why }); continue; }
+      authored[name] = { ...read, spec: rawVal };
       continue;
     }
     // A STRING, not anything stringifiable. `String(["pill"])` is `"pill"`, so a
@@ -314,9 +352,26 @@ export function parseStyle(input, { max = MAX_STYLE, vars = null } = {}) {
  * saw it, and the widening would read as done and do nothing.
  */
 export function mergeStyle(prior, next, { max = MAX_STYLE } = {}) {
-  const a = parseStyle(prior, { max: MAX_STYLE_BUILD }).style;
-  const b = parseStyle(next, { max }).style;
-  return { ...a, ...b };
+  const a = parseStyle(prior, { max: MAX_STYLE_BUILD });
+  const b = parseStyle(next, { max });
+  // AUTHORED VALUES TRAVEL AS THEIR RAW SPEC, which is what makes the merged
+  // patch re-readable: enums come back as strings, authored axes as the
+  // `{light, dark}` object the model wrote, and that is exactly the shape
+  // `parseStyle` takes as INPUT. So the stored patch round-trips, and the
+  // container re-parses it with a palette in hand and gets the real verdict.
+  //
+  // THIS RETURNED `.style` ALONE UNTIL 2026-08-22, and that silently made the
+  // whole authored path unreachable: `siteStyle` is what is stored in `_meta`
+  // and what the container is sent, so a wash the model wrote was validated,
+  // reported, and then thrown away before it could reach a stylesheet. The
+  // twelve-times shape — every layer correct, one hop cut.
+  //
+  // ORDER IS THE PRECEDENCE AND IT IS FOUR SPREADS, NOT TWO, because an axis can
+  // change KIND: enum today, authored tomorrow, and back. Each side's two bags
+  // are disjoint (an axis lands in one or the other), so within a side the order
+  // is immaterial; across sides `next` wins, which is the merge's whole rule.
+  const specs = (r) => Object.fromEntries(Object.entries(r.authored || {}).map(([k, v]) => [k, v.spec]));
+  return { ...a.style, ...specs(a), ...b.style, ...specs(b) };
 }
 
 /**
@@ -362,12 +417,26 @@ export function mergeStyle(prior, next, { max = MAX_STYLE } = {}) {
  */
 export function applyStyle(theme, style, { max = MAX_STYLE_BUILD } = {}) {
   if (!theme || typeof theme !== "object") return theme;
-  const parsed = parseStyle(style, { max });
+  // THE ONLY PLACE A `var()` IN AN AUTHORED LAYER CAN BE RESOLVED, because it is
+  // the only place both the value and the palette are in hand. The other two
+  // `parseStyle` call sites read a patch for storage and for a note, where the
+  // theme is not yet composed — an authored layer naming a token is refused
+  // there, which is correct: what they answer is "did the model name this axis",
+  // and this is where "is that value usable" is decided.
+  const parsed = parseStyle(style, { max, vars: themeVars(theme) });
   const s = parsed.style;
   if (!Object.keys(s).length && !parsed.authored) return theme;
   const out = { ...theme, ...s };
-  if (parsed.authored) {
-    out.authored = { ...(theme.authored || {}), ...parsed.authored };
+  // ONLY WHAT READ CLEAN BECOMES A LAYER. `parseStyle` also carries DEFERRED
+  // entries — authored values it was not given a palette to judge — and one of
+  // those has no `layers`, so attaching it would emit `undefined` into the
+  // stylesheet. It cannot arise here (this call always supplies `themeVars`), and
+  // the guarantee is asserted rather than left to that: the day another caller
+  // reaches `applyStyle` without one, the answer must be "no wash" and not "a
+  // broken one".
+  const good = Object.fromEntries(Object.entries(parsed.authored || {}).filter(([, v]) => v && v.ok));
+  if (Object.keys(good).length) {
+    out.authored = { ...(theme.authored || {}), ...good };
     // ── AND THE QUIET TEXT HAS TO FIT OVER IT ────────────────────────────────
     //
     // The last gate, and the only one that needs the THEME as well as the value.
@@ -393,9 +462,9 @@ export function applyStyle(theme, style, { max = MAX_STYLE_BUILD } = {}) {
       if (fit.ok) continue;
       out.authored = { ...(theme.authored || {}) };
       if (!Object.keys(out.authored).length) delete out.authored;
-      parsed.dropped.push(...Object.keys(parsed.authored));
+      parsed.dropped.push(...Object.keys(good));
       (parsed.refused || (parsed.refused = [])).push({
-        axis: Object.keys(parsed.authored).join(" and "),
+        axis: Object.keys(good).join(" and "),
         why: `would leave the quiet text at ${fit.contrast.toFixed(1)}:1 on the ${mode} page, under the 4.5 it needs`,
       });
       break;
@@ -487,4 +556,50 @@ export function axisHint(axis) {
   return Object.entries(AXES[axis].options)
     .map(([k, v]) => k + " (" + String((v && v.label) || k) + ")")
     .join("; ");
+}
+
+/**
+ * …AND WHAT TO TELL IT ABOUT WRITING ITS OWN, on the two axes that accept one.
+ *
+ * DERIVED FROM THE VALIDATOR'S OWN CONSTANTS, for the reason `axisHint` is
+ * derived from the engine's: a restated list drifts, and the direction it drifts
+ * in here is describing a function to the model that `readAuthored` then refuses
+ * — reported to the customer as a look that did not arrive, with nothing saying
+ * why. The gradient names come out of `IMAGE_FUNCS` by shape rather than by
+ * hand, so a seventh gradient added there appears here without anybody
+ * remembering this file.
+ *
+ * IT NAMES THE REFUSALS AS WELL AS THE PERMISSIONS, and that half is the one
+ * that pays. `url()` and `color-mix()` are the two things a model reaches for
+ * unprompted — the first because every gradient tutorial has one, the second
+ * because it is the obvious way to write a tint — and both are refused. A model
+ * told only what is allowed spends its answer on one of them and the axis is
+ * dropped; told what is refused, it writes `oklch()` and the axis lands.
+ *
+ * BOTH MODES ARE REQUIRED AND THE DESCRIPTION SAYS SO, because a one-mode answer
+ * is refused by `readAuthored` and the sentence the customer would otherwise get
+ * is about contrast — our own missing half wearing the costume of their bad
+ * colour choice.
+ */
+export function authoredHint(axis) {
+  const grads = [...IMAGE_FUNCS].filter((f) => f.endsWith("-gradient"));
+  return (
+    "OR WRITE YOUR OWN: instead of one of those names, send " +
+    "{\"light\": [\"<css>\"], \"dark\": [\"<css>\"]} — the value of `background-image` for this axis, " +
+    "authored for this business. BOTH MODES ARE REQUIRED; a light wash on a dark page is unreadable, so " +
+    "an answer with only one is refused whole. Up to " + MAX_LAYERS + " layers per mode (first paints on " +
+    "top), each under " + MAX_LAYER + " characters. " +
+    "Allowed: " + grads.join(", ") + ", the colour notations (oklch, rgb, hsl, lab, lch and the rest), " +
+    "calc(), and var() — this site's own palette, resolved per mode, which is how a wash stays part of the " +
+    "brand rather than a second colour scheme. `var(--primary)` IS THE BRAND COLOUR (the one you set as " +
+    "`accent` in seeds); `var(--background)` is the page, `var(--card)` the panels, `var(--foreground)` the " +
+    "text, `var(--border)` the rules. NOT `var(--accent)` — in this palette that is a pale hover surface, " +
+    "not the brand. " +
+    "REFUSED, so do not reach for them: url() (no images here — pictures have their own path), " +
+    "color-mix() (write the colour with oklch() instead), and anything with a semicolon, a brace or an " +
+    "at-rule in it. " +
+    "Every stop is read and the page's quiet text is fitted against the darkest and lightest ground the " +
+    "layers reach — so a wash that leaves no room for legible text is refused rather than published. Keep " +
+    "one mode's ground within a comfortable range and there is nothing to think about."
+  );
 }

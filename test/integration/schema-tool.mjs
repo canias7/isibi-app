@@ -72,6 +72,13 @@ export async function readSchemaTool() {
     SITE_STYLE_AXES: style.ASKABLE,
     siteStyleOptions: style.optionsFor,
     siteStyleHint: style.axisHint,
+    // …and the two axes that also take a value the model WRITES rather than
+    // names (2026-08-22). Real, never stubbed, for the same reason as the rest:
+    // `SITE_AUTHORED_AXES` decides which fields the tool even has, so a stub
+    // measures a prompt with no authored fields in it at all — the silent
+    // version of the failure the comment above records.
+    SITE_AUTHORED_AXES: style.AUTHORED_AXES,
+    siteAuthoredHint: style.authoredHint,
   };
   for (const [k, v] of Object.entries(scope)) globalThis[k] = v;
 

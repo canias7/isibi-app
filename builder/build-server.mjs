@@ -769,7 +769,13 @@ const server = http.createServer((req, res) => {
       // ONE reading of the patch, shared: whether a radius was asked for decides
       // both that the theme's own corner rules give way and what is written.
       const wantsRadius = validForWrite(payload.tokens).radius !== undefined;
-      const themeUsed = writeTheme(payload.seeds, { dropRadius: wantsRadius, style: styleUsed });
+      // THE WHOLE PATCH, NOT `styleUsed`, and the difference is a feature.
+      // `styleUsed` is the ENUM map — `parseStyle(...).style` — which is exactly
+      // right for `transition` above and drops an AUTHORED backdrop on the floor,
+      // because an authored value lives in `.authored` and never in `.style`.
+      // `applyStyle` re-parses this WITH the site's own palette, which is the one
+      // place a `var(--accent)` in a hand-written gradient can be resolved.
+      const themeUsed = writeTheme(payload.seeds, { dropRadius: wantsRadius, style: payload.style });
       // AFTER the theme, never before — later wins, and that IS the override.
       const tokensUsed = writeTokens(payload.tokens);
       // AND AFTER THOSE, one page's own. Same mechanism, one scope down.

@@ -76,7 +76,7 @@ const FORBIDDEN = /[;{}@<>\\"']/;
  * supposed to describe a colour ramp. Pictures have their own path, with its own
  * sniffing and its own caps.
  */
-const IMAGE_FUNCS = new Set([
+export const IMAGE_FUNCS = new Set([
   "linear-gradient", "radial-gradient", "conic-gradient",
   "repeating-linear-gradient", "repeating-radial-gradient", "repeating-conic-gradient",
   // Colour notations, so a stop can be written in any of them — and every one
@@ -201,7 +201,20 @@ export function readLayer(raw, { vars = null } = {}) {
   if (!balanced(input)) return { ok: false, why: "has unbalanced brackets" };
 
   const value = resolveVars(input, vars);
-  if (/var\(/.test(value)) return { ok: false, why: "names a colour the theme does not define" };
+  // THE ONE FAILURE THAT DEPENDS ON THE THEME, and the only one flagged as such.
+  //
+  // Every other refusal above and below is decidable from the text alone — a
+  // `url()`, a semicolon, an unbalanced bracket are wrong wherever they are read.
+  // This one is not: it means "the palette handed to me does not define that
+  // token", and the palette only EXISTS in the container (`normalizeSeeds` runs
+  // there, so the Worker holds three hex seeds and no derived tokens).
+  //
+  // `needsVars` is what lets a caller with no palette tell "the model wrote
+  // something wrong" from "I cannot judge this here". Without it the Worker's
+  // note would tell a customer their backdrop was refused while the container
+  // accepted it and it painted — the two-readings-disagree failure, on the half
+  // the customer reads.
+  if (/var\(/.test(value)) return { ok: false, needsVars: true, why: "names a colour the theme does not define" };
 
   // FUNCTIONS FIRST. A name immediately followed by `(` is a call, and an
   // unknown one is refused before anything else is read — so a value can never
@@ -320,7 +333,7 @@ export function readAuthored(spec, { vars = null } = {}) {
     const done = [];
     for (const one of list) {
       const r = readLayer(one, { vars: vars && vars[mode] });
-      if (!r.ok) return { ok: false, why: r.why };
+      if (!r.ok) return { ok: false, why: r.why, ...(r.needsVars ? { needsVars: true } : {}) };
       done.push(r.value);
       colors[mode].push(...r.colors);
     }

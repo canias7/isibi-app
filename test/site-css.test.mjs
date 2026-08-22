@@ -234,3 +234,53 @@ test("the two modes are read INDEPENDENTLY — a bad dark refuses the axis", () 
   const r = readAuthored({ light: ["linear-gradient(#fff, #eee)"], dark: ["url(https://x.example/a.png)"] });
   assert.equal(r.ok, false, "a bad dark half was accepted");
 });
+
+test("only the theme-dependent refusal is flagged as one", () => {
+  // `needsVars` is what lets a caller with no palette tell "the model wrote
+  // something wrong" from "I cannot judge this here". Getting the SET right is
+  // the whole thing: flag too many and the Worker stops reporting real
+  // refusals, flag too few and it reports one the container will not make.
+  //
+  // Every failure but the unresolved token is a fact about the TEXT, decidable
+  // anywhere. Driven rather than reasoned, because a new rule added to
+  // `readLayer` without a thought about this is exactly how the set drifts.
+  const themeFree = [
+    ["", "empty"],
+    ["x".repeat(MAX_LAYER + 1), "too long"],
+    ["linear-gradient(1deg, #fff, #000) /* hi */", "a comment"],
+    ["linear-gradient(1deg, #fff, #000); color: red", "a semicolon"],
+    ["linear-gradient(1deg, #fff, #000", "unbalanced"],
+    ["url(http://x/y.png)", "url()"],
+    ["color-mix(in oklch, #fff, #000)", "color-mix()"],
+    ["linear-gradient(90dge, #fff, #000)", "a misspelt unit"],
+  ];
+  for (const [layer, why] of themeFree) {
+    const r = readLayer(layer);
+    assert.equal(r.ok, false, `${why} was accepted`);
+    assert.ok(!r.needsVars, `${why} was flagged as needing a palette, so a Worker with none would let it through`);
+  }
+  const tokened = readLayer("linear-gradient(1deg, var(--primary), #fff)");
+  assert.equal(tokened.ok, false);
+  assert.equal(tokened.needsVars, true, "the ONE failure that depends on the palette is not marked as one");
+});
+
+test("the flag survives readAuthored, or the caller above cannot see it", () => {
+  const spec = { light: ["linear-gradient(1deg, var(--primary), #fff)"], dark: ["linear-gradient(1deg, #000, #111)"] };
+  assert.equal(readAuthored(spec).needsVars, true);
+  // …and it is NOT set for an ordinary refusal, in the same shape.
+  const bad = { light: ["url(http://x/y.png)"], dark: ["linear-gradient(1deg, #000, #111)"] };
+  assert.ok(!readAuthored(bad).needsVars);
+});
+
+test("with a palette, a token resolves and the extremes are real", () => {
+  const vars = { light: { "--primary": "#b4542e" }, dark: { "--primary": "#e08a60" } };
+  const r = readAuthored({
+    light: ["linear-gradient(1deg, var(--primary), #ffffff)"],
+    dark: ["linear-gradient(1deg, var(--primary), #000000)"],
+  }, { vars });
+  assert.equal(r.ok, true, r.why);
+  assert.doesNotMatch(r.layers.light.join(""), /var\(/, "a var() survived into the emitted value");
+  const lit = extremes(r.colors.light);
+  assert.ok(lit && lit.max > 0.9, "white did not read as the light extreme");
+  assert.ok(lit.min < 0.3, "the brand colour did not read as the dark extreme");
+});

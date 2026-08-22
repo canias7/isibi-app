@@ -55,7 +55,7 @@ import { renderNote } from "./builder/site-render.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
 import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker } from "./builder/site-dispatch.mjs";
 import { ASKABLE as SITE_TOKEN_NAMES, valueHint as siteTokenHint, mergeTokens, parseTokens, withContrast, tokenNote, askedNames, saidFor as tokenSaid, routeSelectorOk, pageScopeFor, MAX_PAGE_TOKENS } from "./builder/site-tokens.mjs";
-import { ASKABLE as SITE_STYLE_AXES, MAX_STYLE, MAX_STYLE_BUILD, optionsFor as siteStyleOptions, axisHint as siteStyleHint, mergeStyle, parseStyle, styleNote, saidFor as styleSaid } from "./builder/site-style.mjs";
+import { ASKABLE as SITE_STYLE_AXES, AUTHORED_AXES as SITE_AUTHORED_AXES, MAX_STYLE, MAX_STYLE_BUILD, optionsFor as siteStyleOptions, axisHint as siteStyleHint, authoredHint as siteAuthoredHint, mergeStyle, parseStyle, styleNote, saidFor as styleSaid } from "./builder/site-style.mjs";
 import { extractText, applyEdits, staleContactLinks } from "./builder/site-text.mjs";
 import { runTextEdit, runDataEdit, renamePages, renameRoute, MAX_DATA_ROWS } from "./builder/site-apply.mjs";
 import { runRulesEdit } from "./builder/site-rules.mjs";
@@ -4270,11 +4270,56 @@ const SITE_SCHEMA_TOOL = {
           "\"make it feel more spacious\", \"bigger text\", \"lose the shadows\", \"thinner icons\". Name only " +
           "the axes the customer actually asked about; anything left out keeps whatever the site wears today. " +
           "Omit it entirely on a revise about content, pages or layout.",
-        properties: Object.fromEntries(SITE_STYLE_AXES.map((a) => [a, {
-          type: "string",
-          enum: siteStyleOptions(a),
-          description: siteStyleHint(a),
-        }])),
+        // TWO OF THE AXES ALSO TAKE AN AUTHORED VALUE (owner's call, 2026-08-22
+        // — "the model should make them, not choose from the options there is
+        // here"). `backdrop` and `decor` are the two whose options are RAW CSS
+        // underneath — a `background-image` value and nothing else — so an
+        // authored one is the same kind of thing the named option already is,
+        // validated by `site-css.mjs` and held to the same contrast floor. The
+        // other twenty-one are not: they carry a number (`scale`, `border`) or
+        // name a whole block of rules, where there is no single value to author.
+        //
+        // A SIBLING FIELD, NOT AN `anyOf`, AND THAT IS A DECISION THIS TOOL HAS
+        // ALREADY MADE ONCE. The `webhooks` field a few hundred lines up refused
+        // a union for a stated reason that is still true: this tool has ZERO
+        // uses of `anyOf`/`oneOf`, and an untested JSON Schema construct here
+        // 400s EVERY build on the platform rather than degrading. The first
+        // draft of this shipped one anyway; it is a sibling because there is a
+        // lossless alternative, which is the same test `webhooks` applied.
+        //
+        // AND THE ENUM IS WHAT IS BEING PRESERVED, which is the point rather
+        // than caution. A union means dropping `type: "string"`, and the enum is
+        // what makes an option the engine would refuse IMPOSSIBLE instead of
+        // merely dropped — the property this whole block's own comment above
+        // exists for. A sibling keeps all twenty-three enums exactly as they are.
+        //
+        // THE WIRE SHAPE AND THE STORED SHAPE DIFFER ON PURPOSE. The tool sends
+        // `backdropCss`; `parseStyle` folds it onto `backdrop` at the door, so
+        // everything below — the cap, the merge, `_meta`, the container — sees
+        // one axis with one value, and a refusal is reported against the axis
+        // the customer named rather than a field name they never saw.
+        //
+        // DERIVED FROM `AUTHORED_AXES`, never a list of the two spelled here: a
+        // third axis taught to accept a value in `parseStyle` would otherwise be
+        // accepted by the engine and unreachable from the tool, which is this
+        // repo's most-recorded shape.
+        properties: {
+          ...Object.fromEntries(SITE_STYLE_AXES.map((a) => [a, {
+            type: "string",
+            enum: siteStyleOptions(a),
+            description: siteStyleHint(a) +
+              (SITE_AUTHORED_AXES.includes(a) ? " — OR write your own, in `" + a + "Css`." : ""),
+          }])),
+          ...Object.fromEntries(SITE_AUTHORED_AXES.map((a) => [a + "Css", {
+            type: "object",
+            description: siteAuthoredHint(a),
+            properties: {
+              light: { type: "array", items: { type: "string" }, description: "The layers, in light mode. First paints on top." },
+              dark: { type: "array", items: { type: "string" }, description: "The layers, in dark mode. First paints on top." },
+            },
+            required: ["light", "dark"],
+          }])),
+        },
       },
       // THE SHAPE — SIX AUTHORED FIELDS WHERE `family` USED TO BE (owner's call,
       // 2026-08-20). Distinct from the theme on purpose: a theme decides how a
