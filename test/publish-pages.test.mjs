@@ -1535,8 +1535,18 @@ test("a refusal AFTER the design call refunds the schema charge", () => {
   // client asserted "you weren't charged". Asserted by counting: a single missed
   // branch is the whole bug.
   const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const refunds = (src.match(/await refundCredits\(env, bu\.id, Math\.max\(0, schemaCost\)\)/g) || []).length;
+  // THROUGH `refundFields` NOW, and the count is the same property. That helper
+  // exists because every one of these called `refundCredits` as a bare
+  // statement and threw away the boolean it returns — so a reversal that did
+  // not land was invisible and the response said `cost: 0` anyway.
+  const refunds = (src.match(/await refundFields\(schemaCost\)/g) || []).length;
   assert.ok(refunds >= 4, `only ${refunds} post-design refusals refund the schema charge — expected the 409, the 503, the no-tables 400 and the provisioning conflict`);
+  // …AND EVERY ONE REPORTS WHAT IT COULD NOT GIVE BACK. Refunding and then
+  // asserting `cost: 0` regardless is the bug, not the absence of a refund.
+  const spreads = (src.match(/\.\.\.back[,\s}]/g) || []).length;
+  assert.ok(spreads >= refunds, `${refunds} refusals refund and only ${spreads} say what stayed on the ledger`);
+  assert.ok(!/await refundCredits\(env, bu\.id, Math\.max\(0, schemaCost\)\)/.test(src),
+    "a build-route refusal calls refundCredits directly again, so its boolean is discarded");
 });
 
 /* --------------------------------------------------- salvaging a failed compile */

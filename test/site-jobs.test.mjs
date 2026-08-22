@@ -584,3 +584,39 @@ test("a half-configured site sends what it can and does not report the rest as f
   assert.match(jobOutcome({ ok: true, skipped: true }), /another run had already/,
     "while a genuinely lost claim still says exactly that");
 });
+
+test("a paused job is not un-paused by the next publish", () => {
+  // THE OFF SWITCH WAS TAKEN BACK BY THE THING THAT REGISTERS JOBS. Every row
+  // `persistSiteJobs` built hardcoded `enabled: true`, and it upserts with
+  // merge-duplicates — PostgREST overwrites the columns it is given — so the
+  // owner's pause was reset on the next publish of the site and the runner,
+  // which filters `enabled=is.true`, resumed it on the next two-minute tick.
+  //
+  // These send on the owner's OWN Twilio or Resend key, so it spends their
+  // money and messages their customers after they asked it to stop, with
+  // nothing on the site saying it started again.
+  const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const at = worker.indexOf("async function persistSiteJobs(");
+  assert.ok(at > 0, "persistSiteJobs moved");
+  // Bounded by the function's own close, never a byte budget — this file's
+  // sibling guards have been outrun by their own comments six times.
+  const fn = worker.slice(at, worker.indexOf("\n}", at));
+
+  // 1. IT READS THE STORED FLAG. Without this there is nothing to preserve.
+  assert.match(fn, /select: "name,enabled"/, "persistSiteJobs never asks which jobs are paused");
+  assert.match(fn, /row\.enabled === false/, "a stored pause is not recognised — strictly false, so nothing merely falsy pauses a job");
+
+  // 2. AND `enabled` IS OMITTED RATHER THAN SENT FALSE. Sending `false` would
+  //    be a second opinion about the owner's own setting; omitting the column
+  //    leaves whatever is stored, and the table's NOT NULL DEFAULT true gives a
+  //    genuinely new row the right answer. (Measured against the live schema —
+  //    if that default ever moves, this has to send the column again.)
+  assert.match(fn, /\?\s*\{\}\s*:\s*\{ enabled: true \}/,
+    "the row hardcodes `enabled` again, so a publish resets the owner's pause");
+
+  // 3. AN UNREADABLE ANSWER PAUSES NOTHING AND ENABLES NOTHING. Being wrong
+  //    toward paused costs a job that waits for the next publish; being wrong
+  //    toward enabled sends messages somebody switched off.
+  assert.match(fn, /paused\.add\(null\)/, "a failed read does not fall back to leaving every flag alone");
+  assert.match(fn, /const unknown = paused\.has\(null\)/, "the unknown sentinel is set and never read");
+});

@@ -292,7 +292,7 @@ test("a refused build gives back what was actually taken, not the flat fee", () 
   assert.ok(block.length > 200 && block.length < 2000, "the refusal block scan lost its bounds");
   assert.match(block, /That brief didn't describe anything to store/,
     "the refusal no longer says anything a customer can act on");
-  assert.match(block, /refundCredits\(env, bu\.id, Math\.max\(0, schemaCost\)\)/,
+  assert.match(block, /await refundFields\(schemaCost\)/,
     "a refused build refunds the deposit and keeps the settlement");
   // NO `|| SITE_BUILD_FEE` FALLBACK. This one refusal now serves the designer
   // path AND the explicit-schema path, and on the second one nothing was ever

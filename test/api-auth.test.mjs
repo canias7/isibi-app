@@ -647,8 +647,15 @@ for (const [what, anchor] of [
     const block = WORKER_SRC.slice(i, WORKER_SRC.indexOf("{ status: 502 }", i));
     assert.ok(block.length > 100 && block.length < 3000, what + " catch not found whole: " + block.length);
     // Anchored on the SPEND, not on a helper name — the refund is the thing.
-    assert.match(block, /refundCredits\(env, bu\.id/, what + " keeps the customer's money on our own failure");
-    assert.match(block, /cost: 0/, "…and must say so, or the client shows a charge that was given back");
+    //
+    // …AND THE HELPER IS NOW HOW THE SPEND HAPPENS, so "the refund is the
+    // thing" is asserted through it: `refundFields` calls `refundCredits`, and
+    // it exists because a bare `await refundCredits(...)` DISCARDED the boolean
+    // that function was given specifically so a failed reversal stops being
+    // invisible — all six refusals then answered a literal `cost: 0` while the
+    // customer kept being charged up to the whole settled schema cost.
+    assert.match(block, /await refundFields\(schemaCost\)/, what + " keeps the customer's money on our own failure");
+    assert.match(block, /\.\.\.back/, "…and must report what really stayed on the ledger, or the response asserts a refund that did not land");
   });
 }
 

@@ -2588,8 +2588,62 @@ async function persistSiteJobs(env, ownerId, slug, jobs) {
   if (!env.SUPABASE_SERVICE_KEY || !slug || !ownerId || !jobs.length) return;
   const svc = { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, "Content-Type": "application/json" };
   const now = new Date().toISOString();
+
+  // ── A PAUSED JOB STAYS PAUSED ────────────────────────────────────────────
+  //
+  // Every row here hardcoded `enabled: true`, and this is a merge-duplicates
+  // upsert — PostgREST overwrites the columns it is given — so the owner's off
+  // switch was reset by the next publish of the site. `POST /jobs {enabled}` is
+  // described one screen down as "the one write that flag was waiting for", and
+  // this quietly took it back: the runner filters `enabled=is.true`, so the job
+  // resumed on the next two-minute tick.
+  //
+  // NOT A COSMETIC RESET. These jobs send on the owner's OWN Twilio or Resend
+  // key, so it spends their money and mails or texts their customers after they
+  // asked it to stop — and there is nothing on the site to tell them it started
+  // again.
+  //
+  // READ FIRST, and treat an unreadable answer as PAUSED for every name we
+  // cannot vouch for. The safe direction is unambiguous here: being wrong
+  // toward paused costs a job that does not fire until the next publish, and
+  // being wrong toward enabled sends messages somebody switched off. A row that
+  // does not exist yet is not in the set, so a genuinely new job still starts
+  // enabled — which is what a newly declared job means.
+  //
+  // AND OMITTING THE COLUMN IS WHAT MAKES THAT TRUE, which was MEASURED rather
+  // than assumed: `site_functions.enabled` is `boolean NOT NULL DEFAULT true`.
+  // So an absent `enabled` gives a NEW row `true` and leaves an EXISTING row
+  // exactly as the owner set it. Had the column been nullable with no default,
+  // this same omission would have written NULL and the runner's
+  // `enabled=is.true` would have filtered out every newly declared job —
+  // silently, and in the direction where the reminder never fires. If that
+  // default ever moves, this function has to send the column again.
+  const names = jobs.slice(0, 8).map((j) => j.name);
+  const paused = new Set();
+  try {
+    const q = new URLSearchParams({
+      select: "name,enabled",
+      owner_id: "eq." + ownerId,
+      slug: "eq." + slug,
+      name: "in.(" + names.map((n) => JSON.stringify(String(n))).join(",") + ")",
+    });
+    const pr = await fetch(`${SUPABASE_URL}/rest/v1/site_functions?${q}`, { headers: svc, signal: AbortSignal.timeout(10000) });
+    if (!pr.ok) throw new Error("site_functions read " + pr.status);
+    for (const row of await pr.json()) if (row && row.enabled === false) paused.add(String(row.name));
+  } catch (e) {
+    // CANNOT TELL MEANS LEAVE THEM ALONE, and it is expressed by dropping the
+    // column entirely rather than by guessing a value: merge-duplicates only
+    // overwrites the columns present in the row, so an absent `enabled` leaves
+    // whatever is stored — new rows take the table's own default and existing
+    // ones keep the owner's choice, which is exactly the answer a failed read
+    // has no business overruling.
+    console.error("site_functions pause read failed:", slug, e && e.message);
+    paused.add(null); // sentinel: unknown for every name
+  }
+  const unknown = paused.has(null);
   const rows = jobs.slice(0, 8).map((j) => ({
-    owner_id: ownerId, slug, name: j.name, spec: { fn: j.fn }, enabled: true,
+    owner_id: ownerId, slug, name: j.name, spec: { fn: j.fn },
+    ...(unknown || paused.has(String(j.name)) ? {} : { enabled: true }),
     updated_at: now, schedule_minutes: j.everyMinutes,
   }));
   const r = await fetch(`${SUPABASE_URL}/rest/v1/site_functions?on_conflict=owner_id,slug,name`, {
@@ -11794,6 +11848,31 @@ async function handleRequest(request, env, ctx) {
       // Whether a reversal we tried to make did not land — see the negative
       // settle below. Declared out here so the response literal can read it.
       let refundShort = false;
+
+      // ── A REFUND THAT DID NOT LAND IS NOT `cost: 0` ──────────────────────
+      //
+      // `refundCredits` was given a return value specifically so a failed
+      // reversal stops being invisible — its own docstring says "A REVERSAL
+      // THAT FAILS IS MONEY THE CUSTOMER KEEPS BEING CHARGED, so it says so" —
+      // and every refusal on this route called it as a bare statement and then
+      // answered a literal containing `cost: 0`. So the customer kept being
+      // charged up to the whole settled schema cost (12 credits cold Sonnet, 21
+      // Opus) while the response asserted they were charged nothing, and
+      // nothing anywhere recorded it. `credit_back` chunks at 10, so a
+      // 13-credit refund is two calls and either can fail on its own.
+      //
+      // ONE HELPER, so the six refusals cannot each remember separately. It
+      // returns the FIELDS rather than a boolean, because the honest response
+      // needs both halves: what really stayed on the ledger, and a flag naming
+      // it. `refundShort` is the same field the negative-settlement branch
+      // already sets and the success response already carries.
+      const refundFields = async (amount) => {
+        const n = Math.max(0, Number(amount) || 0);
+        if (n <= 0) return { cost: 0 };
+        if (await refundCredits(env, bu.id, n)) return { cost: 0 };
+        console.error("refund did not land:", slug, n);
+        return { cost: n, refundShort: true };
+      };
       if (!body.schema) {
         if (!brief) return Response.json({ ok: false, error: "no brief" }, { status: 400 });
         // A DEPOSIT, NOT THE PRICE. Taken before the call because `use_credits`
@@ -12155,16 +12234,16 @@ async function handleRequest(request, env, ctx) {
           // no site and a real charge — and the client is told they were not
           // charged. Same reasoning as the no-tables path: this returns before
           // anything is provisioned, so they are left with literally nothing.
-          await refundCredits(env, bu.id, Math.max(0, schemaCost));
-          return Response.json({ ok: false, error: "that name is taken", cost: 0, msg: "That site name is taken by another account. Say a different name in your next message — e.g. \"call it sunset-cuts\" — and I\u2019ll build it under that." }, { status: 409 });
+          const back = await refundFields(schemaCost);
+          return Response.json({ ok: false, error: "that name is taken", ...back, msg: "That site name is taken by another account. Say a different name in your next message — e.g. \"call it sunset-cuts\" — and I\u2019ll build it under that." }, { status: 409 });
         }
         // Free — this lookup already happens for the ownership check.
         existing = !!(owner && owner.uid);
         priorBrief = (owner && owner.brief) || "";
       } catch (e) {
         console.error("ownership check failed:", slug, e && (e.detail || e.message));
-        await refundCredits(env, bu.id, Math.max(0, schemaCost));
-        return Response.json({ ok: false, msg: "Couldn't check that name just now — try again in a moment.", cost: 0 }, { status: 503 });
+        const back = await refundFields(schemaCost);
+        return Response.json({ ok: false, msg: "Couldn't check that name just now — try again in a moment.", ...back }, { status: 503 });
       }
 
       // A Supabase round trip, and it was folded into a mark named `normalize`
@@ -12254,7 +12333,7 @@ async function handleRequest(request, env, ctx) {
       // different numbers, and refunding the fee would quietly keep the
       // settlement on a build that 422s.
       if (!spec.tables.length && !existing) {
-        await refundCredits(env, bu.id, Math.max(0, schemaCost));
+        const back = await refundFields(schemaCost);
         // AND SAY WHICH OF THE FOUR IT WAS. This refusal reads identically for a
         // model that made no tool call, one that called it and declared nothing,
         // one whose answer would not parse, and one whose every table NAME was
@@ -12268,8 +12347,8 @@ async function handleRequest(request, env, ctx) {
         // A caller that sent its own schema gets the machine answer; a customer
         // whose brief the designer could make nothing of gets the sentence.
         return body.schema
-          ? Response.json({ ok: false, error: "schema declares no tables", cost: 0 }, { status: 400 })
-          : Response.json({ ok: false, msg: "That brief didn't describe anything to store — try naming what the site keeps track of.", cost: 0 }, { status: 422 });
+          ? Response.json({ ok: false, error: "schema declares no tables", ...back }, { status: 400 })
+          : Response.json({ ok: false, msg: "That brief didn't describe anything to store — try naming what the site keeps track of.", ...back }, { status: 422 });
       }
 
       let db;
@@ -12278,8 +12357,8 @@ async function handleRequest(request, env, ctx) {
         tr.at("provision");
       } catch (e) {
         if (e && e.conflict) {
-          await refundCredits(env, bu.id, Math.max(0, schemaCost));
-          return Response.json({ ok: false, error: "that name is taken", cost: 0, msg: "That site name is taken by another account. Say a different name in your next message — e.g. \"call it sunset-cuts\" — and I\u2019ll build it under that." }, { status: 409 });
+          const back = await refundFields(schemaCost);
+          return Response.json({ ok: false, error: "that name is taken", ...back, msg: "That site name is taken by another account. Say a different name in your next message — e.g. \"call it sunset-cuts\" — and I\u2019ll build it under that." }, { status: 409 });
         }
         console.error("site provision failed:", slug, e && e.status, e && (e.detail || e.message));
         // REFUNDED, BECAUSE THIS FAILURE IS OURS AND THEY ARE LEFT WITH NOTHING.
@@ -12292,7 +12371,7 @@ async function handleRequest(request, env, ctx) {
         // a provisioning failure leaves them in exactly that state, and
         // infrastructure being down is an our-fault stage by `ourFault`'s own
         // list. During an outage each retry cost half a grant for nothing.
-        await refundCredits(env, bu.id, Math.max(0, schemaCost));
+        const back = await refundFields(schemaCost);
         // THE STATUS IS THE DIAGNOSIS. A dead key (401), a plan or permission
         // limit (403), a project quota (422) and Neon being down (5xx) all read
         // identically without it, and each needs a completely different fix —
@@ -12308,7 +12387,7 @@ async function handleRequest(request, env, ctx) {
           // identically.
           stage: (e && e.stage) || null,
           detail: scrubSecrets(String((e && (e.detail || e.message)) || "")).slice(0, 300),
-          cost: 0,
+          ...back,
         }, { status: 502 });
       }
 
@@ -12323,7 +12402,7 @@ async function handleRequest(request, env, ctx) {
         // anything the customer wrote, and `ourFault` treats an unclassified
         // stage as ours by design. They are left with an empty database and no
         // site — technically an artifact, practically nothing.
-        await refundCredits(env, bu.id, Math.max(0, schemaCost));
+        const back = await refundFields(schemaCost);
         // SCRUBBED, like the provisioning detail one branch up and unlike this
         // line until now. A Postgres or Neon error can quote the statement, and
         // the statement is built from the connection the vault handed us.
@@ -12331,7 +12410,7 @@ async function handleRequest(request, env, ctx) {
           ok: false,
           error: "could not apply the schema",
           detail: scrubSecrets(String((e && (e.detail || e.message)) || "")).slice(0, 300),
-          cost: 0,
+          ...back,
         }, { status: 502 });
       }
 
