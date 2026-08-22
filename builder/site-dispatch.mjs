@@ -14,6 +14,29 @@
 const API = "https://api.cloudflare.com/client/v4";
 
 /**
+ * The ceiling on one Cloudflare API call — two minutes.
+ *
+ * ANOTHER UNBOUNDED AWAIT ON THE BUILD PATH, found while narrowing run 13's
+ * hang. The upload PUTs the site's whole packaged script — near a megabyte, as a
+ * multipart form — to a third-party API, and it carried no signal at all, one
+ * step after everything around it had been bounded. That is exactly the class
+ * `build-budget.mjs` was written about: a per-call cap only bounds the calls
+ * somebody thought of, and this was not one of them.
+ *
+ * IT IS *NOT* WHAT RUN 13 HUNG ON, and saying so is the point of measuring
+ * rather than assuming. `putSiteWorker` runs after the `og` mark and that build
+ * stopped at `fonts`, so this is eliminated as the cause and fixed on its own
+ * merits — an unbounded third-party call on the build path is a bug whether or
+ * not it is today's bug.
+ *
+ * FLAT RATHER THAN COMPOSED WITH THE BUILD BUDGET, deliberately: three of the
+ * four callers are not on a build path and have no clock, and the deadline one
+ * layer up bounds the customer's wait regardless. What this buys is a call that
+ * fails with a diagnosis instead of sitting there.
+ */
+export const DISPATCH_CALL_MS = 120000;
+
+/**
  * Upload one site's script.
  *
  * MULTIPART, because that is the only shape the endpoint takes for a module
@@ -57,7 +80,10 @@ export async function uploadSiteWorker({ accountId, namespace, name, code, bucke
   try {
     r = await fetchImpl(
       `${API}/accounts/${encodeURIComponent(accountId)}/workers/dispatch/namespaces/${encodeURIComponent(namespace)}/scripts/${encodeURIComponent(name)}`,
-      { method: "PUT", headers: { authorization: "Bearer " + apiToken }, body: form },
+      // BOUNDED — see DISPATCH_CALL_MS. The catch below already turns a throw
+      // into `status: 0` with the reason on it, so an abort arrives as an
+      // upload that did not happen, which is exactly what it is.
+      { method: "PUT", headers: { authorization: "Bearer " + apiToken }, body: form, signal: AbortSignal.timeout(DISPATCH_CALL_MS) },
     );
   } catch (e) {
     // A THROW IS NOT A REFUSAL. The network failing and Cloudflare saying no
@@ -92,7 +118,10 @@ export async function deleteSiteWorker({ accountId, namespace, name, apiToken },
   try {
     r = await fetchImpl(
       `${API}/accounts/${encodeURIComponent(accountId)}/workers/dispatch/namespaces/${encodeURIComponent(namespace)}/scripts/${encodeURIComponent(name)}`,
-      { method: "DELETE", headers: { authorization: "Bearer " + apiToken } },
+      // Bounded like the upload. A delete that hangs is worse than one that
+      // fails: `deleteSiteFor` removes the ownership row LAST precisely so a
+      // failure stays retryable, and a hang never reaches that decision.
+      { method: "DELETE", headers: { authorization: "Bearer " + apiToken }, signal: AbortSignal.timeout(DISPATCH_CALL_MS) },
     );
   } catch (e) {
     return { ok: false, status: 0, error: String((e && e.message) || e).slice(0, 300) };

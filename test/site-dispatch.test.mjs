@@ -5,7 +5,8 @@
 // that needs a real namespace and is a live check.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { uploadSiteWorker, deleteSiteWorker, COMPAT_DATE } from "../builder/site-dispatch.mjs";
+import { uploadSiteWorker, deleteSiteWorker, COMPAT_DATE, DISPATCH_CALL_MS } from "../builder/site-dispatch.mjs";
+import fs from "node:fs";
 
 const ARGS = { accountId: "acc", namespace: "sites", name: "site-forno", code: "export default {}", bucket: "site-assets", apiToken: "tok" };
 const res = (status, body) => ({ status, json: async () => body, text: async () => JSON.stringify(body) });
@@ -212,4 +213,71 @@ test("`success: true` is left alone, and 404 still means already gone", async ()
   // treating already-gone as a failure means the cleanup never reports success.
   assert.equal((await ok(404, { success: false, errors: [{ code: 10007, message: "not found" }] })).ok, true,
     "an already-absent script is the goal, not a refusal");
+});
+
+// ── EVERY CALL TO A THIRD PARTY IS BOUNDED ─────────────────────────────────
+//
+// FOUND WHILE NARROWING RUN 13'S HANG, and eliminated as its cause in the same
+// breath: `putSiteWorker` runs after the `og` mark and that build stopped at
+// `fonts`, so this is not what wedged it. It is fixed anyway, because an
+// unbounded PUT of a near-megabyte script to a third-party API — on the build
+// path, one step after everything around it was bounded — is a bug on its own
+// merits and is precisely the class run 13 proved cannot be reasoned away.
+//
+// DERIVED over every fetch in the module rather than the two that exist today.
+// A third endpoint added later is one forgotten `signal:` from being the next
+// twenty-six minutes of silence, and nobody will remember this file.
+
+test("every Cloudflare API call this module makes carries a timeout", async () => {
+  const src = fs.readFileSync(new URL("../builder/site-dispatch.mjs", import.meta.url), "utf8");
+  // Comments blanked, whole-line and length-preserving: the header above spells
+  // both `signal:` and the constant while explaining them, and prose containing
+  // the thing it asserts is this repo's most repeated own-goal.
+  const code = src.replace(/^[ \t]*\/\/[^\n]*/gm, (m) => " ".repeat(m.length));
+  const calls = [...code.matchAll(/await fetchImpl\(\s*`[^`]*`,\s*(\{[\s\S]*?\}),\s*\)/g)];
+  assert.ok(calls.length >= 2, `expected the module's fetches to be found; got ${calls.length}`);
+  for (const c of calls) {
+    assert.match(c[1], /signal:\s*AbortSignal\.timeout\(/,
+      "a Cloudflare API call in site-dispatch.mjs has no timeout — it can hang for ever on the build path");
+    assert.match(c[1], /\bDISPATCH_CALL_MS\b/,
+      "the bound no longer derives from the one ceiling, so the calls can drift apart");
+  }
+  assert.equal(typeof DISPATCH_CALL_MS, "number");
+  assert.ok(DISPATCH_CALL_MS > 0 && DISPATCH_CALL_MS <= 300000,
+    "a dispatch call's ceiling is either zero (refusing everything) or long enough not to be one");
+});
+
+test("the injected fetch really receives the signal, not just the source", async () => {
+  // The source-read above proves the spelling; this proves it ARRIVES. An init
+  // built correctly and handed to the wrong call reads identically in a grep.
+  let seen = null;
+  await uploadSiteWorker(
+    { accountId: "a", namespace: "n", name: "s", code: "export default {}", bucket: "b", apiToken: "t" },
+    { fetch: async (_u, init) => { seen = init; return new Response('{"success":true}', { status: 200 }); } },
+  );
+  assert.ok(seen, "the upload never called the injected fetch");
+  assert.ok(seen.signal, "the upload's init carries no signal");
+  assert.equal(typeof seen.signal.aborted, "boolean", "what was passed is not an AbortSignal");
+
+  seen = null;
+  await deleteSiteWorker(
+    { accountId: "a", namespace: "n", name: "s", apiToken: "t" },
+    { fetch: async (_u, init) => { seen = init; return new Response('{"success":true}', { status: 200 }); } },
+  );
+  assert.ok(seen && seen.signal, "the delete's init carries no signal");
+});
+
+test("an aborted upload is an upload that did not happen, with a reason", async () => {
+  // The catch already turns a throw into `status: 0`, which is what an upload
+  // that never landed has — and `putSiteWorker` shapes both existing failure
+  // branches on that, so an abort needs no new wiring. Asserted rather than
+  // assumed, because a timeout arriving as `ok: true` would report a site as
+  // served by a script that was never uploaded.
+  const r = await uploadSiteWorker(
+    { accountId: "a", namespace: "n", name: "s", code: "export default {}", bucket: "b", apiToken: "t" },
+    { fetch: async () => { const e = new Error("The operation was aborted"); e.name = "TimeoutError"; throw e; } },
+  );
+  assert.equal(r.ok, false);
+  assert.equal(r.status, 0, "an aborted upload must read as one that never happened");
+  assert.match(String(r.error), /abort/i, "the reason is lost, so an operator cannot tell a timeout from a refusal");
 });
