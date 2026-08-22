@@ -429,8 +429,16 @@ test("the build both ASKS for photographs and BUYS them", () => {
   assert.ok(stated, "the layout directive is no longer composed for the model");
   assert.match(stated[1], /\bimages: imgBudget\b/, "and stated to the model in the user turn");
   assert.match(stated[1], /\bplan\b/, "the authored plan never reaches the directive");
-  assert.match(worker, /images: \(pages, \{ balance, reserve \}\) =>\s*\n?\s*buySitePhotos\(/,
-    "and the dep that buys them is supplied to publishPages");
+  // AND THE SAME OWN-GOAL AGAIN, ONE ASSERTION BELOW THE COMMENT WARNING ABOUT
+  // IT. This pinned `images: (pages, { balance, reserve }) => buySitePhotos(` —
+  // the implicit-return arrow, character for character — so it went red the day
+  // the dep grew a body to take a trace mark, on a change that supplies the
+  // exact same dep. The property is that the `images` dep buys photographs; how
+  // its body is spelled is not a fact about the wiring.
+  const at = worker.indexOf("\n    images: (pages,");
+  assert.ok(at > 0, "the `images` dep is no longer supplied to publishPages");
+  assert.match(worker.slice(at, at + 1200), /buySitePhotos\(/,
+    "the dep that buys photographs no longer calls buySitePhotos");
 });
 
 // The generate -> sniff -> hash -> put chain, wherever it lives. It was inline in

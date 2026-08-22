@@ -88,47 +88,57 @@ jobs:
           # (`mathaq-alemarat`, `mathaq-dubai`), so neither name can be reused:
           # ownership is what decides `revise`, and re-running one would be read
           # as an edit of an empty husk rather than the first build it never got.
-          OWNER_SLUG: lantern-lido
-          # RUN 13 (2026-08-22): THE SAME BRIEF AGAIN, AND THE FIRST WITH A
-          # CEILING ON IT.
+          OWNER_SLUG: pierhead-lido
+          # RUN 14 (2026-08-22): THE FIRST BUILD THAT CANNOT BE SILENT.
           #
-          # WHY RUN 12 STILL PRODUCED NOTHING, even with `ctx.waitUntil` in.
-          # That fix stops the WORKER being cancelled when the client goes away
-          # — and run 12 was not cancelled, it ran 26.9 minutes and the RUNNER's
-          # 30-minute cap ended the job with the build still going. Surviving a
-          # disconnect does not help a build that never finishes; nothing on the
-          # platform could stop one, because the only bounds anywhere near the
-          # build path were on the two MODEL calls.
+          # WHAT RUN 13 MEASURED, and it is a finding rather than another failed
+          # build. The budget shipped and was threaded correctly into both model
+          # calls and both container fetches — a derived guard proves it — and the
+          # arithmetic said the build had to answer by minute fifteen. It ran 26.5
+          # minutes, answered nothing, and was killed by this runner's cap. The
+          # ledger shows 406 -> 398: the Grok schema call settled and the pages
+          # call was never charged.
           #
-          # WHAT CHANGED, AND IT IS THE THING THAT WAS MISSING RATHER THAN A
-          # RETRY OF THE SAME CODE:
-          #   - the container fetch is bounded on BOTH publish spines. It never
-          #     was, on either, so once the model answered a build could run
-          #     forever — and the service is `oneAtATime` for the whole
-          #     platform, so a wedged run queues every other build behind it.
-          #   - the whole build has ONE budget, fifteen minutes, and the two
-          #     bounds COMPOSE rather than stack: the design call, the pages call
-          #     and the container each get what is LEFT.
-          #   - the trace is written to `site_builds` WHILE the build runs, so a
-          #     run that answers nothing is still diagnosable. Every previous
-          #     failure had a correct trace that died with the request.
+          # So the hang is in an await that has NO signal, because nobody put one
+          # there. A per-call cap can only ever bound the calls you thought of —
+          # the R2 writes, the Supabase RPCs, the font fetch and whatever is added
+          # next are each one forgotten `signal:` away from being the next
+          # twenty-six minutes of silence.
           #
-          # SO EVERY OUTCOME IS WORTH THE SPEND, which is what makes this a
-          # measurement rather than another coin flip:
+          # AND ITS OWN TRACE COULD NOT SAY WHERE. `site_builds` recorded eighteen
+          # marks in the first eighty seconds and then nothing at all: between
+          # `fonts` and the response there was ONE unbroken void covering
+          # generation, the photographs, the typecheck, vite, the prerender and
+          # the render check. The record built to answer "which step was it in?"
+          # could not answer it on the run it was built for.
+          #
+          # WHAT CHANGED, AND BOTH HALVES ARE THE POINT:
+          #   - THE ROUTE RACES THE BUILD AGAINST ITS OWN DEADLINE. One race, at
+          #     the top, so it bounds work it knows nothing about — including the
+          #     awaits nobody has thought of yet. The build is NOT cancelled: it
+          #     is on `waitUntil` and may still publish. What is bounded is the
+          #     WAIT, not the work.
+          #   - FOUR NEW MARKS SPLIT THE VOID: `gen` (asking the page model),
+          #     `img` (the image models), `compile` (the container), `container`
+          #     (the publish). Each names a DIFFERENT provider and a different
+          #     fix, where before all four wore one silence.
+          #
+          # SO EVERY OUTCOME IS WORTH THE SPEND, and this time that is a
+          # guarantee rather than a hope:
           #   - it publishes  -> the full response, the cost breakdown, and
           #     whether the model wrote its own backdrop
-          #   - it is refused -> an honest 15-minute answer naming its stage,
-          #     instead of a dead socket at 27 minutes
-          #   - it dies anyway -> `select * from site_builds where slug =
-          #     'lantern-lido'` names the exact step it got to. That is the
-          #     question five failed builds could not answer.
+          #   - it runs long  -> an honest 15-minute answer naming its stage AND
+          #     the exact mark it was sitting on
+          #   - it dies anyway -> `select at, steps from site_builds where slug =
+          #     'pierhead-lido'` names the step. That is the question six failed
+          #     builds could not answer.
           #
-          # A FRESH SLUG, because run 12 claimed `sunwater-lido` and ownership is
+          # A FRESH SLUG, because run 13 claimed `lantern-lido` and ownership is
           # what decides `revise` — re-running that name would be read as an edit
           # of the husk rather than the first build it never got.
           #
-          # THE BRIEF IS RUN 11's VERBATIM, for the third time. The only variable
-          # is the bounds; changing a word would make the outcome unattributable.
+          # THE BRIEF IS RUN 11's VERBATIM, for the fourth time. The only variable
+          # is the deadline; changing a word would make the outcome unattributable.
           #
           # WHAT IT ALSO ANSWERS, unchanged since run 11: whether the designer
           # reaches for an AUTHORED backdrop rather than one of the six named

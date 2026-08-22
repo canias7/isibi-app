@@ -50,8 +50,39 @@ else's**, on a step that also could not time out.
    never answered told us nothing at all. Now, even a build that dies completely
    can be looked up afterwards and asked *where did it get to*.
 
-**Still to prove:** a real build has not run against any of this yet. One is
-running now (`lantern-lido`).
+**AND THEN THE BUILD RAN ANYWAY — 26 minutes, no site (2026-08-22).**
+`lantern-lido` was the first build with the fifteen-minute limit on it, and it
+**ignored it**. Started 07:25, killed at 07:52, nothing published. Your balance
+went 406 → 398, which is the eight credits for designing the data model; the
+expensive step was never charged.
+
+**Why the limit did not work, in one sentence:** every time limit I added was
+attached to a *specific* step somebody had thought of, and the build got stuck
+on a step nobody had thought of. There is no way to finish that list — the next
+thing added is one forgotten line away from being the next 26 minutes of
+silence.
+
+**Its own record could not say where it got stuck, either.** It wrote down
+eighteen steps in the first eighty seconds and then went quiet for 25 minutes.
+The whole expensive middle of a build — writing the pages, buying the
+photographs, compiling, publishing — was one unlabelled gap. So the thing built
+to answer *"where did it get to"* could not answer it on the very first run.
+
+**FIXED PROPERLY, two ways:**
+
+1. **The whole build is now raced against a clock at the top level.** It does not
+   matter what it gets stuck on — known step, unknown step, something added next
+   year — you get an answer at fifteen minutes. **The build itself keeps
+   running** and may still publish; what has a limit now is how long you wait,
+   not how long it works.
+2. **The middle of a build is labelled.** Four new checkpoints: asking the AI for
+   the pages, buying the photographs, compiling, publishing. Each one is a
+   different company's service and a different fix — before, all four looked
+   identical from outside.
+
+**Next:** run 14 (`pierhead-lido`), same brief, and it is the first build that
+**cannot** be silent. It either publishes, or it tells you at fifteen minutes
+what did and did not get set up, or its record names the exact step it died on.
 
 **THE BUILDER NOW USES GROK BY DEFAULT (2026-08-22, your call).** It was using
 Claude, and **the Claude account is out of credit — so anybody who signed in and

@@ -31,7 +31,7 @@ import { handleOwnerExport } from "./site-export.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
 import { makeTrace } from "./builder/trace.mjs";
 import { makeRecorder, BUILD_RECORD_TABLE } from "./builder/build-record.mjs";
-import { makeBudget, budgetNote, BUILD_BUDGET_MS, CONTAINER_CALL_MS } from "./builder/build-budget.mjs";
+import { makeBudget, budgetNote, budgetStage, raceDeadline, BUILD_BUDGET_MS, CONTAINER_CALL_MS } from "./builder/build-budget.mjs";
 import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
@@ -8286,6 +8286,21 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
     // Throws on failure, and the route logs it. There is no second attempt to
     // swallow one, so nothing needs logging here.
     generate: async () => {
+      // THE MODEL CALL IS STARTING, and this mark is the reason a hung build can
+      // now name itself. Between `fonts` and `container` there was NOTHING —
+      // eighteen marks in the first eighty seconds and then one unbroken void
+      // covering generation, the photographs, the typecheck, vite, the prerender
+      // and the render check. Measured on run 13 (2026-08-22): the build ran 26.5
+      // minutes, answered nothing, and its stored trace stopped at `fonts` — so
+      // the one question the record exists for ("which step was it in?") was
+      // exactly the one it could not answer, on the run built to answer it.
+      //
+      // The `container` mark below already noticed this gap and closed the SPAN
+      // rather than splitting it, which is right for attributing time and useless
+      // for locating a hang. These three marks split it: a build stuck at `gen`
+      // is the provider, at `img` the image models, at `compile` the container,
+      // at `container` the publish — four different fixes wearing one silence.
+      try { mark?.("gen"); } catch { /* a trace must never break a build */ }
       // THE PLAN reaches the model as a DIRECTIVE appended to the brief, never
       // as a bare name. It used to be the FAMILY, and `layoutDirective` was
       // where site-layouts.mjs stated the hero, the body and the primary action
@@ -8302,9 +8317,23 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
     // wrote. `publishPages` supplies the two numbers only it knows — the balance
     // it read before generating and what the generation really cost — and
     // site-images.mjs owns the rule that turns them into a count.
-    images: (pages, { balance, reserve }) =>
-      buySitePhotos(env, { slug, pages, budget: imgBudget, balance, reserve }),
+    images: (pages, { balance, reserve }) => {
+      // GENERATION RETURNED — see the `gen` mark. Every photograph is its own
+      // bounded fetch and they run together, so a hang here is the image models
+      // and not the page model, which is a different provider and a different
+      // fix. Nothing else between the two marks can take time.
+      try { mark?.("img"); } catch { /* a trace must never break a build */ }
+      return buySitePhotos(env, { slug, pages, budget: imgBudget, balance, reserve });
+    },
     compile: async (pages) => {
+      // THE CONTAINER'S TURN IS BEGINNING — see the `gen` mark. `compileWithRetry`
+      // can call this dep twice and salvage a third time, so this mark moves; that
+      // is the point rather than a defect, since a build that sat at `compile` for
+      // twenty minutes was in the container however many attempts it made. What it
+      // separates is the container from the model call above it and the publish
+      // below, and the build service is `oneAtATime` for the WHOLE PLATFORM, so a
+      // hang here is also every other customer's build queued behind this one.
+      try { mark?.("compile"); } catch { /* a trace must never break a build */ }
       const files = {};
       for (const p of pages) files[p.path] = p.source;
       // ── THE SITE'S OTHER LANGUAGES, ON THE BUILD PATH (2026-08-21) ─────────
@@ -12189,12 +12218,15 @@ async function handleRequest(request, env, ctx) {
       // promise, so returning this one propagates the same throw to the same
       // catch — the `.then(noop, noop)` exists only so `waitUntil` is never
       // handed an unhandled rejection, and must not swallow it from the caller.
-      const buildDone = (async () => {
-      // THE TRACE, started BEFORE the auth check rather than after it. `authUser`
-      // is a round trip to GoTrue — a real network call on every build — and
-      // starting the trace below it put that call outside `totalMs` entirely, so
-      // the reported total was not the time the caller actually waited.
-      // Costs two Date.now() calls a step and cannot throw — see builder/trace.mjs.
+      // THE THREE ARE DECLARED OUT HERE, ABOVE THE WRAPPER, AND THAT IS WHAT
+      // MAKES THE DEADLINE POSSIBLE AT ALL. They were the wrapper's first three
+      // statements, which is fine for the build and useless for the thing that
+      // has to ANSWER when the build does not: `return Promise.race([...])`
+      // needs the budget and the recorder in the same scope as the promise it
+      // is racing. Nothing here reads anything from inside the wrapper, so the
+      // hoist is a scope change and not a behaviour one — and it is strictly
+      // more correct besides, since the budget's clock and the trace's t0 both
+      // want to start as early as the request does.
       //
       // THE RECORDER IS DECLARED FIRST AND THAT IS NOT A STYLE CHOICE. `tr`'s
       // observer names `rec`, so declaring the trace above it is a read in the
@@ -12213,10 +12245,15 @@ async function handleRequest(request, env, ctx) {
       // (2026-08-22) completed design and provisioning and then answered
       // nothing, and "which step was it in" was unanswerable — the trace existed,
       // was correct, and died with the request. See builder/build-record.mjs.
+      //
+      // Started BEFORE the auth check rather than after it: `authUser` is a round
+      // trip to GoTrue on every build, and starting the trace below it put that
+      // call outside `totalMs` entirely, so the reported total was not the time
+      // the caller actually waited. Two Date.now() calls a step, cannot throw.
       const tr = makeTrace(undefined, (snap) => rec.step(snap));
-      // THE BUILD'S OWN DEADLINE, started on the same line as the trace and for
-      // the same reason: the customer's wait begins here, not after the auth
-      // round trip. Fifteen minutes for the WHOLE build.
+      // THE BUILD'S OWN DEADLINE. Fifteen minutes for the WHOLE build, starting
+      // here — the customer's wait begins at the request, not after the auth
+      // round trip.
       //
       // `BUILDER_CALL_MS` bounds a CALL and cannot bound a build — 600s design +
       // 600s pages + ~500s of container is ~29 minutes with no hang anywhere, so
@@ -12225,6 +12262,7 @@ async function handleRequest(request, env, ctx) {
       // having provisioned its Neon project 46 seconds in. Bounding two calls
       // does not bound a build; see builder/build-budget.mjs.
       const budget = makeBudget();
+      const buildDone = (async () => {
       const bu = await authUser(request);
       if (!bu) return UNAUTHED();
       if (!siteDbConfigured(env)) return Response.json({ ok: false, error: "site database not configured", need: "NEON_API_KEY" }, { status: 501 });
@@ -14074,7 +14112,63 @@ async function handleRequest(request, env, ctx) {
       // second added later without it would otherwise turn every build into a
       // TypeError. Without it the build simply behaves as it did before.
       if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(buildDone.then(() => {}, () => {}));
-      return buildDone;
+      // ── THE DEADLINE, AND IT IS ONE RACE RATHER THAN N BOUNDS ──────────────
+      //
+      // WHY A RACE AND NOT MORE `AbortSignal.timeout`s. Run 13 (2026-08-22) is
+      // the measurement: the budget was threaded correctly into both model calls
+      // and both container fetches, the arithmetic said it must answer by minute
+      // fifteen, and the build ran 26.5 minutes and answered nothing. Every bound
+      // it had was a bound somebody REMEMBERED to add, and a per-call cap can
+      // only ever bound the calls you thought of — the R2 writes, the Supabase
+      // RPCs, the font fetch and anything added tomorrow are each one forgotten
+      // signal away from being the next twenty-six minutes of silence.
+      //
+      // A race bounds the WHOLE THING, including the awaits nobody has thought of
+      // yet. That is the property worth having: it is not a better timeout, it is
+      // a timeout that cannot be incomplete. The per-call caps stay — they give
+      // each step a sensible ceiling and they fail with a diagnosis — but the
+      // customer's answer no longer depends on the list being exhaustive.
+      //
+      // THE BUILD IS NOT CANCELLED, and that is deliberate rather than a
+      // limitation. It is already registered on `waitUntil`, so it keeps running
+      // and may still publish — which is strictly better for the customer than
+      // abandoning work that was minutes from finishing. What the deadline bounds
+      // is the WAIT, not the work.
+      //
+      // SO THE NOTE SAYS NOTHING ABOUT MONEY, exactly as `budgetNote` refuses to.
+      // A build that publishes after this answer is also charged after it, and a
+      // sentence here promising a refund the ledger then does not make would be
+      // the worse of the two lies.
+      //
+      // AND IT IS A `step`, NEVER A `finish`. `finish` CLOSES the recorder, so
+      // the row would say "timeout" for ever even on a build that published two
+      // minutes later — the record has to end up saying what really happened, and
+      // the real finish is what should write it. `done` stays false because the
+      // build genuinely is not done.
+      return raceDeadline(buildDone, {
+        // NEVER ZERO, for `capMs`'s own reason one file over: a timer of 0 fires
+        // on the next tick, so a budget somehow already spent would refuse every
+        // build instantly rather than bounding a slow one.
+        ms: Math.max(1000, budget.remainingMs()),
+        onExpire: () => {
+          const snap = tr.done();
+          const stage = budgetStage(snap && snap.steps);
+          try { rec.step(snap, { stage: "deadline", at_deadline: stage }); } catch { /* never */ }
+          console.error("build deadline:", stage, snap && snap.at, snap && snap.totalMs);
+          return Response.json({
+            ok: false,
+            stage: "deadline",
+            // WHERE IT GOT TO, in the trace's own vocabulary, because the three
+            // customer-facing words cannot tell an operator which provider to
+            // look at. Both travel: one is for the person waiting, one for the
+            // person fixing it.
+            at: snap && snap.at,
+            error: "the build ran out of time",
+            msg: budgetNote(stage),
+            trace: snap,
+          }, { status: 503 });
+        },
+      });
     }
 
     // GET /api/site/<slug>/rows[/<table>] — the OWNER reading their own site.

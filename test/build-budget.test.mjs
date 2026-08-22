@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { makeBudget, budgetNote, BUILD_BUDGET_MS, CONTAINER_CALL_MS } from "../builder/build-budget.mjs";
+import { makeBudget, budgetNote, budgetStage, raceDeadline, BUILD_BUDGET_MS, CONTAINER_CALL_MS } from "../builder/build-budget.mjs";
 
 /** A clock a test drives, so nothing here waits on real time. */
 function fakeClock(start = 1000) {
@@ -313,4 +313,174 @@ test("the pages call gets what is LEFT, and the route refuses before spending it
     "the refusal does not use the stage-named sentence, so it cannot say what was and was not set up");
   assert.match(gate[1], /stage = "generate"/,
     "the refusal does not name its stage, so `ourFault` cannot decide what it costs");
+});
+
+// ── THE DEADLINE ───────────────────────────────────────────────────────────
+//
+// RUN 13 IS WHY THIS TIER EXISTS, and it is worth stating as a measurement
+// rather than a worry. Every bound the budget had was correct and correctly
+// threaded — both model calls, both container fetches, and a derived guard
+// above proving it. The arithmetic said the build must answer by minute
+// fifteen. It ran 26.5 minutes, answered nothing, and its own stored trace
+// stopped at `fonts` at 79 seconds.
+//
+// So the lesson is not "add another timeout". A per-call cap can only ever
+// bound the calls somebody thought of, and the hang was in an await that had no
+// signal because nobody had put one there — the R2 writes, the Supabase RPCs,
+// the font fetch and whatever is added next are each one forgotten `signal:`
+// away from being the next twenty-six minutes of silence. A race bounds work it
+// knows nothing about, which is the only shape that cannot be incomplete.
+
+test("a deadline answers whatever the work does not", async () => {
+  // The four outcomes, all of them driven rather than read. `ms` is small on
+  // purpose: the floor that keeps a real deadline off zero belongs to the
+  // CALLER, which is about the budget, not about racing.
+  assert.equal(await raceDeadline(Promise.resolve("BUILT"), { ms: 5000, onExpire: () => "LATE" }), "BUILT",
+    "a build that finished was overtaken by its own deadline");
+  assert.equal(await raceDeadline(new Promise(() => {}), { ms: 10, onExpire: () => "LATE" }), "LATE",
+    "a build that never settles is still never answered — the whole point of the race");
+  await assert.rejects(
+    () => raceDeadline(Promise.reject(new Error("boom")), { ms: 5000, onExpire: () => "LATE" }),
+    /boom/,
+    "a rejection is being swallowed, so a build that fails fast no longer reports why");
+});
+
+test("a broken onExpire degrades to NO deadline, never to a 500", async () => {
+  // The direction matters. Resolving with the throw would turn every slow build
+  // into an error the customer cannot act on; leaving the race to the work
+  // restores exactly the behaviour of not having a deadline, which costs nothing
+  // that was not already being paid.
+  const slow = new Promise((res) => setTimeout(() => res("SLOW"), 80));
+  assert.equal(await raceDeadline(slow, { ms: 10, onExpire: () => { throw new Error("bad"); } }), "SLOW");
+});
+
+test("the deadline fires once, and the timer does not outlive the answer", async () => {
+  let n = 0;
+  await raceDeadline(new Promise(() => {}), { ms: 10, onExpire: () => { n++; return n; } });
+  await new Promise((res) => setTimeout(res, 60));
+  assert.equal(n, 1, "onExpire ran more than once — the answer is being recomputed after the race is decided");
+  // A settled build must not hold a timer for the rest of its budget. Measured
+  // by the handle count rather than by reading the source: a `clearTimeout` that
+  // names the wrong variable reads perfectly and clears nothing.
+  const before = process.getActiveResourcesInfo().filter((r) => r === "Timeout").length;
+  await raceDeadline(Promise.resolve("fast"), { ms: 3600000, onExpire: () => "LATE" });
+  const after = process.getActiveResourcesInfo().filter((r) => r === "Timeout").length;
+  assert.ok(after <= before, `a finished build left its deadline timer armed (${before} -> ${after})`);
+});
+
+test("the stage walks BACK to the last step it knows, so a new mark cannot mislabel a build", () => {
+  // The trace names steps for the engineer and the note speaks to the customer;
+  // this is where the two vocabularies meet. Reading only the FINAL step means a
+  // mark added later — and the build path is exactly the file that grows new
+  // marks — falls to a default that can tell somebody with a live database that
+  // nothing was set up.
+  assert.equal(budgetStage([]), "design", "a build with no marks at all did get as far as something");
+  assert.equal(budgetStage([{ s: "gate" }]), "design");
+  assert.equal(budgetStage([{ s: "design" }, { s: "prov:database" }]), "provision",
+    "a provisioning sub-step must read as provisioning — they are named by the provisioner, not by this file");
+  assert.equal(budgetStage([{ s: "schema" }, { s: "fonts" }, { s: "gen" }]), "generate");
+  assert.equal(budgetStage([{ s: "gen" }, { s: "img" }]), "publish",
+    "by the images the pages ARE written, so the note must stop saying they were not");
+  assert.equal(budgetStage([{ s: "compile" }]), "publish");
+  // The property that survives the next mark.
+  assert.equal(budgetStage([{ s: "schema" }, { s: "a-step-nobody-has-written-yet" }]), "generate");
+  assert.equal(budgetStage([{ s: "compile" }, { s: "a-step-nobody-has-written-yet" }]), "publish");
+  // Every stage it can answer must be a stage the note actually distinguishes,
+  // or a walk that is perfectly correct still produces one sentence for two
+  // situations that need opposite instructions.
+  const notes = new Set(["design", "provision", "generate", "publish"].map((s) => budgetNote(s)));
+  assert.ok(notes.size >= 3, "the four stages collapse to fewer than three sentences");
+});
+
+test("EVERY step of the build path maps to a stage — derived from the marks, not from a list", () => {
+  // A mark whose name this table has never heard of is not a crash, it is a
+  // build described by the step BEFORE it. That is safe and it is also silent,
+  // so the check is here rather than left to the fallback: the build route is
+  // the file that grows marks, and this is the one place that has to learn them.
+  // SCOPED TO WHAT A TRACE CAN ACTUALLY CONTAIN, and its first run is why. A
+  // bare `mark?.("route")` is not a step name: `ensureSiteBackend` reports
+  // through `(n) => tr.at("prov:" + n)`, so it reaches the trace as
+  // `prov:route`, which the prefix rule already answers. Reading the literal
+  // flagged a step that does not exist — a false alarm on correct code, which
+  // this repo rates worse than the miss. The build's own marks are the ones
+  // inside `buildAndPublishPages`, which are passed through unprefixed.
+  const bp = CODE.indexOf("async function buildAndPublishPages(env, {");
+  assert.ok(bp > 0, "buildAndPublishPages is gone");
+  const bpEnd = CODE.indexOf("\nasync function ", bp + 10);
+  const body = CODE.slice(bp, bpEnd > bp ? bpEnd : CODE.length);
+  const names = [...CODE.matchAll(/\btr\.at\("([^"]+)"/g)].map((m) => m[1])
+    .concat([...body.matchAll(/\bmark\?\.\("([^"]+)"\)/g)].map((m) => m[1]));
+  assert.ok(names.length >= 15, `expected the build's marks to be found; got ${names.length}`);
+  const unknown = [...new Set(names)].filter((n) => budgetStage([{ s: n }]) === "design" && n !== "auth"
+    && n !== "body" && n !== "links" && n !== "gate");
+  assert.deepEqual(unknown, [],
+    `these build marks have no stage, so a deadline there would tell the customer nothing was set up: ${unknown.join(", ")}`);
+});
+
+test("THE MIDDLE OF A BUILD IS MARKED — the void that made run 13 unanswerable", () => {
+  // Eighteen marks in the first eighty seconds and then ONE unbroken gap over
+  // generation, the photographs, the typecheck, vite, the prerender and the
+  // render check. The `container` mark noticed that gap and closed the SPAN
+  // rather than splitting it, which is right for attributing time and useless
+  // for locating a hang — so the record built to answer "which step was it in?"
+  // could not answer it on the very run it was built for.
+  //
+  // Each of these four names a DIFFERENT provider and a different fix, which is
+  // the whole reason they have to be separate.
+  for (const m of ["gen", "img", "compile", "container"]) {
+    assert.match(CODE, new RegExp(`mark\\?\\.\\("${m}"\\)`),
+      `the \`${m}\` mark is gone — a build that hangs there is indistinguishable from one that hangs anywhere else after \`fonts\``);
+  }
+  // AND THEY MUST BE IN THE RIGHT DEPS, or four marks in one place is one mark
+  // wearing four names. Derived from where each dep opens.
+  const dep = (name) => {
+    const at = CODE.indexOf(`\n    ${name}:`);
+    assert.ok(at > 0, `the \`${name}\` dep is gone`);
+    return CODE.slice(at, at + 2000);
+  };
+  assert.match(dep("generate"), /mark\?\.\("gen"\)/, "the model call is not marked, so a hung provider looks like a hung container");
+  assert.match(dep("images"), /mark\?\.\("img"\)/, "the image models are not marked");
+  assert.match(dep("compile"), /mark\?\.\("compile"\)/, "the container's turn is not marked");
+});
+
+test("the route RACES the build, and the deadline is a step rather than a finish", () => {
+  // THE WIRING LAYER, where this repo has recorded twelve dead features: the
+  // helper can be perfectly correct and reached by nothing, and the only symptom
+  // is a build that runs to the runner's cap exactly as it did before.
+  assert.match(CODE, /return raceDeadline\(buildDone, \{/,
+    "the build route no longer races its own deadline, so a hang in an unbounded await is unbounded again");
+  const at = CODE.indexOf("return raceDeadline(buildDone, {");
+  const block = CODE.slice(at, CODE.indexOf("\n      });", at));
+  assert.ok(block.length > 100, "could not read the deadline block — this check would be vacuous");
+
+  // WHAT IS LEFT, never the whole budget: the wait started when the request did.
+  assert.match(block, /budget\.remainingMs\(\)/,
+    "the deadline is not measured from what is left of the budget");
+  // A STEP, NEVER A FINISH. `finish` closes the recorder, so the row would say
+  // "timeout" for ever even on a build that published two minutes later — and
+  // the record has to end up saying what really happened.
+  assert.match(block, /rec\.step\(/, "the deadline does not record itself, so the row stops at the last real mark");
+  assert.doesNotMatch(block, /rec\.finish\(/,
+    "the deadline CLOSES the recorder, so a build that publishes afterwards can never correct its own row");
+  // It says where it got to in BOTH vocabularies — one for the person waiting,
+  // one for the person fixing it.
+  assert.match(block, /budgetNote\(stage\)/, "the customer is not told what survives");
+  assert.match(block, /budgetStage\(/, "the stage is not derived from the trace, so the sentence is a guess");
+});
+
+test("the budget and the recorder are declared ABOVE the wrapper, or the race cannot see them", () => {
+  // A SCOPE FACT WITH TEETH. They were the wrapper's first three statements,
+  // which is fine for the build and useless for the thing that has to answer
+  // when the build does not — `Promise.race` needs them in the same scope as the
+  // promise it is racing. Moved back inside, this file's own `raceDeadline`
+  // guard above still passes and the route stops compiling, which is the good
+  // failure; the bad one is somebody "tidying" the declarations back in and
+  // reaching for a side channel instead.
+  const wrapper = CODE.indexOf("const buildDone = (async () => {");
+  assert.ok(wrapper > 0, "the build route's waitUntil wrapper is gone");
+  for (const decl of ["const rec = makeRecorder({", "const tr = makeTrace(", "const budget = makeBudget()"]) {
+    const d = CODE.indexOf(decl);
+    assert.ok(d > 0, `${decl} is gone`);
+    assert.ok(d < wrapper, `${decl} moved back inside the wrapper, where the deadline cannot reach it`);
+  }
 });

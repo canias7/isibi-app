@@ -114,6 +114,93 @@ export function makeBudget(ms = BUILD_BUDGET_MS, now = () => Date.now()) {
 }
 
 /**
+ * Race some work against a deadline, and answer with whichever lands first.
+ *
+ * THE POINT IS THAT IT BOUNDS WORK IT KNOWS NOTHING ABOUT. Every other bound on
+ * the build path is an `AbortSignal` somebody remembered to attach to a specific
+ * fetch, and a per-call cap can only ever cover the calls you thought of.
+ * Measured on run 13 (2026-08-22): the budget was threaded correctly into both
+ * model calls and both container fetches, the arithmetic said the build must
+ * answer by minute fifteen, and it ran 26.5 minutes and answered nothing — the
+ * hang was in an await that had no signal because nobody had put one there. A
+ * race cannot be incomplete that way.
+ *
+ * IT DOES NOT CANCEL THE WORK, and cannot: a promise has no cancel. What it
+ * bounds is the WAIT. The caller keeps the work alive (`ctx.waitUntil`) so a
+ * build that was two minutes from finishing still finishes and still publishes.
+ *
+ * A REJECTION PROPAGATES UNCHANGED. `Promise.race` forwards whichever settles
+ * first, including a throw — so a build that fails fast behaves exactly as it
+ * did before this existed.
+ *
+ * AND `onExpire` THROWING DEGRADES TO NO DEADLINE, never to a 500. If the thing
+ * that builds the timeout answer is itself broken, resolving with the throw
+ * would turn every slow build into an error the customer cannot act on; leaving
+ * the race to the work restores precisely the behaviour of not having a deadline
+ * at all, which is the direction that costs nothing it was not already costing.
+ */
+export function raceDeadline(work, { ms, onExpire }) {
+  let timer = null;
+  const deadline = new Promise((resolve) => {
+    timer = setTimeout(() => {
+      let answer;
+      try { answer = onExpire(); } catch { return; }
+      resolve(answer);
+    }, ms);
+  });
+  // Cleared on either outcome so a settled build does not hold a timer for the
+  // rest of its budget. `finally` forwards the value and the rejection alike.
+  return Promise.race([work, deadline]).finally(() => {
+    try { clearTimeout(timer); } catch { /* never */ }
+  });
+}
+
+/**
+ * Where a build had got to, in the three words `budgetNote` speaks.
+ *
+ * The trace names steps for the ENGINEER (`prov:database`, `seedrows`, `og`);
+ * the note has to speak to the CUSTOMER, and the only distinction that matters
+ * to them is what survives: nothing, a live database, or written pages. This is
+ * the one place those two vocabularies meet.
+ *
+ * IT WALKS BACKWARDS TO THE LAST NAME IT KNOWS, rather than reading only the
+ * final step, and that is what makes it survive a mark being added later. A new
+ * step this table has never heard of would otherwise fall to a default and
+ * could tell a customer with a live database that nothing was set up — and the
+ * build path is exactly the file that grows new marks. Falling back to the last
+ * RECOGNISED step is the honest floor: it says "at least this far", which is
+ * always true, where a default is a guess that can be wrong in either direction.
+ */
+export function budgetStage(steps) {
+  const STAGE = {
+    auth: "design", body: "design", links: "design", gate: "design",
+    design: "provision", seedrows: "provision", owner: "provision",
+    normalize: "provision", provision: "provision",
+    schema: "generate", jobs: "generate", seed: "generate", look: "generate",
+    merge: "generate", research: "generate", fonts: "generate", gen: "generate",
+    // From here the pages exist, so the note stops saying they were not written.
+    img: "publish", compile: "publish", container: "publish", og: "publish",
+    // The build route's last mark, taken after `buildAndPublishPages` returns.
+    // A deadline that lands here is a build that did everything and was not told
+    // so — rare, and the note has to be the one that says the pages exist.
+    pages: "publish",
+  };
+  const list = Array.isArray(steps) ? steps : [];
+  for (let i = list.length - 1; i >= 0; i--) {
+    const raw = list[i] && (typeof list[i] === "string" ? list[i] : list[i].s);
+    const name = String(raw || "");
+    // Every provisioning sub-step (`prov:project`, `prov:auth`, …) means the
+    // same thing to a customer, and they are named by the provisioner rather
+    // than by this file, so a prefix is the only reading that cannot go stale.
+    if (name.startsWith("prov:")) return "provision";
+    if (Object.hasOwn(STAGE, name)) return STAGE[name];
+  }
+  // Nothing recognised — including an empty trace, which is a build that died
+  // before its first mark. "Nothing was set up" is exactly right there.
+  return "design";
+}
+
+/**
  * What to tell the customer when the budget runs out.
  *
  * NAMED BY STAGE, because the two ends of a build mean opposite things to

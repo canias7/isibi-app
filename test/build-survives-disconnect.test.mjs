@@ -114,7 +114,19 @@ test("the wrapper is guarded on ctx, so a caller without one is not a TypeError"
   assert.ok(call, "the waitUntil call is unguarded, or no longer registers buildDone");
   assert.match(call[0], /\.then\(\(\) => \{\}, \(\) => \{\}\)/,
     "the registered promise has no rejection handler");
-  // …and what is RETURNED is the original, never the swallowed one.
-  assert.match(tail.slice(0, tail.indexOf("\n", tail.indexOf("return buildDone")) + 1),
-    /return buildDone;/, "the route returns something other than the build's own promise");
+  // …AND WHAT IS RETURNED IS THE ORIGINAL, NEVER THE SWALLOWED ONE. That is the
+  // property, and this used to pin the spelling `return buildDone;` — which went
+  // red the day the route started racing the build against its own deadline, on
+  // a change that preserves the property exactly. The recurring own-goal, in the
+  // guard written for the shape it is guarding.
+  //
+  // The failure it exists for differs from a correct answer by one character:
+  // registering the swallowed promise and returning THAT means a build that
+  // threw answers 200 with an empty body — strictly worse than the crash it
+  // replaced. So the test is that the return NAMES the build and does NOT carry
+  // the swallow.
+  const ret = tail.match(/\n *return ([^\n]*buildDone[\s\S]{0,400}?);\n/);
+  assert.ok(ret, "the route no longer returns anything built from the build's own promise");
+  assert.doesNotMatch(ret[1], /\.then\(\(\) => \{\}, \(\) => \{\}\)/,
+    "the route returns the SWALLOWED promise, so a build that threw answers 200 with an empty body");
 });
