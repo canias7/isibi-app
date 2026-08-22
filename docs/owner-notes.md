@@ -80,9 +80,48 @@ to answer *"where did it get to"* could not answer it on the very first run.
    different company's service and a different fix — before, all four looked
    identical from outside.
 
-**Next:** run 14 (`pierhead-lido`), same brief, and it is the first build that
-**cannot** be silent. It either publishes, or it tells you at fifteen minutes
-what did and did not get set up, or its record names the exact step it died on.
+**RUN 14 PUBLISHED — and it says the problem was never what I thought
+(2026-08-22).** **pierhead-lido.gofarther.app** is live: The Lido Cafe, five
+pages, two real photographs, its own booking form. **110 credits.**
+
+**But its connection died at 291.9 seconds and the site appeared five minutes
+later anyway.** That is the disconnect fix doing exactly its job — the build
+carried on without anybody attached to it and published on its own.
+
+**NOTHING WAS EVER STUCK.** The new checkpoints turned the silent middle into a
+breakdown, and here it is:
+
+| step | time |
+|---|---|
+| working out the data model, setting up the database | 48.8s |
+| **the AI writing the pages** | **6m 31s** |
+| buying the photographs | 32.6s |
+| compiling | 1m 36s |
+| publishing | 13.8s |
+| **total** | **9m 52s** |
+
+So the single fault is one number: **the connection gives up at about 290
+seconds, and a Grok build of this size needs about 590.** Nothing hung, nothing
+timed out, no limit was hit. The build is simply slower than the connection will
+wait — and this is the fourth time we have measured that same ~290-second cutoff.
+
+**WHICH MEANS I FIXED THE WRONG LAYER FIRST, and it is worth saying straight.**
+The fifteen-minute limit and the checkpoints were both worth building — the
+checkpoints are the only reason we know any of the above — but a fifteen-minute
+limit cannot help something the network abandons at five minutes.
+
+**AND A REAL CUSTOMER HAS THE SAME PROBLEM, right now.** The builder in the app
+posts to the same place. On a site this size they will watch it fail, while the
+site quietly publishes — **and there is no list of your sites on the server**, so
+if the browser never learned the name, they cannot find what they just paid for.
+
+**THE FIX IS TO STOP MAKING THE ANSWER DEPEND ON THE CONNECTION.** Give back a
+build number straight away, let the work carry on, and show progress from the
+record it is already writing. Most of that exists: the record is live, the
+checkpoints are meaningful, and the app already has the code to display progress.
+What is missing is one small piece on each side. **Your call, because it changes
+what building a site feels like** — an instant reply with progress, instead of one
+long wait that sometimes dies.
 
 **THE BUILDER NOW USES GROK BY DEFAULT (2026-08-22, your call).** It was using
 Claude, and **the Claude account is out of credit — so anybody who signed in and
