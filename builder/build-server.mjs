@@ -50,7 +50,11 @@ const CLIENT_DIST = path.join(DIST, "client");
 const SERVER_BUNDLE = path.join(DIST, "server", "server.js");
 const GEN = path.join(APP, "src", "routeTree.gen.ts");
 const MAX_BODY = 4 * 1024 * 1024;
-const STEP_TIMEOUT = 150_000;
+// RAISED TO THIRTY MINUTES (2026-08-22, owner's call), with every other bound
+// on the build path. Each step here is a subprocess — tsc, vite, the prerender
+// — and the kill is what stops one wedging the container for the platform, so
+// the mechanism stays and only the number moves. Measured worst: vite 37s.
+const STEP_TIMEOUT = 1_800_000;
 
 const send = (res, code, obj) => { res.writeHead(code, { "content-type": "application/json" }); res.end(JSON.stringify(obj)); };
 

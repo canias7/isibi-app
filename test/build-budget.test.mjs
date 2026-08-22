@@ -74,19 +74,30 @@ test("a clock that goes BACKWARDS does not hand out more than the budget", () =>
   assert.ok(b.remainingMs() <= 900000, "a backwards clock created time that does not exist");
 });
 
-test("the budget sits below the runner cap and above the slowest build that ever published", () => {
-  // MEASURED, not chosen. Builds that finished: 272s, 378s, 507s. The runner cap
-  // is 30 minutes and a budget at or above it refuses nothing — it just fails
-  // later, which is exactly what happens today.
+test("the budget cannot refuse a build of a length that has really published", () => {
+  // MEASURED, not chosen. Builds that finished: 272s, 378s, 507s.
+  //
+  // ── THE UPPER BOUND IS GONE, AND IT WAS A POLICY RATHER THAN A PROPERTY ────
+  //
+  // This used to also assert `BUILD_BUDGET_MS < 30 * 60000`, on the reasoning
+  // that the harness runner capped a run at 30 minutes and a budget above that
+  // "can never be the thing that answers". Owner's call 2026-08-22 reversed the
+  // policy in as many words — "delete any timeout there is anywhere, pls, just
+  // let the model work" — and the runner cap moved to 350 minutes in the same
+  // change, so the number it was measured against no longer exists either.
+  //
+  // WHAT SURVIVES IS THE HALF THAT PROTECTS A CUSTOMER: a budget BELOW a build
+  // that has really finished refuses honest work, and that direction is a bug
+  // whatever the policy is. The mechanism is untouched — `raceDeadline`,
+  // `capMs` and every derived guard still hold — only the ceiling stopped
+  // binding.
   assert.ok(BUILD_BUDGET_MS > 507000 * 1.5,
     "the budget would refuse a build of a length that has really published");
-  assert.ok(BUILD_BUDGET_MS < 30 * 60000,
-    "the budget expires after the runner cap, so it can never be the thing that answers");
-  // AND THE CONTAINER CEILING FITS INSIDE IT. A container bound longer than the
-  // whole build's budget can never be what answers — `capMs` would clamp it on
-  // every build, which is the ceiling silently not existing. Above the measured
-  // 261s container slice with real room, since `STEP_TIMEOUT` is 150s a step and
-  // a legitimately slow run is minutes.
+  // AND THE CONTAINER CEILING STILL FITS INSIDE IT. A container bound longer
+  // than the whole build's budget can never be what answers — `capMs` would
+  // clamp it on every build, which is the ceiling silently not existing. This
+  // one is an ORDERING rather than a number, so raising both kept it true and
+  // it is worth keeping for exactly that reason.
   assert.ok(CONTAINER_CALL_MS > 261000 * 1.5,
     "the container ceiling would refuse a run of a length that has really published");
   assert.ok(CONTAINER_CALL_MS < BUILD_BUDGET_MS,

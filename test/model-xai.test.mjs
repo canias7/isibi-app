@@ -398,7 +398,24 @@ test("A BUILDER MODEL CALL IS BOUNDED — every fetch in it, both providers", ()
   // inside the safe band does not fail a test about a property.
   const ms = Number(/const BUILDER_CALL_MS = (\d+)/.exec(WORKER)[1]);
   assert.ok(ms >= 300000, "the builder bound would refuse builds that legitimately take minutes");
-  assert.ok(ms <= 900000, "the builder bound is loose enough that the measured 26-minute hang still nearly passes");
+  // ── THE UPPER BOUND IS GONE BY DECISION, NOT BY DRIFT ─────────────────────
+  //
+  // This asserted `ms <= 900000` so the bound stayed tight enough to catch the
+  // measured 1546s hang. Owner's call 2026-08-22 says the opposite in as many
+  // words — "delete any timeout there is anywhere, pls, just let the model
+  // work" — so a bound that refuses a long call is now the thing being removed
+  // rather than the thing being protected.
+  //
+  // AND THE HANG WAS NEVER WHAT THIS CAUGHT ANYWAY, which is why removing it
+  // costs less than it reads. `BUILDER_CALL_MS` is an `AbortSignal.timeout`
+  // INSIDE the Worker isolate; on both attempts of the CSS experiment the
+  // isolate was killed from outside — by the runner cap and by Cloudflare's
+  // ~285s connection reset — so the timer died with the thing it was bounding
+  // and never fired. A ceiling that cannot fire on the failure it was written
+  // for is not the protection its number implies.
+  //
+  // The LOWER bound stays: it is the half that stops a tuning mistake refusing
+  // an honest build, and that direction is a bug under any policy.
 
   // NOT A BLANKET RULE ON EVERY FETCH, and that was measured before choosing:
   // 18 of the 127 `fetch(` calls in this file carry no signal, and most are

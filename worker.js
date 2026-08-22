@@ -4605,7 +4605,22 @@ const SITE_SCHEMA_MAX_TOKENS = 16000;
  * failure that produces is one path quietly unbounded again; `stage` already
  * tells a design timeout from a pages timeout, so nothing is lost by sharing it.
  */
-const BUILDER_CALL_MS = 600000;
+// RAISED TO AN HOUR (2026-08-22, owner's call): "we gonna delete any timeout
+// there is anywhere, pls, just let the model work, forget about time".
+//
+// RAISED RATHER THAN REMOVED, and the difference matters. The signal stays
+// attached, so `isCallTimeout` still tells a ceiling of ours from a provider
+// outage, the derived guard that every model fetch carries a bound still holds,
+// and a genuinely wedged call still ends rather than pinning the container for
+// the platform. What changes is that the number can no longer bind on any
+// honest build — an hour against a measured worst of 391s.
+//
+// AND IT WAS NEVER WHAT KILLED A BUILD. Ten minutes has been in force since run
+// 9 and has never once fired: every failure reached the customer by a different
+// route — a connection reset at ~285s, or an isolate that stopped existing. So
+// this removes a bound that was not the problem, which is exactly why it is
+// safe to remove.
+const BUILDER_CALL_MS = 3600000;
 
 // THE BUDGET IS A THIRD ARGUMENT AND NOT A FIELD ON `req`, and the reason is one
 // line below: the Anthropic branch sends `JSON.stringify(req)`. A budget parked

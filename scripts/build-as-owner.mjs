@@ -154,6 +154,7 @@ const bt = Date.now();
 // the thing that died. The seconds are the whole diagnosis: they say the build
 // ran past the wall rather than failing at it.
 let build;
+let disconnected = false;
 try {
   build = await postLong(`${BASE}/api/site/react-build`, auth, JSON.stringify({
     brief: BRIEF,
@@ -165,24 +166,107 @@ try {
     ...(FREE_CSS ? { freeCss: true } : {}),
   }));
 } catch (e) {
+  // A DEAD CONNECTION IS NO LONGER A DEAD BUILD, AND THAT REVERSES WHAT THIS
+  // BRANCH USED TO DO. It called fail() on the reasoning that Cloudflare
+  // cancels a Worker when its client goes away — true until `ctx.waitUntil`
+  // landed, and PROVEN false since: run 14's connection reset at 291.9s and the
+  // site published ten minutes later (`pierhead-lido`, live now). So the reset
+  // costs the ANSWER and not the SITE, and a harness that exits here throws
+  // away a build the owner has already paid for.
+  //
+  // The ~285s wall is Cloudflare's rather than ours — five instances now, all
+  // within seven seconds of each other — so there is nothing on our side to
+  // raise. What there is to do is stop waiting on the socket and start watching
+  // the site.
+  disconnected = true;
   const secs = ((Date.now() - bt) / 1000).toFixed(1);
-  log(`step 4 — THE CONNECTION DIED after ${secs}s (${(e && e.code) || (e && e.message) || e})`);
-  log("step 4 — Cloudflare cancels a Worker when the client goes away, so the build was almost");
-  log("         certainly killed mid-flight: expect a claimed slug, a live Neon project and a");
-  log("         schema charge with no site. Check the ledger and site_backends before retrying.");
-  fail("the build connection did not survive — nothing to report from this run");
+  log(`step 4 — the connection died after ${secs}s (${(e && e.code) || (e && e.message) || e})`);
+  log("step 4 — EXPECTED, not fatal: the build is registered on ctx.waitUntil and keeps running.");
+  log("step 4 — watching the site and its build trace instead of the socket.");
 }
-const raw = build.text;
+const raw = build ? build.text : "";
 let d = null; try { d = JSON.parse(raw); } catch { /* logged below */ }
-log(`step 4 — build answered ${build.status} after ${((Date.now() - bt) / 1000).toFixed(1)}s`);
-if (!d) fail("the build response was not JSON: " + raw.slice(0, 500));
+if (build) {
+  log(`step 4 — build answered ${build.status} after ${((Date.now() - bt) / 1000).toFixed(1)}s`);
+  if (!d) fail("the build response was not JSON: " + raw.slice(0, 500));
+}
+
+// ── step 4b: the build outlived the socket — watch for it to publish ────────
+// THE TRACE IS THE OTHER HALF, and it is what six failed builds could not
+// produce. `site_builds` is one row per slug, upserted as the build walks its
+// marks, RLS on with NO policies — service key only, which this runner holds.
+// So a build with no client attached is still narrating itself, and printing
+// the last mark each poll turns "26 minutes of silence" into "it has been in
+// `gen` for 8 minutes", which names a provider and a fix.
+async function traceLine(slug) {
+  try {
+    const r = await fetch(
+      `${SUPABASE_URL}/rest/v1/site_builds?slug=eq.${encodeURIComponent(slug)}&select=done,ok,page,total_ms,steps`,
+      { headers: svc });
+    if (!r.ok) return `trace read ${r.status}`;
+    const rows = await r.json();
+    const row = rows && rows[0];
+    if (!row) return "no trace row yet";
+    const steps = row.steps || {};
+    const names = Object.keys(steps);
+    const last = names.length ? names[names.length - 1] : "(none)";
+    return `done=${row.done} ok=${row.ok} page=${row.page || "?"} marks=${names.length} last=${last}`;
+  } catch (e) {
+    return `trace unreadable (${String((e && e.message) || e).slice(0, 60)})`;
+  }
+}
+
+if (disconnected) {
+  if (!SLUG) {
+    fail("the connection died and no slug was set, so there is no address to watch — " +
+      "set OWNER_SLUG when running this, or read site_backends by hand");
+  }
+  // The public address. `/s/<slug>/` on the platform 301s to it, so either
+  // reaches the site; the subdomain is the one a customer is given.
+  const watch = `https://${SLUG}.gofarther.app/`;
+  log(`step 4b — watching ${watch} — the build publishes when it publishes, no ceiling here`);
+  const waitedFrom = Date.now();
+  let published = false;
+  // Poll for as long as this job is allowed to live. The runner's own cap is
+  // the only bound, deliberately: the owner's instruction was to let the model
+  // work, and a bound here would be exactly the ceiling we just removed.
+  for (let i = 1; i <= 240; i++) {
+    const mins = ((Date.now() - waitedFrom) / 60000).toFixed(1);
+    let status = 0;
+    try {
+      const r = await fetch(watch, { redirect: "follow" });
+      status = r.status;
+      if (r.ok) { published = true; }
+    } catch (e) {
+      status = `err ${String((e && e.code) || (e && e.message) || e).slice(0, 40)}`;
+    }
+    log(`step 4b — +${mins}m  site ${status}  |  ${await traceLine(SLUG)}`);
+    if (published) break;
+    await new Promise((r) => setTimeout(r, 15000));
+  }
+  if (!published) {
+    log("step 4b — the site never came up inside this job. The trace line above names the mark it");
+    log("         stopped on; the row survives, so `select steps from site_builds where slug=...`");
+    log("         is still the diagnosis after this run ends.");
+  } else {
+    log(`step 4b — PUBLISHED after ${((Date.now() - waitedFrom) / 60000).toFixed(1)} minutes of waiting`);
+  }
+  // The response is gone with the socket, so everything it carried — cost,
+  // notes, the image report, whether the model wrote its own CSS — has to be
+  // read off the site and the ledger instead. Synthesise the one field the
+  // steps below need rather than pretending we have the rest.
+  d = { url: watch, slug: SLUG };
+}
 
 // The full response IS the record — cost, usage, seeded rows, image report,
 // notes, problems. Nothing in it is a credential.
-log("step 4 — full response:");
-log(JSON.stringify(d, null, 2));
+if (!disconnected) {
+  log("step 4 — full response:");
+  log(JSON.stringify(d, null, 2));
+}
 
 // ── step 5: what the images did (the first funded run ever) ─────────────────
+if (!disconnected) {
 log(`step 5 — page=${d.page} slug=${d.slug} url=${d.url}`);
 log(`step 5 — cost=${JSON.stringify(d.cost)} charged=${d.charged}`);
 // WHICH MODELS ACTUALLY RAN, read off the response rather than assumed from
@@ -194,6 +278,10 @@ if (d.images) log(`step 5 — images: ${JSON.stringify(d.images)}`);
 if (d.imageNote || d.imagesNote) log(`step 5 — image note: ${d.imageNote || d.imagesNote}`);
 if (d.notes) log(`step 5 — the builder's own reply: ${d.notes}`);
 if (d.problems && d.problems.length) log(`step 5 — problems: ${JSON.stringify(d.problems)}`);
+} else {
+  log("step 5 — skipped: the response died with the socket, so the cost breakdown, the builder's");
+  log("         own reply and the image report are all gone. The ledger below is what is left.");
+}
 
 // ── step 6: balance after ───────────────────────────────────────────────────
 const after = await fetch(`${BASE}/api/credits`, { headers: auth }).then((r) => r.json()).catch(() => null);

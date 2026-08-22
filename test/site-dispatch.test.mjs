@@ -243,8 +243,20 @@ test("every Cloudflare API call this module makes carries a timeout", async () =
       "the bound no longer derives from the one ceiling, so the calls can drift apart");
   }
   assert.equal(typeof DISPATCH_CALL_MS, "number");
-  assert.ok(DISPATCH_CALL_MS > 0 && DISPATCH_CALL_MS <= 300000,
-    "a dispatch call's ceiling is either zero (refusing everything) or long enough not to be one");
+  // ZERO IS THE ONE VALUE THAT MUST STILL BE REFUSED, and it is not a
+  // hypothetical: `AbortSignal.timeout(0)` aborts on the next tick, which is
+  // indistinguishable from the provider hanging up — the exact confusion
+  // `isCallTimeout` exists to end. Every dispatch call on the platform would
+  // fail instantly and report as an upstream fault.
+  //
+  // THE UPPER BOUND WENT WITH THE POLICY (owner's call 2026-08-22: "delete any
+  // timeout there is anywhere"). It read `<= 300000` under a message about a
+  // ceiling being "long enough not to be one", which was a judgement about how
+  // long a ~950KB PUT to Cloudflare should be allowed to take. That judgement is
+  // the one being reversed; the mechanism is untouched, and the derived guard
+  // above still requires every call to carry the signal.
+  assert.ok(DISPATCH_CALL_MS > 0,
+    "a dispatch call's ceiling is zero, so AbortSignal.timeout(0) refuses every upload on the next tick");
 });
 
 test("the injected fetch really receives the signal, not just the source", async () => {

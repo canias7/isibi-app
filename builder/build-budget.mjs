@@ -43,7 +43,18 @@
  * request too, and a budget that expires after its container has already been
  * torn down refuses nothing — it just fails later, which is what happens today.
  */
-export const BUILD_BUDGET_MS = 900000;
+// RAISED TO TWO HOURS (2026-08-22, owner's call): "just let the model work,
+// forget about time". Raised rather than deleted so `raceDeadline`, `capMs` and
+// every guard over them stay exactly as they are — what goes is the number's
+// ability to bind, not the mechanism.
+//
+// AND IT HAD ALREADY BEEN MEASURED INERT. The first build ever to run past
+// fifteen minutes (2026-08-22, `css-axes-lido`, 26m48s) did NOT get this
+// answer: no response, and no `deadline` step in its trace, which `onExpire`
+// writes. Both this and `BUILDER_CALL_MS` are setTimeout inside the Worker
+// isolate, and when the isolate stopped they stopped with it. So this is a
+// bound that has never once fired, being raised past where it could.
+export const BUILD_BUDGET_MS = 7200000;
 
 /**
  * The ceiling on ONE container run — ten minutes.
@@ -65,7 +76,12 @@ export const BUILD_BUDGET_MS = 900000;
  * composes with the build budget through `capMs`, so a container starting late
  * in a build gets what is left rather than a fresh ten.
  */
-export const CONTAINER_CALL_MS = 600000;
+// RAISED TO AN HOUR with the rest (2026-08-22, owner's call). The reasoning
+// above still stands for why the bound EXISTS — the container is `oneAtATime`
+// for the whole platform, so a wedged run queues every other customer behind it
+// — and that is why this is raised rather than removed. An hour still ends a
+// genuinely stuck container; it just cannot end a slow one.
+export const CONTAINER_CALL_MS = 3600000;
 
 /**
  * The clock a build is measured against.

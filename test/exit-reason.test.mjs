@@ -124,7 +124,32 @@ test("every failure that reports a child process goes through it", () => {
   // Blank string literals before looking for an identifier, or `"vite build"`
   // reads as a use of the variable `build`. Blanked, not removed, so nothing
   // shifts. This repo has been bitten by scanning code with its strings intact.
-  const bare = (s) => s.replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, (m) => " ".repeat(m.length));
+  //
+  // ── AND COMMENTS GO FIRST, BECAUSE PROSE CONTAINS APOSTROPHES ─────────────
+  //
+  // The string blanker treats `'` as a delimiter, so ONE unpaired apostrophe in
+  // a comment — "the owner's call" — opens a string that runs to the next one
+  // and blanks every line between them. Measured: adding a single such comment
+  // to build-server.mjs blanked `const run = (...) => runStep(` two hundred
+  // lines below it, and this guard went red reporting that run() had stopped
+  // delegating. A false alarm on correct code, which this repo rates worse
+  // than the miss.
+  //
+  // WHOLE-LINE COMMENTS ONLY, deliberately: blanking from any `//` eats the
+  // rest of a line holding a URL, which is the rule site-locale.mjs's own
+  // guard already lives under.
+  //
+  // AND A STRING MAY NOT CROSS A NEWLINE, which is what made the old form
+  // destructive rather than merely wrong. `[^'\\]` matches `\n`, so an unpaired
+  // quote opened a "string" that ran to the next one FILE-WIDE and blanked
+  // every line between — and `" ".repeat(m.length)` turns those newlines into
+  // spaces, so the blanked source came back with FEWER LINES than the original.
+  // A quoted JS string cannot contain a raw newline anyway (a template literal
+  // can, and uses a backtick, which is not matched here), so excluding it is
+  // both correct and what bounds the damage to one line.
+  const bare = (s) => s
+    .replace(/^[ \t]*\/\/[^\n]*$/gm, (m) => " ".repeat(m.length))
+    .replace(/"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'/g, (m) => " ".repeat(m.length));
   const reportsAChild = ([, , expr]) => names.some((n) => new RegExp("\\b" + n + "\\b").test(bare(expr)));
 
   const relevant = stages.filter(reportsAChild);

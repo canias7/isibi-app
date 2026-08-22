@@ -34,7 +34,11 @@ const API = "https://api.cloudflare.com/client/v4";
  * layer up bounds the customer's wait regardless. What this buys is a call that
  * fails with a diagnosis instead of sitting there.
  */
-export const DISPATCH_CALL_MS = 120000;
+// RAISED TO TEN MINUTES (2026-08-22, owner's call). This one is NOT a model
+// call — it is the ~950KB PUT of a site's packaged script to Cloudflare — but
+// it sits on the publish path, and a build that survives an hour of generation
+// only to be refused here would be the same failure wearing a different name.
+export const DISPATCH_CALL_MS = 600000;
 
 /**
  * Upload one site's script.
