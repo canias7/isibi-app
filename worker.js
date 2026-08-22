@@ -8283,6 +8283,16 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
   // completely different actions. "upload failed" sends the reader to the wrong
   // one — the mistake this repo already paid for once by telling somebody to
   // add an SSL permission that could not have helped.
+  // WHETHER THE SOURCE STORE LANDED, ON THE RESULT — because `sourceStored` is
+  // local to THIS function and the response literal that reads it lives in
+  // `handleRequest`, ~5,000 lines away. Named there without this, it is a
+  // ReferenceError on EVERY build: `node --check` passes, esbuild bundles it,
+  // 3,788 unit tests stay green, and the route answers `500 {}`. The `du.id`
+  // class — a read in a DIFFERENT function, which the block-scope scanner
+  // cannot see because that one walks forward from a declaration — and it was
+  // caught by `confirm smoke` and `member smoke` going red in CI, not by
+  // anything in the suite.
+  if (sourceStored === false) out.sourceStored = false;
   if (workerUpload) {
     out.worker = workerUpload.ok
       ? { uploaded: true, ...confirmFields(workerUpload) }
@@ -13443,7 +13453,7 @@ async function handleRequest(request, env, ctx) {
         // NEXT revise into a full rewrite of every page's copy from the brief —
         // the exact bug the source store exists to prevent — with nothing
         // anywhere saying it had happened.
-        sourceStored: sourceStored === false ? false : undefined,
+        sourceStored: pages.sourceStored === false ? false : undefined,
         prerenderSkipped: pages.prerenderSkipped || undefined,
         // AND WHETHER MODEL-WRITTEN CODE RAN SANDBOXED. Only ever present as
         // `false` — the ordinary answer is silence and the field's PRESENCE is

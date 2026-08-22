@@ -744,3 +744,111 @@ test("nothing re-exports a name it also uses — that binds nothing", () => {
   assert.ok(seen >= 1, "no `export { … } from` statements found at all — the scan has drifted");
   assert.deepEqual(bad, [], bad.join("\n  "));
 });
+
+/**
+ * Split on TOP-LEVEL commas only.
+ *
+ * A declarator list is full of commas that belong to something else — an
+ * object literal, a call, an array — and this repo has written the flat
+ * version four separate times and had to fix it each time.
+ */
+function splitTopLevel(src) {
+  const out = [];
+  let depth = 0, start = 0;
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i];
+    if ("([{".includes(c)) depth++;
+    else if (")]}".includes(c)) depth = Math.max(0, depth - 1);
+    else if (c === "," && depth === 0) { out.push(src.slice(start, i)); start = i + 1; }
+  }
+  out.push(src.slice(start));
+  return out;
+}
+
+test("the build response reads only fields the build RESULT carries", () => {
+  // THE `du.id` CLASS, AND I SHIPPED IT. `sourceStored` was declared inside
+  // `buildAndPublishPages` and named in the response literal inside
+  // `handleRequest`, ~5,000 lines away — a ReferenceError on EVERY build.
+  // `node --check` passes, esbuild bundles it, 3,788 unit tests stayed green,
+  // and the route answered `500 {}`. Caught by `confirm smoke` and
+  // `member smoke` going red in CI.
+  //
+  // THE EXISTING SCANNER CANNOT SEE IT: that one walks FORWARD from a
+  // declaration looking for a read after its block closes, and this is a read
+  // in a DIFFERENT function that never mentions the declaration at all.
+  //
+  // So this asks the narrow question instead: every bare identifier in the
+  // build response literal must be something `handleRequest` really binds.
+  // Narrow deliberately — a general free-variable analyser was tried in this
+  // repo and abandoned with measurements (1,113 candidates, dominated by prose
+  // and property names), and a false alarm on correct code is worse than the
+  // miss this leaves.
+  const w = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const at = w.indexOf("        cost: schemaCost + pages.cost,");
+  assert.ok(at > 0, "the build response literal moved — rescope this");
+  const start = w.lastIndexOf("return Response.json({", at);
+  const end = w.indexOf("\n      });", at);
+  assert.ok(start > 0 && end > start, "the response literal scan lost its bounds");
+  // Comments blanked first: this file states its reasoning between the lines,
+  // and prose about a variable spells that variable.
+  const lit = w.slice(start, end).replace(/\/\/[^\n]*/g, "");
+
+  // The values, not the keys: `foo: bar` — we care about `bar`.
+  // BARE READS ONLY. The first draft matched every identifier in a value
+  // expression and flagged 38 names on perfectly correct code — property
+  // accesses (`pages.seedTopUp`), nested object KEYS, and `typeof`. That is the
+  // false-alarm rate this repo rates strictly worse than the miss, so the scan
+  // is narrowed to what it is actually for: a name read on its own, not
+  // preceded by a dot and not itself a key.
+  //
+  // NARROW DELIBERATELY. A general free-variable analyser was tried here and
+  // abandoned with measurements — 1,113 candidates, dominated by prose and
+  // property names. What this catches is the shape that shipped: a local from
+  // ANOTHER function named bare in this literal.
+  const named = new Set();
+  for (const m of lit.matchAll(/^\s*[A-Za-z_$][\w$]*:\s*([^,\n]+),?\s*$/gm)) {
+    const value = String(m[1]);
+    // Blank out property accesses and nested keys before looking for bare reads.
+    const bare = value
+      .replace(/\.\s*[A-Za-z_$][\w$]*/g, ".")          // `x.y` -> `x.`
+      .replace(/[A-Za-z_$][\w$]*\s*:/g, ":")            // nested `k:` -> `:`
+      .replace(/"[^"]*"|'[^']*'|`[^`]*`/g, '""');       // strings
+    for (const id of bare.matchAll(/(?<![.\w$])([a-z_$][\w$]*)\b(?!\s*\()/g)) named.add(id[1]);
+  }
+  for (const kw of ["typeof", "await", "new", "in", "of", "instanceof", "void", "return", "if", "else"]) named.delete(kw);
+  assert.ok(named.size > 5, "the identifier scan found only " + named.size + " — it has stopped scanning");
+
+  // What `handleRequest` binds before that point, plus the globals and the
+  // module scope. A name the route never binds is the bug.
+  const fnAt = w.indexOf("async function handleRequest(request, env, ctx) {");
+  const body = w.slice(fnAt, start);
+  const bound = new Set(["request", "env", "ctx", "undefined", "null", "true", "false", "Math", "String", "Number", "Object", "Array", "JSON", "Date", "Boolean", "e", "r", "d"]);
+  // EVERY DECLARATOR, not just the first. `let designed = null, seedUsage =
+  // null, seedTopUp = null;` binds three names, and reading only the first
+  // flagged two of them as unbound — a false alarm on perfectly correct code,
+  // which is the failure mode this repo rates strictly worse than the miss.
+  for (const m of body.matchAll(/\b(?:const|let|var)\s+([^;\n]+)/g)) {
+    for (const part of splitTopLevel(m[1])) {
+      const n = part.trim().replace(/=[\s\S]*/, "").trim();
+      if (/^[a-z_$][\w$]*$/.test(n)) bound.add(n);
+    }
+  }
+  for (const m of body.matchAll(/\b(?:const|let|var)\s*\{([^}]*)\}/g)) {
+    for (const part of m[1].split(",")) {
+      const n = part.split(":").pop().trim().replace(/=.*/, "").trim();
+      if (/^[a-z_$][\w$]*$/.test(n)) bound.add(n);
+    }
+  }
+  // Module scope: anything declared or imported at the top level.
+  for (const m of w.matchAll(/^(?:export )?(?:async )?function ([A-Za-z_$][\w$]*)/gm)) bound.add(m[1]);
+  for (const m of w.matchAll(/^(?:export )?(?:const|let|var) ([A-Za-z_$][\w$]*)/gm)) bound.add(m[1]);
+  for (const m of w.matchAll(/^import \{([^}]*)\}/gm)) {
+    for (const part of m[1].split(",")) {
+      const n = part.split(" as ").pop().trim();
+      if (/^[A-Za-z_$][\w$]*$/.test(n)) bound.add(n);
+    }
+  }
+  const loose = [...named].filter((n) => !bound.has(n));
+  assert.deepEqual(loose, [],
+    "the build response names something handleRequest never binds — a ReferenceError on every build: " + loose.join(", "));
+});

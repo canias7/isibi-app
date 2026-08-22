@@ -1088,8 +1088,19 @@ test("the last of the audit lows: honest statuses, honest sentences, honest fiel
   // (4) THE SOURCE STORE'S ANSWER IS READ AND CARRIED. Discarded, a lost store
   // silently turned the next revise into a full rewrite of every page's copy
   // from the brief. Only ever present as `false`, so a clean build is unchanged.
+  //
+  // ASSERTED AS A PROPERTY, NOT A SPELLING, because the first draft of this
+  // check pinned the exact expression `sourceStored: sourceStored === false` —
+  // and the fix for the ReferenceError it was hiding (the flag is declared in
+  // `buildAndPublishPages` and was read bare in `handleRequest`, a `du.id`-class
+  // throw on EVERY build) legitimately changed that spelling to read it off the
+  // result. A guard that goes red on the correct fix is a guard nobody trusts.
   assert.match(w, /sourceStored = await saveSiteSource\(env, slug, pages\);/,
     "the source store's answer is discarded again");
-  assert.match(w, /sourceStored: sourceStored === false \? false : undefined,/,
-    "…and it never reaches the caller");
+  assert.match(w, /out\.sourceStored = false;/,
+    "…and the build result stops carrying it");
+  // The response reads it off the RESULT — a bare read is a different function's
+  // variable, which is exactly the throw this line was written after.
+  assert.match(w, /sourceStored:\s*pages\.sourceStored === false \? false : undefined,/,
+    "…and it never reaches the caller, or is read out of scope again");
 });
