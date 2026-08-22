@@ -1247,9 +1247,17 @@ function Home() {
     // --tw-gradient-stops))}` and friends, so a whole-file scan for `var(` is
     // satisfied by utilities that have nothing to do with this and reports a
     // failure that is not there.
-    const own = (css.match(/background-image:[^;}]*f4dfc6[^;}]*/g) || []).join("\n");
+    // NOT `own` — THAT NAME IS THE BUILD RESPONSE, DECLARED OUTSIDE THIS BLOCK.
+    //
+    // A second `const own` here shadows it for the WHOLE block, so `own.files`
+    // eleven lines up becomes a read of THIS binding in its temporal dead zone:
+    // `ReferenceError: Cannot access 'own' before initialization`, on every run.
+    // `node --check` passes it and no unit test can see it — the `vidRefN` class,
+    // seventh recorded instance, and it took a real CI run to find.
+    const ownLayer = (css.match(/background-image:[^;}]*f4dfc6[^;}]*/g) || []).join("\n");
     ok("…and a var() in it resolved to this site's own palette, never shipped as a var()",
-      own.length > 0 && !/var\(/.test(own), own.slice(0, 300) || "the authored layer is not in the stylesheet at all");
+      ownLayer.length > 0 && !/var\(/.test(ownLayer),
+      ownLayer.slice(0, 300) || "the authored layer is not in the stylesheet at all");
     // …AND THE GATE REALLY RUNS HERE. A wash whose darkest stop leaves no room
     // for legible quiet text must be refused BY THE CONTAINER and said so in
     // the notes it already carries back — without this the three checks above
