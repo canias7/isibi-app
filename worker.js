@@ -57,7 +57,13 @@ import { renderNote } from "./builder/site-render.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
 import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker } from "./builder/site-dispatch.mjs";
 import { ASKABLE as SITE_TOKEN_NAMES, valueHint as siteTokenHint, mergeTokens, parseTokens, withContrast, tokenNote, askedNames, saidFor as tokenSaid, routeSelectorOk, pageScopeFor, MAX_PAGE_TOKENS } from "./builder/site-tokens.mjs";
-import { ASKABLE as SITE_STYLE_AXES, AUTHORED_AXES as SITE_AUTHORED_AXES, MAX_STYLE, MAX_STYLE_BUILD, optionsFor as siteStyleOptions, axisHint as siteStyleHint, authoredHint as siteAuthoredHint, mergeStyle, parseStyle, styleNote, saidFor as styleSaid } from "./builder/site-style.mjs";
+import { ASKABLE as SITE_STYLE_AXES, AUTHORED_AXES as SITE_AUTHORED_AXES, MAX_STYLE, MAX_STYLE_BUILD, optionsFor as siteStyleOptions, axisHint as siteStyleHint, authoredHint as siteAuthoredHint, mergeStyle, parseStyle, styleNote, saidFor as styleSaid, saidFor as siteStyleSaid } from "./builder/site-style.mjs";
+// The two axes whose authored form is a `{light, dark}` pair of background-image
+// layers rather than a declaration block — derived from the engine's own table,
+// never the two names spelled here, which is what this file's own comment two
+// hundred lines down already demanded of the previous shape.
+import { authoredFieldSchema as siteAuthoredSchema, AXIS_DECLS as SITE_AXIS_DECLS } from "./builder/site-authored.mjs";
+const SITE_AUTHORED_IMAGE = Object.entries(SITE_AXIS_DECLS).filter(([, v]) => v.image).map(([k]) => k);
 import { extractText, applyEdits, staleContactLinks } from "./builder/site-text.mjs";
 import { runTextEdit, runDataEdit, renamePages, renameRoute, MAX_DATA_ROWS } from "./builder/site-apply.mjs";
 import { runRulesEdit } from "./builder/site-rules.mjs";
@@ -4272,56 +4278,60 @@ const SITE_SCHEMA_TOOL = {
           "\"make it feel more spacious\", \"bigger text\", \"lose the shadows\", \"thinner icons\". Name only " +
           "the axes the customer actually asked about; anything left out keeps whatever the site wears today. " +
           "Omit it entirely on a revise about content, pages or layout.",
-        // TWO OF THE AXES ALSO TAKE AN AUTHORED VALUE (owner's call, 2026-08-22
-        // — "the model should make them, not choose from the options there is
-        // here"). `backdrop` and `decor` are the two whose options are RAW CSS
-        // underneath — a `background-image` value and nothing else — so an
-        // authored one is the same kind of thing the named option already is,
-        // validated by `site-css.mjs` and held to the same contrast floor. The
-        // other twenty-one are not: they carry a number (`scale`, `border`) or
-        // name a whole block of rules, where there is no single value to author.
+        // ── THE ENUMS ARE GONE. THE MODEL WRITES ITS OWN CSS ─────────────────
         //
-        // A SIBLING FIELD, NOT AN `anyOf`, AND THAT IS A DECISION THIS TOOL HAS
-        // ALREADY MADE ONCE. The `webhooks` field a few hundred lines up refused
-        // a union for a stated reason that is still true: this tool has ZERO
-        // uses of `anyOf`/`oneOf`, and an untested JSON Schema construct here
-        // 400s EVERY build on the platform rather than degrading. The first
-        // draft of this shipped one anyway; it is a sibling because there is a
-        // lossless alternative, which is the same test `webhooks` applied.
+        // Owner's call, 2026-08-22: "i thought for all of them it was gonna be
+        // authored dude, and no names, i just want the model to write its own
+        // css cmon, lets make it no name."
         //
-        // AND THE ENUM IS WHAT IS BEING PRESERVED, which is the point rather
-        // than caution. A union means dropping `type: "string"`, and the enum is
-        // what makes an option the engine would refuse IMPOSSIBLE instead of
-        // merely dropped — the property this whole block's own comment above
-        // exists for. A sibling keeps all twenty-three enums exactly as they are.
+        // Yesterday two axes had an authored escape hatch beside twenty-three
+        // enums, and RUN 14 IS WHY THAT WAS NOT ENOUGH: the first live build
+        // after it shipped set roughly seven axes, had the hatch on two of them,
+        // and reached for NEITHER — it picked `plaster` and `drift` off the
+        // lists. A hatch beside a full menu of names is a hatch nobody opens.
+        // Removing the names is what makes the question unavoidable.
         //
-        // THE WIRE SHAPE AND THE STORED SHAPE DIFFER ON PURPOSE. The tool sends
-        // `backdropCss`; `parseStyle` folds it onto `backdrop` at the door, so
-        // everything below — the cap, the merge, `_meta`, the container — sees
-        // one axis with one value, and a refusal is reported against the axis
-        // the customer named rather than a field name they never saw.
+        // WHAT THE ENUM WAS BUYING, AND WHAT REPLACES IT. Its own paragraph
+        // above says the enum made an option the engine would refuse IMPOSSIBLE
+        // rather than merely dropped. That property does not survive — it cannot,
+        // because "any CSS" has no enumerable domain — so it is replaced rather
+        // than abandoned: `site-authored.mjs` PARSES what comes back into
+        // property/value pairs against a per-axis allow-list and RE-EMITS them
+        // itself, so nothing reaches a customer's stylesheet that we did not
+        // assemble. The guarantee changes shape from "cannot be said" to "cannot
+        // be said and reach the page", which is the same rule `site-tokens.mjs`
+        // already lives under: the notation exists BECAUSE it has a parser.
         //
-        // DERIVED FROM `AUTHORED_AXES`, never a list of the two spelled here: a
-        // third axis taught to accept a value in `parseStyle` would otherwise be
-        // accepted by the engine and unreachable from the tool, which is this
-        // repo's most-recorded shape.
-        properties: {
-          ...Object.fromEntries(SITE_STYLE_AXES.map((a) => [a, {
-            type: "string",
-            enum: siteStyleOptions(a),
-            description: siteStyleHint(a) +
-              (SITE_AUTHORED_AXES.includes(a) ? " — OR write your own, in `" + a + "Css`." : ""),
-          }])),
-          ...Object.fromEntries(SITE_AUTHORED_AXES.map((a) => [a + "Css", {
-            type: "object",
-            description: siteAuthoredHint(a),
-            properties: {
-              light: { type: "array", items: { type: "string" }, description: "The layers, in light mode. First paints on top." },
-              dark: { type: "array", items: { type: "string" }, description: "The layers, in dark mode. First paints on top." },
-            },
-            required: ["light", "dark"],
-          }])),
-        },
+        // WE STILL OWN EVERY SELECTOR AND EVERY GUARD. The model writes what
+        // goes INSIDE `@media (hover: hover) { <sel>:hover { … } }` and never
+        // the wrapper, so there is no selector to escape from and no way to drop
+        // the media query that stops a tap sticking on a phone. The hint tells
+        // it what its declarations will land on, because a hover state written
+        // blind is a guess about whether it applies to the button or the card.
+        //
+        // THREE SHAPES, NOT ONE, and forcing them together would be a lie: 12
+        // axes ARE a declaration block, 9 are a generated ramp read from numbers
+        // (`scale` is a ratio eight tokens derive from), and 2 are a `{light,
+        // dark}` pair of background-image layers. Derived from the engine's own
+        // tables, so an axis that changes shape is described accurately with
+        // nothing edited here — the "described then refused" drift this file has
+        // already paid for once.
+        //
+        // `<axis>Css` IS STILL ACCEPTED at the door, so nothing already sending
+        // it breaks; it is no longer required, because with no enum on the wire
+        // there is nothing left to disambiguate a string from.
+        properties: Object.fromEntries(SITE_STYLE_AXES.map((a) =>
+          SITE_AUTHORED_IMAGE.includes(a)
+            ? [a + "Css", {
+                type: "object",
+                description: siteAuthoredHint(a),
+                properties: {
+                  light: { type: "array", items: { type: "string" }, description: "The layers, in light mode. First paints on top." },
+                  dark: { type: "array", items: { type: "string" }, description: "The layers, in dark mode. First paints on top." },
+                },
+                required: ["light", "dark"],
+              }]
+            : [a, siteAuthoredSchema(a, siteStyleSaid(a))])),
       },
       // THE SHAPE — SIX AUTHORED FIELDS WHERE `family` USED TO BE (owner's call,
       // 2026-08-20). Distinct from the theme on purpose: a theme decides how a

@@ -261,12 +261,12 @@ export const AXIS_DECLS = Object.freeze({
 export const AXIS_RAMPS = Object.freeze({
   scale:    { fields: { ratio: { kind: "num", min: 1.0, max: 1.6 } }, said: "the step between one text size and the next" },
   width:    { fields: { ratio: { kind: "num", min: 0.6, max: 1.6 } }, said: "how wide the page runs, against the default" },
-  tracking: { fields: { steps: { kind: "list", len: 6, min: -0.1, max: 0.4 } }, said: "letter spacing, in em, tightest first" },
-  leading:  { fields: { steps: { kind: "list", len: 4, min: 0.9, max: 2.4 } }, said: "line height, unitless, tightest first" },
-  weight:   { fields: { steps: { kind: "list", len: 7, min: 100, max: 900 } }, said: "font weights, lightest first" },
-  density:  { fields: { spacing: { kind: "num", min: 0.1, max: 0.6, unit: "rem" } }, said: "the spacing step everything is measured in, in rem" },
-  border:   { fields: { width: { kind: "num", min: 0, max: 6, unit: "px" } }, said: "how heavy a border is, in px" },
-  icon:     { fields: { width: { kind: "num", min: 0.5, max: 4, unit: "" } }, said: "icon stroke width, unitless" },
+  tracking: { fields: { steps: { kind: "list", len: 6, min: -0.1, max: 0.4 } }, said: "in em, tightest first" },
+  leading:  { fields: { steps: { kind: "list", len: 4, min: 0.9, max: 2.4 } }, said: "unitless, tightest first" },
+  weight:   { fields: { steps: { kind: "list", len: 7, min: 100, max: 900 } }, said: "the seven weights, lightest first" },
+  density:  { fields: { spacing: { kind: "num", min: 0.1, max: 0.6, unit: "rem" } }, said: "the step everything is measured in, in rem" },
+  border:   { fields: { width: { kind: "num", min: 0, max: 6, unit: "px" } }, said: "in px" },
+  icon:     { fields: { width: { kind: "num", min: 0.5, max: 4, unit: "" } }, said: "the stroke width, unitless" },
   motion:   { fields: { ms: { kind: "num", min: 0, max: 1200 }, ease: { kind: "ease" } }, said: "how quickly anything answers a pointer" },
 });
 
@@ -508,6 +508,71 @@ export function readRamp(input, { axis } = {}) {
     }
   }
   return { ok: true, value: out };
+}
+
+/**
+ * WHAT THE TOOL SAYS ABOUT ONE AXIS, now that there is no enum to list.
+ *
+ * THE OPTION LABELS WERE CARRYING REAL DESIGN MEANING and they go with the
+ * names — `icon: fine` read "drawn thin — jeweller, gallery, tailoring", which
+ * is a whole brief in six words. What replaces it cannot be a shorter list; it
+ * has to say what the axis IS, what the declarations will LAND ON, and which
+ * properties this one owns. Without the selector the model is writing a hover
+ * state blind and guessing whether it applies to the button or the card it
+ * sits in.
+ *
+ * DERIVED FROM THE TABLES ABOVE, so an axis that gains a property is described
+ * accurately with nothing edited here. A hand-written description that drifts
+ * from the allow-list is the "described then refused" failure `site-tokens.mjs`
+ * already records: a permission the model is told about and the engine refuses.
+ */
+export function authoredFieldHint(axis, said) {
+  const name = String(axis);
+  const ramp = AXIS_RAMPS[name];
+  if (ramp) {
+    const fields = Object.entries(ramp.fields).map(([f, spec]) => {
+      if (spec.kind === "list") return `${f}: ${spec.len} numbers, ${spec.min} to ${spec.max}, smallest first`;
+      if (spec.kind === "ease") return `${f}: a timing function`;
+      const unit = spec.unit ? ` (${spec.unit === "" ? "unitless" : "in " + spec.unit})` : "";
+      return `${f}: ${spec.min} to ${spec.max}${unit}`;
+    });
+    return `${said} — ${ramp.said}. Send {${fields.join(", ")}}.`;
+  }
+  const decl = AXIS_DECLS[name];
+  if (!decl) return said || "";
+  if (decl.image) return said || "";
+  return `${said} — lands on ${decl.sel}. Write the declarations, no braces and no selector: `
+    + `"${Object.keys(decl.props).slice(0, 2).map((p) => p + ": …").join("; ")}". `
+    + `This one writes ${Object.keys(decl.props).join(", ")} and nothing else.`;
+}
+
+/**
+ * The JSON Schema for one axis's field.
+ *
+ * NO ENUM ANYWHERE, which is the change. A ramp is an object of numbers and a
+ * declaration axis is a string; the two image axes keep the `{light, dark}`
+ * pair they already had, because a wash written for a light page and copied
+ * onto a dark one leaves the quiet ink at 2.57:1.
+ *
+ * `additionalProperties` is deliberately NOT set anywhere here: this tool has
+ * never used it, and `design_schema` is the one whose rejection 400s every
+ * build on the platform — an untested JSON Schema construct there is not worth
+ * the tidiness. `readRamp` refuses an unknown field at the door instead.
+ */
+export function authoredFieldSchema(axis, said) {
+  const name = String(axis);
+  const description = authoredFieldHint(name, said);
+  const ramp = AXIS_RAMPS[name];
+  if (ramp) {
+    const props = {};
+    for (const [f, spec] of Object.entries(ramp.fields)) {
+      props[f] = spec.kind === "list"
+        ? { type: "array", items: { type: "number" } }
+        : spec.kind === "ease" ? { type: "string" } : { type: "number" };
+    }
+    return { type: "object", description, properties: props, required: Object.keys(ramp.fields) };
+  }
+  return { type: "string", description };
 }
 
 /**

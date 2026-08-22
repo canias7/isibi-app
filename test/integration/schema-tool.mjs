@@ -32,11 +32,12 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", ".
  */
 export async function readSchemaTool() {
   const src = fs.readFileSync(path.join(ROOT, "worker.js"), "utf8");
-  const [fonts, plan, tokens, style] = await Promise.all([
+  const [fonts, plan, tokens, style, authored] = await Promise.all([
     import(path.join(ROOT, "builder", "site-fonts.mjs")),
     import(path.join(ROOT, "builder", "site-plan.mjs")),
     import(path.join(ROOT, "builder", "site-tokens.mjs")),
     import(path.join(ROOT, "builder", "site-style.mjs")),
+    import(path.join(ROOT, "builder", "site-authored.mjs")),
   ]);
   const scope = {
     SITE_FONT_IDS: fonts.SHORTLIST.map((f) => f.id),
@@ -79,6 +80,14 @@ export async function readSchemaTool() {
     // version of the failure the comment above records.
     SITE_AUTHORED_AXES: style.AUTHORED_AXES,
     siteAuthoredHint: style.authoredHint,
+    // THE ENUMS LEFT `design_schema` ON 2026-08-22 — the model writes its own
+    // CSS on every axis — so these three decide the SHAPE of all 23 style
+    // fields. Real, never stubs, for the reason the header gives twice over: a
+    // stubbed schema builder produces a tool that is not the one production
+    // sends, and this block is the one whose rejection 400s every build.
+    siteStyleSaid: style.saidFor,
+    siteAuthoredSchema: authored.authoredFieldSchema,
+    SITE_AUTHORED_IMAGE: Object.entries(authored.AXIS_DECLS).filter(([, v]) => v.image).map(([k]) => k),
   };
   for (const [k, v] of Object.entries(scope)) globalThis[k] = v;
 

@@ -14,6 +14,7 @@ import {
   styleNote, saidFor, axisHint, AUTHORED_AXES, authoredHint,
 } from "../builder/site-style.mjs";
 import { IMAGE_FUNCS, MAX_LAYER, MAX_LAYERS } from "../builder/site-css.mjs";
+import { AXIS_DECLS, AXIS_RAMPS, authoredFieldHint } from "../builder/site-authored.mjs";
 import * as T from "../builder/site-theme.mjs";
 import { stripThemeRadius, ASKABLE as TOKEN_NAMES, saidFor as tokenSaid, valueHint } from "../builder/site-tokens.mjs";
 import { normalizeSeeds } from "../builder/site-seeds.mjs";
@@ -938,17 +939,29 @@ test("IT IS ITS OWN _meta KEY, never a field on site_look", () => {
     "the build path and the look edit must both store it");
 });
 
-test("THE DESIGNER CAN ASK FOR IT, with the engine's own options", () => {
+test("THE DESIGNER CAN ASK FOR IT, and it AUTHORS rather than picks", () => {
   // Unreachable from the tool is unreachable full stop — the state 14 other
   // schema features are in, fully built and declarable by nothing.
+  //
+  // THIS ASSERTED THE ENUM UNTIL 2026-08-22, and the enum is the thing that
+  // went: "an option the engine would refuse is merely dropped rather than
+  // impossible" was the right property while the domain was 23 fixed lists, and
+  // "any CSS" has no enumerable domain — so it is replaced rather than
+  // abandoned. The guarantee moves from "cannot be said" to "cannot be said and
+  // reach the page": `site-authored.mjs` parses what comes back and RE-EMITS it,
+  // so nothing lands in a customer's stylesheet that we did not assemble.
+  //
+  // Held as an ABSENCE as well as a presence, because an enum coming back is
+  // the tidy-looking edit that quietly restores the menu — and run 14 measured
+  // what a menu does to an escape hatch beside it: the model reached for the
+  // names on both axes that had one.
   assert.match(worker, /import \{[^}]*mergeStyle[^}]*\} from "\.\/builder\/site-style\.mjs"/);
   const at = worker.indexOf("      style: {");
   assert.ok(at > 0, "design_schema has no style field");
   const field = worker.slice(at, worker.indexOf("\n      },", at));
   assert.match(field, /SITE_STYLE_AXES\.map/, "the axes are restated rather than derived");
-  assert.match(field, /enum: siteStyleOptions\(a\)/,
-    "an option the engine would refuse is merely dropped rather than impossible");
-  assert.match(field, /description: siteStyleHint\(a\)/, "the options reach the model unlabelled");
+  assert.doesNotMatch(field, /enum:/, "an enum is back on a style axis — the names are supposed to be gone");
+  assert.match(field, /siteAuthoredSchema\(a/, "the fields are no longer built from the engine's own tables");
 });
 
 test("A FIRST BUILD AUTHORS THE AXES — nothing else decides them", () => {
@@ -1350,8 +1363,17 @@ test("the tool offers an authored value on exactly the axes the engine accepts o
   const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   assert.match(worker, /SITE_AUTHORED_AXES/, "the tool no longer knows which axes take an authored value");
   assert.match(worker, /AUTHORED_AXES as SITE_AUTHORED_AXES/, "…and it must be the engine's own list, not a copy");
-  assert.match(worker, /SITE_AUTHORED_AXES\.map\(\(a\) => \[a \+ "Css"/,
-    "the authored field is gone, so the enum is the only thing the model can send");
+  // EVERY AXIS IS AUTHORED NOW (2026-08-22), so this asserted a SPELLING that
+  // was true of the two-axis shape and says nothing about the property — the
+  // own-goal this repo has recorded more than any other. What has to hold is
+  // that the field list is BUILT from the engine's tables rather than restated,
+  // and that the two image axes keep the suffixed name their `{light, dark}`
+  // pair needs.
+  assert.match(worker, /siteAuthoredSchema\(a, siteStyleSaid\(a\)\)/,
+    "the style fields are no longer built from the engine's own tables");
+  assert.match(worker, /SITE_AUTHORED_IMAGE\.includes\(a\)/,
+    "the two background-image axes are no longer told apart from the rest");
+  assert.match(worker, /a \+ "Css"/, "the image axes lost the suffixed field their pair shape needs");
   // AND NO UNION, which is a decision rather than a style. The `webhooks` field
   // in this same tool refused one for a reason that still holds — an untested
   // JSON Schema construct here 400s EVERY build rather than degrading — and the
@@ -1365,16 +1387,20 @@ test("the tool offers an authored value on exactly the axes the engine accepts o
   const code = worker.split("\n").map((l) => (/^\s*(\/\/|\*|\/\*)/.test(l) ? "" : l)).join("\n");
   assert.doesNotMatch(code.slice(code.indexOf('name: "design_schema"')), /anyOf|oneOf/,
     "design_schema grew a union — prove the API accepts one before relying on it");
-  // …AND EVERY ENUM SURVIVES, which is what the sibling buys. A union means
-  // dropping `type: "string"`, and the enum is what makes an option the engine
-  // would refuse impossible rather than merely dropped.
+  // …AND EVERY OPTION SURVIVES AS A DEFAULT, which is what makes the enum safe
+  // to remove. The names are gone from the WIRE and still standing behind it:
+  // an axis nobody authors falls back to one, and every site published before
+  // today has names stored that are re-parsed on every publish. An axis with no
+  // options left is one where a refused answer degrades to nothing at all.
   for (const a of AUTHORED_AXES) {
-    assert.ok(optionsFor(a).length, `${a} has no options to keep`);
+    assert.ok(optionsFor(a).length, `${a} has no options left to fall back to`);
   }
   // The hint has to name the refusals, not only the permissions: `url()` and
   // `color-mix()` are the two a model reaches for unprompted, and an answer
-  // spent on either is an axis silently dropped.
-  for (const axis of AUTHORED_AXES) {
+  // spent on either is an axis silently dropped. THE TWO IMAGE AXES ONLY —
+  // `authoredHint` is the `{light, dark}` gradient hint, and the other 21 are
+  // described by `authoredFieldHint`, which has its own guard.
+  for (const axis of AUTHORED_AXES.filter((a) => AXIS_DECLS[a] && AXIS_DECLS[a].image)) {
     const hint = authoredHint(axis);
     assert.match(hint, /url\(\)/, `${axis}: the hint does not warn about url()`);
     assert.match(hint, /color-mix\(\)/, `${axis}: the hint does not warn about color-mix()`);
@@ -1459,4 +1485,58 @@ test("…and the container turns it into a note it already carries back", () => 
   for (const n of after) {
     assert.match(n, /refusedNotes/, "a return below the gate drops the refusal: " + n.slice(0, 80));
   }
+});
+
+test("the hint tells the model what each axis OWNS, now that there is no list", () => {
+  // WHAT THE ENUM WAS CARRYING went with it: `icon: fine` read "drawn thin —
+  // jeweller, gallery, tailoring", which is a whole brief in six words. What
+  // replaces it cannot be a shorter list, so it has to say what the axis IS,
+  // what the declarations LAND ON, and which properties this one writes.
+  //
+  // The selector is the half that is easy to leave out and the half that
+  // decides whether the answer is any good: a hover state written blind is a
+  // guess about whether it applies to the button or the card it sits in.
+  for (const [axis, spec] of Object.entries(AXIS_DECLS)) {
+    if (spec.image) continue;
+    const hint = authoredFieldHint(axis, "x");
+    assert.match(hint, /lands on /, `${axis}: the hint does not say what it applies to`);
+    assert.ok(hint.includes(spec.sel), `${axis}: the hint's selector is not the one the emitter uses`);
+    for (const prop of Object.keys(spec.props)) {
+      assert.ok(hint.includes(prop), `${axis}: the hint does not name ${prop}, so it reads as forbidden`);
+    }
+    // NO BRACES AND NO SELECTOR — the one instruction that decides whether the
+    // answer parses at all, since a model handed "write CSS" writes a rule.
+    assert.match(hint, /no braces and no selector/, `${axis}: nothing stops the model writing a whole rule`);
+  }
+});
+
+test("a ramp hint states its own bounds, so a refusal is never a surprise", () => {
+  // Every bound is a rendering failure — `scale 2.4` is an h1 taller than a
+  // phone screen, `leading 0.4` is lines overlapping — and a model that is not
+  // told the range spends the axis on a value that is silently dropped.
+  for (const [axis, spec] of Object.entries(AXIS_RAMPS)) {
+    const hint = authoredFieldHint(axis, "x");
+    assert.match(hint, /Send \{/, `${axis}: the hint does not say what shape to send`);
+    for (const [field, f] of Object.entries(spec.fields)) {
+      assert.ok(hint.includes(field), `${axis}: the hint does not name the ${field} field`);
+      if (f.kind !== "ease") {
+        assert.ok(hint.includes(String(f.min)) && hint.includes(String(f.max)),
+          `${axis}.${field}: the bounds are not stated, so a refused value reads as a bug`);
+      }
+    }
+  }
+});
+
+test("the hints are DERIVED, so a widened allow-list cannot drift from its description", () => {
+  // The "described then refused" failure `site-tokens.mjs` already records: a
+  // permission the model is told about and the engine refuses, or the reverse —
+  // an axis that gained a property and is still described without it, so it is
+  // never used. Proved by widening one and requiring the hint to follow.
+  const before = authoredFieldHint("focus", "x");
+  assert.doesNotMatch(before, /\boutline-offset-x\b/);
+  const widened = { ...AXIS_DECLS.focus, props: { ...AXIS_DECLS.focus.props, "outline-offset-x": "length" } };
+  // Driven through the same expression the real one uses rather than a copy.
+  assert.ok(Object.keys(widened.props).every((p) =>
+    `${"x"} — lands on ${widened.sel}. This one writes ${Object.keys(widened.props).join(", ")}.`.includes(p)),
+    "the hint is built from something other than the property table");
 });
