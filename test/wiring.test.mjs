@@ -970,10 +970,28 @@ test("the Worker tells publishPages which pages the site is already serving", ()
   // recorded time. Both ends: the value is DERIVED from the prior source, and
   // it is PASSED.
   const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.match(src, /const livePages = \(Array\.isArray\(priorPages\) \? priorPages : \[\]\)/,
+  assert.match(src, /const livePages = Array\.isArray\(priorPages\)/,
     "livePages is no longer derived from the site's stored source");
   assert.match(src, /\{ spec, slug, priorUsage, livePages \}/,
     "livePages is computed and never handed to publishPages");
+  // AND "WE COULD NOT TELL" IS NOT FLATTENED INTO "NOTHING IS LIVE".
+  //
+  // This pinned `Array.isArray(priorPages) ? priorPages : []`, which always
+  // produces an array — so `salvagePlan`'s `toldWhatIsLive` was ALWAYS true and
+  // its refusal, the whole thing keeping salvage from being a regression on
+  // every existing site, could never fire. An unreadable prior source arrived
+  // as an explicit `[]`, which does not mean unknown: it means nothing is live,
+  // so every working page went into `stub`, was published over the customer's
+  // live menu, and was charged for. The module was made to fail safe and the
+  // call site undid it — the guard watching the layer below the break, one hop
+  // above the module written to hold the property.
+  //
+  // A first build still says `[]` explicitly and loses nothing by it: there is
+  // genuinely nothing published, so stubbing a page that failed beats losing
+  // the whole site.
+  const lp = src.slice(src.indexOf("const livePages ="), src.indexOf("const out = await publishPages("));
+  assert.match(lp, /revise \? undefined : \[\]/,
+    "an unreadable prior source is flattened to [] again, which silently switches the salvage guard off");
   // It must be the PATHS. Handing over the page objects would make
   // `published.has(bare)` false for every one of them, which reads exactly like
   // a first build and silently switches the protection off.

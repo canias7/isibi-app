@@ -193,6 +193,98 @@ test("a RENAMED page still redirects, rather than becoming a hard 404", async ()
   assert.match(r.headers.get("cache-control") || "", /max-age=\d+/);
 });
 
+test("…and it STILL redirects on a Start site, which publishes no index.html", async () => {
+  // THE MANIFEST MOVED AND THE READER DID NOT. The test above passes because
+  // its bucket holds a pre-Start `index.html` with the map in its head. Start
+  // renders the document per request and publishes NO HTML — measured, the
+  // client dist is `assets/`, `favicon.svg`, `robots.txt` — so `obj` is null,
+  // the whole fallback branch is unreachable, and the map the publish still
+  // writes (into the SIDECAR now) was read by nothing.
+  //
+  // Which is every site built since Start: rename a page, and every link the
+  // customer had sent and every URL Google had indexed became a hard 404,
+  // silently, on the feature that returns an explicit {from,to} to prevent it.
+  const seen = [];
+  const start = {
+    SITE_WORKERS: dispatch(seen),
+    // A REAL START BUCKET: no index.html, no per-page html, and the sidecar the
+    // publish path really writes (`sitemeta/<slug>.json`, outside the served
+    // prefix). Built through `redirectsContent` rather than hand-written, for
+    // the reason the SHELL fixture above records: two fixtures that agree with
+    // each other and with neither end prove nothing.
+    SITES_BUCKET: (() => {
+      const objs = {
+        [`sitemeta/${SLUG}.json`]: JSON.stringify({
+          routesCsv: routesContent({ routes: ["/", "/menu"] }),
+          redirectsCsv: redirectsContent({ "/coffee": "/menu" }),
+        }),
+        [`sites/${SLUG}/assets/app.js`]: "console.log(1)",
+      };
+      return { get: async (k) => (k in objs ? { text: async () => objs[k], body: objs[k], writeHttpMetadata() {}, httpMetadata: {} } : null) };
+    })(),
+  };
+  const r = await hit("/coffee", { env: start, origin: SITE });
+  assert.equal(r.status, 301, "a Start site's renamed page: " + r.status + " " + r.text.slice(0, 160));
+  assert.equal(r.headers.get("location"), `${SITE}/menu`);
+  assert.match(r.headers.get("cache-control") || "", /max-age=\d+/);
+});
+
+test("…and an unknown address on a Start site keeps the script's own branded 404", async () => {
+  // The `notfound` verdict asks for exactly what the script already produced —
+  // the branded page with a 404 status — so the redirect is the whole job here
+  // and everything else must be left alone. Without this, "the redirect fires"
+  // and "every unknown address now 301s somewhere" look identical.
+  const seen = [];
+  const start = {
+    SITE_WORKERS: dispatch(seen),
+    SITES_BUCKET: (() => {
+      const objs = {
+        [`sitemeta/${SLUG}.json`]: JSON.stringify({
+          routesCsv: routesContent({ routes: ["/", "/menu"] }),
+          redirectsCsv: redirectsContent({ "/coffee": "/menu" }),
+        }),
+      };
+      return { get: async (k) => (k in objs ? { text: async () => objs[k], body: objs[k], writeHttpMetadata() {}, httpMetadata: {} } : null) };
+    })(),
+  };
+  const r = await hit("/nowhere", { env: start, origin: SITE });
+  assert.equal(r.status, 404, "an address in no map must not become a redirect");
+  assert.equal(r.headers.get("location"), null, "nothing to redirect to, so no location");
+});
+
+test("…and a site with no sidecar at all is served exactly as it was", async () => {
+  // EVERY SITE PUBLISHED BEFORE THE SIDECAR EXISTED, and the safe direction:
+  // an unreadable or absent manifest is NO OPINION, never "no such page". The
+  // caller's fallback is the answer it already had.
+  const seen = [];
+  const bare = {
+    SITE_WORKERS: dispatch(seen),
+    SITES_BUCKET: { get: async () => null },
+  };
+  const r = await hit("/coffee", { env: bare, origin: SITE });
+  assert.equal(r.status, 404, "no manifest must not invent a redirect");
+  assert.equal(r.headers.get("location"), null);
+});
+
+test("…and a corrupt sidecar cannot take the site down", async () => {
+  // It is parsed on the serve path of every unknown address, so a throw here is
+  // a 500 on a page that should have been a 404.
+  const seen = [];
+  // ONLY THE SIDECAR IS CORRUPT. A bucket answering every key with the same
+  // junk hands `index.html` to the SPA fallback as well, which serves it 200 —
+  // so the test would fail for a reason that has nothing to do with the parse.
+  const broken = {
+    SITE_WORKERS: dispatch(seen),
+    SITES_BUCKET: {
+      get: async (k) => (k === `sitemeta/${SLUG}.json`
+        ? { text: async () => "{not json", writeHttpMetadata() {}, httpMetadata: {} }
+        : null),
+    },
+  };
+  const r = await hit("/coffee", { env: broken, origin: SITE });
+  assert.equal(r.status, 404, "a corrupt sidecar answered " + r.status);
+});
+
 test("…and an address that never existed is a 404 with a page in it", async () => {
   const seen = [];
   const r = await hit("/nowhere", { env: env(seen), origin: SITE });

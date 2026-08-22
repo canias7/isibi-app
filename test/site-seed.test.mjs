@@ -203,7 +203,12 @@ test("the build route runs the top-up and settles ONE deposit against both calls
   const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   assert.match(worker, /import \{ topUpSeed, mergeSeed \} from "\.\/builder\/site-seed\.mjs"/,
     "a call to a name that was never imported is a ReferenceError on the build path");
-  const call = worker.match(/const top = await topUpSeed\(([\s\S]{0,400}?)\);/);
+  // ANCHORED ON THE CALL'S OWN CLOSE, NOT A BYTE BUDGET. This was
+  // `([\s\S]{0,400}?)` and went red the moment the call gained a comment —
+  // a window sized in bytes, which this repo has now recorded outrunning its
+  // own target six separate times, in a file that documents its reasoning
+  // between the lines by house style. `topUpSeed(` to the `);` that closes it.
+  const call = worker.match(/const top = await topUpSeed\(([\s\S]*?)\n {12}\);/);
   assert.ok(call, "nothing calls the top-up, so the designer's omission is still nobody's problem");
   assert.match(call[1], /designed\.seed/, "it must be told what the designer already wrote, or it re-fills filled tables");
   assert.match(worker, /designed = \{ \.\.\.designed, seed: mergeSeed\(designed\.seed, top\.rows\) \}/,
@@ -236,7 +241,8 @@ test("the build lane does not buy rows for a table the site already has", () => 
   assert.match(worker.slice(at, at + 200), /editState && editState\.tables/,
     "the known-table set is not read from the state already in hand");
 
-  const call = worker.match(/const top = await topUpSeed\(([\s\S]{0,600}?)\n {12}\);/);
+  // Same re-anchoring as the guard above: the call's own close, not 600 bytes.
+  const call = worker.match(/const top = await topUpSeed\(([\s\S]*?)\n {12}\);/);
   assert.ok(call, "the build lane's top-up call moved — rescope this");
   assert.match(call[1], /knownTables\.has\(String\(t\.name\)\.toLowerCase\(\)\)/,
     "the net is not narrowed to tables the site does not already have");
@@ -245,8 +251,15 @@ test("the build lane does not buy rows for a table the site already has", () => 
   // `editState` read that failed. Without that this filters on a set that is
   // empty for a different reason and a first build stops seeding entirely,
   // which is the failure the whole net exists to prevent.
-  assert.match(call[1], /knownTables\.size\s*\n?\s*\?/,
+  assert.match(call[1], /knownTables\.size && Array\.isArray\(designed\.tables\)\s*\n?\s*\?/,
     "the filter is unconditional, so a first build (empty known set) is filtered against nothing");
+  // AND ONLY AN ARRAY IS NARROWED. `designed.tables` is RAW model output and
+  // `normalizeSchema` deliberately tolerates two non-array shapes for it — a
+  // name→definition MAP and a JSON STRING (measured at ~1 sample in 20). Neither
+  // has `.filter`, so this line threw a TypeError inside the design try and the
+  // whole revise came back as a 503 blaming the provider — with `seedGaps`, the
+  // net taught both shapes on purpose to recover exactly this, never reached.
+  // The narrowing sat one layer ABOVE the tolerance and defeated it.
 });
 
 test("the response says whether the designer had to be covered for", () => {

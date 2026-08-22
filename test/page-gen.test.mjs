@@ -2680,8 +2680,17 @@ test("the source that produced a build is stored, and read back on a revise", ()
   // matters here is that the SOURCE arrives, whatever travels beside it.
   assert.match(worker, /publish: async \(dist, pages\b/, "publish must receive the source");
   assert.match(worker, /await saveSiteSource\(env, slug, pages\);/, "…and store it");
-  assert.match(worker, /priorPages: priorBrief \? await loadSiteSource\(env, slug\) : null/,
-    "…and a revise must read it back");
+  // …AND THE GATE THIS PINNED WAS THE WRONG SIGNAL, which the assertion two
+  // lines up warns about in general terms and this one committed anyway.
+  // `!!priorBrief` is the same answer as ownership for every site built since
+  // that column started being written and the WRONG one for anything older: a
+  // revise of such a site read as a first build, skipped the read, and lost
+  // both things the value protects — the edit anchor AND the live-page set that
+  // stops salvage stubbing a working page. The route's own `revise:` field
+  // carries a comment making exactly this correction; the partner gate was
+  // never moved with it. What matters is that a revise reads it back.
+  assert.match(worker, /priorPages: existing \? await loadSiteSource\(env, slug\) : null/,
+    "…and a revise must read it back, gated on OWNERSHIP rather than the stored brief");
   assert.match(worker, /pagesRequest\(\{[^}]*priorPages[^}]*\}\)/, "…and it must reach the model call");
   // NOT under `sites/`, which is what `/s/<slug>/` serves — a site's own TSX is
   // not something to hand to its visitors.

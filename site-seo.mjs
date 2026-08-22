@@ -130,14 +130,43 @@ export function parseSiteManifest(html) {
     const m = src.match(new RegExp('<meta name="' + name + '" content="([^"]*)"'));
     return m ? m[1] : null;
   };
-  const rawRoutes = grab(ROUTES_META);
-  const rawRedirects = grab(REDIRECTS_META);
-  if (rawRoutes === null && rawRedirects === null) return null;
+  return manifestFromCsv(grab(ROUTES_META), grab(REDIRECTS_META));
+}
+
+/**
+ * The same manifest, out of the two CSV strings rather than out of a document.
+ *
+ * THE MANIFEST MOVED AND THE READER DID NOT. This whole tier was written when a
+ * published site was a built `index.html` plus a bundle: the publish patched the
+ * two lists into that document's head and the SPA fallback parsed them back out.
+ * Under Start there is no shell — the document is `__root.tsx` rendered per
+ * request — so the publish path writes them into the meta SIDECAR instead
+ * (`siteMetaKey(slug)`), and `parseSiteManifest`'s only caller went on reading a
+ * file that is never published. `injectMeta`/`metaTags`, the only code that ever
+ * turned these fields into tags, has had zero callers since.
+ *
+ * The cost of that was not cosmetic: every link a customer had already sent and
+ * every URL a search engine had indexed broke the moment a page was renamed or
+ * deleted — the exact failure `renameRoute` returns an explicit `{from,to}` pair
+ * to prevent, threaded all the way through the publish and then dropped one read
+ * from the end.
+ *
+ * ONE PARSE, TWO SOURCES. Splitting the extraction from the parsing rather than
+ * writing a second reader: the shapes a CSV can take, what counts as a route,
+ * and which pairs are legal are decisions that must not be made twice, or a
+ * pre-Start site and a Start site disagree about where a visitor goes.
+ *
+ * `null` when there is no manifest at all, which the caller must treat as "no
+ * opinion" and never as "no routes" — every site published before this existed
+ * answers that way, and so does one whose sidecar could not be read.
+ */
+export function manifestFromCsv(rawRoutes, rawRedirects) {
+  if ((rawRoutes === null || rawRoutes === undefined) && (rawRedirects === null || rawRedirects === undefined)) return null;
   const routes = rawRoutes
-    ? rawRoutes.split(",").map((r) => r.trim().toLowerCase()).filter((r) => r.startsWith("/"))
+    ? String(rawRoutes).split(",").map((r) => r.trim().toLowerCase()).filter((r) => r.startsWith("/"))
     : null;
   const redirects = {};
-  for (const pair of (rawRedirects || "").split(",")) {
+  for (const pair of String(rawRedirects || "").split(",")) {
     const eq = pair.indexOf("=");
     if (eq <= 0) continue;
     const from = pair.slice(0, eq).trim().toLowerCase();

@@ -68,7 +68,11 @@ test("JSON that is not an object is refused rather than read through", async () 
   for (const raw of ["null", "[]", '"a brief"', "42"]) {
     const r = await postBody(raw);
     assert.equal(r.status, 400, raw);
-    assert.match(r.json.error, /JSON object|valid JSON/i, raw + " -> " + r.text.slice(0, 120));
+    // The wording is `readJsonBody`'s now — that shared reader does the parse
+    // and the shape check in one place, replacing this route's hand-rolled
+    // pair. What matters is that the refusal SAYS the shape was wrong rather
+    // than blaming a missing brief, not which of two synonyms it picks.
+    assert.match(r.json.error, /JSON object|valid JSON|expected an object/i, raw + " -> " + r.text.slice(0, 120));
   }
 });
 

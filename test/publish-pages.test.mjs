@@ -2012,10 +2012,27 @@ test("both build-adjacent routes cap the body before parsing it", () => {
   // react-build: the priciest route on the platform buffered whatever arrived
   // (2026-08-13 audit) while /api/direct, /api/save and even the visitor upload
   // all capped on Content-Length first.
+  //
+  // …AND THE CAP THIS PINNED WAS THE WEAKER OF THE TWO MECHANISMS. It asserted
+  // `tooLargeBody`, which reads `content-length` and NOTHING ELSE — a header
+  // the CALLER writes: absent yields 0, non-numeric yields NaN, and `NaN > max`
+  // is false, so all three walked past it and the body was buffered and parsed
+  // anyway. A guard whose own name was the reason nobody re-read it, held in
+  // place by a test that pinned its spelling.
+  //
+  // `readJsonBody` is what `request-limits.mjs` says supersedes it for a JSON
+  // route: the cheap header check first, so megabytes are never buffered, then
+  // the REAL encoded byte count of what actually arrived. So the property is
+  // that the route is bounded by a mechanism that measures the bytes, and the
+  // NUMBER is what a reader wants pinned — a cap silently raised to the plan
+  // limit is the regression, not a rename.
   const b = w.indexOf('"/api/site/react-build"');
   assert.ok(b > 0, "the build route moved");
-  const bWin = w.slice(b, w.indexOf("request.json()", b));
-  assert.match(bWin, /tooLargeBody\(request,\s*24_000_000\)/, "the build route parses an uncapped body again");
+  const bWin = w.slice(b, b + 12_000);
+  assert.match(bWin, /readJsonBody\(request,\s*\{\s*max:\s*24_000_000\s*\}\)/,
+    "the build route parses an uncapped body again");
+  assert.ok(!/\bawait request\.json\(\)/.test(bWin),
+    "the build route reads the body twice — a body reads ONCE, so the second is empty");
   // /api/site/route: hit on EVERY builder message.
   const r = w.indexOf('"/api/site/route"');
   const rWin = w.slice(r, w.indexOf("request.json()", r));
@@ -2044,9 +2061,20 @@ test("the name-taken 409 says so to the customer", () => {
   // the customer saw "try again in a moment", retried into the same 409
   // forever (the designer re-proposes the same name), and concluded the
   // builder was broken (2026-08-13 audit).
+  //
+  // DERIVED, NOT COUNTED. This asserted exactly 2 and went red when a THIRD
+  // refusal was added — the early ownership check, which exists so a stranger's
+  // slug cannot spend our model budget before anything refuses it. A test about
+  // how many of a thing there are, on a change that added one correctly. What
+  // it is for is that EVERY such refusal carries the message, since the client
+  // renders `msg` and nothing else.
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const hits = w.match(/error: "that name is taken", cost: 0, msg: "That site name is taken by another account/g) || [];
-  assert.equal(hits.length, 2, "expected both 409s to carry the customer message, found " + hits.length);
+  const all = w.match(/error: "that name is taken"[^\n]*/g) || [];
+  assert.ok(all.length >= 2, "the scan found only " + all.length + " name-taken refusals, so it has stopped scanning");
+  for (const line of all) {
+    assert.match(line, /msg: "That site name is taken by another account/,
+      "a name-taken 409 with no customer message: " + line.slice(0, 120));
+  }
 });
 
 // ── A PUBLISH MUST NOT DAMAGE A SITE THAT ALREADY WORKS ─────────────────────

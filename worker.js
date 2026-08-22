@@ -32,7 +32,7 @@ import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
 import { makeTrace } from "./builder/trace.mjs";
 import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
-import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, mergeRedirects, decideFallback } from "./site-seo.mjs";
+import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
 import { readJsonBody } from "./request-limits.mjs";
 import { listSecrets, addSecret, deleteSecret, readSecret } from "./site-secrets.mjs";
 import { normalizePayment, parseCart, priceCart, checkoutSessionArgs, formEncode, paidFromEvent } from "./site-payments.mjs";
@@ -7674,6 +7674,37 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
         : undefined };
 }
 
+/**
+ * Where a renamed or deleted address goes now, or null.
+ *
+ * READS THE SIDECAR, which is where the publish has written the manifest since
+ * Start — `parseSiteManifest`'s only caller still reads `sites/<slug>/index.html`
+ * and Start publishes no HTML, so on every site built since, the redirect map
+ * was computed on every publish and read by nothing. See `manifestFromCsv`.
+ *
+ * NULL IS "NO OPINION", NEVER "NO SUCH PAGE", and every failure answers it: no
+ * bucket, no sidecar, unreadable JSON, no manifest in it, or a path that simply
+ * is not in the map. The caller's fallback is the answer it already had — the
+ * script's own branded 404 — so being wrong here costs a redirect that does not
+ * happen, never a working address turned into a 301 to nowhere.
+ *
+ * `decideFallback` DOES THE DECIDING, not this. One reading of "what does this
+ * address mean", shared with the static path that still serves pre-Start sites,
+ * or the two disagree about where a visitor goes depending on which era their
+ * site was built in.
+ */
+async function siteRedirectFor(env, slug, path) {
+  try {
+    if (!env.SITES_BUCKET) return null;
+    const obj = await env.SITES_BUCKET.get(siteMetaKey(slug));
+    if (!obj) return null;
+    const side = JSON.parse(await obj.text());
+    const manifest = manifestFromCsv(side && side.routesCsv, side && side.redirectsCsv);
+    const verdict = decideFallback(manifest, path);
+    return verdict.kind === "redirect" ? verdict.to : null;
+  } catch (e) { console.error("site redirect lookup failed:", slug, e && e.message); return null; }
+}
+
 async function siteOgImage(env, slug) {
   try {
     if (!env.SITES_BUCKET) return null;
@@ -8520,7 +8551,59 @@ async function handleRequest(request, env, ctx) {
               // reason. It costs one wasted script call on an address nobody
               // has.
               const lastSeg = rest.split("/").pop() || "";
-              if (!(res.status === 404 && html && !/\.[a-z0-9]{1,8}$/i.test(lastSeg))) {
+              const unknownAddress = res.status === 404 && html && !/\.[a-z0-9]{1,8}$/i.test(lastSeg);
+              // ── AND A RENAMED PAGE STILL GOES WHERE IT WENT ────────────────
+              //
+              // The manifest is read HERE, off the sidecar, and it was not read
+              // anywhere. The publish diffs the previous route list, builds the
+              // redirect map — including the explicit `{from,to}` a rename
+              // threads all the way through `renameRoute` → the spine → the
+              // publish — and writes both into `siteMetaKey(slug)`. The only
+              // reader was the SPA fallback below, which parses them out of
+              // `sites/<slug>/index.html`, and Start publishes no HTML: the
+              // manifest moved out of the document and the reader stayed.
+              //
+              // So every link a customer had already sent and every URL Google
+              // had indexed broke silently the moment a page was renamed or
+              // deleted — on the feature written to stop exactly that.
+              //
+              // ONLY ON AN UNKNOWN ADDRESS, so it costs one R2 get on a path
+              // that has already spent a script call and is about to 404
+              // anyway. Every request to a real page is untouched.
+              //
+              // THE `notfound` VERDICT NEEDS NOTHING FROM US: the script has
+              // already rendered the branded 404 with a 404 status, which is
+              // exactly what that verdict asks for. `ok` cannot arrive here (a
+              // real route would not have 404'd). So the redirect is the whole
+              // job, and an unreadable sidecar simply leaves the script's own
+              // answer standing — the state every site was in before this.
+              if (unknownAddress) {
+                const to = await siteRedirectFor(env, slug, "/" + rest);
+                if (to) {
+                  const mount = isAppHostname(url.hostname) ? "/s/" + slug : "";
+                  // 301 WITH AN EXPLICIT LIFETIME, for the reason the static
+                  // path's twin states at length: `Response.redirect` sends
+                  // `location` and nothing else, and a 301 with no freshness is
+                  // heuristically cached by browsers effectively forever — so a
+                  // page put BACK would stay unreachable to everyone who had
+                  // followed the old address once, defeating `mergeRedirects`'
+                  // deliberate rule that a re-added page must serve itself.
+                  // BYTE-IDENTICAL TO THE STATIC PATH'S TWIN, deliberately —
+                  // `url.origin + mount + to + url.search`. A relative
+                  // `location` resolves the same way in a browser and NOT the
+                  // same way anywhere else that reads one, and the query string
+                  // is the half that is easy to lose: a link carrying `?ref=` or
+                  // a UTM tag would arrive stripped, so the owner's own campaign
+                  // reporting would go quiet on exactly the addresses that moved.
+                  // Two spellings of one answer is how the pre-Start era and
+                  // this one come to disagree about where a visitor goes.
+                  return new Response(null, {
+                    status: 301,
+                    headers: { location: url.origin + mount + to + url.search, "cache-control": "public, max-age=600" },
+                  });
+                }
+              }
+              if (!unknownAddress) {
                 if (!html) return res;
                 // ASSET REFERENCES ARE MADE ABSOLUTE HERE, not in the script.
                 // Vite writes them `./assets/…`, which a browser resolves
