@@ -1208,8 +1208,17 @@ function Home() {
   // THREE places when it was written, each of them a hop a module test at either
   // end cannot see.
   console.log("\nbuilding with an AUTHORED backdrop…");
+  // THE `var()` IS `--muted`, NOT `--primary`, AND THAT IS A MEASUREMENT.
+  // `broadsheet`'s brand colour is oklch L 0.30 — near-black — and
+  // `worldWorstGround` takes the DARKEST stop wherever it sits, so any wash
+  // containing it drops the quiet ink to 4.1:1 and the legibility gate refuses
+  // the whole thing. Measured; the first draft of this fixture did exactly that
+  // and the run reported the wash missing from the stylesheet, which is the gate
+  // working rather than the path being broken. A light palette token proves the
+  // same two things — that a token resolves, and that the literal is what ships
+  // — without fighting a floor this theme cannot clear.
   const OWN_WASH = {
-    light: ["linear-gradient(155deg, #f4dfc6 0%, var(--primary) 45%, #ffffff 100%)"],
+    light: ["linear-gradient(155deg, #f4dfc6 0%, var(--muted) 45%, #ffffff 100%)"],
     dark: ["linear-gradient(155deg, oklch(0.26 0.05 62) 0%, oklch(0.14 0.02 62) 100%)"],
   };
   const own = await post({
@@ -1233,9 +1242,30 @@ function Home() {
     // reason the parser exists: an unresolved token is a stop whose colour we
     // cannot read, so the contrast floor it was measured against is unprovable.
     // The site's own brand colour is what has to be there.
-    const layers = (css.match(/background-image:[^;]*/g) || []).join("\n");
+    // SCOPED TO THE AUTHORED LAYER, never every `background-image` in the sheet.
+    // Tailwind emits `.bg-gradient-to-r{background-image:linear-gradient(var(
+    // --tw-gradient-stops))}` and friends, so a whole-file scan for `var(` is
+    // satisfied by utilities that have nothing to do with this and reports a
+    // failure that is not there.
+    const own = (css.match(/background-image:[^;}]*f4dfc6[^;}]*/g) || []).join("\n");
     ok("…and a var() in it resolved to this site's own palette, never shipped as a var()",
-      layers.length > 0 && !/var\(/.test(layers), layers.slice(0, 300) || "no background-image at all");
+      own.length > 0 && !/var\(/.test(own), own.slice(0, 300) || "the authored layer is not in the stylesheet at all");
+    // …AND THE GATE REALLY RUNS HERE. A wash whose darkest stop leaves no room
+    // for legible quiet text must be refused BY THE CONTAINER and said so in
+    // the notes it already carries back — without this the three checks above
+    // pass equally well on a build that simply accepts everything.
+    const bad = await post({
+      files: { "index.tsx": INDEX, "menu.tsx": MENU },
+      slug: "fold-coffee", ...themeAsSeeds("broadsheet"),
+      style: { ...HOUSE_STYLE, backdrop: { light: OWN_WASH.light.map((l) => l.replace("var(--muted)", "var(--primary)")), dark: OWN_WASH.dark } },
+    });
+    const badCss = Object.entries(bad.files || {})
+      .filter(([k]) => k.endsWith(".css")).map(([, v]) => v.t || "").join("\n");
+    ok("an illegible wash is refused rather than published", !/f4dfc6/i.test(badCss), badCss.slice(0, 200));
+    ok("…and the container says so, with the ratio, in the notes it carries back",
+      JSON.stringify(bad.theme || bad.notes || {}).includes("4.5") ||
+      JSON.stringify(bad).includes("under the 4.5 it needs"),
+      JSON.stringify({ theme: bad.theme, notes: bad.notes }).slice(0, 300));
     // THE CONTROL, and the first draft of it was `x === x` — a check that cannot
     // fail, which this repo rates worse than none because it is the one that
     // says a broken thing works. What discriminates is that the SAME template

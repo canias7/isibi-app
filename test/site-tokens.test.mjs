@@ -1028,9 +1028,27 @@ test("the build response reports the ask through askedNames, with tokenNote's ow
     .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
     .replace(/(^|[^:])\/\/[^\n]*/g, (m, p) => p + " ".repeat(m.length - p.length));
   assert.ok(worker.length === raw.length, "the blanker changed the length — offsets would be wrong");
+  // THE PROPERTY, NOT THE SPELLING. This pinned the exact two-argument call and
+  // went red the day the style report grew a third bag to read (`.authored`,
+  // where a value the model WROTE is kept) — a test about word order, which is
+  // this repo's most repeated own-goal. What has to hold is unchanged: the
+  // second argument is that wrapper's `.dropped`, the first is built from its
+  // KEPT content, and the wrapper's own keys are never what is reported.
   for (const [ask, kept] of [["tokenAsk", "tokens"], ["styleAsk", "style"]]) {
-    assert.match(worker, new RegExp(`askedNames\\(${ask}\\.${kept}, ${ask}\\.dropped\\)`),
+    // THE ARGUMENT LIST, CUT AT THE NEAREST `askedNames(` ABOVE IT. A lazy
+    // `[^;]*?` ran back through the line above — the two calls sit one apart
+    // with no semicolon between them — so the tokens call's arguments were read
+    // as the style call's and the guard reported a merge that was not there.
+    // The overlapping-window own-goal, in the guard written the same hour.
+    const at = worker.indexOf(`, ${ask}.dropped)`);
+    assert.ok(at > 0, `the ${ask} report does not read that wrapper's own dropped list`);
+    const open = worker.lastIndexOf("askedNames(", at);
+    assert.ok(open > 0 && open < at, `the ${ask} dropped list is not an askedNames argument`);
+    const call = [null, worker.slice(open + "askedNames(".length, at)];
+    assert.match(call[1], new RegExp(`${ask}\\.${kept}\\b`),
       `the ${ask} report is not built from the same arguments its note is`);
+    assert.doesNotMatch(call[1], new RegExp(`\\b(?!${ask}\\b)\\w+Ask\\.`),
+      `the ${ask} report reads another ask's bag, so two answers are being merged into one field`);
     assert.doesNotMatch(worker, new RegExp(`Object\\.keys\\(${ask}\\)`),
       `${ask}'s wrapper keys are being reported again — that field is a constant`);
   }

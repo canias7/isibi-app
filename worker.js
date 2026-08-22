@@ -13611,7 +13611,21 @@ async function handleRequest(request, env, ctx) {
         // parser refused is the strongest possible evidence the model DID ask,
         // and it is exactly the case `tokensNote` explains in a sentence.
         tokens: askedNames(tokenAsk.tokens, tokenAsk.dropped),
-        style: askedNames(styleAsk.style, styleAsk.dropped),
+        // …AND AN AUTHORED ONE IS IN NEITHER OF THOSE, which is why this line
+        // reads three bags rather than two. `parseStyle` keeps a value the model
+        // WROTE in `.authored` — deliberately, so it cannot be spread onto the
+        // theme as an enum key — so a hand-written backdrop appeared in no
+        // response field at all: the one axis a paid build is most worth being
+        // able to see, invisible in the record of it. `dropped` still carries a
+        // REFUSED authored value, so the two together stay "what the model
+        // named" exactly as the paragraph above describes.
+        style: askedNames({ ...styleAsk.style, ...(styleAsk.authored || {}) }, styleAsk.dropped),
+        // AND WHETHER IT WROTE ITS OWN, apart from which axes it named. The
+        // list above cannot say it: an authored `backdrop` and a chosen one are
+        // the same string in it. Omitted when nothing was authored, so a build
+        // that named only options serialises byte-identically to before.
+        authored: styleAsk.authored && Object.keys(styleAsk.authored).length
+          ? Object.keys(styleAsk.authored) : undefined,
         page: pages.page, files: pages.files, notes: pages.notes || undefined,
         problems: pages.problems.length ? pages.problems : undefined,
         // THE PHOTOGRAPHS, and this field is how "no pictures" stops being

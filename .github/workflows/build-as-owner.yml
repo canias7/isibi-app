@@ -88,133 +88,58 @@ jobs:
           # (`mathaq-alemarat`, `mathaq-dubai`), so neither name can be reused:
           # ownership is what decides `revise`, and re-running one would be read
           # as an edit of an empty husk rather than the first build it never got.
-          OWNER_SLUG: rukn-alqahwa
-          # RUN 10 (2026-08-22): THE SAME ARABIC BRIEF, NOW BOUNDED.
+          OWNER_SLUG: lido-and-lamplight
+          # RUN 11 (2026-08-22): THE FIRST BUILD WHERE THE MODEL CAN WRITE ITS
+          # OWN BACKDROP, asked for by the owner — "build one with it and show
+          # me, use grok".
           #
-          # RUN 9 IS WHY THIS IS WORTH SPENDING AGAIN RATHER THAN A REPEAT. It
-          # used this exact brief, design and provisioning worked in 79 seconds,
-          # and page generation then ran 25m46s without returning — stopped only
-          # by the job cap. Five credits, a claimed slug, a live Neon project,
-          # no site, and 27 minutes of waiting to find that out.
+          # ENGLISH, NOT THE ARABIC BRIEF, and that is the whole reason this can
+          # show anything. The scoreboard is FOUR Arabic attempts and ZERO sites
+          # (runs 3, 4, 9, 10 — 301s, 286s, 1546s, 285s) against TWO English
+          # attempts and TWO published sites. What is under test here is a LOOK,
+          # so the run has to produce a page somebody can open; re-running the
+          # brief that has never finished would buy the same husk and show
+          # nothing. The RTL question is still open and is not this run's.
           #
-          # ONE THING CHANGED, AND IT CHANGES THE ARITHMETIC. `BUILDER_CALL_MS`
-          # is ten minutes, in `callBuilderModel`. So the DOWNSIDE of this run is
-          # no longer ~100 credits and half an hour: a pages-call timeout lands
-          # at stage `generate`, which is not in `CHARGED_STAGES`, so it is free
-          # — the run costs the Grok schema call (~5) and answers in about
-          # fifteen minutes with a message saying so.
+          # THE BRIEF CARRIES AN ATMOSPHERE THE SIX NAMED OPTIONS CANNOT SAY.
+          # `backdrop` offers plain / wash / aurora / field / horizon / glow —
+          # generic grounds, chosen by us, before any particular site existed.
+          # Low sun on an open-air pool is a specific gradient, and if the
+          # feature is worth having this is the shape of brief that shows it.
+          # DELIBERATELY NOT AN INSTRUCTION TO WRITE CSS: nobody types that, and
+          # a run that had to be told would prove the plumbing rather than the
+          # feature. Whether it reaches for an authored value is the measurement.
           #
-          # BOTH OUTCOMES ARE WORTH HAVING, which is what makes it a good spend
-          # rather than a retry:
-          #   - it hangs again  -> the bound is proven live, the refusal is
-          #     honest, and ~5 credits bought the proof that a hung build now
-          #     stops and says nothing was charged
-          #   - it finishes     -> right-to-left is proven live for the first
-          #     time, and the merged audit round has built end to end
+          # WHAT MAKES A WASH LIKELY TO SURVIVE, measured rather than hoped. The
+          # legibility gate computes the quiet ink against the DARKEST stop
+          # wherever it sits, so a near-black brand colour in a light wash is
+          # refused — driven locally against `broadsheet`, whose `--primary` is
+          # oklch L 0.30: the same gradient came back "would leave the quiet text
+          # at 4.1:1". A warm mid-toned identity is what gives an authored light
+          # wash room to clear the floor, which is why this is a sunlit lido and
+          # not a candlelit basement.
           #
-          # THE BRIEF IS RUN 9's VERBATIM, deliberately. The only variable is the
-          # bound; changing a word would make either outcome unattributable.
-          # Fresh slug because run 9 claimed the last one and ownership decides
-          # `revise`.
+          # THE SHAPE IS RUN 6/8's, the two that published: a publicly readable
+          # menu (a read/write pair, seeded), a `collect` booking form that must
+          # stay unreadable to the public, an about page and an hours page.
           #
-          # WHAT IT STILL DOES NOT TEST, said rather than implied: the
-          # revise-side critical, the redirect map, the icon lane and the
-          # bilingual ledger all need an EDIT, and this script drives a first
-          # build only.
+          # WHAT THE RESPONSE CAN NOW SAY THAT IT COULD NOT BEFORE: `authored`
+          # lists the axes the model WROTE rather than chose, and a wash refused
+          # for contrast arrives in the theme notes with its ratio. Without those
+          # two this run would have had to be verified by curling the stylesheet
+          # and guessing.
           #
-          # ─────────── run 9's reasoning, kept because it still holds ─────────
-          # RIGHT-TO-LEFT, LIVE, FOR THE FIRST TIME.
+          # BOTH OUTCOMES ARE WORTH THE SPEND:
+          #   - it authors one -> the feature is proven live, end to end, and
+          #     there is a page to look at
+          #   - it names an option instead -> the wiring is still proven (the
+          #     enum path is unchanged) and the finding is that the tool's own
+          #     description is not inviting enough, which is a prompt fix
           #
-          # THE WHOLE AUDIT ROUND IS MERGED NOW — 80 findings, and the last of
-          # them shipped a `ReferenceError` that answered `500 {}` to every
-          # build for about an hour (`sourceStored` declared in one function and
-          # read in another). That is fixed and `confirm smoke` / `member smoke`
-          # went back green on it, which proves the route ANSWERS. It does not
-          # prove the route BUILDS: run 8 predates most of this round, so no
-          # live build has ever carried the merged tree.
-          #
-          # WHY ARABIC RATHER THAN A SECOND BAKERY. Right-to-left shipped
-          # 2026-08-19 and every claim about it rests on local renders and unit
-          # tests — 1,946 physical utilities converted, a compiled-CSS cascade
-          # check, an icon mirror — and NOT ONE customer build has ever carried
-          # `dir="rtl"`. `normalizeLang` reading `ar` out of a real designer
-          # answer is itself untested end to end, and the failure it guards is
-          # total for the customer: an Arabic site laid out left to right reads
-          # as broken rather than as imperfect.
-          #
-          # THE BRIEF MIRRORS RUN 8's SHAPE ON PURPOSE — a publicly readable
-          # menu, a `collect` booking form, an about page, an hours page — so
-          # the only variable against a known-good run is the LANGUAGE. Same
-          # picker, same slug discipline, same four page shapes.
-          #
-          # WHAT IT ALSO EXERCISES FROM THIS ROUND, without needing a revise:
-          #   - the pair-declared public table publishing readable, which is the
-          #     misread `coerceTable` was making in four separate readers
-          #   - the placeholder page's own pair sentence, if the build falls back
-          #   - the spawned-child prerender and the render check doing real work
-          #   - `xaiSkipped` folding into `skipped` (no attachment, so empty —
-          #     a non-empty list here would itself be the bug)
-          #   - the script upload, and `stage: "pack"` if packaging fails
-          #
-          # NOT EXERCISED, AND SAID SO RATHER THAN CLAIMED: the revise-side
-          # critical, the redirect map, the icon lane and the bilingual ledger
-          # all need an EDIT, and this script deliberately drives a first build
-          # only. Those stay unproven live after this run.
-          #
-          # GROK IS WHAT MAKES THIS RUNNABLE AT ALL. The design and pages calls
-          # go to xAI; the Anthropic-pinned calls (the router, the seed top-up)
-          # fail soft by design — `readRouting`'s unclear-resolves-to-build rule
-          # and `topUpSeed`'s can-never-fail-a-build contract — so an empty
-          # Anthropic balance costs a routing decision and a seed net, not the
-          # build. Runs 6 and 7 both proved that live.
-          #
-          # WHY THIS BRIEF. It is deliberately the ordinary shape rather than the
-          # demanding one, because what is under test is the FIXES, not the wall:
-          #   - a public menu the visitor reads signed out, which is the
-          #     read/write pair whose access `coerceTable` was silently flipping
-          #     to `collect` on a revise — the critical, exercised in the
-          #     direction that publishes a table rather than hides one
-          #   - seeded display rows, so an unseeded menu would show as empty
-          #   - a booking form (a `collect` table), which is the write half of
-          #     the same grid and must stay unreadable to the public
-          #   - enough pages to make the render check and the prerender do real
-          #     work in the rebuilt spawned child — the sandbox critical
-          #
-          # A FRESH SLUG, because ownership is what decides `revise`: reusing a
-          # claimed name would test the edit path when what is wanted is a first
-          # build.
-          #
-          # FIRED against a tree measured green at 3718 passing / 0 failing,
-          # with `site build` (the real container), `neon e2e` (a real Postgres)
-          # and the Cloudflare deploy all green on the merged commit. What this
-          # run adds is the one thing none of those can: a real customer build,
-          # end to end, through the rebuilt sandbox.
-          #
-          # THE BRIEF IS RUN 3's, VERBATIM, and that is the point. It died at
-          # 286s and again at 301s, which is exactly the cluster `limits.cpu_ms`
-          # has since been raised for. Changing a single word would make a
-          # success unattributable — this is the same input against one changed
-          # setting, which is the only shape that can settle it.
-          #
-          # AND IT IS DELIBERATELY THE DEMANDING ONE. Runs 5 and 6 were cut down
-          # to isolate Grok from the wall; that was right then and it is the
-          # wrong test now. Four-plus pages, a booking form, AED prices and an
-          # explicit gallery page — Arabic also costs more tokens per character,
-          # so page generation runs longer, and run 6 was already 156s of
-          # generation inside a 378s build. If five minutes of CPU has a floor
-          # under real work, this is what finds it.
-          #
-          # WHAT IT PROVES BEYOND THE WALL: right-to-left has never run live.
-          # It shipped 2026-08-19 and every claim about it comes from local
-          # renders and unit tests — no customer build has ever carried
-          # `dir="rtl"`, so `normalizeLang` reading `ar` out of a real designer
-          # answer is itself untested end to end.
-          #
-          # GROK BECAUSE IT IS THE ONLY PICKER THAT CAN BUILD. The Anthropic
-          # account is out of credit (measured 2026-08-21: `billing: true` at
-          # `stage: design`), so `sonnet` and `opus` refuse in about a second.
+          # GROK, because the Anthropic account is out of credit — `sonnet` and
+          # `opus` answer `billing: true` at `stage: design` in about a second.
           OWNER_PICKER: grok
-          OWNER_BRIEF: "مقهى ومحمصة قهوة في دبي. يتصفح الزوار قائمة القهوة والحلويات بالأسعار بالدرهم دون تسجيل الدخول، ويحجزون طاولة عبر نموذج قصير — الاسم ورقم الهاتف وعدد الأشخاص ووقت الحضور. توجد صفحة عن المحمصة وطريقة التحميص، وصفحة بأوقات العمل والعنوان."
+          OWNER_BRIEF: "An open-air lido cafe on the south coast, beside a 1930s seawater swimming pool. Visitors read the menu of coffee, ice cream and toasties with prices in pounds without signing in, and book a poolside table with a short form - name, phone, how many people, and what time. There is a page about the lido's restoration and one with opening hours, the address and how to find the entrance. The feel is late afternoon sun on the water: faded pastel paintwork, sun-bleached concrete, long low light."
         run: node scripts/build-as-owner.mjs
       - uses: actions/upload-artifact@v4
         if: always()
