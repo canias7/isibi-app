@@ -84,6 +84,18 @@ Push to `main` → GitHub Actions → Wrangler → Cloudflare Workers → isibi.
 
 - **VERIFIED LIVE ON GROK, mid-round** (`fold-lane-bakery.gofarther.app`, 94 credits, 524 → 430): a public `loaves` table serving seeded rows to a signed-out visitor, `orders` answering **42501 permission denied** to a public read — the write-only guarantee holding on a real customer table — `<html lang="en" dir="ltr">`, a real photograph bought, published through the rebuilt spawned-child sandbox. **The Anthropic account is still empty**, so `build smoke`, `edit smoke` and both evals cannot run; Grok is the only picker that can build.
 
+## RUN 10: THE BOUND NEVER FIRED, BECAUSE THE CONNECTION DIED FIRST (2026-08-22)
+
+**Same brief, same picker, same slug discipline as run 9, with `BUILDER_CALL_MS` added — and it failed at a completely different place: `ECONNRESET` at 285.3s, from the FAR end.** Balance 425 → 416 (nine credits, a cold Grok schema call), slug claimed, Neon project provisioned, no site.
+
+- **THE TIMELINE SAYS THE SAME THING RUN 9's DID, ONE STEP EARLIER.** POST 02:18:43 · `site_backends` row 02:20:16 — so design and provisioning took **93 seconds and worked**, for the third time on an Arabic brief. Page generation then ran ~192 seconds and the connection was reset.
+- **MY BOUND DID NOT FIRE AND COULD NOT HAVE.** It is 600s; this died at 285.3s. So the ten-minute ceiling is **still unproven live** — a different failure reached the customer first, which is worth saying plainly rather than letting the fix look exercised.
+- **IT IS RUN 4 REPRODUCED TO THE SECOND.** Run 4 died at **286.0s** with `ECONNRESET` from the far end; run 10 at **285.3s**, the same way. Two independent runs, seven tenths of a second apart. That is a real, repeatable reset and not noise.
+- **AND RUN 9 REFUTES IT AS A HARD CEILING**, which is why this is not simply "the 285s wall is back". The same brief on the same picker held the connection for **1546 seconds** forty minutes earlier. So something resets at ~285s **intermittently**; a session cannot read the Cloudflare log, so naming what would be an inference wearing the shape of a measurement.
+- **THE SCOREBOARD IS THE FINDING, and it is now big enough to act on: FOUR Arabic attempts, ZERO sites** (runs 3, 4, 9, 10 — 301s, 286s, 1546s, 285s) against **TWO English attempts, TWO published sites** (runs 6 and 8, at 378s and >718s, both past the 285s mark). The connection outcome varies; **Arabic page generation finishing does not — it never has.**
+- **THE FIX FOR THIS ONE IS NOT A TIMEOUT IN EITHER DIRECTION.** A shorter bound refuses sooner and still produces no site; a longer one changes nothing, because the connection dies at 285s regardless. What it needs is a build that does not depend on the client staying connected — `waitUntil` or a resumable build — which this file already records as **architecture, not a patch**, and which is also the fix for a real customer closing a tab.
+- **STOPPED SPENDING HERE, deliberately.** Three funded Arabic attempts tonight cost ~19 credits and produced three husks. A fourth buys the same information.
+
 ## AN ARABIC SITE STILL CANNOT BE BUILT, AND THE WALL IS NOT WHERE IT WAS (2026-08-22)
 
 **Run 9, Grok, `qahwa-almadina`: design and provisioning worked in 79 seconds and page generation ran for 25 minutes 46 seconds without returning.** The runner's own 30-minute job cap killed it with the request still open. **Balance 430 → 425 — five credits, the Grok schema call, settled correctly** — and no site: 404 at both `qahwa-almadina.gofarther.app` and `/s/qahwa-almadina/`.

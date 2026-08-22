@@ -12,6 +12,27 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ## OPEN — waiting to be picked up
 
+**I TRIED THE ARABIC SITE AGAIN AND IT FAILED A THIRD WAY — 9 MORE CREDITS
+(2026-08-22).** After adding the ten-minute limit I re-ran the same Arabic
+brief. **There is no site and no link to show you.** Balance 425 → 416.
+
+* **It failed before the new limit could help.** The connection to the builder
+  was dropped by the far end at 4 minutes 45 seconds — the ten-minute limit
+  never got a chance to fire. So that fix is still unproven; something else got
+  there first.
+* **The tally is now the useful part. Four Arabic attempts, no site. Two English
+  attempts, two working sites.** The way it fails keeps changing — once our own
+  timeout, twice a dropped connection, once a 26-minute hang — but the thing
+  that never happens is the page-writing step finishing on an Arabic brief.
+* **I have stopped spending on it.** Three attempts tonight cost about 19
+  credits and left three empty shells. A fourth would buy the same answer.
+* **What it would actually take:** the builder currently needs you to stay
+  connected for the whole build — close the tab and the build dies. Making it
+  survive a disconnect is a real piece of work rather than a setting, and it is
+  the same fix that protects a real customer whose phone drops mid-build.
+* **If you want a working site to look at,** an English build takes ~95 credits
+  and has published two for two. Say the word and I will run one.
+
 **THE ARABIC BUILD DID NOT WORK, AND IT COST YOU 5 CREDITS (2026-08-22).** You
 said "use grok", so I ran one real build on your account with an Arabic brief —
 a Dubai café — because right-to-left shipped three days ago and has never once
