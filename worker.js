@@ -2448,6 +2448,28 @@ async function runSiteRebuild(env) {
         if (!g.ok) throw new Error("site_backends read " + g.status);
         return ((await g.json()) || []).length > 0;
       },
+      // CLAIM THE ROW ATOMICALLY, so an overlapping tick cannot start a second
+      // container run for the same site. `runScheduledSiteJobs` closed exactly
+      // this hole and this is its mechanism: the WHERE RE-STATES DUENESS, so the
+      // first PATCH matches and moves `next_try_at` forward and the second finds
+      // nothing. `return=representation` is what makes the answer readable — a
+      // row back means we won, an empty array means another tick did.
+      //
+      // `r.ok` IS CHECKED. A Supabase in read-only mode reads fine and 5xxs on
+      // writes, and without this the claim would silently "succeed" on every
+      // tick — which is the duplicate run, on the one failure that produces it
+      // continuously rather than occasionally.
+      claim: async (slug, sec) => {
+        const p = await rest(`site_rebuild?slug=eq.${encodeURIComponent(slug)}` +
+          `&next_try_at=lte.${encodeURIComponent(new Date().toISOString())}`, {
+          method: "PATCH",
+          headers: { Prefer: "return=representation" },
+          body: JSON.stringify({ next_try_at: new Date(Date.now() + Number(sec) * 1000).toISOString() }),
+        });
+        if (!p.ok) return false;
+        const got = await p.json().catch(() => null);
+        return Array.isArray(got) && got.length > 0;
+      },
       rebuild: async (slug) => {
         // THE SITE'S OWN STORED SOURCE, WHICH IS WHY THIS COSTS NO CREDITS. A
         // rebuild recompiles the pages the model already wrote; it never calls a

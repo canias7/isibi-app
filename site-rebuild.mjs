@@ -66,6 +66,30 @@ export function backoffFor(attempts) {
 export const BATCH = 1;
 
 /**
+ * HOW LONG A CLAIM HOLDS THE ROW WHILE A REBUILD IS IN FLIGHT.
+ *
+ * The row is not touched until the rebuild RETURNS — the ordering that stops a
+ * crashed run losing the site from the queue — and that leaves a window: the
+ * cron fires every 120s and a recompile is ~65s, so one slow site is enough for
+ * two ticks to read the same row as due and both start a container run. The
+ * build service is `oneAtATime`, so the second queues behind the first and then
+ * republishes identical content: a wasted run, and a real customer edit waiting
+ * behind both.
+ *
+ * `runScheduledSiteJobs` closed exactly this hole and its comment is the rule —
+ * *"an overlapping tick that reads the same row as due loses here and sends
+ * nothing"*. Same mechanism, milder consequence: there it was re-mailing a
+ * customer's whole batch, here it is a duplicate publish of the same bytes.
+ *
+ * TEN MINUTES: ~9x the measured run, so an overlap cannot squeeze through, and
+ * short enough that a run whose ISOLATE DIED — leaving neither a forget nor a
+ * defer — is picked up again soon rather than being stuck until somebody looks.
+ * That dead-isolate case is the only thing this number bounds; every ordinary
+ * outcome overwrites `next_try_at` on its way out.
+ */
+export const CLAIM_SEC = 600;
+
+/**
  * What a rebuild outcome means. THREE answers, not two, and the third is the
  * one this queue needs that the teardown queue did not.
  *
@@ -113,6 +137,7 @@ export function verdictFor(res) {
  * deps:
  *   due(limit)                  → [{slug, attempts}]   rows whose next_try_at has passed
  *   exists(slug)                → boolean | throws     is this site still registered
+ *   claim(slug, sec)            → boolean              push next_try_at out, atomically; did we win
  *   rebuild(slug)               → the spine's result object
  *   forget(slug)                → void   delete the queue row
  *   defer(slug, attempts, sec, why) → void   push next_try_at out and record why
@@ -124,7 +149,7 @@ export function verdictFor(res) {
  * backups, the teardown queue, the domain watch and the webhook queue with it.
  */
 export async function drainRebuild(deps, { limit = BATCH } = {}) {
-  const out = { attempted: 0, rebuilt: 0, gone: 0, deferred: 0, parked: 0, errors: [] };
+  const out = { attempted: 0, rebuilt: 0, gone: 0, deferred: 0, parked: 0, lost: 0, errors: [] };
   let rows = [];
   try { rows = (await deps.due(limit)) || []; }
   catch (e) {
@@ -163,6 +188,29 @@ export async function drainRebuild(deps, { limit = BATCH } = {}) {
     if (!alive) {
       try { await deps.forget(slug); out.gone++; }
       catch (e) { out.errors.push("forget " + slug + ": " + String((e && e.message) || e).slice(0, 120)); }
+      continue;
+    }
+
+    // ── CLAIM IT BEFORE SPENDING A CONTAINER RUN ─────────────────────────────
+    //
+    // The row is not touched again until the rebuild RETURNS — the ordering that
+    // stops a crashed run losing the site from the queue — so without this an
+    // overlapping tick reads the same row as due and starts a second container
+    // run for the same site. See CLAIM_SEC.
+    //
+    // A CLAIM THAT CANNOT BE RECORDED IS A CLAIM LOST, in `runScheduledSiteJobs`'s
+    // own words: false, a throw and an unreadable answer are all a loss. Being
+    // wrong that way skips one site for ten minutes; being wrong the other way is
+    // the duplicate run this exists to prevent.
+    let won = false;
+    try { won = (await deps.claim(slug, CLAIM_SEC)) === true; }
+    catch { won = false; }
+    if (!won) {
+      // LOSING A RACE IS NOT A FAILURE. No attempt counted, no backoff climbed,
+      // no `last_error` written — the tick that won is doing the work, and
+      // recording this as a failure would park a healthy site after five ticks
+      // of ordinary contention.
+      out.lost++;
       continue;
     }
 

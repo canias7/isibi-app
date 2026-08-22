@@ -75,6 +75,52 @@ test("`exists` THROWS on an unreadable answer — it never answers false", () =>
   assert.match(seg, /if\s*\(!\s*\w+\.ok\)\s*throw/, "a failed read must throw, not fall through to a boolean");
 });
 
+// ── the claim, whose three load-bearing properties live only in worker.js ────
+//
+// The module's own tests cover the DECISION (a lost claim spends nothing, only
+// a literal true wins). None of them can see whether the PATCH that produces
+// that boolean is actually atomic — and a claim that always answers true, or
+// always false, is worse than no claim at all. All three below were found by
+// mutation, not by reading.
+
+const claimBody = () => {
+  const body = bodyOf("runSiteRebuild");
+  const at = body.indexOf("claim: async");
+  assert.notEqual(at, -1, "worker.js supplies no claim");
+  const end = body.indexOf("rebuild: async", at);
+  assert.ok(end > at, "the claim block could not be bounded");
+  return body.slice(at, end);
+};
+
+test("the claim's WHERE re-states DUENESS — without it both ticks win", () => {
+  // This is the entire atomicity. A PATCH filtered on the slug alone matches for
+  // every concurrent tick, so both claim it, both spend a container run, and the
+  // guard reads as present while protecting nothing.
+  assert.match(claimBody(), /next_try_at=lte\./,
+    "the claim must be conditional on the row still being due");
+});
+
+test("the claim CHECKS the write succeeded", () => {
+  // Supabase in read-only mode reads fine and 5xxs on writes. Unchecked, the
+  // claim would answer true on every tick for as long as that lasted — which is
+  // the duplicate run continuously rather than occasionally. `runScheduledSiteJobs`
+  // had this exact bug and its comment is the rule: a claim that cannot be
+  // recorded is a claim lost.
+  assert.match(claimBody(), /if \(!\w+\.ok\) return false;/,
+    "a failed PATCH must be a LOST claim, not a won one");
+});
+
+test("the claim asks for the ROW BACK, or it can never win", () => {
+  // The subtlest of the three and the most total: with `return=minimal`
+  // PostgREST sends no body, so the answer is always empty, the claim always
+  // loses, and THE DRAIN NEVER REBUILDS ANYTHING — a queue that fills and is
+  // worked through by nobody, silently, which is the state this whole feature
+  // exists to end.
+  const seg = claimBody();
+  assert.match(seg, /Prefer:\s*["'`]return=representation/, "the claim needs the row back to know it won");
+  assert.doesNotMatch(seg, /return=minimal/, "return=minimal makes the claim permanently unwinnable");
+});
+
 test("`rebuild` REFUSES without stored source rather than publishing an empty site", () => {
   // Publishing with no pages replaces a working site with one that has no
   // routes — strictly worse than not rebuilding it at all.

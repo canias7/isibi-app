@@ -15,10 +15,10 @@
 // that matters: a failed rebuild must leave the live site exactly as it was.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { drainRebuild, verdictFor, backoffFor, BACKOFF_SEC, BATCH } from "../site-rebuild.mjs";
+import { drainRebuild, verdictFor, backoffFor, BACKOFF_SEC, BATCH, CLAIM_SEC } from "../site-rebuild.mjs";
 
 const harness = (over = {}) => {
-  const calls = { exists: [], rebuild: [], forget: [], defer: [] };
+  const calls = { exists: [], claim: [], rebuild: [], forget: [], defer: [] };
   const deps = {
     due: async (limit) => {
       if (over.dueThrows) throw new Error("supabase down");
@@ -28,6 +28,11 @@ const harness = (over = {}) => {
       calls.exists.push(slug);
       if (over.existsThrows) throw new Error("supabase down");
       return over.exists === undefined ? true : over.exists;
+    },
+    claim: async (slug, sec) => {
+      calls.claim.push({ slug, sec });
+      if (over.claimThrows) throw new Error("supabase down");
+      return over.claim === undefined ? true : over.claim;
     },
     rebuild: async (slug) => {
       calls.rebuild.push(slug);
@@ -217,6 +222,79 @@ test("the drain never throws, whatever the deps do", async () => {
   // A drain that throws takes the nightly backups, the teardown queue, the
   // domain watch and the webhook queue down with it — they share one tick.
   await assert.doesNotReject(() => drainRebuild(deps));
+});
+
+// ------------------------------------------------------------- the claim
+
+test("the row is CLAIMED before a container run is spent", async () => {
+  // Without this an overlapping tick reads the same row as due and starts a
+  // second run for the same site — and the build service is one-at-a-time for
+  // the whole platform, so a real customer edit waits behind both.
+  const order = [];
+  const { deps } = harness({
+    deps: {
+      claim: async () => { order.push("claim"); return true; },
+      rebuild: async () => { order.push("rebuild"); return { ok: true }; },
+    },
+  });
+  await drainRebuild(deps);
+  assert.deepEqual(order, ["claim", "rebuild"], "the claim must come first or it protects nothing");
+});
+
+test("losing the claim spends NOTHING and is not a failure", async () => {
+  // The tick that won is doing the work. Counting this as a failure would climb
+  // the backoff and park a healthy site after five ticks of ordinary contention.
+  const { deps, calls } = harness({ claim: false });
+  const out = await drainRebuild(deps);
+  assert.deepEqual(calls.rebuild, [], "a lost claim must not reach the container");
+  assert.deepEqual(calls.defer, [], "a lost race must not climb the backoff");
+  assert.deepEqual(calls.forget, []);
+  assert.equal(out.lost, 1);
+  assert.equal(out.attempted, 0);
+  assert.equal(out.errors.length, 0, "losing a race is not an error worth logging");
+});
+
+test("a claim that cannot be RECORDED is a claim lost", async () => {
+  // `runScheduledSiteJobs`'s own rule. Being wrong this way skips one site for
+  // ten minutes; being wrong the other way is the duplicate run.
+  const { deps, calls } = harness({ claimThrows: true });
+  const out = await drainRebuild(deps);
+  assert.deepEqual(calls.rebuild, []);
+  assert.equal(out.lost, 1);
+});
+
+test("only a literal true wins the claim", async () => {
+  // A dep answering `{}` or a row count would otherwise read as a win, and
+  // everything truthy wins is how this silently stops protecting anything.
+  for (const answer of [1, "yes", {}, [], "true"]) {
+    const { deps, calls } = harness({ claim: answer });
+    await drainRebuild(deps);
+    assert.deepEqual(calls.rebuild, [], "claim answered " + JSON.stringify(answer) + " must not win");
+  }
+});
+
+test("the claim window is the module's own, and long enough to cover a run", async () => {
+  const { deps, calls } = harness();
+  await drainRebuild(deps);
+  assert.equal(calls.claim[0].sec, CLAIM_SEC);
+  // ~65s is the measured recompile. A window at or under that lets the overlap
+  // straight back through, which is the whole bug.
+  assert.ok(CLAIM_SEC >= 300, "a claim shorter than five minutes does not cover a slow rebuild");
+  assert.ok(CLAIM_SEC <= 3600, "and a dead isolate must not hold the row for an hour");
+});
+
+test("the claim comes AFTER the existence check", async () => {
+  // A deleted site must cost neither a container run nor a write. Claiming
+  // first would PATCH a row we are about to delete.
+  const order = [];
+  const { deps } = harness({
+    deps: {
+      exists: async () => { order.push("exists"); return false; },
+      claim: async () => { order.push("claim"); return true; },
+    },
+  });
+  await drainRebuild(deps);
+  assert.deepEqual(order, ["exists"], "a deleted site must not be claimed");
 });
 
 // ------------------------------------------------------------- the batch

@@ -36,9 +36,18 @@ republished today is one site, triggered by one person editing one thing.
 * **A site that will not rebuild is not lost or hidden.** It stays on the list
   with the reason next to it, so somebody can look at it, rather than being
   quietly dropped.
-* **Nothing is running.** The queue is empty and nothing is queued — it is ready
-  for the day it is needed, which is the whole point of building it now rather
-  than during an emergency.
+* **IT HAS NOW BEEN PROVEN ON A REAL SITE.** I queued `fold-lane-bakery` and it
+  republished by itself **3 minutes 45 seconds later**, with no involvement from
+  me. All its pages still load, and I checked the site did not change: the only
+  difference in the page is a timestamp. **Nothing was charged.**
+* **Watching it run showed up a flaw, which I fixed.** Two of the every-2-minute
+  checks could both pick up the same site and rebuild it twice — wasteful, and it
+  would put a real customer's edit in a queue behind both. Now only one can claim
+  a site at a time. I tested that against the real database: one wins, the other
+  is turned away.
+* **The queue is empty again** and nothing is scheduled. It is ready for the day
+  it is needed, which is the whole point of building it now rather than during an
+  emergency.
 
 **I TRIED THE ARABIC SITE AGAIN AND IT FAILED A THIRD WAY — 9 MORE CREDITS
 (2026-08-22).** After adding the ten-minute limit I re-ran the same Arabic
