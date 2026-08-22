@@ -38,6 +38,7 @@ import { listSecrets, addSecret, deleteSecret, readSecret } from "./site-secrets
 import { normalizePayment, parseCart, priceCart, checkoutSessionArgs, formEncode, paidFromEvent } from "./site-payments.mjs";
 import { rescopeCookie } from "./site-cookie.mjs";
 import { drainTeardown } from "./site-teardown.mjs";
+import { drainRebuild, BATCH as REBUILD_BATCH } from "./site-rebuild.mjs";
 import { scrubSecrets, neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteProject, enableNeonAuth, enableDataApi, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
 import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlIdent, seedSiteRows, droppedFields, refusedFields } from "./site-schema.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
@@ -2242,6 +2243,10 @@ export default {
     // only one that can pick that up, for the same reason the teardown queue
     // above is drained here.
     ctx.waitUntil(runWebhookQueue(env));
+    // Republish one queued site. INERT UNLESS SOMEBODY ENQUEUED — the queue is
+    // written by an operator sweep, never by the platform itself, so on an
+    // ordinary tick this is one Supabase read that comes back empty.
+    ctx.waitUntil(runSiteRebuild(env));
   },
 };
 
@@ -2398,6 +2403,93 @@ async function runNeonTeardown(env) {
     // every two minutes and would otherwise bury everything else in the log.
     if (out.attempted || out.errors.length) console.log("neon teardown:", JSON.stringify(out));
   } catch (e) { console.error("neon teardown failed:", (e && e.message) || e); }
+}
+
+/**
+ * REPUBLISH ONE QUEUED SITE.
+ *
+ * The wiring half of site-rebuild.mjs — see that file for every decision. This
+ * supplies the four real side effects and nothing else.
+ *
+ * WHY THIS IS ON THE CRON RATHER THAN A ROUTE. A recompile is ~65s of container
+ * and the build service is `oneAtATime` for the whole platform, so a
+ * platform-wide bump is hours of serialized work. A request cannot hold that,
+ * and a loop inside one would starve every real customer edit behind it.
+ *
+ * NOTHING ENQUEUES ITSELF. Rows are written by the operator sweep
+ * (.github/workflows/rebuild-all-sites.yml) with the service key, directly into
+ * Supabase — so there is no new route, no new auth surface, and on an ordinary
+ * tick this whole function is one read that comes back empty.
+ */
+async function runSiteRebuild(env) {
+  if (!env.SUPABASE_SERVICE_KEY) return;
+  const rest = (path, init) => fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    ...init, headers: svcHeaders(env, { "content-type": "application/json", ...((init || {}).headers || {}) }),
+    signal: AbortSignal.timeout(12000),
+  });
+  try {
+    const out = await drainRebuild({
+      due: async (limit) => {
+        const g = await rest(`site_rebuild?next_try_at=lte.${encodeURIComponent(new Date().toISOString())}` +
+          `&select=slug,attempts&order=next_try_at.asc&limit=${Number(limit) || 1}`);
+        if (!g.ok) throw new Error("site_rebuild read " + g.status);
+        return await g.json();
+      },
+      // IS THE SITE STILL REGISTERED. `site_backends` is the ownership record and
+      // the site-delete route removes it last, so its absence is the one
+      // unambiguous "this site is gone" — which is why the drain asks rather than
+      // reading it out of an error message.
+      //
+      // THROWS ON A BAD READ rather than answering false. "Supabase would not
+      // answer" and "the site was deleted" want opposite responses, and the
+      // difference between them is a live site dropped from the queue forever.
+      exists: async (slug) => {
+        const g = await rest(`site_backends?slug=eq.${encodeURIComponent(slug)}&select=slug&limit=1`);
+        if (!g.ok) throw new Error("site_backends read " + g.status);
+        return ((await g.json()) || []).length > 0;
+      },
+      rebuild: async (slug) => {
+        // THE SITE'S OWN STORED SOURCE, WHICH IS WHY THIS COSTS NO CREDITS. A
+        // rebuild recompiles the pages the model already wrote; it never calls a
+        // model. Without them there is nothing to compile — and publishing a
+        // site with no routes would replace a working site with an empty one, so
+        // this REFUSES rather than proceeding.
+        //
+        // `ours: true`, because `loadSiteSource` swallows an R2 blip and a
+        // genuinely sourceless site into the same null and the two cannot be told
+        // apart here. Retrying heals the blip; a site that really has no stored
+        // source parks at the backoff cap and stays visible with this sentence.
+        const pages = await loadSiteSource(env, slug);
+        if (!pages) return { ok: false, error: "read", ours: true, detail: "no stored page source for " + slug };
+        return await recompileAndPublish(env, {
+          slug, pages,
+          // NAMED IN THE OWNER'S OWN VERSION HISTORY. Every publish archives a
+          // version, and a row there with no label reads as a change they made
+          // and cannot remember. This one was not theirs.
+          label: "platform rebuild",
+        });
+      },
+      forget: async (slug) => {
+        const d = await rest(`site_rebuild?slug=eq.${encodeURIComponent(slug)}`, { method: "DELETE" });
+        if (!d.ok) throw new Error("site_rebuild delete " + d.status);
+      },
+      defer: async (slug, attempts, sec, why) => {
+        const d = await rest(`site_rebuild?slug=eq.${encodeURIComponent(slug)}`, {
+          method: "PATCH",
+          headers: { Prefer: "return=minimal" },
+          body: JSON.stringify({
+            attempts,
+            last_error: String(why || "").slice(0, 300),
+            next_try_at: new Date(Date.now() + Number(sec) * 1000).toISOString(),
+          }),
+        });
+        if (!d.ok) throw new Error("site_rebuild defer " + d.status);
+      },
+    }, { limit: REBUILD_BATCH });
+    // Only worth a line when something happened — this runs every two minutes
+    // over a queue that is empty almost all of the time.
+    if (out.attempted || out.gone || out.errors.length) console.log("site rebuild:", JSON.stringify(out));
+  } catch (e) { console.error("site rebuild failed:", (e && e.message) || e); }
 }
 
 // ── Free-tier media proxy ──

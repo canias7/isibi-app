@@ -1,0 +1,62 @@
+# Queue every published site for a republish.
+#
+# WHY THIS EXISTS. Each published site is its own Worker script with React and
+# TanStack bundled INTO it — a Worker cannot load code at runtime, so there is no
+# shared framework layer to patch. When an advisory lands in a bundled dependency
+# the only fix is to republish every site, and this starts that.
+#
+# IT WRITES ROWS AND NOTHING ELSE. The work happens in the Worker's cron, ONE
+# site per two-minute tick, through site-rebuild.mjs — so this job finishes in
+# seconds and the republish takes hours. That is deliberate: the build service is
+# one-at-a-time for the whole platform, and a bulk operation must never put a
+# real customer edit behind it.
+#
+# DRY RUN BY DEFAULT. It prints what it would queue, what is already queued, any
+# sites parked at the backoff cap, and how long the drain will take. Set apply to
+# true only when that reads right.
+#
+# COSTS NO CREDITS. A rebuild recompiles the page source the model already wrote;
+# it makes no model call. What it spends is container time.
+name: rebuild all sites
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Actually enqueue (false = dry run)'
+        type: boolean
+        required: false
+        default: false
+      reason:
+        description: 'Why — shown in the queue row (e.g. "react 19.2.1")'
+        required: false
+        default: 'platform rebuild'
+      only:
+        description: 'Optional comma-separated slugs, for a trial run on a few sites first'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  enqueue:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: enqueue
+        env:
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          ENQ_APPLY: ${{ inputs.apply }}
+          ENQ_REASON: ${{ inputs.reason }}
+          ENQ_ONLY: ${{ inputs.only }}
+        run: |
+          set -eu
+          FLAGS=""
+          if [ "$ENQ_APPLY" = "true" ]; then FLAGS="--apply"; else FLAGS="--dry"; fi
+          if [ -n "$ENQ_ONLY" ]; then FLAGS="$FLAGS --only $ENQ_ONLY"; fi
+          node .github/scripts/enqueue-rebuild.mjs $FLAGS --reason "$ENQ_REASON"

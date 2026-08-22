@@ -12,6 +12,34 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ## OPEN — waiting to be picked up
 
+**BUILT: A WAY TO REPUBLISH EVERY SITE AT ONCE (2026-08-22).** You asked what
+the gap was and this was it. **Nothing existed that could update all your
+customers' sites in one go** — every one of the fourteen ways a site gets
+republished today is one site, triggered by one person editing one thing.
+
+* **Why that matters.** Each site you build is its own little program, and the
+  web framework it is made of is baked INSIDE it. So a site stays on whatever
+  version it was built with, forever. The day one of those pieces has a security
+  problem, the only fix is to republish every site — and until today there was
+  no button, script or job that could do that.
+* **It costs you nothing in credits.** A republish reuses the pages that were
+  already written; it never asks the AI anything. What it spends is our own
+  build machine's time.
+* **It goes one site every two minutes**, on purpose. The build machine handles
+  one site at a time for the whole platform, so going faster would put a real
+  customer's edit in a queue behind a bulk job. For your fourteen sites that is
+  about half an hour.
+* **How you would use it.** There is a manual button in GitHub Actions ("rebuild
+  all sites"). It does a **dry run by default** — it tells you how many sites it
+  would queue, which ones are already stuck, and how long it will take, before
+  anything happens.
+* **A site that will not rebuild is not lost or hidden.** It stays on the list
+  with the reason next to it, so somebody can look at it, rather than being
+  quietly dropped.
+* **Nothing is running.** The queue is empty and nothing is queued — it is ready
+  for the day it is needed, which is the whole point of building it now rather
+  than during an emergency.
+
 **I TRIED THE ARABIC SITE AGAIN AND IT FAILED A THIRD WAY — 9 MORE CREDITS
 (2026-08-22).** After adding the ten-minute limit I re-ran the same Arabic
 brief. **There is no site and no link to show you.** Balance 425 → 416.
