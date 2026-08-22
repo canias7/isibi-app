@@ -88,8 +88,42 @@ jobs:
           # (`mathaq-alemarat`, `mathaq-dubai`), so neither name can be reused:
           # ownership is what decides `revise`, and re-running one would be read
           # as an edit of an empty husk rather than the first build it never got.
-          OWNER_SLUG: qahwa-almadina
-          # RUN 9 (2026-08-22): RIGHT-TO-LEFT, LIVE, FOR THE FIRST TIME.
+          OWNER_SLUG: rukn-alqahwa
+          # RUN 10 (2026-08-22): THE SAME ARABIC BRIEF, NOW BOUNDED.
+          #
+          # RUN 9 IS WHY THIS IS WORTH SPENDING AGAIN RATHER THAN A REPEAT. It
+          # used this exact brief, design and provisioning worked in 79 seconds,
+          # and page generation then ran 25m46s without returning — stopped only
+          # by the job cap. Five credits, a claimed slug, a live Neon project,
+          # no site, and 27 minutes of waiting to find that out.
+          #
+          # ONE THING CHANGED, AND IT CHANGES THE ARITHMETIC. `BUILDER_CALL_MS`
+          # is ten minutes, in `callBuilderModel`. So the DOWNSIDE of this run is
+          # no longer ~100 credits and half an hour: a pages-call timeout lands
+          # at stage `generate`, which is not in `CHARGED_STAGES`, so it is free
+          # — the run costs the Grok schema call (~5) and answers in about
+          # fifteen minutes with a message saying so.
+          #
+          # BOTH OUTCOMES ARE WORTH HAVING, which is what makes it a good spend
+          # rather than a retry:
+          #   - it hangs again  -> the bound is proven live, the refusal is
+          #     honest, and ~5 credits bought the proof that a hung build now
+          #     stops and says nothing was charged
+          #   - it finishes     -> right-to-left is proven live for the first
+          #     time, and the merged audit round has built end to end
+          #
+          # THE BRIEF IS RUN 9's VERBATIM, deliberately. The only variable is the
+          # bound; changing a word would make either outcome unattributable.
+          # Fresh slug because run 9 claimed the last one and ownership decides
+          # `revise`.
+          #
+          # WHAT IT STILL DOES NOT TEST, said rather than implied: the
+          # revise-side critical, the redirect map, the icon lane and the
+          # bilingual ledger all need an EDIT, and this script drives a first
+          # build only.
+          #
+          # ─────────── run 9's reasoning, kept because it still holds ─────────
+          # RIGHT-TO-LEFT, LIVE, FOR THE FIRST TIME.
           #
           # THE WHOLE AUDIT ROUND IS MERGED NOW — 80 findings, and the last of
           # them shipped a `ReferenceError` that answered `500 {}` to every
