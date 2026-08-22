@@ -7518,7 +7518,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
   // a typo fix asks about one string rather than the whole site.
   const extraLangs = Array.isArray(look && look.langs) ? look.langs : [];
   const primaryRoutes = (pages || []).map((p) => routeOf(p.path)).filter(Boolean);
-  const { langs: siteLangs } = resolveLangs((look && look.lang) || "en", extraLangs, { routes: primaryRoutes });
+  const { langs: siteLangs, refused: langsRefused } = resolveLangs((look && look.lang) || "en", extraLangs, { routes: primaryRoutes });
   const cache = langStrings && typeof langStrings === "object" ? langStrings : {};
   const nextStrings = {};
   let langsChanged = false;
@@ -7727,6 +7727,31 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
   }
   return { ok: true, files: wrote, look, render, renderNote: renderNote(built.render) || undefined,
     lookSoft: lookSoft.length ? lookSoft : undefined,
+    // ── WHAT THE TRANSLATION CALLS COST, so somebody can bill them ──────────
+    //
+    // `langUsage` was accumulated here and read by NOTHING: real Haiku spend on
+    // every bilingual publish that the ledger never saw, against the standing
+    // rule that every model call is charged on measured usage. The build path's
+    // copy of the same loop did not even accumulate — it discarded `got.usage`
+    // outright and its own comment called that "a pre-existing gap".
+    //
+    // Carried rather than billed here, because `eCharge` is already the one
+    // place a lane's spend is priced and `pageCredits` is variadic precisely so
+    // several calls land on ONE bill with ONE rounding. Billing separately
+    // inside this function would round twice.
+    //
+    // Absent when nothing was translated — a monolingual site, and a bilingual
+    // one whose strings were all already cached — so the ordinary publish is
+    // byte-identical on the wire.
+    langUsage: langUsage.length ? langUsage : undefined,
+    // AND WHICH LANGUAGE WE REFUSED. `resolveLangs` returns a per-language
+    // reason (`cap`, `unreadable`, `duplicate`, `reserved`, `page`) and its
+    // docstring says each "is a real failure it prevents" — every reader kept
+    // only `langs`. Meanwhile `mergeLook` has already STORED the refused tag
+    // and `movedFields` reports `langs` as moved, so the customer is told the
+    // change landed, no switcher appears, no prefixed routes exist, and the
+    // dead value sits in `site_look` being re-refused on every later publish.
+    langsRefused: (langsRefused && langsRefused.length) ? langsRefused : undefined,
     // ONLY ON A FAILURE, so a clean edit's response is byte-identical to before
     // and the field's PRESENCE is the alarm. The build response uses the same
     // shape and the same rule.
@@ -13590,8 +13615,31 @@ async function handleRequest(request, env, ctx) {
             // and rounds ONCE, so passing them is the whole fix — summing two
             // calls would charge twice for the rounding, which is the bug the
             // addon lane had.
+            //
+            // AND IT UNWRAPS A PUBLISH RESULT, which is how the translation
+            // calls get billed at all. `recompileAndPublish` translates on
+            // EVERY publish — a bilingual site's second language has to stay in
+            // step with the first, so a text fix, a colour change and a picture
+            // swap all go through it — and the Haiku usage it accumulated was
+            // read by nothing on either path. Real spend on every bilingual
+            // publish that the ledger never saw, against the standing rule that
+            // every model call is charged on measured usage.
+            //
+            // UNWRAPPED HERE RATHER THAN BILLED IN THE SPINE, because this is
+            // already the one place a lane's spend is priced, and `pageCredits`
+            // is variadic precisely so several calls land on ONE bill with ONE
+            // rounding. Billing separately down there would round twice — the
+            // exact bug the addon lane had.
+            //
+            // A publish that translated nothing contributes nothing, so a
+            // monolingual site and a cached bilingual one are unchanged.
             const eCharge = async (usage, ...more) => {
-              const parts = [usage, ...more].filter(Boolean);
+              const parts = [];
+              for (const p of [usage, ...more]) {
+                if (!p) continue;
+                if (Array.isArray(p.langUsage)) parts.push(...p.langUsage.filter(Boolean));
+                else parts.push(p);
+              }
               if (!parts.length) return 0;
               try { return await collectCredits(eAuth, pageCredits(...parts)); } catch { return 0; }
             };
@@ -13748,7 +13796,7 @@ async function handleRequest(request, env, ctx) {
                   // failed recompile that reported "nothing happened" would send
                   // somebody looking for a change that really did land.
                   return Response.json({
-                    ok: false, error: "compile", cost: await eCharge(dOut.usage), usage: dOut.usage,
+                    ok: false, error: "compile", cost: await eCharge(dOut.usage, dPub), usage: dOut.usage,
                     msg: compileMsg(dPub, dOut.applied.length
                       ? "Your rows are saved, but the new order didn't compile — the site is untouched."
                       : "That ordering change didn't compile, so your site is untouched."),
@@ -13775,7 +13823,7 @@ async function handleRequest(request, env, ctx) {
                   ? { table: c.table, id: c.id, removed: true, was: c.was || null }
                   : { table: c.table, id: c.id, columns: Object.keys(c.values) })),
                 failed: dOut.failed,
-                cost: await eCharge(dOut.usage), usage: dOut.usage,
+                cost: await eCharge(dOut.usage, dPub), usage: dOut.usage,
               });
             }
             if (eLayer === "rules") {
@@ -13930,7 +13978,7 @@ async function handleRequest(request, env, ctx) {
                 // never anything the customer typed, so there is nothing of
                 // theirs to keep out of a log.
                 layout: nOut.layout || undefined,
-                cost: await eCharge(nOut.usage), usage: nOut.usage,
+                cost: await eCharge(nOut.usage, nPub), usage: nOut.usage,
               });
             }
             if (eLayer === "picture") {
@@ -14027,7 +14075,7 @@ async function handleRequest(request, env, ctx) {
                 ok: true, layer: "picture", msg: pOut.msg,
                 changed: pOut.changed, files: pPub.files, render: pPub.render, renderNote: pPub.renderNote,
                 used: pOut.used.length, made: pOut.made.length, failed: pOut.failed,
-                cost: await eCharge(pOut.usage, pImages), usage: pOut.usage,
+                cost: await eCharge(pOut.usage, pImages, pPub), usage: pOut.usage,
               });
             }
             if (eLayer === "logo") {
@@ -14164,7 +14212,7 @@ async function handleRequest(request, env, ctx) {
                 // Omitted when empty, so an ordinary wording change's response
                 // is byte-identical and the field's PRESENCE is the signal.
                 staleTel: staleTel.length ? staleTel.slice(0, 4) : undefined,
-                cost: await eCharge(out.usage), usage: out.usage,
+                cost: await eCharge(out.usage, pub), usage: out.usage,
               });
             }
 
@@ -14666,7 +14714,7 @@ async function handleRequest(request, env, ctx) {
                   return Response.json({
                     ok: true, layer: "page", page: wantRoute, tweak: true,
                     files: twPub.files, render: twPub.render, renderNote: twPub.renderNote,
-                    cost: await eCharge(tw.usage), usage: tw.usage,
+                    cost: await eCharge(tw.usage, twPub), usage: tw.usage,
                   });
                 }
                 console.error("tweak compile failed, falling through:", ownerSlug, target.path);

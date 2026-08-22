@@ -805,7 +805,15 @@ test("the picture layer bills the photographs it bought", () => {
   assert.ok(i > 0, "the picture success response was not found");
   const block = WORKER_SRC.slice(Math.max(0, i - 900), WORKER_SRC.indexOf("});", i));
   assert.match(block, /images: pOut\.made\.length/, "the photographs are not priced into the bill");
-  assert.match(block, /eCharge\(pOut\.usage, pImages\)/, "…and must be charged through the same one call as the tokens");
+  // ANCHORED ON THE PROPERTY: both parts reach ONE `eCharge`. It pinned the
+  // exact argument list and went red when the publish result joined it — the
+  // third thing this lane legitimately bills, since the spine's translation
+  // calls are real spend the ledger never saw. `pageCredits` is variadic
+  // precisely so several parts land on one bill with one rounding, so what
+  // matters is that the photographs are IN that call, not their position.
+  const one = block.match(/eCharge\(pOut\.usage[^)]*\)/);
+  assert.ok(one, "the photographs are not charged through eCharge at all");
+  assert.match(one[0], /\bpImages\b/, "…and must be charged through the same one call as the tokens");
   // COUNTED FROM `made`, not from what was asked for: a photograph that failed
   // or was never affordable was never bought.
   assert.ok(!/images: pOut\.(budget|planned|changed)/.test(block), "the bill must count what was MADE, not what was wanted");

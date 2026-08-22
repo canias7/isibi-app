@@ -1234,3 +1234,54 @@ test("a picture that could not be made says WHY, and the caller carries it", () 
   assert.match(buy, /const \{ url, error \} = await makeSitePhoto\(/, "the per-shot reason is destructured away");
   assert.match(buy, /else if \(error\) failed = error;/, "the reason is read and then not kept");
 });
+
+test("the translation calls are billed, and a refused language is reported", () => {
+  // `langUsage` WAS ACCUMULATED AND READ BY NOTHING — real Haiku spend on every
+  // bilingual publish that the ledger never saw, against the standing rule that
+  // every model call is charged on measured usage. And the BUILD path's copy of
+  // the same loop did not even accumulate; its own comment called that "a
+  // pre-existing gap".
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(w, /langUsage: langUsage\.length \? langUsage : undefined,/,
+    "the spine still swallows what its translation calls cost");
+
+  // BILLED THROUGH `eCharge`, NOT INSIDE THE SPINE, and that is the property
+  // rather than a preference: `pageCredits` is variadic precisely so several
+  // calls land on ONE bill with ONE rounding, and billing separately down there
+  // would round twice — the exact bug the addon lane had.
+  const ec = w.slice(w.indexOf("const eCharge = async ("), w.indexOf("const modelDown = ("));
+  assert.ok(ec.length > 100 && ec.length < 2500, "eCharge moved — rescope this");
+  assert.match(ec, /Array\.isArray\(p\.langUsage\)/, "eCharge no longer unwraps a publish result");
+  assert.match(ec, /parts\.push\(\.\.\.p\.langUsage\.filter\(Boolean\)\)/, "the language usage is detected and dropped");
+  assert.match(ec, /pageCredits\(\.\.\.parts\)/, "the parts are no longer priced together, so the rounding is charged twice");
+
+  // AND A LANE THAT PUBLISHES HANDS ITS RESULT OVER. Derived from the publish
+  // variables themselves rather than a list of the lanes there are today: a
+  // ninth lane written tomorrow is covered without anybody remembering this
+  // file. A REFUSAL is deliberately excluded — it returns before the publish,
+  // so naming the variable there is a temporal-dead-zone ReferenceError AND
+  // semantically wrong, since nothing was published to translate. (Four of
+  // those were written and caught here before they shipped.)
+  const pubVars = [...w.matchAll(/(?:const|let) (\w*[Pp]ub) = (?:await |null;\n)?/g)]
+    .map((m) => m[1]).filter((v) => /Pub$|^pub$/.test(v));
+  assert.ok(pubVars.length >= 4, "the publish-variable scan found only " + pubVars.length + " — it has stopped scanning");
+  for (const v of new Set(pubVars)) {
+    const decl = w.search(new RegExp("(?:const|let) " + v + "\\b"));
+    // Every eCharge AFTER this variable's declaration and inside its lane.
+    const uses = [...w.matchAll(new RegExp("await eCharge\\([^)]*\\b" + v + "\\b[^)]*\\)", "g"))];
+    for (const u of uses) {
+      assert.ok(u.index > decl,
+        v + " is named by an eCharge at " + u.index + " but declared at " + decl + " — a temporal-dead-zone ReferenceError");
+    }
+  }
+
+  // THE REFUSED LANGUAGE IS REPORTED. `resolveLangs` returns a per-language
+  // reason and every reader kept only `langs` — while `mergeLook` had already
+  // STORED the refused tag and `movedFields` reported the look as changed. So
+  // the customer is told it landed, no switcher appears, no prefixed routes
+  // exist, and the dead value sits in `site_look` being re-refused for ever.
+  assert.match(w, /const \{ langs: siteLangs, refused: langsRefused \} = resolveLangs\(/,
+    "the spine destructures away the refusal reasons again");
+  assert.match(w, /langsRefused: \(langsRefused && langsRefused\.length\) \? langsRefused : undefined,/,
+    "a refused language is computed and never returned");
+});

@@ -419,7 +419,14 @@ test("the spine translates, caches, and never fails a publish over it", () => {
   // language quietly loses it on the next typo fix.
   assert.match(body, /const extraLangs = Array\.isArray\(look && look\.langs\) \? look\.langs : \[\]/,
     "the site's stored language list is never read");
-  assert.match(body, /const \{ langs: siteLangs \} = resolveLangs\(/);
+  // …AND THE REFUSALS COME BACK WITH THEM. This pinned the destructure as
+  // `{ langs: siteLangs }` alone — which was also the bug: `resolveLangs`
+  // returns a per-language reason its own docstring calls "a real failure it
+  // prevents", every reader kept only `langs`, and `mergeLook` had already
+  // STORED the refused tag while `movedFields` reported the look as changed.
+  // The customer was told it landed and got no switcher and no routes.
+  assert.match(body, /const \{ langs: siteLangs, refused: langsRefused \} = resolveLangs\(/,
+    "the spine destructures away the refusal reasons again");
   assert.match(body, /resolveLangs\(\(look && look\.lang\) \|\| "en", extraLangs/,
     "the stored list is read and then not passed to the resolver");
   assert.match(body, /missingFrom\(have, strings\)/, "the spine re-translates the whole site on every edit");
