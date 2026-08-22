@@ -9,14 +9,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
-  AXES, ASKABLE, MAX_STYLE, MAX_STYLE_BUILD, RADIUS_AXES,
-  optionsFor, parseStyle, mergeStyle, applyStyle, explicitRadiusCss,
+  AXES, ASKABLE, MAX_STYLE, MAX_STYLE_BUILD, AXIS_WIRE, wireName,
+  optionsFor, parseStyle, mergeStyle, applyStyle,
   styleNote, saidFor, axisHint, AUTHORED_AXES, authoredHint,
 } from "../builder/site-style.mjs";
 import { IMAGE_FUNCS, MAX_LAYER, MAX_LAYERS } from "../builder/site-css.mjs";
 import { AXIS_DECLS, AXIS_RAMPS, authoredFieldHint } from "../builder/site-authored.mjs";
 import * as T from "../builder/site-theme.mjs";
-import { stripThemeRadius, ASKABLE as TOKEN_NAMES, saidFor as tokenSaid, valueHint } from "../builder/site-tokens.mjs";
+import { ASKABLE as TOKEN_NAMES, saidFor as tokenSaid, valueHint } from "../builder/site-tokens.mjs";
 import { normalizeSeeds } from "../builder/site-seeds.mjs";
 
 const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
@@ -185,50 +185,66 @@ test("THE MERGED THEME REALLY RENDERS DIFFERENTLY — the whole mechanism, drive
   }
 });
 
-/* ------------------------------------------ the one place two patches collide */
+/* ------------------------------------- what the corner strip left behind */
 
-test("RADIUS_AXES is the WHOLE truth, derived from the engine", () => {
-  // The list is held in code because deriving it needs twelve emitters with
-  // three different signatures and a theme to evaluate them against. That is
-  // exactly the kind of hand-maintained fact that rots, so the truth is derived
-  // HERE: an axis that starts emitting a corner radius and is not in the list
-  // would be silently stripped whenever a customer also asks for a radius.
-  const theme = T.THEMES[Object.keys(T.THEMES)[0]];
-  const found = [];
+test("the AXES are the only source of border-radius in a theme's CSS", () => {
+  // THIS IS THE PROPERTY THE DELETION RESTS ON, so it is asserted rather than
+  // reasoned. `stripThemeRadius` existed because 280 of the 500 REGISTRY themes
+  // hard-set a radius as a real rule the `--radius` token could not reach; the
+  // registry went on 2026-08-20, and if a seeds-only theme ever starts emitting
+  // one of its own again then a customer's radius token silently stops winning
+  // over it and the strip's case comes back.
+  const bare = normalizeSeeds({
+    name: "b", paper: "#f7f4ee", ink: "#171310", accent: "#b44a2e",
+  });
+  assert.ok(bare.theme, bare.why);
+  assert.equal((T.themeCss(bare.theme).match(/border-radius/gi) || []).length, 0,
+    "a seeds-only theme emits a corner rule of its own — the strip's case is back");
+
+  // And with axes named, every radius rule in the sheet came from an axis the
+  // customer asked for. Driven over the whole askable set rather than the two
+  // the old `RADIUS_AXES` list happened to hold — which is exactly what made an
+  // AUTHORED `corner` fall through it.
+  const seen = [];
   for (const axis of ASKABLE) {
     for (const option of optionsFor(axis)) {
-      const css = T.themeCss(applyStyle(theme, { [axis]: option })) || "";
-      const bare = T.themeCss(applyStyle(theme, {})) || "";
-      // Only what this axis ADDS: the theme's own rules are in both.
-      const added = css.split("\n").filter((l) => !bare.includes(l)).join("\n");
-      if (/border-radius/i.test(added) && !found.includes(axis)) found.push(axis);
+      const css = T.themeCss(applyStyle(bare.theme, { [axis]: option })) || "";
+      const plain = T.themeCss(applyStyle(bare.theme, {})) || "";
+      const added = css.split("\n").filter((l) => !plain.includes(l)).join("\n");
+      if (/border-radius/i.test(added) && !seen.includes(axis)) seen.push(axis);
     }
   }
-  assert.deepEqual(found.sort(), [...RADIUS_AXES].sort(),
-    "an axis emits a border-radius and is not in RADIUS_AXES — a strip will eat it");
+  assert.ok(seen.length > 0, "no axis emits a corner rule at all — the sweep found nothing");
+  assert.deepEqual(seen.filter((a) => !ASKABLE.includes(a)), [],
+    "a corner rule came from something that is not an askable axis");
 });
 
-test("the customer's OWN corner opinion survives a radius strip", () => {
-  // "rounder corners AND pill buttons" got the first and silently lost the
-  // second: `stripThemeRadius` is a regex and cannot tell a theme's hard-set
-  // button radius from the one just asked for.
-  const css = explicitRadiusCss({ buttons: "pill", inputs: "underline" });
-  assert.match(css, /border-radius:\s*9999px/, "the explicit pill was not re-emitted");
-  assert.match(css, /\.border-input/, "the explicit input style was not re-emitted");
-  assert.equal(stripThemeRadius(css).includes("9999px"), false,
-    "the fixture is wrong — the strip does not touch this, so the test proves nothing");
+test("an authored corner reaches the CSS the strip used to eat", () => {
+  // THIS IS ONE LINK, NOT THE PROOF, and saying so is the point — the first
+  // draft called itself "an authored corner survives a radius token", which it
+  // does not test: the strip lived in `build-server.mjs` and never touched
+  // `themeCss`, so this assertion was equally true while the bug was live.
+  //
+  // The chain is three checks in three places. THIS one: the authored corner
+  // really is in the theme's CSS, so there is something to lose. The absence
+  // guards below: nothing in the container removes it any more. And
+  // `site-build`: it survives into a real compiled bundle beside a real
+  // `--radius`, which is the only layer that can see the cascade.
+  //
+  // MEASURED BEFORE THE FIX: `corner: "border-radius: 18px"` emitted its rule,
+  // `stripThemeRadius` removed it, and `explicitRadiusCss` re-emitted only
+  // `buttons` and `inputs` — so authoring a corner AND naming a radius lost the
+  // corner, silently. That combination became reachable the day the enums went
+  // and nothing else; the strip's list was written when `corner` could not emit
+  // a rule of its own.
+  const seeds = normalizeSeeds({
+    name: "b", paper: "#f7f4ee", ink: "#171310", accent: "#b44a2e",
+  });
+  const css = T.themeCss(applyStyle(seeds.theme, { corner: "border-radius: 18px" }));
+  assert.match(css, /border-radius:\s*18px/,
+    "an authored corner no longer reaches the theme's CSS at all");
 });
 
-test("an axis nobody named re-emits NOTHING", () => {
-  // Empty for a patch that did not mention them, so a colour-only or radius-only
-  // change leaves every existing site exactly as it is.
-  assert.equal(explicitRadiusCss({}), "");
-  assert.equal(explicitRadiusCss({ density: "airy" }), "");
-  assert.equal(explicitRadiusCss(null), "");
-  // And empty for the no-op options, which mean "let the radius decide" —
-  // which is precisely what the strip leaves behind.
-  assert.equal(explicitRadiusCss({ buttons: "inherit", inputs: "standard" }), "");
-});
 
 /* --------------------------------------------------------------- the sentence */
 
@@ -674,20 +690,33 @@ test("THE TWO VOCABULARIES CANNOT SAY THE SAME THING", () => {
 });
 
 test("A NAME ON BOTH LISTS SAYS WHICH SLOT IS WHICH", () => {
-  // `border` is a colour here and a weight there. Without a pointer, "make the
-  // borders thicker" can land in the colour slot, be refused for not being a
-  // colour, and come back as "ask again with a hex code like #ffcc00" — advice
-  // that cannot work. Derived, so a name that gains a twin later is covered.
-  const twins = TOKEN_NAMES.filter((t) => ASKABLE.includes(t));
-  assert.ok(twins.length > 0, "no overlap at all — this guard has stopped meaning anything");
+  // THIS GUARD ASSERTED THE POINTER AND NOW ASSERTS THE MECHANISM, because the
+  // thing it was written for was fixed rather than mitigated. `border` was a
+  // colour on one list and a weight on the other, so "make the borders thicker"
+  // could land in the colour slot, be refused for not being a colour, and come
+  // back as "ask again with a hex code" — advice that cannot work. The tool
+  // carried a hand-written pointer to the other slot; the axis is now
+  // `borderWeight` on the wire and there is nothing left to point at.
+  //
+  // So what is held is that the pointer is still DERIVED FROM THE WIRE NAMES.
+  // It goes quiet on its own now that nothing collides, and comes back on its
+  // own the day something does — which is why it is kept rather than deleted:
+  // deleting it leaves the next collision with no mitigation and nothing to
+  // notice it. A separate test asserts the overlap is currently EMPTY, so this
+  // one going quiet is a measured fact rather than an assumption.
   const at = worker.indexOf("properties: Object.fromEntries(SITE_TOKEN_NAMES.map(");
   assert.ok(at > 0, "the tokens field moved — retarget this");
   const block = worker.slice(at, worker.indexOf("},", at));
-  assert.match(block, /SITE_STYLE_AXES\.includes\(t\)/, "the overlap is not derived — or not disambiguated at all");
+  assert.match(block, /SITE_STYLE_AXES\.map\(siteWireName\)\.includes\(t\)/,
+    "the pointer is computed from the INTERNAL names, so it would point at a field the tool does not have");
   assert.match(block, /style\." \+ t/, "the pointer does not name the other slot");
-  // And the colour half is still described as a colour, or the fix broke the
-  // thing it was bolted onto.
-  for (const t of twins) assert.equal(valueHint(t), "#rrggbb", t + " stopped being described as a colour");
+  // And a token whose name an axis ever shares must still be described as a
+  // colour, or the disambiguation would be bolted onto something that stopped
+  // being one. Vacuous today by construction — asserted over the real overlap
+  // so it starts meaning something again the moment there is one.
+  for (const t of TOKEN_NAMES.filter((n) => ASKABLE.map(wireName).includes(n))) {
+    assert.equal(valueHint(t), "#rrggbb", t + " stopped being described as a colour");
+  }
 });
 
 test("GLASS IS GIVEN SOMETHING TO SIT ON", () => {
@@ -800,17 +829,17 @@ test("THE CONTAINER MERGES BEFORE IT RENDERS", () => {
   // named. What must not happen is a second SOURCE, which is what is checked.
   assert.match(server, new RegExp(`writeSiteBrand\\([^)]*transition: ${parsed[1]}\\.transition`),
     "the router's half of the page transition reads a different patch from the CSS half");
-  // AND THE COLLISION, which a mutation proved was covered by nothing: the
-  // module's own test drives `explicitRadiusCss` in isolation, and the container
-  // is where it has to be APPENDED. Deleting the append left "rounder corners
-  // AND pill buttons" silently losing the buttons again, with every test green.
-  const branch = server.slice(server.indexOf("const shaped = dropRadius"));
-  const stmt = branch.slice(0, branch.indexOf(";") + 1);
-  assert.match(stmt, /stripThemeRadius\(css\)/, "the strip is gone from the radius branch");
-  assert.match(stmt, /explicitRadiusCss\(style\)/,
-    "the strip runs without re-emitting the corner axes the customer named");
-  assert.ok(stmt.indexOf("stripThemeRadius") < stmt.indexOf("explicitRadiusCss"),
-    "the re-emit runs BEFORE the strip, which eats it");
+  // AND THE CORNER STRIP STAYS GONE, which is the direction that rots silently.
+  // It removed every `border-radius` the theme emitted whenever a customer named
+  // a radius token, and then put two of the three back — so restoring it would
+  // once again eat an AUTHORED `corner` with every other test green. Asserted as
+  // an ABSENCE over the whole file, comments blanked first, because the note
+  // explaining the removal necessarily spells the names being forbidden.
+  const code = server.replace(/^\s*(\/\/|\*|\/\*).*$/gm, "");
+  for (const gone of ["stripThemeRadius", "explicitRadiusCss", "dropRadius"]) {
+    assert.equal(code.includes(gone), false,
+      `${gone} is back in the container — an authored corner beside a radius token is eaten again`);
+  }
 });
 
 test("THE PAGE TRANSITION'S OTHER HALF REACHES THE ROUTER", () => {
@@ -1079,14 +1108,6 @@ test("THE CONTAINER APPLIES WHAT IT IS GIVEN — the third place the cap lived",
   const out = applyStyle(theme, full);
   assert.deepEqual(ASKABLE.filter((a) => !(a in out)), [],
     "the container drops axes the Worker stored, so the widest looks are silently cut");
-  // …and the corner-collision fix, where the re-cap bit hardest: `AXES` declares
-  // `buttons` eleventh and `inputs` twelfth, so at the revise cap an eighteen
-  // axis patch had BOTH cut before this function looked for them and it returned
-  // the empty string — the collision silently un-fixed on the widest patches.
-  for (const axis of RADIUS_AXES) {
-    assert.ok(explicitRadiusCss(full).length > 0,
-      `explicitRadiusCss drops ${axis} out of a wide patch, so a corner change eats the customer's own button shape`);
-  }
   // The revise cap is still reachable, so a caller that wants one can say so —
   // this is a DEFAULT that trusts the caller, not the cap being deleted.
   assert.equal(ASKABLE.filter((a) => a in applyStyle(theme, full, { max: MAX_STYLE })).length, MAX_STYLE);
@@ -1628,4 +1649,83 @@ test("the refusal names the wash, and not the axes that had nothing to do with i
     "the gate took an axis it says nothing about");
   assert.equal(seen.authored.backdrop, undefined,
     "the gate kept the thing it refused");
+});
+
+/* --------------------------------- one name, one meaning, across both lists */
+
+test("NO AXIS SHARES A NAME WITH A TOKEN — the collision is gone and stays gone", () => {
+  // `border` was the same word in two vocabularies: the axis is the border's
+  // WEIGHT, the token `--border` is its COLOUR. They sit on different parents
+  // (`style` and `tokens`), so nothing could arrive in the wrong slot — the harm
+  // was a model reading one word meaning two things and having to hold the
+  // parent in mind to answer "make the borders thicker". The tool carried a
+  // hand-written pointer to the other slot to paper over it.
+  //
+  // DERIVED FROM BOTH LISTS, so an axis or a token added later cannot
+  // reintroduce a twin without this going red.
+  const wire = ASKABLE.map((a) => saidFor(a) && a).map((a) => wireName(a));
+  assert.deepEqual(wire.filter((w) => TOKEN_NAMES.includes(w)), [],
+    "an axis and a token answer to the same name again — 'make the borders thicker' has two homes");
+
+  // AND EVERY `said` STILL READS DIFFERENTLY, which is the half a rename does
+  // not fix on its own: two distinct field names describing themselves the same
+  // way put the customer back where they started.
+  for (const a of ASKABLE) {
+    for (const t of TOKEN_NAMES) {
+      assert.notEqual(saidFor(a), tokenSaid(t),
+        `the axis ${a} and the token ${t} both call themselves "${saidFor(a)}"`);
+    }
+  }
+});
+
+test("the OLD axis name still parses — every published site depends on it", () => {
+  // NOT OPTIONAL. Every site published before the rename stores `site_style`
+  // with the internal key, and it is re-parsed on EVERY publish — a text fix, a
+  // colour change, a swapped picture. Refusing it would drop that axis to its
+  // default on the customer's next unrelated edit: a platform re-styled by a
+  // typo fix, reported as a success. The same reasoning that made `isName` a
+  // shape test rather than a field-name test.
+  for (const [axis, wire] of Object.entries(AXIS_WIRE)) {
+    const option = Object.keys(AXES[axis].options)[0];
+    assert.equal(parseStyle({ [axis]: option }).style[axis], option,
+      `a stored ${axis} no longer parses — every site that set it loses it on its next publish`);
+    assert.equal(parseStyle({ [wire]: option }).style[axis], option,
+      `the wire name ${wire} does not reach the ${axis} axis`);
+    // AND THE FOLD IS ONTO THE AXIS, never a second key beside it — the cap
+    // counts it once and the merge stores it under one name.
+    assert.equal(Object.hasOwn(parseStyle({ [wire]: option }).style, wire), false,
+      `${wire} was stored under the wire name as well, so the cap counts it twice`);
+  }
+});
+
+test("wireName cannot be tricked by a prototype key", () => {
+  // `AXIS_WIRE["constructor"]` is a function — truthy, so a plain lookup hands
+  // back something that is not a name. The exact bug that shipped once in the
+  // Stripe plan lookup and again in `resolveTheme`.
+  assert.equal(wireName("constructor"), "constructor");
+  assert.equal(wireName("__proto__"), "__proto__");
+  assert.equal(wireName("hover"), "hover", "an axis with no alias must answer itself");
+});
+
+test("the tool asks for the WIRE name, and the pointer it replaced is gone", () => {
+  // Either half alone passes while the other is broken: the alias can be
+  // correct and the tool still ask for the internal name, or the tool can ask
+  // for the new name while the parser has never heard of it.
+  // THE PROPERTY NAME IS DERIVED AT RUNTIME, so the literal `borderWeight` is
+  // nowhere in `worker.js` — asserting it appeared was wrong, and the first run
+  // of this test said so. What has to hold is that the key comes from
+  // `siteWireName`, and that the parser accepts BOTH names (asserted above).
+  // Either half alone passes while the other is broken: the alias can be right
+  // and the tool still ask for the internal name, or the tool can ask for the
+  // new name while the parser has never heard of it.
+  assert.match(worker, /\[siteWireName\(a\), siteAuthoredSchema\(/,
+    "the style block keys its properties on the internal axis name, so the rename never reaches the model");
+  assert.ok(Object.keys(AXIS_WIRE).length > 0,
+    "nothing is aliased any more — this guard has stopped meaning anything");
+  // AND THE HAND-WRITTEN POINTER IS DERIVED FROM THE WIRE NAMES, so it goes
+  // quiet now that nothing collides and comes BACK on its own if a twin ever
+  // appears. Kept rather than deleted for exactly that: deleting it leaves the
+  // next collision with no mitigation and nothing to notice it.
+  assert.match(worker, /SITE_STYLE_AXES\.map\(siteWireName\)\.includes\(t\)/,
+    "the token pointer is computed from the internal names, so it points at a field the tool does not have");
 });

@@ -57,7 +57,7 @@ import { renderNote } from "./builder/site-render.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
 import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker } from "./builder/site-dispatch.mjs";
 import { ASKABLE as SITE_TOKEN_NAMES, valueHint as siteTokenHint, mergeTokens, parseTokens, withContrast, tokenNote, askedNames, saidFor as tokenSaid, routeSelectorOk, pageScopeFor, MAX_PAGE_TOKENS } from "./builder/site-tokens.mjs";
-import { ASKABLE as SITE_STYLE_AXES, AUTHORED_AXES as SITE_AUTHORED_AXES, MAX_STYLE, MAX_STYLE_BUILD, optionsFor as siteStyleOptions, axisHint as siteStyleHint, authoredHint as siteAuthoredHint, mergeStyle, parseStyle, styleNote, saidFor as styleSaid, saidFor as siteStyleSaid } from "./builder/site-style.mjs";
+import { ASKABLE as SITE_STYLE_AXES, AUTHORED_AXES as SITE_AUTHORED_AXES, MAX_STYLE, MAX_STYLE_BUILD, optionsFor as siteStyleOptions, axisHint as siteStyleHint, authoredHint as siteAuthoredHint, mergeStyle, parseStyle, styleNote, saidFor as styleSaid, saidFor as siteStyleSaid, wireName as siteWireName } from "./builder/site-style.mjs";
 // The two axes whose authored form is a `{light, dark}` pair of background-image
 // layers rather than a declaration block — derived from the engine's own table,
 // never the two names spelled here, which is what this file's own comment two
@@ -4203,7 +4203,8 @@ const SITE_SCHEMA_TOOL = {
         properties: Object.fromEntries(SITE_TOKEN_NAMES.map((t) => [t, {
           type: "string",
           description: siteTokenHint(t)
-            + (SITE_STYLE_AXES.includes(t) ? " — the COLOUR only; for its weight or style use `style." + t + "`" : ""),
+            + (SITE_STYLE_AXES.map(siteWireName).includes(t)
+                ? " — the COLOUR only; for its weight or style use `style." + t + "`" : ""),
         }])),
       },
       // ONE PAGE, RATHER THAN THE WHOLE SITE.
@@ -4331,7 +4332,7 @@ const SITE_SCHEMA_TOOL = {
                 },
                 required: ["light", "dark"],
               }]
-            : [a, siteAuthoredSchema(a, siteStyleSaid(a))])),
+            : [siteWireName(a), siteAuthoredSchema(a, siteStyleSaid(a))])),
       },
       // THE SHAPE — SIX AUTHORED FIELDS WHERE `family` USED TO BE (owner's call,
       // 2026-08-20). Distinct from the theme on purpose: a theme decides how a

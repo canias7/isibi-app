@@ -397,37 +397,25 @@ export function normalizeLength(v) {
   return /^0(?:px|rem|em|%)?$/i.test(s) ? "0" : s;
 }
 
-/**
- * Drop a THEME's own corner rules, so an explicit radius can win.
+/*
+ * `stripThemeRadius` IS GONE (2026-08-22), AND ITS OWN CASE IS WHY.
  *
- * 280 OF THE 500 THEMES hard-set `border-radius` on buttons and inputs as real
- * rules rather than through `--radius` — measured, not assumed. On those, "round
- * the corners" moved the cards and left every button square, which is a feature
- * reported as broken rather than as a theme's design.
+ * It dropped a theme's hard-set `border-radius` rules whenever a customer named
+ * a radius, and every number arguing for it was a measurement of the 500-theme
+ * REGISTRY — 280 setting a radius as a real rule, 91 using `9999px` for pill
+ * buttons, `literary` at `0.125rem` over a square button. That registry was
+ * deleted on 2026-08-20, and a seeds-only theme emits ZERO such rules.
  *
- * Only ever applied to the theme's own generated CSS, and only when the customer
- * actually asked for a radius: with no override the theme keeps its corners
- * exactly as it does today, so no existing site changes. The custom property
- * itself is untouched — this matches `border-radius`, never `--radius`.
+ * So the only `border-radius` left in a theme's generated CSS is what the STYLE
+ * AXES wrote — the customer's own explicit answer — and this was deleting it to
+ * make room for the customer's own token, then re-emitting two of the three.
  *
- * WHY CONDITIONAL AND NOT JUST STOP EMITTING THEM, which is the obvious
- * simplification and is wrong. Measured across the 280: only 67 are a zero rule
- * over a zero token, i.e. saying nothing the token does not. The other 213 are
- * deliberate design the token CANNOT express — 91 use `9999px` for pill buttons
- * on a theme whose token is a modest `0.375rem`, and many of the rest are
- * square buttons over slightly-rounded cards (`literary` is `0.125rem` with
- * `border-radius: 0`). Dropping them unconditionally would restyle 213 themes
- * nobody asked to change.
- *
- * THE COST, stated because it is a real one: on a pill-button theme, asking for
- * "rounder corners" makes the buttons LESS round, because everything now obeys
- * the one number the customer gave. Consistency is the promise a single knob
- * makes, and a surviving pill beside a newly-rounded card is the inconsistency.
+ * See `site-style.mjs` for the live bug that left behind once every axis became
+ * authorable, and for what decides the collision now: the axes' rules are
+ * UNLAYERED and Tailwind's `--radius` derivations are utilities in `@layer
+ * utilities`, so an explicit corner beats an implicit one by the cascade rather
+ * than by a regex that cannot tell whose rule it is deleting.
  */
-export function stripThemeRadius(css) {
-  return String(css == null ? "" : css)
-    .replace(/(^|[;{\s])border(?:-(?:top|bottom)-(?:left|right))?-radius\s*:[^;}]*;?/gi, "$1");
-}
 
 /**
  * The patch as it will be WRITTEN — validated under the write rules.

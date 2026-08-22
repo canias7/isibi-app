@@ -24,8 +24,8 @@ import path from "node:path";
 import { resolvePair, resolvePageFonts, fontCss, fontImports } from "./site-fonts.mjs";
 import { themeCss, transitionOn } from "./site-theme.mjs";
 import { normalizeSeeds } from "./site-seeds.mjs";
-import { tokensCss, pageTokensCss, stripThemeRadius, validForWrite } from "./site-tokens.mjs";
-import { applyStyle, explicitRadiusCss, parseStyle, MAX_STYLE_BUILD } from "./site-style.mjs";
+import { tokensCss, pageTokensCss } from "./site-tokens.mjs";
+import { applyStyle, parseStyle, MAX_STYLE_BUILD } from "./site-style.mjs";
 import { dirFor, initialsMark, normalizeLang, normalizeMode, siteIconFrom } from "./site-identity.mjs";
 import { langLabel, resolveLangs } from "./site-langs.mjs";
 import { exitReason } from "./exit-reason.mjs";
@@ -590,7 +590,7 @@ function startSiteServerForCheck() {
 // different failures — nothing sent, an unreadable colour, swapped modes, an
 // illegible palette — need four different responses, and a note saying only
 // "the site kept the default look" is one nobody can act on.
-function writeTheme(seeds, { dropRadius = false, style = null } = {}) {
+function writeTheme(seeds, { style = null } = {}) {
   if (!seeds) return { applied: false, theme: null, notes: [] };
   const { theme, why } = normalizeSeeds(seeds);
   if (!theme) return { applied: false, theme: null, notes: [`The colours could not be used (${String(why).slice(0, 80)}) — the site kept the default look.`] };
@@ -619,32 +619,23 @@ function writeTheme(seeds, { dropRadius = false, style = null } = {}) {
   let base;
   try { base = fs.readFileSync(STYLES, "utf8"); }
   catch { return { applied: false, theme: null, notes: refusedNotes.concat("The stylesheet could not be read, so the site kept the default look.") }; }
-  // THE STRIP IS NOW INERT, AND THIS COMMENT USED TO CLAIM OTHERWISE.
+  // THE CORNER STRIP IS GONE (2026-08-22) AND NOTHING REPLACES IT, deliberately.
   //
-  // It read: "280 OF THE 500 THEMES hard-set `border-radius` on buttons and
-  // inputs as real rules rather than through `--radius`, so on a majority of
-  // sites a corner override moved the cards and left every button square." That
-  // was true of the REGISTRY, which went on 2026-08-20. Measured since: a
-  // seeds-only theme emits ZERO border-radius rules, so with no style patch
-  // there is nothing to strip — and `RADIUS_AXES` is exactly `["buttons",
-  // "inputs"]`, which is exactly what `explicitRadiusCss` re-emits, so with one
-  // the strip removes precisely what is put straight back. A wash either way.
+  // It read `dropRadius ? stripThemeRadius(css) + explicitRadiusCss(style) :
+  // css` — drop every `border-radius` the theme emitted whenever the customer
+  // named a radius token, then put two of them back. Its whole case was a
+  // measurement of the 500-theme registry, deleted 2026-08-20; a seeds-only
+  // theme emits ZERO such rules, so the only ones here are what the AXES wrote.
   //
-  // KEPT RATHER THAN DELETED IN THAT CHANGE, deliberately: it is provably
-  // harmless, and folding an unrelated removal into the palette work would make
-  // both harder to review and to revert. The comment is corrected because a
-  // false one is what gets believed — this is a decision to revisit, not an
-  // oversight, and `site-build` prints the 33-vs-33 measurement that shows it.
+  // AND IT HAD BECOME A LIVE BUG once every axis became authorable: the
+  // re-emit covered `buttons` and `inputs`, so an authored `corner` beside a
+  // radius token was stripped and never restored — measured.
   //
-  // AND THEN THE CUSTOMER'S OWN CORNER OPINIONS GO BACK, which is the one place
-  // the two patches interact. `stripThemeRadius` is a regex and cannot tell a
-  // theme's hard-set button radius from the one `buttons: "pill"` just asked
-  // for, so "rounder corners AND pill buttons" got the first and silently lost
-  // the second. The rule that resolves it is the one already in force here: an
-  // EXPLICIT corner opinion beats an implicit one. Empty unless those axes were
-  // named, so nothing changes for a patch that did not mention them.
-  const shaped = dropRadius ? stripThemeRadius(css) + explicitRadiusCss(style) : css;
-  fs.writeFileSync(STYLES, base + "\n" + shaped + "\n");
+  // The cascade decides it now, which is the mechanism the `display` axis
+  // already rests on: these rules are UNLAYERED and Tailwind's `--radius`
+  // derivations are utilities in `@layer utilities`, so an axis wins where it
+  // applies and the token moves everything else.
+  fs.writeFileSync(STYLES, base + "\n" + css + "\n");
   // The palette's own NAME, not an id — there is no registry to look one up in.
   return { applied: true, theme: theme.label, notes: refusedNotes };
 }
@@ -779,16 +770,13 @@ const server = http.createServer((req, res) => {
       const styleUsed = parseStyle(payload.style, { max: MAX_STYLE_BUILD }).style;
       const brandUsed = writeSiteBrand({ title: payload.title, lang: payload.lang, langs: payload.langs, logo: payload.logo, icon: payload.icon, slug: payload.slug, mode: payload.mode, seeds: payload.seeds, transition: styleUsed.transition });
       const fontsUsed = writeFonts(payload.fonts, payload.fontFiles, payload.pageFonts);
-      // ONE reading of the patch, shared: whether a radius was asked for decides
-      // both that the theme's own corner rules give way and what is written.
-      const wantsRadius = validForWrite(payload.tokens).radius !== undefined;
       // THE WHOLE PATCH, NOT `styleUsed`, and the difference is a feature.
       // `styleUsed` is the ENUM map — `parseStyle(...).style` — which is exactly
       // right for `transition` above and drops an AUTHORED backdrop on the floor,
       // because an authored value lives in `.authored` and never in `.style`.
       // `applyStyle` re-parses this WITH the site's own palette, which is the one
       // place a `var(--accent)` in a hand-written gradient can be resolved.
-      const themeUsed = writeTheme(payload.seeds, { dropRadius: wantsRadius, style: payload.style });
+      const themeUsed = writeTheme(payload.seeds, { style: payload.style });
       // AFTER the theme, never before — later wins, and that IS the override.
       const tokensUsed = writeTokens(payload.tokens);
       // AND AFTER THOSE, one page's own. Same mechanism, one scope down.

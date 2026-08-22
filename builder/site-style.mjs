@@ -47,7 +47,7 @@ import {
   ICON_STROKES, SHADOWS, BUTTONS, INPUTS, DISPLAYS,
   MOTIONS, HOVERS, FOCUSES, REVEALS, TRANSITIONS,
   SURFACES, BACKDROPS, DECORS, AMBIENTS, SKINS,
-  buttonsCss, inputsCss, worldMutedFit, themeVars,
+  worldMutedFit, themeVars,
 } from "./site-theme.mjs";
 // THE AUTHORED HALF. `site-css.mjs` is a leaf — it imports only the colour
 // parser — so pulling it in here cannot cycle back through the theme engine.
@@ -186,27 +186,40 @@ export const MAX_STYLE = 6;
  */
 export const MAX_STYLE_BUILD = ASKABLE.length;
 
-/**
- * THE TWO AXES THAT SET A CORNER RADIUS, which matters for exactly one reason.
+/*
+ * THE CORNER STRIP IS GONE, AND EVERY NUMBER THAT JUSTIFIED IT WENT WITH THE
+ * REGISTRY (2026-08-22).
  *
- * `stripThemeRadius` drops a theme's own hard-set `border-radius` rules when the
- * customer has asked for a specific one, because 280 of the 500 themes set those
- * as real rules the `--radius` token cannot reach. Those rules and the ones
- * `buttonsCss`/`inputsCss` emit are indistinguishable to a regex, so a customer
- * asking for "rounder corners AND pill buttons" got the first and silently lost
- * the second.
+ * `RADIUS_AXES` and `explicitRadiusCss` stood here to arbitrate a collision:
+ * `stripThemeRadius` dropped a theme's own hard-set `border-radius` rules when
+ * the customer named a radius, and a regex cannot tell those from the ones
+ * `buttonsCss`/`inputsCss` had just emitted — so "rounder corners AND pill
+ * buttons" got the first and lost the second, and this re-emitted the second.
  *
- * The rule that resolves it is the one already in force: an EXPLICIT corner
- * opinion beats an implicit one. The theme's own opinion gives way to the
- * radius the customer named; the customer's own `buttons: "pill"` does not.
- * `explicitRadiusCss` re-emits exactly the axes they set, after the strip.
+ * The strip's whole case was a measurement of the 500-theme registry: 280 set a
+ * radius as a real rule, 91 used `9999px` for pill buttons, `literary` was
+ * `0.125rem` over `border-radius: 0`. The registry was deleted on 2026-08-20.
+ * MEASURED SINCE: a seeds-only theme emits ZERO `border-radius` rules, so the
+ * only ones in `themeCss` are the ones the AXES wrote — the customer's own
+ * explicit answer. Stripping those to make room for the customer's own radius
+ * token, and then putting two of the three back, is incoherent.
  *
- * Held in code because deriving it would mean evaluating twelve emitters with
- * three different signatures inside a module that has no theme to evaluate them
- * against. The truth is derived in `test/site-style.test.mjs`, which runs every
- * axis over every option and asserts this list is the whole of it.
+ * AND IT HAD BECOME A LIVE BUG, which is what forced the removal rather than
+ * leaving it as tidy-up. `RADIUS_AXES` is `["buttons", "inputs"]` because with
+ * the enums those were the only two axes that emitted a radius rule of their
+ * own. An AUTHORED `corner` writes one directly — measured, `corner:
+ * "border-radius: 18px"` emits it, the strip removes it, and nothing re-emits
+ * it — so authoring a corner AND naming a radius silently lost the corner. That
+ * combination became reachable the day the enums went and nothing else.
+ *
+ * WHAT DECIDES IT NOW IS THE CASCADE, which is the mechanism the `display` axis
+ * already rests on: the axes' rules are UNLAYERED and Tailwind's `--radius`
+ * derivations are utilities in `@layer utilities`, so an axis wins wherever it
+ * applies and the token moves everything else. An explicit corner opinion beats
+ * an implicit one, which is the rule the strip was reaching for — reached now
+ * by the cascade instead of by a regex that cannot tell whose rule it is
+ * deleting.
  */
-export const RADIUS_AXES = Object.freeze(["buttons", "inputs"]);
 
 /**
  * A model's answer, reduced to the axes it is allowed to set.
@@ -262,6 +275,40 @@ export const AUTHORED_AXES = Object.freeze(AUTHORED_ALL.filter((a) => Object.has
  */
 const authoredKey = (a) => a + "Css";
 
+/**
+ * THE NAME ON THE WIRE, where it differs from the one this module uses.
+ *
+ * `border` was the same word in two vocabularies: the AXIS is the border's
+ * WEIGHT and the token `--border` is its COLOUR. They sit on different parents
+ * (`style` and `tokens`), so nothing could arrive in the wrong slot — the harm
+ * was that a model reading "border" twice, meaning two things, has to hold the
+ * parent in mind to answer "make the borders thicker" correctly. The tool
+ * carried a hand-written pointer to the other slot to paper over exactly that,
+ * and a pointer explaining an ambiguity is the ambiguity telling you where it
+ * is. `borderWeight` says which one it is on its own.
+ *
+ * THE INTERNAL KEY DOES NOT MOVE, deliberately. It is `theme.border`, read by
+ * `borderCss` and keyed in `AXIS_RAMPS`, and renaming it would touch four files
+ * to fix a problem that only exists where the MODEL reads. Folding at the door
+ * is what `authoredKey` already does one line up, for the same reason.
+ *
+ * AND THE OLD NAME STILL PARSES, which is not optional: every site published
+ * before today stores `site_style` with the key `border` and re-parses it on
+ * EVERY publish, so refusing it would drop that axis to its default on the
+ * customer's next unrelated edit — a platform re-styled by a typo fix.
+ *
+ * `inputs` vs the token `input` is DELIBERATELY LEFT. They are different words
+ * with distinct descriptions ("input style" / "input colour"); a prefix
+ * relationship matters to a scanner and not to a reader, and renaming for a
+ * near-miss is churn that makes the next real collision harder to see.
+ */
+export const AXIS_WIRE = Object.freeze({ border: "borderWeight" });
+
+/** What this axis is CALLED on the wire. */
+export const wireName = (axis) =>
+  Object.hasOwn(AXIS_WIRE, String(axis)) ? AXIS_WIRE[String(axis)] : String(axis);
+
+
 export function parseStyle(input, { max = MAX_STYLE, vars = null } = {}) {
   const out = {}, dropped = [], authored = {}, refused = [];
   const raw = input && typeof input === "object" && !Array.isArray(input) ? input
@@ -274,6 +321,16 @@ export function parseStyle(input, { max = MAX_STYLE, vars = null } = {}) {
     if (!Object.hasOwn(src, k)) continue;
     src[a] = src[k];
     delete src[k];
+  }
+  // AND THE WIRE NAME ONTO THE INTERNAL ONE, the same fold one line up and for
+  // the same reason: the cap counts it once, the merge stores it under the axis,
+  // and a refusal is reported against the name the customer would recognise.
+  // The internal key is still accepted, or every site already published loses
+  // that axis on its next publish — see `AXIS_WIRE`.
+  for (const [axis, wire] of Object.entries(AXIS_WIRE)) {
+    if (!Object.hasOwn(src, wire)) continue;
+    src[axis] = src[wire];
+    delete src[wire];
   }
   for (const [rawName, rawVal] of Object.entries(src)) {
     const name = String(rawName || "").trim().toLowerCase();
@@ -578,23 +635,6 @@ export function applyStyle(theme, style, { max = MAX_STYLE_BUILD } = {}) {
   return out;
 }
 
-/**
- * The corner rules the customer asked for BY NAME, to be re-emitted after a
- * strip. See `RADIUS_AXES` for why this exists at all.
- *
- * Empty for a patch that named neither axis, and empty for the no-op options
- * (`inherit`, `standard`) — those mean "let the radius decide", which is exactly
- * what the strip leaves behind.
- */
-export function explicitRadiusCss(style, { max = MAX_STYLE_BUILD } = {}) {
-  // THE SAME RE-CAP, and here it bites harder than anywhere else: `AXES`
-  // declares `buttons` eleventh and `inputs` twelfth, so at the revise cap an
-  // eighteen-axis patch has both cut before this ever looks for them — measured,
-  // it returned the empty string. That is the corner collision this function
-  // exists to fix, silently failing on exactly the widest patches.
-  const s = parseStyle(style, { max }).style;
-  return (s.buttons ? buttonsCss(s.buttons) : "") + (s.inputs ? inputsCss(s.inputs) : "");
-}
 
 /**
  * What a customer calls this axis.

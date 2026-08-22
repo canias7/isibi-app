@@ -1075,31 +1075,29 @@ function Home() {
     const css = Object.entries(rounder.files || {})
       .filter(([k]) => k.endsWith(".css")).map(([, v]) => v.t || "").join("\n");
     ok("the bundled CSS carries the chosen radius", /--radius:\s*1\.5rem/.test(css), css.slice(0, 200));
-    // THIS CHECK ASSERTED A PROPERTY THAT NO LONGER EXISTS, and correcting it is
-    // more interesting than the check.
+    // THE STRIP IS GONE (2026-08-22) AND WHAT THIS CHECKS IS ITS REPLACEMENT.
     //
-    // `stripThemeRadius` was written because 280 of the 500 REGISTRY themes
-    // hard-set `border-radius` on buttons and inputs as real rules, so a corner
-    // change moved the cards and left every button square. The registry went on
-    // 2026-08-20: a seeds-only theme emits ZERO border-radius rules (measured),
-    // and the only remaining source is the customer's own `style` patch — which
-    // `explicitRadiusCss` re-emits by design, because an explicit corner opinion
-    // beats an implicit one. `RADIUS_AXES` is exactly `["buttons","inputs"]`,
-    // which is exactly what gets re-emitted, so the strip is now a WASH in every
-    // reachable case.
+    // `stripThemeRadius` dropped every `border-radius` a theme emitted whenever
+    // a customer named a radius, then `explicitRadiusCss` put `buttons` and
+    // `inputs` back. Its whole case was the 500-theme REGISTRY, deleted
+    // 2026-08-20 — a seeds-only theme emits ZERO corner rules of its own, so
+    // the only ones left were the ones the AXES wrote, i.e. the customer's own
+    // explicit answer, which it was deleting to make room for the customer's
+    // own token.
     //
-    // So the honest assertion is the one below it: the radius reaches the
-    // bundle, and the customer's own corner axis SURVIVES the strip. The count
-    // comparison is kept as a measurement rather than a pass/fail, because a
-    // future change that gives a site implicit corner rules again would make it
-    // meaningful — and a silent 33-vs-33 is what told us it had stopped being.
+    // AND IT HAD BECOME A LIVE BUG once every axis became authorable: the
+    // re-emit list was `["buttons","inputs"]`, so an AUTHORED `corner` beside a
+    // radius token was stripped and never restored.
+    //
+    // What decides it now is the cascade, and only a real build can show that:
+    // the axis rules are UNLAYERED and Tailwind's `--radius` derivations are
+    // utilities in `@layer utilities`, so BOTH have to be in the sheet and the
+    // axis has to win where it applies. A unit test reads the string a module
+    // returns; it cannot see what Lightning CSS and the layer order did with it.
     const count = (t) => (t.match(/border-radius\s*:/g) || []).length;
-    console.log(`     (corner rules: ${count(css)} with a radius, ${count(baseCss)} without — ` +
-      `equal is EXPECTED since the registry went; see the note above)`);
-    ok("the customer's own corner axis survives the strip",
-      /border-radius/.test(css),
-      `the strip ate the customer's own buttons/inputs rules — ${count(css)} left`);
-    ok("…while the framework's own reset survives", count(css) > 0, "every corner rule vanished, which is too many");
+    ok("the customer's own corner axis is in the sheet beside the radius",
+      count(css) > 0,
+      `no corner rule at all survived — ${count(css)} in the bundle`);
   }
 
   // The other half, and the one that protects every site already published:
@@ -1600,11 +1598,18 @@ function Home() {
       "a refusal took working axes down with it");
   }
 
+  // A RADIUS TOKEN AND AN AUTHORED CORNER IN ONE BUILD — the exact combination
+  // the deleted strip ate. `corner` is AUTHORED rather than named, because that
+  // is what made it reachable: with the enums `corner` emitted no radius rule of
+  // its own, so the re-emit list `["buttons","inputs"]` covered everything that
+  // could be lost. Measured before the removal: the authored corner's rule went
+  // into the sheet, the strip took it out, and nothing put it back.
   console.log("\nbuilding with a radius AND a corner axis…");
   const collide = await post({
     files: { "index.tsx": INDEX, "menu.tsx": MENU },
     slug: "fold-coffee", ...themeAsSeeds("broadsheet"),
-    tokens: { radius: "1.5rem" }, style: { ...HOUSE_STYLE, buttons: "pill" },
+    tokens: { radius: "1.5rem" },
+    style: { ...HOUSE_STYLE, buttons: "pill", corner: "border-radius: 18px" },
   });
   ok("a build asking for both succeeds", collide.ok === true, JSON.stringify(collide).slice(0, 200));
   {
@@ -1614,9 +1619,15 @@ function Home() {
       .filter(([k]) => k.endsWith(".css")).map(([, v]) => v.t || "").join("\n");
     const pills = (t) => (t.match(/9999px/g) || []).length;
     ok("the radius still applied", /--radius:\s*1\.5rem/.test(css), css.slice(0, 200));
-    ok("AND the customer's own pill survived the strip",
+    ok("AND the customer's own pill is there beside it",
       pills(css) > pills(rounderCss),
-      `${pills(css)} with the axis, ${pills(rounderCss)} without — the strip ate it`);
+      `${pills(css)} with the axis, ${pills(rounderCss)} without`);
+    // THE AUTHORED CORNER, which is the half that was silently lost. All three
+    // have to be in one stylesheet: the token the kit derives from, the button
+    // rule, and the corner rule — nothing arbitrating between them any more.
+    ok("…AND the authored corner, which the strip used to eat",
+      /border-radius:\s*18px/.test(css),
+      "an authored corner beside a radius token is gone from the bundle again");
   }
 
   // A patch that cannot be used must not fail a build that otherwise worked —

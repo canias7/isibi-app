@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
   TOKENS, SIZES, ASKABLE, WRITABLE, MAX_TOKENS, isColor, isLength, valueHint,
-  normalizeLength, stripThemeRadius, validForWrite,
+  normalizeLength, validForWrite,
   luminance, withContrast, parseTokens, mergeTokens, tokensCss, tokenNote,
   PAIRED, saidFor, askedNames, COLOR_NOTATIONS,
 } from "../builder/site-tokens.mjs";
@@ -260,25 +260,25 @@ test("any zero is the SAME zero, whatever unit it was written in", () => {
   assert.equal(normalizeLength("10px"), "10px");
 });
 
-test("a theme's own corner rules give way to an explicit radius", () => {
-  // 280 OF THE 500 THEMES hard-set `border-radius` on buttons and inputs as
-  // real rules rather than through `--radius` — measured. On those, "round the
-  // corners" moved the cards and left every button square, which is a feature
-  // reported as broken rather than as the theme's design.
-  const css = "button.x { border-radius: 0; color: red; }\n" +
-    ":root { --radius: 0rem; }\n" +
-    ".y { border-top-left-radius: 3px; border-bottom-right-radius: 3px }";
-  const out = stripThemeRadius(css);
-  assert.ok(!/border-radius/.test(out) && !/border-top-left-radius/.test(out), out);
-  assert.match(out, /color: red/, "nothing else may be lost");
-  assert.match(out, /--radius: 0rem;/, "the custom property is NOT a corner rule — our patch overrides that");
-});
-
-test("stripping corner rules cannot damage what it is handed", () => {
-  for (const v of [null, undefined, "", "{}", ":root{--radius:1rem}"]) {
-    assert.equal(typeof stripThemeRadius(v), "string", JSON.stringify(v));
-  }
-  assert.equal(stripThemeRadius(":root{--radius:1rem}"), ":root{--radius:1rem}");
+test("THE CORNER STRIP IS GONE, and the module says nothing about corners", () => {
+  // `stripThemeRadius` dropped a theme's own `border-radius` rules whenever a
+  // customer named a radius. Its entire case was the 500-theme REGISTRY — 280
+  // hard-setting a radius as a real rule — and that registry was deleted on
+  // 2026-08-20. A seeds-only theme emits ZERO such rules, so the only ones left
+  // were the ones the STYLE AXES wrote, and stripping the customer's own
+  // explicit answer to make room for the customer's own token is incoherent.
+  //
+  // ASSERTED AS AN ABSENCE, because that is the direction that rots: restoring
+  // it would once again eat an AUTHORED `corner` beside a radius token, with
+  // every other test in this file green. Comments are blanked first — the note
+  // explaining the removal necessarily spells the name being forbidden.
+  const src = fs.readFileSync(new URL("../builder/site-tokens.mjs", import.meta.url), "utf8")
+    .replace(/^\s*(\/\/|\*|\/\*).*$/gm, "");
+  assert.equal(/stripThemeRadius/.test(src), false,
+    "the corner strip is back — an authored corner beside a radius token is eaten again");
+  // AND THE TOKEN ITSELF IS UNTOUCHED, or this reads as the radius knob going
+  // with it. `--radius` is still what the kit's seven derived sizes hang off.
+  assert.match(tokensCss({ radius: "1.5rem" }), /--radius:\s*1\.5rem/);
 });
 
 test("the theme keeps its corners when nobody asked for a radius", () => {
@@ -294,22 +294,16 @@ test("the container asks ONE question about the radius", () => {
   // The theme's corner rules give way and the patch is written from the same
   // reading. Two readings would eventually disagree, and the failure is silent:
   // the theme's rules dropped for a radius that was never written.
-  const server = fs.readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8");
-  assert.match(server, /const wantsRadius = validForWrite\(payload\.tokens\)\.radius !== undefined;/);
-  // THE PROPERTY, NOT THE ARGUMENT LIST. This was pinned to the exact call
-  // `writeTheme(payload.seeds, { dropRadius: wantsRadius })` and went red the
-  // day a second option was passed beside it — a test about word order failing
-  // a correct change. What it protects is that the ONE reading above is what
-  // decides the strip.
-  const call = /writeTheme\(payload\.seeds,\s*\{([^}]*)\}\)/.exec(server);
-  assert.ok(call, "nothing calls writeTheme with the payload's palette");
-  assert.match(call[1], /dropRadius:\s*wantsRadius/, "the strip is decided by a second reading of the patch");
+  const server = fs.readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8")
+    .replace(/^\s*(\/\/|\*|\/\*).*$/gm, "");
+  // THE THEME'S CSS IS WRITTEN UNCHANGED, which is what the strip's removal
+  // means at this layer: nothing between `themeCss` and the file.
   const i = server.indexOf("function writeTheme(");
   const body = server.slice(i, server.indexOf("\n}", i));
-  assert.match(body, /dropRadius \?[\s\S]{0,200}?stripThemeRadius\(css\)/,
-    "the strip no longer hangs off the one reading");
-  assert.match(body, /:\s*css;/,
-    "with no override the theme's CSS must be written unchanged");
+  assert.match(body, /writeFileSync\(STYLES,\s*base \+ "\\n" \+ css \+ "\\n"\)/,
+    "something now sits between the theme's CSS and the file it is written to");
+  assert.equal(/stripThemeRadius|explicitRadiusCss|dropRadius/.test(server), false,
+    "the corner strip is back in the container");
 });
 
 test("the corner radius survives the contrast pass untouched", () => {
