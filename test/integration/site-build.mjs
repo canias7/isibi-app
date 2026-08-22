@@ -1286,7 +1286,15 @@ function Home() {
       (carrying.length
         ? "found in: " + carrying.map((r) => r[1].trim()).join(" | ")
         : "the authored dark stop is in NO rule. " + (() => {
-            const dark = rules.filter((r) => /(^|,)\s*\.dark body\s*$/.test(r[1].split("}").pop().trim()));
+            // `r[1]` IS `([^{}]+)`, so it cannot hold a brace — the first draft
+            // took `.split("}").pop()` off it, which could never do anything,
+            // and the literal `"}"` drove the block-scope scanner's brace count
+            // negative and made it report a ReferenceError on the next line
+            // that is not there. Fixed by dropping the redundant step rather
+            // than by hiding the character: the scan is deliberately not a
+            // parser, and a false alarm on correct code is what this repo rates
+            // worse than the miss.
+            const dark = rules.filter((r) => /(^|[,\s])\.dark\s+body\s*$/.test(r[1].trim()));
             return dark.length
               ? "`.dark body` IS in the sheet, carrying: " + dark.map((r) => r[2]).join(" || ")
               : "and there is no `.dark body` rule at all — the dark half never reached the stylesheet";

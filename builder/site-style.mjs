@@ -512,15 +512,47 @@ export function applyStyle(theme, style, { max = MAX_STYLE_BUILD } = {}) {
     // one layer over: refuse, never repair. Being wrong toward refusing costs a
     // wash somebody has to ask for differently; being wrong the other way ships
     // body copy nobody can read, which this platform has already done once.
+    // ONLY THE WORLD AXES COME BACK OUT, and until the enums went this line
+    // could not tell the difference — because there was nothing else to tell it
+    // from. `backdrop` and `decor` were the only two axes a model could author,
+    // so `Object.keys(good)` WAS the world and rolling back all of it was right.
+    // With all 23 authorable, a site that writes a wash AND a hover state has
+    // both in `good`, and this refusal is a fact about the WASH alone.
+    //
+    // It was wrong in both directions at once, which is why it is one fix:
+    //
+    //   the REPORT told the customer their hover state was refused because the
+    //   quiet text would sit at 3.9:1 — a sentence about a gradient, said about
+    //   a `translateY`, and the only thing they were given to act on;
+    //
+    //   the ROLLBACK restored the `authored` bag and left `out.hover` standing
+    //   from the loop above, so the hover really did apply. Reported dropped,
+    //   actually shipped — the disagreement between the answer and the artefact
+    //   that this repo keeps recording, arriving through the field that exists
+    //   to prevent it.
+    //
+    // The non-world axes are put BACK into the bag rather than merely left on
+    // the axis, so the two readers agree: `worldCss` reads the bag, every other
+    // emitter reads `theme.<axis>`, and a value present in one and not the other
+    // is the twelve-times wiring failure one level down.
+    //
+    // A refusal with no world axis in it CANNOT arise — `worldMutedFit` measures
+    // the layers, and with none the ground is the paper the palette was already
+    // fitted against — and is handled rather than asserted, because being wrong
+    // that way would drop every authored axis on the site over a floor none of
+    // them is near.
+    const worldAxes = Object.keys(good).filter((a) => AXIS_DECLS[a] && AXIS_DECLS[a].image);
     for (const mode of ["light", "dark"]) {
       if (!out[mode]) continue;
       const fit = worldMutedFit(out, mode);
       if (fit.ok) continue;
+      if (!worldAxes.length) break;
       out.authored = { ...(theme.authored || {}) };
+      for (const [axis, v] of Object.entries(good)) if (!worldAxes.includes(axis)) out.authored[axis] = v;
       if (!Object.keys(out.authored).length) delete out.authored;
-      parsed.dropped.push(...Object.keys(good));
+      parsed.dropped.push(...worldAxes);
       (parsed.refused || (parsed.refused = [])).push({
-        axis: Object.keys(good).join(" and "),
+        axis: worldAxes.join(" and "),
         why: `would leave the quiet text at ${fit.contrast.toFixed(1)}:1 on the ${mode} page, under the 4.5 it needs`,
       });
       break;

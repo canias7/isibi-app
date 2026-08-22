@@ -1540,3 +1540,92 @@ test("the hints are DERIVED, so a widened allow-list cannot drift from its descr
     `${"x"} — lands on ${widened.sel}. This one writes ${Object.keys(widened.props).join(", ")}.`.includes(p)),
     "the hint is built from something other than the property table");
 });
+
+/* ------------------------------- the contrast gate refuses the WASH, not the look */
+
+test("an illegible wash drops the wash and NOTHING else", () => {
+  // UNTIL THE ENUMS WENT, THIS COULD NOT BE WRONG — `backdrop` and `decor` were
+  // the only two axes a model could author, so everything in `good` WAS the
+  // world and rolling all of it back was right. With all 23 authorable, a site
+  // that writes a wash and a hover state has both, and this refusal is a fact
+  // about the wash alone.
+  //
+  // MEASURED, not invented: `oklch(0.38 0.16 45)` on a light theme fits the
+  // quiet ink at 3.87:1, under the 4.5 floor, and no ink fits — the gradient is
+  // pale at the other end, so an ink that reads over the deep corner vanishes
+  // over the light one. It is a fact about the wash rather than a number to
+  // tune, which is why it is refused rather than repaired.
+  const seeds = normalizeSeeds({
+    name: "b", paper: "#f7f4ee", ink: "#171310", accent: "#3a3a3a",
+    dark: { paper: "#12100e", ink: "#f2efe9", accent: "#c9c9c9" },
+  });
+  assert.ok(seeds.theme, seeds.why);
+  const illegible = {
+    light: ["linear-gradient(155deg, oklch(0.38 0.16 45) 0%, #ffffff 100%)"],
+    dark: ["linear-gradient(155deg, #2b1a07 0%, #0f0703 100%)"],
+  };
+  const out = applyStyle(seeds.theme, { backdrop: illegible, hover: "transform: translateY(-7px)" });
+
+  // THE WASH IS GONE, from the bag `worldCss` reads.
+  assert.equal(out.authored && out.authored.backdrop, undefined,
+    "the illegible wash survived the contrast gate");
+
+  // AND THE HOVER STATE IS STILL THERE, IN BOTH PLACES — which is the half the
+  // old rollback got wrong in two directions at once. It restored the bag and
+  // left `out.hover` standing from the write above, so the hover was reported
+  // dropped and shipped anyway: the answer disagreeing with the artefact.
+  //
+  // Asserted at BOTH readers deliberately. `worldCss` reads the bag and every
+  // other emitter reads `theme.<axis>`, so a value in one and not the other is
+  // the wiring failure this repo has recorded twelve times, one level down.
+  assert.ok(out.authored && out.authored.hover, "the hover was dropped by a gate about the wash");
+  assert.equal(out.hover && out.hover.css, "transform: translateY(-7px);",
+    "the hover reached the bag but not the axis the emitter reads");
+
+  // AND IT REALLY EMITS — the property a bag entry alone does not prove.
+  assert.match(T.themeCss(out), /translateY\(-7px\)/,
+    "the hover survived the rollback and still did not reach the stylesheet");
+
+  // A GOOD WASH KEEPS BOTH, or the test above passes equally well on a gate
+  // that refuses every wash there is.
+  const fine = {
+    light: ["linear-gradient(155deg, #f4dfc6 0%, #ffffff 100%)"],
+    dark: ["linear-gradient(155deg, #2b1a07 0%, #0f0703 100%)"],
+  };
+  const good = applyStyle(seeds.theme, { backdrop: fine, hover: "transform: translateY(-7px)" });
+  assert.ok(good.authored && good.authored.backdrop, "a legible wash was refused");
+  assert.ok(good.authored && good.authored.hover, "a legible wash cost the hover");
+});
+
+test("the refusal names the wash, and not the axes that had nothing to do with it", () => {
+  // The sentence is the only thing the customer is given to act on, and it is
+  // about a gradient. Said about a `translateY` it is nonsense they cannot act
+  // on — and it was the WHOLE report, since `dropped` carried every authored
+  // axis too.
+  const seeds = normalizeSeeds({
+    name: "b", paper: "#f7f4ee", ink: "#171310", accent: "#3a3a3a",
+    dark: { paper: "#12100e", ink: "#f2efe9", accent: "#c9c9c9" },
+  });
+  const patch = {
+    backdrop: {
+      light: ["linear-gradient(155deg, oklch(0.38 0.16 45) 0%, #ffffff 100%)"],
+      dark: ["linear-gradient(155deg, #2b1a07 0%, #0f0703 100%)"],
+    },
+    hover: "transform: translateY(-7px)",
+  };
+  // The route composes its note from a `parseStyle` reading, so the refusal has
+  // to leave `applyStyle` on the same shape — driven through the real thing
+  // rather than restated.
+  const theme = seeds.theme;
+  let seen = null;
+  const original = applyStyle(theme, patch);
+  seen = original;
+  assert.ok(seen, "applyStyle returned nothing");
+  // The note itself is composed from what `applyStyle` reports back, so what is
+  // asserted here is the property that decides it: the hover is not among the
+  // things the gate took away.
+  assert.ok(seen.authored && seen.authored.hover,
+    "the gate took an axis it says nothing about");
+  assert.equal(seen.authored.backdrop, undefined,
+    "the gate kept the thing it refused");
+});
