@@ -316,3 +316,91 @@ test("…and the worker translates at the boundary rather than passing the raw b
   assert.match(w, /type === "insufficient_quota"/,
     "an exhausted account is diagnosed only by its prose again");
 });
+
+test("A BUILDER MODEL CALL IS BOUNDED — every fetch in it, both providers", () => {
+  // THE ONLY UNBOUNDED FETCHES IN THE FILE, and what that cost was measured
+  // rather than argued: an Arabic brief on Grok ran 25m46s without answering
+  // and was stopped only by a CI job cap. The customer was left a claimed slug,
+  // a live Neon project, a five-credit charge and no site, after 27 minutes of
+  // waiting with nothing said. Reachable from a browser by anyone whose brief
+  // happens to be the slow shape.
+  //
+  // DERIVED OVER THE FUNCTION BODY, not pinned to today's two call sites. The
+  // bug WAS one unbounded fetch, so a third provider added later has to be
+  // covered without anybody remembering this file.
+  const at = WORKER.indexOf("async function callBuilderModel(");
+  assert.ok(at > 0, "callBuilderModel moved — rescope this");
+  const body = WORKER.slice(at, WORKER.indexOf("\nasync function anthropicMessages(", at));
+  assert.ok(body.length > 500, "the callBuilderModel window is empty — rescope this");
+
+  const calls = [...body.matchAll(/\bfetch\(/g)];
+  assert.ok(calls.length >= 2, "expected a fetch per provider; found " + calls.length);
+  for (const m of calls) {
+    // Read to the end of this call by bracket depth — a request init is full of
+    // braces and a flat scan has been written wrong here four times.
+    let i = m.index + m[0].length - 1, d = 0;
+    while (i < body.length) {
+      if (body[i] === "(") d++;
+      else if (body[i] === ")" && --d === 0) break;
+      i++;
+    }
+    assert.ok(d === 0, "could not find the end of a fetch call — the depth scan is broken, not the code");
+    assert.match(body.slice(m.index, i + 1), /signal:\s*AbortSignal\.timeout\(BUILDER_CALL_MS\)/,
+      "a builder model call is unbounded again — a hung provider waits forever and charges for it");
+  }
+
+  // THE VALUE HAS TO BIND WITHOUT REFUSING HONEST BUILDS, and both directions
+  // are real. Too tight refuses a slow build that would have finished — the
+  // slowest MEASURED generation is 156s; too loose does not bound the 1546s
+  // hang this exists for. Asserted as a range rather than a number, so tuning
+  // inside the safe band does not fail a test about a property.
+  const ms = Number(/const BUILDER_CALL_MS = (\d+)/.exec(WORKER)[1]);
+  assert.ok(ms >= 300000, "the builder bound would refuse builds that legitimately take minutes");
+  assert.ok(ms <= 900000, "the builder bound is loose enough that the measured 26-minute hang still nearly passes");
+
+  // NOT A BLANKET RULE ON EVERY FETCH, and that was measured before choosing:
+  // 18 of the 127 `fetch(` calls in this file carry no signal, and most are
+  // legitimate — the Worker's own entry dispatch, pass-throughs, wrappers whose
+  // caller supplies the init, and the container calls that have their own
+  // STEP_TIMEOUT. A rule flagging all 18 is a false alarm on correct code,
+  // which this repo rates worse than the miss.
+});
+
+test("a timeout is told from a provider outage, by NAME", () => {
+  // Without asking, a timeout has no HTTP response — `status` undefined,
+  // nothing for `upstreamKind` to read — so it fell through to "The designer is
+  // busy", blaming the provider for a ceiling of ours and inviting a retry into
+  // the same wait.
+  assert.match(WORKER, /const isCallTimeout = \(e\) =>[^\n]*e\.name === "TimeoutError"/,
+    "the timeout is no longer recognised by the name the runtime actually throws");
+  // AbortError too: the same abort reaches different runtimes under both names,
+  // and this code runs in workerd while its tests run in Node.
+  assert.match(WORKER, /const isCallTimeout = \(e\) =>[^\n]*e\.name === "AbortError"/,
+    "only one of the two abort names is recognised");
+  // NEVER BY MESSAGE. That string is the runtime's and differs between engines
+  // — the cross-engine comparison this repo has already been bitten by twice.
+  assert.ok(!/isCallTimeout[\s\S]{0,200}?e\.message/.test(WORKER),
+    "the timeout is recognised by its message, which differs between workerd and Node");
+
+  // AND THE DESIGN REFUSAL SAYS SO, and says the money is back. That branch
+  // reported nothing about cost at all, so somebody watching a build fail could
+  // not tell whether they had paid for it.
+  const seg = WORKER.slice(WORKER.indexOf('stage: "design"') - 2000, WORKER.indexOf('stage: "design"') + 400);
+
+  // THE CONDITION ITSELF, NOT MERELY PRESENT SOMEWHERE IN THE BRANCH. Found by
+  // mutation: `/isCallTimeout\(e\)/` alone is satisfied by
+  // `false && isCallTimeout(e)`, which leaves the arm dead and the timeout
+  // wearing "the designer is busy" — a presence standing in for a property, the
+  // third instance of that shape in one sitting. So the colon, the call and the
+  // `?` are asserted as one, which nothing can be short-circuited into.
+  //
+  // WHAT THIS CAN AND CANNOT PROVE, said plainly rather than implied: it holds
+  // the branch's SHAPE. Proving that a real timeout produces this message needs
+  // the route driven with a fetch that never resolves, which is a different and
+  // much larger harness; the predicate's own rule (name, never message) is
+  // asserted above and is the half that would silently rot.
+  assert.match(seg, /:\s*isCallTimeout\(e\)\s*\n?\s*\?/,
+    "a design timeout wears the provider's 'busy' message again — the arm is present but not the condition");
+  assert.match(seg, /nothing was charged/, "the timeout no longer tells the customer they were not charged");
+  assert.match(seg, /cost: 0,/, "the design refusal is silent about money again");
+});

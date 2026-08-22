@@ -29,13 +29,21 @@ run on a real site. **It did not publish.** Balance 430 → 425.
   page shapes, and it published. The *only* thing different here was the
   language. So the problem is writing pages from an Arabic brief, not the
   builder generally.
-* **The real bug it exposed, which is worth fixing before trying again:** a
-  build has no time limit. Every other thing the platform does gives up after a
-  few seconds; the build waits forever. So a customer whose build hangs sits
-  there with no message, no ceiling and no refund — which is exactly what
-  happened here. I have not retried, because a second attempt buys the same
-  26-minute wait; it is worth spending again once a build that runs too long
-  stops and says so.
+* **The real bug it exposed is now FIXED, and it cost nothing to fix.** A build
+  had no time limit at all — every other thing the platform does gives up after
+  a few seconds, and the build waited forever. So a customer whose build hung
+  sat there with no message, no ceiling and no refund. **A build now stops after
+  ten minutes and says so, and nothing is charged for it.** Ten minutes because
+  the slowest build that has ever actually worked took under three, so it
+  refuses nothing that was going to succeed — and the message says plainly that
+  it took too long and you were not charged, rather than blaming the model.
+* **I have not retried the Arabic one.** It would cost you another ~100 credits
+  and, without knowing why it hangs, would very likely hang again — now stopping
+  politely at ten minutes instead of twenty-six. Two things are worth spending
+  on when you want to, and they answer different questions: **Arabic again**
+  (does the bound turn it into a clean refusal, and does it maybe now finish),
+  or **an English one** (~95 credits, proves the whole audit round builds end to
+  end, says nothing about Arabic).
 * **Everything else on that push was green** — the deploy, the unit tests, and
   all four free checks.
 

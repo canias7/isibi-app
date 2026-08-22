@@ -4403,6 +4403,38 @@ const SITE_SCHEMA_MAX_TOKENS = 16000;
  * as a bearer token and comes back a 401 that reads exactly like a bad key —
  * and the one thing an operator needs to know is which of the two it is.
  */
+/**
+ * HOW LONG ONE BUILDER MODEL CALL MAY TAKE.
+ *
+ * These two fetches were the ONLY unbounded ones in this file — every other
+ * `fetch` here carries an `AbortSignal.timeout`, and these carried none on a
+ * deliberate call (2026-08-04) whose reasoning was that a cut connection pays
+ * for the tokens anyway. That is true, and it assumed the call RETURNS. It says
+ * nothing about the case where it never does.
+ *
+ * MEASURED, 2026-08-22: an Arabic brief on Grok ran 25 minutes 46 seconds
+ * without answering and was only stopped by the runner's own job cap. The
+ * customer was left a claimed slug, a live Neon project, a five-credit charge
+ * and no site — after 27 minutes of waiting with no ceiling and no message.
+ * That is what an unbounded call costs, and it is reachable from a browser by
+ * anyone whose brief happens to be the slow shape.
+ *
+ * TEN MINUTES, against a slowest MEASURED generation of 156s (Grok, run 6,
+ * English) and a schema call of ~110s. So it is roughly 4x the worst honest
+ * call and under half the observed hang. The cost of being wrong in this
+ * direction is stated rather than hidden: a genuinely slow build that WOULD
+ * have finished at eleven minutes is now refused. That is the better trade —
+ * a refusal here is our fault (`generate` is not in `CHARGED_STAGES`, and the
+ * design catch refunds the deposit in full), so it is free and it says so,
+ * where the hang charges and stays silent.
+ *
+ * ONE CONSTANT FOR BOTH CALLS AND BOTH PROVIDERS, in the one place the provider
+ * is decided. A per-call-site bound is two numbers that can drift, and the
+ * failure that produces is one path quietly unbounded again; `stage` already
+ * tells a design timeout from a pages timeout, so nothing is lost by sharing it.
+ */
+const BUILDER_CALL_MS = 600000;
+
 async function callBuilderModel(env, req) {
   if (isXaiModel(req.model)) {
     if (!env.XAI_API_KEY) {
@@ -4423,6 +4455,7 @@ async function callBuilderModel(env, req) {
       method: "POST",
       headers: { Authorization: `Bearer ${env.XAI_API_KEY}`, "content-type": "application/json" },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(BUILDER_CALL_MS),
     });
     if (!r.ok) {
       const e = new Error("xai " + r.status);
@@ -4447,6 +4480,7 @@ async function callBuilderModel(env, req) {
     method: "POST",
     headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
     body: JSON.stringify(req),
+    signal: AbortSignal.timeout(BUILDER_CALL_MS),
   });
   if (!r.ok) {
     const e = new Error("anthropic " + r.status);
@@ -4456,6 +4490,22 @@ async function callBuilderModel(env, req) {
   }
   return r.json();
 }
+
+/**
+ * Did this throw come from the bound above rather than from the provider?
+ *
+ * `AbortSignal.timeout` rejects with a DOMException named `TimeoutError`, and
+ * that name is the whole signal: there is no HTTP response, so `status` is
+ * undefined and `upstreamKind` has nothing to read. Without asking, a timeout
+ * falls through to "The designer is busy — try again in a moment." — which
+ * blames the provider for a ceiling of ours and tells the customer to retry
+ * into the same wait.
+ *
+ * ASKED BY NAME, not by matching the message, because the message is the
+ * runtime's and differs between workerd and Node — which is exactly the kind of
+ * cross-engine string comparison this repo has already been bitten by twice.
+ */
+const isCallTimeout = (e) => !!e && (e.name === "TimeoutError" || e.name === "AbortError");
 
 async function anthropicMessages(env, body) {
   const r = await fetch("https://api.anthropic.com/v1/messages", {
@@ -12345,12 +12395,24 @@ async function handleRequest(request, env, ctx) {
             ok: false,
             msg: e && e.truncated
               ? "That brief needs more room than the designer had — try describing fewer things to store."
-              // Named, because it is the one failure here that no amount of
-              // retrying fixes and that somebody can actually go and act on.
-              : kind.billing
-                ? "The site builder is temporarily unavailable — this is on us, not your brief."
-                : "The designer is busy — try again in a moment.",
+              // OUR CEILING, NOT THEIR OUTAGE, and it must not read as one. A
+              // timeout has no HTTP response, so without asking it fell through
+              // to "the designer is busy" — blaming the provider for a bound of
+              // ours and inviting a retry into the same wait. Measured before
+              // the bound existed: 26 minutes, no answer, nothing said.
+              : isCallTimeout(e)
+                ? "That took longer than a build is allowed to — nothing was charged. Try again, or describe the site in fewer words."
+                // Named, because it is the one failure here that no amount of
+                // retrying fixes and that somebody can actually go and act on.
+                : kind.billing
+                  ? "The site builder is temporarily unavailable — this is on us, not your brief."
+                  : "The designer is busy — try again in a moment.",
             stage: "design",
+            // WHAT THE CUSTOMER WAS LEFT WITH, on the one refusal that said
+            // nothing about money at all. The deposit is refunded a few lines
+            // up and the response never mentioned it, so somebody watching a
+            // build fail had no way to know whether they had paid for it.
+            cost: 0,
             upstream: (e && e.status) || null,
             // The provider's own error TYPE, shape-checked. Never its message,
             // which a 400 can fill with the request.
