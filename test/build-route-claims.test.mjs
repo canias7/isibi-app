@@ -172,6 +172,38 @@ test("a refund that did not land is reported", () => {
   assert.match(seg, /if \(!await creditBack\(/, "the reversal's answer is discarded again");
 });
 
+test("refundFields READS the answer — the reporting line is reachable", () => {
+  // THE ASSERTION ABOVE IS A PRESENCE, AND A PRESENCE IS NOT ENOUGH HERE.
+  // Found by mutation: rewriting `refundFields`' decision from
+  //   if (await refundCredits(...)) return { cost: 0 };
+  // to a bare `await refundCredits(...); return { cost: 0 };` survived all
+  // 3,790 tests — `refundShort` is still in the file, just unreachable, so a
+  // regex looking for the word passes while every refusal answers `cost: 0`
+  // whether or not the customer's credits came back. That is the exact audit
+  // finding restored, on the money path, invisibly.
+  const at = WORKER.indexOf("const refundFields = async (amount)");
+  assert.ok(at > 0, "refundFields moved — rescope this");
+  const body = WORKER.slice(at, WORKER.indexOf("\n      };", at));
+  assert.ok(body.length > 100, "the refundFields window is empty — rescope this");
+
+  // THE PROPERTY: the ledger call's answer is read, never discarded. Asserted
+  // over EVERY call in the body rather than pinning one spelling, so a second
+  // reversal added here has to read its answer too.
+  const calls = [...body.matchAll(/await refundCredits\(/g)];
+  assert.ok(calls.length >= 1, "refundFields no longer reverses anything");
+  for (const m of calls) {
+    const before = body.slice(Math.max(0, m.index - 12), m.index);
+    assert.match(before, /if \(!?$/,
+      "refundFields discards the ledger's answer — a failed reversal reports as a successful one");
+  }
+
+  // AND THE FAILURE ARM STILL COSTS SOMETHING. `cost` is what LEFT the ledger,
+  // so a reversal that did not land must not report 0 — that is the number the
+  // customer reads and the one the shortfall hides behind.
+  assert.match(body, /return \{ cost: n, refundShort: true \}/,
+    "a failed reversal no longer reports what the customer is still charged");
+});
+
 test("creditBack reports rather than swallowing, and logs either way", () => {
   const at = WORKER.indexOf("async function creditBack(");
   assert.ok(at > 0, "creditBack moved — rescope this");
