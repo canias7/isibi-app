@@ -588,8 +588,25 @@ test("the route reads the current state and hands it to the designer", () => {
   // top-up did — failed a test about hoisting on a change that hoisted nothing.
   // What matters is that both are at the OUTER scope and `editState` comes
   // after, whatever else shares their lines.
-  const outer = worker.match(/\n {6}let designed = null[^\n]*\n[\s\S]{0,600}?\n {6}let editState = null;/);
-  assert.ok(outer, "editState is no longer hoisted at the same outer scope as `designed`");
+  //
+  // AND IT WAS STILL A BYTE WINDOW — `[\s\S]{0,600}?` — directly under a
+  // comment claiming it was anchored on the property. It went red the moment
+  // the free-CSS switch was declared between the two with the paragraph that
+  // explains it, which is a test about hoisting failing on a change that hoisted
+  // nothing, for the SECOND time in this one assertion. This repo's most
+  // repeated own-goal: never size a source-read window in bytes.
+  //
+  // The property has two halves and both are needed. Same indent = same scope
+  // (six spaces is this route's outer level; a deeper one is a block). And
+  // NOTHING BETWEEN THEM MAY OPEN A FUNCTION, or they are hoisted in two
+  // different places and the ReferenceError is back with the check still green.
+  const dAt = worker.indexOf("\n      let designed = null");
+  const eAt = worker.indexOf("\n      let editState = null;");
+  assert.ok(dAt > 0, "`let designed = null` is no longer declared at the route's outer scope");
+  assert.ok(eAt > dAt, "editState is no longer hoisted at the same outer scope as `designed`, after it");
+  const between = worker.slice(dAt, eAt);
+  assert.ok(!/\bfunction\b|=>\s*\{/.test(between),
+    "a function now opens between the two declarations — they are in different scopes: " + between.slice(0, 200));
 });
 
 test("the designer's tool drops its required list on an edit ONLY", () => {

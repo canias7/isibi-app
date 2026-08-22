@@ -12,6 +12,32 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ## OPEN — waiting to be picked up
 
+**THE CSS EXPERIMENT — TWO BUILDS, TWO LIVE SITES (2026-08-22, owner's call).**
+Your question: *"one the one we have to day, model rights css based on the 29
+axis, the other one, model writes css without the axis, meaning it makes it
+up"*. Same brief, same model, same everything — one field different.
+
+**Arm B (`css-axes-lido`)** is today's path: the model fills 29 named slots, and
+each one already carries the selector it lands on plus an allow-list of what it
+may write. **Arm A (`css-free-lido`)** deletes all 29 and gives it one `css`
+field instead. It still gets the hook list, so it is not writing blind — take
+that away too and the arm loses for a reason that has nothing to do with
+freedom.
+
+**ARM A NEEDED A DOOR BUILDING FIRST, and that is worth knowing.** The container
+reads 15 payload fields and none of them was free CSS: every look decision goes
+through a parser. So arm A is the ONLY path on the platform where model-written
+CSS reaches a published stylesheet unvalidated — proven in the container, where
+`display:none` on a card is refused through the normal path and lands through
+this one. That is the point rather than an oversight (a validator would measure
+the validator), it is off unless a request asks for it by name, and it should
+come out once the experiment is answered.
+
+**THE COST OF DOING IT AS TWO BUILDS, raised before spending and chosen
+anyway:** they are two different SITES — different pages, different copy,
+different photographs — so the stylesheet difference sits inside everything else
+that moved. Worth looking at; not a clean answer to the CSS question.
+
 **⚠️ NOBODY CAN BUILD A SITE RIGHT NOW — THE xAI ACCOUNT IS OUT OF CREDIT
 (2026-08-22, re-checked 12:47 UTC and still empty).** Measured, not guessed —
 xAI answered in its own words:

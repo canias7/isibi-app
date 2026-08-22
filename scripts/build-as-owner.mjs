@@ -74,6 +74,13 @@ const SLUG = String(process.env.OWNER_SLUG || "").trim().toLowerCase();
 // Which model builds. Unset sends nothing and the Worker uses its own default,
 // so a run that does not care is byte-identical to what this script always sent.
 const PICKER = String(process.env.OWNER_PICKER || "").trim();
+// THE FREE-CSS ARM. Off unless asked for, and OMITTED from the body when off —
+// so an ordinary run posts the byte-identical request it always posted rather
+// than one carrying `freeCss: false`, which is a different request that happens
+// to behave the same. `=== "1"` and nothing looser: this is the switch that
+// hands a published site a stylesheet with no validator in front of it, and the
+// dangerous direction is an env var that is set to something and reads as on.
+const FREE_CSS = String(process.env.OWNER_FREE_CSS || "").trim() === "1";
 
 const LOG_FILE = "build-as-owner-log.md";
 const t0 = Date.now();
@@ -95,6 +102,11 @@ if (!ANON_KEY) fail("SUPABASE_ANON_KEY is not set");
 if (!BRIEF) fail("OWNER_BRIEF is not set");
 log(`step 0 — inputs: email=${EMAIL} base=${BASE} service_key=${desc(SERVICE_KEY)} anon_key=${desc(ANON_KEY)}`);
 log(`step 0 — brief (${BRIEF.length} chars): ${BRIEF}`);
+// WHICH ARM, said out loud at the top. The two builds of this experiment differ
+// in exactly one field and produce two whole sites; a log that does not name the
+// arm cannot be told apart from the other run's afterwards, which is how a
+// paired comparison becomes two unattributable results.
+log(`step 0 — style arm: ${FREE_CSS ? "FREE CSS (no axes — the model writes the stylesheet)" : "THE 29 AXES (today's path)"}`);
 
 const svc = { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, "content-type": "application/json" };
 
@@ -150,6 +162,7 @@ try {
     // allow-list with its own default, and a second copy of that default in the
     // harness is a way for the two to disagree about what a plain run sends.
     ...(PICKER ? { picker: PICKER } : {}),
+    ...(FREE_CSS ? { freeCss: true } : {}),
   }));
 } catch (e) {
   const secs = ((Date.now() - bt) / 1000).toFixed(1);

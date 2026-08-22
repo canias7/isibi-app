@@ -229,6 +229,26 @@ test("junk never throws — a provider difference must not become a 500", () => 
 /* ------------------------------------------------------------- the wiring */
 
 const WORKER = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+/**
+ * `worker.js` WITH ITS COMMENTS BLANKED, length-preserving, so an index found
+ * here still points at the same byte in the real source.
+ *
+ * PROSE DESCRIBING A THING CONTAINS THAT THING'S SPELLING — recorded in this
+ * repo in a lint, a router guard, an absence check, a scope scan, a mutation
+ * and several source-reads. It bit here on 2026-08-22: a comment explaining
+ * that a malformed tool would kill a build at `stage: "design"` became the
+ * FIRST occurrence of that literal in the file, so a check anchored on it
+ * walked into the paragraph instead of the branch.
+ *
+ * WHOLE-LINE ONLY, and that is the rule this repo learned the expensive way: a
+ * blanket `/\/\*[\s\S]*?\*\//` on this file eats 46% of it, because a stray
+ * `/*` inside a string or a regex runs to the next real terminator. Blanking
+ * only lines that ARE comments cannot do that.
+ */
+const WORKER_CODE = WORKER
+  .replace(/^[ \t]*\/\/.*$/gm, (m) => " ".repeat(m.length))
+  .replace(/^[ \t]*\*.*$/gm, (m) => " ".repeat(m.length))
+  .replace(/^[ \t]*\/\*+.*$/gm, (m) => " ".repeat(m.length));
 const CODE = WORKER.replace(/\/\/[^\n]*/g, (m) => " ".repeat(m.length));
 
 test("both builder calls go through the one provider decision", () => {
@@ -407,7 +427,25 @@ test("a timeout is told from a provider outage, by NAME", () => {
   // AND THE DESIGN REFUSAL SAYS SO, and says the money is back. That branch
   // reported nothing about cost at all, so somebody watching a build fail could
   // not tell whether they had paid for it.
-  const seg = WORKER.slice(WORKER.indexOf('stage: "design"') - 2000, WORKER.indexOf('stage: "design"') + 400);
+  // ANCHORED ON THE BRANCH, NOT ON A BYTE COUNT. This read
+  // `slice(indexOf('stage: "design"') - 2000, +400)` and went red the moment a
+  // comment was written above the design call — a test about a timeout arm
+  // failing because a paragraph elsewhere pushed the condition out of a
+  // window. This repo's most repeated own-goal, and it had already been
+  // recorded three times before this one; the rule is never to size a
+  // source-read window in bytes.
+  //
+  // The refusal begins at the `catch` that owns it, so the window runs from
+  // there to the stage it names — a span that grows and shrinks with the
+  // branch itself and cannot be outrun by prose above it.
+  // AGAINST BLANKED COMMENTS, because a paragraph elsewhere that merely NAMES
+  // this stage is not the branch and must not be found instead of it.
+  const stageAt = WORKER_CODE.indexOf('stage: "design"');
+  assert.ok(stageAt > 0, "the design refusal is gone — this check is measuring nothing");
+  const catchAt = WORKER_CODE.lastIndexOf("catch (e) {", stageAt);
+  assert.ok(catchAt > 0 && stageAt - catchAt < 6000,
+    "the design refusal is no longer inside a catch — retarget this check rather than widening it");
+  const seg = WORKER.slice(catchAt, stageAt + 400);
 
   // THE CONDITION ITSELF, NOT MERELY PRESENT SOMEWHERE IN THE BRANCH. Found by
   // mutation: `/isCallTimeout\(e\)/` alone is satisfied by

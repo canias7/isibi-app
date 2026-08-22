@@ -688,6 +688,55 @@ function writePageTokens(pageTokens) {
   return { applied: true, notes: [] };
 }
 
+/**
+ * THE FREE-CSS ARM — model-written CSS with NO validator in front of it.
+ *
+ * EXPERIMENTAL, and deliberately the odd one out in this file. Every other
+ * look door here goes through a parser: `writeTheme` runs `applyStyle`, which
+ * runs the 29 axis emitters, each of which owns its SELECTOR and an allow-list
+ * of properties it may write. `writeTokens` takes colours `isColor` accepts.
+ * This one takes a string and appends it.
+ *
+ * THAT IS THE POINT RATHER THAN AN OVERSIGHT. The owner's question is what the
+ * model produces when it picks its own selectors instead of filling ours, so a
+ * validator here would measure the validator. Both arms are built and looked
+ * at, and the comparison is the answer.
+ *
+ * WHAT IT COSTS, stated rather than discovered: `display:none` blanks whatever
+ * it lands on, `position:fixed` pins the page, `content:` puts page copy
+ * through a field nobody reviews, `!important` takes the decision away from the
+ * theme. All four are recorded in CLAUDE.md as REAL failures rather than
+ * hypotheticals, and all four can reach a published page through here.
+ *
+ * REACHABLE ONLY BY A CALLER THAT ASKS FOR IT. The Worker gates this on an
+ * explicit request flag, so no ordinary build sends `css` and this returns
+ * before touching the stylesheet — asserted, because the dangerous direction is
+ * a default that quietly turns it on.
+ *
+ * LAST, AFTER EVERY OTHER WRITER, which is the same later-wins mechanism the
+ * token override already rests on: whatever the model wrote beats the axes on
+ * any declaration they both make.
+ */
+function writeFreeCss(css) {
+  // NOT a string, or nothing to write: byte-identical to this never existing.
+  // `String(["a"])` is `"a"`, so a non-string is REFUSED rather than coerced —
+  // the shape this repo has shipped as a real bug three times.
+  if (typeof css !== "string" || !css.trim()) return { applied: false, bytes: 0, notes: [] };
+  // A BOUND, because this is the one door with no parser to refuse anything and
+  // the stylesheet ships to every visitor of the site.
+  const MAX = 40000;
+  const use = css.length > MAX ? css.slice(0, MAX) : css;
+  let base;
+  try { base = fs.readFileSync(STYLES, "utf8"); }
+  catch { return { applied: false, bytes: 0, notes: ["The free CSS could not be applied, so the site kept the look it had."] }; }
+  fs.writeFileSync(STYLES, base + "\n/* free-css arm */\n" + use + "\n");
+  return {
+    applied: true,
+    bytes: use.length,
+    notes: css.length > MAX ? [`The CSS was longer than ${MAX} characters, so it was cut.`] : [],
+  };
+}
+
 // One build at a time. Not an optimisation — a correctness requirement.
 //
 // `getContainer(env.SITE_BUILD_CONTAINER)` is called with no id, so EVERY build
@@ -781,6 +830,10 @@ const server = http.createServer((req, res) => {
       const tokensUsed = writeTokens(payload.tokens);
       // AND AFTER THOSE, one page's own. Same mechanism, one scope down.
       const pageTokensUsed = writePageTokens(payload.pageTokens);
+      // THE FREE-CSS ARM. Experimental, and the ONLY door in this file that
+      // takes model-written CSS without a validator in front of it — see
+      // writeFreeCss for why that is the whole point and what it costs.
+      const freeCssUsed = writeFreeCss(payload.css);
       let wrote = 0;
       for (const [rel, content] of Object.entries(files)) {
         const safe = safeRoute(rel);
@@ -945,7 +998,7 @@ const server = http.createServer((req, res) => {
       // because "we thought this was sandboxed" is a worse position than knowing
       // it is not, and the one thing a check like this must not do is report a
       // confinement that is not there.
-      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, fonts: fontsUsed, theme: themeUsed, tokens: tokensUsed, pageTokens: pageTokensUsed, brand: brandUsed, render, worker, ...(ssr.unprivileged ? {} : { ssrUnprivileged: false }) });
+      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, fonts: fontsUsed, theme: themeUsed, tokens: tokensUsed, pageTokens: pageTokensUsed, brand: brandUsed, render, worker, ...(freeCssUsed.applied ? { freeCss: freeCssUsed } : {}), ...(ssr.unprivileged ? {} : { ssrUnprivileged: false }) });
     } catch (e) {
       return send(res, 200, { ok: false, stage: "build", error: String((e && e.message) || e).slice(0, 2000), ms: Date.now() - t0, ...times });
     }

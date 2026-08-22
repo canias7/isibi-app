@@ -4719,7 +4719,30 @@ async function anthropicMessages(env, body) {
 // return ONLY what this change alters, and the tool's `required` list is emptied
 // for the same reason: a required field is one the model must answer, and
 // answering it is exactly what moves a value nobody asked to move.
-async function designSiteSchema(env, brief, model = modelsFor().design, current = null, files = [], budget = null) {
+/**
+ * THE FREE-CSS ARM'S ONE FIELD, standing where the 29 axes stand on every other
+ * build. Experimental; see `writeFreeCss` in builder/build-server.mjs for what
+ * it costs and why there is deliberately no validator behind it.
+ *
+ * THE DESCRIPTION IS THE PREAMBLE'S, MINUS THE SELECTORS. The axes tell the
+ * model what each block will LAND ON; this tells it there are hooks and leaves
+ * it to pick. That asymmetry IS the experiment — take the hook list away
+ * entirely and the arm loses for a reason that has nothing to do with freedom,
+ * which is the confound `css-freedom-probe.mjs` is built around.
+ */
+const FREE_CSS_FIELD = {
+  type: "string",
+  description:
+    "THIS SITE'S LOOK, AS CSS. Real rules with selectors and braces, appended after the theme's own " +
+    "stylesheet — so anything you declare here beats what the theme decided. Write as much or as little " +
+    "as the business needs.\n" +
+    "The page is built from a component kit. Its elements carry stable hooks you can select: " +
+    "[data-slot=\"button\"], [data-slot=\"card\"], [data-slot=\"input\"], [data-slot=\"badge\"], " +
+    "[data-slot=\"overlay\"], [data-slot=\"photo\"], plus ordinary body, section, h1-h4, a.underline and " +
+    "the theme's custom properties (--background, --foreground, --primary, --border, --radius).",
+};
+
+async function designSiteSchema(env, brief, model = modelsFor().design, current = null, files = [], budget = null, freeCss = false) {
   // The request is built FIRST and the usage below is stamped from `req.model`,
   // so what we bill and what we sent cannot disagree — the same by-construction
   // discipline as pricing from one table instead of two.
@@ -4780,6 +4803,37 @@ async function designSiteSchema(env, brief, model = modelsFor().design, current 
   // Emptied on an edit, and only on an edit. `required` is a static part of the
   // tool, so this is the one place it can vary per call.
   if (current) req.tools = [{ ...req.tools[0], input_schema: { ...SITE_SCHEMA_TOOL.input_schema, required: EDIT_REQUIRED } }];
+  // THE FREE-CSS ARM — the 29 axes REPLACED by one `css` field. Experimental.
+  //
+  // REPLACED rather than added beside them, because that is the whole question.
+  // A `css` field sitting next to 29 named axes is a hatch beside a full menu,
+  // and RUN 14 measured what a model does with one of those: it picked names
+  // off the lists and reached for the hatch on neither axis that had it. The
+  // arm only means anything if the axes are not there.
+  //
+  // COMPOSED WITH THE EDIT SWAP ABOVE rather than racing it: this reads
+  // `req.tools[0]`, so whichever `required` that line settled on survives. Two
+  // lines each rebuilding from `SITE_SCHEMA_TOOL` would mean the second silently
+  // undoing the first, which on a revise is the whole edit contract lost.
+  if (freeCss) {
+    const schema = req.tools[0].input_schema;
+    const { style: _dropped, ...rest } = schema.properties;
+    // `required` MOVES WITH THE PROPERTY, or the schema names a field it does
+    // not have. `style` is in the build's required list, so dropping only the
+    // property leaves a malformed tool — the shape an API is entitled to refuse,
+    // and a 400 here is every build on this arm dying at `stage: "design"`
+    // for a reason that reads like the provider being down. Caught by reading
+    // the required list rather than by spending a build to find out.
+    //
+    // AND `css` TAKES ITS PLACE, which is not symmetry for its own sake: the
+    // arm measures what the model WRITES, so an answer that simply omits the
+    // field gives arm A the plain theme and a null result wearing the shape of
+    // a finding. The probe's own free arm requires it for the same reason.
+    const required = Array.isArray(schema.required)
+      ? [...schema.required.filter((k) => k !== "style"), "css"]
+      : schema.required;
+    req.tools = [{ ...req.tools[0], input_schema: { ...schema, properties: { ...rest, css: FREE_CSS_FIELD }, required } }];
+  }
   // Provider decided in ONE place — see callBuilderModel, which also carries the
   // status and detail onto the error so the caller can say WHICH failure this
   // was. The builder's main path has gone down twice behind one unchanging "the
@@ -12501,6 +12555,18 @@ async function handleRequest(request, env, ctx) {
 
       // A brief means "design the schema"; an explicit schema skips the model.
       let designed = null, seedUsage = null, seedTopUp = null;
+      // THE FREE-CSS ARM'S SWITCH. Experimental, off unless the caller asks for
+      // it by name — and STRICTLY `=== true`, so nothing merely truthy arriving
+      // in a body can hand a site a stylesheet with no validator in front of it.
+      //
+      // DECLARED BESIDE `designed`, WHICH IS NOT TIDINESS. It is read in two
+      // places ~950 lines apart — the design call and the container payload —
+      // and my first draft put it in the block that holds only the first, where
+      // it is a `ReferenceError` at the second: `node --check` passes, esbuild
+      // bundles it, and every build with the arm on answers 500. Caught by the
+      // block-scope scanner rather than by reading, which is what that scanner
+      // exists for and the fifth time this repo has written this bug.
+      const freeCssArm = body.freeCss === true;
       // OUT HERE BESIDE `designed`, AND FOR THE SAME REASON — it is read at the
       // look merge, hundreds of lines below the block that fills it in. Declared
       // inside that block it is a ReferenceError on every build, which is the
@@ -12652,7 +12718,7 @@ async function handleRequest(request, env, ctx) {
         }
 
         try {
-          const dz = await designSiteSchema(env, briefWithLinks, models.design, editState, attached.blocks, budget);
+          const dz = await designSiteSchema(env, briefWithLinks, models.design, editState, attached.blocks, budget, freeCssArm);
           designed = dz && dz.input;
           schemaUsage = (dz && dz.usage) || null;
           designedShape = (dz && dz.shape) || null;
@@ -13591,6 +13657,19 @@ async function handleRequest(request, env, ctx) {
             pageTokens: pageTokensFor(nextPageTokens),
             pageFonts: nextPageFonts,
             style: siteStyle,
+            // THE FREE-CSS ARM'S ANSWER, on the wire. OMITTED unless the arm was
+            // asked for AND the model wrote something, so every ordinary build
+            // sends the byte-identical payload it sent before this existed —
+            // which is what makes the container's `writeFreeCss` return before
+            // touching the stylesheet on the path every customer takes.
+            //
+            // GATED ON `freeCssArm` AND NOT ONLY ON THE FIELD BEING PRESENT. The
+            // tool has no `css` property at all unless the arm is on, so a value
+            // here on an ordinary build could only be a model inventing a field
+            // — and that is exactly the shape that must not reach a stylesheet.
+            ...(freeCssArm && typeof (designed && designed.css) === "string" && designed.css.trim()
+              ? { css: designed.css }
+              : {}),
             // THE AUTHORED PLAN, assembled from the merged look rather than
             // stored as one object — each of its six axes is its own
             // `EDIT_FIELDS` entry, so a revise that mentions none of them keeps
