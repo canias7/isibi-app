@@ -233,3 +233,114 @@ test("nothing throws on a malformed authored value", () => {
     }
   }
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PARSESTYLE — the door every look goes through, widened from 2 axes to 23.
+
+import { parseStyle, applyStyle, mergeStyle, MAX_STYLE_BUILD, AUTHORED_AXES } from "../builder/site-style.mjs";
+
+test("every axis is authorable through parseStyle, derived at both ends", () => {
+  assert.deepEqual([...AUTHORED_AXES].sort(), Object.keys(AXES).sort(),
+    "an axis the engine has that parseStyle will not take authored is the enum by the side door");
+});
+
+test("A STORED NAME STILL PARSES — every site already published depends on it", () => {
+  // Their `site_style` holds names and is re-parsed on EVERY publish. Reading a
+  // bare string as CSS would refuse all of them, so each axis would fall back to
+  // the default on the customer's next unrelated edit: a whole platform
+  // re-styled by a typo fix, reported as a success.
+  for (const [axis, spec] of Object.entries(AXES)) {
+    for (const name of Object.keys(spec.options)) {
+      const r = parseStyle({ [axis]: name }, { max: MAX_STYLE_BUILD });
+      assert.equal(r.style[axis], name, axis + ": " + name + " stopped being read as a name");
+      assert.deepEqual(r.dropped, [], axis + ": " + name + " was dropped");
+    }
+  }
+});
+
+test("a declaration block on the same axis is read as authored", () => {
+  const r = parseStyle({ hover: "transform: translateY(-6px)" }, { max: MAX_STYLE_BUILD });
+  assert.deepEqual(Object.keys(r.authored || {}), ["hover"]);
+  assert.equal(r.style.hover, undefined, "an authored value must NOT land in the enum map");
+  assert.deepEqual(r.dropped, []);
+});
+
+test("the `<axis>Css` field still works, so nothing already sending it breaks", () => {
+  const r = parseStyle({ hoverCss: "opacity: 0.85" }, { max: MAX_STYLE_BUILD });
+  assert.deepEqual(Object.keys(r.authored || {}), ["hover"],
+    "the fold at the door stopped happening");
+});
+
+test("an authored axis costs one slot, exactly like a chosen one", () => {
+  // Or the cap counts a look that moved eight axes as having moved two.
+  const r = parseStyle({ hover: "opacity: 0.9", icon: { width: 2 }, corner: "border-radius: 4px" }, { max: 2 });
+  assert.equal(Object.keys(r.authored || {}).length, 2, "the cap did not count authored axes");
+  assert.equal(r.dropped.length, 1);
+});
+
+test("a refused block is reported to the CUSTOMER with its reason", () => {
+  const r = parseStyle({ hover: "display: none" }, { max: MAX_STYLE_BUILD });
+  assert.ok((r.refused || []).some((x) => x.axis === "hover"), "the refusal was silent");
+  assert.ok(r.dropped.includes("hover"), "a refusal must also drop, or styleNote says nothing");
+});
+
+test("a deferred value is stored so the CONTAINER can judge it", () => {
+  // The Worker holds three hex seeds and none of the 31 derived tokens, so a
+  // block naming `var(--primary)` is a thing it cannot judge rather than a thing
+  // the model got wrong. Refusing it here tells a customer their look failed
+  // while it is painting on their site.
+  const r = parseStyle({ hover: "background-color: var(--primary)" }, { max: MAX_STYLE_BUILD });
+  assert.ok(r.authored && r.authored.hover, "a deferred value was not carried");
+  assert.equal((r.refused || []).length, 0, "a deferred value was reported as refused");
+  assert.deepEqual(r.dropped, []);
+});
+
+test("mergeStyle round-trips an authored value as its RAW SPEC", () => {
+  // What is stored in `_meta` and sent to the container, and it is exactly the
+  // shape `parseStyle` takes as input — so the container re-reads it with a
+  // palette in hand and gets the real verdict. `mergeStyle` returning only the
+  // enum map is what made the whole authored path unreachable for a day.
+  const merged = mergeStyle({ icon: "heavy" }, { hover: "opacity: 0.8", icon: { width: 3 } });
+  assert.equal(merged.hover, "opacity: 0.8", "the block did not survive the merge");
+  assert.deepEqual(merged.icon, { width: 3 }, "the ramp did not survive the merge");
+  // And it re-reads.
+  const again = parseStyle(merged, { max: MAX_STYLE_BUILD });
+  assert.deepEqual(Object.keys(again.authored || {}).sort(), ["hover", "icon"]);
+});
+
+test("mergeStyle keeps an EARLIER authored axis when a later patch does not name it", () => {
+  // Absent means unchanged, everywhere in this product. Losing it is the
+  // first-instruction-forgotten failure the merge exists to prevent.
+  const merged = mergeStyle({ hover: "opacity: 0.8" }, { icon: { width: 3 } });
+  assert.equal(merged.hover, "opacity: 0.8");
+});
+
+test("applyStyle puts the authored value where the EMITTER looks", () => {
+  // TWO CONSUMERS OF ONE DECISION: `worldCss` reads the `authored` bag,
+  // every other emitter reads `theme.<axis>`. A value reaching only one of them
+  // is the wiring failure this repo has recorded twelve times — the build
+  // succeeds and the look is silently unapplied.
+  const t = applyStyle(theme, { hover: "transform: translateY(-6px)", icon: { width: 2.9 } });
+  assert.equal(t.hover.css, "transform: translateY(-6px);", "the emitter would never have seen it");
+  // A STRING, because that is what `ICON_STROKES` itself holds (`{width: "1.25"}`)
+  // and `stroke-width` is unitless. The shape has to match the option table
+  // exactly, or the authored path and the named path are two shapes downstream.
+  assert.deepEqual(t.icon, { width: "2.9" });
+  const css = T.themeCss(t);
+  assert.match(css, /translateY\(-6px\)/);
+  assert.match(css, /stroke-width: 2\.9/);
+});
+
+test("a site that authors nothing gets a byte-identical stylesheet", () => {
+  assert.equal(T.themeCss(applyStyle(theme, {})), BARE);
+  assert.equal(T.themeCss(applyStyle(theme, null)), BARE);
+});
+
+test("the legibility gate still refuses a wash the quiet ink cannot survive", () => {
+  // The last gate, and the only one that needs the THEME as well as the value.
+  // Widening the authored path must not have routed around it.
+  const bad = applyStyle(theme, {
+    backdrop: { light: ["linear-gradient(#fff6,#0000)"], dark: ["linear-gradient(#0006,#0000)"] },
+  });
+  assert.equal(Object.keys(bad.authored || {}).length, 0, "an illegible wash reached the stylesheet");
+});

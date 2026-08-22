@@ -52,6 +52,7 @@ import {
 // THE AUTHORED HALF. `site-css.mjs` is a leaf — it imports only the colour
 // parser — so pulling it in here cannot cycle back through the theme engine.
 import { readAuthored, IMAGE_FUNCS, MAX_LAYER, MAX_LAYERS } from "./site-css.mjs";
+import { readAuthoredAxis, AUTHORED_ALL, AXIS_DECLS, AXIS_RAMPS } from "./site-authored.mjs";
 
 /**
  * WHAT MAY BE CHANGED, and nothing else.
@@ -230,7 +231,19 @@ export const RADIUS_AXES = Object.freeze(["buttons", "inputs"]);
  * `site-css.mjs`; anything else on these axes is still read as an enum, so a
  * model that names `aurora` gets exactly what it always did.
  */
-export const AUTHORED_AXES = Object.freeze(["backdrop", "decor"]);
+/**
+ * EVERY AXIS TAKES AN AUTHORED VALUE (2026-08-22, owner's call).
+ *
+ * This was `["backdrop", "decor"]` for one day. The owner's words: "i thought
+ * for all of them it was gonna be authored dude, and no names, i just want the
+ * model to write its own css cmon, lets make it no name."
+ *
+ * DERIVED FROM THE ENGINE'S OWN TABLES rather than restated, so an axis that
+ * gains a reader over there is authorable here with nothing edited — the shape
+ * `optionsFor` already uses, and the one that stops the twenty-fourth axis
+ * shipping unreachable.
+ */
+export const AUTHORED_AXES = Object.freeze(AUTHORED_ALL.filter((a) => Object.hasOwn(AXES, a)));
 
 /**
  * The tool's name for an authored value → the axis it belongs to.
@@ -281,9 +294,32 @@ export function parseStyle(input, { max = MAX_STYLE, vars = null } = {}) {
     // A refused value falls through to `dropped`, so the customer is TOLD, and
     // the theme keeps whatever enum it had — the fallback that makes a bad
     // gradient degrade to the ordinary ground rather than to nothing.
-    if (rawVal && typeof rawVal === "object" && !Array.isArray(rawVal) && AUTHORED_AXES.includes(name)) {
+    // ── IS THIS AUTHORED? DECIDED BY SHAPE, NOT BY FIELD NAME ─────────────────
+    //
+    // WHICH IS WHAT KEEPS EVERY SITE ALREADY PUBLISHED WORKING. Their stored
+    // `site_style` holds names — `{hover: "lift", icon: "fine"}` — and they are
+    // re-parsed on every publish. Reading a bare string as CSS would refuse
+    // every one of them, so each axis would silently fall back to the default
+    // on the customer's next unrelated edit: a whole platform re-styled by a
+    // typo fix, reported as a success.
+    //
+    // So a string that IS one of this axis's own options is a NAME, and
+    // anything else is a block. Unambiguous in practice rather than by luck: a
+    // declaration needs a colon, and no option has one.
+    //
+    // `<axis>Css` is still folded above, so anything already sending the
+    // suffixed field is unchanged — but it is no longer required, because with
+    // no enum on the wire there is nothing left to disambiguate from.
+    const isName = typeof rawVal === "string" && Object.hasOwn(AXES[name].options, rawVal.trim().toLowerCase());
+    const isAuthored = !isName && AUTHORED_AXES.includes(name) &&
+      (typeof rawVal === "string" ? !!rawVal.trim() : (rawVal && typeof rawVal === "object" && !Array.isArray(rawVal)));
+    if (isAuthored) {
       if (Object.keys(out).length + Object.keys(authored).length >= max) { dropped.push(rawName); continue; }
-      const read = readAuthored(rawVal, { vars });
+      // ONE DOOR FOR ALL THREE SHAPES — a declaration block, a ramp's numbers,
+      // and the `{light, dark}` layer pair — so the cap, the merge and the
+      // refusal reporting are identical across all 23 rather than three code
+      // paths that drift.
+      const read = readAuthoredAxis(name, rawVal, { vars });
       // ── "I CANNOT JUDGE THIS HERE" IS NOT A REFUSAL ──────────────────────────
       //
       // With no palette supplied, a layer naming `var(--accent)` fails for a
@@ -437,6 +473,26 @@ export function applyStyle(theme, style, { max = MAX_STYLE_BUILD } = {}) {
   const good = Object.fromEntries(Object.entries(parsed.authored || {}).filter(([, v]) => v && v.ok));
   if (Object.keys(good).length) {
     out.authored = { ...(theme.authored || {}), ...good };
+    // ── AND ONTO THE AXIS ITSELF, WHICH IS WHERE THE EMITTERS LOOK ────────────
+    //
+    // TWO CONSUMERS OF ONE DECISION, and an authored value reaching only one of
+    // them is the wiring failure this repo has recorded twelve times — every
+    // layer correct, one hop cut, and from outside the build succeeds and the
+    // site publishes with the look silently unapplied.
+    //
+    // `worldCss` reads the `authored` BAG, because it composites decor over
+    // backdrop across two modes and needs both together. Every other emitter
+    // reads `theme.<axis>` — `iconCss(theme.icon)`, `hoverCss(theme)` — so an
+    // authored value has to be there too, in the shape that emitter reads:
+    // `{css}` for a declaration block, and the ramp's own object for a ramp.
+    //
+    // An IMAGE axis is deliberately left alone here: `worldCss` already has it
+    // from the bag, and putting `{layers}` on `theme.backdrop` would only give
+    // its `Object.hasOwn(BACKDROP_LAYERS, …)` lookup a key that does not exist.
+    for (const [axis, v] of Object.entries(good)) {
+      if (typeof v.css === "string" && v.css) out[axis] = { css: v.css };
+      else if (v.value && typeof v.value === "object") out[axis] = v.value;
+    }
     // ── AND THE QUIET TEXT HAS TO FIT OVER IT ────────────────────────────────
     //
     // The last gate, and the only one that needs the THEME as well as the value.
