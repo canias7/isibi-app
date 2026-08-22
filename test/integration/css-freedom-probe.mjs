@@ -308,37 +308,47 @@ for (const [key, arm] of Object.entries(ARMS)) {
 // with the exit status two blocks down.
 report.meta = { model: MODEL, when: new Date().toISOString(), answered: failed === 0, billing };
 fs.writeFileSync(path.join(OUT, "report.json"), JSON.stringify(report, null, 1));
-console.log(`\n${"─".repeat(72)}`);
-// GATED ON THERE BEING ANSWERS. On the refused run this line printed "Both
-// answers are in <dir> — render them through the real container", pointing at a
-// directory holding one report and no stylesheets. A closing line that claims
-// more than happened is the same failure as a green tick on a run that asked
-// nothing, one sentence smaller.
-if (failed === 0) {
-  console.log(`Both answers are in ${OUT}/ — render them through the real container to compare`);
-  console.log(`what they LOOK like, which is the half no property check above can answer.`);
-} else {
-  console.log(`Nothing was written to compare — see ${OUT}/report.json for why.`);
-}
-console.log(`${"─".repeat(72)}`);
-
-// THE FUNDING ANSWER IS STATED IN BOTH DIRECTIONS, not only when it is bad.
-// A run where the account is fine says so in one line, because "no billing
-// message" and "nobody looked" are the same silence otherwise — and settling
-// whether xAI is funded is a question this probe gets asked on its own.
-console.log(failed === 0
-  ? `\nxAI ANSWERED — the account has credit (${MODEL}).`
-  : `\nxAI DID NOT ANSWER on ${failed} of ${Object.keys(ARMS).length} arms.`);
-
-if (billing) {
+// ONE STREAM AND ONE WRITE, because the closing block is the thing somebody
+// reads to diagnose an outage and it was arriving SCRAMBLED. `console.log` and
+// `console.error` are separate streams, and Actions merges them by arrival — so
+// the run of 2026-08-22 printed the billing heading INSIDE the separator block
+// and left "grok is DEFAULT_PICKER…" sitting under "xAI DID NOT ANSWER", where
+// it reads as explaining the wrong sentence. Composed as one string, the order
+// is a property of the string rather than of two pipes racing.
+const bar = "─".repeat(72);
+const out = [
+  "",
+  bar,
+  // GATED ON THERE BEING ANSWERS. On the refused run this line read "Both
+  // answers are in <dir> — render them through the real container", pointing at
+  // a directory holding one report and no stylesheets. A closing line that
+  // claims more than happened is the same failure as a green tick on a run that
+  // asked nothing, one sentence smaller.
+  ...(failed === 0
+    ? [`Both answers are in ${OUT}/ — render them through the real container to compare`,
+       `what they LOOK like, which is the half no property check above can answer.`]
+    : [`Nothing was written to compare — see ${OUT}/report.json for why.`]),
+  bar,
+  "",
+  // THE FUNDING ANSWER IS STATED IN BOTH DIRECTIONS, not only when it is bad.
+  // A run where the account is fine says so in one line, because "no billing
+  // message" and "nobody looked" are the same silence otherwise — and settling
+  // whether xAI is funded is a question this probe gets asked on its own.
+  failed === 0
+    ? `xAI ANSWERED — the account has credit (${MODEL}).`
+    : `xAI DID NOT ANSWER on ${failed} of ${Object.keys(ARMS).length} arms.`,
   // THE FINDING IS BIGGER THAN THE EXPERIMENT, so it is said in its own words.
   // `grok-4.6` is `DEFAULT_PICKER`, so an empty xAI balance is not this probe
   // being unable to run — it is every customer build on the platform refusing.
-  console.error(`\nTHE xAI ACCOUNT IS OUT OF CREDIT.`);
-  console.error(`grok is DEFAULT_PICKER, so this is not just the probe: no site can be`);
-  console.error(`built right now, and a build fails at stage "design" in about a second.`);
-}
-if (failed) {
-  console.error(`\n${failed} of ${Object.keys(ARMS).length} arms never answered — nothing was compared.`);
-  process.exit(1);
-}
+  ...(billing
+    ? ["",
+       `THE xAI ACCOUNT IS OUT OF CREDIT.`,
+       `grok is DEFAULT_PICKER, so this is not just the probe: no site can be`,
+       `built right now, and a build fails at stage "design" in about a second.`]
+    : []),
+  ...(failed ? ["", `${failed} of ${Object.keys(ARMS).length} arms never answered — nothing was compared.`] : []),
+];
+// stderr on a failure so the reason travels with the non-zero exit, stdout on a
+// clean run — but ALL of it to whichever one, never split across both.
+(failed ? console.error : console.log)(out.join("\n"));
+if (failed) process.exit(1);

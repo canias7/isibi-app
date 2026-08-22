@@ -13,8 +13,8 @@ and fixed, and add a preference line whenever the owner signals one.
 ## OPEN — waiting to be picked up
 
 **⚠️ NOBODY CAN BUILD A SITE RIGHT NOW — THE xAI ACCOUNT IS OUT OF CREDIT
-(2026-08-22, 12:30 UTC).** Measured, not guessed — xAI answered in its own
-words:
+(2026-08-22, re-checked 12:47 UTC and still empty).** Measured, not guessed —
+xAI answered in its own words:
 
 > *"Your team has either used all available credits or reached its monthly
 > spending limit. To continue making API requests, please purchase more credits
@@ -31,6 +31,14 @@ symptom was builds failing for a reason that reads like a bug.
 
 **Anthropic is likely empty too** (it was last time anyone looked). If you are
 topping one up, check both — they are the only two builders there are.
+
+**Re-checked at 12:47 UTC and it is still empty** — same message, same team id,
+both calls refused in under a second. Worth knowing because checking costs
+nothing: a refused call is free, so the `css freedom` workflow can be re-fired
+any time to settle "is it funded yet" without spending anything either way. It
+now says the answer in one line in **both** directions — `xAI ANSWERED — the
+account has credit` on a good run, rather than only speaking up when it is bad,
+because "no complaint" and "nobody looked" are otherwise the same silence.
 
 ---
 
