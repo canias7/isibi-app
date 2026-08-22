@@ -30,6 +30,8 @@ import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload
 import { handleOwnerExport } from "./site-export.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
 import { makeTrace } from "./builder/trace.mjs";
+import { makeRecorder, BUILD_RECORD_TABLE } from "./builder/build-record.mjs";
+import { makeBudget, budgetNote, BUILD_BUDGET_MS, CONTAINER_CALL_MS } from "./builder/build-budget.mjs";
 import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
@@ -4594,7 +4596,20 @@ const SITE_SCHEMA_MAX_TOKENS = 16000;
  */
 const BUILDER_CALL_MS = 600000;
 
-async function callBuilderModel(env, req) {
+// THE BUDGET IS A THIRD ARGUMENT AND NOT A FIELD ON `req`, and the reason is one
+// line below: the Anthropic branch sends `JSON.stringify(req)`. A budget parked
+// on the request would be serialised as `"budget":{"totalMs":900000}` — an
+// unknown top-level field, which that API answers 400 to. Every Anthropic build
+// on the platform, refused, by the thing added to stop builds being abandoned.
+// The xAI branch happens to be safe (`toXaiRequest` names the fields it sends),
+// which is exactly what would have made this survive a test run and bite live.
+//
+// Null on every path but the build, so the ordinary per-call bound is unchanged.
+async function callBuilderModel(env, req, budget = null) {
+  // The sooner of the call's own ceiling and what is left of the build. See
+  // `builder/build-budget.mjs`: the two bounds have to COMPOSE, or a pages call
+  // starting at minute fourteen of a fifteen-minute budget gets another ten.
+  const callMs = budget && typeof budget.capMs === "function" ? budget.capMs(BUILDER_CALL_MS) : BUILDER_CALL_MS;
   if (isXaiModel(req.model)) {
     if (!env.XAI_API_KEY) {
       // NO `status`, DELIBERATELY. This used to synthesise 503, and the route
@@ -4614,7 +4629,7 @@ async function callBuilderModel(env, req) {
       method: "POST",
       headers: { Authorization: `Bearer ${env.XAI_API_KEY}`, "content-type": "application/json" },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(BUILDER_CALL_MS),
+      signal: AbortSignal.timeout(callMs),
     });
     if (!r.ok) {
       const e = new Error("xai " + r.status);
@@ -4639,7 +4654,7 @@ async function callBuilderModel(env, req) {
     method: "POST",
     headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
     body: JSON.stringify(req),
-    signal: AbortSignal.timeout(BUILDER_CALL_MS),
+    signal: AbortSignal.timeout(callMs),
   });
   if (!r.ok) {
     const e = new Error("anthropic " + r.status);
@@ -4693,7 +4708,7 @@ async function anthropicMessages(env, body) {
 // return ONLY what this change alters, and the tool's `required` list is emptied
 // for the same reason: a required field is one the model must answer, and
 // answering it is exactly what moves a value nobody asked to move.
-async function designSiteSchema(env, brief, model = modelsFor().design, current = null, files = []) {
+async function designSiteSchema(env, brief, model = modelsFor().design, current = null, files = [], budget = null) {
   // The request is built FIRST and the usage below is stamped from `req.model`,
   // so what we bill and what we sent cannot disagree — the same by-construction
   // discipline as pricing from one table instead of two.
@@ -4786,7 +4801,10 @@ async function designSiteSchema(env, brief, model = modelsFor().design, current 
   // has nothing to read. `isCallTimeout` reads `e.name` — the message differs
   // between workerd and Node, a cross-engine string comparison this repo has
   // been bitten by twice.
-  const j = await callBuilderModel(env, req);
+  //
+  // AND THE BUILD'S OWN CLOCK RIDES BESIDE IT. Ten minutes bounds this CALL;
+  // `budget` bounds the BUILD, and the two compose — see build-budget.mjs.
+  const j = await callBuilderModel(env, req, budget);
   // A tool_use block cut off at max_tokens carries half-written JSON, so `input`
   // is a partial schema — usually missing `seed`, sometimes missing `tables`
   // entirely. Returning it silently made the caller answer "that brief didn't
@@ -5102,7 +5120,7 @@ export async function siteWebResearch(env, brief, queries) {
 //
 // ONE call per build. There is no repair pass — see builder/publish-pages.mjs
 // for the measurement it was removed on.
-async function generateSitePages(env, brief, spec, brand, attachments, model, priorPages, mode, target) {
+async function generateSitePages(env, brief, spec, brand, attachments, model, priorPages, mode, target, budget = null) {
   // One definition, shared with the eval harness — see pagesRequest. Restating
   // it here would mean the harness tunes against a different request from the
   // one production runs. Held in a const so the usage below can be stamped with
@@ -5113,7 +5131,11 @@ async function generateSitePages(env, brief, spec, brand, attachments, model, pr
   // unchanged and cannot tell the difference. No timeout, for the reason stated
   // there: this is the call it mattered most for, since three pages against a
   // 24,000-token ceiling is the one that runs long.
-  const j = await callBuilderModel(env, req);
+  //
+  // `budget` is the BUILD's remaining time — see designSiteSchema. Passed as an
+  // argument rather than set on `req`, which is shared with the eval AND is what
+  // gets stringified onto the wire.
+  const j = await callBuilderModel(env, req, budget);
   const usage = j.usage || {};
   // CACHED TOKENS ARE REPORTED SEPARATELY AND WERE NOT BEING COUNTED. The
   // Anthropic API excludes cache hits from `input_tokens` and returns them as
@@ -5236,6 +5258,43 @@ function schemaPlaceholderPage(brand, spec) {
 
 function svcHeaders(env, extra) {
   return { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`, ...(extra || {}) };
+}
+
+/**
+ * One upsert of a build's trace-so-far. The `write` dep of `makeRecorder`.
+ *
+ * `resolution=merge-duplicates` on the slug primary key, so a build that is
+ * still running keeps overwriting its own row rather than accumulating one per
+ * step — which is what keeps this bounded by SITES rather than by builds.
+ *
+ * `return=minimal` because nobody reads the answer and a representation is a
+ * response body a dying isolate has to buffer. `Prefer` is where BOTH ride: two
+ * headers named `Prefer` do not merge, so a second one silently replaces the
+ * first — this repo has already shipped a `return=minimal` that made a claim
+ * impossible to win.
+ *
+ * BOUNDED. `steps` is capped at MAX_STEPS by the trace itself and every entry is
+ * a short name plus finite numbers, so there is no path by which this grows.
+ *
+ * NEVER AWAITED ON THE BUILD PATH. Its timeout is short for the same reason: a
+ * Supabase that has gone away must cost the diagnostics, never the build.
+ */
+async function writeBuildRecord(env, row) {
+  if (!env.SUPABASE_SERVICE_KEY || !row || !row.slug) return;
+  await fetch(`${SUPABASE_URL}/rest/v1/${BUILD_RECORD_TABLE}`, {
+    method: "POST",
+    headers: svcHeaders(env, {
+      "content-type": "application/json",
+      Prefer: "resolution=merge-duplicates,return=minimal",
+    }),
+    // NEITHER TIMESTAMP IS SENT, deliberately. `started_at` defaults on the
+    // INSERT and a merge-duplicates upsert is an UPDATE, which leaves it alone —
+    // so it keeps meaning "when this build began" across every step. `updated_at`
+    // is stamped by the table's own trigger, so the two can never disagree about
+    // when a build last moved.
+    body: JSON.stringify(row),
+    signal: AbortSignal.timeout(8000),
+  });
 }
 
 // The owner's Neon project row, or null. Reads the connection string, which
@@ -7948,6 +8007,16 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
           worker: true,
           fontFiles: Object.keys(fontFiles).length ? fontFiles : undefined,
         }),
+        // BOUNDED, for the reason the build path's copy is — and this spine
+        // matters at least as much: every cheap edit on the platform publishes
+        // through here, and the container is `oneAtATime` for the WHOLE
+        // platform, so one wedged recompile queues every other customer's build
+        // behind it on a fetch that also could not time out.
+        //
+        // A FLAT CEILING RATHER THAN A BUDGET, because this path has none: it is
+        // reached from seven edit lanes and the rebuild drain, none of which
+        // starts a build clock. Ten minutes is a bound where there was none.
+        signal: AbortSignal.timeout(CONTAINER_CALL_MS),
       }));
       return JSON.parse(await rr.text().catch(() => "")) || {};
     } catch (e) {
@@ -8127,7 +8196,7 @@ async function siteOgImage(env, slug) {
   } catch (e) { console.error("og image lookup failed:", slug, e && e.message); return null; }
 }
 
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, fonts, seeds, tokens, pageTokens, pageFonts, style, plan, lang, langs, langStrings, mode, logo, icon, verify, attachments, priorUsage, model, revise, changeNote, priorPages, mark }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, fonts, seeds, tokens, pageTokens, pageFonts, style, plan, lang, langs, langStrings, mode, logo, icon, verify, attachments, priorUsage, model, revise, changeNote, priorPages, mark, budget = null }) {
   // THE TRANSLATION CACHE, IN A CLOSURE SHARED BY BOTH COMPILE CALLS. Salvage
   // runs the compile dep TWICE — one page swapped for a stub — and a cache that
   // lived inside the dep would pay a second Haiku call for strings answered
@@ -8227,7 +8296,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       // and sent the bare brief — ~287 tokens of layout that every real build
       // carries and no sample ever did, so the compile rate described a prompt
       // the platform does not send.
-      return generateSitePages(env, briefWithLayout({ brief, plan, images: imgBudget }), spec, brand, attachments, model, priorPages);
+      return generateSitePages(env, briefWithLayout({ brief, plan, images: imgBudget }), spec, brand, attachments, model, priorPages, undefined, undefined, budget);
     },
     // Runs between the lint and the compile, on the pages the model actually
     // wrote. `publishPages` supplies the two numbers only it knows — the balance
@@ -8362,6 +8431,17 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
           // and it is on for everything built from here.
           worker: true,
           fontFiles: Object.keys(fontFiles).length ? fontFiles : undefined }),
+        // THE LAST UNBOUNDED AWAIT ON THIS PATH, closed 2026-08-22.
+        //
+        // `BUILDER_CALL_MS` bounds the two MODEL calls and this carried no
+        // signal at all — so once the model answered, nothing anywhere could
+        // stop a build. Measured: run 9 ran 25m46s and was killed by a CI cap,
+        // run 12 ran 26.9 minutes the same way, and neither could be told from
+        // a slow model call because both were unbounded awaits.
+        //
+        // It composes with the build budget rather than adding to it, so a
+        // container starting late gets what is LEFT — see build-budget.mjs.
+        signal: AbortSignal.timeout(budget ? budget.capMs(CONTAINER_CALL_MS) : CONTAINER_CALL_MS),
       }));
       // THE STATUS AND THE BODY, NOT JUST "no JSON". Parsing straight to JSON and
       // swallowing the failure threw away everything the container said: a 500
@@ -8730,6 +8810,22 @@ async function deleteSiteFor(env, uid, dslug) {
         } while (bCursor);
       }
     } catch (e) { console.error("site backups delete failed:", dslug, e && e.message); }
+
+    // AND THE BUILD RECORD. One row keyed by slug, so a leftover would be
+    // INHERITED by whoever claims the slug next — their first build would show
+    // a stranger's trace until it upserted over it, which is a diagnostic
+    // wearing somebody else's history and worse than none.
+    //
+    // Best-effort and after the files, like every other by-slug cleanup here:
+    // this is diagnostics, and failing the delete over it would tell the owner
+    // their site is still up when it is not.
+    try {
+      if (env.SUPABASE_SERVICE_KEY) {
+        await fetch(`${SUPABASE_URL}/rest/v1/${BUILD_RECORD_TABLE}?slug=eq.${encodeURIComponent(dslug)}`, {
+          method: "DELETE", headers: svcHeaders(env, { Prefer: "return=minimal" }), signal: AbortSignal.timeout(8000),
+        });
+      }
+    } catch (e) { console.error("build record delete failed:", dslug, e && e.message); }
 
     // THE SITE'S SCHEDULED JOBS. Left behind, each one is a ZOMBIE the cron
     // picks up forever: a stamp write, a project lookup and a last_result
@@ -12099,7 +12195,36 @@ async function handleRequest(request, env, ctx) {
       // starting the trace below it put that call outside `totalMs` entirely, so
       // the reported total was not the time the caller actually waited.
       // Costs two Date.now() calls a step and cannot throw — see builder/trace.mjs.
-      const tr = makeTrace();
+      //
+      // THE RECORDER IS DECLARED FIRST AND THAT IS NOT A STYLE CHOICE. `tr`'s
+      // observer names `rec`, so declaring the trace above it is a read in the
+      // temporal dead zone — `node --check` passes, esbuild bundles it, and
+      // EVERY build throws on its first mark. That is the `vidRefN` class, which
+      // this repo has now written seven times, once all the way to production.
+      const rec = makeRecorder({
+        write: (row) => writeBuildRecord(env, row),
+        // Registered on waitUntil so the LAST write — the interesting one —
+        // cannot be cancelled by the isolate finishing. Guarded because `ctx` is
+        // a runtime argument rather than a language guarantee.
+        hold: (p) => { try { if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(p); } catch { /* never */ } },
+      });
+      // THE TRACE IS WRITTEN DOWN WHILE THE BUILD RUNS, because the response is
+      // the one thing a failing build never produces. Five builds in a row
+      // (2026-08-22) completed design and provisioning and then answered
+      // nothing, and "which step was it in" was unanswerable — the trace existed,
+      // was correct, and died with the request. See builder/build-record.mjs.
+      const tr = makeTrace(undefined, (snap) => rec.step(snap));
+      // THE BUILD'S OWN DEADLINE, started on the same line as the trace and for
+      // the same reason: the customer's wait begins here, not after the auth
+      // round trip. Fifteen minutes for the WHOLE build.
+      //
+      // `BUILDER_CALL_MS` bounds a CALL and cannot bound a build — 600s design +
+      // 600s pages + ~500s of container is ~29 minutes with no hang anywhere, so
+      // the ten-minute ceiling has never once fired across five failed builds.
+      // Run 12 (2026-08-22) ran 26.9 minutes and was killed by the runner's cap
+      // having provisioned its Neon project 46 seconds in. Bounding two calls
+      // does not bound a build; see builder/build-budget.mjs.
+      const budget = makeBudget();
       const bu = await authUser(request);
       if (!bu) return UNAUTHED();
       if (!siteDbConfigured(env)) return Response.json({ ok: false, error: "site database not configured", need: "NEON_API_KEY" }, { status: 501 });
@@ -12478,7 +12603,7 @@ async function handleRequest(request, env, ctx) {
         }
 
         try {
-          const dz = await designSiteSchema(env, briefWithLinks, models.design, editState, attached.blocks);
+          const dz = await designSiteSchema(env, briefWithLinks, models.design, editState, attached.blocks, budget);
           designed = dz && dz.input;
           schemaUsage = (dz && dz.usage) || null;
           designedShape = (dz && dz.shape) || null;
@@ -12727,6 +12852,15 @@ async function handleRequest(request, env, ctx) {
 
       const slug = cleanSlug(body.slug) || cleanSlug(designed && designed.slug)
         || ("site-" + Math.random().toString(36).slice(2, 8));
+
+      // THE RECORDER GETS ITS KEY HERE — the first moment there is one. Every
+      // step above (auth, the body, the credit gate, the design call) has been
+      // held in the recorder rather than dropped, and this flushes them, so a
+      // build that dies in page generation still has its whole prologue written
+      // down. A build that dies BEFORE this leaves no row, which is honest: it
+      // never got as far as being a site.
+      rec.identify(slug, bu.id);
+      rec.step(tr.done(), { stage: "design", picker: String(body.picker || "").slice(0, 24) || null });
 
       // A site's slug is claimed by whoever built it first; a second user cannot
       // publish over someone else's site by guessing the name.
@@ -13301,7 +13435,23 @@ async function handleRequest(request, env, ctx) {
       });
 
       let pages = { page: "placeholder", files: [], notes: "", problems: [], cost: 0, buildMs: 0 };
-      if (brief && env.SITE_BUILD_CONTAINER && env.SITES_BUCKET) {
+      // OUT OF TIME BEFORE THE EXPENSIVE HALF, refused in words rather than
+      // started and abandoned. Design and provisioning have already spent from
+      // the same fifteen minutes, and page generation plus a container run is
+      // most of a build — so a budget already gone here cannot produce a site,
+      // and starting anyway means the customer waits out a request that dies on
+      // a socket instead of being told what happened.
+      //
+      // THE SITE IS NOT LOST BY THIS. The database is live and seeded, the slug
+      // is theirs, and the placeholder still publishes below — which is exactly
+      // what a page-generation failure already leaves. `generate` is not in
+      // `CHARGED_STAGES`, so the pages are not billed either; the schema call is,
+      // because it really ran.
+      if (budget.expired()) {
+        pages.stage = "generate";
+        pages.error = "the build ran out of time before the pages were written";
+        pages.notes = budgetNote("generate");
+      } else if (brief && env.SITE_BUILD_CONTAINER && env.SITES_BUCKET) {
         try {
           // A revise gets the brief the site was BUILT from as well as the
           // instruction — see briefForPages. The merged schema says what the
@@ -13441,6 +13591,11 @@ async function handleRequest(request, env, ctx) {
             verify: priorVerify,
             auth: request.headers.get("Authorization") || "",
             mark: (n) => tr.at(n),
+            // WHAT IS LEFT OF THE FIFTEEN MINUTES, not a fresh ten. The pages
+            // call is the long one and by the time it starts the design call and
+            // provisioning have already spent from the same budget — so it gets
+            // the remainder, and the two bounds compose instead of stacking.
+            budget,
           });
         } catch (e) {
           console.error("page generation failed:", slug, (e && (e.detail || e.message)));
@@ -13529,6 +13684,18 @@ async function handleRequest(request, env, ctx) {
       // One line, once, so a build's shape is visible in the log too. Bounded to
       // 900 characters by `line()`.
       console.log("build trace", slug, traced.totalMs + "ms", "|", tr.line());
+      // AND WRITTEN DOWN, which is the half a failing build never reaches. This
+      // is the one write registered on `waitUntil`, because it is what turns "a
+      // build was running here" into "it finished, and this is how" — a row left
+      // at `done: false` never reached this line, either because it was refused
+      // above or because it died, and its last step says which. That is itself
+      // the diagnosis, and it is the one the five lost builds needed.
+      rec.finish(traced, {
+        stage: pages.stage || null,
+        page: pages.page || null,
+        error: pages.error ? String(pages.error).slice(0, 300) : null,
+        ok: pages.page === "app",
+      });
       // RESOLVED, not the raw field. `normalizeSchema` STAMPS `access: "collect"`
       // on any table that did not declare one of the five preset names — and the
       // design tool tells the model to leave `access` OUT when it sets a

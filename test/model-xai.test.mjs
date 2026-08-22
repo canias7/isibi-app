@@ -244,7 +244,12 @@ test("both builder calls go through the one provider decision", () => {
     const next = CODE.indexOf("\nasync function ", at + 10);
     const body = CODE.slice(at, next > at ? next : CODE.length);
     assert.ok(body.length > 500, `${fn}'s body did not slice — this check would be vacuous`);
-    assert.match(body, /await callBuilderModel\(env, req\)/, `${fn} must send through callBuilderModel`);
+    // THE ARGUMENT, NOT THE ARGUMENT LIST. Pinned to `(env, req)` exactly, this
+    // went red the day the build budget became a third parameter — reporting
+    // "must send through callBuilderModel" about a call that does exactly that.
+    // What has to hold is that `req` is what gets sent, however many arguments
+    // ride after it.
+    assert.match(body, /await callBuilderModel\(env, req[,)]/, `${fn} must send through callBuilderModel`);
     assert.doesNotMatch(body, /fetch\("https:\/\/api\.anthropic\.com/, `${fn} must not keep its own provider fetch`);
   }
 });
@@ -345,8 +350,25 @@ test("A BUILDER MODEL CALL IS BOUNDED — every fetch in it, both providers", ()
       i++;
     }
     assert.ok(d === 0, "could not find the end of a fetch call — the depth scan is broken, not the code");
-    assert.match(body.slice(m.index, i + 1), /signal:\s*AbortSignal\.timeout\(BUILDER_CALL_MS\)/,
-      "a builder model call is unbounded again — a hung provider waits forever and charges for it");
+    // RESOLVED TO ITS DEFINITION, never matched as a spelling. This pinned
+    // `AbortSignal.timeout(BUILDER_CALL_MS)` literally and went red the day the
+    // build budget made the bound the SOONER of that ceiling and what is left of
+    // the build — a correct change failing a check about how the expression is
+    // written. The property is that every fetch carries a signal and that its
+    // bound derives from `BUILDER_CALL_MS`, whether directly or through a local.
+    const init = body.slice(m.index, i + 1);
+    const sig = init.match(/signal:\s*AbortSignal\.timeout\(([^)]*)\)/);
+    assert.ok(sig, "a builder model call is unbounded again — a hung provider waits forever and charges for it");
+    const arg = sig[1].trim();
+    if (!/\bBUILDER_CALL_MS\b/.test(arg)) {
+      // A local. It must be defined IN THIS FUNCTION and must name the ceiling —
+      // otherwise a bound could quietly become an unrelated number and the check
+      // would still pass because a signal is present.
+      const def = body.match(new RegExp("\\b(?:const|let)\\s+" + arg.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*=([^;]*);"));
+      assert.ok(def, `the bound \`${arg}\` is not defined inside callBuilderModel — it could be anything`);
+      assert.match(def[1], /\bBUILDER_CALL_MS\b/,
+        `the bound \`${arg}\` no longer derives from BUILDER_CALL_MS — the per-call ceiling is gone`);
+    }
   }
 
   // THE VALUE HAS TO BIND WITHOUT REFUSING HONEST BUILDS, and both directions

@@ -88,38 +88,49 @@ jobs:
           # (`mathaq-alemarat`, `mathaq-dubai`), so neither name can be reused:
           # ownership is what decides `revise`, and re-running one would be read
           # as an edit of an empty husk rather than the first build it never got.
-          OWNER_SLUG: sunwater-lido
-          # RUN 12 (2026-08-22): THE SAME BRIEF, WITH THE DISCONNECT FIXED.
+          OWNER_SLUG: lantern-lido
+          # RUN 13 (2026-08-22): THE SAME BRIEF AGAIN, AND THE FIRST WITH A
+          # CEILING ON IT.
           #
-          # RUN 11 IS WHY THIS IS WORTH SPENDING AGAIN RATHER THAN A REPEAT. It
-          # used this exact brief, in English, and died at 274.3s with
-          # ECONNRESET — the third instance of a reset this file had recorded as
-          # Arabic-only (286.0s, 285.3s), on a brief of the shape that had
-          # published twice. That killed the language theory and left the real
-          # cause where it was: Cloudflare cancels a Worker when its client goes
-          # away, and this route runs for minutes.
+          # WHY RUN 12 STILL PRODUCED NOTHING, even with `ctx.waitUntil` in.
+          # That fix stops the WORKER being cancelled when the client goes away
+          # — and run 12 was not cancelled, it ran 26.9 minutes and the RUNNER's
+          # 30-minute cap ended the job with the build still going. Surviving a
+          # disconnect does not help a build that never finishes; nothing on the
+          # platform could stop one, because the only bounds anywhere near the
+          # build path were on the two MODEL calls.
           #
-          # ONE THING CHANGED, AND IT CHANGES WHICH HALF IS LOST. The build is
-          # registered on `ctx.waitUntil`, so the work outlives the response. A
-          # reset now costs the ANSWER and not the SITE.
+          # WHAT CHANGED, AND IT IS THE THING THAT WAS MISSING RATHER THAN A
+          # RETRY OF THE SAME CODE:
+          #   - the container fetch is bounded on BOTH publish spines. It never
+          #     was, on either, so once the model answered a build could run
+          #     forever — and the service is `oneAtATime` for the whole
+          #     platform, so a wedged run queues every other build behind it.
+          #   - the whole build has ONE budget, fifteen minutes, and the two
+          #     bounds COMPOSE rather than stack: the design call, the pages call
+          #     and the container each get what is LEFT.
+          #   - the trace is written to `site_builds` WHILE the build runs, so a
+          #     run that answers nothing is still diagnosable. Every previous
+          #     failure had a correct trace that died with the request.
           #
-          # SO BOTH OUTCOMES PRODUCE A URL, which is what makes this a good spend
-          # rather than a coin flip re-run:
-          #   - it connects  -> the full response, the cost breakdown, and
+          # SO EVERY OUTCOME IS WORTH THE SPEND, which is what makes this a
+          # measurement rather than another coin flip:
+          #   - it publishes  -> the full response, the cost breakdown, and
           #     whether the model wrote its own backdrop
-          #   - it resets    -> the harness FATALs exactly as run 11 did, and the
-          #     site publishes anyway. `sunwater-lido.gofarther.app` answering
-          #     200 after a dead socket IS the proof, and it is a stronger one
-          #     than a clean run: it is the failure the fix was built for.
+          #   - it is refused -> an honest 15-minute answer naming its stage,
+          #     instead of a dead socket at 27 minutes
+          #   - it dies anyway -> `select * from site_builds where slug =
+          #     'lantern-lido'` names the exact step it got to. That is the
+          #     question five failed builds could not answer.
           #
-          # A FRESH SLUG, because run 11 claimed `lido-and-lamplight` and
-          # ownership is what decides `revise` — re-running that name would be
-          # read as an edit of the husk rather than the first build it never got.
+          # A FRESH SLUG, because run 12 claimed `sunwater-lido` and ownership is
+          # what decides `revise` — re-running that name would be read as an edit
+          # of the husk rather than the first build it never got.
           #
-          # THE BRIEF IS RUN 11's VERBATIM. The only variable is the fix;
-          # changing a word would make either outcome unattributable.
+          # THE BRIEF IS RUN 11's VERBATIM, for the third time. The only variable
+          # is the bounds; changing a word would make the outcome unattributable.
           #
-          # WHAT IT ALSO ANSWERS, unchanged from run 11: whether the designer
+          # WHAT IT ALSO ANSWERS, unchanged since run 11: whether the designer
           # reaches for an AUTHORED backdrop rather than one of the six named
           # options. `authored` on the response names the axes it wrote.
           OWNER_PICKER: grok

@@ -34,8 +34,19 @@ export const MAX_STEPS = 60;
  *
  * `now` is injectable so the tests do not have to sleep, and because
  * `Date.now()` is the one thing here that cannot be asserted otherwise.
+ *
+ * `onStep` is called after every mark with the snapshot so far. It exists so a
+ * trace can be WRITTEN DOWN while the build is still running — the response is
+ * the one thing a failing build never produces, so a trace that only rides home
+ * on it is lost exactly when it is wanted. See builder/build-record.mjs.
+ *
+ * IT CANNOT AFFECT THE TRACE. The callback runs in its own try, AFTER the step
+ * is pushed, and its return value is discarded — so an observer that throws
+ * costs nothing, and one that is slow cannot be awaited because nothing here
+ * awaits anything. The rule this whole module lives under, extended to the one
+ * thing in it that talks to something else.
  */
-export function makeTrace(now = () => Date.now()) {
+export function makeTrace(now = () => Date.now(), onStep = null) {
   // EVERY clock read is guarded, including this first one. `at()` and `done()`
   // swallow, but the constructor did not — so a `now` that threw took the build
   // down before it had even read the request body, which is the exact opposite
@@ -77,6 +88,12 @@ export function makeTrace(now = () => Date.now()) {
         }
         steps.push(step);
       } catch { /* a trace must never break a build */ }
+      // OUTSIDE the try above, and after the push, so the observer can never be
+      // the reason a step is lost. Its own try for the same reason: this is the
+      // only line in the file that calls into somebody else's code.
+      try {
+        if (typeof onStep === "function") onStep({ steps: steps.slice(), totalMs: clock() - t0 });
+      } catch { /* an observer must never break a build either */ }
     },
 
     /** Everything recorded, plus the wall clock. Safe to call more than once. */

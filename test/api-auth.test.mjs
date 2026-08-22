@@ -936,7 +936,14 @@ test("a `send` check hands off before its lane's own refusal", () => {
 // on the flat-fee schema call". That reason expired on 2026-08-08, when the fee
 // became a deposit `schemaSettlement` trues up against real usage.
 test("the build route hands the attached files to the designer", () => {
-  assert.match(WORKER_SRC, /designSiteSchema\(env, briefWithLinks, models\.design, editState, attached\.blocks\)/,
+  // ANCHORED ON THE ARGUMENT, NOT THE WHOLE LIST. This matched the exact call
+  // and went red the day a sixth parameter joined it — a test about word order,
+  // reporting "the designer cannot see attachments" about a call that passes
+  // them perfectly. What has to hold is that `attached.blocks` reaches the
+  // designer, however many arguments sit after it.
+  const call = WORKER_SRC.match(/designSiteSchema\(env, briefWithLinks,[^)]*\)/);
+  assert.ok(call, "the build route no longer calls designSiteSchema with the linked brief");
+  assert.match(call[0], /attached\.blocks/,
     "the designer is still not given the attached files, so a PDF menu cannot reach the seed rows");
   // The blocks are the IMAGE/PDF pile, not the text one — text already reached
   // the designer by a different route, folded into the brief.
@@ -970,7 +977,22 @@ test("a build with no attachments sends the shape it always sent", () => {
     "an empty attachment list must fall back to a plain string");
   // And the parameter DEFAULTS to empty, so the two callers that pass nothing
   // (the look layer and the addon) are untouched.
-  assert.match(WORKER_SRC, /async function designSiteSchema\(env, brief, model = modelsFor\(\)\.design, current = null, files = \[\]\)/,
+  // THE DEFAULT, NOT THE SIGNATURE. Pinned whole, this went red the day the
+  // build budget became a sixth parameter — a correct change failing a check
+  // about the shape of a parameter list rather than about the default it exists
+  // to hold.
+  // READ BY BRACKET DEPTH, because a flat `[^)]*` stops at the `(` inside
+  // `model = modelsFor().design` — my own first draft did exactly that and
+  // reported a signature ending four parameters early.
+  const open = WORKER_SRC.indexOf("async function designSiteSchema(");
+  assert.ok(open > 0, "designSiteSchema is gone");
+  let k = WORKER_SRC.indexOf("(", open), depth = 0, from = k + 1, sig = null;
+  for (; k < WORKER_SRC.length; k++) {
+    if (WORKER_SRC[k] === "(") depth++;
+    else if (WORKER_SRC[k] === ")" && --depth === 0) { sig = WORKER_SRC.slice(from, k); break; }
+  }
+  assert.ok(sig, "could not read designSiteSchema's parameter list");
+  assert.match(sig, /\bfiles = \[\]/,
     "files must default to empty, or the callers that pass none break");
 });
 

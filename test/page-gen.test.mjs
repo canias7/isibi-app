@@ -1143,8 +1143,12 @@ test("the Worker and the eval issue the SAME generation request", () => {
   // moved. Both forms are accepted, still followed through by VARIABLE NAME.
   const held = gen.match(/const\s+(\w+)\s*=\s*pagesRequest\(/);
   if (held) {
+    // The trailing `[,)]` is what makes this about the ARGUMENT rather than the
+    // argument list: pinned to a closing paren it went red the day the build
+    // budget became a third parameter, claiming the request was swapped when
+    // nothing had moved.
     const sent = gen.includes("JSON.stringify(" + held[1] + ")") ||
-      new RegExp("callBuilderModel\\(env,\\s*" + held[1] + "\\)").test(gen);
+      new RegExp("callBuilderModel\\(env,\\s*" + held[1] + "[,)]").test(gen);
     assert.ok(sent, "generateSitePages builds a request with pagesRequest and then sends something else");
   } else {
     assert.match(gen, /(JSON\.stringify|callBuilderModel\(env,\s*)\(?pagesRequest\(/, "generateSitePages must use pagesRequest");
