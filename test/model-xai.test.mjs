@@ -8,7 +8,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, XAI_ENDPOINT } from "../builder/model-xai.mjs";
+import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, XAI_ENDPOINT } from "../builder/model-xai.mjs";
 import { contextSummary, contextSentence } from "../builder/site-context.mjs";
 
 /* --------------------------------------------------------- which provider */
@@ -263,4 +263,56 @@ test("the xAI branch refuses a missing key by name, before spending a request", 
 
 test("the endpoint is xAI's chat completions", () => {
   assert.equal(XAI_ENDPOINT, "https://api.x.ai/v1/chat/completions");
+});
+
+test("an xAI error body is translated too, or `billing` and `upstreamType` are dead for every Grok build", () => {
+  // THE TRANSLATION STOPPED AT THE HAPPY PATH. `toXaiRequest` and
+  // `fromXaiResponse` exist so no line downstream knows which provider
+  // answered; the ERROR body went through raw, and `upstreamKind` parses
+  // Anthropic's envelope. So the two fields built to diagnose a provider
+  // failure were supplied by a parser reading a shape that never arrives —
+  // and the one actionable message on the build path could not fire.
+  const anth = JSON.parse(xaiErrorDetail(JSON.stringify({ error: { message: "You exceeded your current quota", type: "insufficient_quota" } })));
+  assert.equal(anth.error.type, "insufficient_quota");
+  assert.match(anth.error.message, /exceeded your current quota/);
+
+  // `error` AS A STRING is the shape that produced two nulls: `err.type` and
+  // `err.message` are both undefined on it, so nothing downstream had anything
+  // to read. The code carries the type here.
+  const str = JSON.parse(xaiErrorDetail(JSON.stringify({ error: "Your credit balance is too low", code: "insufficient_quota" })));
+  assert.equal(str.error.type, "insufficient_quota");
+  assert.match(str.error.message, /credit balance is too low/);
+
+  // NOT JSON AT ALL — a proxy's HTML, a gateway's plain text. No type to
+  // report, and the prose is the only thing there is, so it must still ride as
+  // the message rather than being dropped.
+  const html = JSON.parse(xaiErrorDetail("<html>502 Bad Gateway</html>"));
+  assert.equal(html.error.type, null);
+  assert.match(html.error.message, /502 Bad Gateway/);
+
+  // IT NEVER INVENTS A TYPE, the same shape check `upstreamKind` applies —
+  // this must not become a second channel for arbitrary upstream text.
+  for (const junk of ["Not A Code", "a".repeat(60), "with spaces", "<script>"]) {
+    assert.equal(JSON.parse(xaiErrorDetail(JSON.stringify({ error: { message: "x", type: junk } }))).error.type, null, junk);
+  }
+  // …and nothing throws on any shape, since this runs inside a catch on the
+  // build path: a throw here would replace a diagnosable failure with an
+  // undiagnosable one.
+  for (const bad of [null, undefined, "", "[]", "null", "7", '{"a":1}']) {
+    assert.doesNotThrow(() => JSON.parse(xaiErrorDetail(bad)), String(bad));
+  }
+});
+
+test("…and the worker translates at the boundary rather than passing the raw body on", () => {
+  // BOTH ENDS: the module can be perfectly right and never reached — the layer
+  // this repo has lost twelve features in.
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(w, /import \{[^}]*\bxaiErrorDetail\b[^}]*\} from "\.\/builder\/model-xai\.mjs"/,
+    "naming it without importing it is a ReferenceError on the build path");
+  assert.match(w, /e\.detail = xaiErrorDetail\(await r\.text\(\)/,
+    "the xAI error body is passed through raw again, so upstreamKind reads a shape that never arrives");
+  // AND THE CODE IS BELIEVED. Matching a fixed token is what a wording match
+  // can never be: stable across a provider rewording its own message.
+  assert.match(w, /type === "insufficient_quota"/,
+    "an exhausted account is diagnosed only by its prose again");
 });

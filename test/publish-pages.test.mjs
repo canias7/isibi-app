@@ -2251,3 +2251,52 @@ test("THE SALVAGE RECOMPILE IS RETRIED WHEN THE CONTAINER IS DRAINED", async () 
   assert.deepEqual(out.salvaged, ["menu.tsx"]);
   assert.equal(calls.compile.length, 3, "the recompile was not retried");
 });
+
+test("the four retry fields reach the caller — build smoke reads them off the response", () => {
+  // ALL FOUR WERE COMPUTED AND FORWARDED BY NOTHING, so the smoke test's retry
+  // report read four fields that could never arrive: provably dead code
+  // reading provably dead code.
+  //
+  // `killedAt` IS THE ONE THAT DECIDES MONEY. A step killed by a container
+  // drain is reclassified to `stage: "build"` so `ourFault` exempts it from the
+  // charge — and this field is the ONLY thing separating that from a genuine
+  // bundler error wearing the same stage. Without it nobody can tell a free
+  // failure from a charged one after the fact.
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  for (const f of ["builds", "retriedBuild", "killedAt"]) {
+    assert.match(w, new RegExp("\\n\\s*" + f + ": pages\\." + f + " \\|\\| undefined,"),
+      f + " is computed by publishPages and forwarded by nothing");
+  }
+  // `repaired` is carried only when something really was fixed: an empty list
+  // on every build reads as a generator that keeps getting names wrong.
+  assert.match(w, /repaired: \(pages\.repaired && pages\.repaired\.length\) \? pages\.repaired : undefined,/,
+    "repaired is dropped, or is reported as [] on every clean build");
+  // …AND THE MODULE REALLY SETS THEM, or this forwards a name nothing produces.
+  const pp = fs.readFileSync(new URL("../builder/publish-pages.mjs", import.meta.url), "utf8");
+  for (const f of ["builds", "retriedBuild", "killedAt", "repaired"]) {
+    assert.match(pp, new RegExp("out\\." + f + "\\s*="), "publishPages no longer produces " + f);
+  }
+});
+
+test("a delete says WHICH project it dropped, and does not claim one it never looked for", () => {
+  // `projectDropped` is the one signal saying a billed Neon project survived a
+  // delete. The legacy branch set it true UNCONDITIONALLY — including when
+  // nothing was found and no drop call was made — so the all-clear fired
+  // exactly when there was no record of the project, which is the case that
+  // matters. Both integration consumers gate their fallback cleanup on
+  // `=== false`, so it never fired; and the response had no `projectId`, so
+  // when it did it called DELETE /projects/undefined. The safety net could not
+  // work in either direction.
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const at = w.indexOf("let projectDropped = false;");
+  assert.ok(at > 0, "the project-drop block moved");
+  const block = w.slice(at, w.indexOf("// AND THE SITE'S OWN WORKER", at));
+  assert.ok(block.length > 200, "the project-drop block scan lost its bounds");
+  // The legacy branch sets it only INSIDE the `if` that found something.
+  assert.match(block, /if \(legacy && legacy\.neon_project\) \{[\s\S]*?projectDropped = true;[\s\S]*?\}/,
+    "the legacy branch claims a drop it never attempted again");
+  assert.match(block, /projectId = proj\.neon_project;/, "the dropped project is not named");
+  assert.match(block, /projectId = legacy\.neon_project;/, "the legacy project is not named");
+  assert.match(w, /projectId: projectId \|\| undefined,/,
+    "the response carries no projectId, so the consumers' fallback calls DELETE /projects/undefined");
+});

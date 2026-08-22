@@ -78,7 +78,7 @@ import { takeOffline, putBackOnline } from "./site-live.mjs";
 import { readLinkedPages, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, attachments, MAX_QUERIES } from "./builder/site-context.mjs";
 import { routeMessage, clarifiedBrief } from "./builder/site-ask.mjs";
 import { modelsFor } from "./builder/build-models.mjs";
-import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, XAI_ENDPOINT } from "./builder/model-xai.mjs";
+import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, XAI_ENDPOINT } from "./builder/model-xai.mjs";
 import { verifyStripeSignature, mintFromEvent } from "./stripe-webhook.mjs";
 import { selectPurchase, checkoutForm, LIVE_SUBSCRIPTION_STATUSES, falRequestId, refundVerdict, refundOnResultStatus } from "./billing.mjs";
 import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis, eoqCalc, breakevenCalc, demandForecast, installmentPlan, taxCalc, commissionCalc } from "./worker-finance.mjs";
@@ -1062,11 +1062,20 @@ function upstreamKind(detail) {
   const err = body && body.error;
   const t = err && err.type;
   const msg = String((err && err.message) || "");
+  // Shape-checked, not trusted: an unrecognised token is dropped rather than
+  // echoed, so this can never become a channel for arbitrary upstream text.
+  const type = /^[a-z_]{1,40}$/.test(String(t)) ? String(t) : null;
   return {
-    // Shape-checked, not trusted: an unrecognised token is dropped rather than
-    // echoed, so this can never become a channel for arbitrary upstream text.
-    type: /^[a-z_]{1,40}$/.test(String(t)) ? String(t) : null,
-    billing: /credit balance is too low|insufficient (?:credit|quota)|billing/i.test(msg),
+    type,
+    // A CODE BEATS PROSE WHEN THERE IS ONE. `insufficient_quota` is the
+    // canonical OpenAI-compatible token for an exhausted account and it is what
+    // `xaiErrorDetail` surfaces as the type — stable across a provider
+    // rewording its own message, which a prose match can never be. Anthropic
+    // does not use it, so this cannot fire on the other provider by accident.
+    // Kept ALONGSIDE the wording match rather than replacing it: Anthropic
+    // reports this in the message and only in the message.
+    billing: type === "insufficient_quota"
+      || /credit balance is too low|insufficient (?:credit|quota)|billing/i.test(msg),
   };
 }
 
@@ -4405,7 +4414,14 @@ async function callBuilderModel(env, req) {
     if (!r.ok) {
       const e = new Error("xai " + r.status);
       e.status = r.status;
-      e.detail = (await r.text().catch(() => "")).slice(0, 300);
+      // TRANSLATED LIKE EVERYTHING ELSE AT THIS BOUNDARY. The raw body went
+      // straight into `e.detail`, and `upstreamKind` downstream parses
+      // Anthropic's envelope — so `upstreamType` was always null and `billing`
+      // always false on a Grok build, and the one actionable message on the
+      // build path could not fire. `toXaiRequest`/`fromXaiResponse` exist
+      // precisely so no line downstream has to know which provider answered;
+      // the error body was the half that never got the same treatment.
+      e.detail = xaiErrorDetail(await r.text().catch(() => ""));
       throw e;
     }
     const out = fromXaiResponse(await r.json());
@@ -8221,10 +8237,24 @@ async function deleteSiteFor(env, uid, dslug) {
     // down. So the drop is tried, and the row is only removed if it worked —
     // a row with no project is a 404 the owner can retry, while a project with
     // no row is invisible and bills forever.
+    // `projectDropped` MEANS "WE LOOKED AND IT IS GONE", never "we did not
+    // look". The legacy branch set it true UNCONDITIONALLY — including when
+    // `userSiteProject` also came back empty and no drop call was made at all —
+    // so the one signal that says a billed Neon project survived a delete
+    // answered "dropped" precisely when nothing had been found to drop.
+    //
+    // Both integration consumers gate their fallback cleanup on
+    // `projectDropped === false`, so the all-clear meant the fallback never
+    // fired; and the response literal carried no `projectId`, so when it DID
+    // fire it called `DELETE /projects/undefined`. The safety net could not work
+    // in either direction, and a project leaks with a clean answer on the wire —
+    // the exact invisible-leak class `neon_teardown` exists to close.
     let projectDropped = false;
+    let projectId = null;
     try {
       const proj = await siteNeonProject(env, dslug);
       if (proj && proj.neon_project) {
+        projectId = proj.neon_project;
         await dropUserProject(env, proj.neon_project);
         projectDropped = true;
       } else {
@@ -8232,8 +8262,16 @@ async function deleteSiteFor(env, uid, dslug) {
         // per-user layout still have their database inside a shared project,
         // so fall back to dropping just that.
         const legacy = await userSiteProject(env, uid);
-        if (legacy && legacy.neon_project) await dropSiteDatabase(env, legacy.neon_project, legacy.neon_branch, dslug);
-        projectDropped = true;
+        if (legacy && legacy.neon_project) {
+          projectId = legacy.neon_project;
+          await dropSiteDatabase(env, legacy.neon_project, legacy.neon_branch, dslug);
+          projectDropped = true;
+        }
+        // …and NOTHING found stays `false`. There is genuinely no record of a
+        // project for this slug, which is either a site that never provisioned
+        // one or — the case that matters — a record already lost. Saying
+        // "dropped" there is an all-clear nobody earned, and it is what the
+        // consumers' fallback exists to act on.
       }
     } catch (e) { console.error("site project drop failed:", dslug, e && (e.detail || e.message)); }
 
@@ -8387,7 +8425,15 @@ async function deleteSiteFor(env, uid, dslug) {
     // `null` means there was nothing to do (no dispatch credentials), so it is
     // omitted and an ordinary delete's response is unchanged — the same
     // presence-is-the-signal contract the build response uses.
-    return Response.json({ ok: true, slug: dslug, removed, versionsRemoved, backupsRemoved, projectDropped, domainsReleased,
+    return Response.json({ ok: true, slug: dslug, removed, versionsRemoved, backupsRemoved, projectDropped,
+      // WHICH PROJECT, so the fallback can name one. Both integration consumers
+      // gate their cleanup on `projectDropped === false` and then call
+      // `dropUserProject(env, body.projectId)` — and this literal had no such
+      // field, so the one path that exists to catch a leaked billed project
+      // called `DELETE /projects/undefined`. Omitted when there was nothing to
+      // name, so a delete that found no project is unchanged on the wire.
+      projectId: projectId || undefined,
+      domainsReleased,
       workerRemoved: workerDrop ? workerDrop.ok : undefined,
       workerError: (workerDrop && !workerDrop.ok) ? (workerDrop.status + " " + workerDrop.error).slice(0, 200) : undefined });
 }
@@ -13183,13 +13229,50 @@ async function handleRequest(request, env, ctx) {
         // Per-route prerender skips, same discipline as `render` one line up:
         // absent on a clean build, carried when a page lost its snapshot —
         // which used to be invisible in production (2026-08-13 audit).
+        //
+        // PERMANENTLY UNDEFINED SINCE THE PRERENDER WENT, and kept deliberately
+        // rather than deleted: `publish-pages.mjs` only sets it when the
+        // container reports it, and `build-server.mjs` says in as many words
+        // that "`prerendered`/`prerenderSkipped` ARE GONE, not emptied". So
+        // this carries nothing today and costs nothing, and it is the field a
+        // restored per-route snapshot step would report through.
         prerenderSkipped: pages.prerenderSkipped || undefined,
-        // AND WHETHER THE RENDER RAN SANDBOXED. Only ever present as `false` —
-        // the prerender executes model-written page code and is dropped to an
-        // unprivileged user, so the ordinary answer is silence and the field's
-        // presence is the alarm. Reported rather than assumed, because the drop
-        // depends on the container running as root and on that user existing.
+        // AND WHETHER MODEL-WRITTEN CODE RAN SANDBOXED. Only ever present as
+        // `false` — the ordinary answer is silence and the field's PRESENCE is
+        // the alarm. Reported rather than assumed, because the drop depends on
+        // the container running as root and on that user existing.
+        //
+        // ITS NAME IS THE ONLY STALE HALF. The prerender is gone; the RENDER
+        // CHECK still executes the model's own server bundle inside the build
+        // service, so the thing this reports has not stopped happening — the
+        // container renamed its half to `ssrUnprivileged` and `publish-pages`
+        // reads that name and sets THIS one, so the wire shape is unchanged for
+        // every consumer that already reads it. Deleting it would leave the
+        // security signal for "model-written code ran unsandboxed in the shared
+        // build container" unreported by construction rather than by decision,
+        // which is the one direction that must not happen quietly.
         prerenderUnprivileged: pages.prerenderUnprivileged === false ? false : undefined,
+        // ── WHAT THE CONTAINER HAD TO DO TWICE, AND WHY ─────────────────────
+        //
+        // All four are computed by `publishPages` and were forwarded by
+        // nothing, so `build smoke`'s retry report read four fields that could
+        // never arrive — provably dead code reading provably dead code.
+        //
+        // `killedAt` IS THE ONE THAT DECIDES MONEY. The retry exists to absorb
+        // container drains, which are our fault and therefore free: a step
+        // killed during the typecheck is reclassified to `stage: "build"` so
+        // `ourFault` exempts it, and this field is the ONLY thing separating
+        // that from a genuine bundler error wearing the same stage. Without it
+        // nobody can tell a free failure from a charged one after the fact.
+        //
+        // `builds`/`retriedBuild` say a retry happened and what it was for;
+        // `repaired` names the imports rewritten before the lint, and an empty
+        // list on every build would read as a generator that keeps getting
+        // names wrong — so it is carried only when something really was fixed.
+        builds: pages.builds || undefined,
+        retriedBuild: pages.retriedBuild || undefined,
+        killedAt: pages.killedAt || undefined,
+        repaired: (pages.repaired && pages.repaired.length) ? pages.repaired : undefined,
         // THE LOOK THAT FAILED SOFT. `writeTheme`/`writeFonts` never fail a
         // build — a site whose data layer is live must not be lost over a
         // typeface — so they answer `applied:false` with a sentence instead,

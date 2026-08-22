@@ -235,3 +235,63 @@ export function fromXaiResponse(j) {
   if (typeof msg.content === "string" && msg.content) content.unshift({ type: "text", text: msg.content });
   return { content, usage, stop_reason: truncated ? "max_tokens" : (choice.finish_reason || "end_turn") };
 }
+
+/**
+ * An xAI error body as an Anthropic-shaped one.
+ *
+ * THE TRANSLATION STOPPED AT THE HAPPY PATH. `toXaiRequest` and
+ * `fromXaiResponse` exist so that "NOT ONE LINE DOWNSTREAM KNOWS" which
+ * provider answered — and the ERROR body was passed through raw. Downstream,
+ * `upstreamKind` parses Anthropic's envelope (`body.error.type`,
+ * `body.error.message`) and matches Anthropic's billing wording, so on a Grok
+ * build `upstreamType` was always null and `billing` always false: the two
+ * fields built to diagnose a provider failure were supplied by a parser reading
+ * a shape that never arrives.
+ *
+ * WHAT THAT COSTS is the one named, actionable message on the build path —
+ * "this is on us, not your brief" — which can never fire, and a repeat of the
+ * exact 2026-08-12 diagnosis this route's own comments already record: an empty
+ * balance that took an evening to identify because nothing on the wire said so.
+ *
+ * THREE SHAPES, because OpenAI-compatible providers use all of them and only
+ * one of them is what our reader expects:
+ *   - `{error: {message, type, code}}` — the OpenAI envelope, already close
+ *   - `{error: "some text", code: "..."}` — `error` as a STRING, which makes
+ *     `err.type` and `err.message` both undefined and is the shape that
+ *     produced two null fields
+ *   - anything else, including plain text and HTML from a proxy
+ *
+ * THE CODE IS PREFERRED OVER THE PROSE for the type. `insufficient_quota` is
+ * the canonical OpenAI-compatible code for an exhausted account, and matching a
+ * fixed token is what a wording match can never be: stable across a provider
+ * rewording its own message.
+ *
+ * NEVER INVENTS A TYPE. Anything that is not a short snake_case token is
+ * dropped, exactly as `upstreamKind`'s own shape check does — this must not
+ * become a second channel for arbitrary upstream text.
+ *
+ * RETURNS A JSON STRING, because that is what `e.detail` is and what
+ * `upstreamKind` parses. Passing the original through unchanged when it is
+ * already Anthropic-shaped means a provider that happens to agree loses
+ * nothing.
+ */
+export function xaiErrorDetail(text) {
+  const raw = String(text == null ? "" : text);
+  let body = null;
+  try { body = JSON.parse(raw); } catch { body = null; }
+  if (!body || typeof body !== "object") {
+    // Not JSON at all — a proxy's HTML, a gateway's plain text. There is no
+    // type to report and the prose is the only thing there is, so it rides as
+    // the message and the billing matcher gets its chance at it.
+    return JSON.stringify({ error: { type: null, message: raw.slice(0, 300) } });
+  }
+  const err = body.error;
+  const strErr = typeof err === "string" ? err : "";
+  const objErr = err && typeof err === "object" ? err : {};
+  const message = String(objErr.message || strErr || body.message || "").slice(0, 300);
+  // The code first — `insufficient_quota` and friends are tokens rather than
+  // sentences — then the type, then nothing.
+  const candidate = String(objErr.code || body.code || objErr.type || "");
+  const type = /^[a-z_]{1,40}$/.test(candidate) ? candidate : null;
+  return JSON.stringify({ error: { type, message } });
+}
