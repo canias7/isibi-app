@@ -1,0 +1,10 @@
+{
+ "free": {
+  "failed": "{\"code\":\"permission-denied\",\"error\":\"Your team has either used all available credits or reached its monthly spending limit.\"}",
+  "billing": true
+ },
+ "axes": {
+  "failed": "{\"code\":\"permission-denied\",\"error\":\"Your team has either used all available credits or reached its monthly spending limit.\"}",
+  "billing": true
+ }
+}

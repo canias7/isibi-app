@@ -207,6 +207,19 @@ async function ask(arm) {
   return { ok: true, secs, input: use.input, usage: out.usage || {}, stop: out.stop_reason };
 }
 
+/**
+ * IS THE ACCOUNT EMPTY, asked by NAME rather than left as one more failure.
+ *
+ * xAI answers a spent balance with `code: "permission-denied"` and a sentence
+ * about credits — and that is not a fault in the probe, it is the platform's
+ * DEFAULT BUILDER refusing every request. `upstreamKind` does exactly this for
+ * Anthropic and for the same reason: "we are out of money" and "the probe is
+ * broken" want completely different responses, and from a failed call they look
+ * identical.
+ */
+const isBilling = (why) => /permission-denied/.test(String(why)) &&
+  /credits|spending limit/i.test(String(why));
+
 /* ------------------------------------------------------------------------ the run */
 
 console.log("CSS freedom probe — free-form vs the 29 axes, one call each\n");
@@ -216,11 +229,22 @@ console.log(`  shared preamble: ${PREAMBLE.length} chars — IDENTICAL for both 
 
 fs.mkdirSync(OUT, { recursive: true });
 const report = {};
+// A PROBE THAT GOES GREEN HAVING ASKED NOTHING IS THE FAILURE THIS FILE'S OWN
+// HEADER NAMES, and the first run did exactly that: both calls were refused in
+// 0.1s, no CSS was produced, and the job reported SUCCESS. The missing-key path
+// exited 1 and the failed-CALL path did not — the guard was on one door of two.
+let failed = 0, billing = false;
 
 for (const [key, arm] of Object.entries(ARMS)) {
   console.log(`\n${"─".repeat(72)}\n${arm.label}\n${"─".repeat(72)}`);
   const a = await ask(arm);
-  if (!a.ok) { console.log(`  the call failed in ${a.secs}s: ${a.why}`); report[key] = { failed: a.why }; continue; }
+  if (!a.ok) {
+    console.log(`  the call failed in ${a.secs}s: ${a.why}`);
+    if (isBilling(a.why)) billing = true;
+    report[key] = { failed: a.why, billing: isBilling(a.why) };
+    failed++;
+    continue;
+  }
 
   // WHAT EACH ARM PRODUCES IS DIFFERENT IN KIND, so each is turned into the one
   // thing they can be compared as: the CSS that would reach the stylesheet.
@@ -281,3 +305,16 @@ console.log(`\n${"─".repeat(72)}`);
 console.log(`Both answers are in ${OUT}/ — render them through the real container to compare`);
 console.log(`what they LOOK like, which is the half no property check above can answer.`);
 console.log(`${"─".repeat(72)}`);
+
+if (billing) {
+  // THE FINDING IS BIGGER THAN THE EXPERIMENT, so it is said in its own words.
+  // `grok-4.6` is `DEFAULT_PICKER`, so an empty xAI balance is not this probe
+  // being unable to run — it is every customer build on the platform refusing.
+  console.error(`\nTHE xAI ACCOUNT IS OUT OF CREDIT.`);
+  console.error(`grok is DEFAULT_PICKER, so this is not just the probe: no site can be`);
+  console.error(`built right now, and a build fails at stage "design" in about a second.`);
+}
+if (failed) {
+  console.error(`\n${failed} of ${Object.keys(ARMS).length} arms never answered — nothing was compared.`);
+  process.exit(1);
+}
