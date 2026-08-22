@@ -761,8 +761,16 @@ test("THE CONTAINER MERGES BEFORE IT RENDERS", () => {
   // into a test that also drives the Worker, so it is read.
   assert.match(server, /import \{[^}]*applyStyle[^}]*\} from "\.\/site-style\.mjs"/,
     "the container does not import the module");
-  assert.match(server, /themeCss\(applyStyle\(theme, style\)\)/,
-    "the container renders the theme without the site's own axes");
+  // THE PROPERTY: the stylesheet is rendered from the COMPOSED theme, not the
+  // bare one. Pinned to `themeCss(applyStyle(theme, style))` it went red the day
+  // the composition was bound to a name so its refusals could also be read — a
+  // test about word order, which is this repo's most repeated own-goal and is
+  // recorded twice already in this same test.
+  assert.match(server, /applyStyle\(theme, style\)/, "the container never composes the site's own axes onto the theme");
+  const composed = server.match(/(\w+) = applyStyle\(theme, style\)/);
+  assert.ok(composed, "the composition is not bound, so nothing but themeCss can read it");
+  assert.match(server, new RegExp(`themeCss\\(${composed[1]}\\)`),
+    "the container renders a theme other than the one it just composed");
   const i = server.indexOf("function writeTheme(");
   const sig = server.slice(i, server.indexOf(")", i) + 1);
   assert.match(sig, /style/, "writeTheme cannot be given a style patch");
@@ -1414,4 +1422,41 @@ test("the authored field beats a bare one on the same axis, and costs one slot",
   assert.equal(r.style.backdrop, undefined);
   const two = parseStyle({ backdrop: "aurora", backdropCss: AUTHORED_WASH, corner: "bevel" }, { max: 1, vars: {} });
   assert.deepEqual(two.dropped, ["corner"], "one axis answered twice consumed one slot, not two");
+});
+
+test("a wash refused for contrast leaves this function, or nobody can be told", () => {
+  // The one refusal on this whole path that only `applyStyle` can make: the
+  // Worker's `styleNote` is composed from a parse with no palette, so it never
+  // reaches this gate. Discarded, a hand-written wash that leaves the quiet text
+  // illegible is dropped in silence — the site keeps the backdrop it had and the
+  // customer's own colours are simply not there.
+  const theme = normalizeSeeds({ name: "Fold", paper: "#faf7f2", ink: "#1a1613", accent: "#b4542e" }).theme;
+  // MEASURED: this reaches deep enough that no muted ink fits over both ends.
+  const deep = {
+    light: ["linear-gradient(160deg, #3a2418 0%, #f6e3d2 100%)"],
+    dark: ["linear-gradient(160deg, oklch(0.20 0.03 40), oklch(0.12 0.01 40))"],
+  };
+  const out = applyStyle(theme, { backdrop: deep });
+  assert.equal(out.authored, undefined, "an illegible wash was kept");
+  assert.ok(Array.isArray(out.styleRefused) && out.styleRefused.length, "the refusal is invisible to every caller");
+  assert.equal(out.styleRefused[0].axis, "backdrop");
+  assert.match(out.styleRefused[0].why, /4\.5/, "the reason does not say what it needed, so nobody can act on it");
+  // …and a theme that refused nothing is byte-identical to before this existed.
+  assert.equal(applyStyle(theme, { corner: "bevel" }).styleRefused, undefined);
+});
+
+test("…and the container turns it into a note it already carries back", () => {
+  // `writeTheme`'s notes are forwarded on both publish paths (the 2026-08-14
+  // fix), so this is the whole delivery. Asserted at BOTH ends: the composition
+  // is read for its refusals, and they reach every return below it — a
+  // stylesheet that could not be read does not un-refuse the wash.
+  const src = fs.readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8");
+  const fn = src.slice(src.indexOf("function writeTheme("), src.indexOf("\n}", src.indexOf("function writeTheme(")));
+  assert.match(fn, /styleRefused/, "the container never reads what applyStyle refused");
+  const notes = fn.match(/notes: [^}]*/g) || [];
+  const after = notes.slice(notes.findIndex((n) => /refusedNotes/.test(n)));
+  assert.ok(after.length >= 2, "the refusal is carried on one return only");
+  for (const n of after) {
+    assert.match(n, /refusedNotes/, "a return below the gate drops the refusal: " + n.slice(0, 80));
+  }
 });

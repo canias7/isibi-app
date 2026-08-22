@@ -470,6 +470,22 @@ export function applyStyle(theme, style, { max = MAX_STYLE_BUILD } = {}) {
       break;
     }
   }
+  // …AND THE REFUSAL HAS TO LEAVE THIS FUNCTION, or it is a wash silently
+  // dropped. `parsed.refused` is local, so the contrast gate above was the one
+  // refusal on this whole path that nobody could be told about: the site keeps
+  // the backdrop it had, the response says nothing, and the customer's own
+  // colours are simply not there. The works-but-cannot-say-so disease, and the
+  // Worker cannot fill the gap — `styleNote` is composed from a parse that has
+  // no palette and therefore never runs this gate at all.
+  //
+  // ATTACHED TO THE THEME rather than changing the return shape, because three
+  // callers read this as a theme and `themeCss` reads named keys — so an extra
+  // one is inert, exactly like `out.authored` beside it. `writeTheme` folds it
+  // into the notes the container already carries back on both publish paths.
+  //
+  // OMITTED WHEN EMPTY, so a theme that refused nothing is byte-identical to one
+  // from before this existed and the field's PRESENCE is the signal.
+  if (parsed.refused && parsed.refused.length) out.styleRefused = parsed.refused;
   if (out.surface === "glass" && !hasBackdrop(out)) out.backdrop = GLASS_BACKDROP;
   return out;
 }

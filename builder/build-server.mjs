@@ -601,11 +601,24 @@ function writeTheme(seeds, { dropRadius = false, style = null } = {}) {
   // twelve — including the three that emit ordinary RULES rather than custom
   // properties, which no later-wins patch could reach coherently. See
   // builder/site-style.mjs for why that decided the shape.
-  try { css = themeCss(applyStyle(theme, style)); }
+  // ONE `applyStyle`, and its answer is read TWICE — the stylesheet, and what it
+  // refused. Calling it again for the second would be a second opinion about a
+  // question this function asks once.
+  let composed;
+  try { composed = applyStyle(theme, style); css = themeCss(composed); }
   catch { return { applied: false, theme: null, notes: ["The theme could not be rendered, so the site kept the default look."] }; }
+  // THE CONTRAST GATE'S REFUSAL IS THE ONE NOBODY COULD BE TOLD ABOUT. It runs
+  // here and nowhere else — the Worker's `styleNote` is composed from a parse
+  // with no palette, so it never reaches this decision — and without carrying it
+  // a hand-written wash that leaves the quiet text illegible is dropped in
+  // silence: the site keeps the backdrop it had and the customer's own colours
+  // are simply not there. Named, with the number, because "your wash was
+  // refused" is not something anybody can act on.
+  const refusedNotes = (composed && composed.styleRefused || []).map((r) =>
+    `The ${r.axis} you wrote ${r.why} — the site kept the one it had.`);
   let base;
   try { base = fs.readFileSync(STYLES, "utf8"); }
-  catch { return { applied: false, theme: null, notes: ["The stylesheet could not be read, so the site kept the default look."] }; }
+  catch { return { applied: false, theme: null, notes: refusedNotes.concat("The stylesheet could not be read, so the site kept the default look.") }; }
   // THE STRIP IS NOW INERT, AND THIS COMMENT USED TO CLAIM OTHERWISE.
   //
   // It read: "280 OF THE 500 THEMES hard-set `border-radius` on buttons and
@@ -633,7 +646,7 @@ function writeTheme(seeds, { dropRadius = false, style = null } = {}) {
   const shaped = dropRadius ? stripThemeRadius(css) + explicitRadiusCss(style) : css;
   fs.writeFileSync(STYLES, base + "\n" + shaped + "\n");
   // The palette's own NAME, not an id — there is no registry to look one up in.
-  return { applied: true, theme: theme.label, notes: [] };
+  return { applied: true, theme: theme.label, notes: refusedNotes };
 }
 
 // The site's OWN colours, written AFTER the theme.
