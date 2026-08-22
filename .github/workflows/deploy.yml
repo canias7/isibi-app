@@ -71,18 +71,26 @@ jobs:
         env:
           FAL_KEY: ${{ secrets.FAL_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          # OPTIONAL, SO IT CARRIES A FALLBACK — the rule test/deploy-secrets.test.mjs
-          # enforces, and the one that took three consecutive deploys down on
-          # 2026-08-07: wrangler-action fails the WHOLE run with "Value for secret X
-          # not found in environment" when a name in its `secrets:` list has an empty
-          # value, and the error names a feature the change never touched.
+          # REQUIRED FROM 2026-08-22, AND THE FALLBACK IS GONE. It carried
+          # `|| 'not-a-key'` while grok was a third option nobody defaulted to —
+          # correct then, and wrong the moment `DEFAULT_PICKER` became `grok`.
           #
-          # The fallback cannot be a working key, so `grok` simply fails at the
-          # provider with a named 401 rather than a mystery. The cost of the trick,
-          # stated: the deploy log prints `XAI_API_KEY: ***` either way, so a masked
-          # value here no longer proves the secret has been set — the proof is a
-          # `grok` build that gets past the key check.
-          XAI_API_KEY: ${{ secrets.XAI_API_KEY || 'not-a-key' }}
+          # The old comment argued the fallback made grok "fail at the provider
+          # with a named 401 rather than a mystery". As the DEFAULT that is not a
+          # graceful degradation, it is every build on the platform failing while
+          # the deploy reports success — which is precisely the state Anthropic
+          # running dry put us in, and it took a session to notice. The rule
+          # test/deploy-secrets.test.mjs enforces exists for this: a fallback on a
+          # required secret turns "the deploy stops" into "the platform ships with
+          # a broken credential".
+          #
+          # THE COST, STATED: an unset XAI_API_KEY now fails the WHOLE deploy —
+          # the 2026-08-07 failure that lost three merges, with an error naming a
+          # feature the change never touched. Safe to accept because the key is
+          # PROVEN SET, not assumed: four live builds (runs 6, 8, 9 and 10)
+          # reached Grok and were charged for it. The masked `***` in the log was
+          # never the proof and still is not.
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
           # Website Builder engine (Gemini = design pass; Opus = architecture).
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}

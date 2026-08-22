@@ -12,6 +12,27 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ## OPEN — waiting to be picked up
 
+**THE BUILDER NOW USES GROK BY DEFAULT (2026-08-22, your call).** It was using
+Claude, and **the Claude account is out of credit — so anybody who signed in and
+asked for a site got an error in about a second.** The platform's main feature
+was down and nothing said so.
+
+* **There was a second, better reason to switch anyway.** A brand-new account
+  gets 20 free credits, and a first build on Claude needed 23 — so **a new
+  customer could not build their first site at all.** On Grok it needs 17. That
+  problem has been on the list since 13 August; switching the default fixed it.
+* **Grok has already built two real sites**, and cheaper: 37 credits and 94,
+  against Claude's ~128 for a comparable site.
+* **What it costs:** Grok is about three times slower at writing the pages, so a
+  long or complicated brief has less time to finish before the connection gives
+  up. That is why the Arabic sites still fail.
+* **Claude is still there** — one click in the builder's model menu.
+* **One caveat:** if you have used that menu before, your browser remembers your
+  choice, so you will still be on Claude until you change it. New visitors get
+  Grok.
+* **Topping up the Claude account is still worth doing** — the automatic tests
+  and a few small features still use it.
+
 **BUILT: A WAY TO REPUBLISH EVERY SITE AT ONCE (2026-08-22).** You asked what
 the gap was and this was it. **Nothing existed that could update all your
 customers' sites in one go** — every one of the fourteen ways a site gets

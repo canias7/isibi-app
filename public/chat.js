@@ -2433,8 +2433,18 @@ const BUILD_PICKER_KEY = 'zephyr_build_picker_v1';
 // `auto` is still in some browsers' localStorage from the hours it existed, so
 // a stored value that is no longer an option has to fall back rather than
 // render an undefined label.
-let buildPicker = localStorage.getItem(BUILD_PICKER_KEY) || 'sonnet';
-if (!BUILD_PICKERS[buildPicker]) buildPicker = 'sonnet';
+// GROK FROM 2026-08-22, and this must match `DEFAULT_PICKER` in
+// builder/build-models.mjs — a test asserts they agree, because a composer
+// defaulting to one picker while the server defaults to another means a request
+// that says nothing gets a different model from the one the customer is looking
+// at. See that file for why the default moved.
+//
+// A STORED CHOICE STILL WINS, which is the point of reading localStorage first —
+// and the cost is worth saying: anybody who has already used the picker keeps
+// whatever they picked, so an existing browser holding 'sonnet' goes on sending
+// 'sonnet'. The flip reaches new sessions, not old ones.
+let buildPicker = localStorage.getItem(BUILD_PICKER_KEY) || 'grok';
+if (!BUILD_PICKERS[buildPicker]) buildPicker = 'grok';
 function buildPickerHTML() {
   return '<span class="st-buildsel-wrap">' +
     '<button type="button" class="st-buildsel" id="stBuildSel" title="Which model builds the site">Builder: <b id="stBuildLabel">' + BUILD_PICKERS[buildPicker].label + '</b> ▾</button>' +

@@ -21,6 +21,7 @@ import { COMPONENT_API, COMPONENT_TYPES } from "../builder/component-api.mjs";
 import { normalizePlan } from "../builder/site-plan.mjs";
 import { build as buildApi, render as renderApi, extract as extractApi, buildTypes as buildTypesApi, extractTypes as extractTypesApi } from "../builder/gen-component-api.mjs";
 import * as api from "../builder/page-gen.mjs";
+import { modelsFor } from "../builder/build-models.mjs";
 import { CORPUS_DIR, CORPUS_URL } from "./fixtures/corpus.mjs";
 import { generatedPages } from "./fixtures/generated.mjs";
 // The function the ROUTE gates on, asked directly rather than restated — a
@@ -1157,7 +1158,10 @@ test("the Worker and the eval issue the SAME generation request", () => {
 
 test("pagesRequest carries the budget and the tool", () => {
   const req = api.pagesRequest({ brief: "a cafe", spec: SPEC, brand: "Cafe" });
-  assert.equal(req.model, "claude-sonnet-5");
+  // THE DEFAULT PICKER'S PAGES MODEL, derived. This named "claude-sonnet-5" and
+  // went red when DEFAULT_PICKER flipped to grok — a test about a spelling, on a
+  // claim that is really "a request with no model named gets the default one".
+  assert.equal(req.model, modelsFor().pages);
   assert.equal(req.max_tokens, api.SITE_PAGES_MAX_TOKENS);
   assert.equal(req.tool_choice.name, "write_pages");
   assert.equal(req.tools[0], api.SITE_PAGES_TOOL);

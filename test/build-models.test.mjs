@@ -33,19 +33,26 @@ const worker = read("worker.js");
 const workerCode = code(worker);
 const chat = read("public/chat.js");
 
-test("the pickers resolve to the models they promise, and Sonnet is the default", () => {
+test("the pickers resolve to the models they promise, and Grok is the default", () => {
   assert.deepEqual(modelsFor("sonnet"), { picker: "sonnet", design: "claude-sonnet-5", pages: "claude-sonnet-5" });
   assert.deepEqual(modelsFor("opus"), { picker: "opus", design: "claude-opus-5", pages: "claude-opus-5" });
   // THE DEFAULT IS THE CHEAP ONE, and that is a decision rather than a habit:
   // a cold Opus schema call is 15 credits against a 20-credit grant, which left
   // a new account unable to finish its own first build. Asserted against the
   // real floor below rather than pinned as a name, so the two cannot disagree.
-  assert.equal(DEFAULT_PICKER, "sonnet");
-  assert.deepEqual(modelsFor(), modelsFor("sonnet"));
+  // GROK FROM 2026-08-22 (owner's call) — see builder/build-models.mjs for the
+  // two reasons, of which the load-bearing one is that a new account could not
+  // build cold on Sonnet and can on Grok.
+  assert.equal(DEFAULT_PICKER, "grok");
+  assert.deepEqual(modelsFor(), modelsFor("grok"));
   // `auto` was removed the same day it was wired. A stored picker from those
   // hours must resolve to the default, not to an undefined pair.
   assert.ok(!Object.hasOwn(BUILD_MODELS, "auto"), "auto is back — check the grant covers a ~23-credit build");
-  assert.deepEqual(modelsFor("auto"), modelsFor("sonnet"), "a stale stored picker must fall back");
+  // DERIVED, not pinned to a spelling — this named "sonnet" and went red on a
+  // correct flip of the default. What it is about is that a stored picker the
+  // table no longer has resolves to WHATEVER the default is, and that claim
+  // needs no edit the next time the default moves.
+  assert.deepEqual(modelsFor("auto"), modelsFor(DEFAULT_PICKER), "a stale stored picker must fall back to the default");
 });
 
 test("the default picker's build fits inside the free grant", () => {
@@ -78,13 +85,32 @@ test("the default picker's build fits inside the free grant", () => {
   // shrinking the cold schema call, or raising the grant, must come here and
   // re-record it. A `>=` would let the gap widen silently, which is how the
   // original claim rotted.
-  const ROUTING_BEFORE_GATE = 1;
+  // ── AND IT FITS AGAIN FROM 2026-08-22, WHICH IS WHY THE PIN BELOW IS GONE.
+  //
+  // The shortfall was 3 credits and the fix was not the grant: it was the
+  // default picker. `buildFloor("claude-sonnet-5")` is 22 and
+  // `buildFloor("grok-4.6")` is 16, so flipping DEFAULT_PICKER to grok took a
+  // cold first build from 23 to 17 against a grant of 20. The separate pin that
+  // recorded the shortfall told this guard exactly what to do when it closed —
+  // "delete this pin and tighten the guard above to include ROUTING_CREDITS" —
+  // and that is what happened.
+  //
+  // ROUTING IS COUNTED HERE NOW rather than in a second test, because the whole
+  // reason the old claim rotted is that the two halves lived apart and only one
+  // of them was maintained.
   const floor = buildFloor(modelsFor().design);
-  const short = floor + ROUTING_BEFORE_GATE - FREE_GRANT;
-  assert.equal(short, 3,
-    "the cold-start shortfall moved and nobody re-recorded it: floor " + floor +
-    " + " + ROUTING_BEFORE_GATE + " routing - grant " + FREE_GRANT + " = " + short +
-    " (was 3). If this got smaller, say so here; if it got bigger, a new account is further from building.");
+  const need = floor + ROUTING_CREDITS;
+  assert.ok(need <= FREE_GRANT,
+    "a new account can no longer build cold: floor " + floor + " + " + ROUTING_CREDITS +
+    " routing = " + need + " against a grant of " + FREE_GRANT + ". Either the schema call " +
+    "got dearer or the default picker moved to a costlier model — this is the regression " +
+    "`auto` was reverted for, and the customer sees it as paying for a placeholder.");
+  // AND THE HEADROOM IS RECORDED, not just the direction. A guard that only says
+  // "it fits" goes quiet as the margin erodes to nothing; this goes red while
+  // there is still room to act.
+  assert.ok(FREE_GRANT - need >= 2,
+    "a cold first build fits with only " + (FREE_GRANT - need) + " credits to spare — " +
+    "re-measure SCHEMA_PROFILE and decide before it stops fitting at all");
   // And the expensive option genuinely does not fit, or this guard is passing
   // because the floor stopped meaning anything.
   assert.ok(buildFloor(BUILD_MODELS.opus.design) > FREE_GRANT,
@@ -402,9 +428,14 @@ test("a picker stored from the hours `auto` existed falls back", () => {
   // It is in real browsers' localStorage. Without the fallback the button
   // renders `undefined` and every build sends a picker the server ignores —
   // visible to the customer as the control having broken.
-  assert.match(chat, /if \(!BUILD_PICKERS\[buildPicker\]\) buildPicker = 'sonnet';/,
-    "a stale stored picker is no longer repaired");
-  assert.match(chat, /localStorage\.getItem\(BUILD_PICKER_KEY\) \|\| 'sonnet'/,
+  // DERIVED FROM THE SERVER'S OWN DEFAULT, never a spelling. This pinned
+  // 'sonnet' twice and went red on a correct flip — a test about word order,
+  // which is this repo's most repeated own-goal. Written this way it needs no
+  // edit the next time the default moves, and it still fails if only one of the
+  // two client sites is updated.
+  assert.match(chat, new RegExp("if \\(!BUILD_PICKERS\\[buildPicker\\]\\) buildPicker = '" + DEFAULT_PICKER + "';"),
+    "a stale stored picker is no longer repaired to the server's default");
+  assert.match(chat, new RegExp("localStorage\\.getItem\\(BUILD_PICKER_KEY\\) \\|\\| '" + DEFAULT_PICKER + "'"),
     "the composer default disagrees with the server default");
   // The two defaults must BE the same, not merely both look right.
   assert.ok(chat.includes("'" + DEFAULT_PICKER + "'"), "the composer never names the server's default");
@@ -423,24 +454,14 @@ test("a picker stored from the hours `auto` existed falls back", () => {
 // arrives at the gate with 19 and is refused.
 const ROUTING_CREDITS = 1;
 
-test("a cold first build does NOT fit once the routing call is counted — pinned, not fixed", () => {
-  // RECORDED AS A FACT, deliberately, rather than asserted as a requirement.
-  //
-  // The requirement would be red today, and a permanently red suite is one
-  // people stop reading — which is how the schema eval sat dead for a day. The
-  // limitation is real and its fix is a decision about MONEY (raise the grant),
-  // not a number to correct in this file. So it is pinned in the direction it
-  // actually points, and the day somebody raises the grant this goes red and
-  // says so.
-  const need = buildFloor(modelsFor().design) + ROUTING_CREDITS;
-  assert.ok(need > FREE_GRANT,
-    "a cold first build now FITS (" + need + " <= " + FREE_GRANT + ") — the grant was raised or the "
-    + "schema call got cheaper. Delete this pin and tighten the guard above to include ROUTING_CREDITS.");
-  // What the shortfall IS, so the decision has a number attached rather than a
-  // direction. Bounded on both sides: a much larger gap means something else
-  // moved and the profile wants re-measuring, not the grant raising.
-  const short = need - FREE_GRANT;
-  assert.ok(short >= 1 && short <= 6,
-    "the cold-build shortfall is " + short + " credits, outside the range this pin was written against — "
-    + "re-measure SCHEMA_PROFILE before treating it as a grant question");
-});
+// THE COLD-BUILD SHORTFALL PIN WAS DELETED 2026-08-22, BY ITS OWN INSTRUCTION.
+//
+// It recorded, as a fact rather than a requirement, that a cold first build did
+// not fit inside the free grant — and said what to do when that stopped being
+// true: "Delete this pin and tighten the guard above to include ROUTING_CREDITS."
+// Flipping DEFAULT_PICKER to grok closed it (23 -> 17 against a grant of 20), so
+// the guard above now counts routing and asserts it FITS, with a headroom floor
+// so the margin cannot erode back to nothing quietly.
+//
+// Recorded rather than silently removed: "we decided against it" and "we forgot"
+// look identical in a diff a year later.

@@ -56,7 +56,36 @@ export const BUILD_MODELS = {
 //
 // Restoring `auto` is three lines once the free grant covers ~23 credits — kept
 // written down here so it comes back as a decision rather than a rediscovery.
-export const DEFAULT_PICKER = "sonnet";
+//
+// ── GROK, FROM 2026-08-22 (owner's call). It was `sonnet` until then. ────────
+//
+// TWO REASONS, AND THE SECOND IS THE ONE THAT WOULD HOLD EVEN ON A FUNDED
+// ACCOUNT.
+//
+// (1) The Anthropic balance was empty, so the DEFAULT build path answered 400
+//     with `billing: true` in about a second — the platform's primary feature
+//     down, silently, for anybody who did not know to change the picker.
+//     `schema gen eval` had been red for three consecutive runs saying so.
+//
+// (2) A NEW ACCOUNT COULD NOT BUILD COLD ON SONNET, AND CAN ON GROK. Measured:
+//     `buildFloor("claude-sonnet-5")` is 22 and `buildFloor("grok-4.6")` is 16,
+//     against a free grant of 20 that the routing call has already taken 1 from.
+//     So the default was 3 credits short of its own gate — the shortfall this
+//     repo has had recorded as open since 2026-08-13, closed as a side effect.
+//     This is why the flip is right rather than merely expedient: it is the same
+//     class of bug `auto` was reverted for, in the opposite direction.
+//
+// EARNED, NOT ASSUMED. The line above says to flip once a build has been watched
+// end to end; Grok has published two (`harbourside-roast` 37 credits,
+// `fold-lane-bakery` 94), against Sonnet's ~128 on a comparable site.
+//
+// WHAT IT COSTS, STATED: Grok is ~3x slower on the pages call (156s measured
+// against Sonnet's ~50s), so a build eats more of the wall-clock budget before
+// the edge gives up — which is a real risk on a long brief and is why the
+// Arabic runs are still unsolved. `sonnet` remains one click away in the
+// composer, and `XAI_API_KEY` is REQUIRED now rather than optional, because a
+// default picker whose key is missing is a platform outage wearing a 401.
+export const DEFAULT_PICKER = "grok";
 
 /**
  * Resolve a picker to the pair of models a build will actually send.

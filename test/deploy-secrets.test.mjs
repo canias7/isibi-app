@@ -30,7 +30,13 @@ const yml = readFileSync(new URL("../.github/workflows/deploy.yml", import.meta.
  * Deliberately a short list. Anything not on it must tolerate being absent.
  */
 const REQUIRED = new Set([
-  "FAL_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY",
+  // XAI_API_KEY JOINED THIS ON 2026-08-22, when DEFAULT_PICKER became `grok`.
+  // The key of the picker a request that says nothing gets is required by
+  // definition: with it absent every build on the platform fails while the
+  // deploy reports success, which is the shape Anthropic running dry produced
+  // and which took a session to spot. ANTHROPIC_API_KEY stays required too —
+  // the router, the seed net, research and the edit lanes are all pinned to it.
+  "FAL_KEY", "ANTHROPIC_API_KEY", "XAI_API_KEY", "GEMINI_API_KEY",
   "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "CREDITS_MINT_SECRET",
   "SUPABASE_SERVICE_KEY", "COMPOSIO_API_KEY", "NEON_API_KEY",
   // Safe to require because the deploy step itself already reads it — a run
