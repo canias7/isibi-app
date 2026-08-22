@@ -12,6 +12,28 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ## OPEN — waiting to be picked up
 
+**⚠️ NOBODY CAN BUILD A SITE RIGHT NOW — THE xAI ACCOUNT IS OUT OF CREDIT
+(2026-08-22, 12:30 UTC).** Measured, not guessed — xAI answered in its own
+words:
+
+> *"Your team has either used all available credits or reached its monthly
+> spending limit. To continue making API requests, please purchase more credits
+> or raise your spending limit."*
+
+Grok is the **default** builder, so this is not one feature being unavailable —
+it is every build on the platform failing about a second after somebody presses
+go. **Top up xAI and it works again**; nothing needs fixing in the code.
+
+**The thing to know about this shape:** the deploy is green, all 4,009 tests
+pass, and nothing anywhere announces it. That is the fourth time this has
+happened — three times on Anthropic, once now on xAI — and each time the only
+symptom was builds failing for a reason that reads like a bug.
+
+**Anthropic is likely empty too** (it was last time anyone looked). If you are
+topping one up, check both — they are the only two builders there are.
+
+---
+
 **WHY BUILDS KEPT FAILING — IT WAS NOT THE AUDIT (2026-08-22).** You said *"idk
 why it's failing now, it used to work before the audit"*. That was the obvious
 suspect and I checked it properly rather than guessing: **the audit changed
