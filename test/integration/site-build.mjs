@@ -1235,9 +1235,43 @@ function Home() {
     // one it has no shorter form for.
     ok("…and the light wash the model wrote is in the stylesheet",
       /#f4dfc6/i.test(css), css.slice(0, 300));
+    // THE DARK STOP IS ASSERTED ON WHAT SURVIVES NORMALISATION, NOT ON ITS
+    // SPELLING — and its first run is why. It pinned `oklch(0.26 0.05 62)` and
+    // Lightning CSS emits `oklch(26% .05 62)`: the LIGHTNESS becomes a
+    // percentage. Measured through the real compiler rather than reasoned:
+    //
+    //   in   linear-gradient(155deg, oklch(0.26 0.05 62) 0%, …)
+    //   out  linear-gradient(155deg, oklch(26% .05 62) 0%, …)
+    //
+    // That is the `41.17%`-for-`0.4117` class, third instance in this repo, in
+    // the guard I wrote for it. The chroma and the hue have no shorter form, so
+    // they are what the value is recognised by; the lightness is allowed to
+    // arrive in either notation.
+    const darkStop = /oklch\(\s*(?:26%|\.?0?\.26)\s+\.?0?\.?05\s+62\s*\)/;
+    // AND IT MUST BE IN A `.dark` RULE, or "the value is somewhere in the file"
+    // passes on a build that wrote the dark wash into `body` and left `.dark
+    // body` carrying the light one — which is the failure this check exists for.
+    //
+    // SCOPED TO THE RULE THAT CARRIES THE STOP, not to "any .dark rule with a
+    // background-image". `worldCss` emits two others that would satisfy the
+    // looser form on essentially every build — the surface gloss (`.dark
+    // [data-slot=card]…{ background-image: linear-gradient(165deg, oklch(1 0 0
+    // / .1) …) }`) and `.dark body::after` — so the condition would have been
+    // nearly vacuous. Caught by reading what the emitter really writes, which is
+    // the same discipline that was missing from the assertion above it.
+    const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)];
+    const carrying = rules.filter((r) => darkStop.test(r[2].replace(/\s+/g, " ")));
     ok("…and the dark one, which is a SEPARATE authored value",
-      /oklch\(\.?0?\.?26 \.?0?\.?05 62\)/.test(css.replace(/\s+/g, " ")) || /0\.26 0\.05 62/.test(css),
-      css.slice(0, 300));
+      carrying.length > 0 && carrying.some((r) => r[1].includes(".dark")),
+      // THE DETAIL SHOWS THE RELEVANT PART, never the head of the file. This
+      // printed `css.slice(0, 300)` — Lightning CSS's `@layer properties{@supports
+      // …}` preamble, byte-identical on every build whatever went wrong — so the
+      // one run that failed said nothing at all and the answer needed a dig
+      // through the CI log.
+      (carrying.length
+        ? "found in: " + carrying.map((r) => r[1].trim()).join(" | ")
+        : "the authored dark stop is in NO rule. oklch stops present: "
+          + JSON.stringify((css.match(/oklch\([^)]*\)/g) || []).slice(0, 8))).slice(0, 400));
     // `var(--primary)` IS RESOLVED, NOT PASSED THROUGH, and that is the whole
     // reason the parser exists: an unresolved token is a stop whose colour we
     // cannot read, so the contrast floor it was measured against is unprovable.
