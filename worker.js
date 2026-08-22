@@ -4601,17 +4601,32 @@ async function designSiteSchema(env, brief, model = modelsFor().design, current 
   // designer is busy", and both times telling a transient overload from a
   // request we are getting wrong meant reading Cloudflare's logs.
   //
-  // NO TIMEOUT ON EITHER BUILDER CALL (owner's call, 2026-08-04). A timeout here
-  // does not save anything: the tokens are generated and billed to us whether or
-  // not we are still listening, so cutting the connection means paying in full
-  // and handing the customer a failure. The schema call was 60s and the page
-  // call 240s against a 24,000-token ceiling, which a large generation goes
-  // straight past — so the cap was most likely to fire on exactly the elaborate
-  // site somebody most wanted.
+  // THE TIMEOUT IS `BUILDER_CALL_MS`, IN `callBuilderModel` — ten minutes, one
+  // place, both providers. This comment said "no timeout on either builder call"
+  // until 2026-08-22 and that stopped being true the same day run 9 measured why:
   //
-  // "No timeout" means the platform's, not none: Cloudflare still bounds the
-  // request, and a genuinely hung upstream ends there rather than hanging on
-  // forever. What changes is that a SLOW answer is now allowed to finish.
+  // The 2026-08-04 reasoning was right about what it considered and did not
+  // consider the case that bit. A timeout saves nothing on a call that RETURNS —
+  // the tokens are generated and billed whether or not we are still listening,
+  // so cutting a slow answer means paying in full and handing the customer a
+  // failure. What it never bounded is a call that never returns at all: run 9's
+  // pages call ran 25 minutes 46 seconds and was stopped by the CI job cap, with
+  // the customer left waiting on a claimed slug, a live Neon project, a five-
+  // credit charge and no site.
+  //
+  // TEN MINUTES IS CALIBRATED, AND THE COST OF BEING WRONG IS STATED. The
+  // slowest generation ever MEASURED here is 156s (Grok, run 6); the observed
+  // hang was 1546s. So the bound is ~4x the worst honest call and under half the
+  // hang. A build that genuinely would have finished at eleven minutes is now
+  // refused — the better trade, because `generate` is not in `CHARGED_STAGES`
+  // and the design catch refunds in full, so a refusal here is free and says so,
+  // where the hang charged and stayed silent.
+  //
+  // A TIMEOUT IS TOLD FROM AN OUTAGE BY NAME, never by message: `AbortSignal`
+  // rejects with no HTTP response, so `status` is undefined and `upstreamKind`
+  // has nothing to read. `isCallTimeout` reads `e.name` — the message differs
+  // between workerd and Node, a cross-engine string comparison this repo has
+  // been bitten by twice.
   const j = await callBuilderModel(env, req);
   // A tool_use block cut off at max_tokens carries half-written JSON, so `input`
   // is a partial schema — usually missing `seed`, sometimes missing `tables`
