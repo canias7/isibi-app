@@ -1378,18 +1378,61 @@ export const GROUND_DECORS = new Set([
 export function worldCss(theme) {
   const backdrop = theme.backdrop ?? "plain";
   const decor = theme.decor ?? "none";
-  if (backdrop === "plain" && decor === "none") return "";
+  // WHAT THE MODEL AUTHORED, IF IT AUTHORED ANYTHING. Validated by
+  // `site-css.mjs` long before here — this only reads what came back, so a
+  // refused value simply is not present and the named branch below runs exactly
+  // as it did. That fallthrough is the whole safety story at this layer: an
+  // authored value that could not be read degrades to the ordinary ground rather
+  // than to nothing, which is what `readAuthored`'s refuse-wholesale rule exists
+  // to make possible.
+  const auth = theme.authored || {};
+  // NOTHING TO PAINT — AND THE AUTHORED HALVES ARE PART OF THAT QUESTION.
+  //
+  // This read `backdrop === "plain" && decor === "none"` and sat ABOVE the
+  // authored lookup, which is precisely the shape that kills a feature at the
+  // layer above the one that implements it: a model that authors a gradient
+  // names no enum, so both are at their defaults, and the whole authored path
+  // below would never have been reached. Every line of it would have been
+  // correct, tested, and dead — the state this repo has recorded twelve times.
+  const anyAuthored = !!((auth.backdrop && auth.backdrop.layers) || (auth.decor && auth.decor.layers));
+  if (backdrop === "plain" && decor === "none" && !anyAuthored) return "";
   const rule = (mode) => {
     const layers = [], sizes = [], attach = [];
-    const d = decor !== "none" && DECOR_LAYERS[decor] ? DECOR_LAYERS[decor](theme, mode) : null;
-    if (d) { layers.push(d.image); sizes.push(d.size ?? "auto"); attach.push("scroll"); }
+    // DECOR FIRST, in both paths, because the order IS the composite: the
+    // texture sits ON the wash, and swapping them buries it.
+    const ad = auth.decor && auth.decor.layers && auth.decor.layers[mode];
+    if (ad && ad.length) {
+      for (const l of ad) { layers.push(l); sizes.push(auth.decor.size || "auto"); attach.push("scroll"); }
+    } else {
+      const d = decor !== "none" && DECOR_LAYERS[decor] ? DECOR_LAYERS[decor](theme, mode) : null;
+      if (d) { layers.push(d.image); sizes.push(d.size ?? "auto"); attach.push("scroll"); }
+    }
+    const ab = auth.backdrop && auth.backdrop.layers && auth.backdrop.layers[mode];
+    if (ab && ab.length) {
+      // FIXED, like every named backdrop: a wash that scrolls with the page is a
+      // pattern, not a world, and the difference is visible the moment anybody
+      // scrolls.
+      for (const l of ab) { layers.push(l); sizes.push("auto"); attach.push("fixed"); }
+      return `${mode === "light" ? "body" : ".dark body"} { background-image: ${layers.join(", ")}; background-size: ${sizes.join(", ")}; background-attachment: ${attach.join(", ")}; }\n`;
+    }
     const bs = backdrop !== "plain" && BACKDROP_LAYERS[backdrop] ? BACKDROP_LAYERS[backdrop](theme, mode) : [];
     for (const b of bs) { layers.push(b); sizes.push("auto"); attach.push("fixed"); }
     if (!layers.length) return "";
     const sel = mode === "light" ? "body" : ".dark body";
     return `${sel} { background-image: ${layers.join(", ")}; background-size: ${sizes.join(", ")}; background-attachment: ${attach.join(", ")}; }\n`;
   };
-  const grounded = backdrop !== "plain" || GROUND_DECORS.has(decor);
+  // ANYTHING AUTHORED IS GROUNDED, and that asymmetry is deliberate. For a
+  // NAMED decor we know which of the twenty are broad enough to become the page's
+  // ground (`GROUND_DECORS`); for one the model wrote we do not, and cannot,
+  // because it is arbitrary. So it counts.
+  //
+  // Being wrong that way opens the root wider than a subtle texture needs — a
+  // page fractionally more see-through than ideal, which is cosmetic. Being
+  // wrong the other way skips `worldMutedCss` entirely and leaves the quiet text
+  // fitted against paper it is not sitting on, which is the ~3:1 body copy this
+  // platform has already shipped once.
+  const grounded = backdrop !== "plain" || GROUND_DECORS.has(decor) ||
+    !!(auth.backdrop && auth.backdrop.layers) || !!(auth.decor && auth.decor.layers);
   return openRootCss(theme, grounded) + rule("light") + rule("dark") +
     (grounded ? worldMutedCss(theme) + worldBorderCss(theme) + bandClearCss(theme) : "");
 }
@@ -1424,6 +1467,57 @@ export function worldWorstGround(theme, mode) {
   const { paper, ink, accent } = theme[mode];
   const rootA = theme.surface === "glass" ? GLASS_ALPHA[mode].background
     : mode === "light" ? 0.35 : 0.42;
+
+  // ── AN AUTHORED BACKDROP BRINGS ITS OWN STOPS, AND THAT IS THE WHOLE REASON
+  //    `site-css.mjs` PARSES RATHER THAN PASSES THROUGH.
+  //
+  // The two branches below are the floor for a backdrop we WROTE: a named one
+  // could only ever produce stops inside a range we chose, so the range could be
+  // hardcoded. A model-authored gradient has no such guarantee — it can put any
+  // colour anywhere — so the honest worst stop is the worst stop it actually
+  // contains, read out of the gradient itself.
+  //
+  // WORST MEANS CLOSEST TO THE TEXT, NOT DARKEST. `worldMutedColor` walks a
+  // mid-grey toward the ink until it clears 4.5:1, so the ground that pins it is
+  // the one nearest its own luminance: on a light theme the text is dark and the
+  // DARKEST stop is worst, on a dark theme the text is light and the LIGHTEST
+  // is. Taking "darkest" in both modes would fit the dark palette against the
+  // ground that flatters it.
+  //
+  // A stop is composited under the opened root exactly as the hand-written ones
+  // are, so the paper's own contribution is already in the formula — an authored
+  // gradient that fades to `transparent` shows the paper through, which is what
+  // `rootA` mixing toward `p` already describes.
+  // BOTH AUTHORED LAYERS, NOT JUST THE BACKDROP. `worldCss` composites decor
+  // over backdrop and BOTH paint the ground, so a texture the model authored is
+  // as capable of pinning the muted ink as a wash is. Reading only the backdrop
+  // would leave an authored decor fitted against the hand-written `plain` floor
+  // — a ground that has nothing to do with what is on screen.
+  const a = theme.authored || {};
+  const stops = [
+    ...((a.backdrop && a.backdrop.colors && a.backdrop.colors[mode]) || []),
+    ...((a.decor && a.decor.colors && a.decor.colors[mode]) || []),
+  ];
+  if (stops.length) {
+    const worst = stops.reduce((a, b) =>
+      (mode === "light" ? b.luminance < a.luminance : b.luminance > a.luminance) ? b : a);
+    const p = oklchToRgb(...paper.slice(0, 3));
+    // ── /255, AND THIS FILE WORKS IN 0-1 ────────────────────────────────────
+    //
+    // `oklchToRgb` returns channels in 0-1 and so does everything downstream:
+    // `lumRgb` tests against 0.04045, `rgbToOklch` takes the same scale. `rgbOf`
+    // returns 0-255, because that is the convention `site-tokens.mjs` reads
+    // colours in.
+    //
+    // MEASURED WITHOUT THIS: the composite mixed the two scales, the authored
+    // ground came out at [166,125,101] against a plain one of [1,1,1], and the
+    // muted ink was then BYTE-IDENTICAL between an authored wash and no wash at
+    // all — the contrast loop saturating on a number hundreds of times out of
+    // range. Wired, and doing nothing. Exactly the failure this whole parser
+    // exists to prevent, arriving through a unit rather than through a colour.
+    return p.map((c, i) => c * rootA + (worst.rgb[i] / 255) * (1 - rootA));
+  }
+
   // No backdrop means this fit is running for a GROUND DECOR, whose deepest
   // broad tint is boards of the paper pushed toward ink — there is no
   // accent-chroma stop to compose against, and pretending one would overfit
@@ -1433,12 +1527,70 @@ export function worldWorstGround(theme, mode) {
   const p = oklchToRgb(...paper.slice(0, 3)), s = oklchToRgb(...stop);
   return p.map((c, i) => c * rootA + s[i] * (1 - rootA));
 }
-export function worldMutedColor(theme, mode) {
+/**
+ * EVERY GROUND THE PAGE ACTUALLY HAS, not just the worst one.
+ *
+ * A NAMED backdrop could only produce stops inside a range we chose, so one
+ * ground was enough: fit the quiet ink against the deepest point and every
+ * lighter point clears by more. An AUTHORED gradient has no such guarantee —
+ * it can run from near-white to near-black in the same wash — and there the
+ * single-ground fit is not conservative, it is simply wrong: an ink dark enough
+ * for the deep corner is invisible on the pale one.
+ *
+ * For a named backdrop this returns the same ground twice, so every site built
+ * before this is byte-identical. The range only widens when the model authored
+ * something.
+ */
+export function worldGroundRange(theme, mode) {
+  const a = theme.authored || {};
+  const stops = [
+    ...((a.backdrop && a.backdrop.colors && a.backdrop.colors[mode]) || []),
+    ...((a.decor && a.decor.colors && a.decor.colors[mode]) || []),
+  ];
+  if (!stops.length) { const g = worldWorstGround(theme, mode); return [g, g]; }
+  const { paper } = theme[mode];
+  const rootA = theme.surface === "glass" ? GLASS_ALPHA[mode].background
+    : mode === "light" ? 0.35 : 0.42;
+  const p = oklchToRgb(...paper.slice(0, 3));
+  const under = (c) => p.map((v, i) => v * rootA + (c.rgb[i] / 255) * (1 - rootA));
+  let lo = stops[0], hi = stops[0];
+  for (const s of stops) { if (s.luminance < lo.luminance) lo = s; if (s.luminance > hi.luminance) hi = s; }
+  return [under(lo), under(hi)];
+}
+
+/**
+ * The quiet ink, and WHETHER IT ACTUALLY FITS.
+ *
+ * The loop below has always walked toward the ink and given up silently after
+ * 40 steps. That was invisible because a named backdrop's ground was never deep
+ * enough to defeat it. Measured on an authored one — a light theme with a wash
+ * reaching `oklch(0.38 0.16 45)` — it gives up at **3.87:1**, under the 4.5
+ * floor, and published it anyway.
+ *
+ * WALKING FURTHER IS NOT THE FIX, and that is the important part. On a light
+ * theme the ink is near-black, so walking toward it moves the quiet text TOWARD
+ * a dark ground rather than away from it — more iterations make it worse. And
+ * flipping the direction does not work either, because the same gradient is
+ * pale elsewhere: an ink readable over the deep corner is invisible over the
+ * light one. There is no colour that fits, which is a fact about the wash.
+ *
+ * So the fit REPORTS rather than pretends, and the caller refuses the backdrop
+ * with a reason — the `normalizeSeeds` rule exactly: refuse, never repair, and
+ * say what could not be done. A wash that renders beautifully and drops the body
+ * copy is the failure this platform has already shipped once.
+ */
+export function worldMutedFit(theme, mode) {
   const { paper, ink } = theme[mode];
-  const ground = worldWorstGround(theme, mode);
+  const range = worldGroundRange(theme, mode);
+  const worst = (fg) => Math.min(...range.map((g) => contrastOnRgb(fg, g)));
   let fg = mix(paper, ink, mode === "light" ? 0.62 : 0.66).slice(0, 3);
-  for (let i = 0; i < 40 && contrastOnRgb(fg, ground) < 4.5; i++) fg = mix(fg, ink, 0.08);
-  return fg;
+  for (let i = 0; i < 40 && worst(fg) < 4.5; i++) fg = mix(fg, ink, 0.08);
+  const min = worst(fg);
+  return { color: fg, contrast: min, ok: min >= 4.5 };
+}
+
+export function worldMutedColor(theme, mode) {
+  return worldMutedFit(theme, mode).color;
 }
 function worldMutedCss(theme) {
   return `:root { --muted-foreground: ${css(worldMutedColor(theme, "light"))}; }\n` +

@@ -47,8 +47,11 @@ import {
   ICON_STROKES, SHADOWS, BUTTONS, INPUTS, DISPLAYS,
   MOTIONS, HOVERS, FOCUSES, REVEALS, TRANSITIONS,
   SURFACES, BACKDROPS, DECORS, AMBIENTS, SKINS,
-  buttonsCss, inputsCss,
+  buttonsCss, inputsCss, worldMutedFit,
 } from "./site-theme.mjs";
+// THE AUTHORED HALF. `site-css.mjs` is a leaf — it imports only the colour
+// parser — so pulling it in here cannot cycle back through the theme engine.
+import { readAuthored } from "./site-css.mjs";
 
 /**
  * WHAT MAY BE CHANGED, and nothing else.
@@ -212,8 +215,25 @@ export const RADIUS_AXES = Object.freeze(["buttons", "inputs"]);
  * has to decide what a half-valid patch means. `dropped` exists so a caller can
  * say what it ignored rather than silently doing less than it was asked.
  */
-export function parseStyle(input, { max = MAX_STYLE } = {}) {
-  const out = {}, dropped = [];
+/**
+ * Which axes the model may AUTHOR rather than choose (owner's call, 2026-08-22).
+ *
+ * These two are the ones where the enum was never a setting — `backdrop:
+ * "aurora"` is a lookup key into gradient code we wrote by hand, so six
+ * backdrops and twenty textures was the whole vocabulary and also the ceiling.
+ * The rest of the 23 stay enums for one of two honest reasons: nine of them
+ * carry a NUMBER (`scale`, `border`, `motion`…) and want a continuum rather than
+ * free CSS, and the remaining twelve name a shape or a whole block of rules
+ * where there is no value underneath to author.
+ *
+ * An authored value arrives as `{light: [...], dark: [...]}` and is validated by
+ * `site-css.mjs`; anything else on these axes is still read as an enum, so a
+ * model that names `aurora` gets exactly what it always did.
+ */
+export const AUTHORED_AXES = Object.freeze(["backdrop", "decor"]);
+
+export function parseStyle(input, { max = MAX_STYLE, vars = null } = {}) {
+  const out = {}, dropped = [], authored = {}, refused = [];
   const src = input && typeof input === "object" && !Array.isArray(input) ? input
     : Array.isArray(input) ? Object.fromEntries(input
         .filter((e) => e && typeof e === "object")
@@ -225,6 +245,25 @@ export function parseStyle(input, { max = MAX_STYLE } = {}) {
     // that is not an axis. The exact bug that shipped once in the Stripe plan
     // lookup and again in `resolveTheme`.
     if (!Object.hasOwn(AXES, name)) { dropped.push(rawName); continue; }
+    // ── AN AUTHORED VALUE, on the two axes that accept one ────────────────────
+    //
+    // Kept OUT of `out` deliberately: `out` is the enum map that `applyStyle`
+    // spreads onto the theme as `theme.backdrop = "aurora"`, and an object there
+    // would be read by every downstream `BACKDROP_LAYERS[backdrop]` lookup as a
+    // key that does not exist — a silently empty backdrop. It travels in its own
+    // `authored` bag instead, which is also what keeps the cap honest: an
+    // authored axis costs one slot exactly like a chosen one.
+    //
+    // A refused value falls through to `dropped`, so the customer is TOLD, and
+    // the theme keeps whatever enum it had — the fallback that makes a bad
+    // gradient degrade to the ordinary ground rather than to nothing.
+    if (rawVal && typeof rawVal === "object" && !Array.isArray(rawVal) && AUTHORED_AXES.includes(name)) {
+      if (Object.keys(out).length + Object.keys(authored).length >= max) { dropped.push(rawName); continue; }
+      const read = readAuthored(rawVal, { vars });
+      if (!read.ok) { dropped.push(rawName); refused.push({ axis: name, why: read.why }); continue; }
+      authored[name] = read;
+      continue;
+    }
     // A STRING, not anything stringifiable. `String(["pill"])` is `"pill"`, so a
     // one-element array would pass a shape test and set a real axis from a value
     // nobody wrote — the `normalizeRole` lesson, and the same one that let
@@ -232,10 +271,16 @@ export function parseStyle(input, { max = MAX_STYLE } = {}) {
     if (typeof rawVal !== "string") { dropped.push(rawName); continue; }
     const val = rawVal.trim().toLowerCase();
     if (!Object.hasOwn(AXES[name].options, val)) { dropped.push(rawName); continue; }
-    if (Object.keys(out).length >= max) { dropped.push(rawName); continue; }
+    if (Object.keys(out).length + Object.keys(authored).length >= max) { dropped.push(rawName); continue; }
     out[name] = val;
   }
-  return { style: out, dropped };
+  // `authored` and `refused` are OMITTED when empty rather than always present,
+  // so every existing caller destructuring `{style, dropped}` is unchanged and a
+  // build that authored nothing produces a byte-identical result.
+  const r = { style: out, dropped };
+  if (Object.keys(authored).length) r.authored = authored;
+  if (refused.length) r.refused = refused;
+  return r;
 }
 
 /**
@@ -317,9 +362,45 @@ export function mergeStyle(prior, next, { max = MAX_STYLE } = {}) {
  */
 export function applyStyle(theme, style, { max = MAX_STYLE_BUILD } = {}) {
   if (!theme || typeof theme !== "object") return theme;
-  const s = parseStyle(style, { max }).style;
-  if (!Object.keys(s).length) return theme;
+  const parsed = parseStyle(style, { max });
+  const s = parsed.style;
+  if (!Object.keys(s).length && !parsed.authored) return theme;
   const out = { ...theme, ...s };
+  if (parsed.authored) {
+    out.authored = { ...(theme.authored || {}), ...parsed.authored };
+    // ── AND THE QUIET TEXT HAS TO FIT OVER IT ────────────────────────────────
+    //
+    // The last gate, and the only one that needs the THEME as well as the value.
+    // `site-css.mjs` can prove a gradient is well-formed and its stops readable;
+    // it cannot know whether this palette's muted ink survives them, because it
+    // has never seen the palette.
+    //
+    // MEASURED: a light theme with a wash reaching `oklch(0.38 0.16 45)` fits the
+    // quiet ink at 3.87:1, under the 4.5 floor — and walking further makes it
+    // worse rather than better, since on a light theme the ink is near-black and
+    // stepping toward it moves the text TOWARD the dark ground. Flipping the
+    // direction fails too: the same gradient is pale elsewhere, so an ink that
+    // reads over the deep corner vanishes over the light one. No colour fits,
+    // which is a fact about the wash rather than a number to tune.
+    //
+    // So it is REFUSED and the theme keeps what it had — `normalizeSeeds`'s rule,
+    // one layer over: refuse, never repair. Being wrong toward refusing costs a
+    // wash somebody has to ask for differently; being wrong the other way ships
+    // body copy nobody can read, which this platform has already done once.
+    for (const mode of ["light", "dark"]) {
+      if (!out[mode]) continue;
+      const fit = worldMutedFit(out, mode);
+      if (fit.ok) continue;
+      out.authored = { ...(theme.authored || {}) };
+      if (!Object.keys(out.authored).length) delete out.authored;
+      parsed.dropped.push(...Object.keys(parsed.authored));
+      (parsed.refused || (parsed.refused = [])).push({
+        axis: Object.keys(parsed.authored).join(" and "),
+        why: `would leave the quiet text at ${fit.contrast.toFixed(1)}:1 on the ${mode} page, under the 4.5 it needs`,
+      });
+      break;
+    }
+  }
   if (out.surface === "glass" && !hasBackdrop(out)) out.backdrop = GLASS_BACKDROP;
   return out;
 }

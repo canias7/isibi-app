@@ -37,7 +37,7 @@
 // A plain module — no theme, no filesystem, no network — so every rule here is
 // driven directly in test/site-css.test.mjs.
 
-import { isColor, luminance } from "./site-tokens.mjs";
+import { isColor, luminance, rgbOf } from "./site-tokens.mjs";
 
 /** Longest single layer we will take. A gradient with sixty stops is not a
  *  design decision, it is a runaway generation, and it lands in a stylesheet
@@ -260,7 +260,14 @@ export function readColors(value) {
   const push = (tok) => {
     if (!tok || !isColor(tok)) return;
     const l = luminance(tok);
-    if (typeof l === "number" && Number.isFinite(l)) out.push({ token: tok, luminance: l });
+    // THE CHANNELS TRAVEL WITH THE LUMINANCE, because the caller needs both and
+    // for different things: luminance PICKS the worst stop, and the channels are
+    // what gets composited under the opened root to build the ground the muted
+    // ink and the divider are then fitted against. Reading the colour twice — a
+    // luminance here and an RGB somewhere downstream — is the disagreement
+    // `rgbOf` was extracted to make impossible.
+    const rgb = rgbOf(tok);
+    if (typeof l === "number" && Number.isFinite(l) && rgb) out.push({ token: tok, luminance: l, rgb });
   };
   // Hex first — it cannot contain a bracket, so it needs no depth handling.
   for (const m of String(value).matchAll(/#[0-9a-fA-F]{3,8}\b/g)) push(m[0]);
@@ -282,9 +289,20 @@ export function readColors(value) {
 /**
  * Read a whole authored axis value: a list of layers per mode.
  *
- * `{ light: [...], dark: [...] }` — dark is optional, and an absent one means
- * the light layers serve both, which is what a neutral wash wants and is the
- * same rule `normalizeSeeds` applies to an absent dark palette.
+ * `{ light: [...], dark: [...] }`, AND BOTH ARE REQUIRED.
+ *
+ * The obvious rule — an absent dark mirrors the light, as `normalizeSeeds` does
+ * for an absent dark palette — is wrong here, and measurably so. That one
+ * DERIVES a dark palette by flipping lightness; there is no equivalent for a
+ * gradient, so mirroring can only COPY. Measured: a light wash copied onto a
+ * dark page leaves the quiet ink at 2.57:1 against 4.96:1 in light, so the
+ * legibility gate refuses it every time — and refuses it with a contrast
+ * message, when the real fault is that we duplicated a wash nobody wrote for
+ * that mode.
+ *
+ * So a one-mode answer is refused HERE, where the reason can say what it is.
+ * The model is authoring the world behind the page and the page has two modes;
+ * half an answer is half an answer.
  *
  * REFUSES WHOLESALE, NEVER PARTIALLY. Half an authored backdrop is a wash
  * missing the layer that made it work, published as though it were what was
@@ -296,12 +314,8 @@ export function readAuthored(spec, { vars = null } = {}) {
   const out = {}, colors = { light: [], dark: [] };
   for (const mode of ["light", "dark"]) {
     const raw = spec[mode];
-    if (raw == null && mode === "dark") continue;
     const list = Array.isArray(raw) ? raw : raw == null ? [] : [raw];
-    if (!list.length) {
-      if (mode === "dark") continue;
-      return { ok: false, why: "named no layers for the light mode" };
-    }
+    if (!list.length) return { ok: false, why: `named no layers for the ${mode} mode — both are needed` };
     if (list.length > MAX_LAYERS) return { ok: false, why: `stacks ${list.length} layers, more than ${MAX_LAYERS}` };
     const done = [];
     for (const one of list) {
@@ -312,8 +326,6 @@ export function readAuthored(spec, { vars = null } = {}) {
     }
     out[mode] = done;
   }
-  if (!out.light) return { ok: false, why: "named no layers for the light mode" };
-  if (!out.dark) { out.dark = out.light.slice(); colors.dark = colors.light.slice(); }
   return { ok: true, layers: out, colors };
 }
 

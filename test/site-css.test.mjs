@@ -185,13 +185,21 @@ test("extremes answers NULL rather than a default range when nothing was readabl
 
 // --------------------------------------------------------- the whole axis
 
-test("a light/dark pair is read, and an absent dark mirrors the light", () => {
-  // The same rule normalizeSeeds applies to an absent dark palette: a neutral
-  // wash wants one answer, not two.
-  const r = readAuthored({ light: ["linear-gradient(#fff, #eee)"] });
-  assert.equal(r.ok, true, r.why);
-  assert.deepEqual(r.layers.dark, r.layers.light);
-  assert.equal(r.colors.dark.length, r.colors.light.length);
+test("BOTH modes are required — an absent dark is refused, not mirrored", () => {
+  // The obvious rule is normalizeSeeds's: an absent dark mirrors the light. It
+  // is wrong here and measurably so. That one DERIVES a dark palette by flipping
+  // lightness; a gradient has no such derivation, so mirroring can only COPY —
+  // and a light wash copied onto a dark page leaves the quiet ink at 2.57:1
+  // against 4.96:1 in light, so the legibility gate refuses it every time. The
+  // customer would then be told the contrast failed, when what actually happened
+  // is that we duplicated a wash nobody wrote for that mode.
+  const r = readAuthored({ light: ["linear-gradient(#ffffff, #eeeeee)"] });
+  assert.equal(r.ok, false, "a one-mode answer was accepted and will always be refused downstream");
+  assert.match(r.why, /dark/);
+
+  const both = readAuthored({ light: ["linear-gradient(#ffffff, #eeeeee)"], dark: ["linear-gradient(#111111, #222222)"] });
+  assert.equal(both.ok, true, both.why);
+  assert.notDeepEqual(both.layers.dark, both.layers.light);
 });
 
 test("ONE bad layer refuses the WHOLE axis, never half of it", () => {
@@ -217,7 +225,7 @@ test("a non-pair is refused rather than guessed at", () => {
 test("a single layer may be written bare rather than as a list", () => {
   // The model writes one gradient far more often than four, and refusing the
   // natural shape is the false-alarm class this file exists to avoid.
-  const r = readAuthored({ light: "linear-gradient(#fff, #eee)" });
+  const r = readAuthored({ light: "linear-gradient(#fff, #eee)", dark: "linear-gradient(#111, #222)" });
   assert.equal(r.ok, true, r.why);
   assert.equal(r.layers.light.length, 1);
 });

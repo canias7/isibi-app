@@ -471,12 +471,33 @@ export function valueHint(name) {
  * light/dark decision buys nothing — but it is exact for the platform's own
  * palettes anyway, since `oklch` goes back through the function that wrote them.
  */
-export function luminance(v) {
+/**
+ * The colour, as 0-255 RGB, or null if this notation has no parser here.
+ *
+ * EXTRACTED SO THERE IS ONE PARSER, not so there is a new one. `luminance` reads
+ * through it below, which is what keeps the two from ever disagreeing about what
+ * colour a token is — and that disagreement is precisely the bug this file has
+ * already shipped, where `isColor` accepted six notations `luminance` could not
+ * read and a near-black page kept the light theme's near-black ink.
+ *
+ * `site-css.mjs` needs the COLOUR and not only its luminance: an authored
+ * backdrop's worst stop has to be composited under the opened root to derive the
+ * muted ink and the divider, and compositing needs channels. A second parser
+ * over there would be the same disagreement one module along.
+ */
+export function rgbOf(v) {
   const s = String(v == null ? "" : v).trim();
   const rgb = hexRgb(s) || funcRgb(s);
   if (!rgb) return null;
   const [r, g, b] = rgb;
   if (![r, g, b].every((n) => Number.isFinite(n))) return null;
+  return [r, g, b];
+}
+
+export function luminance(v) {
+  const rgb = rgbOf(v);
+  if (!rgb) return null;
+  const [r, g, b] = rgb;
   const lin = (c) => {
     const x = Math.min(255, Math.max(0, c)) / 255;
     return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4);
