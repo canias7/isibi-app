@@ -1918,3 +1918,56 @@ test("`--scrim` IS READ BY THE KIT — a token nothing references changes nothin
     assert.match(block, /--scrim: oklch\([^)]* \/ [\d.]+\)/, sel + " has no translucent --scrim");
   }
 });
+
+test("THE SCRIM'S CHROMA CAP BINDS, and it binds on ordinary palettes", () => {
+  // A scrim covers the WHOLE viewport, so a saturated brand at full chroma
+  // tints the entire screen and reads as a coloured filter over the site rather
+  // than as the page receding.
+  //
+  // MEASURED REACHABLE FIRST, which is the half that was missing: my earlier
+  // fixtures all used near-neutral inks, so the cap never bound and a mutant
+  // deleting it survived the whole suite. It is not an edge case — a plain navy
+  // ink (#0b1020) is already over it, and 14 of 16 theme-modes across ordinary
+  // dark inks exceed it. A cap nothing exercises is protection that reads real
+  // and is not.
+  const inks = ["#3d0a5c", "#4a0000", "#0b1020", "#1a0033", "#003d2e"];
+  let bound = 0;
+  for (const ink of inks) {
+    const { theme } = normalizeSeeds({ name: "x", paper: "#fffdfa", ink, accent: "#b44a2e" });
+    assert.ok(theme, ink + " was refused by normalizeSeeds — the fixture is wrong, not the cap");
+    for (const mode of ["light", "dark"]) {
+      const { paper, ink: dark } = theme[mode];
+      const anchor = paper[0] <= dark[0] ? paper : dark;
+      const scrim = T.scrimFor(theme, mode);
+      assert.ok(scrim[1] <= 0.0301, `${ink}/${mode}: scrim chroma ${scrim[1]} is over the cap`);
+      if (anchor[1] > 0.0301) bound++;
+    }
+  }
+  assert.ok(bound >= 6, `the cap bound on only ${bound} of 10 theme-modes — this fixture cannot see it`);
+  // …and a genuinely neutral ink is passed through rather than clamped up, or
+  // the cap is a floor wearing a ceiling's name.
+  const { theme: grey } = normalizeSeeds({ name: "g", paper: "#f5f5f5", ink: "#111111", accent: "#444444" });
+  assert.ok(T.scrimFor(grey, "light")[1] < 0.0301, "a neutral ink came out saturated");
+});
+
+test("a prototype key is not an option on ANY of the five late tables", () => {
+  // `SELECTIONS["constructor"]` is truthy — it is `Object.prototype.constructor`
+  // — so a truthiness check accepts it, falls past every named branch and emits
+  // the LAST one. The Stripe-plan bug, now reachable on five more tables, and
+  // it survived the first sweep because "an unrecognised name is silence" was
+  // driven with `"no-such-option"`, which is genuinely undefined and therefore
+  // falsy. A junk name that happens to be a prototype key is the one that slips.
+  const theme = normalizeSeeds({ name: "W", paper: "#faf7f2", ink: "#1b1714", accent: "#b44a2e" }).theme;
+  const emitters = { scrim: T.scrimCss, selection: T.selectionCss, controls: T.controlsCss, imagery: T.imageryCss, link: T.linkCss };
+  const keys = ["constructor", "__proto__", "toString", "hasOwnProperty", "valueOf"];
+  for (const [axis, fn] of Object.entries(emitters)) {
+    for (const key of keys) {
+      assert.equal(fn({ ...theme, [axis]: key }), "",
+        `${axis} treated ${key} as an option and emitted a rule nobody asked for`);
+    }
+  }
+  // …and the real options still work, or the line above is satisfied by an
+  // emitter that has stopped emitting anything at all.
+  assert.notEqual(T.selectionCss({ ...theme, selection: "brand" }), "");
+  assert.notEqual(T.imageryCss({ ...theme, imagery: "mono" }), "");
+});

@@ -376,13 +376,30 @@ test("PRESSED CARRIES NO HOVER GUARD — that guard is why it exists", () => {
   };
   const css = press("transform: scale(0.97)");
   assert.match(css, /scale\(0?\.97\)/, "the authored press never reached the stylesheet");
-  const at = css.indexOf("scale(0.97)");
-  const before = css.slice(0, at);
-  const guardsOpen = (before.match(/@media[^{]*\(hover:\s*hover\)\s*\{/g) || []).length;
-  const closes = (before.match(/\}/g) || []).length;
-  assert.ok(guardsOpen === 0 || closes >= guardsOpen,
-    "the press rule is inside @media (hover: hover) — a phone would never see it");
   assert.match(css, /:active/, "the press does not use :active at all");
+
+  // ASKED OF THE EMITTER'S OWN OUTPUT, and the first version of this was
+  // VACUOUS. It counted `@media (hover: hover) {` opens against `}` closes in
+  // the whole stylesheet BEFORE the press rule — and a full theme has thousands
+  // of closing braces, so `closes >= guardsOpen` was true whatever happened.
+  // A mutant wrapping the press in the guard SURVIVED it. `pressedCss` returns
+  // only this axis's rules, so "no media query at all" is decidable and cannot
+  // be satisfied by something else in the sheet.
+  for (const decls of ["transform: scale(0.97)", "opacity: 0.85", "background-color: oklch(0.3 0.1 20)"]) {
+    const r = readAuthoredAxis("pressed", decls);
+    assert.equal(r.ok, true, "the validator refused: " + r.why);
+    const only = T.pressedCss({ ...theme, pressed: { css: r.css } });
+    assert.ok(only.includes(":active"), decls + ": emitted no :active rule at all");
+    assert.equal(/@media/.test(only), false,
+      decls + ": the press is behind a media query — a phone would never see it: " + only.slice(0, 120));
+  }
+  // …and the NAMED options are under the same rule, which the authored path
+  // above cannot say anything about.
+  for (const name of ["sink", "dim", "firm"]) {
+    const only = T.pressedCss({ ...theme, pressed: name });
+    assert.ok(only.includes(":active"), name + ": emitted no :active rule");
+    assert.equal(/@media/.test(only), false, name + ": guarded behind a media query");
+  }
 });
 
 test("the press selector follows what the block DOES, like hover's", () => {
@@ -405,6 +422,43 @@ test("the press selector follows what the block DOES, like hover's", () => {
   for (const css of [moves, tints]) {
     assert.ok(line(css).includes('[data-slot="button"]:active'), "the press never reached a button");
   }
+
+  // THE NAMED BRANCH IS A SEPARATE SELECTOR LIST AND WAS COVERED BY NOTHING.
+  // Everything above drives the AUTHORED path, so a mutant replacing the named
+  // path's `presses` with the full reactive set survived the entire suite —
+  // the same gap this repo already recorded for `hover: lift`, where every
+  // other assertion was about the pseudo-class reaching each member rather than
+  // about which members there are.
+  const named = (name) => (T.pressedCss({ ...theme, pressed: name }).split("\n").find((l) => l.includes(":active")) || "");
+  for (const name of ["sink", "firm"]) {
+    assert.ok(named(name).includes('[data-slot="button"]:active'), name + " never reached a button");
+    assert.ok(named(name).includes('[data-slot="card"]:active'), name + " never reached a card");
+    assert.equal(named(name).includes('[data-slot="input"]'), false,
+      name + " squeezes the input boxes, which reads as a fault");
+    assert.equal(named(name).includes('[data-slot="badge"]'), false,
+      name + " presses badges, which are labels rather than controls");
+  }
+  // `dim` only RECOLOURS, so it is the one named option that legitimately
+  // reaches everything reactive — asserted, or the rule above could be
+  // satisfied by a press that reaches nothing at all.
+  assert.ok(named("dim").includes('[data-slot="input"]'), "dim did not reach everything reactive");
+});
+
+test("an AUTHORED imagery block lands on the photo hook, never on every img", () => {
+  // `SafeImage` renders a designed duotone placeholder when a site has no
+  // picture yet, built from the theme's own tokens — so `img` would grey out
+  // the one thing on a fresh site that is not grey. Covered by nothing until a
+  // mutant swapping the authored selector for `img` survived: every other
+  // assertion here drives the NAMED path.
+  const r = readAuthoredAxis("imagery", "filter: sepia(0.4)");
+  assert.equal(r.ok, true, "the validator refused: " + r.why);
+  const own = T.imageryCss({ ...theme, imagery: { css: r.css } });
+  assert.match(own, /\[data-slot="photo"\]/, "the authored block lost the photo hook");
+  assert.equal(/(^|[\s,{])img\b/.test(own), false, "the authored block reaches every img: " + own);
+  // …and the named path is under the same rule.
+  const mono = T.imageryCss({ ...theme, imagery: "mono" });
+  assert.match(mono, /\[data-slot="photo"\]/, "the named option lost the photo hook");
+  assert.equal(/(^|[\s,{])img\b/.test(mono), false, "the named option reaches every img: " + mono);
 });
 
 test("a site that asks for nothing gets NO press rule, so no existing site moves", () => {
