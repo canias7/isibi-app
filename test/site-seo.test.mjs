@@ -348,12 +348,26 @@ test("writeSiteDistToR2 derives the manifest and writes both files into the dist
   // list and went red the moment a sixth argument was added for renames — a test
   // about word order, which is this repo's most repeated own-goal. What it needs
   // is that the choke point exists and can SEE the pages.
+  // …AND IT GREW AGAIN. The sixth argument was the rename pair, the seventh is
+  // the site's extra language prefixes. `\b` after `pages` already tolerates
+  // both, which is why this half survived; the CALL-SITE check below did not,
+  // and had to be widened a second time. A guard that pins an arity is a guard
+  // that goes red on every honest addition.
   const at = worker.search(/async function writeSiteDistToR2\(env, slug, dist, meta, pages\b/);
   assert.ok(at > 0, "the publish choke point no longer takes pages — the manifest has no source");
   const end = worker.indexOf("const entries = Object.entries(dist || {})", at);
   assert.ok(end > at, "the entries sort moved — the manifest window has no end");
   const head = worker.slice(at, end);
-  assert.match(head, /siteRoutes\(pages\)/, "the route list is not derived from the pages");
+  // …AND THE LANGUAGE PREFIXES GO WITH THEM. Pinned as `siteRoutes(pages)`
+  // exactly, this is the third arity in this file to go red on an honest
+  // addition. The prefixes are not decoration: the translated pages are added
+  // to the container payload's local file map and NEVER to `pages`, so without
+  // them the route list — and therefore both the sitemap and the fallback's
+  // route manifest — described the primary language only, and half a bilingual
+  // site was undiscoverable through the one file robots.txt calls authoritative.
+  assert.match(head, /siteRoutes\(pages\b/, "the route list is not derived from the pages");
+  assert.match(head, /siteRoutes\(pages, langPrefixes\)/,
+    "the site's other languages never reach the route list, so its sitemap lists the primary one only");
   // READ FROM THE SIDECAR, NOT PARSED OUT OF A DOCUMENT. This asserted
   // `parseSiteManifest(await po.text())` — the previous publish's `index.html`,
   // which under Start does not exist: the build emits no top-level document and
@@ -433,7 +447,13 @@ test("both publish paths hand their pages to the choke point", () => {
     // argument. The property is that every call site hands over the pages at
     // all — dropping them is what silently stops a path writing a sitemap and
     // leaving redirects.
-    assert.match(c, /\}, pages(?:, [A-Za-z_$][\w$]*)?\);$/, "a publish call site drops `pages`: " + c.slice(0, 80));
+    // ANY NUMBER OF TRAILING ARGUMENTS. This admitted exactly one and went red
+    // on the SEVENTH parameter (the language prefixes) after being widened once
+    // already for the sixth — an arity pinned twice is an arity that will be
+    // pinned again. What has to hold is that `pages` is handed over at all;
+    // dropping them is what silently stops a path writing a sitemap and
+    // leaving redirects behind.
+    assert.match(c, /\}, pages(?:,[^;]*)?\);$/, "a publish call site drops `pages`: " + c.slice(0, 80));
   }
 });
 
@@ -598,6 +618,61 @@ test("THE SPINE HANDS THE MOVE TO THE CHOKE POINT", () => {
   assert.ok(spine.length > 400, "the spine window is empty — the anchor moved");
   assert.match(spine, /async function recompileAndPublish\(env, \{[^}]*\brenamed\b/,
     "the spine cannot be told about a rename at all");
-  assert.match(spine, /\}, pages, renamed\)/,
+  // TOLERANT OF WHAT TRAVELS AFTER IT, like the call-site check above: the
+  // seventh argument is the site's extra language prefixes, and a guard about
+  // renames must not go red because something else joined the call.
+  assert.match(spine, /\}, pages, renamed(?:,[^;]*)?\)/,
     "the spine drops `renamed` on the way to the publish — a moved page 301s to home");
+  // AND THE PREFIXES REACH IT TOO, or a bilingual site's second half stays out
+  // of its own sitemap — the translated pages are added to the container's
+  // local file map and never to `pages`, so the choke point cannot see them.
+  assert.match(spine, /siteLangs\.filter\(\(l\) => !l\.primary\)\.map\(\(l\) => l\.prefix\)/,
+    "the spine publishes without its language prefixes, so half a bilingual site is undiscoverable");
+});
+
+test("a bilingual site's second language is in its own sitemap", () => {
+  // HALF A BILINGUAL SITE WAS UNDISCOVERABLE. Both publish paths translate by
+  // adding the translated route FILES into the container payload's local map
+  // and leaving the `pages` array untouched — and the choke point derives the
+  // route list from that untouched array. So the translated pages compiled,
+  // published, served and were linked from the site's own switcher, and were
+  // absent from the one file that tells a search engine they exist. Worse for
+  // the customer than no sitemap, because robots.txt declares this one as
+  // authoritative.
+  const pages = [{ path: "index.tsx" }, { path: "menu.tsx" }, { path: "book.tsx" }];
+  const mono = siteRoutes(pages);
+  assert.deepEqual(mono.routes, ["/", "/book", "/menu"]);
+  // A MONOLINGUAL SITE IS BYTE-IDENTICAL, which is what makes this safe against
+  // every site already published.
+  assert.deepEqual(siteRoutes(pages, []).routes, mono.routes);
+  assert.deepEqual(siteRoutes(pages, null).routes, mono.routes);
+
+  const bi = siteRoutes(pages, ["/es"]);
+  assert.deepEqual(bi.routes, ["/", "/book", "/es", "/es/book", "/es/menu", "/menu"]);
+  // `/` BECOMES `/es`, NOT `/es/` — a trailing slash is a second address for
+  // one page, which is exactly the duplicate a sitemap must not create.
+  assert.ok(!bi.routes.includes("/es/"), "the prefixed home page got a trailing slash");
+
+  // THREE LANGUAGES, and the expansion is per prefix rather than compounding:
+  // `/fr/es/menu` is not an address this site has.
+  const tri = siteRoutes(pages, ["/es", "/fr"]);
+  assert.equal(tri.routes.length, 9);
+  assert.ok(!tri.routes.some((r) => /^\/(es|fr)\/(es|fr)\//.test(r)), "the prefixes compounded: " + tri.routes.join(","));
+
+  // JUNK IS REFUSED RATHER THAN EXPANDED. These come from `resolveLangs`, which
+  // has already refused a duplicate, a reserved segment and a shadowed page —
+  // so this is the second line rather than the first, and it must not turn a
+  // bad value into a URL a crawler is told to visit.
+  assert.deepEqual(siteRoutes(pages, ["", "/", "es", null, undefined, 7]).routes, mono.routes);
+
+  // A DYNAMIC ROUTE CONTRIBUTES TO NEITHER. It is skipped before the expansion
+  // runs, so it cannot appear prefixed either — a sitemap is allowed to be
+  // incomplete and not to be wrong.
+  const dyn = siteRoutes([{ path: "index.tsx" }, { path: "deals.$id.tsx" }], ["/es"]);
+  assert.deepEqual(dyn.routes, ["/", "/es"]);
+  assert.equal(dyn.dynamic, true);
+
+  // …AND IT REALLY REACHES THE SITEMAP, which is the thing a crawler reads.
+  const xml = sitemapXml(bi.routes);
+  assert.match(xml, /<loc>[^<]*\/es\/menu<\/loc>/, "the second language is not in the sitemap");
 });

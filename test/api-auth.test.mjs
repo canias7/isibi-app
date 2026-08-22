@@ -1018,3 +1018,33 @@ test("the build route records what the designer reached for", () => {
   assert.match(w, /reached: reached\.length \? reached : undefined/,
     "what the designer reached for is computed and never put on the response");
 });
+
+test("the build route's server-side link fetch is metered", () => {
+  // "NO MODEL CALL, SO NO GATE" was true about CREDITS and was taken as true
+  // about everything. `readLinkedPages` fetches an attacker-chosen public URL
+  // from our address with our user agent — up to two fetches of 1.5 MB and
+  // ~24s of Worker wall-clock — and it ran BEFORE the deposit, before the
+  // affordability gate and before the balance read, on a route with no rate
+  // limit of its own. So an authenticated free-tier account was an unmetered
+  // outbound fetch relay.
+  //
+  // The identical capability is metered one route over: `/api/import/fetch`
+  // spends `useQuota(request, "import", 120)` for the same primitive. The
+  // cheaper, gate-less copy being the unmetered one is the whole finding.
+  const at = WORKER_SRC.indexOf("let linked = [];");
+  assert.ok(at > 0, "the build route's link read moved — rescope this");
+  const block = WORKER_SRC.slice(at, WORKER_SRC.indexOf("const briefWithLinks", at));
+  assert.ok(block.length > 100 && block.length < 1500, "the link-read block scan lost its bounds");
+  assert.match(block, /await useQuota\(request, "sitelinks", \d+\)/,
+    "the build route fetches caller-chosen URLs with no quota again");
+  // ITS OWN BUCKET. Sharing `import`'s counter means one action silently
+  // exhausts the other's allowance, which reads to the customer as a feature
+  // that stopped working for no reason they can see.
+  assert.ok(!/useQuota\(request, "import"/.test(block), "the link read shares the import bucket");
+  // AND IT DOES NOT REFUSE THE BUILD. Turning "you have read too many links
+  // today" into "your site cannot be built" is wildly out of proportion to what
+  // was asked for — and `contextSummary` already reports an unread link
+  // honestly, so the customer is told either way.
+  assert.ok(!/QUOTA_EXCEEDED\(\)/.test(block), "an over-quota link read now kills the whole build");
+  assert.match(block, /readLinkedPages\(brief/, "the read itself is gone");
+});

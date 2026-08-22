@@ -51,7 +51,7 @@ const REDIRECTS_META = "site-redirects";
  * page-edit layer once (2026-08-12). A `$` anywhere marks a dynamic segment
  * whose concrete addresses are unknowable here; `dynamic` says one exists.
  */
-export function siteRoutes(pages) {
+export function siteRoutes(pages, langPrefixes) {
   const routes = [];
   let dynamic = false;
   for (const p of (Array.isArray(pages) ? pages : [])) {
@@ -59,6 +59,43 @@ export function siteRoutes(pages) {
     if (!r) continue;
     if (r.includes("$")) { dynamic = true; continue; }
     if (!routes.includes(r)) routes.push(r);
+  }
+  // ── AND THE SITE'S OTHER LANGUAGES ────────────────────────────────────────
+  //
+  // HALF A BILINGUAL SITE WAS UNDISCOVERABLE. Both publish paths translate by
+  // adding the translated route FILES into the container payload's local map
+  // and leave the `pages` array untouched — and this function is handed that
+  // untouched array, so `sitemap.xml` carried the primary routes only. The
+  // translated pages compile, publish, serve and are linked from the site's own
+  // switcher, and are absent from the one file that tells a search engine they
+  // exist. Worse than having no sitemap, because `robots.txt` declares this one
+  // as authoritative.
+  //
+  // DERIVED FROM THE PRIMARY ROUTES, never a second walk of a second page list:
+  // a translated site is the same routes under a prefix by construction —
+  // `translatePages` produces exactly one file per primary page — so deriving
+  // them here cannot disagree with what was published, where a parallel list
+  // could. That is also why a DYNAMIC route contributes nothing to either: it
+  // is skipped above before this runs.
+  //
+  // The primary language has no prefix and is already in `routes`; only the
+  // extra ones are expanded, so a monolingual site is byte-identical.
+  //
+  // THE PRIMARY LIST IS SNAPSHOT ONCE, OUTSIDE THE LOOP. Taken inside it, the
+  // second prefix expands over the FIRST one's output and produces
+  // `/fr/es/menu` — an address this site does not have, in the file a crawler
+  // is told to trust. Caught by the test rather than by reading: a two-language
+  // site is right either way and only a third shows it.
+  const primary = [...routes];
+  for (const pre of (Array.isArray(langPrefixes) ? langPrefixes : [])) {
+    const prefix = String(pre || "").toLowerCase().replace(/\/+$/, "");
+    if (!prefix.startsWith("/") || prefix === "/") continue;
+    for (const r of primary) {
+      // `/` becomes `/es`, not `/es/` — a trailing slash is a second address
+      // for one page, which is the duplicate a sitemap must not create.
+      const t = r === "/" ? prefix : prefix + r;
+      if (!routes.includes(t)) routes.push(t);
+    }
   }
   routes.sort();
   return { routes, dynamic };

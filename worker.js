@@ -7043,7 +7043,7 @@ async function dropSiteWorker(env, slug) {
  * assets exist is what makes the switch atomic from a visitor's side. Then the
  * sweep removes whatever the new build does not use.
  */
-async function writeSiteDistToR2(env, slug, dist, meta, pages, renamed = null) {
+async function writeSiteDistToR2(env, slug, dist, meta, pages, renamed = null, langPrefixes = null) {
   const wrote = new Set();
   // ── WHAT THIS PUBLISH TELLS A SEARCH ENGINE (site-seo.mjs) ────────────────
   //
@@ -7063,7 +7063,12 @@ async function writeSiteDistToR2(env, slug, dist, meta, pages, renamed = null) {
   let manifest = null;
   if (meta && Array.isArray(pages) && pages.length && dist) {
     try {
-      const man = siteRoutes(pages);
+      // THE PREFIXES, so a bilingual site's second half is in its own sitemap.
+      // The translated pages are added to the container payload's local file
+      // map and never to `pages`, so without this the routes list — and
+      // therefore the sitemap AND the fallback's route manifest — described
+      // the primary language only.
+      const man = siteRoutes(pages, langPrefixes);
       let prev = null;
       // A READ THAT FAILED IS NOT A SITE WITH NO HISTORY, and conflating them
       // converts every accumulated redirect into a hard 404 in one publish.
@@ -7675,7 +7680,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
     // Console tag off their site — silently, on an edit that asked for
     // something else entirely.
     verify,
-  }, pages, renamed);
+  }, pages, renamed, siteLangs.filter((l) => !l.primary).map((l) => l.prefix));
   try {
     await archiveVersion(versionDeps(env), {
       slug,
@@ -8072,6 +8077,19 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       }
     },
     publish: async (dist, pages, worker) => {
+      // THE SITE'S EXTRA LANGUAGE PREFIXES, for the sitemap and the route
+      // manifest — and RECOMPUTED here rather than reached for, because
+      // `compile` and `publish` are two separate closures and `siteLangs` is
+      // local to the first. Same inputs, same resolver, same answer: a second
+      // reading of one question is only safe when it cannot disagree, and
+      // `resolveLangs` is pure over exactly these three.
+      //
+      // Without it the sitemap listed the primary language only, so half a
+      // bilingual site was undiscoverable — worse than no sitemap, since
+      // robots.txt declares this one as authoritative.
+      const pubPrefixes = resolveLangs(lang || "en", Array.isArray(langs) ? langs : [],
+        { routes: pages.map((p) => routeOf(p.path)).filter(Boolean) })
+        .langs.filter((l) => !l.primary).map((l) => l.prefix);
       // THE CONTAINER'S WHOLE TURN, closed HERE and not at `pages` — because
       // this dep runs INSIDE `publishPages`, so a mark taken here is the first
       // one since `fonts` and its delta covers generate + typecheck + vite +
@@ -8114,7 +8132,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
         // WHICH SITE THIS IS, so the bundle can address its own API from a custom
         // domain — where there is no `/s/<slug>/` in the path to read it from.
         slug,
-      }, pages);
+      }, pages, null, pubPrefixes);
       // ARCHIVE THE BUILD THAT JUST WENT LIVE, so it can be rolled back to.
       //
       // AFTER the publish and never allowed to fail it: the site is already up
@@ -11866,8 +11884,8 @@ async function handleRequest(request, env, ctx) {
       // dropped.
       const attached = attachments(body.images);
 
-      // READING THE LINKS IN THE BRIEF. No model call, so no gate: if there is a
-      // URL in there, somebody meant us to look at it.
+      // READING THE LINKS IN THE BRIEF. No model call, so no CREDIT gate: if
+      // there is a URL in there, somebody meant us to look at it.
       //
       // BEFORE the designer, deliberately. A linked page is mostly evidence
       // about what a site STORES — a menu, a price list, a booking form — and
@@ -11877,11 +11895,42 @@ async function handleRequest(request, env, ctx) {
       //
       // The cost is that it sits on the critical path: at most two fetches,
       // twelve seconds each, and only on a brief that contains a link.
+      //
+      // ── AND IT IS METERED, WHICH IT WAS NOT ────────────────────────────────
+      //
+      // "No model call, so no gate" was true about CREDITS and taken as true
+      // about everything. This is a server-side fetch of an attacker-chosen
+      // public URL — our source address, our user agent, up to two fetches of
+      // 1.5 MB each and ~24s of Worker wall-clock — and it runs BEFORE the
+      // deposit, before the affordability gate and before the balance read. So
+      // an authenticated free-tier account was an unmetered outbound fetch
+      // relay, on a route with no rate limit of its own.
+      //
+      // THE IDENTICAL CAPABILITY IS ALREADY METERED one route over:
+      // `/api/import/fetch` spends `useQuota(request, "import", 120)` for the
+      // same primitive. The cheaper, gate-less copy being the unmetered one is
+      // the whole finding.
+      //
+      // ITS OWN BUCKET, not `import`'s. A customer pasting a link into a brief
+      // and a customer importing media are different actions with different
+      // rhythms, and sharing a counter means one silently exhausts the other's
+      // allowance — which reads to them as a feature that stopped working.
+      //
+      // IT DOES NOT REFUSE THE BUILD. Failing the whole request over a link
+      // would turn "you have read too many links today" into "your site cannot
+      // be built", which is wildly out of proportion to what was asked for —
+      // and `contextSummary` already reports an unread link honestly, so a
+      // customer whose link was skipped is told. `useQuota` fails open if the
+      // ledger is unreachable, which is the behaviour every other caller has.
       let linked = [];
       if (brief) {
-        try { linked = await readLinkedPages(brief, { readUrl: siteReadUrl }); }
-        catch (e) { console.error("link read failed:", e && e.message); linked = []; }
-        if (linked.length) tr.at("links", { n: linked.length, ok: linked.filter((p) => p.ok).length });
+        if (await useQuota(request, "sitelinks", 60)) {
+          try { linked = await readLinkedPages(brief, { readUrl: siteReadUrl }); }
+          catch (e) { console.error("link read failed:", e && e.message); linked = []; }
+          if (linked.length) tr.at("links", { n: linked.length, ok: linked.filter((p) => p.ok).length });
+        } else {
+          console.warn("site link read over quota:", bu.id);
+        }
       }
       // What the DESIGNER sees. Page generation gets this plus the researched
       // facts, which do not exist yet.
