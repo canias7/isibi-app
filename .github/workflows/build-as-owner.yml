@@ -113,7 +113,27 @@ jobs:
           # survives Tailwind and the bundler to reach a served stylesheet, a
           # build that sent none has nothing appended, and the deploy for the
           # commit under test is green.
-          OWNER_SLUG: css-axes-lido
+          # ATTEMPT 2. Attempt 1 (`css-axes-lido`) hung in the Grok pages call
+          # for 26m48s and was killed by this job's own 30-minute cap. Its trace
+          # is the diagnosis and it is unambiguous: design 83.4s (in 23161, out
+          # 2075), Neon project, a 2-table schema applied and seeded, then `gen`
+          # at 22:04:34 and NOTHING for the next 25 minutes. 8 credits for the
+          # schema call, no site, and the isolate died with the hung fetch so
+          # `waitUntil` did not rescue it either.
+          #
+          # THE THIRD TIME ON THIS SHAPE — run 9 (25m46s), run 13 (26.5m), this.
+          # And runs 6, 8 and 14 published on the same path, so it is variance in
+          # the provider rather than anything deterministic. On THIS brief
+          # specifically it is now 1 published against 2 hung.
+          #
+          # SO THE BRIEF SHRANK AND NOTHING ELSE DID. The hang is in the pages
+          # call, which is the one step whose duration scales with how much the
+          # model has to write — four pages became two. Same picker (Grok is
+          # proven funded; introducing an unknown provider mid-experiment adds a
+          # variable rather than removing one), same feel description word for
+          # word, because the feel is what a CSS experiment is actually about.
+          # Both arms share it, so the comparison is untouched.
+          OWNER_SLUG: lido-axes
           # RUN 14 (2026-08-22): THE FIRST BUILD THAT CANNOT BE SILENT.
           #
           # WHAT RUN 13 MEASURED, and it is a finding rather than another failed
@@ -172,7 +192,7 @@ jobs:
           # ARM B — the 29 axes, which is today's path and needs no flag. Build
           # 2 sets `OWNER_FREE_CSS: "1"` here and moves the slug; nothing else
           # in this file changes between the two runs.
-          OWNER_BRIEF: "An open-air lido cafe on the south coast, beside a 1930s seawater swimming pool. Visitors read the menu of coffee, ice cream and toasties with prices in pounds without signing in, and book a poolside table with a short form - name, phone, how many people, and what time. There is a page about the lido's restoration and one with opening hours, the address and how to find the entrance. The feel is late afternoon sun on the water: faded pastel paintwork, sun-bleached concrete, long low light."
+          OWNER_BRIEF: "An open-air lido cafe on the south coast, beside a 1930s seawater swimming pool. One page shows the menu of coffee, ice cream and toasties with prices in pounds, readable without signing in. One page books a poolside table with a short form - name, phone, how many people, what time. The feel is late afternoon sun on the water: faded pastel paintwork, sun-bleached concrete, long low light."
         run: node scripts/build-as-owner.mjs
       - uses: actions/upload-artifact@v4
         if: always()
