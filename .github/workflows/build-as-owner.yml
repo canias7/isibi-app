@@ -106,6 +106,13 @@ jobs:
           # photographs — so what is being compared is two whole sites and the
           # stylesheet difference sits inside everything else that moved. Raised
           # before spending, chosen anyway.
+          #
+          # VERIFIED BEFORE A CREDIT WAS SPENT, because arm A needed a door
+          # building and a door with no validator behind it is worth proving
+          # cold: 4,019 unit tests, 230/230 against the real container — raw CSS
+          # survives Tailwind and the bundler to reach a served stylesheet, a
+          # build that sent none has nothing appended, and the deploy for the
+          # commit under test is green.
           OWNER_SLUG: css-axes-lido
           # RUN 14 (2026-08-22): THE FIRST BUILD THAT CANNOT BE SILENT.
           #
