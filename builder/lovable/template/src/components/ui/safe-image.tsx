@@ -162,6 +162,7 @@ export function SafeImage({
           which is the browser's own centre — the same direction every other
           unrecognised enum on this platform fails in. */}
       <img
+        data-slot="photo"
         src={src}
         alt={alt}
         loading="lazy"

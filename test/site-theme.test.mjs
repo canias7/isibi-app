@@ -258,7 +258,17 @@ test("every emitted value is a real oklch triple", () => {
   for (const m of css.matchAll(/--([a-z0-9-]+): ([^;]+);/g)) {
     const [, name, v] = m;
     if (colourTokens.has(name)) {
-      assert.match(v, /^oklch\(-?\d+(\.\d+)? -?\d+(\.\d+)? -?\d+(\.\d+)?\)$/, `bad colour ${name}: ${v}`);
+      // ONE TOKEN IS TRANSLUCENT AND IT IS NAMED, rather than the pattern being
+      // loosened for all of them. `--scrim` is the shade behind a dialog, so an
+      // opaque one is not a scrim at all — it is a black rectangle that hides
+      // the site. Every OTHER palette token stays opaque by contract, because
+      // the contrast maths the palette is built on is defined on opaque
+      // colours; widening the pattern globally would let an alpha appear on
+      // `--foreground` and pass.
+      const shape = name === "scrim"
+        ? /^oklch\(-?\d+(\.\d+)? -?\d+(\.\d+)? -?\d+(\.\d+)? \/ -?\d+(\.\d+)?\)$/
+        : /^oklch\(-?\d+(\.\d+)? -?\d+(\.\d+)? -?\d+(\.\d+)?\)$/;
+      assert.match(v, shape, `bad colour ${name}: ${v}`);
       checked++;
     }
     // Every token, colour or not: a NaN or an undefined is a declaration the

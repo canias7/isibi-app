@@ -489,6 +489,67 @@ funded**, so every `SafeImage` on every published site is drawing its placeholde
 and no photograph has ever been generated. The upload half needs no image model
 and is what works today — which is why the tool prefers it.
 
+## 2026-08-22 — SIX MORE AXES: 23 → 29, and five of them were places nobody could reach
+
+**You said: *"ok now add the all the axis from the listy you gave me"*.** Done —
+the five I had measured as missing, plus `pressed` from earlier the same day. So
+the look is 29 axes now instead of 23.
+
+**WHY THESE SIX AND NOT SIX OTHERS.** I did not brainstorm them; I went and
+counted what the sites we build actually leave to somebody else. Every one of
+these was a real place where a customer had no say at all, and the number beside
+it is what I measured before building anything:
+
+* **`pressed` — what a button does when you TAP it.** Hover is deliberately
+  switched off on a phone (otherwise the effect sticks to whatever you touched
+  last), and there was nothing behind it: `:active` appeared in **0 of the 2,112
+  kit components and 0 of the 329 example pages**. So on the device most of your
+  customers' customers use, pressing "Book now" did nothing at all until the page
+  changed.
+* **`scrim` — the shade behind a dialog or the mobile menu.** All four of those
+  panels used **one flat black**, hardcoded. The same black behind every panel on
+  every site whatever colours it was built in. It is now derived from the site's
+  own ink, so it is that business's black rather than everybody's.
+* **`selection` — what highlighted text looks like.** Set by **1 of 2,112**
+  components, so on every site we have ever built, dragging over a price or an
+  address showed the BROWSER's blue. Small, and it is the one bit of the site a
+  visitor makes happen themselves.
+* **`controls` — checkboxes, radio buttons, sliders, progress bars.** The
+  property that colours them appeared **0 times anywhere**, against **101 of
+  those controls across 85 files**. So a form on a barber's site rendered in
+  Windows blue on one visitor's machine and macOS pink on another's.
+* **`imagery` — how photographs are treated.** No way to say "this site is black
+  and white". Nothing to change, so nobody could ask.
+* **`link` — the colour of a link in the writing.** **187 links across 176 of the
+  324 example pages, and not one of them names a colour** — the page generator is
+  forbidden from naming colours, on purpose, so a link took the body ink and was
+  marked only by its underline. That is a legitimate look and it was the ONLY one
+  available.
+
+**NONE OF THEM CHANGES A SITE THAT ALREADY EXISTS.** Every one does nothing until
+it is asked for. That matters because the whole look is re-applied every time
+anything publishes — a typo fix, a colour change, a swapped photo — so a new
+default here would have re-styled every site you have on its owner's next
+unrelated edit. Checked both ways: a site that asks for none of them compiles to
+the same stylesheet it did before.
+
+**THE PART I GOT WRONG, twice, and the checks caught both.** My own tests were
+looking for text the compiler never actually writes: it strips the quotes out of
+selectors and it writes a lightness as `9.37%` where we wrote `0.0937`. So three
+checks reported the new photo treatment as missing while its rule was sitting in
+the stylesheet. Fixed — and it turned up an **older check with the same fault
+that had been passing for nothing**, because it too was looking for the quoted
+form that never appears.
+
+**Cost: nothing you can see.** The instructions sent to the model grow by a few
+hundred characters, which sits inside the cached part of the request.
+
+**NOT PROVEN ON A REAL BUILD** — no site has been built with any of them yet, so
+no model has chosen one. Everything below the model call was driven through the
+real compiler.
+
+---
+
 ## 2026-08-22 — THE MENUS ARE GONE: the model writes its own CSS on all 23 style axes
 
 **You said: *"i thought for all of them it was gonna be authored dude, and no

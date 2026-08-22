@@ -46,6 +46,7 @@ import {
   CORNERS, TYPE_SCALES, TRACKINGS, LEADINGS, WEIGHTS, DENSITIES, WIDTHS, BORDERS,
   ICON_STROKES, SHADOWS, BUTTONS, INPUTS, DISPLAYS,
   MOTIONS, HOVERS, PRESSED, FOCUSES, REVEALS, TRANSITIONS,
+  SCRIMS, SELECTIONS, CONTROLS, IMAGERY, LINKS,
   SURFACES, BACKDROPS, DECORS, AMBIENTS, SKINS,
   worldMutedFit, themeVars,
 } from "./site-theme.mjs";
@@ -130,6 +131,23 @@ export const AXES = Object.freeze({
   // it. `said` is what changes rather than what it is, or "transition" would
   // sit next to `motion`'s "response speed" and read as the same thing.
   transition: { options: TRANSITIONS, said: "page change" },
+  // THE FIVE LATE SURFACES (2026-08-22). Not a theme's standing look and not
+  // an element answering a pointer — these are the places the palette and the
+  // kit between them left to somebody else: the browser (`selection` was the
+  // browser's blue, `controls` the operating system's accent), a flat literal
+  // (`scrim` was `bg-black/80` on all four overlays), or nothing at all
+  // (`imagery`, `link`). Each was measured absent before it was built.
+  //
+  // The `said` names have to read differently from every other axis AND from
+  // `site-tokens.mjs`'s names, since both compose into one sentence: "scrim"
+  // is a word nobody outside a design tool uses, "selection" would sit next to
+  // nothing but reads as picking something, and "link" alone is ambiguous with
+  // the nav lane's own links — so each says what it decides.
+  scrim:     { options: SCRIMS,     said: "dialog shade" },
+  selection: { options: SELECTIONS, said: "highlight colour" },
+  controls:  { options: CONTROLS,   said: "checkbox colour" },
+  imagery:   { options: IMAGERY,    said: "photo treatment" },
+  link:      { options: LINKS,      said: "link colour" },
 });
 
 /**

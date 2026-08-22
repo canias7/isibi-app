@@ -293,6 +293,8 @@ test("EVERY AXIS IS THE ENGINE'S OWN LIST, in both directions", () => {
     ambient: T.AMBIENTS, skin: T.SKINS,
     motion: T.MOTIONS, hover: T.HOVERS, pressed: T.PRESSED, focus: T.FOCUSES, reveal: T.REVEALS,
     transition: T.TRANSITIONS,
+    scrim: T.SCRIMS, selection: T.SELECTIONS, controls: T.CONTROLS,
+    imagery: T.IMAGERY, link: T.LINKS,
   };
   assert.deepEqual(ASKABLE.slice().sort(), Object.keys(byName).sort(),
     "AXES and this test disagree about which axes exist");
@@ -1419,8 +1421,12 @@ test("the tool offers an authored value on exactly the axes the engine accepts o
   // The hint has to name the refusals, not only the permissions: `url()` and
   // `color-mix()` are the two a model reaches for unprompted, and an answer
   // spent on either is an axis silently dropped. THE TWO IMAGE AXES ONLY —
-  // `authoredHint` is the `{light, dark}` gradient hint, and the other 21 are
-  // described by `authoredFieldHint`, which has its own guard.
+  // `authoredHint` is the `{light, dark}` gradient hint, and every OTHER axis is
+  // described by `authoredFieldHint`, which has its own guard. The split is
+  // derived from `AXIS_DECLS[a].image` at both ends, here and in `worker.js`, so
+  // an axis added to either shape lands in the right hint with nothing to
+  // remember. (It said "the other 21" until the five late surfaces made it 27 —
+  // a count in a comment is a fact that goes stale on the next change.)
   for (const axis of AUTHORED_AXES.filter((a) => AXIS_DECLS[a] && AXIS_DECLS[a].image)) {
     const hint = authoredHint(axis);
     assert.match(hint, /url\(\)/, `${axis}: the hint does not warn about url()`);
@@ -1728,4 +1734,187 @@ test("the tool asks for the WIRE name, and the pointer it replaced is gone", () 
   // next collision with no mitigation and nothing to notice it.
   assert.match(worker, /SITE_STYLE_AXES\.map\(siteWireName\)\.includes\(t\)/,
     "the token pointer is computed from the internal names, so it points at a field the tool does not have");
+});
+
+/* ------------------------------------------ the five late surfaces (2026-08-22) */
+
+/** Composite an `oklch(… / a)` scrim over a page colour, the way a browser does. */
+function overPage(theme, mode) {
+  const s = T.scrimFor(theme, mode);
+  const fg = T.oklchToRgb(s[0], s[1], s[2]);
+  const bg = T.oklchToRgb(...theme[mode].paper.slice(0, 3));
+  return fg.map((c, i) => c * s[3] + bg[i] * (1 - s[3]));
+}
+const relLum = ([r, g, b]) => {
+  const lin = (v) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+};
+
+test("A SCRIM DARKENS IN BOTH MODES — the one way this can be silently inverted", () => {
+  // The obvious derivation is the ink, and it is wrong in dark mode: the ink is
+  // nearly white there, so a scrim made from it BRIGHTENS the page behind the
+  // panel. It renders, it compiles, and the only symptom is that opening a menu
+  // on a dark site lights the page up instead of dimming it — which nobody
+  // building the site on a light screen would ever see.
+  const seeds = [
+    { name: "warm", paper: "#faf7f2", ink: "#1b1714", accent: "#b44a2e" },
+    { name: "cool", paper: "#ffffff", ink: "#0b1020", accent: "#2f5bd0" },
+    { name: "hot", paper: "#fffbf5", ink: "#2a0505", accent: "#e01b1b" },
+    { name: "grey", paper: "#f5f5f5", ink: "#111111", accent: "#444444" },
+  ];
+  let checked = 0;
+  for (const s of seeds) {
+    const theme = normalizeSeeds(s).theme;
+    for (const mode of ["light", "dark"]) {
+      const page = relLum(T.oklchToRgb(...theme[mode].paper.slice(0, 3)));
+      const shaded = relLum(overPage(theme, mode));
+      assert.ok(shaded < page,
+        `${s.name}/${mode}: the scrim came out at ${shaded.toFixed(4)} over a page at ${page.toFixed(4)} — it brightens`);
+      // …and it has to dim ENOUGH to read as a scrim rather than a tint. A dark
+      // theme is where this bites: the page is already dark, so a scrim that
+      // merely matches it hides nothing.
+      assert.ok(shaded <= page * 0.75,
+        `${s.name}/${mode}: ${shaded.toFixed(4)} against ${page.toFixed(4)} is not a shade, it is a tint`);
+      checked++;
+    }
+  }
+  assert.equal(checked, 8, "the sweep ran over " + checked + " theme-modes");
+});
+
+test("ONE SCRIM DERIVATION — the axis moves the alpha and never the colour", () => {
+  // `paletteFor` emits `--scrim` and `scrimCss` re-emits it at another alpha.
+  // Two copies of that derivation drift on rounding, and what a drift costs is
+  // a scrim whose alpha the axis moved and whose colour it did not — which
+  // reads on screen as the shade changing hue when somebody asks for a heavier
+  // one.
+  //
+  // IT COMPARES TWO EMITTED STRINGS, never an emitted string against a number
+  // re-derived here: the emitter rounds hue to two places and lightness to
+  // four, so a re-derivation is a spelling this code never produces. That is
+  // the `41.17%`-for-`0.4117` class, and my own first draft of this test walked
+  // straight into it.
+  const theme = normalizeSeeds({ name: "W", paper: "#faf7f2", ink: "#1b1714", accent: "#b44a2e" }).theme;
+  const scrimIn = (css, sel) => {
+    const at = css.indexOf(sel + " {");
+    assert.ok(at >= 0, "no " + sel + " block to read");
+    const v = css.slice(at).match(/--scrim:\s*oklch\(([^)]+)\)/);
+    assert.ok(v, "no --scrim in the " + sel + " block");
+    const [colour, alpha] = v[1].split("/").map((x) => x.trim());
+    return { colour, alpha };
+  };
+  const base = { root: scrimIn(T.themeCss(theme), ":root"), dark: scrimIn(T.themeCss(theme), ".dark") };
+  assert.ok(base.root.colour !== base.dark.colour, "the two modes derive the same scrim — one of them is not following its own paper");
+
+  let moved = 0;
+  for (const style of ["soft", "heavy"]) {
+    const css = T.scrimCss({ ...theme, scrim: style });
+    for (const [sel, key] of [[":root", "root"], [".dark", "dark"]]) {
+      const got = scrimIn(css, sel);
+      assert.equal(got.colour, base[key].colour, `${style}/${sel}: the axis restated the colour instead of reusing it`);
+      assert.notEqual(got.alpha, base[key].alpha, `${style}/${sel}: the axis changed nothing at all`);
+      moved++;
+    }
+  }
+  assert.equal(moved, 4, "the sweep covered " + moved + " of 4");
+  // …and the two named alphas really move in opposite directions, or "soft" and
+  // "heavy" are two words for one shade.
+  const soft = Number(scrimIn(T.scrimCss({ ...theme, scrim: "soft" }), ":root").alpha);
+  const heavy = Number(scrimIn(T.scrimCss({ ...theme, scrim: "heavy" }), ":root").alpha);
+  const dim = Number(base.root.alpha);
+  assert.ok(soft < dim && dim < heavy, `soft ${soft} / dim ${dim} / heavy ${heavy} are not in order`);
+});
+
+test("EACH OF THE FIVE IS A NO-OP UNTIL IT IS ASKED FOR", () => {
+  // `applyStyle` runs on EVERY publish of EVERY site — a text fix, a colour
+  // change, a swapped picture. A live default here is the whole platform
+  // re-styled by somebody's typo fix, which is the failure this repo keeps
+  // recording. Asserted per axis AND as a whole, because one emitter defaulting
+  // on is invisible in a byte comparison of the other four.
+  const theme = normalizeSeeds({ name: "W", paper: "#faf7f2", ink: "#1b1714", accent: "#b44a2e" }).theme;
+  for (const [axis, fn] of [["scrim", T.scrimCss], ["selection", T.selectionCss],
+                            ["controls", T.controlsCss], ["imagery", T.imageryCss], ["link", T.linkCss]]) {
+    assert.equal(fn(theme), "", axis + " emits a rule on a theme that never asked for one");
+    // …and an unrecognised name is the same silence, never a guess.
+    assert.equal(fn({ ...theme, [axis]: "no-such-option" }), "", axis + " guessed at an option it does not have");
+  }
+  // The whole stylesheet, so a sixth added later cannot slip past the list above.
+  assert.equal(T.themeCss(theme), T.themeCss({ ...theme, scrim: "dim", selection: "plain", controls: "plain", imagery: "plain", link: "ink" }),
+    "the five defaults are not the same as not asking");
+});
+
+test("the five reach the hooks the kit really stamps, and nothing wider", () => {
+  const theme = normalizeSeeds({ name: "W", paper: "#faf7f2", ink: "#1b1714", accent: "#b44a2e" }).theme;
+
+  // A LINK IN THE PROSE AND NOT THE NAV. A bare `a` would repaint the header,
+  // the footer, every card that is a link and every button rendered as an
+  // anchor. `a.underline` is Tailwind's own utility, which is exactly the mark
+  // the generator already puts on a link it means as prose — 187 of them across
+  // the corpus.
+  const link = T.linkCss({ ...theme, link: "accent" });
+  assert.match(link, /a\.underline \{/, "the link axis lost its prose hook");
+  for (const line of link.split("\n")) {
+    if (!line.includes("{") || line.startsWith(":root") || line.startsWith(".dark")) continue;
+    assert.equal(/(^|[\s,])a \{/.test(line), false, "the link axis reaches every anchor on the site: " + line);
+  }
+
+  // IMAGERY REACHES THE PHOTO HOOK, never `img` — `SafeImage`'s placeholder is
+  // already drawn in the theme's own colours, and a grayscale filter over it
+  // would grey out the one thing on a picture-less site that is not grey.
+  const img = T.imageryCss({ ...theme, imagery: "mono" });
+  assert.match(img, /\[data-slot="photo"\] \{/, "the imagery axis lost its hook");
+  assert.equal(/(^|[\s,])img\b/.test(img), false, "the imagery axis reaches every img, placeholder included");
+
+  // THE SCRIM AXIS MOVES THE TOKEN, so anything else that reads `--scrim` moves
+  // with it; only `blur` touches the overlay directly, because there is no
+  // alpha to move there.
+  assert.match(T.scrimCss({ ...theme, scrim: "heavy" }), /--scrim:/, "heavy stopped moving the token");
+  assert.match(T.scrimCss({ ...theme, scrim: "blur" }), /\[data-slot="overlay"\] \{[^}]*backdrop-filter/,
+    "blur has no alpha to move, so it must reach the overlay");
+
+  // CONTROLS WRITES ONE PROPERTY. `accent-color` is the whole mechanism, and a
+  // second declaration here would be styling the browser's own drawing by
+  // guesswork.
+  const ctl = T.controlsCss({ ...theme, controls: "brand" });
+  assert.match(ctl, /accent-color:/);
+  assert.equal((ctl.match(/[a-z-]+:/g) || []).length, 1, "controls wrote more than accent-color: " + ctl);
+});
+
+test("SELECTION USES FITTED TOKEN PAIRS, never a colour picked here", () => {
+  // `--primary-foreground` is chosen by `foregroundFor` to be legible ON
+  // `--primary`, so brand-coloured selected text cannot come out unreadable.
+  // A hand-picked pair here would be a second opinion about a question the
+  // palette already answers, and the failure is text nobody can read at the
+  // exact moment they are trying to copy it.
+  const theme = normalizeSeeds({ name: "W", paper: "#faf7f2", ink: "#1b1714", accent: "#b44a2e" }).theme;
+  const PAIRS = { brand: ["--primary", "--primary-foreground"], soft: ["--muted", "--foreground"], invert: ["--foreground", "--background"] };
+  for (const [style, [bg, fg]] of Object.entries(PAIRS)) {
+    const css = T.selectionCss({ ...theme, selection: style });
+    assert.match(css, new RegExp("^::selection \\{"), style + " left the selection pseudo-element");
+    assert.match(css, new RegExp("background-color: var\\(" + bg + "\\)"), style + " does not use " + bg);
+    assert.match(css, new RegExp("color: var\\(" + fg + "\\)"), style + " does not use " + fg);
+    assert.equal(/oklch|#[0-9a-f]{3}/i.test(css), false, style + " names a colour instead of a token: " + css);
+  }
+});
+
+test("`--scrim` IS READ BY THE KIT — a token nothing references changes nothing", () => {
+  // The state this template was already in, and the reason the `display` axis
+  // was dead for as long as it was: a value can be derived perfectly, emitted
+  // into both blocks and reported as applied while no element on the page ever
+  // reads it. Measured against the kit rather than assumed.
+  const dir = new URL("../builder/lovable/template/src/components/ui/", import.meta.url);
+  const overlays = ["sheet.tsx", "dialog.tsx", "alert-dialog.tsx", "drawer.tsx"];
+  for (const f of overlays) {
+    const src = fs.readFileSync(new URL(f, dir), "utf8");
+    assert.match(src, /bg-\(--scrim\)/, f + " does not read --scrim — its overlay is back on a literal");
+    assert.equal(/bg-black\/\d+/.test(src), false, f + " still carries a flat black overlay");
+    assert.match(src, /data-slot="overlay"/, f + " lost the hook the scrim axis selects");
+  }
+  // …and the token really is emitted, in BOTH blocks, or the class above
+  // resolves to nothing and every overlay renders fully transparent.
+  const theme = normalizeSeeds({ name: "W", paper: "#faf7f2", ink: "#1b1714", accent: "#b44a2e" }).theme;
+  const css = T.themeCss(theme);
+  for (const sel of [":root", ".dark"]) {
+    const block = css.slice(css.indexOf(sel + " {"), css.indexOf("}", css.indexOf(sel + " {")));
+    assert.match(block, /--scrim: oklch\([^)]* \/ [\d.]+\)/, sel + " has no translucent --scrim");
+  }
 });

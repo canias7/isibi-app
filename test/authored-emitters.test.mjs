@@ -38,6 +38,11 @@ const AUTHORED = {
   focus: "outline-width: 4px",
   reveal: "opacity: 0; transform: translateY(22px)",
   transition: "opacity: 0; transform: translateY(9px)",
+  scrim: "background-color: oklch(0.1 0.03 250 / 0.85)",
+  selection: "background-color: oklch(0.6 0.2 300); color: oklch(1 0 0)",
+  controls: "accent-color: oklch(0.55 0.18 150)",
+  imagery: "filter: grayscale(0.6)",
+  link: "color: oklch(0.45 0.19 265)",
   backdrop: { light: ["linear-gradient(#fff5,#0000)"], dark: ["linear-gradient(#0005,#0000)"] },
   decor: {
     light: ["repeating-linear-gradient(45deg,#0001 0 9px,transparent 9px 22px)"],

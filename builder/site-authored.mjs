@@ -232,6 +232,16 @@ export const AXIS_DECLS = Object.freeze({
   focus:   { sel: "anything the keyboard lands on", props: { "outline-width": "length", "outline-color": "color", "outline-offset": "length", "outline-style": ["solid", "dashed", "dotted", "double"], "box-shadow": "shadow" } },
   reveal:  { sel: "each section, as it scrolls into view — write where it STARTS", props: { opacity: "number", transform: "transform", filter: "filter" } },
   transition: { sel: "the outgoing page, between one route and the next", props: { opacity: "number", transform: "transform", filter: "filter" } },
+  // THE FIVE LATE SURFACES. Each allow-list is what the PROPERTY ITSELF can
+  // take, never a menu of looks: `::selection` is four names because the spec
+  // allows four (a padding written there is not refused by us, it is silently
+  // dropped by the browser), and `controls` is one because `accent-color` is
+  // the whole mechanism.
+  scrim:   { sel: "the shade behind a dialog, a sheet or the mobile menu — it covers the WHOLE viewport, so a strong colour here tints the entire screen", props: { "background-color": "color", "background-image": "image", "backdrop-filter": "filter", opacity: "number" } },
+  selection: { sel: "text the visitor has highlighted — a browser accepts ONLY these four properties here and silently ignores anything else", props: { color: "color", "background-color": "color", "text-shadow": "shadow", "text-decoration-color": "color" } },
+  controls: { sel: "the browser's own checkboxes, radios, sliders and progress bars", props: { "accent-color": "color" } },
+  imagery: { sel: "every photograph on the site — NOT the placeholder a picture-less site shows, which is already drawn in the theme's own colours", props: { filter: "filter", opacity: "number", "border-radius": "radius", transform: "transform" } },
+  link:    { sel: "a link in the prose, and nothing else — the nav, the footer and buttons-as-links are untouched", props: { color: "color", "text-decoration-color": "color", "text-decoration-thickness": "length", "text-underline-offset": "length", "font-weight": "number" } },
   // The two that were already authorable, unchanged in shape: a background-image
   // value rather than a declaration block, validated by `site-css.mjs`.
   backdrop: { sel: "the page's own ground", image: true },

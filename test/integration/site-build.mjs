@@ -1578,9 +1578,20 @@ function Home() {
     // property `skin` owns, so the block is dropped — and the axis has to fall
     // back to its own default rather than to nothing, or one bad answer costs
     // the whole look.
+    // QUOTING-AGNOSTIC, and it had to become so: Lightning CSS UNQUOTES every
+    // attribute selector, so `[data-slot="card"]` is a spelling the compiler
+    // never emits and this negative assertion could not have fired against any
+    // bundle. It passed for as long as it existed. Measured while adding the
+    // late surfaces — 94 attribute selectors in one bundle, every one unquoted.
     ok("a refused block does NOT reach the stylesheet",
-      !/\[data-slot="card"\][^{}]*\{[^{}]*display:\s*none/.test(css),
+      !/\[data-slot=["']?card["']?\][^{}]*\{[^{}]*display:\s*none/.test(css),
       "an unowned property was emitted onto the card selector");
+    // …and the check can SEE the card selector at all, or the line above is
+    // green because it is looking at nothing. A negative assertion has to prove
+    // its observer is alive first.
+    ok("…and the card hook really is in the bundle for that to mean anything",
+      /\[data-slot=["']?card["']?\]/.test(css),
+      "no card selector in the stylesheet — the refusal check above is vacuous");
     // AND THE AXES AROUND IT ARE UNTOUCHED, which is the property this layer
     // CAN see. `styleDropped`/`styleNote` are composed in the WORKER — the
     // container is handed a patch and reports `styleUsed`, the enum map — so
@@ -1628,6 +1639,138 @@ function Home() {
     ok("…AND the authored corner, which the strip used to eat",
       /border-radius:\s*18px/.test(css),
       "an authored corner beside a radius token is gone from the bundle again");
+  }
+
+  // ── THE FIVE LATE SURFACES ────────────────────────────────────────────────
+  // Only a real build can answer the two things that matter here, and both are
+  // invisible to the unit suite: whether Tailwind COMPILES `bg-(--scrim)` into a
+  // rule that reads the token, and whether the token is in the sheet for it to
+  // read. A module test sees the string an emitter returned; it cannot see the
+  // compiler deciding not to emit a class nothing uses, which is exactly how
+  // the `display` axis was dead for as long as it was.
+  //
+  // THREE OF THESE ASSERTIONS WERE WRONG ON THEIR FIRST RUN AND THE ENGINE WAS
+  // RIGHT ALL THREE TIMES. Recorded here because each is a shape this repo
+  // keeps paying for, and the corrected forms below only make sense against it:
+  //
+  //   1. `\[data-slot="photo"\]` — LIGHTNING CSS UNQUOTES ATTRIBUTE SELECTORS.
+  //      Measured: 94 of them in one bundle, every one `[data-slot=photo]`. So
+  //      the quoted form is a spelling the compiler never emits, and the axis
+  //      was reported missing while its rule was in the sheet. The `41.17%`-for-
+  //      `0.4117` class again — and that one is here too: `--scrim` lands as
+  //      `oklch(9.37% .0087 59.15/.72)`, a percentage where the emitter wrote a
+  //      fraction, which is why nothing below reads a lightness back as a number.
+  //   2. `#000` — `background-color:#0000` appears 10 times in EVERY build and
+  //      is TRANSPARENT, not black: a four-digit hex whose last digit is alpha.
+  //      A false alarm on correct code, which this harness may not produce.
+  //   3. "a site that asked for none has none" — the KIT emits two of the five
+  //      shapes itself. `native-select.tsx` carries `selection:bg-primary`, so
+  //      `::selection{background-color:var(--primary)}` is in every bundle; and
+  //      Tailwind v4 ships `accent-*` UTILITIES, so `.accent-background{accent-
+  //      color:…}` is too. Both are indistinguishable from our own `brand`
+  //      option by content alone — so the control build below asks for options
+  //      the kit cannot produce, and the leak check reads the SELECTOR.
+  console.log("\nbuilding with the five late surfaces…");
+  const late = await post({
+    files: { "index.tsx": INDEX, "menu.tsx": MENU },
+    slug: "fold-coffee", ...themeAsSeeds("broadsheet"),
+    // `invert` RATHER THAN `brand`, deliberately: the kit's own `selection:bg-primary`
+    // compiles to byte-identical output to our `brand` option, so `brand` here
+    // could never tell the axis from the utility. `invert` names a pair the kit
+    // never writes.
+    style: { ...HOUSE_STYLE, scrim: "heavy", selection: "invert", controls: "brand", imagery: "mono", link: "accent" },
+  });
+  ok("a build asking for all five succeeds", late.ok === true, JSON.stringify(late).slice(0, 200));
+  {
+    const css = Object.entries(late.files || {})
+      .filter(([k]) => k.endsWith(".css")).map(([, v]) => v.t || "").join("\n");
+    const plainCss = Object.entries(rounder.files || {})
+      .filter(([k]) => k.endsWith(".css")).map(([, v]) => v.t || "").join("\n");
+    // Quoting-agnostic, for the reason in (1) above.
+    const slot = (name) => new RegExp("\\[data-slot=[\"']?" + name + "[\"']?\\]");
+    const scrimsIn = (t) => [...t.matchAll(/--scrim:\s*([^;}]+)/g)].map((m) => m[1].trim());
+
+    // THE TOKEN, IN BOTH BLOCKS, ON EVERY SITE. A `--scrim` in `:root` only
+    // leaves every dark site's overlay reading whatever the light block set,
+    // which is the wrong colour rather than none.
+    const scrims = scrimsIn(css);
+    ok("`--scrim` is emitted for both modes", scrims.length >= 2, "found " + scrims.length + ": " + scrims.join(" | "));
+    ok("…and it is translucent, or it is a black rectangle rather than a shade",
+      scrims.every((v) => /\/\s*\.?[\d.]+\s*\)/.test(v)), scrims.join(" | "));
+
+    // THE CLASS TAILWIND HAD TO COMPILE. `bg-(--scrim)` is v4's arbitrary-value
+    // syntax; if it did not compile, the overlay has NO background at all and
+    // every dialog on the site opens with the page fully visible behind it —
+    // which typechecks, bundles, publishes and looks like the panel is broken.
+    ok("Tailwind compiled the overlay class into a rule that reads the token",
+      /background-color:\s*var\(--scrim\)/.test(css),
+      "the overlay's background never reached the stylesheet — every dialog opens with no shade");
+    // …AND NOTHING ELSE PAINTS IT. The flat `bg-black/80` it replaced would show
+    // up as a literal background on whatever rule reaches the overlay.
+    //
+    // IT DOES NOT LOOK FOR AN `[data-slot=overlay]` RULE, and my first draft did
+    // — which failed against a perfectly correct bundle. That hook exists for the
+    // AXIS; the overlay's ordinary background comes from the Tailwind UTILITY the
+    // kit writes, so a site that has not asked for `scrim: blur` has no such rule
+    // at all and should not. What is true either way is that every rule painting
+    // this overlay names the token.
+    {
+      const painters = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+        .filter(([, sel, body]) => /background-color:\s*var\(--scrim\)/.test(body)
+          || /\[data-slot=["']?overlay["']?\]/.test(sel));
+      const literal = painters.filter(([, , body]) =>
+        /background(-color)?:\s*(#[0-9a-f]{3,8}|rgba?\(|black\b)/i.test(body));
+      ok("…and the overlay is painted from the token, by nothing else",
+        painters.length >= 1 && literal.length === 0,
+        painters.length ? "a literal paints the overlay: " + literal.map((m) => m[0]).join(" | ").slice(0, 160)
+          : "nothing in the sheet paints the overlay at all — the class did not compile");
+    }
+
+    // THE OTHER FOUR, each on the hook it selects.
+    ok("the selection axis reached the sheet", /::selection\s*\{[^}]*var\(--foreground\)/.test(css),
+      "no inverted ::selection rule — the axis is stored and invisible");
+    ok("the controls axis reached the sheet", /:root\s*\{[^}]*accent-color:\s*var\(--primary\)/.test(css),
+      "no accent-color at the root — native checkboxes still wear the operating system's");
+    // `grayscale(1)` MINIFIES TO `grayscale()`, which means the same thing, so
+    // the check asks for the function rather than its argument.
+    ok("the imagery axis reached the photo hook",
+      new RegExp(slot("photo").source + "[^{]*\\{[^}]*filter:\\s*grayscale").test(css),
+      "no filter on the photo hook — the axis is stored and invisible");
+    ok("the link axis reached the prose hook",
+      /a\.underline[^{]*\{[^}]*color:\s*var\(--link\)/.test(css) && /--link:/.test(css),
+      "no prose-link rule, or no --link token for it to read");
+
+    // AND NONE OF IT IS THERE ON A SITE THAT NEVER ASKED. Every assertion above
+    // passes just as well against an engine that emits all five unconditionally
+    // — which would re-style every existing customer on their next typo fix.
+    //
+    // `--scrim` IS DELIBERATELY NOT IN THIS LIST: the token is part of the
+    // palette now, so it is on every site by design and its absence would be
+    // the bug. What the axis moves is the ALPHA, checked separately below.
+    ok("a build that asked for none of them has none of them",
+      !/::selection\s*\{[^}]*var\(--foreground\)/.test(plainCss) &&
+      !/:root\s*\{[^}]*accent-color:/.test(plainCss) &&
+      !new RegExp(slot("photo").source + "[^{]*\\{[^}]*filter:").test(plainCss) &&
+      !/--link:/.test(plainCss),
+      "one of the four is on by default — every published site changes on its next unrelated edit");
+    // …and the scrim axis really moved the alpha rather than doing nothing.
+    //
+    // IT READS THE LAST PAIR, NOT THE FIRST, and that ordering IS the mechanism
+    // rather than an accident of parsing: the palette emits `--scrim` in the
+    // `:root`/`.dark` blocks on every site, and the axis RE-EMITS it after them,
+    // so a five-build carries four declarations (`.72 .72 .9 .9`) and source
+    // order is what makes the axis win. My first draft compared them positionally
+    // and read the palette's own value against itself — measured `.72 vs .72` on
+    // a bundle where the override was sitting two declarations further down.
+    {
+      const alphaOf = (t) => scrimsIn(t).map((v) => (v.match(/\/\s*(\.?[\d.]+)/) || [])[1]).filter(Boolean);
+      const heavy = alphaOf(css), dim = alphaOf(plainCss);
+      const last2 = (a) => a.slice(-2).map(Number);
+      ok("the scrim axis re-emits the token after the palette, heavier",
+        heavy.length > dim.length && dim.length >= 2 &&
+        last2(heavy).length === 2 && last2(heavy).every((h, i) => h > last2(dim)[i]),
+        `heavy ${heavy.join(",")} against dim ${dim.join(",")}`);
+    }
   }
 
   // A patch that cannot be used must not fail a build that otherwise worked —

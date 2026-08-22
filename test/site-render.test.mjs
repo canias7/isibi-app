@@ -182,19 +182,37 @@ test("the triggers are ones the KIT renders, never a guess at the page's own mar
 });
 
 test("WHICH SELECTORS CAN ACTUALLY FIRE, measured against the kit rather than assumed", () => {
-  // This template's overlays are raw Radix (`const SheetTrigger =
-  // SheetPrimitive.Trigger`), so it renders NO data-slot and the whole check
-  // rides on the two aria-haspopup lines. That is fine and it is written down —
-  // what is not fine is a list where most entries can never match while reading
-  // as though they cover five components. If a kit refresh starts stamping
-  // data-slot, this goes red and the comment in the module needs correcting.
+  // This template's overlay TRIGGERS are raw Radix (`const SheetTrigger =
+  // SheetPrimitive.Trigger`), so no trigger renders a data-slot and the whole
+  // check rides on the two aria-haspopup lines. That is fine and it is written
+  // down — what is not fine is a list where most entries can never match while
+  // reading as though they cover five components. If a kit refresh starts
+  // stamping trigger slots, this goes red and the module's comment needs
+  // correcting.
+  //
+  // IT ASKS ABOUT THE TRIGGER SLOTS BY NAME, not about `data-slot` appearing
+  // anywhere in the file, and the narrowing is the whole point. The first form
+  // went red the moment the `scrim` axis stamped `data-slot="overlay"` on the
+  // shade BEHIND the panel — a stamp that is not a trigger, cannot be clicked,
+  // and leaves every sentence in that comment true. A false alarm on correct
+  // code is worse than the miss, which is this check's own charter.
   const dir = new URL("../builder/lovable/template/src/components/ui/", import.meta.url);
   const overlays = ["sheet.tsx", "dialog.tsx", "drawer.tsx", "dropdown-menu.tsx", "popover.tsx"];
+  const triggerSlots = OVERLAY_TRIGGERS
+    .map((sel) => (sel.match(/^\[data-slot="([a-z-]+)"\]$/) || [])[1]).filter(Boolean);
+  assert.equal(triggerSlots.length, 5, "the five inert selectors are what this measures — it read " + triggerSlots.length);
   const withSlot = overlays.filter((f) => {
-    try { return /data-slot=/.test(fs.readFileSync(new URL(f, dir), "utf8")); } catch { return false; }
+    let src = "";
+    try { src = fs.readFileSync(new URL(f, dir), "utf8"); } catch { return false; }
+    return triggerSlots.some((slot) => new RegExp('data-slot="' + slot + '"(?![-\\w])').test(src));
   });
   assert.deepEqual(withSlot, [],
-    "the kit now stamps data-slot on " + withSlot.join(", ") + " — the module's comment says it does not");
+    "the kit now stamps a TRIGGER slot on " + withSlot.join(", ") + " — the module's comment says it does not");
+  // …and the overlay stamp really is there and really is not a trigger, or the
+  // narrowing above is protection against a case that cannot arise.
+  const sheet = fs.readFileSync(new URL("sheet.tsx", dir), "utf8");
+  assert.match(sheet, /data-slot="overlay"/, "the scrim axis needs this hook — the narrowing above is about it");
+  assert.equal(triggerSlots.includes("overlay"), false, "overlay is not a trigger and must never be clicked as one");
   // And the two that DO carry it must still be in the list, or the check is dead.
   assert.ok(OVERLAY_TRIGGERS.includes('[aria-haspopup="dialog"]'), "the only selector a Sheet or Dialog trigger matches");
   assert.ok(OVERLAY_TRIGGERS.includes('[aria-haspopup="menu"]'), "the only selector a DropdownMenu trigger matches");

@@ -836,6 +836,12 @@ export const STYLE_TARGETS = Object.freeze({
   card: { sel: '[data-slot="card"]', said: "cards" },
   badge: { sel: '[data-slot="badge"]', said: "badges and tags" },
   heading: { sel: HEADING_SEL, said: "headings" },
+  // TWO HOOKS THE KIT DID NOT CARRY UNTIL THE AXES NEEDED THEM, and both were
+  // stamped in the same change that added the axis — a target naming a hook
+  // nothing renders is the dead-axis failure this list exists to prevent, and
+  // the derived guard below refuses one.
+  overlay: { sel: '[data-slot="overlay"]', said: "the shade behind a dialog or menu" },
+  photo: { sel: '[data-slot="photo"]', said: "photographs" },
 });
 
 /**
@@ -2229,6 +2235,213 @@ export function pageCss(theme) {
     `}\n`;
 }
 
+/**
+ * ============================================================================
+ * THE FIVE SURFACES NOTHING COULD REACH — measured before any of them was
+ * built, because "there is no axis for X" and "X does not exist on these
+ * sites" are different problems with different fixes.
+ *
+ *   scrim      all four overlays in the kit were `bg-black/80` — one flat
+ *              black behind every dialog, sheet and mobile menu on every site
+ *   selection  `::selection` was set by 1 of 2,112 kit components, so
+ *              highlighting text on a generated site showed the BROWSER's
+ *              blue, which belongs to no theme on this platform
+ *   controls   `accent-color` appeared 0 times anywhere, against 101 native
+ *              checkboxes, radios, ranges and progress bars across 85 kit
+ *              files — every one of them wearing the OS accent
+ *   imagery    a photograph was whatever the owner uploaded, with no way to
+ *              say the site is monochrome or warm
+ *   link       187 prose links across 176 of the 324 corpus pages, and not
+ *              one of them names a colour — the generator CANNOT name one
+ *              (`lintPages` refuses it), so a link takes the body ink and is
+ *              marked by its underline alone. Legitimate, and unaskable.
+ *
+ * NONE OF THE FIVE HAS A DEFAULT THAT MOVES AN EXISTING SITE. Every one emits
+ * the empty string until it is asked for, which is the rule `pressed` and
+ * `transition` already live under: `applyStyle` runs on EVERY publish of EVERY
+ * site — a text fix, a colour change, a swapped picture — so a live default
+ * here is the whole platform re-styled by somebody's typo fix.
+ * ============================================================================
+ */
+
+/**
+ * THE SHADE BEHIND A PANEL. The COLOUR is derived by `scrimFor` and emitted as
+ * `--scrim` on every site; this axis only moves how much of the page it hides,
+ * or blurs it instead.
+ *
+ * `blur` DOES NOT ALSO DARKEN, deliberately: a frosted overlay whose whole
+ * point is that the page stays legible behind it, for a site where the panel
+ * is a navigation aid rather than a modal demanding an answer. Stacking both
+ * would make the option mean two things and neither well.
+ */
+export const SCRIMS = {
+  dim: { label: "the ordinary shade" },
+  soft: { label: "a lighter shade — you can still read the page behind" },
+  heavy: { label: "the page all but disappears behind the panel" },
+  blur: { label: "the page is blurred rather than darkened" },
+};
+
+const SCRIM_ALPHAS = { soft: 0.55, heavy: 0.9 };
+
+export function scrimCss(theme) {
+  const style = theme && theme.scrim;
+  const own = authored(style);
+  if (own) return `${STYLE_TARGETS.overlay.sel} { ${own} }\n`;
+  if (!Object.hasOwn(SCRIMS, String(style)) || style === "dim") return "";
+  if (style === "blur") {
+    // `-webkit-` beside it for the same reason `surfaceCss` carries one: Safari
+    // shipped the prefixed form for years and a bare declaration is silently
+    // dropped there, which is a transparent overlay rather than a frosted one.
+    return `${STYLE_TARGETS.overlay.sel} { background-color: transparent; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }\n`;
+  }
+  // THE TOKEN, RE-EMITTED, rather than a rule on the overlay — so anything else
+  // that ever reads `--scrim` moves with it, and the colour keeps coming from
+  // the ONE derivation rather than being restated here at another alpha.
+  const a = SCRIM_ALPHAS[style];
+  const at = (mode) => `--scrim: ${css([...scrimFor(theme, mode).slice(0, 3), a])};`;
+  return `:root { ${at("light")} }\n.dark { ${at("dark")} }\n`;
+}
+
+/**
+ * WHAT HIGHLIGHTED TEXT LOOKS LIKE. Small, and it is the one piece of chrome a
+ * visitor produces themselves — anybody copying an address or a price out of a
+ * site sees it, and on every site this platform has built it was the browser's
+ * own blue.
+ *
+ * `::selection` TAKES ALMOST NO PROPERTIES — the spec allows colour, background
+ * colour, text-shadow and the decoration/stroke colours, and a browser ignores
+ * everything else. That is why the authored allow-list here is four names
+ * rather than the dozen a surface axis carries: a padding or a border-radius
+ * written into this block is not refused by us, it is silently dropped by the
+ * browser, which is the one failure shape a validator can prevent.
+ */
+export const SELECTIONS = {
+  plain: { label: "the browser's own highlight" },
+  brand: { label: "the brand colour, with legible text on it" },
+  soft: { label: "a quiet wash rather than a block of colour" },
+  invert: { label: "the ink and the paper swap over" },
+};
+
+export function selectionCss(theme) {
+  const style = theme && theme.selection;
+  const own = authored(style);
+  if (own) return `::selection { ${own} }\n`;
+  if (!Object.hasOwn(SELECTIONS, String(style)) || style === "plain") return "";
+  // EVERY PAIR IS A TOKEN PAIR THE PALETTE ALREADY FITTED, never a hand-picked
+  // colour: `--primary-foreground` is chosen by `foregroundFor` to be legible
+  // ON `--primary`, so brand-coloured selected text cannot come out unreadable.
+  const pair = style === "brand" ? ["var(--primary)", "var(--primary-foreground)"]
+    : style === "soft" ? ["var(--muted)", "var(--foreground)"]
+      : ["var(--foreground)", "var(--background)"];
+  return `::selection { background-color: ${pair[0]}; color: ${pair[1]}; }\n`;
+}
+
+/**
+ * THE NATIVE CONTROLS — a checkbox, a radio, a range slider, a progress bar.
+ *
+ * `accent-color` is one property that colours the browser's OWN drawing of all
+ * four, and the browser picks the checkmark's own colour for contrast, so there
+ * is no legibility question to get wrong. Without it those controls wear the
+ * operating system's accent: a form on a barber's site rendering in Windows
+ * blue on one visitor's machine and macOS pink on another's.
+ *
+ * `ink` IS NOT A REDUNDANT OPTION. A page of checkboxes in a saturated brand
+ * colour is louder than the brand should be at that size, and a monochrome
+ * site wants them in the ink — which is a different answer from leaving them
+ * to the OS, because it is still the site's decision.
+ */
+export const CONTROLS = {
+  plain: { label: "whatever the visitor's own device draws" },
+  brand: { label: "checkboxes and sliders in the brand colour" },
+  ink: { label: "checkboxes and sliders in the body ink" },
+};
+
+export function controlsCss(theme) {
+  const style = theme && theme.controls;
+  const own = authored(style);
+  if (own) return `:root { ${own} }\n`;
+  if (!Object.hasOwn(CONTROLS, String(style)) || style === "plain") return "";
+  return `:root { accent-color: ${style === "ink" ? "var(--foreground)" : "var(--primary)"}; }\n`;
+}
+
+/**
+ * HOW PHOTOGRAPHS ARE TREATED. The hook is `SafeImage`'s own `<img>`, which is
+ * the one element every real picture on a generated site goes through — 202
+ * direct uses across the corpus plus 194 more drawn by 20 kit components that
+ * all render through it.
+ *
+ * THE PLACEHOLDER IS DELIBERATELY NOT INCLUDED. `SafeImage` renders a designed
+ * duotone wash when there is no picture yet, built from the theme's own tokens
+ * — it is already the site's colours, and putting a grayscale filter over it
+ * would grey out the one thing on a fresh site that is not grey.
+ *
+ * NO `mix-blend-mode` ON THE AUTHORED PATH, and it is the one exclusion worth
+ * stating: what a blend produces depends entirely on what is behind it, which
+ * is unknowable when the block is written, so the model would be choosing a
+ * result it cannot see. Every other property here paints the same way whatever
+ * it lands on.
+ */
+export const IMAGERY = {
+  plain: { label: "photographs as they were taken" },
+  mono: { label: "black and white" },
+  warm: { label: "a warm cast over every picture" },
+  soft: { label: "gentler contrast and colour" },
+};
+
+export function imageryCss(theme) {
+  const style = theme && theme.imagery;
+  const own = authored(style);
+  if (own) return `${STYLE_TARGETS.photo.sel} { ${own} }\n`;
+  if (!Object.hasOwn(IMAGERY, String(style)) || style === "plain") return "";
+  const filter = style === "mono" ? "grayscale(1)"
+    : style === "warm" ? "sepia(0.35) saturate(1.15)"
+      : "saturate(0.82) contrast(0.94)";
+  return `${STYLE_TARGETS.photo.sel} { filter: ${filter}; }\n`;
+}
+
+/**
+ * A LINK IN THE PROSE, which the generator cannot colour and never has.
+ *
+ * `lintPages` refuses a page that names a colour, so every one of the 187 prose
+ * links across the corpus is `underline underline-offset-4` and takes whatever
+ * ink surrounds it. That is a real editorial choice rather than a bug — and it
+ * was the only one available.
+ *
+ * THE HOOK IS `a.underline`, which is Tailwind's own utility and therefore
+ * exactly the mark the generator already puts on a link it means as prose. A
+ * bare `a` would catch the nav, the footer, every card that is a link and every
+ * button rendered as an anchor, and repaint all of them.
+ *
+ * THE COLOUR GOES THROUGH `displayColor`, not the raw accent, for the reason
+ * that function exists: the accent is tuned to CARRY white button text rather
+ * than to BE text on paper. At body size that matters more than it does in a
+ * heading, so it is fitted to 4.5:1 against the page before it ships.
+ */
+export const LINKS = {
+  ink: { label: "links are the body ink, marked by their underline" },
+  accent: { label: "links carry the brand colour" },
+  quiet: { label: "links sit back until you point at them" },
+};
+
+export function linkCss(theme) {
+  const style = theme && theme.link;
+  const own = authored(style);
+  const SEL = "a.underline";
+  if (own) return `${SEL} { ${own} }\n`;
+  if (!Object.hasOwn(LINKS, String(style)) || style === "ink") return "";
+  const tok = (mode) => `--link: ${css(displayColor(theme, mode))};`;
+  const tokens = `:root { ${tok("light")} }\n.dark { ${tok("dark")} }\n`;
+  // `quiet` STILL ANSWERS THE POINTER, and the hover half is what makes it a
+  // legitimate option rather than a hidden link: muted-foreground clears 4.5:1
+  // against the page by construction (`paletteFor` asserts it), so the resting
+  // state is readable and the brand colour is the reward for pointing at it.
+  if (style === "quiet") {
+    return tokens + `${SEL} { color: var(--muted-foreground); }\n` +
+      `@media (hover: hover) { ${SEL}:hover { color: var(--link); } }\n`;
+  }
+  return tokens + `${SEL} { color: var(--link); }\n`;
+}
+
 export function skinCss(style) {
   const own = authored(style);
   if (own) return `${STYLE_TARGETS.card.sel} { ${own} }\n`;
@@ -2451,6 +2664,49 @@ export const THEMES = {
   // turns a plum into a candy pink.
 };
 
+/**
+ * HOW FAR BELOW THE DARKER ANCHOR THE SCRIM SITS, how much of the brand's
+ * chroma it keeps, and how much of the page it hides.
+ *
+ * 0.72 rather than the kit's old flat `bg-black/80`: the value is no longer
+ * pure black, so a tinted near-black at 0.72 lands within a hair of black at
+ * 0.8 over a light page while leaving slightly more of the site readable
+ * behind a sheet — which is what a mobile menu wants, since the panel is a
+ * navigation aid and the page behind it is where you were.
+ */
+const SCRIM_DARKEN = 0.45;
+const SCRIM_CHROMA = 0.03;
+const SCRIM_ALPHA = 0.72;
+
+/**
+ * THE GROUND BEHIND A DIALOG, A SHEET OR THE MOBILE MENU — the one surface the
+ * palette never derived. All four overlays in the kit were `bg-black/80`, so
+ * the same flat black sat behind every panel on every site whatever the theme
+ * was.
+ *
+ * IT DARKENS IN BOTH MODES, which is why it cannot simply be the ink. In light
+ * mode the ink IS the dark anchor; in dark mode the ink is nearly white, so a
+ * scrim derived from it would BRIGHTEN the page behind the panel — the opposite
+ * of what a scrim is for. What both modes share is that the overlay has to sit
+ * below whatever it covers, so it comes from whichever anchor is darker and is
+ * then pulled further toward black. On a dark theme that step is what makes it
+ * visible at all: a scrim AT the paper's own lightness dims nothing.
+ *
+ * THE CHROMA IS CAPPED RATHER THAN KEPT. A scrim covers the whole viewport, so
+ * a saturated brand at full chroma tints the entire screen and reads as a
+ * coloured filter over the site rather than as the page receding. A trace of
+ * the hue is what makes it the site's own black instead of everybody's.
+ *
+ * ONE DERIVATION, SHARED. `paletteFor` emits the token and `scrimCss` re-emits
+ * it at another alpha; two copies of this drift on rounding, and what a drift
+ * costs here is a scrim whose alpha the axis moved and whose colour it did not.
+ */
+export function scrimFor(theme, mode) {
+  const { paper, ink } = theme[mode];
+  const dimmer = paper[0] <= ink[0] ? paper : ink;
+  return [dimmer[0] * SCRIM_DARKEN, Math.min(dimmer[1], SCRIM_CHROMA), dimmer[2], SCRIM_ALPHA];
+}
+
 /** Every token for one mode, derived from that mode's three colours. */
 export function paletteFor(theme, mode) {
   const { paper, ink, accent } = theme[mode];
@@ -2502,6 +2758,7 @@ export function paletteFor(theme, mode) {
     success: sem.success, "success-foreground": fg(sem.success),
     warning: sem.warning, "warning-foreground": fg(sem.warning),
     border, input, ring: accent,
+    scrim: scrimFor(theme, mode),
     // The sidebar is its own mini-palette in the template and most business
     // sites never render one, so it follows the page rather than being designed.
     sidebar: card, "sidebar-foreground": fg(card),
@@ -2635,6 +2892,15 @@ export function themeCss(nameOrTheme) {
     pressedCss(theme) +
     focusCss(theme) +
     revealCss(theme) +
+    // THE FIVE LATE SURFACES. All of them re-decide something a block above set
+    // — the scrim re-emits its own token, the link recolours an anchor the
+    // palette already gave a foreground — so source order is what makes them
+    // win, exactly as the interactive four above rely on it.
+    scrimCss(theme) +
+    selectionCss(theme) +
+    controlsCss(theme) +
+    imageryCss(theme) +
+    linkCss(theme) +
     // AND LAST, the only one that paints outside the page: the view-transition
     // pseudo-elements are the document's, not any element's, so nothing above
     // can collide with them. It is here rather than absent for a site that

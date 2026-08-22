@@ -86,10 +86,22 @@ const clip = (s, n = MAX_DETAIL) => String(s == null ? "" : s).replace(/\s+/g, "
  * to open an overlay, so the blast radius of a click is a panel appearing.
  *
  * WHICH OF THESE ACTUALLY FIRES WAS MEASURED, NOT ASSUMED, and only one pair
- * does. This template's overlays are RAW RADIX primitives — `const SheetTrigger =
- * SheetPrimitive.Trigger` — so nothing renders a `data-slot`, and the whole
- * check rides on the two `aria-haspopup` lines. Radix emits those itself, which
- * is why they work without the kit cooperating.
+ * does. This template's overlay TRIGGERS are RAW RADIX primitives — `const
+ * SheetTrigger = SheetPrimitive.Trigger` — so no trigger renders a `data-slot`,
+ * and the whole check rides on the two `aria-haspopup` lines. Radix emits those
+ * itself, which is why they work without the kit cooperating.
+ *
+ * THE OVERLAY ITSELF IS STAMPED AND THAT CHANGES NOTHING HERE (2026-08-22, for
+ * the `scrim` axis): `data-slot="overlay"` is on the shade BEHIND the panel, so
+ * it is not a trigger and there is nothing here to click. Said out loud because
+ * the guard below used to read "does any overlay file mention data-slot", which
+ * went red on that stamp while every claim in this paragraph stayed true — a
+ * false alarm on correct code, which this check exists not to produce.
+ *
+ * `probeOverlay` IS UNAFFECTED TOO, and it is worth knowing why rather than
+ * being lucky: it finds the panel by `[data-state="open"][data-slot$="-content"]`
+ * and `overlay` does not end in `-content`, so the deliberately-translucent
+ * scrim can never be measured AS the panel and reported see-through.
  *
  * The `data-slot` five are kept DELIBERATELY and said so here rather than left
  * looking load-bearing: newer shadcn stamps them, so a kit refresh is the likely
