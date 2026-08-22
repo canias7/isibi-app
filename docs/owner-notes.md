@@ -12,6 +12,40 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ## OPEN — waiting to be picked up
 
+**THE AUDIT IS DONE — ALL 80 FINDINGS FIXED (2026-08-22).** You asked for an
+honest audit of the whole build route and then "ok go fix all of it". 74 agents
+found 3 critical, 27 high, 31 medium, 18 low and 1 note; every one is fixed and
+the suite went 3617 → 3788 tests.
+
+* **What was worst, in plain terms.** A revise could silently make your public
+  menu private. "Put the site back online" restored the files and not the
+  script, so the site 404'd everywhere while you were told it was live. A failed
+  revise could overwrite a working site with the "your database is live"
+  placeholder — that guard had not been able to fire on ANY site built since we
+  moved to Start. And renaming or deleting a page broke every link you had
+  already sent and every URL Google had indexed, silently, on the feature built
+  specifically to stop that.
+* **Money.** Six refusals gave your credits back and then told you `cost: 0`
+  whether or not the refund actually landed. A scheduled job you PAUSED was
+  switched back on by the next publish of that site — spending your own
+  Twilio/Resend key on your own customers, with nothing saying it had restarted.
+  Every bilingual publish spent real model credits nothing was billing for.
+* **Attachments.** A PDF attached on the Grok picker was accepted, silently
+  dropped at the provider, and reported nowhere — so a café attaching its price
+  list paid for a build with an invented menu and every field said the file was
+  used. It says so now.
+* **The icon.** You upload a favicon, we save it, and the next cheap edit
+  published without it. It was read and never put on the wire, so the feature
+  was dead on its own lane.
+* **Proven live on Grok mid-round** — `fold-lane-bakery.gofarther.app`, 94
+  credits. Public menu served to a signed-out visitor, the orders table refusing
+  a public read, a real photograph bought.
+* **STILL BLOCKED ON YOU: the Anthropic account has no credit.** While it is
+  empty, `build smoke`, `edit smoke` and both quality evals cannot run at all —
+  they refuse in about a second and nothing is spent. Grok is the only picker
+  that can build a site right now.
+
+
 **ONE PAGE CAN HAVE ITS OWN TYPEFACE NOW (2026-08-19).** "The menu page should
 be in something handwritten", "use a serif on the about page". Before this the
 builder told you that was not something it did, and paying for a full rebuild
