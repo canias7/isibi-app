@@ -201,16 +201,27 @@ if (build) {
 async function traceLine(slug) {
   try {
     const r = await fetch(
-      `${SUPABASE_URL}/rest/v1/site_builds?slug=eq.${encodeURIComponent(slug)}&select=done,ok,page,total_ms,steps`,
+      `${SUPABASE_URL}/rest/v1/site_builds?slug=eq.${encodeURIComponent(slug)}&select=done,ok,page,total_ms,at,steps`,
       { headers: svc });
     if (!r.ok) return `trace read ${r.status}`;
     const rows = await r.json();
     const row = rows && rows[0];
     if (!row) return "no trace row yet";
-    const steps = row.steps || {};
-    const names = Object.keys(steps);
-    const last = names.length ? names[names.length - 1] : "(none)";
-    return `done=${row.done} ok=${row.ok} page=${row.page || "?"} marks=${names.length} last=${last}`;
+    // `steps` IS AN ARRAY OF `{s, ms}`, NOT A MAP — and the first draft read it
+    // with `Object.keys`, which on an array yields INDICES. So arm B's whole
+    // watch printed `last=19`, `last=21`, `last=22`: a number that reads like a
+    // mark and names nothing. The one question this line exists to answer is
+    // WHICH STEP, and it was the one thing it could not say.
+    //
+    // `at` is the row's own copy of the last step's NAME, written by rowFor
+    // from the same array, so reading it here cannot disagree with the trace.
+    // The tail is printed beside it because a name alone does not say whether
+    // the build is moving — three marks in ten seconds and one mark in eight
+    // minutes want different responses.
+    const steps = Array.isArray(row.steps) ? row.steps : [];
+    const tail = steps.slice(-3).map((s) => `${s && s.s}${Number.isFinite(s && s.ms) ? `(${Math.round(s.ms)}ms)` : ""}`).join(" -> ");
+    return `done=${row.done} ok=${row.ok} page=${row.page || "?"} marks=${steps.length} at=${row.at || "(none)"}` +
+      (tail ? `  [${tail}]` : "");
   } catch (e) {
     return `trace unreadable (${String((e && e.message) || e).slice(0, 60)})`;
   }

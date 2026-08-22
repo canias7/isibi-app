@@ -183,7 +183,7 @@ jobs:
           # the first build it never got. `lido-b-axes` was queued and never
           # fired, so it is free, but a name carrying a parked attempt's history
           # is a name somebody will misread in a week.
-          OWNER_SLUG: lido-axes-b
+          OWNER_SLUG: lido-free-a
           # THE PICKER IS GROK, AND IT IS A CONSTANT OF THIS EXPERIMENT.
           #
           # Both arms compare a STYLESHEET. Every other variable has to be held,
@@ -208,9 +208,25 @@ jobs:
           # one is easy to do: its `drift` backdrop was misreported as authored
           # because Lightning CSS had stripped a redundant keyword.
           OWNER_PICKER: grok
-          # ARM B — the 29 axes, which is today's path and needs no flag. Build
-          # 2 sets `OWNER_FREE_CSS: "1"` here and moves the slug; nothing else
-          # in this file changes between the two runs.
+          # ── ARM A — THE MODEL WRITES ITS OWN STYLESHEET ─────────────────────
+          #
+          # `freeCss: true` swaps the `style` field out of `design_schema` for a
+          # single `css` string. The 29 axes are GONE from the tool on this arm —
+          # not made optional, replaced — so the model has no named option to pick
+          # and no per-axis selector handed to it. What it gets instead is the hook
+          # list (`[data-slot="button"]`, `[data-slot="card"]`, `.lucide` and the
+          # rest) and a free hand.
+          #
+          # THIS IS THE ONE RULE THE PLATFORM OTHERWISE HOLDS ABSOLUTELY: "we own
+          # the selector, the model owns the declarations". Arm A breaks it on
+          # purpose, once, to find out what it buys. Everything downstream of the
+          # model call is unchanged — `writeFreeCss` bounds the string at 40,000
+          # characters, refuses a non-string, and appends it LAST so it wins on
+          # source order over the theme, the tokens and the per-page tokens.
+          #
+          # SAME BRIEF, SAME PICKER, SAME CEILINGS AS ARM B. Only this flag and the
+          # slug move between the two runs.
+          OWNER_FREE_CSS: "1"
           OWNER_BRIEF: "An open-air lido cafe on the south coast, beside a 1930s seawater swimming pool. One page shows the menu of coffee, ice cream and toasties with prices in pounds, readable without signing in. One page books a poolside table with a short form - name, phone, how many people, what time. The feel is late afternoon sun on the water: faded pastel paintwork, sun-bleached concrete, long low light."
         run: node scripts/build-as-owner.mjs
       - uses: actions/upload-artifact@v4
