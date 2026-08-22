@@ -353,8 +353,70 @@ export const ICON_STROKES = {
   heavy: { width: "2.5", label: "bold — trades, workshops, anything hard-wearing" },
 };
 
+/**
+ * AN AXIS IS EITHER A NAME OR THE THING THE NAME STOOD FOR (2026-08-22).
+ *
+ * The model authors every axis now — see `builder/site-authored.mjs` — and the
+ * two shapes meet HERE, in one expression, rather than in twenty-three
+ * emitters each learning a second lookup.
+ *
+ * `pick` is for the nine RAMP axes, which read a small object off their option
+ * table (`{ratio}`, `{steps}`, `{width}`, `{ms, ease}`). An authored ramp IS
+ * that object, already bounded by `readRamp`, so it needs no branch: a string
+ * is a key, an object is the answer. That is what keeps an authored ramp and a
+ * named one indistinguishable downstream — the property the whole shape was
+ * chosen for.
+ *
+ * A NAME THAT IS NOT IN THE TABLE STILL FALLS BACK, unchanged, which is what
+ * keeps every site built before today rendering exactly as it does now.
+ */
+const pick = (table, value, fallback, need) => {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    // AN OBJECT IS THE OPTION — but only if it carries what the emitter is
+    // about to destructure. `readRamp` guarantees that on the build path, so
+    // this fires only on a stored `_meta` that has been corrupted or written by
+    // an older shape — and there the alternative is `steps[0]` throwing inside
+    // `themeCss`, which reaches a customer as a failed build wearing a
+    // container-died message. Falling back gives them the default look and a
+    // site. Found by this function's own test, not by reading.
+    if (!need || need.every((k) => value[k] != null)) return value;
+    return fallback === null ? null : table[fallback];
+  }
+  // `Object.hasOwn`, NOT a plain lookup. `MOTIONS["constructor"]` is a function
+  // — truthy, so it walks straight past a `??` and hands back something that is
+  // not an option. `motionCss` already guarded against exactly this and would
+  // have lost the guard to a shared helper that did not. The same bug shipped
+  // once in the Stripe plan lookup and again in `resolveTheme`.
+  const key = String(value);
+  if (Object.hasOwn(table, key)) return table[key];
+  // A null fallback means "this axis is simply not set", which is a real answer
+  // for the ones whose emitter returns nothing rather than a default.
+  return fallback === null ? null : table[fallback];
+};
+
+/**
+ * `authored` is for the twelve DECLARATION axes. It answers the block a model
+ * wrote, or null when this axis is still a name.
+ *
+ * IT READS `.css`, WHICH IS THE STRING `readDecls` ASSEMBLED — never the
+ * model's own bytes. That is the security property stated one module over: the
+ * pairs came out of a parser that refused every character an escape would need,
+ * and the text that reaches a customer's stylesheet was serialised by us. An
+ * emitter reading a raw field here would put the model's bytes back in the file
+ * and make every refusal a claim about a scanner rather than about what is
+ * written.
+ *
+ * The EMITTER still owns the selector and the guard — `@media (hover: hover)`,
+ * `:focus-visible`, the `@supports` around a scroll timeline. Those are not
+ * decoration: a hover state without the media query STICKS after a tap on a
+ * phone, and a focus ring without `:focus-visible` is left behind by every
+ * mouse click. A model that had to remember them would eventually not.
+ */
+const authored = (value) =>
+  (value && typeof value === "object" && !Array.isArray(value) && typeof value.css === "string" && value.css) || null;
+
 export function iconCss(stroke) {
-  const w = (ICON_STROKES[stroke] ?? ICON_STROKES.regular).width;
+  const w = pick(ICON_STROKES, stroke, "regular", ["width"]).width;
   return `.lucide { stroke-width: ${w}; }\n`;
 }
 
@@ -376,7 +438,7 @@ export const TRACKINGS = {
 const TRACKING_STEPS = ["tighter", "tight", "normal", "wide", "wider", "widest"];
 
 export function trackingCss(tracking) {
-  const { steps } = TRACKINGS[tracking] ?? TRACKINGS.neutral;
+  const { steps } = pick(TRACKINGS, tracking, "neutral", ["steps"]);
   return `:root {\n` + TRACKING_STEPS.map((s, i) => `  --tracking-${s}: ${steps[i]}em;`).join("\n") + `\n}\n`;
 }
 
@@ -399,7 +461,7 @@ export const LEADINGS = {
 const LEADING_STEPS = ["tight", "snug", "normal", "relaxed"];
 
 export function leadingCss(leading) {
-  const { steps } = LEADINGS[leading] ?? LEADINGS.standard;
+  const { steps } = pick(LEADINGS, leading, "standard", ["steps"]);
   return `:root {\n` + LEADING_STEPS.map((s, i) => `  --leading-${s}: ${steps[i]};`).join("\n") + `\n}\n`;
 }
 
@@ -425,7 +487,7 @@ export const WEIGHTS = {
 const WEIGHT_STEPS = ["light", "normal", "medium", "semibold", "bold", "extrabold", "black"];
 
 export function weightCss(weight) {
-  const { steps } = WEIGHTS[weight] ?? WEIGHTS.standard;
+  const { steps } = pick(WEIGHTS, weight, "standard", ["steps"]);
   return `:root {\n` + WEIGHT_STEPS.map((s, i) => `  --font-weight-${s}: ${steps[i]};`).join("\n") + `\n}\n`;
 }
 
@@ -450,7 +512,7 @@ const leadingFor = (rem) => +Math.max(1.02, Math.min(1.45, 1.55 - 0.16 * rem)).t
 const TYPE_STEPS = ["lg", "xl", "2xl", "3xl", "4xl", "5xl"];
 
 export function typeCss(scale) {
-  const { ratio } = TYPE_SCALES[scale] ?? TYPE_SCALES.standard;
+  const { ratio } = pick(TYPE_SCALES, scale, "standard", ["ratio"]);
   const lines = TYPE_STEPS.map((step, i) => {
     const rem = +Math.pow(ratio, i + 1).toFixed(4);
     return `  --text-${step}: ${rem}rem;\n  --text-${step}--line-height: ${leadingFor(rem)};`;
@@ -473,7 +535,7 @@ export const DENSITIES = {
 };
 
 export function densityCss(density) {
-  const d = DENSITIES[density] ?? DENSITIES.standard;
+  const d = pick(DENSITIES, density, "standard", ["spacing"]);
   return `:root { --spacing: ${d.spacing}; }\n`;
 }
 
@@ -514,7 +576,7 @@ export const WIDTHS = {
 };
 
 export function widthCss(width) {
-  const w = WIDTHS[width] ?? WIDTHS.standard;
+  const w = pick(WIDTHS, width, "standard", ["ratio"]);
   // NOTHING AT ALL for the ordinary width, so a site that never asked for this
   // gets a byte-identical stylesheet — the `buttonsCss` rule for `inherit`.
   if (w.ratio === 1) return "";
@@ -556,7 +618,7 @@ const BORDER_SIDES = [
 ];
 
 export function borderCss(weight) {
-  const w = (BORDERS[weight] ?? BORDERS.hairline).width;
+  const w = pick(BORDERS, weight, "hairline", ["width"]).width;
   return BORDER_SIDES.map(([sfx, prop]) => `.border${sfx} { ${prop}: ${w}; }`).join("\n") + "\n";
 }
 
@@ -638,6 +700,16 @@ const DARK_SHADOW_ALPHA = 2.6;
 const OFFSET_STEPS = { xs: 2, sm: 2, "": 3, md: 4, lg: 6, xl: 8, "2xl": 10 };
 
 export function shadowCss(style, theme) {
+  const own = authored(style);
+  if (own) {
+    // ONE SHADOW, ON EVERY STEP, and that is a real narrowing said out loud
+    // rather than hidden. The named options carry a GEOMETRY TABLE — a
+    // different layer stack per Tailwind step, so `shadow-sm` and `shadow-xl`
+    // differ — and one authored block cannot express five. What it buys is that
+    // the model can write any shadow at all; what it costs is that the steps
+    // stop differing from each other on a site that authors one.
+    return SHADOW_STEPS.map((s) => `${shadowSel(s)} { ${own} }`).join("\n") + "\n";
+  }
   // OFFSET IS ITS OWN BRANCH, not a geometry row, for two reasons that are both
   // about colour: the block is SOLID `var(--foreground)` — the mix-and-cap path
   // tops out at 60% and a translucent block reads as a misrendered drop shadow —
@@ -649,7 +721,7 @@ export function shadowCss(style, theme) {
     return SHADOW_STEPS.map((s) =>
       `${shadowSel(s)} { --tw-shadow: ${OFFSET_STEPS[s]}px ${OFFSET_STEPS[s]}px 0 0 var(--foreground); }`).join("\n") + "\n";
   }
-  const geo = SHADOW_GEOMETRY[style];
+  const geo = Object.hasOwn(SHADOW_GEOMETRY, String(style)) ? SHADOW_GEOMETRY[style] : null;
   if (!geo) return SHADOW_STEPS.map((s) => `${shadowSel(s)} { --tw-shadow: 0 0 #0000; }`).join("\n") + "\n";
 
   const rules = (prefix, colour, scale) => SHADOW_STEPS.map((s) => {
@@ -782,6 +854,8 @@ export const STYLE_TARGETS = Object.freeze({
 const BUTTON_SEL = STYLE_TARGETS.button.sel + ", button.justify-center, a.justify-center.whitespace-nowrap";
 
 export function buttonsCss(style) {
+  const own = authored(style);
+  if (own) return `${BUTTON_SEL} { ${own} }\n`;
   if (style === "pill") return `${BUTTON_SEL} { border-radius: 9999px; }\n`;
   if (style === "sharp") return `${BUTTON_SEL} { border-radius: 0; }\n`;
   return "";
@@ -817,6 +891,17 @@ export function displayColor(theme, mode) {
 
 export function displayCss(theme) {
   const style = theme.display ?? "ink";
+  const own = authored(style);
+  if (own) {
+    // THE `:not(:where(.bg-primary *))` EXCLUSION STAYS OURS ON THIS PATH TOO,
+    // and it is the one thing here that can make text unreadable: a heading
+    // INSIDE a filled primary panel already has a foreground picked to be
+    // legible against it, and an authored colour landing there paints
+    // accent-on-accent. Built from the same expression the named path uses, so
+    // the two cannot drift.
+    const SEL = HEADING_SEL.split(", ").map((h) => `${h}:not(:where(.bg-primary *))`).join(", ");
+    return `${SEL} { ${own} }\n`;
+  }
   if (style !== "accent" && style !== "gradient") return "";
   // A heading sitting ON the accent must keep its own colour, or it is painted
   // accent-on-accent and disappears.
@@ -851,6 +936,11 @@ export const INPUTS = {
 };
 
 export function inputsCss(style) {
+  const own = authored(style);
+  // `.border-input` and not the input element, which is what the named options
+  // already target: the kit stamps that class on the field's own box, and a
+  // rule on `input` alone misses every textarea and every composed control.
+  if (own) return `.border-input { ${own} }\n`;
   if (style === "underline") {
     return `.border-input { border-top-color: transparent; border-left-color: transparent; border-right-color: transparent; background-color: transparent; border-radius: 0; }\n`;
   }
@@ -915,6 +1005,12 @@ const GLASS_ALPHA = {
 
 export function surfaceCss(theme) {
   const style = theme.surface ?? "solid";
+  const own = authored(style);
+  // BOTH SURFACES, because they are one decision. A card and a menu that
+  // disagree about their own material is the see-through-modal bug from the
+  // other direction — that one was found by a person tapping a hamburger on a
+  // phone, and nothing in the pipeline could see it.
+  if (own) return `${STYLE_TARGETS.card.sel}, [data-slot="popover-content"] { ${own} }\n`;
   if (style !== "glass") return "";
   const tokens = (mode) => {
     const { paper, ink } = theme[mode];
@@ -1404,7 +1500,7 @@ export function worldCss(theme) {
     if (ad && ad.length) {
       for (const l of ad) { layers.push(l); sizes.push(auth.decor.size || "auto"); attach.push("scroll"); }
     } else {
-      const d = decor !== "none" && DECOR_LAYERS[decor] ? DECOR_LAYERS[decor](theme, mode) : null;
+      const d = decor !== "none" && Object.hasOwn(DECOR_LAYERS, String(decor)) ? DECOR_LAYERS[decor](theme, mode) : null;
       if (d) { layers.push(d.image); sizes.push(d.size ?? "auto"); attach.push("scroll"); }
     }
     const ab = auth.backdrop && auth.backdrop.layers && auth.backdrop.layers[mode];
@@ -1415,7 +1511,7 @@ export function worldCss(theme) {
       for (const l of ab) { layers.push(l); sizes.push("auto"); attach.push("fixed"); }
       return `${mode === "light" ? "body" : ".dark body"} { background-image: ${layers.join(", ")}; background-size: ${sizes.join(", ")}; background-attachment: ${attach.join(", ")}; }\n`;
     }
-    const bs = backdrop !== "plain" && BACKDROP_LAYERS[backdrop] ? BACKDROP_LAYERS[backdrop](theme, mode) : [];
+    const bs = backdrop !== "plain" && Object.hasOwn(BACKDROP_LAYERS, String(backdrop)) ? BACKDROP_LAYERS[backdrop](theme, mode) : [];
     for (const b of bs) { layers.push(b); sizes.push("auto"); attach.push("fixed"); }
     if (!layers.length) return "";
     const sel = mode === "light" ? "body" : ".dark body";
@@ -1713,6 +1809,17 @@ export const AMBIENTS = {
  */
 export function ambientCss(theme) {
   const style = theme.ambient ?? "still";
+  const own = authored(style);
+  if (own) {
+    // THE LAYER IS OURS AND SO IS THE REDUCED-MOTION STOP. `position: fixed;
+    // inset: -22%; z-index: -1; pointer-events: none` is what makes this a
+    // backdrop rather than an element in the page — without `pointer-events`
+    // it swallows every click on the site, which compiles, publishes, and looks
+    // like the whole page being dead. The model writes the motion; it does not
+    // get to write the thing the motion happens on.
+    return `body::after { content: ""; position: fixed; inset: -22%; z-index: -1; pointer-events: none; ${own} }\n` +
+      `@media (prefers-reduced-motion: reduce) { body::after { animation: none; } }\n`;
+  }
   if (style !== "drift" && style !== "lively") return "";
   const n = style === "drift" ? 2 : 3;
   const dur = style === "drift" ? "38s" : "16s";
@@ -1911,7 +2018,7 @@ const each = (list, pseudo) => list.map((s) => s + pseudo).join(", ");
  * less motion still sees the hover answer, instantly.
  */
 export function motionCss(style) {
-  const m = Object.hasOwn(MOTIONS, style) ? MOTIONS[style] : null;
+  const m = pick(MOTIONS, style, null, ["ms", "ease"]);
   if (!m) return "";
   const props = "color, background-color, border-color, box-shadow, transform";
   return `:root { --site-duration: ${m.ms}ms; --site-ease: ${m.ease}; }\n` +
@@ -1928,6 +2035,19 @@ export function motionCss(style) {
  */
 export function hoverCss(theme) {
   const style = theme && theme.hover;
+  const own = authored(style);
+  if (own) {
+    // WHICH ELEMENTS, DECIDED FROM WHAT THE BLOCK DOES — the rule two lines
+    // below, generalised rather than dropped. A block that MOVES something goes
+    // on buttons and cards only, because a raised input box reads as a fault and
+    // a badge is a label rather than something you press; a block that only
+    // recolours goes on everything reactive, which is what `tint` and `edge`
+    // already did. Asking the model to know that would be a rule it eventually
+    // forgets, on a site nobody is looking at.
+    const moves = /(^|[\s;])(transform|box-shadow)\s*:/.test(own);
+    const on = moves ? [...BUTTON_SEL.split(",").map((s) => s.trim()), STYLE_TARGETS.card.sel] : REACTIVE;
+    return `@media (hover: hover) {\n  ${each(on, ":hover")} { ${own} }\n}\n`;
+  }
   if (!Object.hasOwn(HOVERS, String(style)) || style === "none") return "";
   // LIFT MOVES ONLY WHAT SHOULD MOVE. A raised input box reads as a fault, and
   // a badge is a label rather than something you press.
@@ -1948,6 +2068,12 @@ export function hoverCss(theme) {
  */
 export function focusCss(theme) {
   const style = theme && theme.focus;
+  const own = authored(style);
+  // `:focus-visible` AND NEVER `:focus`, on the authored path too — a mouse
+  // click on a plain `:focus` leaves a ring behind and the site reads as broken
+  // to somebody who never used the keyboard. The model writes the indicator; it
+  // does not get to decide when one appears.
+  if (own) return `${each([...REACTIVE, "a"], ":focus-visible")} { ${own} }\n`;
   if (!Object.hasOwn(FOCUSES, String(style)) || style === "ring") return "";
   const width = style === "bold" ? "3px" : "2px";
   const offset = style === "inset" ? "-3px" : "2px";
@@ -1966,8 +2092,17 @@ export function focusCss(theme) {
  */
 export function revealCss(theme) {
   const style = theme && theme.reveal;
-  if (!Object.hasOwn(REVEALS, String(style)) || style === "none") return "";
-  const from = style === "rise" ? "opacity: 0; transform: translateY(14px);" : "opacity: 0;";
+  const own = authored(style);
+  // THE FROM-STATE ONLY, and the guards are ours. Both of them are what keeps
+  // this axis from being able to trap content invisible: the opacity-0 start
+  // exists ONLY inside `@supports (animation-timeline: view())` AND
+  // `prefers-reduced-motion: no-preference`, so no support or less motion means
+  // not one rule is emitted and the section is simply visible. A model writing
+  // its own scaffold would eventually write one without them, and the symptom
+  // is a page whose content never appears for the visitor who asked for less
+  // motion — silent, and on their machine only.
+  const from = own || (style === "rise" ? "opacity: 0; transform: translateY(14px);" : "opacity: 0;");
+  if (!own && (!Object.hasOwn(REVEALS, String(style)) || style === "none")) return "";
   return `@supports (animation-timeline: view()) {\n` +
     `  @media (prefers-reduced-motion: no-preference) {\n` +
     `    section { animation: isibi-reveal linear both; animation-timeline: view(); animation-range: entry 0% entry 40%; }\n` +
@@ -1986,6 +2121,12 @@ export function revealCss(theme) {
  * there is one.
  */
 export function transitionOn(style) {
+  // AN AUTHORED TRANSITION IS ON, and this is the one place that can say so.
+  // Both halves read this — `pageCss` writes the animation, `writeSiteBrand`
+  // writes the router flag — and the comment above spells out what a
+  // disagreement costs in each direction. An authored block that reached the
+  // stylesheet with the flag unset would be a rule nothing ever triggers.
+  if (authored(style)) return true;
   return Object.hasOwn(TRANSITIONS, String(style)) && style !== "cut";
 }
 
@@ -2009,9 +2150,16 @@ export function transitionOn(style) {
 export function pageCss(theme) {
   const style = theme && theme.transition;
   if (!transitionOn(style)) return "";
+  const own = authored(style);
   const ms = style === "rise" ? 260 : 220;
   const ease = "var(--site-ease, cubic-bezier(.4,0,.2,1))";
-  const from = style === "rise" ? "opacity: 0; transform: translateY(14px);" : "opacity: 0;";
+  // THE INCOMING PAGE'S START STATE, and the scaffold stays ours — the keyframes,
+  // the pseudo-elements, and above all the reduced-motion block, which
+  // SUPPRESSES rather than omits. Dropping our rules there leaves the browser's
+  // own cross-fade standing, so a visitor who asked for less motion gets MORE
+  // than one who did not. That inversion is invisible on any machine that has
+  // not set the preference.
+  const from = own || (style === "rise" ? "opacity: 0; transform: translateY(14px);" : "opacity: 0;");
   return `::view-transition-old(root) { animation: ${ms}ms ${ease} both isibi-page-out; }\n` +
     `::view-transition-new(root) { animation: ${ms}ms ${ease} both isibi-page-in; }\n` +
     `@keyframes isibi-page-out { to { opacity: 0; } }\n` +
@@ -2022,6 +2170,8 @@ export function pageCss(theme) {
 }
 
 export function skinCss(style) {
+  const own = authored(style);
+  if (own) return `${STYLE_TARGETS.card.sel} { ${own} }\n`;
   if (style === "frame") {
     return `.bg-card { outline: 1px solid var(--border); outline-offset: 5px; }\n`;
   }
@@ -2121,6 +2271,19 @@ export function cornerCss(theme) {
   const style = theme.corner ?? "round";
   const r = theme.radius;
   const radius = r ? `:root { --radius: ${r}; }\n` : "";
+  const own = authored(style);
+  // `body, body *` IS THE SELECTOR THE NAMED OPTIONS ALREADY USE, kept because
+  // corner shape is the one axis that genuinely is every element: the kit
+  // derives seven radius sizes from `--radius` with `calc()`, so a rule reaching
+  // only cards leaves every chip and panel on the old shape — a page rounded in
+  // some places and not others, which reads as a badly-made site rather than as
+  // an honest limit.
+  //
+  // A TOKEN OVERRIDE STILL WINS AND STILL COMES FIRST. `theme.radius` is the
+  // separate `tokens.radius` path, and an authored block naming `border-radius`
+  // sits after it in source order — so a customer who set both gets the one
+  // they wrote here, which is the more specific answer.
+  if (own) return radius + `body, body * { ${own} }\n`;
   if (style === "squircle" || style === "bevel") {
     return radius + `body, body * { corner-shape: ${style}; }\n`;
   }
