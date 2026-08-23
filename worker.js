@@ -2270,6 +2270,29 @@ export default {
     // ordinary tick this is one Supabase read that comes back empty.
     ctx.waitUntil(runSiteRebuild(env));
   },
+  // ── THE BUILD QUEUE CONSUMER (see wrangler.jsonc for why this exists) ──────
+  //
+  // NOTHING PRODUCES YET, so this is unreachable today and deliberately so: the
+  // binding, the consumer and the handler ship and are proved to deploy BEFORE
+  // any build depends on them. A queue whose consumer throws on its first real
+  // message retries it, and a build that retries from the top is a build charged
+  // twice — so the order is resource, then plumbing, then traffic.
+  //
+  // AN UNKNOWN MESSAGE IS ACKNOWLEDGED, NEVER RETRIED. Retrying something we do
+  // not understand is an infinite loop against a queue that bills per operation,
+  // and there is nothing to lose: no build can be inside a message this handler
+  // cannot read. It is logged loudly because the only way to get here today is a
+  // producer somebody added without the consumer to match.
+  async queue(batch, env, ctx) {
+    for (const message of batch.messages) {
+      try {
+        const kind = message && message.body && message.body.kind;
+        console.error("build queue: no handler for message kind", JSON.stringify(kind || null));
+      } catch { /* a log must never fail the batch */ }
+      // ACK, so it does not come round again forever.
+      try { message.ack(); } catch { /* older runtimes ack the batch instead */ }
+    }
+  },
 };
 
 /**

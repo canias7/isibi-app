@@ -189,5 +189,54 @@
   ],
   // Auto-reply engine: wake every 2 minutes to answer new inbound DMs for
   // accounts that have DM auto-reply switched on (see scheduled() in worker.js).
-  "triggers": { "crons": ["*/2 * * * *"] }
+  "triggers": { "crons": ["*/2 * * * *"] },
+  // ── THE BUILD QUEUE: 15 GUARANTEED MINUTES INSTEAD OF 30 SECONDS ───────────
+  //
+  // THE MEASUREMENT THAT FORCED THIS (2026-08-23). A build runs inside the HTTP
+  // request and survives a dropped connection only through `ctx.waitUntil`,
+  // which Cloudflare documents as **30 seconds** — "if any Promises have not
+  // settled after 30 seconds, they are canceled". A build takes 6-12 minutes.
+  //
+  // Every build we have run has had its connection reset mid-flight, seven
+  // instances between 264s and 549s. The ones that PUBLISHED did so because the
+  // reset happened at a hop Cloudflare did not observe — a Worker has "no hard
+  // limit on duration ... as long as the client remains connected" — and not
+  // because `waitUntil` carried them. Two of them ran 300+ seconds past their
+  // own reset, which is impossible under a 30-second rule. Arm C is the case
+  // where Cloudflare DID observe the disconnect: cancelled mid-generation, 7
+  // credits spent, a claimed slug, no site, and our own 1-hour AbortSignal never
+  // fired because a timer inside a dead isolate cannot fire.
+  //
+  // So `ctx.waitUntil` was never the mechanism keeping builds alive. It bought
+  // 30 seconds and the rest was luck, on every build, for every customer — and
+  // it fails hardest on the ordinary case of somebody closing the tab.
+  //
+  // A queue consumer is a non-HTTP invocation: 15 minutes of guaranteed runtime
+  // that does not depend on anyone still being connected.
+  //
+  // THE QUEUE IS CREATED BY THE DEPLOY, ONE STEP BEFORE THIS IS READ. A binding
+  // naming a resource the account does not hold fails the WHOLE deploy, which is
+  // how three merges shipped nothing on 2026-08-07. `site-builds` was created
+  // and confirmed by its own deploy step before this block was added.
+  "queues": {
+    "producers": [{ "queue": "site-builds", "binding": "BUILD_QUEUE" }],
+    "consumers": [
+      {
+        "queue": "site-builds",
+        // ONE BUILD PER INVOCATION, because the 15 minutes is per invocation and
+        // a build wants most of it. A batch of two would put the second build's
+        // whole run inside whatever the first one left over.
+        "max_batch_size": 1,
+        "max_batch_timeout": 0,
+        // A build that fails gets two more goes. Three total attempts against a
+        // ~33% observed failure rate is the difference between "usually works"
+        // and "effectively always works" — and unlike today, a build that runs
+        // out of attempts is a row somebody can look at rather than silence.
+        "max_retries": 2,
+        // Matches the container's own `max_instances`. More consumers than
+        // containers is a queue of Workers waiting on a queue of containers.
+        "max_concurrency": 5
+      }
+    ]
+  }
 }
