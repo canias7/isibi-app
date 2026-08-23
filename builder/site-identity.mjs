@@ -65,24 +65,6 @@ export function normalizeLang(v) {
   return [lang, script, region].filter(Boolean).join("-");
 }
 
-/**
- * Light paper or dark, as one of exactly two strings.
- *
- * BESIDE `normalizeLang` AND FOR THE OPPOSITE REASON. That one REFUSES rather
- * than defaulting, because a caller must be able to keep whatever the site had.
- * This one cannot: `<html>` either carries the class or it does not, so there is
- * no "leave it alone" to express, and the safe answer for everything unreadable
- * is the one every site published before 2026-08-18 already has. An absent value
- * is not an error here — it is what every existing site sends.
- *
- * A NON-STRING IS NOT COERCED. `String(["dark"])` is `"dark"`, which is the
- * shape that made a one-element array a valid role and a valid access level
- * twice in this repo. This decides how an entire site is drawn, so it takes a
- * string or it takes light.
- */
-export function normalizeMode(v) {
-  return (typeof v === "string" && v.trim().toLowerCase() === "dark") ? "dark" : "light";
-}
 
 /**
  * The eight scripts written right to left, as BCP-47 script subtags.

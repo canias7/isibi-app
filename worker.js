@@ -4252,8 +4252,13 @@ const SITE_SCHEMA_TOOL = {
           "custom properties, so setting those is what changes the whole site at once. The ones the kit reads are:\n" +
           SITE_TOKEN_NAMES.map((t) => "--" + t).join(", ") + ", --font-sans, --font-heading.\n" +
           "Each `--x` has a matching `--x-foreground` for the text on it; `--radius` is a length every corner in the " +
-          "kit derives from. Set them on `:root`, and set the dark half under `.dark` — the site's dark mode is that " +
-          "class on `<html>`.\n" +
+          "kit derives from.\n" +
+          "`:root` IS WHAT THE SITE LOOKS LIKE — there is no separate light/dark switch. A dark site is dark values " +
+          "on `:root`: near-black `--background`, pale `--foreground`, and every other pair solved against them. " +
+          "Choose it from the brief the way you choose anything else — a night club, a recording studio, a tattoo " +
+          "parlour or a cinema reads dark; most trades read light.\n" +
+          "`.dark` is OPTIONAL and only does something on a page that renders a theme toggle, which lets a visitor " +
+          "switch. Write it only if you put one there, and make it the opposite of `:root`, not a second guess at it.\n" +
           "YOUR RULES ARE WRITTEN LAST, so an ordinary selector beats anything the template shipped. Style whatever " +
           "you like beyond the variables: headings, links, buttons, cards, backgrounds, borders, hover and focus " +
           "states, animations, gradients, textures, spacing, media queries.\n" +
@@ -4296,9 +4301,9 @@ const SITE_SCHEMA_TOOL = {
       // per site; `site-plan.mjs` is that decision as a plain module, and
       // spreading it here means the tool has ONE definition of them.
       //
-      // FOUR OF THE FIVE ARE HERE. `shape` is spliced in after `mode` instead,
-      // so it is answered once the look is settled too — see the comment there
-      // and `SHAPE_FIELD`. `PLAN_KEYS` is still all five and is still what
+      // FOUR OF THE FIVE ARE HERE. `shape` is spliced in below the language
+      // fields instead, so it is answered last of everything — see the comment
+      // there and `SHAPE_FIELD`. `PLAN_KEYS` is still all five and is still what
       // every guard derives from; it is the semantic set, not this order.
       //
       // ORDER MATTERS AND IS ASSERTED: `components` is LAST of these four, so
@@ -4349,29 +4354,34 @@ const SITE_SCHEMA_TOOL = {
           "language the brief was written in — that one is `lang`. This is the WHOLE list, not an addition: " +
           "to keep what the site has, leave it out; to remove every extra language, answer `[]`.",
       },
-      // LIGHT OR DARK — the one look decision that was unreachable at any price.
+      // `mode` IS GONE — LIGHT OR DARK IS A COLOUR, AND COLOUR IS `css`
+      // (owner's call, 2026-08-23). Kept as an ABSENCE rather than only
+      // deleted, on the precedent that replaced the repair-pass tests with
+      // "a second call never happens": a field quietly restored beside `css`
+      // gives the model two ways to decide one thing, and they disagree.
       //
-      // Every theme in the registry ships a DESIGNED dark palette: 31 colour
-      // properties, drawn by whoever drew the light half, and `themeCss` has
-      // always emitted it as a `.dark` block into every site's stylesheet.
-      // Nothing ever applied it, so all 500 themes shipped their dark half as
-      // dead CSS — and "make my site dark" was answered with a token patch,
-      // which darkened the ground and left every button, highlight and border
-      // on colours chosen for white paper. This is one class on `<html>`.
+      // IT WAS A FIELD BACK WHEN A THEME WAS A NAME. The registry shipped a
+      // designed dark half per theme and `mode` chose which of the two was
+      // activated, so the site's darkness really was a separate decision from
+      // its palette. The registry went on 2026-08-20 and the model writes the
+      // palette itself now, so "make it dark" is: write dark values on `:root`.
+      // The field survived that change and stopped having a job.
       //
-      // OPTIONAL AND ABSENT MEANS LIGHT, which is what every site published
-      // before 2026-08-18 is. So a build that answers nothing here is
-      // byte-identical to what the platform did before the field existed.
-      mode: {
-        type: "string",
-        enum: ["light", "dark"],
-        description:
-          "Whether the site is drawn on light paper or dark. LEAVE THIS OUT unless the brief or the change actually " +
-          "asks for it — light is the default and is right for most businesses. Answer `dark` when they ask for a dark " +
-          "site, or when the brief's own words are for a world that reads dark: a night club, a recording studio, a " +
-          "tattoo parlour, a cinema, a gaming or crypto brand. This is NOT a colour: the theme already has a dark half " +
-          "drawn for it, so do not also send tokens trying to darken the background.",
-      },
+      // AND ITS ORDER SAID SO. A tool's property order is its generation
+      // order, and `mode` sat at 16 against `css` at 9 — so its own text
+      // ("the theme already has a dark half drawn for it") described a theme
+      // the model had written seven fields earlier. It could only ever ratify
+      // what `css` had already decided.
+      //
+      // THE `.dark` CLASS STAYS AND IS NOT DEAD, which is the one thing to
+      // check before reading this as "dark mode was removed". `theme-toggle`
+      // toggles it on `documentElement`, so a page that renders one lets a
+      // VISITOR switch. What goes is the BAKED default, which was the owner's
+      // decision and is now just where they put their colours.
+      //
+      // Measured before pulling it: 0 of the 2,112 kit components carry a
+      // `dark:` utility, so nothing in the kit adjusts itself for the class —
+      // the whole of dark mode is token values, which is to say `css`.
       // SHAPE IS LAST OF THE FRONT-END FIELDS, ON PURPOSE, AND IT IS A PLAN
       // FIELD SITTING AWAY FROM THE OTHER FOUR (owner's call, 2026-08-21).
       //
@@ -7987,10 +7997,6 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
           // a colour change cannot quietly drop a language the site has — the
           // same reason `lang`, `mode` and the logo are read here.
           langs: extraLangs.length ? { extra: extraLangs, routes: primaryRoutes } : undefined,
-          // OUT OF THE STORED LOOK, like `lang` — so the cheap spine carries
-          // it and a text fix, a colour change or a picture swap cannot quietly
-          // put a dark site back into light. Absent means light.
-          mode: (look && look.mode) || null,
           logo,
           // THE TAB ICON, for the same reason as `logo` one line up — and it
           // was read here and never put on the wire.
@@ -8446,14 +8452,6 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
           // `files` above, or the switcher points at a 404. Same shape as the
           // spine's payload.
           langs: extraLangs.length ? { extra: extraLangs, routes: primaryRoutes } : undefined,
-          // LIGHT OR DARK, and it is one class on `<html>` rather than a second
-          // palette. Every theme in the registry already ships its own designed
-          // dark half — 31 colour properties, solved by whoever drew the theme —
-          // and `themeCss` has always emitted it into the stylesheet, applied by
-          // nothing. Absent is light, which is what every site published before
-          // 2026-08-18 has and what the container writes for anything it does
-          // not recognise.
-          mode: mode || null,
           // A first build has none and sends "", which is what the container
           // writes anyway. A REVISE carries the stored one — see `priorLogo`,
           // without which every revise would quietly take the logo off.
@@ -10299,8 +10297,8 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth }) {
       // and the eight it dropped were exactly the ones this route reads back
       // off `look` a few hundred lines down: `lang: look.lang` had been
       // `undefined` since the day it was written (2026-08-12, a Welsh café
-      // publishing as English), `mode: look.mode` since dark mode landed
-      // (2026-08-18), and `plan: normalizePlan({look[PLAN_KEYS]})` since the
+      // publishing as English), the same for light/dark from 2026-08-18 until
+      // `mode` was deleted on 2026-08-23, and `plan: normalizePlan({look[PLAN_KEYS]})` since the
       // families were deleted (2026-08-20) — so THE AUTHORED PLAN NEVER
       // REACHED PAGE GENERATION ON THE LIVE ROUTE: no layout directive, no
       // per-site component manifest, the bare brief. The live CRM build that
@@ -10664,9 +10662,6 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth }) {
             // many words published monolingual, and the answer sat nowhere.
             langs: look.langs,
             langStrings: priorLangStrings,
-            // And the same again for light/dark: on `EDIT_FIELDS`, so a revise
-            // that does not mention it keeps whichever the site is.
-            mode: look.mode,
             // Read straight off `_meta` rather than through `mergeLook`: the
             // logo is not something a designer can name, so it has no business
             // in `EDIT_FIELDS` and would be dropped by that merge if it were.

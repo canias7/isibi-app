@@ -43,7 +43,7 @@ export const SITE_LANG = "en";
 // and leave every margin, padding, border and offset on the wrong side, which
 // reads as a badly-made site rather than an honest limit.
 //
-// ANNOTATED for the reason `SITE_MODE` is: an unannotated const has the LITERAL
+// ANNOTATED for the reason `SITE_PAGE_TRANSITION` is: an unannotated const has the LITERAL
 // type `"ltr"`, so comparing it with `"rtl"` is `TS2367` and nothing compiles.
 export const SITE_DIR: "ltr" | "rtl" = "ltr";
 // EVERY LANGUAGE THIS SITE SERVES BEYOND ITS OWN, with the URL segment each one
@@ -72,17 +72,17 @@ export const SITE_LANGS: ReadonlyArray<{ lang: string; dir: "ltr" | "rtl"; prefi
 // patching the ground colour — which left the buttons and highlights on colours
 // picked for white paper.
 //
-// LIGHT IS THE TEMPLATE'S ANSWER and an unrecognised value reads as light one
-// layer up, because every site built before this sends nothing and a build must
-// not change its look over an absent field.
+// `SITE_MODE` IS GONE (owner's call, 2026-08-23) — light or dark is a colour,
+// and colour is the designer's `css`. A dark site writes dark values on
+// `:root`; there is no second switch to keep in step with it.
 //
-// ANNOTATED, and the annotation is load-bearing. Without it this const has the
-// LITERAL type `"light"`, so `SITE_MODE === "dark"` in `__root.tsx` is `TS2367`
-// — "these types have no overlap" — and the template does not compile. The
-// generated file carries the same annotation so both say the same thing; the
-// `SiteLayout` lesson one folder over, where a closed literal type met a value
-// that had to widen.
-export const SITE_MODE: "light" | "dark" = "light";
+// `.dark` STILL MEANS SOMETHING, so do not read this as dark mode being
+// removed: `theme-toggle` toggles the class on `documentElement`, so a page
+// that renders one lets a VISITOR switch. What went is the BAKED default.
+//
+// Measured before deleting: ZERO of the kit's components carry a `dark:`
+// utility, so nothing here branches on the class — the whole of dark mode is
+// token values, which is exactly what `css` writes.
 // WHETHER THE ROUTER STARTS A VIEW TRANSITION BETWEEN PAGES — the half of the
 // page-transition axis that cannot live in the stylesheet, because a transition
 // has to be STARTED before there is anything for CSS to animate.

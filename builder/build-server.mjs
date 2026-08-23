@@ -26,7 +26,7 @@ import { themeCss, transitionOn } from "./site-theme.mjs";
 import { normalizeSeeds } from "./site-seeds.mjs";
 import { tokensCss, pageTokensCss } from "./site-tokens.mjs";
 import { applyStyle, parseStyle, MAX_STYLE_BUILD } from "./site-style.mjs";
-import { dirFor, initialsMark, normalizeLang, normalizeMode, siteIconFrom } from "./site-identity.mjs";
+import { dirFor, initialsMark, normalizeLang, siteIconFrom } from "./site-identity.mjs";
 import { langLabel, resolveLangs } from "./site-langs.mjs";
 import { exitReason } from "./exit-reason.mjs";
 import { runStep } from "./run-step.mjs";
@@ -129,7 +129,7 @@ function resetRoutes() {
 // asks the generator to do. Before this, `setTitle` at PUBLISH time stamped the
 // brand onto every non-home page after the fact; a default the routes can beat
 // is the same outcome with the ordering the right way round.
-function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, mode, seeds, transition }) {
+function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, seeds, transition }) {
   const iconPath = path.join(APP, "public", "icon.svg");
   try { fs.rmSync(iconPath, { force: true }); } catch {}
 
@@ -217,13 +217,6 @@ function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, mode, seed
   // it from — get it wrong and every read and every form on the site addresses a
   // DIFFERENT site's API. Shape-checked rather than trusted: it reaches a URL.
   const slugValue = /^[a-z0-9][a-z0-9-]{0,80}$/i.test(String(slug || "")) ? String(slug).toLowerCase() : "";
-  // LIGHT UNLESS THE SITE SAID DARK, and an unrecognised value reads as light
-  // rather than as an error — every site built before this sends nothing, and a
-  // build must not change its look because a field arrived empty. In
-  // `site-identity.mjs` beside `normalizeLang` for the reason that one is there:
-  // this function writes files, so nothing here can be driven by a unit test,
-  // and every shape the value can arrive in has to be answerable without one.
-  const modeValue = normalizeMode(mode);
   // WHETHER THE ROUTER STARTS A VIEW TRANSITION AT ALL — the half of the page
   // transition that cannot live in the stylesheet. `transitionOn` is the ONE
   // question, shared with `pageCss`, because the two disagreeing is silent both
@@ -257,7 +250,7 @@ function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, mode, seed
       "export const SITE_SLUG = " + JSON.stringify(slugValue) + ";\n" +
       "export const SITE_LOGO = " + JSON.stringify(logoValue) + ";\n" +
       "export const SITE_LANG = " + JSON.stringify(langValue) + ";\n" +
-      // ANNOTATED for the reason `SITE_MODE` below is: an unannotated const has
+      // ANNOTATED for the reason `SITE_PAGE_TRANSITION` below is: an unannotated const has
       // the LITERAL type of whichever value was written, so a comparison against
       // the other member is `TS2367` and the template stops compiling.
       'export const SITE_DIR: "ltr" | "rtl" = ' + JSON.stringify(dirValue) + ";\n" +
@@ -267,26 +260,24 @@ function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, mode, seed
       // only expressible because the kit is on logical utilities.
       'export const SITE_LANGS: ReadonlyArray<{ lang: string; dir: "ltr" | "rtl"; prefix: string; label: string }> = ' +
         JSON.stringify(langsValue) + ";\n" +
-      // DARK MODE IS ONE CLASS, and this is the whole feature.
+      // `SITE_MODE` IS GONE — LIGHT OR DARK IS A COLOUR, SO IT IS `css`
+      // (owner's call, 2026-08-23). It baked a `dark` class onto `<html>`, and
+      // a site that wants to be dark now writes dark values on `:root`.
       //
-      // `styles.css` declares `@custom-variant dark (&:is(.dark *))` and
-      // `themeCss` already emits the theme's OWN designed dark palette as a
-      // `.dark` block — all 31 colour properties, solved rather than picked —
-      // into every site's stylesheet. Nothing anywhere ever applied it, so
-      // every one of the 500 themes shipped its dark half as dead CSS and a
-      // customer asking for a dark site got the token-patch approximation: a
-      // dark ground under buttons and highlights chosen for white paper.
+      // THE REASONING THAT KEPT IT WAS MEASURABLY FALSE. The comment here said
+      // the class "flips every `dark:` utility in the kit, which is why this
+      // beats emitting the dark values as `:root`" — measured before deleting:
+      // ZERO of the 2,112 kit components carry a `dark:` utility. Nothing in
+      // the kit branches on the class, so the whole of dark mode was token
+      // values, and token values are the one thing `css` is for.
       //
-      // The class also flips every `dark:` utility in the kit, which is why
-      // this beats emitting the dark values as `:root` — that would move the
-      // custom properties and leave those components on their light branch.
-      // ANNOTATED so this file and the template placeholder agree — an
-      // unannotated const has the LITERAL type of whichever value was written,
-      // and `SITE_MODE === "dark"` then fails to compile on a light site.
-      'export const SITE_MODE: "light" | "dark" = ' + JSON.stringify(modeValue) + ";\n" +
+      // `.dark` ITSELF STAYS AND IS NOT DEAD: `theme-toggle` toggles it on
+      // `documentElement`, so a page that renders one still lets a VISITOR
+      // switch. What went is the BAKED default, which is now just where the
+      // designer chose to put its colours.
       // THE ROUTER'S HALF OF THE PAGE TRANSITION. `defaultViewTransition` in
       // `router.tsx` reads this; `pageCss` writes what it looks like. Both come
-      // from `transitionOn`, once. ANNOTATED for the `SITE_MODE` reason — an
+      // from `transitionOn`, once. ANNOTATED for the `SITE_DIR` reason — an
       // unannotated const has the literal type of whichever value was written,
       // so the generated file and the template placeholder would disagree the
       // moment anything compares them.
@@ -300,7 +291,7 @@ function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, mode, seed
   // a site drawing its initials and a site serving the owner's own artwork
   // both answered true, so a favicon that was stored and then refused by the
   // shape check reported as a working icon.
-  return { lang: langValue, dir: dirValue, langs: langsValue, mode: modeValue, transition: transitionValue, icon: !!icon, ownIcon: iconOk, logo: !!logoValue, slug: !!slugValue,
+  return { lang: langValue, dir: dirValue, langs: langsValue, transition: transitionValue, icon: !!icon, ownIcon: iconOk, logo: !!logoValue, slug: !!slugValue,
     refused: (!!raw && !logoOk) || !!(own && own.refused), build: buildValue };
 }
 
@@ -874,7 +865,7 @@ const server = http.createServer((req, res) => {
       // once, passed to both, and `parseStyle` is idempotent so `applyStyle`
       // re-reading it downstream cannot change the answer.
       const styleUsed = parseStyle(payload.style, { max: MAX_STYLE_BUILD }).style;
-      const brandUsed = writeSiteBrand({ title: payload.title, lang: payload.lang, langs: payload.langs, logo: payload.logo, icon: payload.icon, slug: payload.slug, mode: payload.mode, seeds: payload.seeds, transition: styleUsed.transition });
+      const brandUsed = writeSiteBrand({ title: payload.title, lang: payload.lang, langs: payload.langs, logo: payload.logo, icon: payload.icon, slug: payload.slug, seeds: payload.seeds, transition: styleUsed.transition });
       const fontsUsed = writeFonts(payload.fonts, payload.fontFiles, payload.pageFonts, payload.cssFonts);
       // THE WHOLE PATCH, NOT `styleUsed`, and the difference is a feature.
       // `styleUsed` is the ENUM map — `parseStyle(...).style` — which is exactly

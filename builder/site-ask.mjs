@@ -220,8 +220,8 @@ export const ASK_TOOL = {
           "or where things sit. (The declared language is a fact about the site, not a translation — \"this site is in " +
           "Spanish, stop telling browsers it's English\" belongs here; \"translate the whole site into Spanish\" is a " +
           "rewrite and belongs further up.)\n" +
-          "DARK MODE IS THIS LAYER TOO — \"make the whole site dark\", \"I want it on black\", \"put it back to " +
-          "light\". The theme already has a dark version drawn for it, so this is cheap and nothing is rewritten.\n" +
+          "DARK OR LIGHT IS THIS LAYER TOO — \"make the whole site dark\", \"I want it on black\", \"put it back to " +
+          "light\". It is a colour change like any other here: the stylesheet is rewritten, no page is.\n" +
           "A COLOUR OR A TYPEFACE CAN BE FOR ONE PAGE — \"make the booking page darker\", \"the about page should " +
           "feel calmer\", \"give the menu page a warm background\", \"the menu page should be in something " +
           "handwritten\", \"use a serif on the about page\". Still this layer and still cheap; it is the same look " +

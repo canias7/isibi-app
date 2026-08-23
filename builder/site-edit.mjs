@@ -75,7 +75,7 @@ import { normalizeSeeds, SEEDS_FIELD } from "./site-seeds.mjs";
 // `mergeLook` keeps only what is named here and drops everything else stored on
 // the object, so a stylesheet folded into `site_look` would be lost the first
 // time an edit moved a plan axis.
-export const EDIT_FIELDS = ["brand", "description", "seeds", "family", ...PLAN_EDIT_FIELDS, "fonts", "lang", "mode", "langs"];
+export const EDIT_FIELDS = ["brand", "description", "seeds", "family", ...PLAN_EDIT_FIELDS, "fonts", "lang", "langs"];
 
 /**
  * Nothing is required of an EDIT.
@@ -130,7 +130,6 @@ export function currentStateNote(current) {
       (sd.dark && typeof sd.dark === "object" && str(sd.dark.paper) ? " · its own dark half" : " · dark derived"));
   }
   add("family", c.family);
-  add("mode", c.mode);
   // THE FIVE OTHER PLAN AXES, for the reason every line here exists and with the
   // same edge as `lang` below. These replaced `family` on 2026-08-20, so they are
   // no longer looked up from a table — they are values THIS site's designer wrote

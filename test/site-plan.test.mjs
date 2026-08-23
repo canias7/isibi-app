@@ -8,6 +8,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { readFileSync } from "node:fs";
+import { readSchemaTool } from "./integration/schema-tool.mjs";
 import {
   PLAN_KEYS, PLAN_EDIT_FIELDS, PLAN_FIELDS, PLAN_REQUIRED, KIT_PALETTE, COMPONENT_MENU, SHAPE_FIELD,
   normalizePlan, directiveFromPlan, hasPlan,
@@ -70,22 +71,43 @@ test("…and the TOOL's own key order is that order, which is what makes it true
 });
 
 test("shape is answered LAST of the front-end fields, in the tool itself", () => {
-  // THE MODULE CANNOT HOLD THIS. `site-plan.mjs` exports a fragment; whether it
-  // lands after `mode` is a fact about `design_schema` in worker.js, and this
-  // repo has recorded twelve features that were correct in a module and dead at
-  // the wiring. Asserted on the source, comment-stripped, because the paragraph
-  // explaining the move necessarily spells the field names it moves.
+  // THE MODULE CANNOT HOLD THIS. `site-plan.mjs` exports a fragment; where it
+  // lands is a fact about `design_schema` in worker.js, and this repo has
+  // recorded twelve features that were correct in a module and dead at the
+  // wiring.
+  //
+  // DERIVED, AND IT USED NOT TO BE. This asserted `shape > mode` — a landmark
+  // that was another field's spelling — so deleting `mode` on 2026-08-23 made
+  // it report that SHAPE had moved when shape had not been touched. The
+  // property is "shape is answered after everything the model MUST answer",
+  // which is exactly `required` read against property order, and no field name
+  // appears in it: a tool's property order IS its generation order.
   const src = readFileSync(new URL("../worker.js", import.meta.url), "utf8")
     .replace(/^\s*\/\/.*$/gm, "");
   const tool = src.slice(src.indexOf("const SITE_SCHEMA_TOOL"));
-  const at = (re) => tool.search(re);
-  const spread = at(/\n\s*\.\.\.PLAN_FIELDS,/);
-  const mode = at(/\n\s*mode:\s*\{/);
-  const shape = at(/\n\s*shape:\s*SHAPE_FIELD,/);
-  assert.ok(spread > 0 && mode > 0 && shape > 0,
-    `an anchor is missing — spread ${spread}, mode ${mode}, shape ${shape}`);
+  const spread = tool.search(/\n\s*\.\.\.PLAN_FIELDS,/);
+  const shape = tool.search(/\n\s*shape:\s*SHAPE_FIELD,/);
+  assert.ok(spread > 0 && shape > 0, `an anchor is missing — spread ${spread}, shape ${shape}`);
   assert.ok(shape > spread, "shape is spliced in before the plan spread, not after it");
-  assert.ok(shape > mode, "shape is answered before `mode`, so it is not last of the front-end fields");
+});
+
+test("shape is the LAST field the model is required to answer", async () => {
+  // THE HALF THAT SURVIVED `mode`'s DELETION AS A PROPERTY RATHER THAN A NAME.
+  // "Answered last" used to be spelled `shape > mode`, which stopped meaning
+  // anything the moment `mode` went. What it was reaching for is this: a tool's
+  // property order IS its generation order, so shape being last of `required`
+  // is the same claim with nothing to go stale.
+  //
+  // It is the field's own contract — "You answer this last, so the pages, the
+  // primary action and the component manifest are already decided" — so a field
+  // added below it silently makes that sentence false.
+  const { tool } = await readSchemaTool();
+  const order = Object.keys(tool.input_schema.properties);
+  const required = tool.input_schema.required || [];
+  assert.ok(required.includes("shape"), "shape is no longer required, so nothing guarantees it is answered at all");
+  const last = order.filter((k) => required.includes(k)).pop();
+  assert.equal(last, "shape",
+    `a required field is answered after shape (${last}), so shape no longer sees everything it arranges`);
 });
 
 test("every axis is required, and the edit list is the same six", () => {

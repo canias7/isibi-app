@@ -12,6 +12,49 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ## OPEN — waiting to be picked up
 
+**THE DESIGN STEP: I LOOKED AT THE BUILD, AND WE DELETED `mode` (2026-08-23).**
+
+You asked to see the design on the site that proved the queue, then to go through
+the design step itself. Both, in order.
+
+**The site looks good.** Warm cream, brass, near-black — a real barbershop
+identity the model invented on its own. Oswald condensed capitals for headings.
+Six real services with prices, three testimonials, an opening-hours table, an
+FAQ. Clean on a phone, no errors. **This is the first site where a model wrote
+the whole stylesheet**, and it came out better than the setup deserves.
+
+**It has one bad bug: the Book now button has no readable text.** The model
+wrote one line — "make links brass" — and the Book now button is a link, so it
+ended up brass text on a brass button. Invisible. Same on the big button at the
+bottom and on the booking page. Every other link on the site went slightly too
+pale as well. **Not fixed yet** — you said the user can edit it later, and that
+is true, they can ask for a colour change. Logged as #192.
+
+**A second, quieter one: the body typeface never loaded.** The model asked for
+Source Sans 3 and the site is rendering in a fallback. Nobody was told. The
+cause is on our side, not the model's — our own instructions show it the exact
+shape that fails. Logged as #193.
+
+**Then we deleted `mode`.** You said light-or-dark is part of the CSS, and you
+were right. It made sense back when a theme was a name off a list of 500 — the
+field chose which of two ready-made palettes to switch on. The model writes its
+own palette now, so "make it dark" is just: write dark colours. The field had
+stopped doing anything except agreeing with a decision already made.
+
+I checked one thing before pulling it: whether anything else needed the switch.
+**A visitor-facing dark toggle still works** — if a page has one, people can
+still flip the site. What went is only the baked default. And I checked the
+sites: 24, nearly all of them tests, so nothing real changes.
+
+**I did NOT delete `shape`.** You grouped it with `mode` and it is a different
+thing — it is the list of what goes on each page, in what order, handed to the
+step that writes the pages. CSS cannot decide that a page has a hero then a
+price list then a map. Deleting it would mean "let the page writer arrange
+everything itself", which might well be what you want — but it changes how pages
+come out, not how they are coloured. Say the word and it is a small change.
+
+---
+
 **THE CONNECTION FIX IS PROVEN (2026-08-23). It works.**
 
 You asked for one thing — *"if I close the app the build is still running"* — so

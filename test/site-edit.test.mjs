@@ -261,7 +261,7 @@ test("EVERY FIELD AN EDIT CAN MOVE IS ONE THE DESIGNER IS TOLD THE CURRENT VALUE
   const SAMPLE = {
     brand: "value-of-brand", description: "value-of-description", seeds: { name: "Cool Slate", paper: "#f4f6f8", ink: "#20262b", accent: "#2f6f85" },
     family: "value-of-family", lang: "value-of-lang",
-    mode: "value-of-mode", fonts: { heading: "inter", body: "inter" }, langs: ["value-of-langs"],
+    fonts: { heading: "inter", body: "inter" }, langs: ["value-of-langs"],
     // THE FIVE OTHER PLAN AXES CARRY THE SHARPEST VERSION OF THIS GUARD'S OWN
     // ARGUMENT. They are not looked up from a table any more — the designer
     // wrote them once, for this site — so one that is not shown back is one a
@@ -486,10 +486,21 @@ test("THE TOOL STILL PROMISES THE VERB THIS MODULE IMPLEMENTS", () => {
   // thing spells that thing — so a raw scan is satisfied by the explanation even
   // when the description the model actually reads has lost it.
   const bare = worker.replace(/^([^\n]*?)\/\/[^\n]*$/gm, (line, keep) => keep + " ".repeat(line.length - keep.length));
-  // ANCHORED ON LANDMARKS, never a byte window: the next field's own key ends the
-  // block, so documenting this one cannot push the promise out of range.
+  // CLOSED BY BRACE DEPTH, not by the next field's name. This used to end the
+  // window at `mode: {` — the field that happened to follow — and went red the
+  // day `mode` was deleted (2026-08-23), reporting that the LANGS field had
+  // moved when nothing about it had changed. A landmark that is another field's
+  // spelling is one the next deletion moves; the field's own closing brace is a
+  // fact about the field.
   const at = bare.indexOf("langs: {");
-  const end = bare.indexOf("mode: {", at);
+  let end = -1;
+  if (at > 0) {
+    let d = 0;
+    for (let i = bare.indexOf("{", at); i < bare.length; i++) {
+      if (bare[i] === "{") d++;
+      else if (bare[i] === "}" && --d === 0) { end = i; break; }
+    }
+  }
   assert.ok(at > 0 && end > at, "the langs tool field is no longer where this test looks");
   const field = bare.slice(at, end);
   assert.match(field, /remove/i, "the langs field no longer documents how to remove a language");

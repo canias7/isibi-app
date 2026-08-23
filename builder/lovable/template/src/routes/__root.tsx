@@ -21,7 +21,7 @@ import {
 import type { QueryClient } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/sonner";
 import { SpamGuard } from "@/lib/spam-guard";
-import { SITE_LANG, SITE_DIR, SITE_LANGS, SITE_MODE, SITE_ICON, SITE_ICON_TYPE, SITE_NAME, SITE_SLUG } from "@/site-brand";
+import { SITE_LANG, SITE_DIR, SITE_LANGS, SITE_ICON, SITE_ICON_TYPE, SITE_NAME, SITE_SLUG } from "@/site-brand";
 import { siteMeta } from "@/site-runtime";
 // The stylesheet and the site's typeface, imported here rather than in a client
 // entry so the SERVER render emits their <link> tags too. Imported in
@@ -218,7 +218,7 @@ function RootDocument() {
     // the visitor's language — the exact failure `lang` was added to fix, one
     // level down. And an English/Arabic pair needs `dir` to change with it,
     // which is only expressible because the kit is on logical utilities.
-    <html lang={active.lang} dir={active.dir} className={SITE_MODE === "dark" ? "dark" : undefined}>
+    <html lang={active.lang} dir={active.dir}>
       <head>
         <HeadContent />
       </head>

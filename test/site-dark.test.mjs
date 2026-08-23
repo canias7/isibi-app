@@ -1,29 +1,34 @@
-// Dark mode is ONE CLASS on `<html>`, and this holds the four facts that make
-// that true.
+// Dark is a COLOUR now, not a setting — and this holds what still has to be
+// true for that, plus the absence of the field that used to decide it.
 //
-// Every theme in the registry ships a DESIGNED dark palette — 31 colour
-// properties, drawn by whoever drew the light half — and `themeCss` has emitted
-// it as a `.dark` block into every site's stylesheet since the day themes
-// existed. Nothing ever applied it. So all 500 themes shipped their dark half as
-// dead CSS, and "make my site dark" was answered with a token patch: a dark
-// ground under buttons, borders and highlights chosen for white paper.
+// `mode` WAS DELETED 2026-08-23 (owner's call): light or dark is something the
+// designer writes in `css`, so a dark site is dark values on `:root`. The field
+// made sense while a theme was a NAME off a 500-row registry — it chose which
+// of two designed halves was activated. The registry went on 2026-08-20 and the
+// model writes the palette itself, so `mode` could only ratify what `css` had
+// already decided seven fields earlier.
 //
-// THE FEATURE IS CHEAP ONLY BECAUSE OF THINGS ONE LAYER DOWN, and each of them
-// is one edit from being false:
+// WHAT WAS MEASURED BEFORE PULLING IT, because the comment in `build-server.mjs`
+// argued the opposite: it claimed the class "flips every `dark:` utility in the
+// kit, which is why this beats emitting the dark values as `:root`". ZERO of the
+// 2,112 kit components carry a `dark:` utility. Nothing branches on the class,
+// so the whole of dark mode was token values.
+//
+// `.dark` IS NOT DEAD AND THAT IS THE PREMISE THIS FILE STILL GUARDS.
+// `theme-toggle` toggles it on `documentElement`, so a page that renders one
+// lets a VISITOR switch — and two things one layer down make that work, each of
+// them one edit from being false:
 //
 //   `styles.css` declares `@custom-variant dark (&:is(.dark *))` — a CLASS,
-//   not `prefers-color-scheme`. Change it to a media query and the class
-//   applies to nothing, every dark site silently renders light, and no
-//   typecheck, no bundle and no other test in this repo can see it.
+//   not `prefers-color-scheme`.
 //
 //   `themeCss` emits a `.dark` block with a DIFFERENT palette. Emit the same
-//   colours under both selectors and the class is inert in the other direction.
+//   colours under both selectors and the toggle is inert.
 //
 // So they are asserted here as the premise, rather than left as luck.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { normalizeMode } from "../builder/site-identity.mjs";
 import { themeCss } from "../builder/site-theme.mjs";
 import { resolveTheme, THEME_IDS } from "./fixtures/themes.mjs";
 import { EDIT_FIELDS } from "../builder/site-edit.mjs";
@@ -75,151 +80,92 @@ test("EVERY THEME ALREADY CARRIES A DARK PALETTE, and it is a DIFFERENT one", ()
 });
 
 /* ── the value ───────────────────────────────────────────────────────────── */
+/* ── and the absence of the field that used to decide it ────────────────── */
 
-test("light is what everything unreadable becomes", () => {
-  assert.equal(normalizeMode("dark"), "dark");
-  assert.equal(normalizeMode(" DARK "), "dark");
-  assert.equal(normalizeMode("Dark"), "dark");
-  assert.equal(normalizeMode("light"), "light");
-  // EVERY SITE PUBLISHED BEFORE THIS EXISTED sends nothing, so absent has to be
-  // light or one deploy re-draws the whole platform.
-  for (const v of [undefined, null, "", "   ", "auto", "system", "DARKISH", "night"]) {
-    assert.equal(normalizeMode(v), "light", JSON.stringify(v));
-  }
-  // NOT COERCED. `String(["dark"])` is `"dark"` — the shape that made a
-  // one-element array a valid role and a valid access level twice in this repo.
-  for (const v of [["dark"], { toString: () => "dark" }, 1, true]) {
-    assert.equal(normalizeMode(v), "light", JSON.stringify(v));
-  }
-});
-
-/* ── the wiring, end to end ──────────────────────────────────────────────── */
-
-test("the class is on <html>, from the value the container baked", () => {
-  // ON `<html>`, NOT `<body>`, and it is not a style choice: the variant is
-  // `&:is(.dark *)`, so the class has to sit ABOVE everything it is meant to
-  // reach — and `<body>` already carries the per-page colour scope, which would
-  // then be inside the dark scope rather than above it.
-  // THE PROPERTY, NOT THE ATTRIBUTE ORDER. This pinned the whole opening tag and
-  // went red the moment `dir={SITE_DIR}` was added between `lang` and
-  // `className` — a test about word order, on a correct change. What it is for
-  // is that the class is computed from `SITE_MODE` and sits on `<html>`.
-  const openTag = (root.match(/<html [^>]*>/) || [""])[0];
-  assert.ok(openTag, "no <html> tag in __root.tsx");
-  assert.match(openTag, /className=\{SITE_MODE === "dark" \? "dark" : undefined\}/);
-  assert.match(root, /import \{[^}]*\bSITE_MODE\b[^}]*\} from "@\/site-brand"/);
-  // …and never on the body, which is where a well-meaning tidy-up would put it.
-  assert.doesNotMatch(root, /<body[^>]*SITE_MODE/);
-});
-
-test("the container writes it, ANNOTATED, and says what it drew", () => {
-  assert.match(server, /const modeValue = normalizeMode\(mode\)/);
-  // THE ANNOTATION IS LOAD-BEARING. An unannotated `export const SITE_MODE =
-  // "light"` has the LITERAL type `"light"`, so `SITE_MODE === "dark"` in
-  // `__root.tsx` is TS2367 — a comparison of two disjoint literal types — and
-  // EVERY light build fails to typecheck. Measured; it is why the template
-  // placeholder carries the annotation too.
-  assert.match(server, /export const SITE_MODE: "light" \| "dark" = /);
-  assert.match(brand, /export const SITE_MODE: "light" \| "dark" = /);
-  // Reported back, so the caller can tell what it got rather than inferring it
-  // from the absence of an error — the works-but-cannot-say-so shape.
-  assert.match(server, /return \{ lang: langValue,[^}]*\bmode: modeValue\b/);
-  assert.match(server, /writeSiteBrand\(\{[^)]*mode: payload\.mode/);
-});
-
-test("BOTH PUBLISH PATHS SEND IT — the cheap spine as well as the build", () => {
-  // THE SPINE IS THE ONE THAT IS EASY TO MISS. Every text fix, colour change,
-  // picture swap, logo change and version restore republishes through
-  // `recompileAndPublish`, and the container writes `site-brand.ts` on EVERY
-  // build — it must, or one site's mode leaks onto the next. So a path that
-  // does not send the stored value sends nothing, and nothing is light: a
-  // customer's typo fix would silently put their dark site back to white.
-  // DERIVED FROM `lang`, NOT A LIST OF THE THREE HOPS THERE ARE TODAY. The two
-  // travel together by construction — both come off the same stored look, both
-  // are baked into `site-brand.ts` by the same function, and both are lost the
-  // same way — so "everywhere one goes, the other goes" is the property, and a
-  // fourth hop written tomorrow is covered without anybody remembering this
-  // test. A hand-written count of the sites is what leaves the next one bare.
-  const hops = [...worker.matchAll(/^(\s*)lang: ([^,\n]+),$/gm)];
-  assert.ok(hops.length >= 3, "the scan found only " + hops.length + " lang hops, so it has stopped scanning");
-  for (const m of hops) {
-    // The next non-comment property after it. Comments are skipped rather than
-    // counted, because this repo puts its reasoning between the two lines.
-    const after = worker.slice(m.index + m[0].length, m.index + m[0].length + 1200);
-    // THE NEXT FEW PROPERTIES, NOT STRICTLY THE NEXT ONE. This required `mode:`
-    // to be the immediately following line and went red when `langs:` — the
-    // site's OTHER languages, which travel with `lang` for exactly the same
-    // reason and are lost the same way — was added between them. A test about
-    // which order two companions are written in, on a correct change. What it is
-    // for is that they travel TOGETHER.
-    const props = after.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("//")).slice(0, 4);
-    assert.ok(props.some((l) => /^mode:/.test(l)),
-      "a `lang` hop with no `mode` beside it: " + m[2] + " → " + props.join(" ").slice(0, 90));
-  }
-  // And the third hop is a function SIGNATURE, so the value has somewhere to
-  // land — a caller passing `mode` to a destructure that does not name it is a
-  // silent drop.
-  assert.match(worker, /async function buildAndPublishPages\(env, \{[^}]*\bmode\b[^}]*\}\)/);
-});
-
-test("A REVISE THAT DOES NOT MENTION IT KEEPS IT", () => {
-  // `EDIT_FIELDS` is what makes "absent means unchanged" true of a field
-  // without a second rule anywhere. Off that list, `mergeLook` never emits it,
-  // `look.mode` is permanently undefined, and every revise of a dark site
-  // publishes it light.
-  assert.ok(EDIT_FIELDS.includes("mode"), EDIT_FIELDS.join(","));
-  // AND IT IS NOT A LAYOUT DECISION. The look lane escalates the authored plan
-  // to a full page rewrite because the container never sees it; it DOES see
-  // this one, so escalating would spend ~27 credits to reach the same recompile.
+test("`mode` IS GONE FROM design_schema, AND STAYS GONE", () => {
+  // KEPT AS AN ABSENCE RATHER THAN ONLY DELETED, on the precedent that replaced
+  // the repair-pass tests with "a second call never happens": an absence rots
+  // silently where a presence goes red. A field quietly restored beside `css`
+  // gives the model two ways to decide one thing, and the day they disagree the
+  // site is drawn one way and reported the other.
   //
-  // ASSERTED AS THE PROPERTY, not the spelling. This pinned the exact
-  // expression `k === "family" || k === "structure"` and went red the day that
-  // filter was correctly derived from `PLAN_KEYS` — a test about word order
-  // failing a change that was right, which this repo keeps recording. What it
-  // protects is that `mode` is NOT in the escalating set.
-  assert.ok(!PLAN_KEYS.includes("mode"), "mode became a plan field — a dark request would now buy a page rewrite");
-  const filt = worker.slice(worker.indexOf("const needsPages = moved.filter("));
-  assert.ok(filt, "the needs-pages filter is gone — this assertion cannot hold vacuously");
-  assert.ok(!/"mode"/.test(filt.slice(0, 120)), "the look lane escalates a dark request: " + filt.slice(0, 120));
-});
-
-test("the designer can name it, from a closed set", () => {
-  // A cap the model is merely told about is not a cap — the `MAX_CLARIFY`
-  // lesson. `enum` is what makes an unrecognised answer impossible rather than
-  // merely unlikely, and `normalizeMode` is the belt behind it.
-  // BOUNDED BY `mode`'s OWN CLOSING BRACE, not by whichever field happens to
-  // come next. It ran to `needsWeb:` until 2026-08-21, when `shape` was spliced
-  // in between the two and the window swallowed it — a guard about the mode
-  // field going red over a field that is not the mode field. This repo's most
-  // repeated own-goal, and the fix is always the same: anchor on something only
-  // the thing being asserted can have.
+  // ASSERTED ON THE REAL TOOL, not on the source text — the paragraph recording
+  // the deletion necessarily spells the field it deleted, which is this repo's
+  // most repeated own-goal in an absence check.
   const at = worker.indexOf("      mode: {");
-  assert.ok(at > 0, "the mode field is gone from design_schema");
-  const end = worker.indexOf("\n      },", at);
-  assert.ok(end > at, "the mode field never closes — the window would run to the end of the file");
-  const field = worker.slice(at, end);
-  assert.ok(field.length > 100 && field.length < 2000, "the mode field window is " + field.length + " bytes");
-  assert.match(field, /enum: \["light", "dark"\]/);
-  // OPTIONAL AND LEFT OUT BY DEFAULT. Every business is light unless it says
-  // otherwise, and a required field is one the model must answer — which is
-  // what moves a value nobody asked to move.
-  assert.match(field, /LEAVE THIS OUT/);
-  // AND IT SAYS NOT TO ALSO SEND TOKENS. Without this the model reaches for the
-  // approximation it has always reached for, and a token patch fights the
-  // theme's own dark palette on exactly the site that needed neither.
-  assert.match(field, /do not also send tokens/i);
+  assert.equal(at, -1, "the `mode` field is back in design_schema — see the header");
 });
 
-test("the router sends a dark ask to the cheap lane, and the reply names it", () => {
+test("NOTHING BAKES A DARK CLASS ANY MORE — the container, the template, the payloads", () => {
+  // FOUR LAYERS, because the feature was four hops and any one of them left
+  // behind is a value computed and dropped, which is the shape this repo has
+  // recorded twelve dead features in. The container stopped writing the const,
+  // the template stopped reading it, and neither publish path carries a mode.
+  assert.doesNotMatch(server, /^\s*export const SITE_MODE/m, "the container still writes SITE_MODE");
+  assert.doesNotMatch(server, /normalizeMode/, "the container still normalises a mode");
+  assert.doesNotMatch(brand, /^export const SITE_MODE/m, "the template placeholder still declares SITE_MODE");
+  assert.doesNotMatch(root, /SITE_MODE/, "__root.tsx still stamps a class from SITE_MODE");
+  // AND NEITHER PAYLOAD SENDS ONE. Both spines write `site-brand.ts` on every
+  // build, so a path still carrying `mode:` is one whose container argument has
+  // nowhere to land.
+  assert.doesNotMatch(worker, /\n\s*mode: (look|payload)\.mode,/, "a publish payload still carries mode");
+});
+
+test("A DARK SITE IS EXPRESSIBLE, and the tool says how", () => {
+  // THE HALF THAT MATTERS MORE THAN THE DELETION. Removing the field without
+  // saying where darkness now lives leaves the model with no way to answer "make
+  // it dark" at all — the `publicView` failure, which has cost a whole build
+  // twice: a capability conditioned on a fact the model was never given.
+  const at = worker.indexOf('"THE SITE\'S ENTIRE STYLESHEET');
+  assert.ok(at > 0, "the css field description is no longer where this test looks");
+  const end = worker.indexOf("\n      },", at);
+  assert.ok(end > at, "the css field never closes");
+  const field = worker.slice(at, end);
+  assert.match(field, /:root` IS WHAT THE SITE LOOKS LIKE/,
+    "the css field no longer says `:root` is the site's own look, so a dark site has no expression");
+  assert.match(field, /dark values/i, "the css field never says a dark site is dark values");
+  // AND IT SAYS WHAT `.dark` IS FOR, or the model writes one on every site and
+  // ships a second palette nothing can reach.
+  assert.match(field, /theme toggle/i, "the css field does not say `.dark` needs a toggle to do anything");
+});
+
+test("EDIT_FIELDS CANNOT MOVE A MODE, so a revise has nothing to keep in step", () => {
+  // `mergeLook` rebuilds its output from this list alone, so a name left here
+  // after the field went is a value the merge carries and nothing renders.
+  assert.ok(!EDIT_FIELDS.includes("mode"), "mode is back on EDIT_FIELDS");
+  // The plan axes are untouched by this — asserted so a careless widening of the
+  // deletion cannot take them with it.
+  for (const k of PLAN_KEYS) assert.ok(EDIT_FIELDS.includes(k), `${k} fell out of EDIT_FIELDS`);
+});
+
+test("the router still sends a dark ask to the CHEAP lane", () => {
   // NAMED IN THE `look` CLAUSE, or the router has no reason to route it there
   // and "make the whole site dark" escalates to a full rebuild that produces
   // the same recompile for ~27 credits.
+  //
+  // THE CLAUSE'S REASON CHANGED WITH THE FIELD. It used to say the theme
+  // "already has a dark version drawn for it", which was true of a registry
+  // theme and is not true of a stylesheet the model wrote. It is a colour
+  // change like any other now, which is both simpler and still cheap.
   const ask = read("../builder/site-ask.mjs");
   const look = ask.slice(ask.indexOf('"\\"look\\" —'), ask.indexOf('"\\"rules\\" —'));
   assert.ok(look.length > 200, "the look clause window is " + look.length + " bytes");
-  assert.match(look, /DARK MODE IS THIS LAYER TOO/);
-  // AND THE CUSTOMER IS TOLD IN WORDS. `moved` is a list of field names the
-  // client maps through `SAY`; without an entry the reply reads "Updated the
-  // look — mode." about a change to whether their whole site is black.
-  assert.match(chat, /const SAY = \{[^}]*\bmode:\s*'[^']+'/);
+  assert.match(look, /DARK OR LIGHT IS THIS LAYER TOO/);
+  assert.doesNotMatch(look, /already has a dark version drawn/,
+    "the look clause still explains dark by a designed half the site no longer has");
+});
+
+test("the client has no sentence for a field that cannot arrive", () => {
+  // `SAY` maps a moved field name to words for the customer. `mode` can no
+  // longer appear in `moved`, so an entry for it is a sentence nothing can
+  // reach — the on-disk-and-reachable-by-nothing shape this repo has deleted
+  // 289 files over, at one line.
+  assert.doesNotMatch(chat, /const SAY = \{[^}]*\bmode:/,
+    "the client still carries a sentence for `mode`, which no longer moves");
+  // The three that DO still move are asserted present, or a careless widening
+  // of the deletion empties the map and every look edit reads "Updated the
+  // look." with no list.
+  for (const k of ["lang", "brand", "description"]) {
+    assert.match(chat, new RegExp("const SAY = \\{[^}]*\\b" + k + ":"), `SAY lost ${k}`);
+  }
 });

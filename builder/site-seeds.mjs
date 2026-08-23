@@ -320,8 +320,9 @@ export function normalizeSeeds(raw) {
 
   // THE ONE THING CONTRAST CANNOT SEE. A theme whose modes are swapped is
   // perfectly legible in both — and renders dark when the visitor asked for
-  // light, and light when they asked for dark. `SITE_MODE` stamps the class; the
-  // seeds have to mean what they say.
+  // light, and light when they asked for dark. `theme-toggle` is what puts a
+  // visitor on the dark half now (`SITE_MODE` was deleted 2026-08-23), and the
+  // seeds still have to mean what they say either way.
   if (!(light.paper[0] > light.ink[0])) {
     return { theme: null, why: "the light mode's paper is not lighter than its ink" };
   }
