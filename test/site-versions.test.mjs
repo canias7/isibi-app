@@ -564,6 +564,32 @@ test("neither build POST goes through `fetch`, which gives up at 300 seconds", (
     "expected exactly two posts to the build route (the first build and the revise)");
 });
 
+test("the disconnect experiment is off unless asked for, and cannot half-fire", () => {
+  // `SMOKE_CUT_MS` destroys the build's own socket N milliseconds in — the only
+  // way to prove the queue, because since `postLong` removed our 300-second
+  // ceiling this harness HOLDS the connection for the whole build and a run left
+  // to itself produces no disconnect at all.
+  //
+  // WHAT MUST HOLD IS THAT IT IS INERT BY DEFAULT. A truthiness read would let
+  // `SMOKE_CUT_MS=abc` or `=0` cut at some arbitrary moment of an ordinary paid
+  // run, and the failure would look exactly like the edge reset it is imitating.
+  // Strictly a positive number, which is the same discipline `SMOKE_KEEP_SITE`
+  // already lives under for the same reason: these switches spend money.
+  assert.match(smoke, /Number\(process\.env\.SMOKE_CUT_MS \|\| 0\) > 0 \? Number\(process\.env\.SMOKE_CUT_MS\) : 0/,
+    "SMOKE_CUT_MS is not read as a strictly positive number — a stray value could cut a real run");
+  // AND IT REACHES THE POST. A knob read and never threaded is the wiring
+  // failure this repo has recorded twelve times, and here it would be a run
+  // reporting a disconnect experiment that never disconnected.
+  assert.match(smoke, /JSON\.stringify\(\{ brief, slug: runSlug \}\), CUT_MS\)/,
+    "CUT_MS never reaches the build POST — the experiment would report itself and do nothing");
+  assert.match(smoke, /req\.destroy\(/, "nothing actually cuts the socket");
+  // A CUT RUN IS NOT A FAILED RUN. Counting it as one makes the single check
+  // that can prove the queue permanently red, which is how a signal stops being
+  // read — this file's own recurring lesson about a red check nobody looks at.
+  assert.match(smoke, /if \(e && e\.deliberate\)/,
+    "a deliberate stop is counted as an uncaught failure");
+});
+
 test("a dropped connection watches the site instead of abandoning the run", () => {
   // THE ONE CONDITION UNDER WHICH THIS HARNESS CAN PROVE THE QUEUE. Since the
   // build became a queued job a reset is survivable by design, so giving up on

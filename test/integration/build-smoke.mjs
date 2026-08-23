@@ -178,7 +178,7 @@ async function fundAccount(to, label) {
  * Everything else in this file still uses fetch: those calls answer in
  * milliseconds and none of them is worth a second mechanism.
  */
-function postLong(url, headers, body) {
+function postLong(url, headers, body, cutMs = 0) {
   return new Promise((resolve, reject) => {
     const u = new URL(url);
     const payload = Buffer.from(body, "utf8");
@@ -192,10 +192,39 @@ function postLong(url, headers, body) {
       res.on("end", () => resolve({ status: res.statusCode, text }));
     });
     req.on("error", reject);
+    // THE DELIBERATE CUT — see CUT_MS. `destroy` tears the socket down, which is
+    // what a closed tab does: the one disconnect Cloudflare is guaranteed to
+    // observe, and therefore the one this platform used to fail hardest on.
+    // Cleared on completion so a normal run never carries a live timer.
+    let cut = null;
+    if (cutMs > 0) cut = setTimeout(() => req.destroy(new Error(`deliberately cut after ${cutMs}ms`)), cutMs);
+    const clear = () => { if (cut) clearTimeout(cut); };
+    req.on("close", clear);
+    req.on("response", clear);
     req.write(payload);
     req.end();
   });
 }
+
+// ── THE DISCONNECT EXPERIMENT, OFF UNLESS ASKED FOR ────────────────────────
+//
+// `SMOKE_CUT_MS=30000` destroys the build's own socket 30 seconds in, then
+// watches the site. That is the ONLY way to prove the thing the queue was built
+// for, and it has to be deliberate: since `postLong` removed our own 300-second
+// ceiling this harness now HOLDS the connection for the whole build, so a run
+// left to itself produces no disconnect at all.
+//
+// WHY A UNIT TEST CANNOT DO THIS. What is under test is whether Cloudflare
+// really keeps a queue consumer alive with nobody connected — a fact about
+// their runtime, not about our code. Every layer below it is driven in
+// `test/build-queue-wiring.test.mjs`; this is the layer nothing local can reach.
+//
+// A CUT RUN PROVES ONE THING AND SAYS SO. Everything downstream reads the
+// response body, which a cut deliberately destroys, so the run reports the
+// survival and stops — rather than a column of red about a build that worked.
+// Strictly a positive number, so a variable set to something vaguely truthy
+// cannot silently sabotage an ordinary run.
+const CUT_MS = Number(process.env.SMOKE_CUT_MS || 0) > 0 ? Number(process.env.SMOKE_CUT_MS) : 0;
 
 /**
  * WAIT FOR THE SITE ITSELF, when the answer was lost on the way back.
@@ -385,6 +414,7 @@ try {
   ok("read the balance the build starts from", typeof startBalance === "number", JSON.stringify(pj));
 
   console.log("posting a real build…", runSlug, `(balance ${startBalance})`);
+  if (CUT_MS) console.log(`   DISCONNECT EXPERIMENT: this run will cut its own connection after ${CUT_MS}ms`);
   // `postLong`, NOT `fetch` — see its own header. This exact call died at
   // 300.0s on 2026-08-23 on undici's headers timeout, and the abort then took
   // the build's Neon project down with it one second later.
@@ -395,7 +425,7 @@ try {
   try {
     const rr = await postLong(`${BASE}/api/site/react-build`,
       { Authorization: `Bearer ${jwt}`, "content-type": "application/json" },
-      JSON.stringify({ brief, slug: runSlug }));
+      JSON.stringify({ brief, slug: runSlug }), CUT_MS);
     status = rr.status;
     try { d = JSON.parse(rr.text); } catch { d = {}; }
   } catch (e) {
@@ -423,11 +453,28 @@ try {
     const w = await waitForSite(runSlug, 12 * 60 * 1000);
     ok("THE BUILD SURVIVED A DROPPED CONNECTION — the site published with nobody connected",
       w.live, `no site at ${runSlug}.gofarther.app after 12 minutes (connection died at ${dropped})`);
-    // Everything below reads the response body, which is the half that really
-    // was lost. Reported as one honest failure rather than a column of red
-    // lines about a build that may well have worked.
-    throw Object.assign(new Error("the connection dropped and the build's ANSWER was lost"),
-      { detail: `${dropped} — site ${w.live ? "PUBLISHED anyway (the queue did its job)" : "never appeared"}` });
+    if (w.live) console.log(`   the site is live at https://${runSlug}.gofarther.app/ — published ~${w.after * 10}s after the cut`);
+    // A DELIBERATE CUT PROVED WHAT IT CAME TO PROVE, and everything downstream
+    // reads the response body this run destroyed on purpose. Reported and
+    // finished, on the scoreboard like any other result — not thrown, because
+    // nothing went wrong.
+    //
+    // STOPPED BY THROWING A SENTINEL, not by wrapping the ~1,300 lines below in
+    // an `if`. Those lines are the rest of the run and re-indenting them makes a
+    // diff nobody can review for what is one line of behaviour — the same
+    // argument the build extraction made in `worker.js`. The `finally` runs
+    // either way, so the cleanup still happens.
+    //
+    // `deliberate` IS WHAT KEEPS THE SCOREBOARD HONEST. An unplanned drop is a
+    // run that did not finish and must count as a failure; a cut run finished
+    // exactly what it set out to do, and counting that as a failure would make
+    // the one check that can prove the queue permanently red.
+    throw Object.assign(new Error(CUT_MS
+      ? "disconnect experiment complete — the checks below need the answer this run cut on purpose"
+      : "the connection dropped and the build's ANSWER was lost"), {
+      deliberate: !!CUT_MS,
+      detail: `${dropped} — site ${w.live ? "PUBLISHED anyway (the queue did its job)" : "never appeared"}`,
+    });
   }
 
   const r = { status };
@@ -1886,8 +1933,18 @@ try {
   ok("deleting a slug that isn't yours is 404, not a silent success",
     ghostDel.status === 404, String(ghostDel.status));
 } catch (e) {
-  failed++;
-  console.log("\nUNCAUGHT: " + (e && (e.detail || e.message || e)));
+  // A DELIBERATE STOP IS NOT A FAILURE, and the distinction has to be in the
+  // SCOREBOARD rather than only in the log. The disconnect experiment cuts its
+  // own connection on purpose and therefore cannot run the checks that read the
+  // build's answer — counting that as an uncaught failure would make the one
+  // run that can prove the queue permanently red, which is how a signal stops
+  // being read. Everything else still counts, including an UNPLANNED drop.
+  if (e && e.deliberate) {
+    console.log("\nSTOPPED ON PURPOSE: " + (e.message || "") + (e.detail ? "\n  " + e.detail : ""));
+  } else {
+    failed++;
+    console.log("\nUNCAUGHT: " + (e && (e.detail || e.message || e)));
+  }
 } finally {
   console.log("\ncleaning up…");
   // Take the published site down through the route a real owner would use —

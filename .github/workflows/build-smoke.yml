@@ -92,6 +92,27 @@ jobs:
       - name: build smoke
         env:
           SMOKE_BASE_URL: ${{ inputs.base_url || 'https://gofarther.dev' }}
+          # ── THE DISCONNECT EXPERIMENT — ONE RUN, THEN THIS LINE COMES OUT ───
+          #
+          # Cuts the build's own socket 30 seconds in and then watches the site.
+          # It is the ONLY way to prove what the queue was built for: a build
+          # that outlives the request. Every layer below it is driven in
+          # `test/build-queue-wiring.test.mjs`; what no local test can reach is
+          # whether Cloudflare really keeps a queue consumer alive with nobody
+          # connected, because that is a fact about their runtime.
+          #
+          # WHY IT HAS TO BE DELIBERATE: `postLong` removed our own 300-second
+          # ceiling, so this harness now HOLDS the connection for the whole
+          # build and a run left to itself produces no disconnect at all.
+          #
+          # A CUT RUN PROVES ONE THING AND SKIPS THE REST, because everything
+          # downstream reads the answer it destroyed on purpose — so this is
+          # NOT a substitute for an ordinary run, and it comes out the moment
+          # the proof is in. Left in, every deploy would spend a build to
+          # re-prove one fact and stop checking the other eighty.
+          SMOKE_CUT_MS: '30000'
+          # Keep the site so it can be looked at rather than only counted.
+          SMOKE_KEEP_SITE: '1'
           # THE NO-FAMILY EXPERIMENT RAN 2026-08-19 AND ITS SWITCH IS NOW GONE
           # ENTIRELY, because what it tested is what every build does.
           #
