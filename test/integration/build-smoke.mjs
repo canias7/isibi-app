@@ -16,6 +16,7 @@
 // Needs SUPABASE_SERVICE_KEY and NEON_API_KEY. Run from CI (workflow_dispatch),
 // or locally with those in the environment.
 import fs from "node:fs";
+import https from "node:https";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { dropUserProject, connForDatabase, dbNameForSite, sqlQuery } from "../../site-db.mjs";
@@ -151,6 +152,81 @@ async function fundAccount(to, label) {
   ok(`${label} — ${to} credits`,
     r.ok && Array.isArray(j) && Number(j[0] && j[0].balance) === to,
     r.status + " " + JSON.stringify(j).slice(0, 200));
+}
+
+/**
+ * POST WITH NO HEADERS TIMEOUT, because `fetch` has one and a build outruns it.
+ *
+ * MEASURED, NOT GUESSED, and this run is the measurement: on 2026-08-23 this
+ * harness died at EXACTLY 300.0 seconds with `UNCAUGHT: fetch failed`, mid-build.
+ * undici — the engine behind Node's global fetch — gives up if response headers
+ * have not arrived in 300s, and it is not overridable through the fetch options:
+ * an AbortSignal set longer does not raise it, because the headers timeout fires
+ * first. `node:https` has no such timeout of its own, which is the whole reason
+ * it is here. `scripts/build-as-owner.mjs` was given this months ago for the same
+ * failure; this file was the one that never was.
+ *
+ * AND IT IS NOT HARNESS TIDINESS ANY MORE — IT IS THE OPPOSITE OF WHAT IT USED
+ * TO BE. It used to matter because hanging up KILLED the build. Since the build
+ * became a queued job it does not, and what a 300-second abort costs now is that
+ * the `finally` below deletes the throwaway user WHILE THE BUILD IS STILL
+ * RUNNING — cascading `site_backends` away and tearing down the build's own Neon
+ * project. Measured on the same run: fetch failed at 07:04:00, the teardown row
+ * for `polished-cake-64431446` was written at 07:04:01. The harness destroyed
+ * the thing it was there to observe.
+ *
+ * Everything else in this file still uses fetch: those calls answer in
+ * milliseconds and none of them is worth a second mechanism.
+ */
+function postLong(url, headers, body) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const payload = Buffer.from(body, "utf8");
+    const req = https.request({
+      hostname: u.hostname, path: u.pathname + u.search, method: "POST",
+      headers: { ...headers, "content-length": payload.length },
+    }, (res) => {
+      let text = "";
+      res.setEncoding("utf8");
+      res.on("data", (c) => { text += c; });
+      res.on("end", () => resolve({ status: res.statusCode, text }));
+    });
+    req.on("error", reject);
+    req.write(payload);
+    req.end();
+  });
+}
+
+/**
+ * WAIT FOR THE SITE ITSELF, when the answer was lost on the way back.
+ *
+ * A dropped connection has been survivable BY DESIGN since the build became a
+ * queued job: the consumer owns the work and publishes whether or not anybody is
+ * connected. So a reset is no longer a reason to give up on the run — it is the
+ * one condition under which this harness can prove the queue, which no unit test
+ * structurally can.
+ *
+ * THE SLUG IS OURS, so there is nothing to discover: this run sends an explicit
+ * one for a different reason (a name is claimed by whoever builds it first, and a
+ * test must not depend on a namespace it does not control), and it pays off here.
+ * `scripts/build-as-owner.mjs` needed a whole `discoverSlug` because it lets the
+ * designer name the site.
+ *
+ * Bounded, because a build that has not published in twelve minutes is not going
+ * to: every build ever measured finished inside that, and the consumer's own
+ * runtime ceiling is fifteen.
+ */
+async function waitForSite(s, ms) {
+  const until = Date.now() + ms;
+  const url = `https://${s}.gofarther.app/`;
+  for (let n = 1; Date.now() < until; n++) {
+    try {
+      const r = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(20000) });
+      if (r.status === 200) return { live: true, after: n };
+    } catch { /* the site is not up yet, or the network blinked */ }
+    await new Promise((r) => setTimeout(r, 10000));
+  }
+  return { live: false, after: 0 };
 }
 
 try {
@@ -309,12 +385,52 @@ try {
   ok("read the balance the build starts from", typeof startBalance === "number", JSON.stringify(pj));
 
   console.log("posting a real build…", runSlug, `(balance ${startBalance})`);
-  const r = await fetch(`${BASE}/api/site/react-build`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${jwt}`, "content-type": "application/json" },
-    body: JSON.stringify({ brief, slug: runSlug }),
-  });
-  const d = await r.json().catch(() => ({}));
+  // `postLong`, NOT `fetch` — see its own header. This exact call died at
+  // 300.0s on 2026-08-23 on undici's headers timeout, and the abort then took
+  // the build's Neon project down with it one second later.
+  const bt = Date.now();
+  let d = {};
+  let status = 0;
+  let dropped = null;
+  try {
+    const rr = await postLong(`${BASE}/api/site/react-build`,
+      { Authorization: `Bearer ${jwt}`, "content-type": "application/json" },
+      JSON.stringify({ brief, slug: runSlug }));
+    status = rr.status;
+    try { d = JSON.parse(rr.text); } catch { d = {}; }
+  } catch (e) {
+    // A DEAD CONNECTION IS A DIAGNOSIS, NOT A STACK TRACE, and the seconds are
+    // the whole of it: they say whether this was our own ceiling (a hard 300.0)
+    // or the edge reset (measured seven times at 264-549s).
+    dropped = `${((Date.now() - bt) / 1000).toFixed(1)}s: ${String((e && e.message) || e)}`;
+    console.log("   the connection died after " + dropped);
+  }
+
+  // ── THE ONE CONDITION UNDER WHICH THIS HARNESS CAN PROVE THE QUEUE ────────
+  //
+  // Since the build became a queued job, a dropped connection is survivable BY
+  // DESIGN: the consumer owns the work and publishes whether or not anybody is
+  // still connected. So a reset stops being a reason to abandon the run and
+  // becomes the measurement — and it is one no unit test can make, because what
+  // is under test is whether Cloudflare really keeps a consumer alive.
+  //
+  // IT ALSO KEEPS THE TEARDOWN HONEST. The `finally` below deletes the
+  // throwaway user, which cascades `site_backends` and drops the site's Neon
+  // project; running it while a build is in flight destroys the build. Waiting
+  // here means that by the time cleanup runs, the build is over either way.
+  if (dropped) {
+    console.log("   waiting for the site to publish anyway — this is the queue's own test…");
+    const w = await waitForSite(runSlug, 12 * 60 * 1000);
+    ok("THE BUILD SURVIVED A DROPPED CONNECTION — the site published with nobody connected",
+      w.live, `no site at ${runSlug}.gofarther.app after 12 minutes (connection died at ${dropped})`);
+    // Everything below reads the response body, which is the half that really
+    // was lost. Reported as one honest failure rather than a column of red
+    // lines about a build that may well have worked.
+    throw Object.assign(new Error("the connection dropped and the build's ANSWER was lost"),
+      { detail: `${dropped} — site ${w.live ? "PUBLISHED anyway (the queue did its job)" : "never appeared"}` });
+  }
+
+  const r = { status };
   ok("build returns 200", r.status === 200, r.status + " " + JSON.stringify(d).slice(0, 300));
   slug = d && d.slug;
   ok("response carries a slug and url", !!(slug && d.url), JSON.stringify(d).slice(0, 200));
@@ -1449,16 +1565,36 @@ try {
       instruction: "Make the background #ffcc00 and round the corners more. Keep everything else exactly as it is.",
       picker: "sonnet",
     };
-    const rv = await fetch(`${BASE}/api/site/react-build`, {
-      method: "POST",
-      headers: { "content-type": "application/json", Authorization: `Bearer ${jwt}` },
-      body: JSON.stringify(reviseBody),
-    });
-    const rd = await rv.json().catch(() => ({}));
+    // `postLong` HERE TOO. A revise is a full page rewrite — the same model
+    // call and the same container run as a first build — so it sits under the
+    // identical 300-second undici ceiling, and this one has never been measured
+    // against it because the first build has always died first.
+    let rd = {};
+    let rvStatus = 0;
+    let rvDropped = null;
+    const rt = Date.now();
+    try {
+      const rr2 = await postLong(`${BASE}/api/site/react-build`,
+        { "content-type": "application/json", Authorization: `Bearer ${jwt}` },
+        JSON.stringify(reviseBody));
+      rvStatus = rr2.status;
+      try { rd = JSON.parse(rr2.text); } catch { rd = {}; }
+    } catch (e) {
+      rvDropped = `${((Date.now() - rt) / 1000).toFixed(1)}s: ${String((e && e.message) || e)}`;
+      console.log("   the revise's connection died after " + rvDropped);
+    }
+    // ALWAYS, and outside the try: the poll writes `gaps`, which the
+    // half-published assertion below reads, and leaving it running past here
+    // would keep the process alive after the run has finished.
     polling = false;
     await poll;
 
-    ok("the revise returns 200", rv.status === 200, rv.status + " " + JSON.stringify(rd).slice(0, 300));
+    // `rd` IS EMPTY ON A DROP, so this fails once with the reason and the block
+    // below is skipped by its own `rd.page === "app"` gate — one honest line
+    // rather than a column of red about a revise that may well have landed.
+    const rv = { status: rvStatus };
+    ok("the revise returns 200", rv.status === 200,
+      rvDropped ? "the connection dropped after " + rvDropped : rv.status + " " + JSON.stringify(rd).slice(0, 300));
     // THE REVISE IS THE PATH THE MEASUREMENT CAME FROM, so it is the one that
     // has to report. Its settle read 15,085ms on a green run — an order of
     // magnitude past the estimate the wait was built on — and this line is what

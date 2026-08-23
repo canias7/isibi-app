@@ -48,6 +48,25 @@ ever measured finished inside twelve, so nothing today hits it — but a build t
 genuinely needed longer would need a different mechanism, not a bigger number.
 Flagging it rather than pretending it is not there.
 
+**The first run failed and neither reason was the fix.** Worth writing down
+because I nearly reported it as the queue not working.
+
+Our own test harness gave up on the build at exactly five minutes — a limit in
+Node, not in your platform — and then, one second later, its cleanup deleted the
+test account, which took the build's own database down with it. So the site was
+404 because *we* destroyed it mid-build, not because the build failed. Before
+this week that cleanup was harmless, since hanging up killed the build anyway;
+now that the build survives, cleaning up on a hang-up destroys it. Both fixed.
+
+The evidence that the build was actually fine: a Neon database had been created
+for it, and that only happens after the design step succeeds.
+
+**Separately: the Anthropic account is out of credit** — confirmed in words by
+the design eval on the same run. It is *not* what blocked this, because builds
+default to Grok and Grok did the design work. What it does break is the small
+routing call that decides "is this a question or a build" (that one is on
+Anthropic), plus both quality evals. Worth topping up, not urgent for building.
+
 **THE TEST BUILD DID NOT PUBLISH, AND IT WAS NOT THE CSS CHANGE (2026-08-23).**
 You asked for one build against the new path. It ran, and Grok's page-writing
 call never came back — the site (`lido-cafe`) is 404 and the build's own trace

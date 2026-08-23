@@ -520,9 +520,77 @@ test("the smoke run walks a SECOND turn, not just a first build", () => {
   // is declared BEFORE the fetch that sends it — a proximity window standing in
   // for a relationship, which is this session's recurring bug.
   assert.match(smoke, /const reviseBody = \{[\s\S]{0,400}instruction:/, "nothing builds a revise body");
-  assert.match(smoke, /fetch\(`\$\{BASE\}\/api\/site\/react-build`[\s\S]{0,300}JSON\.stringify\(reviseBody\)/,
+  // ANCHORED ON THE ROUTE AND THE BODY, NOT ON THE TRANSPORT. This pinned
+  // `fetch(` and went red on 2026-08-23 when both build POSTs moved to
+  // `postLong` — a change that preserves this property exactly and exists
+  // because `fetch` was the bug. The recurring own-goal: a guard about a
+  // relationship, written as a spelling.
+  assert.match(smoke, /`\$\{BASE\}\/api\/site\/react-build`[\s\S]{0,300}JSON\.stringify\(reviseBody\)/,
     "…and nothing sends it to the build route");
   assert.match(smoke, /SMOKE_SKIP_JOURNEY/, "the journey must be turn-off-able — it spends a second real build");
+});
+
+test("neither build POST goes through `fetch`, which gives up at 300 seconds", () => {
+  // WHY THIS IS AN ASSERTION AND NOT A COMMENT. undici — the engine behind
+  // Node's global fetch — abandons a request whose response headers have not
+  // arrived in 300s, and that ceiling is NOT reachable from the fetch options:
+  // an AbortSignal set longer does not raise it, because the headers timeout
+  // fires first. A build takes six to twelve minutes.
+  //
+  // Measured on run 32624314043: `UNCAUGHT: fetch failed` at exactly 300.0s,
+  // mid-build. And what that abort costs is not a lost log line — the `finally`
+  // then deleted the throwaway user, cascading `site_backends` away and tearing
+  // down the build's own Neon project one second later. The harness destroyed
+  // the thing it exists to observe.
+  //
+  // So this is a property of the harness that has to hold, and it is exactly
+  // the kind that gets "tidied" back to fetch by somebody making the file
+  // consistent. `scripts/build-as-owner.mjs` learned this months ago; this file
+  // was the one that never did.
+  assert.match(smoke, /function postLong\(/, "the no-timeout POST is gone — the run dies at 300s again");
+  // AT THE START OF A LINE, so a commented-out import does not satisfy it.
+  // Found by mutation: `// import https from "node:https";` passed a bare match
+  // perfectly — prose containing the thing it asserts, which is the trap this
+  // repo has now recorded eight times, here in the guard written for it.
+  assert.match(smoke, /^import https from "node:https";$/m, "…and postLong cannot work without node:https");
+  for (const m of smoke.matchAll(/([A-Za-z]+)\(`\$\{BASE\}\/api\/site\/react-build`/g)) {
+    assert.equal(m[1], "postLong",
+      `the build route is posted with \`${m[1]}\` — anything but postLong gives up at 300 seconds, mid-build`);
+  }
+  // A FLOOR, because the loop above passes vacuously over zero matches — which
+  // is what a renamed constant or a rewritten URL would produce, reported as a
+  // clean sweep.
+  assert.equal([...smoke.matchAll(/\(`\$\{BASE\}\/api\/site\/react-build`/g)].length, 2,
+    "expected exactly two posts to the build route (the first build and the revise)");
+});
+
+test("a dropped connection watches the site instead of abandoning the run", () => {
+  // THE ONE CONDITION UNDER WHICH THIS HARNESS CAN PROVE THE QUEUE. Since the
+  // build became a queued job a reset is survivable by design, so giving up on
+  // one throws away the only live measurement of the thing no unit test can
+  // reach: whether Cloudflare really keeps a consumer alive with nobody
+  // connected.
+  //
+  // It also keeps the teardown honest. The `finally` deletes the throwaway user,
+  // which drops the site's Neon project; waiting here means that by the time
+  // cleanup runs the build is over either way.
+  assert.match(smoke, /async function waitForSite\(/, "nothing waits for the site when the answer is lost");
+  const i = smoke.indexOf("if (dropped) {");
+  assert.ok(i > 0, "a dropped build POST is no longer handled at all");
+  // BOUNDED BY THE BRANCH'S OWN CLOSE, not by a byte count. A 1200-character
+  // window ran past the branch into the next block's `ok("build returns 200"`,
+  // so a mutant demoting the headline to a `console.log` survived — the
+  // overlapping-window own-goal, which this repo has recorded four times and
+  // which is what a byte window always eventually does.
+  const close = smoke.indexOf("\n  }\n", i);
+  assert.ok(close > i, "could not find the end of the dropped-connection branch");
+  const block = smoke.slice(i, close);
+  assert.match(block, /waitForSite\(runSlug/, "the drop path does not watch the site");
+  // `ok(` SPECIFICALLY ON THE HEADLINE, not merely somewhere in the block: what
+  // has to hold is that the proof is RECORDED as a result, and a `console.log`
+  // saying the same words reaches the log and no scoreboard.
+  assert.match(block, /ok\("THE BUILD SURVIVED A DROPPED CONNECTION/,
+    "the drop path does not RECORD the survival — a printed line is not a result");
 });
 
 test("the publish gap is watched WHILE the site republishes", () => {
