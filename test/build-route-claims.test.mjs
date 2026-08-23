@@ -10,21 +10,16 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { hit } from "./fixtures/worker-harness.mjs";
 import { siteHostFor } from "../site-domains.mjs";
+import { buildSource } from "./fixtures/build-source.mjs";
 
 const WORKER = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 
-/** The build route's body, to the response literal. Anchored on landmarks, never
- *  on a byte count — a well-commented insertion is what has repeatedly walked a
- *  fixed-size window off the thing it was written to guard. */
-function buildRoute() {
-  const at = WORKER.indexOf('url.pathname === "/api/site/react-build"');
-  assert.ok(at > 0, "the build route moved — rescope this");
-  const end = WORKER.indexOf("GET /api/site/<slug>/rows", at);
-  assert.ok(end > at, "the end landmark moved — rescope this");
-  const seg = WORKER.slice(at, end);
-  assert.ok(seg.length > 20_000, "the build-route window is suspiciously small — rescope this");
-  return seg;
-}
+/** The build's body. Anchored on the FUNCTION, never on a byte count and no
+ *  longer on the route match either: the build moved out of `handleRequest` on
+ *  2026-08-23 so a queue consumer could call it, and every guard here went red
+ *  at once on a change where the body was proved byte-identical. One anchor,
+ *  shared, with its own floor — see test/fixtures/build-source.mjs. */
+const buildRoute = buildSource;
 
 // The route refuses with 501 before it reads the body unless these look present.
 // Values are irrelevant — every check is a truthiness test — and nothing that

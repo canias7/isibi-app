@@ -487,11 +487,27 @@ test("the budget and the recorder are declared ABOVE the wrapper, or the race ca
   // guard above still passes and the route stops compiling, which is the good
   // failure; the bad one is somebody "tidying" the declarations back in and
   // reaching for a side channel instead.
-  const wrapper = CODE.indexOf("const buildDone = (async () => {");
-  assert.ok(wrapper > 0, "the build route's waitUntil wrapper is gone");
+  // ANCHORED ON THE ASSIGNMENT, NOT ON WHAT IS ASSIGNED. This pinned the exact
+  // spelling `const buildDone = (async () => {` and went red on 2026-08-23 when
+  // the build became a named function so a queue consumer could call it — a
+  // change that preserves this property completely, and in fact makes it
+  // structural: `runSiteBuild(request, env, { rec, tr, budget })` cannot be
+  // called at all unless the three are in the caller's scope. The recurring
+  // own-goal, in a guard whose own comment is about a scope fact.
+  const wrapper = CODE.indexOf("const buildDone = ");
+  assert.ok(wrapper > 0, "the build route no longer builds a `buildDone` promise for the deadline to race");
   for (const decl of ["const rec = makeRecorder({", "const tr = makeTrace(", "const budget = makeBudget()"]) {
     const d = CODE.indexOf(decl);
     assert.ok(d > 0, `${decl} is gone`);
-    assert.ok(d < wrapper, `${decl} moved back inside the wrapper, where the deadline cannot reach it`);
+    assert.ok(d < wrapper, `${decl} moved below the build, where the deadline cannot reach it`);
+  }
+  // AND THE BUILD IS HANDED ALL THREE. Declaring them above is only half: a
+  // build that stopped taking them would leave these three assertions passing
+  // over declarations nothing reads, which is the vacuous shape this file
+  // already guards against elsewhere.
+  const call = CODE.slice(wrapper, wrapper + 200);
+  for (const name of ["rec", "tr", "budget"]) {
+    assert.match(call, new RegExp(`(?<![\\w$.])${name}(?![\\w$])`),
+      `the build is no longer handed ${name} — the deadline and the trace are watching nothing`);
   }
 });

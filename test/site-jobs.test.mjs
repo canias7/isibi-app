@@ -8,6 +8,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { buildSource } from "./fixtures/build-source.mjs";
 import path from "node:path";
 import { normalizeJob, dueJobs, shapeMessages, runJob, jobOutcome,
          MIN_EVERY_MINUTES, MAX_MESSAGES_PER_RUN, MAX_JOBS_PER_TICK } from "../site-jobs.mjs";
@@ -441,10 +442,15 @@ test("the build hands persistSiteJobs an owner id that the route actually binds"
   // match for a reason that has nothing to do with the property under test. That
   // is the third time in this one change that a definition was mistaken for a
   // call site; when a helper and its caller share a name, anchor on the call.
-  const start = worker.indexOf('"/api/site/react-build"');
-  const end = worker.indexOf("await persistSiteJobs");
-  assert.ok(start !== -1 && end > start, "the route must precede the call it makes");
-  assert.match(worker.slice(start, end), /\bconst bu\b\s*=/, "the route must bind `bu` before using bu.id");
+  // SCOPED TO THE BUILD, not sliced between two positions in the file. Those
+  // two landmarks used to sit in order; the build moved into `runSiteBuild` on
+  // 2026-08-23, so the call now comes BEFORE the route match and the slice ran
+  // backwards — which is the exact failure the comment above warns about, from
+  // a different direction.
+  const seg = buildSource();
+  const end = seg.indexOf("await persistSiteJobs");
+  assert.ok(end > 0, "the build no longer calls persistSiteJobs");
+  assert.match(seg.slice(0, end), /\bconst bu\b\s*=/, "the build must bind `bu` before using bu.id");
 });
 
 // ── the second channel ─────────────────────────────────────────────────────

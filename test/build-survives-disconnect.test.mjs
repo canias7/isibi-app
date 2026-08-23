@@ -107,8 +107,13 @@ test("the wrapper is guarded on ctx, so a caller without one is not a TypeError"
   // Read from the source because the property is about the absent case, which a
   // harness supplying a ctx cannot reach.
   const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const at = src.indexOf("const buildDone = (async () => {");
-  assert.ok(at > 0, "the build wrapper is gone — the build no longer survives a disconnect");
+  // ANCHORED ON THE ASSIGNMENT, NOT ON WHAT IS ASSIGNED. This pinned the IIFE
+  // spelling and went red on 2026-08-23, when the build became a named function
+  // so a queue consumer could call it — a change that preserves every property
+  // below and was proved byte-identical in the body. Same own-goal the comment
+  // twenty lines down already records about `return buildDone;`.
+  const at = src.indexOf("const buildDone = ");
+  assert.ok(at > 0, "the build no longer produces a `buildDone` promise to register or return");
   const tail = src.slice(at, at + 200000);
   const call = tail.match(/ctx && typeof ctx\.waitUntil === "function"\) ctx\.waitUntil\(buildDone[^\n]*/);
   assert.ok(call, "the waitUntil call is unguarded, or no longer registers buildDone");

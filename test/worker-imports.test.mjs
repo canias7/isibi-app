@@ -818,11 +818,28 @@ test("the build response reads only fields the build RESULT carries", () => {
   for (const kw of ["typeof", "await", "new", "in", "of", "instanceof", "void", "return", "if", "else"]) named.delete(kw);
   assert.ok(named.size > 5, "the identifier scan found only " + named.size + " — it has stopped scanning");
 
-  // What `handleRequest` binds before that point, plus the globals and the
-  // module scope. A name the route never binds is the bug.
-  const fnAt = w.indexOf("async function handleRequest(request, env, ctx) {");
+  // What the ENCLOSING FUNCTION binds before that point, plus the globals and
+  // the module scope. A name it never binds is the bug.
+  //
+  // THE ENCLOSING FUNCTION IS `runSiteBuild` SINCE 2026-08-23, not
+  // `handleRequest`. The build moved out of the request handler so a queue
+  // consumer could call it — the connection only survives 30 seconds of
+  // `waitUntil` and a build takes ten minutes — and this guard immediately
+  // reported fifteen names as unbound on a change whose body was proved
+  // byte-identical. It was right: the scope really did change, and pointing it
+  // at the old function would have left it scanning a region the literal is no
+  // longer in, which is the vacuous direction.
+  const fnAt = w.indexOf("async function runSiteBuild(");
+  assert.ok(fnAt > 0 && fnAt < start, "the build function moved or was renamed — rescope this");
   const body = w.slice(fnAt, start);
-  const bound = new Set(["request", "env", "ctx", "undefined", "null", "true", "false", "Math", "String", "Number", "Object", "Array", "JSON", "Date", "Boolean", "e", "r", "d"]);
+  // THE PARAMETERS ARE DERIVED, NOT RETYPED. A hand-written list is a second
+  // copy of the signature, and the way it drifts is a renamed parameter reading
+  // as an unbound name — a false alarm on correct code, which this repo rates
+  // worse than the miss. Covers `(request, env, { rec, tr, budget })`.
+  const sig = w.slice(fnAt, w.indexOf(") {", fnAt));
+  const bound = new Set(["undefined", "null", "true", "false", "Math", "String", "Number", "Object", "Array", "JSON", "Date", "Boolean", "e", "r", "d"]);
+  for (const p of sig.slice(sig.indexOf("(") + 1).matchAll(/[A-Za-z_$][\w$]*/g)) bound.add(p[0]);
+  assert.ok(bound.has("env") && bound.has("request"), "the signature scan found no parameters — rescope this");
   // EVERY DECLARATOR, not just the first. `let designed = null, seedUsage =
   // null, seedTopUp = null;` binds three names, and reading only the first
   // flagged two of them as unbound — a false alarm on perfectly correct code,

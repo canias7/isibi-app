@@ -10,6 +10,7 @@
 // or writing a broken dist to R2 after a failed compile.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { buildSource } from "./fixtures/build-source.mjs";
 import fs from "node:fs";
 import { publishPages, pageCredits, pageCost, citedLines, totalCost, RATES, MODEL_RATES,
   DEFAULT_RATE_MODEL, ratesFor, SEARCH_USD, MIN_CREDITS,
@@ -2036,9 +2037,11 @@ test("both build-adjacent routes cap the body before parsing it", () => {
   // that the route is bounded by a mechanism that measures the bytes, and the
   // NUMBER is what a reader wants pinned — a cap silently raised to the plan
   // limit is the regression, not a rename.
-  const b = w.indexOf('"/api/site/react-build"');
-  assert.ok(b > 0, "the build route moved");
-  const bWin = w.slice(b, b + 12_000);
+  // ANCHORED ON THE BUILD ITSELF, not on a window after the route match. The
+  // build moved into `runSiteBuild` on 2026-08-23 so a queue consumer could call
+  // it, and a fixed window after the dispatch no longer contains the body read
+  // at all — the positional-anchor own-goal, on a change proved byte-identical.
+  const bWin = buildSource();
   assert.match(bWin, /readJsonBody\(request,\s*\{\s*max:\s*24_000_000\s*\}\)/,
     "the build route parses an uncapped body again");
   assert.ok(!/\bawait request\.json\(\)/.test(bWin),

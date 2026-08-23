@@ -135,7 +135,52 @@ function blockOf(i) {
   }
   return out.length ? out.join("\n") : (LINES[i] || "");
 }
-const gatesWithin = (i) => /authUser\(|UNAUTHED\(|bearerUser\(/.test(blockOf(i));
+const GATE = /authUser\(|UNAUTHED\(|bearerUser\(/;
+
+/**
+ * The gate, followed ONE HOP into a function the dispatch calls.
+ *
+ * WHY (2026-08-23): the build moved out of `handleRequest` into `runSiteBuild`
+ * so a queue consumer could call it, and this guard immediately reported the
+ * three build routes as UNAUTHENTICATED — on a change where the body was proved
+ * byte-identical and `authUser` is still its very first statement. The gate did
+ * not move relative to the code; the code moved relative to the dispatch.
+ *
+ * Raising `WINDOW` again would be the third instance of treating the symptom,
+ * and it could not work here anyway: the callee is 1,900 lines away. Following
+ * the call is STRICTER than a bigger window, not looser — it asks whether the
+ * thing that actually runs gates, rather than whether a gate happens to be
+ * nearby.
+ *
+ * BOUNDED DELIBERATELY. One hop only, to functions DECLARED IN worker.js, and
+ * the callee must gate within the same `WINDOW` of code lines an inline handler
+ * would have to — the identical standard, one level deeper. Without that last
+ * rule this degrades into "some function it calls mentions authUser somewhere",
+ * which is the presence-standing-in-for-a-property failure this repo keeps
+ * recording.
+ */
+function calleeGates(block) {
+  for (const m of block.matchAll(/(?<![\w$.])([a-z][\w$]*)\s*\(/g)) {
+    const name = m[1];
+    if (!/^(?:run|handle|do)[A-Z]/.test(name)) continue; // handler-shaped names only
+    const at = SRC.indexOf(`async function ${name}(`);
+    if (at < 0) continue;                                 // not ours, or not a function
+    const line = SRC.slice(0, at).split("\n").length - 1;
+    const out = [];
+    let code = 0;
+    for (let k = line; k < LINES.length && code < WINDOW; k++) {
+      if (commentOnly(LINES[k])) continue;
+      out.push(LINES[k]);
+      code++;
+    }
+    if (GATE.test(out.join("\n"))) return true;
+  }
+  return false;
+}
+const gatesWithin = (i) => {
+  const block = blockOf(i);
+  return GATE.test(block) || calleeGates(block);
+};
 
 test("worker.js still dispatches on /api paths the way this test reads it", () => {
   // If the router is ever restructured, every assertion below would vacuously

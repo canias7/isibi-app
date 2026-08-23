@@ -8972,6 +8972,1955 @@ async function deleteSiteFor(env, uid, dslug) {
       workerError: (workerDrop && !workerDrop.ok) ? (workerDrop.status + " " + workerDrop.error).slice(0, 200) : undefined });
 }
 
+/**
+ * THE BUILD, AS A FUNCTION RATHER THAN A BLOCK INSIDE THE REQUEST.
+ *
+ * WHY IT MOVED (2026-08-23). A build ran inside the HTTP handler and survived a
+ * dropped connection only through `ctx.waitUntil`, which Cloudflare documents as
+ * **30 seconds** - "if any Promises have not settled after 30 seconds, they are
+ * canceled". A build takes 6-12 minutes. Every build this platform has ever run
+ * has had its connection reset mid-flight (seven instances, 264-549s); the ones
+ * that PUBLISHED did so because the reset landed at a hop Cloudflare did not
+ * observe - a Worker has "no hard limit on duration ... as long as the client
+ * remains connected" - and not because `waitUntil` carried them. Two of them ran
+ * 300+ seconds past their own reset, which is impossible under a 30-second rule.
+ *
+ * So the queue consumer calls this, where the runtime guarantees 15 minutes and
+ * nothing depends on anybody still being connected. The HTTP route calls it too,
+ * so this is ONE definition rather than two that can drift.
+ *
+ * THE BODY IS NOT RE-INDENTED AND NOT ONE LINE OF IT CHANGED. It is 1,918 lines
+ * and the one path every site on the platform is built by; re-indenting it makes
+ * a diff nobody can review for what is a wrapper swap.
+ *
+ * THE FIVE PARAMETERS ARE MEASURED, NOT GUESSED. Scope-analysed with comments and
+ * strings blanked: `env` 22 uses, `tr` 21, `request` 7, `rec` 3, `budget` 3 - and
+ * ZERO uses of `ctx`, because `rec`\'s own `hold` closes over that and is built by
+ * the caller. A binding missed here is a ReferenceError that `node --check`
+ * passes, esbuild bundles and the whole suite stays green on: the `sourceStored`
+ * class, which answered 500 to every build on `main` for an hour on 2026-08-21.
+ */
+async function runSiteBuild(request, env, { rec, tr, budget }) {
+      const bu = await authUser(request);
+      if (!bu) return UNAUTHED();
+      if (!siteDbConfigured(env)) return Response.json({ ok: false, error: "site database not configured", need: "NEON_API_KEY" }, { status: 501 });
+      if (!env.SUPABASE_SERVICE_KEY) return Response.json({ ok: false, error: "service key not configured" }, { status: 501 });
+      if (!env.ANTHROPIC_API_KEY) return Response.json({ ok: false, error: "generator not configured" }, { status: 501 });
+      // CAPPED BEFORE BUFFERING, like every other body-taking route — this one
+      // was the exception (2026-08-13 audit): /api/direct, /api/save and even
+      // the unauthenticated visitor upload all check Content-Length first,
+      // while the priciest route on the platform buffered and JSON-parsed
+      // whatever arrived, up to the plan limit, inside a 128MB isolate whose
+      // other occupants are other customers' requests. Legitimate build
+      // payloads top out ~12MB (three images and a PDF); 24MB is double that.
+      // THE CAP IS MEASURED NOW, NOT DECLARED. `tooLargeBody` reads
+      // `content-length` and NOTHING ELSE, and that header is written by the
+      // caller: absent yields 0, non-numeric yields NaN, and `NaN > max` is
+      // false — so all three walked straight past it and the body was buffered
+      // and JSON-parsed anyway, up to the plan limit, inside a 128MB isolate
+      // shared with other customers' requests. The comment that stood here
+      // claimed the opposite ("CAPPED BEFORE BUFFERING") on the priciest route
+      // on the platform, which is the shape this file has litigated most: a
+      // guard whose own description is the reason nobody re-reads it.
+      //
+      // `readJsonBody` is the control request-limits.mjs says supersedes it for
+      // JSON routes — it measures the REAL byte count after arrival (encoded
+      // bytes, not `.length`, or a caller sends three times the limit in emoji)
+      // and it does the parse and the object-shape check in the same place. It
+      // was already imported here and already used one route over; this one was
+      // the exception.
+      const rb = await readJsonBody(request, { max: 24_000_000 });
+      if (!rb.ok) {
+        // The three refusals kept their own wording, because they are not one
+        // failure: too big, unreadable, and not-an-object send the caller in
+        // three different directions and this route already made that argument
+        // for its own hand-rolled version.
+        return Response.json({ ok: false, error: rb.code === "too_big" ? "body too large" : rb.error }, { status: rb.status });
+      }
+      tr.at("auth");
+      // A BROKEN BODY IS ITS OWN ANSWER, not "no brief", and `readJsonBody`
+      // makes that so rather than a hand-rolled parse doing it here. This route
+      // used `.catch(() => ({}))`, so invalid JSON became an empty object and
+      // then failed a thousand lines later as `no brief` — a failure wearing
+      // another failure's message, which is the defect class this file has
+      // litigated more than any other. An integrator with a trailing comma was
+      // told the one field they had definitely sent was missing.
+      //
+      // The shape check is the same refusal for the same reason: `null` and `[]`
+      // are both valid JSON and neither has a `.brief`, and reading through one
+      // of them is a TypeError rather than a 400.
+      const body = rb.body;
+      tr.at("body");
+      // ONE READING OF "WHICH SITE IS THIS", and there were two. `editSlug`
+      // below was trimmed and lowercased; the claim further down was ALSO
+      // stripped to [a-z0-9-] and capped at 60 — so a body slug carrying a
+      // strippable character, or one over 60 characters, read the edit state
+      // under one name and built under another. Silent by construction: the
+      // `_meta` read simply misses, `editState` stays null, and the designer is
+      // never told to edit only what was asked. Reachable today only by a
+      // hand-written API call, because the client sends back the clean slug off
+      // the build response — which is exactly the point at which a second
+      // reading of one question stops being theoretical. Same rule as
+      // `validForWrite` one module over: one expression, both readers.
+      //
+      // A NON-STRING IS NOT COERCED. `String(["a","b"])` is `"a,b"`, which
+      // strips to a real slug nobody asked for — the coercion bug already
+      // recorded for `normalizeRole` and for a table's `access`.
+      //
+      // EDGE HYPHENS ARE TRIMMED, so every slug this route claims is a legal
+      // DNS label. Without it `-shop` and `shop-` pass here and are refused by
+      // `labelOk` in `site-domains.mjs`, so `siteHostFor` answers null and such
+      // a site can only ever be served at `/s/<slug>/` — A SECOND RENDER MOUNT,
+      // which is the thing that has to stop existing. The published bundle
+      // derives its basepath at runtime today (`main.tsx`, `import.meta.url`)
+      // precisely because the same bytes serve at both; anything that bakes a
+      // basepath in — TanStack Start does, on the server AND in `hydrateStart`,
+      // overwriting whatever the router itself set — can serve one mount only.
+      // With no edge-hyphen slug there is only one, and `/s/…` is left as what
+      // it already is: the internal addressing scheme both hostname rewrites
+      // produce, prefix-stripped before dispatch, and a 301 source.
+      //
+      // AFTER THE SLICE, NEVER BEFORE. A 62-character name truncates to 60 and
+      // can land on a hyphen, so trimming first leaves exactly the label this
+      // is written to refuse.
+      //
+      // Safe to add rather than a rename: `site_backends` was measured with no
+      // edge-hyphen slug in it before this landed, so no live site changes name.
+      const cleanSlug = (v) => (typeof v === "string" ? v : "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 60).replace(/^-+|-+$/g, "");
+
+      // ── OWNERSHIP, BEFORE ANY MONEY MOVES ───────────────────────────────
+      //
+      // The ownership check sat ~400 lines below, AFTER `designSiteSchema`,
+      // after the seed top-up, after the deposit settled and after the research
+      // call had been started. On somebody else's slug it answered 409 and
+      // refunded IN FULL — so the caller's ledger moved by nothing while the
+      // model tokens had already been generated and billed to US. Any signed-in
+      // account could spend our model budget without limit by naming a slug it
+      // does not own, in a loop.
+      //
+      // It costs nothing to ask early WHEN THE CALLER NAMED THE SLUG, which is
+      // the only case that can be abused: on a first build the designer invents
+      // the name, so an attacker cannot choose the target and is simply paying
+      // for their own site. `bu` is known and the body is parsed, so this
+      // refuses before a single credit or token is spent, and there is nothing
+      // to refund.
+      //
+      // IT HAS TO SIT BELOW `cleanSlug`, AND THE FIRST DRAFT DID NOT. Placed
+      // above the declaration it reads a `const` in its temporal dead zone —
+      // `node --check` passes, esbuild bundles it, and EVERY revise throws
+      // `Cannot access 'cleanSlug' before initialization` on the one path that
+      // names a slug. The `vidRefN` and `du.id` class, written by the hand
+      // fixing that class, and invisible to the block-scope scanner because
+      // that walks FORWARD from a declaration and this was a read BEHIND one.
+      //
+      // FAILS OPEN, DELIBERATELY, AND THAT IS SAFE HERE. This is a cheap early
+      // refusal, NOT the authority: the late check below still runs, still
+      // fails CLOSED on an unreadable lookup, and is still what protects a
+      // cross-account write. Making this one fail closed would turn a Supabase
+      // blip into a refused build for the rightful owner.
+      {
+        const named = cleanSlug(body.slug);
+        if (named) {
+          const early = await siteBackendRowFresh(env, named).catch(() => null);
+          if (early && early.uid && early.uid !== bu.id) {
+            return Response.json({ ok: false, error: "that name is taken", cost: 0, msg: "That site name is taken by another account. Say a different name in your next message — e.g. \"call it sunset-cuts\" — and I’ll build it under that." }, { status: 409 });
+          }
+        }
+      }
+
+      // Revise sends {slug, instruction} for an existing site; build sends
+      // {brief}. Re-applying a schema is safe (all its DDL is additive or
+      // IF NOT EXISTS), so both take the same path.
+      // WHAT THEY WERE ASKED BEFORE THE BUILD, folded back in. `clarifiedBrief`
+      // is a no-op when nothing was asked, which is every revise and every build
+      // that went straight through — so this changes no request that did not use
+      // the feature. Composed HERE and not in the composer, because the composer
+      // cannot import the module and a second copy of a prompt fragment is two
+      // things that can disagree about what the designer reads.
+      const brief = clarifiedBrief(
+        // A NON-STRING IS NOT COERCED, matching the two readers beside it.
+        // `cleanSlug` two screens up refuses one explicitly and `modelsFor`
+        // does too, both citing the `String(["a","b"]) === "a,b"` class — and
+        // the BRIEF, the single most consequential field on this route, went
+        // through a bare `String()`. An array of sentences became one
+        // comma-joined line, an object became `[object Object]`, and either was
+        // designed from and charged for.
+        [body.brief, body.prompt, body.instruction].find((v) => typeof v === "string" && v.trim()) ?
+          String([body.brief, body.prompt, body.instruction].find((v) => typeof v === "string" && v.trim())).trim().slice(0, 4000) : "",
+        body.qa,
+      ).slice(0, 5000);
+
+      // WHICH MODELS THIS BUILD RUNS ON — the composer's Builder picker, which
+      // was sent on every build from the day it shipped and read here on none of
+      // them. Resolved ONCE, before either call, so the designer and the pages
+      // cannot end up on models chosen by two different readings of one field.
+      // An unknown value resolves to the default; see `modelsFor`.
+      //
+      // `body.effort` stays unread, on purpose (owner's call): the Effort control
+      // is visible and inert, and this comment is the difference between that
+      // being a decision and looking like an oversight.
+      const models = modelsFor(body.picker);
+
+      // WHAT THE USER ATTACHED, sorted into what the model can be shown
+      // (images, PDFs), what it can be told (text files, folded into the brief),
+      // and what it cannot be given at all. The composer has always sent these
+      // and nothing has ever read them — see `attachments` for what that meant
+      // in practice, and for why the third pile has to be reported rather than
+      // dropped.
+      const attached = attachments(body.images);
+
+      // READING THE LINKS IN THE BRIEF. No model call, so no CREDIT gate: if
+      // there is a URL in there, somebody meant us to look at it.
+      //
+      // BEFORE the designer, deliberately. A linked page is mostly evidence
+      // about what a site STORES — a menu, a price list, a booking form — and
+      // the designer is the step that decides the tables. Reading it afterwards
+      // would leave the schema guessing from the domain name, which is the
+      // failure this whole change exists to fix.
+      //
+      // The cost is that it sits on the critical path: at most two fetches,
+      // twelve seconds each, and only on a brief that contains a link.
+      //
+      // ── AND IT IS METERED, WHICH IT WAS NOT ────────────────────────────────
+      //
+      // "No model call, so no gate" was true about CREDITS and taken as true
+      // about everything. This is a server-side fetch of an attacker-chosen
+      // public URL — our source address, our user agent, up to two fetches of
+      // 1.5 MB each and ~24s of Worker wall-clock — and it runs BEFORE the
+      // deposit, before the affordability gate and before the balance read. So
+      // an authenticated free-tier account was an unmetered outbound fetch
+      // relay, on a route with no rate limit of its own.
+      //
+      // THE IDENTICAL CAPABILITY IS ALREADY METERED one route over:
+      // `/api/import/fetch` spends `useQuota(request, "import", 120)` for the
+      // same primitive. The cheaper, gate-less copy being the unmetered one is
+      // the whole finding.
+      //
+      // ITS OWN BUCKET, not `import`'s. A customer pasting a link into a brief
+      // and a customer importing media are different actions with different
+      // rhythms, and sharing a counter means one silently exhausts the other's
+      // allowance — which reads to them as a feature that stopped working.
+      //
+      // IT DOES NOT REFUSE THE BUILD. Failing the whole request over a link
+      // would turn "you have read too many links today" into "your site cannot
+      // be built", which is wildly out of proportion to what was asked for —
+      // and `contextSummary` already reports an unread link honestly, so a
+      // customer whose link was skipped is told. `useQuota` fails open if the
+      // ledger is unreachable, which is the behaviour every other caller has.
+      let linked = [];
+      if (brief) {
+        if (await useQuota(request, "sitelinks", 60)) {
+          try { linked = await readLinkedPages(brief, { readUrl: siteReadUrl }); }
+          catch (e) { console.error("link read failed:", e && e.message); linked = []; }
+          if (linked.length) tr.at("links", { n: linked.length, ok: linked.filter((p) => p.ok).length });
+        } else {
+          console.warn("site link read over quota:", bu.id);
+        }
+      }
+      // What the DESIGNER sees. Page generation gets this plus the researched
+      // facts, which do not exist yet.
+      // The designer sees the linked pages AND any attached text file: a menu or
+      // a price list is evidence about what the site STORES, which is the
+      // question this next step answers.
+      const briefWithLinks = (linked.some((p) => p.ok) || attached.texts.length)
+        ? contextBrief(brief, { pages: linked, files: attached.texts })
+        : brief;
+
+      // A brief means "design the schema"; an explicit schema skips the model.
+      let designed = null, seedUsage = null, seedTopUp = null;
+      // THE FREE-CSS ARM'S SWITCH. Experimental, off unless the caller asks for
+      // it by name — and STRICTLY `=== true`, so nothing merely truthy arriving
+      // in a body can hand a site a stylesheet with no validator in front of it.
+      //
+      // DECLARED BESIDE `designed`, WHICH IS NOT TIDINESS. It is read in two
+      // places ~950 lines apart — the design call and the container payload —
+      // and my first draft put it in the block that holds only the first, where
+      // it is a `ReferenceError` at the second: `node --check` passes, esbuild
+      // bundles it, and every build with the arm on answers 500. Caught by the
+      // block-scope scanner rather than by reading, which is what that scanner
+      // exists for and the fifth time this repo has written this bug.
+      // OUT HERE BESIDE `designed`, AND FOR THE SAME REASON — it is read at the
+      // look merge, hundreds of lines below the block that fills it in. Declared
+      // inside that block it is a ReferenceError on every build, which is the
+      // `vidRefN` failure exactly: `node --check` passes, esbuild passes, and no
+      // test can import a Worker entrypoint. Caught here by the scope scanner
+      // written after that one, on the first run — "declared at 8562, block
+      // closes at 8639, read at 8878".
+      let editState = null;
+      // NOW BILLED ON — owner's call 2026-08-08, "every time a model is used it
+      // needs to charge on our price model". This used to say "MEASURED, NOT
+      // BILLED ON", which was the right caution at the time (a measurement
+      // should not quietly become a price change) and the measurement is what
+      // made the decision possible.
+      let schemaUsage = null;
+      // WHY the designer's answer was empty, kept for the refusal below — which
+      // cannot otherwise tell "no tool call" from "declared nothing" from "would
+      // not parse". Shape only, never content.
+      let designedShape = null;
+      // What the schema step actually took, after settling the deposit below.
+      // Reported separately from the pages cost because they are different calls
+      // to different models, and one number cannot answer which one moved.
+      let schemaCost = 0;
+      // Whether a reversal we tried to make did not land — see the negative
+      // settle below. Declared out here so the response literal can read it.
+      let refundShort = false;
+
+      // ── A REFUND THAT DID NOT LAND IS NOT `cost: 0` ──────────────────────
+      //
+      // `refundCredits` was given a return value specifically so a failed
+      // reversal stops being invisible — its own docstring says "A REVERSAL
+      // THAT FAILS IS MONEY THE CUSTOMER KEEPS BEING CHARGED, so it says so" —
+      // and every refusal on this route called it as a bare statement and then
+      // answered a literal containing `cost: 0`. So the customer kept being
+      // charged up to the whole settled schema cost (12 credits cold Sonnet, 21
+      // Opus) while the response asserted they were charged nothing, and
+      // nothing anywhere recorded it. `credit_back` chunks at 10, so a
+      // 13-credit refund is two calls and either can fail on its own.
+      //
+      // ONE HELPER, so the six refusals cannot each remember separately. It
+      // returns the FIELDS rather than a boolean, because the honest response
+      // needs both halves: what really stayed on the ledger, and a flag naming
+      // it. `refundShort` is the same field the negative-settlement branch
+      // already sets and the success response already carries.
+      const refundFields = async (amount) => {
+        const n = Math.max(0, Number(amount) || 0);
+        if (n <= 0) return { cost: 0 };
+        if (await refundCredits(env, bu.id, n)) return { cost: 0 };
+        console.error("refund did not land:", slug, n);
+        return { cost: n, refundShort: true };
+      };
+      if (!body.schema) {
+        if (!brief) return Response.json({ ok: false, error: "no brief" }, { status: 400 });
+        // A DEPOSIT, NOT THE PRICE. Taken before the call because `use_credits`
+        // is atomic and row-locking and is the only thing that stops an empty
+        // account starting a paid model call — a plain balance read races. Once
+        // the call returns, `schemaSettlement` trues it up against what the call
+        // really consumed: the fee is a gate, the usage is the bill. Refunded in
+        // full if the call produces nothing usable, exactly as before.
+        //
+        // HOISTED ABOVE THE DEPOSIT because both refusals below quote it. A pure
+        // call — `models` is in scope and `buildFloor` is imported — so no I/O
+        // and no new failure mode.
+        const floor = buildFloor(models.design);
+        let balanceAfter;
+        try {
+          balanceAfter = await useCredits(request.headers.get("Authorization") || "", SITE_BUILD_FEE);
+        } catch {
+          return Response.json({ ok: false, msg: "Credits check failed — try again in a moment." }, { status: 503 });
+        }
+        // `cost` IS WHAT A BUILD NEEDS, on this branch as on the one below. It
+        // used to be `SITE_BUILD_FEE` — so the same field meant the 2-credit
+        // deposit here and the whole build's 20 one line down, which is a number
+        // nobody could act on. And this branch carried no `msg` at all, while the
+        // client renders `d.msg` and falls back to a generic sentence with no
+        // figure in it.
+        //
+        // NO BALANCE CLAUSE, unlike the branch below: `use_credits` answers -1
+        // for "the bill is larger than the balance" AND this is where an
+        // unparseable RPC answer lands, so quoting a figure would sometimes be a
+        // claim we cannot support.
+        if (!(balanceAfter >= 0)) {
+          return Response.json({
+            ok: false, error: "not enough credits", need: "credits", cost: floor,
+            msg: "A build needs about " + floor + " credits.",
+          }, { status: 402 });
+        }
+        // ENOUGH FOR THE WHOLE BUILD, not just for the deposit — the gap the
+        // Builder picker fell straight into. `use_credits` returns the balance
+        // AFTER taking the fee, so this is the real ledger value and needs no
+        // second read that could race; a concurrent build slipping past it just
+        // lands in the old behaviour rather than in something new.
+        //
+        // Refunds the deposit, because nothing has been spent yet: this is a
+        // refusal, not a failure. The message names the cheaper picker, since
+        // "top up" is not the only way out and is the less useful one.
+        if (balanceAfter + SITE_BUILD_FEE < floor) {
+          await creditBack(env, bu.id, SITE_BUILD_FEE);
+          return Response.json({
+            ok: false,
+            error: "not enough credits",
+            need: "credits",
+            cost: floor,
+            msg: models.picker === "opus"
+              ? "An Opus build needs about " + floor + " credits and you have " +
+                (balanceAfter + SITE_BUILD_FEE) + ". Switch the Builder to Sonnet 5, or top up."
+              : "A build needs about " + floor + " credits and you have " +
+                (balanceAfter + SITE_BUILD_FEE) + ".",
+          }, { status: 402 });
+        }
+        // The credit gate is a Supabase round trip and it was folded into the
+        // model call's time, which is the one number here nobody should be
+        // guessing about.
+        tr.at("gate");
+
+        // WHAT THE SITE IS NOW — read BEFORE the model call, because it is an
+        // input to it. An edit was never told it was an edit: the designer got
+        // `body.instruction` and nothing else, believed it was designing from
+        // scratch, and returned a brand and a description invented from a
+        // fragment which then became the <title> and the link preview.
+        //
+        // ON AN EDIT ONLY, and gated on the caller naming a slug we can resolve.
+        // A first build has nothing to read and adds no round trip.
+        //
+        // BEST-EFFORT, AND FAILING MEANS "NOT INSTRUCTED". `editState` staying
+        // null is what makes `mergeLook` keep the OLD precedence below — so a
+        // Neon blip degrades to exactly the behaviour that shipped before this,
+        // rather than to a designer that was never told to omit and whose answer
+        // now wins. The interlock is the point; see site-edit.mjs.
+        const editSlug = cleanSlug(body.slug);
+        if (editSlug) {
+          try {
+            const conn = await siteNeonProject(env, editSlug);
+            if (conn) {
+              const rows = await sqlQuery(conn, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_css','schema')");
+              let stored = null, storedSchema = null, storedCss = "";
+              for (const r of rows || []) {
+                if (r.k === "site_look" && r.v) stored = JSON.parse(r.v);
+                if (r.k === "schema" && r.v) storedSchema = JSON.parse(r.v);
+                // THE STYLESHEET THE DESIGNER HAS TO SEE. `css` is REPLACED
+                // rather than merged, so a revise that cannot read the current
+                // sheet can only ever answer with a fresh design — the re-roll
+                // that anchoring the look was introduced to stop, at the scale
+                // of every colour on every page. `currentStateNote` prints it in
+                // full and `EDIT_RULE` says what to do with it.
+                if (r.k === "site_css" && typeof r.v === "string") storedCss = r.v;
+              }
+              // ── A SITE WITH A STYLESHEET AND NO STORED LOOK IS STILL AN EDIT ──
+              //
+              // `if (stored)` was the whole gate, which was right while `site_look`
+              // was the only thing an edit could be about. It is not any more: a
+              // site built after 2026-08-23 answers no `seeds`, no `fonts` and no
+              // plan-adjacent look at all on a bare brief, so `site_look` can be
+              // thin while `site_css` carries the entire design. Gated on the look
+              // alone, such a site's revise would be told nothing — no name, no
+              // stylesheet, no EDIT_RULE — and would design from scratch.
+              if (stored || storedCss) {
+                editState = {
+                  ...(stored || {}),
+                  css: storedCss,
+                  tables: (storedSchema && Array.isArray(storedSchema.tables) ? storedSchema.tables : [])
+                    .map((t) => t && t.name).filter(Boolean),
+                };
+              }
+            }
+          } catch (e) { console.error("edit state read failed:", editSlug, e && e.message); }
+        }
+
+        try {
+          const dz = await designSiteSchema(env, briefWithLinks, models.design, editState, attached.blocks, budget);
+          designed = dz && dz.input;
+          schemaUsage = (dz && dz.usage) || null;
+          designedShape = (dz && dz.shape) || null;
+          tr.at("design", schemaUsage ? { out: schemaUsage.out, in: schemaUsage.in } : undefined);
+          // STARTER ROWS THE DESIGNER DID NOT WRITE. `seed` is a required field
+          // on its tool and the model omits it anyway — measured on two
+          // consecutive builds — and nothing noticed, so the site published with
+          // an empty price list and a booking form whose Service select had no
+          // options at all. Permanently: nothing can write to a `display` table
+          // after this point.
+          //
+          // HERE, NOT AT THE SEEDING STEP, for two reasons. It is before the
+          // settlement, so the one deposit trues up against BOTH calls instead
+          // of a second charge with its own rounding; and it is before
+          // provisioning, so a build that never gets a database has not paid for
+          // rows it will not use.
+          //
+          // NARROWED TO TABLES THE SITE DOES NOT ALREADY HAVE, which the addon
+          // lane already does and this one did not. A revise declares only what
+          // it is changing — but `EDIT_RULE` invites it to NAME AN EXISTING TABLE
+          // (to add a column, or to make it payable or publish a `publicView`),
+          // and `access` is compelled on every table, so `services` arrives
+          // looking like an unfilled display table. `seedGaps` cannot tell:
+          // it asks about access, columns and the seed, never Postgres. The rows
+          // were then bought and thrown away — `seedSiteRows` skips any table
+          // that already has any.
+          //
+          // FROM NAMES ALREADY IN HAND, at zero I/O: `editState.tables` comes
+          // from the `_meta` read three statements above. Probing Postgres per
+          // table would put up to six round trips on the critical path in front
+          // of a model call, and duplicate a question the seeder asks anyway.
+          //
+          // AN EMPTY SET KEEPS TODAY'S BEHAVIOUR BYTE-IDENTICALLY — a first
+          // build, or an `editState` read that failed — so it fails toward
+          // buying, which is the safe direction: a wasted Haiku call against an
+          // empty price list that nobody can order from.
+          const knownTables = new Set(((editState && editState.tables) || []).map((n) => String(n).toLowerCase()));
+          if (designed) {
+            const top = await topUpSeed(
+              { send: (req) => anthropicMessages(env, req) },
+              {
+                brief: briefWithLinks,
+                // ONLY AN ARRAY IS NARROWED, and the guard is the whole point.
+                //
+                // `designed` is RAW model output, not a normalised spec, and
+                // `tables` is deliberately tolerated in two NON-ARRAY shapes:
+                // a name→definition MAP, and a JSON STRING (measured at ~1
+                // sample in 20 by `schema gen eval`, which is why
+                // `normalizeSchema` parses it back). `.filter` exists on
+                // neither, so calling it here threw `TypeError: … is not a
+                // function` inside the design try — returned as a 503 reading
+                // "The designer is busy", blaming the provider for our own
+                // crash and throwing away a schema `normalizeSchema` would
+                // have recovered perfectly.
+                //
+                // `seedGaps` was taught both shapes ON PURPOSE by the
+                // 2026-08-13 audit, whose own note says the net built to
+                // rescue a build crashed it instead. This narrowing sat one
+                // layer ABOVE that tolerance and re-opened it — the fix
+                // defeated before the module it fixed ever saw the value.
+                //
+                // Not-an-array therefore passes `designed` through untouched:
+                // `seedGaps` recovers the shape and the worst case is the
+                // pre-narrowing behaviour (a Haiku call that buys rows for a
+                // table the seeder then skips). The addon lane has always
+                // guarded exactly this way; only the build lane did not.
+                spec: knownTables.size && Array.isArray(designed.tables)
+                  ? { ...designed, tables: designed.tables.filter((t) => t && !knownTables.has(String(t.name).toLowerCase())) }
+                  : designed,
+                seed: designed.seed,
+              },
+            );
+            if (top.gaps.length) {
+              // `failed` IS THE ONLY THING SEPARATING TWO OUTCOMES. The module sets
+              // it when the model CALL threw; a call that returned junk answers with
+              // the same empty `rows` and the same `gaps`, so without it the wire
+              // cannot tell "the provider was down" from "the provider answered
+              // nonsense" — and the customer's site has an empty price list either
+              // way. STRICTLY `=== true`: nothing merely truthy raises a flag here.
+              // Omitted when false, so a working build's response is unchanged.
+              seedTopUp = { gaps: top.gaps, filled: Object.keys(top.rows), ...(top.failed === true ? { failed: true } : {}) };
+              // NOT the route's `slug` — that const is declared ~140 lines
+              // below, so naming it here is a temporal-dead-zone ReferenceError
+              // thrown on EXACTLY the branch this module exists for (a build
+              // whose designer skipped the seed), landing in the design catch
+              // as a 503 wearing a model-outage message. Found by the
+              // 2026-08-13 audit; it had never fired live only because no run
+              // yet had a gap. The log names the site from what is in hand.
+              console.log("seed top-up:", (body && body.slug) || (designed && designed.slug) || "?", JSON.stringify(seedTopUp));
+            }
+            if (Object.keys(top.rows).length) designed = { ...designed, seed: mergeSeed(designed.seed, top.rows) };
+            seedUsage = top.usage;
+            if (top.usage) tr.at("seedrows", { out: top.usage.out, in: top.usage.in });
+          }
+          // SETTLE THE DEPOSIT. Positive: the call cost more than the fee, take
+          // the difference. Negative: it cost less, give the difference back —
+          // bounded by the deposit itself, so it can never exceed `credit_back`'s
+          // 10-credit ceiling however the price table moves. Neither is allowed
+          // to fail the build: the schema is in hand and the database is about to
+          // be built on it, and losing that over a ledger round trip would be a
+          // far more expensive failure than a credit in either direction.
+          const settle = schemaSettlement([schemaUsage, seedUsage], SITE_BUILD_FEE);
+          schemaCost = SITE_BUILD_FEE + settle;
+          if (settle > 0) {
+            // COLLECT, not just ask. `use_credits` refuses a bill larger than
+            // the balance and debits zero, so the settlement has to report what
+            // it really took or `schemaCost` becomes a number nobody was charged.
+            try { schemaCost = SITE_BUILD_FEE + await collectCredits(request.headers.get("Authorization") || "", settle); }
+            catch { schemaCost = SITE_BUILD_FEE; /* keep the build */ }
+          } else if (settle < 0) {
+            // A REFUND THAT DID NOT LAND LEAVES `schemaCost` OVERSTATING WHAT
+            // WAS TAKEN, in the direction the customer pays for. Silent before
+            // this: `creditBack` swallowed both a throw and a refusal, so the
+            // ledger and this number disagreed by up to the whole fee with
+            // nothing anywhere recording it. Not fatal — the build is fine and
+            // the deposit is small — but it is now on the response.
+            if (!await creditBack(env, bu.id, Math.min(SITE_BUILD_FEE, -settle))) refundShort = true;
+          }
+        } catch (e) {
+          await creditBack(env, bu.id, SITE_BUILD_FEE);
+          console.error("schema design failed:", e && (e.detail || e.message));
+          // `upstream` is the numeric status from the model API and nothing else
+          // — never `detail`, which echoes back parts of the request. It is the
+          // difference between "they are overloaded, retry" (429/529) and "we
+          // are sending something they reject" (400), and without it a total
+          // outage of the builder's main path is indistinguishable from a busy
+          // minute. This one hid for three merges behind exactly that.
+          const kind = upstreamKind(e && e.detail);
+          return Response.json({
+            ok: false,
+            msg: e && e.truncated
+              ? "That brief needs more room than the designer had — try describing fewer things to store."
+              // OUR CEILING, NOT THEIR OUTAGE, and it must not read as one. A
+              // timeout has no HTTP response, so without asking it fell through
+              // to "the designer is busy" — blaming the provider for a bound of
+              // ours and inviting a retry into the same wait. Measured before
+              // the bound existed: 26 minutes, no answer, nothing said.
+              : isCallTimeout(e)
+                ? "That took longer than a build is allowed to — nothing was charged. Try again, or describe the site in fewer words."
+                // Named, because it is the one failure here that no amount of
+                // retrying fixes and that somebody can actually go and act on.
+                : kind.billing
+                  ? "The site builder is temporarily unavailable — this is on us, not your brief."
+                  : "The designer is busy — try again in a moment.",
+            stage: "design",
+            // WHAT THE CUSTOMER WAS LEFT WITH, on the one refusal that said
+            // nothing about money at all. The deposit is refunded a few lines
+            // up and the response never mentioned it, so somebody watching a
+            // build fail had no way to know whether they had paid for it.
+            cost: 0,
+            upstream: (e && e.status) || null,
+            // The provider's own error TYPE, shape-checked. Never its message,
+            // which a 400 can fill with the request.
+            upstreamType: kind.type,
+            // THE ERROR'S CLASS, WHICH IS THE ONLY THING THAT SPEAKS WHEN THERE
+            // WAS NO HTTP RESPONSE AT ALL. `upstream` and `upstreamType` are
+            // both read off a response body, so a `fetch` that throws — a
+            // network fault, a DNS blip, an aborted connection — leaves BOTH
+            // null and the reply says nothing whatsoever about what happened.
+            // Measured 2026-08-12: a run failed here twice against a Worker
+            // byte-identical to one that had passed eleven minutes earlier, and
+            // the response could not distinguish "the network dropped" from "we
+            // threw". The class can: a `TypeError` is the fetch, anything else
+            // is ours.
+            //
+            // A NAME IS A CLASS AND CANNOT BE A SECRET — the same rule the owner
+            // data route states for its own catch. The message is withheld from
+            // every class but `ReferenceError`, whose message is always
+            // "<name> is not defined": a programmer bug, never request data, and
+            // the single most valuable string this repo has ever put in a
+            // response (it is how `OWN_ZONES` was found).
+            kind: String((e && e.name) || "Error").slice(0, 40),
+            why: (e && e.name) === "ReferenceError" ? String((e && e.message) || "").slice(0, 120) : undefined,
+            billing: kind.billing || undefined,
+            truncated: !!(e && e.truncated),
+          }, { status: 503 });
+        }
+        // A DESIGNER THAT DECLARED NO TABLES IS NOT AUTOMATICALLY AN ERROR — see
+        // the one refusal below, after the ownership lookup. It used to be
+        // refused right here, and that made a look-only revise impossible.
+      } else {
+        // AN EXPLICIT SCHEMA SKIPS THE MODEL CALL, NOT THE AFFORDABILITY CHECK.
+        //
+        // The deposit and `buildFloor` both live in the branch above, and
+        // provisioning runs after it either way — so anyone signed in who posted
+        // their own `schema` reached `ensureSiteBackend` with NO credit check at
+        // all. `publishPages` still refuses to generate below its own floor, so
+        // what was free is the NEON PROJECT: a capped, billed resource, one per
+        // site, against a platform-wide cap of 100. Repeat with fresh slugs and
+        // builds stop working for everybody.
+        //
+        // A BALANCE READ, NOT A DEPOSIT, and the difference is deliberate. No
+        // model call happens on this path, so there is nothing to hold money
+        // against; the only thing worth stopping is provisioning on an empty
+        // account. A read can race a concurrent build, which is the same
+        // exposure this path had in full a moment ago and bounded to one.
+        // `MIN_CREDITS`, NOT `buildFloor`, and the difference is the point.
+        // `buildFloor` = a cold designer call at this picker's rates PLUS the
+        // generation floor — and no designer call happens on this path, so
+        // charging for one would refuse a build that costs strictly less than
+        // an ordinary one. `MIN_CREDITS` is the amount `publishPages` already
+        // requires before it will generate at all, which is the real downstream
+        // requirement and comfortably inside a new account's grant of 20 (both
+        // `confirm smoke` and `member smoke` build this way on a fresh account
+        // and must keep passing).
+        const floor = MIN_CREDITS;
+        const bal = await readCredits(request.headers.get("Authorization") || "").catch(() => null);
+        // FAILS CLOSED. An unreadable ledger is the shape that made this free in
+        // the first place — "cannot tell" must not mean "go ahead" on the one
+        // path that provisions a capped resource.
+        if (bal === null || bal < floor) {
+          return Response.json({
+            ok: false,
+            error: "not enough credits",
+            need: "credits",
+            cost: floor,
+            msg: bal === null
+              ? "Couldn't check your balance just now — try again in a moment."
+              : "A build needs about " + floor + " credits and you have " + bal + ".",
+          }, { status: 402 });
+        }
+      }
+
+      // WEB RESEARCH, STARTED HERE AND AWAITED MUCH LATER — the gap is the point.
+      //
+      // Everything between this line and the page generation is Neon: creating a
+      // project, applying the schema, seeding rows, reading the merged schema
+      // back. That is seconds of waiting on somebody else's API, and a search
+      // running alongside it is free in wall-clock terms. Awaited where it is
+      // needed instead, it would add its own latency to a build the customer is
+      // watching, for a step most builds skip entirely.
+      //
+      // Gated on the designer's own `needsWeb`, so an explicit-schema build (no
+      // designer, no gate) never searches — which is correct: that path is the
+      // test harness sending a schema it already knows.
+      //
+      // `.catch` is attached IMMEDIATELY rather than at the await. An unhandled
+      // rejection in the interval would be an unhandled rejection, and this is a
+      // best-effort enhancement — the build must survive it.
+      const researchPromise = shouldSearch(designed)
+        ? siteWebResearch(env, brief, designed.webQueries).catch((e) => {
+            console.error("web research failed:", e && e.message);
+            return null;
+          })
+        : null;
+
+      const slug = cleanSlug(body.slug) || cleanSlug(designed && designed.slug)
+        || ("site-" + Math.random().toString(36).slice(2, 8));
+
+      // THE RECORDER GETS ITS KEY HERE — the first moment there is one. Every
+      // step above (auth, the body, the credit gate, the design call) has been
+      // held in the recorder rather than dropped, and this flushes them, so a
+      // build that dies in page generation still has its whole prologue written
+      // down. A build that dies BEFORE this leaves no row, which is honest: it
+      // never got as far as being a site.
+      rec.identify(slug, bu.id);
+      rec.step(tr.done(), { stage: "design", picker: String(body.picker || "").slice(0, 24) || null });
+
+      // A site's slug is claimed by whoever built it first; a second user cannot
+      // publish over someone else's site by guessing the name.
+      // Fails CLOSED. This was `catch {}`, so a Supabase timeout turned "I cannot
+      // tell who owns this" into "nobody does" — and the build went on to apply
+      // its schema, seed rows and publish pages over an existing owner's site.
+      // (ensureSiteBackend now enforces this too; belt and braces, because the
+      // consequence is a cross-account write.)
+      let priorBrief = "";
+      // IS THIS SLUG ALREADY A SITE OF THIS CALLER'S — i.e. is this a revise?
+      // Read off the same row as the ownership check, so it costs nothing, and
+      // it is the OWNERSHIP that decides rather than the stored brief: a site
+      // built before `brief` was recorded is still a revise, and treating it as
+      // a first build would re-buy every photograph on it.
+      let existing = false;
+      try {
+        const owner = await siteBackendRowFresh(env, slug);
+        if (owner && owner.uid && owner.uid !== bu.id) {
+          // REFUNDED. The schema call has already happened and been settled by
+          // this point, so a refusal here leaves the customer with no database,
+          // no site and a real charge — and the client is told they were not
+          // charged. Same reasoning as the no-tables path: this returns before
+          // anything is provisioned, so they are left with literally nothing.
+          const back = await refundFields(schemaCost);
+          return Response.json({ ok: false, error: "that name is taken", ...back, msg: "That site name is taken by another account. Say a different name in your next message — e.g. \"call it sunset-cuts\" — and I\u2019ll build it under that." }, { status: 409 });
+        }
+        // Free — this lookup already happens for the ownership check.
+        existing = !!(owner && owner.uid);
+        priorBrief = (owner && owner.brief) || "";
+      } catch (e) {
+        console.error("ownership check failed:", slug, e && (e.detail || e.message));
+        const back = await refundFields(schemaCost);
+        return Response.json({ ok: false, msg: "Couldn't check that name just now — try again in a moment.", ...back }, { status: 503 });
+      }
+
+      // A Supabase round trip, and it was folded into a mark named `normalize`
+      // — which is in-process and instant. A step name that hides a network call
+      // is worse than no step at all: it attributes the wait to the wrong thing.
+      tr.at("owner");
+
+      let spec = normalizeSchema(body.schema || designed || {});
+      tr.at("normalize");
+      // A BOOKING TABLE WITH NOTHING STOPPING A DOUBLE BOOKING, named rather
+      // than discovered by a customer. Making the four constraints declarable
+      // on 2026-07-28 fixed availability and not USE — nothing checks that a
+      // table shaped like a booking came back carrying one, which is the same
+      // shape as `seed` being skipped on two builds this week. No model call
+      // and no I/O: it reads the spec that is already in hand.
+      const unguarded = unguardedBookings(spec);
+      if (unguarded.length) console.warn("unguarded booking table:", slug, unguarded.join(","));
+      // WHO MAY READ AND WRITE AN EXISTING TABLE IS NOT THIS CALL'S TO MOVE.
+      //
+      // `EDIT_RULE` promises the designer, twice, that an omitted field keeps
+      // what the site has and that "the `access` you have to fill in for an
+      // existing table is discarded". Nothing implemented it here, so a revise
+      // that named an existing table — which that same rule explicitly invites,
+      // to add a column or make it payable — re-levelled it to `collect`:
+      // `GRANT INSERT … TO anonymous` on the business's own menu, and the SELECT
+      // policy dropped so no visitor could read it. Measured 2026-08-21. The
+      // addon lane has guarded exactly this since it shipped; this one never did.
+      //
+      // AFTER the booking check above on purpose: that one is about what the
+      // DESIGNER answered, and reading a stripped table would let a re-declared
+      // `display` table false-alarm as an unguarded booking table.
+      //
+      // `editState.tables` is the site's own table names, already in hand from
+      // the `_meta` read the designer prompt needed — no round trip. Empty (a
+      // first build, or a read that failed) strips nothing, which is the only
+      // safe direction: a revise that declares a genuinely NEW table has to keep
+      // the level it just gave it. `site-schema.mjs` no longer stamps an absent
+      // level, so the omission half is covered even when this set is empty.
+      const heldAccess = keepStoredAccess(spec, (editState && editState.tables) || []);
+      spec = heldAccess.spec;
+      if (heldAccess.held.length) {
+        console.warn("kept stored access:", slug,
+          heldAccess.held.map((h) => h.table + ":" + h.fields.join("+")).join(","));
+      }
+      // WHAT THE DESIGNER REACHED FOR AND WE DO NOT HAVE. `coerceTable` is an
+      // allow-list, so a field the tool never offered is dropped without a
+      // trace — which is the right protection and also throws away the only
+      // evidence about what this platform is MISSING that does not come from
+      // somebody guessing. Eleven schema features were built by guessing and
+      // ended up reachable by nothing; a count of real reaches is what replaces
+      // that. Read off the RAW answer, before the allow-list, because after it
+      // there is nothing left to read. Names only, never values.
+      const reached = droppedFields(body.schema || designed || {});
+      if (reached.length) console.warn("designer reached for:", slug, reached.join(","));
+      // AND WHAT IT DECLARED THAT WE REFUSED. The exact inverse, and the gap
+      // `droppedFields` creates by design: it skips `TOOL_TABLE_FIELDS`, so a
+      // guarantee the tool DOES offer that fails its shape check was nulled
+      // with no trace on the response. A `publicView` whose every column is
+      // stripped as PII leaves a marketplace with no browsable listing and
+      // nothing saying the projection was refused — discoverable in a log or
+      // by the incident. Names only, like `reached`, and never values.
+      const refused = refusedFields(body.schema || designed || {});
+      if (refused.length) console.warn("declared and refused:", slug, refused.join(","));
+      // A TABLE NAME THE ENGINE COULD NOT USE. `normalizeSchema` used to let
+      // any truthy name through and `sqlIdent` threw on it at apply time,
+      // OUTSIDE any per-table try — so one over-long or odd name from the
+      // designer 502'd the WHOLE build and took the customer's good tables
+      // with it. It loses one table now, and this is what says which.
+      const badNames = Array.isArray(spec && spec.refusedTables) ? spec.refusedTables : [];
+      if (badNames.length) console.warn("refused table names:", slug, badNames.join(","));
+      // NO TABLES IS ONLY AN ERROR ON A FIRST BUILD.
+      //
+      // This refusal used to sit before the ownership lookup, where `existing`
+      // is not known yet — so it fired on every revise that named no table, and
+      // "make the background yellow" answered 422 and changed nothing. That is
+      // the exact instruction token overrides were built for: the designer sees
+      // only the instruction on a revise, so a look-only change CORRECTLY
+      // declares nothing to store, and the site's real schema is already in
+      // `_meta` where the merge leaves it untouched. Measured live 2026-08-09 —
+      // the smoke run's revise came back 422 with the whole feature dead.
+      //
+      // On a first build it is still the right answer, and it is still a refund:
+      // this returns before anything is provisioned, so the customer is left
+      // with literally nothing, and "charge for what you use" was never meant to
+      // mean charging for an empty hand. The refund is what was ACTUALLY taken,
+      // not the flat fee — once the deposit settles to real usage those are two
+      // different numbers, and refunding the fee would quietly keep the
+      // settlement on a build that 422s.
+      if (!spec.tables.length && !existing) {
+        const back = await refundFields(schemaCost);
+        // AND SAY WHICH OF THE FOUR IT WAS. This refusal reads identically for a
+        // model that made no tool call, one that called it and declared nothing,
+        // one whose answer would not parse, and one whose every table NAME was
+        // refused — and the four warnings above report other things, so a real
+        // generator outage left no trace at all. The customer's sentence is
+        // unchanged; this is for whoever has to answer "why did my build fail".
+        console.warn("schema declared no tables:", slug, designedShape
+          ? "tool=" + designedShape.tool + " stop=" + designedShape.stop + " blocks=" + designedShape.blocks.join(",")
+          : (body.schema ? "caller-supplied schema" : "no designer answer at all"),
+          "refused=" + (badNames.length ? badNames.join(",") : "none"));
+        // A caller that sent its own schema gets the machine answer; a customer
+        // whose brief the designer could make nothing of gets the sentence.
+        return body.schema
+          ? Response.json({ ok: false, error: "schema declares no tables", ...back }, { status: 400 })
+          : Response.json({ ok: false, msg: "That brief didn't describe anything to store — try naming what the site keeps track of.", ...back }, { status: 422 });
+      }
+
+      let db;
+      try {
+        db = await ensureSiteBackend(env, slug, bu.id, brief, (n) => tr.at("prov:" + n));
+        tr.at("provision");
+      } catch (e) {
+        if (e && e.conflict) {
+          const back = await refundFields(schemaCost);
+          return Response.json({ ok: false, error: "that name is taken", ...back, msg: "That site name is taken by another account. Say a different name in your next message — e.g. \"call it sunset-cuts\" — and I\u2019ll build it under that." }, { status: 409 });
+        }
+        console.error("site provision failed:", slug, e && e.status, e && (e.detail || e.message));
+        // REFUNDED, BECAUSE THIS FAILURE IS OURS AND THEY ARE LEFT WITH NOTHING.
+        //
+        // Only the `conflict` branch above used to give the money back, so a
+        // Neon outage, a dead key or a project quota answered 502 and KEPT the
+        // settled schema charge — 9 credits cold Sonnet, 15 Opus, out of a new
+        // account's grant of 20. Every sibling refusal on this route refunds,
+        // with the stated reason that the caller is left with literally nothing;
+        // a provisioning failure leaves them in exactly that state, and
+        // infrastructure being down is an our-fault stage by `ourFault`'s own
+        // list. During an outage each retry cost half a grant for nothing.
+        const back = await refundFields(schemaCost);
+        // THE STATUS IS THE DIAGNOSIS. A dead key (401), a plan or permission
+        // limit (403), a project quota (422) and Neon being down (5xx) all read
+        // identically without it, and each needs a completely different fix —
+        // which is exactly how build smoke spent a run reporting `detail: "{}"`
+        // and no way to tell which had happened.
+        return Response.json({
+          ok: false,
+          error: "could not provision the database",
+          upstream: (e && e.status) || null,
+          // WHICH call failed. site-provision.mjs stamps a stage on every one of
+          // its throws and this dropped it, so "enable_auth" and
+          // "enable_data_api" — two different Neon endpoints — were reported
+          // identically.
+          stage: (e && e.stage) || null,
+          detail: scrubSecrets(String((e && (e.detail || e.message)) || "")).slice(0, 300),
+          ...back,
+        }, { status: 502 });
+      }
+
+      let made;
+      try {
+        made = await applySiteSchema(db, spec);
+        tr.at("schema", { tables: (spec.tables || []).length });
+      } catch (e) {
+        console.error("schema apply failed:", slug, e && (e.detail || e.message));
+        // REFUNDED FOR THE SAME REASON as the provisioning failure above: this
+        // is our schema engine failing against a database we just made, not
+        // anything the customer wrote, and `ourFault` treats an unclassified
+        // stage as ours by design. They are left with an empty database and no
+        // site — technically an artifact, practically nothing.
+        const back = await refundFields(schemaCost);
+        // SCRUBBED, like the provisioning detail one branch up and unlike this
+        // line until now. A Postgres or Neon error can quote the statement, and
+        // the statement is built from the connection the vault handed us.
+        return Response.json({
+          ok: false,
+          error: "could not apply the schema",
+          detail: scrubSecrets(String((e && (e.detail || e.message)) || "")).slice(0, 300),
+          ...back,
+        }, { status: 502 });
+      }
+
+      // Register the site's scheduled jobs. Best-effort and non-fatal for the
+      // same reason seeding is: a site whose reminders are not registered still
+      // works, and failing the build here would throw away a live database over
+      // background work. Declared jobs OVERWRITE by (slug, name); none are
+      // auto-deleted, so a revise that drops a job leaves it registered — which
+      // is why the runner re-reads the schema and skips a job the spec no longer
+      // declares, rather than trusting the row.
+      try {
+        const jobs = Array.isArray(spec.jobs) ? spec.jobs : [];
+        if (jobs.length) {
+          // `bu.id`, NOT `uid` — which was never bound in this scope and threw a
+          // ReferenceError straight into the catch below, so NOT ONE JOB HAS
+          // EVER REGISTERED. Dead at the last link with every layer above it
+          // correct, and silent because this block is best-effort by design.
+          await persistSiteJobs(env, bu.id, slug, jobs);
+          tr.at("jobs", { n: jobs.length });
+        }
+      } catch (e) { console.error("jobs persist:", slug, e && e.message); }
+
+      // Starter content for the display tables. Best-effort and non-fatal: a site
+      // with a live database and an empty menu is still a site, but one WITH the
+      // menu is the difference between a demo and something usable — nothing can
+      // write to a display table after this point, not even the owner.
+      let seeded = null;
+      try {
+        seeded = await seedSiteRows(db, spec, (designed && designed.seed) || body.seed);
+        tr.at("seed");
+        if (seeded && Object.keys(seeded.seeded).length) console.log("seeded:", slug, JSON.stringify(seeded.seeded));
+        if (seeded && seeded.skipped.length) console.log("seed skipped:", slug, JSON.stringify(seeded.skipped.slice(0, 6)));
+      } catch (e) { console.error("seeding failed:", slug, e && (e.detail || e.message)); }
+
+      // Write the site's pages against the schema that was just created, compile
+      // them, and publish the dist. The database is already live at this point, so
+      // this stage cannot fail the build — it either publishes the real app or
+      // falls through to the placeholder below.
+
+      // Pages are generated against every table the site HAS, not just the ones
+      // this request designed.
+      //
+      // A revise sends {slug, instruction}, and the instruction alone is what
+      // the schema designer sees — so `spec` holds only the tables that
+      // instruction mentioned. "Add a gallery" produced a spec of exactly one
+      // table, and the generator then rewrote the whole site knowing only that:
+      // a working barber shop came back as a page listing a gallery and nothing
+      // else. applySiteSchema already MERGES into _meta (a revise cannot drop a
+      // table), so the merged spec is the real picture — read it back and use it.
+      // Merge, do not replace. `spec` is this request's schema and carries the
+      // FULL column objects (type, required, refs); `_meta` carries every table
+      // the site has but stores columns as plain names. Taking _meta wholesale
+      // threw away the type information for the tables just designed, and the
+      // generator was told they had no columns.
+      let pageSpec = spec;
+      try {
+        const stored = await loadSiteSchema(db);
+        if (stored && Array.isArray(stored.tables) && stored.tables.length) {
+          const byName = new Map();
+          for (const t of stored.tables) if (t && t.name) byName.set(String(t.name).toLowerCase(), t);
+          for (const t of (spec.tables || [])) if (t && t.name) byName.set(String(t.name).toLowerCase(), t); // richer wins
+          pageSpec = { ...spec, tables: [...byName.values()] };
+        }
+      } catch (e) { console.error("merged schema read failed:", slug, e && e.message); }
+
+      // ── THE SITE'S LOOK, REMEMBERED ────────────────────────────────────────
+      //
+      // A revise sends only the instruction, so the designer sees a few words
+      // and names a theme, a family and a font pair from THOSE — meaning "fix a
+      // typo" could re-roll a booking-first barber shop into whatever family
+      // nearest-matches that sentence, with different fonts and a different
+      // theme. The fallback chain says `(designed && …) || (body && …)`, and the
+      // comment above it claims the body half is what anchors the look — but the
+      // client has never sent `body.theme`, `body.family` or `body.fonts`, so
+      // that half has always been undefined and the anchor did not exist.
+      //
+      // Kept in the site's OWN `_meta`, beside `auth_info`: the connection is
+      // already open here, it is written once per look, and it goes when the site
+      // goes. Best-effort in both directions — losing it re-rolls the look, which
+      // is exactly today's behaviour, so it can never be worse than what it
+      // replaces.
+      let priorLook = null, priorTokens = null, priorPageTokens = null, priorStyle = null, priorLogo = "", priorIcon = "";
+      // THE STYLESHEET THE SITE IS WEARING. On a revise the designer is told to
+      // return it with the change made; when the message is about something else
+      // it answers nothing here, and this is what keeps the design.
+      let priorCss = "";
+      let priorPageFonts = null;
+      let priorVerify = null;
+      // THE TRANSLATION CACHE, for the same reason the logo is read here: the
+      // build path now translates (see the compile dep), and a revise that does
+      // not read the cache re-translates the whole site — slower and never
+      // wrong, but a Haiku call spent on strings already answered. Empty on a
+      // first build, which is the ordinary case.
+      let priorLangStrings = null;
+      if (priorBrief) {
+        try {
+          const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_page_tokens','site_style','site_css','site_logo','site_icon','site_verify','site_page_fonts','site_lang_strings')");
+          for (const r of rows || []) {
+            if (r.k === "site_look" && r.v) priorLook = JSON.parse(r.v);
+            if (r.k === "site_tokens" && r.v) priorTokens = JSON.parse(r.v);
+            // READ HERE FOR THE REASON THE LOGO IS. A revise that does not send
+            // the stored per-page colours sends nothing, and nothing means every
+            // page is back on the site's — silently, on a build the customer
+            // asked for something else entirely.
+            if (r.k === "site_page_tokens" && r.v) priorPageTokens = JSON.parse(r.v);
+            if (r.k === "site_page_fonts" && r.v) { try { priorPageFonts = JSON.parse(r.v); } catch { /* see the note on the cheap-edit spine */ } }
+            if (r.k === "site_lang_strings" && r.v) { try { priorLangStrings = JSON.parse(r.v); } catch { /* a lost cache re-translates; never worse */ } }
+            if (r.k === "site_style" && r.v) priorStyle = JSON.parse(r.v);
+            // A PLAIN STRING, NOT JSON — see the spine's copy.
+            if (r.k === "site_css" && typeof r.v === "string") priorCss = r.v;
+            // READ HERE OR A REVISE TAKES THE LOGO OFF. The container writes
+            // `site-brand.ts` on EVERY build — it has to, or one site's logo
+            // leaks onto the next — so a build path that does not send the
+            // stored value sends nothing, and nothing means empty. A customer
+            // who attached a logo and then asked for any page change would have
+            // watched it disappear, with no error and nothing to point at.
+            if (r.k === "site_logo" && typeof r.v === "string") priorLogo = r.v;
+            // READ HERE OR EVERY PUBLISH UNDOES IT, exactly as the logo and the tokens
+            // above. The sidecar is rewritten whole on every publish, so a path that
+            // does not carry the stored verification sends none — and an owner's
+            // Search Console tag would vanish the next time they fixed a typo.
+            if (r.k === "site_verify" && r.v) { try { priorVerify = JSON.parse(r.v); } catch { /* a bad row is no verification, not a failed publish */ } }
+            // AND THE TAB ICON, for the identical reason one line up. A
+            // revise that does not carry it publishes the site back onto the
+            // mark drawn from its initials.
+            if (r.k === "site_icon" && typeof r.v === "string") priorIcon = r.v;
+          }
+        } catch (e) { console.error("look read failed:", slug, e && e.message); }
+      }
+      // THE DESIGNER STILL WINS ON A FIRST BUILD, and on a revise whose
+      // instruction really is about the look: `designed` is only consulted here
+      // when nothing was stored, so a revise keeps what the site already wears.
+      // Changing a theme deliberately is a rebuild, which is the honest answer —
+      // a re-theme is not a small edit and should not happen by accident.
+      // RESOLVED FIRST, because the font fallback below depends on it. The pair
+      // has to come from the theme this site is ACTUALLY getting — falling back
+      // to `designed.theme` when a stored one won would recommend fonts for a
+      // theme the site is not wearing, which is a worse mismatch than the one
+      // this fixes.
+      // STORED-UNLESS-NAMED, which is the owner's rule made mechanical: an edit
+      // changes exactly what was asked for and nothing else. `instructed` is the
+      // interlock — the designer's answer only outranks the stored value when
+      // the designer was actually TOLD to omit what it is keeping, which is what
+      // `editState` above records. Unread state, a first build, or an older
+      // caller all fall back to the previous precedence, so the failure
+      // direction is "the edit did not take" rather than "the site re-themed
+      // itself". See builder/site-edit.mjs.
+      // WHICH PAGE THE COLOURS AND THE TYPEFACE ARE FOR, decided before the
+      // merge that would otherwise spend them on the whole site.
+      //
+      // `tokensPage` was read at exactly two places and both were the look edit
+      // lane, so on THIS route it was discarded — and discarding it is not the
+      // harmless half. `mergeTokens` below takes `designed.tokens` regardless,
+      // so a brief asking for a warmer MENU page got a warmer WHOLE SITE, and
+      // the field's own description warns about exactly that mistake pointed the
+      // other way ("naming a page when they meant the site … reads as the change
+      // having half worked").
+      //
+      // THE ROUTE LIST IS THE PLAN'S PAGE LIST, not the stored source, because
+      // on a build the source does not exist yet — the designer has just written
+      // the page list and page generation has not run. It comes off the MERGED
+      // look rather than `designed` so a revise that does not re-answer `pages`
+      // still resolves against the pages the site has; that is `mergeLook`'s own
+      // stored-unless-named rule, asked once rather than restated here.
+      //
+      // TWO MERGES, ONE RULE. `forPage` needs the page list and the strip needs
+      // `forPage`, which is circular — so the first merge answers the page list
+      // and the second is the one that is used. `mergeLook` is a pure function
+      // over plain objects, so the probe costs nothing and there is no second
+      // reading of precedence to drift.
+      const probeLook = mergeLook(priorLook, designed, body, { instructed: !!editState });
+      const forPage = pageScopeFor(designed, (probeLook.pages || []).map((p) => p && p.path).filter(Boolean));
+      // THE FONT STRIP IS WHY THIS RUNS BEFORE THE MERGE AT ALL. `designed.fonts`
+      // reaching `mergeLook` sets the SITE's typeface, so "the menu page should
+      // be in something handwritten" would re-set every heading on every page —
+      // the opposite of what was asked. Stripped from the INPUT rather than
+      // patched out of the result, so `look`, the trace and the `site_look`
+      // write are all correct from one expression instead of three that can
+      // disagree. Same shape as the look edit lane's `siteDesigned`.
+      const merged = forPage && designed && designed.fonts
+        ? mergeLook(priorLook, { ...designed, fonts: undefined }, body, { instructed: !!editState })
+        : probeLook;
+      // THE WHOLE MERGE, NEVER A HAND-PICKED SUBSET (2026-08-21).
+      //
+      // This was a literal restating FIVE of `mergeLook`'s thirteen fields —
+      // seeds, family, fonts, brand, description — under a comment claiming
+      // "the value written is the MERGED one". It was a subset of the merge,
+      // and the eight it dropped were exactly the ones this route reads back
+      // off `look` a few hundred lines down: `lang: look.lang` had been
+      // `undefined` since the day it was written (2026-08-12, a Welsh café
+      // publishing as English), `mode: look.mode` since dark mode landed
+      // (2026-08-18), and `plan: normalizePlan({look[PLAN_KEYS]})` since the
+      // families were deleted (2026-08-20) — so THE AUTHORED PLAN NEVER
+      // REACHED PAGE GENERATION ON THE LIVE ROUTE: no layout directive, no
+      // per-site component manifest, the bare brief. The live CRM build that
+      // came back as a login page over a working backend is this bug's shape.
+      //
+      // AND A REVISE DESTROYED AN EDIT'S WORK. The look edit lane stores the
+      // FULL merge (JSON.stringify(merged) at its own write), so a language,
+      // a dark mode or a plan changed by an edit was stored — and the next
+      // revise through THIS route overwrote `site_look` with the five-field
+      // subset, wiping them. A dark bilingual site reverted to light English
+      // on a revise about a menu item, silently.
+      //
+      // `merged` IS the right object by construction: `mergeLook` rebuilds its
+      // output from `EDIT_FIELDS` alone, so storing it whole stores exactly
+      // the editable look and nothing else. The provenance stories that lived
+      // on the literal's fields (fonts required since the registry went;
+      // brand/description anchored so an edit cannot rename the site) are
+      // `mergeLook`'s own and are told in builder/site-edit.mjs.
+      const look = merged;
+      // WRITTEN ON EVERY BUILD, not only the first.
+      //
+      // It was `if (!priorLook)`, which was correct while the look could never
+      // change after a first build — anchoring made the stored value permanent,
+      // so re-writing it was a no-op. Now an edit CAN move any of these, and
+      // writing only on the first build would apply the change once and forget
+      // it, so the next edit would resurrect the old look. The value written is
+      // the MERGED one, which is stored-unless-named, so this cannot drift.
+      try {
+        await sqlQuery(db, "INSERT INTO _meta (k,v) VALUES ('site_look', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v", [JSON.stringify(look)]);
+      } catch (e) { console.error("look write failed:", slug, e && e.message); }
+      // What this edit actually moved, for the trace: a customer who asks for
+      // one thing and gets four changed cannot see that from the site, and
+      // neither can anybody reading a log. Derived from the merge rather than
+      // from what the model mentioned, so it reports the CHANGE.
+      const lookMoved = priorLook ? movedFields(priorLook, look) : [];
+      if (lookMoved.length) tr.at("look", { moved: lookMoved.join(",") });
+
+      // OFF THE MERGED LOOK, not re-derived. This was declared ~4,600 characters
+      // earlier as `(designed && designed.brand) || body.brand || slug`, which is
+      // where the rename came from: no stored value was consulted because none
+      // was kept. Moved down rather than given its own fallback chain, so there
+      // is ONE answer to "what is this site called" and it is the same one the
+      // stored look holds.
+      const brand = String(look.brand || body.brand || slug).slice(0, 60);
+
+      // ── AND THE ONE COLOUR THEY ASKED TO CHANGE ────────────────────────────
+      //
+      // ACCUMULATED, never replaced: a revise names only what it is changing,
+      // so a yellow background asked for today and a blue accent asked for
+      // tomorrow have to both survive — a replacing merge hands back the
+      // theme's own background on the second revise, which reads as the first
+      // instruction being forgotten.
+      //
+      // `withContrast` is applied at the point of USE rather than here, so what
+      // is stored is only ever what the customer actually asked for; the
+      // derived text colour follows whatever the surface is at build time.
+      // Written on EVERY build that has one, unlike the look above, because
+      // this is the thing being changed.
+      // THE SITE'S COLOURS MOVE ONLY WHEN NO PAGE WAS NAMED — see `forPage`.
+      const siteTokens = forPage ? (priorTokens || {}) : mergeTokens(priorTokens, designed && designed.tokens);
+      const tokenAsk = parseTokens(designed && designed.tokens);
+      if (Object.keys(siteTokens).length) {
+        try {
+          await sqlQuery(db, "INSERT INTO _meta (k,v) VALUES ('site_tokens', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v", [JSON.stringify(siteTokens)]);
+        } catch (e) { console.error("token write failed:", slug, e && e.message); }
+      }
+
+      // …AND THE PAGE'S MOVE ONLY WHEN ONE WAS, ACCUMULATED like the site's: a
+      // later build names one colour and everything it did not mention has to
+      // survive. Byte-for-byte the look edit lane's rule, because a page put
+      // back through one lane must look the same as one put back through the
+      // other.
+      const nextPageTokens = { ...(priorPageTokens || {}) };
+      if (forPage) {
+        const mergedPage = mergeTokens(nextPageTokens[forPage], designed && designed.tokens);
+        // A page whose overrides all went back to the theme's keeps NO ENTRY,
+        // so a site put back is byte-identical to one that never had a page
+        // override — the rule every other removal here lives under.
+        if (Object.keys(mergedPage).length) nextPageTokens[forPage] = mergedPage;
+        else delete nextPageTokens[forPage];
+      }
+      // …AND A PAGE MAY HAVE ITS OWN TYPEFACE, off the same field. REPLACED, not
+      // accumulated, unlike the colours: a typeface is a PAIR and `resolvePair`
+      // fills in whichever half was not asked for, so merging a new answer over
+      // an old one keeps a half nobody asked to keep. Both halves empty is the
+      // removal verb.
+      const nextPageFonts = { ...(priorPageFonts || {}) };
+      const askedPageFonts = forPage && designed && designed.fonts && typeof designed.fonts === "object" ? designed.fonts : null;
+      if (askedPageFonts) {
+        const wantsSite = !String(askedPageFonts.heading || "").trim() && !String(askedPageFonts.body || "").trim();
+        if (wantsSite) delete nextPageFonts[forPage];
+        else nextPageFonts[forPage] = { heading: askedPageFonts.heading || "", body: askedPageFonts.body || "" };
+      }
+      // WRITTEN ONLY WHEN THEY MOVED, and to `{}` as readily as to a value: a
+      // build that put the last page override back has to clear the row, or the
+      // container keeps painting a scope the customer just removed. Both are
+      // best-effort — the site is worth more than the bookkeeping — and both are
+      // separate keys rather than fields on `site_look`, because `mergeLook`
+      // rebuilds its output from `EDIT_FIELDS` and would drop anything else.
+      if (JSON.stringify(nextPageTokens) !== JSON.stringify(priorPageTokens || {})) {
+        try {
+          await sqlQuery(db, "INSERT INTO _meta (k,v) VALUES ('site_page_tokens', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v", [JSON.stringify(nextPageTokens)]);
+        } catch (e) { console.error("page token write failed:", slug, e && e.message); }
+      }
+      if (JSON.stringify(nextPageFonts) !== JSON.stringify(priorPageFonts || {})) {
+        try {
+          await sqlQuery(db, "INSERT INTO _meta (k,v) VALUES ('site_page_fonts', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v", [JSON.stringify(nextPageFonts)]);
+        } catch (e) { console.error("page font write failed:", slug, e && e.message); }
+      }
+
+      // ── AND THE REST OF THE LOOK THEY ASKED TO CHANGE ──────────────────────
+      //
+      // Accumulated for the same reason and written the same way: square
+      // buttons asked for today and airy spacing tomorrow both have to survive.
+      // Its OWN `_meta` key rather than a field on `site_look`, because
+      // `mergeLook` rebuilds its output from `EDIT_FIELDS` alone and would drop
+      // anything else stored there — the reason `site_tokens` and `site_logo`
+      // are separate keys too.
+      //
+      // THE CAP IS A REVISE RULE AND `existing` IS THE FREE SIGNAL FOR IT. Six
+      // is the size of an ADJUSTMENT to a design somebody already has; a first
+      // build is the design being stated, so capped there the merge keeps
+      // whichever six `AXES` declares first and silently drops the buttons, the
+      // shadows, the icon weight and the whole world layer — and `styleNote`
+      // then tells the customer we refused twelve axes on a build where nothing
+      // was refused for any reason they could act on. The SAME bound goes to
+      // `parseStyle`, or the note and the stored patch disagree about what was
+      // kept.
+      const styleMax = existing ? MAX_STYLE : MAX_STYLE_BUILD;
+      const siteStyle = mergeStyle(priorStyle, designed && designed.style, { max: styleMax });
+      const styleAsk = parseStyle(designed && designed.style, { max: styleMax });
+      if (Object.keys(siteStyle).length) {
+        try {
+          await sqlQuery(db, "INSERT INTO _meta (k,v) VALUES ('site_style', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v", [JSON.stringify(siteStyle)]);
+        } catch (e) { console.error("style write failed:", slug, e && e.message); }
+      }
+
+      // ── THE STYLESHEET ──────────────────────────────────────────────────────
+      //
+      // REPLACED, NEVER MERGED, and that is the one place this differs from every
+      // other look value beside it. `mergeTokens` and `mergeStyle` accumulate
+      // because a revise names only the axis it is changing and the rest must
+      // survive; a stylesheet is not a set of named slots, it is one whole thing,
+      // and "merging" two of them means concatenating and letting later win —
+      // which grows without bound and leaves dead rules from every earlier design
+      // in a customer's bundle for ever.
+      //
+      // SO THE ANTI-RE-ROLL GUARANTEE MOVES INTO THE PROMPT, where the pages
+      // already keep theirs: the designer is SHOWN the current stylesheet by
+      // `currentStateNote` and told to return it with only the asked-for change
+      // made. That is the same contract `pagesRequest` puts on a revise ("return
+      // every page as an EDIT, byte-identical except where the change was asked
+      // for") and it is what stops "make the background yellow" arriving as a
+      // different design.
+      //
+      // AN ABSENT ANSWER KEEPS WHAT IS STORED, like every other field here, so a
+      // revise about a phone number cannot cost a site its look. An UNUSABLE one
+      // does too — `readCss` answers `usable: false` for a non-string and for an
+      // empty string, and neither is an instruction to strip the site bare.
+      const cssAsk = readCss(designed && designed.css);
+      const siteCss = cssAsk.usable ? cssAsk.css : priorCss;
+      if (cssAsk.usable && siteCss !== priorCss) {
+        try {
+          await sqlQuery(db, "INSERT INTO _meta (k,v) VALUES ('site_css', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v", [siteCss]);
+        } catch (e) { console.error("css write failed:", slug, e && e.message); }
+      }
+
+      tr.at("merge");
+
+      // The research that has been running alongside every Neon call above.
+      // `null` on every path that did not search, and on one that searched and
+      // failed — both mean the same thing here: write the pages without it.
+      const researched = researchPromise ? await researchPromise : null;
+      if (researchPromise) tr.at("research", researched ? { searches: researched.searches } : undefined);
+      // ONE SUMMARY, used twice: it goes on the response so the client can say
+      // what was and was not read, and its usage is what gets billed. Built from
+      // the same two objects both times, so the sentence a customer reads and
+      // the credits they are charged can never describe different work.
+      const context = contextSummary({
+        pages: linked,
+        facts: (researched && researched.facts) || "",
+        sources: (researched && researched.sources) || [],
+        searches: (researched && researched.searches) || 0,
+        // WHAT THE PROVIDER CANNOT TAKE, beside what `attachments()` could not
+        // turn into a block at all. Two different refusals, one list, because
+        // from the customer's side they are one fact: this file did not reach
+        // the model.
+        //
+        // A PDF ON THE GROK PICKER IS THE CASE. `attachments()` accepts it and
+        // puts it in `blocks`, so it is in NEITHER list — and `toXaiRequest`
+        // then drops it at the boundary, because chat/completions has no
+        // document part. The count it returns was read by one `console.error`
+        // and nothing else, while `model-xai.mjs`'s own header said "the caller
+        // can tell them". It could not: this summary is built BEFORE page
+        // generation and is provider-blind, so a drop discovered inside
+        // `callBuilderModel` has nowhere left to go. A café attached its price
+        // list, paid ~24-38 credits, got an invented menu, and every field on
+        // the response said the file was used.
+        //
+        // ANSWERED BEFORE THE CALL, from the blocks and the model, which is why
+        // `xaiSkipped` exists as a separate export rather than a return value —
+        // and it shares `toXaiRequest`'s one sentence, so the pre-call answer
+        // and the post-translation one cannot disagree. Empty on every
+        // non-Grok build, so nothing else changes shape.
+        //
+        // `models.pages` and not `models.design`: both calls drop it, and one
+        // sentence is what the customer needs. `BUILD_MODELS` sends both halves
+        // to the same provider today, so naming either is the same answer.
+        skipped: [...attached.skipped, ...xaiSkipped(attached.blocks, models.pages)],
+        converted: attached.converted,
+        // A research promise EXISTED means the designer said the pages need
+        // current facts — so a zero-search outcome here is a failed lookup the
+        // customer must be told about, not an ordinary build that never needed
+        // one. The summary makes that distinction; without this flag it cannot.
+        searchWanted: !!researchPromise,
+      });
+
+      let pages = { page: "placeholder", files: [], notes: "", problems: [], cost: 0, buildMs: 0 };
+      // OUT OF TIME BEFORE THE EXPENSIVE HALF, refused in words rather than
+      // started and abandoned. Design and provisioning have already spent from
+      // the same fifteen minutes, and page generation plus a container run is
+      // most of a build — so a budget already gone here cannot produce a site,
+      // and starting anyway means the customer waits out a request that dies on
+      // a socket instead of being told what happened.
+      //
+      // THE SITE IS NOT LOST BY THIS. The database is live and seeded, the slug
+      // is theirs, and the placeholder still publishes below — which is exactly
+      // what a page-generation failure already leaves. `generate` is not in
+      // `CHARGED_STAGES`, so the pages are not billed either; the schema call is,
+      // because it really ran.
+      if (budget.expired()) {
+        pages.stage = "generate";
+        pages.error = "the build ran out of time before the pages were written";
+        pages.notes = budgetNote("generate");
+      } else if (brief && env.SITE_BUILD_CONTAINER && env.SITES_BUCKET) {
+        try {
+          // A revise gets the brief the site was BUILT from as well as the
+          // instruction — see briefForPages. The merged schema says what the
+          // site has; this says what it is for.
+          // The one-line description for the head. A revise sends no brief, so
+          // the designer writes none — fall back to the brief the site was built
+          // from rather than publishing a page with nothing under its name.
+          // OFF THE MERGED LOOK, for the same reason as `brand` above: this was
+          // `designed.description || …`, so an edit rewrote the site's link
+          // preview out of the instruction. `priorBrief` stays as the last
+          // resort for sites built before the description was ever stored.
+          const siteDescription = String(look.description || body.description || priorBrief || brief || "").slice(0, 300);
+          pages = await buildAndPublishPages(env, {
+            // The linked pages and the researched facts ride on the brief, which
+            // both model calls already take — so neither had to learn a new
+            // shape. `briefForPages` composes the revise anchor first; the
+            // context wraps whatever that produced.
+            brief: contextBrief(briefForPages({ brief, priorBrief }), {
+              pages: linked,
+              facts: (researched && researched.facts) || "",
+              sources: (researched && researched.sources) || [],
+              files: attached.texts,
+            }),
+            spec: pageSpec, slug, brand,
+            // A REVISE, and the signal is free: `existing` is read off
+            // site_backends during the ownership check and is true exactly when
+            // this slug has already been built. No new field on the request, and
+            // nothing a client can claim.
+            //
+            // OWNERSHIP, NOT THE STORED BRIEF. This was `!!priorBrief`, which is
+            // the same answer for every site built since the brief started being
+            // recorded and the WRONG one for anything older — a revise on such a
+            // site read as a first build and would have re-bought every
+            // photograph on it at ~19 credits each.
+            revise: existing,
+            // THE SITE AS IT STANDS, so a revise EDITS it rather than writing
+            // every page again from the brief. Read only on a revise — a first
+            // build has nothing to edit.
+            //
+            // OWNERSHIP, NOT THE STORED BRIEF — the same correction the `revise`
+            // field one line up already carries, and the partner gate was never
+            // moved with it. `!!priorBrief` is the right answer for every site
+            // built since that column started being written and the wrong one
+            // for anything older: such a revise read as a first build, skipped
+            // the read entirely, and so lost BOTH things this value protects —
+            // the edit anchor (so the revise rewrites every page's copy from
+            // the brief, the exact bug the source store exists to prevent) and
+            // the live-page set that stops salvage stubbing a working page.
+            //
+            // "Best-effort, because losing it costs the anchor and nothing
+            // else" was the claim here and it was the more expensive half that
+            // was wrong: losing it also costs the salvage guard. It still does
+            // not fail the build — `livePages` turns an unreadable read into
+            // `undefined` rather than `[]`, so salvage refuses instead of
+            // destroying.
+            priorPages: existing ? await loadSiteSource(env, slug) : null,
+            // WHAT THE CUSTOMER TYPED THIS TURN, for the Versions list alone.
+            // The composed `brief` above is the anchor plus the change plus the
+            // linked pages plus the researched facts — thousands of characters,
+            // and the change is buried in the middle of it. This is the raw
+            // sentence, which is the only thing that names the build usefully.
+            changeNote: brief,
+            siteDescription,
+            attachments: attached.blocks,
+            priorUsage: (researched && researched.usage) || null,
+            model: models.pages,
+            // THE STORED LOOK WINS ON A REVISE — see `look` above. The chain
+            // that used to be here read `(designed) || (body)`, and the body half
+            // has never been sent by the client, so a revise re-rolled theme,
+            // family and fonts from the instruction alone.
+            fonts: look.fonts,
+            seeds: look.seeds,
+            tokens: siteTokens,
+            // THE MERGED PER-PAGE VALUES, not the stored ones. These were
+            // `priorPageTokens`/`priorPageFonts` — the stored row passed
+            // straight through — which is what made `tokensPage` dead on this
+            // route: the designer's answer was computed nowhere and the
+            // container was handed whatever a previous EDIT had left.
+            //
+            // THROUGH `pageTokensFor`, LIKE EVERY OTHER PAYLOAD. My own first
+            // draft sent the raw map, and that function is not plumbing: it
+            // derives the readable ink PER PAGE (`withContrast`), so raw, a page
+            // moved onto a dark ground kept the light theme's dark grey body
+            // copy — the exact bug the function was written for, reintroduced by
+            // the fix for the field that feeds it. It also answers `undefined`
+            // for an empty map, so a build with no page override sends the
+            // request it always sent.
+            pageTokens: pageTokensFor(nextPageTokens),
+            pageFonts: nextPageFonts,
+            style: siteStyle,
+            // THE MODEL'S OWN STYLESHEET — merged above, so a revise that said
+            // nothing about the look carries what the site already wears.
+            css: siteCss,
+            // THE AUTHORED PLAN, assembled from the merged look rather than
+            // stored as one object — each of its six axes is its own
+            // `EDIT_FIELDS` entry, so a revise that mentions none of them keeps
+            // all six and one that mentions the page list keeps the other five.
+            // `normalizePlan` answers null for anything that cannot compose a
+            // directive, and `briefWithLayout` then appends none rather than the
+            // literal word "null".
+            //
+            // Derived from `PLAN_KEYS`, never a second list: an axis added to
+            // `site-plan.mjs` and forgotten here would be answered by the
+            // designer, merged into the look, stored — and dropped on the one
+            // hop that reaches the model. That is the `teamScope` failure, which
+            // this repo has now recorded at five separate layers.
+            //
+            // `noFamily` USED TO GATE BOTH OF THESE AND IS GONE. It was the
+            // experiment switch: pass `noFamily: true` and the build carried
+            // neither the family's layout directive nor its worked example, so
+            // the model designed the page shape from the brief alone. That is
+            // simply what every build does now — there is no family to suppress
+            // — so the flag could only ever have suppressed the PLAN, which is
+            // the opposite of what its name says. A switch named after a
+            // concept the platform no longer has is one somebody eventually
+            // reads as still meaning something.
+            plan: normalizePlan(Object.fromEntries(PLAN_KEYS.map((k) => [k, look[k]]))),
+            // Out of the same merged look as the other five, so a revise that
+            // does not mention the language keeps it — the field is on
+            // `EDIT_FIELDS`, which is what makes "absent means unchanged" true
+            // of it without a second rule here.
+            lang: look.lang,
+            // AND THE OTHERS IT IS OFFERED IN — dead on this route until
+            // 2026-08-21: never in the stored look (the five-field literal) and
+            // never sent, so a first build asking for a bilingual site in as
+            // many words published monolingual, and the answer sat nowhere.
+            langs: look.langs,
+            langStrings: priorLangStrings,
+            // And the same again for light/dark: on `EDIT_FIELDS`, so a revise
+            // that does not mention it keeps whichever the site is.
+            mode: look.mode,
+            // Read straight off `_meta` rather than through `mergeLook`: the
+            // logo is not something a designer can name, so it has no business
+            // in `EDIT_FIELDS` and would be dropped by that merge if it were.
+            logo: priorLogo,
+            icon: priorIcon,
+            // AND THE SEARCH-CONSOLE TAG, for the reason the icon and the logo
+            // are here: the sidecar is rewritten whole on every publish, so a
+            // path that does not carry the stored verification publishes none.
+            verify: priorVerify,
+            auth: request.headers.get("Authorization") || "",
+            mark: (n) => tr.at(n),
+            // WHAT IS LEFT OF THE FIFTEEN MINUTES, not a fresh ten. The pages
+            // call is the long one and by the time it starts the design call and
+            // provisioning have already spent from the same budget — so it gets
+            // the remainder, and the two bounds compose instead of stacking.
+            budget,
+          });
+        } catch (e) {
+          console.error("page generation failed:", slug, (e && (e.detail || e.message)));
+          // Returned, not only logged — the same lesson `publish-pages.mjs`
+          // learned. Until 2026-07-29 this branch reported `stage:-, error:-`
+          // and a note, so a total outage of the generator was indistinguishable
+          // from the model writing an unusable page, and telling them apart
+          // needed a Cloudflare log. Measured: both CI suites red on an upstream
+          // 400 for forty minutes with nothing in any response to say why.
+          const kind = upstreamKind(e && e.detail);
+          pages.stage = "generate";
+          pages.upstream = (e && e.status) || null;
+          pages.upstreamType = kind.type;
+          if (kind.billing) pages.billing = true;
+          pages.error = kind.billing
+            ? "the model account has no balance"
+            : String((e && e.message) || "page generation threw").slice(0, 200);
+          pages.notes = kind.billing
+            ? "Your database is live. Writing the pages is temporarily unavailable — this is on us, not your brief."
+            : "Your database is live, but writing the pages didn't work this time — send it again to retry.";
+        }
+      }
+
+      // Publish something real at /s/<slug>/ so the preview is never a 404: if the
+      // pages didn't land, the placeholder still reports the model that did.
+      //
+      // Only when nothing is published there yet, though. This route is also the
+      // revise path, and a revise whose pages fail to compile must leave the site
+      // that IS working alone — replacing it with the placeholder would take down
+      // a live site to report a failure the response already reports.
+      //
+      // AND THE GUARD ASKS THE LIVENESS MARKER, NOT `index.html`. It HEADed
+      // that document — which was the whole truth until Start, and Start emits
+      // no top-level HTML at all: `writeSiteDistToR2`'s own comment says the
+      // previous manifest can no longer be read from `index.html` "because
+      // under Start it does not exist". So the head always missed, `!live` was
+      // always true, and the one guard standing between a failed revise and a
+      // customer's working site could not fire on any site built since.
+      //
+      // `SITE_LIVE_FILE` is the marker written for exactly this question: put
+      // into the dist on EVERY publish, INSIDE `sites/<slug>/` so the same
+      // prefix sweep that takes a site down takes it with them — its own
+      // docstring says a present marker means a live site and an absent one
+      // means somebody deleted it.
+      //
+      // A READ THAT THROWS IS NOT "NOTHING IS PUBLISHED". An R2 blip would
+      // otherwise be read as an empty slug and overwrite a live site with the
+      // placeholder, which is precisely the outcome this exists to prevent —
+      // so the catch skips the write rather than falling through to it.
+      if (pages.page !== "app" && env.SITES_BUCKET) {
+        try {
+          const live = await env.SITES_BUCKET.head("sites/" + slug + "/" + SITE_LIVE_FILE);
+          if (!live) {
+            await env.SITES_BUCKET.put("sites/" + slug + "/index.html", schemaPlaceholderPage(brand, spec), {
+              httpMetadata: { contentType: "text/html; charset=utf-8" },
+            });
+          }
+        } catch (e) { console.error("placeholder publish skipped, liveness unreadable:", slug, e && e.message); }
+      }
+      // SPLIT, not one number. `pages` was the model call, the container compile
+      // and ~20 R2 puts together — the majority of a build's wall clock with no
+      // way to attribute it.
+      // DERIVED FROM WHAT THE BUILD REPORTS — actually derived now. The first
+      // "derived" version was still a hand-picked name list, and the 2026-08-13
+      // audit caught it already missing a field that existed the day it was
+      // written (`preMs`): its own comment promised "a timing the container
+      // starts reporting shows up here without anybody editing this", and that
+      // was false. The rule is now the SHAPE — any numeric `*Ms` field on the
+      // build result is a timing and is traced — so the promise finally holds.
+      //
+      // A step that cannot say it happened is indistinguishable from one that
+      // did not, which is this file's most-repeated failure.
+      tr.at("pages", Object.fromEntries([
+        ["credits", pages.cost || 0],
+        ...Object.keys(pages)
+          .filter((k) => /Ms$/.test(k) && typeof pages[k] === "number")
+          .map((k) => [k, pages[k]]),
+      ]));
+
+      // `schema` reports the access level chosen per table. It is what makes a
+      // build verifiable from outside: a menu must come back `display` and an
+      // enquiry form `collect`, and getting that wrong silently is exactly the
+      // bug that shipped on 2026-07-27. `page` says which of the two things is
+      // actually being served, so a fallback is never mistaken for a built site.
+      const traced = tr.done();
+      // One line, once, so a build's shape is visible in the log too. Bounded to
+      // 900 characters by `line()`.
+      console.log("build trace", slug, traced.totalMs + "ms", "|", tr.line());
+      // AND WRITTEN DOWN, which is the half a failing build never reaches. This
+      // is the one write registered on `waitUntil`, because it is what turns "a
+      // build was running here" into "it finished, and this is how" — a row left
+      // at `done: false` never reached this line, either because it was refused
+      // above or because it died, and its last step says which. That is itself
+      // the diagnosis, and it is the one the five lost builds needed.
+      rec.finish(traced, {
+        stage: pages.stage || null,
+        page: pages.page || null,
+        error: pages.error ? String(pages.error).slice(0, 300) : null,
+        ok: pages.page === "app",
+      });
+      // RESOLVED, not the raw field. `normalizeSchema` STAMPS `access: "collect"`
+      // on any table that did not declare one of the five preset names — and the
+      // design tool tells the model to leave `access` OUT when it sets a
+      // `read`/`write` pair instead. So a public menu declared as a pair was
+      // reported to every reader of this response as "collect", which is the
+      // opposite of what it does. The same misread has already been fixed in the
+      // lint, the digest, the seeder and the owner routes; this was the last copy.
+      const levels = (pageSpec.tables || spec.tables || []).map((t) => ({ name: t.name, access: accessLabel(t) }));
+      return Response.json({
+        ok: true, slug, url: "/s/" + slug + "/", backend: true, brand, tables: made, schema: levels,
+        // Read off the array explicitly: JSON.stringify would drop them from
+        // `tables`, which is how a site could declare a function, have it fail,
+        // and report success.
+        functions: (made.functions && made.functions.length) ? made.functions : undefined,
+        functionErrors: made.functionErrors || undefined,
+        // Rows per display table. An empty object means the site published with
+        // empty lists — which reads as a working build and is not one.
+        seeded: (seeded && seeded.seeded) || {},
+        // WHY NOTHING WAS SEEDED, when nothing was. The reason existed only as a
+        // `console.log` in Cloudflare, so a build that published a site with an
+        // empty menu gave the caller no way to tell "the designer wrote no seed
+        // rows" from "we refused to seed the table it named" — and answering that
+        // question about a real failing build cost a guess, because the site had
+        // already been deleted by the time it was asked. Sixth recorded instance
+        // of a failure that could not name itself. Bounded, like the log line.
+        seedSkipped: (seeded && seeded.skipped.length) ? seeded.skipped.slice(0, 6) : undefined,
+        // WHETHER THE DESIGNER HAD TO BE COVERED FOR, and for which tables. A
+        // build where this is absent is one where `seed` arrived complete; a
+        // build where `gaps` is non-empty and `filled` is shorter is one where
+        // the top-up ran and did not fully succeed, which is the state a menu
+        // is still empty in. Undefined when there were no gaps, so a build the
+        // designer got right answers exactly as it did before.
+        seedTopUp: seedTopUp || undefined,
+        // WHAT THE TOP-UP COST, itemised. `schemaCost` folds it in and
+        // `schemaCredits` does not, which is the whole reason those two
+        // legitimately diverge on a top-up build — so without this the response
+        // states a difference and cannot account for it, and an operator has to
+        // reconstruct the number from the trace's token counts. A second model
+        // call is a second bill; this is the same reasoning that keeps
+        // `pagesUsage` and `schemaUsage` apart.
+        seedUsage: seedUsage || undefined,
+        // A BOOKING TABLE ANYONE CAN DOUBLE-BOOK. Not fatal and deliberately
+        // not a refusal: the site works, and for a business that genuinely
+        // takes unlimited sign-ups this is the right schema. It is here so the
+        // omission is VISIBLE at build time rather than discovered by two
+        // customers turning up for the same 14:00, which is how it was found
+        // the first time. Undefined when clean, so a correct build's response
+        // is byte-identical to before.
+        unguarded: unguarded.length ? unguarded.slice(0, 6) : undefined,
+        // FIELDS THE DESIGNER DECLARED THAT THE TOOL DOES NOT OFFER. Not an
+        // error and not shown to the customer — their site is unaffected, since
+        // these were dropped exactly as they always were. It is here so that
+        // after twenty real builds "do we need another capability?" is a count
+        // instead of an opinion. Undefined when clean, so a build where the
+        // designer stayed inside the tool answers as it did before.
+        reached: reached.length ? reached : undefined,
+        // …AND WHAT IT DECLARED THAT WE REFUSED. Same discipline as `reached`
+        // beside it: names only, present only when there is something to say,
+        // so an ordinary build's response is byte-identical.
+        refused: refused.length ? refused : undefined,
+        // …AND A TABLE NAME THE ENGINE COULD NOT USE, which used to take the
+        // whole build down instead of one table.
+        refusedTables: badNames.length ? badNames : undefined,
+        // …AND AN ACCESS LEVEL WE OVERRULED ON A TABLE THE SITE ALREADY HAS.
+        // Not an error and not the customer's problem — the site kept the level
+        // it had, which is what `EDIT_RULE` promised. It is here for the same
+        // reason `reached` is: a designer that keeps trying to re-level an
+        // existing table is evidence about the prompt, and until this shipped
+        // the attempt was not merely unreported, it SUCCEEDED. Undefined when
+        // nothing was overruled, so an ordinary build answers as it did before.
+        heldAccess: heldAccess.held.length ? heldAccess.held.slice(0, 6) : undefined,
+        // WHAT WAS READ FOR THIS BUILD, and what could not be. The whole reason
+        // link-reading exists is that the old behaviour — a URL in the brief
+        // that nothing fetched — was invisible: the model inferred a business
+        // from the domain name and the customer got a plausible invention with
+        // no sign a fetch had not happened. A read that fails silently would
+        // reproduce exactly that, so the failures travel as far as the
+        // successes, all the way into the chat message.
+        //
+        // Omitted entirely on the ordinary build that linked nothing and
+        // searched nothing, so this adds no noise to the common case.
+        context: (context.read.length || context.failed.length || context.searched || context.skipped || context.converted) ? context : undefined,
+        // THE SAME THING AS A SENTENCE, composed HERE rather than in the client.
+        // The client is a plain script and cannot import this module, so a
+        // sentence built there would be a second copy of this logic that drifts
+        // — and the direction it drifts in is a build that read nothing while
+        // still claiming it did. One function, one answer, rendered verbatim.
+        contextNote: contextSentence(context) || undefined,
+        // WHAT THE DESIGNER ASKED TO CHANGE ABOUT THE LOOK, and it was
+        // computed here and reported NOWHERE until 2026-08-20.
+        //
+        // `tokenAsk`/`styleAsk` are exactly what the model named — the same
+        // shape the LOOK EDIT lane already returns as `tokens`/`style`. The
+        // build path had neither, so when a revise like "make the background
+        // #ffcc00 and round the corners more" came back with the stylesheet
+        // unchanged, there was no field anywhere saying whether the designer
+        // had asked for it and we dropped it, or never asked at all. Those
+        // need opposite fixes and the response could not tell them apart.
+        //
+        // Measured live on a real run: 2 assertions failed with "the colour
+        // did not reach the stylesheet" and the cause could not be established
+        // without paying for another build. That is the shape this repo has
+        // recorded six times — a failure that cannot name itself.
+        //
+        // OMITTED WHEN EMPTY, so a build that changed no look is byte-identical
+        // to what it returned before this existed.
+        //
+        // THE NAMES, NOT THE WRAPPER'S KEYS, and the first draft reported the
+        // wrapper. `tokenAsk` is `{tokens, dropped}` — the line below it proves
+        // that, calling `tokenNote(tokenAsk.tokens, tokenAsk.dropped)` — so
+        // `Object.keys(tokenAsk)` was the constant `["tokens","dropped"]` on
+        // every build ever made. Measured live 2026-08-20, which is where it
+        // was found.
+        //
+        // That is worse than useless rather than merely wrong: both keys are
+        // always present, so the field was never empty, and the whole point
+        // stated above is that "an empty list means the model never asked and a
+        // populated one means we lost it downstream". It could not say the
+        // first thing, which is the half a paid build is spent to learn.
+        //
+        // KEPT PLUS DROPPED, because "what the model named" is both. A name the
+        // parser refused is the strongest possible evidence the model DID ask,
+        // and it is exactly the case `tokensNote` explains in a sentence.
+        tokens: askedNames(tokenAsk.tokens, tokenAsk.dropped),
+        // …AND AN AUTHORED ONE IS IN NEITHER OF THOSE, which is why this line
+        // reads three bags rather than two. `parseStyle` keeps a value the model
+        // WROTE in `.authored` — deliberately, so it cannot be spread onto the
+        // theme as an enum key — so a hand-written backdrop appeared in no
+        // response field at all: the one axis a paid build is most worth being
+        // able to see, invisible in the record of it. `dropped` still carries a
+        // REFUSED authored value, so the two together stay "what the model
+        // named" exactly as the paragraph above describes.
+        style: askedNames({ ...styleAsk.style, ...(styleAsk.authored || {}) }, styleAsk.dropped),
+        // AND WHETHER IT WROTE ITS OWN, apart from which axes it named. The
+        // list above cannot say it: an authored `backdrop` and a chosen one are
+        // the same string in it. Omitted when nothing was authored, so a build
+        // that named only options serialises byte-identically to before.
+        authored: styleAsk.authored && Object.keys(styleAsk.authored).length
+          ? Object.keys(styleAsk.authored) : undefined,
+        page: pages.page, files: pages.files, notes: pages.notes || undefined,
+        problems: pages.problems.length ? pages.problems : undefined,
+        // THE PHOTOGRAPHS, and this field is how "no pictures" stops being
+        // ambiguous. A site with `{made:0, budget:0}` was never meant to have
+        // any; `{made:0, budget:3, error:"photo 402"}` wanted three and could not
+        // buy them; `{made:0, budget:0, overflow:4}` could not afford them. Those
+        // are three completely different situations that look identical on the
+        // published page, because all three render the same placeholder.
+        //
+        // It is also the only place the image spend is visible — it is folded
+        // into `cost` with the tokens, by design, and a customer whose build
+        // jumped from 21 credits to 78 deserves to see why.
+        images: pages.images || undefined,
+        // THE SAME THING AS A SENTENCE, composed here for the reason
+        // `contextNote` is: the client is a plain script and cannot import the
+        // module that decides it, so a second copy there would eventually claim
+        // photographs that were never made.
+        imagesNote: imageNote(pages.images) || undefined,
+        // WHICH COLOUR MOVED, and which one could not. Same shape and same
+        // reasoning as the two notes above it: the client cannot import the
+        // module that decides this, and a colour silently not applied reads as
+        // the builder being broken rather than as a request that did not land.
+        // Reports THIS build's ask, not the accumulated patch — saying "changed
+        // the background" on a revise that only touched the text is worse than
+        // saying nothing.
+        tokensNote: tokenNote(tokenAsk.tokens, tokenAsk.dropped) || undefined,
+        // …AND THE SAME FOR THE REST OF THE LOOK, but ONLY on a revise. A first
+        // build CHANGED nothing — the designer is stating what the look is — so
+        // "Changed the corner shape, text size, letter spacing and line spacing"
+        // is said to somebody seeing their site for the first time, about a site
+        // they never asked to style. Silent on a build keeps the reply
+        // byte-identical to what it has always been there, and nothing is lost
+        // for us: `style` above carries the axes the model named either way.
+        styleNote: existing ? (styleNote(styleAsk.style, styleAsk.dropped) || undefined) : undefined,
+        // …AND WHAT THE MODEL'S OWN STYLESHEET COSTS, on a build as well as a
+        // revise — unlike `styleNote` one line up, deliberately. That one is
+        // silent on a first build because naming axes to somebody seeing their
+        // site for the first time describes a design they never asked to change;
+        // this one names FAILURES — a typeface we could not fetch, a remote
+        // url() the CSP refuses, a sheet we had to truncate — and those are just
+        // as wrong on a first build and just as invisible from the page.
+        cssNote: cssNote(cssAsk) || undefined,
+        // WHICH PAGE CAME BACK AS A STUB. One bad file no longer costs the whole
+        // site — it is replaced by a placeholder page and the rest publishes — so
+        // there is now an outcome between "your site" and "the data model", and
+        // this is the only thing that names it. Composed in the module for the
+        // same reason as the three above.
+        salvageNote: pages.salvageNote || undefined,
+        salvaged: (pages.salvaged && pages.salvaged.length) ? pages.salvaged : undefined,
+        // WHAT THE PAGES LOOK LIKE, which nothing else in this response can say.
+        // Every other check is textual — a real page can be blank, throw on load
+        // or paint text nobody can read and pass all of them. Reporting only: it
+        // never refuses a publish, so a site with findings is a site that is
+        // live and has something worth a second look.
+        //
+        // Omitted when the check found nothing, so a clean build's response is
+        // byte-identical to what it was before this existed — and kept when it
+        // could not RUN (`ok:false`), because a harness that silently reports
+        // nothing reads exactly like a site with nothing wrong.
+        render: (pages.render && (pages.render.ok === false || (pages.render.findings || []).length)) ? pages.render : undefined,
+        // …and the same thing as a sentence, composed in the module for the
+        // reason all four notes above it are.
+        renderNote: renderNote(pages.render) || undefined,
+        // WHETHER THIS SITE IS SERVED BY ITS OWN SCRIPT. Absent when there was
+        // nothing to say (no dispatch credentials, or no script packaged), so
+        // its PRESENCE is the signal — and on a failure it carries Cloudflare's
+        // own error code, which is the difference between a missing token scope
+        // and a product that is not enabled.
+        worker: pages.worker || undefined,
+        // Per-route prerender skips, same discipline as `render` one line up:
+        // absent on a clean build, carried when a page lost its snapshot —
+        // which used to be invisible in production (2026-08-13 audit).
+        //
+        // PERMANENTLY UNDEFINED SINCE THE PRERENDER WENT, and kept deliberately
+        // rather than deleted: `publish-pages.mjs` only sets it when the
+        // container reports it, and `build-server.mjs` says in as many words
+        // that "`prerendered`/`prerenderSkipped` ARE GONE, not emptied". So
+        // this carries nothing today and costs nothing, and it is the field a
+        // restored per-route snapshot step would report through.
+        // AND WHETHER THE SITE'S OWN SOURCE WAS STORED. Only ever present as
+        // `false`: `saveSiteSource` swallows its throw and returns a boolean
+        // that both call sites discarded, so a lost store silently turned the
+        // NEXT revise into a full rewrite of every page's copy from the brief —
+        // the exact bug the source store exists to prevent — with nothing
+        // anywhere saying it had happened.
+        sourceStored: pages.sourceStored === false ? false : undefined,
+        prerenderSkipped: pages.prerenderSkipped || undefined,
+        // AND WHETHER MODEL-WRITTEN CODE RAN SANDBOXED. Only ever present as
+        // `false` — the ordinary answer is silence and the field's PRESENCE is
+        // the alarm. Reported rather than assumed, because the drop depends on
+        // the container running as root and on that user existing.
+        //
+        // ITS NAME IS THE ONLY STALE HALF. The prerender is gone; the RENDER
+        // CHECK still executes the model's own server bundle inside the build
+        // service, so the thing this reports has not stopped happening — the
+        // container renamed its half to `ssrUnprivileged` and `publish-pages`
+        // reads that name and sets THIS one, so the wire shape is unchanged for
+        // every consumer that already reads it. Deleting it would leave the
+        // security signal for "model-written code ran unsandboxed in the shared
+        // build container" unreported by construction rather than by decision,
+        // which is the one direction that must not happen quietly.
+        prerenderUnprivileged: pages.prerenderUnprivileged === false ? false : undefined,
+        // ── WHAT THE CONTAINER HAD TO DO TWICE, AND WHY ─────────────────────
+        //
+        // All four are computed by `publishPages` and were forwarded by
+        // nothing, so `build smoke`'s retry report read four fields that could
+        // never arrive — provably dead code reading provably dead code.
+        //
+        // `killedAt` IS THE ONE THAT DECIDES MONEY. The retry exists to absorb
+        // container drains, which are our fault and therefore free: a step
+        // killed during the typecheck is reclassified to `stage: "build"` so
+        // `ourFault` exempts it, and this field is the ONLY thing separating
+        // that from a genuine bundler error wearing the same stage. Without it
+        // nobody can tell a free failure from a charged one after the fact.
+        //
+        // `builds`/`retriedBuild` say a retry happened and what it was for;
+        // `repaired` names the imports rewritten before the lint, and an empty
+        // list on every build would read as a generator that keeps getting
+        // names wrong — so it is carried only when something really was fixed.
+        builds: pages.builds || undefined,
+        retriedBuild: pages.retriedBuild || undefined,
+        killedAt: pages.killedAt || undefined,
+        repaired: (pages.repaired && pages.repaired.length) ? pages.repaired : undefined,
+        // THE LOOK THAT FAILED SOFT. `writeTheme`/`writeFonts` never fail a
+        // build — a site whose data layer is live must not be lost over a
+        // typeface — so they answer `applied:false` with a sentence instead,
+        // and both were reported on every build and forwarded by nothing. A
+        // stored theme LATER REMOVED from the registry would make every
+        // publish of that site ship the default look while reporting success.
+        lookSoft: pages.lookSoft || undefined,
+        // WHY it fell back, when it did. publish-pages.mjs has returned these
+        // since it was extracted and nothing passed them on, so a build that
+        // published the placeholder said only "placeholder" — the caller (and
+        // the smoke test) could not tell a compile error from a lint refusal
+        // from a credit floor. It is the owner's own build; there is nothing
+        // here they should not see.
+        stage: pages.page === "app" ? undefined : (pages.stage || undefined),
+        // `error`/`cited` survive a SALVAGED build too. The module keeps the
+        // first failure's error and cited lines precisely because they are "the
+        // only record of what the generator got wrong" — and this gate then
+        // stripped both on every salvaged build, because a salvage answers
+        // page === "app" (2026-08-13 audit). The pages are gone the moment the
+        // build returns, so without these the stubbed page's actual failure is
+        // undiagnosable. `stage` stays outcome-only: a salvaged build did not
+        // END at the typecheck.
+        error: (pages.page === "app" && !pages.salvageNote) ? undefined : (pages.error ? String(pages.error).slice(0, 300) : undefined),
+        // The SOURCE LINES that error points at. `error` is `file(line,col)` and
+        // a message, and the pages themselves are gone the moment the build
+        // returns — only the eval saves them — so a compile failure could only
+        // be diagnosed by guessing what the model wrote at that line. A whole
+        // round went on inferring one TS2344 from its file and column.
+        cited: ((pages.page === "app" && !pages.salvageNote) || !(pages.cited && pages.cited.length)) ? undefined : pages.cited,
+        // WHY SALVAGE DID NOT HAPPEN — the three refusals, out where somebody
+        // can read them. `salvagePlan` has always computed this and the module
+        // has always returned it, and NOTHING forwarded it: a comment in that
+        // file claimed the eval read `foreign`, and the eval never calls
+        // publishPages at all (2026-08-13 audit). So the signal designed to
+        // catch "we shipped a broken kit component" — `fallbackSeed`,
+        // `require()`, `FaqAccordion`, all of which really happened — died in
+        // the module return.
+        //
+        // Carried only when it explains something: a build that salvaged
+        // cleanly says so through `salvaged`/`salvageNote` already, and a
+        // build that never reached the typecheck has no plan to report. So the
+        // ordinary response is unchanged and the field's presence means the
+        // compile failed and here is why nothing could be rescued.
+        salvage: (pages.salvage && pages.salvage.reason) ? pages.salvage : undefined,
+        cost: schemaCost + pages.cost, buildMs: pages.buildMs || undefined,
+        // WHAT THE BUILD ACTUALLY DID, step by step, with the time each took.
+        //
+        // Returned rather than only logged — the lesson `publish-pages.mjs` and
+        // the `stage`/`error`/`cited` fields all learned the hard way. A log
+        // line lives in Cloudflare for a while and is gone; this reaches the
+        // caller, the smoke test, and anyone debugging a slow build.
+        //
+        // Numbers only, by construction: `makeTrace` refuses anything that is
+        // not a finite number, so a connection string cannot end up here.
+        trace: traced.steps,
+        totalMs: traced.totalMs,
+        // THE SCHEMA CALL'S REAL COST, which is now also what it is billed. The
+        // three fields are kept apart on purpose: `schemaUsage` is the four token
+        // kinds, `schemaCredits` is what they price to, and `schemaCost` is what
+        // was actually taken after the deposit settled. A disagreement between
+        // the last two is meant to be visible — a settlement that silently
+        // failed shows up as a divergence rather than as nothing at all.
+        //
+        // THEY DO NOT SIMPLY "AGREE TODAY", AND THIS COMMENT SAID THEY DID.
+        // `schemaCredits` prices `schemaUsage` alone while `schemaCost` settles
+        // against `pageCredits(schemaUsage, seedUsage)` — so EVERY build where
+        // the seed top-up fired (a common path: it exists because the designer
+        // omitted `seed` on consecutive real builds) shows `schemaCost` above
+        // `schemaCredits` with everything working perfectly. The DIRECTION still
+        // discriminates — a failed settlement diverges downward — and
+        // `seedTopUp` plus the trace's `seedrows` mark say which happened, but a
+        // diagnostic claim that is false on a common path is the class this file
+        // records as dangerous. Stated rather than "fixed" by folding the seed
+        // in: these are the SCHEMA call's numbers, and burying a second call's
+        // tokens inside them is how `sumUsage` came to charge one model at
+        // another's rate.
+        schemaUsage: schemaUsage || undefined,
+        schemaCredits: schemaUsage ? pageCredits(schemaUsage) : undefined,
+        schemaCost: designed ? schemaCost : undefined,
+        // WHAT THE PAGES CALL COST AGAINST WHAT WE MANAGED TO TAKE.
+        // `publishPages` computes `billed` precisely so "the shortfall stays
+        // visible instead of vanishing" — and the route dropped it, so a build
+        // that billed 21 and collected 4 reported `cost: 4, charged: true` with
+        // the gap readable by nobody: not the caller, not the smoke test, not
+        // anyone reading the response afterwards. `use_credits` is a gate rather
+        // than a till, so that shortfall is the ORDINARY outcome on a
+        // low-balance account, which makes systematic under-collection a revenue
+        // number this platform could not read off any response.
+        //
+        // Customer-facing honesty is untouched either way — `cost` is what
+        // really left their ledger and `charged` follows it — so this is
+        // reported for us. OMITTED when it agrees with what was taken, so an
+        // ordinary build's response is byte-identical and the field's PRESENCE
+        // is the signal.
+        pagesBilled: (typeof pages.billed === "number" && pages.billed !== pages.cost) ? pages.billed : undefined,
+        // A reversal that did not go back. Omitted when it did, so its presence
+        // is the whole signal — `schemaCost` overstates what really left the
+        // ledger by up to `SITE_BUILD_FEE`.
+        refundShort: refundShort || undefined,
+        // Whether the pages call was billed, and — when it was not — that this
+        // was because the failure was ours rather than because the rule is
+        // "placeholders are free". A caller cannot infer it from `cost`, since a
+        // free pages call and a cheap one both leave the schema charge behind.
+        charged: pages.charged,
+        // The PAGES call's four token kinds. It is metered on exactly these and
+        // reported only the credit total, so the expensive call was the one
+        // whose cache behaviour could not be seen.
+        pagesUsage: pages.usage || undefined,
+        // The digest of the template the build container actually used.
+        templateId: pages.templateId || undefined,
+        // WHICH MODELS RAN, and the picker they were resolved from. The RESOLVED
+        // picker, never `body.picker` — echoing back what was sent would report
+        // a typo as if it had been honoured, which is exactly the state this
+        // control spent its whole life in. Two usage objects on this response can
+        // now be priced from two different rows, and this is the field that says
+        // which is which.
+        models: { picker: models.picker, design: models.design, pages: models.pages },
+      });
+}
+
 async function handleRequest(request, env, ctx) {
     const url = new URL(request.url);
 
@@ -12294,1926 +14243,9 @@ async function handleRequest(request, env, ctx) {
       // having provisioned its Neon project 46 seconds in. Bounding two calls
       // does not bound a build; see builder/build-budget.mjs.
       const budget = makeBudget();
-      const buildDone = (async () => {
-      const bu = await authUser(request);
-      if (!bu) return UNAUTHED();
-      if (!siteDbConfigured(env)) return Response.json({ ok: false, error: "site database not configured", need: "NEON_API_KEY" }, { status: 501 });
-      if (!env.SUPABASE_SERVICE_KEY) return Response.json({ ok: false, error: "service key not configured" }, { status: 501 });
-      if (!env.ANTHROPIC_API_KEY) return Response.json({ ok: false, error: "generator not configured" }, { status: 501 });
-      // CAPPED BEFORE BUFFERING, like every other body-taking route — this one
-      // was the exception (2026-08-13 audit): /api/direct, /api/save and even
-      // the unauthenticated visitor upload all check Content-Length first,
-      // while the priciest route on the platform buffered and JSON-parsed
-      // whatever arrived, up to the plan limit, inside a 128MB isolate whose
-      // other occupants are other customers' requests. Legitimate build
-      // payloads top out ~12MB (three images and a PDF); 24MB is double that.
-      // THE CAP IS MEASURED NOW, NOT DECLARED. `tooLargeBody` reads
-      // `content-length` and NOTHING ELSE, and that header is written by the
-      // caller: absent yields 0, non-numeric yields NaN, and `NaN > max` is
-      // false — so all three walked straight past it and the body was buffered
-      // and JSON-parsed anyway, up to the plan limit, inside a 128MB isolate
-      // shared with other customers' requests. The comment that stood here
-      // claimed the opposite ("CAPPED BEFORE BUFFERING") on the priciest route
-      // on the platform, which is the shape this file has litigated most: a
-      // guard whose own description is the reason nobody re-reads it.
-      //
-      // `readJsonBody` is the control request-limits.mjs says supersedes it for
-      // JSON routes — it measures the REAL byte count after arrival (encoded
-      // bytes, not `.length`, or a caller sends three times the limit in emoji)
-      // and it does the parse and the object-shape check in the same place. It
-      // was already imported here and already used one route over; this one was
-      // the exception.
-      const rb = await readJsonBody(request, { max: 24_000_000 });
-      if (!rb.ok) {
-        // The three refusals kept their own wording, because they are not one
-        // failure: too big, unreadable, and not-an-object send the caller in
-        // three different directions and this route already made that argument
-        // for its own hand-rolled version.
-        return Response.json({ ok: false, error: rb.code === "too_big" ? "body too large" : rb.error }, { status: rb.status });
-      }
-      tr.at("auth");
-      // A BROKEN BODY IS ITS OWN ANSWER, not "no brief", and `readJsonBody`
-      // makes that so rather than a hand-rolled parse doing it here. This route
-      // used `.catch(() => ({}))`, so invalid JSON became an empty object and
-      // then failed a thousand lines later as `no brief` — a failure wearing
-      // another failure's message, which is the defect class this file has
-      // litigated more than any other. An integrator with a trailing comma was
-      // told the one field they had definitely sent was missing.
-      //
-      // The shape check is the same refusal for the same reason: `null` and `[]`
-      // are both valid JSON and neither has a `.brief`, and reading through one
-      // of them is a TypeError rather than a 400.
-      const body = rb.body;
-      tr.at("body");
-      // ONE READING OF "WHICH SITE IS THIS", and there were two. `editSlug`
-      // below was trimmed and lowercased; the claim further down was ALSO
-      // stripped to [a-z0-9-] and capped at 60 — so a body slug carrying a
-      // strippable character, or one over 60 characters, read the edit state
-      // under one name and built under another. Silent by construction: the
-      // `_meta` read simply misses, `editState` stays null, and the designer is
-      // never told to edit only what was asked. Reachable today only by a
-      // hand-written API call, because the client sends back the clean slug off
-      // the build response — which is exactly the point at which a second
-      // reading of one question stops being theoretical. Same rule as
-      // `validForWrite` one module over: one expression, both readers.
-      //
-      // A NON-STRING IS NOT COERCED. `String(["a","b"])` is `"a,b"`, which
-      // strips to a real slug nobody asked for — the coercion bug already
-      // recorded for `normalizeRole` and for a table's `access`.
-      //
-      // EDGE HYPHENS ARE TRIMMED, so every slug this route claims is a legal
-      // DNS label. Without it `-shop` and `shop-` pass here and are refused by
-      // `labelOk` in `site-domains.mjs`, so `siteHostFor` answers null and such
-      // a site can only ever be served at `/s/<slug>/` — A SECOND RENDER MOUNT,
-      // which is the thing that has to stop existing. The published bundle
-      // derives its basepath at runtime today (`main.tsx`, `import.meta.url`)
-      // precisely because the same bytes serve at both; anything that bakes a
-      // basepath in — TanStack Start does, on the server AND in `hydrateStart`,
-      // overwriting whatever the router itself set — can serve one mount only.
-      // With no edge-hyphen slug there is only one, and `/s/…` is left as what
-      // it already is: the internal addressing scheme both hostname rewrites
-      // produce, prefix-stripped before dispatch, and a 301 source.
-      //
-      // AFTER THE SLICE, NEVER BEFORE. A 62-character name truncates to 60 and
-      // can land on a hyphen, so trimming first leaves exactly the label this
-      // is written to refuse.
-      //
-      // Safe to add rather than a rename: `site_backends` was measured with no
-      // edge-hyphen slug in it before this landed, so no live site changes name.
-      const cleanSlug = (v) => (typeof v === "string" ? v : "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 60).replace(/^-+|-+$/g, "");
-
-      // ── OWNERSHIP, BEFORE ANY MONEY MOVES ───────────────────────────────
-      //
-      // The ownership check sat ~400 lines below, AFTER `designSiteSchema`,
-      // after the seed top-up, after the deposit settled and after the research
-      // call had been started. On somebody else's slug it answered 409 and
-      // refunded IN FULL — so the caller's ledger moved by nothing while the
-      // model tokens had already been generated and billed to US. Any signed-in
-      // account could spend our model budget without limit by naming a slug it
-      // does not own, in a loop.
-      //
-      // It costs nothing to ask early WHEN THE CALLER NAMED THE SLUG, which is
-      // the only case that can be abused: on a first build the designer invents
-      // the name, so an attacker cannot choose the target and is simply paying
-      // for their own site. `bu` is known and the body is parsed, so this
-      // refuses before a single credit or token is spent, and there is nothing
-      // to refund.
-      //
-      // IT HAS TO SIT BELOW `cleanSlug`, AND THE FIRST DRAFT DID NOT. Placed
-      // above the declaration it reads a `const` in its temporal dead zone —
-      // `node --check` passes, esbuild bundles it, and EVERY revise throws
-      // `Cannot access 'cleanSlug' before initialization` on the one path that
-      // names a slug. The `vidRefN` and `du.id` class, written by the hand
-      // fixing that class, and invisible to the block-scope scanner because
-      // that walks FORWARD from a declaration and this was a read BEHIND one.
-      //
-      // FAILS OPEN, DELIBERATELY, AND THAT IS SAFE HERE. This is a cheap early
-      // refusal, NOT the authority: the late check below still runs, still
-      // fails CLOSED on an unreadable lookup, and is still what protects a
-      // cross-account write. Making this one fail closed would turn a Supabase
-      // blip into a refused build for the rightful owner.
-      {
-        const named = cleanSlug(body.slug);
-        if (named) {
-          const early = await siteBackendRowFresh(env, named).catch(() => null);
-          if (early && early.uid && early.uid !== bu.id) {
-            return Response.json({ ok: false, error: "that name is taken", cost: 0, msg: "That site name is taken by another account. Say a different name in your next message — e.g. \"call it sunset-cuts\" — and I’ll build it under that." }, { status: 409 });
-          }
-        }
-      }
-
-      // Revise sends {slug, instruction} for an existing site; build sends
-      // {brief}. Re-applying a schema is safe (all its DDL is additive or
-      // IF NOT EXISTS), so both take the same path.
-      // WHAT THEY WERE ASKED BEFORE THE BUILD, folded back in. `clarifiedBrief`
-      // is a no-op when nothing was asked, which is every revise and every build
-      // that went straight through — so this changes no request that did not use
-      // the feature. Composed HERE and not in the composer, because the composer
-      // cannot import the module and a second copy of a prompt fragment is two
-      // things that can disagree about what the designer reads.
-      const brief = clarifiedBrief(
-        // A NON-STRING IS NOT COERCED, matching the two readers beside it.
-        // `cleanSlug` two screens up refuses one explicitly and `modelsFor`
-        // does too, both citing the `String(["a","b"]) === "a,b"` class — and
-        // the BRIEF, the single most consequential field on this route, went
-        // through a bare `String()`. An array of sentences became one
-        // comma-joined line, an object became `[object Object]`, and either was
-        // designed from and charged for.
-        [body.brief, body.prompt, body.instruction].find((v) => typeof v === "string" && v.trim()) ?
-          String([body.brief, body.prompt, body.instruction].find((v) => typeof v === "string" && v.trim())).trim().slice(0, 4000) : "",
-        body.qa,
-      ).slice(0, 5000);
-
-      // WHICH MODELS THIS BUILD RUNS ON — the composer's Builder picker, which
-      // was sent on every build from the day it shipped and read here on none of
-      // them. Resolved ONCE, before either call, so the designer and the pages
-      // cannot end up on models chosen by two different readings of one field.
-      // An unknown value resolves to the default; see `modelsFor`.
-      //
-      // `body.effort` stays unread, on purpose (owner's call): the Effort control
-      // is visible and inert, and this comment is the difference between that
-      // being a decision and looking like an oversight.
-      const models = modelsFor(body.picker);
-
-      // WHAT THE USER ATTACHED, sorted into what the model can be shown
-      // (images, PDFs), what it can be told (text files, folded into the brief),
-      // and what it cannot be given at all. The composer has always sent these
-      // and nothing has ever read them — see `attachments` for what that meant
-      // in practice, and for why the third pile has to be reported rather than
-      // dropped.
-      const attached = attachments(body.images);
-
-      // READING THE LINKS IN THE BRIEF. No model call, so no CREDIT gate: if
-      // there is a URL in there, somebody meant us to look at it.
-      //
-      // BEFORE the designer, deliberately. A linked page is mostly evidence
-      // about what a site STORES — a menu, a price list, a booking form — and
-      // the designer is the step that decides the tables. Reading it afterwards
-      // would leave the schema guessing from the domain name, which is the
-      // failure this whole change exists to fix.
-      //
-      // The cost is that it sits on the critical path: at most two fetches,
-      // twelve seconds each, and only on a brief that contains a link.
-      //
-      // ── AND IT IS METERED, WHICH IT WAS NOT ────────────────────────────────
-      //
-      // "No model call, so no gate" was true about CREDITS and taken as true
-      // about everything. This is a server-side fetch of an attacker-chosen
-      // public URL — our source address, our user agent, up to two fetches of
-      // 1.5 MB each and ~24s of Worker wall-clock — and it runs BEFORE the
-      // deposit, before the affordability gate and before the balance read. So
-      // an authenticated free-tier account was an unmetered outbound fetch
-      // relay, on a route with no rate limit of its own.
-      //
-      // THE IDENTICAL CAPABILITY IS ALREADY METERED one route over:
-      // `/api/import/fetch` spends `useQuota(request, "import", 120)` for the
-      // same primitive. The cheaper, gate-less copy being the unmetered one is
-      // the whole finding.
-      //
-      // ITS OWN BUCKET, not `import`'s. A customer pasting a link into a brief
-      // and a customer importing media are different actions with different
-      // rhythms, and sharing a counter means one silently exhausts the other's
-      // allowance — which reads to them as a feature that stopped working.
-      //
-      // IT DOES NOT REFUSE THE BUILD. Failing the whole request over a link
-      // would turn "you have read too many links today" into "your site cannot
-      // be built", which is wildly out of proportion to what was asked for —
-      // and `contextSummary` already reports an unread link honestly, so a
-      // customer whose link was skipped is told. `useQuota` fails open if the
-      // ledger is unreachable, which is the behaviour every other caller has.
-      let linked = [];
-      if (brief) {
-        if (await useQuota(request, "sitelinks", 60)) {
-          try { linked = await readLinkedPages(brief, { readUrl: siteReadUrl }); }
-          catch (e) { console.error("link read failed:", e && e.message); linked = []; }
-          if (linked.length) tr.at("links", { n: linked.length, ok: linked.filter((p) => p.ok).length });
-        } else {
-          console.warn("site link read over quota:", bu.id);
-        }
-      }
-      // What the DESIGNER sees. Page generation gets this plus the researched
-      // facts, which do not exist yet.
-      // The designer sees the linked pages AND any attached text file: a menu or
-      // a price list is evidence about what the site STORES, which is the
-      // question this next step answers.
-      const briefWithLinks = (linked.some((p) => p.ok) || attached.texts.length)
-        ? contextBrief(brief, { pages: linked, files: attached.texts })
-        : brief;
-
-      // A brief means "design the schema"; an explicit schema skips the model.
-      let designed = null, seedUsage = null, seedTopUp = null;
-      // THE FREE-CSS ARM'S SWITCH. Experimental, off unless the caller asks for
-      // it by name — and STRICTLY `=== true`, so nothing merely truthy arriving
-      // in a body can hand a site a stylesheet with no validator in front of it.
-      //
-      // DECLARED BESIDE `designed`, WHICH IS NOT TIDINESS. It is read in two
-      // places ~950 lines apart — the design call and the container payload —
-      // and my first draft put it in the block that holds only the first, where
-      // it is a `ReferenceError` at the second: `node --check` passes, esbuild
-      // bundles it, and every build with the arm on answers 500. Caught by the
-      // block-scope scanner rather than by reading, which is what that scanner
-      // exists for and the fifth time this repo has written this bug.
-      // OUT HERE BESIDE `designed`, AND FOR THE SAME REASON — it is read at the
-      // look merge, hundreds of lines below the block that fills it in. Declared
-      // inside that block it is a ReferenceError on every build, which is the
-      // `vidRefN` failure exactly: `node --check` passes, esbuild passes, and no
-      // test can import a Worker entrypoint. Caught here by the scope scanner
-      // written after that one, on the first run — "declared at 8562, block
-      // closes at 8639, read at 8878".
-      let editState = null;
-      // NOW BILLED ON — owner's call 2026-08-08, "every time a model is used it
-      // needs to charge on our price model". This used to say "MEASURED, NOT
-      // BILLED ON", which was the right caution at the time (a measurement
-      // should not quietly become a price change) and the measurement is what
-      // made the decision possible.
-      let schemaUsage = null;
-      // WHY the designer's answer was empty, kept for the refusal below — which
-      // cannot otherwise tell "no tool call" from "declared nothing" from "would
-      // not parse". Shape only, never content.
-      let designedShape = null;
-      // What the schema step actually took, after settling the deposit below.
-      // Reported separately from the pages cost because they are different calls
-      // to different models, and one number cannot answer which one moved.
-      let schemaCost = 0;
-      // Whether a reversal we tried to make did not land — see the negative
-      // settle below. Declared out here so the response literal can read it.
-      let refundShort = false;
-
-      // ── A REFUND THAT DID NOT LAND IS NOT `cost: 0` ──────────────────────
-      //
-      // `refundCredits` was given a return value specifically so a failed
-      // reversal stops being invisible — its own docstring says "A REVERSAL
-      // THAT FAILS IS MONEY THE CUSTOMER KEEPS BEING CHARGED, so it says so" —
-      // and every refusal on this route called it as a bare statement and then
-      // answered a literal containing `cost: 0`. So the customer kept being
-      // charged up to the whole settled schema cost (12 credits cold Sonnet, 21
-      // Opus) while the response asserted they were charged nothing, and
-      // nothing anywhere recorded it. `credit_back` chunks at 10, so a
-      // 13-credit refund is two calls and either can fail on its own.
-      //
-      // ONE HELPER, so the six refusals cannot each remember separately. It
-      // returns the FIELDS rather than a boolean, because the honest response
-      // needs both halves: what really stayed on the ledger, and a flag naming
-      // it. `refundShort` is the same field the negative-settlement branch
-      // already sets and the success response already carries.
-      const refundFields = async (amount) => {
-        const n = Math.max(0, Number(amount) || 0);
-        if (n <= 0) return { cost: 0 };
-        if (await refundCredits(env, bu.id, n)) return { cost: 0 };
-        console.error("refund did not land:", slug, n);
-        return { cost: n, refundShort: true };
-      };
-      if (!body.schema) {
-        if (!brief) return Response.json({ ok: false, error: "no brief" }, { status: 400 });
-        // A DEPOSIT, NOT THE PRICE. Taken before the call because `use_credits`
-        // is atomic and row-locking and is the only thing that stops an empty
-        // account starting a paid model call — a plain balance read races. Once
-        // the call returns, `schemaSettlement` trues it up against what the call
-        // really consumed: the fee is a gate, the usage is the bill. Refunded in
-        // full if the call produces nothing usable, exactly as before.
-        //
-        // HOISTED ABOVE THE DEPOSIT because both refusals below quote it. A pure
-        // call — `models` is in scope and `buildFloor` is imported — so no I/O
-        // and no new failure mode.
-        const floor = buildFloor(models.design);
-        let balanceAfter;
-        try {
-          balanceAfter = await useCredits(request.headers.get("Authorization") || "", SITE_BUILD_FEE);
-        } catch {
-          return Response.json({ ok: false, msg: "Credits check failed — try again in a moment." }, { status: 503 });
-        }
-        // `cost` IS WHAT A BUILD NEEDS, on this branch as on the one below. It
-        // used to be `SITE_BUILD_FEE` — so the same field meant the 2-credit
-        // deposit here and the whole build's 20 one line down, which is a number
-        // nobody could act on. And this branch carried no `msg` at all, while the
-        // client renders `d.msg` and falls back to a generic sentence with no
-        // figure in it.
-        //
-        // NO BALANCE CLAUSE, unlike the branch below: `use_credits` answers -1
-        // for "the bill is larger than the balance" AND this is where an
-        // unparseable RPC answer lands, so quoting a figure would sometimes be a
-        // claim we cannot support.
-        if (!(balanceAfter >= 0)) {
-          return Response.json({
-            ok: false, error: "not enough credits", need: "credits", cost: floor,
-            msg: "A build needs about " + floor + " credits.",
-          }, { status: 402 });
-        }
-        // ENOUGH FOR THE WHOLE BUILD, not just for the deposit — the gap the
-        // Builder picker fell straight into. `use_credits` returns the balance
-        // AFTER taking the fee, so this is the real ledger value and needs no
-        // second read that could race; a concurrent build slipping past it just
-        // lands in the old behaviour rather than in something new.
-        //
-        // Refunds the deposit, because nothing has been spent yet: this is a
-        // refusal, not a failure. The message names the cheaper picker, since
-        // "top up" is not the only way out and is the less useful one.
-        if (balanceAfter + SITE_BUILD_FEE < floor) {
-          await creditBack(env, bu.id, SITE_BUILD_FEE);
-          return Response.json({
-            ok: false,
-            error: "not enough credits",
-            need: "credits",
-            cost: floor,
-            msg: models.picker === "opus"
-              ? "An Opus build needs about " + floor + " credits and you have " +
-                (balanceAfter + SITE_BUILD_FEE) + ". Switch the Builder to Sonnet 5, or top up."
-              : "A build needs about " + floor + " credits and you have " +
-                (balanceAfter + SITE_BUILD_FEE) + ".",
-          }, { status: 402 });
-        }
-        // The credit gate is a Supabase round trip and it was folded into the
-        // model call's time, which is the one number here nobody should be
-        // guessing about.
-        tr.at("gate");
-
-        // WHAT THE SITE IS NOW — read BEFORE the model call, because it is an
-        // input to it. An edit was never told it was an edit: the designer got
-        // `body.instruction` and nothing else, believed it was designing from
-        // scratch, and returned a brand and a description invented from a
-        // fragment which then became the <title> and the link preview.
-        //
-        // ON AN EDIT ONLY, and gated on the caller naming a slug we can resolve.
-        // A first build has nothing to read and adds no round trip.
-        //
-        // BEST-EFFORT, AND FAILING MEANS "NOT INSTRUCTED". `editState` staying
-        // null is what makes `mergeLook` keep the OLD precedence below — so a
-        // Neon blip degrades to exactly the behaviour that shipped before this,
-        // rather than to a designer that was never told to omit and whose answer
-        // now wins. The interlock is the point; see site-edit.mjs.
-        const editSlug = cleanSlug(body.slug);
-        if (editSlug) {
-          try {
-            const conn = await siteNeonProject(env, editSlug);
-            if (conn) {
-              const rows = await sqlQuery(conn, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_css','schema')");
-              let stored = null, storedSchema = null, storedCss = "";
-              for (const r of rows || []) {
-                if (r.k === "site_look" && r.v) stored = JSON.parse(r.v);
-                if (r.k === "schema" && r.v) storedSchema = JSON.parse(r.v);
-                // THE STYLESHEET THE DESIGNER HAS TO SEE. `css` is REPLACED
-                // rather than merged, so a revise that cannot read the current
-                // sheet can only ever answer with a fresh design — the re-roll
-                // that anchoring the look was introduced to stop, at the scale
-                // of every colour on every page. `currentStateNote` prints it in
-                // full and `EDIT_RULE` says what to do with it.
-                if (r.k === "site_css" && typeof r.v === "string") storedCss = r.v;
-              }
-              // ── A SITE WITH A STYLESHEET AND NO STORED LOOK IS STILL AN EDIT ──
-              //
-              // `if (stored)` was the whole gate, which was right while `site_look`
-              // was the only thing an edit could be about. It is not any more: a
-              // site built after 2026-08-23 answers no `seeds`, no `fonts` and no
-              // plan-adjacent look at all on a bare brief, so `site_look` can be
-              // thin while `site_css` carries the entire design. Gated on the look
-              // alone, such a site's revise would be told nothing — no name, no
-              // stylesheet, no EDIT_RULE — and would design from scratch.
-              if (stored || storedCss) {
-                editState = {
-                  ...(stored || {}),
-                  css: storedCss,
-                  tables: (storedSchema && Array.isArray(storedSchema.tables) ? storedSchema.tables : [])
-                    .map((t) => t && t.name).filter(Boolean),
-                };
-              }
-            }
-          } catch (e) { console.error("edit state read failed:", editSlug, e && e.message); }
-        }
-
-        try {
-          const dz = await designSiteSchema(env, briefWithLinks, models.design, editState, attached.blocks, budget);
-          designed = dz && dz.input;
-          schemaUsage = (dz && dz.usage) || null;
-          designedShape = (dz && dz.shape) || null;
-          tr.at("design", schemaUsage ? { out: schemaUsage.out, in: schemaUsage.in } : undefined);
-          // STARTER ROWS THE DESIGNER DID NOT WRITE. `seed` is a required field
-          // on its tool and the model omits it anyway — measured on two
-          // consecutive builds — and nothing noticed, so the site published with
-          // an empty price list and a booking form whose Service select had no
-          // options at all. Permanently: nothing can write to a `display` table
-          // after this point.
-          //
-          // HERE, NOT AT THE SEEDING STEP, for two reasons. It is before the
-          // settlement, so the one deposit trues up against BOTH calls instead
-          // of a second charge with its own rounding; and it is before
-          // provisioning, so a build that never gets a database has not paid for
-          // rows it will not use.
-          //
-          // NARROWED TO TABLES THE SITE DOES NOT ALREADY HAVE, which the addon
-          // lane already does and this one did not. A revise declares only what
-          // it is changing — but `EDIT_RULE` invites it to NAME AN EXISTING TABLE
-          // (to add a column, or to make it payable or publish a `publicView`),
-          // and `access` is compelled on every table, so `services` arrives
-          // looking like an unfilled display table. `seedGaps` cannot tell:
-          // it asks about access, columns and the seed, never Postgres. The rows
-          // were then bought and thrown away — `seedSiteRows` skips any table
-          // that already has any.
-          //
-          // FROM NAMES ALREADY IN HAND, at zero I/O: `editState.tables` comes
-          // from the `_meta` read three statements above. Probing Postgres per
-          // table would put up to six round trips on the critical path in front
-          // of a model call, and duplicate a question the seeder asks anyway.
-          //
-          // AN EMPTY SET KEEPS TODAY'S BEHAVIOUR BYTE-IDENTICALLY — a first
-          // build, or an `editState` read that failed — so it fails toward
-          // buying, which is the safe direction: a wasted Haiku call against an
-          // empty price list that nobody can order from.
-          const knownTables = new Set(((editState && editState.tables) || []).map((n) => String(n).toLowerCase()));
-          if (designed) {
-            const top = await topUpSeed(
-              { send: (req) => anthropicMessages(env, req) },
-              {
-                brief: briefWithLinks,
-                // ONLY AN ARRAY IS NARROWED, and the guard is the whole point.
-                //
-                // `designed` is RAW model output, not a normalised spec, and
-                // `tables` is deliberately tolerated in two NON-ARRAY shapes:
-                // a name→definition MAP, and a JSON STRING (measured at ~1
-                // sample in 20 by `schema gen eval`, which is why
-                // `normalizeSchema` parses it back). `.filter` exists on
-                // neither, so calling it here threw `TypeError: … is not a
-                // function` inside the design try — returned as a 503 reading
-                // "The designer is busy", blaming the provider for our own
-                // crash and throwing away a schema `normalizeSchema` would
-                // have recovered perfectly.
-                //
-                // `seedGaps` was taught both shapes ON PURPOSE by the
-                // 2026-08-13 audit, whose own note says the net built to
-                // rescue a build crashed it instead. This narrowing sat one
-                // layer ABOVE that tolerance and re-opened it — the fix
-                // defeated before the module it fixed ever saw the value.
-                //
-                // Not-an-array therefore passes `designed` through untouched:
-                // `seedGaps` recovers the shape and the worst case is the
-                // pre-narrowing behaviour (a Haiku call that buys rows for a
-                // table the seeder then skips). The addon lane has always
-                // guarded exactly this way; only the build lane did not.
-                spec: knownTables.size && Array.isArray(designed.tables)
-                  ? { ...designed, tables: designed.tables.filter((t) => t && !knownTables.has(String(t.name).toLowerCase())) }
-                  : designed,
-                seed: designed.seed,
-              },
-            );
-            if (top.gaps.length) {
-              // `failed` IS THE ONLY THING SEPARATING TWO OUTCOMES. The module sets
-              // it when the model CALL threw; a call that returned junk answers with
-              // the same empty `rows` and the same `gaps`, so without it the wire
-              // cannot tell "the provider was down" from "the provider answered
-              // nonsense" — and the customer's site has an empty price list either
-              // way. STRICTLY `=== true`: nothing merely truthy raises a flag here.
-              // Omitted when false, so a working build's response is unchanged.
-              seedTopUp = { gaps: top.gaps, filled: Object.keys(top.rows), ...(top.failed === true ? { failed: true } : {}) };
-              // NOT the route's `slug` — that const is declared ~140 lines
-              // below, so naming it here is a temporal-dead-zone ReferenceError
-              // thrown on EXACTLY the branch this module exists for (a build
-              // whose designer skipped the seed), landing in the design catch
-              // as a 503 wearing a model-outage message. Found by the
-              // 2026-08-13 audit; it had never fired live only because no run
-              // yet had a gap. The log names the site from what is in hand.
-              console.log("seed top-up:", (body && body.slug) || (designed && designed.slug) || "?", JSON.stringify(seedTopUp));
-            }
-            if (Object.keys(top.rows).length) designed = { ...designed, seed: mergeSeed(designed.seed, top.rows) };
-            seedUsage = top.usage;
-            if (top.usage) tr.at("seedrows", { out: top.usage.out, in: top.usage.in });
-          }
-          // SETTLE THE DEPOSIT. Positive: the call cost more than the fee, take
-          // the difference. Negative: it cost less, give the difference back —
-          // bounded by the deposit itself, so it can never exceed `credit_back`'s
-          // 10-credit ceiling however the price table moves. Neither is allowed
-          // to fail the build: the schema is in hand and the database is about to
-          // be built on it, and losing that over a ledger round trip would be a
-          // far more expensive failure than a credit in either direction.
-          const settle = schemaSettlement([schemaUsage, seedUsage], SITE_BUILD_FEE);
-          schemaCost = SITE_BUILD_FEE + settle;
-          if (settle > 0) {
-            // COLLECT, not just ask. `use_credits` refuses a bill larger than
-            // the balance and debits zero, so the settlement has to report what
-            // it really took or `schemaCost` becomes a number nobody was charged.
-            try { schemaCost = SITE_BUILD_FEE + await collectCredits(request.headers.get("Authorization") || "", settle); }
-            catch { schemaCost = SITE_BUILD_FEE; /* keep the build */ }
-          } else if (settle < 0) {
-            // A REFUND THAT DID NOT LAND LEAVES `schemaCost` OVERSTATING WHAT
-            // WAS TAKEN, in the direction the customer pays for. Silent before
-            // this: `creditBack` swallowed both a throw and a refusal, so the
-            // ledger and this number disagreed by up to the whole fee with
-            // nothing anywhere recording it. Not fatal — the build is fine and
-            // the deposit is small — but it is now on the response.
-            if (!await creditBack(env, bu.id, Math.min(SITE_BUILD_FEE, -settle))) refundShort = true;
-          }
-        } catch (e) {
-          await creditBack(env, bu.id, SITE_BUILD_FEE);
-          console.error("schema design failed:", e && (e.detail || e.message));
-          // `upstream` is the numeric status from the model API and nothing else
-          // — never `detail`, which echoes back parts of the request. It is the
-          // difference between "they are overloaded, retry" (429/529) and "we
-          // are sending something they reject" (400), and without it a total
-          // outage of the builder's main path is indistinguishable from a busy
-          // minute. This one hid for three merges behind exactly that.
-          const kind = upstreamKind(e && e.detail);
-          return Response.json({
-            ok: false,
-            msg: e && e.truncated
-              ? "That brief needs more room than the designer had — try describing fewer things to store."
-              // OUR CEILING, NOT THEIR OUTAGE, and it must not read as one. A
-              // timeout has no HTTP response, so without asking it fell through
-              // to "the designer is busy" — blaming the provider for a bound of
-              // ours and inviting a retry into the same wait. Measured before
-              // the bound existed: 26 minutes, no answer, nothing said.
-              : isCallTimeout(e)
-                ? "That took longer than a build is allowed to — nothing was charged. Try again, or describe the site in fewer words."
-                // Named, because it is the one failure here that no amount of
-                // retrying fixes and that somebody can actually go and act on.
-                : kind.billing
-                  ? "The site builder is temporarily unavailable — this is on us, not your brief."
-                  : "The designer is busy — try again in a moment.",
-            stage: "design",
-            // WHAT THE CUSTOMER WAS LEFT WITH, on the one refusal that said
-            // nothing about money at all. The deposit is refunded a few lines
-            // up and the response never mentioned it, so somebody watching a
-            // build fail had no way to know whether they had paid for it.
-            cost: 0,
-            upstream: (e && e.status) || null,
-            // The provider's own error TYPE, shape-checked. Never its message,
-            // which a 400 can fill with the request.
-            upstreamType: kind.type,
-            // THE ERROR'S CLASS, WHICH IS THE ONLY THING THAT SPEAKS WHEN THERE
-            // WAS NO HTTP RESPONSE AT ALL. `upstream` and `upstreamType` are
-            // both read off a response body, so a `fetch` that throws — a
-            // network fault, a DNS blip, an aborted connection — leaves BOTH
-            // null and the reply says nothing whatsoever about what happened.
-            // Measured 2026-08-12: a run failed here twice against a Worker
-            // byte-identical to one that had passed eleven minutes earlier, and
-            // the response could not distinguish "the network dropped" from "we
-            // threw". The class can: a `TypeError` is the fetch, anything else
-            // is ours.
-            //
-            // A NAME IS A CLASS AND CANNOT BE A SECRET — the same rule the owner
-            // data route states for its own catch. The message is withheld from
-            // every class but `ReferenceError`, whose message is always
-            // "<name> is not defined": a programmer bug, never request data, and
-            // the single most valuable string this repo has ever put in a
-            // response (it is how `OWN_ZONES` was found).
-            kind: String((e && e.name) || "Error").slice(0, 40),
-            why: (e && e.name) === "ReferenceError" ? String((e && e.message) || "").slice(0, 120) : undefined,
-            billing: kind.billing || undefined,
-            truncated: !!(e && e.truncated),
-          }, { status: 503 });
-        }
-        // A DESIGNER THAT DECLARED NO TABLES IS NOT AUTOMATICALLY AN ERROR — see
-        // the one refusal below, after the ownership lookup. It used to be
-        // refused right here, and that made a look-only revise impossible.
-      } else {
-        // AN EXPLICIT SCHEMA SKIPS THE MODEL CALL, NOT THE AFFORDABILITY CHECK.
-        //
-        // The deposit and `buildFloor` both live in the branch above, and
-        // provisioning runs after it either way — so anyone signed in who posted
-        // their own `schema` reached `ensureSiteBackend` with NO credit check at
-        // all. `publishPages` still refuses to generate below its own floor, so
-        // what was free is the NEON PROJECT: a capped, billed resource, one per
-        // site, against a platform-wide cap of 100. Repeat with fresh slugs and
-        // builds stop working for everybody.
-        //
-        // A BALANCE READ, NOT A DEPOSIT, and the difference is deliberate. No
-        // model call happens on this path, so there is nothing to hold money
-        // against; the only thing worth stopping is provisioning on an empty
-        // account. A read can race a concurrent build, which is the same
-        // exposure this path had in full a moment ago and bounded to one.
-        // `MIN_CREDITS`, NOT `buildFloor`, and the difference is the point.
-        // `buildFloor` = a cold designer call at this picker's rates PLUS the
-        // generation floor — and no designer call happens on this path, so
-        // charging for one would refuse a build that costs strictly less than
-        // an ordinary one. `MIN_CREDITS` is the amount `publishPages` already
-        // requires before it will generate at all, which is the real downstream
-        // requirement and comfortably inside a new account's grant of 20 (both
-        // `confirm smoke` and `member smoke` build this way on a fresh account
-        // and must keep passing).
-        const floor = MIN_CREDITS;
-        const bal = await readCredits(request.headers.get("Authorization") || "").catch(() => null);
-        // FAILS CLOSED. An unreadable ledger is the shape that made this free in
-        // the first place — "cannot tell" must not mean "go ahead" on the one
-        // path that provisions a capped resource.
-        if (bal === null || bal < floor) {
-          return Response.json({
-            ok: false,
-            error: "not enough credits",
-            need: "credits",
-            cost: floor,
-            msg: bal === null
-              ? "Couldn't check your balance just now — try again in a moment."
-              : "A build needs about " + floor + " credits and you have " + bal + ".",
-          }, { status: 402 });
-        }
-      }
-
-      // WEB RESEARCH, STARTED HERE AND AWAITED MUCH LATER — the gap is the point.
-      //
-      // Everything between this line and the page generation is Neon: creating a
-      // project, applying the schema, seeding rows, reading the merged schema
-      // back. That is seconds of waiting on somebody else's API, and a search
-      // running alongside it is free in wall-clock terms. Awaited where it is
-      // needed instead, it would add its own latency to a build the customer is
-      // watching, for a step most builds skip entirely.
-      //
-      // Gated on the designer's own `needsWeb`, so an explicit-schema build (no
-      // designer, no gate) never searches — which is correct: that path is the
-      // test harness sending a schema it already knows.
-      //
-      // `.catch` is attached IMMEDIATELY rather than at the await. An unhandled
-      // rejection in the interval would be an unhandled rejection, and this is a
-      // best-effort enhancement — the build must survive it.
-      const researchPromise = shouldSearch(designed)
-        ? siteWebResearch(env, brief, designed.webQueries).catch((e) => {
-            console.error("web research failed:", e && e.message);
-            return null;
-          })
-        : null;
-
-      const slug = cleanSlug(body.slug) || cleanSlug(designed && designed.slug)
-        || ("site-" + Math.random().toString(36).slice(2, 8));
-
-      // THE RECORDER GETS ITS KEY HERE — the first moment there is one. Every
-      // step above (auth, the body, the credit gate, the design call) has been
-      // held in the recorder rather than dropped, and this flushes them, so a
-      // build that dies in page generation still has its whole prologue written
-      // down. A build that dies BEFORE this leaves no row, which is honest: it
-      // never got as far as being a site.
-      rec.identify(slug, bu.id);
-      rec.step(tr.done(), { stage: "design", picker: String(body.picker || "").slice(0, 24) || null });
-
-      // A site's slug is claimed by whoever built it first; a second user cannot
-      // publish over someone else's site by guessing the name.
-      // Fails CLOSED. This was `catch {}`, so a Supabase timeout turned "I cannot
-      // tell who owns this" into "nobody does" — and the build went on to apply
-      // its schema, seed rows and publish pages over an existing owner's site.
-      // (ensureSiteBackend now enforces this too; belt and braces, because the
-      // consequence is a cross-account write.)
-      let priorBrief = "";
-      // IS THIS SLUG ALREADY A SITE OF THIS CALLER'S — i.e. is this a revise?
-      // Read off the same row as the ownership check, so it costs nothing, and
-      // it is the OWNERSHIP that decides rather than the stored brief: a site
-      // built before `brief` was recorded is still a revise, and treating it as
-      // a first build would re-buy every photograph on it.
-      let existing = false;
-      try {
-        const owner = await siteBackendRowFresh(env, slug);
-        if (owner && owner.uid && owner.uid !== bu.id) {
-          // REFUNDED. The schema call has already happened and been settled by
-          // this point, so a refusal here leaves the customer with no database,
-          // no site and a real charge — and the client is told they were not
-          // charged. Same reasoning as the no-tables path: this returns before
-          // anything is provisioned, so they are left with literally nothing.
-          const back = await refundFields(schemaCost);
-          return Response.json({ ok: false, error: "that name is taken", ...back, msg: "That site name is taken by another account. Say a different name in your next message — e.g. \"call it sunset-cuts\" — and I\u2019ll build it under that." }, { status: 409 });
-        }
-        // Free — this lookup already happens for the ownership check.
-        existing = !!(owner && owner.uid);
-        priorBrief = (owner && owner.brief) || "";
-      } catch (e) {
-        console.error("ownership check failed:", slug, e && (e.detail || e.message));
-        const back = await refundFields(schemaCost);
-        return Response.json({ ok: false, msg: "Couldn't check that name just now — try again in a moment.", ...back }, { status: 503 });
-      }
-
-      // A Supabase round trip, and it was folded into a mark named `normalize`
-      // — which is in-process and instant. A step name that hides a network call
-      // is worse than no step at all: it attributes the wait to the wrong thing.
-      tr.at("owner");
-
-      let spec = normalizeSchema(body.schema || designed || {});
-      tr.at("normalize");
-      // A BOOKING TABLE WITH NOTHING STOPPING A DOUBLE BOOKING, named rather
-      // than discovered by a customer. Making the four constraints declarable
-      // on 2026-07-28 fixed availability and not USE — nothing checks that a
-      // table shaped like a booking came back carrying one, which is the same
-      // shape as `seed` being skipped on two builds this week. No model call
-      // and no I/O: it reads the spec that is already in hand.
-      const unguarded = unguardedBookings(spec);
-      if (unguarded.length) console.warn("unguarded booking table:", slug, unguarded.join(","));
-      // WHO MAY READ AND WRITE AN EXISTING TABLE IS NOT THIS CALL'S TO MOVE.
-      //
-      // `EDIT_RULE` promises the designer, twice, that an omitted field keeps
-      // what the site has and that "the `access` you have to fill in for an
-      // existing table is discarded". Nothing implemented it here, so a revise
-      // that named an existing table — which that same rule explicitly invites,
-      // to add a column or make it payable — re-levelled it to `collect`:
-      // `GRANT INSERT … TO anonymous` on the business's own menu, and the SELECT
-      // policy dropped so no visitor could read it. Measured 2026-08-21. The
-      // addon lane has guarded exactly this since it shipped; this one never did.
-      //
-      // AFTER the booking check above on purpose: that one is about what the
-      // DESIGNER answered, and reading a stripped table would let a re-declared
-      // `display` table false-alarm as an unguarded booking table.
-      //
-      // `editState.tables` is the site's own table names, already in hand from
-      // the `_meta` read the designer prompt needed — no round trip. Empty (a
-      // first build, or a read that failed) strips nothing, which is the only
-      // safe direction: a revise that declares a genuinely NEW table has to keep
-      // the level it just gave it. `site-schema.mjs` no longer stamps an absent
-      // level, so the omission half is covered even when this set is empty.
-      const heldAccess = keepStoredAccess(spec, (editState && editState.tables) || []);
-      spec = heldAccess.spec;
-      if (heldAccess.held.length) {
-        console.warn("kept stored access:", slug,
-          heldAccess.held.map((h) => h.table + ":" + h.fields.join("+")).join(","));
-      }
-      // WHAT THE DESIGNER REACHED FOR AND WE DO NOT HAVE. `coerceTable` is an
-      // allow-list, so a field the tool never offered is dropped without a
-      // trace — which is the right protection and also throws away the only
-      // evidence about what this platform is MISSING that does not come from
-      // somebody guessing. Eleven schema features were built by guessing and
-      // ended up reachable by nothing; a count of real reaches is what replaces
-      // that. Read off the RAW answer, before the allow-list, because after it
-      // there is nothing left to read. Names only, never values.
-      const reached = droppedFields(body.schema || designed || {});
-      if (reached.length) console.warn("designer reached for:", slug, reached.join(","));
-      // AND WHAT IT DECLARED THAT WE REFUSED. The exact inverse, and the gap
-      // `droppedFields` creates by design: it skips `TOOL_TABLE_FIELDS`, so a
-      // guarantee the tool DOES offer that fails its shape check was nulled
-      // with no trace on the response. A `publicView` whose every column is
-      // stripped as PII leaves a marketplace with no browsable listing and
-      // nothing saying the projection was refused — discoverable in a log or
-      // by the incident. Names only, like `reached`, and never values.
-      const refused = refusedFields(body.schema || designed || {});
-      if (refused.length) console.warn("declared and refused:", slug, refused.join(","));
-      // A TABLE NAME THE ENGINE COULD NOT USE. `normalizeSchema` used to let
-      // any truthy name through and `sqlIdent` threw on it at apply time,
-      // OUTSIDE any per-table try — so one over-long or odd name from the
-      // designer 502'd the WHOLE build and took the customer's good tables
-      // with it. It loses one table now, and this is what says which.
-      const badNames = Array.isArray(spec && spec.refusedTables) ? spec.refusedTables : [];
-      if (badNames.length) console.warn("refused table names:", slug, badNames.join(","));
-      // NO TABLES IS ONLY AN ERROR ON A FIRST BUILD.
-      //
-      // This refusal used to sit before the ownership lookup, where `existing`
-      // is not known yet — so it fired on every revise that named no table, and
-      // "make the background yellow" answered 422 and changed nothing. That is
-      // the exact instruction token overrides were built for: the designer sees
-      // only the instruction on a revise, so a look-only change CORRECTLY
-      // declares nothing to store, and the site's real schema is already in
-      // `_meta` where the merge leaves it untouched. Measured live 2026-08-09 —
-      // the smoke run's revise came back 422 with the whole feature dead.
-      //
-      // On a first build it is still the right answer, and it is still a refund:
-      // this returns before anything is provisioned, so the customer is left
-      // with literally nothing, and "charge for what you use" was never meant to
-      // mean charging for an empty hand. The refund is what was ACTUALLY taken,
-      // not the flat fee — once the deposit settles to real usage those are two
-      // different numbers, and refunding the fee would quietly keep the
-      // settlement on a build that 422s.
-      if (!spec.tables.length && !existing) {
-        const back = await refundFields(schemaCost);
-        // AND SAY WHICH OF THE FOUR IT WAS. This refusal reads identically for a
-        // model that made no tool call, one that called it and declared nothing,
-        // one whose answer would not parse, and one whose every table NAME was
-        // refused — and the four warnings above report other things, so a real
-        // generator outage left no trace at all. The customer's sentence is
-        // unchanged; this is for whoever has to answer "why did my build fail".
-        console.warn("schema declared no tables:", slug, designedShape
-          ? "tool=" + designedShape.tool + " stop=" + designedShape.stop + " blocks=" + designedShape.blocks.join(",")
-          : (body.schema ? "caller-supplied schema" : "no designer answer at all"),
-          "refused=" + (badNames.length ? badNames.join(",") : "none"));
-        // A caller that sent its own schema gets the machine answer; a customer
-        // whose brief the designer could make nothing of gets the sentence.
-        return body.schema
-          ? Response.json({ ok: false, error: "schema declares no tables", ...back }, { status: 400 })
-          : Response.json({ ok: false, msg: "That brief didn't describe anything to store — try naming what the site keeps track of.", ...back }, { status: 422 });
-      }
-
-      let db;
-      try {
-        db = await ensureSiteBackend(env, slug, bu.id, brief, (n) => tr.at("prov:" + n));
-        tr.at("provision");
-      } catch (e) {
-        if (e && e.conflict) {
-          const back = await refundFields(schemaCost);
-          return Response.json({ ok: false, error: "that name is taken", ...back, msg: "That site name is taken by another account. Say a different name in your next message — e.g. \"call it sunset-cuts\" — and I\u2019ll build it under that." }, { status: 409 });
-        }
-        console.error("site provision failed:", slug, e && e.status, e && (e.detail || e.message));
-        // REFUNDED, BECAUSE THIS FAILURE IS OURS AND THEY ARE LEFT WITH NOTHING.
-        //
-        // Only the `conflict` branch above used to give the money back, so a
-        // Neon outage, a dead key or a project quota answered 502 and KEPT the
-        // settled schema charge — 9 credits cold Sonnet, 15 Opus, out of a new
-        // account's grant of 20. Every sibling refusal on this route refunds,
-        // with the stated reason that the caller is left with literally nothing;
-        // a provisioning failure leaves them in exactly that state, and
-        // infrastructure being down is an our-fault stage by `ourFault`'s own
-        // list. During an outage each retry cost half a grant for nothing.
-        const back = await refundFields(schemaCost);
-        // THE STATUS IS THE DIAGNOSIS. A dead key (401), a plan or permission
-        // limit (403), a project quota (422) and Neon being down (5xx) all read
-        // identically without it, and each needs a completely different fix —
-        // which is exactly how build smoke spent a run reporting `detail: "{}"`
-        // and no way to tell which had happened.
-        return Response.json({
-          ok: false,
-          error: "could not provision the database",
-          upstream: (e && e.status) || null,
-          // WHICH call failed. site-provision.mjs stamps a stage on every one of
-          // its throws and this dropped it, so "enable_auth" and
-          // "enable_data_api" — two different Neon endpoints — were reported
-          // identically.
-          stage: (e && e.stage) || null,
-          detail: scrubSecrets(String((e && (e.detail || e.message)) || "")).slice(0, 300),
-          ...back,
-        }, { status: 502 });
-      }
-
-      let made;
-      try {
-        made = await applySiteSchema(db, spec);
-        tr.at("schema", { tables: (spec.tables || []).length });
-      } catch (e) {
-        console.error("schema apply failed:", slug, e && (e.detail || e.message));
-        // REFUNDED FOR THE SAME REASON as the provisioning failure above: this
-        // is our schema engine failing against a database we just made, not
-        // anything the customer wrote, and `ourFault` treats an unclassified
-        // stage as ours by design. They are left with an empty database and no
-        // site — technically an artifact, practically nothing.
-        const back = await refundFields(schemaCost);
-        // SCRUBBED, like the provisioning detail one branch up and unlike this
-        // line until now. A Postgres or Neon error can quote the statement, and
-        // the statement is built from the connection the vault handed us.
-        return Response.json({
-          ok: false,
-          error: "could not apply the schema",
-          detail: scrubSecrets(String((e && (e.detail || e.message)) || "")).slice(0, 300),
-          ...back,
-        }, { status: 502 });
-      }
-
-      // Register the site's scheduled jobs. Best-effort and non-fatal for the
-      // same reason seeding is: a site whose reminders are not registered still
-      // works, and failing the build here would throw away a live database over
-      // background work. Declared jobs OVERWRITE by (slug, name); none are
-      // auto-deleted, so a revise that drops a job leaves it registered — which
-      // is why the runner re-reads the schema and skips a job the spec no longer
-      // declares, rather than trusting the row.
-      try {
-        const jobs = Array.isArray(spec.jobs) ? spec.jobs : [];
-        if (jobs.length) {
-          // `bu.id`, NOT `uid` — which was never bound in this scope and threw a
-          // ReferenceError straight into the catch below, so NOT ONE JOB HAS
-          // EVER REGISTERED. Dead at the last link with every layer above it
-          // correct, and silent because this block is best-effort by design.
-          await persistSiteJobs(env, bu.id, slug, jobs);
-          tr.at("jobs", { n: jobs.length });
-        }
-      } catch (e) { console.error("jobs persist:", slug, e && e.message); }
-
-      // Starter content for the display tables. Best-effort and non-fatal: a site
-      // with a live database and an empty menu is still a site, but one WITH the
-      // menu is the difference between a demo and something usable — nothing can
-      // write to a display table after this point, not even the owner.
-      let seeded = null;
-      try {
-        seeded = await seedSiteRows(db, spec, (designed && designed.seed) || body.seed);
-        tr.at("seed");
-        if (seeded && Object.keys(seeded.seeded).length) console.log("seeded:", slug, JSON.stringify(seeded.seeded));
-        if (seeded && seeded.skipped.length) console.log("seed skipped:", slug, JSON.stringify(seeded.skipped.slice(0, 6)));
-      } catch (e) { console.error("seeding failed:", slug, e && (e.detail || e.message)); }
-
-      // Write the site's pages against the schema that was just created, compile
-      // them, and publish the dist. The database is already live at this point, so
-      // this stage cannot fail the build — it either publishes the real app or
-      // falls through to the placeholder below.
-
-      // Pages are generated against every table the site HAS, not just the ones
-      // this request designed.
-      //
-      // A revise sends {slug, instruction}, and the instruction alone is what
-      // the schema designer sees — so `spec` holds only the tables that
-      // instruction mentioned. "Add a gallery" produced a spec of exactly one
-      // table, and the generator then rewrote the whole site knowing only that:
-      // a working barber shop came back as a page listing a gallery and nothing
-      // else. applySiteSchema already MERGES into _meta (a revise cannot drop a
-      // table), so the merged spec is the real picture — read it back and use it.
-      // Merge, do not replace. `spec` is this request's schema and carries the
-      // FULL column objects (type, required, refs); `_meta` carries every table
-      // the site has but stores columns as plain names. Taking _meta wholesale
-      // threw away the type information for the tables just designed, and the
-      // generator was told they had no columns.
-      let pageSpec = spec;
-      try {
-        const stored = await loadSiteSchema(db);
-        if (stored && Array.isArray(stored.tables) && stored.tables.length) {
-          const byName = new Map();
-          for (const t of stored.tables) if (t && t.name) byName.set(String(t.name).toLowerCase(), t);
-          for (const t of (spec.tables || [])) if (t && t.name) byName.set(String(t.name).toLowerCase(), t); // richer wins
-          pageSpec = { ...spec, tables: [...byName.values()] };
-        }
-      } catch (e) { console.error("merged schema read failed:", slug, e && e.message); }
-
-      // ── THE SITE'S LOOK, REMEMBERED ────────────────────────────────────────
-      //
-      // A revise sends only the instruction, so the designer sees a few words
-      // and names a theme, a family and a font pair from THOSE — meaning "fix a
-      // typo" could re-roll a booking-first barber shop into whatever family
-      // nearest-matches that sentence, with different fonts and a different
-      // theme. The fallback chain says `(designed && …) || (body && …)`, and the
-      // comment above it claims the body half is what anchors the look — but the
-      // client has never sent `body.theme`, `body.family` or `body.fonts`, so
-      // that half has always been undefined and the anchor did not exist.
-      //
-      // Kept in the site's OWN `_meta`, beside `auth_info`: the connection is
-      // already open here, it is written once per look, and it goes when the site
-      // goes. Best-effort in both directions — losing it re-rolls the look, which
-      // is exactly today's behaviour, so it can never be worse than what it
-      // replaces.
-      let priorLook = null, priorTokens = null, priorPageTokens = null, priorStyle = null, priorLogo = "", priorIcon = "";
-      // THE STYLESHEET THE SITE IS WEARING. On a revise the designer is told to
-      // return it with the change made; when the message is about something else
-      // it answers nothing here, and this is what keeps the design.
-      let priorCss = "";
-      let priorPageFonts = null;
-      let priorVerify = null;
-      // THE TRANSLATION CACHE, for the same reason the logo is read here: the
-      // build path now translates (see the compile dep), and a revise that does
-      // not read the cache re-translates the whole site — slower and never
-      // wrong, but a Haiku call spent on strings already answered. Empty on a
-      // first build, which is the ordinary case.
-      let priorLangStrings = null;
-      if (priorBrief) {
-        try {
-          const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_page_tokens','site_style','site_css','site_logo','site_icon','site_verify','site_page_fonts','site_lang_strings')");
-          for (const r of rows || []) {
-            if (r.k === "site_look" && r.v) priorLook = JSON.parse(r.v);
-            if (r.k === "site_tokens" && r.v) priorTokens = JSON.parse(r.v);
-            // READ HERE FOR THE REASON THE LOGO IS. A revise that does not send
-            // the stored per-page colours sends nothing, and nothing means every
-            // page is back on the site's — silently, on a build the customer
-            // asked for something else entirely.
-            if (r.k === "site_page_tokens" && r.v) priorPageTokens = JSON.parse(r.v);
-            if (r.k === "site_page_fonts" && r.v) { try { priorPageFonts = JSON.parse(r.v); } catch { /* see the note on the cheap-edit spine */ } }
-            if (r.k === "site_lang_strings" && r.v) { try { priorLangStrings = JSON.parse(r.v); } catch { /* a lost cache re-translates; never worse */ } }
-            if (r.k === "site_style" && r.v) priorStyle = JSON.parse(r.v);
-            // A PLAIN STRING, NOT JSON — see the spine's copy.
-            if (r.k === "site_css" && typeof r.v === "string") priorCss = r.v;
-            // READ HERE OR A REVISE TAKES THE LOGO OFF. The container writes
-            // `site-brand.ts` on EVERY build — it has to, or one site's logo
-            // leaks onto the next — so a build path that does not send the
-            // stored value sends nothing, and nothing means empty. A customer
-            // who attached a logo and then asked for any page change would have
-            // watched it disappear, with no error and nothing to point at.
-            if (r.k === "site_logo" && typeof r.v === "string") priorLogo = r.v;
-            // READ HERE OR EVERY PUBLISH UNDOES IT, exactly as the logo and the tokens
-            // above. The sidecar is rewritten whole on every publish, so a path that
-            // does not carry the stored verification sends none — and an owner's
-            // Search Console tag would vanish the next time they fixed a typo.
-            if (r.k === "site_verify" && r.v) { try { priorVerify = JSON.parse(r.v); } catch { /* a bad row is no verification, not a failed publish */ } }
-            // AND THE TAB ICON, for the identical reason one line up. A
-            // revise that does not carry it publishes the site back onto the
-            // mark drawn from its initials.
-            if (r.k === "site_icon" && typeof r.v === "string") priorIcon = r.v;
-          }
-        } catch (e) { console.error("look read failed:", slug, e && e.message); }
-      }
-      // THE DESIGNER STILL WINS ON A FIRST BUILD, and on a revise whose
-      // instruction really is about the look: `designed` is only consulted here
-      // when nothing was stored, so a revise keeps what the site already wears.
-      // Changing a theme deliberately is a rebuild, which is the honest answer —
-      // a re-theme is not a small edit and should not happen by accident.
-      // RESOLVED FIRST, because the font fallback below depends on it. The pair
-      // has to come from the theme this site is ACTUALLY getting — falling back
-      // to `designed.theme` when a stored one won would recommend fonts for a
-      // theme the site is not wearing, which is a worse mismatch than the one
-      // this fixes.
-      // STORED-UNLESS-NAMED, which is the owner's rule made mechanical: an edit
-      // changes exactly what was asked for and nothing else. `instructed` is the
-      // interlock — the designer's answer only outranks the stored value when
-      // the designer was actually TOLD to omit what it is keeping, which is what
-      // `editState` above records. Unread state, a first build, or an older
-      // caller all fall back to the previous precedence, so the failure
-      // direction is "the edit did not take" rather than "the site re-themed
-      // itself". See builder/site-edit.mjs.
-      // WHICH PAGE THE COLOURS AND THE TYPEFACE ARE FOR, decided before the
-      // merge that would otherwise spend them on the whole site.
-      //
-      // `tokensPage` was read at exactly two places and both were the look edit
-      // lane, so on THIS route it was discarded — and discarding it is not the
-      // harmless half. `mergeTokens` below takes `designed.tokens` regardless,
-      // so a brief asking for a warmer MENU page got a warmer WHOLE SITE, and
-      // the field's own description warns about exactly that mistake pointed the
-      // other way ("naming a page when they meant the site … reads as the change
-      // having half worked").
-      //
-      // THE ROUTE LIST IS THE PLAN'S PAGE LIST, not the stored source, because
-      // on a build the source does not exist yet — the designer has just written
-      // the page list and page generation has not run. It comes off the MERGED
-      // look rather than `designed` so a revise that does not re-answer `pages`
-      // still resolves against the pages the site has; that is `mergeLook`'s own
-      // stored-unless-named rule, asked once rather than restated here.
-      //
-      // TWO MERGES, ONE RULE. `forPage` needs the page list and the strip needs
-      // `forPage`, which is circular — so the first merge answers the page list
-      // and the second is the one that is used. `mergeLook` is a pure function
-      // over plain objects, so the probe costs nothing and there is no second
-      // reading of precedence to drift.
-      const probeLook = mergeLook(priorLook, designed, body, { instructed: !!editState });
-      const forPage = pageScopeFor(designed, (probeLook.pages || []).map((p) => p && p.path).filter(Boolean));
-      // THE FONT STRIP IS WHY THIS RUNS BEFORE THE MERGE AT ALL. `designed.fonts`
-      // reaching `mergeLook` sets the SITE's typeface, so "the menu page should
-      // be in something handwritten" would re-set every heading on every page —
-      // the opposite of what was asked. Stripped from the INPUT rather than
-      // patched out of the result, so `look`, the trace and the `site_look`
-      // write are all correct from one expression instead of three that can
-      // disagree. Same shape as the look edit lane's `siteDesigned`.
-      const merged = forPage && designed && designed.fonts
-        ? mergeLook(priorLook, { ...designed, fonts: undefined }, body, { instructed: !!editState })
-        : probeLook;
-      // THE WHOLE MERGE, NEVER A HAND-PICKED SUBSET (2026-08-21).
-      //
-      // This was a literal restating FIVE of `mergeLook`'s thirteen fields —
-      // seeds, family, fonts, brand, description — under a comment claiming
-      // "the value written is the MERGED one". It was a subset of the merge,
-      // and the eight it dropped were exactly the ones this route reads back
-      // off `look` a few hundred lines down: `lang: look.lang` had been
-      // `undefined` since the day it was written (2026-08-12, a Welsh café
-      // publishing as English), `mode: look.mode` since dark mode landed
-      // (2026-08-18), and `plan: normalizePlan({look[PLAN_KEYS]})` since the
-      // families were deleted (2026-08-20) — so THE AUTHORED PLAN NEVER
-      // REACHED PAGE GENERATION ON THE LIVE ROUTE: no layout directive, no
-      // per-site component manifest, the bare brief. The live CRM build that
-      // came back as a login page over a working backend is this bug's shape.
-      //
-      // AND A REVISE DESTROYED AN EDIT'S WORK. The look edit lane stores the
-      // FULL merge (JSON.stringify(merged) at its own write), so a language,
-      // a dark mode or a plan changed by an edit was stored — and the next
-      // revise through THIS route overwrote `site_look` with the five-field
-      // subset, wiping them. A dark bilingual site reverted to light English
-      // on a revise about a menu item, silently.
-      //
-      // `merged` IS the right object by construction: `mergeLook` rebuilds its
-      // output from `EDIT_FIELDS` alone, so storing it whole stores exactly
-      // the editable look and nothing else. The provenance stories that lived
-      // on the literal's fields (fonts required since the registry went;
-      // brand/description anchored so an edit cannot rename the site) are
-      // `mergeLook`'s own and are told in builder/site-edit.mjs.
-      const look = merged;
-      // WRITTEN ON EVERY BUILD, not only the first.
-      //
-      // It was `if (!priorLook)`, which was correct while the look could never
-      // change after a first build — anchoring made the stored value permanent,
-      // so re-writing it was a no-op. Now an edit CAN move any of these, and
-      // writing only on the first build would apply the change once and forget
-      // it, so the next edit would resurrect the old look. The value written is
-      // the MERGED one, which is stored-unless-named, so this cannot drift.
-      try {
-        await sqlQuery(db, "INSERT INTO _meta (k,v) VALUES ('site_look', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v", [JSON.stringify(look)]);
-      } catch (e) { console.error("look write failed:", slug, e && e.message); }
-      // What this edit actually moved, for the trace: a customer who asks for
-      // one thing and gets four changed cannot see that from the site, and
-      // neither can anybody reading a log. Derived from the merge rather than
-      // from what the model mentioned, so it reports the CHANGE.
-      const lookMoved = priorLook ? movedFields(priorLook, look) : [];
-      if (lookMoved.length) tr.at("look", { moved: lookMoved.join(",") });
-
-      // OFF THE MERGED LOOK, not re-derived. This was declared ~4,600 characters
-      // earlier as `(designed && designed.brand) || body.brand || slug`, which is
-      // where the rename came from: no stored value was consulted because none
-      // was kept. Moved down rather than given its own fallback chain, so there
-      // is ONE answer to "what is this site called" and it is the same one the
-      // stored look holds.
-      const brand = String(look.brand || body.brand || slug).slice(0, 60);
-
-      // ── AND THE ONE COLOUR THEY ASKED TO CHANGE ────────────────────────────
-      //
-      // ACCUMULATED, never replaced: a revise names only what it is changing,
-      // so a yellow background asked for today and a blue accent asked for
-      // tomorrow have to both survive — a replacing merge hands back the
-      // theme's own background on the second revise, which reads as the first
-      // instruction being forgotten.
-      //
-      // `withContrast` is applied at the point of USE rather than here, so what
-      // is stored is only ever what the customer actually asked for; the
-      // derived text colour follows whatever the surface is at build time.
-      // Written on EVERY build that has one, unlike the look above, because
-      // this is the thing being changed.
-      // THE SITE'S COLOURS MOVE ONLY WHEN NO PAGE WAS NAMED — see `forPage`.
-      const siteTokens = forPage ? (priorTokens || {}) : mergeTokens(priorTokens, designed && designed.tokens);
-      const tokenAsk = parseTokens(designed && designed.tokens);
-      if (Object.keys(siteTokens).length) {
-        try {
-          await sqlQuery(db, "INSERT INTO _meta (k,v) VALUES ('site_tokens', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v", [JSON.stringify(siteTokens)]);
-        } catch (e) { console.error("token write failed:", slug, e && e.message); }
-      }
-
-      // …AND THE PAGE'S MOVE ONLY WHEN ONE WAS, ACCUMULATED like the site's: a
-      // later build names one colour and everything it did not mention has to
-      // survive. Byte-for-byte the look edit lane's rule, because a page put
-      // back through one lane must look the same as one put back through the
-      // other.
-      const nextPageTokens = { ...(priorPageTokens || {}) };
-      if (forPage) {
-        const mergedPage = mergeTokens(nextPageTokens[forPage], designed && designed.tokens);
-        // A page whose overrides all went back to the theme's keeps NO ENTRY,
-        // so a site put back is byte-identical to one that never had a page
-        // override — the rule every other removal here lives under.
-        if (Object.keys(mergedPage).length) nextPageTokens[forPage] = mergedPage;
-        else delete nextPageTokens[forPage];
-      }
-      // …AND A PAGE MAY HAVE ITS OWN TYPEFACE, off the same field. REPLACED, not
-      // accumulated, unlike the colours: a typeface is a PAIR and `resolvePair`
-      // fills in whichever half was not asked for, so merging a new answer over
-      // an old one keeps a half nobody asked to keep. Both halves empty is the
-      // removal verb.
-      const nextPageFonts = { ...(priorPageFonts || {}) };
-      const askedPageFonts = forPage && designed && designed.fonts && typeof designed.fonts === "object" ? designed.fonts : null;
-      if (askedPageFonts) {
-        const wantsSite = !String(askedPageFonts.heading || "").trim() && !String(askedPageFonts.body || "").trim();
-        if (wantsSite) delete nextPageFonts[forPage];
-        else nextPageFonts[forPage] = { heading: askedPageFonts.heading || "", body: askedPageFonts.body || "" };
-      }
-      // WRITTEN ONLY WHEN THEY MOVED, and to `{}` as readily as to a value: a
-      // build that put the last page override back has to clear the row, or the
-      // container keeps painting a scope the customer just removed. Both are
-      // best-effort — the site is worth more than the bookkeeping — and both are
-      // separate keys rather than fields on `site_look`, because `mergeLook`
-      // rebuilds its output from `EDIT_FIELDS` and would drop anything else.
-      if (JSON.stringify(nextPageTokens) !== JSON.stringify(priorPageTokens || {})) {
-        try {
-          await sqlQuery(db, "INSERT INTO _meta (k,v) VALUES ('site_page_tokens', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v", [JSON.stringify(nextPageTokens)]);
-        } catch (e) { console.error("page token write failed:", slug, e && e.message); }
-      }
-      if (JSON.stringify(nextPageFonts) !== JSON.stringify(priorPageFonts || {})) {
-        try {
-          await sqlQuery(db, "INSERT INTO _meta (k,v) VALUES ('site_page_fonts', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v", [JSON.stringify(nextPageFonts)]);
-        } catch (e) { console.error("page font write failed:", slug, e && e.message); }
-      }
-
-      // ── AND THE REST OF THE LOOK THEY ASKED TO CHANGE ──────────────────────
-      //
-      // Accumulated for the same reason and written the same way: square
-      // buttons asked for today and airy spacing tomorrow both have to survive.
-      // Its OWN `_meta` key rather than a field on `site_look`, because
-      // `mergeLook` rebuilds its output from `EDIT_FIELDS` alone and would drop
-      // anything else stored there — the reason `site_tokens` and `site_logo`
-      // are separate keys too.
-      //
-      // THE CAP IS A REVISE RULE AND `existing` IS THE FREE SIGNAL FOR IT. Six
-      // is the size of an ADJUSTMENT to a design somebody already has; a first
-      // build is the design being stated, so capped there the merge keeps
-      // whichever six `AXES` declares first and silently drops the buttons, the
-      // shadows, the icon weight and the whole world layer — and `styleNote`
-      // then tells the customer we refused twelve axes on a build where nothing
-      // was refused for any reason they could act on. The SAME bound goes to
-      // `parseStyle`, or the note and the stored patch disagree about what was
-      // kept.
-      const styleMax = existing ? MAX_STYLE : MAX_STYLE_BUILD;
-      const siteStyle = mergeStyle(priorStyle, designed && designed.style, { max: styleMax });
-      const styleAsk = parseStyle(designed && designed.style, { max: styleMax });
-      if (Object.keys(siteStyle).length) {
-        try {
-          await sqlQuery(db, "INSERT INTO _meta (k,v) VALUES ('site_style', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v", [JSON.stringify(siteStyle)]);
-        } catch (e) { console.error("style write failed:", slug, e && e.message); }
-      }
-
-      // ── THE STYLESHEET ──────────────────────────────────────────────────────
-      //
-      // REPLACED, NEVER MERGED, and that is the one place this differs from every
-      // other look value beside it. `mergeTokens` and `mergeStyle` accumulate
-      // because a revise names only the axis it is changing and the rest must
-      // survive; a stylesheet is not a set of named slots, it is one whole thing,
-      // and "merging" two of them means concatenating and letting later win —
-      // which grows without bound and leaves dead rules from every earlier design
-      // in a customer's bundle for ever.
-      //
-      // SO THE ANTI-RE-ROLL GUARANTEE MOVES INTO THE PROMPT, where the pages
-      // already keep theirs: the designer is SHOWN the current stylesheet by
-      // `currentStateNote` and told to return it with only the asked-for change
-      // made. That is the same contract `pagesRequest` puts on a revise ("return
-      // every page as an EDIT, byte-identical except where the change was asked
-      // for") and it is what stops "make the background yellow" arriving as a
-      // different design.
-      //
-      // AN ABSENT ANSWER KEEPS WHAT IS STORED, like every other field here, so a
-      // revise about a phone number cannot cost a site its look. An UNUSABLE one
-      // does too — `readCss` answers `usable: false` for a non-string and for an
-      // empty string, and neither is an instruction to strip the site bare.
-      const cssAsk = readCss(designed && designed.css);
-      const siteCss = cssAsk.usable ? cssAsk.css : priorCss;
-      if (cssAsk.usable && siteCss !== priorCss) {
-        try {
-          await sqlQuery(db, "INSERT INTO _meta (k,v) VALUES ('site_css', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v", [siteCss]);
-        } catch (e) { console.error("css write failed:", slug, e && e.message); }
-      }
-
-      tr.at("merge");
-
-      // The research that has been running alongside every Neon call above.
-      // `null` on every path that did not search, and on one that searched and
-      // failed — both mean the same thing here: write the pages without it.
-      const researched = researchPromise ? await researchPromise : null;
-      if (researchPromise) tr.at("research", researched ? { searches: researched.searches } : undefined);
-      // ONE SUMMARY, used twice: it goes on the response so the client can say
-      // what was and was not read, and its usage is what gets billed. Built from
-      // the same two objects both times, so the sentence a customer reads and
-      // the credits they are charged can never describe different work.
-      const context = contextSummary({
-        pages: linked,
-        facts: (researched && researched.facts) || "",
-        sources: (researched && researched.sources) || [],
-        searches: (researched && researched.searches) || 0,
-        // WHAT THE PROVIDER CANNOT TAKE, beside what `attachments()` could not
-        // turn into a block at all. Two different refusals, one list, because
-        // from the customer's side they are one fact: this file did not reach
-        // the model.
-        //
-        // A PDF ON THE GROK PICKER IS THE CASE. `attachments()` accepts it and
-        // puts it in `blocks`, so it is in NEITHER list — and `toXaiRequest`
-        // then drops it at the boundary, because chat/completions has no
-        // document part. The count it returns was read by one `console.error`
-        // and nothing else, while `model-xai.mjs`'s own header said "the caller
-        // can tell them". It could not: this summary is built BEFORE page
-        // generation and is provider-blind, so a drop discovered inside
-        // `callBuilderModel` has nowhere left to go. A café attached its price
-        // list, paid ~24-38 credits, got an invented menu, and every field on
-        // the response said the file was used.
-        //
-        // ANSWERED BEFORE THE CALL, from the blocks and the model, which is why
-        // `xaiSkipped` exists as a separate export rather than a return value —
-        // and it shares `toXaiRequest`'s one sentence, so the pre-call answer
-        // and the post-translation one cannot disagree. Empty on every
-        // non-Grok build, so nothing else changes shape.
-        //
-        // `models.pages` and not `models.design`: both calls drop it, and one
-        // sentence is what the customer needs. `BUILD_MODELS` sends both halves
-        // to the same provider today, so naming either is the same answer.
-        skipped: [...attached.skipped, ...xaiSkipped(attached.blocks, models.pages)],
-        converted: attached.converted,
-        // A research promise EXISTED means the designer said the pages need
-        // current facts — so a zero-search outcome here is a failed lookup the
-        // customer must be told about, not an ordinary build that never needed
-        // one. The summary makes that distinction; without this flag it cannot.
-        searchWanted: !!researchPromise,
-      });
-
-      let pages = { page: "placeholder", files: [], notes: "", problems: [], cost: 0, buildMs: 0 };
-      // OUT OF TIME BEFORE THE EXPENSIVE HALF, refused in words rather than
-      // started and abandoned. Design and provisioning have already spent from
-      // the same fifteen minutes, and page generation plus a container run is
-      // most of a build — so a budget already gone here cannot produce a site,
-      // and starting anyway means the customer waits out a request that dies on
-      // a socket instead of being told what happened.
-      //
-      // THE SITE IS NOT LOST BY THIS. The database is live and seeded, the slug
-      // is theirs, and the placeholder still publishes below — which is exactly
-      // what a page-generation failure already leaves. `generate` is not in
-      // `CHARGED_STAGES`, so the pages are not billed either; the schema call is,
-      // because it really ran.
-      if (budget.expired()) {
-        pages.stage = "generate";
-        pages.error = "the build ran out of time before the pages were written";
-        pages.notes = budgetNote("generate");
-      } else if (brief && env.SITE_BUILD_CONTAINER && env.SITES_BUCKET) {
-        try {
-          // A revise gets the brief the site was BUILT from as well as the
-          // instruction — see briefForPages. The merged schema says what the
-          // site has; this says what it is for.
-          // The one-line description for the head. A revise sends no brief, so
-          // the designer writes none — fall back to the brief the site was built
-          // from rather than publishing a page with nothing under its name.
-          // OFF THE MERGED LOOK, for the same reason as `brand` above: this was
-          // `designed.description || …`, so an edit rewrote the site's link
-          // preview out of the instruction. `priorBrief` stays as the last
-          // resort for sites built before the description was ever stored.
-          const siteDescription = String(look.description || body.description || priorBrief || brief || "").slice(0, 300);
-          pages = await buildAndPublishPages(env, {
-            // The linked pages and the researched facts ride on the brief, which
-            // both model calls already take — so neither had to learn a new
-            // shape. `briefForPages` composes the revise anchor first; the
-            // context wraps whatever that produced.
-            brief: contextBrief(briefForPages({ brief, priorBrief }), {
-              pages: linked,
-              facts: (researched && researched.facts) || "",
-              sources: (researched && researched.sources) || [],
-              files: attached.texts,
-            }),
-            spec: pageSpec, slug, brand,
-            // A REVISE, and the signal is free: `existing` is read off
-            // site_backends during the ownership check and is true exactly when
-            // this slug has already been built. No new field on the request, and
-            // nothing a client can claim.
-            //
-            // OWNERSHIP, NOT THE STORED BRIEF. This was `!!priorBrief`, which is
-            // the same answer for every site built since the brief started being
-            // recorded and the WRONG one for anything older — a revise on such a
-            // site read as a first build and would have re-bought every
-            // photograph on it at ~19 credits each.
-            revise: existing,
-            // THE SITE AS IT STANDS, so a revise EDITS it rather than writing
-            // every page again from the brief. Read only on a revise — a first
-            // build has nothing to edit.
-            //
-            // OWNERSHIP, NOT THE STORED BRIEF — the same correction the `revise`
-            // field one line up already carries, and the partner gate was never
-            // moved with it. `!!priorBrief` is the right answer for every site
-            // built since that column started being written and the wrong one
-            // for anything older: such a revise read as a first build, skipped
-            // the read entirely, and so lost BOTH things this value protects —
-            // the edit anchor (so the revise rewrites every page's copy from
-            // the brief, the exact bug the source store exists to prevent) and
-            // the live-page set that stops salvage stubbing a working page.
-            //
-            // "Best-effort, because losing it costs the anchor and nothing
-            // else" was the claim here and it was the more expensive half that
-            // was wrong: losing it also costs the salvage guard. It still does
-            // not fail the build — `livePages` turns an unreadable read into
-            // `undefined` rather than `[]`, so salvage refuses instead of
-            // destroying.
-            priorPages: existing ? await loadSiteSource(env, slug) : null,
-            // WHAT THE CUSTOMER TYPED THIS TURN, for the Versions list alone.
-            // The composed `brief` above is the anchor plus the change plus the
-            // linked pages plus the researched facts — thousands of characters,
-            // and the change is buried in the middle of it. This is the raw
-            // sentence, which is the only thing that names the build usefully.
-            changeNote: brief,
-            siteDescription,
-            attachments: attached.blocks,
-            priorUsage: (researched && researched.usage) || null,
-            model: models.pages,
-            // THE STORED LOOK WINS ON A REVISE — see `look` above. The chain
-            // that used to be here read `(designed) || (body)`, and the body half
-            // has never been sent by the client, so a revise re-rolled theme,
-            // family and fonts from the instruction alone.
-            fonts: look.fonts,
-            seeds: look.seeds,
-            tokens: siteTokens,
-            // THE MERGED PER-PAGE VALUES, not the stored ones. These were
-            // `priorPageTokens`/`priorPageFonts` — the stored row passed
-            // straight through — which is what made `tokensPage` dead on this
-            // route: the designer's answer was computed nowhere and the
-            // container was handed whatever a previous EDIT had left.
-            //
-            // THROUGH `pageTokensFor`, LIKE EVERY OTHER PAYLOAD. My own first
-            // draft sent the raw map, and that function is not plumbing: it
-            // derives the readable ink PER PAGE (`withContrast`), so raw, a page
-            // moved onto a dark ground kept the light theme's dark grey body
-            // copy — the exact bug the function was written for, reintroduced by
-            // the fix for the field that feeds it. It also answers `undefined`
-            // for an empty map, so a build with no page override sends the
-            // request it always sent.
-            pageTokens: pageTokensFor(nextPageTokens),
-            pageFonts: nextPageFonts,
-            style: siteStyle,
-            // THE MODEL'S OWN STYLESHEET — merged above, so a revise that said
-            // nothing about the look carries what the site already wears.
-            css: siteCss,
-            // THE AUTHORED PLAN, assembled from the merged look rather than
-            // stored as one object — each of its six axes is its own
-            // `EDIT_FIELDS` entry, so a revise that mentions none of them keeps
-            // all six and one that mentions the page list keeps the other five.
-            // `normalizePlan` answers null for anything that cannot compose a
-            // directive, and `briefWithLayout` then appends none rather than the
-            // literal word "null".
-            //
-            // Derived from `PLAN_KEYS`, never a second list: an axis added to
-            // `site-plan.mjs` and forgotten here would be answered by the
-            // designer, merged into the look, stored — and dropped on the one
-            // hop that reaches the model. That is the `teamScope` failure, which
-            // this repo has now recorded at five separate layers.
-            //
-            // `noFamily` USED TO GATE BOTH OF THESE AND IS GONE. It was the
-            // experiment switch: pass `noFamily: true` and the build carried
-            // neither the family's layout directive nor its worked example, so
-            // the model designed the page shape from the brief alone. That is
-            // simply what every build does now — there is no family to suppress
-            // — so the flag could only ever have suppressed the PLAN, which is
-            // the opposite of what its name says. A switch named after a
-            // concept the platform no longer has is one somebody eventually
-            // reads as still meaning something.
-            plan: normalizePlan(Object.fromEntries(PLAN_KEYS.map((k) => [k, look[k]]))),
-            // Out of the same merged look as the other five, so a revise that
-            // does not mention the language keeps it — the field is on
-            // `EDIT_FIELDS`, which is what makes "absent means unchanged" true
-            // of it without a second rule here.
-            lang: look.lang,
-            // AND THE OTHERS IT IS OFFERED IN — dead on this route until
-            // 2026-08-21: never in the stored look (the five-field literal) and
-            // never sent, so a first build asking for a bilingual site in as
-            // many words published monolingual, and the answer sat nowhere.
-            langs: look.langs,
-            langStrings: priorLangStrings,
-            // And the same again for light/dark: on `EDIT_FIELDS`, so a revise
-            // that does not mention it keeps whichever the site is.
-            mode: look.mode,
-            // Read straight off `_meta` rather than through `mergeLook`: the
-            // logo is not something a designer can name, so it has no business
-            // in `EDIT_FIELDS` and would be dropped by that merge if it were.
-            logo: priorLogo,
-            icon: priorIcon,
-            // AND THE SEARCH-CONSOLE TAG, for the reason the icon and the logo
-            // are here: the sidecar is rewritten whole on every publish, so a
-            // path that does not carry the stored verification publishes none.
-            verify: priorVerify,
-            auth: request.headers.get("Authorization") || "",
-            mark: (n) => tr.at(n),
-            // WHAT IS LEFT OF THE FIFTEEN MINUTES, not a fresh ten. The pages
-            // call is the long one and by the time it starts the design call and
-            // provisioning have already spent from the same budget — so it gets
-            // the remainder, and the two bounds compose instead of stacking.
-            budget,
-          });
-        } catch (e) {
-          console.error("page generation failed:", slug, (e && (e.detail || e.message)));
-          // Returned, not only logged — the same lesson `publish-pages.mjs`
-          // learned. Until 2026-07-29 this branch reported `stage:-, error:-`
-          // and a note, so a total outage of the generator was indistinguishable
-          // from the model writing an unusable page, and telling them apart
-          // needed a Cloudflare log. Measured: both CI suites red on an upstream
-          // 400 for forty minutes with nothing in any response to say why.
-          const kind = upstreamKind(e && e.detail);
-          pages.stage = "generate";
-          pages.upstream = (e && e.status) || null;
-          pages.upstreamType = kind.type;
-          if (kind.billing) pages.billing = true;
-          pages.error = kind.billing
-            ? "the model account has no balance"
-            : String((e && e.message) || "page generation threw").slice(0, 200);
-          pages.notes = kind.billing
-            ? "Your database is live. Writing the pages is temporarily unavailable — this is on us, not your brief."
-            : "Your database is live, but writing the pages didn't work this time — send it again to retry.";
-        }
-      }
-
-      // Publish something real at /s/<slug>/ so the preview is never a 404: if the
-      // pages didn't land, the placeholder still reports the model that did.
-      //
-      // Only when nothing is published there yet, though. This route is also the
-      // revise path, and a revise whose pages fail to compile must leave the site
-      // that IS working alone — replacing it with the placeholder would take down
-      // a live site to report a failure the response already reports.
-      //
-      // AND THE GUARD ASKS THE LIVENESS MARKER, NOT `index.html`. It HEADed
-      // that document — which was the whole truth until Start, and Start emits
-      // no top-level HTML at all: `writeSiteDistToR2`'s own comment says the
-      // previous manifest can no longer be read from `index.html` "because
-      // under Start it does not exist". So the head always missed, `!live` was
-      // always true, and the one guard standing between a failed revise and a
-      // customer's working site could not fire on any site built since.
-      //
-      // `SITE_LIVE_FILE` is the marker written for exactly this question: put
-      // into the dist on EVERY publish, INSIDE `sites/<slug>/` so the same
-      // prefix sweep that takes a site down takes it with them — its own
-      // docstring says a present marker means a live site and an absent one
-      // means somebody deleted it.
-      //
-      // A READ THAT THROWS IS NOT "NOTHING IS PUBLISHED". An R2 blip would
-      // otherwise be read as an empty slug and overwrite a live site with the
-      // placeholder, which is precisely the outcome this exists to prevent —
-      // so the catch skips the write rather than falling through to it.
-      if (pages.page !== "app" && env.SITES_BUCKET) {
-        try {
-          const live = await env.SITES_BUCKET.head("sites/" + slug + "/" + SITE_LIVE_FILE);
-          if (!live) {
-            await env.SITES_BUCKET.put("sites/" + slug + "/index.html", schemaPlaceholderPage(brand, spec), {
-              httpMetadata: { contentType: "text/html; charset=utf-8" },
-            });
-          }
-        } catch (e) { console.error("placeholder publish skipped, liveness unreadable:", slug, e && e.message); }
-      }
-      // SPLIT, not one number. `pages` was the model call, the container compile
-      // and ~20 R2 puts together — the majority of a build's wall clock with no
-      // way to attribute it.
-      // DERIVED FROM WHAT THE BUILD REPORTS — actually derived now. The first
-      // "derived" version was still a hand-picked name list, and the 2026-08-13
-      // audit caught it already missing a field that existed the day it was
-      // written (`preMs`): its own comment promised "a timing the container
-      // starts reporting shows up here without anybody editing this", and that
-      // was false. The rule is now the SHAPE — any numeric `*Ms` field on the
-      // build result is a timing and is traced — so the promise finally holds.
-      //
-      // A step that cannot say it happened is indistinguishable from one that
-      // did not, which is this file's most-repeated failure.
-      tr.at("pages", Object.fromEntries([
-        ["credits", pages.cost || 0],
-        ...Object.keys(pages)
-          .filter((k) => /Ms$/.test(k) && typeof pages[k] === "number")
-          .map((k) => [k, pages[k]]),
-      ]));
-
-      // `schema` reports the access level chosen per table. It is what makes a
-      // build verifiable from outside: a menu must come back `display` and an
-      // enquiry form `collect`, and getting that wrong silently is exactly the
-      // bug that shipped on 2026-07-27. `page` says which of the two things is
-      // actually being served, so a fallback is never mistaken for a built site.
-      const traced = tr.done();
-      // One line, once, so a build's shape is visible in the log too. Bounded to
-      // 900 characters by `line()`.
-      console.log("build trace", slug, traced.totalMs + "ms", "|", tr.line());
-      // AND WRITTEN DOWN, which is the half a failing build never reaches. This
-      // is the one write registered on `waitUntil`, because it is what turns "a
-      // build was running here" into "it finished, and this is how" — a row left
-      // at `done: false` never reached this line, either because it was refused
-      // above or because it died, and its last step says which. That is itself
-      // the diagnosis, and it is the one the five lost builds needed.
-      rec.finish(traced, {
-        stage: pages.stage || null,
-        page: pages.page || null,
-        error: pages.error ? String(pages.error).slice(0, 300) : null,
-        ok: pages.page === "app",
-      });
-      // RESOLVED, not the raw field. `normalizeSchema` STAMPS `access: "collect"`
-      // on any table that did not declare one of the five preset names — and the
-      // design tool tells the model to leave `access` OUT when it sets a
-      // `read`/`write` pair instead. So a public menu declared as a pair was
-      // reported to every reader of this response as "collect", which is the
-      // opposite of what it does. The same misread has already been fixed in the
-      // lint, the digest, the seeder and the owner routes; this was the last copy.
-      const levels = (pageSpec.tables || spec.tables || []).map((t) => ({ name: t.name, access: accessLabel(t) }));
-      return Response.json({
-        ok: true, slug, url: "/s/" + slug + "/", backend: true, brand, tables: made, schema: levels,
-        // Read off the array explicitly: JSON.stringify would drop them from
-        // `tables`, which is how a site could declare a function, have it fail,
-        // and report success.
-        functions: (made.functions && made.functions.length) ? made.functions : undefined,
-        functionErrors: made.functionErrors || undefined,
-        // Rows per display table. An empty object means the site published with
-        // empty lists — which reads as a working build and is not one.
-        seeded: (seeded && seeded.seeded) || {},
-        // WHY NOTHING WAS SEEDED, when nothing was. The reason existed only as a
-        // `console.log` in Cloudflare, so a build that published a site with an
-        // empty menu gave the caller no way to tell "the designer wrote no seed
-        // rows" from "we refused to seed the table it named" — and answering that
-        // question about a real failing build cost a guess, because the site had
-        // already been deleted by the time it was asked. Sixth recorded instance
-        // of a failure that could not name itself. Bounded, like the log line.
-        seedSkipped: (seeded && seeded.skipped.length) ? seeded.skipped.slice(0, 6) : undefined,
-        // WHETHER THE DESIGNER HAD TO BE COVERED FOR, and for which tables. A
-        // build where this is absent is one where `seed` arrived complete; a
-        // build where `gaps` is non-empty and `filled` is shorter is one where
-        // the top-up ran and did not fully succeed, which is the state a menu
-        // is still empty in. Undefined when there were no gaps, so a build the
-        // designer got right answers exactly as it did before.
-        seedTopUp: seedTopUp || undefined,
-        // WHAT THE TOP-UP COST, itemised. `schemaCost` folds it in and
-        // `schemaCredits` does not, which is the whole reason those two
-        // legitimately diverge on a top-up build — so without this the response
-        // states a difference and cannot account for it, and an operator has to
-        // reconstruct the number from the trace's token counts. A second model
-        // call is a second bill; this is the same reasoning that keeps
-        // `pagesUsage` and `schemaUsage` apart.
-        seedUsage: seedUsage || undefined,
-        // A BOOKING TABLE ANYONE CAN DOUBLE-BOOK. Not fatal and deliberately
-        // not a refusal: the site works, and for a business that genuinely
-        // takes unlimited sign-ups this is the right schema. It is here so the
-        // omission is VISIBLE at build time rather than discovered by two
-        // customers turning up for the same 14:00, which is how it was found
-        // the first time. Undefined when clean, so a correct build's response
-        // is byte-identical to before.
-        unguarded: unguarded.length ? unguarded.slice(0, 6) : undefined,
-        // FIELDS THE DESIGNER DECLARED THAT THE TOOL DOES NOT OFFER. Not an
-        // error and not shown to the customer — their site is unaffected, since
-        // these were dropped exactly as they always were. It is here so that
-        // after twenty real builds "do we need another capability?" is a count
-        // instead of an opinion. Undefined when clean, so a build where the
-        // designer stayed inside the tool answers as it did before.
-        reached: reached.length ? reached : undefined,
-        // …AND WHAT IT DECLARED THAT WE REFUSED. Same discipline as `reached`
-        // beside it: names only, present only when there is something to say,
-        // so an ordinary build's response is byte-identical.
-        refused: refused.length ? refused : undefined,
-        // …AND A TABLE NAME THE ENGINE COULD NOT USE, which used to take the
-        // whole build down instead of one table.
-        refusedTables: badNames.length ? badNames : undefined,
-        // …AND AN ACCESS LEVEL WE OVERRULED ON A TABLE THE SITE ALREADY HAS.
-        // Not an error and not the customer's problem — the site kept the level
-        // it had, which is what `EDIT_RULE` promised. It is here for the same
-        // reason `reached` is: a designer that keeps trying to re-level an
-        // existing table is evidence about the prompt, and until this shipped
-        // the attempt was not merely unreported, it SUCCEEDED. Undefined when
-        // nothing was overruled, so an ordinary build answers as it did before.
-        heldAccess: heldAccess.held.length ? heldAccess.held.slice(0, 6) : undefined,
-        // WHAT WAS READ FOR THIS BUILD, and what could not be. The whole reason
-        // link-reading exists is that the old behaviour — a URL in the brief
-        // that nothing fetched — was invisible: the model inferred a business
-        // from the domain name and the customer got a plausible invention with
-        // no sign a fetch had not happened. A read that fails silently would
-        // reproduce exactly that, so the failures travel as far as the
-        // successes, all the way into the chat message.
-        //
-        // Omitted entirely on the ordinary build that linked nothing and
-        // searched nothing, so this adds no noise to the common case.
-        context: (context.read.length || context.failed.length || context.searched || context.skipped || context.converted) ? context : undefined,
-        // THE SAME THING AS A SENTENCE, composed HERE rather than in the client.
-        // The client is a plain script and cannot import this module, so a
-        // sentence built there would be a second copy of this logic that drifts
-        // — and the direction it drifts in is a build that read nothing while
-        // still claiming it did. One function, one answer, rendered verbatim.
-        contextNote: contextSentence(context) || undefined,
-        // WHAT THE DESIGNER ASKED TO CHANGE ABOUT THE LOOK, and it was
-        // computed here and reported NOWHERE until 2026-08-20.
-        //
-        // `tokenAsk`/`styleAsk` are exactly what the model named — the same
-        // shape the LOOK EDIT lane already returns as `tokens`/`style`. The
-        // build path had neither, so when a revise like "make the background
-        // #ffcc00 and round the corners more" came back with the stylesheet
-        // unchanged, there was no field anywhere saying whether the designer
-        // had asked for it and we dropped it, or never asked at all. Those
-        // need opposite fixes and the response could not tell them apart.
-        //
-        // Measured live on a real run: 2 assertions failed with "the colour
-        // did not reach the stylesheet" and the cause could not be established
-        // without paying for another build. That is the shape this repo has
-        // recorded six times — a failure that cannot name itself.
-        //
-        // OMITTED WHEN EMPTY, so a build that changed no look is byte-identical
-        // to what it returned before this existed.
-        //
-        // THE NAMES, NOT THE WRAPPER'S KEYS, and the first draft reported the
-        // wrapper. `tokenAsk` is `{tokens, dropped}` — the line below it proves
-        // that, calling `tokenNote(tokenAsk.tokens, tokenAsk.dropped)` — so
-        // `Object.keys(tokenAsk)` was the constant `["tokens","dropped"]` on
-        // every build ever made. Measured live 2026-08-20, which is where it
-        // was found.
-        //
-        // That is worse than useless rather than merely wrong: both keys are
-        // always present, so the field was never empty, and the whole point
-        // stated above is that "an empty list means the model never asked and a
-        // populated one means we lost it downstream". It could not say the
-        // first thing, which is the half a paid build is spent to learn.
-        //
-        // KEPT PLUS DROPPED, because "what the model named" is both. A name the
-        // parser refused is the strongest possible evidence the model DID ask,
-        // and it is exactly the case `tokensNote` explains in a sentence.
-        tokens: askedNames(tokenAsk.tokens, tokenAsk.dropped),
-        // …AND AN AUTHORED ONE IS IN NEITHER OF THOSE, which is why this line
-        // reads three bags rather than two. `parseStyle` keeps a value the model
-        // WROTE in `.authored` — deliberately, so it cannot be spread onto the
-        // theme as an enum key — so a hand-written backdrop appeared in no
-        // response field at all: the one axis a paid build is most worth being
-        // able to see, invisible in the record of it. `dropped` still carries a
-        // REFUSED authored value, so the two together stay "what the model
-        // named" exactly as the paragraph above describes.
-        style: askedNames({ ...styleAsk.style, ...(styleAsk.authored || {}) }, styleAsk.dropped),
-        // AND WHETHER IT WROTE ITS OWN, apart from which axes it named. The
-        // list above cannot say it: an authored `backdrop` and a chosen one are
-        // the same string in it. Omitted when nothing was authored, so a build
-        // that named only options serialises byte-identically to before.
-        authored: styleAsk.authored && Object.keys(styleAsk.authored).length
-          ? Object.keys(styleAsk.authored) : undefined,
-        page: pages.page, files: pages.files, notes: pages.notes || undefined,
-        problems: pages.problems.length ? pages.problems : undefined,
-        // THE PHOTOGRAPHS, and this field is how "no pictures" stops being
-        // ambiguous. A site with `{made:0, budget:0}` was never meant to have
-        // any; `{made:0, budget:3, error:"photo 402"}` wanted three and could not
-        // buy them; `{made:0, budget:0, overflow:4}` could not afford them. Those
-        // are three completely different situations that look identical on the
-        // published page, because all three render the same placeholder.
-        //
-        // It is also the only place the image spend is visible — it is folded
-        // into `cost` with the tokens, by design, and a customer whose build
-        // jumped from 21 credits to 78 deserves to see why.
-        images: pages.images || undefined,
-        // THE SAME THING AS A SENTENCE, composed here for the reason
-        // `contextNote` is: the client is a plain script and cannot import the
-        // module that decides it, so a second copy there would eventually claim
-        // photographs that were never made.
-        imagesNote: imageNote(pages.images) || undefined,
-        // WHICH COLOUR MOVED, and which one could not. Same shape and same
-        // reasoning as the two notes above it: the client cannot import the
-        // module that decides this, and a colour silently not applied reads as
-        // the builder being broken rather than as a request that did not land.
-        // Reports THIS build's ask, not the accumulated patch — saying "changed
-        // the background" on a revise that only touched the text is worse than
-        // saying nothing.
-        tokensNote: tokenNote(tokenAsk.tokens, tokenAsk.dropped) || undefined,
-        // …AND THE SAME FOR THE REST OF THE LOOK, but ONLY on a revise. A first
-        // build CHANGED nothing — the designer is stating what the look is — so
-        // "Changed the corner shape, text size, letter spacing and line spacing"
-        // is said to somebody seeing their site for the first time, about a site
-        // they never asked to style. Silent on a build keeps the reply
-        // byte-identical to what it has always been there, and nothing is lost
-        // for us: `style` above carries the axes the model named either way.
-        styleNote: existing ? (styleNote(styleAsk.style, styleAsk.dropped) || undefined) : undefined,
-        // …AND WHAT THE MODEL'S OWN STYLESHEET COSTS, on a build as well as a
-        // revise — unlike `styleNote` one line up, deliberately. That one is
-        // silent on a first build because naming axes to somebody seeing their
-        // site for the first time describes a design they never asked to change;
-        // this one names FAILURES — a typeface we could not fetch, a remote
-        // url() the CSP refuses, a sheet we had to truncate — and those are just
-        // as wrong on a first build and just as invisible from the page.
-        cssNote: cssNote(cssAsk) || undefined,
-        // WHICH PAGE CAME BACK AS A STUB. One bad file no longer costs the whole
-        // site — it is replaced by a placeholder page and the rest publishes — so
-        // there is now an outcome between "your site" and "the data model", and
-        // this is the only thing that names it. Composed in the module for the
-        // same reason as the three above.
-        salvageNote: pages.salvageNote || undefined,
-        salvaged: (pages.salvaged && pages.salvaged.length) ? pages.salvaged : undefined,
-        // WHAT THE PAGES LOOK LIKE, which nothing else in this response can say.
-        // Every other check is textual — a real page can be blank, throw on load
-        // or paint text nobody can read and pass all of them. Reporting only: it
-        // never refuses a publish, so a site with findings is a site that is
-        // live and has something worth a second look.
-        //
-        // Omitted when the check found nothing, so a clean build's response is
-        // byte-identical to what it was before this existed — and kept when it
-        // could not RUN (`ok:false`), because a harness that silently reports
-        // nothing reads exactly like a site with nothing wrong.
-        render: (pages.render && (pages.render.ok === false || (pages.render.findings || []).length)) ? pages.render : undefined,
-        // …and the same thing as a sentence, composed in the module for the
-        // reason all four notes above it are.
-        renderNote: renderNote(pages.render) || undefined,
-        // WHETHER THIS SITE IS SERVED BY ITS OWN SCRIPT. Absent when there was
-        // nothing to say (no dispatch credentials, or no script packaged), so
-        // its PRESENCE is the signal — and on a failure it carries Cloudflare's
-        // own error code, which is the difference between a missing token scope
-        // and a product that is not enabled.
-        worker: pages.worker || undefined,
-        // Per-route prerender skips, same discipline as `render` one line up:
-        // absent on a clean build, carried when a page lost its snapshot —
-        // which used to be invisible in production (2026-08-13 audit).
-        //
-        // PERMANENTLY UNDEFINED SINCE THE PRERENDER WENT, and kept deliberately
-        // rather than deleted: `publish-pages.mjs` only sets it when the
-        // container reports it, and `build-server.mjs` says in as many words
-        // that "`prerendered`/`prerenderSkipped` ARE GONE, not emptied". So
-        // this carries nothing today and costs nothing, and it is the field a
-        // restored per-route snapshot step would report through.
-        // AND WHETHER THE SITE'S OWN SOURCE WAS STORED. Only ever present as
-        // `false`: `saveSiteSource` swallows its throw and returns a boolean
-        // that both call sites discarded, so a lost store silently turned the
-        // NEXT revise into a full rewrite of every page's copy from the brief —
-        // the exact bug the source store exists to prevent — with nothing
-        // anywhere saying it had happened.
-        sourceStored: pages.sourceStored === false ? false : undefined,
-        prerenderSkipped: pages.prerenderSkipped || undefined,
-        // AND WHETHER MODEL-WRITTEN CODE RAN SANDBOXED. Only ever present as
-        // `false` — the ordinary answer is silence and the field's PRESENCE is
-        // the alarm. Reported rather than assumed, because the drop depends on
-        // the container running as root and on that user existing.
-        //
-        // ITS NAME IS THE ONLY STALE HALF. The prerender is gone; the RENDER
-        // CHECK still executes the model's own server bundle inside the build
-        // service, so the thing this reports has not stopped happening — the
-        // container renamed its half to `ssrUnprivileged` and `publish-pages`
-        // reads that name and sets THIS one, so the wire shape is unchanged for
-        // every consumer that already reads it. Deleting it would leave the
-        // security signal for "model-written code ran unsandboxed in the shared
-        // build container" unreported by construction rather than by decision,
-        // which is the one direction that must not happen quietly.
-        prerenderUnprivileged: pages.prerenderUnprivileged === false ? false : undefined,
-        // ── WHAT THE CONTAINER HAD TO DO TWICE, AND WHY ─────────────────────
-        //
-        // All four are computed by `publishPages` and were forwarded by
-        // nothing, so `build smoke`'s retry report read four fields that could
-        // never arrive — provably dead code reading provably dead code.
-        //
-        // `killedAt` IS THE ONE THAT DECIDES MONEY. The retry exists to absorb
-        // container drains, which are our fault and therefore free: a step
-        // killed during the typecheck is reclassified to `stage: "build"` so
-        // `ourFault` exempts it, and this field is the ONLY thing separating
-        // that from a genuine bundler error wearing the same stage. Without it
-        // nobody can tell a free failure from a charged one after the fact.
-        //
-        // `builds`/`retriedBuild` say a retry happened and what it was for;
-        // `repaired` names the imports rewritten before the lint, and an empty
-        // list on every build would read as a generator that keeps getting
-        // names wrong — so it is carried only when something really was fixed.
-        builds: pages.builds || undefined,
-        retriedBuild: pages.retriedBuild || undefined,
-        killedAt: pages.killedAt || undefined,
-        repaired: (pages.repaired && pages.repaired.length) ? pages.repaired : undefined,
-        // THE LOOK THAT FAILED SOFT. `writeTheme`/`writeFonts` never fail a
-        // build — a site whose data layer is live must not be lost over a
-        // typeface — so they answer `applied:false` with a sentence instead,
-        // and both were reported on every build and forwarded by nothing. A
-        // stored theme LATER REMOVED from the registry would make every
-        // publish of that site ship the default look while reporting success.
-        lookSoft: pages.lookSoft || undefined,
-        // WHY it fell back, when it did. publish-pages.mjs has returned these
-        // since it was extracted and nothing passed them on, so a build that
-        // published the placeholder said only "placeholder" — the caller (and
-        // the smoke test) could not tell a compile error from a lint refusal
-        // from a credit floor. It is the owner's own build; there is nothing
-        // here they should not see.
-        stage: pages.page === "app" ? undefined : (pages.stage || undefined),
-        // `error`/`cited` survive a SALVAGED build too. The module keeps the
-        // first failure's error and cited lines precisely because they are "the
-        // only record of what the generator got wrong" — and this gate then
-        // stripped both on every salvaged build, because a salvage answers
-        // page === "app" (2026-08-13 audit). The pages are gone the moment the
-        // build returns, so without these the stubbed page's actual failure is
-        // undiagnosable. `stage` stays outcome-only: a salvaged build did not
-        // END at the typecheck.
-        error: (pages.page === "app" && !pages.salvageNote) ? undefined : (pages.error ? String(pages.error).slice(0, 300) : undefined),
-        // The SOURCE LINES that error points at. `error` is `file(line,col)` and
-        // a message, and the pages themselves are gone the moment the build
-        // returns — only the eval saves them — so a compile failure could only
-        // be diagnosed by guessing what the model wrote at that line. A whole
-        // round went on inferring one TS2344 from its file and column.
-        cited: ((pages.page === "app" && !pages.salvageNote) || !(pages.cited && pages.cited.length)) ? undefined : pages.cited,
-        // WHY SALVAGE DID NOT HAPPEN — the three refusals, out where somebody
-        // can read them. `salvagePlan` has always computed this and the module
-        // has always returned it, and NOTHING forwarded it: a comment in that
-        // file claimed the eval read `foreign`, and the eval never calls
-        // publishPages at all (2026-08-13 audit). So the signal designed to
-        // catch "we shipped a broken kit component" — `fallbackSeed`,
-        // `require()`, `FaqAccordion`, all of which really happened — died in
-        // the module return.
-        //
-        // Carried only when it explains something: a build that salvaged
-        // cleanly says so through `salvaged`/`salvageNote` already, and a
-        // build that never reached the typecheck has no plan to report. So the
-        // ordinary response is unchanged and the field's presence means the
-        // compile failed and here is why nothing could be rescued.
-        salvage: (pages.salvage && pages.salvage.reason) ? pages.salvage : undefined,
-        cost: schemaCost + pages.cost, buildMs: pages.buildMs || undefined,
-        // WHAT THE BUILD ACTUALLY DID, step by step, with the time each took.
-        //
-        // Returned rather than only logged — the lesson `publish-pages.mjs` and
-        // the `stage`/`error`/`cited` fields all learned the hard way. A log
-        // line lives in Cloudflare for a while and is gone; this reaches the
-        // caller, the smoke test, and anyone debugging a slow build.
-        //
-        // Numbers only, by construction: `makeTrace` refuses anything that is
-        // not a finite number, so a connection string cannot end up here.
-        trace: traced.steps,
-        totalMs: traced.totalMs,
-        // THE SCHEMA CALL'S REAL COST, which is now also what it is billed. The
-        // three fields are kept apart on purpose: `schemaUsage` is the four token
-        // kinds, `schemaCredits` is what they price to, and `schemaCost` is what
-        // was actually taken after the deposit settled. A disagreement between
-        // the last two is meant to be visible — a settlement that silently
-        // failed shows up as a divergence rather than as nothing at all.
-        //
-        // THEY DO NOT SIMPLY "AGREE TODAY", AND THIS COMMENT SAID THEY DID.
-        // `schemaCredits` prices `schemaUsage` alone while `schemaCost` settles
-        // against `pageCredits(schemaUsage, seedUsage)` — so EVERY build where
-        // the seed top-up fired (a common path: it exists because the designer
-        // omitted `seed` on consecutive real builds) shows `schemaCost` above
-        // `schemaCredits` with everything working perfectly. The DIRECTION still
-        // discriminates — a failed settlement diverges downward — and
-        // `seedTopUp` plus the trace's `seedrows` mark say which happened, but a
-        // diagnostic claim that is false on a common path is the class this file
-        // records as dangerous. Stated rather than "fixed" by folding the seed
-        // in: these are the SCHEMA call's numbers, and burying a second call's
-        // tokens inside them is how `sumUsage` came to charge one model at
-        // another's rate.
-        schemaUsage: schemaUsage || undefined,
-        schemaCredits: schemaUsage ? pageCredits(schemaUsage) : undefined,
-        schemaCost: designed ? schemaCost : undefined,
-        // WHAT THE PAGES CALL COST AGAINST WHAT WE MANAGED TO TAKE.
-        // `publishPages` computes `billed` precisely so "the shortfall stays
-        // visible instead of vanishing" — and the route dropped it, so a build
-        // that billed 21 and collected 4 reported `cost: 4, charged: true` with
-        // the gap readable by nobody: not the caller, not the smoke test, not
-        // anyone reading the response afterwards. `use_credits` is a gate rather
-        // than a till, so that shortfall is the ORDINARY outcome on a
-        // low-balance account, which makes systematic under-collection a revenue
-        // number this platform could not read off any response.
-        //
-        // Customer-facing honesty is untouched either way — `cost` is what
-        // really left their ledger and `charged` follows it — so this is
-        // reported for us. OMITTED when it agrees with what was taken, so an
-        // ordinary build's response is byte-identical and the field's PRESENCE
-        // is the signal.
-        pagesBilled: (typeof pages.billed === "number" && pages.billed !== pages.cost) ? pages.billed : undefined,
-        // A reversal that did not go back. Omitted when it did, so its presence
-        // is the whole signal — `schemaCost` overstates what really left the
-        // ledger by up to `SITE_BUILD_FEE`.
-        refundShort: refundShort || undefined,
-        // Whether the pages call was billed, and — when it was not — that this
-        // was because the failure was ours rather than because the rule is
-        // "placeholders are free". A caller cannot infer it from `cost`, since a
-        // free pages call and a cheap one both leave the schema charge behind.
-        charged: pages.charged,
-        // The PAGES call's four token kinds. It is metered on exactly these and
-        // reported only the credit total, so the expensive call was the one
-        // whose cache behaviour could not be seen.
-        pagesUsage: pages.usage || undefined,
-        // The digest of the template the build container actually used.
-        templateId: pages.templateId || undefined,
-        // WHICH MODELS RAN, and the picker they were resolved from. The RESOLVED
-        // picker, never `body.picker` — echoing back what was sent would report
-        // a typo as if it had been honoured, which is exactly the state this
-        // control spent its whole life in. Two usage objects on this response can
-        // now be priced from two different rows, and this is the field that says
-        // which is which.
-        models: { picker: models.picker, design: models.design, pages: models.pages },
-      });
-      })();
+      // ONE LINE, AND THE WHOLE POINT OF THE EXTRACTION. The same function the
+      // queue consumer calls, so the two paths cannot drift.
+      const buildDone = runSiteBuild(request, env, { rec, tr, budget });
       // GUARDED, because `ctx` is a runtime argument rather than a language
       // guarantee: there is one caller today and it always passes one, and a
       // second added later without it would otherwise turn every build into a
