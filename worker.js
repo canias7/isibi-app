@@ -32,6 +32,7 @@ import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
 import { makeTrace } from "./builder/trace.mjs";
 import { makeRecorder, BUILD_RECORD_TABLE } from "./builder/build-record.mjs";
 import { makeBudget, budgetNote, budgetStage, raceDeadline, BUILD_BUDGET_MS, CONTAINER_CALL_MS } from "./builder/build-budget.mjs";
+import { JOB_KIND, jobKey, resultKey, newJobId, packJob, readJob, packResult, readResult, readMessage, replayRequest, pollDelayMs } from "./builder/build-job.mjs";
 import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
@@ -2272,24 +2273,41 @@ export default {
   },
   // ── THE BUILD QUEUE CONSUMER (see wrangler.jsonc for why this exists) ──────
   //
-  // NOTHING PRODUCES YET, so this is unreachable today and deliberately so: the
-  // binding, the consumer and the handler ship and are proved to deploy BEFORE
-  // any build depends on them. A queue whose consumer throws on its first real
-  // message retries it, and a build that retries from the top is a build charged
-  // twice — so the order is resource, then plumbing, then traffic.
+  // THIS IS WHERE A BUILD ACTUALLY RUNS. A queue consumer is a non-HTTP
+  // invocation, which the runtime guarantees 15 minutes of — where
+  // `ctx.waitUntil` is documented as thirty seconds and a build is six to
+  // twelve minutes. Nothing here depends on anybody still being connected, so a
+  // closed tab, a dropped signal or the ~285s edge reset costs the ANSWER and
+  // never the SITE.
   //
-  // AN UNKNOWN MESSAGE IS ACKNOWLEDGED, NEVER RETRIED. Retrying something we do
-  // not understand is an infinite loop against a queue that bills per operation,
-  // and there is nothing to lose: no build can be inside a message this handler
-  // cannot read. It is logged loudly because the only way to get here today is a
-  // producer somebody added without the consumer to match.
+  // EVERY MESSAGE IS ACKNOWLEDGED, WHATEVER HAPPENED, AND THAT IS A MONEY
+  // DECISION RATHER THAN A TIDINESS ONE. A retry runs the build FROM THE TOP: a
+  // second designer call, a second page-generation call, a second set of
+  // photographs — so a build that failed halfway is a build charged twice. The
+  // customer can ask again; we must not decide to spend their credits for them.
+  // The same argument removed the repair pass on 2026-08-04, and `max_retries`
+  // is 0 in wrangler.jsonc so the isolate-crash path cannot do it either.
+  //
+  // AN UNREADABLE MESSAGE IS LOGGED AND DROPPED. There is nothing to recover:
+  // no build can be inside a shape this handler cannot read, and the only way to
+  // produce one is a producer somebody added without the consumer to match.
   async queue(batch, env, ctx) {
     for (const message of batch.messages) {
       try {
-        const kind = message && message.body && message.body.kind;
-        console.error("build queue: no handler for message kind", JSON.stringify(kind || null));
-      } catch { /* a log must never fail the batch */ }
-      // ACK, so it does not come round again forever.
+        const msg = readMessage(message && message.body);
+        if (!msg) {
+          const kind = message && message.body && message.body.kind;
+          console.error("build queue: no handler for message", JSON.stringify(kind || null));
+        } else {
+          await runQueuedSiteBuild(env, ctx, msg.id);
+        }
+      } catch (e) {
+        // A THROW HERE IS ALREADY THE WORST CASE AND MUST NOT BECOME A RETRY.
+        // `runQueuedSiteBuild` catches its own, so reaching this means something
+        // outside the build itself — and the customer is polling for a result
+        // that will not arrive, which the wait answers honestly on its own.
+        console.error("build queue: handler threw:", String((e && e.stack) || (e && e.message) || e));
+      }
       try { message.ack(); } catch { /* older runtimes ack the batch instead */ }
     }
   },
@@ -8973,6 +8991,232 @@ async function deleteSiteFor(env, uid, dslug) {
 }
 
 /**
+ * HAND THE BUILD TO THE QUEUE, THEN WAIT FOR THE ANSWER.
+ *
+ * WHAT CHANGES FOR THE CUSTOMER: nothing. The same request, the same wait, the
+ * same response — this route has never streamed and does not start now. What
+ * changes is who OWNS the work: a queue consumer, which Cloudflare guarantees 15
+ * minutes of runtime that does not depend on anybody being connected. So a
+ * closed tab, a dropped phone signal or the ~285s edge reset now costs the
+ * ANSWER and never the SITE, where before it cost both.
+ *
+ * `ctx.waitUntil` WAS NEVER THE MECHANISM, and that is the finding this rests
+ * on. It is documented as thirty seconds — "if any Promises have not settled
+ * after 30 seconds, they are canceled" — against a build of six to twelve
+ * minutes. The builds that survived a reset survived because the disconnect
+ * happened at a hop Cloudflare did not observe, which is luck, and which fails
+ * hardest on somebody deliberately closing the tab.
+ *
+ * THREE THINGS HAPPEN HERE AND THE ORDER IS THE WHOLE CORRECTNESS ARGUMENT.
+ *
+ *  1. AUTHENTICATE FIRST. Nothing unauthenticated may put a message on the
+ *     queue: a message is a container run and a model call, so an open enqueue
+ *     is somebody else's build on our bill. This is a second `authUser` round
+ *     trip — the consumer's `runSiteBuild` authenticates again from the stored
+ *     token — and that is the right way round: the alternative is trusting a
+ *     header we never checked.
+ *  2. STORE, THEN ENQUEUE. A message naming an object that is not there yet is
+ *     a consumer that refuses a job the producer is about to write. The other
+ *     order costs one wasted R2 write when the send fails, which is nothing.
+ *  3. WAIT. Polling, because there is nothing to subscribe to — and the wait is
+ *     bounded by the CONSUMER's own ceiling rather than the build budget, since
+ *     past that point no answer is ever coming and continuing to hold the socket
+ *     would be waiting for something that cannot happen.
+ *
+ * IT REFUSES BY FALLING THROUGH, NEVER BY FAILING. Every error here — the store
+ * write, the send — is infrastructure of ours between the customer and a build
+ * they asked for, so the caller runs the build inline exactly as it did before.
+ * Degrading to the old behaviour costs the disconnect protection for that one
+ * build; refusing costs the build.
+ *
+ * A FALL-THROUGH HANDS BACK A REPLAY, and it must. The body was read here and a
+ * request body reads ONCE — so running the original inline afterwards is a build
+ * with no brief in it, which would have been a fall-back that fails worse than
+ * the thing it is falling back from. The replay is built by the same expression
+ * the consumer uses, so both paths present `runSiteBuild` with the same request.
+ *
+ * Answers one of three shapes: `{res}` — give the caller this and stop; or
+ * `{replay}` — run the build inline against this; or `{}` before the body was
+ * ever read, where the caller's own request is still intact.
+ */
+async function enqueueSiteBuild(request, env, { auth }) {
+  // AUTHENTICATED BEFORE ANYTHING IS WRITTEN OR SENT.
+  const bu = await authUser(request);
+  if (!bu) return { res: UNAUTHED() };
+  // THE SAME CAP AND THE SAME READER THE BUILD USES. `readJsonBody` measures the
+  // real encoded byte count after arrival rather than trusting `content-length`,
+  // which is the caller's to write — the 2026-08-13 audit found all three ways
+  // past a header check on this exact route. Reading it here also means an
+  // oversized body is refused in milliseconds instead of after a queue hop.
+  const rb = await readJsonBody(request, { max: 24_000_000 });
+  if (!rb.ok) {
+    return { res: Response.json({ ok: false, error: rb.code === "too_big" ? "body too large" : rb.error }, { status: rb.status }) };
+  }
+  // RE-SERIALISED, NOT THE RAW BYTES. `readJsonBody` has already parsed it, the
+  // body arrived as JSON, and a round trip through JSON is lossless for anything
+  // that did — so this cannot lose a field, and it cannot carry through whatever
+  // a raw stream held that the parser rejected.
+  const url = request.url;
+  let body;
+  try { body = JSON.stringify(rb.body); } catch { return { replay: replayRequest({ url, auth, body: "{}" }) }; }
+  const back = () => ({ replay: replayRequest({ url, auth, body }) });
+  const id = newJobId((b) => crypto.getRandomValues(b));
+  try {
+    await env.SITES_BUCKET.put(jobKey(id), JSON.stringify(packJob({ url, auth, body, uid: bu.id, at: Date.now() })));
+  } catch (e) {
+    console.error("build queue: could not store the job, running it inline instead:", String((e && e.message) || e));
+    return back();
+  }
+  try {
+    await env.BUILD_QUEUE.send({ kind: JOB_KIND, id });
+  } catch (e) {
+    console.error("build queue: could not enqueue, running it inline instead:", String((e && e.message) || e));
+    // Best-effort tidy-up: the job will never be picked up, so leaving it is a
+    // token sitting in a bucket for no reason.
+    try { await env.SITES_BUCKET.delete(jobKey(id)); } catch { /* not worth failing a build over */ }
+    return back();
+  }
+  // NO TRACE MARK HERE, and that is a decision rather than an omission. The
+  // producer's recorder never learns a slug — the designer names the site, and
+  // that happens on the other side — so `makeRecorder` buffers everything it is
+  // given and can never flush it. A mark nobody can read is decoration, and this
+  // one would additionally have to be given a `budgetStage` for a deadline it
+  // cannot reach. The build's real trace is the consumer's, written under the
+  // slug, exactly as before.
+  return { res: await awaitJobResult(env, id, bu.id) };
+}
+
+/**
+ * HOW LONG THE REQUEST WAITS FOR THE CONSUMER. Sixteen minutes: the consumer's
+ * guaranteed fifteen plus a minute for the queue to deliver. Past that no answer
+ * is coming, and the honest thing is to say so rather than hold the socket for
+ * the two hours `BUILD_BUDGET_MS` allows.
+ *
+ * THE MISMATCH IS REAL AND IS NOT FIXED HERE. `BUILD_BUDGET_MS` is two hours
+ * because the owner removed every ceiling on 2026-08-22 ("just let the model
+ * work"), and a queue consumer has fifteen minutes. Every build ever measured
+ * finished inside twelve, so nothing today reaches it; a build that genuinely
+ * needs more than fifteen minutes needs a different mechanism, not a bigger
+ * number, and that is backlog rather than this change.
+ */
+const QUEUE_WAIT_MS = 16 * 60 * 1000;
+
+async function awaitJobResult(env, id, uid) {
+  const started = Date.now();
+  for (let attempt = 0; Date.now() - started < QUEUE_WAIT_MS; attempt++) {
+    let obj = null;
+    try { obj = await env.SITES_BUCKET.get(resultKey(id)); } catch { obj = null; }
+    if (obj) {
+      let out = null;
+      try { out = readResult(JSON.parse(await obj.text())); } catch { out = null; }
+      // BEST-EFFORT CLEANUP, and it is deliberately not awaited for correctness:
+      // an object left behind is a few kilobytes, and failing a finished build
+      // over a delete would be the tail wagging the dog.
+      try { await env.SITES_BUCKET.delete(resultKey(id)); } catch { /* never */ }
+      if (out) return new Response(out.body, { status: out.status, headers: { "content-type": out.type } });
+      // A RESULT THAT WILL NOT READ IS NOT A BUILD THAT FAILED. The build may
+      // well have published; what broke is the envelope between the consumer and
+      // here, which is ours. Said as such, and never dressed up as the build's
+      // own answer.
+      console.error("build queue: unreadable result for job", id);
+      return Response.json({ ok: false, stage: "queue", error: "the build's answer could not be read", job: id, msg: "Your site may well have been built — we lost the answer on the way back. Check your projects in a minute." }, { status: 503 });
+    }
+    await new Promise((r) => setTimeout(r, pollDelayMs(attempt)));
+  }
+  console.error("build queue: no answer for job", id, "uid", uid, "after", Date.now() - started, "ms");
+  // STILL RUNNING IS NOT FAILED, and the wording has to hold that. The consumer
+  // owns the work and may still publish; what ran out is our willingness to hold
+  // the socket. The job id travels because it is the handle to the build that is
+  // still going — the one thing an operator needs and the customer's answer
+  // cannot otherwise name.
+  return Response.json({ ok: false, stage: "queue", error: "the build has not answered yet", job: id, msg: "Your build is taking longer than usual and is still running. Check your projects shortly — it may well finish." }, { status: 503 });
+}
+
+/**
+ * RUN ONE QUEUED BUILD. This is the side with the time.
+ *
+ * IT CANNOT THROW, and that is the contract rather than caution. A throw out of
+ * the queue handler is a message the runtime may redeliver, and a redelivered
+ * build is a second designer call, a second page-generation call and a second
+ * set of photographs charged to somebody who asked once. Everything here either
+ * writes a result the waiting request can read, or logs why it could not.
+ *
+ * THE JOB OBJECT IS DELETED AS SOON AS IT IS READ. It carries the caller's own
+ * access token, and once it is in memory the object has no further job — keeping
+ * it would leave a live credential sitting in a bucket for the length of a build
+ * for no reason. There is nothing to retry it from afterwards, which is the same
+ * decision as the paragraph above rather than a consequence of it.
+ *
+ * NO SECOND DEADLINE. The build races its own budget on the HTTP path because
+ * that race bounds the CUSTOMER'S WAIT; here the wait is bounded by
+ * `awaitJobResult` on the other side, and a second bound on one thing is how the
+ * two come to disagree. What this side owns is the WORK, which outlives the
+ * request by design.
+ */
+async function runQueuedSiteBuild(env, ctx, id) {
+  let job = null;
+  try {
+    const obj = await env.SITES_BUCKET.get(jobKey(id));
+    if (obj) job = readJob(JSON.parse(await obj.text()));
+  } catch (e) {
+    console.error("build queue: could not read job", id, String((e && e.message) || e));
+  }
+  // A JOB THAT IS NOT THERE IS NOT AN ERROR WORTH RETRYING. The commonest cause
+  // is a producer whose enqueue landed and whose store write did not — which
+  // that side already handled by running the build inline — so there is nothing
+  // waiting on a result here and nothing to recover.
+  if (!job) {
+    console.error("build queue: job", id, "is missing or unreadable — nothing to run");
+    return;
+  }
+  try { await env.SITES_BUCKET.delete(jobKey(id)); } catch { /* the token expires on its own */ }
+
+  const rec = makeRecorder({
+    write: (row) => writeBuildRecord(env, row),
+    hold: (p) => { try { if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(p); } catch { /* never */ } },
+  });
+  const tr = makeTrace(undefined, (snap) => rec.step(snap));
+  const budget = makeBudget();
+  let out;
+  try {
+    const res = await runSiteBuild(replayRequest(job), env, { rec, tr, budget, auth: job.auth });
+    out = packResult({
+      status: res.status,
+      type: res.headers.get("content-type") || "application/json",
+      body: await res.text(),
+    });
+  } catch (e) {
+    // THE CLASS AND THE STACK, because a build that throws names nothing on its
+    // own and the one string that has ever identified this failure shape here is
+    // `<name> is not defined`. `worker.js` answered 500 to every build for an
+    // hour on 2026-08-21 for exactly that, and the stack is what found it.
+    console.error("build queue: the build threw for job", id, String((e && e.stack) || (e && e.message) || e));
+    out = packResult({
+      status: 500,
+      type: "application/json",
+      body: JSON.stringify({ ok: false, stage: "queue", error: "the build failed", kind: String((e && e.name) || "Error") }),
+    });
+  }
+  // THE RESULT IS THE LAST THING WRITTEN AND THE ONLY THING THE WAIT READS. A
+  // failure to write it is not a failure of the build — the site may well be
+  // published — so it is logged and the waiting request answers honestly on its
+  // own rather than being told the build broke.
+  //
+  // A BUILD NOBODY WAITED FOR LEAVES ITS ANSWER BEHIND, and that is a stated
+  // residue rather than an oversight. The wait deletes what it reads; a customer
+  // who closed the tab never reads one, so a few hundred bytes of JSON stay
+  // under `jobs/`. It carries no credential — the token is in the JOB, which is
+  // deleted above the moment it is read — and if it ever matters the fix is a
+  // bucket lifecycle rule on that prefix rather than code here, because a
+  // sweeper would have to guess when a wait has given up.
+  try {
+    await env.SITES_BUCKET.put(resultKey(id), JSON.stringify(out));
+  } catch (e) {
+    console.error("build queue: could not write the result for job", id, String((e && e.message) || e));
+  }
+}
+
+/**
  * THE BUILD, AS A FUNCTION RATHER THAN A BLOCK INSIDE THE REQUEST.
  *
  * WHY IT MOVED (2026-08-23). A build ran inside the HTTP handler and survived a
@@ -14243,9 +14487,35 @@ async function handleRequest(request, env, ctx) {
       // having provisioned its Neon project 46 seconds in. Bounding two calls
       // does not bound a build; see builder/build-budget.mjs.
       const budget = makeBudget();
-      // ONE LINE, AND THE WHOLE POINT OF THE EXTRACTION. The same function the
-      // queue consumer calls, so the two paths cannot drift.
-      const buildDone = runSiteBuild(request, env, { rec, tr, budget, auth: request.headers.get("Authorization") || "" });
+      const auth = request.headers.get("Authorization") || "";
+      // ── HAND IT TO THE QUEUE, OR RUN IT HERE ─────────────────────────────
+      //
+      // The queue is what makes a build survive its own connection: a consumer
+      // is a non-HTTP invocation with 15 guaranteed minutes, where `waitUntil`
+      // is thirty seconds and a build is six to twelve minutes.
+      //
+      // GUARDED ON THE BINDING, so the code shipped and was proved to deploy
+      // before any build depended on it, and so a namespace that goes away
+      // degrades to exactly today's behaviour rather than to no builds at all.
+      // Same shape as SITE_ROUTES and SITE_API_CACHE, which both shipped this
+      // way for the same reason.
+      //
+      // A FALL-THROUGH RUNS THE BUILD INLINE. `enqueueSiteBuild` answers `{res}`
+      // when it has a real answer for the caller — an auth refusal, an oversized
+      // body, or the queued build's own response — and `{replay}` when OUR side
+      // could not take the job, which must never be a reason a customer's build
+      // does not happen. The replay exists because the body has been read by
+      // then and a request body reads once.
+      let buildDone;
+      let buildReq = request;
+      if (env.BUILD_QUEUE && env.SITES_BUCKET) {
+        const handed = await enqueueSiteBuild(request, env, { auth });
+        if (handed.res) buildDone = Promise.resolve(handed.res);
+        else if (handed.replay) buildReq = handed.replay;
+      }
+      // ONE DEFINITION OF THE BUILD, called by this and by the queue consumer,
+      // so the two paths cannot drift.
+      if (!buildDone) buildDone = runSiteBuild(buildReq, env, { rec, tr, budget, auth });
       // GUARDED, because `ctx` is a runtime argument rather than a language
       // guarantee: there is one caller today and it always passes one, and a
       // second added later without it would otherwise turn every build into a
@@ -14273,6 +14543,16 @@ async function handleRequest(request, env, ctx) {
       // and may still publish — which is strictly better for the customer than
       // abandoning work that was minutes from finishing. What the deadline bounds
       // is the WAIT, not the work.
+      //
+      // ON THE QUEUE PATH THIS RACE IS ALREADY OVER, and that is worth saying
+      // because it reads as live. `enqueueSiteBuild` awaits the answer itself,
+      // so by the time `buildDone` exists it is a resolved promise and the
+      // deadline cannot fire. The customer's wait there is bounded by
+      // `QUEUE_WAIT_MS` instead — ONE bound, and the right one, since a build
+      // that outlives the consumer's own runtime is never going to answer
+      // however long the budget says. The race still governs the inline path,
+      // which is every build until the binding exists and every build whose
+      // hand-off our own side could not take.
       //
       // SO THE NOTE SAYS NOTHING ABOUT MONEY, exactly as `budgetNote` refuses to.
       // A build that publishes after this answer is also charged after it, and a

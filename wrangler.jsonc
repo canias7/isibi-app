@@ -228,11 +228,21 @@
         // whole run inside whatever the first one left over.
         "max_batch_size": 1,
         "max_batch_timeout": 0,
-        // A build that fails gets two more goes. Three total attempts against a
-        // ~33% observed failure rate is the difference between "usually works"
-        // and "effectively always works" — and unlike today, a build that runs
-        // out of attempts is a row somebody can look at rather than silence.
-        "max_retries": 2,
+        // NO RETRIES, AND THIS IS A MONEY DECISION RATHER THAN A TIDINESS ONE.
+        // A retry runs the build FROM THE TOP: a second designer call, a second
+        // page-generation call, a second set of photographs — charged to
+        // somebody who asked once. A build that got halfway and died has already
+        // claimed its slug, so the retry is ALSO read as a revise of the husk it
+        // left. This block said 2 while the consumer was unreachable and
+        // nothing could be charged; it is 0 now that builds run here.
+        //
+        // The handler acks every message whatever happened, so an ordinary
+        // failure never comes back anyway. What this bounds is the case the ack
+        // cannot reach: an isolate the runtime kills mid-build. Being wrong that
+        // way costs one lost build the customer can ask for again; being wrong
+        // the other way spends their credits twice on our own initiative, which
+        // is the same argument that removed the repair pass on 2026-08-04.
+        "max_retries": 0,
         // Matches the container's own `max_instances`. More consumers than
         // containers is a queue of Workers waiting on a queue of containers.
         "max_concurrency": 5

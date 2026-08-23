@@ -493,11 +493,27 @@ test("the budget and the recorder are declared ABOVE the wrapper, or the race ca
   // change that preserves this property completely, and in fact makes it
   // structural: `runSiteBuild(request, env, { rec, tr, budget })` cannot be
   // called at all unless the three are in the caller's scope. The recurring
-  // own-goal, in a guard whose own comment is about a scope fact.
-  const wrapper = CODE.indexOf("const buildDone = ");
-  assert.ok(wrapper > 0, "the build route no longer builds a `buildDone` promise for the deadline to race");
+  // own-goal, in a guard whose own comment is about a scope fact. It went red a
+  // SECOND time within the hour, when the same declaration became `let buildDone;`
+  // so the queue path could resolve it with an answer the consumer produced.
+  //
+  // ANCHORED ON THE RACE, AT BOTH ENDS, and that is what makes it non-vacuous.
+  // `raceDeadline` is called in exactly one place — the route — so the call it
+  // races is the last `runSiteBuild(` above it, which is neither the function's
+  // own declaration nor the consumer's `await`ed call. Both of those come
+  // earlier in the file and both would satisfy a bare `indexOf`: the declaration
+  // is the mutation-matches-its-own-declaration trap this repo has recorded
+  // three times, and the consumer's call is the same trap wearing a caller.
+  const race = CODE.indexOf("raceDeadline(");
+  assert.ok(race > 0, "the build route no longer races a deadline, so this guard is watching nothing");
+  const wrapper = CODE.lastIndexOf("runSiteBuild(", race);
+  assert.ok(wrapper > 0, "the build route no longer calls runSiteBuild, so there is nothing for the deadline to race");
   for (const decl of ["const rec = makeRecorder({", "const tr = makeTrace(", "const budget = makeBudget()"]) {
-    const d = CODE.indexOf(decl);
+    // THE NEAREST ONE ABOVE THE CALL, never the first in the file. The queue
+    // consumer declares all three too — it has to, it runs the same build — so
+    // `indexOf` would assert about a scope this route cannot see, which passes
+    // whatever the route does.
+    const d = CODE.lastIndexOf(decl, wrapper);
     assert.ok(d > 0, `${decl} is gone`);
     assert.ok(d < wrapper, `${decl} moved below the build, where the deadline cannot reach it`);
   }

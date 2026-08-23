@@ -63,10 +63,20 @@ test("one build per invocation — the 15 minutes is per invocation, not per bui
   // one layer down and much harder to see.
   assert.equal(c.max_batch_size, 1,
     "max_batch_size must be 1 — batched builds share one invocation's 15 minutes");
-  // Retries are the difference between a build that fails and a build that is
-  // lost. Zero retries would make a queued build no more durable than today's.
-  assert.ok(Number(c.max_retries) >= 1,
-    "max_retries must allow at least one more attempt, or a queued build is as fragile as an HTTP one");
+  // NO RETRIES, AND THE INVERSE IS WHAT HAS TO BE HELD. This asserted `>= 1`
+  // while the consumer was unreachable and nothing could be charged; a retry
+  // runs the build FROM THE TOP, so once builds really run here it is a second
+  // designer call, a second page-generation call and a second set of
+  // photographs billed to somebody who asked once — and the half-built site's
+  // claimed slug makes the retry a revise of its own husk besides. The handler
+  // acks unconditionally so an ordinary failure never returns; what this bounds
+  // is the isolate the runtime kills mid-build, where being wrong costs one lost
+  // build the customer can ask for again.
+  //
+  // Written as an ABSENCE because that is the half that rots: a well-meaning
+  // "give it another go" restores the double charge with every other test green.
+  assert.equal(Number(c.max_retries), 0,
+    "max_retries must be 0 — a retry runs the build from the top and charges the customer twice");
 });
 
 test("the queue is CREATED by the deploy, before anything binds to it", () => {

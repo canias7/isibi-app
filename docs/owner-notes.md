@@ -12,6 +12,42 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ## OPEN — waiting to be picked up
 
+**THE CONNECTION FIX IS BUILT AND NOT YET PROVEN (2026-08-23).** You asked for
+one thing: *"if I close the app the build is still running."* That is now how it
+works — but nothing has run against it yet, so the next step is a real build with
+the connection deliberately cut part-way.
+
+**What was actually wrong, and it is worse than I had been telling you.** I had
+been saying `ctx.waitUntil` kept a build alive when your connection dropped.
+Cloudflare's own documentation says it lasts **thirty seconds**. A build takes
+six to twelve minutes. So that was never keeping anything alive — the builds that
+survived a dropped connection survived because Cloudflare *did not notice* the
+connection had dropped, which is luck, and which fails hardest on the one case
+that matters most to you: somebody deliberately closing the tab. That is exactly
+what killed the `lido-cafe` run.
+
+**What changed.** The build no longer runs inside your request. Your request
+hands it to a queue and then waits for the answer; a queue worker — which
+Cloudflare guarantees fifteen minutes for, and which does not care whether
+anybody is connected — is what actually does the work. Close the tab, lose
+signal, get reset by the network: you lose the *answer*, and the site still gets
+built and published. Nothing about what you see changes; the same wait, the same
+reply.
+
+**Two things I decided on your behalf, both about money.**
+- **A failed build is never retried automatically.** A retry runs the whole thing
+  from the top — a second designer call, a second page-writing call, a second set
+  of photographs — charged to you for asking once. You can always ask again; we
+  should not spend your credits for you.
+- **If our own side can't hand the build to the queue, the build still runs the
+  old way.** A hiccup in our plumbing must never be the reason your build does
+  not happen.
+
+**One limit worth knowing.** The queue worker gets fifteen minutes. Every build
+ever measured finished inside twelve, so nothing today hits it — but a build that
+genuinely needed longer would need a different mechanism, not a bigger number.
+Flagging it rather than pretending it is not there.
+
 **THE TEST BUILD DID NOT PUBLISH, AND IT WAS NOT THE CSS CHANGE (2026-08-23).**
 You asked for one build against the new path. It ran, and Grok's page-writing
 call never came back — the site (`lido-cafe`) is 404 and the build's own trace
