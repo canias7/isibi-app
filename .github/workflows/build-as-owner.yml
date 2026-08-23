@@ -105,85 +105,36 @@ jobs:
           # (`mathaq-alemarat`, `mathaq-dubai`), so neither name can be reused:
           # ownership is what decides `revise`, and re-running one would be read
           # as an edit of an empty husk rather than the first build it never got.
-          # ── THE CSS EXPERIMENT, BUILD 1 OF 2 (2026-08-22, owner's call) ─────
+          # ── THE CSS EXPERIMENT IS OVER AND THE AXES WON (2026-08-23, owner's call) ──
           #
-          # Owner: "one the one we have to day, model rights css based on the 29
-          # axis, the other one, model writes css without the axis, meaning it
-          # makes it up". Two builds, two live sites, one variable.
+          # Two builds, one variable. Arm B (`lido-axes-b`, the 29 axes) and arm
+          # A (`lido-free-a`, the axes swapped for one free `css` string). Both
+          # published, same brief, same picker, same ceilings.
           #
-          # THE VARIABLE IS `OWNER_FREE_CSS` AND NOTHING ELSE. Same brief, same
-          # picker, same everything — only the slug moves with it, because a
-          # slug is claimed by whoever built it first and the second run needs
-          # its own name. Change a word of the brief between the two and the
-          # comparison stops being about CSS, which is the confound this whole
-          # experiment is built around.
+          # A RULE-LEVEL DIFF OF THE TWO STYLESHEETS IS THE RESULT: arm B carried
+          # 24 rules the other did not, arm A carried 7 — and of those 7, four
+          # are Tailwind and the palette, one is the type scale, one is shadows
+          # switched off, and one is `.lucide{stroke-width:2px}`, the template's
+          # DEFAULT rather than a choice. Given a free hand and no menu, the
+          # model wrote nothing.
           #
-          # THE COST THE OWNER ACCEPTED, stated: two independent builds produce
-          # two different SITES — different pages, different copy, different
-          # photographs — so what is being compared is two whole sites and the
-          # stylesheet difference sits inside everything else that moved. Raised
-          # before spending, chosen anyway.
+          # AND ARM B'S BACKDROP WAS AUTHORED, which is what makes that a real
+          # comparison rather than a menu beating a blank page. Its body carries
+          # hand-written hex (`#98b8bd1a`, `#f5c6a461`, `#efe4cf`) in both modes;
+          # BACKDROP_LAYERS and DECOR_LAYERS emit zero hex literals between them,
+          # oklch survives elsewhere in the same bundle so Lightning CSS did not
+          # downconvert, and the arm's own marker is absent. The model is already
+          # writing raw CSS THROUGH the axes — what they supply is the selector
+          # and the property allow-list, and removing those cost everything.
           #
-          # VERIFIED BEFORE A CREDIT WAS SPENT, because arm A needed a door
-          # building and a door with no validator behind it is worth proving
-          # cold: 4,019 unit tests, 230/230 against the real container — raw CSS
-          # survives Tailwind and the bundler to reach a served stylesheet, a
-          # build that sent none has nothing appended, and the deploy for the
-          # commit under test is green.
-          # ATTEMPT 2. Attempt 1 (`css-axes-lido`) hung in the Grok pages call
-          # for 26m48s and was killed by this job's own 30-minute cap. Its trace
-          # is the diagnosis and it is unambiguous: design 83.4s (in 23161, out
-          # 2075), Neon project, a 2-table schema applied and seeded, then `gen`
-          # at 22:04:34 and NOTHING for the next 25 minutes. 8 credits for the
-          # schema call, no site, and the isolate died with the hung fetch so
-          # `waitUntil` did not rescue it either.
-          #
-          # THE THIRD TIME ON THIS SHAPE — run 9 (25m46s), run 13 (26.5m), this.
-          # And runs 6, 8 and 14 published on the same path, so it is variance in
-          # the provider rather than anything deterministic. On THIS brief
-          # specifically it is now 1 published against 2 hung.
-          #
-          # SO THE BRIEF SHRANK AND NOTHING ELSE DID. The hang is in the pages
-          # call, which is the one step whose duration scales with how much the
-          # model has to write — four pages became two. Same picker (Grok is
-          # proven funded; introducing an unknown provider mid-experiment adds a
-          # variable rather than removing one), same feel description word for
-          # word, because the feel is what a CSS experiment is actually about.
-          # Both arms share it, so the comparison is untouched.
-          # ── ATTEMPT 3, AND THE ONE VARIABLE THAT MOVED IS TIME ──────────────
-          #
-          # Attempts 1 and 2 both died at the SAME mark and neither was our code:
-          #   `css-axes-lido` — design 83.4s, schema applied and seeded, `gen` at
-          #     22:04:34, then 25 minutes of nothing until this job's own cap.
-          #   `lido-axes`     — design 82.9s, same marks, ECONNRESET at 264.6s.
-          # Two builds, one signature: the Grok pages call is where they stop.
-          #
-          # NEITHER RAN OUT OF BUDGET, and the reason is worth knowing before
-          # reading the next run: `BUILDER_CALL_MS` and the whole-build deadline
-          # are both `setTimeout` INSIDE the Worker isolate, and when the isolate
-          # stops so do they. A bound that lives in the thing being bounded
-          # cannot fire when that thing dies. So no ceiling of ours was ever
-          # reached — they were killed from outside, by the runner cap and by
-          # Cloudflare's ~285s connection reset respectively.
-          #
-          # SO EVERY CEILING WAS RAISED AND THE HARNESS STOPPED DEPENDING ON THE
-          # SOCKET. `ctx.waitUntil` keeps the build running after a reset — run
-          # 14 proved it, publishing ten minutes after its connection died — so
-          # the script now watches the site and the `site_builds` trace instead
-          # of exiting. A reset costs the response, not the site.
-          #
-          # BOTH ARMS RUN ON GROK, unchanged from attempts 1 and 2. It is the
-          # proven-funded picker and swapping providers mid-experiment adds a
-          # variable rather than removing one — Sonnet was queued while the arms
-          # were parked and is deliberately reverted here.
-          #
-          # FRESH SLUGS FOR BOTH ARMS. `css-axes-lido` and `lido-axes` are both
-          # claimed by husks, and ownership is what decides `revise` — re-running
-          # either name would be read as an edit of an empty shell rather than
-          # the first build it never got. `lido-b-axes` was queued and never
-          # fired, so it is free, but a name carrying a parked attempt's history
-          # is a name somebody will misread in a week.
-          OWNER_SLUG: lido-free-a
+          # Owner: "We are gonna stick with the axes." The free-CSS door is gone
+          # from the product; git history is where it lives now.
+          # NO SLUG. `lido-axes-b` and `lido-free-a` are both spent — a slug is
+          # claimed by whoever builds it first, and ownership is what decides
+          # `revise`, so naming either again would be read as an edit of a
+          # finished site rather than a fresh build. Unset is the safe default:
+          # the designer names the site, which is what it does for a customer.
+          # Set OWNER_SLUG explicitly only when a run needs a name it controls.
           # THE PICKER IS GROK, AND IT IS A CONSTANT OF THIS EXPERIMENT.
           #
           # Both arms compare a STYLESHEET. Every other variable has to be held,
@@ -208,25 +159,6 @@ jobs:
           # one is easy to do: its `drift` backdrop was misreported as authored
           # because Lightning CSS had stripped a redundant keyword.
           OWNER_PICKER: grok
-          # ── ARM A — THE MODEL WRITES ITS OWN STYLESHEET ─────────────────────
-          #
-          # `freeCss: true` swaps the `style` field out of `design_schema` for a
-          # single `css` string. The 29 axes are GONE from the tool on this arm —
-          # not made optional, replaced — so the model has no named option to pick
-          # and no per-axis selector handed to it. What it gets instead is the hook
-          # list (`[data-slot="button"]`, `[data-slot="card"]`, `.lucide` and the
-          # rest) and a free hand.
-          #
-          # THIS IS THE ONE RULE THE PLATFORM OTHERWISE HOLDS ABSOLUTELY: "we own
-          # the selector, the model owns the declarations". Arm A breaks it on
-          # purpose, once, to find out what it buys. Everything downstream of the
-          # model call is unchanged — `writeFreeCss` bounds the string at 40,000
-          # characters, refuses a non-string, and appends it LAST so it wins on
-          # source order over the theme, the tokens and the per-page tokens.
-          #
-          # SAME BRIEF, SAME PICKER, SAME CEILINGS AS ARM B. Only this flag and the
-          # slug move between the two runs.
-          OWNER_FREE_CSS: "1"
           OWNER_BRIEF: "An open-air lido cafe on the south coast, beside a 1930s seawater swimming pool. One page shows the menu of coffee, ice cream and toasties with prices in pounds, readable without signing in. One page books a poolside table with a short form - name, phone, how many people, what time. The feel is late afternoon sun on the water: faded pastel paintwork, sun-bleached concrete, long low light."
         run: node scripts/build-as-owner.mjs
       - uses: actions/upload-artifact@v4

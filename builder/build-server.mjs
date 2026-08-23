@@ -721,19 +721,7 @@ function writePageTokens(pageTokens) {
  * token override already rests on: whatever the model wrote beats the axes on
  * any declaration they both make.
  */
-function writeFreeCss(css) {
-  // NOT a string, or nothing to write: byte-identical to this never existing.
-  // `String(["a"])` is `"a"`, so a non-string is REFUSED rather than coerced —
-  // the shape this repo has shipped as a real bug three times.
-  if (typeof css !== "string" || !css.trim()) return { applied: false, bytes: 0, notes: [] };
-  // A BOUND, because this is the one door with no parser to refuse anything and
-  // the stylesheet ships to every visitor of the site.
-  const MAX = 40000;
-  const use = css.length > MAX ? css.slice(0, MAX) : css;
-  let base;
-  try { base = fs.readFileSync(STYLES, "utf8"); }
-  catch { return { applied: false, bytes: 0, notes: ["The free CSS could not be applied, so the site kept the look it had."] }; }
-  fs.writeFileSync(STYLES, base + "\n/* free-css arm */\n" + use + "\n");
+
   return {
     applied: true,
     bytes: use.length,
@@ -836,8 +824,6 @@ const server = http.createServer((req, res) => {
       const pageTokensUsed = writePageTokens(payload.pageTokens);
       // THE FREE-CSS ARM. Experimental, and the ONLY door in this file that
       // takes model-written CSS without a validator in front of it — see
-      // writeFreeCss for why that is the whole point and what it costs.
-      const freeCssUsed = writeFreeCss(payload.css);
       let wrote = 0;
       for (const [rel, content] of Object.entries(files)) {
         const safe = safeRoute(rel);
@@ -1002,7 +988,7 @@ const server = http.createServer((req, res) => {
       // because "we thought this was sandboxed" is a worse position than knowing
       // it is not, and the one thing a check like this must not do is report a
       // confinement that is not there.
-      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, fonts: fontsUsed, theme: themeUsed, tokens: tokensUsed, pageTokens: pageTokensUsed, brand: brandUsed, render, worker, ...(freeCssUsed.applied ? { freeCss: freeCssUsed } : {}), ...(ssr.unprivileged ? {} : { ssrUnprivileged: false }) });
+      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, fonts: fontsUsed, theme: themeUsed, tokens: tokensUsed, pageTokens: pageTokensUsed, brand: brandUsed, render, worker, ...(ssr.unprivileged ? {} : { ssrUnprivileged: false }) });
     } catch (e) {
       return send(res, 200, { ok: false, stage: "build", error: String((e && e.message) || e).slice(0, 2000), ms: Date.now() - t0, ...times });
     }

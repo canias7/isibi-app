@@ -1971,3 +1971,44 @@ test("a prototype key is not an option on ANY of the five late tables", () => {
   assert.notEqual(T.selectionCss({ ...theme, selection: "brand" }), "");
   assert.notEqual(T.imageryCss({ ...theme, imagery: "mono" }), "");
 });
+
+// ── THE AXES ARE THE PRODUCT, AND THAT IS HELD AS AN ABSENCE ────────────────
+//
+// Owner's call 2026-08-23, after two live builds differing in exactly one
+// field: "We are gonna stick with the axes." Arm A swapped all 29 out of
+// `design_schema` for a single free `css` string and the model wrote NOTHING —
+// a rule-level diff of the two published stylesheets was 24 rules against 7,
+// and of those 7 four were Tailwind and the palette, one the type scale, one
+// shadows off, and one `.lucide{stroke-width:2px}`, the template's own default.
+//
+// SO THIS IS THE INVERSE OF THE TESTS IT REPLACES, on the precedent that
+// replaced the repair-pass tests with "a second call never happens" and the
+// `structure` field's tests with its absence. The door is gone from the
+// product; what has to be held is that nothing puts it back, because a removal
+// with nothing asserting it rots quietly while every other test stays green.
+//
+// AND THE DANGEROUS SHAPE IS SPECIFICALLY A PATH THAT DROPS `style`. The tool
+// is one literal serving the build and the revise, so a branch that rebuilds
+// `input_schema` without the axes is a build whose model has no way to say what
+// the site looks like — and it publishes perfectly well, on the plain theme,
+// reported as a success. That is exactly what arm A measured.
+test("nothing can take the style axes out of the design tool", () => {
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  // Whole-line comments blanked first, length-preserving: this file explains
+  // the removal in prose and prose about a field contains that field's name.
+  // Blanking from any `//` would eat a line holding a URL, which is the rule
+  // site-locale.mjs's own guard already lives under.
+  const bare = w.replace(/^[ \t]*\/\/[^\n]*$/gm, (m) => " ".repeat(m.length));
+
+  assert.ok(!/\bfreeCss\b/.test(bare),
+    "the free-CSS arm is back in worker.js — the axes are the product, see the entry in CLAUDE.md");
+  // The general form, so a second door under a different name fails too: no
+  // path may delete `style` out of the tool's properties.
+  assert.ok(!/\{\s*style:\s*\w+\s*,\s*\.\.\./.test(bare),
+    "something destructures `style` out of the design tool's properties — that is the arm under a new name");
+  // AND THE FIELD IS STILL THERE, or the two assertions above pass perfectly
+  // against a tool that has no `style` property at all. An absence check has to
+  // prove its subject is alive first.
+  assert.ok(/style:\s*\{/.test(bare) || /style:\s*STYLE/.test(bare),
+    "the design tool no longer offers a `style` field at all — the axes are unreachable");
+});

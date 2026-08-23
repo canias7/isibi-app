@@ -1798,66 +1798,6 @@ function Home() {
       "either the injection landed or a good axis in the same patch was thrown away with the junk");
   }
 
-  // ── THE FREE-CSS ARM ─────────────────────────────────────────────────────
-  //
-  // The experiment's door, and the ONE look door here with no validator behind
-  // it. Driven through the REAL container because the unit half can only read
-  // the source: whether raw CSS survives Tailwind, Lightning and the bundler to
-  // reach a served stylesheet is a fact about the compiler, not about our code.
-  //
-  // NOTE WHAT IS ASSERTED ABOUT `display:none`. Twenty lines up, the same
-  // declaration arriving through the STYLE patch must NOT reach the stylesheet
-  // — that is `parseStyle` refusing it. Here it MUST reach it, because this
-  // door has no parser and that is the whole point of the arm. The pair is the
-  // clearest statement of what the two paths are.
-  console.log("\nbuilding with the free-CSS arm…");
-  const freeCss = await post({
-    files: { "index.tsx": INDEX, "menu.tsx": MENU },
-    slug: "fold-coffee", ...themeAsSeeds("broadsheet"),
-    // A SELECTOR NO AXIS OWNS, so a pass cannot be the axes doing the work.
-    // `.free-css-probe` is not in STYLE_TARGETS and not a Tailwind utility.
-    css: ".free-css-probe { outline: 3px dashed rgb(1, 2, 3); }\n[data-slot=\"card\"] { display: none; }\n",
-  });
-  ok("a build carrying free CSS succeeds", freeCss.ok === true, JSON.stringify(freeCss).slice(0, 200));
-  ok("…and the container says the arm applied, with the byte count",
-    freeCss.freeCss && freeCss.freeCss.applied === true && freeCss.freeCss.bytes > 0,
-    "the arm's report is missing — a build that silently wrote nothing looks identical to one that worked: "
-    + JSON.stringify(freeCss.freeCss));
-  {
-    const css = Object.entries(freeCss.files || {})
-      .filter(([k]) => k.endsWith(".css")).map(([, v]) => v.t || "").join("\n");
-    ok("the model's own selector reaches the served stylesheet",
-      /\.free-css-probe\s*\{[^}]*outline/.test(css),
-      "raw CSS did not survive the build — the arm is wired and inert, which is worse than absent");
-    // THE COST OF THE ARM, ASSERTED RATHER THAN DESCRIBED. `display:none` on the
-    // card hook is refused through `style` and lands through here. If this ever
-    // stops being true the arm has grown a validator and stopped being the arm.
-    //
-    // THE HOOK PATTERN IS SPELLED OUT rather than reusing the `slot` helper
-    // above, which is scoped to that block — Lightning CSS UNQUOTES attribute
-    // selectors, so `[data-slot="card"]` is a spelling the compiler never
-    // emits and a quoted match here would report the arm as filtering while
-    // its rule sat in the sheet. Measured, and recorded in CLAUDE.md.
-    ok("…including a declaration the axes would have refused",
-      /\[data-slot=["']?card["']?\][^{]*\{[^}]*display:\s*none/.test(css),
-      "the free-CSS door is filtering — then it is not measuring free CSS");
-  }
-  {
-    // AND AN ORDINARY BUILD IS UNTOUCHED. Every assertion above passes just as
-    // well against a container that appends something on every build; this is
-    // the one that says the door is shut on the path every customer takes.
-    const plain = await post({
-      files: { "index.tsx": INDEX, "menu.tsx": MENU },
-      slug: "fold-coffee", ...themeAsSeeds("broadsheet"),
-    });
-    ok("a build that sent no free CSS reports no arm at all", !plain.freeCss,
-      "the container reports the arm on a build that never asked: " + JSON.stringify(plain.freeCss));
-    const css = Object.entries(plain.files || {})
-      .filter(([k]) => k.endsWith(".css")).map(([, v]) => v.t || "").join("\n");
-    ok("…and nothing was appended to its stylesheet", !/free-css/.test(css),
-      "the free-CSS marker is in a stylesheet nobody asked for it in");
-  }
-
   // A patch that cannot be used must not fail a build that otherwise worked.
   const badToken = await post({
     files: { "index.tsx": INDEX, "menu.tsx": MENU },
