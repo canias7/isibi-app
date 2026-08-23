@@ -305,6 +305,36 @@ test("THE CUSTOMER IS TOLD, at both ends of the wire", () => {
   assert.match(chat, /d\.cssNote/, "the build reply never renders the sentence");
 });
 
+test("THE LOOK LANE COUNTS THE STYLESHEET AS A CHANGE — at both of its gates", () => {
+  // ── FOUND BY MUTATION, AND BOTH SURVIVORS ARE THE SAME FAILURE ─────────────
+  //
+  // Since 2026-08-23 `css` is the ONLY thing a look edit moves — `tokens` and
+  // `style` are gone from the tool, so `tokensMoved` and `styleMoved` are false
+  // on every build there is. That makes these two conditions the whole lane, and
+  // nothing was holding either of them.
+  //
+  // 1. THE NO-CHANGE GATE. Drop `!cssMoved` and a sheet that really moved reads
+  //    as nothing moved; `named` is true (`cssAsk.usable`), so the lane answers
+  //    "Your site already looks like that — nothing to change." The customer's
+  //    colour change is not applied, not published, and REPORTED AS ALREADY
+  //    DONE, which is the one answer they cannot act on.
+  const lane = worker.slice(worker.indexOf('if (eLayer === "look") {'));
+  assert.ok(lane.length > 1000, "the look lane moved and this guard is reading nothing");
+  const gate = lane.match(/if \(!moved\.length &&([^)]*)\) \{/);
+  assert.ok(gate, "the look lane's no-change gate moved");
+  assert.match(gate[1], /!cssMoved/,
+    "a css-only look edit reads as nothing to do, so the change is dropped and reported as already applied");
+  // 2. THE ESCALATION GATE. `site_look` can be thin or absent on a site whose
+  //    whole design is in `site_css` — that is the ordinary shape of everything
+  //    built from today. Gated on the look alone, every such site escalates its
+  //    colour change to a ~27-credit page rewrite, which recompiles from the very
+  //    same stylesheet and cannot change a colour either.
+  const esc = lane.match(/if \(![A-Za-z]+([^)]*)\) return escalate\("no-look"\);/);
+  assert.ok(esc, "the look lane's no-look escalation moved");
+  assert.match(esc[1], /!priorCss/,
+    "a site whose design lives in the stylesheet escalates every colour change to a rebuild");
+});
+
 test("A FAILED COMPILE PUTS THE STORED SHEET BACK", () => {
   // The sheet is written to `_meta` BEFORE the recompile because
   // `recompileAndPublish` reads it from there — and so does every other publish
