@@ -11691,7 +11691,13 @@ function editReply(e) {
     // through `saidFor`, because this file cannot import the module that knows
     // `display` means the heading colour.
     const style = (Array.isArray(e.style) ? e.style : []).slice(0, 4);
-    const bits = moved.map(function (k) { return SAY[k] || k; }).concat(tokens, style);
+    // THE STYLESHEET IS ONE BIT, NOT A LIST. `css` on the wire is a bare
+    // boolean — since 2026-08-23 the whole look is one string, so there are no
+    // named axes to enumerate — and without a word here a colour change reads
+    // "✅ Updated the look." with nothing after it, which is the shape a change
+    // that silently failed has.
+    const bits = moved.map(function (k) { return SAY[k] || k; })
+      .concat(tokens, style, e.css ? ['the design'] : []);
     // WHICH PAGE, when it was one page rather than the site. Without it a
     // scoped change and a site-wide one read identically — and the customer
     // goes and looks at the home page, sees nothing, and concludes it failed.
@@ -11715,7 +11721,11 @@ function editReply(e) {
     // request that did not land, which is why `site-tokens.mjs`'s own doc says a
     // dropped token must be NAMED. Both sentences are composed server-side, for
     // the reason every other note here is.
-    for (const n of [e.styleNote, e.tokenNote]) {
+    // `cssNote` IS IN THE SAME LIST AND CARRIES A DIFFERENT KIND OF FACT: a
+    // typeface we cannot host, a remote url() the site's own security policy
+    // refuses, a sheet longer than we store. Every one of those is invisible
+    // from the page — the browser falls back or drops the rule and says nothing.
+    for (const n of [e.styleNote, e.tokenNote, e.cssNote]) {
       if (typeof n === 'string' && n.trim()) out += ' ' + n.trim();
     }
     return out + problemNote(e.problems);
@@ -11894,6 +11904,12 @@ function reactSend(site, t, origin, mode, imgs, finish, qa) {
         // reason and from the same kind of server-composed sentence: an axis we
         // could not use is a request that silently did nothing.
         (d && typeof d.styleNote === 'string') ? d.styleNote.trim() : '',
+        // AND WHAT THE MODEL'S OWN STYLESHEET COSTS THE SITE — a family we
+        // cannot fetch, a remote url() the CSP refuses, a sheet we truncated.
+        // Same reason as every other line here: each one is a failure the page
+        // itself has no way to report, because the browser falls back or drops
+        // the rule silently.
+        (d && typeof d.cssNote === 'string') ? d.cssNote.trim() : '',
         (d && typeof d.imagesNote === 'string') ? d.imagesNote.trim() : '',
         // WHICH PAGE CAME BACK AS A STUB. There is now a middle outcome — the
         // site publishes with one page showing a placeholder — and this is the

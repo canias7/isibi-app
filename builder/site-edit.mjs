@@ -58,6 +58,23 @@ import { normalizeSeeds, SEEDS_FIELD } from "./site-seeds.mjs";
 // field moved rather than being added beside it: a site cannot wear a registry
 // name and an authored palette at once, and keeping both would leave two answers
 // to "what colour is this site" with the wrong one winning on some path.
+//
+// ── `seeds` AND `fonts` STAY HERE THOUGH THE TOOL NO LONGER ASKS FOR EITHER ──
+//
+// Both came off `design_schema` on 2026-08-23 when five look fields became one
+// `css` string, and both are DELIBERATELY still on this list, for exactly the
+// reason `family` is one line up: `mergeLook` rebuilds its output from this
+// array alone, so a name dropped here is a value silently discarded on an
+// existing site's next unrelated edit. Every site built between 2026-08-20 and
+// then stores three anchor colours and a typeface pairing, and both publish
+// spines still send them — so removing either name would strip the palette off
+// a live site because its owner fixed a typo.
+//
+// `css` IS NOT ON THIS LIST, and that is not an oversight. It has its own
+// `_meta` key for the reason `site_tokens`, `site_style` and `site_logo` do:
+// `mergeLook` keeps only what is named here and drops everything else stored on
+// the object, so a stylesheet folded into `site_look` would be lost the first
+// time an edit moved a plan axis.
 export const EDIT_FIELDS = ["brand", "description", "seeds", "family", ...PLAN_EDIT_FIELDS, "fonts", "lang", "mode", "langs"];
 
 /**
@@ -165,6 +182,30 @@ export function currentStateNote(current) {
   // answer: the `usePublicRows: YES/NO` lesson.
   const f = c.fonts && typeof c.fonts === "object" ? c.fonts : null;
   if (f && str(f.heading) && str(f.body)) lines.push("fonts: " + str(f.heading) + " for headings, " + str(f.body) + " for body");
+  // ── THE STYLESHEET, IN FULL, AND DELIBERATELY NOT CAPPED ────────────────────
+  //
+  // Every other line here is a summary because every other field is a NAME the
+  // model can restate. `css` is not: since 2026-08-23 it is the whole design,
+  // and it is REPLACED rather than merged — so the only way a revise can change
+  // one colour without re-rolling the entire site is to hand the current sheet
+  // back with that one change made to it. It cannot do that without seeing it.
+  //
+  // A `.slice()` HERE WOULD BE WORSE THAN THE COST IT SAVES. The model would
+  // return the truncated sheet, that answer would REPLACE the stored one, and
+  // the tail of the customer's design would be gone — silently, on a request
+  // about a phone number. `MAX_CSS` already bounds what can be stored, so the
+  // ceiling is set once, at the door, rather than a second time here where it
+  // would destroy rather than refuse.
+  //
+  // THE COST, STATED: this rides in the USER message, so it is fresh input on
+  // every edit that reaches the designer rather than a cache read. A realistic
+  // sheet is a few thousand characters and about a credit's worth; the 60,000
+  // ceiling is a bound on the pathological case, not a typical value.
+  const css = str(c.css);
+  if (css) {
+    lines.push("── ITS STYLESHEET (this is the whole look — to change any of it, return `css` " +
+      "as this exact sheet with only the asked-for change made; to leave the look alone, omit `css`) ──\n" + css);
+  }
   const tables = Array.isArray(c.tables) ? c.tables.map(str).filter(Boolean).slice(0, 24) : [];
   if (tables.length) lines.push("tables it already has: " + tables.join(", "));
   // A FIRST BUILD ADDS NOTHING AT ALL, which is why this is decided AFTER the
@@ -201,7 +242,29 @@ export const EDIT_RULE =
   "no fonts at all. The same for the name, the description and the LANGUAGE: leave them out unless this change is " +
   "about them. This conversation is in English and the site may not be — return a language only if the change is " +
   "asking you to alter what language its pages are written in.\n" +
-  "A change to a colour is `tokens` and nothing else. A change to the wording is neither — the pages are edited " +
+  // ── `css` IS THE ONE FIELD WHERE OMISSION IS NOT ENOUGH TO SAY ────────────
+  //
+  // Every other field here keeps its stored value by being left out, and so
+  // does this one — but `css` is REPLACED rather than merged, so the failure it
+  // can produce is the whole design rather than one axis. A model that answers
+  // it from scratch on "make the background yellow" hands back a different site,
+  // which is exactly the re-roll anchoring the look was introduced to stop.
+  //
+  // SO THE RULE IS STATED IN BOTH DIRECTIONS: the sheet is above, return it with
+  // the change made, and omit it entirely for anything that is not the look.
+  // "PRINTED ABOVE WHEN THERE IS ONE", not "printed above". This constant is
+  // shared by all three lanes that call the designer, and only two of them hand
+  // over the stylesheet: the addon and page lanes read `site_look` for the brand
+  // and the plan and pass no `css`, because neither reads a stylesheet back —
+  // they publish through the spine, which carries the stored one. A rule that
+  // says "printed above" on a turn where nothing was printed is an instruction
+  // pointing at nothing, which is the stale-clause failure this repo has paid
+  // for three times (`#/` hrefs, the `fonts` field, `publicView`).
+  "A change to the LOOK — a colour, a corner, a typeface, spacing, anything visual — is `css` and nothing else: " +
+  "return the site's current stylesheet, printed above when the site has one, with ONLY that change made to it. " +
+  "Whatever you return REPLACES the whole stylesheet, so a sheet written from scratch is a different design and " +
+  "anything you leave out is gone. If the change is not about the look at all, omit `css`.\n" +
+  "A change to the wording is neither — the pages are edited " +
   "elsewhere, so return no tables and no seed for it. Only declare a table when this change genuinely needs one " +
   "stored, and then declare only that table; the ones it already has are kept for you.\n" +
   // THE TWO FEATURES THAT NEED A PAGE AS WELL AS A SCHEMA, and the reason this

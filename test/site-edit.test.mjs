@@ -529,7 +529,19 @@ test("the rule tells the model to omit, and NOT to restate", () => {
   assert.match(EDIT_RULE, /DO NOT RESTATE A VALUE TO KEEP IT/);
   // And the case that caused the original bug is named with its correct answer,
   // because that is the one this has to get right or it reopens the old failure.
-  assert.match(EDIT_RULE, /A change to a colour is `tokens` and nothing else/);
+  //
+  // THE ANSWER MOVED FROM `tokens` TO `css` (2026-08-23), when the five look
+  // fields became one string. The RULE is unchanged and so is the failure it
+  // prevents — a look change must not arrive as a different design — but the
+  // stakes went up: `tokens` was a patch of named colours, so a bad answer moved
+  // a few of them; `css` REPLACES the whole stylesheet, so a model that writes
+  // one from scratch hands back a site nobody asked for. Both halves are pinned:
+  // the field to use, and that whatever comes back replaces everything.
+  assert.match(EDIT_RULE, /A change to the LOOK[^.]*is `css` and nothing else/);
+  assert.match(EDIT_RULE, /REPLACES the whole stylesheet/i,
+    "the rule no longer says a fresh sheet loses everything, which is the one thing it has to say");
+  assert.match(EDIT_RULE, /omit `css`/,
+    "the rule no longer says how to leave the look alone");
 });
 
 test("an edit requires nothing of the model", () => {

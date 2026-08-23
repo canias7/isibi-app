@@ -1641,6 +1641,143 @@ function Home() {
       "an authored corner beside a radius token is gone from the bundle again");
   }
 
+  // ── THE WHOLE STYLESHEET, WRITTEN BY THE MODEL ────────────────────────────
+  //
+  // Five look fields became one `css` string on 2026-08-23 (owner's call), and
+  // every claim about it is a claim about the COMPILED bundle rather than about
+  // a module's return value. This repo has shipped three separate features that
+  // were correct in a unit test and dead in the stylesheet — a second `:root`
+  // the minifier proved dead, a `.font-heading` selector Tailwind never emitted,
+  // and a quoted attribute selector Lightning CSS unquotes — and every one was
+  // found by running the real compiler.
+  //
+  // FOUR CLAIMS, EACH FAILING DIFFERENTLY: the rules land at all; they land
+  // LAST, which is the whole compatibility story; a family the sheet names is
+  // really bundled, or the site ships in the wrong typeface reporting success;
+  // and a page scope survives, which is the only way one page can look
+  // different now that `tokensPage` is gone.
+  console.log("\nbuilding with the model's own stylesheet…");
+  const OWN_SHEET = [
+    ":root{--background:#0d1117;--foreground:#e8eef5;--font-sans:\"Lora\",Georgia,serif}",
+    ".dark{--background:#05070a;--foreground:#f4f8fc}",
+    "body{font-family:var(--font-sans);letter-spacing:.011em}",
+    // A MARKER THAT ONLY THIS SHEET CAN PRODUCE. The first draft used
+    // `text-transform:uppercase` on the reasoning that nothing in the kit emits
+    // it on a heading — measured on the control build, and it is there: Tailwind
+    // ships an `uppercase` utility and the kit uses it. So the control passed
+    // for the wrong reason and the positive check could have too. A custom
+    // property with a name nothing else in the world uses cannot be confused
+    // with anything, which is what a marker is for.
+    "h1,h2,h3{--isibi-own-sheet:1;text-transform:uppercase}",
+    'body[data-page="/menu"]{--background:#2b1c0f}',
+  ].join("\n");
+  const sheetBuild = await post({
+    files: { "index.tsx": INDEX, "menu.tsx": MENU },
+    slug: "fold-coffee", ...themeAsSeeds("broadsheet"), style: HOUSE_STYLE,
+    css: OWN_SHEET, cssFonts: ["lora"],
+  });
+  ok("a build carrying the model's own stylesheet succeeds", sheetBuild.ok === true,
+    JSON.stringify(sheetBuild).slice(0, 300));
+  {
+    const css = Object.entries(sheetBuild.files || {})
+      .filter(([k]) => k.endsWith(".css")).map(([, v]) => v.t || "").join("\n");
+    // 1. THE RULES LAND. `text-transform` is chosen because nothing in the kit,
+    //    the theme or Tailwind's own base emits it on a heading, so a match is
+    //    the model's sheet and cannot be something else in the bundle.
+    ok("the model's own rules reach the compiled stylesheet",
+      /--isibi-own-sheet:\s*1/.test(css), css.slice(0, 200));
+    // 2. AND THEY LAND LAST, which is what makes this compatible with every site
+    //    published before it. Those store `seeds`, `style` and `tokens`, and are
+    //    republished through this same container on every cheap edit — so their
+    //    writers still run and the model's sheet simply has the last word. The
+    //    other order is the whole feature silently doing nothing, which is the
+    //    exact failure the per-page font override already shipped once.
+    //    THE MODEL'S SHEET DECLARES THREE OF THEM — light, dark and the page
+    //    scope — so "ours" is a SET of values rather than one, and the first
+    //    draft of this compared one against all three and reported a working
+    //    override as broken. What has to hold is that no declaration that is NOT
+    //    the model's comes after the model's FIRST one: that is the ordering, and
+    //    it is the same assertion whichever of ours happens to be last.
+    //    LIGHTNINGCSS MINIFIES A COLOUR (`#ffcc00` ships as `#fc0`), so each is
+    //    matched in either spelling — the trap the token check above records.
+    const MINE = /^(?:#0d1117|#05070a|#2b1c0f|#0D1117|#05070A|#2B1C0F)$/i;
+    const decls = [...css.matchAll(/--background:\s*([^;}]+)/g)]
+      .map((m) => ({ at: m.index, v: m[1].trim() }));
+    const ours = decls.filter((d) => MINE.test(d.v));
+    const theirs = decls.filter((d) => !MINE.test(d.v));
+    ok("…and every stored-theme --background comes BEFORE the model's, so the model's wins",
+      ours.length === 3 && theirs.length > 0 && theirs.every((d) => d.at < ours[0].at),
+      `ours=${ours.map((d) => d.at + ":" + d.v).join(" ")} theirs=${theirs.map((d) => d.at + ":" + d.v).join(" ")}`);
+    ok("…and the stored theme still applied underneath it", theirs.length > 0,
+      `${decls.length} --background declarations, ${ours.length} of them the model's`);
+    // 3. THE TYPEFACE IS A FILE, AND IT TAKES TWO FACTS TO SAY SO. A
+    //    `font-family` with nothing behind it falls back SILENTLY — the browser
+    //    says nothing and the build reports the family it asked for — which is
+    //    the failure `site-fonts.mjs` is written around, arriving through the one
+    //    field with no font picker in front of it.
+    //
+    //    THE FIRST DRAFT OF THIS CHECKED ONE OF THE TWO AND WAS RIGHT TO GO RED.
+    //    It looked for `Lora Variable` in the compiled CSS and found nothing, and
+    //    the reason was not the free-CSS field: `import "@fontsource-variable/…"`
+    //    from `fonts.ts` emits every woff2 as an asset and puts ZERO `@font-face`
+    //    in `dist/client` or `dist/server`, so the files were there and nothing
+    //    told the browser to use them. True of the template's own `geist` default
+    //    too — every published site. `writeFonts` now `@import`s the package from
+    //    `styles.css` as well, which is the mechanism the template already uses
+    //    for `tw-animate-css`, and both halves below hold.
+    //
+    //    THE RULE AND THE FILE FAIL DIFFERENTLY, so they are asserted apart: the
+    //    rule can be present with the asset missing (a url pointing at nothing)
+    //    and the asset can be present with no rule (exactly the bug above).
+    //    `Lora Variable`, NOT `Lora`, AND THAT IS WHAT MAKES IT DISCRIMINATE:
+    //    the model's own sheet says `font-family: "Lora"`, so matching `Lora`
+    //    would be satisfied by the sheet we just appended and prove nothing at
+    //    all about bundling. @fontsource declares the face as `Lora Variable`, a
+    //    spelling only the package can produce.
+    ok("a family the stylesheet names gets a real @font-face",
+      /@font-face[^}]*Lora Variable/i.test(css),
+      (css.match(/@font-face[^}]{0,160}/g) || []).slice(0, 2).join(" | ").slice(0, 400)
+        || "no @font-face in the bundle at all");
+    ok("…and its font file is published beside it",
+      Object.keys(sheetBuild.files || {}).some((k) => /(^|\/)lora[^/]*\.woff2$/i.test(k)),
+      Object.keys(sheetBuild.files || {}).filter((k) => /\.woff2$/i.test(k)).join(" ") || "no woff2 at all");
+    // 4. A PAGE SCOPE SURVIVES THE COMPILER. This is the only way one page can
+    //    look different now that `tokensPage` is gone, and the selector is
+    //    exactly the shape Lightning CSS is known to rewrite: it UNQUOTES
+    //    attribute selectors, measured at 94 in one bundle, so an assertion
+    //    written with the quotes describes a stylesheet that is never emitted.
+    ok("a page-scoped rule survives the compiler",
+      /body\[data-page=["']?\/menu["']?\]/.test(css),
+      (css.match(/body\[data-page[^{]*/g) || []).join(" | ").slice(0, 200) || "no data-page rule at all");
+  }
+
+  // AND A BUILD THAT SENDS NONE IS UNCHANGED — the half that makes this safe to
+  // deploy. Without it every assertion above passes on a container that appends
+  // the model's sheet unconditionally, which on a site built before this existed
+  // is a stylesheet with nothing in it appended to a working design.
+  {
+    const none = await post({
+      files: { "index.tsx": INDEX, "menu.tsx": MENU },
+      slug: "fold-coffee", ...themeAsSeeds("broadsheet"), style: HOUSE_STYLE,
+    });
+    const css = Object.entries(none.files || {})
+      .filter(([k]) => k.endsWith(".css")).map(([, v]) => v.t || "").join("\n");
+    ok("a build with no stylesheet of its own carries none of it",
+      !/--isibi-own-sheet/.test(css) && !/body\[data-page/.test(css) && !/Lora Variable/i.test(css)
+        && !Object.keys(none.files || {}).some((k) => /lora/i.test(k)),
+      css.slice(0, 200));
+    // AND IT STILL GETS ITS OWN TYPEFACE, which is the half that stops the font
+    // fix reading as "fonts work now" when what it might mean is "the site's own
+    // pair stopped being emitted". `geist` is the template's default pair and
+    // arrives through exactly the same `@import`.
+    ok("…while its own pair is still bundled with a rule to load it",
+      /@font-face[^}]*Geist Variable/i.test(css)
+        && Object.keys(none.files || {}).some((k) => /geist[^/]*\.woff2$/i.test(k)),
+      (css.match(/@font-face[^}]{0,120}/g) || []).slice(0, 2).join(" | ").slice(0, 300) || "no @font-face at all");
+    ok("…and the container says so rather than claiming it applied",
+      !none.css, JSON.stringify(none.css || null).slice(0, 200));
+  }
+
   // ── THE FIVE LATE SURFACES ────────────────────────────────────────────────
   // Only a real build can answer the two things that matter here, and both are
   // invisible to the unit suite: whether Tailwind COMPILES `bg-(--scrim)` into a

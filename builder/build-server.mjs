@@ -21,7 +21,7 @@ import http from "node:http";
 import fs from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
-import { resolvePair, resolvePageFonts, fontCss, fontImports } from "./site-fonts.mjs";
+import { resolvePair, resolvePageFonts, resolveFont, fontCss, fontImports } from "./site-fonts.mjs";
 import { themeCss, transitionOn } from "./site-theme.mjs";
 import { normalizeSeeds } from "./site-seeds.mjs";
 import { tokensCss, pageTokensCss } from "./site-tokens.mjs";
@@ -33,6 +33,7 @@ import { runStep } from "./run-step.mjs";
 import { startSiteServer } from "./site-ssr.mjs";
 import { checkRender } from "./render-check.mjs";
 import { routeOf, fileForRoute } from "./site-addon.mjs";
+import { readCss } from "./site-freecss.mjs";
 
 const APP = process.env.APP_DIR || "/app";
 const ROUTES = path.join(APP, "src", "routes");
@@ -318,8 +319,23 @@ function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, mode, seed
 // `fontFiles` carries any font that had to be FETCHED, already downloaded by the
 // Worker and passed as base64. The Worker does the fetching because it certainly
 // has network at request time, which is not something to assume of a container.
-function writeFonts(fonts, fontFiles, pageFonts) {
+function writeFonts(fonts, fontFiles, pageFonts, cssFonts) {
   const pair = resolvePair(fonts || {});
+  // ── THE FAMILIES THE SITE'S OWN STYLESHEET NAMES ────────────────────────────
+  //
+  // Since 2026-08-23 there is no `fonts` field on the design tool: the model
+  // writes `font-family` in its own CSS and the Worker reads the families back
+  // out with `fontsIn`, so THIS is where nearly every site's typeface now
+  // arrives. Ids on the wire, resolved here — the Worker already fetched the
+  // woff2 for each into `fontFiles`, and what is still needed is the
+  // `@font-face` block that points at the file and the npm import that bundles
+  // an installed one.
+  //
+  // A FAMILY WE COULD NOT RESOLVE IS DROPPED RATHER THAN GUESSED AT: the Worker
+  // reports it to the customer as a fallback, and inventing a package name here
+  // is a build that fails on an import of something that does not exist.
+  const cssFaces = (Array.isArray(cssFonts) ? cssFonts : [])
+    .map((id) => resolveFont(id)).filter((f) => f && f.ok);
   // A PAGE MAY HAVE ITS OWN TYPEFACE. Resolved here beside the site's, so the
   // @font-face rules are emitted once for every family any scope references and
   // the npm imports below cover all of them — a page font that is bundled by
@@ -372,7 +388,35 @@ function writeFonts(fonts, fontFiles, pageFonts) {
   let base = null;
   try { base = fs.readFileSync(STYLES_BASE, "utf8"); }
   catch { try { base = fs.readFileSync(STYLES, "utf8"); } catch { base = null; } }
-  const decls = fontCss(pair, written, pageScopes);
+  const decls = fontCss(pair, written, pageScopes, cssFaces);
+  // ── AN INSTALLED FAMILY IS @import-ED FROM THE STYLESHEET ────────────────────
+  //
+  // THE NPM IMPORT IN `fonts.ts` EMITS THE FILES AND NOT ONE RULE. Measured on a
+  // real build: `import "@fontsource-variable/lora"` puts all seven
+  // `lora-*.woff2` into `dist/client/assets/` and leaves **zero** `@font-face`
+  // anywhere in `dist/client` OR `dist/server` — so the browser has the files
+  // and nothing telling it to use them, falls through the stack, and renders the
+  // system face while the build reports the family it asked for. That is the
+  // exact failure shape this whole tier is written around, and it was true of
+  // the template's own `geist` default too: EVERY published site.
+  //
+  // `@import "<pkg>";` FROM `styles.css` IS THE MECHANISM THAT WORKS, and it is
+  // the one the template already relies on — `@import "tw-animate-css"` is an
+  // npm CSS package resolved by the same Tailwind resolver. Measured on the same
+  // build shape: 7 `@font-face` rules, `font-family:Lora Variable`,
+  // `font-weight:400 700` (the real variable range), every subset, and each
+  // `url()` rewritten to the hashed asset. Nothing else here changes.
+  //
+  // WHY NOT SEND EVERY FAMILY DOWN THE FETCH PATH INSTEAD, which demonstrably
+  // works: the API hands back ONE STATIC WEIGHT for the latin subset, so
+  // `font-weight:100 900` on it is a lie and every heading is synthetically
+  // bolded. The installed 24 exist precisely to ship the real variable file.
+  //
+  // FIRST IN THE FILE, because `@import` after any rule is ignored per spec —
+  // which puts these above `decls.faces` (the fetched families' own @font-face)
+  // as well as above the base's `@import "tailwindcss"`.
+  const pkgs = fontImports(pair, pageScopes, cssFaces);
+  const cssImports = pkgs.map((p) => `@import "${p}";`).join("\n");
   // Appended at the END of the block, not the start. Within one @theme the later
   // declaration wins, and the template declares its own --font-sans default
   // further down — so inserting at the top wrote the site's choice and then had
@@ -387,11 +431,17 @@ function writeFonts(fonts, fontFiles, pageFonts) {
     // than on source order. That is what makes it safe here where a second
     // `:root` was not: the minifier proved that one dead and shipped the
     // default font while reporting the chosen one.
-    fs.writeFileSync(STYLES, (decls.faces ? decls.faces + "\n" : "") + themed +
+    fs.writeFileSync(STYLES, (cssImports ? cssImports + "\n" : "") +
+      (decls.faces ? decls.faces + "\n" : "") + themed +
       (decls.scoped ? "\n" + decls.scoped + "\n" : ""));
   }
 
-  const imports = fontImports(pair, pageScopes).map((p) => `import "${p}";`).join("\n");
+  // THE `fonts.ts` IMPORT STAYS, and it is belt-and-braces rather than the
+  // mechanism: `routes/__root.tsx` imports this file, so it has to exist, and
+  // the checked-in copy is what lets the template build standalone with a
+  // typeface. Both importers resolve to ONE module, so the assets are emitted
+  // once whichever of them is present.
+  const imports = pkgs.map((p) => `import "${p}";`).join("\n");
   fs.writeFileSync(
     path.join(APP, "src", "fonts.ts"),
     `// Generated per build by build-server.mjs. Do not edit.\n${imports}\n`,
@@ -693,39 +743,54 @@ function writePageTokens(pageTokens) {
 }
 
 /**
- * THE FREE-CSS ARM — model-written CSS with NO validator in front of it.
+ * THE SITE'S WHOLE STYLESHEET, WRITTEN BY THE MODEL (2026-08-23, owner's call).
  *
- * EXPERIMENTAL, and deliberately the odd one out in this file. Every other
- * look door here goes through a parser: `writeTheme` runs `applyStyle`, which
- * runs the 29 axis emitters, each of which owns its SELECTOR and an allow-list
- * of properties it may write. `writeTokens` takes colours `isColor` accepts.
- * This one takes a string and appends it.
+ * Five design fields became one. `seeds`, `fonts`, `style`, `tokens` and
+ * `tokensPage` asked for a palette, a typeface pairing, 29 axes, 24 named
+ * colours and a per-page scope; `css` asks for the stylesheet and nothing else.
  *
- * THAT IS THE POINT RATHER THAN AN OVERSIGHT. The owner's question is what the
- * model produces when it picks its own selectors instead of filling ours, so a
- * validator here would measure the validator. Both arms are built and looked
- * at, and the comparison is the answer.
+ * NO VALIDATOR, AND THAT IS THE POINT RATHER THAN AN OVERSIGHT. Every other
+ * look writer above goes through a parser — `writeTheme` runs the 29 axis
+ * emitters, each owning its selector and a property allow-list; `writeTokens`
+ * takes colours `isColor` accepts. This takes a string and appends it.
  *
- * WHAT IT COSTS, stated rather than discovered: `display:none` blanks whatever
+ * WHAT IT COSTS, STATED RATHER THAN DISCOVERED: `display:none` blanks whatever
  * it lands on, `position:fixed` pins the page, `content:` puts page copy
- * through a field nobody reviews, `!important` takes the decision away from the
- * theme. All four are recorded in CLAUDE.md as REAL failures rather than
- * hypotheticals, and all four can reach a published page through here.
+ * through a field nobody reviews, `!important` takes the decision away from
+ * everything else. All four are recorded in CLAUDE.md as REAL failures rather
+ * than hypotheticals, and all four can now reach a published page.
  *
- * REACHABLE ONLY BY A CALLER THAT ASKS FOR IT. The Worker gates this on an
- * explicit request flag, so no ordinary build sends `css` and this returns
- * before touching the stylesheet — asserted, because the dangerous direction is
- * a default that quietly turns it on.
+ * LAST, AFTER EVERY OTHER WRITER, which is the later-wins mechanism the token
+ * override already rests on — and it is what makes this compatible with every
+ * site published before today. Those store `seeds`/`style`/`tokens` and are
+ * republished through the same container on every cheap edit, so their writers
+ * still run and their look still applies; a site with free CSS simply has the
+ * last word. Deleting the earlier writers would have re-styled the whole
+ * platform on somebody's next typo fix.
  *
- * LAST, AFTER EVERY OTHER WRITER, which is the same later-wins mechanism the
- * token override already rests on: whatever the model wrote beats the axes on
- * any declaration they both make.
+ * FAILS SOFT like the three above it: a site whose pages compiled and whose
+ * data layer is live must not be lost because a stylesheet could not be
+ * written. `readCss` never throws and returns `usable: false` for anything it
+ * cannot use, so a build that sent none writes nothing at all and its
+ * stylesheet is byte-identical to the build before this existed.
  */
-
+function writeCss(css) {
+  const report = readCss(css);
+  if (!report.usable) return { applied: false, reason: report.reason, notes: [] };
+  let base;
+  try { base = fs.readFileSync(STYLES, "utf8"); }
+  catch { return { applied: false, reason: "unreadable", notes: ["The stylesheet could not be written, so the site kept the default look."] }; }
+  fs.writeFileSync(STYLES, base + "\n" + report.css + "\n");
   return {
     applied: true,
-    bytes: use.length,
-    notes: css.length > MAX ? [`The CSS was longer than ${MAX} characters, so it was cut.`] : [],
+    bytes: report.bytes,
+    // THE IDS, not the resolved face objects — this rides back on the response
+    // and a url/pkg per family is noise nobody reads.
+    fonts: report.fontIds,
+    missingFonts: report.missingFonts,
+    definesCore: report.definesCore,
+    truncated: report.truncated,
+    notes: report.notes,
   };
 }
 
@@ -810,7 +875,7 @@ const server = http.createServer((req, res) => {
       // re-reading it downstream cannot change the answer.
       const styleUsed = parseStyle(payload.style, { max: MAX_STYLE_BUILD }).style;
       const brandUsed = writeSiteBrand({ title: payload.title, lang: payload.lang, langs: payload.langs, logo: payload.logo, icon: payload.icon, slug: payload.slug, mode: payload.mode, seeds: payload.seeds, transition: styleUsed.transition });
-      const fontsUsed = writeFonts(payload.fonts, payload.fontFiles, payload.pageFonts);
+      const fontsUsed = writeFonts(payload.fonts, payload.fontFiles, payload.pageFonts, payload.cssFonts);
       // THE WHOLE PATCH, NOT `styleUsed`, and the difference is a feature.
       // `styleUsed` is the ENUM map — `parseStyle(...).style` — which is exactly
       // right for `transition` above and drops an AUTHORED backdrop on the floor,
@@ -822,8 +887,12 @@ const server = http.createServer((req, res) => {
       const tokensUsed = writeTokens(payload.tokens);
       // AND AFTER THOSE, one page's own. Same mechanism, one scope down.
       const pageTokensUsed = writePageTokens(payload.pageTokens);
-      // THE FREE-CSS ARM. Experimental, and the ONLY door in this file that
-      // takes model-written CSS without a validator in front of it — see
+      // AND LAST, THE STYLESHEET THE MODEL WROTE. See writeCss for why it is
+      // last and why the four writers above it stay: every site published
+      // before 2026-08-23 stores seeds/style/tokens and is republished through
+      // this same container on every cheap edit, so removing them would restyle
+      // the whole platform on somebody's next typo fix.
+      const cssUsed = writeCss(payload.css);
       let wrote = 0;
       for (const [rel, content] of Object.entries(files)) {
         const safe = safeRoute(rel);
@@ -988,7 +1057,7 @@ const server = http.createServer((req, res) => {
       // because "we thought this was sandboxed" is a worse position than knowing
       // it is not, and the one thing a check like this must not do is report a
       // confinement that is not there.
-      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, fonts: fontsUsed, theme: themeUsed, tokens: tokensUsed, pageTokens: pageTokensUsed, brand: brandUsed, render, worker, ...(ssr.unprivileged ? {} : { ssrUnprivileged: false }) });
+      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, fonts: fontsUsed, theme: themeUsed, tokens: tokensUsed, pageTokens: pageTokensUsed, brand: brandUsed, render, worker, ...(cssUsed.applied ? { css: cssUsed } : {}), ...(ssr.unprivileged ? {} : { ssrUnprivileged: false }) });
     } catch (e) {
       return send(res, 200, { ok: false, stage: "build", error: String((e && e.message) || e).slice(0, 2000), ms: Date.now() - t0, ...times });
     }

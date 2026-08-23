@@ -344,12 +344,33 @@ test("design_schema is not marked strict while its schema cannot be", () => {
 test("a name the scope does not define really is caught", () => {
   // The check above passes vacuously if a ReferenceError cannot reach it — so
   // drop a name the tool genuinely uses and require the failure.
-  const names = scopeNames().filter((n) => n !== "SITE_STYLE_AXES");
-  const ctx = vm.createContext(Object.fromEntries(names.map((n) => [n, stub()])));
-  assert.throws(
-    () => vm.runInContext("(" + toolBlock() + ")", ctx, { timeout: 5000 }),
-    isReferenceError,
-    "removing SITE_STYLE_AXES from scope should make the tool unresolvable — if it does not, the tool stopped using it and this guard is watching nothing");
+  //
+  // ── THE CANARY IS FOUND, NOT PINNED, AND THAT IS THE SECOND TIME ───────────
+  //
+  // This named `SITE_STYLE_AXES` in the source, which is a fact about what the
+  // tool happened to contain — and on 2026-08-23 the five look fields became one
+  // `css` string, so that name left the tool and the guard failed against
+  // perfectly correct code. Its predecessor had failed the same way when the
+  // scope moved file. A check that has to be edited every time the thing it
+  // watches legitimately changes is one somebody eventually deletes.
+  //
+  // So the canary is whichever scope name the tool ACTUALLY references. Every
+  // candidate is tried and the first that produces a `ReferenceError` when
+  // withheld is enough — and if NONE does, that is the real failure this test
+  // is for: the tool references nothing the scope supplies, so the check above
+  // is watching nothing whatever it reports.
+  const names = scopeNames();
+  const block = "(" + toolBlock() + ")";
+  const caught = names.filter((drop) => {
+    const ctx = vm.createContext(Object.fromEntries(
+      names.filter((n) => n !== drop).map((n) => [n, stub()])));
+    try { vm.runInContext(block, ctx, { timeout: 5000 }); return false; }
+    catch (e) { return isReferenceError(e); }
+  });
+  assert.ok(caught.length,
+    "withholding NONE of the " + names.length + " scope names makes the tool unresolvable, so "
+    + "the check above cannot fail: either the tool stopped referencing anything the scope "
+    + "supplies, or the tool block is no longer being found. Scope: " + names.join(", "));
 });
 
 test("the eval never reads a tool property that does not exist", () => {

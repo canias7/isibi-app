@@ -12,6 +12,46 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ## OPEN — waiting to be picked up
 
+**THE FIVE LOOK STEPS ARE NOW ONE (2026-08-23, your call).** *"For the look, the
+css, we are gonna delete those 5 steps into 1 step, which is gonna be called
+css, and we are gonna give the model freedom — with no words, the model is gonna
+make the css."* Done.
+
+**What the model used to be asked, and no longer is:** three anchor colours; a
+typeface pairing off a list of 24; 29 named style slots; 24 named colours; and a
+page to scope those colours to. **All five are gone.** It is asked for the
+stylesheet, and it writes it.
+
+**Nothing about a site you already have changes.** Every site built before today
+still stores its palette, its typeface, its colours and its 29 slots, and every
+publish still sends all four — a typo fix included. The tool stopped ASKING; it
+did not stop CARRYING. So one deploy re-styles nothing, and an existing site
+picks up the new way the next time somebody asks for a look change.
+
+**The one thing worth knowing before it runs live.** Yesterday's arm A — the
+free-CSS arm — wrote almost nothing, and that is the obvious reason to be
+sceptical. **That arm still had the palette field.** So there was one place left
+to answer, and the palette is exactly what it filled in; everything else it left
+blank. This one has nowhere else to go. **Whether that is enough is genuinely
+unanswered** — nothing has been built against it yet, and the first build is
+what settles it.
+
+**Cost:** the instruction is 18% smaller than it was (84,691 → 69,088
+characters), so a build is slightly cheaper rather than dearer.
+
+**AND IT TURNED UP SOMETHING BIGGER ON THE WAY: NO SITE WE HAVE EVER PUBLISHED
+WAS LOADING ITS TYPEFACE.** Not a new bug and nothing to do with this change —
+checking that a font named in the model's stylesheet really gets bundled is what
+found it. The font FILES were being published correctly; the one line telling a
+browser to use them was not in the stylesheet at all, so every site fell back to
+whatever face the visitor's phone or laptop uses by default. It looked fine from
+every angle we had: the build reported the right font, the files were in the
+bucket, and nothing failed. **Fixed, and now checked on every container run.**
+Every existing site gets its real typeface back on its next publish — a typo
+fix, a colour change, anything.
+
+---
+
 **THE CSS EXPERIMENT — TWO BUILDS, TWO LIVE SITES (2026-08-22, owner's call).**
 Your question: *"one the one we have to day, model rights css based on the 29
 axis, the other one, model writes css without the axis, meaning it makes it

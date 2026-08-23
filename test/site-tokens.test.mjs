@@ -694,26 +694,6 @@ test("a build that asked for no colour gets no sentence", () => {
 const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 const server = fs.readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8");
 
-test("the tool says the text on a surface is AUTOMATIC, and when to override it", () => {
-  // FOUND BY MUTATION — the only survivor of the sweep on this change. Making
-  // the nine askable is worth nothing if the model sets them on every colour
-  // change: the automatic pairing is right nearly always, so a model that names
-  // both gives the customer a text colour they never chose. The permission and
-  // the restraint are ONE change, and only the restraint lives in prose, which
-  // is exactly the kind of rule a later edit drops silently.
-  const at = worker.indexOf("ONLY when the message asks for a specific COLOUR");
-  assert.ok(at > 0, "the tokens tool no longer opens the way this scan expects");
-  const desc = worker.slice(at, worker.indexOf("// THE HINT IS DERIVED PER TOKEN", at));
-  assert.ok(desc.length > 200, "the description window collapsed to nothing");
-  assert.match(desc, /WORKED OUT FOR YOU/,
-    "the tool does not say the text colour is automatic, so it gets set on every colour change");
-  // AND THE POSITIVE CASE, or the model reads a flat prohibition and the nine
-  // are unreachable in practice however askable they are in code — the failure
-  // `publicView` has already cost a whole site over, twice.
-  assert.match(desc, /NAME THE TEXT ONLY WHEN THE TEXT IS WHAT THEY ARE TALKING ABOUT/,
-    "the tool never says WHEN to name a text colour, so nobody ever will");
-});
-
 test("the patch is written AFTER the theme, which is the whole mechanism", () => {
   // These are the same custom properties the theme declares, so the override is
   // entirely a question of order. Written first, it is silently overwritten and
@@ -732,31 +712,45 @@ test("the container's token write cannot fail a build that otherwise worked", ()
   assert.match(body, /catch/);
 });
 
-test("the chain from the designer to the stylesheet is unbroken", () => {
-  // SEVEN LINKS, and any one missing makes the feature dead while every test
-  // passes — which is the failure this repo has recorded at five separate
-  // layers. The designer can ask, the ask is parsed, it is merged with what the
-  // site already had, it is stored, it is passed to the build, it reaches the
-  // container payload, and the container writes it.
-  assert.match(worker, /tokens: \{\s*\n\s*type: "object"/, "the designer must be able to ask");
-  assert.match(worker, /mergeTokens\(priorTokens, designed && designed\.tokens\)/, "the ask must merge with the stored patch");
+test("THE STORED PATCH STILL REACHES THE STYLESHEET — the designer no longer writes it", () => {
+  // ── INVERTED AT ONE END AND UNCHANGED AT THE OTHER (2026-08-23) ─────────────
+  //
+  // This asserted SEVEN links: the designer can ask, the ask is parsed, it is
+  // merged, stored, passed to the build, carried on the payload, and rendered.
+  // The first link went with the `tokens` field — the model writes the whole
+  // stylesheet now and names a colour in it like anything else.
+  //
+  // THE OTHER SIX ARE THE COMPATIBILITY STORY AND MATTER MORE THAN THEY DID.
+  // Every site built before that day has a token patch in `site_tokens`, both
+  // publish spines read it, and the container writes it BEFORE the model's own
+  // sheet — so a broken link here does not merely disable a feature, it strips a
+  // live customer's colours on their next typo fix and reports success. Any one
+  // of the six missing is that failure, which is why they are asserted apart.
   assert.match(worker, /INSERT INTO _meta \(k,v\) VALUES \('site_tokens'/, "the patch must be stored");
   assert.match(worker, /site_look','site_tokens'/, "…and read back on a revise");
   // THE WHOLE STATEMENT, condition included. Anchored on the assignment alone
   // this passed against `if (false) priorTokens = JSON.parse(r.v)` — a mutant
   // that leaves the text intact and reads nothing back, so every revise would
-  // start from an empty patch and forget the last colour. Selecting a row and
-  // then not carrying it is the shape that has killed a feature here before.
+  // start from an empty patch and forget every colour the site has.
   assert.match(worker, /if \(r\.k === "site_tokens" && r\.v\)\s*priorTokens = JSON\.parse\(r\.v\)/,
     "the stored patch must be read back on a revise");
+  assert.match(worker, /mergeTokens\(priorTokens, designed && designed\.tokens\)/,
+    "the stored patch must survive the merge — `designed.tokens` is always absent now, and that is what makes this a no-op that KEEPS it");
   assert.match(worker, /tokens: siteTokens,/, "the build must be given it");
   assert.match(worker, /tokens: Object\.keys\(tokens \|\| \{\}\)\.length \? withContrast\(tokens\) : undefined/,
     "the container payload must carry it, with the contrast pass");
   assert.match(server, /tokensCss\(tokens\)/, "the container must render it");
-  assert.match(worker, /tokensNote: tokenNote\(tokenAsk\.tokens, tokenAsk\.dropped\)/,
-    "…and the customer must be told, or a colour that did not land reads as the builder being broken");
+  // AND THE TOOL REALLY HAS STOPPED ASKING, so the merge above is a no-op by
+  // construction rather than by luck. Restored beside `css` it would give the
+  // model two ways to set one colour, and the container applies both.
+  const code = worker.split("\n").map((l) => (/^\s*(\/\/|\*|\/\*)/.test(l) ? "" : l)).join("\n");
+  // THE ANCHOR FIRST: `indexOf` answers -1 for a literal that moved and
+  // `slice(-1)` is one character, so the absence would pass over nothing.
+  const at = code.indexOf('name: "design_schema"');
+  assert.ok(at > 0, "the design_schema literal moved and this absence is reading nothing");
+  assert.doesNotMatch(code.slice(at), /\n\s{6}tokens: \{/,
+    "`tokens` is back on design_schema beside `css`");
 });
-
 test("the container really WRITES the patch, not just reports it", () => {
   // The only unit-level hold on the write itself. A `writeTokens` that returns
   // `{applied:true}` and writes nothing is a feature that reports success and
@@ -770,17 +764,6 @@ test("the container really WRITES the patch, not just reports it", () => {
     "the rendered CSS must be written to the stylesheet, not merely computed");
   assert.ok(body.indexOf("fs.writeFileSync") < body.indexOf("applied: true"),
     "…before it reports success");
-});
-
-test("the designer's token list is the module's, not a second copy", () => {
-  // A hand-written enum here would drift from `TOKENS` and offer the model a
-  // property that `parseTokens` then silently drops — a colour change that
-  // reports success and does nothing.
-  assert.match(worker, /SITE_TOKEN_NAMES\.map/, "the tool schema must be derived from the module");
-  assert.match(worker, /ASKABLE as SITE_TOKEN_NAMES/, "…and that name must be the module's export");
-  // THE HINT TOO. Described as "#rrggbb", `radius` would be asked for in hex,
-  // refused by the parser, and reported back as a colour we could not use.
-  assert.match(worker, /description: siteTokenHint\(t\)/, "each token's value hint must be derived, not one line for all");
 });
 
 test("contrast runs at the point of USE, so the stored patch stays the customer's own", () => {

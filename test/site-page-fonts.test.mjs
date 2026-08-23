@@ -129,8 +129,15 @@ test("an INSTALLED page font is still bundled", () => {
 test("the container resolves the page pairs and writes them after @theme", () => {
   const b = read("builder/build-server.mjs");
   assert.match(b, /resolvePageFonts\(pageFonts \|\| \{\}\)/, "the container never resolves a page pair");
-  assert.match(b, /fontCss\(pair, written, pageScopes\)/, "the page scopes never reach the CSS");
-  assert.match(b, /fontImports\(pair, pageScopes\)/, "a page's installed font is bundled by nothing");
+  // ANCHORED ON THE ARGUMENT, NOT THE ARITY. These pinned the exact three- and
+  // two-argument calls and went red the moment a FOURTH honest argument joined
+  // them — the families the site's own stylesheet names, which since 2026-08-23
+  // is where nearly every typeface arrives. A test about how many things ride
+  // beside the one under test, failing a correct change: this repo's most
+  // repeated own-goal. What has to hold is that the page scopes are what the
+  // call is given, whatever else goes with them.
+  assert.match(b, /fontCss\(pair, written, pageScopes\b/, "the page scopes never reach the CSS");
+  assert.match(b, /fontImports\(pair, pageScopes\b/, "a page's installed font is bundled by nothing");
   assert.match(b, /decls\.scoped/, "the scoped rules are computed and never written");
   // OUTSIDE `@theme`, which may not contain a scoped rule — asserted by the
   // scoped half being appended to the themed string rather than inserted into
@@ -140,14 +147,14 @@ test("the container resolves the page pairs and writes them after @theme", () =>
   const win = b.slice(i, b.indexOf("\n  }", i));
   assert.ok(win.indexOf("themed +") > 0 && win.indexOf("decls.scoped") > win.indexOf("themed +"),
     "the scoped rules are not appended after the @theme block");
-  assert.match(b, /writeFonts\(payload\.fonts, payload\.fontFiles, payload\.pageFonts\)/, "the payload's page fonts are ignored");
+  assert.match(b, /writeFonts\(payload\.fonts, payload\.fontFiles, payload\.pageFonts\b/, "the payload's page fonts are ignored");
 });
 
 test("every scope's font file is fetched, on both publish paths", () => {
   // A page whose file was never fetched renders the fallback while the build
   // reports the font it asked for.
   const w = read("worker.js");
-  assert.match(w, /async function fetchSiteFonts\(pair, pages = \[\]\)/, "the fetch cannot take a page pair");
+  assert.match(w, /async function fetchSiteFonts\(pair, pages = \[\]/, "the fetch cannot take a page pair");
   const calls = [...w.matchAll(/await fetchSiteFonts\(([^)]*)\)/g)];
   assert.ok(calls.length >= 2, "only " + calls.length + " fetch calls found — the scan stopped matching");
   for (const m of calls) {
@@ -226,7 +233,11 @@ test("a page override is written when it moved, and rolled back with the rest", 
     "the write is gated on something other than having moved");
   // …AND IT COUNTS AS A CHANGE, or a font-only page edit escalates to a
   // ~27-credit rebuild that cannot do it either.
-  assert.match(w, /!pageTokensMoved && !pageFontsMoved\) \{/, "a page-font-only edit reads as nothing to do");
+  // ANCHORED ON THE TERM, NOT THE WHOLE CONDITION. This pinned the exact
+  // three-term expression and went red when an honest FOURTH joined it —
+  // `cssMoved`, the model's own stylesheet. The property is that a page-font
+  // move counts, not what else counts beside it.
+  assert.match(w, /!pageFontsMoved[^)]*\) \{/, "a page-font-only edit reads as nothing to do");
   // A FAILED COMPILE PUTS IT BACK with the other look keys, or the change waits
   // for the customer's next unrelated edit and applies itself silently.
   assert.match(w, /\["site_page_fonts", priorPageFonts\]/, "a failed compile leaves the override applied");
@@ -242,21 +253,38 @@ test("a page override is written when it moved, and rolled back with the rest", 
   assert.match(dwin, /else nextPageFonts\[forPage\] = /, "a real pair is not stored");
 });
 
-test("the designer is told it can scope a typeface, and told what it cannot", () => {
+test("A PAGE IS SCOPED IN THE STYLESHEET NOW — the field is gone and the hook is stated", () => {
+  // ── INVERTED, AND THE CAPABILITY IS WIDER RATHER THAN LOST ─────────────────
+  //
+  // `tokensPage` named a route and scoped a colour or a typeface to it. It went
+  // with the other four look fields on 2026-08-23, and what replaced it is not
+  // an absence: `<body>` carries the current route as `data-page`, stamped from
+  // the router's own matches, so a model writing raw CSS can scope ANYTHING to a
+  // page. The old field refused corners and spacing outright — they were derived
+  // from the site's values and could not be scoped — and a `body[data-page]`
+  // rule has no such limit.
+  //
+  // THE HOOK HAS TO BE STATED OR THE CAPABILITY IS UNREACHABLE. `data-page` is a
+  // stamp of ours on an element nothing else in the tool mentions; a model not
+  // told about it cannot know a page is addressable, and "make the booking page
+  // calmer" becomes impossible at any price. That is the `publicView` failure
+  // exactly — a capability conditioned on a fact the model was never given — and
+  // it has cost this platform a whole build twice.
   const w = read("worker.js");
-  const at = w.indexOf("tokensPage: {");
-  assert.ok(at > 0);
-  const block = w.slice(at, w.indexOf("},", at));
-  // NOT `/TYPEFACE/i` ALONE — a mutant that put the scope back to "COLOURS ONLY"
-  // SURVIVED it, because the word still appeared in the sentence above. What
-  // discriminates is the field naming `fonts` as one of the things it scopes.
-  assert.match(block, /TYPEFACE/i, "the field never mentions a typeface at all");
-  assert.match(block, /COLOURS AND `fonts` ONLY/i,
-    "the field still says colours only, so nothing will ever ask for a page font");
-  assert.match(block, /handwritten|serif on the about page/i, "no worked example of a page typeface");
-  // THE MEASURED REFUSAL, in the model's own instructions. Without it the model
-  // sends a page-scoped radius that rounds the cards and leaves every chip on
-  // the site's value.
-  assert.match(block, /CORNERS/i, "the field does not refuse the one thing that cannot be scoped");
-  assert.match(block, /empty/i, "there is no way to put a page back to the site's typeface");
+  const code = w.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  assert.doesNotMatch(code, /\n\s{6}tokensPage: \{/,
+    "`tokensPage` is back beside `css`, so a page can be scoped two ways and nothing decides between them");
+  const at = w.indexOf("      css: {");
+  assert.ok(at > 0, "the css field is gone from design_schema");
+  const block = w.slice(at, w.indexOf("\n      },", at));
+  assert.match(block, /data-page/, "the model is never told a page can be addressed at all");
+  assert.match(block, /body\[data-page/, "the hook is mentioned without the selector that uses it");
+  assert.match(block, /is the home page/, "nothing says how to name the home page");
+
+  // AND THE STAMP IS REALLY THERE, at the other end. The rule above is a claim
+  // about the template, so a model told to write `body[data-page="/book"]`
+  // against a body that carries no such attribute is being taught a selector
+  // that matches nothing — silently, on every site.
+  const root = read("builder/lovable/template/src/routes/__root.tsx");
+  assert.match(root, /data-page/, "the template no longer stamps the route on <body>, so every page-scoped rule is dead");
 });

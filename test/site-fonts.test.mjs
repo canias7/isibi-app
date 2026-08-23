@@ -11,6 +11,7 @@ import {
 } from "../builder/site-fonts.mjs";
 
 import { mergeLook } from "../builder/site-edit.mjs";
+import { fontsIn } from "../builder/site-freecss.mjs";
 import { PLAN_REQUIRED } from "../builder/site-plan.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -190,83 +191,130 @@ test("normalizeFontName is total — no input throws", () => {
   assert.equal(nearestFontName("").id, null);
 });
 
-test("the DESIGNER can actually declare a font, and only a real one", () => {
-  // The failure this guards has happened five times in this repo: a feature that
-  // is implemented, tested and enforced, and that nothing can ever declare. The
-  // chain is asserted end to end because any one broken link makes the rest
-  // useless — the tool must offer the field, the enum must be DERIVED from the
-  // shortlist rather than restated, and the route must pass the answer on.
-  const src = fs.readFileSync(path.join(ROOT, "worker.js"), "utf8");
-  assert.match(src, /const SITE_FONT_IDS = SHORTLIST\.map\(/,
-    "the enum must be derived from site-fonts.mjs, not a second copy that can drift");
-  assert.match(src, /heading:\s*\{ type: "string", enum: SITE_FONT_IDS/);
-  assert.match(src, /body:\s*\{ type: "string", enum: SITE_FONT_IDS/);
-  // `fonts` IS REQUIRED AGAIN, AND THIS ASSERTION HAS NOW BEEN INVERTED TWICE —
-  // which is worth reading as one story rather than as a flip-flop, because each
-  // position was right on its own premise and the premise is what moved.
+test("A TYPEFACE IS NAMED IN THE STYLESHEET NOW — the enum is gone and cannot come back", () => {
+  // ── THIS ASSERTION IS INVERTED, AND IT IS THE FOURTH TIME FOR THIS FIELD ────
   //
-  //   1. Required. The model answered from a prose hint on every build and could
+  // The story is worth reading whole rather than as a flip-flop, because each
+  // position was right on its own premise and it is the premise that keeps
+  // moving:
+  //
+  //   1. REQUIRED. The model answered from a prose hint on every build and could
   //      contradict the theme it had just chosen, with nothing checking the two
   //      agreed.
-  //   2. Optional. Right once `themeFontPair` existed: an omitted pair was
+  //   2. OPTIONAL. Right once `themeFontPair` existed: an omitted pair was
   //      filled from the curated recommendation carried by whichever of the 500
   //      registry themes had been named, so skipping was the BETTER answer.
-  //   3. Required again (2026-08-20). The registry is deleted — the designer
-  //      authors the palette per site now — so there is no theme to recommend a
-  //      pairing, and "usually leave it out" would put every site whose designer
-  //      took that advice on the template's default face. The typeface is part
-  //      of the same authoring act as the colours.
+  //   3. REQUIRED AGAIN (2026-08-20). The registry was deleted, so there was no
+  //      theme to recommend a pairing and "usually leave it out" would have put
+  //      every site whose designer took that advice on the template's default.
+  //   4. GONE (2026-08-23, owner's call). Five look fields became one `css`
+  //      string, and a typeface is not a special case inside a stylesheet — it
+  //      is a `font-family` declaration like any other. `fontsIn` reads the
+  //      families back out and they are fetched exactly as a named pair was.
   //
-  // ANCHORED ON THE TOOL'S OWN CLOSING SHAPE, not on the shape of its CONTENTS.
-  // It was `\[("[a-z]+",\s*)*"[a-z]+"\]` — a list of nothing but quoted
-  // lowercase names — and went red the day that list stopped being one, when the
-  // six authored plan fields arrived as `...PLAN_REQUIRED`. A test about how the
-  // entries are written, failing a correct change: this repo's most repeated
-  // own-goal, and the same one `site-images.test.mjs` records one file over.
+  // ASSERTED AS AN ABSENCE, which is the half that rots silently: `seeds` and
+  // `fonts` are still stored, still merged and still SENT on every republish, so
+  // a `fonts` field quietly restored to the tool would not fail anything obvious
+  // — it would simply give the model two ways to choose a typeface and let them
+  // disagree, with whichever ran last winning.
+  const src = fs.readFileSync(path.join(ROOT, "worker.js"), "utf8");
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  assert.doesNotMatch(code, /enum: SITE_FONT_IDS/,
+    "the font enum is back in the tool — there are now two ways to choose a typeface and nothing decides between them");
+  assert.doesNotMatch(code, /\n\s{6}fonts: \{/,
+    "`fonts` is back on design_schema beside `css`, so a pairing and a stylesheet can name different faces");
   const required = src.match(/required: \[[^\]]*\],\s*\n\s*\},\s*\n\};/);
   assert.ok(required, "could not find design_schema's required list");
-  assert.match(required[0], /"fonts"/,
-    "fonts is optional again — with no registry to recommend a pairing, that means the default face on every site whose designer omits it");
-  // AND THE PREMISE THAT MAKES IT REQUIRED RATHER THAN MERELY WISHED FOR: there
-  // is no longer any fallback to fill an omitted pair from. Asserted as an
-  // ABSENCE, because restoring one without making the field optional again is
-  // harmless, and making it optional without restoring one is the regression.
+  assert.doesNotMatch(required[0], /"fonts"/, "a deleted field cannot be required");
+  assert.match(required[0], /"css"/,
+    "the stylesheet is not compelled, so a site whose designer omits it ships the template's plain default look");
+
+  // ── AND THE STORED PAIR STILL FLOWS, WHICH IS THE COMPATIBILITY HALF ────────
   //
-  // COMMENTS BLANKED FIRST, and this guard caught its own author on the way in:
-  // the note in worker.js recording that `themeFontPair` was removed CONTAINS
-  // the name, so the check went red against a file that is exactly right. Prose
-  // explaining a deletion spells the deleted thing — recorded here more than
-  // half a dozen times, and the reason a negative assertion never reads raw
-  // source.
-  const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
-  assert.doesNotMatch(code, /themeFontPair/,
-    "themeFontPair is back — decide which of the two fills an omitted pair, rather than having both");
-  // Resolved through the `look` object now — a revise keeps the fonts the site
-  // already wears rather than re-rolling them from the instruction — but the
-  // designer's answer is still what a FIRST build uses, and both halves of that
-  // are asserted apart: the chain that computes it, and the value reaching the
-  // build. Either alone passes while the other is broken.
-  // THE PROPERTY, NOT THE CHAIN. This pinned the inline
-  // `(priorLook && …) || (designed && …)` expression and went red when the merge
-  // moved into `mergeLook` — word order again. What has to hold is that a
-  // designer that NAMES a pair still reaches the build, on a first build and on
-  // an instructed edit alike, so a brief asking for a typeface is not ignored.
-  assert.deepEqual(mergeLook(null, { fonts: { heading: "lora", body: "geist" } }, null).fonts,
-    { heading: "lora", body: "geist" }, "the designer's answer has to reach the build");
-  assert.deepEqual(mergeLook({ fonts: { heading: "inter", body: "inter" } },
-    { fonts: { heading: "lora", body: "geist" } }, null, { instructed: true }).fonts,
-    { heading: "lora", body: "geist" }, "an edit that asks for a typeface cannot get one");
-  // …and a half pair is NOT an answer, or `{heading:"x"}` reaches the build and
-  // the body silently defaults — the same rule `themeFontPair` follows.
-  assert.equal(mergeLook(null, { fonts: { heading: "lora" } }, null).fonts, null);
-  // THE PROPERTY, NOT THE SPELLING. This pinned `const merged = mergeLook(...)`
-  // and went red when the route grew a SECOND call — the probe that answers
-  // which page a colour is for, which must run before the merge it feeds. What
-  // has to hold is that the route merges the look at all.
-  assert.match(src, /mergeLook\(priorLook, [a-zA-Z]+, body/, "the route does not merge the look");
-  assert.match(src, /fonts: look\.fonts,/, "the resolved fonts never reach buildAndPublishPages");
+  // Every site built between 2026-08-20 and 2026-08-23 has a pairing in
+  // `site_look`, and `mergeLook` rebuilds its output from `EDIT_FIELDS` alone —
+  // so `fonts` leaving that list would strip the typeface off a live site
+  // because its owner fixed a typo. Driven through the real merge rather than
+  // read off the constant, because the constant containing the name proves
+  // nothing about the merge keeping the value.
+  assert.deepEqual(mergeLook({ fonts: { heading: "lora", body: "geist" } }, {}, null, { instructed: true }).fonts,
+    { heading: "lora", body: "geist" },
+    "an existing site loses its typeface on the next unrelated edit");
+  assert.match(src, /fonts: look\.fonts,/, "the stored fonts never reach buildAndPublishPages");
   assert.match(src, /fonts: \{ heading: fontPair\.heading\.id, body: fontPair\.body\.id \}/,
     "and the build request has to carry it");
+  // THE PROPERTY, NOT THE SPELLING. This pinned `const merged = mergeLook(...)`
+  // and went red when the route grew a SECOND call — the probe that answers
+  // which page a colour is for, which must run before the merge it feeds.
+  assert.match(src, /mergeLook\(priorLook, [a-zA-Z]+, body/, "the route does not merge the look");
+});
+
+test("A FAMILY THE STYLESHEET NAMES IS FETCHED AND BUNDLED — the whole new chain", () => {
+  // THE FAILURE THIS GUARDS is the one `site-fonts.mjs`'s own header is written
+  // around, arriving through the door that has no font picker in front of it: a
+  // `font-family` with no file behind it falls back SILENTLY, so the site ships
+  // in the wrong typeface and every layer reports success. Six links, each
+  // asserted apart, because any one of them broken makes the rest useless.
+  const src = fs.readFileSync(path.join(ROOT, "worker.js"), "utf8");
+  const container = fs.readFileSync(path.join(ROOT, "builder", "build-server.mjs"), "utf8");
+
+  // 1. the families are read out of the sheet at all…
+  assert.deepEqual(fontsIn(':root{--font-sans:"Lora",Georgia,serif}body{font-family:var(--font-sans)}').ids,
+    ["lora"], "the template's own shape — a stack behind a custom property — is not read");
+  // 2. …against the WHOLE catalogue rather than the installed 24, or a family we
+  //    can fetch perfectly well is reported to the customer as a fallback.
+  assert.deepEqual(fontsIn('body{font-family:"Cormorant Garamond",serif}').ids, ["cormorant-garamond"]);
+  // 3. …and a system face is NOT reported, which is the false alarm that would
+  //    tell somebody their working stylesheet had degraded.
+  assert.deepEqual(fontsIn("body{font-family:Georgia,serif}").missing, []);
+
+  // 4. the Worker fetches them, on BOTH publish paths — the build and the cheap
+  //    spine every text fix, colour change and picture swap goes through. A path
+  //    that does not fetch re-emits no @font-face, because the container rewrites
+  //    the stylesheet from a pristine copy on every single build.
+  // `await`, NOT A BARE NAME — the DECLARATION is `function fetchSiteFonts(pair,
+  // pages = [], extra = [])` and matches a bare scan, so the first draft of this
+  // reported a call site that does not exist and failed against correct code.
+  // The `buildEffortHTML()` trap, which this repo has recorded three times: a
+  // source-read must anchor on something only the thing being asserted can have.
+  const fetches = [...src.matchAll(/await fetchSiteFonts\(([^)]*)\)/g)].map((m) => m[1]);
+  assert.ok(fetches.length >= 2, "the two publish paths no longer both fetch fonts");
+  for (const args of fetches) {
+    assert.match(args, /cssRead\.fonts/,
+      "a publish path fetches the pair and not the stylesheet's own families: " + args);
+  }
+  // 5. …and the ids reach the container, so it can emit the face and the import.
+  assert.equal((src.match(/cssFonts: \(cssRead\.fontIds \|\| \[\]\)/g) || []).length, 2,
+    "both container payloads must name the stylesheet's families");
+  // 6. …where BOTH halves happen. A @font-face with no npm import leaves an
+  //    installed family unbundled; an import with no face leaves a fetched one
+  //    with no file. Either alone renders the fallback and reports success.
+  assert.match(container, /writeFonts\(payload\.fonts, payload\.fontFiles, payload\.pageFonts, payload\.cssFonts\)/,
+    "the container never receives the stylesheet's families");
+  assert.match(container, /fontCss\(pair, written, pageScopes, cssFaces\)/,
+    "no @font-face is emitted for a family the stylesheet names");
+  assert.match(container, /fontImports\(pair, pageScopes, cssFaces\)/,
+    "an installed family the stylesheet names is bundled by nothing");
+  // 7. …AND THE INSTALLED FAMILY'S PACKAGE IS @import-ED FROM THE STYLESHEET,
+  //    which is the only thing that produces a rule. MEASURED on a real build:
+  //    the npm import in `fonts.ts` emits every woff2 as an asset and puts ZERO
+  //    `@font-face` in `dist/client` or `dist/server` — the files are there and
+  //    nothing tells the browser to use them, so the site renders the system
+  //    face and every layer reports the family it asked for. It was true of the
+  //    template's own `geist` default too, i.e. of every published site.
+  //
+  //    ASSERTED AS THE PROPERTY, NOT THE SPELLING: what has to hold is that the
+  //    package names become `@import` lines and that those lines are FIRST in
+  //    what is written, because an `@import` after any rule is ignored per spec
+  //    — and `decls.faces` (the fetched families' own @font-face) is written
+  //    into the same string.
+  const imports = container.match(/const cssImports = ([^\n]*)/);
+  assert.ok(imports, "the installed families' packages are not turned into @import lines");
+  assert.match(imports[1], /@import/, "…and what is built from them is not an @import");
+  const write = container.match(/fs\.writeFileSync\(STYLES,\s*([\s\S]{0,160})/);
+  assert.ok(write, "the stylesheet write moved and this guard is watching nothing");
+  assert.match(write[1], /^\s*\(cssImports/,
+    "the package @imports are not the FIRST thing in the stylesheet, so the browser ignores them");
 });
 
 test("an off-shortlist font is FETCHED by the Worker, and fails soft", () => {

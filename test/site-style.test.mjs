@@ -691,36 +691,46 @@ test("THE TWO VOCABULARIES CANNOT SAY THE SAME THING", () => {
   }
 });
 
-test("A NAME ON BOTH LISTS SAYS WHICH SLOT IS WHICH", () => {
-  // THIS GUARD ASSERTED THE POINTER AND NOW ASSERTS THE MECHANISM, because the
-  // thing it was written for was fixed rather than mitigated. `border` was a
-  // colour on one list and a weight on the other, so "make the borders thicker"
-  // could land in the colour slot, be refused for not being a colour, and come
-  // back as "ask again with a hex code" — advice that cannot work. The tool
-  // carried a hand-written pointer to the other slot; the axis is now
-  // `borderWeight` on the wire and there is nothing left to point at.
+test("THE 29 AXES ARE OFF THE TOOL, AND THE ENGINE STILL DRIVES EVERY STORED ONE", () => {
+  // ── FIVE TESTS COLLAPSED INTO ONE INVERSE (2026-08-23, owner's call) ────────
   //
-  // So what is held is that the pointer is still DERIVED FROM THE WIRE NAMES.
-  // It goes quiet on its own now that nothing collides, and comes back on its
-  // own the day something does — which is why it is kept rather than deleted:
-  // deleting it leaves the next collision with no mitigation and nothing to
-  // notice it. A separate test asserts the overlap is currently EMPTY, so this
-  // one going quiet is a measured fact rather than an assumption.
-  const at = worker.indexOf("properties: Object.fromEntries(SITE_TOKEN_NAMES.map(");
-  assert.ok(at > 0, "the tokens field moved — retarget this");
-  const block = worker.slice(at, worker.indexOf("},", at));
-  assert.match(block, /SITE_STYLE_AXES\.map\(siteWireName\)\.includes\(t\)/,
-    "the pointer is computed from the INTERNAL names, so it would point at a field the tool does not have");
-  assert.match(block, /style\." \+ t/, "the pointer does not name the other slot");
-  // And a token whose name an axis ever shares must still be described as a
-  // colour, or the disambiguation would be bolted onto something that stopped
-  // being one. Vacuous today by construction — asserted over the real overlap
-  // so it starts meaning something again the moment there is one.
-  for (const t of TOKEN_NAMES.filter((n) => ASKABLE.map(wireName).includes(n))) {
-    assert.equal(valueHint(t), "#rrggbb", t + " stopped being described as a colour");
+  // These asserted that `design_schema` offered the `style` block, that its
+  // fields were built from the engine's own tables, that the two image axes kept
+  // their suffixed name, that the wire alias reached the model, and that the
+  // hand-written pointer between `style.border` and `tokens.border` was derived.
+  // Every one was a fact about a field that no longer exists: the five look
+  // fields became one `css` string and the model writes the stylesheet itself.
+  //
+  // WHAT SURVIVES IS THE ENGINE, AND THAT IS THE WHOLE COMPATIBILITY STORY. Every
+  // site built between 2026-08-20 and 2026-08-23 stores axes in `site_style`, and
+  // both publish spines still read them, merge them and send them on EVERY
+  // republish — a typo fix included. So `mergeStyle`, `parseStyle` and all 29
+  // emitters stay, exercised by the several hundred assertions in the rest of
+  // this file; what had to go is only the tool's way of ASKING.
+  //
+  // ASSERTED AS AN ABSENCE, which is the half that rots silently: a `style`
+  // block quietly restored beside `css` would give the model two ways to decide
+  // the same look with nothing choosing between them, and the container applies
+  // both — the axes into the theme, then the stylesheet over the top.
+  const code = worker.split("\n").map((l) => (/^\s*(\/\/|\*|\/\*)/.test(l) ? "" : l)).join("\n");
+  const tool = code.slice(code.indexOf('name: "design_schema"'));
+  for (const gone of ["style", "tokens", "tokensPage", "seeds", "fonts"]) {
+    assert.doesNotMatch(tool, new RegExp("\\n\\s{6}" + gone + ": \\{"),
+      "`" + gone + "` is back on design_schema beside `css` — two ways to decide one look");
   }
+  assert.doesNotMatch(tool, /siteAuthoredSchema|siteAuthoredHint|SITE_STYLE_AXES/,
+    "the tool is building per-axis fields again");
+  // AND THE ENGINE IS STILL WIRED, or the absence above would be indistinguishable
+  // from the whole look tier having been deleted — which would silently strip
+  // every existing site on its owner's next unrelated edit.
+  assert.match(worker, /import \{[^}]*mergeStyle[^}]*\} from "\.\/builder\/site-style\.mjs"/,
+    "the style engine is no longer imported, so every stored axis is dropped on the next republish");
+  assert.match(worker, /mergeStyle\(priorStyle, designed && designed\.style/,
+    "the stored axes are no longer merged on the build path");
+  assert.match(worker, /style: Object\.keys\(style \|\| \{\}\)\.length \? style : undefined/,
+    "the cheap spine no longer sends the stored axes, so a typo fix strips them");
+  assert.match(worker, /INSERT INTO _meta \(k,v\) VALUES \('site_style'/, "the axes are no longer stored");
 });
-
 test("GLASS IS GIVEN SOMETHING TO SIT ON", () => {
   // THE ONLY COUPLING AMONG THE SEVENTEEN, and it was measured by rendering
   // rather than reasoned. `surfaceCss` sets `--card` to 0.5 alpha; on a plain
@@ -970,76 +980,35 @@ test("IT IS ITS OWN _meta KEY, never a field on site_look", () => {
     "the build path and the look edit must both store it");
 });
 
-test("THE DESIGNER CAN ASK FOR IT, and it AUTHORS rather than picks", () => {
-  // Unreachable from the tool is unreachable full stop — the state 14 other
-  // schema features are in, fully built and declarable by nothing.
+test("AN AUTHORED PALETTE CARRIES NO AXES — the premise the whole tier rests on", () => {
+  // THE PREMISE, AND IT HAS OUTLIVED TWO DIFFERENT FIELDS THAT DEPENDED ON IT.
   //
-  // THIS ASSERTED THE ENUM UNTIL 2026-08-22, and the enum is the thing that
-  // went: "an option the engine would refuse is merely dropped rather than
-  // impossible" was the right property while the domain was 23 fixed lists, and
-  // "any CSS" has no enumerable domain — so it is replaced rather than
-  // abandoned. The guarantee moves from "cannot be said" to "cannot be said and
-  // reach the page": `site-authored.mjs` parses what comes back and RE-EMITS it,
-  // so nothing lands in a customer's stylesheet that we did not assemble.
+  // The `style` field's description once read "omit it entirely — on a first
+  // build the theme already decides all of these", which was TRUE while a theme
+  // was a row from the 500-strong registry: every one of those rows carried all
+  // eighteen axes. The registry went the same day the seeds landed and an
+  // authored theme is `{label, light, dark}`, so the clause outlived its own
+  // premise by hours and every site since shipped the template's plain defaults
+  // while the model was told they were already designed.
   //
-  // Held as an ABSENCE as well as a presence, because an enum coming back is
-  // the tidy-looking edit that quietly restores the menu — and run 14 measured
-  // what a menu does to an escape hatch beside it: the model reached for the
-  // names on both axes that had one.
-  assert.match(worker, /import \{[^}]*mergeStyle[^}]*\} from "\.\/builder\/site-style\.mjs"/);
-  const at = worker.indexOf("      style: {");
-  assert.ok(at > 0, "design_schema has no style field");
-  const field = worker.slice(at, worker.indexOf("\n      },", at));
-  assert.match(field, /SITE_STYLE_AXES\.map/, "the axes are restated rather than derived");
-  assert.doesNotMatch(field, /enum:/, "an enum is back on a style axis — the names are supposed to be gone");
-  assert.match(field, /siteAuthoredSchema\(a/, "the fields are no longer built from the engine's own tables");
-});
-
-test("A FIRST BUILD AUTHORS THE AXES — nothing else decides them", () => {
-  // THE PREMISE FIRST, because the description is only honest while this holds.
-  // It used to read "omit it entirely otherwise — on a first build the theme
-  // already decides all of these", which was TRUE while a theme was a row from
-  // the 500-strong registry: every one of those rows carried all eighteen axes.
-  // The registry went the same day the seeds landed and an authored theme is
-  // `{label, light, dark}`, so the clause outlived its own premise by hours and
-  // every site since has shipped the template's plain defaults while the model
-  // was told they were already designed.
-  //
-  // DRIVEN THROUGH THE REAL NORMALISER rather than asserted about the shape, so
-  // the day seeds legitimately start carrying axes this goes red and points at
-  // the sentence that would then need to change back.
+  // BOTH FIELDS ARE NOW GONE (2026-08-23) AND THE PREMISE STILL DECIDES. What
+  // rests on it today is the `css` field: it is REQUIRED precisely because
+  // nothing else decides the look, and a stored palette that started carrying
+  // axes would make that compulsion wrong the same way. So this is driven
+  // through the real normaliser rather than asserted about a description, and it
+  // goes red on the day it stops being true rather than on the day somebody
+  // notices.
   const seeded = normalizeSeeds({ name: "Warm Brick", paper: "#faf7f2", ink: "#1b1714", accent: "#b44a2e" });
   assert.ok(seeded.theme, "the fixture palette is refused, so this proves nothing: " + seeded.why);
   const carried = ASKABLE.filter((a) => a in seeded.theme);
   assert.deepEqual(carried, [],
-    "an authored theme carries style axes again, so the field description may say the theme decides them: " + carried.join(","));
-  // And the same fact one layer down: with no patch, none of the eighteen is
-  // attached, so an omitted axis is the template's plain default rather than a
-  // design choice — which is exactly what the description now tells the model.
+    "an authored theme carries style axes again: " + carried.join(","));
+  // And the same fact one layer down: with no patch, none of the axes is
+  // attached, so a site whose stylesheet says nothing about them wears the
+  // template's plain default rather than a design.
   assert.deepEqual(ASKABLE.filter((a) => a in applyStyle(seeded.theme, undefined)), [],
     "applyStyle attaches axes with no patch, so an omitted axis is no longer the plain default");
-
-  // THEN THE SENTENCE. Read from the DESCRIPTION alone and never from the file:
-  // the comment above the field explains the deleted clause, and prose about a
-  // removal spells the removed thing — this repo's most repeated own-goal.
-  const at = worker.indexOf("      style: {");
-  const raw = worker.slice(worker.indexOf("description:", at), worker.indexOf("properties:", at));
-  // Adjacent string literals joined, so a rule split across a line break by the
-  // concatenation still reads as one sentence — a phrase assertion that has to
-  // know where the `" +` falls is a test about line wrapping.
-  const desc = raw.replace(/"\s*\+\s*\n\s*"/g, "");
-  assert.match(desc, /ON A FIRST BUILD/, "nothing tells the model to author the axes on a first build");
-  assert.equal(/theme already decides/.test(desc), false,
-    "the description claims the theme decides the axes, which stopped being true when the registry went");
-  assert.equal(/[Oo]mit it entirely otherwise/.test(desc), false,
-    "the description tells the model to omit the axes on a first build");
-  // The revise half is unchanged and must stay: naming an axis nobody asked
-  // about is how a colour change silently re-styles a live site.
-  assert.match(desc, /ON A REVISE/, "the revise rule is gone, so an edit may move axes nobody asked about");
-  assert.match(desc, /only the axes the customer actually asked about/,
-    "the revise half no longer says to name only what was asked");
 });
-
 test("THE CAP IS A REVISE RULE — a first build is not cut to six", () => {
   // The behaviour first, driven through the real module. Capped at six on a
   // build, the merge keeps whichever six `AXES` declares first and drops the
@@ -1229,7 +1198,12 @@ test("THE CUSTOMER IS TOLD, at both ends of the wire", () => {
     "the look lane sends raw axis keys to a client that cannot translate them");
   assert.match(worker, /Object\.keys\(nextTokens\)\.map\(\(k\) => tokenSaid\(k\)\)/,
     "the look lane sends raw token keys — one reply would name two changes two different ways");
-  assert.match(chat, /concat\(tokens, style\)/, "the client drops the style names from its sentence");
+  // ANCHORED ON THE ARGUMENTS, NOT THE CALL. This pinned `concat(tokens, style)`
+  // exactly and went red when a THIRD honest name joined it — `the design`, the
+  // one word a css change has, since a stylesheet moves no named axes and
+  // without it the reply is "✅ Updated the look." with nothing after it. A test
+  // about how many things are concatenated, failing a correct change.
+  assert.match(chat, /concat\(tokens, style\b/, "the client drops the style names from its sentence");
 });
 
 test("A RESTATED AXIS TAKES THE NEW VALUE, and nothing else moves", () => {
@@ -1377,67 +1351,6 @@ test("a DEFERRED value never becomes a layer, however it reaches applyStyle", ()
   const wash = { light: ["linear-gradient(160deg, var(--primary), #fff)"], dark: AUTHORED_WASH.dark };
   const out = applyStyle(theme, { backdrop: wash });
   assert.equal(out.authored, undefined, "a value nothing could read was attached as a layer");
-});
-
-test("the tool offers an authored value on exactly the axes the engine accepts one on", () => {
-  // DERIVED AT BOTH ENDS. An axis taught to accept a value in `parseStyle` and
-  // not offered by the tool is a capability nothing can reach; one offered and
-  // not accepted is a look reported as applied that never arrives.
-  const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.match(worker, /SITE_AUTHORED_AXES/, "the tool no longer knows which axes take an authored value");
-  assert.match(worker, /AUTHORED_AXES as SITE_AUTHORED_AXES/, "…and it must be the engine's own list, not a copy");
-  // EVERY AXIS IS AUTHORED NOW (2026-08-22), so this asserted a SPELLING that
-  // was true of the two-axis shape and says nothing about the property — the
-  // own-goal this repo has recorded more than any other. What has to hold is
-  // that the field list is BUILT from the engine's tables rather than restated,
-  // and that the two image axes keep the suffixed name their `{light, dark}`
-  // pair needs.
-  assert.match(worker, /siteAuthoredSchema\(a, siteStyleSaid\(a\)\)/,
-    "the style fields are no longer built from the engine's own tables");
-  assert.match(worker, /SITE_AUTHORED_IMAGE\.includes\(a\)/,
-    "the two background-image axes are no longer told apart from the rest");
-  assert.match(worker, /a \+ "Css"/, "the image axes lost the suffixed field their pair shape needs");
-  // AND NO UNION, which is a decision rather than a style. The `webhooks` field
-  // in this same tool refused one for a reason that still holds — an untested
-  // JSON Schema construct here 400s EVERY build rather than degrading — and the
-  // first draft of the authored value shipped one anyway. Asserted so it cannot
-  // come back as a tidy-up; overturning it means proving the API takes one.
-  // …and this reads the CODE, not the prose. The comment at that field explains
-  // the decision and therefore SPELLS the thing it forbids, so an absence check
-  // over the raw text matches its own explanation and fails against correct
-  // code. Blanked by whole line and length-preserving, the trap this repo has
-  // now recorded in a lint, a router guard, an absence check and a scope scan.
-  const code = worker.split("\n").map((l) => (/^\s*(\/\/|\*|\/\*)/.test(l) ? "" : l)).join("\n");
-  assert.doesNotMatch(code.slice(code.indexOf('name: "design_schema"')), /anyOf|oneOf/,
-    "design_schema grew a union — prove the API accepts one before relying on it");
-  // …AND EVERY OPTION SURVIVES AS A DEFAULT, which is what makes the enum safe
-  // to remove. The names are gone from the WIRE and still standing behind it:
-  // an axis nobody authors falls back to one, and every site published before
-  // today has names stored that are re-parsed on every publish. An axis with no
-  // options left is one where a refused answer degrades to nothing at all.
-  for (const a of AUTHORED_AXES) {
-    assert.ok(optionsFor(a).length, `${a} has no options left to fall back to`);
-  }
-  // The hint has to name the refusals, not only the permissions: `url()` and
-  // `color-mix()` are the two a model reaches for unprompted, and an answer
-  // spent on either is an axis silently dropped. THE TWO IMAGE AXES ONLY —
-  // `authoredHint` is the `{light, dark}` gradient hint, and every OTHER axis is
-  // described by `authoredFieldHint`, which has its own guard. The split is
-  // derived from `AXIS_DECLS[a].image` at both ends, here and in `worker.js`, so
-  // an axis added to either shape lands in the right hint with nothing to
-  // remember. (It said "the other 21" until the five late surfaces made it 27 —
-  // a count in a comment is a fact that goes stale on the next change.)
-  for (const axis of AUTHORED_AXES.filter((a) => AXIS_DECLS[a] && AXIS_DECLS[a].image)) {
-    const hint = authoredHint(axis);
-    assert.match(hint, /url\(\)/, `${axis}: the hint does not warn about url()`);
-    assert.match(hint, /color-mix\(\)/, `${axis}: the hint does not warn about color-mix()`);
-    assert.match(hint, /BOTH MODES ARE REQUIRED/, `${axis}: a one-mode answer is refused and the hint does not say so`);
-    assert.match(hint, /var\(--primary\)/, `${axis}: the hint does not name the brand colour`);
-    // MEASURED, not assumed: `--accent` in this palette is a pale hover surface
-    // (oklch L 0.94 against the brand's 0.56), so a hint recommending it would
-    // produce a wash nobody asked for.
-    assert.match(hint, /NOT `var\(--accent\)`/, `${axis}: the hint does not warn off the token that is not the brand`);
-  }
 });
 
 test("the authored hint is derived from the validator, not restated", () => {
@@ -1711,29 +1624,6 @@ test("wireName cannot be tricked by a prototype key", () => {
   assert.equal(wireName("constructor"), "constructor");
   assert.equal(wireName("__proto__"), "__proto__");
   assert.equal(wireName("hover"), "hover", "an axis with no alias must answer itself");
-});
-
-test("the tool asks for the WIRE name, and the pointer it replaced is gone", () => {
-  // Either half alone passes while the other is broken: the alias can be
-  // correct and the tool still ask for the internal name, or the tool can ask
-  // for the new name while the parser has never heard of it.
-  // THE PROPERTY NAME IS DERIVED AT RUNTIME, so the literal `borderWeight` is
-  // nowhere in `worker.js` — asserting it appeared was wrong, and the first run
-  // of this test said so. What has to hold is that the key comes from
-  // `siteWireName`, and that the parser accepts BOTH names (asserted above).
-  // Either half alone passes while the other is broken: the alias can be right
-  // and the tool still ask for the internal name, or the tool can ask for the
-  // new name while the parser has never heard of it.
-  assert.match(worker, /\[siteWireName\(a\), siteAuthoredSchema\(/,
-    "the style block keys its properties on the internal axis name, so the rename never reaches the model");
-  assert.ok(Object.keys(AXIS_WIRE).length > 0,
-    "nothing is aliased any more — this guard has stopped meaning anything");
-  // AND THE HAND-WRITTEN POINTER IS DERIVED FROM THE WIRE NAMES, so it goes
-  // quiet now that nothing collides and comes BACK on its own if a twin ever
-  // appears. Kept rather than deleted for exactly that: deleting it leaves the
-  // next collision with no mitigation and nothing to notice it.
-  assert.match(worker, /SITE_STYLE_AXES\.map\(siteWireName\)\.includes\(t\)/,
-    "the token pointer is computed from the internal names, so it points at a field the tool does not have");
 });
 
 /* ------------------------------------------ the five late surfaces (2026-08-22) */

@@ -359,24 +359,35 @@ export function resolvePageFonts(req, { max = MAX_PAGE_FONTS } = {}) {
  * Two scopes asking for the same face would otherwise declare it twice, which
  * is a second download in some browsers and dead bytes in the rest.
  */
-export function fontCss(pair, fetched = {}, pages = []) {
+export function fontCss(pair, fetched = {}, pages = [], extra = []) {
   const faces = [];
   const seen = new Set();
-  const addFaces = (p) => {
-    for (const slot of ["heading", "body"]) {
-      const f = p && p[slot];
-      if (!f || f.source !== "fetch") continue;
-      const file = fetched[f.id];
-      if (!file || seen.has(f.id)) continue;
-      seen.add(f.id);
-      faces.push(
-        `@font-face{font-family:"${f.family}";src:url("${file}") format("woff2");` +
-        `font-weight:100 900;font-style:normal;font-display:swap;}`,
-      );
-    }
+  const addFace = (f) => {
+    if (!f || f.source !== "fetch") return;
+    const file = fetched[f.id];
+    if (!file || seen.has(f.id)) return;
+    seen.add(f.id);
+    faces.push(
+      `@font-face{font-family:"${f.family}";src:url("${file}") format("woff2");` +
+      `font-weight:100 900;font-style:normal;font-display:swap;}`,
+    );
   };
+  const addFaces = (p) => { for (const slot of ["heading", "body"]) addFace(p && p[slot]); };
   addFaces(pair);
   for (const p of pages) addFaces(p && p.pair);
+  // ── AND EVERY FAMILY THE SITE'S OWN STYLESHEET NAMES ────────────────────────
+  //
+  // Since 2026-08-23 a typeface is chosen by the model writing `font-family` in
+  // its own CSS rather than by a `fonts` field, so this is where most sites'
+  // faces now arrive. A LIST rather than a pair, because a stylesheet may reach
+  // for one face or five and none of them is "the heading one" — and through the
+  // SAME `addFace` and the SAME `seen` set, so a family that is also a page
+  // scope's is emitted once.
+  //
+  // NO `vars` AND NO `scoped` FOR THESE, deliberately: the model's own sheet
+  // decides what they are applied to and is written after this one. All this
+  // owes them is the file.
+  for (const f of extra || []) addFace(f);
 
   const stack = (f) => `"${f.family}", ${stackFor(f.kind)}`;
   return {
@@ -412,18 +423,21 @@ export function fontCss(pair, fetched = {}, pages = []) {
   };
 }
 
-export function fontImports(pair, pages = []) {
+export function fontImports(pair, pages = [], extra = []) {
   const pkgs = [];
+  const add = (f) => { if (f && f.source === "installed" && f.pkg && !pkgs.includes(f.pkg)) pkgs.push(f.pkg); };
   // EVERY PAIR, or a page whose typeface is one of the INSTALLED shortlist is
   // never bundled and the page renders the fallback — which is the exact failure
   // shape this file's header describes: the build reports the right font and
   // ships the default. Deduped, because two scopes on one family is one import.
   for (const p of [pair, ...(pages || []).map((x) => x && x.pair)]) {
-    for (const slot of ["heading", "body"]) {
-      const f = p && p[slot];
-      if (f && f.source === "installed" && !pkgs.includes(f.pkg)) pkgs.push(f.pkg);
-    }
+    for (const slot of ["heading", "body"]) add(p && p[slot]);
   }
+  // AND THE STYLESHEET'S OWN, for the same reason one line up and with a sharper
+  // edge: this is the only route a typeface has on a site built since the `fonts`
+  // field went, so a shortlist family named here and imported by nothing renders
+  // the fallback on every page while the build reports the family it asked for.
+  for (const f of extra || []) add(f);
   return pkgs;
 }
 

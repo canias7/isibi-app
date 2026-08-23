@@ -1618,12 +1618,23 @@ test("A FAILED LOOK COMPILE PUTS THE STORED LOOK BACK", () => {
   // has to hold is that every `_meta` key the look lane WRITES is also one it
   // puts back, derived from the lane itself so a fourth is covered without
   // anybody remembering this file.
+  //
+  // AND THE ROLLBACK REGION IS THE WHOLE RESTORE, not one `for` loop inside it.
+  // Pinned to that loop this went red on a correct change the moment a key was
+  // restored by a statement of its own — `site_css`, which is a plain STRING and
+  // must not go through a list whose every other member is `JSON.stringify`d (a
+  // stringified stylesheet is a quoted, escaped copy that the reader hands the
+  // container verbatim: a site whose every rule is inside one string literal).
+  // The property is "put back somewhere in the restore", and asserting the shape
+  // of the restore is the word-order own-goal one layer in.
   const written = [...b.slice(from).matchAll(/INSERT INTO _meta \(k,v\) VALUES \('([a-z_]+)'/g)]
     .map((m) => m[1]).filter((k) => k !== "site_look");
   assert.ok(written.length >= 2, "the look lane's writes are no longer visible to this scan");
-  const rolled = (/for \(const \[k, v\] of \[([^\]]*\]\s*)+\]\)/.exec(before) || [""])[0];
+  const rollFrom = before.indexOf("restored = true");
+  assert.ok(rollFrom > 0, "the look lane's rollback moved — rescope this");
+  const rolled = before.slice(rollFrom);
   for (const k of new Set(written)) {
-    assert.ok(rolled.includes('"' + k + '"'),
+    assert.ok(rolled.includes("'" + k + "'") || rolled.includes('"' + k + '"'),
       "the look lane writes `" + k + "` and a failed compile does not put it back");
   }
   // ABSENT MEANS DELETED, not an empty object. A site that had no tokens must

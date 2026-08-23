@@ -306,7 +306,7 @@ test("the seed field states the consequence, not just the requirement", () => {
   // occurs once — so the slice cannot be satisfied from outside it either way.
   // What the window still earns is the assertion on the next line: `seed`
   // being renamed or moved fails here rather than silently reading nothing.
-  const end = w.indexOf("\n      fonts: {", at);
+  const end = w.indexOf("\n      css: {", at);
   assert.ok(end > at, "the field after `seed` moved — retarget this window");
   const field = w.slice(at, end);
 

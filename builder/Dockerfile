@@ -103,7 +103,7 @@ RUN mkdir -p /app/.routes-base \
 # every build's render check at runtime with MODULE_NOT_FOUND, and since the
 # check is best-effort by design the build would SUCCEED with the boundary
 # silently gone. `test/dockerfile.test.mjs` names it explicitly for that reason.
-COPY build-server.mjs exit-reason.mjs run-step.mjs site-ssr.mjs render-server-child.mjs site-addon.mjs site-fonts.mjs font-index.json site-theme.mjs site-seeds.mjs site-tokens.mjs site-css.mjs site-authored.mjs site-style.mjs site-identity.mjs site-langs.mjs render-check.mjs site-render.mjs site-worker.mjs ./
+COPY build-server.mjs exit-reason.mjs run-step.mjs site-ssr.mjs render-server-child.mjs site-addon.mjs site-fonts.mjs font-index.json site-theme.mjs site-seeds.mjs site-tokens.mjs site-css.mjs site-freecss.mjs site-authored.mjs site-style.mjs site-identity.mjs site-langs.mjs render-check.mjs site-render.mjs site-worker.mjs ./
 
 # THIS IMAGE DOES EXECUTE MODEL-WRITTEN CODE, AND THIS COMMENT USED TO DENY IT.
 #

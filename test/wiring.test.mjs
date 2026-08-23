@@ -40,9 +40,29 @@ test("THE PALETTE IS AUTHORED, AND THE WHOLE CHAIN IS WIRED", () => {
   // the tool must offer the field, the field must be the real module's (not a
   // second copy that can drift), the route must merge it, the look must carry it,
   // the build must pass it, and the container must render it.
-  assert.match(worker, /seeds: SEEDS_FIELD,/, "design_schema no longer offers a palette at all");
-  assert.match(worker, /import \{[^}]*SEEDS_FIELD[^}]*\} from "\.\/builder\/site-seeds\.mjs"/,
-    "SEEDS_FIELD is referenced and never imported — a ReferenceError building the tool");
+  // ── THE FIRST LINK WENT ON 2026-08-23 AND THE OTHER FIVE MATTER MORE ───────
+  //
+  // `seeds: SEEDS_FIELD` was the designer's way to write three anchor colours,
+  // and it left with the other four look fields when the model started writing
+  // the whole stylesheet. What did NOT change is that ~every site built between
+  // 2026-08-20 and then has a palette in `site_look`, and both publish spines
+  // read it, merge it and send it on EVERY republish — a typo fix included.
+  //
+  // So a broken link below is no longer a feature nobody can reach; it is a live
+  // customer's colours stripped off on their next unrelated edit, published, and
+  // reported as a success. Asserted link by link for that reason.
+  const bare = worker.split("\n").map((l) => (/^\s*(\/\/|\*|\/\*)/.test(l) ? "" : l)).join("\n");
+  // THE ANCHOR IS PROVED TO EXIST BEFORE THE ABSENCE IS JUDGED. `indexOf` answers
+  // -1 for a literal that moved, `slice(-1)` is one character, and an absence
+  // over one character passes whatever the tool contains — a negative assertion
+  // has to prove its observer is alive first, which is a trap this repo has
+  // recorded in a guard, a lint and a scope scan.
+  const toolAt = bare.indexOf('name: "design_schema"');
+  assert.ok(toolAt > 0, "the design_schema literal moved and this guard is reading nothing");
+  assert.doesNotMatch(bare.slice(toolAt), /\n\s{6}seeds: \{|seeds: SEEDS_FIELD/,
+    "`seeds` is back on design_schema beside `css` — two ways to decide one palette");
+  assert.match(worker, /import \{[^}]*normalizeSeeds[^}]*\} from "\.\/builder\/site-seeds\.mjs"/,
+    "the palette engine is no longer imported, so a stored palette is judged by nothing");
   // THE PROPERTY, NOT THE SPELLING. This pinned `const merged = mergeLook(...)`
   // and went red when the route grew a SECOND call — the probe that answers
   // which page a colour is for, which must run before the merge it feeds. What
@@ -81,7 +101,6 @@ test("the designer WRITES its own plan, and its own palette", () => {
   // The palette half is asserted in full by "THE PALETTE IS AUTHORED" above; what
   // this adds is that the two authored tiers are BOTH spread in from their own
   // modules rather than either being restated in the tool.
-  assert.match(worker, /seeds: SEEDS_FIELD,/, "the palette field is not the module's own");
   // THE `family` HALF OF THIS TEST IS GONE BECAUSE THE FIELD IS (2026-08-20).
   // It used to assert `const SITE_FAMILY_IDS = READY_FAMILIES` and an enum built
   // from it — the 100 pre-written trades the designer picked between. The owner's
@@ -123,18 +142,19 @@ test("and REQUIRED to choose, or every site silently keeps the default look", ()
   // exactly the fix `site-fonts.test.mjs` needed for its copy of this read.
   const req = worker.match(/required: \[[^\]]*\],\s*\n\s*\},\s*\n\};/);
   assert.ok(req, "could not find design_schema's required list");
-  assert.match(req[0], /"seeds"/,
-    "the palette is optional, so a designer may skip it and the site keeps the template's own look");
-  assert.match(req[0], /"fonts"/,
-    "the typeface is optional again — with no registry to recommend a pairing that means the default face");
-  // THE OTHER 23 DECISIONS, COMPELLED ON A FIRST BUILD (owner's call,
-  // 2026-08-21). The description has told the model to author them since the
-  // registry went, and telling is not compelling — which is the entire reason
-  // `PLAN_REQUIRED` exists one line below. `seeds` is three colours and decides
-  // none of these, so an unanswered `style` is not a design choice, it is the
-  // template's plain default wearing one.
-  assert.match(req[0], /"style"/,
-    "style is optional on a first build, so every site can silently keep the template's type scale, corners, shadows and world layer");
+  // ── THREE COMPELLED LOOK FIELDS BECAME ONE (2026-08-23, owner's call) ──────
+  //
+  // `seeds`, `fonts` and `style` were each required for the same stated reason —
+  // an unanswered look is not a design choice, it is the template's plain
+  // default wearing one — and `css` inherits all of it. What changes is that
+  // there is no longer any way to half-answer: three fields meant three chances
+  // to omit one and ship a site part-designed.
+  assert.match(req[0], /"css"/,
+    "the stylesheet is optional, so a designer may skip it and the site ships the template's plain default look");
+  for (const gone of ["seeds", "fonts", "style", "tokens", "tokensPage"]) {
+    assert.doesNotMatch(req[0], new RegExp('"' + gone + '"'),
+      "`" + gone + "` is required and the tool no longer has it — every build 400s on a field the model cannot answer");
+  }
   // DERIVED, so a seventh axis is required without anybody editing this file —
   // and required at all, which is the half that matters: every one of the six is
   // a LINE of the layout directive, so a skipped answer is a line the page

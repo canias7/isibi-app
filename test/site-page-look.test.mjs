@@ -245,14 +245,32 @@ test("the designer can name a page, and is told absent means the whole site", ()
     "the per-page clause has no example of a typeface");
 });
 
-test("the look tool offers the page field, and says absent means the site", () => {
-  // A field that defaulted to a page would silently narrow every site-wide
-  // colour change ever made.
-  const at = worker.indexOf("tokensPage: {");
-  assert.ok(at > 0, "the designer cannot name a page, so nothing can ever ask for one");
-  const block = worker.slice(at, worker.indexOf("},", at));
-  assert.match(block, /LEAVE IT OUT FOR THE WHOLE SITE/,
-    "the tool does not say that an absent page means the whole site");
+test("A PAGE IS SCOPED IN THE STYLESHEET, and the site-wide case is still the default", () => {
+  // ── INVERTED (2026-08-23): `tokensPage` WENT AND THE CAPABILITY WIDENED ────
+  //
+  // The field named a route and scoped a colour or a typeface to it. What
+  // replaced it is a selector: `<body>` carries the current route as
+  // `data-page`, so a model writing raw CSS scopes ANYTHING to a page — which
+  // the field could not (it refused corners and spacing by name, because those
+  // were derived from the site's values at `:root`).
+  //
+  // THE PROPERTY THIS TEST HELD IS UNCHANGED AND STILL MATTERS: a page scope
+  // must be the NARROW case. The field's own risk was defaulting to a page and
+  // silently narrowing every site-wide colour change ever made; the selector's
+  // is the same one — a model that reaches for `body[data-page]` by habit gives
+  // a customer a change on one page when they asked for the site. So the tool
+  // says the scope is available and says it is for ONE page rather than the way
+  // to write a stylesheet.
+  const at = worker.indexOf("      css: {");
+  assert.ok(at > 0, "the css field is gone from design_schema");
+  const block = worker.slice(at, worker.indexOf("\n      },", at));
+  assert.match(block, /body\[data-page/, "the designer cannot scope a page at all, so nothing can ever ask for one");
+  assert.match(block, /ONE PAGE/i, "the scope is offered without saying it is the narrow case");
+  // AND THE FIELD REALLY IS GONE, asserted as an absence — restored beside `css`
+  // it would give a page two ways to be scoped with nothing deciding between
+  // them, and whichever the container applied last would win.
+  const code = worker.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  assert.doesNotMatch(code, /\n\s{6}tokensPage: \{/, "`tokensPage` is back beside `css`");
 });
 
 test("the customer is told WHICH page", () => {

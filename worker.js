@@ -56,14 +56,25 @@ import { budgetFor, imagesAffordable, planImages, applyImages, countImageSlots, 
 import { renderNote } from "./builder/site-render.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
 import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker } from "./builder/site-dispatch.mjs";
-import { ASKABLE as SITE_TOKEN_NAMES, valueHint as siteTokenHint, mergeTokens, parseTokens, withContrast, tokenNote, askedNames, saidFor as tokenSaid, routeSelectorOk, pageScopeFor, MAX_PAGE_TOKENS } from "./builder/site-tokens.mjs";
-import { ASKABLE as SITE_STYLE_AXES, AUTHORED_AXES as SITE_AUTHORED_AXES, MAX_STYLE, MAX_STYLE_BUILD, optionsFor as siteStyleOptions, axisHint as siteStyleHint, authoredHint as siteAuthoredHint, mergeStyle, parseStyle, styleNote, saidFor as styleSaid, saidFor as siteStyleSaid, wireName as siteWireName } from "./builder/site-style.mjs";
-// The two axes whose authored form is a `{light, dark}` pair of background-image
-// layers rather than a declaration block — derived from the engine's own table,
-// never the two names spelled here, which is what this file's own comment two
-// hundred lines down already demanded of the previous shape.
-import { authoredFieldSchema as siteAuthoredSchema, AXIS_DECLS as SITE_AXIS_DECLS } from "./builder/site-authored.mjs";
-const SITE_AUTHORED_IMAGE = Object.entries(SITE_AXIS_DECLS).filter(([, v]) => v.image).map(([k]) => k);
+// ── THE LOOK ENGINE IS STILL IMPORTED, AND THE TOOL NO LONGER ASKS FOR IT ────
+//
+// `seeds`, `fonts`, `style`, `tokens` and `tokensPage` came off `design_schema`
+// on 2026-08-23 (owner's call) and were replaced by one `css` field. What did
+// NOT change is that every site published before that stores a palette, a
+// typeface pairing, a token patch and up to 29 axes — and both publish spines
+// read and send all four on EVERY republish, including a typo fix.
+//
+// So the merges below survive the deletion on purpose. `mergeTokens(prior,
+// undefined)` and `mergeStyle(prior, undefined)` are no-ops that hand back what
+// the site already wears, which is exactly what "one deploy re-styles no site"
+// means in code. What went are the names the TOOL used to describe the options —
+// the enums, the hints, the per-axis schema builders — none of which anything
+// reads once the field asking for them is gone.
+import { ASKABLE as SITE_TOKEN_NAMES, mergeTokens, parseTokens, withContrast, tokenNote, askedNames, saidFor as tokenSaid, routeSelectorOk, pageScopeFor, MAX_PAGE_TOKENS } from "./builder/site-tokens.mjs";
+import { MAX_STYLE, MAX_STYLE_BUILD, mergeStyle, parseStyle, styleNote, saidFor as styleSaid } from "./builder/site-style.mjs";
+// THE MODEL'S OWN STYLESHEET — read, never validated. See site-freecss.mjs for
+// why that is the whole point and what it reports instead.
+import { readCss, cssNote, MAX_CSS } from "./builder/site-freecss.mjs";
 import { extractText, applyEdits, staleContactLinks } from "./builder/site-text.mjs";
 import { runTextEdit, runDataEdit, renamePages, renameRoute, MAX_DATA_ROWS } from "./builder/site-apply.mjs";
 import { runRulesEdit } from "./builder/site-rules.mjs";
@@ -95,7 +106,10 @@ import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis
 // kaplay + a runtime smoke test. See builder-game/. Parser format is identical.
 import { parseGeneratedFiles as parseGameFiles, GAME_RULES, GAME_ASSET_RULES, GAME_REVISE_RULES, gameFixRules, parseSpriteTokens, GAME_3D_RULES, game3DFixRules } from "./builder-game/game-gen.mjs";
 import { SHORTLIST, resolvePair, resolvePageFonts, MAX_PAGE_FONTS } from "./builder/site-fonts.mjs";
-import { SEEDS_FIELD, normalizeSeeds } from "./builder/site-seeds.mjs";
+// `SEEDS_FIELD` went with the `seeds` tool field (2026-08-23). `normalizeSeeds`
+// stays: every site built between 2026-08-20 and then stores three anchor
+// colours in `site_look`, and this is what still judges them on every republish.
+import { normalizeSeeds } from "./builder/site-seeds.mjs";
 import { currentStateNote, EDIT_RULE, EDIT_REQUIRED, EDIT_FIELDS, hasValue, keepStoredAccess, mergeLook, movedFields } from "./builder/site-edit.mjs";
 import { PLAN_FIELDS, PLAN_KEYS, PLAN_REQUIRED, SHAPE_FIELD, normalizePlan } from "./builder/site-plan.mjs";
 
@@ -3498,11 +3512,13 @@ const SITE_BUILD_FEE = 2;
 // A plain-English brief becomes an isibi.schema.json. Uses tool-use rather than
 // asking for JSON in prose: the model must return an object matching the schema
 // below, so there is nothing to parse out of a reply and nothing to repair.
-// The shortlist the model may choose from, derived from site-fonts.mjs rather
-// than restated: a name here that is not installed produces a site whose CSS
-// points at a font that was never bundled, and it renders as the fallback.
-const SITE_FONT_IDS = SHORTLIST.map((f) => f.id);
-
+// `SITE_FONT_IDS` WENT WITH THE `fonts` FIELD (2026-08-23, owner's call). It was
+// the 24-name enum a pairing was chosen from, and there is no pairing field: the
+// model writes `font-family` in its own stylesheet and `fontsIn` reads the
+// families back out, resolved against the WHOLE Fontsource catalogue rather than
+// the shortlist. The shortlist survives as what is INSTALLED — an npm import
+// bundles those 24 — and is still what `resolvePair` falls back through.
+//
 // `SITE_THEME_IDS` WENT WITH THE `theme` FIELD (2026-08-20, owner's call). It
 // was a 100-name shortlist out of a 500-row registry, and the whole registry is
 // gone: the designer AUTHORS a palette per site now (`SEEDS_FIELD`) instead of
@@ -4138,201 +4154,95 @@ const SITE_SCHEMA_TOOL = {
           "content to write, it should not have been a display table.",
         additionalProperties: { type: "array", items: { type: "object" } },
       },
-      // The typeface. Declared as an ENUM rather than free text, so an invalid
-      // font is impossible instead of something a lint has to catch afterwards —
-      // and so the whole list costs ~300 characters rather than the ~7,500 tokens
-      // that naming all 2,096 Fontsource families would add to every generation.
-      // Anything outside this list is still reachable later, by name, through the
-      // fetch path in site-fonts.mjs.
-      fonts: {
-        type: "object",
-        description:
-          "The site's typeface pairing, chosen for THIS business alongside its colours — the two are one decision.\n" +
-          "Pick for the BUSINESS, not for fashion: a law firm or a restaurant can carry a serif, a gym or a studio " +
-          "wants a confident sans, and a plain sans is right for most. The two may be the same. A display serif set " +
-          "as the body face is tiring to read at 14px — pair it with a sans instead.",
-        properties: {
-          heading: { type: "string", enum: SITE_FONT_IDS, description: "Face for h1-h4." },
-          body: { type: "string", enum: SITE_FONT_IDS, description: "Face for everything else." },
-        },
-        required: ["heading", "body"],
-      },
-      // THE LOOK, AUTHORED RATHER THAN NAMED (2026-08-20, owner's call). This was
-      // an enum over 100 registry themes; the model writes the site's own three
-      // anchor colours now and `paletteFor` derives the other 28 tokens from
-      // them, exactly as it did for every one of those 500. See
-      // builder/site-seeds.mjs — including why three and not thirty-one.
-      seeds: SEEDS_FIELD,
-      // ONE COLOUR, CHANGED — the thing a revise could not do at all.
+      // ── THE SITE'S WHOLE STYLESHEET, WRITTEN BY THE MODEL ────────────────
       //
-      // Anchoring the look in `_meta` stopped "make the background yellow"
-      // re-rolling a barber shop into a different site, and left the customer
-      // unable to change the background AT ALL: every token comes from a theme
-      // in the registry, and none of the 500 is "the one you have, but yellow".
-      // This is the escape hatch, and it rides on a call that already reads the
-      // instruction and already returns structured output, so it costs no extra
-      // model call — the same reasoning as `needsWeb`.
+      // Owner's call, 2026-08-23: "for the look, the css, we are gonna delete
+      // those 5 steps into 1 step, which is gonna be called css, and we are
+      // gonna give the model freedom, so with no words, the model is gonna make
+      // the css."
       //
-      // OMITTED unless the instruction really is about a colour. The look is
-      // otherwise the theme's business, and a designer that patches tokens
-      // "while it is here" is the re-roll arriving one property at a time.
-      tokens: {
-        type: "object",
-        description:
-          "ONLY when the message asks for a specific COLOUR or CORNER change to an existing site (\"make the background " +
-          "yellow\", \"the buttons should be green\", \"round the corners more\", \"square corners please\"). Omit it " +
-          "entirely otherwise — on a first build, and on any revise about content, pages or layout. Colours are HEX " +
-          "(#rrggbb); `radius` is a length.\n" +
-          "THE TEXT ON EACH SURFACE IS WORKED OUT FOR YOU — near-black on a light card, near-white on a dark one — so " +
-          "set the SURFACE and leave its text alone. Naming both when they only asked about one is how a customer ends " +
-          "up with a colour they never chose.\n" +
-          "NAME THE TEXT ONLY WHEN THE TEXT IS WHAT THEY ARE TALKING ABOUT — \"the writing on the cards is too " +
-          "light\", \"I can't read the button labels\", \"the small grey text is too faint\". The automatic choice " +
-          "is right nearly always and wrong exactly where somebody notices, and this is the only way to correct it.",
-        // THE HINT IS DERIVED PER TOKEN, not one line for all of them. `radius`
-        // takes a LENGTH and every other name takes a colour; described as
-        // "#rrggbb" it would be asked for in hex, refused by the parser, and
-        // reported to the customer as a colour we could not use.
-        // AND WHERE A NAME MEANS TWO THINGS, SAY SO. `border` is on both this
-        // list and `style` below — here it is the line's COLOUR, there its
-        // weight — so "make the borders thicker" can land in the wrong slot,
-        // be refused for not being a colour, and come back to the customer as
-        // "ask again with a hex code", which is advice that cannot work.
-        // DERIVED from the overlap rather than naming `border`, so a name that
-        // gains a twin later is disambiguated without anybody remembering.
-        properties: Object.fromEntries(SITE_TOKEN_NAMES.map((t) => [t, {
-          type: "string",
-          description: siteTokenHint(t)
-            + (SITE_STYLE_AXES.map(siteWireName).includes(t)
-                ? " — the COLOUR only; for its weight or style use `style." + t + "`" : ""),
-        }])),
-      },
-      // ONE PAGE, RATHER THAN THE WHOLE SITE.
+      // FIVE FIELDS BECAME THIS ONE. `seeds` asked for three anchor colours,
+      // `fonts` for a pairing off a 24-name enum, `style` for 29 axes each with
+      // its own selector and property allow-list, `tokens` for 24 named colours
+      // and `tokensPage` for a page to scope them to. Between them they were
+      // ~40,000 characters of vocabulary describing a design in OUR words. The
+      // model writes CSS in its own now.
       //
-      // The look was site-wide — one `site_look` row, one `site_tokens` row —
-      // so "make the booking page calmer" was unreachable at any price: not by
-      // typing, and not by paying for a rebuild either, because there was no
-      // scope to write it into.
+      // ── WHAT THE ARM-A MEASUREMENT SAYS, AND WHY IT IS NOT THIS ──────────
       //
-      // ABSENT MEANS THE WHOLE SITE, which is what every existing edit relies
-      // on, so a colour change that does not name a page behaves exactly as it
-      // did before this existed. A field that defaulted to a page instead would
-      // silently narrow every site-wide colour change ever made.
-      tokensPage: {
+      // `lido-free-a` swapped the 29 axes for a free `css` string and the
+      // rule-level diff was brutal: arm B carried 24 rules the free arm did not,
+      // arm A carried 7, and four of those seven are Tailwind and the palette,
+      // one is the type scale, one is shadows switched off, and one is the
+      // template's own DEFAULT icon weight. Given a free hand the model wrote
+      // almost nothing.
+      //
+      // THAT ARM IS NOT THIS ONE, AND THE DIFFERENCE IS THE WHOLE REASON THE
+      // NUMBER MAY NOT HOLD. Arm A kept `seeds` — so there was still a field
+      // asking for the palette, and the palette is exactly what landed. This
+      // repo already wrote down what that shape does: "a hatch beside a full
+      // menu is a hatch nobody opens", measured on run 14, where two axes had an
+      // authored escape hatch beside twenty-three enums and the model reached
+      // for neither. With nothing else to answer, the question is unavoidable.
+      // Whether that is enough is a live question, and the first build against
+      // this field is what answers it.
+      //
+      // ── EXISTING SITES ARE UNTOUCHED, AND THAT IS BY CONSTRUCTION ────────
+      //
+      // Every site published before today stores `site_look.seeds`,
+      // `site_look.fonts`, `site_tokens` and `site_style`, and both publish
+      // spines still READ and SEND all four on every republish. Nothing stopped
+      // carrying them — the TOOL stopped asking for them. So one deploy
+      // re-styles no site, and `EDIT_FIELDS` deliberately still names `seeds`
+      // and `fonts` for the same reason: `mergeLook` rebuilds its output from
+      // that list, so dropping a name there would strip the palette off every
+      // existing site on its owner's next unrelated edit.
+      //
+      // THE CONTAINER WRITES THIS LAST — after the theme, the token patch and
+      // the per-page scope — so on a site that has both, the model's rules sit
+      // on top of the stored look rather than fighting it, and on a new site
+      // they sit on top of the template's own defaults.
+      css: {
         type: "string",
         description:
-          "ONLY when the colours OR THE TYPEFACE above are meant for ONE PAGE rather than the whole site — " +
-          "\"make the booking page darker\", \"the about page should feel calmer\", \"give the menu page a warm " +
-          "background\", \"the menu page should be in something handwritten\", \"use a serif on the about page\". " +
-          "The page's path exactly as listed above: \"/book\", \"/\" for the home page.\n" +
-          "LEAVE IT OUT FOR THE WHOLE SITE, which is what nearly every look change means. Naming a page when " +
-          "they meant the site leaves every other page unchanged and reads as the change having half worked.\n" +
-          "COLOURS AND `fonts` ONLY. `style` and everything else here is the site's, so a request to change one " +
-          "page's CORNERS or spacing is not this — those are derived from the site's and cannot be scoped to a " +
-          "page, so naming one would round some things and not others.\n" +
-          "TO PUT A PAGE BACK to the site's typeface, name the page and send `fonts` with both halves empty.",
-      },
-      // THE REST OF THE LOOK — the eighteen decisions a design makes that are
-      // not colours, and that until 2026-08-08 no customer could reach. Ask for
-      // square buttons and one of two things happened: nothing, or the whole
-      // theme was swapped looking for one that has them, which changes the
-      // colours and the fonts and the spacing too — one thing asked for, a
-      // different site given.
-      //
-      // AND ON A FIRST BUILD IT IS AUTHORED NOW (2026-08-20). The description
-      // used to say "omit it entirely — on a first build the theme already
-      // decides all of these", which was TRUE while a theme was a row from the
-      // 500-strong registry: every one of those rows carried all eighteen axes,
-      // so the designer naming a theme really did pick them. That registry went
-      // the same day the seeds landed, and an authored theme is `{label, light,
-      // dark}` and nothing else — `applyStyle(theme, undefined)` attaches ZERO
-      // of the eighteen. So the clause survived its own premise by hours and
-      // every site since has shipped the template's plain defaults while the
-      // model was told they were already designed. Measured: the axes move
-      // `--text-5xl` 2.986rem → 4.398rem, the whole weight ramp, all six
-      // tracking steps, all four leading steps, `--spacing`, and the corner
-      // shape. That is most of what makes two sites look unlike each other.
-      //
-      // IT COSTS NO NEW TOKENS TO ASK FOR. One tool serves the build and the
-      // revise (only `required` is swapped), so the eighteen axes and their 66
-      // options were already in front of the model on every build — read on a
-      // first build and then told not to use them.
-      //
-      // AN ENUM PER AXIS, not a free string, so an option the engine would
-      // refuse is impossible rather than merely dropped. The options and their
-      // descriptions are DERIVED from the theme engine's own constants (see
-      // builder/site-style.mjs): a restated list drifts, and the direction it
-      // drifts in is describing something to the model that is then refused and
-      // reported to the customer as a change that did not happen. ~1,921 tokens
-      // of options, in the cached block.
-      style: {
-        type: "object",
-        description:
-          "THE REST OF THE LOOK — every design decision that is not a colour: type size and weight, letter " +
-          "and line spacing, page density, corners, borders, shadows, icon weight, and what sits behind the page.\n" +
-          "ON A FIRST BUILD, author these for this business, the same act as authoring the palette. THE " +
-          "PALETTE DOES NOT DECIDE THEM: `seeds` is three colours and nothing else, so an axis you leave out " +
-          "is not a design choice, it is the plain default. That default suits plenty of businesses, so name " +
-          "the axes that carry THIS one's character and leave the rest — a law firm and a skate shop can " +
-          "share a palette and must not share a type scale.\n" +
-          "ON A REVISE, only when the message asks for a look change that is not a colour — \"square buttons\", " +
-          "\"make it feel more spacious\", \"bigger text\", \"lose the shadows\", \"thinner icons\". Name only " +
-          "the axes the customer actually asked about; anything left out keeps whatever the site wears today. " +
-          "Omit it entirely on a revise about content, pages or layout.",
-        // ── THE ENUMS ARE GONE. THE MODEL WRITES ITS OWN CSS ─────────────────
-        //
-        // Owner's call, 2026-08-22: "i thought for all of them it was gonna be
-        // authored dude, and no names, i just want the model to write its own
-        // css cmon, lets make it no name."
-        //
-        // Yesterday two axes had an authored escape hatch beside twenty-three
-        // enums, and RUN 14 IS WHY THAT WAS NOT ENOUGH: the first live build
-        // after it shipped set roughly seven axes, had the hatch on two of them,
-        // and reached for NEITHER — it picked `plaster` and `drift` off the
-        // lists. A hatch beside a full menu of names is a hatch nobody opens.
-        // Removing the names is what makes the question unavoidable.
-        //
-        // WHAT THE ENUM WAS BUYING, AND WHAT REPLACES IT. Its own paragraph
-        // above says the enum made an option the engine would refuse IMPOSSIBLE
-        // rather than merely dropped. That property does not survive — it cannot,
-        // because "any CSS" has no enumerable domain — so it is replaced rather
-        // than abandoned: `site-authored.mjs` PARSES what comes back into
-        // property/value pairs against a per-axis allow-list and RE-EMITS them
-        // itself, so nothing reaches a customer's stylesheet that we did not
-        // assemble. The guarantee changes shape from "cannot be said" to "cannot
-        // be said and reach the page", which is the same rule `site-tokens.mjs`
-        // already lives under: the notation exists BECAUSE it has a parser.
-        //
-        // WE STILL OWN EVERY SELECTOR AND EVERY GUARD. The model writes what
-        // goes INSIDE `@media (hover: hover) { <sel>:hover { … } }` and never
-        // the wrapper, so there is no selector to escape from and no way to drop
-        // the media query that stops a tap sticking on a phone. The hint tells
-        // it what its declarations will land on, because a hover state written
-        // blind is a guess about whether it applies to the button or the card.
-        //
-        // THREE SHAPES, NOT ONE, and forcing them together would be a lie: 12
-        // axes ARE a declaration block, 9 are a generated ramp read from numbers
-        // (`scale` is a ratio eight tokens derive from), and 2 are a `{light,
-        // dark}` pair of background-image layers. Derived from the engine's own
-        // tables, so an axis that changes shape is described accurately with
-        // nothing edited here — the "described then refused" drift this file has
-        // already paid for once.
-        //
-        // `<axis>Css` IS STILL ACCEPTED at the door, so nothing already sending
-        // it breaks; it is no longer required, because with no enum on the wire
-        // there is nothing left to disambiguate a string from.
-        properties: Object.fromEntries(SITE_STYLE_AXES.map((a) =>
-          SITE_AUTHORED_IMAGE.includes(a)
-            ? [a + "Css", {
-                type: "object",
-                description: siteAuthoredHint(a),
-                properties: {
-                  light: { type: "array", items: { type: "string" }, description: "The layers, in light mode. First paints on top." },
-                  dark: { type: "array", items: { type: "string" }, description: "The layers, in dark mode. First paints on top." },
-                },
-                required: ["light", "dark"],
-              }]
-            : [siteWireName(a), siteAuthoredSchema(a, siteStyleSaid(a))])),
+          "THE SITE'S ENTIRE STYLESHEET, as CSS. Write it for THIS business — there is no palette field, no font " +
+          "field and no list of options: whatever the site looks like, you write here.\n" +
+          "WHAT IT LANDS ON: a React app built from shadcn/ui with Tailwind v4. Every component paints with CSS " +
+          "custom properties, so setting those is what changes the whole site at once. The ones the kit reads are:\n" +
+          SITE_TOKEN_NAMES.map((t) => "--" + t).join(", ") + ", --font-sans, --font-heading.\n" +
+          "Each `--x` has a matching `--x-foreground` for the text on it; `--radius` is a length every corner in the " +
+          "kit derives from. Set them on `:root`, and set the dark half under `.dark` — the site's dark mode is that " +
+          "class on `<html>`.\n" +
+          "YOUR RULES ARE WRITTEN LAST, so an ordinary selector beats anything the template shipped. Style whatever " +
+          "you like beyond the variables: headings, links, buttons, cards, backgrounds, borders, hover and focus " +
+          "states, animations, gradients, textures, spacing, media queries.\n" +
+          // ── ONE PAGE'S OWN LOOK, WHICH USED TO BE ITS OWN FIELD ─────────────
+          //
+          // `tokensPage` scoped a colour or a typeface to one route and went with
+          // the other four. The capability did not: `<body>` carries the current
+          // route as `data-page`, stamped from the router's own matches, so a
+          // model writing raw CSS can scope ANYTHING to a page — which is wider
+          // than the field ever was (it refused corners and spacing outright,
+          // because those were derived from the site's and could not be scoped).
+          //
+          // SAID OUT LOUD BECAUSE IT IS NOT GUESSABLE. `data-page` is a stamp of
+          // ours on an element nothing else here mentions; a model that is not
+          // told about it has no way to know a page can be addressed at all, and
+          // "make the booking page calmer" becomes unreachable — which is the
+          // `publicView` failure this repo has already paid for twice: a
+          // capability conditioned on a fact the model was never given.
+          "ONE PAGE CAN HAVE ITS OWN LOOK. `<body>` carries the current route, so `body[data-page=\"/book\"] { … }` " +
+          "styles the booking page and nothing else — colours, type, spacing, anything. `\"/\"` is the home page.\n" +
+          "TYPEFACES ARE A FILE, NOT AN OPINION. Name any Google Fonts family in a `font-family` and it is downloaded " +
+          "and served from the site's own domain — `--font-sans: \"Lora\", Georgia, serif`. A family that is not on " +
+          "Google Fonts cannot be fetched and silently falls back, so give every stack a real fallback either way. " +
+          "System faces (Georgia, Helvetica) need no fetch and are a legitimate answer.\n" +
+          "TWO THINGS THAT WILL NOT WORK, so do not spend the site's look on them: `url()` pointing at another " +
+          "domain (the site's security policy refuses it, so the image or font simply never loads — a `data:` URI is " +
+          "fine), and `@import`.\n" +
+          "ON A REVISE, return the stylesheet the site has NOW with only the asked-for change made to it. This " +
+          "REPLACES what the site is wearing, so anything you leave out is gone — a request to change one colour must " +
+          "not come back as a different design.",
       },
       // THE SHAPE — SIX AUTHORED FIELDS WHERE `family` USED TO BE (owner's call,
       // 2026-08-20). Distinct from the theme on purpose: a theme decides how a
@@ -4502,7 +4412,12 @@ const SITE_SCHEMA_TOOL = {
     // which strict validation refuses), so `required` compels the KEY and the
     // description is still what asks for axes worth having. An answer of `{}`
     // is legal and behaves exactly as an absent one did.
-    required: ["brand", "slug", "tables", "seed", "description", "seeds", "fonts", "style", ...PLAN_REQUIRED],
+    // `css` REPLACES `seeds`, `fonts` and `style` HERE AS WELL AS ABOVE, and
+    // compelling it is the same argument those three were compelled under: an
+    // unanswered look is not a design choice, it is the template's plain default
+    // wearing one. With five fields there were three ways to half-answer; with
+    // one there is none.
+    required: ["brand", "slug", "tables", "seed", "description", "css", ...PLAN_REQUIRED],
   },
 };
 
@@ -7622,14 +7537,22 @@ async function writeSiteDistToR2(env, slug, dist, meta, pages, renamed = null, l
  * that IS installed, so a font we could not reach costs a typeface rather than a
  * site. Bounded by a timeout, because this is a third party on the build path.
  */
-async function fetchSiteFonts(pair, pages = []) {
+async function fetchSiteFonts(pair, pages = [], extra = []) {
   const out = {};
   // EVERY SCOPE'S PAIR, not just the site's. A page with its own typeface whose
   // file was never fetched renders the fallback while the build reports the font
   // it asked for — the exact failure shape `site-fonts.mjs` is written around.
   // Deduped by id, so two scopes on one family is one download.
+  //
+  // AND EVERY FAMILY THE MODEL'S OWN STYLESHEET NAMES (`extra`), which since
+  // 2026-08-23 is where a typeface is chosen at all — there is no `fonts` field.
+  // A LIST OF FACES rather than a pair, because a stylesheet may reach for one,
+  // two or five and none of them is "the heading one". They are flattened into
+  // the same loop so the dedup covers a family a page scope also uses.
   const all = [pair, ...(pages || []).map((x) => x && x.pair)];
-  for (const [p, slot] of all.flatMap((x) => [[x, "heading"], [x, "body"]])) {
+  const faces = all.flatMap((x) => [[x, "heading"], [x, "body"]])
+    .concat((extra || []).filter(Boolean).map((f) => [{ css: f }, "css"]));
+  for (const [p, slot] of faces) {
     const f = p && p[slot];
     if (!f || f.source !== "fetch" || out[f.id]) continue;
     try {
@@ -7816,6 +7739,14 @@ async function translateStrings(env, tag, strings) {
 async function recompileAndPublish(env, { slug, pages, label, renamed = null }) {
   let look = null, tokens = null, pageTokens = null, pageFonts = null, style = null, logo = "", icon = ""
   let verify = null, langStrings = null;
+  // THE MODEL'S OWN STYLESHEET, read here for the reason every other look key is:
+  // this spine runs on EVERY cheap edit — a typo fix, a colour change, a swapped
+  // picture — and the container rewrites `src/styles.css` from a pristine copy on
+  // every build. So a path that does not carry the stored sheet carries nothing,
+  // and nothing means the site republishes on the template's plain defaults with
+  // its whole design gone, reported as a success. Same failure as `site_logo`,
+  // `site_style` and `site_icon`, at the scale of the entire look.
+  let css = "";
   try {
     // `siteBackendBySlug` RETURNS THE CONNECTION STRING, not a record. This read
     // `conn && conn.conn`, which is `undefined` for a string — so the `_meta`
@@ -7833,7 +7764,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
     // reported as success, and archived to version history — for a site that
     // is deleted or unresolvable. Same rule as the catch below.
     if (!db) return { ok: false, error: "read", ours: true, detail: "no backend recorded for " + slug + " — the stored look could not be read" };
-    const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_page_tokens','site_style','site_logo','site_icon','site_verify','site_page_fonts','site_lang_strings')");
+    const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_page_tokens','site_style','site_css','site_logo','site_icon','site_verify','site_page_fonts','site_lang_strings')");
     for (const r of rows || []) {
       if (r.k === "site_look" && r.v) look = JSON.parse(r.v);
       if (r.k === "site_tokens" && r.v) tokens = JSON.parse(r.v);
@@ -7857,6 +7788,10 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
       // own defaults. A customer who asked for square buttons and then changed
       // one word of copy would have watched them go round again.
       if (r.k === "site_style" && r.v) style = JSON.parse(r.v);
+      // A PLAIN STRING, NOT JSON, so a stylesheet cannot be lost to a parse. It
+      // is the largest thing stored here and the only one whose loss is visible
+      // on every page of the site at once.
+      if (r.k === "site_css" && typeof r.v === "string") css = r.v;
       // ITS OWN KEY, NOT A FIELD ON `site_look`, and that is load-bearing.
       // `mergeLook` builds its output from `EDIT_FIELDS` alone, so anything
       // else stored on that object is DROPPED by the next look edit — a
@@ -7899,7 +7834,19 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
 
   const pair = resolvePair((look && look.fonts) || {});
   const pageFontScopes = resolvePageFonts(pageFonts || {}).pages;
-  const fontFiles = await fetchSiteFonts(pair, pageFontScopes);
+  // ── THE FAMILIES THE STORED STYLESHEET NAMES ────────────────────────────────
+  //
+  // A `font-family` IS A REQUEST FOR A FILE, not a style opinion the browser can
+  // honour on its own. With no file behind it the browser falls back silently
+  // and the site ships in the wrong typeface while reporting success — the
+  // failure `site-fonts.mjs` is written around, arriving through the one field
+  // that has no font picker in front of it.
+  //
+  // ON THE SPINE, so a typo fix cannot drop a face. The container rewrites the
+  // stylesheet every build, so the `@font-face` blocks have to be re-emitted
+  // every publish, which means the woff2 has to be re-fetched every publish.
+  const cssRead = readCss(css);
+  const fontFiles = await fetchSiteFonts(pair, pageFontScopes, (cssRead.fonts) || []);
   const files = {};
   for (const p of pages || []) files[p.path] = p.source;
 
@@ -8034,6 +7981,18 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
           pageTokens: pageTokensFor(pageTokens),
           pageFonts: pageFonts || undefined,
           style: Object.keys(style || {}).length ? style : undefined,
+          // THE MODEL'S OWN STYLESHEET, written LAST by the container — after the
+          // theme, the token patch and the per-page scope. That ordering is the
+          // whole compatibility story: a site built before 2026-08-23 has all
+          // three of those and no `css`, a site built after has `css` over the
+          // template's plain defaults, and a site that has both wears its stored
+          // look with the model's rules on top rather than fighting it.
+          css: cssRead.usable ? cssRead.css : undefined,
+          // WHICH FAMILIES IT NAMES, so the container emits an `@font-face` for
+          // each and the bundler imports the installed ones. Ids only — the
+          // fetch above needed the url and the package, and nothing downstream
+          // of it does.
+          cssFonts: (cssRead.fontIds || []).length ? cssRead.fontIds : undefined,
           // THE SCRIPT IS REPACKAGED ON EVERY CHEAP EDIT, and it has to be.
           // The script bakes in the shell — which names this build's
           // content-hashed assets — so a text fix that republished the files
@@ -8234,7 +8193,7 @@ async function siteOgImage(env, slug) {
   } catch (e) { console.error("og image lookup failed:", slug, e && e.message); return null; }
 }
 
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, fonts, seeds, tokens, pageTokens, pageFonts, style, plan, lang, langs, langStrings, mode, logo, icon, verify, attachments, priorUsage, model, revise, changeNote, priorPages, mark, budget = null }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, fonts, seeds, tokens, pageTokens, pageFonts, style, css, plan, lang, langs, langStrings, mode, logo, icon, verify, attachments, priorUsage, model, revise, changeNote, priorPages, mark, budget = null }) {
   // THE TRANSLATION CACHE, IN A CLOSURE SHARED BY BOTH COMPILE CALLS. Salvage
   // runs the compile dep TWICE — one page swapped for a stub — and a cache that
   // lived inside the dep would pay a second Haiku call for strings answered
@@ -8248,7 +8207,11 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
   // network time inside what looked like pure setup, and on a build using two
   // unbundled families it is the whole gap between `og` and the generation.
   const pageFontScopes = resolvePageFonts(pageFonts || {}).pages;
-  const fontFiles = await fetchSiteFonts(fontPair, pageFontScopes);
+  // AND WHATEVER THE MODEL'S OWN STYLESHEET NAMES. Read once here and used
+  // twice — the fetch above and the container payload below — so what is
+  // downloaded and what is written can never describe different typefaces.
+  const cssRead = readCss(css);
+  const fontFiles = await fetchSiteFonts(fontPair, pageFontScopes, cssRead.fonts || []);
   try { mark?.("fonts"); } catch { /* a trace must never break a build */ }
   // WHETHER THIS SITE GOT ITS OWN SCRIPT, so the answer leaves the building.
   //
@@ -8490,6 +8453,14 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
           // that object, so all twelve generate correctly, including the three
           // that emit ordinary rules no later-wins patch could reach.
           style: Object.keys(style || {}).length ? style : undefined,
+          // THE MODEL'S OWN STYLESHEET — the five look fields that used to be
+          // here, replaced by one (2026-08-23, owner's call). Written LAST by
+          // the container, so on a site that also carries a stored theme these
+          // rules sit on top of it rather than fighting it.
+          css: cssRead.usable ? cssRead.css : undefined,
+          // The families it names, for the `@font-face` blocks and the npm
+          // imports. The woff2 for each is already in `fontFiles` above.
+          cssFonts: (cssRead.fontIds || []).length ? cssRead.fontIds : undefined,
           // PACKAGE THE SITE'S OWN WORKER. Asked for per build rather than set
           // container-wide, because the two paths coexist by design: a site
           // with a script renders on request, a site without one is served as
@@ -12672,15 +12643,32 @@ async function handleRequest(request, env, ctx) {
           try {
             const conn = await siteNeonProject(env, editSlug);
             if (conn) {
-              const rows = await sqlQuery(conn, "SELECT k, v FROM _meta WHERE k IN ('site_look','schema')");
-              let stored = null, storedSchema = null;
+              const rows = await sqlQuery(conn, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_css','schema')");
+              let stored = null, storedSchema = null, storedCss = "";
               for (const r of rows || []) {
                 if (r.k === "site_look" && r.v) stored = JSON.parse(r.v);
                 if (r.k === "schema" && r.v) storedSchema = JSON.parse(r.v);
+                // THE STYLESHEET THE DESIGNER HAS TO SEE. `css` is REPLACED
+                // rather than merged, so a revise that cannot read the current
+                // sheet can only ever answer with a fresh design — the re-roll
+                // that anchoring the look was introduced to stop, at the scale
+                // of every colour on every page. `currentStateNote` prints it in
+                // full and `EDIT_RULE` says what to do with it.
+                if (r.k === "site_css" && typeof r.v === "string") storedCss = r.v;
               }
-              if (stored) {
+              // ── A SITE WITH A STYLESHEET AND NO STORED LOOK IS STILL AN EDIT ──
+              //
+              // `if (stored)` was the whole gate, which was right while `site_look`
+              // was the only thing an edit could be about. It is not any more: a
+              // site built after 2026-08-23 answers no `seeds`, no `fonts` and no
+              // plan-adjacent look at all on a bare brief, so `site_look` can be
+              // thin while `site_css` carries the entire design. Gated on the look
+              // alone, such a site's revise would be told nothing — no name, no
+              // stylesheet, no EDIT_RULE — and would design from scratch.
+              if (stored || storedCss) {
                 editState = {
-                  ...stored,
+                  ...(stored || {}),
+                  css: storedCss,
                   tables: (storedSchema && Array.isArray(storedSchema.tables) ? storedSchema.tables : [])
                     .map((t) => t && t.name).filter(Boolean),
                 };
@@ -13230,6 +13218,10 @@ async function handleRequest(request, env, ctx) {
       // is exactly today's behaviour, so it can never be worse than what it
       // replaces.
       let priorLook = null, priorTokens = null, priorPageTokens = null, priorStyle = null, priorLogo = "", priorIcon = "";
+      // THE STYLESHEET THE SITE IS WEARING. On a revise the designer is told to
+      // return it with the change made; when the message is about something else
+      // it answers nothing here, and this is what keeps the design.
+      let priorCss = "";
       let priorPageFonts = null;
       let priorVerify = null;
       // THE TRANSLATION CACHE, for the same reason the logo is read here: the
@@ -13240,7 +13232,7 @@ async function handleRequest(request, env, ctx) {
       let priorLangStrings = null;
       if (priorBrief) {
         try {
-          const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_page_tokens','site_style','site_logo','site_icon','site_verify','site_page_fonts','site_lang_strings')");
+          const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_page_tokens','site_style','site_css','site_logo','site_icon','site_verify','site_page_fonts','site_lang_strings')");
           for (const r of rows || []) {
             if (r.k === "site_look" && r.v) priorLook = JSON.parse(r.v);
             if (r.k === "site_tokens" && r.v) priorTokens = JSON.parse(r.v);
@@ -13252,6 +13244,8 @@ async function handleRequest(request, env, ctx) {
             if (r.k === "site_page_fonts" && r.v) { try { priorPageFonts = JSON.parse(r.v); } catch { /* see the note on the cheap-edit spine */ } }
             if (r.k === "site_lang_strings" && r.v) { try { priorLangStrings = JSON.parse(r.v); } catch { /* a lost cache re-translates; never worse */ } }
             if (r.k === "site_style" && r.v) priorStyle = JSON.parse(r.v);
+            // A PLAIN STRING, NOT JSON — see the spine's copy.
+            if (r.k === "site_css" && typeof r.v === "string") priorCss = r.v;
             // READ HERE OR A REVISE TAKES THE LOGO OFF. The container writes
             // `site-brand.ts` on EVERY build — it has to, or one site's logo
             // leaks onto the next — so a build path that does not send the
@@ -13471,6 +13465,36 @@ async function handleRequest(request, env, ctx) {
         } catch (e) { console.error("style write failed:", slug, e && e.message); }
       }
 
+      // ── THE STYLESHEET ──────────────────────────────────────────────────────
+      //
+      // REPLACED, NEVER MERGED, and that is the one place this differs from every
+      // other look value beside it. `mergeTokens` and `mergeStyle` accumulate
+      // because a revise names only the axis it is changing and the rest must
+      // survive; a stylesheet is not a set of named slots, it is one whole thing,
+      // and "merging" two of them means concatenating and letting later win —
+      // which grows without bound and leaves dead rules from every earlier design
+      // in a customer's bundle for ever.
+      //
+      // SO THE ANTI-RE-ROLL GUARANTEE MOVES INTO THE PROMPT, where the pages
+      // already keep theirs: the designer is SHOWN the current stylesheet by
+      // `currentStateNote` and told to return it with only the asked-for change
+      // made. That is the same contract `pagesRequest` puts on a revise ("return
+      // every page as an EDIT, byte-identical except where the change was asked
+      // for") and it is what stops "make the background yellow" arriving as a
+      // different design.
+      //
+      // AN ABSENT ANSWER KEEPS WHAT IS STORED, like every other field here, so a
+      // revise about a phone number cannot cost a site its look. An UNUSABLE one
+      // does too — `readCss` answers `usable: false` for a non-string and for an
+      // empty string, and neither is an instruction to strip the site bare.
+      const cssAsk = readCss(designed && designed.css);
+      const siteCss = cssAsk.usable ? cssAsk.css : priorCss;
+      if (cssAsk.usable && siteCss !== priorCss) {
+        try {
+          await sqlQuery(db, "INSERT INTO _meta (k,v) VALUES ('site_css', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v", [siteCss]);
+        } catch (e) { console.error("css write failed:", slug, e && e.message); }
+      }
+
       tr.at("merge");
 
       // The research that has been running alongside every Neon call above.
@@ -13629,6 +13653,9 @@ async function handleRequest(request, env, ctx) {
             pageTokens: pageTokensFor(nextPageTokens),
             pageFonts: nextPageFonts,
             style: siteStyle,
+            // THE MODEL'S OWN STYLESHEET — merged above, so a revise that said
+            // nothing about the look carries what the site already wears.
+            css: siteCss,
             // THE AUTHORED PLAN, assembled from the merged look rather than
             // stored as one object — each of its six axes is its own
             // `EDIT_FIELDS` entry, so a revise that mentions none of them keeps
@@ -13956,6 +13983,14 @@ async function handleRequest(request, env, ctx) {
         // byte-identical to what it has always been there, and nothing is lost
         // for us: `style` above carries the axes the model named either way.
         styleNote: existing ? (styleNote(styleAsk.style, styleAsk.dropped) || undefined) : undefined,
+        // …AND WHAT THE MODEL'S OWN STYLESHEET COSTS, on a build as well as a
+        // revise — unlike `styleNote` one line up, deliberately. That one is
+        // silent on a first build because naming axes to somebody seeing their
+        // site for the first time describes a design they never asked to change;
+        // this one names FAILURES — a typeface we could not fetch, a remote
+        // url() the CSP refuses, a sheet we had to truncate — and those are just
+        // as wrong on a first build and just as invisible from the page.
+        cssNote: cssNote(cssAsk) || undefined,
         // WHICH PAGE CAME BACK AS A STUB. One bad file no longer costs the whole
         // site — it is replaced by a placeholder page and the rest publishes — so
         // there is now an outcome between "your site" and "the data model", and
@@ -15025,18 +15060,32 @@ async function handleRequest(request, env, ctx) {
               if (!edb) return escalate("no-backend");
               let priorLook = null, priorTokens = null, priorPageTokens = null, priorStyle = null, eSchema = null;
               let priorPageFonts = null;
+              // THE WHOLE DESIGN, since 2026-08-23. This lane is the cheap rung a
+              // colour change lands on, and with `tokens`/`style`/`seeds` off the
+              // tool there is nothing else for it to move.
+              let priorCss = "";
               try {
-                const rows = await sqlQuery(edb, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_page_tokens','site_page_fonts','site_style','schema')");
+                const rows = await sqlQuery(edb, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens','site_page_tokens','site_page_fonts','site_style','site_css','schema')");
                 for (const r of rows || []) {
                   if (r.k === "site_look" && r.v) priorLook = JSON.parse(r.v);
                   if (r.k === "site_tokens" && r.v) priorTokens = JSON.parse(r.v);
                   if (r.k === "site_page_tokens" && r.v) priorPageTokens = JSON.parse(r.v);
                   if (r.k === "site_page_fonts" && r.v) { try { priorPageFonts = JSON.parse(r.v); } catch { /* a bad row is no override */ } }
                   if (r.k === "site_style" && r.v) priorStyle = JSON.parse(r.v);
+                  if (r.k === "site_css" && typeof r.v === "string") priorCss = r.v;
                   if (r.k === "schema" && r.v) eSchema = JSON.parse(r.v);
                 }
               } catch (e) { console.error("edit look read failed:", ownerSlug, e && e.message); return escalate("no-meta"); }
-              if (!priorLook) return escalate("no-look");
+              // ── A SITE MAY HAVE A STYLESHEET AND A THIN LOOK ───────────────
+              //
+              // `!priorLook` alone was the gate, which was right while `site_look`
+              // held the palette, the fonts and the axes. Since the five look
+              // fields became one `css` string a site built from a bare brief can
+              // store very little there while `site_css` carries the entire
+              // design — and gated on the look alone, EVERY colour change on such
+              // a site would escalate to a ~27-credit page rewrite that recompiles
+              // from the same stylesheet and changes nothing.
+              if (!priorLook && !priorCss) return escalate("no-look");
 
               // The designer, told what the site is now and told to return ONLY
               // what this change moves. Same call the build uses, same edit
@@ -15044,7 +15093,13 @@ async function handleRequest(request, env, ctx) {
               let designed = null, dUsage = null;
               try {
                 const d = await designSiteSchema(env, eInstruction, modelsFor(eb && eb.picker).design, {
-                  ...priorLook,
+                  ...(priorLook || {}),
+                  // THE SHEET IT HAS TO EDIT. `css` is REPLACED rather than
+                  // merged, so a designer that cannot see the current one can
+                  // only answer with a fresh design — which on "make the
+                  // background yellow" is a different site. `currentStateNote`
+                  // prints it in full and `EDIT_RULE` says what to do with it.
+                  css: priorCss,
                   tables: ((eSchema && eSchema.tables) || []).map((t) => t && t.name).filter(Boolean),
                 });
                 designed = d.input; dUsage = d.usage;
@@ -15136,6 +15191,16 @@ async function handleRequest(request, env, ctx) {
                 else nextPageFonts[forPage] = { heading: askedFonts.heading || "", body: askedFonts.body || "" };
               }
               const pageFontsMoved = JSON.stringify(nextPageFonts) !== JSON.stringify(priorPageFonts || {});
+              // ── THE STYLESHEET ────────────────────────────────────────────
+              //
+              // REPLACED, NEVER MERGED — see the build route's copy for why a
+              // stylesheet is not a set of named slots and what carries the
+              // anti-re-roll guarantee instead. An unusable answer keeps what is
+              // stored: `readCss` refuses a non-string and an empty string, and
+              // neither is an instruction to strip a customer's site bare.
+              const cssAsk = readCss(designed && designed.css);
+              const nextCss = cssAsk.usable ? cssAsk.css : priorCss;
+              const cssMoved = nextCss !== priorCss;
               const nextStyle = mergeStyle(priorStyle, designed && designed.style);
               const styleAsk = parseStyle(designed && designed.style);
               const tokenAsk = parseTokens(designed && designed.tokens);
@@ -15169,7 +15234,7 @@ async function handleRequest(request, env, ctx) {
               // page rewrite that cannot put square buttons on anything either —
               // the rung above recompiles from the same stored look. The whole
               // point of this lane is that a look change costs one cheap call.
-              if (!moved.length && !tokensMoved && !styleMoved && !pageTokensMoved && !pageFontsMoved) {
+              if (!moved.length && !tokensMoved && !styleMoved && !pageTokensMoved && !pageFontsMoved && !cssMoved) {
                 // NOTHING MOVED HAS TWO CAUSES AND ONLY ONE OF THEM IS AN
                 // ESCALATION, which is what this used to miss. Every escalation
                 // falls through to the full revise by contract, so an ask that
@@ -15190,7 +15255,13 @@ async function handleRequest(request, env, ctx) {
                   // page colour that changed nothing reads as "I could not
                   // express this" and buys a ~27-credit rebuild that cannot
                   // scope a colour to one page either.
-                  || hasValue(designed && designed.tokensPage);
+                  || hasValue(designed && designed.tokensPage)
+                  // A STYLESHEET THAT CAME BACK IDENTICAL IS SOMETHING NAMED, and
+                  // it is the ordinary case now: "make it warmer" on a site that
+                  // already is. Without this the lane reads it as "I could not
+                  // express this" and buys a rebuild that recompiles from the
+                  // very same sheet.
+                  || cssAsk.usable;
                 if (!named) return escalate("no-change");
                 return Response.json({
                   ok: true, layer: "look", moved: [], tokens: [], style: [], renamed: 0,
@@ -15212,6 +15283,14 @@ async function handleRequest(request, env, ctx) {
                 if (Object.keys(nextStyle).length) {
                   await sqlQuery(edb, "INSERT INTO _meta (k,v) VALUES ('site_style', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v",
                     [JSON.stringify(nextStyle)]);
+                }
+                // WRITTEN WHENEVER IT MOVED. Not gated on being non-empty like the
+                // three above: those only ever grow, and `nextCss` equals
+                // `priorCss` unless a usable sheet came back, so this fires
+                // exactly when something changed.
+                if (cssMoved) {
+                  await sqlQuery(edb, "INSERT INTO _meta (k,v) VALUES ('site_css', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v",
+                    [nextCss]);
                 }
                 // WRITTEN WHENEVER IT MOVED, INCLUDING TO NOTHING. The three
                 // above are gated on being non-empty, which is right for them —
@@ -15292,6 +15371,16 @@ async function handleRequest(request, env, ctx) {
                   // customer's next unrelated edit — silently, under a version
                   // label naming a typo they were fixing. The same reason the
                   // other two are here.
+                  // THE STYLESHEET IS PUT BACK AS A STRING, so it is rolled back
+                  // separately from the four JSON keys below rather than being
+                  // squeezed into their loop — `JSON.stringify` of a stylesheet
+                  // stores a quoted, escaped copy that the reader hands to the
+                  // container verbatim, which is a site whose every rule is inside
+                  // one string literal. Gated on having moved, so a failed compile
+                  // on a lane that touched no CSS writes nothing here.
+                  if (cssMoved) {
+                    await sqlQuery(edb, "INSERT INTO _meta (k,v) VALUES ('site_css', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v", [priorCss]);
+                  }
                   for (const [k, v] of [["site_tokens", priorTokens], ["site_page_tokens", priorPageTokens], ["site_page_fonts", priorPageFonts], ["site_style", priorStyle]]) {
                     if (v && Object.keys(v).length) {
                       await sqlQuery(edb, "INSERT INTO _meta (k,v) VALUES (?, ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v", [k, JSON.stringify(v)]);
@@ -15336,6 +15425,26 @@ async function handleRequest(request, env, ctx) {
                 // `display` means, so raw keys would print "Updated the look —
                 // display" about a change to the heading colour.
                 style: styleMoved ? Object.keys(nextStyle).map(styleSaid) : [],
+                // ── THE STYLESHEET, AND WHY IT NEEDS ITS OWN NAME IN THE REPLY ──
+                //
+                // `moved`, `tokens` and `style` are all lists of NAMED THINGS,
+                // and a css change moves none of them — so without this the reply
+                // is "✅ Updated the look." with nothing after it on the one lane
+                // every colour change is now routed to. That is the
+                // works-but-cannot-say-so shape this file has recorded a dozen
+                // times, and it reads to a customer as a change that silently
+                // failed.
+                //
+                // ONE WORD RATHER THAN A DIFF. What actually moved is a
+                // stylesheet, and diffing two of them into a customer-facing
+                // sentence is a feature nobody asked for; the site is in front of
+                // them and it is what says what changed.
+                css: cssMoved || undefined,
+                // AND WHAT THE SHEET ITSELF COSTS THE SITE — a typeface we cannot
+                // host, a remote url() the CSP will refuse, a sheet longer than
+                // we store. Every one of those is invisible from the page: the
+                // browser falls back or drops the rule and nothing says why.
+                cssNote: cssNote(cssAsk) || undefined,
                 // AND WHAT WAS ASKED FOR AND REFUSED, which the list above cannot
                 // carry: an axis that was dropped moved nothing, so a customer
                 // told only what changed reads the silence as the builder being
