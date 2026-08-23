@@ -164,6 +164,23 @@ export function currentStateNote(current) {
   if (Array.isArray(c.components) && c.components.length) {
     lines.push("components it already uses: " + c.components.map(str).filter(Boolean).join(", ").slice(0, 500));
   }
+  // THE PHOTOGRAPHS IT ALREADY PAID FOR, and this one is the sharpest of the six
+  // because every line of it is ~19 credits of real spend. A designer not shown
+  // them re-describes the set on a request about a colour, and the pictures do
+  // not merely churn: `budgetFor` answers 0 on a revise of a site that already
+  // has photographs, so what a re-roll produces is tokens nothing buys and a
+  // page full of placeholders where a bought picture used to be.
+  //
+  // THE DESCRIPTIONS, not a count. "3 photographs" tells a model nothing it can
+  // return unchanged; the sentences are what it has to hand back to keep them.
+  if (Array.isArray(c.images) && c.images.length) {
+    const shots = c.images
+      .filter((s) => s && typeof s === "object" && !Array.isArray(s))
+      .map((s) => [str(s.page), str(s.describe)])
+      .filter(([page, describe]) => page && describe)
+      .map(([page, describe]) => page + " = " + describe);
+    if (shots.length) lines.push("photographs it already has: " + shots.join(" | ").slice(0, 700));
+  }
   // THE LANGUAGE THE PAGES ARE WRITTEN IN. Stated for the same reason as
   // everything else here and with a sharper edge than most: this note is written
   // in English and so is the tool schema, so a designer that is NOT told a site

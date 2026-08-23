@@ -203,6 +203,20 @@ export function planBudget(plan, { cap = IMAGE_CAP } = {}) {
   const pages = p && Array.isArray(p.pages) ? p.pages : null;
   if (!pages || !pages.length) return null;
   const lim = Math.max(0, Math.min(IMAGE_CAP, Math.floor(Number(cap))) || 0);
+  // THE DESIGNER'S OWN ANSWER WINS, AND AN EMPTY LIST IS AN ANSWER (owner's
+  // call, 2026-08-23 — "lets move image generator to the designer").
+  //
+  // ABSENT IS NOT EMPTY, and that distinction is what makes this safe to deploy
+  // against every site already published. Their stored plans predate the field
+  // entirely, so reading a missing `images` as "none" would silently suppress
+  // photographs on the next revise of all of them — the `publicView` shape, a
+  // rule correct about its own case and wrong about the one beside it. Missing
+  // falls through to the rule below; `[]` is a site that said no.
+  //
+  // `normalizePlan` has already dropped any entry naming a page the site has not
+  // got and any with no description, so what arrives here is what can really be
+  // bought — which is why this counts rather than re-judging.
+  if (Array.isArray(p.images)) return Math.min(p.images.length, lim);
   const led = componentsAreContent(p.components);
   let n = 0;
   for (const pg of pages) {
@@ -373,6 +387,38 @@ export function applyImages(pages, urlByToken) {
   });
 }
 
+/**
+ * What the page writer is shown: the designer's own pictures, or a bare count.
+ *
+ * A FUNCTION RATHER THAN TWO LINES AT THE CALL SITE, and a mutation sweep is
+ * why. Inline in `worker.js` the decision could only be asserted by READING the
+ * source — and two mutants survived that: `false && plan.images` still contains
+ * the words `plan.images`, and dropping the `.slice` still leaves `imgBudget`
+ * mentioned one clause away. A presence standing in for a property, which is a
+ * shape this repo has now recorded four times. Here it is driven.
+ *
+ * `budget` IS THE LAW, and it is the whole safety argument. `budgetFor` answers
+ * 0 on a revise of a site that already has photographs, so slicing to it is what
+ * stops a re-declared set being bought twice — and the directive now names
+ * actual pictures, so an unbounded list is a page writer invited to spend money
+ * nobody authorised.
+ *
+ * FALLS BACK TO THE COUNT, never to nothing. A plan with no readable list is
+ * every site published before 2026-08-23, and the one outcome that must not
+ * happen is silence: a page writer with no instruction writes image tokens
+ * anyway, and every one of those is a token nothing buys.
+ */
+export function imageBrief(plan, budget) {
+  const n = Math.max(0, Math.min(IMAGE_CAP, Math.floor(Number(budget)) || 0));
+  const p = plan && typeof plan === "object" && !Array.isArray(plan) ? plan : null;
+  const list = p && Array.isArray(p.images) ? p.images : null;
+  // AN EMPTY LIST IS THE COUNT, not an empty brief. `planBudget` has already
+  // turned a deliberate `[]` into a budget of 0, so the count says the zero —
+  // and `imageDirective` states a zero rather than omitting it.
+  if (!list || !list.length || !n) return n;
+  return list.slice(0, n);
+}
+
 /* -------------------------------------------------------------- the prompt */
 
 /**
@@ -385,8 +431,62 @@ export function applyImages(pages, urlByToken) {
  * model with no instruction writes image tokens anyway; a stated zero is a rule
  * it can follow, and it keeps the placeholder look deliberate on the sites that
  * are meant to have it.
+ *
+ * A NUMBER OR THE PICTURES THEMSELVES (owner's call, 2026-08-23). Given the
+ * designer's own list, this hands over the EXACT tokens to write, page by page,
+ * and the page writer places them instead of inventing them. That is the whole
+ * of "move the image generator to the designer" at this hop: the model that has
+ * the brief AND has just written the stylesheet decides what each picture is
+ * of, and the model that writes the JSX decides where it sits.
+ *
+ * BOTH FORMS SURVIVE, and the number is not legacy. `budgetFor` still answers a
+ * bare count for every site whose stored plan predates the field, and the edit
+ * and addon lanes pass a literal `0` — so a count is a live shape and stays a
+ * first-class one.
+ *
+ * THE COUNT IS STILL THE LAW even when the list is given, because the list has
+ * already been cut by the balance: `imagesAffordable` may hand back fewer shots
+ * than the designer asked for, and printing all of them would invite a page
+ * writer to spend money the account has not got. The caller slices; this only
+ * ever describes what it is given.
  */
 export function imageDirective(n) {
+  // THE LIST FORM. Anything that is not a usable array falls through to the
+  // count, so a malformed value degrades to today's behaviour rather than to
+  // no instruction — which is the one outcome that makes a page writer invent
+  // its own tokens.
+  if (Array.isArray(n)) {
+    const shots = n
+      .filter((s) => s && typeof s === "object" && !Array.isArray(s) && String(s.describe || "").trim())
+      .slice(0, IMAGE_CAP);
+    if (!shots.length) return imageDirective(0);
+    const byPage = new Map();
+    for (const s of shots) {
+      const page = String(s.page || "/").trim() || "/";
+      const describe = String(s.describe).replace(/\s+/g, " ").trim().slice(0, MAX_PROMPT_CHARS);
+      if (!byPage.has(page)) byPage.set(page, []);
+      byPage.get(page).push(describe);
+    }
+    const lines = [];
+    for (const [page, list] of byPage) {
+      for (const describe of list) lines.push(`  ${page} — <SafeImage src="@@IMG:${describe}@@" alt="..." />`);
+    }
+    return "PHOTOGRAPHS: this site gets " + shots.length + " real " +
+      (shots.length === 1 ? "photograph" : "photographs") + ", and they are ALREADY CHOSEN. " +
+      // THE PROSE MUST NOT SPELL THE DELIMITERS, and this is not style. Written
+      // as "the text between `@@IMG:` and `@@`", the sentence itself parses as a
+      // token — so anything scanning this directive finds the EXPLANATION before
+      // it finds a picture. Caught by the round-trip test in `site-images`,
+      // which is the umpteenth instance of prose containing the thing it
+      // describes; the same trap has bitten a lint, a router guard, an absence
+      // check and a scope scan in this repo.
+      "Write each token below into the page it names, VERBATIM — the words inside a token are the prompt an " +
+      "image model is paid to draw, so a word changed is a different picture bought:\n" +
+      lines.join("\n") + "\n" +
+      "Put each one where that page's arrangement calls for it, and write your own `alt`. " +
+      "Do NOT invent an extra token: any other picture stays a <SafeImage> with no src, which renders this " +
+      "theme's own placeholder — that is the intended look for the rest of the site.";
+  }
   const k = Math.max(0, Math.min(IMAGE_CAP, Math.floor(Number(n)) || 0));
   if (!k) {
     return "PHOTOGRAPHS: none on this site. Do not write any @@IMG:@@ token. Every picture is " +

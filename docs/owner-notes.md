@@ -12,6 +12,38 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ## OPEN — waiting to be picked up
 
+**THE DESIGNER PICKS THE PHOTOGRAPHS NOW (2026-08-23).**
+
+You spotted that pictures were not part of the design step. They were not, and
+it was worse than just missing — the decision was split across two places and
+the designer was in neither.
+
+**How many** pictures a site got was a rule we wrote: one for the home page, one
+for any other page whose components looked picture-led. **What each one was of**
+came from the step that writes the pages — a completely different model call.
+
+And that second half had a real problem: **the model choosing what the pictures
+show has never seen the site's colours.** I checked, it is zero references. So
+it could be describing photographs for a near-black recording studio without
+knowing the site is black.
+
+Now the designer says both, as the last thing it does — after it has written the
+colours, chosen the pages and laid out every section. So "the hero on the home
+page" is a slot it just placed, and it describes a picture that belongs to the
+site it has just designed.
+
+**Nothing about the money changed.** Each picture is still about 19 credits, the
+cap is still 6, and a site that cannot afford them still gets placeholders rather
+than a refused build. A revise of a site that already has photographs still buys
+none — so this cannot start re-buying pictures somebody already paid for.
+
+**Sites you already have are untouched.** They were built before the field
+existed, so they fall back to the old rule exactly as before.
+
+Not proven live yet — no build has run against it.
+
+---
+
 **THE DESIGN STEP: I LOOKED AT THE BUILD, AND WE DELETED `mode` (2026-08-23).**
 
 You asked to see the design on the site that proved the queue, then to go through

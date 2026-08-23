@@ -51,6 +51,12 @@
 // designer was offered 279 of 2,112 until 2026-08-21. `ui-components.mjs`
 // imports nothing, so both sides can read the one list.
 import { UI_COMPONENTS } from "./ui-components.mjs";
+// THE ONE CAP ON A PICTURE'S DESCRIPTION, imported rather than restated. It is
+// what `planImages` slices a token to before spending money on it, so a second
+// number here would let the designer write a sentence this file accepts and the
+// buying path silently truncates — the customer's picture described one way and
+// bought another. `site-images.mjs` imports NOTHING, so this adds no cycle.
+import { MAX_PROMPT_CHARS as MAX_IMAGE_PROMPT } from "./site-images.mjs";
 
 
 /**
@@ -84,7 +90,7 @@ import { UI_COMPONENTS } from "./ui-components.mjs";
  * look change escalates on. Every guard derives from it rather than restating
  * it, which is why it must stay all five.
  */
-export const PLAN_KEYS = ["purpose", "shape", "pages", "action", "components"];
+export const PLAN_KEYS = ["purpose", "shape", "pages", "action", "components", "images"];
 
 /** Every plan axis an edit may move — the same five, so `EDIT_FIELDS` derives rather than restates. */
 export const PLAN_EDIT_FIELDS = PLAN_KEYS;
@@ -382,6 +388,50 @@ function pageShapes(v, pages) {
 }
 
 /**
+ * The photographs this site gets, one entry a picture.
+ *
+ * EVERY ENTRY IS ~19 CREDITS OF REAL SPEND, which is what makes each rule here
+ * a money decision rather than tidiness:
+ *
+ *   A PAGE THE SITE HAS NOT GOT IS DROPPED. The token has to be written into
+ *   that page's source for a URL to land anywhere, so a picture declared for a
+ *   route nobody generated is bought and then shown to no one. Checked against
+ *   the page list for the same reason `pageShapes` is.
+ *
+ *   AN ENTRY WITH NO DESCRIPTION IS DROPPED rather than bought. `planImages`
+ *   already refuses an empty `@@IMG:@@` for the stated reason — paying $0.15 to
+ *   find out what an image model does with an empty prompt is the most expensive
+ *   way to get a random picture — and the same answer belongs here, where it
+ *   costs a slot rather than a photograph.
+ *
+ *   NOT DEDUPED BY PAGE. A gallery page legitimately wants three, and the home
+ *   page wants an opening shot and a room. What bounds the total is `IMAGE_CAP`
+ *   and the balance, both of which are applied downstream by `planBudget` and
+ *   `imagesAffordable`, so this one is free to say what the site wants and let
+ *   the money answer separately — the distinction `imageNote` exists to report.
+ *
+ * CAPPED AT `MAX_PAGES * 2` RATHER THAN AT `IMAGE_CAP`, deliberately. This is
+ * what the site ASKED for and the budget is what it GOT, and collapsing the two
+ * here would make "this site has no photographs" and "it wanted twelve"
+ * indistinguishable — which is the exact thing `overflow` is carried for.
+ */
+function pageImages(v, pages) {
+  if (!Array.isArray(v)) return [];
+  const known = new Set(pages.map((p) => p.path));
+  const out = [];
+  for (const s of v) {
+    if (!s || typeof s !== "object" || Array.isArray(s)) continue;
+    const page = str(s.page, 80).toLowerCase();
+    if (!known.has(page)) continue;
+    const describe = str(s.describe, MAX_IMAGE_PROMPT);
+    if (!describe) continue;
+    out.push({ page, describe });
+    if (out.length >= MAX_PAGES * 2) break;
+  }
+  return out;
+}
+
+/**
  * The authored plan, narrowed to what the rest of the pipeline can use.
  *
  * ALLOW-LIST, NOT A FILTER, and that is deliberate: it builds its output field
@@ -419,6 +469,10 @@ export function normalizePlan(input) {
   if (action.length) out.action = action;
   const components = lines(p.components, { cap: 60, max: MAX_COMPONENTS });
   if (components.length) out.components = components;
+  // AFTER `pages` for the reason `shape` is: each entry names one, and a picture
+  // for a page the site does not have is a photograph nobody can ever see.
+  const images = pageImages(p.images, pages);
+  if (images.length) out.images = images;
   return out;
 }
 
@@ -624,6 +678,70 @@ export const SHAPE_FIELD = {
 };
 
 /**
+ * THE PHOTOGRAPHS, AND THIS IS THE LAST FIELD ON THE CALL (owner's call,
+ * 2026-08-23): *"lets move image generator to the designer."*
+ *
+ * IT WAS SPLIT ACROSS TWO PLACES AND THE DESIGNER WAS IN NEITHER. How many
+ * pictures a site got was a RULE — `planBudget` counting the home page plus any
+ * page whose components read as picture-led — and what each one was OF came from
+ * the PAGE-GENERATION call, which writes `@@IMG:…@@` tokens. So the number was
+ * derived from an answer the designer gave for another purpose, and the subject
+ * was chosen by a model that had never seen the site's look.
+ *
+ * THE MEASUREMENT THAT SETTLED WHERE IT BELONGS: `page-gen.mjs` contains ZERO
+ * references to the `css` the designer wrote. So the model describing the
+ * photographs could not know it was dressing a near-black recording studio — it
+ * had the brief and the layout and not one word about the palette. The designer
+ * has all three by the time it reaches this field, which is the whole argument
+ * for moving it rather than merely re-wording the directive.
+ *
+ * LAST, PAST `shape`, FOR THE REASON `shape` ITSELF IS LATE. By here the palette
+ * is written (field 9), the pages are chosen, the verb is fixed, the manifest is
+ * picked and every page is arranged band by band — so "the hero on `/`" is a
+ * band this model just placed rather than one it is guessing at.
+ *
+ * OPTIONAL, AND AN OMISSION IS NOT SILENCE. `planBudget` falls back to the
+ * derived rule when there is no readable list, which is what keeps every site
+ * built before today working: their stored plans have no `images` at all, and
+ * reading that as "none" would suppress photographs on the next revise of every
+ * one of them. An EMPTY ARRAY is different and is honoured — that is a site
+ * saying it wants none, which a CRM or a terminal-styled site legitimately does.
+ *
+ * IT SAYS WHAT, NOT WHERE ON THE PAGE. The page writer writes the JSX, so it
+ * places the token; this decides that the picture exists and what it shows.
+ * Splitting it further would mean the designer naming a component slot it cannot
+ * see the props of.
+ */
+export const IMAGES_FIELD = {
+  type: "array",
+  items: {
+    type: "object",
+    properties: {
+      page: { type: "string", description: "One of the paths you listed in `pages`. Anything else is dropped." },
+      describe: {
+        type: "string",
+        description:
+          "What the photograph SHOWS, in a sentence — the subject, the light, the framing. " +
+          "This is sent to an image model verbatim, so write it as a picture and not as a caption: " +
+          '"the shop front at dusk, warm light through the window, shot from across the street" — ' +
+          'not "our shop".',
+      },
+    },
+    required: ["page", "describe"],
+  },
+  description:
+    "THE REAL PHOTOGRAPHS THIS SITE GETS. Leave it out and the site is judged by the ordinary rule; " +
+    "send an empty list to say it should have none.\n" +
+    "EACH ONE COSTS THE CUSTOMER REAL MONEY, so ask for a picture only where it is the argument — the " +
+    "opening, the work, the room — and never for decoration. Most small sites want one or two; a gallery " +
+    "or a portfolio is what wants more.\n" +
+    "You have just chosen this site's palette and arranged every page, so describe pictures that belong to " +
+    "THAT site: a near-black studio and a bright bakery want different light in the frame.\n" +
+    "Everything you do not ask for here still renders — as the theme's own placeholder, which is a " +
+    "deliberate look and not a gap. The owner fills those in after the build.",
+};
+
+/**
  * The schema fragment for a plan key, wherever it happens to live.
  *
  * ONE READER OF THE SPLIT. Four of the five are in `PLAN_FIELDS` and `shape` is
@@ -639,6 +757,7 @@ export const SHAPE_FIELD = {
  */
 export function planFieldFor(key) {
   if (key === "shape") return SHAPE_FIELD;
+  if (key === "images") return IMAGES_FIELD;
   return PLAN_FIELDS[key];
 }
 

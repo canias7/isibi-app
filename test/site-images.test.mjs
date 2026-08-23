@@ -14,10 +14,11 @@ import {
   IMAGE_CAP, IMAGE_ASPECT, MAX_PROMPT_CHARS,
   imagesAffordable,
   parseImageTokens, planImages, applyImages, imagePrompt, imageDirective, imageNote,
-  budgetFor, planBudget, hasBoughtPhotos,
+  budgetFor, planBudget, hasBoughtPhotos, imageBrief,
 } from "../builder/site-images.mjs";
 import { uploadUrl } from "../site-uploads.mjs";
 import { IMAGE_USD, pageCost, pageCredits } from "../builder/publish-pages.mjs";
+import { normalizePlan } from "../builder/site-plan.mjs";
 import { lintPages, PAGE_RULES, briefWithLayout, SAFE_IMAGE_COMPONENTS, schemaDigest, validatePages } from "../builder/page-gen.mjs";
 
 const page = (path, source) => ({ path, source });
@@ -214,6 +215,159 @@ test("the directive names the count and the only place a token may go", () => {
 test("one photograph is singular", () => {
   assert.match(imageDirective(1), /1 real photograph\b/);
   assert.ok(!/1 real photographs/.test(imageDirective(1)));
+});
+
+/* ── the designer's own pictures (owner's call, 2026-08-23) ─────────────── */
+
+test("GIVEN THE DESIGNER'S LIST, THE PAGE WRITER IS HANDED THE EXACT TOKENS", () => {
+  // THE WHOLE MOVE. What each picture is OF used to be decided by the
+  // page-generation call, which — measured — contains zero references to the
+  // `css` the designer wrote. So the model choosing the subjects had never seen
+  // the palette. Now the designer describes them and this hands them over.
+  //
+  // VERBATIM IS THE PROPERTY: the text between the delimiters is the prompt an
+  // image model is paid to draw, so a word changed is a different picture bought.
+  const d = imageDirective([
+    { page: "/", describe: "the shop front at dusk, warm light through the window" },
+    { page: "/work", describe: "a fade in progress, clippers close, shallow depth" },
+  ]);
+  assert.match(d, /this site gets 2 real photographs/);
+  assert.match(d, /ALREADY CHOSEN/);
+  assert.match(d, /VERBATIM/);
+  assert.ok(d.includes('/ — <SafeImage src="@@IMG:the shop front at dusk, warm light through the window@@"'),
+    "the home page's exact token is not handed over:\n" + d);
+  assert.ok(d.includes('/work — <SafeImage src="@@IMG:a fade in progress, clippers close, shallow depth@@"'),
+    "the second page's exact token is not handed over:\n" + d);
+  // AND IT IS TOLD NOT TO ADD ANY, or the count is advisory and the page writer
+  // spends photographs nobody authorised.
+  assert.match(d, /Do NOT invent an extra token/);
+});
+
+test("…and the tokens it writes are the ones the buying path parses", () => {
+  // THE ONE PROPERTY THAT MAKES THIS WORK AT ALL, and it spans two functions:
+  // the directive writes `@@IMG:…@@` and `parseImageTokens` is what finds them
+  // in the returned page source. Asserted by round-trip rather than by matching
+  // the delimiter twice — two copies of a token shape is exactly how a picture
+  // gets described, written, and then never bought.
+  const shot = { page: "/", describe: "a copper kettle on a scrubbed pine table" };
+  const d = imageDirective([shot]);
+  const token = (d.match(/@@IMG:[\s\S]*?@@/) || [])[0];
+  assert.ok(token, "the directive hands over nothing the parser could find");
+  const found = parseImageTokens([{ path: "index.tsx", source: `<SafeImage src="${token}" alt="x" />` }]);
+  assert.deepEqual(found.map((t) => t.prompt), [shot.describe],
+    "the token the directive writes is not the token the buying path reads");
+});
+
+test("a picture with nothing to draw is not handed over", () => {
+  // `planImages` already refuses an empty prompt rather than paying $0.15 to see
+  // what an image model does with one. The same answer belongs here, one step
+  // earlier, where it costs a line rather than a photograph.
+  const d = imageDirective([
+    { page: "/", describe: "   " },
+    { page: "/", describe: "a copper kettle on a scrubbed pine table" },
+  ]);
+  assert.match(d, /gets 1 real photograph\b/);
+  assert.ok(!d.includes("@@IMG:   @@"), "an empty description was handed over as a prompt");
+});
+
+test("AN UNUSABLE LIST DEGRADES TO THE COUNT, never to no instruction", () => {
+  // THE ONE OUTCOME THAT MUST NOT HAPPEN is silence: a page writer with no
+  // instruction writes image tokens anyway, and every one of them is a token
+  // nothing buys. So anything that is not a usable list falls back rather than
+  // vanishing — which for a list with no usable entries is the stated zero.
+  for (const junk of [[], [null], [{}], [{ page: "/" }], [{ describe: "" }], ["a picture"]]) {
+    assert.match(imageDirective(junk), /none on this site/,
+      "an unusable list produced something other than the stated zero: " + JSON.stringify(junk));
+  }
+});
+
+test("the designer's list cannot ask for more than the cap either", () => {
+  const many = Array.from({ length: IMAGE_CAP + 4 }, (_, i) => ({ page: "/", describe: "picture number " + i }));
+  const d = imageDirective(many);
+  assert.match(d, new RegExp("gets " + IMAGE_CAP + " real"));
+  assert.ok(!d.includes("picture number " + IMAGE_CAP), "a picture past the cap was handed over");
+});
+
+test("A DECLARED LIST IS THE BUDGET, and an EMPTY one is a real answer", () => {
+  // ABSENT IS NOT EMPTY, and that is what makes this safe against every site
+  // already published: their stored plans predate the field, so reading a
+  // missing `images` as "none" would suppress photographs on the next revise of
+  // all of them. Missing falls through to the derived rule; `[]` is a site that
+  // said no — which a CRM or a terminal-styled site legitimately is.
+  const base = { purpose: "p", pages: [{ path: "/", role: "home" }, { path: "/work", role: "the work" }] };
+  assert.equal(planBudget(base), 1, "the derived rule no longer answers for a plan that declares nothing");
+  assert.equal(planBudget({ ...base, images: [] }), 0, "an empty list was not honoured as a deliberate none");
+  assert.equal(planBudget({ ...base, images: [{ page: "/", describe: "a" }, { page: "/work", describe: "b" }] }), 2);
+  // AND IT IS STILL CAPPED. The declaration decides how many, not whether the
+  // ceiling applies — each one is real money.
+  const many = Array.from({ length: IMAGE_CAP + 3 }, () => ({ page: "/", describe: "x" }));
+  assert.equal(planBudget({ ...base, images: many }), IMAGE_CAP);
+});
+
+test("a declared picture for a page the site has not got is dropped", () => {
+  // It would be bought and shown to nobody: the token has to be written into
+  // that page's source for a URL to land anywhere. Checked in `normalizePlan`,
+  // which is what `planBudget` counts, so this is asserted through the real
+  // chain rather than against the counter alone.
+  const plan = normalizePlan({
+    purpose: "the slot picker is the hero",
+    pages: [{ path: "/", role: "book a chair" }],
+    images: [
+      { page: "/", describe: "the shop front at dusk" },
+      { page: "/ghost", describe: "a page that does not exist" },
+    ],
+  });
+  assert.deepEqual(plan.images.map((i) => i.page), ["/"]);
+  assert.equal(planBudget(plan), 1, "a picture for a page nobody generated was still budgeted for");
+});
+
+test("WHAT THE PAGE WRITER IS SHOWN IS THE LIST, BOUNDED BY THE BUDGET", () => {
+  // EXTRACTED FROM `worker.js` BECAUSE A SOURCE-READ COULD NOT HOLD IT. Inline,
+  // two mutants survived the wiring guard: `false && plan.images` still contains
+  // the words `plan.images`, and dropping the bound still leaves `imgBudget`
+  // mentioned one clause away. A presence standing in for a property, for the
+  // fourth recorded time — so the decision moved here, where it is driven.
+  const shots = [
+    { page: "/", describe: "the shop front at dusk" },
+    { page: "/work", describe: "a fade in progress" },
+    { page: "/", describe: "the chairs, empty, morning" },
+  ];
+  const plan = { purpose: "p", pages: [{ path: "/", role: "r" }], images: shots };
+  assert.deepEqual(imageBrief(plan, 3), shots, "the designer's own pictures did not reach the page writer");
+  // THE BUDGET IS THE LAW, and this is the assertion that stops money leaking:
+  // `budgetFor` answers 0 on a revise of a site that already has photographs, so
+  // an unbounded list re-buys a set the owner already paid for.
+  assert.deepEqual(imageBrief(plan, 2), shots.slice(0, 2), "the list was not cut to the budget");
+  assert.equal(imageBrief(plan, 0), 0, "a budget of 0 still handed over pictures to write");
+  // AND THE COUNT PATH SURVIVES, which is every site whose stored plan predates
+  // the field. Falling back to nothing is the one outcome that must not happen:
+  // a page writer with no instruction writes tokens anyway, and none get bought.
+  assert.equal(imageBrief({ purpose: "p", pages: [{ path: "/", role: "r" }] }, 2), 2);
+  assert.equal(imageBrief(null, 2), 2);
+  assert.equal(imageBrief({ images: "three" }, 2), 2);
+  assert.equal(imageBrief({ images: [] }, 2), 2, "an empty list produced an empty brief rather than the count");
+  // …and it can never exceed the cap however it is asked.
+  assert.equal(imageBrief(null, 999), IMAGE_CAP);
+  assert.equal(imageBrief(plan, -1), 0);
+});
+
+test("…and one with nothing to draw is dropped at the plan too", () => {
+  // THE SAME REFUSAL `planImages` MAKES, one step earlier, and a mutation sweep
+  // found nothing was holding it: paying $0.15 to see what an image model does
+  // with an empty prompt is the most expensive way to get a random picture, and
+  // an entry kept here would occupy a budget slot before the buying path ever
+  // got the chance to refuse it — so the site loses a real photograph to a blank.
+  const plan = normalizePlan({
+    purpose: "the slot picker is the hero",
+    pages: [{ path: "/", role: "book a chair" }],
+    images: [
+      { page: "/", describe: "   " },
+      { page: "/" },
+      { page: "/", describe: "the shop front at dusk" },
+    ],
+  });
+  assert.deepEqual(plan.images.map((i) => i.describe), ["the shop front at dusk"]);
+  assert.equal(planBudget(plan), 1, "a blank description still spent a slot of the budget");
 });
 
 test("the directive can never ask for more than the cap", () => {

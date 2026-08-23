@@ -447,8 +447,34 @@ test("the build both ASKS for photographs and BUYS them", () => {
   }
   const stated = worker.match(/briefWithLayout\(\{([^}]*)\}\)/);
   assert.ok(stated, "the layout directive is no longer composed for the model");
-  assert.match(stated[1], /\bimages: imgBudget\b/, "and stated to the model in the user turn");
   assert.match(stated[1], /\bplan\b/, "the authored plan never reaches the directive");
+  // AND THE SAME OWN-GOAL A THIRD TIME, WHICH THIS FIXES RATHER THAN REPEATS.
+  // This pinned `images: imgBudget` character for character — under a comment
+  // twice over saying not to — so it went red on 2026-08-23 when the designer
+  // started declaring the pictures and the variable became `imgBrief`. Renaming
+  // what is passed is not a change to the wiring.
+  //
+  // THE PROPERTY IS THAT WHAT THE MODEL IS TOLD IS BOUNDED BY THE ONE BUDGET
+  // DECISION, and it is the money that makes it worth asserting: the directive
+  // now names actual pictures, so a list assembled without `imgBudget` in its
+  // derivation is a page writer invited to spend photographs nothing authorised
+  // — including on a revise, where the budget is 0 precisely because the site
+  // already paid for its set.
+  const passed = (stated[1].match(/\bimages:\s*([A-Za-z_$][\w$]*)/) || [])[1];
+  assert.ok(passed, "nothing is stated to the model about photographs at all");
+  // RESOLVED TO ITS DECLARATION, and what that declaration has to be is ONE
+  // CALL rather than an expression — because a source-read cannot tell a live
+  // expression from a dead one. Written inline here, two mutants survived this
+  // guard: `false && plan.images` still contains the words `plan.images`, and
+  // dropping the bound still leaves `imgBudget` mentioned one clause away. The
+  // decision lives in `imageBrief` now, where it is DRIVEN (see
+  // `test/site-images.test.mjs`), and this only has to prove the route uses it.
+  if (passed !== "imgBudget") {
+    const decl = worker.match(new RegExp("\\b(?:const|let)\\s+" + passed + "\\s*=([\\s\\S]{0,200}?);"));
+    assert.ok(decl, `the model is told \`${passed}\` and nothing in worker.js declares it`);
+    assert.match(decl[1], /^\s*imageBrief\(\s*plan\s*,\s*imgBudget\s*\)\s*$/,
+      `\`${passed}\` is assembled inline instead of by \`imageBrief(plan, imgBudget)\` — inline, a source-read cannot tell a live derivation from a dead one, which is what let two mutants through here`);
+  }
   // AND THE SAME OWN-GOAL AGAIN, ONE ASSERTION BELOW THE COMMENT WARNING ABOUT
   // IT. This pinned `images: (pages, { balance, reserve }) => buySitePhotos(` —
   // the implicit-return arrow, character for character — so it went red the day
@@ -459,6 +485,32 @@ test("the build both ASKS for photographs and BUYS them", () => {
   assert.ok(at > 0, "the `images` dep is no longer supplied to publishPages");
   assert.match(worker.slice(at, at + 1200), /buySitePhotos\(/,
     "the dep that buys photographs no longer calls buySitePhotos");
+});
+
+test("THE DESIGNER'S OWN PICTURES REACH THE PAGE WRITER", () => {
+  // THE HOP THIS FEATURE IS (owner's call, 2026-08-23), and the layer where this
+  // repo has recorded twelve features dying: `IMAGES_FIELD` can be perfectly
+  // correct, `normalizePlan` can keep it and `imageDirective` can render it, and
+  // if the route never passes the LIST the model still gets a bare number and
+  // invents the subjects — which is exactly the state this replaced, wearing a
+  // new field's clothes.
+  //
+  // DRIVEN, NOT READ, for the same reason. A source-read that `plan.images` is
+  // MENTIONED is satisfied by a value computed and dropped.
+  const chosen = [{ page: "/", describe: "the shop front at dusk, warm light through the window" }];
+  const withList = briefWithLayout({
+    brief: "a barber shop in Leeds",
+    plan: { purpose: "the slot picker is the hero", pages: [{ path: "/", role: "book" }], images: chosen },
+    images: chosen,
+  });
+  assert.match(withList, /ALREADY CHOSEN/, "the designer's list did not reach the directive");
+  assert.ok(withList.includes("@@IMG:" + chosen[0].describe + "@@"),
+    "the exact token is not in what the page writer is sent");
+  // AND THE COUNT PATH IS UNCHANGED, which is what keeps every site whose stored
+  // plan predates the field working — and what the edit and addon lanes send.
+  const withCount = briefWithLayout({ brief: "b", plan: { purpose: "p", pages: [{ path: "/", role: "r" }] }, images: 2 });
+  assert.match(withCount, /this site gets 2 real photographs/);
+  assert.ok(!/ALREADY CHOSEN/.test(withCount), "a bare count produced the chosen-pictures directive");
 });
 
 // The generate -> sniff -> hash -> put chain, wherever it lives. It was inline in

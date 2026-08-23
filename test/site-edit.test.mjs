@@ -29,6 +29,7 @@ const STORED = {
   action: ["Book now"],
   pages: [{ path: "/", role: "book a chair" }, { path: "/prices", role: "what each cut costs" }],
   components: ["availability-grid", "week-strip", "price-list"],
+  images: [{ page: "/", describe: "the shop front at dusk, warm light through the window" }],
 };
 
 /* ── absent means unchanged ─────────────────────────────────────────────── */
@@ -278,6 +279,17 @@ test("EVERY FIELD AN EDIT CAN MOVE IS ONE THE DESIGNER IS TOLD THE CURRENT VALUE
     action: ["value-of-action"],
     pages: [{ path: "value-of-pages", role: "a role" }],
     components: ["value-of-components"],
+    // AND THE PHOTOGRAPHS, WHICH ARE THE MOST EXPENSIVE THING ON THIS LIST TO
+    // LOSE (2026-08-23). Every entry is ~19 credits already spent, and the
+    // re-roll is worse than churn: `budgetFor` answers 0 on a revise of a site
+    // that has pictures, so a designer that re-describes them produces tokens
+    // nothing buys — placeholders where bought photographs used to be.
+    //
+    // THE SAMPLE PUTS THE MARKER IN `describe` RATHER THAN `page`, because the
+    // note prints `page = describe` and a marker in the path alone would pass
+    // while the sentences — the only part a model can hand back unchanged —
+    // were never shown at all.
+    images: [{ page: "value-of-pages", describe: "value-of-images" }],
   };
   assert.deepEqual(Object.keys(SAMPLE).sort(), [...EDIT_FIELDS].sort(),
     "a field was added to EDIT_FIELDS without a sample of its shape — this guard would stop exercising it");

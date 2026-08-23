@@ -12,7 +12,7 @@ import { readSchemaTool } from "./integration/schema-tool.mjs";
 import {
   PLAN_KEYS, PLAN_EDIT_FIELDS, PLAN_FIELDS, PLAN_REQUIRED, KIT_PALETTE, COMPONENT_MENU, SHAPE_FIELD,
   normalizePlan, directiveFromPlan, hasPlan,
-  MAX_SECTIONS, MAX_PAGES, MAX_ACTION, MAX_COMPONENTS,
+  MAX_SECTIONS, MAX_PAGES, MAX_ACTION, MAX_COMPONENTS, IMAGES_FIELD, planFieldFor,
 } from "../builder/site-plan.mjs";
 import { ALWAYS_API_CORE, UI_COMPONENTS, siteComponentApi, componentApiFor, briefWithLayout, PAGE_RULES } from "../builder/page-gen.mjs";
 import { planBudget, budgetFor } from "../builder/site-images.mjs";
@@ -26,11 +26,12 @@ const GOOD = {
   pages: [{ path: "/", role: "book a chair" }, { path: "/prices", role: "what each cut costs" }],
   action: ["Book now"],
   components: ["availability-grid", "week-strip", "price-list"],
+  images: [{ page: "/", describe: "the shop front at dusk, warm light through the window, from across the street" }],
 };
 
 /* ── the field order IS the fix ─────────────────────────────────────────── */
 
-test("COMPONENTS IS PICKED LAST, AFTER THE PAGE LIST IT IS FOR", () => {
+test("COMPONENTS IS PICKED LAST, AFTER THE PAGE LIST IT IS FOR", async () => {
   // THE WHOLE POINT OF THE CHANGE, and the one property that cannot be allowed
   // to drift. A tool schema's property order is the order the model fills the
   // fields in, so this decides what the designer knows when it picks each value.
@@ -46,10 +47,27 @@ test("COMPONENTS IS PICKED LAST, AFTER THE PAGE LIST IT IS FOR", () => {
   // LISTED 8.0 components and its own pages IMPORTED 12.1, so 42% of every reach
   // lay outside the list and only 2 of 100 lists covered what their pages used.
   // That is what picking with no page list in hand is worth.
-  assert.equal(PLAN_KEYS[PLAN_KEYS.length - 1], "components",
-    "components is no longer the last field, so it is picked before the pages exist — the bug this change was made to fix");
-  assert.ok(PLAN_KEYS.indexOf("pages") < PLAN_KEYS.indexOf("components"),
+  //
+  // ASKED OF THE SPREAD, NOT OF `PLAN_KEYS`, and that is a correction rather
+  // than a loosening. Two plan fields are spliced into the tool SEPARATELY and
+  // deliberately later — `shape` since 2026-08-21 and `images` since
+  // 2026-08-23 — so "last of PLAN_KEYS" stopped being the claim the moment a
+  // second one existed. What has to hold is that `components` is the last of
+  // the CONTIGUOUS block, because that is what puts it after `pages`; the two
+  // spliced fields being later still is the point of splicing them.
+  const spread = Object.keys(PLAN_FIELDS);
+  assert.equal(spread[spread.length - 1], "components",
+    "components is no longer the last field of the spread, so it is picked before the pages exist — the bug this change was made to fix");
+  assert.ok(spread.indexOf("pages") < spread.indexOf("components"),
     "the page list is written AFTER the components that are supposed to serve it");
+  // AND THE SPLICED ONES REALLY ARE LATER. Without this the check above is
+  // satisfied by a tool that spreads `PLAN_FIELDS` last of all, which would put
+  // `components` after `shape` and undo what splicing them bought.
+  const order = Object.keys((await readSchemaTool()).tool.input_schema.properties);
+  for (const k of PLAN_KEYS.filter((x) => !(x in PLAN_FIELDS))) {
+    assert.ok(order.indexOf(k) > order.indexOf("components"),
+      `${k} is spliced into the tool BEFORE components, so it is answered before the manifest it depends on`);
+  }
 });
 
 test("…and the TOOL's own key order is that order, which is what makes it true", () => {
@@ -57,15 +75,28 @@ test("…and the TOOL's own key order is that order, which is what makes it true
   // into `design_schema.properties`. If the two disagree the constant above is a
   // claim about nothing — asserted because it is invisible from either side.
   //
-  // THE TWO DELIBERATELY DISAGREE BY EXACTLY ONE FIELD SINCE 2026-08-21.
-  // `shape` is spliced into the tool after `mode` rather than beside its
-  // siblings, so it is answered last of every front-end field. Everything else
-  // still has to line up, or the `components`-is-last guard above proves
-  // nothing — which is why this asserts the split rather than dropping.
-  assert.deepEqual(Object.keys(PLAN_FIELDS), PLAN_KEYS.filter((k) => k !== "shape"),
+  // THE TWO DELIBERATELY DISAGREE, AND BY HOW MANY IS NOT THE CLAIM. `shape` has
+  // been spliced separately since 2026-08-21 and `images` since 2026-08-23, both
+  // so they are answered after everything they depend on. What has to hold is
+  // that whatever IS spread lines up with `PLAN_KEYS` in the same order — or the
+  // `components`-is-last guard above proves nothing.
+  //
+  // THE EXCLUSION IS DERIVED FROM `PLAN_FIELDS` ITSELF rather than listing the
+  // spliced names. A hand-written `k !== "shape"` is exactly what went stale
+  // when the second one arrived, and the third would go the same way.
+  const spliced = PLAN_KEYS.filter((k) => !(k in PLAN_FIELDS));
+  assert.deepEqual(Object.keys(PLAN_FIELDS), PLAN_KEYS.filter((k) => !spliced.includes(k)),
     "the tool's plan fields are in a different order from PLAN_KEYS, so the ordering guard above proves nothing");
-  assert.ok(!("shape" in PLAN_FIELDS),
-    "shape is back in the PLAN_FIELDS spread, so it is answered fifteenth again rather than last");
+  // AND EACH SPLICED ONE IS A REAL FRAGMENT, or the tool splices in nothing and
+  // the field simply does not exist on the wire — a plan key the model is
+  // required to answer and is never shown.
+  for (const k of spliced) {
+    const frag = planFieldFor(k);
+    assert.ok(frag && typeof frag === "object" && frag.type,
+      `${k} is spliced but has no usable schema fragment — the tool would offer nothing`);
+  }
+  assert.ok(spliced.includes("shape"),
+    "shape is back in the PLAN_FIELDS spread, so it is answered mid-call again rather than last");
   assert.ok(SHAPE_FIELD && SHAPE_FIELD.type === "array",
     "SHAPE_FIELD is not a usable schema fragment — the tool would splice in nothing");
 });
@@ -91,23 +122,48 @@ test("shape is answered LAST of the front-end fields, in the tool itself", () =>
   assert.ok(shape > spread, "shape is spliced in before the plan spread, not after it");
 });
 
-test("shape is the LAST field the model is required to answer", async () => {
-  // THE HALF THAT SURVIVED `mode`'s DELETION AS A PROPERTY RATHER THAN A NAME.
-  // "Answered last" used to be spelled `shape > mode`, which stopped meaning
-  // anything the moment `mode` went. What it was reaching for is this: a tool's
-  // property order IS its generation order, so shape being last of `required`
-  // is the same claim with nothing to go stale.
+test("every late field is answered after the fields its own description claims", async () => {
+  // THIS ASSERTION HAS NOW BEEN WRONG TWICE, IN THE SAME WAY, AND THE THIRD FORM
+  // IS THE ONE WITH NOTHING TO GO STALE.
   //
-  // It is the field's own contract — "You answer this last, so the pages, the
-  // primary action and the component manifest are already decided" — so a field
-  // added below it silently makes that sentence false.
+  //   It was `shape > mode` — a landmark that was another field's SPELLING — so
+  //   deleting `mode` on 2026-08-23 made it report that SHAPE had moved when
+  //   shape had not been touched.
+  //
+  //   Its replacement was "shape is the LAST of `required`", which read as
+  //   derived and was really a claim about POSITION. It went red the same day
+  //   `images` was spliced in below it — on a correct change, because nothing
+  //   in shape's contract says it is last of everything.
+  //
+  // WHAT EACH FIELD ACTUALLY PROMISES is that the things it reasons about are
+  // already decided: shape says "the pages, the primary action and the component
+  // manifest are already decided", and `images` says every band is arranged. So
+  // the property is a DEPENDENCY, and a field landing after either of them
+  // cannot falsify it — only moving one above what it depends on can.
+  const DEPENDS = {
+    shape: ["pages", "action", "components"],
+    images: ["pages", "components", "shape", "css"],
+  };
   const { tool } = await readSchemaTool();
   const order = Object.keys(tool.input_schema.properties);
   const required = tool.input_schema.required || [];
-  assert.ok(required.includes("shape"), "shape is no longer required, so nothing guarantees it is answered at all");
-  const last = order.filter((k) => required.includes(k)).pop();
-  assert.equal(last, "shape",
-    `a required field is answered after shape (${last}), so shape no longer sees everything it arranges`);
+  // THE SET IS DERIVED, so a third spliced field has to be given its dependencies
+  // rather than sliding in unchecked — which is how the first two forms of this
+  // guard came to be describing something other than what they claimed.
+  const spliced = PLAN_KEYS.filter((k) => !(k in PLAN_FIELDS));
+  assert.deepEqual(spliced.slice().sort(), Object.keys(DEPENDS).sort(),
+    "a plan field is spliced into the tool with no stated dependencies, so nothing checks when it is answered");
+  for (const [field, needs] of Object.entries(DEPENDS)) {
+    assert.ok(required.includes(field), `${field} is no longer required, so nothing guarantees it is answered at all`);
+    const at = order.indexOf(field);
+    assert.ok(at > 0, `${field} is not in the tool at all`);
+    for (const n of needs) {
+      const nAt = order.indexOf(n);
+      assert.ok(nAt > -1, `${field} claims to depend on ${n}, which is not in the tool`);
+      assert.ok(nAt < at,
+        `${field} is answered BEFORE ${n}, so its own description is a lie — a tool's property order is its generation order`);
+    }
+  }
 });
 
 test("every axis is required, and the edit list is the same six", () => {

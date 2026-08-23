@@ -53,7 +53,7 @@ import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayou
 // to all 1,632 tests (nothing can import a Worker entrypoint); esbuild refuses
 // it at deploy time and the deploy is the first thing that ever sees it.
 import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, MIN_CREDITS, IMAGE_USD as SITE_PHOTO_USD } from "./builder/publish-pages.mjs";
-import { budgetFor, imagesAffordable, planImages, applyImages, countImageSlots, imagePrompt, imageNote, IMAGE_ASPECT } from "./builder/site-images.mjs";
+import { budgetFor, imageBrief, imagesAffordable, planImages, applyImages, countImageSlots, imagePrompt, imageNote, IMAGE_ASPECT } from "./builder/site-images.mjs";
 import { renderNote } from "./builder/site-render.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
 import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker } from "./builder/site-dispatch.mjs";
@@ -112,7 +112,7 @@ import { SHORTLIST, resolvePair, resolvePageFonts, MAX_PAGE_FONTS } from "./buil
 // colours in `site_look`, and this is what still judges them on every republish.
 import { normalizeSeeds } from "./builder/site-seeds.mjs";
 import { currentStateNote, EDIT_RULE, EDIT_REQUIRED, EDIT_FIELDS, hasValue, keepStoredAccess, mergeLook, movedFields } from "./builder/site-edit.mjs";
-import { PLAN_FIELDS, PLAN_KEYS, PLAN_REQUIRED, SHAPE_FIELD, normalizePlan } from "./builder/site-plan.mjs";
+import { PLAN_FIELDS, PLAN_KEYS, PLAN_REQUIRED, SHAPE_FIELD, IMAGES_FIELD, normalizePlan } from "./builder/site-plan.mjs";
 
 // Game build-service container (Phase 3). The image (./builder-game/Dockerfile)
 // bakes kaplay + a headless Chromium for the smoke test. Runs to zero after idle.
@@ -4397,6 +4397,20 @@ const SITE_SCHEMA_TOOL = {
       // It stays in `PLAN_KEYS`, `PLAN_REQUIRED` and `PLAN_EDIT_FIELDS` — this
       // moves WHEN it is answered, nothing about what it is. See SHAPE_FIELD.
       shape: SHAPE_FIELD,
+      // AND THE PHOTOGRAPHS LAST OF ALL (owner's call, 2026-08-23 — "lets move
+      // image generator to the designer").
+      //
+      // IT WAS DECIDED IN TWO PLACES AND THE DESIGNER WAS IN NEITHER: how many
+      // pictures a site got was a RULE derived from the page list, and what each
+      // one was OF came from the page-generation call. Measured: `page-gen.mjs`
+      // holds ZERO references to `css`, so the model describing the pictures had
+      // never seen the palette — it could not know it was dressing a near-black
+      // recording studio.
+      //
+      // PAST `shape`, so by here the palette is written, the pages are chosen,
+      // the verb is fixed, the manifest is picked and every band is arranged.
+      // "The hero on /" is a slot this model just placed. See IMAGES_FIELD.
+      images: IMAGES_FIELD,
       // THE WEB-SEARCH GATE, RIDING ON A CALL THAT ALREADY HAPPENS. Searching
       // costs real money per search and is worth it on a small minority of
       // briefs, so it has to be gated — and the obvious way to gate it, a small
@@ -8305,6 +8319,26 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
   // `budgetFor` asks the honest question instead, off the prior pages that are
   // already loaded here.
   const imgBudget = budgetFor({ revise, priorPages, slug, plan });
+  // WHAT THE PAGE WRITER IS SHOWN: the designer's own pictures when it declared
+  // any, otherwise the bare count (owner's call, 2026-08-23).
+  //
+  // SLICED TO `imgBudget`, WHICH IS THE ONE PLACE THAT CAN SAY NO. That number
+  // is already 0 on a revise of a site that has photographs, so this cannot
+  // re-buy a set the owner has — the rule `budgetFor` exists for, reached here
+  // without a second copy of it. Anything the slice drops is `overflow`, which
+  // `imageNote` reports as "it wanted more" rather than as a failure.
+  //
+  // THE LIST NEVER BECOMES A REASON TO SPEND. `imagesAffordable` still runs
+  // after generation with the measured cost of THIS build's model calls, so a
+  // declared picture the account cannot pay for is a token nothing buys and the
+  // sweep turns it into the theme's own placeholder — exactly what an overflow
+  // token already does today.
+  //
+  // IN THE MODULE RATHER THAN INLINE, because inline it could only be asserted
+  // by reading this file — and two mutants survived that: `false && plan.images`
+  // still contains the words, and dropping the bound still leaves `imgBudget`
+  // mentioned one clause away. See `imageBrief`, which is driven.
+  const imgBrief = imageBrief(plan, imgBudget);
   // WHAT THE SITE IS SERVING RIGHT NOW, for the one decision in `salvagePlan`:
   // a page that already works is never replaced with the "not finished yet"
   // stub. `priorPages` is the stored source of the LAST successful publish and
@@ -8359,7 +8393,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       // and sent the bare brief — ~287 tokens of layout that every real build
       // carries and no sample ever did, so the compile rate described a prompt
       // the platform does not send.
-      return generateSitePages(env, briefWithLayout({ brief, plan, images: imgBudget }), spec, brand, attachments, model, priorPages, undefined, undefined, budget);
+      return generateSitePages(env, briefWithLayout({ brief, plan, images: imgBrief }), spec, brand, attachments, model, priorPages, undefined, undefined, budget);
     },
     // Runs between the lint and the compile, on the pages the model actually
     // wrote. `publishPages` supplies the two numbers only it knows — the balance

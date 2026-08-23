@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
 // THE SCHEMA FRAGMENTS `design_schema` COMPOSES ITSELF FROM. Bound for real in
 // the shape check below, never stubbed — see `REAL` there for why.
 import { SEEDS_FIELD } from "../builder/site-seeds.mjs";
-import { PLAN_FIELDS, SHAPE_FIELD } from "../builder/site-plan.mjs";
+import { PLAN_FIELDS, SHAPE_FIELD, IMAGES_FIELD } from "../builder/site-plan.mjs";
 import { AUTHORED_AXES, ASKABLE as STYLE_AXES } from "../builder/site-style.mjs";
 import { authoredFieldSchema, AXIS_DECLS } from "../builder/site-authored.mjs";
 
@@ -389,8 +389,12 @@ test("every tool the model is given is a schema the API will accept", () => {
   // the walk demands a `type`. It is a schema BUILDER, which is the most
   // literal possible case of "anything that IS a schema", and
   // `SITE_AUTHORED_IMAGE` DECIDES which of two shapes each axis gets.
+  //
+  // AND THE SEVENTH, on the day `images` was spliced in (2026-08-23). Same
+  // rule, same direction: it IS a schema, so a stub gives it no `type` and the
+  // walk says so loudly. Both spliced plan fields are bound here for real.
   const REAL = {
-    SEEDS_FIELD, PLAN_FIELDS, SHAPE_FIELD,
+    SEEDS_FIELD, PLAN_FIELDS, SHAPE_FIELD, IMAGES_FIELD,
     SITE_STYLE_AXES: STYLE_AXES, SITE_AUTHORED_AXES: AUTHORED_AXES,
     siteAuthoredSchema: authoredFieldSchema,
     SITE_AUTHORED_IMAGE: Object.entries(AXIS_DECLS).filter(([, v]) => v.image).map(([k]) => k),

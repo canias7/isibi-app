@@ -55,6 +55,7 @@ export async function readSchemaTool() {
     // nobody sends, which is what `schema-eval-scope.test.mjs` says when it
     // catches a missing one, and it caught this one.
     SHAPE_FIELD: plan.SHAPE_FIELD,
+    IMAGES_FIELD: plan.IMAGES_FIELD,
     PLAN_REQUIRED: plan.PLAN_REQUIRED,
     SITE_TOKEN_NAMES: tokens.ASKABLE,
     siteTokenHint: tokens.valueHint,
