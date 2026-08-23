@@ -12,10 +12,30 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ## OPEN — waiting to be picked up
 
-**THE CONNECTION FIX IS BUILT AND NOT YET PROVEN (2026-08-23).** You asked for
-one thing: *"if I close the app the build is still running."* That is now how it
-works — but nothing has run against it yet, so the next step is a real build with
-the connection deliberately cut part-way.
+**THE CONNECTION FIX IS PROVEN (2026-08-23). It works.**
+
+You asked for one thing — *"if I close the app the build is still running"* — so
+we tested exactly that: started a real build, **destroyed the connection after 30
+seconds**, and watched.
+
+The site built itself anyway. **`smoke-mt5igr76-jdd38.gofarther.app`** — a real
+barber's site, "Ridgeway Barbers", with a working booking page. It kept going for
+**another twelve minutes with nothing connected to it**, and finished normally:
+28 credits, no placeholder, served by its own worker.
+
+Before this week that build would have been dead thirty seconds after the cut.
+
+**One thing worth knowing, and it is a warning rather than a problem today.**
+That build took **12 minutes 28 seconds** — the longest we have ever recorded —
+and the queue worker is guaranteed fifteen. Most of it was the model writing the
+pages: 8 minutes 23 seconds of the total. So the headroom is about two and a half
+minutes, not the comfortable margin I described earlier. Nothing to do now; if
+builds get slower it needs a different mechanism, not a bigger number.
+
+**And our own test nearly told us the opposite.** It gave up waiting seven
+seconds before the build finished and reported "no site" — a false alarm on the
+one check that can prove this. I caught it by checking the site directly rather
+than believing the report. The window is wider now.
 
 **What was actually wrong, and it is worse than I had been telling you.** I had
 been saying `ctx.waitUntil` kept a build alive when your connection dropped.

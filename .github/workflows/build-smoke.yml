@@ -92,27 +92,28 @@ jobs:
       - name: build smoke
         env:
           SMOKE_BASE_URL: ${{ inputs.base_url || 'https://gofarther.dev' }}
-          # ── THE DISCONNECT EXPERIMENT — ONE RUN, THEN THIS LINE COMES OUT ───
+          # THE DISCONNECT EXPERIMENT RAN ON 2026-08-23 AND ITS SWITCH IS OUT.
           #
-          # Cuts the build's own socket 30 seconds in and then watches the site.
-          # It is the ONLY way to prove what the queue was built for: a build
-          # that outlives the request. Every layer below it is driven in
-          # `test/build-queue-wiring.test.mjs`; what no local test can reach is
-          # whether Cloudflare really keeps a queue consumer alive with nobody
+          # `SMOKE_CUT_MS=30000` destroyed the build's own socket 30 seconds in
+          # and then watched the site. It is the ONLY way to prove what the queue
+          # was built for — every layer below it is driven in
+          # `test/build-queue-wiring.test.mjs`, and what no local test can reach
+          # is whether Cloudflare really keeps a consumer alive with nobody
           # connected, because that is a fact about their runtime.
           #
-          # WHY IT HAS TO BE DELIBERATE: `postLong` removed our own 300-second
-          # ceiling, so this harness now HOLDS the connection for the whole
-          # build and a run left to itself produces no disconnect at all.
+          # RESULT: `smoke-mt5igr76-jdd38`. POST 07:54:03, socket destroyed at
+          # 07:54:34 (30.0s), and the build ran another 11m58s with nothing
+          # connected to it — `done: true`, `total_ms: 748122`, 28 credits, a
+          # real barber's site with a working /book route. Proved.
           #
-          # A CUT RUN PROVES ONE THING AND SKIPS THE REST, because everything
-          # downstream reads the answer it destroyed on purpose — so this is
-          # NOT a substitute for an ordinary run, and it comes out the moment
-          # the proof is in. Left in, every deploy would spend a build to
-          # re-prove one fact and stop checking the other eighty.
-          SMOKE_CUT_MS: '30000'
-          # Keep the site so it can be looked at rather than only counted.
-          SMOKE_KEEP_SITE: '1'
+          # IT COMES OUT BECAUSE A CUT RUN PROVES ONE THING AND SKIPS THE REST:
+          # everything downstream reads the answer it destroyed on purpose. Left
+          # in, every deploy would spend a build to re-prove one fact and stop
+          # checking the other eighty. Set it again — with SMOKE_KEEP_SITE=1, so
+          # the result can be looked at — to re-run the experiment.
+          #
+          # The knob itself stays in `build-smoke.mjs`, inert unless set, and is
+          # guarded in `test/site-versions.test.mjs`.
           # THE NO-FAMILY EXPERIMENT RAN 2026-08-19 AND ITS SWITCH IS NOW GONE
           # ENTIRELY, because what it tested is what every build does.
           #

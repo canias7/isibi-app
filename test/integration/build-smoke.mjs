@@ -450,9 +450,28 @@ try {
   // here means that by the time cleanup runs, the build is over either way.
   if (dropped) {
     console.log("   waiting for the site to publish anyway — this is the queue's own test…");
-    const w = await waitForSite(runSlug, 12 * 60 * 1000);
+    // SIXTEEN MINUTES, MATCHING THE WORKER'S OWN `QUEUE_WAIT_MS`, and the number
+    // was earned by missing. The first disconnect experiment (2026-08-23) waited
+    // TWELVE from the cut and reported "no site" at 08:06:34; the build finished
+    // at 08:06:41 and the site answered 200 at 08:06:47. **Seven seconds.** So
+    // the harness called a working queue broken, which is the one wrong answer
+    // this check must never give — a false red here reads as the feature failing
+    // and would have sent the next person into `worker.js` looking for a bug.
+    //
+    // 12 was not a careless guess either: every build ever measured had finished
+    // inside it. This one ran 12m28s — the longest ever recorded — because the
+    // page-generation call alone took 8m23s. One number, taken from the same
+    // place the Worker takes its own, rather than a second estimate that has to
+    // be right on its own.
+    //
+    // THE SENTENCE READS THE NUMBER RATHER THAN RESTATING IT. This message said
+    // "after 12 minutes" for the length of one edit that moved the wait to 16 —
+    // a failure line lying about the one number a reader would act on, in the
+    // check whose whole job is to be believed.
+    const WATCH_MS = 16 * 60 * 1000;
+    const w = await waitForSite(runSlug, WATCH_MS);
     ok("THE BUILD SURVIVED A DROPPED CONNECTION — the site published with nobody connected",
-      w.live, `no site at ${runSlug}.gofarther.app after 12 minutes (connection died at ${dropped})`);
+      w.live, `no site at ${runSlug}.gofarther.app after ${Math.round(WATCH_MS / 60000)} minutes (connection died at ${dropped})`);
     if (w.live) console.log(`   the site is live at https://${runSlug}.gofarther.app/ — published ~${w.after * 10}s after the cut`);
     // A DELIBERATE CUT PROVED WHAT IT CAME TO PROVE, and everything downstream
     // reads the response body this run destroyed on purpose. Reported and
