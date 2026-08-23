@@ -92,9 +92,16 @@ test("a near-white accent is refused for being invisible AGAINST THE PAGE", () =
 });
 
 test("swapped modes are refused — the one failure contrast CANNOT see", () => {
-  // A dark light-mode is perfectly legible. It renders dark when the visitor
-  // asked for light, because `SITE_MODE` stamps the class and the seeds are
-  // supposed to mean what they say.
+  // A dark light-mode is perfectly legible, and it is still WRONG, which is why
+  // this needs its own refusal — no contrast floor can see it.
+  //
+  // THE REASON GIVEN HERE WAS `SITE_MODE` STAMPING A CLASS, and that field was
+  // deleted 2026-08-23. The refusal survives it because the two halves still
+  // mean two different things: `themeCss` emits the light seeds as `:root` —
+  // which IS the site — and the dark seeds as `.dark`, which is what a
+  // visitor-facing theme toggle activates. So a swapped palette ships a site
+  // that renders dark while its own seeds claim light, and a toggle that turns
+  // it LIGHTER. Both halves land; they land the wrong way round.
   const flip = { name: "Flip", paper: "#141414", ink: "#f5f5f5", accent: "#c04a2e" };
   assert.deepEqual(paletteProblems({ label: "x", light: { paper: seedColor("#141414"), ink: seedColor("#f5f5f5"), accent: seedColor("#c04a2e") },
                                      dark: { paper: seedColor("#f5f5f5"), ink: seedColor("#141414"), accent: seedColor("#8a3520") } }),

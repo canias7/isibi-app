@@ -46,6 +46,15 @@ I checked one thing before pulling it: whether anything else needed the switch.
 still flip the site. What went is only the baked default. And I checked the
 sites: 24, nearly all of them tests, so nothing real changes.
 
+**One correction to what I told you, and it is mine.** I said the change was
+verified and that a slower check was still running, and that check came back
+**red** — two of its 234 tests were still checking for the thing we had just
+deleted. Nothing was broken for a customer; the check was out of date, not the
+code. But I had already committed by then, which I should not have done while a
+verification was still in flight. Both are fixed and re-run, and they now check
+the opposite — that nothing baked-in overrides what the model wrote — so this
+cannot quietly come back.
+
 **I did NOT delete `shape`.** You grouped it with `mode` and it is a different
 thing — it is the list of what goes on each page, in what order, handed to the
 step that writes the pages. CSS cannot decide that a page has a hero then a

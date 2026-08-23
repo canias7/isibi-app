@@ -2209,21 +2209,21 @@ function Home() {
       "object-top is in the markup and not in the CSS — the crop does not move");
   }
 
-  // ── LIGHT OR DARK ──────────────────────────────────────────────────────────
+  // ── LIGHT OR DARK IS A COLOUR, AND COLOUR IS `css` ─────────────────────────
   //
-  // THE PAIR IS THE ASSERTION, and the surprising half is that the STYLESHEET
-  // DOES NOT MOVE. `themeCss` has always emitted the theme's own designed dark
-  // palette as a `.dark` block — 31 colour properties, drawn by whoever drew the
-  // light half — into every site's stylesheet, and nothing ever applied it. So
-  // all 500 themes shipped their dark half as dead CSS, "make my site dark" was
-  // answered with a token patch that darkened the ground and left the buttons on
-  // colours chosen for white paper, and the whole fix is ONE CLASS ON `<html>`.
+  // THIS HEADER STOOD OVER A BLOCK 200 LINES BELOW IT and described a `mode`
+  // field that no longer exists — kept and corrected rather than deleted,
+  // because a stale comment is the one that gets believed. What it said: the
+  // theme's own dark palette shipped as a `.dark` block on every site and
+  // nothing ever applied it, so the fix was ONE CLASS ON `<html>`.
   //
-  // Two builds of a byte-identical payload differing only in `mode`: the CSS
-  // has to come out the same and the document has to come out different. Either
-  // one alone is satisfiable by a broken implementation — a build that ignored
-  // `mode` entirely gives identical CSS, and one that regenerated a whole
-  // second palette gives a different document.
+  // THAT WAS TRUE OF A REGISTRY OF 500 HAND-DRAWN THEMES AND OUTLIVED IT. With
+  // the model writing the whole stylesheet, `mode` and `css` are two answers to
+  // one question — the field arrives at property 16 and the sheet at 9, so a
+  // model that has already written near-black values on `:root` can then be
+  // asked again and say "light", and the container applies both. A dark site is
+  // dark values on `:root` now; the assertions that used to prove the class
+  // prove its ABSENCE, which is the half that rots.
   // ── ONE PAGE'S OWN TYPEFACE ─────────────────────────────────────────────
   //
   // A CSS CHANGE IS INVISIBLE TO `tsc`, TO VITE, TO THE LINT AND TO EVERY UNIT
@@ -2409,20 +2409,25 @@ function Home() {
     darkL !== null && darkL > 0.35,
     "last .dark --border is L " + darkL + " — the palette's own 0.31, so the override did not survive");
 
-  console.log("\nbuilding the same site light and dark…");
+  console.log("\nbuilding a site on a theme with a dark half…");
   const MODE_PAYLOAD = { files: { "index.tsx": CHROMED }, slug: "mode-site", title: "Nightshift Records", ...themeAsSeeds("noir"), worker: true };
-  const lightBuild = await post({ ...MODE_PAYLOAD, mode: "light" });
+  const lightBuild = await post({ ...MODE_PAYLOAD });
+  // THE SECOND BUILD SENDS THE DELETED FIELD ON PURPOSE. `mode` was a field for
+  // three days and a caller somewhere may still carry it; what has to hold is
+  // that it is INERT — same stylesheet, same document — rather than half-read.
   const darkBuild = await post({ ...MODE_PAYLOAD, mode: "dark" });
-  ok("a light build succeeds", lightBuild.ok === true, lightBuild.stage + ": " + (lightBuild.error || "").slice(0, 300));
-  ok("a dark build succeeds", darkBuild.ok === true, darkBuild.stage + ": " + (darkBuild.error || "").slice(0, 300));
-  // THE CONTAINER'S OWN ANSWER, so a caller can tell what it got rather than
-  // inferring it. `light` is what an unrecognised value and an absent one both
-  // become, which is what makes this safe against every site built before it.
-  ok("the container reports which it drew", (lightBuild.brand || {}).mode === "light" && (darkBuild.brand || {}).mode === "dark",
+  ok("a build succeeds", lightBuild.ok === true, lightBuild.stage + ": " + (lightBuild.error || "").slice(0, 300));
+  ok("…and one still carrying the deleted `mode` field succeeds too", darkBuild.ok === true, darkBuild.stage + ": " + (darkBuild.error || "").slice(0, 300));
+  // THE CONTAINER REPORTS NO MODE, which is the inverse of what stood here and
+  // is the half that rots. `mode` was deleted because it was a SECOND way to
+  // decide a colour the stylesheet already decides — a field beside `css` that
+  // says "dark" gives the model two answers to one question and the container
+  // applies both. An absence has to be asserted or it comes back as a tidy-up.
+  ok("the container reports no mode at all", (lightBuild.brand || {}).mode === undefined && (darkBuild.brand || {}).mode === undefined,
     JSON.stringify([(lightBuild.brand || {}).mode, (darkBuild.brand || {}).mode]));
   const cssOf = (b) => Object.entries(b.files || {}).filter(([n]) => n.endsWith(".css")).map(([, v]) => (v && v.t) || "").join("");
   const lightCss = cssOf(lightBuild), darkCss = cssOf(darkBuild);
-  ok("the stylesheet is BYTE-IDENTICAL — the dark palette was always there",
+  ok("the stylesheet does not move — the dark palette was always in it",
     lightCss.length > 1000 && lightCss === darkCss,
     `${lightCss.length} vs ${darkCss.length} bytes`);
   // AND IT REALLY IS A SECOND PALETTE rather than the same colours under
@@ -2461,17 +2466,38 @@ function Home() {
   const lightDoc = await renderHome(lightBuild, "mode-site");
   const darkDoc = await renderHome(darkBuild, "mode-site");
   if (lightDoc && darkDoc) {
-    // ON `<html>`, NOT `<body>`. The variant is `&:is(.dark *)` — a DESCENDANT
-    // of `.dark` — so the class has to sit above everything it is meant to
-    // reach, and `<body>` already carries the per-page colour scope.
-    ok("the dark site's document carries the class on <html>",
-      /<html[^>]*class="[^"]*\bdark\b/.test(darkDoc), (darkDoc.match(/<html[^>]*>/) || [""])[0]);
-    ok("…and the light one does not", !/<html[^>]*\bdark\b/.test(lightDoc), (lightDoc.match(/<html[^>]*>/) || [""])[0]);
-    // The rest of the document is the same site. A `mode` that reached the
-    // document by regenerating it would show up here.
-    ok("…and they are otherwise the same page",
-      darkDoc.replace(' class="dark"', "").length === lightDoc.length,
-      `${lightDoc.length} vs ${darkDoc.length} bytes`);
+    // NOTHING BAKES A CLASS ON `<html>` ANY MORE, and this is the assertion the
+    // whole deletion rests on. A baked `.dark` is a look the STYLESHEET did not
+    // choose: `:root` says what the site is, and a model writing near-black
+    // values there is how a dark site is expressed now — proved two blocks up,
+    // where the model's own `:root{--background:#0d1117}` reaches the compiled
+    // sheet and wins. A class on top of that is a SECOND opinion, and when the
+    // two disagree the class silently wins over what the model wrote.
+    ok("no build bakes a dark class onto <html>",
+      !/<html[^>]*\bdark\b/.test(darkDoc) && !/<html[^>]*\bdark\b/.test(lightDoc),
+      JSON.stringify([(lightDoc.match(/<html[^>]*>/) || [""])[0], (darkDoc.match(/<html[^>]*>/) || [""])[0]]));
+    // AND THE DELETED FIELD MOVES NOTHING ELSE — not merely the class. Half-read
+    // is the failure this is written against: a caller still sending `mode` must
+    // get the site its stylesheet describes and nothing else.
+    //
+    // THE TIMESTAMP IS NEUTRALISED, AND THAT WAS MEASURED RATHER THAN ASSUMED.
+    // A first draft demanded byte-identity and failed at EQUAL LENGTH (3873 vs
+    // 3873), which is the shape of a fixed-width value moving. Rendering ONE
+    // build twice separates a per-BUILD leak from a per-REQUEST value
+    // completely, and it is per-request: TanStack serialises each router match
+    // as `{i:"__root__",u:1787486551694,s:"success"}` and that `u` is
+    // `Date.now()` at render. Two renders of the same build differ, so no
+    // cross-build byte comparison can ever hold — the assertion was wrong, not
+    // the code, and the length-only comparison that stood here was deliberate.
+    //
+    // `\d{10,}` IS THE NARROWEST THING THAT WORKS, and it was checked: with it
+    // the two documents are identical, so nothing else moves. It cannot hide
+    // what this is for either — a class, a colour, a token or an asset hash
+    // (`WQmi5Cd-`, mixed alphanumeric) all survive it untouched.
+    const settled = (s) => s.replace(/\d{10,}/g, "N");
+    ok("…and the deleted field moves nothing but the SSR timestamp",
+      settled(darkDoc) === settled(lightDoc),
+      `${lightDoc.length} vs ${darkDoc.length} bytes, and they still differ once the timestamp is settled`);
   }
 
   // ── THE LANGUAGE, THE DIRECTION AND THE MARK, ON A REAL DOCUMENT ───────────
