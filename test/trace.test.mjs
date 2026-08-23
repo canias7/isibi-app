@@ -229,7 +229,13 @@ test("the schema call is captured, reported, AND billed on measured usage", () =
   // because `use_credits` is atomic and is the only thing stopping an empty
   // account starting a paid call — and trued up afterwards, because a gate is
   // not a price.
-  assert.match(w, /useCredits\(request\.headers\.get\("Authorization"\) \|\| "", SITE_BUILD_FEE\)/,
+  // ANCHORED ON THE CALL, NOT ON HOW THE CREDENTIAL IS SPELLED. This pinned
+  // `request.headers.get("Authorization") || ""` and went red on 2026-08-23 when
+  // that expression became a parameter — the build has to be callable by a queue
+  // consumer, where there is no request to read a header off, and the four
+  // ledger calls that read it now take it as `auth`. The property is that the
+  // deposit is taken atomically before any paid call, which is unchanged.
+  assert.match(w, /useCredits\([A-Za-z_$][\w$.]*(?:\([^)]*\))?[^,]*,\s*SITE_BUILD_FEE\)/,
     "the affordability gate is gone — an empty account can start a paid model call");
   // THE PROPERTY IS "THE DEPOSIT IS SETTLED AGAINST WHAT THE STEP REALLY COST",
   // not the exact argument list. Pinned to `schemaSettlement(schemaUsage, …)`

@@ -9000,7 +9000,7 @@ async function deleteSiteFor(env, uid, dslug) {
  * passes, esbuild bundles and the whole suite stays green on: the `sourceStored`
  * class, which answered 500 to every build on `main` for an hour on 2026-08-21.
  */
-async function runSiteBuild(request, env, { rec, tr, budget }) {
+async function runSiteBuild(request, env, { rec, tr, budget, auth }) {
       const bu = await authUser(request);
       if (!bu) return UNAUTHED();
       if (!siteDbConfigured(env)) return Response.json({ ok: false, error: "site database not configured", need: "NEON_API_KEY" }, { status: 501 });
@@ -9304,7 +9304,7 @@ async function runSiteBuild(request, env, { rec, tr, budget }) {
         const floor = buildFloor(models.design);
         let balanceAfter;
         try {
-          balanceAfter = await useCredits(request.headers.get("Authorization") || "", SITE_BUILD_FEE);
+          balanceAfter = await useCredits(auth, SITE_BUILD_FEE);
         } catch {
           return Response.json({ ok: false, msg: "Credits check failed — try again in a moment." }, { status: 503 });
         }
@@ -9515,7 +9515,7 @@ async function runSiteBuild(request, env, { rec, tr, budget }) {
             // COLLECT, not just ask. `use_credits` refuses a bill larger than
             // the balance and debits zero, so the settlement has to report what
             // it really took or `schemaCost` becomes a number nobody was charged.
-            try { schemaCost = SITE_BUILD_FEE + await collectCredits(request.headers.get("Authorization") || "", settle); }
+            try { schemaCost = SITE_BUILD_FEE + await collectCredits(auth, settle); }
             catch { schemaCost = SITE_BUILD_FEE; /* keep the build */ }
           } else if (settle < 0) {
             // A REFUND THAT DID NOT LAND LEAVES `schemaCost` OVERSTATING WHAT
@@ -9614,7 +9614,7 @@ async function runSiteBuild(request, env, { rec, tr, budget }) {
         // `confirm smoke` and `member smoke` build this way on a fresh account
         // and must keep passing).
         const floor = MIN_CREDITS;
-        const bal = await readCredits(request.headers.get("Authorization") || "").catch(() => null);
+        const bal = await readCredits(auth).catch(() => null);
         // FAILS CLOSED. An unreadable ledger is the shape that made this free in
         // the first place — "cannot tell" must not mean "go ahead" on the one
         // path that provisions a capped resource.
@@ -10432,7 +10432,7 @@ async function runSiteBuild(request, env, { rec, tr, budget }) {
             // are here: the sidecar is rewritten whole on every publish, so a
             // path that does not carry the stored verification publishes none.
             verify: priorVerify,
-            auth: request.headers.get("Authorization") || "",
+            auth: auth,
             mark: (n) => tr.at(n),
             // WHAT IS LEFT OF THE FIFTEEN MINUTES, not a fresh ten. The pages
             // call is the long one and by the time it starts the design call and
@@ -14245,7 +14245,7 @@ async function handleRequest(request, env, ctx) {
       const budget = makeBudget();
       // ONE LINE, AND THE WHOLE POINT OF THE EXTRACTION. The same function the
       // queue consumer calls, so the two paths cannot drift.
-      const buildDone = runSiteBuild(request, env, { rec, tr, budget });
+      const buildDone = runSiteBuild(request, env, { rec, tr, budget, auth: request.headers.get("Authorization") || "" });
       // GUARDED, because `ctx` is a runtime argument rather than a language
       // guarantee: there is one caller today and it always passes one, and a
       // second added later without it would otherwise turn every build into a
