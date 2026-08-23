@@ -42,6 +42,45 @@ jobs:
         with:
           node-version: "22"
       - run: npm ci
+      # ── THE BUILD QUEUE MUST EXIST BEFORE ANYTHING BINDS TO IT ──────────────
+      #
+      # A binding naming a resource this account does not hold FAILS THE WHOLE
+      # DEPLOY — not the feature, the deploy — which is how three consecutive
+      # merges shipped nothing on 2026-08-07 while the error named an unrelated
+      # secret. The Worker route did the same thing on a zone with no Cloudflare
+      # for SaaS. So the resource is created here, one step before the deploy
+      # that will eventually reference it.
+      #
+      # WHY A BUILD NEEDS A QUEUE AT ALL (2026-08-23, measured): the build runs
+      # inside the HTTP request and survives a dropped connection only through
+      # `ctx.waitUntil`, which Cloudflare documents as **30 seconds** — "if any
+      # Promises have not settled after 30 seconds, they are canceled". A build
+      # takes 6-12 minutes. Every build we have ever run has had its connection
+      # reset mid-flight (264-549s, seven instances); the ones that published
+      # did so because the reset happened at a hop Cloudflare did not see, not
+      # because `waitUntil` carried them. A queue consumer gets 15 minutes of
+      # guaranteed runtime that does not care whether anybody is still watching.
+      #
+      # NEVER FAILS THE DEPLOY. Creating a queue that already exists is an error
+      # from wrangler and a no-op in fact, so the ordinary steady state would
+      # otherwise take the platform down every push. The verdict is PRINTED
+      # instead — loudly, because the one failure that matters here is a token
+      # without Queues permission, which looks identical to success from a
+      # silent `|| true` and would only surface later as a broken deploy.
+      - name: ensure the build queue exists
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          out=$(npx --yes wrangler@4.107.0 queues create site-builds 2>&1) || true
+          echo "$out"
+          if echo "$out" | grep -qiE "created queue|already exists"; then
+            echo "QUEUE OK — site-builds exists"
+          else
+            echo "QUEUE NOT CONFIRMED — do NOT add a queue binding until this line reads OK."
+            echo "The likeliest cause is CLOUDFLARE_API_TOKEN lacking the Queues edit"
+            echo "permission; add it at Cloudflare > My Profile > API Tokens."
+          fi
       # All Worker secrets are uploaded through wrangler-action as part of the
       # deploy. A standalone `wrangler secret put` after the deploy fails on this
       # account with "the latest version of your Worker isn't currently deployed"
