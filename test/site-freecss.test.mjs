@@ -333,6 +333,16 @@ test("THE LOOK LANE COUNTS THE STYLESHEET AS A CHANGE — at both of its gates",
   assert.ok(esc, "the look lane's no-look escalation moved");
   assert.match(esc[1], /!priorCss/,
     "a site whose design lives in the stylesheet escalates every colour change to a rebuild");
+  // 3. AND THE BUILD ROUTE'S OWN GATE, which is the same failure one lane over
+  //    and was the third survivor of the same sweep. `editState` is what tells
+  //    the designer the site's name, its stylesheet and `EDIT_RULE`; gated on
+  //    `stored` alone, a site whose `site_look` is thin while `site_css` carries
+  //    the whole design is handed NONE of it and designs from scratch — the
+  //    re-roll the anchoring exists to stop, on the revise path.
+  const build = worker.match(/if \(stored([^)]*)\) \{\s*\n\s*editState = \{/);
+  assert.ok(build, "the build route's editState gate moved");
+  assert.match(build[1], /\|\| storedCss/,
+    "a revise of a site whose design lives in the stylesheet is not treated as an edit at all");
 });
 
 test("A FAILED COMPILE PUTS THE STORED SHEET BACK", () => {

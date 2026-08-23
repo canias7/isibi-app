@@ -144,6 +144,49 @@ test("a fetched font with no file yet emits no broken @font-face", () => {
   assert.equal(fontCss(pair, {}).faces, "");
 });
 
+test("A FAMILY THE STYLESHEET NAMES REALLY GETS ITS FILE — both halves, driven", () => {
+  // ── FOUND BY MUTATION, AND THE GAP WAS TOTAL ──────────────────────────────
+  //
+  // Since 2026-08-23 the `css` field is the only route a typeface has, and both
+  // halves of that route are the `extra` loops in `fontCss` and `fontImports`.
+  // Deleting either one survived the whole suite: the chain guard below asserts
+  // that each function is CALLED with `cssFaces`, which is a source-read and
+  // stays perfectly green while the loop inside does nothing. The wiring layer
+  // watching itself — the shape this repo has recorded a dozen features dying
+  // in — arriving in a guard written for exactly this feature.
+  //
+  // THE TWO HALVES FAIL DIFFERENTLY, which is why they are asserted apart. A
+  // FETCHED family needs the `@font-face` we emit (the Worker downloaded the
+  // woff2 and `writeFonts` put it in `public/fonts/`); an INSTALLED one needs
+  // the package name, which becomes both the npm import and — since the font
+  // fix — the `@import` that is the only thing producing a rule at all. Either
+  // missing renders the fallback while every layer reports success.
+  const pair = resolvePair({ heading: "geist", body: "geist" });
+
+  // 1. FETCHED: the sheet said `font-family: "Cormorant Garamond"`, the Worker
+  //    fetched it, and this is what points the browser at the file.
+  const fetched = resolveFont("Cormorant Garamond");
+  assert.equal(fetched.source, "fetch", "the fixture is not exercising the fetch half at all");
+  const decls = fontCss(pair, { [fetched.id]: "/fonts/" + fetched.id + ".woff2" }, [], [fetched]);
+  assert.match(decls.faces, /@font-face\{font-family:"Cormorant Garamond"/,
+    "a fetched family the stylesheet names gets no @font-face, so it renders the fallback");
+  assert.match(decls.faces, /url\("\/fonts\/cormorant-garamond\.woff2"\)/,
+    "…and the rule points at no file");
+
+  // 2. INSTALLED: the package is the whole mechanism, and `writeFonts` turns
+  //    this same list into the `@import` that emits the rules.
+  const installed = resolveFont("lora");
+  assert.equal(installed.source, "installed", "the fixture is not exercising the installed half at all");
+  const pkgs = fontImports(pair, [], [installed]);
+  assert.ok(pkgs.includes(installed.pkg),
+    "an installed family the stylesheet names is bundled by nothing, so it renders the fallback");
+
+  // 3. AND NEITHER LOOP DOUBLE-COUNTS a family a page scope also uses — they
+  //    share `seen`/`pkgs` with the pair and the scopes on purpose.
+  assert.equal(fontImports(resolvePair({ heading: "lora", body: "geist" }), [], [installed]).length, 2,
+    "the stylesheet's family is imported twice when a scope already named it");
+});
+
 test("only the chosen fonts are imported, never the whole shortlist", () => {
   // Importing all 24 statically would ship every font to every site.
   const imports = fontImports(resolvePair({ heading: "lora", body: "geist" }));
