@@ -12,6 +12,41 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ## OPEN — waiting to be picked up
 
+**THE TEST BUILD DID NOT PUBLISH, AND IT WAS NOT THE CSS CHANGE (2026-08-23).**
+You asked for one build against the new path. It ran, and Grok's page-writing
+call never came back — the site (`lido-cafe`) is 404 and the build's own trace
+stopped at the generation mark and never moved again. **Cost: 7 credits**
+(148 → 141), which is the design step; the page step charges only on publish, so
+that is all it will ever be.
+
+**Everything up to page generation worked**, which is what the run does tell us
+about the change: the designer read the brief in 76 seconds, named the site,
+built the database, made the two tables and filled them — all inside the first
+86 seconds. The failure is one step later and it is not new: the same thing
+happened on the Arabic run (run 9), same provider, same place, 26 minutes of
+silence.
+
+**One thing I got wrong, and I have fixed it.** The connection dying part-way is
+normal and the script is built to survive it by watching the site instead. It
+could not, because the site's name only existed in the reply the dead connection
+took with it — I had left the name for the designer to choose, and the previous
+two runs only survived the same disconnection because I had named them by hand.
+The script now looks the name up out of the database, so the next disconnection
+costs nothing.
+
+**On your cost question, the run answered half of it.** Removing the five look
+fields made the question we send **smaller** (−1,315 tokens) and the model's
+answer **bigger** (+693 tokens, +44%) — exactly the trade I predicted, now
+measured. Answers cost 3× what questions do, so writing the whole stylesheet is
+the more expensive shape; at this size it is about a fifth of a credit either
+way, so it rounds to the same 7. **The bigger half — the page-writing call — is
+what this run did not get to.** And the 72-vs-49 gap between the two earlier
+arms was never about CSS: arm A simply bought one more photograph, ~19 credits.
+
+**Your call on what next:** another build costs the same again and may hang the
+same way, or we wait for #175 (making a build a background job rather than a
+held connection), which is the real fix for builds this long.
+
 **THE FIVE LOOK STEPS ARE NOW ONE (2026-08-23, your call).** *"For the look, the
 css, we are gonna delete those 5 steps into 1 step, which is gonna be called
 css, and we are gonna give the model freedom — with no words, the model is gonna

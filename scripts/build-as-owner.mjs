@@ -214,14 +214,78 @@ async function traceLine(slug) {
   }
 }
 
+// ── THE SLUG THE DESIGNER CHOSE, RECOVERED FROM THE LEDGER ──────────────────
+// A RESET WITH NO SLUG USED TO END THE RUN, and that is the one shape the whole
+// watch-the-site design exists to survive. Arm C (2026-08-23) hit it: the
+// connection died at 264.8s, the build carried on server-side, and the harness
+// exited because the only copy of the slug was in the answer that was lost.
+// Arms A and B survived the identical reset purely because they had been given
+// explicit names. So "the designer names the site" and "a reset is survivable"
+// were mutually exclusive, which is exactly backwards — a customer's build
+// names itself too.
+//
+// `site_backends` is where the route records the claim, and it is written at
+// PROVISIONING (~90s in), long before the reset. So by the time the socket dies
+// the answer is already in the database.
+//
+// SCOPED TO THIS RUN, AND THAT IS THE WHOLE CORRECTNESS ARGUMENT. Taking the
+// owner's newest site unconditionally would, on a build that died before
+// provisioning, hand back a site published hours ago — which answers 200 at
+// once and reports a SUCCESS THAT DID NOT HAPPEN, the most expensive wrong
+// answer this harness can give. Two filters: the row must belong to this
+// account, and it must have been created at or after this build's own POST.
+// The 60s of slack is clock skew between the runner and Postgres and nothing
+// else; the log prints the age against the POST so a human can see the pick.
+//
+// It RETRIES rather than asking once: a slow design call can put provisioning
+// after the reset. Finding nothing after two minutes is honest — that build
+// never claimed a slug, so there is no address and never will be.
+async function discoverSlug() {
+  const uid = session.user && session.user.id;
+  if (!uid) return null;
+  const since = new Date(bt - 60000).toISOString();
+  for (let i = 1; i <= 8; i++) {
+    try {
+      const r = await fetch(
+        `${SUPABASE_URL}/rest/v1/site_backends?uid=eq.${encodeURIComponent(uid)}` +
+        `&created_at=gte.${encodeURIComponent(since)}` +
+        `&select=slug,created_at&order=created_at.desc&limit=5`,
+        { headers: svc });
+      if (r.ok) {
+        const rows = await r.json();
+        if (Array.isArray(rows) && rows.length) {
+          for (const row of rows) {
+            const age = ((new Date(row.created_at).getTime() - bt) / 1000).toFixed(1);
+            log(`step 4b — site_backends: "${row.slug}" claimed ${age}s after the POST`);
+          }
+          if (rows.length > 1) log(`step 4b — ${rows.length} claims in this window; taking the newest`);
+          return String(rows[0].slug);
+        }
+      } else {
+        log(`step 4b — site_backends read ${r.status} (try ${i})`);
+      }
+    } catch (e) {
+      log(`step 4b — site_backends unreadable (${String((e && e.message) || e).slice(0, 60)}) (try ${i})`);
+    }
+    log(`step 4b — no claim recorded yet, looking again (try ${i}/8)`);
+    await new Promise((s) => setTimeout(s, 15000));
+  }
+  return null;
+}
+
 if (disconnected) {
-  if (!SLUG) {
-    fail("the connection died and no slug was set, so there is no address to watch — " +
-      "set OWNER_SLUG when running this, or read site_backends by hand");
+  let slug = SLUG;
+  if (!slug) {
+    log("step 4b — the connection died before the slug came back; reading it off site_backends");
+    slug = await discoverSlug();
+  }
+  if (!slug) {
+    fail("the connection died and this build never claimed a slug, so there is no address to " +
+      "watch — it did not get as far as provisioning. Check site_builds for how far it got.");
   }
   // The public address. `/s/<slug>/` on the platform 301s to it, so either
   // reaches the site; the subdomain is the one a customer is given.
-  const watch = `https://${SLUG}.gofarther.app/`;
+  const watch = `https://${slug}.gofarther.app/`;
   log(`step 4b — watching ${watch} — the build publishes when it publishes, no ceiling here`);
   const waitedFrom = Date.now();
   let published = false;
@@ -238,7 +302,7 @@ if (disconnected) {
     } catch (e) {
       status = `err ${String((e && e.code) || (e && e.message) || e).slice(0, 40)}`;
     }
-    log(`step 4b — +${mins}m  site ${status}  |  ${await traceLine(SLUG)}`);
+    log(`step 4b — +${mins}m  site ${status}  |  ${await traceLine(slug)}`);
     if (published) break;
     await new Promise((r) => setTimeout(r, 15000));
   }
@@ -253,7 +317,7 @@ if (disconnected) {
   // notes, the image report, whether the model wrote its own CSS — has to be
   // read off the site and the ledger instead. Synthesise the one field the
   // steps below need rather than pretending we have the rest.
-  d = { url: watch, slug: SLUG };
+  d = { url: watch, slug };
 }
 
 // The full response IS the record — cost, usage, seeded rows, image report,

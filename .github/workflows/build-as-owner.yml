@@ -156,12 +156,54 @@ jobs:
           # Owner: "We are gonna stick with the axes." That was the call on the
           # EXPERIMENTAL door beside the axes; the call above replaced the axes
           # themselves, so the free-CSS door is not back — there is one field.
-          # NO SLUG. `lido-axes-b` and `lido-free-a` are both spent — a slug is
-          # claimed by whoever builds it first, and ownership is what decides
-          # `revise`, so naming either again would be read as an edit of a
-          # finished site rather than a fresh build. Unset is the safe default:
-          # the designer names the site, which is what it does for a customer.
-          # Set OWNER_SLUG explicitly only when a run needs a name it controls.
+          # ── WHAT ARM C ACTUALLY DID (2026-08-23): IT DID NOT PUBLISH ────────
+          #
+          # `lido-cafe`, run 32615909471. Everything up to page generation
+          # worked and is in the trace: design 76.4s (in 18,998 / out 2,265),
+          # a Neon project, two tables applied and seeded, all inside 86s. Then
+          # the pages call never returned — the row sat at the `gen` mark for
+          # 35+ minutes and the site was 404 throughout. Run 9's shape exactly
+          # (Arabic on Grok, 25m46s in generation, no answer), and with every
+          # ceiling raised to an hour nothing of ours will refuse it, so from
+          # outside "still generating" and "the isolate is gone" are one
+          # observation. Cost: 7 credits (148 -> 141), the design settlement;
+          # page generation charges after publish, so that is all it will be.
+          # Left behind: a claimed slug and a live Neon project — the husk this
+          # file already records for runs 3, 4, 9, 10 and 13.
+          #
+          # SO THE CSS QUESTION IS STILL HALF-ANSWERED, and the half it did
+          # answer is the design call, where arm A and arm C are both cold and
+          # therefore comparable: input 20,313 -> 18,998 (-1,315, the tool going
+          # 84,691 -> 69,088 chars) and output 1,572 -> 2,265 (+693, +44%). The
+          # predicted trade, measured: a smaller cached input bought with a
+          # bigger output, and Grok prices output at 3x input. Net ~+$0.0015 on
+          # that call — both still round to 7 credits, so at this scale it is a
+          # wash and the DIRECTION is what is now established rather than
+          # reasoned. The pages call is where it would bite and is exactly what
+          # this run did not produce.
+          #
+          # AND THE HARNESS LOST THE BUILD BEFORE THE BUILD LOST ITSELF, which
+          # is the fixable half. The reset at 264.8s is ordinary and survivable
+          # BY DESIGN — the script watches the site instead of the socket. It
+          # could not, because OWNER_SLUG was unset and the designer-chosen name
+          # existed only in the answer the reset destroyed. Arms A and B rode
+          # the identical reset purely because they had been handed names. So
+          # "the designer names the site" and "a reset is survivable" were
+          # mutually exclusive, which is backwards: a customer's build names
+          # itself too. FIXED IN THE SCRIPT rather than papered over here —
+          # `discoverSlug` reads the claim off `site_backends` (written at
+          # provisioning, ~90s in, long before the reset), scoped to this
+          # account AND to this build's own POST so it can never hand back a
+          # site published hours ago and report it as this run's.
+          #
+          # NO SLUG, and that is now safe rather than merely tidy. `lido-axes-b`,
+          # `lido-free-a` and `lido-cafe` are all spent — a slug is claimed by
+          # whoever builds it first, and ownership is what decides `revise`, so
+          # naming any of them again would be read as an edit of a husk rather
+          # than a fresh build. Unset is the default: the designer names the
+          # site, which is what it does for a customer, and the recovery above
+          # is what makes that survive a dead socket. Set OWNER_SLUG explicitly
+          # only when a run needs a name it controls.
           # THE PICKER IS GROK, AND IT IS A CONSTANT OF THIS EXPERIMENT.
           #
           # Both arms compare a STYLESHEET. Every other variable has to be held,
