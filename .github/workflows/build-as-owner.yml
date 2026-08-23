@@ -105,8 +105,34 @@ jobs:
           # (`mathaq-alemarat`, `mathaq-dubai`), so neither name can be reused:
           # ownership is what decides `revise`, and re-running one would be read
           # as an edit of an empty husk rather than the first build it never got.
-          # ── THE CSS EXPERIMENT IS OVER AND THE AXES WON (2026-08-23, owner's call) ──
+          # ── ARM C: THE FIVE LOOK FIELDS ARE GONE (2026-08-23, owner's call) ──
           #
+          # "for the look, the css, we are gonna delete those 5 steps into 1
+          # step, which is gonna be called css, and we are gonna give the model
+          # freedom, so with no words, the model is gonna make the css."
+          #
+          # SAME BRIEF, SAME PICKER, THIRD ARM — which is what makes this worth a
+          # build rather than a guess. Arm B had 29 axes, arm A swapped them for
+          # a free `css` string, and this one has NO look field of any kind
+          # except `css`: `seeds`, `fonts`, `style`, `tokens` and `tokensPage`
+          # all left `design_schema`. 23 fields -> 19, 13 required -> 11.
+          #
+          # AND ARM A IS NOT EVIDENCE AGAINST IT, which is the whole reason to
+          # spend this. Arm A KEPT `seeds` — so there was still a field asking
+          # for the palette, and the palette is exactly what landed while the
+          # free string carried 7 rules against the axes' 24. This repo's own
+          # words for that shape: "a hatch beside a full menu is a hatch nobody
+          # opens." With nothing else to answer, the question is unavoidable.
+          #
+          # WHAT TO READ OFF THE RESULT: the served stylesheet's rule count
+          # against arm B's 24 and arm A's 7, whether a typeface was named at all
+          # (the `css` report carries `fonts` and `missingFonts`), whether any
+          # core token was set (`definesCore`), and whether a `body[data-page]`
+          # scope appears — that last one is the capability `tokensPage` used to
+          # be, and it is only reachable because the tool now says `data-page`
+          # exists.
+          #
+          # THE PREVIOUS TWO ARMS, KEPT because the comparison rests on them.
           # Two builds, one variable. Arm B (`lido-axes-b`, the 29 axes) and arm
           # A (`lido-free-a`, the axes swapped for one free `css` string). Both
           # published, same brief, same picker, same ceilings.
@@ -127,8 +153,9 @@ jobs:
           # writing raw CSS THROUGH the axes — what they supply is the selector
           # and the property allow-list, and removing those cost everything.
           #
-          # Owner: "We are gonna stick with the axes." The free-CSS door is gone
-          # from the product; git history is where it lives now.
+          # Owner: "We are gonna stick with the axes." That was the call on the
+          # EXPERIMENTAL door beside the axes; the call above replaced the axes
+          # themselves, so the free-CSS door is not back — there is one field.
           # NO SLUG. `lido-axes-b` and `lido-free-a` are both spent — a slug is
           # claimed by whoever builds it first, and ownership is what decides
           # `revise`, so naming either again would be read as an edit of a
