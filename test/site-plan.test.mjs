@@ -399,6 +399,43 @@ test("a page name is a label and a legacy role is a clause, so they cap differen
   assert.equal(legacy.pages[0].name.length, 200);
 });
 
+test("the `pages` field names no example page, so the model cannot copy a menu", () => {
+  // THE OWNER'S CORRECTION, 2026-08-24. The first draft's `name` description read
+  // "Home, Booking, Menu" — three names, which reads as a MENU rather than an
+  // illustration, and the one thing a model reliably does with a worked example
+  // is copy it. That is the whole finding the 100 family exemplars and the four
+  // reference pages were deleted over; three words in a description is the same
+  // failure at a smaller scale, and it would land on EVERY site of EVERY trade.
+  //
+  // TWO PROPERTIES, EACH NARROW ENOUGH TO HAVE NO FALSE ALARM, and both were
+  // measured against the real field before being written down.
+  const it = PLAN_FIELDS.pages.items.properties;
+
+  // (1) NO ROUTE BUT "/" IS NAMED. The home page being "/" is a FACT the model
+  // cannot get anywhere else — a site with no "/" has no front door — so it is
+  // the one route that must be spelled. Any OTHER quoted `/...` is an example.
+  const routes = (it.path.description.match(/"\/[^"]*"/g) || []);
+  assert.deepEqual(routes, ['"/"'], `the path description names an example route: ${routes.join(", ")}`);
+
+  // (2) NO CAPITALISED WORD MID-SENTENCE in the name description. A description
+  // saying what a name IS has no reason to carry one; a page NAME does.
+  //
+  // IT IS NOT EXHAUSTIVE AND DOES NOT NEED TO BE: a word at the start of a
+  // sentence is exempt, so a list beginning one ("... Home, Booking, Menu.")
+  // is caught by its SECOND entry rather than its first. Measured against the
+  // real reverted text — it goes red naming "Booking, Menu". Widening it to
+  // sentence-starts would flag the correct description's own first word, and a
+  // false alarm on correct code is worse here than a partial name in a message.
+  const mid = it.name.description.replace(/(^|[.!?]\s+)[A-Z]/g, "$1x").match(/\b[A-Z][a-z]+/g) || [];
+  assert.deepEqual(mid, [], `the name description names an example page: ${mid.join(", ")}`);
+
+  // AND THE FORMAT FACTS SURVIVE, or a guard against examples has quietly turned
+  // into a guard against saying anything. `PATH_OK` DROPS a page whose path is
+  // wrong — silently — so these are the difference between a page and no page.
+  assert.match(it.path.description, /"\/"/, "the home page's route stopped being stated");
+  assert.match(it.path.description, /lowercase/i, "the case rule stopped being stated");
+});
+
 test("a plan STORED BEFORE `structure` went still normalises, and the skeleton never reaches the directive", () => {
   // `structure` left `design_schema` on 2026-08-20 and every site built before
   // that has one in its stored look. So this is a live shape, not a hypothetical:

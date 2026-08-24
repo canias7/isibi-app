@@ -594,8 +594,25 @@ export const PLAN_FIELDS = {
     items: {
       type: "object",
       properties: {
-        name: { type: "string", description: "What the page is called. Home, Booking, Menu." },
-        path: { type: "string", description: 'Its route. "/" for the home page, then "/book", "/menu". Lowercase.' },
+        // NO EXAMPLE PAGE NAMES, and that is the owner's correction rather than
+        // brevity. The first draft read "Home, Booking, Menu" — and the one
+        // thing a model reliably does with a worked example is copy it, which
+        // is the whole finding the family-exemplar and reference-page deletions
+        // rest on. Three names in this description is a menu, and every site
+        // comes out with the same three pages whatever trade it is.
+        name: { type: "string", description: "What this page is called, as it would read in the nav." },
+        // THE FORMAT IS STATED AND NO PAGE IS NAMED, because these are FACTS
+        // about our own pipeline rather than craft: `PATH_OK` refuses a
+        // trailing slash, an extension, a capital, a missing leading slash or
+        // any character outside [a-z0-9-] — and a refused path DROPS the page
+        // SILENTLY. The home page being "/" is the one the model cannot get
+        // anywhere else, and a site with no "/" has no front door.
+        path: {
+          type: "string",
+          description:
+            'Its route. The home page is "/". Every other page is a leading slash then lowercase ' +
+            "words with hyphens for spaces — no trailing slash, no file extension.",
+        },
       },
       required: ["name", "path"],
     },
