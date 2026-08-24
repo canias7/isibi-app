@@ -12,6 +12,7 @@ import assert from "node:assert";
 import fs from "node:fs";
 
 import { hit } from "./fixtures/worker-harness.mjs";
+import { PAGE_RULES, RULE_CITED_COMPONENTS } from "../builder/page-gen.mjs";
 
 const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 const schema = fs.readFileSync(new URL("../site-schema.mjs", import.meta.url), "utf8");
@@ -262,60 +263,65 @@ test("the Errors card exists, dispatches, and the panel renders what it fetched"
   assert.match(panel, /Couldn(\\u2019|’)t load the error log/, "a failed load reads as all-clear");
 });
 
-// ── Rule 18: the structured data the kit always had ─────────────────────────
+// ── The structured-data rule, and what its deletion costs ───────────────────
 
-test("rule 18 points the generator at SeoJsonLd, facts-from-the-brief only", () => {
+test("the structured-data RULE is gone, and so is the constant that carried it", () => {
+  // INVERTED ON 2026-08-24, owner's call, with the rest of the craft. What is
+  // being given up is stated rather than glossed: `localBusinessJsonLd`'s
+  // argument shape appears NOWHERE else the model can see — `COMPONENT_API`'s
+  // entry for the module is truncated and never mentions the helper,
+  // `COMPONENT_TYPES` has no entry, and no page demonstrates it — so with the
+  // rule gone the model will not call it, and a shop's hours, address and phone
+  // stop reaching a search result as structured data.
+  //
+  // THAT IS THE SAFE DIRECTION, which is why it is a cheap thing to lose. The
+  // failure the rule was written around is a TS2322 on the HOME page, which
+  // salvage refuses to stub, so the customer loses THE WHOLE SITE. Not writing
+  // JSON-LD costs a richer search result; writing it wrongly cost everything.
+  // `SeoJsonLd` itself is still in the kit and still in the 2,112 names, so a
+  // model that wants raw structured data can hand it a `data` record.
   const gen = fs.readFileSync(new URL("../builder/page-gen.mjs", import.meta.url), "utf8");
-  const at = gen.indexOf("18. THE HOME PAGE CARRIES THE BUSINESS'S STRUCTURED DATA");
-  assert.ok(at > 0, "rule 18 is gone — seo-jsonld is back to reachable-by-nothing");
-  const rule = gen.slice(at, at + 1200);
-  assert.match(rule, /SeoJsonLd, localBusinessJsonLd/, "the rule does not name both exports");
-  assert.match(rule, /@\/components\/ui\/seo-jsonld/, "the rule does not name the module path");
-  // The half that keeps it safe: invented facts in structured data get rich
-  // results switched off for the whole site. The rule must forbid them and
-  // must say to OMIT when the brief is silent. Whitespace-flexible, because
-  // the rules are hard-wrapped and a phrase legitimately spans two lines —
-  // pinning the line break is a test about formatting, not about the rule.
-  assert.match(rule, /ONLY\s+facts\s+the\s+brief\s+actually\s+states/);
-  assert.match(rule, /means\s+no\s+\\`SeoJsonLd\\`\s+at\s+all/);
+  assert.equal(gen.indexOf("THE HOME PAGE CARRIES THE BUSINESS'S STRUCTURED DATA"), -1,
+    "the structured-data rule is back — it must also come back with its argument shape, "
+    + "or the natural call is a type error on the one page salvage will not stub");
+  // AND THE CONSTANT THAT EXISTED FOR IT IS EMPTY. `RULE_CITED_COMPONENTS` was
+  // `["seo-jsonld"]` solely because that rule showed a worked call, and a stale
+  // member would keep buying a signature for a component nothing points at.
+  assert.deepEqual(RULE_CITED_COMPONENTS, [],
+    "a rule cites a component in prose again — its signature must ride the cached core");
 });
 
-test("both exports rule 18 cites really exist in the kit", () => {
-  // Derived, so a rename in the component fails here rather than compiling
-  // every generated page into a TS2305.
+test("the kit still exports both, so restoring the rule is a prompt change and nothing else", () => {
+  // Kept as it was. The component is not deleted — it is in the kit, in the
+  // 2,112 names, and `SeoJsonLd`'s own signature is still resolvable — so the
+  // rule can come back whenever somebody wants to pay for it. What must come
+  // back WITH it is the argument shape, which is what the next assertion pins.
   const src = fs.readFileSync(new URL("../builder/lovable/template/src/components/ui/seo-jsonld.tsx", import.meta.url), "utf8");
   assert.match(src, /export function SeoJsonLd\(/);
   assert.match(src, /export function localBusinessJsonLd\(/);
 });
 
-test("RULE 18 SHOWS THE ARGUMENT SHAPE, because nothing else in the prompt can", () => {
-  // A first draft wrote the call as ES6 shorthand — `localBusinessJsonLd({ name,
-  // telephone, address, openingHours })` — which reads as four scalars. The real
-  // signature nests `address` and takes `openingHours` as a string ARRAY, and
-  // that shape appears NOWHERE the model can see: COMPONENT_API's entry for
-  // this module is truncated and never mentions the helper, COMPONENT_TYPES has
-  // no entry, and no reference page or family exemplar uses it. So the natural
-  // call is `address: "42 High Street, Leeds"` → TS2322 → and because rule 18
-  // puts it on the HOME page, which salvage refuses to stub, the customer loses
-  // THE WHOLE SITE to the placeholder. The `fallbackSeed` and `useUpdateRow`
-  // class, for the third time: the model reaches for a shape we never gave it.
-  const gen = fs.readFileSync(new URL("../builder/page-gen.mjs", import.meta.url), "utf8");
-  const at = gen.indexOf("18. THE HOME PAGE CARRIES THE BUSINESS'S STRUCTURED DATA");
-  const rule = gen.slice(at, gen.indexOf("## Reading rows", at));
-  assert.ok(rule.length > 400, "the rule 18 window collapsed");
-
-  // The two shapes that a shorthand cannot convey, stated in the rule…
-  assert.match(rule, /address:\s*\{\s*street:/, "the rule does not show address as an OBJECT");
-  assert.match(rule, /openingHours:\s*\[/, "the rule does not show openingHours as an ARRAY");
-
-  // …and DERIVED from the component, so a change to the real signature fails
-  // here rather than in a customer's build. Both directions: the field names
-  // the rule uses must be ones the helper actually declares.
+test("the helper's shape is STILL undiscoverable from the prompt — which is why the rule needed it", () => {
+  // THE MEASUREMENT THAT MAKES THE DELETION SAFE, and the one that would make a
+  // careless restoration unsafe. A first draft of the old rule wrote the call as
+  // ES6 shorthand — `localBusinessJsonLd({ name, telephone, address,
+  // openingHours })` — which reads as four scalars. The real signature nests
+  // `address` and takes `openingHours` as a string ARRAY, so the natural call is
+  // `address: "42 High Street, Leeds"` → TS2322 → and it sits on the HOME page,
+  // which salvage refuses to stub, so the customer loses THE WHOLE SITE.
+  //
+  // Asserted from BOTH ends. The helper really does take those shapes, and the
+  // prompt really does not state them anywhere — so anybody putting the rule
+  // back has to bring the worked call with it, and anybody who does not is
+  // leaving the model unable to write the call at all, which is the safe end.
   const src = fs.readFileSync(new URL("../builder/lovable/template/src/components/ui/seo-jsonld.tsx", import.meta.url), "utf8");
   const sig = src.slice(src.indexOf("export function localBusinessJsonLd"), src.indexOf("): Record<string, unknown>"));
-  assert.match(sig, /address\?:\s*\{/, "the helper stopped nesting address — the rule now teaches a type error");
-  assert.match(sig, /openingHours\?:\s*string\[\]/, "the helper's hours type changed under the rule");
-  for (const f of ["street", "city", "postcode", "country"]) {
-    assert.ok(sig.includes(f + "?:"), "the rule names address." + f + " and the helper does not declare it");
-  }
+  assert.match(sig, /address\?:\s*\{/, "the helper stopped nesting address");
+  assert.match(sig, /openingHours\?:\s*string\[\]/, "the helper's hours type changed");
+  for (const f of ["street", "city", "postcode", "country"])
+    assert.ok(sig.includes(f + "?:"), "the helper no longer declares address." + f);
+
+  assert.ok(!/localBusinessJsonLd/.test(PAGE_RULES),
+    "the prompt names localBusinessJsonLd again — it MUST show the nested `address` and the "
+    + "`openingHours` array with it, or the natural call is a type error that costs the site");
 });

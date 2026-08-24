@@ -17,7 +17,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { PAGE_RULES } from "../builder/page-gen.mjs";
+import { PAGE_RULES, componentApiFor } from "../builder/page-gen.mjs";
 import { COMPONENT_API, COMPONENT_TYPES } from "../builder/component-api.mjs";
 
 const UI = path.join(import.meta.dirname, "../builder/lovable/template/src/components/ui");
@@ -87,19 +87,30 @@ test("a tel:/mailto: nav link is dropped from the FOOTER when contact supplies i
   assert.doesNotMatch(chrome, /startsWith\("tel:"\)/, "the tel: filter has leaked into the chrome/header");
 });
 
-test("the generator is told the slots exist, with the constraints that matter", () => {
+test("the generator is told the slots exist — through the SIGNATURE, not through prose", () => {
   // A slot no rule mentions is a slot the model never fills — this repo deleted
-  // 289 files that were on disk and reachable by nothing.
+  // 289 files that were on disk and reachable by nothing, and the footer was in
+  // exactly that state before the rule existed: no phone, no address, no hours,
+  // unreachable at any price because there was no slot to fill.
+  //
+  // THE 1,822-CHARACTER RULE WENT ON 2026-08-24 AND THE CAPABILITY DID NOT, which
+  // is the whole point of the trade. It existed because `contact?: SiteContact`
+  // is a type NAME, and `COMPONENT_TYPES` is per module while `site-chrome.tsx`
+  // imports that type from `site-footer` — so the signature stopped at a bare
+  // name and rule 3 correctly told the model not to invent fields on it. The
+  // signature resolves the type across modules now, so the same fact costs ~250
+  // characters instead of 1,822 and is stated where the model is already reading.
+  const sig = String(COMPONENT_API["site-chrome"]);
   for (const slot of FOOTER_SLOTS) {
-    assert.ok(PAGE_RULES.includes(`\`${slot}\``), `the rules never name \`${slot}\``);
+    assert.ok(sig.includes(slot + "?:") || sig.includes(slot + ":"),
+      `SiteChrome's signature no longer offers \`${slot}\``);
   }
-  // The two rules that stop it doing harm. Inventing a phone number is worse
-  // than having none — somebody rings it — and a `legal` link to a page that was
-  // never written gives a not-found from the bottom of every page on the site.
-  assert.match(PAGE_RULES, /ONLY FACTS THE BRIEF ACTUALLY STATES/,
-    "the rules no longer forbid inventing contact details");
-  assert.match(PAGE_RULES, /points ONLY at a\s+page you have actually written/,
-    "the rules no longer bound `legal` to pages that exist");
+  const line = componentApiFor(["site-chrome"]);
+  for (const field of ["phone", "email", "address", "hours"])
+    assert.ok(line.includes(field),
+      `the resolved SiteContact shape lost \`${field}\` — the model is back to guessing`);
+  assert.match(line, /NavLink = \{ label: string; href: string \}/,
+    "`links` and `legal` no longer resolve to a shape either");
 });
 
 test("SiteContact resolves to its fields, so the model cannot guess the shape", () => {

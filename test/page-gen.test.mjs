@@ -28,6 +28,7 @@ import { generatedPages } from "./fixtures/generated.mjs";
 // second copy of "does this table take a file" is a digest promising an upload
 // the route refuses.
 import { acceptsVisitorUploads } from "../site-uploads.mjs";
+import { pageMeta } from "../site-meta.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const TEMPLATE = path.join(ROOT, "builder", "lovable", "template");
@@ -126,16 +127,32 @@ test("every reference page in the module is the file on disk", () => {
   assert.equal(REFERENCE_PAGES[0].path, "index.tsx");
 });
 
-test("every reference page is in the prompt, and each is lint-clean", () => {
-  // The pages exist to be imitated, so a page the model never sees is a page
-  // that cost template maintenance and bought nothing — the dead-capability
-  // shape this repo has hit five times. And a reference page that would FAIL the
-  // lint teaches the model to write something the lint then refuses.
+test("NO reference page reaches the prompt, and each is still lint-clean", () => {
+  // THE FIRST HALF IS THE INVERSE OF WHAT STOOD HERE, on the owner's call of
+  // 2026-08-24 to give the model the page layout. Four worked pages are the
+  // strongest copy-this signal a prompt can carry, and the one thing a model
+  // reliably does with a worked example is copy it — the same act as deleting the
+  // 100 family exemplars, whose reasoning this inherits. Asserted as an ABSENCE
+  // because that is the half that rots silently: putting them back is one
+  // template literal, and every other test here passes with them restored.
+  //
+  // THE SECOND HALF IS UNCHANGED AND IS NOT ABOUT THE PROMPT AT ALL. These four
+  // are the only complete, compiling pages of this kit there are, so they are
+  // what the lint's false-alarm rate is measured against — a rule that flags one
+  // of them is a rule that would flag a correct generated page. That calibration
+  // is worth exactly as much now as it was when the model could see them.
   for (const p of REFERENCE_PAGES) {
-    assert.ok(PAGE_RULES.includes(p.source), `${p.path} is not in the prompt`);
+    assert.ok(!PAGE_RULES.includes(p.source), `${p.path} is back in the prompt`);
     assert.deepEqual(lintPages([{ path: p.path, source: p.source }], REFERENCE_SPEC), [],
       `${p.path} does not survive the lint that generated pages are held to`);
   }
+  // AND THEY ARE STILL LOAD-BEARING, which is why they are not deleted: eleven of
+  // `ALWAYS_API_CORE`'s signatures are derived from their imports and from
+  // nothing else in this repo, `button` and `form` among them.
+  assert.ok(REFERENCE_PAGES.length >= 4, "the reference pages went with their printing");
+  for (const n of ["button", "form", "select", "textarea", "card", "data-list", "skeleton"])
+    assert.ok(ALWAYS_API_CORE.includes(n),
+      `${n} left the signature core — the reference-page derivation is what puts it there`);
 });
 
 test("the advertised ui components are the ones that exist", () => {
@@ -144,8 +161,12 @@ test("the advertised ui components are the ones that exist", () => {
   assert.deepEqual([...UI_COMPONENTS].sort(), onDisk);
 });
 
-test("the rules carry the reference page and the tool asks for files", () => {
-  assert.ok(PAGE_RULES.includes(REFERENCE_PAGE), "the page to imitate must be in the prompt");
+test("the rules name the data API and the tool asks for files", () => {
+  // This asserted that the home page was in the prompt. What survives the cut is
+  // the part that was never about the example: the model has to be told the two
+  // hooks EXIST, because nothing else can tell it — a page given freedom and no
+  // vocabulary writes `fetch("/api/menu")`, which compiles, bundles, publishes
+  // and 404s for ever.
   assert.ok(PAGE_RULES.includes("useRows") && PAGE_RULES.includes("useCreateRow"));
   assert.equal(SITE_PAGES_TOOL.input_schema.required[0], "pages");
 });
@@ -1286,20 +1307,29 @@ test("every hook the rules name is exported by the template", () => {
   // remove one of those and the rules would still name it, every page would fail
   // tsc, and this guard would have stayed green.
   //
-  // Two sources now, and neither is a hand list. Every name the rules IMPORT
-  // from @/lib/rows in a worked example — unambiguous and complete. Plus every
-  // backticked call in the prose, minus the names the rules import from
-  // somewhere else, so React's useState and the router's useNavigate exclude
-  // themselves rather than being remembered.
-  const importedFrom = (mod) => new Set([...PAGE_RULES.matchAll(/import\s*\{([^}]*)\}\s*from\s*"([^"]+)"/g)]
-    .filter((m) => m[2] === mod)
-    .flatMap((m) => m[1].split(",").map((n) => n.trim().replace(/^type\s+/, "")))
-    .filter(Boolean));
-  const ours = importedFrom("@/lib/rows");
-  const foreign = new Set([...PAGE_RULES.matchAll(/import\s*\{([^}]*)\}\s*from\s*"([^"]+)"/g)]
-    .filter((m) => m[2] !== "@/lib/rows")
-    .flatMap((m) => m[1].split(",").map((n) => n.trim().replace(/^type\s+/, "")))
-    .filter(Boolean));
+  // THE IMPORT-DERIVED HALF WENT WITH THE WORKED EXAMPLES on 2026-08-24. It read
+  // every name the rules IMPORT from @/lib/rows — and every one of those lines
+  // lived in a reference page, so the set is now empty by construction and a
+  // floor on it would fail against a correct prompt. The backtick half was always
+  // the wider of the two and still finds 21 names, five more than the old pair
+  // did, so nothing is lost but the redundancy.
+  //
+  // AND THE EXAMPLES WERE SUPPRESSING A FALSE ALARM, which only removing them
+  // showed. The exclusion used to be derived — a hook the rules import from
+  // somewhere ELSE excluded itself — and with no imports left, `useState` (which
+  // the basket rule names in order to forbid it) and `useNavigate` (the router's,
+  // named in Routing) both read as ours and would be reported missing from
+  // rows.ts. A false alarm on correct code, which this repo rates worse than the
+  // miss. Two names, each with its reason, and each ASSERTED not to be ours — so
+  // the day rows.ts exports one of them the exclusion goes red rather than
+  // quietly hiding it.
+  const FOREIGN_HOOKS = {
+    useState: "React's own, named by the basket rule only to say NOT to use it there",
+    useNavigate: "@tanstack/react-router's, named by the Routing section",
+  };
+  for (const [n, why] of Object.entries(FOREIGN_HOOKS))
+    assert.ok(!exported.has(n), `@/lib/rows exports ${n} now — it is excluded here as ${why}`);
+  const foreign = new Set(Object.keys(FOREIGN_HOOKS));
   // A GENERIC DEFEATS A PATTERN WRITTEN FOR THE NON-GENERIC CASE, which this
   // repo has now recorded four times — and the reference page really does write
   // `useRows<Service>(`. Latent here today; closed anyway, since the cost is one
@@ -1323,8 +1353,7 @@ test("every hook the rules name is exported by the template", () => {
     ...[...PAGE_RULES.matchAll(/`(use[A-Z]\w+)/g)].map((m) => m[1]),
     ...[...PAGE_RULES.matchAll(/(^|[^.\w])(use[A-Z]\w+)\s*(?:<[^>]*>)?\s*\(/gm)].map((m) => m[2]),
   ])].filter((n) => !foreign.has(n));
-  const named = [...new Set([...ours, ...cited])].filter((n) => /^use[A-Z]/.test(n));
-  assert.ok(ours.size >= 5, "the rules no longer show a worked import from @/lib/rows — re-derive this guard");
+  const named = cited.filter((n) => /^use[A-Z]/.test(n));
   assert.ok(named.length >= 16, "expected the rules to cite several hooks, found " + named.length);
   for (const must of ["useCreateRow", "useUpdateRow", "useDeleteRow", "useUploadFile", "useCheckout"]) {
     assert.ok(named.includes(must),
@@ -1351,7 +1380,14 @@ test("every ui component the rules cite is one the template has", () => {
   const cited = [...new Set(
     [...PAGE_RULES.matchAll(/@\/components\/ui\/([a-z0-9-]+)/g)].map((m) => m[1]),
   )];
-  assert.ok(cited.length >= 2, "expected the rules to cite some components by path, found " + cited.length);
+  // FLOOR OF ONE, and it is honest rather than weak. Two of the three paths the
+  // rules used to cite lived in regions cut on 2026-08-24 — `@/components/ui/empty`
+  // in the four-states section and `@/components/ui/seo-jsonld` in the
+  // structured-data rule. What is left is `faq`, cited by rule 3's export-name
+  // law ("`@/components/ui/faq` exports `Faq`, not `FaqAccordion`"), and that one
+  // citation still has to be real: it is the worked example for the rule this
+  // repo measured as one of the three commonest build failures there are.
+  assert.ok(cited.length >= 1, "the rules cite NO component by path — re-derive this guard");
   const missing = cited.filter((c) => !UI_COMPONENTS.includes(c));
   assert.deepEqual(missing, [],
     "the rules point the model at " + missing.join(", ") + ", which the template does not have");
@@ -1776,6 +1812,61 @@ test("and the shape comes from THAT component's file, not a name lookup", () => 
   assert.notEqual(a.Activity, b.Activity, "the two Activity types collapsed into one");
   assert.match(a.Activity, /who: string/);
   assert.match(b.Activity, /state\?*:/);
+});
+
+test("a type RE-EXPORTED from a sibling still resolves, where the name is unambiguous", () => {
+  // `COMPONENT_TYPES` is per module, so a component that imports its type from a
+  // sibling documents nothing of its own. `site-chrome.tsx` does exactly that for
+  // all three of its named types — and it is on EVERY site this platform builds,
+  // so `contact?: SiteContact` printed as a bare name and rule 3 correctly told
+  // the model not to invent fields on it. The footer's slots were therefore
+  // unreachable from the signature alone, which is what a 1,822-character rule
+  // existed to say in prose.
+  const line = componentApiFor(["site-chrome"]).split("\n").find((l) => l.includes("site-chrome"));
+  assert.ok(line, "site-chrome has no signature at all");
+  assert.match(line, /SiteContact = \{[^}]*phone\?: string/, line);
+  assert.match(line, /NavLink = \{ label: string; href: string \}/, line);
+  // `[^}]*` cannot reach it: `SiteLayout` contains `(string & {})`, so the field
+  // being asserted sits past a brace of its own.
+  assert.match(line, /SiteLayout = \{[\s\S]*?sticky\?: boolean/, line);
+  // The types really do live in the SIBLINGS, or this passes for the wrong reason.
+  assert.ok(!(COMPONENT_TYPES["site-chrome"] || {}).SiteContact,
+    "site-chrome documents SiteContact itself now — this no longer tests the cross-module path");
+});
+
+test("…and a type name with SEVERAL shapes in the kit stays bare", () => {
+  // The safety argument, and it is the reason the own-module rule was written in
+  // the first place. A confidently WRONG shape is worse than no shape: it leads
+  // the model into a compile error, where a missing one only leaves it cautious.
+  // Same rule `repairImports` lives under — resolve only where there is exactly
+  // one answer.
+  const shapes = new Set();
+  for (const types of Object.values(COMPONENT_TYPES)) if (types.TreeNode) shapes.add(types.TreeNode);
+  assert.ok(shapes.size > 1,
+    "TreeNode has one shape now — pick another ambiguous name or this asserts nothing");
+  const own = COMPONENT_TYPES["checkbox-tree"] || {};
+  assert.ok(!own.TreeNode, "checkbox-tree documents TreeNode itself now — pick another citer");
+  const line = componentApiFor(["checkbox-tree"]).split("\n").find((l) => l.includes("checkbox-tree"));
+  assert.match(line, /nodes: TreeNode\[\]/, "the signature stopped naming the type");
+  assert.ok(!/where[\s\S]*TreeNode =/.test(line), "an ambiguous type was resolved anyway: " + line);
+});
+
+test("own-module always wins, so both Activity components keep their own fields", () => {
+  // The platform index must never OVERRIDE a component that documents its type,
+  // or the two `Activity`s collapse the other way round from the bug the
+  // own-module rule fixed.
+  const a = componentApiFor(["activity-feed"]);
+  const b = componentApiFor(["facility-status"]);
+  assert.match(a, /Activity = \{ who: string/, a);
+  assert.match(b, /Activity = \{[^}]*state\??:/, b);
+});
+
+test("shapeOf resolves across modules under the same rule", () => {
+  // The lint reads the same index as the prompt, or a page is told off for a
+  // field the signature it was shown never described.
+  assert.deepEqual(api.shapeOf("site-chrome", "contact", "SiteChrome"), ["phone", "email", "address", "hours"]);
+  assert.equal(api.shapeOf("checkbox-tree", "nodes", "CheckboxTree"), null,
+    "an ambiguous type must stay unresolved for the lint too");
 });
 
 test("a type is read with balanced braces, not up to the first semicolon", () => {
@@ -2412,8 +2503,13 @@ test("rule 14's example cites components that REALLY EXIST, with the right casin
   // the vacuous-window failure, caused by my own renumbering, with the whole
   // suite green. A number in an anchor is a fact about ordering that a later
   // edit changes without meaning to.
+  // THE END ANCHOR MOVED ONCE, AND THE GUARD CAUGHT IT — which is the comment
+  // above working rather than a new problem. It was `NO EXPLANATORY COMMENTS`,
+  // the rule that used to follow; that rule was cut on 2026-08-24 and `indexOf`
+  // answered -1, which this assertion reports as an empty window instead of
+  // silently looping over nothing.
   const from = PAGE_RULES.indexOf("A TABLE MARKED");
-  const to = PAGE_RULES.indexOf("NO EXPLANATORY COMMENTS");
+  const to = PAGE_RULES.indexOf("SIDES ARE LOGICAL");
   assert.ok(from > 0 && to > from, "the paid-table rule or the one after it moved — window is empty");
   const example = PAGE_RULES.slice(from, to);
   assert.ok(example.length > 400, "the window collapsed — it is " + example.length + " chars");
@@ -2843,25 +2939,22 @@ test("the naming law and its exceptions are in the prompt", () => {
   assert.match(PAGE_RULES, /landmark → PageMain/, "the underivable names are not listed");
 });
 
-test("the rules say a category column is not alphabetical", () => {
-  // Measured on a real published site: a pizzeria's menu came out Dessert,
-  // Pizza, Starters — pudding at the top — because the page ordered by the
-  // category column and `order` sorts by the VALUE. Not a crash, not a compile
-  // error, and nothing in the pipeline can see it; the only guard is the model
-  // knowing.
-  assert.match(PAGE_RULES, /A CATEGORY IS NOT ALPHABETICAL/);
-  // The worked example is the measured case, so the model reads the actual
-  // wrong answer rather than an abstraction.
-  assert.match(PAGE_RULES, /Dessert, Pizza, Starters/);
-  // AND THE LEFTOVER RULE, which is the part that stops the fix creating a
-  // worse bug: a hardcoded section list silently drops any row whose category
-  // is not in it, so a dish the owner adds later is invisible.
-  const from = PAGE_RULES.indexOf("A CATEGORY IS NOT ALPHABETICAL");
-  const to = PAGE_RULES.indexOf("A TABLE MARKED");
-  assert.ok(from > 0 && to > from, "the category rule or the one after it moved — window is empty");
-  const rule = PAGE_RULES.slice(from, to);
-  assert.ok(rule.length > 400, "the window collapsed — it is " + rule.length + " chars");
-  assert.match(rule, /must still appear/, "nothing tells it not to drop uncategorised rows");
+test("the category-ordering rule is GONE, and the fact under it is still stated", () => {
+  // THE INVERSE OF WHAT STOOD HERE, on the owner's call of 2026-08-24: this was
+  // craft, and the craft went. The measured case it was written around is real —
+  // a pizzeria's menu came out Dessert, Pizza, Starters, pudding at the top —
+  // and the judgement about what a trade's order should be is exactly the kind
+  // this cut hands back to the model.
+  //
+  // WHAT IS KEPT IS THE FACT, because that half is not deducible: `order` takes
+  // a DECLARED column or `id` and silently falls back to `id` otherwise, which
+  // `## Reading rows` states and nothing else could. A model that knows how the
+  // parameter behaves can work out that sorting a category column alphabetically
+  // is not a menu; a model that does not know it cannot.
+  assert.ok(!/A CATEGORY IS NOT ALPHABETICAL/.test(PAGE_RULES), "the category rule is back");
+  assert.ok(!/Dessert, Pizza, Starters/.test(PAGE_RULES), "its worked example is back");
+  assert.match(PAGE_RULES, /`order` must be a DECLARED column or "id"/,
+    "the fact the rule rested on went with it — the model can no longer reason about ordering at all");
 });
 
 test("the rules are numbered 1..N with no gaps and no duplicates", () => {
@@ -2873,6 +2966,52 @@ test("the rules are numbered 1..N with no gaps and no duplicates", () => {
   assert.ok(nums.length >= 10, "the rule scan found only " + nums.length + " — it stopped matching");
   assert.deepEqual(nums, nums.map((_, i) => i + 1),
     "the rules are numbered " + nums.join(",") + " — expected 1.." + nums.length);
+});
+
+test("the compile gate survived the craft cut, and says what it costs to miss", () => {
+  // THE ONE THING KEPT FROM `## Definition of done` on 2026-08-24, because it is
+  // a fact about our pipeline rather than craft — and it was held by NOTHING
+  // until this, so a tidy-up could have taken it with the rest and the model
+  // would never learn that its output is compiled at all.
+  //
+  // THE CONSEQUENCE IS THE HALF THAT MATTERS. `tsc` alone reads as routine; what
+  // makes it decisive here is that there is no repair pass — one failure and the
+  // customer gets the placeholder and is charged. A model that knows the gate
+  // exists but not what missing it costs has no reason to be conservative.
+  assert.match(PAGE_RULES, /tsc --noEmit/, "the prompt no longer names the typecheck");
+  assert.match(PAGE_RULES, /vite build/, "the prompt no longer names the bundle step");
+  assert.match(PAGE_RULES, /no second attempt|nothing repairs/i,
+    "the prompt states the gate without stating that a failure is final");
+  assert.match(PAGE_RULES, /placeholder/,
+    "the prompt never says what the customer is left with when it fails");
+  // AND THE SENTENCE THAT NAMES THE SPLIT, which is what this whole cut is. It
+  // is the only place the prompt says which half is ours and which is the
+  // model's, so a prompt that loses it is one that has stopped explaining why
+  // the rules above it are the rules there are.
+  assert.match(PAGE_RULES, /what this platform IS/,
+    "the prompt no longer distinguishes the platform's facts from the model's judgement");
+});
+
+test("…and a rule that cites another BY NUMBER cites one that exists", () => {
+  // THE FAILURE THIS CATCHES IS SILENT AND IT NEARLY HAPPENED. Deleting six rules
+  // on 2026-08-24 renumbered everything after them, and `## Visitor accounts`
+  // points at "the claim link (rule 10)" — which survived at 10 by luck, since
+  // every cut was above it. Had one been below, that sentence would have sent
+  // the model to a rule about something else entirely, and nothing would say so:
+  // the prompt still reads perfectly, and the numbering check above stays green
+  // because the numbering itself is fine.
+  //
+  // Same family as the byte-window own-goal this repo has now recorded nine
+  // times — a NUMBER in a reference is a fact about ordering that a later edit
+  // changes without meaning to.
+  const nums = [...PAGE_RULES.matchAll(/^(\d+)\. [A-Z]/gm)].map((m) => Number(m[1]));
+  const refs = [...PAGE_RULES.matchAll(/\brule (\d+)\b/gi)].map((m) => Number(m[1]));
+  for (const r of refs)
+    assert.ok(nums.includes(r),
+      "the prompt cites rule " + r + " and the rules run 1.." + nums.length);
+  // The scan is proved alive, or a prompt whose cross-references all broke and a
+  // prompt with none look identical from here.
+  assert.ok(refs.length >= 1, "no rule cites another by number — re-derive this guard");
 });
 
 /**
@@ -4133,28 +4272,26 @@ test("the designer is told to declare the amend function", () => {
 // against 49 that render an `<h2>` — so a page assembled from sections has none
 // and silently inherits the site's name.
 //
-// `site-meta.mjs` now falls back to `<h2>`, which fixes every existing site on
-// its next publish and is the load-bearing half. This rule is the other half,
-// and it is worth having on its own account: a document whose top heading is an
-// `<h2>` is malformed for a screen reader, which no title fallback repairs.
-//
-// Asserted because a prompt rule nobody holds is one a later edit drops without
-// anybody noticing — proved by mutation, where deleting it changed nothing.
+// `site-meta.mjs` falls back to `<h2>`, which fixes every existing site on its
+// next publish and is the load-bearing half. The RULE was the other half and it
+// was cut on 2026-08-24 with the rest of the craft — so what is asserted here is
+// the fallback, which is the half that actually holds a title.
 
-test("the rules require one h1 per page, and say why the section header is not it", () => {
-  assert.match(PAGE_RULES, /EVERY PAGE HAS EXACTLY ONE .?<h1>/,
-    "the rules no longer require a per-page h1 — a section-built page will inherit the site title");
-  const from = PAGE_RULES.indexOf("EVERY PAGE HAS EXACTLY ONE");
-  const win = PAGE_RULES.slice(from, PAGE_RULES.indexOf("A TABLE MARKED", from));
-  assert.ok(win.length > 200, "the h1 rule's window is empty — the anchor moved");
-  // The distinction that makes it actionable. Without it the model is told to
-  // add an h1 and has no idea why its SectionHeader does not count.
-  assert.match(win, /SectionHeader/, "the rule does not name the component that is NOT a page heading");
-  assert.match(win, /PageHeader|CollectionHeader|Hero/, "the rule names no component that DOES render an h1");
-  // Both reasons, because the accessibility one holds even if the title
-  // derivation is changed or removed later.
-  assert.match(win, /screen reader/i, "the rule gives no accessibility reason");
-  assert.match(win, /title|share/i, "the rule does not say the title is derived from it");
+test("the h1 RULE is gone and the h2 fallback that made it survivable is not", () => {
+  // THE INVERSE, and the deletion is only defensible because of the second
+  // assertion. Cutting the rule with no fallback would put every section-built
+  // page back to inheriting the site's name in its tab and its WhatsApp card —
+  // the measured failure on a real site's `/work`. With the fallback the cost is
+  // a page whose title comes from its first `<h2>` rather than an `<h1>`, which
+  // is a worse title and not a wrong one.
+  assert.ok(!/EVERY PAGE HAS EXACTLY ONE .?<h1>/.test(PAGE_RULES), "the h1 rule is back");
+  // DRIVEN, not read: `pageMeta` is what publishes a sub-page's title, and a
+  // source-read for "h2" would pass against a file that merely mentions it.
+  const doc = (body) => `<!doctype html><html><head><title>x</title></head><body>${body}</body></html>`;
+  const BASE = { brand: "Fade & Co", description: "A barber shop", url: "https://x.test/" };
+  assert.equal(pageMeta(doc("<h2>Our work</h2>"), BASE).brand, "Our work · Fade & Co",
+    "pageMeta no longer falls back to an h2 — with the rule gone too, a section-built page "
+    + "inherits the site's own name in its tab and its share card");
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -4471,24 +4608,35 @@ test("the digest says a table sends elsewhere, and stays silent when it does not
 // Asserted over the FINISHED PROMPT rather than over the sources it is built
 // from, because that is the artefact the model reads and the only place the
 // two halves meet.
-test("every kit import in the prompt is real, and its PROPS are stated", () => {
-  const cited = [...new Set([...PAGE_RULES.matchAll(/from "@\/components\/ui\/([a-z0-9-]+)"/g)].map((m) => m[1]))];
-  // THE FLOOR: a regex that stopped matching would report a clean prompt.
-  assert.ok(cited.length >= 15, `only found ${cited.length} kit imports in the prompt — the scan is broken`);
-  const real = new Set(UI_COMPONENTS);
-  const invented = cited.filter((m) => !real.has(m));
-  assert.deepEqual(invented, [], `the prompt's worked examples import modules that do not exist: ${invented.join(", ")}`);
+//
+// THE FAILURE IS NOW STRUCTURALLY UNREACHABLE, since the worked examples went on
+// 2026-08-24: a prompt that demonstrates no kit import cannot demonstrate a
+// wrong one. So the primary assertion is that ABSENCE, and the two checks that
+// used to do the work are proved still alive against a fabricated prompt rather
+// than left to run over an empty set and report a clean sweep over nothing.
+test("the prompt demonstrates no kit import — and the check that would catch a bad one still works", () => {
+  const kitImports = (text) => [...new Set([...text.matchAll(/from "@\/components\/ui\/([a-z0-9-]+)"/g)].map((m) => m[1]))];
+  const faults = (text) => {
+    const cited = kitImports(text);
+    const real = new Set(UI_COMPONENTS);
+    return {
+      invented: cited.filter((m) => !real.has(m)),
+      unstated: cited.filter((m) => COMPONENT_API[m] && !ALWAYS_API_CORE.includes(m)),
+    };
+  };
+  assert.deepEqual(kitImports(PAGE_RULES), [],
+    "a worked kit import is back in the prompt — it must be a real module whose props are also stated");
 
-  // AND THE STRONGER HALF, which is what actually replaces the old check. Rule 3
-  // now names every module in the kit, so "shows an import it tells you not to
-  // use" is no longer expressible — a list of everything cannot contradict an
-  // example. What can still go wrong is the same failure by the other route: the
-  // prompt SHOWS a component in use, the model copies it, and its props were
-  // never stated. `ALWAYS_API_CORE` derives its first half from exactly these
-  // imports precisely so that cannot happen, and this is what holds it.
-  const unstated = cited.filter((m) => COMPONENT_API[m] && !ALWAYS_API_CORE.includes(m));
-  assert.deepEqual(unstated, [],
-    `the prompt demonstrates these and states no props for them: ${unstated.join(", ")}`);
+  // THE OBSERVER IS ALIVE. Both halves fire on a prompt that does demonstrate
+  // one: an invented module (the measured `hero-split` failure, TS2305 on
+  // index.tsx, which salvage will not stub, so the whole site published as the
+  // placeholder), and a real module whose props are nowhere in the prompt.
+  const unstatedReal = UI_COMPONENTS.find((n) => COMPONENT_API[n] && !ALWAYS_API_CORE.includes(n));
+  assert.ok(unstatedReal, "every component with a signature is in the core — pick another witness");
+  const bad = faults(`import { Hero } from "@/components/ui/ghost-module";\n`
+    + `import { X } from "@/components/ui/${unstatedReal}";`);
+  assert.deepEqual(bad.invented, ["ghost-module"]);
+  assert.deepEqual(bad.unstated, [unstatedReal]);
 });
 
 // ── A WRONG EXPORT NAME IS REPAIRED, AND ONLY WHEN IT IS UNAMBIGUOUS ────────

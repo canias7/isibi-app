@@ -413,6 +413,54 @@ function topObjects(value) {
 }
 
 /**
+ * A TYPE NAME THIS KIT DEFINES EXACTLY ONE WAY, platform-wide.
+ *
+ * `COMPONENT_TYPES` is per module, and a component that RE-EXPORTS a type from a
+ * sibling therefore documents nothing: `site-chrome.tsx` takes `contact?:
+ * SiteContact` and imports that type from `site-footer`, so the signature the
+ * model reads stops at a bare name on the ONE component every site uses. Rule 3
+ * tells it not to invent fields on a bare name, correctly — so the footer's
+ * contact slots were unreachable from the signature alone, which is why a
+ * 1,822-character rule existed to spell them out in prose.
+ *
+ * ONLY WHERE THE NAME IS UNAMBIGUOUS, which is the whole safety argument and is
+ * measured rather than assumed: 309 of the 323 type names in this kit have one
+ * shape and 14 have several — `Activity` is two different objects on two
+ * components, `Tier` and `Rule` are three each. Those 14 stay bare, exactly as
+ * they are today, because a name alone genuinely cannot resolve them and a
+ * confidently WRONG shape is worse than no shape: it is a compile error the
+ * model was led into. Same rule `repairImports` lives under — rewrite only when
+ * there is exactly one answer.
+ *
+ * THE COST IS 766 CHARACTERS ACROSS THE WHOLE KIT, measured: 7 components of
+ * 2,040 gain a resolution, and exactly one of them (`site-chrome`) is in the
+ * cached core, so an ordinary build pays ~250 characters once and every site
+ * after it reads them at 0.1x.
+ */
+const UNIQUE_TYPES = (() => {
+  const shapes = new Map();
+  for (const types of Object.values(COMPONENT_TYPES))
+    for (const [name, body] of Object.entries(types)) {
+      if (!shapes.has(name)) shapes.set(name, new Set());
+      shapes.get(name).add(body);
+    }
+  const out = Object.create(null);
+  for (const [name, set] of shapes) if (set.size === 1) out[name] = [...set][0];
+  return out;
+})();
+
+/**
+ * The shape of one named type as it should be shown for one component: what that
+ * component's OWN module says, and otherwise the platform-unique answer.
+ *
+ * The own-module answer always wins, so an ambiguous name still resolves for the
+ * component that documents it — which is how `Activity` keeps working on both of
+ * the two components that define it while never being guessed at anywhere else.
+ */
+const typeBodyFor = (component, name) =>
+  (COMPONENT_TYPES[component] || {})[name] || UNIQUE_TYPES[name] || null;
+
+/**
  * The FIELD NAMES of the object a prop expects, when the signature names a type
  * the component also documents.
  *
@@ -422,9 +470,11 @@ function topObjects(value) {
  * title }` against `Activity`. Measured on the real failing pages: 20 of one and
  * 7 of another in the recorded history.
  *
- * Returns null unless the type is documented on THAT component — two components
- * export a type called `Activity` with different shapes, so a name alone cannot
- * resolve it, which is the same reason `UI_SHORTLIST_API` prints only cited types.
+ * Returns null unless the type resolves — from that component's own module, or
+ * from the platform-wide index where the name has exactly ONE shape in the kit.
+ * Two components export a type called `Activity` with different shapes, so THAT
+ * name alone cannot resolve it and the lint says nothing about it rather than
+ * flagging a correct call against the other component's fields.
  */
 export function shapeOf(component, prop, tag) {
   const sig = COMPONENT_API[component];
@@ -435,15 +485,14 @@ export function shapeOf(component, prop, tag) {
   // call into a complaint. Skipping is the only safe answer, and it is the same
   // rule the import check uses for a module with no known exports.
   if (typeof sig === "string" && sig.includes("\u2026")) return null;
-  const types = COMPONENT_TYPES[component];
-  if (!sig || !types) return null;
+  if (!sig) return null;
   if (tag && !new RegExp("^" + tag + "\\s*\\(").test(sig)) return null;
   const open = sig.indexOf("(");
   if (open < 0) return null;
   for (const part of splitTop(sig.slice(open + 1, sig.lastIndexOf(")")), ",")) {
     const m = part.trim().match(/^([A-Za-z_$][\w$]*)\??\s*:\s*([A-Za-z_$][\w$]*)(?:<[^>]*>)?(\[\])?/);
     if (!m || m[1] !== prop) continue;
-    const body = types[m[2]];
+    const body = typeBodyFor(component, m[2]);
     if (!body) return null;
     const fields = [];
     for (const f of splitTop(body.replace(/^\{|\}$/g, ""), ";")) {
@@ -490,12 +539,17 @@ export const componentApiFor = (names) => {
     // `Activity` is `{who, what, at, avatar?}` — one error, and the only thing
     // between a booking sample and a pass.
     //
-    // Taken from THAT COMPONENT'S OWN FILE: two components in this kit export a
-    // type called `Activity` and they are different shapes, so a name alone
-    // cannot resolve it. Only types the signature actually mentions are printed.
-    const own = COMPONENT_TYPES[n] || {};
-    const cited = Object.keys(own).filter((t) => new RegExp("\\b" + t + "\\b").test(sig));
-    const shapes = cited.map((t) => t + " = " + own[t]).join("; ");
+    // THAT COMPONENT'S OWN FILE FIRST, then the platform-unique answer — a
+    // component that re-exports its type from a sibling documents nothing of its
+    // own, which is why `site-chrome` printed a bare `SiteContact` on every site
+    // ever built. A name with SEVERAL shapes in the kit (`Activity` is two
+    // different objects) stays bare, because a wrong shape leads the model into
+    // a compile error where a missing one only leaves it cautious.
+    //
+    // Only types the signature actually mentions are printed.
+    const cited = [...new Set([...sig.matchAll(/\b([A-Z][A-Za-z0-9_]*)\b/g)].map((m) => m[1]))]
+      .filter((t) => typeBodyFor(n, t));
+    const shapes = cited.map((t) => t + " = " + typeBodyFor(n, t)).join("; ");
     lines.push("  " + n + " — " + sig + (shapes ? "   where " + shapes : ""));
   }
   return lines.join("\n");
@@ -1672,9 +1726,16 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
 export const REFERENCE_PAGE = REFERENCE_PAGES[0].source;
 
 /**
- * COMPONENTS THE RULES CITE IN THEIR OWN PROSE rather than in a reference page —
- * rule 18's worked `localBusinessJsonLd` call. It cannot be derived from the
- * pages, so it is named, and the always-on signature core folds it in.
+ * COMPONENTS THE RULES CITE IN THEIR OWN PROSE rather than in a reference page.
+ * It cannot be derived from the pages, so it is named, and the always-on
+ * signature core folds it in.
+ *
+ * EMPTY SINCE 2026-08-24, and that is a fact rather than a gap: its one member
+ * was `seo-jsonld`, carried because the structured-data rule printed a worked
+ * `localBusinessJsonLd` call — and that rule went with the craft cut. No rule
+ * names a component in prose now. The constant stays because the next one that
+ * does needs its signature carried, and because an empty list is assertable
+ * where a deleted constant is not.
  *
  * `UI_SHORTLIST` USED TO LIVE HERE and went with the per-site change on
  * 2026-08-20. It was the 292 names the model was told to reach for, derived from
@@ -1692,7 +1753,7 @@ export const REFERENCE_PAGE = REFERENCE_PAGES[0].source;
  * "@/components/ui/hero-split"`: the EXPORT from the example, the MODULE from
  * the list. A list of everything cannot contradict an example.
  */
-export const RULE_CITED_COMPONENTS = ["seo-jsonld"];
+export const RULE_CITED_COMPONENTS = [];
 
 /**
  * THE SIGNATURES EVERY SITE GETS, cached — 32 components, ~1,112 tokens.
@@ -1701,9 +1762,18 @@ export const RULE_CITED_COMPONENTS = ["seo-jsonld"];
  *
  * The DERIVED half is every component the four reference pages import, plus
  * anything the rules cite by name. Self-maintaining, survives the deletion of the
- * family table, and principled: the prompt already SHOWS these in use, so the
- * model will copy them and needs their real props. Measured at 43.6% of every
- * reach in the 324-page corpus.
+ * family table, and measured at 43.6% of every reach in the 324-page corpus.
+ *
+ * ITS REASON CHANGED ON 2026-08-24 AND THE SET DID NOT, which is worth saying
+ * rather than leaving a comment that has quietly stopped being true. It used to
+ * be "the prompt SHOWS these in use, so the model will copy them and needs their
+ * real props" — and the pages are no longer in the prompt. What makes the same
+ * 32 right is the other thing they are: the components a complete, compiling,
+ * four-page site of THIS kit actually reaches for. Eleven of them are in the core
+ * on that evidence alone — `button`, `form`, `select`, `textarea`, `card`,
+ * `data-list`, `skeleton` among them — and no other measurement in this repo
+ * names them, so deriving from anything else would ship a prompt whose signature
+ * block omits the primitives every page uses.
  *
  * The FROZEN half is the frequency head that no reference page demonstrates —
  * `faq` is on 216 of 324 pages and appears in no worked example at all. Used
@@ -1930,33 +2000,7 @@ ${componentApiFor(ALWAYS_API_CORE)}
     so \`useRow(TABLE, id)\` with the string straight off the URL is correct. Do not wrap it
     in \`Number()\`.
 
-14. A CATEGORY IS NOT ALPHABETICAL. \`order\` sorts by the VALUE in the column, so ordering
-    a menu by its category column gives Dessert, Pizza, Starters — pudding at the top, which
-    is not a menu anybody has ever printed. Measured on a real published site.
-    Sort in the PAGE against the order the trade uses, and read in an order that is
-    meaningful on its own so the list is right even before you group it:
-      const SECTIONS = ["Starters", "Pizza", "Dessert"];
-      const items = useRows<Item>("menu_items", { order: "price", dir: "asc" });
-      const grouped = SECTIONS
-        .map((name) => ({ name, rows: (items.data ?? []).filter((r) => r.category === name) }))
-        .filter((g) => g.rows.length);
-    Anything NOT in your list must still appear — put the leftovers in a final group rather
-    than dropping them, or a row the owner adds later is invisible with nothing to explain it.
-    The same applies to any column whose values are names rather than quantities: a status, a
-    stage, a size, a day of the week. \`order\` by one only when alphabetical IS the answer.
-
-15. EVERY PAGE HAS EXACTLY ONE \`<h1>\`, AND IT NAMES THAT PAGE. Not the site — the page.
-    A gallery page's is "Our work", a booking page's is "Book a chair".
-    Two things break without it, and neither is visible from the page itself.
-    A screen reader announces the page by its \`<h1>\` and lands on an \`<h2>\` with no
-    parent, which is a malformed document. And the platform derives the \`<title>\` and
-    the share card from it at publish time, so a page with none is pasted into WhatsApp
-    wearing the HOME page's name — measured on a real site, where \`/work\` was
-    \`SectionHeader + Gallery + CtaBand\` and every section heading is an \`<h2>\`.
-    \`<SectionHeader>\` heads a SECTION and is an \`<h2>\` on purpose. The page's own
-    heading is \`<PageHeader>\`, \`<CollectionHeader>\`, a \`<Hero>\`, or a plain \`<h1>\`.
-
-16. A TABLE MARKED \`PAID: YES\` IS BOUGHT, NOT SUBMITTED. The digest says so per table.
+14. A TABLE MARKED \`PAID: YES\` IS BOUGHT, NOT SUBMITTED. The digest says so per table.
     \`useCreateRow\` on one returns 403 — a paid table has no public insert at all, which is
     exactly what stops a price being forged — so use \`useCheckout\` and let the server price it.
     THE BASKET IS \`useCart\`, NOT \`useState\`: it is kept across pages and across a reload, so
@@ -1988,100 +2032,7 @@ ${componentApiFor(ALWAYS_API_CORE)}
     Show the error \`checkout.error\` carries rather than a generic one: it is written for
     the customer, and says so when the shop has not finished setting payments up.
 
-17. NO EXPLANATORY COMMENTS IN THE PAGES YOU WRITE. The examples above are commented
-    because they are teaching you; the files you return are a customer's website and
-    nobody reads its source. Output costs five times what input costs, and comments are
-    27% of the example set — so a comment is the single most expensive thing here, and
-    it is bought for a reader who does not exist. Write the code. The one exception is a
-    line that stops the next person breaking something non-obvious ("cancelled bookings
-    still hold the slot"); if it only restates what the line under it does, leave it out.
-
-18. THE HOME PAGE CARRIES THE BUSINESS'S STRUCTURED DATA when the brief states real
-    contact facts — it is what puts the shop's hours, address and phone straight into a
-    search result instead of just a blue link. Once, on the home page only, EXACTLY this
-    shape — \`address\` is an OBJECT and \`openingHours\` is an ARRAY OF STRINGS:
-
-    \`\`\`tsx
-    import { SeoJsonLd, localBusinessJsonLd } from "@/components/ui/seo-jsonld";
-
-    <SeoJsonLd data={localBusinessJsonLd({
-      name: "Sharp Fade Barbers",
-      telephone: "0113 496 0000",
-      address: { street: "42 High Street", city: "Leeds", postcode: "LS1 4AB", country: "GB" },
-      openingHours: ["Tu-Sa 09:00-18:00"],
-    })} />
-    \`\`\`
-
-    Every field except \`name\` is optional, and \`url\`, \`image\` and \`priceRange\` are
-    accepted too. ONLY facts the brief actually states: a made-up address or phone number
-    in structured data is what gets a site's rich results switched off entirely, so a
-    field the brief does not supply is a field you leave out, and a brief that states none
-    of them means no \`SeoJsonLd\` at all.
-
-19. EVERY PAGE EXCEPT THE HOME PAGE SAYS WHAT IT IS, in a \`head\` beside its
-    \`component\`. Without one it inherits the site's own title and description, so the
-    booking page pasted into WhatsApp previews as the home page — same headline, same
-    sentence — and a search result for "book a table" shows the site's front page blurb.
-    The home page is the ONE that leaves this out: its description was written for exactly
-    this purpose and beats anything a page could say about itself.
-
-    \`\`\`tsx
-    export const Route = createFileRoute("/book")({
-      head: () => ({
-        meta: [
-          { title: "Book a table — Forno & Co" },
-          { property: "og:title", content: "Book a table — Forno & Co" },
-          { name: "description", content: "Reserve a table in the dining room or the courtyard, seven days a week." },
-          { property: "og:description", content: "Reserve a table in the dining room or the courtyard, seven days a week." },
-        ],
-      }),
-      component: P,
-    });
-    \`\`\`
-
-    The title is what this page is, then the business — that order, because a phone
-    truncates the end. The description is ONE plain sentence about THIS page and not about
-    the business; write it for somebody deciding whether to tap, and never repeat the site
-    description. \`og:url\`, the share image and the card type are already handled for you
-    — do not write those.
-
-20. THE FOOTER TAKES THE BUSINESS'S CONTACT DETAILS, and a visitor scrolls to the bottom
-    expecting them. \`SiteChrome\` has three footer slots beyond the name and tagline —
-    \`contact\`, \`social\` and \`legal\` — and they belong in the same \`CHROME\` object as
-    \`links\` and \`action\`, because they are the same on every page.
-
-    \`\`\`tsx
-    const CHROME = {
-      name: "Forno & Co",
-      tagline: "Wood-fired pizza on Vicar Lane.",
-      links: [{ label: "Menu", href: "/menu" }, { label: "Find us", href: "#find-us" }],
-      action: { label: "Book a table", href: "/book" },
-      contact: {
-        phone: "0113 200 0000",
-        email: "hello@fornoandco.co.uk",
-        address: "42 Vicar Lane\\nLeeds LS1 6BA",
-        hours: "Tue–Sun 12–10",
-      },
-      social: [{ network: "instagram", href: "https://instagram.com/fornoandco" }],
-    };
-    \`\`\`
-
-    ONLY FACTS THE BRIEF ACTUALLY STATES. A phone number you invented is worse than no
-    phone number: somebody rings it. Leave out any field the brief does not answer, and
-    leave \`contact\` off entirely when it answers none of them.
-
-    Write \`phone\` the way a person writes it — the \`tel:\` link is derived, so there is no
-    second value to keep in step. Put real newlines in \`address\`; they render as lines.
-    \`hours\` is ONE line ("Tue–Sun 12–10") — a full timetable is rows in a table, not this.
-    \`social\` takes \`{ network, href }\` where network is "instagram", "facebook", "x",
-    "youtube", "linkedin", "tiktok", "email" or "phone".
-
-    \`legal\` is \`{ label, href }\` for small print — Privacy, Terms — and points ONLY at a
-    page you have actually written. Linking to a privacy page that does not exist gives a
-    visitor a not-found page from the bottom of every page on the site, so leave it out
-    unless the page is in your own list.
-
-21. SIDES ARE LOGICAL, NEVER LEFT AND RIGHT. Write \`ms-\`/\`me-\`, \`ps-\`/\`pe-\`,
+15. SIDES ARE LOGICAL, NEVER LEFT AND RIGHT. Write \`ms-\`/\`me-\`, \`ps-\`/\`pe-\`,
     \`start-\`/\`end-\`, \`text-start\`/\`text-end\`, \`border-s\`/\`border-e\` and
     \`rounded-s\`/\`rounded-e\` in place of \`ml-\`/\`mr-\`, \`pl-\`/\`pr-\`, \`left-\`/\`right-\`,
     \`text-left\`/\`text-right\`, \`border-l\`/\`border-r\` and \`rounded-l\`/\`rounded-r\`.
@@ -2110,23 +2061,9 @@ ${componentApiFor(ALWAYS_API_CORE)}
 - type it: \`type Service = Row & { name: string; price: number | null }\`. Every column the
   database did not mark required can be null — say so in the type and guard before rendering.
 
-## Every list handles four states
-
-Omit one and the page looks fine in a screenshot and broken in use:
-- \`isPending\` → \`<Skeleton />\` placeholders, not a spinner and not nothing
-- \`isError\` → one sentence a visitor can act on
-- \`data?.length === 0\` → \`<Empty />\` from \`@/components/ui/empty\`, not a bare paragraph and
-  never an empty grid. Give it a heading and a sentence saying what would put something there.
-- loaded → the rows
-
-## Every form must
-
-- disable its submit button while \`mutation.isPending\`, and say so on the button — a
-  \`<Spinner />\` inside it reads better than swapping the label, and keeps the width steady
-- \`toast.success(...)\` and \`form.reset()\` on success
-- \`toast.error(e.message)\` on failure — THE API'S OWN MESSAGE. It distinguishes the caller's
-  fault from a server fault and returns a \`code\` for duplicate / overlap / bad_ref / required /
-  full / invalid. "That time is already taken" is useful; "something went wrong" is not.
+A WRITE'S ERROR IS WRITTEN FOR THE VISITOR, so surface \`e.message\` rather than a sentence
+of your own: it separates the caller's fault from a server fault and carries a \`code\` —
+duplicate / overlap / bad_ref / required / full / invalid.
 
 ## Routing
 
@@ -2164,17 +2101,6 @@ Every one of these stops for a visitor who asked for less movement, while the co
 stays — so use them freely; they cannot trap anything invisible.
 
 ${MOTION_CATALOGUE}
-
-WHEN TO REACH FOR THEM, since most pages need only three:
-- Anything you render conditionally that the visitor did not just click — a banner, a
-  confirmation, a "we are closed today" notice — gets \`motion-enter\`. Appearing instantly
-  reads as a page glitch rather than as the site telling them something.
-- A list you map over — services, a menu, opening hours — gets \`motion-stagger\` on the
-  \`<ul>\`, not on the items.
-- A long page's sections get \`motion-reveal\`. A short one does not: above the fold it
-  delays the first thing they came to read.
-- Something the visitor clicked open, or an inline editor, gets NOTHING. They are already
-  looking at that spot and waiting; a fade there is felt as slowness, not polish.
 
 ## Charts — the other half of the kit
 
@@ -2236,22 +2162,15 @@ friction nobody asked for — for somebody returning to a form they filled in, t
 If the brief asks for one of these, build everything else and say plainly in \`notes\` what was
 left out and why. Never generate UI that cannot work.
 
-## Definition of done
+## The gate
 
-\`tsc --noEmit\` must be clean and \`vite build\` must succeed. Write real TypeScript: no \`any\`,
-no unresolved imports, no props a component does not take.
+\`tsc --noEmit\` then \`vite build\`, over your pages and this kit together. Neither is advisory:
+a page that does not compile is not published, and the customer is left with a placeholder
+where their site should be. There is no second attempt and nothing repairs your output.
 
-Keep it to the few pages the brief actually needs — usually one, at most ${MAX_PAGES}. Write warm,
-specific copy for the business in the brief; never lorem ipsum, never a placeholder image URL.
-
-## The pages to imitate
-
-Four real, compiling pages of ONE site, written against services(display) + appointments(collect,
-with a publicView and a claim token) + profiles(user). They are the shape to copy — every rule
-above is visible in them. Take the pages the brief needs and leave the rest; a site with no member
-table needs no account page, and a plain contact form needs no manage page.
-
-${REFERENCE_PAGES.map((p) => `### ${p.path} — ${p.blurb}\n\n${p.source}`).join("\n\n")}`;
+Everything above this line is what this platform IS — the hooks, the access levels, the kit,
+what the schema permits. How the site reads, what goes on which page and in what order, and
+what it says, are yours.`;
 
 export const SITE_PAGES_TOOL = {
   name: "write_pages",

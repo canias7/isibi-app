@@ -12,6 +12,58 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ## OPEN — waiting to be picked up
 
+**THE MODEL LAYS THE PAGES OUT NOW (2026-08-24).**
+
+You said to delete most of the page-writing instructions and give the model
+freedom. Done — **41% of that block is gone**, 123,397 characters down to
+72,736.
+
+**The biggest single thing that went is the four worked example pages.** They
+were a complete barber shop's website — home page, booking page, a page for
+coming back to your booking, and a members page — 42,698 characters of finished
+code sat in front of the model as "copy this". That is exactly what it did. It is
+the same reason we deleted the 100 trade examples and the 500 themes: a worked
+example stops being a help and starts being the answer.
+
+**And ten rules about craft.** How to order a menu, one heading per page, no
+comments in the code, structured data for search engines, what each page's share
+preview should say, what goes in the footer, the four states a list has to
+handle, the three things every form must do, when to use which animation, and
+the advice about writing warm copy. All of that is now the model's judgement.
+
+**What I did NOT delete, and I want to be clear about why.** About a sixth of
+that block is not advice at all — it is facts about how *our* platform works that
+the model has no other way of knowing. That we have our own way of reading and
+writing data and that ordinary web fetching does not work here. What each access
+level permits. Which columns it must never write. How the basket and checkout
+work. Deleting those does not give the model freedom, it guarantees the build
+fails — and unlike the stylesheet, a failure here means the customer gets a
+placeholder instead of a site **and is charged for it**.
+
+**One thing I had to fix before a deletion was safe.** The footer rule was long
+and it was doing real work: the component's own signature said `contact?:
+SiteContact` and never said what `SiteContact` is, so without the rule the model
+could not have filled in a phone number or an address at all. Rather than keep
+1,822 characters of prose, I made the signature resolve the type — about 250
+characters, and it fixes six other components as a side effect.
+
+**Two things this genuinely costs, stated plainly.** A page's browser-tab title
+now comes from its first sub-heading rather than a proper page heading, which is
+a slightly worse title. And a shop's hours and address will stop being sent to
+Google as structured data — that one is the safe direction, because getting it
+*wrong* used to lose the entire site, and not doing it just loses a richer
+search result.
+
+**Nothing about money changed** except that a build is now marginally cheaper — 4
+credits on a first build of the day, 1 after that. That was never the point.
+
+**Not tried live yet.** No site has been built since the change, so nobody has
+seen what the model does with a blank page. That is the thing worth watching on
+the next build: whether it lays out a site for the brief, or writes something
+thinner than the examples used to produce.
+
+---
+
 **THE DESIGNER PICKS THE PHOTOGRAPHS NOW (2026-08-23).**
 
 You spotted that pictures were not part of the design step. They were not, and
