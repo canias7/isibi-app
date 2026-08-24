@@ -541,21 +541,39 @@ export const PLAN_FIELDS = {
       "A description of the trade is not a purpose.",
   },
 
+  // THE PAGE FIELD IS DELIBERATELY UNDESCRIBED (2026-08-24, owner's call:
+  // "delete whats left inside pages"). The SHAPE stays — an array of
+  // `{path, role}`, both required — and every word of guidance is gone.
+  //
+  // TWO OF THE DELETED SENTENCES WERE FACTS RATHER THAN CRAFT, and both fail
+  // SILENTLY now rather than making a page worse. Written down here because
+  // nothing else states them where a model can reach.
+  //
+  //   "at most 6" is `MAX_PAGES`, and `pageList` CUTS at it. A model that
+  //   answers eight has two dropped with no error and no note — the site is
+  //   quietly two pages short of what it planned, and `shape` and `images`
+  //   entries for those two are then dropped as well, because both validate
+  //   against the surviving list.
+  //
+  //   'Include the home page as "/"' is load-bearing at a different layer.
+  //   `validatePages` cannot know which of five pages is home, and
+  //   `publishPages` REFUSES to publish a site with no `index.tsx` rather than
+  //   shipping one whose root URL renders nothing. So a plan with no "/" does
+  //   not degrade — it ends the build at `stage: "home"`.
+  //
+  // The caps and the refusal are unchanged: they live in `pageList`,
+  // `validatePages` and `publishPages`, none of which reads this description.
+  // What has gone is the model being told about them.
   pages: {
     type: "array",
     items: {
       type: "object",
       properties: {
-        path: { type: "string", description: 'The URL. "/" for the home page, then "/book", "/menu". Lowercase.' },
-        role: { type: "string", description: "What this page is FOR, in one clause." },
+        path: { type: "string" },
+        role: { type: "string" },
       },
       required: ["path", "role"],
     },
-    description:
-      `One entry per route, at most ${MAX_PAGES}. THE COUNT IS YOURS: a café is one scroll and a reference site ` +
-      "is four linked pages. Include the home page as \"/\" and give it a role like any other. " +
-      "Do not invent a page the brief gives no reason for — an empty page is worse than no page, and every " +
-      "page here is generated code that has to compile.",
   },
 
 
