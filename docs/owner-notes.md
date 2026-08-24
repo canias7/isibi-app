@@ -12,6 +12,38 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ## OPEN — waiting to be picked up
 
+**THE CRM BUILD DID NOT PUBLISH (2026-08-24, run 33).** You asked for a CRM.
+The designer read the brief, designed a four-table data model, provisioned the
+database and named the site `helm` — all correct, all in about four and a half
+minutes. **Then the step that writes the pages never came back.** No site, 9
+credits spent, balance 88 to 79.
+
+**This is not new and it is not the CRM's fault.** Counting every build the
+platform has recorded since the queue landed: **three published, two did not,
+and both failures are the same one** — the page-writing call goes out and no
+answer ever arrives. The other one was a café. It is roughly a two-in-five
+failure rate on the single most expensive step in the product, and it is the
+biggest open problem there is.
+
+**What the CRM brief DID change is the price of the step before it.** The design
+call took **3m54s and wrote 4,242 tokens** — against 48s-106s and 1,572-2,546
+tokens for every café brief ever run here. A CRM plan is simply bigger: four
+tables, four pages, a layout for each, and a list of the components each one
+needs. So a CRM spends nearly four minutes of a fifteen-minute ceiling before
+the expensive step even starts. **That is a real finding and it is separate from
+the hang** — the café that failed the same way had a 76-second design.
+
+**What this run did NOT test, said plainly:** the repair pass runs after a page
+has been built and this build never built one, so it is still unproven. So is
+the connection ceiling I added this morning — the socket died the ordinary way
+at 261 seconds, which is a real error rather than a silent one, so the new
+ceiling was never reached.
+
+**`helm` is left standing** (you said you would delete them yourself): the name
+is claimed, the database is live, and there is no site at that address.
+
+---
+
 **THE SITE NOW CHECKS ITSELF BEFORE IT LAUNCHES, AND FIXES WHAT IT FINDS
 (2026-08-24, your idea).** *"After the page generation step, can there be a
 revise step that literally checks everything that it generated, checks what's
