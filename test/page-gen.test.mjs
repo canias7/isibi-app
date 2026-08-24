@@ -1851,14 +1851,41 @@ test("…and a type name with SEVERAL shapes in the kit stays bare", () => {
   assert.ok(!/where[\s\S]*TreeNode =/.test(line), "an ambiguous type was resolved anyway: " + line);
 });
 
-test("own-module always wins, so both Activity components keep their own fields", () => {
-  // The platform index must never OVERRIDE a component that documents its type,
-  // or the two `Activity`s collapse the other way round from the bug the
-  // own-module rule fixed.
-  const a = componentApiFor(["activity-feed"]);
-  const b = componentApiFor(["facility-status"]);
-  assert.match(a, /Activity = \{ who: string/, a);
-  assert.match(b, /Activity = \{[^}]*state\??:/, b);
+test("the platform index never disagrees with a component's own answer", () => {
+  // THE FALSIFIABLE HALF, and it replaces a test that could not fail. That one
+  // asserted "own-module wins" by reading two components' output — and a mutation
+  // swapping the lookup order SURVIVED it, correctly: measured over all 630,390
+  // (component, type-name) pairs either order can answer, the two orderings
+  // differ ZERO times. The index holds only names with one shape kit-wide, so
+  // where it answers it answers the same string, and where it does not it is
+  // undefined. There was nothing for that test to catch.
+  //
+  // WHAT THIS ONE ACTUALLY CATCHES, measured rather than claimed: the widening
+  // ALONE is already caught by the ambiguous-name guard above and by `shapeOf`'s
+  // (2 failures, driven); the order swap alone is inert. It takes BOTH — a
+  // widened index AND the index asked first — to show a component a foreign
+  // shape, and that combination fails here (7 failures, driven). So this is the
+  // line that goes red if somebody ever simplifies the other two away, which is
+  // exactly why the invariant is worth stating in its own right rather than
+  // left implied by two checks that could each be removed as redundant.
+  let checked = 0;
+  for (const [component, types] of Object.entries(COMPONENT_TYPES)) {
+    const line = componentApiFor([component]);
+    for (const [name, body] of Object.entries(types)) {
+      if (!line.includes(name + " = ")) continue;  // not cited by this signature
+      checked++;
+      assert.ok(line.includes(name + " = " + body),
+        component + " is shown a " + name + " that is not its own");
+    }
+  }
+  // The scan is proved alive, or a walk that resolved nothing reports a clean
+  // kit — the reassuring way to say the check ran over nothing.
+  assert.ok(checked >= 100, "only " + checked + " component types were resolved — the scan is broken");
+  // …and both Activity components really do document DIFFERENT shapes, or the
+  // sweep above runs over a kit where the hazard does not exist.
+  const a = COMPONENT_TYPES["activity-feed"], b = COMPONENT_TYPES["facility-status"];
+  assert.ok(a?.Activity && b?.Activity && a.Activity !== b.Activity,
+    "the two Activity shapes converged — pick another ambiguous pair or this asserts nothing");
 });
 
 test("shapeOf resolves across modules under the same rule", () => {

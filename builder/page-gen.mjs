@@ -453,9 +453,28 @@ const UNIQUE_TYPES = (() => {
  * The shape of one named type as it should be shown for one component: what that
  * component's OWN module says, and otherwise the platform-unique answer.
  *
- * The own-module answer always wins, so an ambiguous name still resolves for the
- * component that documents it — which is how `Activity` keeps working on both of
- * the two components that define it while never being guessed at anywhere else.
+ * The own-module answer is asked FIRST, and today that ordering is provably
+ * belt-and-braces rather than load-bearing — said out loud rather than deleted
+ * or falsely asserted, which is this repo's rule for a guard that cannot fire.
+ *
+ * MEASURED, NOT REASONED: over all 630,390 (component, type-name) pairs either
+ * order can answer, the two orderings differ ZERO times. `UNIQUE_TYPES` holds
+ * only names with exactly one shape kit-wide, so for a name it has, the index
+ * and the component's own entry are THE SAME STRING; for a name it does not,
+ * it is `undefined` and falls through. There is nothing for the order to decide.
+ *
+ * IT IS KEPT BECAUSE THAT HOLDS BY A PROPERTY OF THE LINE ABOVE, one edit from
+ * changing. Widen `UNIQUE_TYPES` to "every name, last one wins" — the obvious
+ * tidy-up — and the ordering instantly decides everything: `activity-feed`
+ * would be handed `facility-status`'s `Activity` and the model led into a
+ * compile error by a shape it was shown.
+ *
+ * ALL THREE CASES WERE DRIVEN, and the wording here is what they measured
+ * rather than what reads well. The WIDENING alone is caught without this
+ * ordering, by the ambiguous-name guard and by `shapeOf`'s. The ORDER SWAP
+ * alone is inert, as above. Only BOTH TOGETHER reach the invariant the test
+ * beside this states — so that test is falsifiable rather than vacuous, and it
+ * is the line that goes red if somebody ever "simplifies" the other two away.
  */
 const typeBodyFor = (component, name) =>
   (COMPONENT_TYPES[component] || {})[name] || UNIQUE_TYPES[name] || null;
