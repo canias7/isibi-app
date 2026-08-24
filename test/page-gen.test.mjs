@@ -953,10 +953,22 @@ test("no prompt text names the retired brand", () => {
   //
   // WORD-BOUNDED, because a substring scan is worthless here: `visibility-toggle`
   // is a real kit component and contains the old name (v-ISIBI-lity). A bare
-  // /isibi/i over PAGE_RULES matches it and reports a clean file as dirty.
+  // /isibi/i matches it and reports a clean prompt as dirty.
+  //
+  // THE TRAP IS A FACT ABOUT THE KIT, NOT ABOUT `PAGE_RULES`, and this asserted
+  // the wrong one until 2026-08-24. It read `PAGE_RULES.includes("visibility-toggle")`
+  // — true only because rule 3 printed all 2,112 names — so removing that list
+  // (owner's call: only the designer gets the whole kit) turned a correct change
+  // red about a pattern that had not moved. The component is still there and the
+  // trap is still real; what changed is where it can be observed.
   const OLD_BRAND = /\bisibi\b/i;
-  assert.ok(/visibility-toggle/.test(PAGE_RULES),
-    "the substring trap this pattern is anchored against is gone — re-check the anchoring");
+  const TRAP = UI_COMPONENTS.find((c) => /isibi/i.test(c));
+  assert.ok(TRAP, "the substring trap this pattern is anchored against is gone — re-check the anchoring");
+  // …AND THE ANCHORING REALLY DISCRIMINATES. Asserting the trap exists says
+  // nothing about whether the pattern survives it: a mutation back to a bare
+  // substring scan passes the line above perfectly. Both halves, on the real name.
+  assert.ok(/isibi/i.test(TRAP), "the trap does not contain the old brand — it cannot be one");
+  assert.ok(!OLD_BRAND.test(TRAP), "the word boundary is gone — `" + TRAP + "` now reads as the retired brand");
   const digest = schemaDigest({
     tables: ["display", "collect", "user", "feed", "admin"]
       .map((access, i) => ({ name: "t" + i, access, columns: [{ name: "x" }] })),

@@ -1868,9 +1868,14 @@ or an access level — anything not in the schema below does not exist.
      dashboard. Build the reading UI and no write UI at all.
 
 3. THE KIT FOR EVERY CONTROL, imported from "@/components/ui/<name>". Never hand-roll a
-   button, input, select, checkbox or dialog. These are every name under that path,
-   and nothing else exists there:
-   ${UI_COMPONENTS.join(", ")}.
+   button, input, select, checkbox or dialog.
+
+   WHAT YOU MAY IMPORT IS NAMED FOR YOU, in two places and nowhere else: the
+   components with signatures below, which every site gets, and the block LATER IN
+   THIS MESSAGE listing the ones chosen for THIS site. There are ${UI_COMPONENTS.length.toLocaleString("en-GB")}
+   modules under that path and the step that designed this site has already picked
+   from them for you — so a name in neither place is one you would be guessing at,
+   and a module that does not exist is a compile error that costs the page.
 
    THE EXPORT NAME IS THE FILE NAME IN PascalCase, EXACTLY — no embellishment.
    \`@/components/ui/faq\` exports \`Faq\`, not \`FaqAccordion\`; \`open-now\` exports
@@ -1885,18 +1890,18 @@ or an access level — anything not in the schema below does not exist.
    and the whole site falls back to its data model. Where a type is a NAME
    (\`Row[]\`, \`Activity[]\`), hand it the rows a hook gave you and do not invent
    fields on it.
-   **Props are stated in two places and they are the whole set you can rely on: the
-   handful below, which every site gets, and a block LATER IN THIS MESSAGE listing the
-   ones chosen for THIS site. Everything else in the list above is real and you may
-   render it — but you would be calling it blind, so keep such a call to \`children\`
-   and \`className\`, which every component in the kit accepts.**
+   **The two places named at the top of this rule are the whole set: the handful
+   below, which every site gets, and the block LATER IN THIS MESSAGE chosen for THIS
+   site. Both give you full props. If you do reach past them for something you are
+   sure of, keep the call to \`children\` and \`className\` — every component in the kit
+   accepts those — because anything else would be a prop you have not been shown.**
 ${componentApiFor(ALWAYS_API_CORE)}
 
    There is no "toast" or "use-toast" component — toasts come from \`import { toast } from "sonner"\`.
    The kit does not stop here: ${CHART_NAME_COUNT} chart components live under
-   "@/components/charts/lib/<domain>" and are listed in full below. They are part of the
-   same kit, reached by a different path — so "nothing else exists" above is about that
-   path, not about what you may render.
+   "@/components/charts/lib/<domain>" and ARE listed in full below, by name. They are
+   part of the same kit reached by a different path, and the designer's manifest does
+   not cover them — which is why that list is printed and this one is not.
 
 4. FORMS ARE react-hook-form + zod, through shadcn's \`Form\`/\`FormField\`/\`FormControl\`.
    Those components speak to react-hook-form and to nothing else.
@@ -2124,7 +2129,7 @@ ${MOTION_CATALOGUE}
 ## Charts — the other half of the kit
 
 ${CHART_NAME_COUNT} components across ${CHART_DOMAIN_COUNT} modules under "@/components/charts/lib/". Use them
-exactly as you use the ${UI_COMPONENTS.length} above: import, pass props, done. Every one is
+exactly as you use the kit components above: import, pass props, done. Every one is
 prop-driven — hand it \`useRows(...)\` data, never a copied array — and monochrome by rule,
 so fill, weight, hatching and a written label carry the reading, never colour alone.
 

@@ -19,7 +19,7 @@ import os from "node:os";
 import { budgetFor } from "../builder/site-images.mjs";
 import { mergeLook, movedFields, hasValue, EDIT_RULE, currentStateNote, EDIT_FIELDS } from "../builder/site-edit.mjs";
 import { briefWithLayout } from "../builder/page-gen.mjs";
-import { UI_COMPONENTS, ALWAYS_API_CORE, PAGE_RULES, schemaDigest, lintPages } from "../builder/page-gen.mjs";
+import { UI_COMPONENTS, ALWAYS_API_CORE, PAGE_RULES, CHART_CATALOGUE, schemaDigest, lintPages } from "../builder/page-gen.mjs";
 import { PLAN_FIELDS, PLAN_KEYS, planFieldFor, PLAN_REQUIRED, KIT_PALETTE, COMPONENT_MENU, directiveFromPlan } from "../builder/site-plan.mjs";
 import { normalizeSeeds } from "../builder/site-seeds.mjs";
 
@@ -401,34 +401,60 @@ test("the LINT knows all 2,112, so a real import is never refused", () => {
     "the designer's menu and the lint's allow-list have come apart — a nameable component the lint refuses");
 });
 
-test("rule 3's absolute is SCOPED to the path, and names the whole kit under it", () => {
-  // Rule 3 once said "these exist and nothing else does" about a 292-name
-  // shortlist, ten rules above the one naming 882 chart components. A false
-  // absolute in a prompt is how a whole tier goes unused.
+test("THE PAGE PROMPT DOES NOT NAME THE KIT — the designer already picked", () => {
+  // ── INVERTED 2026-08-24 (owner's call: "only call the whole kit in designer") ──
   //
-  // The sentence is now TRUE — it lists every module under that path — which is
-  // what the per-site change bought: the model can never be wrong about what
-  // exists. The scoping still has to survive, because the charts live elsewhere
-  // and an unscoped "nothing else exists" would deny them all over again.
+  // This asserted the OPPOSITE: that rule 3 printed every one of the 2,112 module
+  // names and closed on "nothing else exists there". That was right while the
+  // sentence was the only thing standing between the model and an invented
+  // import — and it was the SECOND copy of a list the designer had already been
+  // shown and already chosen from, at 30,991 characters, 43% of the cached block
+  // and 0.54 credits on every warm build.
+  //
+  // KEPT AS AN ABSENCE RATHER THAN DELETED, on the standing precedent: a list
+  // quietly restored here costs that on every build for ever and nothing goes
+  // red. Two names, not one — the first is inside the frozen head of the menu
+  // and the second in its alphabetical tail, so a mutant restoring either half
+  // of `COMPONENT_MENU` is caught.
+  for (const n of ["waiting-list-place", "vehicle-lookup"]) {
+    assert.ok(UI_COMPONENTS.includes(n), "`" + n + "` left the kit — pick another probe");
+    assert.ok(!PAGE_RULES.includes(n),
+      "the page prompt names the kit again — the designer's manifest already decided this");
+  }
+  // …AND THE MODEL IS STILL TOLD WHAT IT MAY IMPORT, or the deletion is not a
+  // saving, it is the model importing blind. The replacement is POSITIVE where
+  // the old sentence was negative: here are the two places, rather than here is
+  // everything that exists.
   const i = PAGE_RULES.indexOf("THE KIT FOR EVERY CONTROL");
-  const rule = PAGE_RULES.slice(i, i + 400);
-  assert.match(rule, /nothing else exists there/, "rule 3 no longer tells the model what the kit is");
-  assert.match(rule, /under that path/, "rule 3's absolute is unscoped again — it now denies the charts too");
+  assert.ok(i > 0, "rule 3 moved and this guard is reading nothing");
+  const rule = PAGE_RULES.slice(i, PAGE_RULES.indexOf("4. FORMS ARE"));
+  assert.ok(rule.length > 1000, "rule 3 collapsed — this guard is reading a fragment");
+  assert.match(rule, /in two places and nowhere else/,
+    "rule 3 no longer tells the model where the names it may import come from");
+  assert.match(rule, /LATER IN\s+THIS MESSAGE/,
+    "rule 3 never points at this site's own manifest, so the per-site block is unreachable prose");
 
-  // …AND THE LIST REALLY IS THE WHOLE KIT, not a subset wearing an absolute —
-  // which is the half that decides whether the sentence above is true.
+  // THE CHARTS ARE THE ONE LIST THAT MUST STAY, and the reason is structural
+  // rather than a size judgement: `COMPONENT_MENU` is `@/components/ui/` names
+  // ONLY, so the designer's manifest can never name a chart. Delete this list
+  // too and the whole 865-component tier becomes unreachable — which is exactly
+  // the failure the sentence this test used to guard was written after.
   //
-  // FOUND BY MUTATION. This sampled `UI_COMPONENTS[0]` and the last entry, and
-  // BOTH of them happen to be in the 279-name palette — so swapping rule 3's
-  // list for the palette, leaving 1,833 real modules described as nonexistent,
-  // passed it perfectly. A two-element sample that lands inside what the mutant
-  // still prints discriminates nothing.
-  //
-  // Every name, and the assertion NAMES the missing ones rather than counting
-  // them: "1,833 are absent" sends the reader looking, the list says where.
-  const missing = UI_COMPONENTS.filter((c) => !PAGE_RULES.includes(c));
-  assert.deepEqual(missing.slice(0, 8), [],
-    `${missing.length} kit modules exist and the prompt never names them, e.g. ${missing.slice(0, 8).join(", ")}`);
+  // PROBED ON EXPORT NAMES, NOT DOMAIN NAMES, AND THAT COST A SWEEP. The first
+  // draft probed `salon`, `restaurant`, `bullet` — and deleting the whole
+  // catalogue SURVIVED, because rule 12's own prose says "a barber shop's page
+  // reaches for `salon`, a cafe's for `restaurant`" and an `import { Bullet }`
+  // example spells `bullet`. Prose describing a list contains that list's words:
+  // this repo's most repeated own-goal, walked into inside the guard written for
+  // this very deletion. An EXPORT name appears in the catalogue and nowhere else.
+  const CHART_PROBES = ["MortalityTable", "PrintTimeStack", "FlightEnvelope"];
+  assert.equal(COMPONENT_MENU.filter((n) => CHART_PROBES.includes(n)).length, 0,
+    "the designer's menu now covers charts — this guard's premise has changed");
+  for (const n of CHART_PROBES) {
+    assert.ok(CHART_CATALOGUE.includes(n), "`" + n + "` left the chart kit — pick another probe");
+    assert.ok(PAGE_RULES.includes(n),
+      "the chart list left the page prompt and the designer cannot name one either — the tier is unreachable");
+  }
 });
 
 /* ------------------------------------------------------------ photographs */

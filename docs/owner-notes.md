@@ -12,6 +12,43 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ## OPEN — waiting to be picked up
 
+**THE KIT IS ONLY LISTED IN THE DESIGNER NOW (2026-08-24).**
+
+You spotted that we were sending the same list of 2,112 component names **twice
+in one build** — once to the designer, which needs it to choose, and again to
+the step that writes the pages, **after the designer had already chosen.** You
+were right, and the second copy is gone.
+
+**What it was costing, measured rather than guessed.** 30,991 characters —
+**43% of the page-writing prompt**, 0.54 credits on every warm build. That is
+more than the whole component-cap change you asked for an hour earlier.
+
+**What replaced it, and why it is the better sentence anyway.** The old rule
+said *"these are every name, and nothing else exists"* — which only works if you
+print all of them. It now says: **what you may import is named for you in two
+places** — the components everyone gets, and the ones the designer picked for
+this site — **and the step that designed this site has already chosen from the
+2,112.** A rule that points at a shortlist needs no inventory.
+
+**The rule was arguing with itself, too.** Right after the list it said
+everything on it *"is real and you may render it — but you would be calling it
+blind."* So we handed over 2,112 names and then told the model not to use most
+of them.
+
+**One list I deliberately did NOT delete: the charts.** The designer's menu is
+kit components only, so it **cannot name a chart** — take that list out too and
+all 865 chart components become unreachable. I put a check in place so that if
+the designer's menu ever does cover charts, it says so.
+
+**The safety net is unchanged.** If the model ever imports something that does
+not exist, the lint catches it and the compiler catches it again. What we gave
+up is catching it in the instructions, which is cheaper — and that is the one
+thing worth a test run when the account is funded.
+
+**Not tried live.** The Anthropic account is empty.
+
+---
+
 **THE COMPONENT LIST IS A CAP NOW, NOT A RANGE — 24 UP TO 50 (2026-08-24).**
 
 You asked for 50 instead of 10-24, with the model choosing how many it needs.
