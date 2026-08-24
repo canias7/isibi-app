@@ -141,7 +141,7 @@ test("with no repair dep NOTHING extra happens — one compile, no repair", asyn
   assert.equal(typeof deps.repair, "undefined");
   assert.equal(calls.compile.length, 1, "a build with no repair dep compiles exactly once");
   assert.equal(out.page, "app");
-  assert.equal(out.repaired, undefined, "and reports nothing about a pass that did not run");
+  assert.equal(out.renderRepaired, undefined, "and reports nothing about a pass that did not run");
 });
 
 test("A CRASHED ROUTE IS REPAIRED, RECOMPILED, AND THE FIXED SOURCE IS WHAT PUBLISHES", async () => {
@@ -153,7 +153,7 @@ test("A CRASHED ROUTE IS REPAIRED, RECOMPILED, AND THE FIXED SOURCE IS WHAT PUBL
   const out = await publishPages(deps, { spec: SPEC, slug: "s" });
   assert.equal(calls.repair.length, 1, "the model was asked to fix the page");
   assert.equal(calls.compile.length, 2, "…and the result was compiled before it could publish");
-  assert.deepEqual(out.repaired, ["/"]);
+  assert.deepEqual(out.renderRepaired, ["/"]);
   // THE WIRING, which is the whole point of asserting here rather than in the
   // module's own file: the fixed source has to reach BOTH the published build
   // and the STORED source a later revise is handed.
@@ -172,8 +172,8 @@ test("A FAILED RECOMPILE KEEPS THE ORIGINAL BUILD — never worse than not tryin
   const out = await publishPages(deps, { spec: SPEC, slug: "s" });
   assert.equal(out.page, "app", "the site still publishes");
   assert.equal(calls.publish[0]["index.html"].t, "<original>", "with the build that already worked");
-  assert.equal(out.repaired, undefined);
-  assert.equal(out.repairFailed, "typecheck", "and says the repair was tried and did not hold");
+  assert.equal(out.renderRepaired, undefined);
+  assert.equal(out.renderRepairFailed, "typecheck", "and says the repair was tried and did not hold");
   assert.notEqual(calls.stored[0].find((p) => p.path === "index.tsx").source, FIXED, "the broken repair is NOT stored");
 });
 
@@ -241,6 +241,42 @@ function Page() { return <Hero title="x" />; }`,
   // fixing and one that is fine.
   assert.deepEqual(out.repaired,
     [{ path: "index.tsx", module: "hero-split", from: "Hero", to: "HeroSplit" }]);
+});
+
+test("TWO REPAIRS, TWO FIELDS — the import fix and the browser fix cannot collide", () => {
+  // FOUND BY READING, NOT BY A TEST, and the fixture is why: `repairImports`
+  // writes `out.repaired` ~190 lines above the browser repair, which wrote the
+  // same key. Only a build where BOTH fired would have shown it — so a real
+  // import fix would have vanished from the response on exactly the run that
+  // had two things wrong with it, and one field would carry module names on
+  // some builds and routes on others. The `cost`-means-two-things bug, one
+  // field over. The repair harness's pages have no bad imports, so no test here
+  // could ever have collided.
+  //
+  // ASSERTED OVER THE SOURCE because the collision is between two WRITES that
+  // no single run performs together. Comments blanked first: the note at the
+  // browser write argues this at length and therefore spells `out.repaired`.
+  const src = fs.readFileSync(new URL("../builder/publish-pages.mjs", import.meta.url), "utf8");
+  const code = src
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+    .replace(/\/\/[^\n]*/g, (m) => " ".repeat(m.length));
+  assert.equal(code.length, src.length, "the blanker moved a byte");
+
+  const written = [...code.matchAll(/\bout\.([A-Za-z]+)\s*=/g)].map((m) => m[1]);
+  assert.ok(written.length > 20, "the scan found almost nothing — it would report a clean file");
+  const dupes = written.filter((k, i) => written.indexOf(k) !== i);
+  // `notes` and `stage` are legitimately written on several mutually exclusive
+  // failure branches, so the check is that no field is written by BOTH repairs.
+  const repairFields = new Set(["repaired", "renderRepaired", "renderRepairFailed",
+    "renderRepairRefused", "renderRepairDropped"]);
+  for (const k of dupes) {
+    assert.ok(!repairFields.has(k),
+      `two repairs write out.${k} — one silently overwrites the other on a build where both fire`);
+  }
+  // AND BOTH ARE STILL THERE, or the check above passes on a file where one of
+  // them stopped reporting at all.
+  assert.ok(written.includes("repaired"), "repairImports no longer reports what it fixed");
+  assert.ok(written.includes("renderRepaired"), "the browser repair no longer reports what it fixed");
 });
 
 test("a build whose imports were all correct reports no repairs at all", async () => {

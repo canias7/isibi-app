@@ -1217,16 +1217,34 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages } =
         // back the broken file and invites it to keep the broken line — the
         // exact reasoning the salvage stub is stored under, one rung along.
         pages = rep.pages;
-        out.repaired = rep.repaired.map((x) => x.route || x.path);
+        // ── `renderRepaired`, NOT `repaired` ──────────────────────────────
+        //
+        // `out.repaired` IS ALREADY TAKEN, ~190 lines up, by `repairImports` —
+        // the deterministic export-name rewrite — and its own note says why it
+        // matters: *"a clean build must report NO repairs at all; `repaired: []`
+        // on every build reads in the response and in the eval as a generator
+        // that keeps getting names wrong."*
+        //
+        // WRITTEN HERE IT WOULD HAVE OVERWRITTEN THAT, silently, and only on the
+        // builds where BOTH fired — so a real import fix would vanish from the
+        // response on exactly the run that had two things wrong with it, and one
+        // field would carry module names on some builds and routes on others.
+        // The `cost`-means-two-things bug, one field over. Caught by reading the
+        // function rather than by any test: the repair harness's fixture pages
+        // have no bad imports, so nothing here could ever have collided.
+        //
+        // The whole family is prefixed, not just this one, or the next person to
+        // add a field to either feature re-collides.
+        out.renderRepaired = rep.repaired.map((x) => x.route || x.path);
       } else {
         // The repair made it worse. Say so — "the repair was attempted and the
         // result would not compile" and "no repair was attempted" are different
         // facts, and only one of them is a bug in this rung.
-        out.repairFailed = String(second.stage || "build");
+        out.renderRepairFailed = String(second.stage || "build");
       }
     }
-    if (rep.refused.length) out.repairRefused = rep.refused;
-    if (rep.dropped) out.repairDropped = rep.dropped;
+    if (rep.refused.length) out.renderRepairRefused = rep.refused;
+    if (rep.dropped) out.renderRepairDropped = rep.dropped;
   }
 
   // THERE IS NO SECOND GENERATION, and the distinction from the block above is
