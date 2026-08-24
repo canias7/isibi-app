@@ -204,6 +204,46 @@ jobs:
           # site, which is what it does for a customer, and the recovery above
           # is what makes that survive a dead socket. Set OWNER_SLUG explicitly
           # only when a run needs a name it controls.
+          # ── ARM D: THE THREE DELETIONS OF 2026-08-24 (owner's call) ─────────
+          #
+          # "OK NOW TEST BUILD, USE GROK, LOG EVERY STEP AND GIMME URL WHEN
+          # DONE." Same brief, same picker, fourth arm — and the variable is
+          # the whole of today, which is three cuts landed in three commits:
+          #
+          #   8ab0b04  the look is the stylesheet. Six merged look fields the
+          #            tool can no longer answer are gone; `css` is the only
+          #            one left. worker.js 1,162,152 -> 1,143,050 chars.
+          #   c6270ca  the component manifest is a CAP, not a range. 24 -> 50,
+          #            and the floor of 10 went with it, so a site that needs
+          #            eight components sends eight.
+          #   0e5c4d3  the kit is named in the DESIGNER and nowhere else. The
+          #            same 2,112 module names were printed twice per build —
+          #            once in `design_schema.components`, where the choice is
+          #            made, and again in PAGE_RULES rule 3, AFTER the designer
+          #            had already narrowed. PAGE_RULES 72,736 -> 42,201.
+          #
+          # THE THIRD ONE IS WHY THIS RUN IS WORTH SPENDING, AND IT AIMS AT
+          # EXACTLY WHERE ARM C DIED. Arm C's design call worked in 76.4s and
+          # then the PAGES call never returned — 35+ minutes at the `gen` mark,
+          # no site. That call's prompt is the thing that just halved. So this
+          # is one variable pointed straight at the failure: same brief, same
+          # picker, ~30,500 fewer characters in front of the model that hung.
+          #
+          # WHAT TO READ OFF IT, in order of what it settles:
+          #   1. Did the pages call RETURN at all. Arm C's did not, twice
+          #      (run 9 was the same shape). A published site answers it.
+          #   2. `img` in the trace against the 502,972ms (8m23s) of the last
+          #      Grok build that finished. The queue consumer is guaranteed
+          #      FIFTEEN minutes and that build took 12m28s, so the margin is
+          #      the number to watch, not the total.
+          #   3. Whether the model still avoids inventing an import with no kit
+          #      list in front of it. `problems` and a `page=placeholder` are
+          #      what say no; this is the one thing `page gen eval` would
+          #      answer more cheaply and the Anthropic account cannot run it.
+          #   4. How many components the manifest names now the floor is gone.
+          #   5. The stylesheet, again: `css` is now the ONLY look field there
+          #      is, where arm C still had the tool one commit fresher.
+          #
           # THE PICKER IS GROK, AND IT IS A CONSTANT OF THIS EXPERIMENT.
           #
           # Both arms compare a STYLESHEET. Every other variable has to be held,
