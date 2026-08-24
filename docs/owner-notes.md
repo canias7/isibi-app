@@ -12,6 +12,29 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ## OPEN — waiting to be picked up
 
+**EVERY SCHEDULED JOB ON THE PLATFORM HAS NEVER SENT ANYTHING (2026-08-24).**
+Found while doing something else, and measured against the live records rather
+than guessed: **26 jobs, all switched on, zero sends, ever.**
+
+A scheduled job is the thing that emails a customer their booking reminder, or
+texts them the morning of their appointment. The runner has been waking up every
+two minutes and doing nothing, because of one wrong line repeated in three
+places — it hands the job's database lookup the wrong kind of value, so the
+lookup fails before it can read anything.
+
+**The record says two things and both are wrong about the cause.** Twelve jobs
+say *"Ready to send, but this job is no longer part of the site"* and ten say
+*"the site's database is unreachable."* Neither is true; the jobs are declared
+and the databases are fine.
+
+**I have not fixed it, deliberately.** The fix is small, and switching it on
+starts 26 real email and text senders on real customers' sites, some of which
+have been sitting there for a while. That is your call, not something to do as a
+side effect of the work I was actually doing. Say the word and it is a
+ten-minute change.
+
+---
+
 **THE CRM BUILD DID NOT PUBLISH (2026-08-24, run 33).** You asked for a CRM.
 The designer read the brief, designed a four-table data model, provisioned the
 database and named the site `helm` — all correct, all in about four and a half
@@ -41,6 +64,42 @@ ceiling was never reached.
 
 **`helm` is left standing** (you said you would delete them yourself): the name
 is claimed, the database is live, and there is no site at that address.
+
+---
+
+**THE SITE'S LOOK MOVED TO WHERE THE SITE LIVES (2026-08-24, your call).**
+*"Question, but that stuff should be stored in the hosting provider right?"* —
+yes, and it was in the wrong place. A site's colours, its stylesheet, its logo,
+its tab icon, its translations and its Google verification tag were all sitting
+inside the site's DATABASE, next to the bookings and the orders. **None of them
+is data.** They describe the site's files, and the files are in the bucket.
+
+**Nothing looks different and nothing needs doing.** This is groundwork. Sites
+you already have carry on exactly as they are: the first time each one is
+touched it reads its look from the old place, copies itself to the new one, and
+never looks back.
+
+**Why it had to come first.** You said sites should not get a database on the
+first build. Without this move, a site with no database has nowhere to put its
+own design — so the publish step would have nothing to write to and eight of the
+edit paths would simply refuse. Now they do not need one. The next three steps
+(a smaller design step, a generator that writes no data wiring, and skipping the
+database entirely on a first build) all sit on top of this.
+
+**One correction to the picture you sent.** The three-way split — Cloudflare
+assets for compiled files, R2 for uploads, Neon for data — is right in spirit
+and wrong in one place: **we do not use Cloudflare's asset hosting at all.**
+Every published site is its own little program, and every byte it serves comes
+out of the R2 bucket. So it is really two tiers: R2 holds everything that is not
+rows, Neon holds rows. Which is exactly why you were right about the look.
+
+**And I found a real bug on the way.** On a revise through the main build route,
+the designer was never being told what the site currently looks like — the
+lookup that fetches it had been handing the wrong kind of value to the database
+for as long as it has existed, failing silently every time. So a revise was
+designing more from scratch than it should have been. Fixed. (The same mistake,
+in three other places, is what has killed every scheduled job — see the open
+item at the top.)
 
 ---
 

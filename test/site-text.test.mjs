@@ -255,7 +255,15 @@ test("the site's own look is carried through the recompile", () => {
   // left the query and the guard went red about a spine that reads the look
   // perfectly well. What has to hold is that the spine reads BOTH halves of what
   // a site now wears: the look object and the stylesheet.
-  assert.match(block, /'site_look','site_css'/, "it must read the stored look and the stylesheet");
+  //
+  // AND IT IS ONE READ SINCE THE MOVE TO R2, which is a stronger claim: the six
+  // config fields are one object and `loadConfig` answers with all of them or
+  // refuses, so the spine cannot get the look without the sheet. The binding is
+  // what is asserted, because loading a config and not destructuring it is the
+  // select-and-drop shape this repo has lost a feature to before.
+  assert.match(block, /readSiteConfig\(env, slug, db\)/, "the spine never reads the stored config");
+  assert.match(block, /\(\{ look, css, logo, icon, verify, langStrings \} = cfg\.config\)/,
+    "it must bind the stored look and the stylesheet out of the config it just read");
   // READ, NOT PASSED IN. A recompile handed a look can be handed the WRONG one,
   // and the failure is silent — the site comes back re-themed by a caller that
   // meant nothing by it.

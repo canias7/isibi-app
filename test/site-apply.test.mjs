@@ -600,7 +600,7 @@ test("a LAYOUT change is escalated, never silently stored", () => {
   // stored look disagreeing with the pages it describes.
   const b = editBlock();
   const needs = b.indexOf("const needsPages");
-  const write = b.indexOf("INSERT INTO _meta (k,v) VALUES ('site_look'");
+  const write = b.indexOf("patchSiteConfig(env, ownerSlug, edb,");
   assert.ok(needs > 0 && write > 0, "the guard or the write is gone — this assertion cannot hold vacuously");
   assert.ok(needs < write, "the needs-pages check must run BEFORE the look is stored");
   assert.match(b, /needsPages\.length\) return escalate\("needs-pages"/);
@@ -1608,49 +1608,46 @@ test("A FAILED LOOK COMPILE PUTS THE STORED LOOK BACK", () => {
   const at = b.indexOf('error: "compile"', from);
   assert.ok(at > from, "the look lane has no compile-failure branch");
   const before = b.slice(from, at);
-  assert.match(before, /INSERT INTO _meta \(k,v\) VALUES \('site_look', \?\)[^;]*\[JSON\.stringify\(priorLook\)\]/,
+  assert.match(before, /patchSiteConfig\(env, ownerSlug, edb,\s*\n\s*cssMoved \? \{ look: priorLook, css: priorCss \} : \{ look: priorLook \}\)/,
     "a failed look compile no longer restores the stored look");
-  // AND THE TWO PATCHES WITH IT. They are separate `_meta` keys precisely so a
-  // colour change cannot lose a logo, which means a rollback that puts only the
-  // look back leaves the colours and the axes moved.
-  // ASSERTED AS A PROPERTY, NOT A SPELLING. This pinned the exact two-entry
-  // list and went red the moment a THIRD patch key was rolled back with them —
-  // a test about word order, which is this repo's most repeated own-goal. What
-  // has to hold is that every `_meta` key the look lane WRITES is also one it
-  // puts back, derived from the lane itself so a fourth is covered without
-  // anybody remembering this file.
+  // AND EVERY FIELD IT MOVED WITH IT. They are separate config fields precisely
+  // so a colour change cannot lose a logo, which means a rollback that puts only
+  // the look back leaves the stylesheet moved.
   //
-  // AND THE ROLLBACK REGION IS THE WHOLE RESTORE, not one `for` loop inside it.
-  // Pinned to that loop this went red on a correct change the moment a key was
-  // restored by a statement of its own — `site_css`, which is a plain STRING and
-  // must not go through a list whose every other member is `JSON.stringify`d (a
-  // stringified stylesheet is a quoted, escaped copy that the reader hands the
-  // container verbatim: a site whose every rule is inside one string literal).
-  // The property is "put back somewhere in the restore", and asserting the shape
-  // of the restore is the word-order own-goal one layer in.
-  const written = [...b.slice(from).matchAll(/INSERT INTO _meta \(k,v\) VALUES \('([a-z_]+)'/g)]
-    .map((m) => m[1]).filter((k) => k !== "site_look");
-  // A FLOOR OF ONE, AND IT WAS TWO. `site_tokens`, `site_page_tokens`,
+  // ASSERTED AS A PROPERTY, NOT A SPELLING. This pinned the exact key list and
+  // went red the moment a THIRD one was rolled back with them — a test about
+  // word order, which is this repo's most repeated own-goal. What has to hold is
+  // that every field the look lane WRITES is also one it puts back, derived from
+  // the lane itself so a fourth is covered without anybody remembering this file.
+  //
+  // DERIVED OFF `patchSiteConfig` SINCE THE MOVE TO R2. The lane's writes were
+  // one `INSERT` per key and are now one call per outcome, so the scan reads the
+  // PATCH OBJECTS: whatever the write names, the restore has to name too.
+  const patches = [...b.slice(from).matchAll(/patchSiteConfig\(env, ownerSlug, edb,\s*\n?\s*([^)]*)\)/g)].map((m) => m[1]);
+  assert.ok(patches.length >= 2, "the look lane's writes are no longer visible to this scan — expected a write and a restore");
+  const written = new Set();
+  for (const p of patches) for (const m of p.matchAll(/\b(look|css|logo|icon|verify|langStrings):/g)) written.add(m[1]);
+  // A FLOOR OF TWO, AND IT WAS FOUR KEYS. `site_tokens`, `site_page_tokens`,
   // `site_page_fonts` and `site_style` were written by this lane until
-  // 2026-08-24; the look is the stylesheet now, so `site_css` is the only patch
-  // key left. The floor stays because a scan that stops matching reports a lane
-  // with nothing to roll back and passes vacuously.
-  assert.ok(written.length >= 1, "the look lane's writes are no longer visible to this scan");
+  // 2026-08-24; the look is the stylesheet now, so the look and the sheet are
+  // all that is left. The floor stays because a scan that stops matching reports
+  // a lane with nothing to roll back and passes vacuously.
+  assert.ok(written.size >= 2, "only " + written.size + " look-lane fields found — the scan stopped matching");
   const rollFrom = before.indexOf("restored = true");
   assert.ok(rollFrom > 0, "the look lane's rollback moved — rescope this");
   const rolled = before.slice(rollFrom);
-  for (const k of new Set(written)) {
-    assert.ok(rolled.includes("'" + k + "'") || rolled.includes('"' + k + '"'),
+  for (const k of written) {
+    assert.ok(rolled.includes(k + ":"),
       "the look lane writes `" + k + "` and a failed compile does not put it back");
   }
   // ABSENT MUST NOT READ AS PRESENT, and the MECHANISM changed while the
   // property did not. The four JSON patch keys were DELETED on rollback rather
   // than written as `{}`, or a site that had no tokens gained a row that later
-  // read as "a patch exists". `site_css` needs no delete because an empty sheet
-  // is not a look: `readCss("")` answers unusable, so a rollback that writes
-  // `priorCss` back as `""` leaves a row nothing acts on. Driven through the
-  // real function rather than asserted about the SQL, because that is where the
-  // property now lives.
+  // read as "a patch exists". The stylesheet needs no delete because an empty
+  // sheet is not a look: `readCss("")` answers unusable, so a rollback that puts
+  // `priorCss` back as `""` leaves a value nothing acts on. Driven through the
+  // real function rather than asserted about the store, because that is where
+  // the property now lives.
   assert.equal(readCss("").usable, false, "an empty stored stylesheet reads as a look");
   assert.equal(readCss(null).usable, false, "an absent stored stylesheet reads as a look");
 });

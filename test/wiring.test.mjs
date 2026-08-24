@@ -822,10 +822,21 @@ test("a revise keeps the site's stored look instead of re-rolling it", () => {
   // to fetch `site_tokens` in the same round trip, and a guard anchored on the
   // exact SQL went red on a change that kept every property it was written to
   // protect. Anchoring on the literal a query cannot work without is the
-  // durable form.
-  assert.match(worker, /FROM _meta WHERE k[^\n]*'site_look'/, "nothing reads the stored look");
-  assert.match(worker, /INSERT INTO _meta \(k,v\) VALUES \('site_look'/, "nothing ever writes it");
-  assert.match(worker, /if \(priorBrief\) \{[\s\S]{0,400}site_look/,
+  // durable form — which since 2026-08-24 is the store's own reader and writer,
+  // the look having moved out of the site's database into the bucket the site is
+  // served from.
+  assert.match(worker, /readSiteConfig\(env, slug, db\)/, "nothing reads the stored look");
+  assert.match(worker, /patchSiteConfig\(env, slug, db, \{ look \}\)/, "nothing ever writes it");
+  // BOUNDED BY THE BLOCK'S OWN CLOSE, never by a byte count. This sliced 400
+  // characters and went red on a correct change the moment the comment above the
+  // read grew past it — a test about how much prose sits in between, which is
+  // this repo's most repeated own-goal and has now cost it twice on this one
+  // line. What has to hold is that the read is INSIDE the revise gate.
+  const gate = worker.indexOf("if (priorBrief) {");
+  assert.ok(gate > 0, "the revise gate is gone — this assertion cannot hold vacuously");
+  const gateEnd = worker.indexOf('} catch (e) { console.error("look read failed:', gate);
+  assert.ok(gateEnd > gate, "the revise gate's read no longer has its own catch — rescope this");
+  assert.match(worker.slice(gate, gateEnd), /readSiteConfig\(env, slug, db\)/,
     "the look is read on a FIRST build too, which would pin an empty one");
   // WRITTEN ON EVERY BUILD NOW, and this assertion is the inverse of what it
   // was. `if (!priorLook)` was correct while the look could never change after a
@@ -836,7 +847,7 @@ test("a revise keeps the site's stored look instead of re-rolling it", () => {
   // written is the merged one, which is stored-unless-named.
   assert.ok(!/if \(!priorLook\) \{/.test(worker),
     "the look is written only on a first build again, so an edit to it is forgotten by the next edit");
-  assert.match(worker, /INSERT INTO _meta \(k,v\) VALUES \('site_look'[\s\S]{0,120}JSON\.stringify\(look\)/,
+  assert.match(worker, /const look = merged;[\s\S]{0,900}patchSiteConfig\(env, slug, db, \{ look \}\)/,
     "the merged look is not what gets stored");
 
   // AND THE GUARANTEE ITSELF, driven rather than spelled. "A revise keeps the

@@ -7,6 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { readLogoImage, logoRefusal, runLogoEdit, MAX_LOGO_BYTES } from "../builder/site-logo.mjs";
+import { withConfig } from "../site-config.mjs";
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
 const b64 = (u8) => Buffer.from(u8).toString("base64");
@@ -307,30 +308,52 @@ test("BOTH PUBLISH PATHS CARRY THE STORED LOGO", () => {
   // for the logo, so it is asserted of each of them.
   //
   // ASSERTED OF THE TWO PATHS THAT BUILD A CONTAINER PAYLOAD, and not of every
-  // `_meta` read — which is where two drafts of this went wrong in a way worth
-  // recording. Pinned to the exact key list, it went red the day `site_style`
-  // was added beside the logo: a test about word order failing a feature it has
-  // no opinion about. Widened to "every read naming site_look", it flagged the
-  // router's context read; widened to "every read naming site_tokens", it
-  // flagged the look-edit lane — and BOTH of those are correct code, because
-  // neither builds a payload: they store and then publish through
+  // stored-look read — which is where two drafts of this went wrong in a way
+  // worth recording. Pinned to the exact key list, it went red the day
+  // `site_style` was added beside the logo: a test about word order failing a
+  // feature it has no opinion about. Widened to "every read naming site_look",
+  // it flagged the router's context read; widened to "every read naming
+  // site_tokens", it flagged the look-edit lane — and BOTH of those are correct
+  // code, because neither builds a payload: they store and then publish through
   // `recompileAndPublish`, which does its own read. There is no precise textual
   // discriminator for "this read reaches the container", so the guard is the
   // pair of variables that actually carry it plus the two payloads below.
-  const logoRows = worker.match(/r\.k === "site_logo"/g) || [];
-  assert.equal(logoRows.length, 2, "expected exactly the two payload paths to read the logo row, found " + logoRows.length);
+  //
+  // THE READ-SIDE HALF IS NOW A PROPERTY OF THE STORE. Since 2026-08-24 the six
+  // config fields are one R2 object and `loadConfig` answers with every one of
+  // them or refuses, so a payload path CANNOT read the palette and miss the
+  // logo: there is no key list to leave it out of. What is asserted instead is
+  // that the logo is still one of the six, and that both payloads carry it.
+  assert.match(fs.readFileSync(new URL("../site-config.mjs", import.meta.url), "utf8"),
+    /CONFIG_FIELDS = \[[^\]]*"logo"/,
+    "the logo is no longer part of a site's config, so a publish path can miss it again");
+  // …and that each payload path really binds it, which the read cannot promise:
+  // loading a config and then not destructuring the logo out of it is the
+  // select-and-drop shape this repo has lost a feature to before.
+  assert.match(worker, /\(\{ look, css, logo, icon, verify, langStrings \} = cfg\.config\)/,
+    "the spine loads the config and does not bind the logo out of it");
+  assert.match(worker, /priorLogo = cfg\.config\.logo;/,
+    "the build path loads the config and does not bind the logo out of it");
   assert.match(worker, /\n\s+logo,\n/, "recompileAndPublish does not send it to the container");
   assert.match(worker, /logo: priorLogo,/, "a revise does not carry the stored logo");
   assert.match(worker, /logo: logo \|\| "",/, "the build path does not send one");
 });
 
-test("the logo is its OWN _meta key, never a field on site_look", () => {
+test("the logo is its OWN stored field, never a member of the look", () => {
   // `mergeLook` rebuilds its output from `EDIT_FIELDS` alone, so anything else
   // stored on that object is dropped by the next look edit — a customer
   // changing a colour would silently lose their logo.
   const edit = fs.readFileSync(new URL("../builder/site-edit.mjs", import.meta.url), "utf8");
   assert.ok(!/EDIT_FIELDS = \[[^\]]*logo/.test(edit), "the logo is on EDIT_FIELDS, where a look edit will drop it");
-  assert.match(worker, /VALUES \('site_logo', \?\)/, "nothing writes the logo key");
+  assert.match(worker, /patchSiteConfig\(env, ownerSlug, ldb,\s*\n?\s*icon \? \{ icon: [^}]*\} : \{ logo:/,
+    "nothing writes the logo field");
+  // AND `withConfig`'s ABSENT-MEANS-UNCHANGED IS WHAT KEEPS THE OTHER SLOT.
+  // The lane patches one field per call, so setting the icon must leave the logo
+  // exactly as it was — a whole-object write here is how a site with both loses
+  // one. Driven through the real merge rather than read off the lane.
+  const both = withConfig({ logo: "/u/s/logo.png", icon: "/u/s/icon.png" }, { icon: "/u/s/new.png" });
+  assert.equal(both.logo, "/u/s/logo.png", "setting the icon cleared the logo");
+  assert.equal(both.icon, "/u/s/new.png");
 });
 
 test("THE ROUTE IS REACHABLE AND THE CLIENT SENDS THE PICTURE", () => {
@@ -481,11 +504,22 @@ test("the two slots are two _meta keys, and the icon reaches the container from 
   // over — a customer who sent a favicon and then fixed a typo would have
   // watched it vanish.
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.match(w, /VALUES \('site_icon', \?\)/);
-  assert.match(w, /VALUES \('site_logo', \?\)/);
+  // TWO FIELDS, ONE PER SLOT, and the lane names which. A wordmark is legible at
+  // a few hundred pixels and a smear at 16, so a site can have both and setting
+  // one must not clear the other.
+  assert.match(w, /icon \? \{ icon: String\(patch\.icon \|\| ""\) \} : \{ logo: String\(patch\.logo \|\| ""\) \}/);
+  // AND A FAILED SAVE MUST THROW. `runLogoEdit` catches `deps.save` and answers
+  // "I couldn't save that just now — your site is unchanged", which is the
+  // honest refusal; swallowing the store's `{ok:false}` instead publishes and
+  // tells the customer their logo landed while nothing holds it. Found by
+  // mutation — deleting the throw passed the whole suite.
+  const sv = w.indexOf("save: async (patch) => {");
+  assert.ok(sv > 0, "the logo lane's save dep is gone");
+  assert.match(w.slice(sv, w.indexOf("\n                },", sv)), /if \(!w\.ok\) throw new Error\(w\.error\);/,
+    "the logo lane swallows a failed save, so a lost logo reads as a success");
   // read on the cheap-edit spine AND on the build path
-  assert.match(w, /r\.k === "site_icon" && typeof r\.v === "string"\) icon = r\.v;/);
-  assert.match(w, /r\.k === "site_icon" && typeof r\.v === "string"\) priorIcon = r\.v;/);
+  assert.match(w, /\(\{ look, css, logo, icon, verify, langStrings \} = cfg\.config\)/);
+  assert.match(w, /priorIcon = cfg\.config\.icon;/);
   // and sent on both
   assert.match(w, /\n {10}icon: icon \|\| "",/);
   assert.match(w, /\n {12}icon: priorIcon,/);
@@ -515,14 +549,16 @@ test("the two slots are two _meta keys, and the icon reaches the container from 
     assert.ok(props.some((l) => /^icon:/.test(l)),
       "a `logo` hop with no `icon` beside it: " + props.join(" ").slice(0, 90));
   }
-  // ...which needs both SELECTs to ask for it, or the read is of a row that
-  // was never fetched and every publish silently drops the icon.
-  const selects = [...w.matchAll(/SELECT k, v FROM _meta WHERE k IN \(([^)]*)\)/g)].map((m) => m[1]);
-  assert.ok(selects.length >= 2, "the meta reads were found: " + selects.length);
-  for (const cols of selects) {
-    if (!cols.includes("site_logo")) continue;
-    assert.ok(cols.includes("site_icon"), "a read asking for site_logo must ask for site_icon: " + cols);
-  }
+  // ...which used to need both SELECTs to ask for it, or the read was of a row
+  // that was never fetched and every publish silently dropped the icon.
+  //
+  // SINCE 2026-08-24 THAT IS A PROPERTY OF THE STORE RATHER THAN A SCAN. The six
+  // config fields are one R2 object and `loadConfig` answers with all of them or
+  // refuses, so there is no key list a read can leave the icon out of — what has
+  // to hold is only that both are still fields.
+  const cfg = fs.readFileSync(new URL("../site-config.mjs", import.meta.url), "utf8");
+  assert.match(cfg, /CONFIG_FIELDS = \[[^\]]*"logo"[^\]]*"icon"/,
+    "the two slots are no longer both part of a site's config, so a publish can drop one");
 });
 
 test("the container prefers the owner's icon, declares its real type, and keeps the drawn mark as the fallback", () => {

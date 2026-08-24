@@ -94,6 +94,7 @@ import { resolveLangs } from "./builder/site-langs.mjs";
 import { collectStrings, missingFrom, nextCache, translatePages, readTranslation, TRANSLATE_TOOL } from "./builder/site-translate.mjs";
 import { archiveVersion, listVersions, rollbackVersion, deleteAllVersions, versionId, versionLabel } from "./site-versions.mjs";
 import { sweepAfterPublish, P_ORPHANS } from "./site-sweep.mjs";
+import { loadConfig, saveConfig, withConfig, LEGACY_KEYS, CONFIG_KEY } from "./site-config.mjs";
 import { takeOffline, putBackOnline } from "./site-live.mjs";
 import { readLinkedPages, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, attachments, MAX_QUERIES } from "./builder/site-context.mjs";
 import { routeMessage, clarifiedBrief } from "./builder/site-ask.mjs";
@@ -5463,6 +5464,68 @@ async function siteNeonProject(env, slug) {
   return (Array.isArray(rows) && rows[0]) || null;
 }
 
+/**
+ * WHAT A SITE LOOKS LIKE — the look, the stylesheet, the logo, the tab icon, the
+ * verification tags and the translation cache — read out of R2.
+ *
+ * All six lived in `_meta`, a key-value table inside the site's own Neon
+ * database, beside the things that genuinely describe a database. None of them
+ * is a row: they are config for the compiled output, and the compiled output is
+ * in the same bucket this reads from. `site-config.mjs` argues it in full.
+ *
+ * THE LEGACY READER IS THE MIGRATION RAMP AND IT IS READ-ONLY. Every site
+ * published before this has its six values in `_meta` and nothing in R2, so a
+ * miss falls back and backfills — the `site-routing.mjs` shape, where a fallback
+ * makes an empty store slow rather than wrong. It is omitted for a site with no
+ * database, which is the state this whole change exists to make possible.
+ *
+ * A MISSING BUCKET THROWS RATHER THAN ANSWERING EMPTY, which is the same rule
+ * one layer down: cannot-tell must never read as nothing-stored, or a live site
+ * republishes stripped of its whole design and reports success. `SITES_BUCKET`
+ * is also what SERVES the site, so its absence is not a degradation to ride out.
+ */
+function configDeps(env, slug, db) {
+  const bucket = () => {
+    if (!env.SITES_BUCKET) throw new Error("no site bucket bound — the stored look is unreadable");
+    return env.SITES_BUCKET;
+  };
+  const deps = {
+    get: async (k) => { const o = await bucket().get(k); return o ? await o.text() : null; },
+    put: async (k, v) => { await bucket().put(k, v, { httpMetadata: { contentType: "application/json; charset=utf-8" } }); },
+  };
+  // DERIVED FROM THE MODULE'S OWN NAMES, never a second hand-written list: a key
+  // spelled differently here reads as a site that never had a look, silently.
+  // Our own constants, so the interpolation carries nothing a caller chose.
+  if (db) deps.legacy = () => sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN (" + LEGACY_KEYS.map((k) => "'" + k + "'").join(",") + ")");
+  return deps;
+}
+
+/** Read a site's config. `{ok:false}` means CANNOT TELL — refuse, never publish. */
+async function readSiteConfig(env, slug, db) {
+  return loadConfig(configDeps(env, slug, db), slug);
+}
+
+/**
+ * Change some of a site's config, leaving the rest alone.
+ *
+ * Load-merge-save rather than a bare write, because every lane names ONE field
+ * and a whole-object write there would drop the other five. The read-to-write
+ * window is no wider than the one each handler already has: the two writes a
+ * publish makes are sequential in one request, and R2 is read-after-write
+ * consistent on a key.
+ *
+ * A load that could not happen REFUSES rather than writing over a config nobody
+ * could read. Answers rather than throwing, so a config write can never lose a
+ * build that has already succeeded.
+ */
+async function patchSiteConfig(env, slug, db, patch) {
+  const deps = configDeps(env, slug, db);
+  let cur;
+  try { cur = await loadConfig(deps, slug); } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
+  if (!cur.ok) return { ok: false, error: cur.why + ": " + cur.error };
+  return saveConfig(deps, slug, withConfig(cur.config, patch));
+}
+
 // Provision (or reuse) one site's database, returning its connection string.
 // The ordering and the failure paths live in site-provision.mjs, where they are
 // tested; this supplies the real Neon and Supabase calls.
@@ -7806,6 +7869,11 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
   // its whole design gone, reported as a success. Same failure as `site_logo`
   // and `site_icon`, at the scale of the entire look.
   let css = "";
+  // HOISTED OUT OF THE TRY because the translation-cache write far below needs
+  // it, and a name read outside the block it was declared in is a ReferenceError
+  // that `node --check` passes and esbuild bundles — the `vidRefN` class, which
+  // this repo has shipped to production once.
+  let db = null;
   try {
     // `siteBackendBySlug` RETURNS THE CONNECTION STRING, not a record. This read
     // `conn && conn.conn`, which is `undefined` for a string — so the `_meta`
@@ -7817,40 +7885,35 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
     // free text-edit route used to carry its own copy which dropped three fields
     // of the published meta, and one wrong property access put it straight back,
     // worse. Every other caller in this file uses the return value directly.
-    const db = await siteBackendBySlug(env, slug);
+    db = await siteBackendBySlug(env, slug);
     // NO BACKEND IS A REFUSAL, NOT A DEFAULT. Falling through with look=null
     // publishes the site stripped of its theme, brand, colours and logo —
     // reported as success, and archived to version history — for a site that
     // is deleted or unresolvable. Same rule as the catch below.
     if (!db) return { ok: false, error: "read", ours: true, detail: "no backend recorded for " + slug + " — the stored look could not be read" };
-    const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_css','site_logo','site_icon','site_verify','site_lang_strings')");
-    for (const r of rows || []) {
-      if (r.k === "site_look" && r.v) look = JSON.parse(r.v);
-      if (r.k === "site_css" && typeof r.v === "string") css = r.v;
-      // ITS OWN KEY, NOT A FIELD ON `site_look`, and that is load-bearing.
-      // `mergeLook` builds its output from `EDIT_FIELDS` alone, so anything
-      // else stored on that object is DROPPED by the next look edit — a
-      // customer changing a colour would silently lose their logo.
-      if (r.k === "site_logo" && typeof r.v === "string") logo = r.v;
-      // READ HERE OR EVERY PUBLISH UNDOES IT, exactly as the logo and the tokens
-      // above. The sidecar is rewritten whole on every publish, so a path that
-      // does not carry the stored verification sends none — and an owner's
-      // Search Console tag would vanish the next time they fixed a typo.
-      if (r.k === "site_verify" && r.v) { try { verify = JSON.parse(r.v); } catch { /* a bad row is no verification, not a failed publish */ } }
-      // THE TAB ICON, ITS OWN KEY FOR THE SAME REASON and read here for one
-      // more: the container rewrites `site-brand.ts` on EVERY build, so a
-      // publish path that does not send the stored icon sends nothing, and
-      // nothing means the site falls back to its initials. A customer who
-      // sent a favicon and then fixed a typo would have watched it vanish —
-      // exactly what `priorLogo` exists to prevent one line up.
-      if (r.k === "site_icon" && typeof r.v === "string") icon = r.v;
-      // THE TRANSLATION CACHE, keyed by the ENGLISH STRING. Read here for the
-      // reason everything else in this block is: this spine runs on EVERY cheap
-      // edit, and without the cache each one would re-translate the whole site
-      // to keep the two halves in step. A colour change moves no words, so it
-      // finds every string already there and costs no model call at all.
-      if (r.k === "site_lang_strings" && r.v) { try { langStrings = JSON.parse(r.v); } catch { /* a bad row is a cold cache, not a failed publish */ } }
-    }
+    // OUT OF R2, with `_meta` as the read-only fallback for a site built before
+    // the move. Every one of the six is read HERE and for one shared reason: the
+    // container rewrites the stylesheet, `site-brand.ts` and the meta sidecar
+    // from pristine copies on EVERY build — it has to, or one site's design
+    // leaks onto the next — so a publish path that does not carry a stored value
+    // carries nothing, and nothing means the site republishes without it.
+    //
+    //   `look`        the brand, the language, the plan
+    //   `css`         the model's own stylesheet — the whole design since 2026-08-23
+    //   `logo`        its own key, not a field on `look`: `mergeLook` rebuilds
+    //                 its output from `EDIT_FIELDS` alone, so anything else
+    //                 stored there is dropped by the next look edit
+    //   `icon`        the tab mark; without it the site falls back to initials
+    //   `verify`      an owner's Search Console tag, gone on their next typo fix
+    //   `langStrings` the translation cache, keyed by the English string, so a
+    //                 colour change finds every string already answered and
+    //                 spends no model call at all
+    const cfg = await readSiteConfig(env, slug, db);
+    // A READ THAT COULD NOT HAPPEN IS NOT AN EMPTY CONFIG — see the catch below,
+    // which this shares an answer with. `loadConfig` returns rather than throws,
+    // so the refusal is explicit here.
+    if (!cfg.ok) throw new Error(cfg.why + ": " + cfg.error);
+    ({ look, css, logo, icon, verify, langStrings } = cfg.config);
   } catch (e) {
     // A THROWING READ FAILS THE EDIT — it does not publish the site stripped.
     // This catch used to console.error and fall through, so a transient
@@ -7935,13 +7998,11 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
   // failed cache write means the next publish re-translates, which is slower
   // and never wrong, and is not a reason to fail an edit that has succeeded.
   if (langsChanged) {
-    try {
-      const db2 = await siteBackendBySlug(env, slug);
-      if (db2) {
-        await sqlQuery(db2, "INSERT INTO _meta (k,v) VALUES ('site_lang_strings', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v",
-          [JSON.stringify(nextStrings)]);
-      }
-    } catch (e) { console.error("lang cache write failed", slug, String((e && e.message) || e)); }
+    // `db` IS ALREADY IN HAND from the config read above, so this no longer
+    // re-resolves the backend — and on a site with none it is null, which is the
+    // legacy reader being omitted rather than an error.
+    const w = await patchSiteConfig(env, slug, db, { langStrings: nextStrings });
+    if (!w.ok) console.error("lang cache write failed", slug, w.error);
   }
 
   // A DRAINED CONTAINER IS NOT THE CUSTOMER'S BROKEN CODE, and this path treated
@@ -8440,13 +8501,19 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       // Written back only when it moved, best-effort — a lost cache means the
       // next publish re-translates, slower and never wrong. The spine's rule.
       if (langsChanged) {
-        try {
-          const db2 = await siteBackendBySlug(env, slug);
-          if (db2) {
-            await sqlQuery(db2, "INSERT INTO _meta (k,v) VALUES ('site_lang_strings', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v",
-              [JSON.stringify(langCache)]);
-          }
-        } catch (e) { console.error("lang cache write failed", slug, String((e && e.message) || e)); }
+        // A BACKEND WE COULD NOT RESOLVE IS NOT A SITE WITHOUT ONE, and the two
+        // must not share an answer here. With no legacy reader `patchSiteConfig`
+        // has nothing to fall back to, so on a site not yet migrated it would
+        // write a cache-only config over an empty R2 key — and every later read
+        // would find R2 non-empty, stop falling back, and the site's whole look
+        // would be unfindable. Skipping costs one re-translation next publish.
+        let db2 = null, resolved = true;
+        try { db2 = await siteBackendBySlug(env, slug); }
+        catch (e) { resolved = false; console.error("lang cache write skipped, backend unreadable", slug, String((e && e.message) || e)); }
+        if (resolved) {
+          const w = await patchSiteConfig(env, slug, db2, { langStrings: langCache });
+          if (!w.ok) console.error("lang cache write failed", slug, w.error);
+        }
       }
       const c = getContainer(env.SITE_BUILD_CONTAINER);
       const r = await c.fetch(new Request("http://build/build", {
@@ -8869,6 +8936,17 @@ async function deleteSiteFor(env, uid, dslug) {
     // description and redirect map until its first publish overwrote them.
     try { if (env.SITES_BUCKET) await env.SITES_BUCKET.delete(siteMetaKey(dslug)); }
     catch (e) { console.error("site meta delete failed:", dslug, e && e.message); }
+
+    // AND THE STORED CONFIG, same class again and with the sharpest inheritance
+    // of the three. It holds the site's whole design — the stylesheet, the logo,
+    // the tab icon, the translation cache — and its SEARCH CONSOLE TOKENS, and
+    // it lives outside `sites/<slug>/` so the wipe above walks past it. Left
+    // behind, whoever claims the slug next inherits all of it: a stranger's
+    // design until their first publish, and a stranger's verification tag in
+    // their head from the first request, which is a way for the previous owner
+    // to keep claiming the new owner's site at Google.
+    try { if (env.SITES_BUCKET) await env.SITES_BUCKET.delete(CONFIG_KEY(dslug)); }
+    catch (e) { console.error("site config delete failed:", dslug, e && e.message); }
 
     // THE NIGHTLY BACKUPS GO WITH THE SITE. They are a second copy of the
     // customers' own data, and a deleted site keeping one in R2 forever is a
@@ -9611,20 +9689,36 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth }) {
         const editSlug = cleanSlug(body.slug);
         if (editSlug) {
           try {
-            const conn = await siteNeonProject(env, editSlug);
-            if (conn) {
-              const rows = await sqlQuery(conn, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_css','schema')");
-              let stored = null, storedSchema = null, storedCss = "";
-              for (const r of rows || []) {
-                if (r.k === "site_look" && r.v) stored = JSON.parse(r.v);
-                if (r.k === "schema" && r.v) storedSchema = JSON.parse(r.v);
-                // THE STYLESHEET THE DESIGNER HAS TO SEE. `css` is REPLACED
-                // rather than merged, so a revise that cannot read the current
-                // sheet can only ever answer with a fresh design — the re-roll
-                // that anchoring the look was introduced to stop, at the scale
-                // of every colour on every page. `currentStateNote` prints it in
-                // full and `EDIT_RULE` says what to do with it.
-                if (r.k === "site_css" && typeof r.v === "string") storedCss = r.v;
+            // `siteBackendBySlug`, NOT `siteNeonProject`. This read `sqlQuery(conn,
+            // …)` on the latter's return, which is the raw Supabase ROW — and
+            // `neon()` refuses anything that is not a connection string
+            // ("Connection string: [object Object]", measured). So the query threw
+            // into the catch below on every revise this route has ever handled,
+            // `editState` stayed null, and the designer was never told to change
+            // only what was asked. The catch made it silent; the same misread is
+            // recorded twice in `recompileAndPublish`'s own header.
+            const conn = await siteBackendBySlug(env, editSlug);
+            {
+              // THE LOOK IS IN R2 AND THE SCHEMA IS IN NEON, and they are two
+              // reads because they are two different facts: the schema describes
+              // a database, so it stays where the database is; the look is
+              // config for the compiled output and lives beside it. A site with
+              // no database has no schema and still has a look.
+              //
+              // THE STYLESHEET IS THE ONE THE DESIGNER HAS TO SEE. `css` is
+              // REPLACED rather than merged, so a revise that cannot read the
+              // current sheet can only ever answer with a fresh design — the
+              // re-roll that anchoring the look was introduced to stop, at the
+              // scale of every colour on every page. `currentStateNote` prints
+              // it in full and `EDIT_RULE` says what to do with it.
+              const cfg = await readSiteConfig(env, editSlug, conn);
+              const stored = cfg.ok ? cfg.config.look : null;
+              const storedCss = cfg.ok ? cfg.config.css : "";
+              let storedSchema = null;
+              if (conn) {
+                const rows = await sqlQuery(conn, "SELECT v FROM _meta WHERE k = 'schema'");
+                const row = (rows || [])[0];
+                if (row && row.v) storedSchema = JSON.parse(row.v);
               }
               // ── A SITE WITH A STYLESHEET AND NO STORED LOOK IS STILL AN EDIT ──
               //
@@ -10207,36 +10301,22 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth }) {
       let priorLangStrings = null;
       if (priorBrief) {
         try {
-          const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_css','site_logo','site_icon','site_verify','site_lang_strings')");
-          for (const r of rows || []) {
-            if (r.k === "site_look" && r.v) priorLook = JSON.parse(r.v);
-            if (r.k === "site_css" && typeof r.v === "string") priorCss = r.v;
-            // THE TRANSLATION CACHE, keyed by the ENGLISH STRING. It sat between
-            // `site_page_fonts` and `site_style` in the loop, so the 2026-08-24
-            // deletion of the dead look branches swallowed it — the query went on
-            // asking for the row and nothing read it, which is the select-and-drop
-            // shape `site-freecss.test.mjs` watches for, and that guard is what
-            // caught it. Without it a revise re-translates the whole site every
-            // time: slower and never wrong, a Haiku call per language spent on
-            // strings already answered.
-            if (r.k === "site_lang_strings" && r.v) { try { priorLangStrings = JSON.parse(r.v); } catch { /* a lost cache re-translates; never worse */ } }
-            // READ HERE OR A REVISE TAKES THE LOGO OFF. The container writes
-            // `site-brand.ts` on EVERY build — it has to, or one site's logo
-            // leaks onto the next — so a build path that does not send the
-            // stored value sends nothing, and nothing means empty. A customer
-            // who attached a logo and then asked for any page change would have
-            // watched it disappear, with no error and nothing to point at.
-            if (r.k === "site_logo" && typeof r.v === "string") priorLogo = r.v;
-            // READ HERE OR EVERY PUBLISH UNDOES IT, exactly as the logo and the tokens
-            // above. The sidecar is rewritten whole on every publish, so a path that
-            // does not carry the stored verification sends none — and an owner's
-            // Search Console tag would vanish the next time they fixed a typo.
-            if (r.k === "site_verify" && r.v) { try { priorVerify = JSON.parse(r.v); } catch { /* a bad row is no verification, not a failed publish */ } }
-            // AND THE TAB ICON, for the identical reason one line up. A
-            // revise that does not carry it publishes the site back onto the
-            // mark drawn from its initials.
-            if (r.k === "site_icon" && typeof r.v === "string") priorIcon = r.v;
-          }
+          // OUT OF R2, with `_meta` as the read-only fallback for a site built
+          // before the move. Every one of the six is read HERE because the
+          // container rewrites the stylesheet, `site-brand.ts` and the meta
+          // sidecar from pristine copies on EVERY build — it has to, or one
+          // site's design leaks onto the next — so a revise that does not carry
+          // a stored value takes it OFF: the logo disappears, the tab mark falls
+          // back to initials, an owner's Search Console tag is gone, and the
+          // translation cache is cold so every language is re-translated.
+          const cfg = await readSiteConfig(env, slug, db);
+          if (!cfg.ok) throw new Error(cfg.why + ": " + cfg.error);
+          priorLook = cfg.config.look;
+          priorCss = cfg.config.css;
+          priorLogo = cfg.config.logo;
+          priorIcon = cfg.config.icon;
+          priorVerify = cfg.config.verify;
+          priorLangStrings = cfg.config.langStrings;
         } catch (e) { console.error("look read failed:", slug, e && e.message); }
       }
       // THE DESIGNER STILL WINS ON A FIRST BUILD, and on a revise whose
@@ -10305,9 +10385,10 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth }) {
       // writing only on the first build would apply the change once and forget
       // it, so the next edit would resurrect the old look. The value written is
       // the MERGED one, which is stored-unless-named, so this cannot drift.
-      try {
-        await sqlQuery(db, "INSERT INTO _meta (k,v) VALUES ('site_look', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v", [JSON.stringify(look)]);
-      } catch (e) { console.error("look write failed:", slug, e && e.message); }
+      {
+        const w = await patchSiteConfig(env, slug, db, { look });
+        if (!w.ok) console.error("look write failed:", slug, w.error);
+      }
       // What this edit actually moved, for the trace: a customer who asks for
       // one thing and gets four changed cannot see that from the site, and
       // neither can anybody reading a log. Derived from the merge rather than
@@ -10374,9 +10455,8 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth }) {
       const cssAsk = readCss(designed && designed.css);
       const siteCss = cssAsk.usable ? cssAsk.css : priorCss;
       if (cssAsk.usable && siteCss !== priorCss) {
-        try {
-          await sqlQuery(db, "INSERT INTO _meta (k,v) VALUES ('site_css', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v", [siteCss]);
-        } catch (e) { console.error("css write failed:", slug, e && e.message); }
+        const w = await patchSiteConfig(env, slug, db, { css: siteCss });
+        if (!w.ok) console.error("css write failed:", slug, w.error);
       }
 
       tr.at("merge");
@@ -15101,28 +15181,24 @@ async function handleRequest(request, env, ctx) {
                   await env.SITES_BUCKET.put(uploadKey(ownerSlug, name), bytes, { httpMetadata: { contentType: kind.mime } });
                   return uploadUrl(ownerSlug, name);
                 },
-                // ITS OWN `_meta` KEY, never a field on `site_look`: that object
-                // is rebuilt from `EDIT_FIELDS` by `mergeLook`, so a logo stored
-                // on it would be dropped by the next colour change.
-                // TWO KEYS, ONE PER SLOT, and the module names which. The header
-                // logo and the tab icon are different pieces of artwork — a
-                // wordmark is legible at a few hundred pixels and a smear at 16
+                // ITS OWN FIELD, never a member of `look`: that object is rebuilt
+                // from `EDIT_FIELDS` by `mergeLook`, so a logo stored on it would
+                // be dropped by the next colour change.
+                // TWO FIELDS, ONE PER SLOT, and the module names which. The
+                // header logo and the tab icon are different pieces of artwork —
+                // a wordmark is legible at a few hundred pixels and a smear at 16
                 // — so a site can have both, and setting one must not clear the
-                // other. Written from the key the module chose rather than from
-                // a flag re-read here, or the two could disagree about where the
-                // picture went.
+                // other. `withConfig`'s absent-means-unchanged rule is what makes
+                // that true, so the patch is passed through as the module built
+                // it rather than rebuilt from a flag re-read here.
                 save: async (patch) => {
                   const icon = Object.prototype.hasOwnProperty.call(patch, "icon");
-                  // TWO WHOLE STATEMENTS RATHER THAN ONE WITH THE KEY SPLICED
-                  // IN. The slot can only ever be one of two words this file
-                  // wrote, so concatenating is safe today — and a table name
-                  // built by concatenation is the habit that stops being safe
-                  // the moment somebody widens it. The value is bound either
-                  // way; only the key was ever in question.
-                  await sqlQuery(ldb, icon
-                    ? "INSERT INTO _meta (k,v) VALUES ('site_icon', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v"
-                    : "INSERT INTO _meta (k,v) VALUES ('site_logo', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v",
-                    [String((icon ? patch.icon : patch.logo) || "")]);
+                  const w = await patchSiteConfig(env, ownerSlug, ldb,
+                    icon ? { icon: String(patch.icon || "") } : { logo: String(patch.logo || "") });
+                  // A DISCARDED FAILURE HERE IS A CUSTOMER TOLD THEIR LOGO
+                  // LANDED while the next publish serves the site without it.
+                  // The lane's own catch turns this into its refusal.
+                  if (!w.ok) throw new Error(w.error);
                 },
                 publish: () => recompileAndPublish(env, {
                   slug: ownerSlug, pages: eSrc,
@@ -15216,12 +15292,16 @@ async function handleRequest(request, env, ctx) {
               // tool there is nothing else for it to move.
               let priorCss = "";
               try {
-                const rows = await sqlQuery(edb, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_css','schema')");
-                for (const r of rows || []) {
-                  if (r.k === "site_look" && r.v) priorLook = JSON.parse(r.v);
-                  if (r.k === "site_css" && typeof r.v === "string") priorCss = r.v;
-                  if (r.k === "schema" && r.v) eSchema = JSON.parse(r.v);
-                }
+                // TWO READS BECAUSE THEY ARE TWO FACTS. The look is config for
+                // the compiled output and lives in R2 beside it; the schema
+                // describes a database and stays where the database is.
+                const cfg = await readSiteConfig(env, ownerSlug, edb);
+                if (!cfg.ok) throw new Error(cfg.why + ": " + cfg.error);
+                priorLook = cfg.config.look;
+                priorCss = cfg.config.css;
+                const rows = await sqlQuery(edb, "SELECT v FROM _meta WHERE k = 'schema'");
+                const row = (rows || [])[0];
+                if (row && row.v) eSchema = JSON.parse(row.v);
               } catch (e) { console.error("edit look read failed:", ownerSlug, e && e.message); return escalate("no-meta"); }
               // ── A SITE MAY HAVE A STYLESHEET AND A THIN LOOK ───────────────
               //
@@ -15373,15 +15453,13 @@ async function handleRequest(request, env, ctx) {
               }
 
               try {
-                await sqlQuery(edb, "INSERT INTO _meta (k,v) VALUES ('site_look', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v",
-                  [JSON.stringify(merged)]);
-                // WRITTEN WHENEVER IT MOVED, and it is now the only look key
-                // this lane touches. `nextCss` equals `priorCss` unless a usable
-                // sheet came back, so this fires exactly when something changed.
-                if (cssMoved) {
-                  await sqlQuery(edb, "INSERT INTO _meta (k,v) VALUES ('site_css', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v",
-                    [nextCss]);
-                }
+                // ONE WRITE FOR BOTH. `cssMoved` is what decides whether the
+                // sheet is named at all: `nextCss` equals `priorCss` unless a
+                // usable one came back, and `withConfig`'s absent-means-unchanged
+                // rule is what keeps a look-only edit off the stylesheet.
+                const w = await patchSiteConfig(env, ownerSlug, edb,
+                  cssMoved ? { look: merged, css: nextCss } : { look: merged });
+                if (!w.ok) throw new Error(w.error);
               } catch (e) {
                 // Nothing has been published yet, so the site is exactly as it
                 // was. Reported rather than escalated: a write that failed once
@@ -15438,19 +15516,18 @@ async function handleRequest(request, env, ctx) {
                 // an empty object that later reads as "a patch exists".
                 let restored = true;
                 try {
-                  await sqlQuery(edb, "INSERT INTO _meta (k,v) VALUES ('site_look', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v",
-                    [JSON.stringify(priorLook)]);
-                  // THE STYLESHEET IS PUT BACK AS A STRING, never through
-                  // `JSON.stringify` — that stores a quoted, escaped copy which
-                  // the reader hands to the container verbatim, i.e. a site whose
-                  // every rule is inside one string literal. Gated on having
-                  // moved, so a failed compile on a lane that touched no CSS
-                  // writes nothing here. It is the only look key left to restore:
-                  // `site_tokens`, `site_page_tokens`, `site_page_fonts` and
-                  // `site_style` were rolled back beside it until 2026-08-24.
-                  if (cssMoved) {
-                    await sqlQuery(edb, "INSERT INTO _meta (k,v) VALUES ('site_css', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v", [priorCss]);
-                  }
+                  // GATED ON HAVING MOVED, so a failed compile on a lane that
+                  // touched no CSS writes nothing back for it — the stylesheet is
+                  // the only look field left to restore beside the look itself
+                  // (`site_tokens`, `site_page_tokens`, `site_page_fonts` and
+                  // `site_style` were rolled back here until 2026-08-24). The
+                  // config store keeps each field in its own type, so there is no
+                  // longer a way to put the sheet back through `JSON.stringify`
+                  // and store a quoted, escaped copy the container would hand to
+                  // the browser as one string literal.
+                  const w = await patchSiteConfig(env, ownerSlug, edb,
+                    cssMoved ? { look: priorLook, css: priorCss } : { look: priorLook });
+                  if (!w.ok) throw new Error(w.error);
                 } catch (e) {
                   // SAID OUT LOUD RATHER THAN CLAIMED. A restore that failed
                   // leaves the state exactly where the bug used to leave it, and
@@ -15666,11 +15743,12 @@ async function handleRequest(request, env, ctx) {
               const eDb = await siteBackendBySlug(env, ownerSlug);
               let eSpec = null, eLook2 = null;
               try {
-                const rows = await sqlQuery(eDb, "SELECT k, v FROM _meta WHERE k IN ('site_look','schema')");
-                for (const r of rows || []) {
-                  if (r.k === "schema" && r.v) eSpec = JSON.parse(r.v);
-                  if (r.k === "site_look" && r.v) eLook2 = JSON.parse(r.v);
-                }
+                const cfg = await readSiteConfig(env, ownerSlug, eDb);
+                if (!cfg.ok) throw new Error(cfg.why + ": " + cfg.error);
+                eLook2 = cfg.config.look;
+                const rows = await sqlQuery(eDb, "SELECT v FROM _meta WHERE k = 'schema'");
+                const row = (rows || [])[0];
+                if (row && row.v) eSpec = JSON.parse(row.v);
               } catch (e) { console.error("page edit meta read failed:", ownerSlug, e && e.message); }
               if (!eSpec || !eLook2) return escalate("no-meta");
 
@@ -15809,11 +15887,12 @@ async function handleRequest(request, env, ctx) {
 
             let aLook = null, aSpec = null;
             try {
-              const rows = await sqlQuery(adb, "SELECT k, v FROM _meta WHERE k IN ('site_look','schema')");
-              for (const r of rows || []) {
-                if (r.k === "site_look" && r.v) aLook = JSON.parse(r.v);
-                if (r.k === "schema" && r.v) aSpec = JSON.parse(r.v);
-              }
+              const cfg = await readSiteConfig(env, ownerSlug, adb);
+              if (!cfg.ok) throw new Error(cfg.why + ": " + cfg.error);
+              aLook = cfg.config.look;
+              const rows = await sqlQuery(adb, "SELECT v FROM _meta WHERE k = 'schema'");
+              const row = (rows || [])[0];
+              if (row && row.v) aSpec = JSON.parse(row.v);
             } catch (e) { console.error("addon meta read failed:", ownerSlug, e && e.message); return aEscalate("no-meta"); }
             if (!aLook || !aSpec) return aEscalate("no-meta");
 
@@ -16714,31 +16793,30 @@ async function handleRequest(request, env, ctx) {
             // can be verified and the server's allow-list cannot disagree — the
             // hazard a hand-written copy in the client would create.
             const providers = VERIFIER_NAMES.map((n) => ({ name: n, label: VERIFIERS[n].label, hint: VERIFIERS[n].hint }));
-            let stored = {};
-            try {
-              const rows = await sqlQuery(vconn, "SELECT v FROM _meta WHERE k = 'site_verify'");
-              if (rows && rows[0] && rows[0].v) stored = JSON.parse(rows[0].v) || {};
-            } catch (e) {
-              console.error("verification read failed:", vslug, e && e.message);
+            const vcfg = await readSiteConfig(env, vslug, vconn);
+            if (!vcfg.ok) {
+              console.error("verification read failed:", vslug, vcfg.why, vcfg.error);
               return Response.json({ ok: false, error: "couldn't read this site's verification just now" }, { status: 503 });
             }
+            const stored = vcfg.config.verify || {};
             if (request.method === "GET") return Response.json({ ok: true, verify: stored, providers });
 
             const vbody = await request.json().catch(() => null);
             if (!vbody || typeof vbody !== "object") return Response.json({ error: "send a JSON object" }, { status: 400 });
             const merged = mergeVerification(stored, vbody.verify);
-            try {
-              await sqlQuery(vconn, "INSERT INTO _meta (k,v) VALUES ('site_verify', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v", [JSON.stringify(merged.verify)]);
-            } catch (e) {
-              console.error("verification write failed:", vslug, e && e.message);
-              return Response.json({ ok: false, error: "couldn't save that just now" }, { status: 503 });
+            {
+              const w = await patchSiteConfig(env, vslug, vconn, { verify: merged.verify });
+              if (!w.ok) {
+                console.error("verification write failed:", vslug, w.error);
+                return Response.json({ ok: false, error: "couldn't save that just now" }, { status: 503 });
+              }
             }
             // AND IT TAKES EFFECT WITHOUT A REPUBLISH. The site's own Worker
             // reads its head out of the sidecar, so patching that one key is the
             // whole deployment — which matters because the alternative is a
             // 40-second container run to change a string, and because somebody
             // pasting a token has a provider's "Verify" button open in the next
-            // tab. Both writers derive from `_meta`, so they can differ in
+            // tab. Both writers derive from the stored config, so they can differ in
             // timing and never in value.
             //
             // BEST-EFFORT, AND THE STORED VALUE IS ALREADY SAFE: a failure here

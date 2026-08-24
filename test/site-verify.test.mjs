@@ -162,34 +162,27 @@ test("BOTH publish paths carry the stored verification", () => {
   }
 });
 
-test("every publish-payload read of _meta loads it, and assigns it", () => {
+test("every publish-payload read of the config loads it, and BINDS it", () => {
   // THE CALL SITE IS NOT ENOUGH, and a mutant proved it: `verify` still appears
   // in `writeSiteDistToR2(…, { verify })` when the variable it names was never
   // filled, so the guard above passes on a spine that publishes `undefined`.
   //
-  // Scoped to the reads that build a PUBLISH PAYLOAD — the ones naming
-  // `site_logo` — rather than every read naming `site_look`, because the
-  // router's own context read is a narrower query with no payload to fill and
-  // flagging it would be a false alarm on correct code.
+  // THE LOADING HALF IS NOW A PROPERTY. Until 2026-08-24 each payload path wrote
+  // its own `SELECT … WHERE k IN (…)` and could legitimately ask for five of the
+  // six keys, so this scanned the queries. The config is one R2 object now and
+  // `loadConfig` answers with every field or refuses — there is no key list left
+  // to leave the verification out of.
   const w = read("worker.js");
-  const reads = [...w.matchAll(/SELECT k, v FROM _meta WHERE k IN \(([^)]*site_logo[^)]*)\)/g)];
-  assert.ok(reads.length >= 2, "only " + reads.length + " payload reads found — the scan stopped matching");
-  for (const m of reads) {
-    assert.match(m[1], /'site_verify'/, "a publish-payload read at " + m.index + " does not load the verification");
-    // AND SOMETHING HAS TO ASSIGN FROM IT. Loading a column nothing reads back
-    // is the same as not loading it, and it looks identical in the query.
-    //
-    // BOUNDED BY THE LOOP, NOT BY A BYTE COUNT. The first draft sliced 2600
-    // characters and went red the moment another key was added above the one it
-    // was asserting — a test about how much code sits in between, which is this
-    // repo's most repeated own-goal and cost a red suite an hour after it
-    // shipped.
-    const from = w.indexOf("for (const r of rows", m.index);
-    assert.ok(from > 0 && from - m.index < 400, "the read at " + m.index + " has no row loop after it");
-    const loop = w.slice(from, w.indexOf("\n    }", from));
-    assert.match(loop, /r\.k === "site_verify"[\s\S]{0,80}=\s*JSON\.parse\(r\.v\)/,
-      "the row at " + m.index + " is loaded and never assigned");
-  }
+  assert.match(read("site-config.mjs"), /CONFIG_FIELDS = \[[^\]]*"verify"/,
+    "the verification is no longer part of a site's config, so a publish path can miss it again");
+  // THE BINDING HALF STILL HAS TO BE ASSERTED, because loading a config and not
+  // destructuring it is the same as not loading it and looks identical from the
+  // call. Both payload paths, by name — the spine binds all six at once, the
+  // build path assigns each into its own `prior*`.
+  assert.match(w, /\(\{ look, css, logo, icon, verify, langStrings \} = cfg\.config\)/,
+    "the spine loads the config and does not bind the verification out of it");
+  assert.match(w, /priorVerify = cfg\.config\.verify;/,
+    "the build path loads the config and does not bind the verification out of it");
 });
 
 test("the route is in all THREE lists, which is where the dm2 bug lived", () => {

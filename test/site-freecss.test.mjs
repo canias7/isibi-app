@@ -17,6 +17,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { readCss, fontsIn, cssNote, MAX_CSS } from "../builder/site-freecss.mjs";
+import { CONFIG_FIELDS } from "../site-config.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => fs.readFileSync(path.join(ROOT, p), "utf8");
@@ -259,47 +260,32 @@ test("THE STYLESHEET REACHES THE PAGE — every link, because any one kills it s
   // 2. …the answer is read through the module rather than trusted raw
   assert.match(worker, /readCss\(designed && designed\.css\)/, "the build path never reads the answer");
   // 3. …it is stored
-  assert.match(worker, /INSERT INTO _meta \(k,v\) VALUES \('site_css'/, "the stylesheet is never stored");
-  // 4. …and read back EVERYWHERE THE LOOK IS. Derived rather than counted: a
-  //    count is a fact about how many readers exist today, and what has to hold
-  //    is that no reader of the stored look is missing this one. A path that
-  //    reads the palette and not the stylesheet republishes the site on the
-  //    template's plain defaults with its whole design gone — the `site_logo`
-  //    failure at the scale of every page at once — and a FIFTH reader added
-  //    tomorrow is covered here without anybody remembering the file.
+  assert.match(worker, /patchSiteConfig\(env, slug, db, \{ css: siteCss \}\)/, "the stylesheet is never stored");
+  // 4. …and read back EVERYWHERE THE LOOK IS.
   //
-  //    KEYED ON `site_style`, NOT ON `site_look`, and the difference is the
-  //    difference between a derived rule and a false alarm. `site_look` is read
-  //    by the page and addon lanes too — for the brand and the plan they hand
-  //    the page generator — and those publish through the shared spine, which
-  //    reads the stylesheet itself. `site_style` is the marker for "this reader
-  //    is assembling the look for a container payload", which is exactly the set
-  //    that has to carry it.
-  //    KEYED ON `site_logo` SINCE 2026-08-24, and it was `site_style`. That key
-  //    was the marker for "this reader is assembling the look for a container
-  //    payload" until the axes stopped being stored at all. `site_logo` is the
-  //    same marker: the two publish spines read it and nothing else does,
-  //    because it is a thing a payload CARRIES rather than a thing a lane edits.
-  const selects = [...worker.matchAll(/SELECT k, v FROM _meta WHERE k IN \(([^)]*)\)/g)]
-    .map((m) => m[1]).filter((keys) => keys.includes("site_logo"));
-  assert.ok(selects.length >= 2, "only " + selects.length + " look-assembling reads found — the scan stopped matching");
-  for (const keys of selects) {
-    assert.ok(keys.includes("site_css"),
-      "a reader of the stored look does not select the stylesheet: " + keys);
+  //    THIS USED TO BE A SCAN OVER `_meta` QUERIES AND IS NOW A PROPERTY, which
+  //    is a stronger claim reached by a smaller check. The failure it guards is
+  //    a path that reads the palette and NOT the stylesheet, republishing the
+  //    site on the template's plain defaults with its whole design gone — the
+  //    `site_logo` failure at the scale of every page at once. While each reader
+  //    wrote its own `SELECT … WHERE k IN (…)` that was a real hazard, because a
+  //    reader could legitimately ask for four of the five keys.
+  //
+  //    Since 2026-08-24 the look is ONE R2 OBJECT and `loadConfig` answers with
+  //    every field or refuses. So a reader cannot get the palette without the
+  //    stylesheet: there is no query to leave a key out of. What has to hold
+  //    instead is that nothing has grown a second way to read a look.
+  assert.match(read("site-config.mjs"), /CONFIG_FIELDS = \[[^\]]*"css"/,
+    "the stylesheet is no longer part of a site's config, so a reader can miss it again");
+  const readers = (worker.match(/readSiteConfig\(env,/g) || []).length;
+  assert.ok(readers >= 4, "only " + readers + " config readers found — the scan stopped matching");
+  //    …AND NOTHING READS A LOOK FIELD OUT OF `_meta` ANY MORE. This is the
+  //    absence that makes the property above true rather than merely likely: one
+  //    lane going back to its own query is one lane that can leave a key out.
+  for (const k of ["site_look", "site_css", "site_logo", "site_icon", "site_verify", "site_lang_strings"]) {
+    assert.doesNotMatch(worker, new RegExp("_meta[^\\n]*'" + k + "'"),
+      k + " is read or written through `_meta` again — the look has two stores, and whichever is read first wins");
   }
-  //    …and SELECTING a row is not READING it. Selecting one and then dropping it
-  //    is the shape that has killed a feature here before, and a mutant leaving
-  //    the key in the query while never assigning it passes the check above.
-  //    DERIVED AT BOTH ENDS rather than `selects.length + 1`. That constant was
-  //    a fact about how many readers happened to exist and went stale the moment
-  //    the set changed. What has to hold is that every query ASKING for the
-  //    stylesheet has a branch READING it — four today: the two spines, the look
-  //    lane, and the build route's editState read.
-  const asking = (worker.match(/SELECT k, v FROM _meta WHERE k IN \([^)]*site_css[^)]*\)/g) || []).length;
-  const reading = (worker.match(/if \(r\.k === "site_css" && typeof r\.v === "string"\)/g) || []).length;
-  assert.ok(asking >= 4, "only " + asking + " queries ask for the stylesheet — the scan stopped matching");
-  assert.equal(reading, asking,
-    asking + " queries select the stylesheet and " + reading + " loops read the row — one selects it and drops it");
   // 5. …it reaches both container payloads
   assert.equal((worker.match(/css: cssRead\.usable \? cssRead\.css : undefined/g) || []).length, 2,
     "a container payload does not carry the stylesheet");
@@ -336,7 +322,7 @@ test("A REVISE IS SHOWN THE SHEET, and told to hand it back with the change made
   // AND BOTH LANES SUPPLY IT. The build route's `editState` and the look lane's
   // `current` are two separate objects: one carrying it and not the other is a
   // revise that re-rolls the look on whichever path the customer happened to hit.
-  assert.match(worker, /if \(r\.k === "site_css" && typeof r\.v === "string"\) storedCss = r\.v/,
+  assert.match(worker, /const storedCss = cfg\.ok \? cfg\.config\.css : ""/,
     "the build route never reads the sheet for the designer");
   assert.match(worker, /css: storedCss,/, "the build route reads the sheet and does not hand it over");
   assert.match(worker, /css: priorCss,/, "the look lane reads the sheet and does not hand it over");
@@ -413,19 +399,23 @@ test("THE LOOK LANE COUNTS THE STYLESHEET AS A CHANGE — at both of its gates",
 });
 
 test("A FAILED COMPILE PUTS THE STORED SHEET BACK", () => {
-  // The sheet is written to `_meta` BEFORE the recompile because
-  // `recompileAndPublish` reads it from there — and so does every other publish
-  // path, so a failed compile would leave the change waiting for the customer's
-  // next unrelated edit to apply it silently, under a version label naming only
-  // the typo they were fixing. At the scale of the whole design.
+  // The sheet is stored BEFORE the recompile because `recompileAndPublish` reads
+  // it from the store — and so does every other publish path, so a failed
+  // compile would leave the change waiting for the customer's next unrelated
+  // edit to apply it silently, under a version label naming only the typo they
+  // were fixing. At the scale of the whole design.
   const b = worker.slice(worker.indexOf('if (eLayer === "look") {'));
   const roll = b.slice(b.indexOf("restored = true"), b.indexOf('error: "compile"'));
   assert.ok(roll.length > 100, "the look lane's rollback block moved — the absence below would pass over nothing");
-  assert.match(roll, /'site_css'[^;]*\[priorCss\]/, "a failed look compile does not put the stylesheet back");
-  // AS A STRING, never through the JSON loop beside it: `JSON.stringify` of a
-  // stylesheet stores a quoted, escaped copy that the reader hands the container
-  // verbatim — a site whose every rule is inside one string literal.
-  assert.doesNotMatch(roll, /\["site_css", /, "the stylesheet is rolled back as JSON, so it comes back quoted and escaped");
+  assert.match(roll, /cssMoved \? \{ look: priorLook, css: priorCss \}/,
+    "a failed look compile does not put the stylesheet back");
+  // GATED ON HAVING MOVED, so a lane that touched no CSS writes nothing back
+  // for it. The type discipline that used to need its own assertion here — the
+  // sheet is a STRING and `JSON.stringify`ing it stores a quoted, escaped copy
+  // the container hands to the browser as one string literal — is now a property
+  // of the store: `site-config.mjs` keeps each field in its own type and there
+  // is no per-key serialisation left to get wrong.
+  assert.match(roll, /if \(!w\.ok\) throw/, "a failed restore is swallowed, so it reads as a clean rollback");
 });
 
 test("THE MODEL IS TOLD WHAT ITS RULES LAND ON — the facts it cannot guess", () => {
@@ -455,32 +445,40 @@ test("THE MODEL IS TOLD WHAT ITS RULES LAND ON — the facts it cannot guess", (
  * stored tomorrow is covered without anybody remembering this file.
  */
 
-test("EXACTLY ONE `_meta` KEY DECIDES WHAT A SITE LOOKS LIKE", () => {
+test("EXACTLY ONE STORED FIELD DECIDES WHAT A SITE LOOKS LIKE", () => {
   // ── WHY DERIVED RATHER THAN A LIST ─────────────────────────────────────────
   //
   // `site_tokens`, `site_page_tokens`, `site_page_fonts` and `site_style` were
   // all look keys until 2026-08-24, each written by two lanes and read by three
   // — and every one was DEAD from 2026-08-23, when `design_schema` stopped
   // offering the field that fed it. Four dead stores is what a hand-kept list
-  // produces; the durable form is to name what a look key IS and let the scan
+  // produces; the durable form is to name what a look field IS and let the scan
   // find them.
   //
-  // A LOOK KEY IS ONE THE CONTAINER IS SENT. `site_logo`, `site_icon` and
-  // `site_verify` are stored beside the stylesheet and are NOT the look — they
-  // are artwork and a verification tag — so the discriminator is the payload,
-  // not the prefix. `schema`, `site_lang_strings` and the job rows are not look
-  // either and are excluded for the same reason.
-  const keys = new Set([...code.matchAll(/'(site_[a-z_]+)'/g)].map((m) => m[1]));
-  assert.ok(keys.size >= 4, "only " + keys.size + " site_* keys found — the scan stopped matching");
+  // A LOOK FIELD IS ONE THE CONTAINER IS SENT AS THE DESIGN. `logo`, `icon`,
+  // `verify` and `langStrings` are stored beside the stylesheet and are NOT the
+  // look — they are artwork, a verification tag and a translation cache — so the
+  // discriminator is what the payload styles with, not the fact of being stored.
+  //
+  // DERIVED FROM `CONFIG_FIELDS` SINCE THE MOVE TO R2, which is the same claim
+  // one store along: the whole config is six named fields in one module, so a
+  // seventh look concept has to be declared there to exist at all.
+  const fields = new Set(CONFIG_FIELDS);
+  assert.ok(fields.size >= 4, "only " + fields.size + " config fields found — the scan stopped matching");
 
   // THE FOUR THAT WENT, asserted by name as well as by the derivation above,
   // because a scan that silently stopped matching would pass the derived half.
+  // Checked against the config AND against `_meta`, since restoring one to
+  // either store is what would make the look two things again.
+  for (const k of ["tokens", "pageTokens", "pageFonts", "style"]) {
+    assert.ok(!fields.has(k), "`" + k + "` is a stored look field again — the look is two things");
+  }
   for (const k of ["site_tokens", "site_page_tokens", "site_page_fonts", "site_style"]) {
-    assert.ok(!keys.has(k), "`" + k + "` is a stored look key again — the look is two things");
+    assert.doesNotMatch(code, new RegExp("'" + k + "'"), "`" + k + "` is a stored look key again");
   }
   // …AND THE ONE THAT STAYED, or every absence above passes on a platform with
   // no look at all.
-  assert.ok(keys.has("site_css"), "the stylesheet is no longer stored — a site has no look");
+  assert.ok(fields.has("css"), "the stylesheet is no longer stored — a site has no look");
 });
 
 test("AND ITS ENGINE RUNS IN EXACTLY ONE PLACE", () => {

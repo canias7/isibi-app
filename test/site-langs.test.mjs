@@ -439,7 +439,8 @@ test("the spine translates, caches, and never fails a publish over it", () => {
   // WRITTEN BACK ONLY WHEN IT MOVED, so an ordinary publish costs no database
   // write either.
   assert.match(body, /if \(langsChanged\)/);
-  assert.match(body, /site_lang_strings/);
+  assert.match(body, /patchSiteConfig\(env, slug, db, \{ langStrings: nextStrings \}\)/,
+    "the spine never writes the translation cache back");
 });
 
 test("THE BUILD PATH TRANSLATES, AND ONLY THEN SENDS THE LANGUAGES", () => {
@@ -470,13 +471,12 @@ test("THE BUILD PATH TRANSLATES, AND ONLY THEN SENDS THE LANGUAGES", () => {
     "the build payload does not carry the languages the dep just translated");
   // The cache round-trips: read on the route, written back when it moved, so a
   // revise does not re-buy strings already answered.
-  // ON THE ASSIGNMENT'S RIGHT-HAND SIDE — a mutant that parsed the row and
-  // discarded it (`void JSON.parse(r.v)`) survived a match on the key alone:
-  // the cache then arrives null on every revise and the whole site re-translates
-  // each time, slower and never wrong, a Haiku call per language spent on
-  // strings already answered.
-  assert.match(worker, /priorLangStrings = JSON\.parse\(r\.v\)/,
-    "the route reads the translation cache row and throws it away");
+  // ON THE ASSIGNMENT'S RIGHT-HAND SIDE — a mutant that read the value and
+  // discarded it survived a match on the key alone: the cache then arrives null
+  // on every revise and the whole site re-translates each time, slower and never
+  // wrong, a Haiku call per language spent on strings already answered.
+  assert.match(worker, /priorLangStrings = cfg\.config\.langStrings/,
+    "the route reads the translation cache and throws it away");
   assert.match(dep, /if \(langsChanged\)/, "the cache is never written back");
   // THE ROUTE'S OWN THREADING, apart from the dep — not-called and
   // called-with-undefined are two deaths that look identical from inside the

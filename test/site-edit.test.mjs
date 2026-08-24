@@ -14,6 +14,7 @@ import {
 } from "../builder/site-edit.mjs";
 import { normalizeSeeds, SEEDS_FIELD } from "../builder/site-seeds.mjs";
 import { ASKABLE } from "../builder/site-tokens.mjs";
+import { readConfig, emptyConfig } from "../site-config.mjs";
 
 const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 const STORED = {
@@ -598,8 +599,15 @@ test("the route reads the current state and hands it to the designer", () => {
   // rides beside it.
   assert.match(worker, /designSiteSchema\(env, briefWithLinks, models\.design, editState\b/,
     "the designer is not given the site's current state, so it is still told nothing");
-  assert.match(worker, /SELECT k, v FROM _meta WHERE k IN \('site_look','schema'\)/,
-    "nothing reads the stored look and schema before the design call");
+  // TWO READS SINCE 2026-08-24, and they are two facts: the look is config for
+  // the compiled output and lives in R2 beside it, the schema describes a
+  // database and stays where the database is. Both still have to reach the
+  // designer, so both are asserted — a lane that reads one and not the other
+  // hands the model half a site.
+  assert.match(worker, /readSiteConfig\(env, editSlug, conn\)/,
+    "nothing reads the stored look before the design call");
+  assert.match(worker, /SELECT v FROM _meta WHERE k = 'schema'/,
+    "nothing reads the stored schema before the design call");
   // EVERY `mergeLook` CALL, not one pinned expression. This matched the exact
   // `const merged = mergeLook(priorLook, designed, body, …)` and went red when
   // the route grew a SECOND call — the probe that answers which page a colour is
@@ -685,7 +693,8 @@ test("the stored look is written on EVERY build, not just the first", () => {
   // and let the NEXT edit resurrect the old value.
   assert.ok(!/if \(!priorLook\) \{/.test(worker),
     "the look is written only on a first build again");
-  assert.match(worker, /INSERT INTO _meta \(k,v\) VALUES \('site_look'[\s\S]{0,120}JSON\.stringify\(look\)/);
+  assert.match(worker, /patchSiteConfig\(env, slug, db, \{ look \}\)/,
+    "the build path never stores the merged look");
   // THE STORE IS THE WHOLE MERGE, NEVER A HAND-PICKED SUBSET. This assertion
   // used to pin `brand: merged.brand, description: merged.description` — the
   // literal's own spelling — and the literal was the bug: five of mergeLook's
@@ -757,7 +766,7 @@ test("A FAILED LOOK READ FAILS THE EDIT — never a stripped publish reported as
   // The look-read catch refuses rather than falling through. Landmark-bounded
   // to the catch's own end (`resolvePair` is the first statement after it),
   // never a byte count.
-  const readCatch = block.indexOf("} catch (e) {", block.indexOf("sqlQuery(db,"));
+  const readCatch = block.indexOf("} catch (e) {", block.indexOf("readSiteConfig(env, slug, db)"));
   // ANCHORED ON THE STYLESHEET READ, not on the font pair. It closed on
   // `const pair = resolvePair(` until 2026-08-24, when the site pair left the
   // spine with the rest of the look tier — so the window had nothing to end on
@@ -769,9 +778,20 @@ test("A FAILED LOOK READ FAILS THE EDIT — never a stripped publish reported as
   // `ours: true` is load-bearing: it routes every lane's compileMsg to the
   // honest sentence — our side, try again, nothing was charged — instead of
   // blaming the customer's change for our database blip.
-  // And the legit pre-look-era state still proceeds: a read that SUCCEEDS
-  // with no rows keeps its cheap edits, so only cannot-tell refuses.
-  assert.match(block, /for \(const r of rows \|\| \[\]\)/, "the legit no-rows path is gone");
+  //
+  // AND THE THROW IS EXPLICIT NOW, because the store answers rather than
+  // throwing. `loadConfig` returns `{ok:false}` for all three cannot-tell paths
+  // — the bucket, a corrupt object, the legacy database — and the spine has to
+  // turn that into the refusal itself, or it falls through with an empty config
+  // and publishes stripped, which is the exact bug this test was written for.
+  assert.match(block, /if \(!cfg\.ok\) throw new Error\(cfg\.why/,
+    "an unreadable config falls through to a stripped publish again");
+  // And the legit pre-look-era state still proceeds: a read that SUCCEEDS with
+  // nothing stored keeps its cheap edits, so only cannot-tell refuses. Driven
+  // through the real module rather than read off the spine, because that is
+  // where the distinction now lives.
+  assert.equal(readConfig(""), null, "an unreadable config reads as an empty one");
+  assert.deepEqual(emptyConfig(), { look: null, css: "", logo: "", icon: "", verify: null, langStrings: null });
 });
 
 test("the preview image is derived in ONE place, for both publish paths", () => {
