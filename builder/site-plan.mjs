@@ -558,14 +558,6 @@ export const PLAN_FIELDS = {
       "page here is generated code that has to compile.",
   },
 
-  action: {
-    type: "array",
-    items: { type: "string" },
-    description:
-      'The primary verb, worded as the button says it: ["Book now", "Check availability"]. ' +
-      "It leads the header, the hero and the closing band, so it has to be the ONE thing you want a visitor " +
-      'to do. Never "Learn more".',
-  },
 
   // LAST, AND THAT IS THE DESIGN — see PLAN_KEYS. By the time this is filled in
   // the page list above it is already written, so the pick is made for THESE
@@ -643,6 +635,32 @@ export const PLAN_FIELDS = {
  * property order. The test that asserted those two agreed now asserts the
  * split instead, or it would be a claim about nothing.
  */
+/**
+ * THE PRIMARY VERB, ANSWERED LATE (owner's call, 2026-08-24).
+ *
+ * It was fourth of five inside `PLAN_FIELDS`, between `pages` and
+ * `components`. The owner's ordering puts it at 15 — after the whole front end
+ * AND after the backend — so it leaves the spread the way `shape` and `images`
+ * already have, rather than being reordered inside it. `PLAN_KEYS`,
+ * `PLAN_REQUIRED` and `PLAN_EDIT_FIELDS` are untouched: this moves WHEN it is
+ * answered, nothing about what it is.
+ *
+ * WHAT THAT COSTS, WRITTEN DOWN RATHER THAN GLOSSED. Its own description says
+ * the verb "leads the header, the hero and the closing band" — three placements
+ * that `components` (6) and `shape` (7) now choose BEFORE the verb exists. The
+ * model picks the manifest and arranges every band, and only then names the
+ * thing they are meant to lead with. Nothing breaks; the arrangement is simply
+ * made without one input it used to have.
+ */
+export const ACTION_FIELD = {
+  type: "array",
+  items: { type: "string" },
+  description:
+    'The primary verb, worded as the button says it: ["Book now", "Check availability"]. ' +
+    "It leads the header, the hero and the closing band, so it has to be the ONE thing you want a visitor " +
+    'to do. Never "Learn more".',
+};
+
 export const SHAPE_FIELD = {
   type: "array",
   items: {
@@ -661,8 +679,9 @@ export const SHAPE_FIELD = {
   },
   description:
     "WHERE EVERYTHING GOES, ONE ENTRY PER PAGE.\n" +
-    "You answer this last, so the pages, the primary action and the component manifest are " +
-    "already decided — arrange what you have chosen rather than describing a mood.\n" +
+    "The pages and the component manifest are already decided above, so arrange what you have " +
+    "chosen rather than describing a mood. The primary action is NOT yet named — say where the " +
+    "site's main call to action sits and let the wording come later.\n" +
     "Examples:\n" +
     '  {"path": "/", "sections": [' +
     '"hero — the shop, the town, and the Book a chair button", ' +
@@ -735,7 +754,7 @@ export const IMAGES_FIELD = {
     "EACH ONE COSTS THE CUSTOMER REAL MONEY, so ask for a picture only where it is the argument — the " +
     "opening, the work, the room — and never for decoration. Most small sites want one or two; a gallery " +
     "or a portfolio is what wants more.\n" +
-    "You have just chosen this site's palette and arranged every page, so describe pictures that belong to " +
+    "You have just arranged every page, so describe pictures that belong to " +
     "THAT site: a near-black studio and a bright bakery want different light in the frame.\n" +
     "Everything you do not ask for here still renders — as the theme's own placeholder, which is a " +
     "deliberate look and not a gap. The owner fills those in after the build.",
@@ -758,6 +777,7 @@ export const IMAGES_FIELD = {
 export function planFieldFor(key) {
   if (key === "shape") return SHAPE_FIELD;
   if (key === "images") return IMAGES_FIELD;
+  if (key === "action") return ACTION_FIELD;
   return PLAN_FIELDS[key];
 }
 

@@ -377,13 +377,24 @@ export function looksLikeTable(def) {
 /**
  * The five fields the design tool now asks for under one `backend` object.
  *
- * ORDERED AS THE MODEL SHOULD ANSWER THEM, because a tool's property order is
- * its generation order and that is as true one level down as it is at the top.
- * `tables` first — everything after it is about tables that now exist; `seed`
- * straight after, so the rows are written while the columns are in hand; then
- * the three optional tiers, cheapest decision last.
+ * ORDERED AS THE OWNER SET THEM (2026-08-24), and a tool's property order is its
+ * generation order one level down exactly as at the top — so this list IS when
+ * the model answers each.
+ *
+ * `seed` SITS RIGHT AFTER `tables`, which is the dependency that matters most:
+ * the rows are written while the columns are still in hand. It used to be two
+ * fields away, behind `description`.
+ *
+ * AND THE THREE OPTIONAL TIERS COME FIRST, which is the one ordering here that
+ * runs against a dependency rather than with it — stated rather than glossed. A
+ * job names a function, a function's body queries tables, and a third-party read
+ * feeds a page built on them; at 10, 11 and 12 all three are decided before
+ * `tables` at 13 says what exists. Nothing enforces an order, so nothing breaks:
+ * what it costs is that the model commits to what to schedule and fetch while
+ * the thing being scheduled is still hypothetical. Reversing it is one edit to
+ * this array plus the tool's own sub-order.
  */
-export const BACKEND_FIELDS = ["tables", "seed", "functions", "apis", "jobs"];
+export const BACKEND_FIELDS = ["jobs", "apis", "functions", "tables", "seed"];
 
 /**
  * HOIST `backend.*` BACK TO THE TOP LEVEL — the tool nests, everything else

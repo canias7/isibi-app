@@ -300,17 +300,25 @@ test("the seed field states the consequence, not just the requirement", () => {
   // and it fired when `backend` nested this one level deeper.
   const at = w.search(/^\s+seed: \{/m);
   assert.ok(at > 0, "the seed field is gone from design_schema");
-  // To the NEXT field, never a byte count — a window sized in bytes stops
-  // covering what it was written for, which has bitten this repo five times.
+  // BOUNDED BY ITS OWN BRACE, never by a byte count and never by the NEXT
+  // FIELD'S NAME. Both of those have now failed here: the byte count stopped
+  // covering the thing it was written for, and `"\n      css: {"` broke on
+  // 2026-08-24 when the owner's reordering made `seed` the LAST sub-field of
+  // `backend`, so there is no next field at all. A block ends where its own
+  // brace closes — true at any indent, in any order, at any nesting.
   //
   // AND IT IS BELT-AND-BRACES, said out loud rather than left looking like
   // protection. A mutation widening this to the whole file changes NO result,
   // because the uniqueness assertion below already guarantees each phrase
   // occurs once — so the slice cannot be satisfied from outside it either way.
   // What the window still earns is the assertion on the next line: `seed`
-  // being renamed or moved fails here rather than silently reading nothing.
-  const end = w.indexOf("\n      css: {", at);
-  assert.ok(end > at, "the field after `seed` moved — retarget this window");
+  // being renamed or deleted fails here rather than silently reading nothing.
+  let depth = 0, end = -1;
+  for (let k = at; k < w.length; k++) {
+    if (w[k] === "{") depth++;
+    else if (w[k] === "}" && --depth === 0) { end = k; break; }
+  }
+  assert.ok(end > at, "the `seed` block has no matching close — retarget this window");
   const field = w.slice(at, end);
 
   // 1. THE DEAD FORM. An unseeded table whose rows a Select reads renders with

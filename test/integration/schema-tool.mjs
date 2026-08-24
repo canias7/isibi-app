@@ -56,6 +56,7 @@ export async function readSchemaTool() {
     // catches a missing one, and it caught this one.
     SHAPE_FIELD: plan.SHAPE_FIELD,
     IMAGES_FIELD: plan.IMAGES_FIELD,
+    ACTION_FIELD: plan.ACTION_FIELD,
     PLAN_REQUIRED: plan.PLAN_REQUIRED,
     SITE_TOKEN_NAMES: tokens.ASKABLE,
     siteTokenHint: tokens.valueHint,

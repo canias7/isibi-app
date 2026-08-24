@@ -112,7 +112,7 @@ import { SHORTLIST, resolvePair, resolvePageFonts, MAX_PAGE_FONTS } from "./buil
 // colours in `site_look`, and this is what still judges them on every republish.
 import { normalizeSeeds } from "./builder/site-seeds.mjs";
 import { currentStateNote, EDIT_RULE, EDIT_REQUIRED, EDIT_FIELDS, hasValue, keepStoredAccess, mergeLook, movedFields } from "./builder/site-edit.mjs";
-import { PLAN_FIELDS, PLAN_KEYS, PLAN_REQUIRED, SHAPE_FIELD, IMAGES_FIELD, normalizePlan } from "./builder/site-plan.mjs";
+import { PLAN_FIELDS, PLAN_KEYS, PLAN_REQUIRED, SHAPE_FIELD, IMAGES_FIELD, ACTION_FIELD, normalizePlan } from "./builder/site-plan.mjs";
 
 // Game build-service container (Phase 3). The image (./builder-game/Dockerfile)
 // bakes kaplay + a headless Chromium for the smoke test. Runs to zero after idle.
@@ -3582,6 +3582,192 @@ const SITE_SCHEMA_TOOL = {
     properties: {
       brand: { type: "string", description: "Short display name for the site." },
       slug: { type: "string", description: "url-safe-name, lowercase, hyphens only." },
+      // Starter content, and not a nicety: nothing can write to a `display` table
+      // after the build — not even the owner — so whatever is not seeded here is
+      // an empty list forever, and a form whose required Select reads that table
+      // cannot be submitted by anyone.
+      // Goes in the published page's head. Until 2026-07-28 a generated site had
+      // a <title> and nothing else, so sharing its link on WhatsApp, iMessage or
+      // Slack showed a bare URL — and for a small business that link IS the
+      // marketing.
+      description: {
+        type: "string",
+        description:
+          "One sentence describing the business, as it should appear under the name in a Google result or a shared-link preview. " +
+          "Write it for a customer, not a developer: what it is, where, and what someone can do here — 'Skin fades and hot-towel shaves in Lisbon. Book online.' " +
+          "Under 160 characters. No quotes, no line breaks.",
+      },
+      // THE SHAPE — SIX AUTHORED FIELDS WHERE `family` USED TO BE (owner's call,
+      // 2026-08-20). Distinct from the theme on purpose: a theme decides how a
+      // site looks, these decide what its pages ARE and in what order.
+      //
+      // Until this, one field named one of 100 pre-written families and the
+      // platform looked the answers up — so every barber shop got the barber
+      // shop's page set and verb, decided by a person, for a trade, before any
+      // particular site existed. The owner's direction is that the model decides
+      // per site; `site-plan.mjs` is that decision as a plain module, and
+      // spreading it here means the tool has ONE definition of them.
+      //
+      // FOUR OF THE FIVE ARE HERE. `shape` is spliced in below the language
+      // fields instead, so it is answered last of everything — see the comment
+      // there and `SHAPE_FIELD`. `PLAN_KEYS` is still all five and is still what
+      // every guard derives from; it is the semantic set, not this order.
+      //
+      // ORDER MATTERS AND IS ASSERTED: `components` is LAST of these four, so
+      // it is picked after the page list above it has been written.
+      ...PLAN_FIELDS,
+      // `mode` IS GONE — LIGHT OR DARK IS A COLOUR, AND COLOUR IS `css`
+      // (owner's call, 2026-08-23). Kept as an ABSENCE rather than only
+      // deleted, on the precedent that replaced the repair-pass tests with
+      // "a second call never happens": a field quietly restored beside `css`
+      // gives the model two ways to decide one thing, and they disagree.
+      //
+      // IT WAS A FIELD BACK WHEN A THEME WAS A NAME. The registry shipped a
+      // designed dark half per theme and `mode` chose which of the two was
+      // activated, so the site's darkness really was a separate decision from
+      // its palette. The registry went on 2026-08-20 and the model writes the
+      // palette itself now, so "make it dark" is: write dark values on `:root`.
+      // The field survived that change and stopped having a job.
+      //
+      // AND ITS ORDER SAID SO. A tool's property order is its generation
+      // order, and `mode` sat at 16 against `css` at 9 — so its own text
+      // ("the theme already has a dark half drawn for it") described a theme
+      // the model had written seven fields earlier. It could only ever ratify
+      // what `css` had already decided.
+      //
+      // THE `.dark` CLASS STAYS AND IS NOT DEAD, which is the one thing to
+      // check before reading this as "dark mode was removed". `theme-toggle`
+      // toggles it on `documentElement`, so a page that renders one lets a
+      // VISITOR switch. What goes is the BAKED default, which was the owner's
+      // decision and is now just where they put their colours.
+      //
+      // Measured before pulling it: 0 of the 2,112 kit components carry a
+      // `dark:` utility, so nothing in the kit adjusts itself for the class —
+      // the whole of dark mode is token values, which is to say `css`.
+      // SHAPE IS LAST OF THE FRONT-END FIELDS, ON PURPOSE, AND IT IS A PLAN
+      // FIELD SITTING AWAY FROM THE OTHER FOUR (owner's call, 2026-08-21).
+      //
+      // A tool's property order is its generation order — the reason
+      // `components` is pinned last inside `PLAN_FIELDS` is that it is picked
+      // after the page list it has to serve. `shape` is the field that says
+      // where everything GOES, so it is the one that gains most from being
+      // answered last: written here, the purpose, the page set, the verb, the
+      // component manifest, the typeface, the palette, all 23 style axes and
+      // light-or-dark are already decided, and it arranges a page whose parts
+      // it has actually chosen rather than one it is still guessing at.
+      //
+      // It stays in `PLAN_KEYS`, `PLAN_REQUIRED` and `PLAN_EDIT_FIELDS` — this
+      // moves WHEN it is answered, nothing about what it is. See SHAPE_FIELD.
+      shape: SHAPE_FIELD,
+      // AND THE PHOTOGRAPHS LAST OF ALL (owner's call, 2026-08-23 — "lets move
+      // image generator to the designer").
+      //
+      // IT WAS DECIDED IN TWO PLACES AND THE DESIGNER WAS IN NEITHER: how many
+      // pictures a site got was a RULE derived from the page list, and what each
+      // one was OF came from the page-generation call. Measured: `page-gen.mjs`
+      // holds ZERO references to `css`, so the model describing the pictures had
+      // never seen the palette — it could not know it was dressing a near-black
+      // recording studio.
+      //
+      // PAST `shape`, so by here the palette is written, the pages are chosen,
+      // the verb is fixed, the manifest is picked and every band is arranged.
+      // "The hero on /" is a slot this model just placed. See IMAGES_FIELD.
+      images: IMAGES_FIELD,
+      // ── THE SITE'S WHOLE STYLESHEET, WRITTEN BY THE MODEL ────────────────
+      //
+      // Owner's call, 2026-08-23: "for the look, the css, we are gonna delete
+      // those 5 steps into 1 step, which is gonna be called css, and we are
+      // gonna give the model freedom, so with no words, the model is gonna make
+      // the css."
+      //
+      // FIVE FIELDS BECAME THIS ONE. `seeds` asked for three anchor colours,
+      // `fonts` for a pairing off a 24-name enum, `style` for 29 axes each with
+      // its own selector and property allow-list, `tokens` for 24 named colours
+      // and `tokensPage` for a page to scope them to. Between them they were
+      // ~40,000 characters of vocabulary describing a design in OUR words. The
+      // model writes CSS in its own now.
+      //
+      // ── WHAT THE ARM-A MEASUREMENT SAYS, AND WHY IT IS NOT THIS ──────────
+      //
+      // `lido-free-a` swapped the 29 axes for a free `css` string and the
+      // rule-level diff was brutal: arm B carried 24 rules the free arm did not,
+      // arm A carried 7, and four of those seven are Tailwind and the palette,
+      // one is the type scale, one is shadows switched off, and one is the
+      // template's own DEFAULT icon weight. Given a free hand the model wrote
+      // almost nothing.
+      //
+      // THAT ARM IS NOT THIS ONE, AND THE DIFFERENCE IS THE WHOLE REASON THE
+      // NUMBER MAY NOT HOLD. Arm A kept `seeds` — so there was still a field
+      // asking for the palette, and the palette is exactly what landed. This
+      // repo already wrote down what that shape does: "a hatch beside a full
+      // menu is a hatch nobody opens", measured on run 14, where two axes had an
+      // authored escape hatch beside twenty-three enums and the model reached
+      // for neither. With nothing else to answer, the question is unavoidable.
+      // Whether that is enough is a live question, and the first build against
+      // this field is what answers it.
+      //
+      // ── EXISTING SITES ARE UNTOUCHED, AND THAT IS BY CONSTRUCTION ────────
+      //
+      // Every site published before today stores `site_look.seeds`,
+      // `site_look.fonts`, `site_tokens` and `site_style`, and both publish
+      // spines still READ and SEND all four on every republish. Nothing stopped
+      // carrying them — the TOOL stopped asking for them. So one deploy
+      // re-styles no site, and `EDIT_FIELDS` deliberately still names `seeds`
+      // and `fonts` for the same reason: `mergeLook` rebuilds its output from
+      // that list, so dropping a name there would strip the palette off every
+      // existing site on its owner's next unrelated edit.
+      //
+      // THE CONTAINER WRITES THIS LAST — after the theme, the token patch and
+      // the per-page scope — so on a site that has both, the model's rules sit
+      // on top of the stored look rather than fighting it, and on a new site
+      // they sit on top of the template's own defaults.
+      css: {
+        type: "string",
+        description:
+          "THE SITE'S ENTIRE STYLESHEET, as CSS. Write it for THIS business — there is no palette field, no font " +
+          "field and no list of options: whatever the site looks like, you write here.\n" +
+          "WHAT IT LANDS ON: a React app built from shadcn/ui with Tailwind v4. Every component paints with CSS " +
+          "custom properties, so setting those is what changes the whole site at once. The ones the kit reads are:\n" +
+          SITE_TOKEN_NAMES.map((t) => "--" + t).join(", ") + ", --font-sans, --font-heading.\n" +
+          "Each `--x` has a matching `--x-foreground` for the text on it; `--radius` is a length every corner in the " +
+          "kit derives from.\n" +
+          "`:root` IS WHAT THE SITE LOOKS LIKE — there is no separate light/dark switch. A dark site is dark values " +
+          "on `:root`: near-black `--background`, pale `--foreground`, and every other pair solved against them. " +
+          "Choose it from the brief the way you choose anything else — a night club, a recording studio, a tattoo " +
+          "parlour or a cinema reads dark; most trades read light.\n" +
+          "`.dark` is OPTIONAL and only does something on a page that renders a theme toggle, which lets a visitor " +
+          "switch. Write it only if you put one there, and make it the opposite of `:root`, not a second guess at it.\n" +
+          "YOUR RULES ARE WRITTEN LAST, so an ordinary selector beats anything the template shipped. Style whatever " +
+          "you like beyond the variables: headings, links, buttons, cards, backgrounds, borders, hover and focus " +
+          "states, animations, gradients, textures, spacing, media queries.\n" +
+          // ── ONE PAGE'S OWN LOOK, WHICH USED TO BE ITS OWN FIELD ─────────────
+          //
+          // `tokensPage` scoped a colour or a typeface to one route and went with
+          // the other four. The capability did not: `<body>` carries the current
+          // route as `data-page`, stamped from the router's own matches, so a
+          // model writing raw CSS can scope ANYTHING to a page — which is wider
+          // than the field ever was (it refused corners and spacing outright,
+          // because those were derived from the site's and could not be scoped).
+          //
+          // SAID OUT LOUD BECAUSE IT IS NOT GUESSABLE. `data-page` is a stamp of
+          // ours on an element nothing else here mentions; a model that is not
+          // told about it has no way to know a page can be addressed at all, and
+          // "make the booking page calmer" becomes unreachable — which is the
+          // `publicView` failure this repo has already paid for twice: a
+          // capability conditioned on a fact the model was never given.
+          "ONE PAGE CAN HAVE ITS OWN LOOK. `<body>` carries the current route, so `body[data-page=\"/book\"] { … }` " +
+          "styles the booking page and nothing else — colours, type, spacing, anything. `\"/\"` is the home page.\n" +
+          "TYPEFACES ARE A FILE, NOT AN OPINION. Name any Google Fonts family in a `font-family` and it is downloaded " +
+          "and served from the site's own domain — `--font-sans: \"Lora\", Georgia, serif`. A family that is not on " +
+          "Google Fonts cannot be fetched and silently falls back, so give every stack a real fallback either way. " +
+          "System faces (Georgia, Helvetica) need no fetch and are a legitimate answer.\n" +
+          "TWO THINGS THAT WILL NOT WORK, so do not spend the site's look on them: `url()` pointing at another " +
+          "domain (the site's security policy refuses it, so the image or font simply never loads — a `data:` URI is " +
+          "fine), and `@import`.\n" +
+          "ON A REVISE, return the stylesheet the site has NOW with only the asked-for change made to it. This " +
+          "REPLACES what the site is wearing, so anything you leave out is gone — a request to change one colour must " +
+          "not come back as a different design.",
+      },
       // THE BACKEND, AS ONE ANSWER (2026-08-24, owner's call: "put it together
       // under one called backend").
       //
@@ -3610,6 +3796,182 @@ const SITE_SCHEMA_TOOL = {
           "Answer `tables` and `seed` always. The other three are for the sites that need them and are " +
           "left out entirely otherwise — most sites need none of them.",
         properties: {
+          jobs: {
+            type: "array",
+            description:
+              "OPTIONAL scheduled work — the site doing something on a timer, with nobody there. THE CASE THIS EXISTS FOR: reminding tomorrow's " +
+              "customers today, so they turn up. Also a weekly digest to the owner, or chasing an unpaid invoice. Skip it entirely for a site " +
+              "that only takes enquiries. " +
+              "Each job names a function you ALSO declare in `functions` with `internal: true`, taking NO arguments and returning `json` — an ARRAY of " +
+              "{to, subject, body}, one per message to send. Return an empty array when there is nothing to do, which is most runs. " +
+              "The function is ordinary SQL, so decide whatever you like inside it: who is due, what it says, joined to anything on the site. " +
+              "EACH MESSAGE MAY BE AN EMAIL OR A TEXT: add \"channel\":\"sms\" to one and give it `to` (a full international number, +44…) and `body` and NO subject. " +
+              "A text is what gets read for a day-before reminder from a barber, a garage or a restaurant; an email is right for a digest or anything long. Leave `channel` out for email. " +
+              "The site owner pastes their own provider key in Settings — an email one, an SMS one, or both; until they do, that channel sends nothing and the other still goes. " +
+              "Minimum interval is 15 minutes and anything shorter is rounded up to it — for a day-before reminder use 1440.",
+            items: {
+              type: "object",
+              required: ["name", "fn", "everyMinutes"],
+              properties: {
+                name: { type: "string", description: "lowercase identifier, e.g. remind_tomorrow" },
+                fn: { type: "string", description: "The internal function returning the messages, e.g. bookings_due_tomorrow" },
+                everyMinutes: { type: "integer", description: "How often to run. 1440 = daily, 60 = hourly. Minimum 15." },
+              },
+            },
+          },
+          apis: {
+            type: "array",
+            description:
+              "OPTIONAL third-party APIs this site reads at request time. Use one ONLY when the brief needs live data that is " +
+              "not in this site's own database and is not fixed at build time: today's exchange rate, a courier's delivery " +
+              "slots, a supplier's stock level, the weather for an outdoor venue. Do NOT use it for anything a table can hold.\n\n" +
+              "Write the WHOLE request and put `{{SECRET_NAME}}` wherever a credential belongs — the site OWNER stores that " +
+              "value in Secrets and it is substituted server-side, so no key is ever in the page. Name the secret after the " +
+              "service, e.g. `{{WEATHER_KEY}}`. Anything a page needs to vary goes in `params` and is written `{{param.x}}`; " +
+              "values are URL-encoded, and a parameter not listed is ignored. A page then calls `useApi(\"<name>\", {x})`. " +
+              "The response comes back exactly as the service sent it, so write the page against that service's real shape. " +
+              "Set `cacheSeconds` to how long the answer stays good — an exchange rate is 3600, a stock level maybe 30 — " +
+              "because every uncached read spends the owner's own quota.",
+            items: {
+              type: "object",
+              required: ["name", "url"],
+              properties: {
+                name: { type: "string", description: "lowercase identifier the page calls by, e.g. exchange_rates" },
+                url: { type: "string", description: "https only. e.g. https://api.example.com/v1/latest?base={{param.base}}&key={{RATES_KEY}}" },
+                // A POST HERE IS STILL A READ, and the caching is why that has to
+                // be said. `normalizeApi` gives every declaration a 60-second
+                // window by default and `cacheKey` is slug|name|params — no method,
+                // no body — so a declared POST is sent ONCE and then answered from
+                // the store for a minute without contacting the service at all.
+                //
+                // Right for what this exists for: plenty of read endpoints require
+                // POST (GraphQL, some search and pricing APIs), and caching them is
+                // the whole point, since every uncached read spends the OWNER's own
+                // quota. Wrong the moment the POST does something — the first call
+                // lands, the next few silently do not, and it starts working again
+                // a minute later, which reads as the third party being flaky rather
+                // than as us not calling them.
+                //
+                // Not fixed by refusing to cache POSTs: that breaks the legitimate
+                // case and puts the owner's quota back on every page view. Fixed by
+                // saying the thing the model cannot infer from "POST only".
+                method: { type: "string", enum: ["GET", "POST"],
+                  description: "GET unless the service's READ endpoint requires POST (GraphQL, some search and pricing APIs). " +
+                    "NEVER use this to make something happen on the other side — send a message, place an order, reserve a slot. " +
+                    "Every answer here is cached, so the request is made once and then answered from the store until the window " +
+                    "expires: an action would run sometimes and not others. Outbound actions belong in a database function." },
+                headers: { type: "object", description: "e.g. {\"Authorization\":\"Bearer {{RATES_KEY}}\"}" },
+                body: { type: "string", description: "POST only. The request body, with the same {{SECRET}} and {{param.x}} placeholders." },
+                params: { type: "array", items: { type: "string" }, description: "Names a page may pass. Anything else is dropped." },
+                cacheSeconds: { type: "integer", description: "0-3600. How long one answer stays good. Every uncached read costs the owner." },
+              },
+            },
+          },
+          functions: {
+            type: "array",
+            description:
+              "OPTIONAL Postgres functions this site needs, called from a page by name. Use one ONLY when a page must do " +
+              "something a table's access level cannot express. THE CASE THIS EXISTS FOR: a `collect` table is write-only, so " +
+              "the customer who booked can never see their booking again. Give it a column " +
+              "{name:'claim_token', type:'text', default:'uuid'} — `default:'uuid'` is the reserved token that fills it with a " +
+              "random uuid, and the column is TEXT, so the function's argument is type 'text' too — plus a function taking that " +
+              "token and returning exactly the matching row, then " +
+              "the site can offer a link back to it. Declare a SECOND to cancel by the same token, and — for anything with a " +
+              "date, a time or a quantity in it — a THIRD to CHANGE it: same token argument plus one argument per field the " +
+              "customer may move, doing an UPDATE ... WHERE claim_token = tok. Without that third one the only way to shift an " +
+              "appointment is to cancel and rebook, which on a table with `unique` or `noOverlap` means giving up the slot before " +
+              "getting the new one. Change only the fields you took arguments for; never let it move status or the token itself. " +
+              "Skip all of this for a " +
+              "plain contact form, which nobody returns to. Bodies are plain SQL over this site's own tables.\n\n" +
+              // WHEN A SLOT HOLDS MORE THAN ONE PERSON. `unique` gives a capacity of
+              // exactly one and `maxRows` caps the WHOLE table — so "12 places in
+              // this class", "8 tables at 7pm", "30 pitches" was inexpressible, on a
+              // platform whose commonest site is a booking site. The substrate could
+              // already do it (a function is SECURITY DEFINER, so it writes into a
+              // table the caller cannot; `useRpcAction` calls it from a page) and
+              // nothing said so — the same dead-at-the-last-link shape this file
+              // keeps recording, arriving as a missing sentence rather than missing
+              // code. THE LOCK IS NOT OPTIONAL: a bare count-then-insert lets two
+              // people both see 11 of 12 and both book, which is the exact bug
+              // `unique` exists to prevent, reintroduced by the thing meant to
+              // generalise it.
+              "A SLOT THAT HOLDS MORE THAN ONE PERSON. `unique` on a booking table means a capacity of exactly ONE, " +
+              "and `maxRows` caps the whole table. When the brief says a class, a session, a table or a pitch holds " +
+              "N people, neither fits — so make the booking go through a function instead of straight into the table. " +
+              "Declare the table `write: \"none\"` so nothing can insert around it, and one function taking the " +
+              "customer's details plus whichever columns identify the slot. In the body: take " +
+              "`pg_advisory_xact_lock(hashtext(<the slot's identity>))` FIRST, then count the rows already in that " +
+              "slot, `RAISE EXCEPTION 'fully booked'` if it is at capacity, and INSERT otherwise. The lock is what " +
+              "makes it true — without it two people both see the last place and both get it, which is the double " +
+              "booking this is here to stop. Put the capacity where the brief puts it: a number on the class row when " +
+              "each class has its own, or a literal when the whole business has one number.\n\n" +
+              "RECEIVING DATA FROM ANOTHER SYSTEM. A function named `hook_<something>` taking exactly one jsonb argument and " +
+              "marked internal:true is reachable at POST /api/db/<slug>/hook/<something>, behind a shared secret the OWNER " +
+              "stores. Use it when the brief says another system sends this site data — a supplier's stock feed, a booking " +
+              "platform syncing appointments, an order marked shipped, a form service like Typeform or Zapier. The body does " +
+              "whatever the payload means: INSERT, UPDATE, or nothing. Make it IDEMPOTENT — senders retry, so declare a unique " +
+              "column for the sender's own event/order id and use ON CONFLICT DO NOTHING, or the same delivery lands twice. " +
+              "The `hook_` prefix is what makes it reachable; without it the function stays private to the platform.",
+            items: {
+              type: "object",
+              required: ["name", "returns", "body"],
+              properties: {
+                name: { type: "string", description: "lowercase identifier, e.g. booking_by_claim" },
+                // THE TWO HALVES OF THIS TOOL SPOKE DIFFERENT TYPE LANGUAGES. A
+                // column may be text/integer/real/boolean/json; an argument was
+                // offered seven types no column can ever be. A body compares its
+                // arguments to columns, so `{name:"d", type:"date"}` against a
+                // TEXT `slot_date` is `operator does not exist: text = date` — the
+                // function fails to CREATE, and the page's lookup is silently not
+                // there. Non-fatal and reported in `functionErrors`, so the site
+                // still builds without the capability it was asked for.
+                //
+                // The tool already knew this trap: its own example warned that a
+                // claim token is TEXT "not uuid". Somebody hit the uuid version and
+                // documented that one case; the date, numeric and bigint versions
+                // were left open.
+                //
+                // NARROWED IN WHAT IS OFFERED, NOT IN WHAT IS ACCEPTED. `date` and
+                // `timestamptz` are gone from this enum because NO column is ever
+                // either, so they can only be right via an explicit cast nothing
+                // asks for. The engine's own allow-list still takes them, so a
+                // schema stored before today re-applies on a revise exactly as it
+                // did — narrowing that too would break existing sites to tidy a
+                // prompt. `uuid` and `jsonb` STAY and are not oversights: `owner_id`
+                // and `team_id` really are UUID, and a `hook_*` handler takes
+                // exactly one jsonb payload.
+                //
+                // `integer` joins `int` because that is the word the columns use,
+                // and the engine has always accepted both — offering one spelling
+                // while the other half of the tool uses the other is the mismatch
+                // in miniature.
+                args: {
+                  type: "array",
+                  description: "Arguments, matched to the COLUMN each one is compared against. What a declared column really is in Postgres: " +
+                    "`text` is TEXT · `integer` is INTEGER · `real` is REAL · `boolean` is INTEGER 0/1, NOT boolean · `json` is TEXT, NOT jsonb. " +
+                    "The columns the platform adds: `id` is INTEGER, `owner_id` and `team_id` are UUID, and `created_at` and every other " +
+                    "timestamp is TEXT in 'YYYY-MM-DD HH:MM:SS'. " +
+                    "THERE IS NO DATE COLUMN — a date or a time lives in a TEXT column, so an argument matching one is `text`. " +
+                    "A claim lookup takes one: {name:'tok', type:'text'} — the claim_token column is TEXT, so the argument matching it is text, not uuid.",
+                  items: {
+                    type: "object",
+                    required: ["name", "type"],
+                    properties: {
+                      name: { type: "string" },
+                      type: { type: "string", enum: ["text", "int", "integer", "bigint", "numeric", "boolean", "uuid", "json", "jsonb"] },
+                    },
+                  },
+                },
+                returns: { type: "string", description: "'setof <table>' for rows of a table this schema declares, else one of void/text/int/bigint/numeric/boolean/uuid/date/timestamptz/json/jsonb." },
+                body: { type: "string", description: "The SQL body only — no CREATE FUNCTION, no $$ wrapper. e.g. SELECT * FROM bookings WHERE claim_token = tok" },
+                internal: { type: "boolean", description:
+                  "Set true when the function is for the PLATFORM to call, never a page — a `confirm: {fn}` message builder, or a `hook_*` inbound webhook handler. " +
+                  "An internal function gets no EXECUTE grant, so no visitor can call it. That matters: it takes a row id and returns somebody's " +
+                  "email address and message, so left callable a stranger reads any customer's confirmation by guessing a number. " +
+                  "Leave it off for anything a page calls by name, like a claim lookup." },
+              },
+            },
+          },
           tables: {
             type: "array",
             // THE ARRAY ITSELF SAID NOTHING. 36% of this tool's ~11,250 tokens sit
@@ -4032,314 +4394,14 @@ const SITE_SCHEMA_TOOL = {
               "content to write, it should not have been a display table.",
             additionalProperties: { type: "array", items: { type: "object" } },
           },
-          functions: {
-            type: "array",
-            description:
-              "OPTIONAL Postgres functions this site needs, called from a page by name. Use one ONLY when a page must do " +
-              "something a table's access level cannot express. THE CASE THIS EXISTS FOR: a `collect` table is write-only, so " +
-              "the customer who booked can never see their booking again. Give it a column " +
-              "{name:'claim_token', type:'text', default:'uuid'} — `default:'uuid'` is the reserved token that fills it with a " +
-              "random uuid, and the column is TEXT, so the function's argument is type 'text' too — plus a function taking that " +
-              "token and returning exactly the matching row, then " +
-              "the site can offer a link back to it. Declare a SECOND to cancel by the same token, and — for anything with a " +
-              "date, a time or a quantity in it — a THIRD to CHANGE it: same token argument plus one argument per field the " +
-              "customer may move, doing an UPDATE ... WHERE claim_token = tok. Without that third one the only way to shift an " +
-              "appointment is to cancel and rebook, which on a table with `unique` or `noOverlap` means giving up the slot before " +
-              "getting the new one. Change only the fields you took arguments for; never let it move status or the token itself. " +
-              "Skip all of this for a " +
-              "plain contact form, which nobody returns to. Bodies are plain SQL over this site's own tables.\n\n" +
-              // WHEN A SLOT HOLDS MORE THAN ONE PERSON. `unique` gives a capacity of
-              // exactly one and `maxRows` caps the WHOLE table — so "12 places in
-              // this class", "8 tables at 7pm", "30 pitches" was inexpressible, on a
-              // platform whose commonest site is a booking site. The substrate could
-              // already do it (a function is SECURITY DEFINER, so it writes into a
-              // table the caller cannot; `useRpcAction` calls it from a page) and
-              // nothing said so — the same dead-at-the-last-link shape this file
-              // keeps recording, arriving as a missing sentence rather than missing
-              // code. THE LOCK IS NOT OPTIONAL: a bare count-then-insert lets two
-              // people both see 11 of 12 and both book, which is the exact bug
-              // `unique` exists to prevent, reintroduced by the thing meant to
-              // generalise it.
-              "A SLOT THAT HOLDS MORE THAN ONE PERSON. `unique` on a booking table means a capacity of exactly ONE, " +
-              "and `maxRows` caps the whole table. When the brief says a class, a session, a table or a pitch holds " +
-              "N people, neither fits — so make the booking go through a function instead of straight into the table. " +
-              "Declare the table `write: \"none\"` so nothing can insert around it, and one function taking the " +
-              "customer's details plus whichever columns identify the slot. In the body: take " +
-              "`pg_advisory_xact_lock(hashtext(<the slot's identity>))` FIRST, then count the rows already in that " +
-              "slot, `RAISE EXCEPTION 'fully booked'` if it is at capacity, and INSERT otherwise. The lock is what " +
-              "makes it true — without it two people both see the last place and both get it, which is the double " +
-              "booking this is here to stop. Put the capacity where the brief puts it: a number on the class row when " +
-              "each class has its own, or a literal when the whole business has one number.\n\n" +
-              "RECEIVING DATA FROM ANOTHER SYSTEM. A function named `hook_<something>` taking exactly one jsonb argument and " +
-              "marked internal:true is reachable at POST /api/db/<slug>/hook/<something>, behind a shared secret the OWNER " +
-              "stores. Use it when the brief says another system sends this site data — a supplier's stock feed, a booking " +
-              "platform syncing appointments, an order marked shipped, a form service like Typeform or Zapier. The body does " +
-              "whatever the payload means: INSERT, UPDATE, or nothing. Make it IDEMPOTENT — senders retry, so declare a unique " +
-              "column for the sender's own event/order id and use ON CONFLICT DO NOTHING, or the same delivery lands twice. " +
-              "The `hook_` prefix is what makes it reachable; without it the function stays private to the platform.",
-            items: {
-              type: "object",
-              required: ["name", "returns", "body"],
-              properties: {
-                name: { type: "string", description: "lowercase identifier, e.g. booking_by_claim" },
-                // THE TWO HALVES OF THIS TOOL SPOKE DIFFERENT TYPE LANGUAGES. A
-                // column may be text/integer/real/boolean/json; an argument was
-                // offered seven types no column can ever be. A body compares its
-                // arguments to columns, so `{name:"d", type:"date"}` against a
-                // TEXT `slot_date` is `operator does not exist: text = date` — the
-                // function fails to CREATE, and the page's lookup is silently not
-                // there. Non-fatal and reported in `functionErrors`, so the site
-                // still builds without the capability it was asked for.
-                //
-                // The tool already knew this trap: its own example warned that a
-                // claim token is TEXT "not uuid". Somebody hit the uuid version and
-                // documented that one case; the date, numeric and bigint versions
-                // were left open.
-                //
-                // NARROWED IN WHAT IS OFFERED, NOT IN WHAT IS ACCEPTED. `date` and
-                // `timestamptz` are gone from this enum because NO column is ever
-                // either, so they can only be right via an explicit cast nothing
-                // asks for. The engine's own allow-list still takes them, so a
-                // schema stored before today re-applies on a revise exactly as it
-                // did — narrowing that too would break existing sites to tidy a
-                // prompt. `uuid` and `jsonb` STAY and are not oversights: `owner_id`
-                // and `team_id` really are UUID, and a `hook_*` handler takes
-                // exactly one jsonb payload.
-                //
-                // `integer` joins `int` because that is the word the columns use,
-                // and the engine has always accepted both — offering one spelling
-                // while the other half of the tool uses the other is the mismatch
-                // in miniature.
-                args: {
-                  type: "array",
-                  description: "Arguments, matched to the COLUMN each one is compared against. What a declared column really is in Postgres: " +
-                    "`text` is TEXT · `integer` is INTEGER · `real` is REAL · `boolean` is INTEGER 0/1, NOT boolean · `json` is TEXT, NOT jsonb. " +
-                    "The columns the platform adds: `id` is INTEGER, `owner_id` and `team_id` are UUID, and `created_at` and every other " +
-                    "timestamp is TEXT in 'YYYY-MM-DD HH:MM:SS'. " +
-                    "THERE IS NO DATE COLUMN — a date or a time lives in a TEXT column, so an argument matching one is `text`. " +
-                    "A claim lookup takes one: {name:'tok', type:'text'} — the claim_token column is TEXT, so the argument matching it is text, not uuid.",
-                  items: {
-                    type: "object",
-                    required: ["name", "type"],
-                    properties: {
-                      name: { type: "string" },
-                      type: { type: "string", enum: ["text", "int", "integer", "bigint", "numeric", "boolean", "uuid", "json", "jsonb"] },
-                    },
-                  },
-                },
-                returns: { type: "string", description: "'setof <table>' for rows of a table this schema declares, else one of void/text/int/bigint/numeric/boolean/uuid/date/timestamptz/json/jsonb." },
-                body: { type: "string", description: "The SQL body only — no CREATE FUNCTION, no $$ wrapper. e.g. SELECT * FROM bookings WHERE claim_token = tok" },
-                internal: { type: "boolean", description:
-                  "Set true when the function is for the PLATFORM to call, never a page — a `confirm: {fn}` message builder, or a `hook_*` inbound webhook handler. " +
-                  "An internal function gets no EXECUTE grant, so no visitor can call it. That matters: it takes a row id and returns somebody's " +
-                  "email address and message, so left callable a stranger reads any customer's confirmation by guessing a number. " +
-                  "Leave it off for anything a page calls by name, like a claim lookup." },
-              },
-            },
-          },
-          apis: {
-            type: "array",
-            description:
-              "OPTIONAL third-party APIs this site reads at request time. Use one ONLY when the brief needs live data that is " +
-              "not in this site's own database and is not fixed at build time: today's exchange rate, a courier's delivery " +
-              "slots, a supplier's stock level, the weather for an outdoor venue. Do NOT use it for anything a table can hold.\n\n" +
-              "Write the WHOLE request and put `{{SECRET_NAME}}` wherever a credential belongs — the site OWNER stores that " +
-              "value in Secrets and it is substituted server-side, so no key is ever in the page. Name the secret after the " +
-              "service, e.g. `{{WEATHER_KEY}}`. Anything a page needs to vary goes in `params` and is written `{{param.x}}`; " +
-              "values are URL-encoded, and a parameter not listed is ignored. A page then calls `useApi(\"<name>\", {x})`. " +
-              "The response comes back exactly as the service sent it, so write the page against that service's real shape. " +
-              "Set `cacheSeconds` to how long the answer stays good — an exchange rate is 3600, a stock level maybe 30 — " +
-              "because every uncached read spends the owner's own quota.",
-            items: {
-              type: "object",
-              required: ["name", "url"],
-              properties: {
-                name: { type: "string", description: "lowercase identifier the page calls by, e.g. exchange_rates" },
-                url: { type: "string", description: "https only. e.g. https://api.example.com/v1/latest?base={{param.base}}&key={{RATES_KEY}}" },
-                // A POST HERE IS STILL A READ, and the caching is why that has to
-                // be said. `normalizeApi` gives every declaration a 60-second
-                // window by default and `cacheKey` is slug|name|params — no method,
-                // no body — so a declared POST is sent ONCE and then answered from
-                // the store for a minute without contacting the service at all.
-                //
-                // Right for what this exists for: plenty of read endpoints require
-                // POST (GraphQL, some search and pricing APIs), and caching them is
-                // the whole point, since every uncached read spends the OWNER's own
-                // quota. Wrong the moment the POST does something — the first call
-                // lands, the next few silently do not, and it starts working again
-                // a minute later, which reads as the third party being flaky rather
-                // than as us not calling them.
-                //
-                // Not fixed by refusing to cache POSTs: that breaks the legitimate
-                // case and puts the owner's quota back on every page view. Fixed by
-                // saying the thing the model cannot infer from "POST only".
-                method: { type: "string", enum: ["GET", "POST"],
-                  description: "GET unless the service's READ endpoint requires POST (GraphQL, some search and pricing APIs). " +
-                    "NEVER use this to make something happen on the other side — send a message, place an order, reserve a slot. " +
-                    "Every answer here is cached, so the request is made once and then answered from the store until the window " +
-                    "expires: an action would run sometimes and not others. Outbound actions belong in a database function." },
-                headers: { type: "object", description: "e.g. {\"Authorization\":\"Bearer {{RATES_KEY}}\"}" },
-                body: { type: "string", description: "POST only. The request body, with the same {{SECRET}} and {{param.x}} placeholders." },
-                params: { type: "array", items: { type: "string" }, description: "Names a page may pass. Anything else is dropped." },
-                cacheSeconds: { type: "integer", description: "0-3600. How long one answer stays good. Every uncached read costs the owner." },
-              },
-            },
-          },
-          jobs: {
-            type: "array",
-            description:
-              "OPTIONAL scheduled work — the site doing something on a timer, with nobody there. THE CASE THIS EXISTS FOR: reminding tomorrow's " +
-              "customers today, so they turn up. Also a weekly digest to the owner, or chasing an unpaid invoice. Skip it entirely for a site " +
-              "that only takes enquiries. " +
-              "Each job names a function you ALSO declare in `functions` with `internal: true`, taking NO arguments and returning `json` — an ARRAY of " +
-              "{to, subject, body}, one per message to send. Return an empty array when there is nothing to do, which is most runs. " +
-              "The function is ordinary SQL, so decide whatever you like inside it: who is due, what it says, joined to anything on the site. " +
-              "EACH MESSAGE MAY BE AN EMAIL OR A TEXT: add \"channel\":\"sms\" to one and give it `to` (a full international number, +44…) and `body` and NO subject. " +
-              "A text is what gets read for a day-before reminder from a barber, a garage or a restaurant; an email is right for a digest or anything long. Leave `channel` out for email. " +
-              "The site owner pastes their own provider key in Settings — an email one, an SMS one, or both; until they do, that channel sends nothing and the other still goes. " +
-              "Minimum interval is 15 minutes and anything shorter is rounded up to it — for a day-before reminder use 1440.",
-            items: {
-              type: "object",
-              required: ["name", "fn", "everyMinutes"],
-              properties: {
-                name: { type: "string", description: "lowercase identifier, e.g. remind_tomorrow" },
-                fn: { type: "string", description: "The internal function returning the messages, e.g. bookings_due_tomorrow" },
-                everyMinutes: { type: "integer", description: "How often to run. 1440 = daily, 60 = hourly. Minimum 15." },
-              },
-            },
-          },
         },
         required: ["tables", "seed"],
       },
-      // Starter content, and not a nicety: nothing can write to a `display` table
-      // after the build — not even the owner — so whatever is not seeded here is
-      // an empty list forever, and a form whose required Select reads that table
-      // cannot be submitted by anyone.
-      // Goes in the published page's head. Until 2026-07-28 a generated site had
-      // a <title> and nothing else, so sharing its link on WhatsApp, iMessage or
-      // Slack showed a bare URL — and for a small business that link IS the
-      // marketing.
-      description: {
-        type: "string",
-        description:
-          "One sentence describing the business, as it should appear under the name in a Google result or a shared-link preview. " +
-          "Write it for a customer, not a developer: what it is, where, and what someone can do here — 'Skin fades and hot-towel shaves in Lisbon. Book online.' " +
-          "Under 160 characters. No quotes, no line breaks.",
-      },
-      // ── THE SITE'S WHOLE STYLESHEET, WRITTEN BY THE MODEL ────────────────
-      //
-      // Owner's call, 2026-08-23: "for the look, the css, we are gonna delete
-      // those 5 steps into 1 step, which is gonna be called css, and we are
-      // gonna give the model freedom, so with no words, the model is gonna make
-      // the css."
-      //
-      // FIVE FIELDS BECAME THIS ONE. `seeds` asked for three anchor colours,
-      // `fonts` for a pairing off a 24-name enum, `style` for 29 axes each with
-      // its own selector and property allow-list, `tokens` for 24 named colours
-      // and `tokensPage` for a page to scope them to. Between them they were
-      // ~40,000 characters of vocabulary describing a design in OUR words. The
-      // model writes CSS in its own now.
-      //
-      // ── WHAT THE ARM-A MEASUREMENT SAYS, AND WHY IT IS NOT THIS ──────────
-      //
-      // `lido-free-a` swapped the 29 axes for a free `css` string and the
-      // rule-level diff was brutal: arm B carried 24 rules the free arm did not,
-      // arm A carried 7, and four of those seven are Tailwind and the palette,
-      // one is the type scale, one is shadows switched off, and one is the
-      // template's own DEFAULT icon weight. Given a free hand the model wrote
-      // almost nothing.
-      //
-      // THAT ARM IS NOT THIS ONE, AND THE DIFFERENCE IS THE WHOLE REASON THE
-      // NUMBER MAY NOT HOLD. Arm A kept `seeds` — so there was still a field
-      // asking for the palette, and the palette is exactly what landed. This
-      // repo already wrote down what that shape does: "a hatch beside a full
-      // menu is a hatch nobody opens", measured on run 14, where two axes had an
-      // authored escape hatch beside twenty-three enums and the model reached
-      // for neither. With nothing else to answer, the question is unavoidable.
-      // Whether that is enough is a live question, and the first build against
-      // this field is what answers it.
-      //
-      // ── EXISTING SITES ARE UNTOUCHED, AND THAT IS BY CONSTRUCTION ────────
-      //
-      // Every site published before today stores `site_look.seeds`,
-      // `site_look.fonts`, `site_tokens` and `site_style`, and both publish
-      // spines still READ and SEND all four on every republish. Nothing stopped
-      // carrying them — the TOOL stopped asking for them. So one deploy
-      // re-styles no site, and `EDIT_FIELDS` deliberately still names `seeds`
-      // and `fonts` for the same reason: `mergeLook` rebuilds its output from
-      // that list, so dropping a name there would strip the palette off every
-      // existing site on its owner's next unrelated edit.
-      //
-      // THE CONTAINER WRITES THIS LAST — after the theme, the token patch and
-      // the per-page scope — so on a site that has both, the model's rules sit
-      // on top of the stored look rather than fighting it, and on a new site
-      // they sit on top of the template's own defaults.
-      css: {
-        type: "string",
-        description:
-          "THE SITE'S ENTIRE STYLESHEET, as CSS. Write it for THIS business — there is no palette field, no font " +
-          "field and no list of options: whatever the site looks like, you write here.\n" +
-          "WHAT IT LANDS ON: a React app built from shadcn/ui with Tailwind v4. Every component paints with CSS " +
-          "custom properties, so setting those is what changes the whole site at once. The ones the kit reads are:\n" +
-          SITE_TOKEN_NAMES.map((t) => "--" + t).join(", ") + ", --font-sans, --font-heading.\n" +
-          "Each `--x` has a matching `--x-foreground` for the text on it; `--radius` is a length every corner in the " +
-          "kit derives from.\n" +
-          "`:root` IS WHAT THE SITE LOOKS LIKE — there is no separate light/dark switch. A dark site is dark values " +
-          "on `:root`: near-black `--background`, pale `--foreground`, and every other pair solved against them. " +
-          "Choose it from the brief the way you choose anything else — a night club, a recording studio, a tattoo " +
-          "parlour or a cinema reads dark; most trades read light.\n" +
-          "`.dark` is OPTIONAL and only does something on a page that renders a theme toggle, which lets a visitor " +
-          "switch. Write it only if you put one there, and make it the opposite of `:root`, not a second guess at it.\n" +
-          "YOUR RULES ARE WRITTEN LAST, so an ordinary selector beats anything the template shipped. Style whatever " +
-          "you like beyond the variables: headings, links, buttons, cards, backgrounds, borders, hover and focus " +
-          "states, animations, gradients, textures, spacing, media queries.\n" +
-          // ── ONE PAGE'S OWN LOOK, WHICH USED TO BE ITS OWN FIELD ─────────────
-          //
-          // `tokensPage` scoped a colour or a typeface to one route and went with
-          // the other four. The capability did not: `<body>` carries the current
-          // route as `data-page`, stamped from the router's own matches, so a
-          // model writing raw CSS can scope ANYTHING to a page — which is wider
-          // than the field ever was (it refused corners and spacing outright,
-          // because those were derived from the site's and could not be scoped).
-          //
-          // SAID OUT LOUD BECAUSE IT IS NOT GUESSABLE. `data-page` is a stamp of
-          // ours on an element nothing else here mentions; a model that is not
-          // told about it has no way to know a page can be addressed at all, and
-          // "make the booking page calmer" becomes unreachable — which is the
-          // `publicView` failure this repo has already paid for twice: a
-          // capability conditioned on a fact the model was never given.
-          "ONE PAGE CAN HAVE ITS OWN LOOK. `<body>` carries the current route, so `body[data-page=\"/book\"] { … }` " +
-          "styles the booking page and nothing else — colours, type, spacing, anything. `\"/\"` is the home page.\n" +
-          "TYPEFACES ARE A FILE, NOT AN OPINION. Name any Google Fonts family in a `font-family` and it is downloaded " +
-          "and served from the site's own domain — `--font-sans: \"Lora\", Georgia, serif`. A family that is not on " +
-          "Google Fonts cannot be fetched and silently falls back, so give every stack a real fallback either way. " +
-          "System faces (Georgia, Helvetica) need no fetch and are a legitimate answer.\n" +
-          "TWO THINGS THAT WILL NOT WORK, so do not spend the site's look on them: `url()` pointing at another " +
-          "domain (the site's security policy refuses it, so the image or font simply never loads — a `data:` URI is " +
-          "fine), and `@import`.\n" +
-          "ON A REVISE, return the stylesheet the site has NOW with only the asked-for change made to it. This " +
-          "REPLACES what the site is wearing, so anything you leave out is gone — a request to change one colour must " +
-          "not come back as a different design.",
-      },
-      // THE SHAPE — SIX AUTHORED FIELDS WHERE `family` USED TO BE (owner's call,
-      // 2026-08-20). Distinct from the theme on purpose: a theme decides how a
-      // site looks, these decide what its pages ARE and in what order.
-      //
-      // Until this, one field named one of 100 pre-written families and the
-      // platform looked the answers up — so every barber shop got the barber
-      // shop's page set and verb, decided by a person, for a trade, before any
-      // particular site existed. The owner's direction is that the model decides
-      // per site; `site-plan.mjs` is that decision as a plain module, and
-      // spreading it here means the tool has ONE definition of them.
-      //
-      // FOUR OF THE FIVE ARE HERE. `shape` is spliced in below the language
-      // fields instead, so it is answered last of everything — see the comment
-      // there and `SHAPE_FIELD`. `PLAN_KEYS` is still all five and is still what
-      // every guard derives from; it is the semantic set, not this order.
-      //
-      // ORDER MATTERS AND IS ASSERTED: `components` is LAST of these four, so
-      // it is picked after the page list above it has been written.
-      ...PLAN_FIELDS,
+      // THE PRIMARY VERB, AND IT IS ANSWERED AFTER THE THING IT LEADS
+      // (owner's call, 2026-08-24). See ACTION_FIELD for what that costs: the
+      // manifest and the per-page arrangement are both chosen above this line,
+      // so the bands the verb is meant to lead are laid out before it exists.
+      action: ACTION_FIELD,
       // WHAT LANGUAGE THE SITE IS WRITTEN IN, which nothing could say until
       // 2026-08-12 — the template hardcodes `<html lang="en">`, so a peluquería
       // in Madrid published as English and Chrome offered its own customers a
@@ -4385,63 +4447,6 @@ const SITE_SCHEMA_TOOL = {
           "language the brief was written in — that one is `lang`. This is the WHOLE list, not an addition: " +
           "to keep what the site has, leave it out; to remove every extra language, answer `[]`.",
       },
-      // `mode` IS GONE — LIGHT OR DARK IS A COLOUR, AND COLOUR IS `css`
-      // (owner's call, 2026-08-23). Kept as an ABSENCE rather than only
-      // deleted, on the precedent that replaced the repair-pass tests with
-      // "a second call never happens": a field quietly restored beside `css`
-      // gives the model two ways to decide one thing, and they disagree.
-      //
-      // IT WAS A FIELD BACK WHEN A THEME WAS A NAME. The registry shipped a
-      // designed dark half per theme and `mode` chose which of the two was
-      // activated, so the site's darkness really was a separate decision from
-      // its palette. The registry went on 2026-08-20 and the model writes the
-      // palette itself now, so "make it dark" is: write dark values on `:root`.
-      // The field survived that change and stopped having a job.
-      //
-      // AND ITS ORDER SAID SO. A tool's property order is its generation
-      // order, and `mode` sat at 16 against `css` at 9 — so its own text
-      // ("the theme already has a dark half drawn for it") described a theme
-      // the model had written seven fields earlier. It could only ever ratify
-      // what `css` had already decided.
-      //
-      // THE `.dark` CLASS STAYS AND IS NOT DEAD, which is the one thing to
-      // check before reading this as "dark mode was removed". `theme-toggle`
-      // toggles it on `documentElement`, so a page that renders one lets a
-      // VISITOR switch. What goes is the BAKED default, which was the owner's
-      // decision and is now just where they put their colours.
-      //
-      // Measured before pulling it: 0 of the 2,112 kit components carry a
-      // `dark:` utility, so nothing in the kit adjusts itself for the class —
-      // the whole of dark mode is token values, which is to say `css`.
-      // SHAPE IS LAST OF THE FRONT-END FIELDS, ON PURPOSE, AND IT IS A PLAN
-      // FIELD SITTING AWAY FROM THE OTHER FOUR (owner's call, 2026-08-21).
-      //
-      // A tool's property order is its generation order — the reason
-      // `components` is pinned last inside `PLAN_FIELDS` is that it is picked
-      // after the page list it has to serve. `shape` is the field that says
-      // where everything GOES, so it is the one that gains most from being
-      // answered last: written here, the purpose, the page set, the verb, the
-      // component manifest, the typeface, the palette, all 23 style axes and
-      // light-or-dark are already decided, and it arranges a page whose parts
-      // it has actually chosen rather than one it is still guessing at.
-      //
-      // It stays in `PLAN_KEYS`, `PLAN_REQUIRED` and `PLAN_EDIT_FIELDS` — this
-      // moves WHEN it is answered, nothing about what it is. See SHAPE_FIELD.
-      shape: SHAPE_FIELD,
-      // AND THE PHOTOGRAPHS LAST OF ALL (owner's call, 2026-08-23 — "lets move
-      // image generator to the designer").
-      //
-      // IT WAS DECIDED IN TWO PLACES AND THE DESIGNER WAS IN NEITHER: how many
-      // pictures a site got was a RULE derived from the page list, and what each
-      // one was OF came from the page-generation call. Measured: `page-gen.mjs`
-      // holds ZERO references to `css`, so the model describing the pictures had
-      // never seen the palette — it could not know it was dressing a near-black
-      // recording studio.
-      //
-      // PAST `shape`, so by here the palette is written, the pages are chosen,
-      // the verb is fixed, the manifest is picked and every band is arranged.
-      // "The hero on /" is a slot this model just placed. See IMAGES_FIELD.
-      images: IMAGES_FIELD,
       // THE WEB-SEARCH GATE, RIDING ON A CALL THAT ALREADY HAPPENS. Searching
       // costs real money per search and is worth it on a small minority of
       // briefs, so it has to be gated — and the obvious way to gate it, a small

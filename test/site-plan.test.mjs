@@ -141,8 +141,42 @@ test("every late field is answered after the fields its own description claims",
   // the property is a DEPENDENCY, and a field landing after either of them
   // cannot falsify it — only moving one above what it depends on can.
   const DEPENDS = {
-    shape: ["pages", "action", "components"],
-    images: ["pages", "components", "shape", "css"],
+    // `action` LEFT `shape`'s list ON 2026-08-24 AND THE DESCRIPTION MOVED WITH
+    // IT, which is the half that matters. The owner's ordering answers the verb
+    // at 15 and `shape` at 7, so shape's own sentence — "the pages, the primary
+    // action and the component manifest are already decided" — became false the
+    // moment the order changed. A tool description that states something untrue
+    // is the class this repo has paid for three times (the `#/` href rule, the
+    // `fonts` field, the `mode` field): each was true when written and expired
+    // when the layer under it moved, and nothing announced it. So the claim was
+    // rewritten rather than the guard loosened, and what is left here is what
+    // shape still genuinely reasons about.
+    shape: ["pages", "components"],
+    // `css` LEFT THIS LIST ON 2026-08-24 AND IT IS THE ONE CHANGE HERE WORTH
+    // ARGUING WITH LATER. The owner's ordering answers `images` at 8 and `css`
+    // at 9, so the photographs are described before the stylesheet exists.
+    //
+    // That reverses a decision made on 2026-08-23 with a measurement behind it:
+    // `images` was moved LAST precisely because the step choosing what the
+    // pictures SHOW had never seen the palette — "it could not know it was
+    // dressing a near-black recording studio". Under this order it does not know
+    // again. Nothing breaks and no build fails; what is lost is that a photograph
+    // can no longer be described to suit the look, because the look is chosen
+    // after it.
+    //
+    // The claim was removed from the description rather than left standing, since
+    // a tool that says "you have just chosen this site's palette" when it has not
+    // is the expired-premise class this repo has paid for three times. Moving
+    // `css` above `images` in the tool restores both the dependency and the
+    // sentence.
+    images: ["pages", "components", "shape"],
+    // NOTHING, DELIBERATELY, AND NOT AN OVERSIGHT. `action` is now spliced like
+    // the other two, so the derived check below requires an entry for it — and
+    // its description makes no claim about what is already decided. It says what
+    // the verb LEADS, which is a statement about the pages, not a dependency on
+    // them. An empty list is the honest answer and still forces the next person
+    // moving it to come here and think.
+    action: [],
   };
   const { tool } = await readSchemaTool();
   const order = Object.keys(tool.input_schema.properties);
