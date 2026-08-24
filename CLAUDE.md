@@ -3,6 +3,16 @@
 > **Read `docs/owner-notes.md` at the start of every session** — it's the owner's
 > running bug log + how-they-like-things-done preferences. Keep it updated.
 
+## THE MANIFEST IS A CAP NOW, NOT A RANGE — 24 → 50 (2026-08-24, owner's call)
+
+**"i wanna put 50 components instead of 10-24, 50 max, so the model chooses how many it needs."** `MAX_COMPONENTS` 24 → 50, and **the FLOOR went with it**: the field asked for `10-24`, and a range makes a site that genuinely needs eight components pad to ten. What is left is a ceiling and a judgement.
+
+- **THE COST IS THE PER-SITE BLOCK AND IT IS NOT CACHED, which is the whole reason to measure rather than assume.** `components` is a MANIFEST: `siteComponentApi` prints the exact props of every name on it **into the USER message**, deliberately — a block that varies per site inside the cached prefix would miss the ~27,000-token prefix on every build, measured at thirteen times the input cost. So this is FRESH INPUT at 1x, every build.
+- **DRIVEN AGAINST THE REAL `componentApiFor`, not estimated: 24 names is 3,872 characters (~1,076 tokens) and 50 is 9,494 (~2,637).** +1,561 tokens, which at the default picker's own rate is **+$0.0031 — 0.39 credits, about 1% of a 38-credit build.** And it is only paid by a site that really names 50: a shop that needs twelve sends twelve, which is exactly what dropping the floor is for.
+- **THE MENU IS UNCHANGED AND THAT DISTINCTION IS WHAT THE COMMENT GOT WRONG.** `COMPONENT_MENU` went to all 2,112 names on 2026-08-21 and its note claimed *"`MAX_COMPONENTS` is unchanged, so the MANIFEST does not grow; only the menu it is chosen from."* True then and false now — corrected in place, because a comment that stops being true is what gets believed.
+- **THE CAP IS STILL IN CODE AS WELL AS IN THE DESCRIPTION**, which is this repo's standing distinction: `normalizePlan` slices to `MAX_COMPONENTS`, so a model naming sixty gets fifty. A cap a model is merely told about is not a cap.
+- 4057 tests. **NOT PROVEN LIVE** — the Anthropic account is dry, so no designer has answered the wider field.
+
 ## THE LOOK IS THE STYLESHEET, AND THE OTHER SIX FIELDS WERE ALREADY DEAD (2026-08-24, owner's call)
 
 **"lets delete this and let it just be css, when the model makes the css."** The merge step reconciled thirteen look fields across two publish spines and the look edit lane; `css` is the only one left. **worker.js 1,162,152 → 1,143,050 characters**, 21 imported names down to 1.

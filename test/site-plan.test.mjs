@@ -524,7 +524,7 @@ test("the directive names every page and the verb", () => {
 /* ── components are per site: names cached, signatures for this manifest ── */
 
 test("THE DESIGNER IS GIVEN A PALETTE, because a compelled field with no list is guesswork", () => {
-  // `components` compels 10-24 names out of a kit of 2,112 and, until this, named
+  // `components` compels a manifest out of a kit of 2,112 and, until this, named
   // not one of them — so the designer answered from imagination. Most of this kit
   // is named things no model would guess (`stats-band`, `trust-strip`,
   // `rate-card`, `week-strip`), and an invented name resolves to no signature at

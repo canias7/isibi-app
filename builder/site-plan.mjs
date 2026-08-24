@@ -100,7 +100,7 @@ export const PLAN_EDIT_FIELDS = PLAN_KEYS;
 /**
  * WHAT THE DESIGNER PICKS ITS MANIFEST FROM — 279 names, ordered most-used-first.
  *
- * IT NEEDED A LIST AND HAD NONE. `components` compels 10-24 names out of a kit of
+ * IT NEEDED A LIST AND HAD NONE. `components` compels a manifest out of a kit of
  * 2,112, and until this the field described the job and named not one component,
  * so the designer was answering from imagination. Most of this kit is named
  * things no model could guess — `stats-band`, `trust-strip`, `rate-card`,
@@ -221,8 +221,9 @@ export const KIT_PALETTE = [
  * ORDER IS KEPT, AND IT IS THE HALF THAT STILL EARNS ITS PLACE. The 279 lead, in
  * their measured frequency order, then everything else alphabetically — so the
  * head of the list is still real signal about what a site usually needs, and the
- * tail is there for the site that needs something else. `MAX_COMPONENTS` is
- * unchanged, so the MANIFEST does not grow; only the menu it is chosen from.
+ * tail is there for the site that needs something else. That change grew the
+ * MENU and not the MANIFEST; the manifest's own cap moved separately on
+ * 2026-08-24, 24 -> 50 — see `MAX_COMPONENTS` for what it costs.
  *
  * Derived from both lists rather than written out, or it goes stale the first
  * time a component is added to the kit.
@@ -240,7 +241,20 @@ export const COMPONENT_MENU = (() => {
 // sentence. A cap a model is merely told about is not a cap.
 export const MAX_PAGES = 5;
 export const MAX_ACTION = 3;
-export const MAX_COMPONENTS = 24;
+// 24 UNTIL 2026-08-24, AND THE OWNER RAISED IT TO 50: "so the model chooses how
+// many it needs, and the cap is 50." A FLOOR WENT WITH IT — the field asked for
+// "10-24", which is a range, and a range makes a site that genuinely needs eight
+// components pad to ten. What is left is a ceiling and a judgement.
+//
+// THE COST IS MEASURED AND IT IS THE PER-SITE BLOCK, NOT THE CACHED ONE. This is
+// a MANIFEST: page generation is shown the exact props of every name on it, and
+// that block is per site, so it is FRESH INPUT on every build and cannot be
+// cached. Driven against the real `componentApiFor`: 24 names is 3,872
+// characters (~1,076 tokens) and 50 is 9,494 (~2,637) — +1,561 tokens, which on
+// the default picker's rate is +$0.0031, or **0.39 credits**, about 1% of a
+// 38-credit build. And it is only paid by a site that really names 50: a shop
+// that needs twelve sends twelve.
+export const MAX_COMPONENTS = 50;
 
 /**
  * How many bands one page may declare, MEASURED rather than chosen.
@@ -629,7 +643,7 @@ export const PLAN_FIELDS = {
     type: "array",
     items: { type: "string" },
     description:
-      `${MAX_COMPONENTS >= 24 ? "10-24" : "10-" + MAX_COMPONENTS} components from the kit that this site will need. ` +
+      `As many components from the kit as this site needs, at most ${MAX_COMPONENTS}. ` +
       "THIS IS A MANIFEST, NOT A SHORTLIST: the step that writes the pages is shown the exact props of the " +
       "components you name here, so one you leave out is one it has to guess the props of — and a wrong guess " +
       "costs that page. You have just written the page list above; name what those pages need, the ordinary " +

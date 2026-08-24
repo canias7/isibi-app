@@ -12,6 +12,32 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ## OPEN — waiting to be picked up
 
+**THE COMPONENT LIST IS A CAP NOW, NOT A RANGE — 24 UP TO 50 (2026-08-24).**
+
+You asked for 50 instead of 10-24, with the model choosing how many it needs.
+Done, and **I dropped the floor as well as raising the ceiling** — asking for
+"10 to 24" makes a site that genuinely needs eight components pad out to ten.
+It now reads "as many as this site needs, at most 50".
+
+**What this costs, measured rather than guessed.** That list is a *manifest*:
+the step that writes the pages is shown the exact instructions for every
+component named on it, and that block is different for every site, so it cannot
+be re-used between builds — it is paid for in full each time. I drove the real
+code: 24 components is about 1,076 tokens and 50 is about 2,637. **That is 0.39
+credits, roughly 1% of a 38-credit build** — and only a site that really names
+fifty pays it. A shop that needs twelve sends twelve, which is the point of
+dropping the floor.
+
+**The menu it picks from has not changed** — that has been the whole kit of
+2,112 since 2026-08-21. What moved is how many of them one site may take.
+
+**Not tried live.** The Anthropic account is empty, so no designer has answered
+the wider field yet. The thing worth watching on the next build is whether it
+actually uses the room — a model given a bigger allowance often keeps answering
+the same size.
+
+---
+
 **THE LOOK IS THE STYLESHEET NOW, AND SIX OF THE SEVEN PIECES WERE ALREADY DEAD (2026-08-24).**
 
 You said to delete the look-reconciling step and let it just be the CSS the
