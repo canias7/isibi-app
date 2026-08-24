@@ -1094,9 +1094,18 @@ test("this IS wired now, and the chain is guarded next door", () => {
   // that collects them. The engine below is unchanged — it derives the same 31
   // tokens it always did — and the container is still where a palette becomes
   // CSS, which is why only the first of these two reads moved.
+  // THE WORKER'S HALF WENT ON 2026-08-24, and this asserted its presence. The
+  // owner's call is that the look is the stylesheet alone — so the Worker
+  // neither collects a palette nor carries one, and asserting it imports the
+  // seeds module would be asserting the tier that was just deleted. Inverted,
+  // because an absence rots silently: a `seeds` field restored beside `css`
+  // gives the container two ways to decide the same colours.
   const fs = require$("node:fs");
-  assert.ok(/site-seeds/.test(fs.readFileSync("worker.js", "utf8")),
-    "worker.js no longer offers a palette field — no site can wear one");
+  assert.ok(!/from "\.\/builder\/site-seeds\.mjs"/.test(fs.readFileSync("worker.js", "utf8")),
+    "worker.js imports the palette engine again — a second way to decide a site's colours");
+  // THE CONTAINER'S HALF STANDS, and it is what keeps the engine reachable at
+  // all: `site-identity.mjs` derives the favicon's ground from a palette, and
+  // the container is still where one would become CSS if anything sent one.
   assert.ok(/site-theme/.test(fs.readFileSync("builder/build-server.mjs", "utf8")),
     "the container no longer turns a palette into CSS");
   assert.ok(fs.existsSync("test/wiring.test.mjs"),

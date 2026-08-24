@@ -250,16 +250,28 @@ test("the site's own look is carried through the recompile", () => {
   // A recompile that forgot the theme would silently re-style the whole site to
   // fix a typo — the exact failure the look anchor exists to prevent.
   const block = spine();
-  assert.match(block, /site_look','site_tokens'/, "it must read the stored look");
+  // KEYED ON THE PAIR THAT SURVIVES. It was `site_look','site_tokens'` until
+  // 2026-08-24, when the look became the stylesheet alone — so the token key
+  // left the query and the guard went red about a spine that reads the look
+  // perfectly well. What has to hold is that the spine reads BOTH halves of what
+  // a site now wears: the look object and the stylesheet.
+  assert.match(block, /'site_look','site_css'/, "it must read the stored look and the stylesheet");
   // READ, NOT PASSED IN. A recompile handed a look can be handed the WRONG one,
   // and the failure is silent — the site comes back re-themed by a caller that
   // meant nothing by it.
   assert.ok(!/function recompileAndPublish\(env, \{[^}]*\blook\b/.test(worker),
     "the spine takes a look from its caller, so a caller can re-theme a site by accident");
-  assert.match(block, /seeds: \(look && look\.seeds\) \|\| null/,
-    "the spine no longer carries the site's own palette, so a typo fix would re-colour it");
-  assert.match(block, /withContrast\(tokens\)/);
-  assert.match(block, /resolvePair\(\(look && look\.fonts\) \|\| \{\}\)/);
+  // AND IT CARRIES THE STYLESHEET, which is now the whole look. This asserted
+  // the palette, the token patch and the font pair until 2026-08-24; all three
+  // came off the tool on 2026-08-23 and stopped being sent on 2026-08-24, so
+  // what a typo fix has to preserve is one thing rather than four.
+  assert.match(block, /css: cssRead\.usable \? cssRead\.css : undefined/,
+    "the spine no longer carries the site's own stylesheet, so a typo fix would strip its whole design");
+  // …AND THE FAMILIES IT NAMES ARE STILL FETCHED, or the sheet asks for a
+  // typeface with no file behind it and the site ships in the fallback while
+  // every layer reports success — the failure `site-fonts.mjs` is written around.
+  assert.match(block, /fetchSiteFonts\(cssRead\.fonts \|\| \[\]\)/,
+    "the spine no longer fetches the families the stylesheet names");
 });
 
 test("a label on a code-ish attribute is not offered, but a real one is", () => {

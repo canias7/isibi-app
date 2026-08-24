@@ -61,8 +61,14 @@ test("THE PALETTE IS AUTHORED, AND THE WHOLE CHAIN IS WIRED", () => {
   assert.ok(toolAt > 0, "the design_schema literal moved and this guard is reading nothing");
   assert.doesNotMatch(bare.slice(toolAt), /\n\s{6}seeds: \{|seeds: SEEDS_FIELD/,
     "`seeds` is back on design_schema beside `css` — two ways to decide one palette");
-  assert.match(worker, /import \{[^}]*normalizeSeeds[^}]*\} from "\.\/builder\/site-seeds\.mjs"/,
-    "the palette engine is no longer imported, so a stored palette is judged by nothing");
+  // THE PALETTE ENGINE LEFT THE WORKER ON 2026-08-24, and this asserted the
+  // opposite. The owner's call is that the look is the stylesheet alone, so the
+  // Worker neither collects nor carries three anchor colours; the engine still
+  // exists and is still imported by the CONTAINER (asserted in the next test)
+  // and by `site-identity.mjs`, so nothing about a palette became unjudgeable —
+  // there is simply no palette on the wire to judge.
+  assert.doesNotMatch(worker, /import \{[^}]*normalizeSeeds[^}]*\} from "\.\/builder\/site-seeds\.mjs"/,
+    "the Worker imports the palette engine again — a second place a look is decided");
   // THE PROPERTY, NOT THE SPELLING. This pinned `const merged = mergeLook(...)`
   // and went red when the route grew a SECOND call — the probe that answers
   // which page a colour is for, which must run before the merge it feeds. What
@@ -70,11 +76,20 @@ test("THE PALETTE IS AUTHORED, AND THE WHOLE CHAIN IS WIRED", () => {
   assert.match(worker, /mergeLook\(priorLook, [a-zA-Z]+, body/, "the route does not merge the look");
   // The store is the WHOLE merge — the five-field literal this used to pin was
   // itself the bug, dropping lang, mode, langs and the plan on every build.
-  assert.match(worker, /const look = merged;/, "the look no longer carries the authored palette");
-  assert.match(worker, /\n\s*seeds: look\.seeds,/, "the merged palette never reaches buildAndPublishPages");
-  assert.match(worker, /async function buildAndPublishPages\(env, \{[^}]*\bseeds\b[^}]*\}\)/,
-    "buildAndPublishPages is passed a palette it does not destructure");
-  assert.match(worker, /\n\s*seeds: seeds \|\| null,/, "the palette never reaches the container payload");
+  assert.match(worker, /const look = merged;/, "the route no longer stores the whole merge");
+  // …AND THE PALETTE NO LONGER TRAVELS WITH IT. Three assertions stood here
+  // requiring `seeds` on the merge, in the publisher's parameters and on the
+  // container payload; all three went on 2026-08-24. Inverted rather than
+  // deleted, because an absence rots silently: a `seeds:` line restored to
+  // either payload gives the container a palette to derive 31 tokens from
+  // beside the stylesheet, and the two then decide the same colours twice.
+  assert.doesNotMatch(worker, /\n\s*seeds: look\.seeds,/, "the merged palette reaches the publisher again");
+  assert.doesNotMatch(worker, /async function buildAndPublishPages\(env, \{[^}]*\bseeds\b[^}]*\}\)/,
+    "buildAndPublishPages destructures a palette again");
+  assert.doesNotMatch(worker, /\n\s*seeds: seeds \|\| null,/, "the palette reaches the container payload again");
+  // …AND WHAT DOES TRAVEL, or the three absences above pass on a route that
+  // carries no look at all.
+  assert.match(worker, /\n\s*css: siteCss,/, "the stylesheet never reaches buildAndPublishPages");
 
   // AND THE NAME IS GONE, asserted as an ABSENCE with COMMENTS BLANKED — the
   // notes recording why `theme` was removed necessarily spell it, and this repo
@@ -790,18 +805,18 @@ test("a revise keeps the site's stored look instead of re-rolling it", () => {
   // about word order, which is this repo's most repeated own-goal. What has to
   // hold is that each field is SOURCED from the merged look on its way to the
   // build — however the expression is written.
-  // THE TWO SHAPES, because the plan stopped being passed field by field.
-  // `seeds` and `fonts` are still their own parameters and are sourced from the
-  // merged look by name — `seeds` being the authored palette that replaced the
-  // theme NAME on 2026-08-20, and the one field where a re-roll changes every
-  // colour on every page at once. The six plan axes — `structure` among them — go as ONE
-  // `plan` object assembled from `PLAN_KEYS`, so naming each of them here would
-  // fail on a correct route; what has to hold there is that the assembly reads
-  // `look`, and that it reads it for EVERY key rather than a remembered few.
-  for (const k of ["seeds", "fonts"]) {
-    assert.ok(new RegExp(k + ":[^,\\n]*\\blook\\." + k + "\\b").test(worker),
-      k + " does not reach the build from `look`");
-  }
+  // ONE SHAPE NOW, because the look stopped being passed field by field.
+  // `seeds` and `fonts` were their own parameters, sourced from the merged look
+  // by name; both stopped travelling on 2026-08-24 and their absence is asserted
+  // at the top of this file. What is left of the look on the wire is the
+  // stylesheet — read straight off `_meta` rather than off the merge, because it
+  // is stored under its own key — and the plan, which is assembled below.
+  //
+  // `brand` IS THE ONE REMAINING FIELD SOURCED FROM `look` BY NAME, and it is
+  // the one this class of bug bit first: it was derived ~4,600 characters
+  // earlier from `designed.brand || body.brand || slug`, consulting no stored
+  // value, which is where the rename came from.
+  assert.ok(/look\.brand/.test(worker), "the brand does not reach the build from `look`");
   assert.match(worker, /plan: normalizePlan\(Object\.fromEntries\(PLAN_KEYS\.map\(\(k\) => \[k, look\[k\]\]\)\)\)/,
     "the plan is not assembled from the merged look, so a revise re-rolls the layout");
   // `family` is deliberately NOT asserted to reach the build any more: nothing

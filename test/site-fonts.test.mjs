@@ -272,20 +272,33 @@ test("A TYPEFACE IS NAMED IN THE STYLESHEET NOW — the enum is gone and cannot 
   assert.match(required[0], /"css"/,
     "the stylesheet is not compelled, so a site whose designer omits it ships the template's plain default look");
 
-  // ── AND THE STORED PAIR STILL FLOWS, WHICH IS THE COMPATIBILITY HALF ────────
+  // ── AND THE STORED PAIR NO LONGER FLOWS, WHICH IS THE 2026-08-24 HALF ──────
   //
-  // Every site built between 2026-08-20 and 2026-08-23 has a pairing in
-  // `site_look`, and `mergeLook` rebuilds its output from `EDIT_FIELDS` alone —
-  // so `fonts` leaving that list would strip the typeface off a live site
-  // because its owner fixed a typo. Driven through the real merge rather than
-  // read off the constant, because the constant containing the name proves
-  // nothing about the merge keeping the value.
+  // This asserted the OPPOSITE until then, and the reasoning was right on its
+  // own premise: a site built between 2026-08-20 and 2026-08-23 has a pairing in
+  // `site_look`, so dropping the carry would have stripped its typeface on the
+  // owner's next typo fix. What changed is the measurement — all 25 sites are
+  // ours — and the owner's call that the look is the stylesheet alone.
+  //
+  // `mergeLook` STILL KEEPS A STORED PAIR, and that is deliberate rather than an
+  // oversight: `EDIT_FIELDS` is what `site-edit.mjs` rebuilds from, and a name
+  // dropped there is a value silently destroyed on the next unrelated edit. The
+  // pair is kept and simply never sent, so nothing is lost and nothing is used.
   assert.deepEqual(mergeLook({ fonts: { heading: "lora", body: "geist" } }, {}, null, { instructed: true }).fonts,
     { heading: "lora", body: "geist" },
-    "an existing site loses its typeface on the next unrelated edit");
-  assert.match(src, /fonts: look\.fonts,/, "the stored fonts never reach buildAndPublishPages");
-  assert.match(src, /fonts: \{ heading: fontPair\.heading\.id, body: fontPair\.body\.id \}/,
-    "and the build request has to carry it");
+    "a stored pair is now destroyed rather than merely ignored");
+  // AND NO PAYLOAD CARRIES IT. Asserted as an absence, which is the half that
+  // rots: a `fonts:` line quietly restored to either container payload gives the
+  // container a pairing to write beside the stylesheet, and the two can then
+  // name different faces with whichever the compiler reads last winning.
+  assert.doesNotMatch(src, /\n\s+fonts: look\.fonts,/,
+    "the stored pair reaches buildAndPublishPages again — a second way to choose a typeface");
+  assert.doesNotMatch(src, /fonts: \{ heading: [a-zA-Z]+\.heading\.id/,
+    "a container payload carries a resolved pair again");
+  // …AND THE ONE ROUTE A TYPEFACE HAS IS STILL OPEN, or the two absences above
+  // pass perfectly on a platform where no site can have a font at all.
+  assert.match(src, /fetchSiteFonts\(cssRead\.fonts \|\| \[\]\)/,
+    "the families the stylesheet names are no longer fetched");
   // THE PROPERTY, NOT THE SPELLING. This pinned `const merged = mergeLook(...)`
   // and went red when the route grew a SECOND call — the probe that answers
   // which page a colour is for, which must run before the merge it feeds.

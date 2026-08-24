@@ -12,6 +12,54 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ## OPEN — waiting to be picked up
 
+**THE LOOK IS THE STYLESHEET NOW, AND SIX OF THE SEVEN PIECES WERE ALREADY DEAD (2026-08-24).**
+
+You said to delete the look-reconciling step and let it just be the CSS the
+model writes. Done.
+
+**The step existed to keep seven separate things about a site's appearance in
+step** — three anchor colours, a typeface pairing, a patch of named colours, a
+list of seventeen style dials, and two per-page versions of the same. Every time
+a site was published it reconciled all seven against what the site already wore.
+
+**Six of the seven could no longer be answered at all, and I checked before
+cutting.** They came off the designer's own form on 2026-08-23, when the five
+look fields became one stylesheet. So the machinery had been carrying values
+forward with nothing able to send it a new one — reconciling a site against
+itself, on every publish, for a day.
+
+**The one reason it had been kept was a real one, and it is spent.** The note in
+the code said the reconciling protected every site already published: nothing
+new arrives, so nothing gets re-styled. True — and the platform is **25 sites and
+every one of them is ours**, smoke tests and the two CSS experiment arms. I
+queried that before touching a line, because that sentence was the whole
+justification and it is a fact about the database rather than about the code.
+
+**What this genuinely costs, and one of the three is real.** We used to derive
+31 colours from three anchor colours, and that derivation was what proved a
+site's body text was legible — it refused a palette nobody could read. That goes
+with it: the stylesheet the model writes is read and never checked, so **nothing
+now proves a site's text is readable**. The other two are smaller: a site whose
+stylesheet sets no colours falls back to a plain working default rather than
+breaking, and **the tab icon goes back to a colour derived from the business
+name rather than from the site's own brand colour** — I measured it, it stays
+legible everywhere, it just no longer matches.
+
+**Nothing about per-page colours or typefaces is lost, it moved.** Every page
+carries its own name in the document, and the stylesheet field tells the model
+so — it can scope anything to one page itself.
+
+**One thing found on the way that was worth the check.** Cutting a block of dead
+code took a live line with it — the translation memory for bilingual sites,
+which happened to sit in the middle of the block. Without it every publish would
+have re-translated the whole site from scratch. A guard caught it, because the
+site went on asking the database for the value and then using it for nothing.
+
+**Not tried live.** The Anthropic account is empty, so no site has been built
+against any of this.
+
+---
+
 **THE MODEL LAYS THE PAGES OUT NOW (2026-08-24).**
 
 You said to delete most of the page-writing instructions and give the model

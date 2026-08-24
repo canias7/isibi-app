@@ -73,7 +73,12 @@ test("EVERY FIELD THE PUBLISH PATH READS OFF THE LOOK IS ONE THE MERGE PRODUCES"
   // keys — so a field the Worker reads and the merge does not produce is
   // permanently `undefined`, silently, on every site.
   const read = new Set([...worker.matchAll(/\blook\.([a-zA-Z_]+)/g)].map((m) => m[1]));
-  assert.ok(read.size >= 5, "the scan found only " + read.size + " look reads, so it has stopped scanning");
+  // A FLOOR OF FOUR, AND IT WAS FIVE. `look.seeds` and `look.fonts` were read on
+  // the build path until 2026-08-24, when the look became the stylesheet alone.
+  // The floor stays because a scan that silently stops matching reports a route
+  // reading nothing off the look and passes vacuously — which is the failure
+  // this whole guard exists for, one layer up.
+  assert.ok(read.size >= 4, "the scan found only " + read.size + " look reads, so it has stopped scanning");
   const produced = new Set(Object.keys(mergeLook({}, {}, {})));
   for (const field of read) {
     assert.ok(produced.has(field),
@@ -753,7 +758,11 @@ test("A FAILED LOOK READ FAILS THE EDIT — never a stripped publish reported as
   // to the catch's own end (`resolvePair` is the first statement after it),
   // never a byte count.
   const readCatch = block.indexOf("} catch (e) {", block.indexOf("sqlQuery(db,"));
-  const catchEnd = block.indexOf("const pair = resolvePair(", readCatch);
+  // ANCHORED ON THE STYLESHEET READ, not on the font pair. It closed on
+  // `const pair = resolvePair(` until 2026-08-24, when the site pair left the
+  // spine with the rest of the look tier — so the window had nothing to end on
+  // and the guard went red about a catch that had not moved.
+  const catchEnd = block.indexOf("const cssRead = readCss(", readCatch);
   assert.ok(readCatch > 0 && catchEnd > readCatch, "the look-read catch moved — rescope this");
   assert.match(block.slice(readCatch, catchEnd), /return \{ ok: false, error: "read", ours: true/,
     "the look-read catch falls through to a stripped publish again");

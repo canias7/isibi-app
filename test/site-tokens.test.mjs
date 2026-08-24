@@ -712,45 +712,6 @@ test("the container's token write cannot fail a build that otherwise worked", ()
   assert.match(body, /catch/);
 });
 
-test("THE STORED PATCH STILL REACHES THE STYLESHEET — the designer no longer writes it", () => {
-  // ── INVERTED AT ONE END AND UNCHANGED AT THE OTHER (2026-08-23) ─────────────
-  //
-  // This asserted SEVEN links: the designer can ask, the ask is parsed, it is
-  // merged, stored, passed to the build, carried on the payload, and rendered.
-  // The first link went with the `tokens` field — the model writes the whole
-  // stylesheet now and names a colour in it like anything else.
-  //
-  // THE OTHER SIX ARE THE COMPATIBILITY STORY AND MATTER MORE THAN THEY DID.
-  // Every site built before that day has a token patch in `site_tokens`, both
-  // publish spines read it, and the container writes it BEFORE the model's own
-  // sheet — so a broken link here does not merely disable a feature, it strips a
-  // live customer's colours on their next typo fix and reports success. Any one
-  // of the six missing is that failure, which is why they are asserted apart.
-  assert.match(worker, /INSERT INTO _meta \(k,v\) VALUES \('site_tokens'/, "the patch must be stored");
-  assert.match(worker, /site_look','site_tokens'/, "…and read back on a revise");
-  // THE WHOLE STATEMENT, condition included. Anchored on the assignment alone
-  // this passed against `if (false) priorTokens = JSON.parse(r.v)` — a mutant
-  // that leaves the text intact and reads nothing back, so every revise would
-  // start from an empty patch and forget every colour the site has.
-  assert.match(worker, /if \(r\.k === "site_tokens" && r\.v\)\s*priorTokens = JSON\.parse\(r\.v\)/,
-    "the stored patch must be read back on a revise");
-  assert.match(worker, /mergeTokens\(priorTokens, designed && designed\.tokens\)/,
-    "the stored patch must survive the merge — `designed.tokens` is always absent now, and that is what makes this a no-op that KEEPS it");
-  assert.match(worker, /tokens: siteTokens,/, "the build must be given it");
-  assert.match(worker, /tokens: Object\.keys\(tokens \|\| \{\}\)\.length \? withContrast\(tokens\) : undefined/,
-    "the container payload must carry it, with the contrast pass");
-  assert.match(server, /tokensCss\(tokens\)/, "the container must render it");
-  // AND THE TOOL REALLY HAS STOPPED ASKING, so the merge above is a no-op by
-  // construction rather than by luck. Restored beside `css` it would give the
-  // model two ways to set one colour, and the container applies both.
-  const code = worker.split("\n").map((l) => (/^\s*(\/\/|\*|\/\*)/.test(l) ? "" : l)).join("\n");
-  // THE ANCHOR FIRST: `indexOf` answers -1 for a literal that moved and
-  // `slice(-1)` is one character, so the absence would pass over nothing.
-  const at = code.indexOf('name: "design_schema"');
-  assert.ok(at > 0, "the design_schema literal moved and this absence is reading nothing");
-  assert.doesNotMatch(code.slice(at), /\n\s{6}tokens: \{/,
-    "`tokens` is back on design_schema beside `css`");
-});
 test("the container really WRITES the patch, not just reports it", () => {
   // The only unit-level hold on the write itself. A `writeTokens` that returns
   // `{applied:true}` and writes nothing is a feature that reports success and
@@ -989,44 +950,3 @@ test("the reported ask is the names the model gave, not the wrapper's keys", () 
   assert.notDeepEqual(askedNames(wrapper.tokens, wrapper.dropped), ["tokens", "dropped"]);
 });
 
-test("the build response reports the ask through askedNames, with tokenNote's own arguments", () => {
-  // DERIVED FROM THE SOURCE, because the helper being correct proves nothing
-  // about the call site — and the call site is where the bug was. The two lines
-  // sit one apart and must take the SAME arguments, or the reported names and
-  // the customer-facing sentence can disagree about what was asked for.
-  const raw = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  // COMMENTS BLANKED BEFORE THE ABSENCE IS JUDGED. The comment above that line
-  // explains the bug and therefore SPELLS IT — `Object.keys(tokenAsk)` — so the
-  // first draft of this guard went red against the fix it was written for.
-  // Prose describing a deletion contains the deleted thing: the trap this repo
-  // has recorded eight times, committed here on the same day as two others.
-  // Length-preserving, so nothing else shifts.
-  const worker = raw
-    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
-    .replace(/(^|[^:])\/\/[^\n]*/g, (m, p) => p + " ".repeat(m.length - p.length));
-  assert.ok(worker.length === raw.length, "the blanker changed the length — offsets would be wrong");
-  // THE PROPERTY, NOT THE SPELLING. This pinned the exact two-argument call and
-  // went red the day the style report grew a third bag to read (`.authored`,
-  // where a value the model WROTE is kept) — a test about word order, which is
-  // this repo's most repeated own-goal. What has to hold is unchanged: the
-  // second argument is that wrapper's `.dropped`, the first is built from its
-  // KEPT content, and the wrapper's own keys are never what is reported.
-  for (const [ask, kept] of [["tokenAsk", "tokens"], ["styleAsk", "style"]]) {
-    // THE ARGUMENT LIST, CUT AT THE NEAREST `askedNames(` ABOVE IT. A lazy
-    // `[^;]*?` ran back through the line above — the two calls sit one apart
-    // with no semicolon between them — so the tokens call's arguments were read
-    // as the style call's and the guard reported a merge that was not there.
-    // The overlapping-window own-goal, in the guard written the same hour.
-    const at = worker.indexOf(`, ${ask}.dropped)`);
-    assert.ok(at > 0, `the ${ask} report does not read that wrapper's own dropped list`);
-    const open = worker.lastIndexOf("askedNames(", at);
-    assert.ok(open > 0 && open < at, `the ${ask} dropped list is not an askedNames argument`);
-    const call = [null, worker.slice(open + "askedNames(".length, at)];
-    assert.match(call[1], new RegExp(`${ask}\\.${kept}\\b`),
-      `the ${ask} report is not built from the same arguments its note is`);
-    assert.doesNotMatch(call[1], new RegExp(`\\b(?!${ask}\\b)\\w+Ask\\.`),
-      `the ${ask} report reads another ask's bag, so two answers are being merged into one field`);
-    assert.doesNotMatch(worker, new RegExp(`Object\\.keys\\(${ask}\\)`),
-      `${ask}'s wrapper keys are being reported again — that field is a constant`);
-  }
-});

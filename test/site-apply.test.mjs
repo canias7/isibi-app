@@ -15,6 +15,7 @@ import {
 import { EDIT_LAYERS, ASK_TOOL } from "../builder/site-ask.mjs";
 import { CORPUS_URL } from "./fixtures/corpus.mjs";
 import { PLAN_KEYS } from "../builder/site-plan.mjs";
+import { readCss } from "../builder/site-freecss.mjs";
 
 const HOME = {
   path: "src/routes/index.tsx",
@@ -1629,7 +1630,12 @@ test("A FAILED LOOK COMPILE PUTS THE STORED LOOK BACK", () => {
   // of the restore is the word-order own-goal one layer in.
   const written = [...b.slice(from).matchAll(/INSERT INTO _meta \(k,v\) VALUES \('([a-z_]+)'/g)]
     .map((m) => m[1]).filter((k) => k !== "site_look");
-  assert.ok(written.length >= 2, "the look lane's writes are no longer visible to this scan");
+  // A FLOOR OF ONE, AND IT WAS TWO. `site_tokens`, `site_page_tokens`,
+  // `site_page_fonts` and `site_style` were written by this lane until
+  // 2026-08-24; the look is the stylesheet now, so `site_css` is the only patch
+  // key left. The floor stays because a scan that stops matching reports a lane
+  // with nothing to roll back and passes vacuously.
+  assert.ok(written.length >= 1, "the look lane's writes are no longer visible to this scan");
   const rollFrom = before.indexOf("restored = true");
   assert.ok(rollFrom > 0, "the look lane's rollback moved — rescope this");
   const rolled = before.slice(rollFrom);
@@ -1637,10 +1643,16 @@ test("A FAILED LOOK COMPILE PUTS THE STORED LOOK BACK", () => {
     assert.ok(rolled.includes("'" + k + "'") || rolled.includes('"' + k + '"'),
       "the look lane writes `" + k + "` and a failed compile does not put it back");
   }
-  // ABSENT MEANS DELETED, not an empty object. A site that had no tokens must
-  // not gain a `{}` row that later reads as "a patch exists".
-  assert.match(before, /DELETE FROM _meta WHERE k = \?/,
-    "a site that had no patch gains an empty one on every failed look edit");
+  // ABSENT MUST NOT READ AS PRESENT, and the MECHANISM changed while the
+  // property did not. The four JSON patch keys were DELETED on rollback rather
+  // than written as `{}`, or a site that had no tokens gained a row that later
+  // read as "a patch exists". `site_css` needs no delete because an empty sheet
+  // is not a look: `readCss("")` answers unusable, so a rollback that writes
+  // `priorCss` back as `""` leaves a row nothing acts on. Driven through the
+  // real function rather than asserted about the SQL, because that is where the
+  // property now lives.
+  assert.equal(readCss("").usable, false, "an empty stored stylesheet reads as a look");
+  assert.equal(readCss(null).usable, false, "an absent stored stylesheet reads as a look");
 });
 
 test("…and says so honestly when the rollback ITSELF fails", () => {

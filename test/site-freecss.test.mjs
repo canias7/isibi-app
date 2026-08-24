@@ -174,26 +174,81 @@ test("THE FIVE LOOK FIELDS ARE GONE FROM THE TOOL, at every layer they were live
   }
 });
 
-test("…AND THE ENGINES THEY DROVE ARE STILL WIRED, which is the compatibility half", () => {
-  // Every site published before 2026-08-23 stores a palette, a typeface pairing,
-  // a token patch and up to 29 axes, and both publish spines send all four on
-  // EVERY republish — a typo fix included. Nothing stopped CARRYING them; the
-  // tool stopped ASKING. So the absence above, without this, would be
-  // indistinguishable from the whole look tier having been deleted — which
-  // strips a live customer's design on their next unrelated edit and reports
-  // success.
+test("…AND THE ENGINES THEY DROVE ARE GONE TOO, which is the 2026-08-24 half", () => {
+  // ── THIS ASSERTION IS INVERTED, AND EACH POSITION WAS RIGHT ON ITS PREMISE ──
+  //
+  // It used to require the OPPOSITE: that `mergeTokens`, `mergeStyle` and the
+  // stored palette, pairing and axes all still flowed on both spines. That was
+  // correct while sites existed wearing them — the tool stopped ASKING on
+  // 2026-08-23 and nothing stopped CARRYING, so deleting the carry would have
+  // stripped a live design on somebody's next typo fix.
+  //
+  // What moved is the measurement: all 25 sites are ours, smoke runs and the
+  // `lido-*` experiment arms, so "one deploy re-styles no site" protected
+  // nobody. The owner's call is that the look is the stylesheet alone.
+  //
+  // ASSERTED AS AN ABSENCE, which is the half that rots silently. A `tokens:`
+  // or `style:` line quietly restored to either payload gives the container a
+  // second opinion about the look beside the stylesheet, and the two then
+  // disagree with whichever the compiler reads last winning.
+  //
+  // JUDGED ON `code`, NEVER ON `worker`: the paragraphs recording this deletion
+  // necessarily spell every name being forbidden, which is the trap this file's
+  // own header warns about and would fail every absence below against correct
+  // source.
+  // ── (a) THE ENGINE NAMES, which are unambiguous and unique to that tier ────
   for (const [re, why] of [
-    [/mergeTokens\(priorTokens, designed && designed\.tokens\)/, "the stored colour patch is no longer merged"],
-    [/mergeStyle\(priorStyle, designed && designed\.style/, "the stored axes are no longer merged"],
-    [/seeds: \(look && look\.seeds\) \|\| null,/, "the cheap spine no longer sends the stored palette"],
-    [/style: Object\.keys\(style \|\| \{\}\)\.length \? style : undefined/, "the cheap spine no longer sends the stored axes"],
-    [/fonts: \{ heading: pair\.heading\.id, body: pair\.body\.id \}/, "the cheap spine no longer sends the stored typeface"],
-  ]) assert.match(worker, re, why);
-  // AND THE MERGE STILL KEEPS THEM, driven rather than read: `EDIT_FIELDS` is
-  // what `mergeLook` rebuilds its output from, so `seeds` or `fonts` leaving
-  // that list would silently discard the value on an existing site's next edit.
+    [/mergeTokens\(/, "the token merge is back — a second way to decide a colour"],
+    [/mergeStyle\(/, "the style merge is back — a second way to decide the look"],
+    [/parseTokens\(/, "the token parser is back"],
+    [/parseStyle\(/, "the axis parser is back"],
+    [/withContrast\(/, "the derived-ink pass is back, so something is patching tokens again"],
+    [/pageTokensFor\(/, "per-page colours are being assembled again"],
+  ]) assert.doesNotMatch(code, re, why);
+
+  // ── (b) AND NO CONTAINER PAYLOAD CARRIES ONE ───────────────────────────────
+  //
+  // SCOPED TO THE PAYLOAD BY BRACE DEPTH, never matched across the whole file.
+  // The first draft forbade `\n\s+style: ` outright and went red on
+  // `style: { type: "number" …}` — the TTS voice-tuning field, a completely
+  // unrelated feature — which is a false alarm on correct code, and this repo
+  // rates that worse than the miss.
+  const payloads = [];
+  for (const m of code.matchAll(/body: JSON\.stringify\(\{/g)) {
+    let d = 1, i = m.index + m[0].length;
+    for (; i < code.length && d > 0; i++) {
+      if (code[i] === "{") d++;
+      else if (code[i] === "}") d--;
+    }
+    const body = code.slice(m.index, i);
+    if (body.includes("worker: true") || body.includes("fontFiles:")) payloads.push(body);
+  }
+  assert.ok(payloads.length >= 2, "found " + payloads.length + " container payloads — the walk stopped matching");
+  for (const body of payloads) {
+    for (const [re, why] of [
+      [/\n\s+seeds: /, "a payload carries a palette again"],
+      [/\n\s+tokens: /, "a payload carries a token patch again"],
+      [/\n\s+style: /, "a payload carries the style axes again"],
+      [/\n\s+pageTokens: /, "a payload carries per-page colours again"],
+      [/\n\s+pageFonts: /, "a payload carries per-page typefaces again"],
+      [/\n\s+fonts: /, "a payload carries a resolved typeface pair again"],
+    ]) assert.doesNotMatch(body, re, why);
+    // …AND IT STILL CARRIES THE ONE THING IT MUST, or the six absences above
+    // pass on a payload that has stopped describing a look at all.
+    assert.match(body, /\n\s+css: /, "a container payload no longer carries the stylesheet");
+  }
+  // AND THE ONE THING THAT DID SURVIVE, because the seven absences above pass
+  // perfectly on a platform where no site can have a look at all: the stylesheet
+  // is still read, still stored and still sent. The chain below asserts it link
+  // by link; this is the floor that stops THIS test going vacuous.
+  assert.match(code, /readCss\(designed && designed\.css\)/,
+    "the build path no longer reads the model's stylesheet");
+  // …AND `EDIT_FIELDS` STILL NAMES `seeds` AND `fonts`, deliberately. Nothing
+  // sends them any more, and `mergeLook` rebuilds its output from that list — so
+  // a name dropped there DESTROYS a stored value on the next unrelated edit
+  // rather than merely ignoring it. Kept and unused beats deleted and lossy.
   assert.match(read("builder/site-edit.mjs"), /EDIT_FIELDS = \[[^\]]*"seeds"[^\]]*"fonts"/,
-    "`seeds` or `fonts` left EDIT_FIELDS — an existing site loses it on the next unrelated edit");
+    "`seeds` or `fonts` left EDIT_FIELDS — a stored value is now destroyed rather than ignored");
 });
 
 /* ── 3. THE CHAIN ────────────────────────────────────────────────────────── */
@@ -220,9 +275,14 @@ test("THE STYLESHEET REACHES THE PAGE — every link, because any one kills it s
   //    reads the stylesheet itself. `site_style` is the marker for "this reader
   //    is assembling the look for a container payload", which is exactly the set
   //    that has to carry it.
+  //    KEYED ON `site_logo` SINCE 2026-08-24, and it was `site_style`. That key
+  //    was the marker for "this reader is assembling the look for a container
+  //    payload" until the axes stopped being stored at all. `site_logo` is the
+  //    same marker: the two publish spines read it and nothing else does,
+  //    because it is a thing a payload CARRIES rather than a thing a lane edits.
   const selects = [...worker.matchAll(/SELECT k, v FROM _meta WHERE k IN \(([^)]*)\)/g)]
-    .map((m) => m[1]).filter((keys) => keys.includes("site_style"));
-  assert.ok(selects.length >= 3, "only " + selects.length + " look-assembling reads found — the scan stopped matching");
+    .map((m) => m[1]).filter((keys) => keys.includes("site_logo"));
+  assert.ok(selects.length >= 2, "only " + selects.length + " look-assembling reads found — the scan stopped matching");
   for (const keys of selects) {
     assert.ok(keys.includes("site_css"),
       "a reader of the stored look does not select the stylesheet: " + keys);
@@ -230,9 +290,16 @@ test("THE STYLESHEET REACHES THE PAGE — every link, because any one kills it s
   //    …and SELECTING a row is not READING it. Selecting one and then dropping it
   //    is the shape that has killed a feature here before, and a mutant leaving
   //    the key in the query while never assigning it passes the check above.
-  assert.equal((worker.match(/if \(r\.k === "site_css" && typeof r\.v === "string"\)/g) || []).length, selects.length + 1,
-    "a query selects the stylesheet and the loop beside it never reads the row"
-    + " (the +1 is the build route's editState read, which supplies the DESIGNER rather than a payload)");
+  //    DERIVED AT BOTH ENDS rather than `selects.length + 1`. That constant was
+  //    a fact about how many readers happened to exist and went stale the moment
+  //    the set changed. What has to hold is that every query ASKING for the
+  //    stylesheet has a branch READING it — four today: the two spines, the look
+  //    lane, and the build route's editState read.
+  const asking = (worker.match(/SELECT k, v FROM _meta WHERE k IN \([^)]*site_css[^)]*\)/g) || []).length;
+  const reading = (worker.match(/if \(r\.k === "site_css" && typeof r\.v === "string"\)/g) || []).length;
+  assert.ok(asking >= 4, "only " + asking + " queries ask for the stylesheet — the scan stopped matching");
+  assert.equal(reading, asking,
+    asking + " queries select the stylesheet and " + reading + " loops read the row — one selects it and drops it");
   // 5. …it reaches both container payloads
   assert.equal((worker.match(/css: cssRead\.usable \? cssRead\.css : undefined/g) || []).length, 2,
     "a container payload does not carry the stylesheet");
@@ -379,4 +446,53 @@ test("THE MODEL IS TOLD WHAT ITS RULES LAND ON — the facts it cannot guess", (
   assert.match(field, /url\(\)/, "nothing says a remote url\\(\\) is refused, so a site's look is spent on one");
   assert.match(field, /Google Fonts/, "nothing says how a typeface is obtained");
   assert.match(field, /written LAST|WRITTEN LAST/, "nothing says the model's rules win");
+});
+
+/* ── 5. THE LOOK IS ONE THING, DERIVED ──────────────────────────────────────
+ *
+ * The four tests above assert this feature by feature. This one asserts the
+ * PROPERTY, derived from the `_meta` keys themselves, so a sixth look concept
+ * stored tomorrow is covered without anybody remembering this file.
+ */
+
+test("EXACTLY ONE `_meta` KEY DECIDES WHAT A SITE LOOKS LIKE", () => {
+  // ── WHY DERIVED RATHER THAN A LIST ─────────────────────────────────────────
+  //
+  // `site_tokens`, `site_page_tokens`, `site_page_fonts` and `site_style` were
+  // all look keys until 2026-08-24, each written by two lanes and read by three
+  // — and every one was DEAD from 2026-08-23, when `design_schema` stopped
+  // offering the field that fed it. Four dead stores is what a hand-kept list
+  // produces; the durable form is to name what a look key IS and let the scan
+  // find them.
+  //
+  // A LOOK KEY IS ONE THE CONTAINER IS SENT. `site_logo`, `site_icon` and
+  // `site_verify` are stored beside the stylesheet and are NOT the look — they
+  // are artwork and a verification tag — so the discriminator is the payload,
+  // not the prefix. `schema`, `site_lang_strings` and the job rows are not look
+  // either and are excluded for the same reason.
+  const keys = new Set([...code.matchAll(/'(site_[a-z_]+)'/g)].map((m) => m[1]));
+  assert.ok(keys.size >= 4, "only " + keys.size + " site_* keys found — the scan stopped matching");
+
+  // THE FOUR THAT WENT, asserted by name as well as by the derivation above,
+  // because a scan that silently stopped matching would pass the derived half.
+  for (const k of ["site_tokens", "site_page_tokens", "site_page_fonts", "site_style"]) {
+    assert.ok(!keys.has(k), "`" + k + "` is a stored look key again — the look is two things");
+  }
+  // …AND THE ONE THAT STAYED, or every absence above passes on a platform with
+  // no look at all.
+  assert.ok(keys.has("site_css"), "the stylesheet is no longer stored — a site has no look");
+});
+
+test("AND ITS ENGINE RUNS IN EXACTLY ONE PLACE", () => {
+  // A PALETTE IS JUDGED IN THE CONTAINER AND NOWHERE ELSE, which was already
+  // this repo's rule and is now also the reason `site-seeds.mjs` survives at
+  // all: `site-identity.mjs` derives the favicon's ground from one, and the
+  // container is still where one would become CSS if anything sent one.
+  //
+  // WHAT CHANGED IS THAT NOTHING SENDS ONE. So the Worker importing the engine
+  // is no longer belt-and-braces, it is a second place a look could be decided.
+  assert.doesNotMatch(code, /normalizeSeeds\(/,
+    "the Worker judges a palette again — two places can now refuse the same colours");
+  assert.match(container, /normalizeSeeds\(/,
+    "the container no longer judges a palette, so the favicon's ground is unchecked");
 });

@@ -151,9 +151,20 @@ function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, seeds, tra
   let iconType = iconOk ? own.type : "";
   if (!icon) {
     try {
-      // THE SITE'S OWN PALETTE, or the mark is a colour nobody chose. Passing
-      // nothing here is not a smaller version of this feature — it is the whole
-      // of it dead, with `markGround` correct and unreached.
+      // THE SITE'S OWN PALETTE WHEN THERE IS ONE, AND SINCE 2026-08-24 THERE IS
+      // NOT. `seeds` came off `design_schema` on 2026-08-23 and stopped being
+      // sent from the Worker on 2026-08-24, when the owner's call made the look
+      // the stylesheet alone — so on a real build this is `undefined`,
+      // `markGround` answers null, and the mark falls back to the hue hashed
+      // from the business NAME. That is the pre-2026-08-20 form and it is the
+      // weaker of the two: swept over all 360 hues it bottoms out at 3.55:1
+      // against the OKLCH one's 6.95:1, so it is legible everywhere and it no
+      // longer matches the site.
+      //
+      // THE ARGUMENT STAYS AND IS STILL DRIVEN, by `site-build`'s own fixtures,
+      // which post a palette straight to this container. So the path is tested
+      // and only the Worker→container hop is quiet: the day anything sends a
+      // palette again the mark picks it up with nothing here to rewire.
       const svg = initialsMark(title, seeds);
       if (svg) {
         fs.mkdirSync(path.dirname(iconPath), { recursive: true });
