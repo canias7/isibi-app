@@ -15,7 +15,7 @@
 // injection.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { normalizeSchema, sqlIdent, looksLikeTable, refusedFields, TOOL_TABLE_FIELDS } from "../site-schema.mjs";
+import { normalizeSchema, sqlIdent, looksLikeTable, refusedFields, TOOL_TABLE_FIELDS, liftBackend, BACKEND_FIELDS } from "../site-schema.mjs";
 import { resolveAccess } from "../site-access.mjs";
 import fs from "node:fs";
 
@@ -728,4 +728,108 @@ test("a table whose every column was refused says so", () => {
   assert.deepEqual(refusedFields({ tables: [{ name: "b", columns: [null, 7] }] }), ["columns"]);
   // And a table with real columns is still silent about them.
   assert.deepEqual(refusedFields({ tables: [{ name: "b", columns: ["x"] }] }), []);
+});
+
+/* ---------------------------------------------------- the `backend` nesting */
+
+// THE TOOL NESTS, EVERYTHING ELSE STAYS FLAT (2026-08-24, owner's call).
+//
+// `liftBackend` is a door, not a migration: `spec.tables` is read in ~30 places
+// and `_meta.schema` on every site ever published stores the flat shape, which a
+// revise reads straight back. Both shapes are legal permanently, so both are
+// tested as such rather than one being "the old one".
+
+const BE_TABLES = [{ name: "menu_items", access: "display", columns: [{ name: "name", type: "text" }] }];
+const BE_SEED = { menu_items: [{ name: "Flat white" }] };
+
+test("both shapes normalise to the SAME spec, byte for byte", () => {
+  // The whole justification for the door in one assertion: if these ever differ,
+  // a nested answer and a stored schema describe different databases, and the
+  // difference would show up as a site silently missing a guarantee.
+  const flat = normalizeSchema({ tables: BE_TABLES, seed: BE_SEED });
+  const nested = normalizeSchema({ backend: { tables: BE_TABLES, seed: BE_SEED } });
+  assert.equal(JSON.stringify(nested), JSON.stringify(flat));
+  // …and it is not vacuous: both really carry the table.
+  assert.equal(flat.tables.length, 1);
+});
+
+test("a flat spec is handed back UNTOUCHED, not rebuilt", () => {
+  // `body.schema` is the caller's own bytes and several readers compare what
+  // they passed in. Rebuilding a spec that has no `backend` would be a silent
+  // identity change on the one path where the customer supplied the object.
+  const flat = { tables: BE_TABLES, seed: BE_SEED };
+  assert.equal(liftBackend(flat), flat);
+});
+
+test("the `backend` key never survives the lift, whatever it holds", () => {
+  // Not tidiness. `normalizeSchema`'s bare-map path reads the spec ITSELF as a
+  // table map when there is no `tables` key, so a surviving `backend` is one
+  // `looksLikeTable` away from becoming a table called "backend".
+  for (const junk of [{ backend: "nonsense" }, { backend: 7 }, { backend: [] }, { backend: null }]) {
+    assert.ok(!("backend" in liftBackend(junk)), `backend survived: ${JSON.stringify(junk)}`);
+  }
+  assert.ok(!("backend" in liftBackend({ backend: { tables: BE_TABLES } })));
+});
+
+test("a nested key that is PRESENT wins; one that is undefined leaves the flat alone", () => {
+  // Absent-means-unchanged, the rule every edit lane already lives under. A
+  // model that nests `seed` and leaves `tables` out must not blank the tables.
+  const kept = liftBackend({ tables: BE_TABLES, backend: { seed: BE_SEED } });
+  assert.equal(kept.tables.length, 1, "an undefined nested `tables` blanked the flat one");
+  assert.deepEqual(kept.seed, BE_SEED);
+
+  // Present-and-nested wins. This can only fire when a model answers twice — a
+  // flat caller has no `backend` at all — so it cannot overwrite a caller.
+  const won = liftBackend({ tables: [], backend: { tables: BE_TABLES } });
+  assert.equal(won.tables.length, 1, "the nested answer lost to a stray empty flat one");
+});
+
+test("a junk spec cannot make the lift throw", () => {
+  // It runs on model output at the door of the one function every schema passes
+  // through, and `normalizeSchema`'s own tolerance is worth nothing if the step
+  // in front of it can throw first.
+  for (const junk of [null, undefined, 7, "x", [], true]) assert.doesNotThrow(() => liftBackend(junk));
+  assert.equal(liftBackend(null), null);
+});
+
+test("the tool asks for the five NESTED, in generation order, and no longer at the top", async () => {
+  // DERIVED AT BOTH ENDS. `BACKEND_FIELDS` is what the lift hoists and the tool's
+  // own sub-properties are what the model is asked for; if they drift, a field
+  // the model fills is one nothing lifts — computed and dropped, which is this
+  // repo's most-recorded shape.
+  const { tool } = await import("./integration/schema-tool.mjs").then((m) => m.readSchemaTool());
+  const props = tool.input_schema.properties;
+  const req = tool.input_schema.required;
+
+  assert.ok(props.backend, "the tool has no `backend` field");
+  assert.equal(props.backend.type, "object");
+  assert.deepEqual(Object.keys(props.backend.properties), BACKEND_FIELDS,
+    "the tool's sub-fields and BACKEND_FIELDS disagree, in name or in order");
+
+  // The ABSENCE is the half that rots: a field quietly restored to the top level
+  // would be asked for twice and lifted over by whichever answer came nested.
+  for (const k of BACKEND_FIELDS) assert.ok(!(k in props), `${k} is still a top-level field`);
+  for (const k of BACKEND_FIELDS) assert.ok(!req.includes(k), `${k} is still in the tool's own required list`);
+
+  // `backend` itself is required, or a model may answer no tables at all and the
+  // build refuses at 422 for a reason nobody asked for.
+  assert.ok(req.includes("backend"), "backend is not required");
+  assert.deepEqual(props.backend.required, ["tables", "seed"]);
+});
+
+test("BOTH designer answers are lifted before anything reads them", async () => {
+  // THE WIRING LAYER, where this repo has recorded twelve dead features. The
+  // readers below these two lines take `designed.tables` and `designed.seed`
+  // RAW — they never go through `normalizeSchema` — so a site whose answer was
+  // not lifted seeds nothing and filters nothing, silently.
+  //
+  // Derived over every assignment rather than pinned to two spellings: a third
+  // designer call added later is covered without anybody remembering this file.
+  const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const assigns = [...src.matchAll(/^\s*designed = (.+?);/gm)].map((m) => m[1]);
+  const fromModel = assigns.filter((a) => /\b(dz|d)\b.*\.input/.test(a));
+  assert.ok(fromModel.length >= 2, `expected both designer assignments, found ${fromModel.length}`);
+  for (const a of fromModel) {
+    assert.match(a, /liftBackend\(/, `a designer answer reaches the readers unlifted: ${a}`);
+  }
 });

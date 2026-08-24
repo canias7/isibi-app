@@ -295,7 +295,10 @@ test("the settlement prices EVERY call in the step, not just the first", async (
 // which makes the wording load-bearing and worth pinning.
 test("the seed field states the consequence, not just the requirement", () => {
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const at = w.indexOf("\n      seed: {");
+  // ANCHORED ON THE FIELD, NOT ITS INDENT — see the comment below about
+  // byte-sized windows; pinning the depth is the same mistake in whitespace,
+  // and it fired when `backend` nested this one level deeper.
+  const at = w.search(/^\s+seed: \{/m);
   assert.ok(at > 0, "the seed field is gone from design_schema");
   // To the NEXT field, never a byte count — a window sized in bytes stops
   // covering what it was written for, which has bitten this repo five times.

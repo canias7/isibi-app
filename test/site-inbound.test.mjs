@@ -315,16 +315,26 @@ test("the DESIGNER can declare one, or nothing ever reaches this route", () => {
   // The failure this repo has hit at five separate layers on one feature: the
   // route is correct, the module is correct, and no schema can ever produce a
   // function it will accept because the tool never mentioned the convention.
-  const i = worker.indexOf("      functions: {");
+  // ANCHORED ON THE FIELD, NOT ITS INDENT. This pinned six spaces and
+  // went red when `backend` nested it one level deeper — a test about
+  // whitespace, on a claim about what the designer can declare.
+  const i = worker.search(/^\s+functions: \{/m);
   assert.ok(i > 0, "the design_schema field exists");
-  // RUN TO THE NEXT FIELD, never a byte count. This was `slice(i, i + 4000)`
-  // and went red the moment the functions description grew — a capacity
-  // paragraph was added ahead of the webhook half, and the window stopped
-  // reaching the thing it asserts. A guard sized in bytes silently stops
-  // covering what it was written for; this repo has now recorded that four
-  // separate times, and this is the fifth.
-  const end = worker.indexOf("      tables: {", i);
-  assert.ok(end > i, "the field after `functions` moved — retarget this window");
+  // BOUNDED BY BRACE DEPTH, not by a byte count and not by the next field's
+  // NAME. This was `slice(i, i + 4000)` and went red when the description grew;
+  // it was then re-anchored on `"      tables: {"` — the field that happened to
+  // follow — and went red AGAIN on 2026-08-24 when `backend` reordered the five
+  // and put `tables` FIRST, so the "next" field was now behind it and the window
+  // had negative length. Two byte/spelling pins on one guard, in one file.
+  //
+  // A block ends where its own brace closes. That is true at any indent, in any
+  // order, at any nesting, and nothing about where the field sits can move it.
+  let depth = 0, end = -1;
+  for (let k = i; k < worker.length; k++) {
+    if (worker[k] === "{") depth++;
+    else if (worker[k] === "}" && --depth === 0) { end = k; break; }
+  }
+  assert.ok(end > i, "the `functions` block has no matching close — retarget this window");
   const field = worker.slice(i, end);
   assert.ok(field.length > 1000, "the functions field was not read whole: " + field.length);
   assert.ok(/hook_<something>/.test(field), "the naming convention is stated");

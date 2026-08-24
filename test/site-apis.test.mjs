@@ -290,7 +290,10 @@ test("the SECRETS never reach the response", () => {
 });
 
 test("the DESIGNER can declare one, or nothing ever reaches this route", () => {
-  const i = worker.indexOf("      apis: {");
+  // ANCHORED ON THE FIELD, NOT ITS INDENT. This pinned six spaces and
+  // went red when `backend` nested it one level deeper — a test about
+  // whitespace, on a claim about what the designer can declare.
+  const i = worker.search(/^\s+apis: \{/m);
   assert.ok(i > 0, "the design_schema field exists");
   const field = worker.slice(i, i + 3000);
   assert.ok(/\{\{/.test(field), "the placeholder syntax is stated");

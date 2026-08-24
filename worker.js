@@ -43,7 +43,7 @@ import { rescopeCookie } from "./site-cookie.mjs";
 import { drainTeardown } from "./site-teardown.mjs";
 import { drainRebuild, BATCH as REBUILD_BATCH } from "./site-rebuild.mjs";
 import { scrubSecrets, neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteProject, enableNeonAuth, enableDataApi, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
-import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlIdent, seedSiteRows, droppedFields, refusedFields } from "./site-schema.mjs";
+import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, liftBackend, sqlIdent, seedSiteRows, droppedFields, refusedFields } from "./site-schema.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
 import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, lintPages, repairImports, SITE_PAGES_MAX_TOKENS } from "./builder/page-gen.mjs";
@@ -3582,572 +3582,634 @@ const SITE_SCHEMA_TOOL = {
     properties: {
       brand: { type: "string", description: "Short display name for the site." },
       slug: { type: "string", description: "url-safe-name, lowercase, hyphens only." },
-      jobs: {
-        type: "array",
+      // THE BACKEND, AS ONE ANSWER (2026-08-24, owner's call: "put it together
+      // under one called backend").
+      //
+      // These five were five top-level fields and they are one decision: what the
+      // site REMEMBERS, what it is remembering on day one, and the three tiers of
+      // machinery that act on it. Grouped, the model answers them together with
+      // the tables in hand rather than deciding jobs and third-party reads before
+      // it knows what there is to schedule or fetch.
+      //
+      // THE NESTING IS A WIRE FORMAT AND NOTHING DOWNSTREAM SEES IT.
+      // `liftBackend` in site-schema.mjs hoists these back to the top level at the
+      // door, because `spec.tables` is read in ~30 places and `_meta.schema` on
+      // every site ever published stores the flat shape — which a revise reads
+      // straight back. Both shapes stay legal permanently: flat is storage and a
+      // caller-supplied `body.schema`, nested is what this tool asks a model for.
+      //
+      // SUB-ORDER IS GENERATION ORDER, one level down exactly as at the top.
+      // `tables` first because everything after it is about tables that now
+      // exist; `seed` straight after, so the rows are written while the columns
+      // are still in hand — it used to sit after `description`, two fields away
+      // from the thing it fills; then the three optional tiers.
+      backend: {
+        type: "object",
         description:
-          "OPTIONAL scheduled work — the site doing something on a timer, with nobody there. THE CASE THIS EXISTS FOR: reminding tomorrow's " +
-          "customers today, so they turn up. Also a weekly digest to the owner, or chasing an unpaid invoice. Skip it entirely for a site " +
-          "that only takes enquiries. " +
-          "Each job names a function you ALSO declare in `functions` with `internal: true`, taking NO arguments and returning `json` — an ARRAY of " +
-          "{to, subject, body}, one per message to send. Return an empty array when there is nothing to do, which is most runs. " +
-          "The function is ordinary SQL, so decide whatever you like inside it: who is due, what it says, joined to anything on the site. " +
-          "EACH MESSAGE MAY BE AN EMAIL OR A TEXT: add \"channel\":\"sms\" to one and give it `to` (a full international number, +44…) and `body` and NO subject. " +
-          "A text is what gets read for a day-before reminder from a barber, a garage or a restaurant; an email is right for a digest or anything long. Leave `channel` out for email. " +
-          "The site owner pastes their own provider key in Settings — an email one, an SMS one, or both; until they do, that channel sends nothing and the other still goes. " +
-          "Minimum interval is 15 minutes and anything shorter is rounded up to it — for a day-before reminder use 1440.",
-        items: {
-          type: "object",
-          required: ["name", "fn", "everyMinutes"],
-          properties: {
-            name: { type: "string", description: "lowercase identifier, e.g. remind_tomorrow" },
-            fn: { type: "string", description: "The internal function returning the messages, e.g. bookings_due_tomorrow" },
-            everyMinutes: { type: "integer", description: "How often to run. 1440 = daily, 60 = hourly. Minimum 15." },
+          "THE SITE'S BACKEND: what it remembers, what is in it on day one, and anything that acts on it. " +
+          "Answer `tables` and `seed` always. The other three are for the sites that need them and are " +
+          "left out entirely otherwise — most sites need none of them.",
+        properties: {
+          tables: {
+            type: "array",
+            // THE ARRAY ITSELF SAID NOTHING. 36% of this tool's ~11,250 tokens sit
+            // inside `items`, and the field the whole site hangs off had no
+            // description of its own — the only sentence framing the decision was
+            // in the system block, one layer away from where the answer is written.
+            // Says what a table IS, and gives the two axes as the thing to decide,
+            // since the pair is now the general form and `access` the shorthand.
+            description:
+              "The things this site has to REMEMBER — one table per kind of thing. A site that is only words needs none; " +
+              "a barber shop needs two (the services it offers, the bookings it takes). Usually one to four. " +
+              "For each one, decide who may READ it and who may WRITE to it: that pair is enforced in the database itself, " +
+              "so a table nobody may read cannot leak however the pages are written. " +
+              "Name it for the thing it holds, in the plural — `services`, `bookings`, `listings`.",
+            items: {
+              type: "object",
+              properties: {
+                name: { type: "string", description: "snake_case table name." },
+                // REMOVING A FEATURE, without destroying what it collected.
+          retired: {
+            type: "boolean",
+            description:
+              "Set TRUE only when the message asks to REMOVE this table's feature from the site (\"drop the gallery\", " +
+              "\"we don't take enquiries any more\"). The table and every row in it are KEPT — the owner can still read " +
+              "and export them — but nothing on the site can reach it any more. Set FALSE to put a removed feature " +
+              "back. LEAVE IT OUT ENTIRELY otherwise — omitting it keeps whatever the table already was, and saying " +
+              "false on a table nobody asked about would restore something the owner removed.",
           },
-        },
-      },
-      apis: {
-        type: "array",
-        description:
-          "OPTIONAL third-party APIs this site reads at request time. Use one ONLY when the brief needs live data that is " +
-          "not in this site's own database and is not fixed at build time: today's exchange rate, a courier's delivery " +
-          "slots, a supplier's stock level, the weather for an outdoor venue. Do NOT use it for anything a table can hold.\n\n" +
-          "Write the WHOLE request and put `{{SECRET_NAME}}` wherever a credential belongs — the site OWNER stores that " +
-          "value in Secrets and it is substituted server-side, so no key is ever in the page. Name the secret after the " +
-          "service, e.g. `{{WEATHER_KEY}}`. Anything a page needs to vary goes in `params` and is written `{{param.x}}`; " +
-          "values are URL-encoded, and a parameter not listed is ignored. A page then calls `useApi(\"<name>\", {x})`. " +
-          "The response comes back exactly as the service sent it, so write the page against that service's real shape. " +
-          "Set `cacheSeconds` to how long the answer stays good — an exchange rate is 3600, a stock level maybe 30 — " +
-          "because every uncached read spends the owner's own quota.",
-        items: {
-          type: "object",
-          required: ["name", "url"],
-          properties: {
-            name: { type: "string", description: "lowercase identifier the page calls by, e.g. exchange_rates" },
-            url: { type: "string", description: "https only. e.g. https://api.example.com/v1/latest?base={{param.base}}&key={{RATES_KEY}}" },
-            // A POST HERE IS STILL A READ, and the caching is why that has to
-            // be said. `normalizeApi` gives every declaration a 60-second
-            // window by default and `cacheKey` is slug|name|params — no method,
-            // no body — so a declared POST is sent ONCE and then answered from
-            // the store for a minute without contacting the service at all.
-            //
-            // Right for what this exists for: plenty of read endpoints require
-            // POST (GraphQL, some search and pricing APIs), and caching them is
-            // the whole point, since every uncached read spends the OWNER's own
-            // quota. Wrong the moment the POST does something — the first call
-            // lands, the next few silently do not, and it starts working again
-            // a minute later, which reads as the third party being flaky rather
-            // than as us not calling them.
-            //
-            // Not fixed by refusing to cache POSTs: that breaks the legitimate
-            // case and puts the owner's quota back on every page view. Fixed by
-            // saying the thing the model cannot infer from "POST only".
-            method: { type: "string", enum: ["GET", "POST"],
-              description: "GET unless the service's READ endpoint requires POST (GraphQL, some search and pricing APIs). " +
-                "NEVER use this to make something happen on the other side — send a message, place an order, reserve a slot. " +
-                "Every answer here is cached, so the request is made once and then answered from the store until the window " +
-                "expires: an action would run sometimes and not others. Outbound actions belong in a database function." },
-            headers: { type: "object", description: "e.g. {\"Authorization\":\"Bearer {{RATES_KEY}}\"}" },
-            body: { type: "string", description: "POST only. The request body, with the same {{SECRET}} and {{param.x}} placeholders." },
-            params: { type: "array", items: { type: "string" }, description: "Names a page may pass. Anything else is dropped." },
-            cacheSeconds: { type: "integer", description: "0-3600. How long one answer stays good. Every uncached read costs the owner." },
-          },
-        },
-      },
-      functions: {
-        type: "array",
-        description:
-          "OPTIONAL Postgres functions this site needs, called from a page by name. Use one ONLY when a page must do " +
-          "something a table's access level cannot express. THE CASE THIS EXISTS FOR: a `collect` table is write-only, so " +
-          "the customer who booked can never see their booking again. Give it a column " +
-          "{name:'claim_token', type:'text', default:'uuid'} — `default:'uuid'` is the reserved token that fills it with a " +
-          "random uuid, and the column is TEXT, so the function's argument is type 'text' too — plus a function taking that " +
-          "token and returning exactly the matching row, then " +
-          "the site can offer a link back to it. Declare a SECOND to cancel by the same token, and — for anything with a " +
-          "date, a time or a quantity in it — a THIRD to CHANGE it: same token argument plus one argument per field the " +
-          "customer may move, doing an UPDATE ... WHERE claim_token = tok. Without that third one the only way to shift an " +
-          "appointment is to cancel and rebook, which on a table with `unique` or `noOverlap` means giving up the slot before " +
-          "getting the new one. Change only the fields you took arguments for; never let it move status or the token itself. " +
-          "Skip all of this for a " +
-          "plain contact form, which nobody returns to. Bodies are plain SQL over this site's own tables.\n\n" +
-          // WHEN A SLOT HOLDS MORE THAN ONE PERSON. `unique` gives a capacity of
-          // exactly one and `maxRows` caps the WHOLE table — so "12 places in
-          // this class", "8 tables at 7pm", "30 pitches" was inexpressible, on a
-          // platform whose commonest site is a booking site. The substrate could
-          // already do it (a function is SECURITY DEFINER, so it writes into a
-          // table the caller cannot; `useRpcAction` calls it from a page) and
-          // nothing said so — the same dead-at-the-last-link shape this file
-          // keeps recording, arriving as a missing sentence rather than missing
-          // code. THE LOCK IS NOT OPTIONAL: a bare count-then-insert lets two
-          // people both see 11 of 12 and both book, which is the exact bug
-          // `unique` exists to prevent, reintroduced by the thing meant to
-          // generalise it.
-          "A SLOT THAT HOLDS MORE THAN ONE PERSON. `unique` on a booking table means a capacity of exactly ONE, " +
-          "and `maxRows` caps the whole table. When the brief says a class, a session, a table or a pitch holds " +
-          "N people, neither fits — so make the booking go through a function instead of straight into the table. " +
-          "Declare the table `write: \"none\"` so nothing can insert around it, and one function taking the " +
-          "customer's details plus whichever columns identify the slot. In the body: take " +
-          "`pg_advisory_xact_lock(hashtext(<the slot's identity>))` FIRST, then count the rows already in that " +
-          "slot, `RAISE EXCEPTION 'fully booked'` if it is at capacity, and INSERT otherwise. The lock is what " +
-          "makes it true — without it two people both see the last place and both get it, which is the double " +
-          "booking this is here to stop. Put the capacity where the brief puts it: a number on the class row when " +
-          "each class has its own, or a literal when the whole business has one number.\n\n" +
-          "RECEIVING DATA FROM ANOTHER SYSTEM. A function named `hook_<something>` taking exactly one jsonb argument and " +
-          "marked internal:true is reachable at POST /api/db/<slug>/hook/<something>, behind a shared secret the OWNER " +
-          "stores. Use it when the brief says another system sends this site data — a supplier's stock feed, a booking " +
-          "platform syncing appointments, an order marked shipped, a form service like Typeform or Zapier. The body does " +
-          "whatever the payload means: INSERT, UPDATE, or nothing. Make it IDEMPOTENT — senders retry, so declare a unique " +
-          "column for the sender's own event/order id and use ON CONFLICT DO NOTHING, or the same delivery lands twice. " +
-          "The `hook_` prefix is what makes it reachable; without it the function stays private to the platform.",
-        items: {
-          type: "object",
-          required: ["name", "returns", "body"],
-          properties: {
-            name: { type: "string", description: "lowercase identifier, e.g. booking_by_claim" },
-            // THE TWO HALVES OF THIS TOOL SPOKE DIFFERENT TYPE LANGUAGES. A
-            // column may be text/integer/real/boolean/json; an argument was
-            // offered seven types no column can ever be. A body compares its
-            // arguments to columns, so `{name:"d", type:"date"}` against a
-            // TEXT `slot_date` is `operator does not exist: text = date` — the
-            // function fails to CREATE, and the page's lookup is silently not
-            // there. Non-fatal and reported in `functionErrors`, so the site
-            // still builds without the capability it was asked for.
-            //
-            // The tool already knew this trap: its own example warned that a
-            // claim token is TEXT "not uuid". Somebody hit the uuid version and
-            // documented that one case; the date, numeric and bigint versions
-            // were left open.
-            //
-            // NARROWED IN WHAT IS OFFERED, NOT IN WHAT IS ACCEPTED. `date` and
-            // `timestamptz` are gone from this enum because NO column is ever
-            // either, so they can only be right via an explicit cast nothing
-            // asks for. The engine's own allow-list still takes them, so a
-            // schema stored before today re-applies on a revise exactly as it
-            // did — narrowing that too would break existing sites to tidy a
-            // prompt. `uuid` and `jsonb` STAY and are not oversights: `owner_id`
-            // and `team_id` really are UUID, and a `hook_*` handler takes
-            // exactly one jsonb payload.
-            //
-            // `integer` joins `int` because that is the word the columns use,
-            // and the engine has always accepted both — offering one spelling
-            // while the other half of the tool uses the other is the mismatch
-            // in miniature.
-            args: {
-              type: "array",
-              description: "Arguments, matched to the COLUMN each one is compared against. What a declared column really is in Postgres: " +
-                "`text` is TEXT · `integer` is INTEGER · `real` is REAL · `boolean` is INTEGER 0/1, NOT boolean · `json` is TEXT, NOT jsonb. " +
-                "The columns the platform adds: `id` is INTEGER, `owner_id` and `team_id` are UUID, and `created_at` and every other " +
-                "timestamp is TEXT in 'YYYY-MM-DD HH:MM:SS'. " +
-                "THERE IS NO DATE COLUMN — a date or a time lives in a TEXT column, so an argument matching one is `text`. " +
-                "A claim lookup takes one: {name:'tok', type:'text'} — the claim_token column is TEXT, so the argument matching it is text, not uuid.",
-              items: {
-                type: "object",
-                required: ["name", "type"],
-                properties: {
-                  name: { type: "string" },
-                  type: { type: "string", enum: ["text", "int", "integer", "bigint", "numeric", "boolean", "uuid", "json", "jsonb"] },
+          access: {
+                  type: "string",
+                  enum: ["collect", "display", "user", "feed", "admin"],
+                  description:
+                    "'display' = anyone reads it, nobody writes (menus, services, opening hours). " +
+                    "'collect' = anyone submits, nobody reads it back (bookings, orders, enquiries). " +
+                    "'user' = PRIVATE PER MEMBER: a signed-in visitor reads and writes only their own rows (saved recipes, my orders, a personal journal). " +
+                    "'feed' = SHARED, MEMBER-AUTHORED: every signed-in member reads all rows and writes their own (reviews, comments, a community board). " +
+                    "'admin' = SHARED, READ-ONLY FROM THE SITE: signed-in members read it and NOBODY writes it from a published page — the business maintains those rows from its Go Farther dashboard (announcements, staff notices). Pick it only when members should SEE something they never edit. " +
+                    "The last three require the visitor to have an account on the site — use them ONLY when the brief actually asks for members, sign-in, or 'their own' anything. A shop that just needs a menu and a booking form must not have them. " +
+                    "THESE FIVE ARE SHORTHANDS FOR A read/write PAIR. When none of them is the shape you need, set `read` and `write` instead and leave this out.",
+                },
+                // READ AND WRITE, SEPARATELY — the five names above cover 5 of the 16
+                // combinations, and the missing ones are ordinary. A marketplace built
+                // 2026-08-10 had no browsable page because "members post it, the public
+                // reads it" is not one of the five: the designer correctly followed
+                // "anything a visitor keeps as theirs" to `user`, and produced a site
+                // whose every listing was invisible to the visitors it existed for.
+                read: {
+                  type: "string",
+                  enum: ["none", "own", "members", "public"],
+                  description:
+                    "Who may READ this table, when the five shorthands do not fit. " +
+                    "'public' = anyone, signed in or not. 'members' = any signed-in member sees every row. " +
+                    "'own' = a signed-in member sees only their own rows. 'none' = nobody reads it from a page. " +
+                    "USE 'public' WITH write 'own' FOR ANYTHING VISITORS POST AND OTHER VISITORS BROWSE — a marketplace, classifieds, a directory, a job board, public reviews, a community wall. " +
+                    "That combination has no shorthand and is the one most often needed: without it the listings are invisible and the site has no page worth opening.",
+                },
+                write: {
+                  type: "string",
+                  enum: ["none", "own", "members", "anyone"],
+                  description:
+                    "Who may WRITE to this table, when the five shorthands do not fit. " +
+                    "'anyone' = any visitor with no account (a booking form). 'own' = a signed-in member writes rows that become theirs and edits only those. " +
+                    "'members' = any signed-in member may edit any row. 'none' = nothing on the published site writes to it; the business maintains it from its dashboard. " +
+                    "Note 'anyone' can never be combined with read 'own' — an anonymous visitor has no identity for a row to be 'theirs', so it resolves to read 'none'.",
+                },
+                // FOUR OF OUR OWN FEATURES THAT NOTHING COULD ASK FOR. Every one is
+                // SQL this engine already writes — a unique index, a trigger, a
+                // policy clause — and none had a slot on this form, so no site the
+                // builder has ever made could have them. Audited before exposing:
+                // `sequence`, `checks`, `audit`, `history` and `version` were left
+                // out because they are NOT reachable end to end (a column nothing
+                // stamps, a table nothing reads, a lock the client never sends), and
+                // offering those would be the same dead-feature trap one layer up.
+                oncePerUser: {
+                  type: "array",
+                  items: { type: "string" },
+                  description:
+                    "Columns that may hold only ONE row per signed-in member — usually just [] with no columns, meaning one row per member full stop. " +
+                    "ONE REVIEW PER CUSTOMER, one application per job, one vote per person, one booking per member per class. " +
+                    "A second attempt is refused by the database with a duplicate error the page turns into a sentence. Only on a table members write.",
+                },
+                enforceRefs: {
+                  type: "boolean",
+                  description:
+                    "Refuse a row whose `ref` column names a parent that does not exist. A booking for an event that was deleted, an order line for a product that is gone. " +
+                    "Turn it on for any table whose rows point at another table's rows — it is what stops the site filling with orphans nobody can explain.",
+                },
+                expires: {
+                  type: "boolean",
+                  description:
+                    "Give the table an `expires_at` column, and HIDE every row past it from every read, automatically. " +
+                    "A limited offer, a job advert that closes, an event listing that should stop showing the day after. " +
+                    "The owner sets the date from their dashboard; no page has to remember to filter, and one left unset never expires.",
+                },
+                scheduled: {
+                  type: "boolean",
+                  description:
+                    "Give the table a `publish_at` column, and HIDE every row until that time. " +
+                    "A post that goes live on Tuesday, a menu that changes at the weekend, a price list that starts next month. " +
+                    "The owner sets it from their dashboard; a row with none is live immediately.",
+                },
+                columns: {
+                  type: "array",
+                  // A picture is a `text` column holding a URL, and its NAME is what
+                  // decides whether the platform will accept a file for it — a
+                  // visitor may only upload to a table that declares one. Measured
+                  // 2026-07-28: across seven generated sites the designer put image
+                  // columns on `display` tables every time and on a `collect` table
+                  // never, so the upload path could not fire on a single one of them.
+                  description:
+                    "A picture is a 'text' column whose value is a URL — name it photo, image_url, avatar, logo, cover or hero_image. " +
+                    "Put one on a 'display' table when the site shows pictures it owns (a menu item, a product, a team member); the owner fills these in after the build. " +
+                    "Put one on a 'collect' or member table ONLY when the brief says the VISITOR sends a picture (a photo with their review, a reference image with their enquiry) — that is what lets the form accept a file at all.",
+                  items: {
+                    type: "object",
+                    properties: {
+                      name: { type: "string" },
+                      type: { type: "string", enum: ["text", "integer", "real", "boolean", "json"] },
+                      required: { type: "boolean" },
+                      ref: { type: "string", description: "Name of a table this column points at." },
+                    },
+                    required: ["name", "type"],
+                  },
+                },
+                timestamps: { type: "boolean" },
+                fts: { type: "boolean", description: "Enable full-text search over this table's text columns." },
+                searchWeights: {
+                  type: "object",
+                  additionalProperties: { type: "integer" },
+                  description:
+                    "Only with `fts`. Which columns matter most in search, as column -> importance (bigger is more important). " +
+                    "A title is usually worth more than a body, and without this every column ranks the same — so searching a menu " +
+                    "for \"halloumi\" ranks a dish that merely MENTIONS it level with the one called it. Postgres has four tiers, " +
+                    "so these are an ordering rather than a scale. Omit it if every column is equally worth matching.",
+                },
+                defaultSort: {
+                  type: "string",
+                  description:
+                    "The column a list of these rows should normally be ordered by, `-` first for descending: \"-created_at\", \"name\", \"price\". " +
+                    "Newest-first for anything posted, alphabetical for a directory, soonest-first for anything booked. " +
+                    "This is what the PAGES are told to sort by; it is not enforced, so a page with a reason of its own may still differ.",
+                },
+                // THE CONSTRAINT TIER. Every one of these is kept by the DATABASE —
+                // a CHECK, a generated column, a trigger — so what a table declares
+                // here is true of the rows however they arrive. All three were
+                // parsed, stored and enforced by nothing until 2026-08-16.
+                checks: {
+                  type: "array",
+                  items: { type: "array", items: { type: "string" } },
+                  description:
+                    "Rules the database refuses to break, each `[column, operator, column-or-number]` with operator one of " +
+                    "gt, gte, lt, lte, eq, ne. `[\"end_time\", \"gt\", \"start_time\"]` makes a backwards booking impossible; " +
+                    "`[\"quantity\", \"gte\", \"1\"]` makes an order for zero impossible. A row with either side empty passes — " +
+                    "these compare values, they do not make a column required. Use them where a wrong row costs the owner money or time.",
+                },
+                computed: {
+                  type: "object",
+                  additionalProperties: { type: "array", items: { type: "string" } },
+                  description:
+                    "Columns the database fills in from other columns, as new-name -> list of parts. A part that names one of this " +
+                    "table's columns is that column's value; anything else is literal text. " +
+                    "`{\"full_name\": [\"first_name\", \" \", \"last_name\"]}` gives every row a `full_name` that can never disagree with its parts. " +
+                    "The name must be NEW — naming an existing column is refused, because these are rebuilt on every revise. " +
+                    "Text only, and read-only: nothing can write to one.",
+                },
+                transitions: {
+                  type: "object",
+                  description:
+                    "Which status changes are allowed, as column -> {from: [permitted next values]}. " +
+                    "`{\"status\": {\"pending\": [\"confirmed\", \"cancelled\"], \"cancelled\": []}}` means a cancelled booking can never " +
+                    "become confirmed again — the kind of rule a form can be talked past and a database cannot. " +
+                    "A value you do not list as a `from` is unconstrained, so declare only the states that matter. " +
+                    "Use it for bookings, orders and applications; skip it where any status may follow any other.",
+                },
+                // These are enforced by real Postgres constraints and have been since
+                // the schema engine was written — and until 2026-07-28 the designer
+                // could not emit ANY of them, so no generated site had one. Measured
+                // live that day: two customers booked the same 14:00 slot on a
+                // generated barber shop and both were accepted.
+                unique: {
+                  type: "array",
+                  description:
+                    "Groups of columns that must be unique together, enforced by a real index (a violation is a 409, not a duplicate row). " +
+                    "USE THIS ON ANY BOOKING OR RESERVATION TABLE — without it two customers can take the same slot, which is the single most damaging bug a booking site can have. " +
+                    "A group is an array of column names: [[\"appointment_date\",\"appointment_time\"]] means nobody can book that date+time twice. " +
+                    "A group may instead be {\"columns\":[...], \"where\":\"status:eq:confirmed\"} so only rows in that state hold the slot — otherwise a CANCELLED booking occupies it forever.",
+                  // One consistent object shape. This was `items: {}` — an empty
+                  // schema, meant to allow both [["a","b"]] and [{columns,where}] —
+                  // and the API REJECTED the whole tool for it, so every build with
+                  // a brief answered "the designer is busy". Live for three merges.
+                  // The parser accepts the object form, so one shape is enough.
+                  items: {
+                    type: "object",
+                    properties: {
+                      columns: { type: "array", items: { type: "string" }, description: "The columns that must be unique together." },
+                      where: { type: "string", description: "Optional, as \"column:eq:value\" — only rows matching it hold the slot." },
+                    },
+                    required: ["columns"],
+                  },
+                },
+                uniqueCI: {
+                  type: "array",
+                  description: "Columns unique ignoring case — use for an email column, so Ada@x.com and ada@x.com cannot both sign up. Array of column names.",
+                  items: { type: "string" },
+                },
+                maxRows: {
+                  type: "integer",
+                  description: "Cap how many rows this table may ever hold. Worth setting on a public form (a giveaway with 500 places, a class with 20 seats); a full table answers 409 rather than growing forever.",
+                },
+                // `mask` USED TO BE HERE and was removed 2026-08-04, deliberately —
+                // it is not a gap to fill back in.
+                //
+                // It promised field-level redaction: a phone shown as "••••1234" to
+                // a reader who may not see it in full. `maskFields()` enforced that
+                // on the read path in `site-data.mjs`, and that file was DELETED on
+                // 2026-07-30 when reads moved to Neon's Data API. So the Worker is
+                // no longer on the read path and has nothing to redact on the way
+                // out; the function survived with zero callers, and the tool went on
+                // offering the guarantee. A table declaring it served the raw value
+                // to every reader, silently.
+                //
+                // It cannot move into the database as specified either: `mask` names
+                // OUR application roles ("staff"), and Postgres knows `anonymous`
+                // and `authenticated`. Column-level GRANTs express that coarser
+                // split, but they make `select=*` fail outright — and `select=*` is
+                // what every read this platform makes sends.
+                //
+                // So: a feature that lies, or no feature. Same call, for the same
+                // reason, that pulled `teamRead` and `teamScope` out of this tool
+                // when their enforcement went. Restoring it means building the
+                // enforcement FIRST — test/declarable-enforced.test.mjs fails if it
+                // comes back without one.
+                // A team is a Neon Auth ORGANIZATION now, so the owner sets teams up
+                // through Better Auth rather than through any route of ours. Offered
+                // here again because a flag the designer cannot declare is a feature
+                // that does nothing — which this one was, at five separate layers.
+                teamScope: {
+                  type: "boolean",
+                  description:
+                    "Share this table across a TEAM: everyone in the same team reads and edits the same rows, and a write records who made it. " +
+                    "USE THIS FOR AN INTERNAL TOOL where colleagues work the same records — a CRM's deals, a shared job list, a client roster. " +
+                    "Only meaningful with access 'user'. Do NOT use it for a customer-facing members area, where one customer must never see another's rows. " +
+                    "A member who is not in a team sees only their own rows, so a site is safe before any team exists.",
+                },
+                publicView: {
+                  type: "object",
+                  description:
+                    "A named, PII-filtered projection of this table that ANYONE may read, even though the table itself is not readable. " +
+                    // THE CASE THAT DECIDES WHETHER THE SITE CAN EXIST, and it was
+                    // missing. This description named only the booking slot — an
+                    // optional enhancement — so a marketplace brief ("people post
+                    // their own events to sell") produced `events` as a `user` table
+                    // with no publicView, which is 401 signed out and own-rows-only
+                    // signed in. Measured live 2026-08-10: nobody could browse a
+                    // single listing, page generation had no home page it could
+                    // honestly write, and the build came back with no pages at all.
+                    "REQUIRED WHEN VISITORS POST ROWS THAT OTHER VISITORS MUST BROWSE — a marketplace, classifieds, a directory, a listings site. " +
+                    "Without it there is NO browsable page: a \"user\" table is 401 to a signed-out visitor and own-rows-only to a signed-in one, so nobody can ever see a listing. " +
+                    "Publish what a buyer needs (title, price, date, location, category) and leave out the rest. " +
+                    "ALSO USE IT WITH A BOOKING TABLE so the page can grey out slots that are already taken: publicView {\"columns\":[\"appointment_date\",\"appointment_time\"]} publishes WHEN people have booked and nothing about WHO. " +
+                    "Name only the columns a stranger may see — never a name, email, phone or note. `id` and `owner_id` are refused outright. " +
+                    "Add \"where\":[\"status:eq:confirmed\"] when the table has a status, so a cancelled row stops occupying the slot.",
+                  properties: {
+                    columns: { type: "array", items: { type: "string" }, description: "The only columns published. No wildcard." },
+                    where: { type: "array", items: { type: "string" }, description: "Filters as \"column:eq:value\" or \"column:ne:value\"." },
+                    limit: { type: "integer", description: "Most rows returned at once (default 500, max 2000)." },
+                  },
+                },
+                noOverlap: {
+                  type: "object",
+                  description:
+                    "Prevents overlapping INTERVALS, for bookings whose length varies (a 60-minute colour at 10:00 must block a 30-minute trim at 10:30 — `unique` would let both in, because they are different times). " +
+                    "REQUIRES start and end to be INTEGER columns, e.g. minutes from midnight: declare start_min/end_min as integers alongside whatever text time you display. " +
+                    "If either is not an integer column the constraint is SILENTLY SKIPPED, so use plain `unique` unless you have actually declared the integers.",
+                  properties: {
+                    start: { type: "string", description: "Integer column where the interval starts." },
+                    end: { type: "string", description: "Integer column where it ends." },
+                    on: { type: "array", items: { type: "string" }, description: "Columns that scope it — e.g. [\"appointment_date\"] or [\"room\"]." },
+                  },
+                },
+                confirm: {
+                  type: "object",
+                  description:
+                    "EMAIL THE PERSON WHO SUBMITTED, as soon as they submit — a booking confirmation, an order receipt, an enquiry acknowledgement. " +
+                    "Declare it on a `collect` table whose form asks for an email address, which is nearly every booking or enquiry form. " +
+                    "`to` must be one of THIS table's own columns, the one holding the visitor's address. " +
+                    "`subject` and `body` may use {column} to insert any value from the row they just submitted — e.g. \"Booked, {customer_name}\". " +
+                    "`body` is HTML; keep it short and plain, and never ask them to reply with card details or a password. " +
+                    "The site owner pastes their own email provider key (Resend, SendGrid or Postmark) in Settings — until they do, nothing is sent and the form still works normally. " +
+                    "Do NOT declare this to notify the OWNER: they are told about every submission already.",
+                  properties: {
+                    fn: { type: "string", description:
+                      "OPTIONAL, and the more capable form. Instead of to/subject/body, name a function you ALSO declare in `functions` with `internal: true`, " +
+                      "taking one bigint argument (the new row's id) and returning `json` shaped {to, subject, body}. " +
+                      "Use it whenever the message depends on anything beyond the row itself — join the stylist's name, count the customer's previous bookings to greet a regular, " +
+                      "say something different for a Saturday. `internal: true` matters: without it the function is callable by any visitor, who could then read anyone's confirmation by guessing an id." },
+                    to: { type: "string", description: "The column on this table holding the visitor's email address — e.g. \"customer_email\". Omit when using `fn`." },
+                    subject: { type: "string", description: "Subject line. {column} is replaced from the submitted row." },
+                    body: { type: "string", description: "Short HTML body. {column} is replaced from the submitted row." },
+                  },
+                  // Nothing is required: `fn` and the to/subject/body trio are
+                  // alternatives, and a schema tool cannot express "one or the
+                  // other". Which arrived is decided by normalizeConfirm, and a
+                  // half-declaration of either is refused there rather than
+                  // half-applied.
+                },
+                sms: {
+                  type: "object",
+                  description:
+                    "TEXT THE PERSON WHO SUBMITTED. The same idea as `confirm` and a separate declaration, so a table may have either or both — " +
+                    "an emailed receipt AND a texted reminder. Declare it on a `collect` table whose form asks for a PHONE NUMBER. " +
+                    "Worth it where a text is read and an email is not: a booking confirmation for a barber, a garage or a restaurant, " +
+                    "an appointment reminder, an order-is-ready message. " +
+                    "`to` must be one of THIS table's own columns. `body` is PLAIN TEXT — no HTML, no links unless they matter — and " +
+                    "{column} inserts a value from the submitted row. Keep it under 160 characters: a text is billed per 160-character segment. " +
+                    "The site owner pastes their own Twilio, MessageBird or Vonage credentials in Settings, plus the number or sender name to send from; " +
+                    "until they do, nothing is sent and the form still works normally. " +
+                    "The visitor's number must be given in full international form (+44…, +1…) — ask for it that way on the form, because a local number cannot be sent to. " +
+                    "Do NOT declare this for a plain contact form, and do not declare it for marketing: every message costs the owner money and unsolicited texts are regulated.",
+                  properties: {
+                    fn: { type: "string", description:
+                      "OPTIONAL, and the more capable form. Instead of to/body, name a function you ALSO declare in `functions` with `internal: true`, " +
+                      "taking one bigint argument (the new row's id) and returning `json` shaped {to, body}. Use it when the message depends on anything " +
+                      "beyond the row — the stylist's name, the slot time formatted properly, a different message for a first-time customer. " +
+                      "`internal: true` matters: without it any visitor could call it and read anyone's phone number by guessing an id." },
+                    to: { type: "string", description: "The column on this table holding the visitor's phone number — e.g. \"mobile\". Omit when using `fn`." },
+                    body: { type: "string", description: "Short plain-text message. {column} is replaced from the submitted row." },
+                  },
+                },
+                // OUTBOUND WEBHOOKS, DECLARABLE AT LAST. Every layer below this one
+                // has been complete since the feature shipped — `coerceTable` parses
+                // it, `firesFor` reads it, `emitWebhook` fires on the write path with
+                // HMAC signing, SSRF checks and a rate cap — and no tool anywhere
+                // offered the field, so no model on any path could ever ask for it.
+                // The declared-and-dead shape this file records over and over,
+                // sitting on a finished feature.
+                //
+                // AN ARRAY, NOT `true`-OR-ARRAY. `coerceTable` accepts a boolean and
+                // still does, so anything sending one keeps working — but this tool
+                // has ZERO uses of `anyOf`/`oneOf`, and a union here would be an
+                // untested JSON Schema construct in the one tool whose rejection
+                // 400s every build on the platform. Listing all three events is what
+                // `true` means, so nothing is lost but a spelling.
+                webhooks: {
+                  type: "array",
+                  items: { type: "string", enum: ["created", "updated", "deleted"] },
+                  description:
+                    "OPTIONAL, and OFF unless the brief asks for it. Tell another system when a row here changes — a booking into a CRM, an order into a warehouse, an enquiry into Slack. " +
+                    "List the events that should fire: [\"created\"] for new rows only, or all three for everything. Most sites declare this on nothing at all. " +
+                    "Declare it ONLY when the brief names another system that should hear about this data; a site that just emails the owner does NOT need it — that already happens. " +
+                    "The site owner pastes the destination into Secrets as WEBHOOK_URL (or WEBHOOK_URL_<TABLE> to send one table somewhere of its own), and until they do nothing is sent and the form works normally. " +
+                    "The platform signs each delivery and never sends owner_id or any claim token.",
+                },
+                payment: {
+                  type: "object",
+                  description:
+                    "The visitor PAYS BY CARD when they submit this table. Declare it ONLY when the brief says money changes hands online — an online shop, paid tickets, a deposit. " +
+                    "A shop that takes orders and invoices later, or a barber shop that is paid in the chair, does NOT declare this. " +
+                    "The table stays `collect`; it gains payment_status / payment_ref / amount_total / currency / paid_at, all set by the platform — never declare those columns yourself and never put them on a form. " +
+                    "`from` must name a `display` table on this same site whose rows carry the prices, because the total is computed from THOSE rows on the server: the browser only ever says which row and how many. " +
+                    "The site owner pastes their own Stripe key in Settings; until they do, the checkout answers politely that payments are not set up yet.",
+                  properties: {
+                    from: { type: "string", description: "The `display` table holding the priced items, e.g. \"products\" or \"tickets\"." },
+                    price: { type: "string", description: "The column on that table holding the price, as a plain decimal like \"12.50\". Default \"price\"." },
+                    name: { type: "string", description: "The column holding the item name shown on the Stripe page. Default \"name\"." },
+                    currency: { type: "string", description: "Three-letter ISO code, lowercase — \"gbp\", \"eur\", \"usd\". Pick the one the business actually trades in." },
+                  },
+                  required: ["from"],
                 },
               },
-            },
-            returns: { type: "string", description: "'setof <table>' for rows of a table this schema declares, else one of void/text/int/bigint/numeric/boolean/uuid/date/timestamptz/json/jsonb." },
-            body: { type: "string", description: "The SQL body only — no CREATE FUNCTION, no $$ wrapper. e.g. SELECT * FROM bookings WHERE claim_token = tok" },
-            internal: { type: "boolean", description:
-              "Set true when the function is for the PLATFORM to call, never a page — a `confirm: {fn}` message builder, or a `hook_*` inbound webhook handler. " +
-              "An internal function gets no EXECUTE grant, so no visitor can call it. That matters: it takes a row id and returns somebody's " +
-              "email address and message, so left callable a stranger reads any customer's confirmation by guessing a number. " +
-              "Leave it off for anything a page calls by name, like a claim lookup." },
-          },
-        },
-      },
-      tables: {
-        type: "array",
-        // THE ARRAY ITSELF SAID NOTHING. 36% of this tool's ~11,250 tokens sit
-        // inside `items`, and the field the whole site hangs off had no
-        // description of its own — the only sentence framing the decision was
-        // in the system block, one layer away from where the answer is written.
-        // Says what a table IS, and gives the two axes as the thing to decide,
-        // since the pair is now the general form and `access` the shorthand.
-        description:
-          "The things this site has to REMEMBER — one table per kind of thing. A site that is only words needs none; " +
-          "a barber shop needs two (the services it offers, the bookings it takes). Usually one to four. " +
-          "For each one, decide who may READ it and who may WRITE to it: that pair is enforced in the database itself, " +
-          "so a table nobody may read cannot leak however the pages are written. " +
-          "Name it for the thing it holds, in the plural — `services`, `bookings`, `listings`.",
-        items: {
-          type: "object",
-          properties: {
-            name: { type: "string", description: "snake_case table name." },
-            // REMOVING A FEATURE, without destroying what it collected.
-      retired: {
-        type: "boolean",
-        description:
-          "Set TRUE only when the message asks to REMOVE this table's feature from the site (\"drop the gallery\", " +
-          "\"we don't take enquiries any more\"). The table and every row in it are KEPT — the owner can still read " +
-          "and export them — but nothing on the site can reach it any more. Set FALSE to put a removed feature " +
-          "back. LEAVE IT OUT ENTIRELY otherwise — omitting it keeps whatever the table already was, and saying " +
-          "false on a table nobody asked about would restore something the owner removed.",
-      },
-      access: {
-              type: "string",
-              enum: ["collect", "display", "user", "feed", "admin"],
-              description:
-                "'display' = anyone reads it, nobody writes (menus, services, opening hours). " +
-                "'collect' = anyone submits, nobody reads it back (bookings, orders, enquiries). " +
-                "'user' = PRIVATE PER MEMBER: a signed-in visitor reads and writes only their own rows (saved recipes, my orders, a personal journal). " +
-                "'feed' = SHARED, MEMBER-AUTHORED: every signed-in member reads all rows and writes their own (reviews, comments, a community board). " +
-                "'admin' = SHARED, READ-ONLY FROM THE SITE: signed-in members read it and NOBODY writes it from a published page — the business maintains those rows from its Go Farther dashboard (announcements, staff notices). Pick it only when members should SEE something they never edit. " +
-                "The last three require the visitor to have an account on the site — use them ONLY when the brief actually asks for members, sign-in, or 'their own' anything. A shop that just needs a menu and a booking form must not have them. " +
-                "THESE FIVE ARE SHORTHANDS FOR A read/write PAIR. When none of them is the shape you need, set `read` and `write` instead and leave this out.",
-            },
-            // READ AND WRITE, SEPARATELY — the five names above cover 5 of the 16
-            // combinations, and the missing ones are ordinary. A marketplace built
-            // 2026-08-10 had no browsable page because "members post it, the public
-            // reads it" is not one of the five: the designer correctly followed
-            // "anything a visitor keeps as theirs" to `user`, and produced a site
-            // whose every listing was invisible to the visitors it existed for.
-            read: {
-              type: "string",
-              enum: ["none", "own", "members", "public"],
-              description:
-                "Who may READ this table, when the five shorthands do not fit. " +
-                "'public' = anyone, signed in or not. 'members' = any signed-in member sees every row. " +
-                "'own' = a signed-in member sees only their own rows. 'none' = nobody reads it from a page. " +
-                "USE 'public' WITH write 'own' FOR ANYTHING VISITORS POST AND OTHER VISITORS BROWSE — a marketplace, classifieds, a directory, a job board, public reviews, a community wall. " +
-                "That combination has no shorthand and is the one most often needed: without it the listings are invisible and the site has no page worth opening.",
-            },
-            write: {
-              type: "string",
-              enum: ["none", "own", "members", "anyone"],
-              description:
-                "Who may WRITE to this table, when the five shorthands do not fit. " +
-                "'anyone' = any visitor with no account (a booking form). 'own' = a signed-in member writes rows that become theirs and edits only those. " +
-                "'members' = any signed-in member may edit any row. 'none' = nothing on the published site writes to it; the business maintains it from its dashboard. " +
-                "Note 'anyone' can never be combined with read 'own' — an anonymous visitor has no identity for a row to be 'theirs', so it resolves to read 'none'.",
-            },
-            // FOUR OF OUR OWN FEATURES THAT NOTHING COULD ASK FOR. Every one is
-            // SQL this engine already writes — a unique index, a trigger, a
-            // policy clause — and none had a slot on this form, so no site the
-            // builder has ever made could have them. Audited before exposing:
-            // `sequence`, `checks`, `audit`, `history` and `version` were left
-            // out because they are NOT reachable end to end (a column nothing
-            // stamps, a table nothing reads, a lock the client never sends), and
-            // offering those would be the same dead-feature trap one layer up.
-            oncePerUser: {
-              type: "array",
-              items: { type: "string" },
-              description:
-                "Columns that may hold only ONE row per signed-in member — usually just [] with no columns, meaning one row per member full stop. " +
-                "ONE REVIEW PER CUSTOMER, one application per job, one vote per person, one booking per member per class. " +
-                "A second attempt is refused by the database with a duplicate error the page turns into a sentence. Only on a table members write.",
-            },
-            enforceRefs: {
-              type: "boolean",
-              description:
-                "Refuse a row whose `ref` column names a parent that does not exist. A booking for an event that was deleted, an order line for a product that is gone. " +
-                "Turn it on for any table whose rows point at another table's rows — it is what stops the site filling with orphans nobody can explain.",
-            },
-            expires: {
-              type: "boolean",
-              description:
-                "Give the table an `expires_at` column, and HIDE every row past it from every read, automatically. " +
-                "A limited offer, a job advert that closes, an event listing that should stop showing the day after. " +
-                "The owner sets the date from their dashboard; no page has to remember to filter, and one left unset never expires.",
-            },
-            scheduled: {
-              type: "boolean",
-              description:
-                "Give the table a `publish_at` column, and HIDE every row until that time. " +
-                "A post that goes live on Tuesday, a menu that changes at the weekend, a price list that starts next month. " +
-                "The owner sets it from their dashboard; a row with none is live immediately.",
-            },
-            columns: {
-              type: "array",
-              // A picture is a `text` column holding a URL, and its NAME is what
-              // decides whether the platform will accept a file for it — a
-              // visitor may only upload to a table that declares one. Measured
-              // 2026-07-28: across seven generated sites the designer put image
-              // columns on `display` tables every time and on a `collect` table
-              // never, so the upload path could not fire on a single one of them.
-              description:
-                "A picture is a 'text' column whose value is a URL — name it photo, image_url, avatar, logo, cover or hero_image. " +
-                "Put one on a 'display' table when the site shows pictures it owns (a menu item, a product, a team member); the owner fills these in after the build. " +
-                "Put one on a 'collect' or member table ONLY when the brief says the VISITOR sends a picture (a photo with their review, a reference image with their enquiry) — that is what lets the form accept a file at all.",
-              items: {
-                type: "object",
-                properties: {
-                  name: { type: "string" },
-                  type: { type: "string", enum: ["text", "integer", "real", "boolean", "json"] },
-                  required: { type: "boolean" },
-                  ref: { type: "string", description: "Name of a table this column points at." },
-                },
-                required: ["name", "type"],
-              },
-            },
-            timestamps: { type: "boolean" },
-            fts: { type: "boolean", description: "Enable full-text search over this table's text columns." },
-            searchWeights: {
-              type: "object",
-              additionalProperties: { type: "integer" },
-              description:
-                "Only with `fts`. Which columns matter most in search, as column -> importance (bigger is more important). " +
-                "A title is usually worth more than a body, and without this every column ranks the same — so searching a menu " +
-                "for \"halloumi\" ranks a dish that merely MENTIONS it level with the one called it. Postgres has four tiers, " +
-                "so these are an ordering rather than a scale. Omit it if every column is equally worth matching.",
-            },
-            defaultSort: {
-              type: "string",
-              description:
-                "The column a list of these rows should normally be ordered by, `-` first for descending: \"-created_at\", \"name\", \"price\". " +
-                "Newest-first for anything posted, alphabetical for a directory, soonest-first for anything booked. " +
-                "This is what the PAGES are told to sort by; it is not enforced, so a page with a reason of its own may still differ.",
-            },
-            // THE CONSTRAINT TIER. Every one of these is kept by the DATABASE —
-            // a CHECK, a generated column, a trigger — so what a table declares
-            // here is true of the rows however they arrive. All three were
-            // parsed, stored and enforced by nothing until 2026-08-16.
-            checks: {
-              type: "array",
-              items: { type: "array", items: { type: "string" } },
-              description:
-                "Rules the database refuses to break, each `[column, operator, column-or-number]` with operator one of " +
-                "gt, gte, lt, lte, eq, ne. `[\"end_time\", \"gt\", \"start_time\"]` makes a backwards booking impossible; " +
-                "`[\"quantity\", \"gte\", \"1\"]` makes an order for zero impossible. A row with either side empty passes — " +
-                "these compare values, they do not make a column required. Use them where a wrong row costs the owner money or time.",
-            },
-            computed: {
-              type: "object",
-              additionalProperties: { type: "array", items: { type: "string" } },
-              description:
-                "Columns the database fills in from other columns, as new-name -> list of parts. A part that names one of this " +
-                "table's columns is that column's value; anything else is literal text. " +
-                "`{\"full_name\": [\"first_name\", \" \", \"last_name\"]}` gives every row a `full_name` that can never disagree with its parts. " +
-                "The name must be NEW — naming an existing column is refused, because these are rebuilt on every revise. " +
-                "Text only, and read-only: nothing can write to one.",
-            },
-            transitions: {
-              type: "object",
-              description:
-                "Which status changes are allowed, as column -> {from: [permitted next values]}. " +
-                "`{\"status\": {\"pending\": [\"confirmed\", \"cancelled\"], \"cancelled\": []}}` means a cancelled booking can never " +
-                "become confirmed again — the kind of rule a form can be talked past and a database cannot. " +
-                "A value you do not list as a `from` is unconstrained, so declare only the states that matter. " +
-                "Use it for bookings, orders and applications; skip it where any status may follow any other.",
-            },
-            // These are enforced by real Postgres constraints and have been since
-            // the schema engine was written — and until 2026-07-28 the designer
-            // could not emit ANY of them, so no generated site had one. Measured
-            // live that day: two customers booked the same 14:00 slot on a
-            // generated barber shop and both were accepted.
-            unique: {
-              type: "array",
-              description:
-                "Groups of columns that must be unique together, enforced by a real index (a violation is a 409, not a duplicate row). " +
-                "USE THIS ON ANY BOOKING OR RESERVATION TABLE — without it two customers can take the same slot, which is the single most damaging bug a booking site can have. " +
-                "A group is an array of column names: [[\"appointment_date\",\"appointment_time\"]] means nobody can book that date+time twice. " +
-                "A group may instead be {\"columns\":[...], \"where\":\"status:eq:confirmed\"} so only rows in that state hold the slot — otherwise a CANCELLED booking occupies it forever.",
-              // One consistent object shape. This was `items: {}` — an empty
-              // schema, meant to allow both [["a","b"]] and [{columns,where}] —
-              // and the API REJECTED the whole tool for it, so every build with
-              // a brief answered "the designer is busy". Live for three merges.
-              // The parser accepts the object form, so one shape is enough.
-              items: {
-                type: "object",
-                properties: {
-                  columns: { type: "array", items: { type: "string" }, description: "The columns that must be unique together." },
-                  where: { type: "string", description: "Optional, as \"column:eq:value\" — only rows matching it hold the slot." },
-                },
-                required: ["columns"],
-              },
-            },
-            uniqueCI: {
-              type: "array",
-              description: "Columns unique ignoring case — use for an email column, so Ada@x.com and ada@x.com cannot both sign up. Array of column names.",
-              items: { type: "string" },
-            },
-            maxRows: {
-              type: "integer",
-              description: "Cap how many rows this table may ever hold. Worth setting on a public form (a giveaway with 500 places, a class with 20 seats); a full table answers 409 rather than growing forever.",
-            },
-            // `mask` USED TO BE HERE and was removed 2026-08-04, deliberately —
-            // it is not a gap to fill back in.
-            //
-            // It promised field-level redaction: a phone shown as "••••1234" to
-            // a reader who may not see it in full. `maskFields()` enforced that
-            // on the read path in `site-data.mjs`, and that file was DELETED on
-            // 2026-07-30 when reads moved to Neon's Data API. So the Worker is
-            // no longer on the read path and has nothing to redact on the way
-            // out; the function survived with zero callers, and the tool went on
-            // offering the guarantee. A table declaring it served the raw value
-            // to every reader, silently.
-            //
-            // It cannot move into the database as specified either: `mask` names
-            // OUR application roles ("staff"), and Postgres knows `anonymous`
-            // and `authenticated`. Column-level GRANTs express that coarser
-            // split, but they make `select=*` fail outright — and `select=*` is
-            // what every read this platform makes sends.
-            //
-            // So: a feature that lies, or no feature. Same call, for the same
-            // reason, that pulled `teamRead` and `teamScope` out of this tool
-            // when their enforcement went. Restoring it means building the
-            // enforcement FIRST — test/declarable-enforced.test.mjs fails if it
-            // comes back without one.
-            // A team is a Neon Auth ORGANIZATION now, so the owner sets teams up
-            // through Better Auth rather than through any route of ours. Offered
-            // here again because a flag the designer cannot declare is a feature
-            // that does nothing — which this one was, at five separate layers.
-            teamScope: {
-              type: "boolean",
-              description:
-                "Share this table across a TEAM: everyone in the same team reads and edits the same rows, and a write records who made it. " +
-                "USE THIS FOR AN INTERNAL TOOL where colleagues work the same records — a CRM's deals, a shared job list, a client roster. " +
-                "Only meaningful with access 'user'. Do NOT use it for a customer-facing members area, where one customer must never see another's rows. " +
-                "A member who is not in a team sees only their own rows, so a site is safe before any team exists.",
-            },
-            publicView: {
-              type: "object",
-              description:
-                "A named, PII-filtered projection of this table that ANYONE may read, even though the table itself is not readable. " +
-                // THE CASE THAT DECIDES WHETHER THE SITE CAN EXIST, and it was
-                // missing. This description named only the booking slot — an
-                // optional enhancement — so a marketplace brief ("people post
-                // their own events to sell") produced `events` as a `user` table
-                // with no publicView, which is 401 signed out and own-rows-only
-                // signed in. Measured live 2026-08-10: nobody could browse a
-                // single listing, page generation had no home page it could
-                // honestly write, and the build came back with no pages at all.
-                "REQUIRED WHEN VISITORS POST ROWS THAT OTHER VISITORS MUST BROWSE — a marketplace, classifieds, a directory, a listings site. " +
-                "Without it there is NO browsable page: a \"user\" table is 401 to a signed-out visitor and own-rows-only to a signed-in one, so nobody can ever see a listing. " +
-                "Publish what a buyer needs (title, price, date, location, category) and leave out the rest. " +
-                "ALSO USE IT WITH A BOOKING TABLE so the page can grey out slots that are already taken: publicView {\"columns\":[\"appointment_date\",\"appointment_time\"]} publishes WHEN people have booked and nothing about WHO. " +
-                "Name only the columns a stranger may see — never a name, email, phone or note. `id` and `owner_id` are refused outright. " +
-                "Add \"where\":[\"status:eq:confirmed\"] when the table has a status, so a cancelled row stops occupying the slot.",
-              properties: {
-                columns: { type: "array", items: { type: "string" }, description: "The only columns published. No wildcard." },
-                where: { type: "array", items: { type: "string" }, description: "Filters as \"column:eq:value\" or \"column:ne:value\"." },
-                limit: { type: "integer", description: "Most rows returned at once (default 500, max 2000)." },
-              },
-            },
-            noOverlap: {
-              type: "object",
-              description:
-                "Prevents overlapping INTERVALS, for bookings whose length varies (a 60-minute colour at 10:00 must block a 30-minute trim at 10:30 — `unique` would let both in, because they are different times). " +
-                "REQUIRES start and end to be INTEGER columns, e.g. minutes from midnight: declare start_min/end_min as integers alongside whatever text time you display. " +
-                "If either is not an integer column the constraint is SILENTLY SKIPPED, so use plain `unique` unless you have actually declared the integers.",
-              properties: {
-                start: { type: "string", description: "Integer column where the interval starts." },
-                end: { type: "string", description: "Integer column where it ends." },
-                on: { type: "array", items: { type: "string" }, description: "Columns that scope it — e.g. [\"appointment_date\"] or [\"room\"]." },
-              },
-            },
-            confirm: {
-              type: "object",
-              description:
-                "EMAIL THE PERSON WHO SUBMITTED, as soon as they submit — a booking confirmation, an order receipt, an enquiry acknowledgement. " +
-                "Declare it on a `collect` table whose form asks for an email address, which is nearly every booking or enquiry form. " +
-                "`to` must be one of THIS table's own columns, the one holding the visitor's address. " +
-                "`subject` and `body` may use {column} to insert any value from the row they just submitted — e.g. \"Booked, {customer_name}\". " +
-                "`body` is HTML; keep it short and plain, and never ask them to reply with card details or a password. " +
-                "The site owner pastes their own email provider key (Resend, SendGrid or Postmark) in Settings — until they do, nothing is sent and the form still works normally. " +
-                "Do NOT declare this to notify the OWNER: they are told about every submission already.",
-              properties: {
-                fn: { type: "string", description:
-                  "OPTIONAL, and the more capable form. Instead of to/subject/body, name a function you ALSO declare in `functions` with `internal: true`, " +
-                  "taking one bigint argument (the new row's id) and returning `json` shaped {to, subject, body}. " +
-                  "Use it whenever the message depends on anything beyond the row itself — join the stylist's name, count the customer's previous bookings to greet a regular, " +
-                  "say something different for a Saturday. `internal: true` matters: without it the function is callable by any visitor, who could then read anyone's confirmation by guessing an id." },
-                to: { type: "string", description: "The column on this table holding the visitor's email address — e.g. \"customer_email\". Omit when using `fn`." },
-                subject: { type: "string", description: "Subject line. {column} is replaced from the submitted row." },
-                body: { type: "string", description: "Short HTML body. {column} is replaced from the submitted row." },
-              },
-              // Nothing is required: `fn` and the to/subject/body trio are
-              // alternatives, and a schema tool cannot express "one or the
-              // other". Which arrived is decided by normalizeConfirm, and a
-              // half-declaration of either is refused there rather than
-              // half-applied.
-            },
-            sms: {
-              type: "object",
-              description:
-                "TEXT THE PERSON WHO SUBMITTED. The same idea as `confirm` and a separate declaration, so a table may have either or both — " +
-                "an emailed receipt AND a texted reminder. Declare it on a `collect` table whose form asks for a PHONE NUMBER. " +
-                "Worth it where a text is read and an email is not: a booking confirmation for a barber, a garage or a restaurant, " +
-                "an appointment reminder, an order-is-ready message. " +
-                "`to` must be one of THIS table's own columns. `body` is PLAIN TEXT — no HTML, no links unless they matter — and " +
-                "{column} inserts a value from the submitted row. Keep it under 160 characters: a text is billed per 160-character segment. " +
-                "The site owner pastes their own Twilio, MessageBird or Vonage credentials in Settings, plus the number or sender name to send from; " +
-                "until they do, nothing is sent and the form still works normally. " +
-                "The visitor's number must be given in full international form (+44…, +1…) — ask for it that way on the form, because a local number cannot be sent to. " +
-                "Do NOT declare this for a plain contact form, and do not declare it for marketing: every message costs the owner money and unsolicited texts are regulated.",
-              properties: {
-                fn: { type: "string", description:
-                  "OPTIONAL, and the more capable form. Instead of to/body, name a function you ALSO declare in `functions` with `internal: true`, " +
-                  "taking one bigint argument (the new row's id) and returning `json` shaped {to, body}. Use it when the message depends on anything " +
-                  "beyond the row — the stylist's name, the slot time formatted properly, a different message for a first-time customer. " +
-                  "`internal: true` matters: without it any visitor could call it and read anyone's phone number by guessing an id." },
-                to: { type: "string", description: "The column on this table holding the visitor's phone number — e.g. \"mobile\". Omit when using `fn`." },
-                body: { type: "string", description: "Short plain-text message. {column} is replaced from the submitted row." },
-              },
-            },
-            // OUTBOUND WEBHOOKS, DECLARABLE AT LAST. Every layer below this one
-            // has been complete since the feature shipped — `coerceTable` parses
-            // it, `firesFor` reads it, `emitWebhook` fires on the write path with
-            // HMAC signing, SSRF checks and a rate cap — and no tool anywhere
-            // offered the field, so no model on any path could ever ask for it.
-            // The declared-and-dead shape this file records over and over,
-            // sitting on a finished feature.
-            //
-            // AN ARRAY, NOT `true`-OR-ARRAY. `coerceTable` accepts a boolean and
-            // still does, so anything sending one keeps working — but this tool
-            // has ZERO uses of `anyOf`/`oneOf`, and a union here would be an
-            // untested JSON Schema construct in the one tool whose rejection
-            // 400s every build on the platform. Listing all three events is what
-            // `true` means, so nothing is lost but a spelling.
-            webhooks: {
-              type: "array",
-              items: { type: "string", enum: ["created", "updated", "deleted"] },
-              description:
-                "OPTIONAL, and OFF unless the brief asks for it. Tell another system when a row here changes — a booking into a CRM, an order into a warehouse, an enquiry into Slack. " +
-                "List the events that should fire: [\"created\"] for new rows only, or all three for everything. Most sites declare this on nothing at all. " +
-                "Declare it ONLY when the brief names another system that should hear about this data; a site that just emails the owner does NOT need it — that already happens. " +
-                "The site owner pastes the destination into Secrets as WEBHOOK_URL (or WEBHOOK_URL_<TABLE> to send one table somewhere of its own), and until they do nothing is sent and the form works normally. " +
-                "The platform signs each delivery and never sends owner_id or any claim token.",
-            },
-            payment: {
-              type: "object",
-              description:
-                "The visitor PAYS BY CARD when they submit this table. Declare it ONLY when the brief says money changes hands online — an online shop, paid tickets, a deposit. " +
-                "A shop that takes orders and invoices later, or a barber shop that is paid in the chair, does NOT declare this. " +
-                "The table stays `collect`; it gains payment_status / payment_ref / amount_total / currency / paid_at, all set by the platform — never declare those columns yourself and never put them on a form. " +
-                "`from` must name a `display` table on this same site whose rows carry the prices, because the total is computed from THOSE rows on the server: the browser only ever says which row and how many. " +
-                "The site owner pastes their own Stripe key in Settings; until they do, the checkout answers politely that payments are not set up yet.",
-              properties: {
-                from: { type: "string", description: "The `display` table holding the priced items, e.g. \"products\" or \"tickets\"." },
-                price: { type: "string", description: "The column on that table holding the price, as a plain decimal like \"12.50\". Default \"price\"." },
-                name: { type: "string", description: "The column holding the item name shown on the Stripe page. Default \"name\"." },
-                currency: { type: "string", description: "Three-letter ISO code, lowercase — \"gbp\", \"eur\", \"usd\". Pick the one the business actually trades in." },
-              },
-              required: ["from"],
+              // `access` IS NOT REQUIRED, AND IT USED TO BE — the tool contradicted
+              // itself. Its own description ends "when none of them is the shape you
+              // need, set `read` and `write` instead and LEAVE THIS OUT", so a model
+              // doing exactly what it is told produced an invalid tool call, and one
+              // satisfying the schema had to name a preset it had just been told did
+              // not fit. It resolves that by picking the nearest preset — which is
+              // how a marketplace ends up with private listings, the failure the
+              // read/write pair was added to prevent.
+              //
+              // THE COST, STATED: a table declaring neither `access` nor a pair is
+              // now possible, and it RESOLVES to the collect shape — write only,
+              // readable by nobody. (`coerceTable` used to stamp the word `collect`
+              // on it; it leaves the silence alone since 2026-08-21 so a revise can
+              // tell it from an answer, and `resolveAccess` supplies the same
+              // fallback.) That is the fail-safe direction and the
+              // reason this is safe to relax: the wrong answer is an invisible menu,
+              // which the owner sees at once and a revise fixes, rather than a
+              // `collect` table of customer phone numbers served to the public.
+              required: ["name", "columns"],
             },
           },
-          // `access` IS NOT REQUIRED, AND IT USED TO BE — the tool contradicted
-          // itself. Its own description ends "when none of them is the shape you
-          // need, set `read` and `write` instead and LEAVE THIS OUT", so a model
-          // doing exactly what it is told produced an invalid tool call, and one
-          // satisfying the schema had to name a preset it had just been told did
-          // not fit. It resolves that by picking the nearest preset — which is
-          // how a marketplace ends up with private listings, the failure the
-          // read/write pair was added to prevent.
-          //
-          // THE COST, STATED: a table declaring neither `access` nor a pair is
-          // now possible, and it RESOLVES to the collect shape — write only,
-          // readable by nobody. (`coerceTable` used to stamp the word `collect`
-          // on it; it leaves the silence alone since 2026-08-21 so a revise can
-          // tell it from an answer, and `resolveAccess` supplies the same
-          // fallback.) That is the fail-safe direction and the
-          // reason this is safe to relax: the wrong answer is an invisible menu,
-          // which the owner sees at once and a revise fixes, rather than a
-          // `collect` table of customer phone numbers served to the public.
-          required: ["name", "columns"],
+          seed: {
+            type: "object",
+            // MEASURED: THE DESIGNER LEFT THIS OUT ON TWO CONSECUTIVE BUILDS, and
+            // being in `required` did not stop it — a required field means the KEY
+            // is present, so `seed: {}` satisfies the schema perfectly. The three
+            // silent shapes are absent, `{}`, and an empty array, and only the
+            // first is even a violation.
+            //
+            // IT IS ALSO THE SECOND-LARGEST THING THIS TOOL ASKS FOR: measured on a
+            // reconstructed answer, `seed` is ~41% of the designer's output tokens
+            // against `tables`' 47%, and it was carrying 526 characters of
+            // instruction against `family`'s 10,990 for 1% of the output. That is
+            // the sharpest cost-to-guidance mismatch in the tool, and it is the one
+            // field with a failure anybody has actually seen. Longer is close to
+            // free — this rides in the cached prefix — so the fix is words.
+            description: "Starter rows for each 'display' table, keyed by table name: {\"services\": [{...}, {...}]}. " +
+              "REQUIRED for every display table — a table left unseeded shows an empty list forever, because nothing can write to it after the build. " +
+              "Write 3-6 realistic rows per table using only that table's declared columns. Make them plausible for this specific business, not placeholders: " +
+              "real service names and real prices, not 'Item 1' / 0.00.\n" +
+              "THIS IS NOT OPTIONAL AND IT IS NOT DECORATION. There is no route by which a display table is ever filled " +
+              "in later: no page can write to it, no form can, the platform has no importer, and the owner editing rows " +
+              "by hand in their dashboard is the only way — so an empty table is what the customer's site SHIPS with. " +
+              "A price list with nothing in it is a business that looks closed. Worse, any form field that chooses from " +
+              "that table renders with ZERO options, so nobody can submit it at all: an unseeded `services` table means " +
+              "the booking form is dead, not merely bare.\n" +
+              "COUNT YOUR OWN TABLES BEFORE YOU FINISH. Every table you declared with a public read and no public write " +
+              "needs a key here. An empty object, an empty array, or a missing key are all the same outcome as not " +
+              "answering — the schema accepts them and the site ships broken. If a table genuinely has no starter " +
+              "content to write, it should not have been a display table.",
+            additionalProperties: { type: "array", items: { type: "object" } },
+          },
+          functions: {
+            type: "array",
+            description:
+              "OPTIONAL Postgres functions this site needs, called from a page by name. Use one ONLY when a page must do " +
+              "something a table's access level cannot express. THE CASE THIS EXISTS FOR: a `collect` table is write-only, so " +
+              "the customer who booked can never see their booking again. Give it a column " +
+              "{name:'claim_token', type:'text', default:'uuid'} — `default:'uuid'` is the reserved token that fills it with a " +
+              "random uuid, and the column is TEXT, so the function's argument is type 'text' too — plus a function taking that " +
+              "token and returning exactly the matching row, then " +
+              "the site can offer a link back to it. Declare a SECOND to cancel by the same token, and — for anything with a " +
+              "date, a time or a quantity in it — a THIRD to CHANGE it: same token argument plus one argument per field the " +
+              "customer may move, doing an UPDATE ... WHERE claim_token = tok. Without that third one the only way to shift an " +
+              "appointment is to cancel and rebook, which on a table with `unique` or `noOverlap` means giving up the slot before " +
+              "getting the new one. Change only the fields you took arguments for; never let it move status or the token itself. " +
+              "Skip all of this for a " +
+              "plain contact form, which nobody returns to. Bodies are plain SQL over this site's own tables.\n\n" +
+              // WHEN A SLOT HOLDS MORE THAN ONE PERSON. `unique` gives a capacity of
+              // exactly one and `maxRows` caps the WHOLE table — so "12 places in
+              // this class", "8 tables at 7pm", "30 pitches" was inexpressible, on a
+              // platform whose commonest site is a booking site. The substrate could
+              // already do it (a function is SECURITY DEFINER, so it writes into a
+              // table the caller cannot; `useRpcAction` calls it from a page) and
+              // nothing said so — the same dead-at-the-last-link shape this file
+              // keeps recording, arriving as a missing sentence rather than missing
+              // code. THE LOCK IS NOT OPTIONAL: a bare count-then-insert lets two
+              // people both see 11 of 12 and both book, which is the exact bug
+              // `unique` exists to prevent, reintroduced by the thing meant to
+              // generalise it.
+              "A SLOT THAT HOLDS MORE THAN ONE PERSON. `unique` on a booking table means a capacity of exactly ONE, " +
+              "and `maxRows` caps the whole table. When the brief says a class, a session, a table or a pitch holds " +
+              "N people, neither fits — so make the booking go through a function instead of straight into the table. " +
+              "Declare the table `write: \"none\"` so nothing can insert around it, and one function taking the " +
+              "customer's details plus whichever columns identify the slot. In the body: take " +
+              "`pg_advisory_xact_lock(hashtext(<the slot's identity>))` FIRST, then count the rows already in that " +
+              "slot, `RAISE EXCEPTION 'fully booked'` if it is at capacity, and INSERT otherwise. The lock is what " +
+              "makes it true — without it two people both see the last place and both get it, which is the double " +
+              "booking this is here to stop. Put the capacity where the brief puts it: a number on the class row when " +
+              "each class has its own, or a literal when the whole business has one number.\n\n" +
+              "RECEIVING DATA FROM ANOTHER SYSTEM. A function named `hook_<something>` taking exactly one jsonb argument and " +
+              "marked internal:true is reachable at POST /api/db/<slug>/hook/<something>, behind a shared secret the OWNER " +
+              "stores. Use it when the brief says another system sends this site data — a supplier's stock feed, a booking " +
+              "platform syncing appointments, an order marked shipped, a form service like Typeform or Zapier. The body does " +
+              "whatever the payload means: INSERT, UPDATE, or nothing. Make it IDEMPOTENT — senders retry, so declare a unique " +
+              "column for the sender's own event/order id and use ON CONFLICT DO NOTHING, or the same delivery lands twice. " +
+              "The `hook_` prefix is what makes it reachable; without it the function stays private to the platform.",
+            items: {
+              type: "object",
+              required: ["name", "returns", "body"],
+              properties: {
+                name: { type: "string", description: "lowercase identifier, e.g. booking_by_claim" },
+                // THE TWO HALVES OF THIS TOOL SPOKE DIFFERENT TYPE LANGUAGES. A
+                // column may be text/integer/real/boolean/json; an argument was
+                // offered seven types no column can ever be. A body compares its
+                // arguments to columns, so `{name:"d", type:"date"}` against a
+                // TEXT `slot_date` is `operator does not exist: text = date` — the
+                // function fails to CREATE, and the page's lookup is silently not
+                // there. Non-fatal and reported in `functionErrors`, so the site
+                // still builds without the capability it was asked for.
+                //
+                // The tool already knew this trap: its own example warned that a
+                // claim token is TEXT "not uuid". Somebody hit the uuid version and
+                // documented that one case; the date, numeric and bigint versions
+                // were left open.
+                //
+                // NARROWED IN WHAT IS OFFERED, NOT IN WHAT IS ACCEPTED. `date` and
+                // `timestamptz` are gone from this enum because NO column is ever
+                // either, so they can only be right via an explicit cast nothing
+                // asks for. The engine's own allow-list still takes them, so a
+                // schema stored before today re-applies on a revise exactly as it
+                // did — narrowing that too would break existing sites to tidy a
+                // prompt. `uuid` and `jsonb` STAY and are not oversights: `owner_id`
+                // and `team_id` really are UUID, and a `hook_*` handler takes
+                // exactly one jsonb payload.
+                //
+                // `integer` joins `int` because that is the word the columns use,
+                // and the engine has always accepted both — offering one spelling
+                // while the other half of the tool uses the other is the mismatch
+                // in miniature.
+                args: {
+                  type: "array",
+                  description: "Arguments, matched to the COLUMN each one is compared against. What a declared column really is in Postgres: " +
+                    "`text` is TEXT · `integer` is INTEGER · `real` is REAL · `boolean` is INTEGER 0/1, NOT boolean · `json` is TEXT, NOT jsonb. " +
+                    "The columns the platform adds: `id` is INTEGER, `owner_id` and `team_id` are UUID, and `created_at` and every other " +
+                    "timestamp is TEXT in 'YYYY-MM-DD HH:MM:SS'. " +
+                    "THERE IS NO DATE COLUMN — a date or a time lives in a TEXT column, so an argument matching one is `text`. " +
+                    "A claim lookup takes one: {name:'tok', type:'text'} — the claim_token column is TEXT, so the argument matching it is text, not uuid.",
+                  items: {
+                    type: "object",
+                    required: ["name", "type"],
+                    properties: {
+                      name: { type: "string" },
+                      type: { type: "string", enum: ["text", "int", "integer", "bigint", "numeric", "boolean", "uuid", "json", "jsonb"] },
+                    },
+                  },
+                },
+                returns: { type: "string", description: "'setof <table>' for rows of a table this schema declares, else one of void/text/int/bigint/numeric/boolean/uuid/date/timestamptz/json/jsonb." },
+                body: { type: "string", description: "The SQL body only — no CREATE FUNCTION, no $$ wrapper. e.g. SELECT * FROM bookings WHERE claim_token = tok" },
+                internal: { type: "boolean", description:
+                  "Set true when the function is for the PLATFORM to call, never a page — a `confirm: {fn}` message builder, or a `hook_*` inbound webhook handler. " +
+                  "An internal function gets no EXECUTE grant, so no visitor can call it. That matters: it takes a row id and returns somebody's " +
+                  "email address and message, so left callable a stranger reads any customer's confirmation by guessing a number. " +
+                  "Leave it off for anything a page calls by name, like a claim lookup." },
+              },
+            },
+          },
+          apis: {
+            type: "array",
+            description:
+              "OPTIONAL third-party APIs this site reads at request time. Use one ONLY when the brief needs live data that is " +
+              "not in this site's own database and is not fixed at build time: today's exchange rate, a courier's delivery " +
+              "slots, a supplier's stock level, the weather for an outdoor venue. Do NOT use it for anything a table can hold.\n\n" +
+              "Write the WHOLE request and put `{{SECRET_NAME}}` wherever a credential belongs — the site OWNER stores that " +
+              "value in Secrets and it is substituted server-side, so no key is ever in the page. Name the secret after the " +
+              "service, e.g. `{{WEATHER_KEY}}`. Anything a page needs to vary goes in `params` and is written `{{param.x}}`; " +
+              "values are URL-encoded, and a parameter not listed is ignored. A page then calls `useApi(\"<name>\", {x})`. " +
+              "The response comes back exactly as the service sent it, so write the page against that service's real shape. " +
+              "Set `cacheSeconds` to how long the answer stays good — an exchange rate is 3600, a stock level maybe 30 — " +
+              "because every uncached read spends the owner's own quota.",
+            items: {
+              type: "object",
+              required: ["name", "url"],
+              properties: {
+                name: { type: "string", description: "lowercase identifier the page calls by, e.g. exchange_rates" },
+                url: { type: "string", description: "https only. e.g. https://api.example.com/v1/latest?base={{param.base}}&key={{RATES_KEY}}" },
+                // A POST HERE IS STILL A READ, and the caching is why that has to
+                // be said. `normalizeApi` gives every declaration a 60-second
+                // window by default and `cacheKey` is slug|name|params — no method,
+                // no body — so a declared POST is sent ONCE and then answered from
+                // the store for a minute without contacting the service at all.
+                //
+                // Right for what this exists for: plenty of read endpoints require
+                // POST (GraphQL, some search and pricing APIs), and caching them is
+                // the whole point, since every uncached read spends the OWNER's own
+                // quota. Wrong the moment the POST does something — the first call
+                // lands, the next few silently do not, and it starts working again
+                // a minute later, which reads as the third party being flaky rather
+                // than as us not calling them.
+                //
+                // Not fixed by refusing to cache POSTs: that breaks the legitimate
+                // case and puts the owner's quota back on every page view. Fixed by
+                // saying the thing the model cannot infer from "POST only".
+                method: { type: "string", enum: ["GET", "POST"],
+                  description: "GET unless the service's READ endpoint requires POST (GraphQL, some search and pricing APIs). " +
+                    "NEVER use this to make something happen on the other side — send a message, place an order, reserve a slot. " +
+                    "Every answer here is cached, so the request is made once and then answered from the store until the window " +
+                    "expires: an action would run sometimes and not others. Outbound actions belong in a database function." },
+                headers: { type: "object", description: "e.g. {\"Authorization\":\"Bearer {{RATES_KEY}}\"}" },
+                body: { type: "string", description: "POST only. The request body, with the same {{SECRET}} and {{param.x}} placeholders." },
+                params: { type: "array", items: { type: "string" }, description: "Names a page may pass. Anything else is dropped." },
+                cacheSeconds: { type: "integer", description: "0-3600. How long one answer stays good. Every uncached read costs the owner." },
+              },
+            },
+          },
+          jobs: {
+            type: "array",
+            description:
+              "OPTIONAL scheduled work — the site doing something on a timer, with nobody there. THE CASE THIS EXISTS FOR: reminding tomorrow's " +
+              "customers today, so they turn up. Also a weekly digest to the owner, or chasing an unpaid invoice. Skip it entirely for a site " +
+              "that only takes enquiries. " +
+              "Each job names a function you ALSO declare in `functions` with `internal: true`, taking NO arguments and returning `json` — an ARRAY of " +
+              "{to, subject, body}, one per message to send. Return an empty array when there is nothing to do, which is most runs. " +
+              "The function is ordinary SQL, so decide whatever you like inside it: who is due, what it says, joined to anything on the site. " +
+              "EACH MESSAGE MAY BE AN EMAIL OR A TEXT: add \"channel\":\"sms\" to one and give it `to` (a full international number, +44…) and `body` and NO subject. " +
+              "A text is what gets read for a day-before reminder from a barber, a garage or a restaurant; an email is right for a digest or anything long. Leave `channel` out for email. " +
+              "The site owner pastes their own provider key in Settings — an email one, an SMS one, or both; until they do, that channel sends nothing and the other still goes. " +
+              "Minimum interval is 15 minutes and anything shorter is rounded up to it — for a day-before reminder use 1440.",
+            items: {
+              type: "object",
+              required: ["name", "fn", "everyMinutes"],
+              properties: {
+                name: { type: "string", description: "lowercase identifier, e.g. remind_tomorrow" },
+                fn: { type: "string", description: "The internal function returning the messages, e.g. bookings_due_tomorrow" },
+                everyMinutes: { type: "integer", description: "How often to run. 1440 = daily, 60 = hourly. Minimum 15." },
+              },
+            },
+          },
         },
+        required: ["tables", "seed"],
       },
       // Starter content, and not a nicety: nothing can write to a `display` table
       // after the build — not even the owner — so whatever is not seeded here is
@@ -4163,37 +4225,6 @@ const SITE_SCHEMA_TOOL = {
           "One sentence describing the business, as it should appear under the name in a Google result or a shared-link preview. " +
           "Write it for a customer, not a developer: what it is, where, and what someone can do here — 'Skin fades and hot-towel shaves in Lisbon. Book online.' " +
           "Under 160 characters. No quotes, no line breaks.",
-      },
-      seed: {
-        type: "object",
-        // MEASURED: THE DESIGNER LEFT THIS OUT ON TWO CONSECUTIVE BUILDS, and
-        // being in `required` did not stop it — a required field means the KEY
-        // is present, so `seed: {}` satisfies the schema perfectly. The three
-        // silent shapes are absent, `{}`, and an empty array, and only the
-        // first is even a violation.
-        //
-        // IT IS ALSO THE SECOND-LARGEST THING THIS TOOL ASKS FOR: measured on a
-        // reconstructed answer, `seed` is ~41% of the designer's output tokens
-        // against `tables`' 47%, and it was carrying 526 characters of
-        // instruction against `family`'s 10,990 for 1% of the output. That is
-        // the sharpest cost-to-guidance mismatch in the tool, and it is the one
-        // field with a failure anybody has actually seen. Longer is close to
-        // free — this rides in the cached prefix — so the fix is words.
-        description: "Starter rows for each 'display' table, keyed by table name: {\"services\": [{...}, {...}]}. " +
-          "REQUIRED for every display table — a table left unseeded shows an empty list forever, because nothing can write to it after the build. " +
-          "Write 3-6 realistic rows per table using only that table's declared columns. Make them plausible for this specific business, not placeholders: " +
-          "real service names and real prices, not 'Item 1' / 0.00.\n" +
-          "THIS IS NOT OPTIONAL AND IT IS NOT DECORATION. There is no route by which a display table is ever filled " +
-          "in later: no page can write to it, no form can, the platform has no importer, and the owner editing rows " +
-          "by hand in their dashboard is the only way — so an empty table is what the customer's site SHIPS with. " +
-          "A price list with nothing in it is a business that looks closed. Worse, any form field that chooses from " +
-          "that table renders with ZERO options, so nobody can submit it at all: an unseeded `services` table means " +
-          "the booking form is dead, not merely bare.\n" +
-          "COUNT YOUR OWN TABLES BEFORE YOU FINISH. Every table you declared with a public read and no public write " +
-          "needs a key here. An empty object, an empty array, or a missing key are all the same outcome as not " +
-          "answering — the schema accepts them and the site ships broken. If a table genuinely has no starter " +
-          "content to write, it should not have been a display table.",
-        additionalProperties: { type: "array", items: { type: "object" } },
       },
       // ── THE SITE'S WHOLE STYLESHEET, WRITTEN BY THE MODEL ────────────────
       //
@@ -4482,7 +4513,7 @@ const SITE_SCHEMA_TOOL = {
     // unanswered look is not a design choice, it is the template's plain default
     // wearing one. With five fields there were three ways to half-answer; with
     // one there is none.
-    required: ["brand", "slug", "tables", "seed", "description", "css", ...PLAN_REQUIRED],
+    required: ["brand", "slug", "backend", "description", "css", ...PLAN_REQUIRED],
   },
 };
 
@@ -9684,7 +9715,13 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth }) {
 
         try {
           const dz = await designSiteSchema(env, briefWithLinks, models.design, editState, attached.blocks, budget);
-          designed = dz && dz.input;
+          // LIFTED AT THE DOOR, before anything reads it. The tool asks for the
+          // five backend fields nested under `backend`; every reader below —
+          // `designed.tables`, `designed.seed`, the addon lane's filter, the
+          // seed top-up — was written against the flat shape and stays that way.
+          // `normalizeSchema` lifts too, so the `body.schema` path is covered
+          // independently; this hop is for the RAW reads that never go through it.
+          designed = liftBackend(dz && dz.input);
           schemaUsage = (dz && dz.usage) || null;
           designedShape = (dz && dz.shape) || null;
           tr.at("design", schemaUsage ? { out: schemaUsage.out, in: schemaUsage.in } : undefined);
@@ -15466,7 +15503,7 @@ async function handleRequest(request, env, ctx) {
                   css: priorCss,
                   tables: ((eSchema && eSchema.tables) || []).map((t) => t && t.name).filter(Boolean),
                 });
-                designed = d.input; dUsage = d.usage;
+                designed = liftBackend(d.input); dUsage = d.usage;
               } catch (e) {
                 // The model is down or unpaid. Our fault, our cost — and the
                 // rung above will fail the same way, so this is reported rather

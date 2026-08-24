@@ -374,8 +374,63 @@ export function looksLikeTable(def) {
   return [...TOOL_TABLE_FIELDS].some((k) => k !== "name" && def[k] !== undefined);
 }
 
+/**
+ * The five fields the design tool now asks for under one `backend` object.
+ *
+ * ORDERED AS THE MODEL SHOULD ANSWER THEM, because a tool's property order is
+ * its generation order and that is as true one level down as it is at the top.
+ * `tables` first — everything after it is about tables that now exist; `seed`
+ * straight after, so the rows are written while the columns are in hand; then
+ * the three optional tiers, cheapest decision last.
+ */
+export const BACKEND_FIELDS = ["tables", "seed", "functions", "apis", "jobs"];
+
+/**
+ * HOIST `backend.*` BACK TO THE TOP LEVEL — the tool nests, everything else
+ * stays flat (2026-08-24, owner's call: "put it together under one called
+ * backend").
+ *
+ * WHY A DOOR RATHER THAN A REFACTOR. `spec.tables` is read in ~30 places across
+ * `worker.js`, `site-schema.mjs`, `page-gen.mjs`, `site-rules.mjs` and the data
+ * path, and `_meta.schema` on EVERY SITE EVER PUBLISHED stores the flat shape —
+ * which a revise reads straight back and hands to `normalizeSchema`. Changing
+ * the readers would mean changing them for a wire format, and would strand every
+ * stored schema on the old one. Folding at the door is the same trick
+ * `parseStyle` already uses for its three wire aliases.
+ *
+ * BOTH SHAPES ARE LEGAL AND THAT IS PERMANENT, not a migration window. Flat is
+ * what storage holds and what a caller supplying its own `body.schema` sends;
+ * nested is what the tool asks a model for. Neither is going away.
+ *
+ * PRESENT-AND-NESTED WINS, and the asymmetry is deliberate. A flat caller has no
+ * `backend` key at all, so this can never overwrite one of theirs; the only way
+ * both can exist is a model answering twice, and there the nested one is what the
+ * tool asked for. `undefined` is not present — a nested key the model left out
+ * leaves the flat one alone rather than blanking it, which is the absent-means-
+ * unchanged rule the edit lanes already live under.
+ *
+ * `backend` ITSELF IS DROPPED once lifted, so nothing downstream ever sees a key
+ * it has no reader for — and, more sharply, so the bare-map path cannot read the
+ * word "backend" as the name of a table.
+ */
+export function liftBackend(spec) {
+  if (!spec || typeof spec !== "object" || Array.isArray(spec)) return spec;
+  const b = spec.backend;
+  if (!b || typeof b !== "object" || Array.isArray(b)) {
+    // No nested block. Strip a junk `backend` if one is there, and otherwise
+    // hand back the SAME object — a flat spec must not be rebuilt, or callers
+    // comparing identity (and the `body.schema` path, which is the customer's
+    // own bytes) quietly stop seeing what they passed in.
+    return "backend" in spec ? (({ backend, ...rest }) => rest)(spec) : spec;
+  }
+  const { backend, ...rest } = spec;
+  for (const k of BACKEND_FIELDS) if (b[k] !== undefined) rest[k] = b[k];
+  return rest;
+}
+
 export function normalizeSchema(spec) {
   if (!spec || typeof spec !== "object") return { tables: [] };
+  spec = liftBackend(spec);
   const out = [];
   // Names this refused, so the caller can say which table went rather than
   // leaving the customer with a site quietly missing one.

@@ -4017,7 +4017,7 @@ test("the designer can DECLARE the pair, or the whole grid is unreachable", () =
   assert.match(tool, /'display' = anyone reads it, nobody writes/);
 });
 
-test("only what is reachable end to end is declarable", () => {
+test("only what is reachable end to end is declarable", async () => {
   // EXPOSED ONLY WHAT IS REACHABLE END TO END. `sequence` creates a column
   // nothing stamps, `audit` and `history` build tables the Worker reads in zero
   // places, and `version` is a lock the client never sends back. Offering any
@@ -4030,11 +4030,29 @@ test("only what is reachable end to end is declarable", () => {
   // constraint tier landed. `computed` and `transitions` joined it — a
   // generated column and a BEFORE UPDATE trigger — and `searchWeights` now
   // weights the tsvector document it was always stored beside.
-  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const tool = w.slice(w.indexOf('name: "design_schema"'), w.indexOf('name: "design_schema"') + 40000);
+  // ASKED OF THE PARSED TOOL, NOT OF ITS SOURCE, and the change is the fix.
+  //
+  // This read `worker.js` as TEXT and matched `\n\s+<field>: {` — a pattern with
+  // no notion of DEPTH, so it was answering "does this string appear anywhere in
+  // the tool" rather than "is this declarable ON A TABLE". It stayed correct only
+  // because the window was `+ 40000` characters of a literal that is 73,681, so
+  // the half it could not see was the half that would have contradicted it.
+  //
+  // Both faults surfaced together on 2026-08-24 when `backend` nested the fields
+  // one level deeper. Widening the window turned up `currency` — and `currency`
+  // is NOT declarable on a table: it is `payment.currency`, a real sub-field of a
+  // real feature. A false alarm on correct code, which this repo rates worse than
+  // the miss, produced by a guard that had been half-blind and loose at once.
+  //
+  // The parsed tool answers exactly, at exactly one depth, and cannot be moved by
+  // an indent, a window or a nesting.
+  const { tool } = await import("./integration/schema-tool.mjs").then((m) => m.readSchemaTool());
+  const perTable = tool.input_schema.properties.backend.properties.tables.items.properties;
+  assert.ok(Object.keys(perTable).length > 10, "the per-table properties are gone — this guard is watching nothing");
+
   for (const f of ["oncePerUser", "enforceRefs", "expires", "scheduled",
                    "checks", "computed", "transitions", "searchWeights", "defaultSort"]) {
-    assert.match(tool, new RegExp("\\n\\s+" + f + ": \\{"), f + " is not declarable, so no site can have it");
+    assert.ok(f in perTable, f + " is not declarable, so no site can have it");
   }
   for (const f of ["sequence", "audit", "history", "version",
                    // STILL DEAD, EACH FOR ITS OWN REASON, and none of them is
@@ -4045,14 +4063,17 @@ test("only what is reachable end to end is declarable", () => {
                    // the 2026-07-30 direction rules out — the model writes those
                    // as `functions`. `formulas` is `computed` with arithmetic,
                    // and two fields for one job is how they drift apart.
-                   // `currency` would bake a static FX table into a column that
-                   // is wrong within a day; live rates are what `apis` is for.
+                   // `currency` as a TABLE field would bake a static FX table
+                   // into a column that is wrong within a day; live rates are
+                   // what `apis` is for. `payment.currency` is a different thing
+                   // and is fine — which is precisely what the old source-scan
+                   // could not tell apart.
                    // `geo` is two column names and no distance query to use them.
                    // `teamRead` needs a manager hierarchy on `neon_auth."user"`,
                    // a table Neon owns and we cannot add a column to.
                    "mask", "fieldRoles", "sla", "roundRobin", "assignBy",
                    "formulas", "currency", "geo", "teamRead"]) {
-    assert.doesNotMatch(tool, new RegExp("\\n\\s+" + f + ": \\{"),
+    assert.ok(!(f in perTable),
       f + " is offered but is not reachable end to end — check it stamps/reads/sends before exposing it");
   }
 });
