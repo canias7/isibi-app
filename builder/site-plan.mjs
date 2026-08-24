@@ -238,7 +238,7 @@ export const COMPONENT_MENU = (() => {
 // CAPS LIVE HERE, IN CODE, AND ALSO IN THE DESCRIPTIONS — this repo's standing
 // distinction, and the reason `MAX_CLARIFY` is arithmetic rather than a
 // sentence. A cap a model is merely told about is not a cap.
-export const MAX_PAGES = 6;
+export const MAX_PAGES = 5;
 export const MAX_ACTION = 3;
 export const MAX_COMPONENTS = 24;
 
@@ -261,6 +261,10 @@ export const MAX_SECTIONS = 8;
 const MAX_PURPOSE = 400;
 const MAX_SECTION = 120;
 const MAX_ROLE = 200;
+// A NAME IS A NAV LABEL, NOT A SENTENCE. `MAX_ROLE` stays beside it because a
+// plan stored before 2026-08-24 carries a whole clause under `role` and
+// `pageList` still reads it — see there for why that fallback is load-bearing.
+const MAX_PAGE_NAME = 40;
 
 /**
  * A route path the rest of the pipeline can actually address.
@@ -312,16 +316,35 @@ function lines(v, { cap, max }) {
 }
 
 /**
- * The page set: `{path, role}`, deduplicated by path, capped.
+ * The page set: `{path, name}`, deduplicated by path, capped.
+ *
+ * WHAT THIS STEP DECIDES, AND ALL IT DECIDES (owner's call, 2026-08-24): which
+ * pages the site has, what each is called, and where it lives. Not what a page
+ * is FOR — that used to be `role`, a clause about purpose, and it is out of
+ * scope now.
+ *
+ * A STORED `role` IS STILL ACCEPTED, and that is not politeness — it is the
+ * difference between a rename and a data loss. `_meta.site_look` on every site
+ * ever built holds `{path, role}`, and a revise reads it straight back through
+ * here. Requiring `name` alone would drop EVERY page of EVERY existing site, and
+ * `normalizePlan` returns null the moment `pages` is empty — so a customer
+ * asking to change a colour would lose their purpose and their whole page set.
+ * The `shape` field already set this precedent: "a value WE changed the meaning
+ * of must never cost a customer their purpose and their page set on a revise."
+ *
+ * TWO CAPS, BECAUSE THEY ARE TWO DIFFERENT THINGS. A `name` is a label — 40
+ * characters is a generous nav item. A legacy `role` is a whole clause and keeps
+ * `MAX_ROLE`, so an existing site's directive line is not truncated mid-word by
+ * a rename it had no part in.
  *
  * DEDUPLICATED BECAUSE TWO ENTRIES FOR ONE PATH IS A PAGE SET WITH A BUG IN IT —
- * the directive would list the same address twice with two different jobs, and
- * the generator would be asked to write one file to satisfy both. First wins,
- * which is the same rule `normalizeSchema` applies to a duplicate table.
+ * the directive would list the same address twice, and the generator would be
+ * asked to write one file to satisfy both. First wins, which is the same rule
+ * `normalizeSchema` applies to a duplicate table.
  *
- * A page with no role is dropped rather than kept with an empty one: the role
- * is the entire content of that line of the directive, and `- /book — ` tells
- * the generator less than not mentioning /book at all.
+ * A page with no name is dropped rather than kept with an empty one: the name is
+ * the entire content of that line of the directive, and `- /book — ` tells the
+ * generator less than not mentioning /book at all.
  */
 function pageList(v) {
   if (!Array.isArray(v)) return [];
@@ -330,11 +353,11 @@ function pageList(v) {
   for (const p of v) {
     if (!p || typeof p !== "object" || Array.isArray(p)) continue;
     const path = str(p.path, 80).toLowerCase();
-    const role = str(p.role, MAX_ROLE);
-    if (!path || !role || !PATH_OK.test(path)) continue;
+    const name = str(p.name, MAX_PAGE_NAME) || str(p.role, MAX_ROLE);
+    if (!path || !name || !PATH_OK.test(path)) continue;
     if (seen.has(path)) continue;
     seen.add(path);
-    out.push({ path, role });
+    out.push({ path, name });
     if (out.length >= MAX_PAGES) break;
   }
   return out;
@@ -517,7 +540,7 @@ export function directiveFromPlan(plan) {
   // reading that loses the only fact this field carries.
   const shapeFor = new Map((p.shape || []).map((s) => [s.path, s.sections]));
   for (const pg of p.pages) {
-    lines2.push(`- ${pg.path} — ${pg.role}`);
+    lines2.push(`- ${pg.path} — ${pg.name}`);
     const sections = shapeFor.get(pg.path);
     if (sections) sections.forEach((s, n) => lines2.push(`    ${n + 1}. ${s}`));
   }
@@ -541,9 +564,11 @@ export const PLAN_FIELDS = {
       "A description of the trade is not a purpose.",
   },
 
-  // THE PAGE FIELD IS DELIBERATELY UNDESCRIBED (2026-08-24, owner's call:
-  // "delete whats left inside pages"). The SHAPE stays — an array of
-  // `{path, role}`, both required — and every word of guidance is gone.
+  // WHAT THIS STEP IS FOR, AND ALL IT IS FOR (owner's call, 2026-08-24): the
+  // page list and the routes. Which pages exist, what each is called, where it
+  // lives. `role` — a clause about what a page was FOR — is gone with the rest
+  // of the old description; `pageList` still READS a stored one so no existing
+  // site loses its pages on a revise, which is the half that matters.
   //
   // TWO OF THE DELETED SENTENCES WERE FACTS RATHER THAN CRAFT, and both fail
   // SILENTLY now rather than making a page worse. Written down here because
@@ -569,11 +594,14 @@ export const PLAN_FIELDS = {
     items: {
       type: "object",
       properties: {
-        path: { type: "string" },
-        role: { type: "string" },
+        name: { type: "string", description: "What the page is called. Home, Booking, Menu." },
+        path: { type: "string", description: 'Its route. "/" for the home page, then "/book", "/menu". Lowercase.' },
       },
-      required: ["path", "role"],
+      required: ["name", "path"],
     },
+    description:
+      `Which pages this site has, at most ${MAX_PAGES}. Decide how many it needs, what each one is ` +
+      "called, and its route. Nothing else — this step is the page list and the routes.",
   },
 
 

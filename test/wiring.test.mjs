@@ -313,14 +313,7 @@ test("every plan field the designer must answer actually TELLS it something", ()
   // label — and `shape` is the one that matters most, because it is 294 lines of
   // hand-written layout opinion being replaced by per-site writing, so a thin
   // description there produces a thin site.
-  // `pages` IS DELIBERATELY UNDESCRIBED (2026-08-24, owner's call: "delete
-  // whats left inside pages"), so it is excluded here BY NAME and asserted as
-  // an absence below. Excluded rather than the threshold lowered: dropping the
-  // bar to 0 would let any of the other five go silently thin, which is exactly
-  // the failure this guard exists for.
-  const UNDESCRIBED = new Set(["pages"]);
   for (const k of PLAN_KEYS) {
-    if (UNDESCRIBED.has(k)) continue;
     // THROUGH `planFieldFor`, NOT `PLAN_FIELDS` DIRECTLY. `shape` is spliced
     // into the tool after `mode` since 2026-08-21, so it is a plan key whose
     // fragment lives elsewhere — looking it up in `PLAN_FIELDS` alone would
@@ -329,25 +322,6 @@ test("every plan field the designer must answer actually TELLS it something", ()
     const d = f && f.description;
     assert.ok(typeof d === "string" && d.length > 120,
       `\`${k}\` is compelled on every build and described in ${d ? d.length : 0} characters`);
-  }
-  // THE INVERSE, so the deletion cannot rot back. An absence rots silently where
-  // a presence goes red — the precedent that replaced the repair-pass tests with
-  // "a second call never happens". A description quietly restored here would be
-  // guidance nobody decided to add.
-  for (const k of UNDESCRIBED) {
-    const f = planFieldFor(k);
-    assert.ok(f, `\`${k}\` is gone from the tool entirely, which is more than was asked for`);
-    assert.equal(f.description, undefined,
-      `\`${k}\` was deliberately left undescribed and has been given a description again`);
-    // …AND ITS SHAPE SURVIVED, which is the half that was NOT deleted. Only the
-    // prose went; an array of `{path, role}` is still what the model must answer,
-    // and `pageList` drops any entry missing either.
-    assert.equal(f.type, "array");
-    assert.deepEqual(Object.keys(f.items.properties).sort(), ["path", "role"]);
-    assert.deepEqual(f.items.required.slice().sort(), ["path", "role"]);
-    for (const sub of Object.values(f.items.properties)) {
-      assert.equal(sub.description, undefined, "a sub-field description came back");
-    }
   }
   // …AND THE ONE THAT DECIDES WHETHER THIS WHOLE CHANGE WORKS. `components` is a
   // manifest now, not a hint: the page writer sees the props of what it names

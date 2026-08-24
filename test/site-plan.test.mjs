@@ -348,11 +348,55 @@ test("two entries for one path is a page set with a bug — first wins", () => {
   // The directive would otherwise list the same address twice with two different
   // jobs, and the generator would be asked to write one file to satisfy both.
   const out = normalizePlan({ ...GOOD, pages: [
+    { path: "/", name: "Home" },
+    { path: "/", name: "Home again" },
+  ] });
+  assert.equal(out.pages.length, 1);
+  assert.equal(out.pages[0].name, "Home");
+  // …and a plan stored under the OLD sub-field dedups the same way, since the
+  // rule is about the path and has nothing to do with which key carried the label.
+  const legacy = normalizePlan({ ...GOOD, pages: [
     { path: "/", role: "the real home page" },
     { path: "/", role: "a second home page" },
   ] });
-  assert.equal(out.pages.length, 1);
-  assert.equal(out.pages[0].role, "the real home page");
+  assert.equal(legacy.pages.length, 1);
+  assert.equal(legacy.pages[0].name, "the real home page");
+});
+
+test("a plan STORED BEFORE `pages` became {name, path} keeps every page", () => {
+  // THE HALF THAT MATTERS ABOUT THE 2026-08-24 RENAME. `_meta.site_look` on every
+  // site ever built holds `{path, role}`, and a revise reads it straight back
+  // through `pageList`. Requiring `name` alone would drop EVERY page of EVERY
+  // existing site — and `normalizePlan` returns null the moment `pages` is empty,
+  // so a customer asking to change a colour would lose their purpose and their
+  // whole page set. Same precedent as `shape`: a value WE changed the meaning of
+  // must never cost a customer their page set on a revise.
+  const stored = normalizePlan({ ...GOOD, pages: [
+    { path: "/", role: "the shop in one scroll" },
+    { path: "/book", role: "take the booking" },
+  ] });
+  assert.ok(stored, "a stored plan stopped normalising, which voids the whole plan");
+  assert.equal(stored.pages.length, 2);
+  assert.deepEqual(stored.pages.map((p) => p.path), ["/", "/book"]);
+  // The legacy clause becomes the name, so the directive line still says something.
+  assert.equal(stored.pages[0].name, "the shop in one scroll");
+  assert.match(directiveFromPlan(stored), /- \/book — take the booking/);
+
+  // A FRESH `name` WINS over a stored `role` on the same entry, or an edit that
+  // renames a page would be silently overruled by the value it is replacing.
+  const both = normalizePlan({ ...GOOD, pages: [{ path: "/", name: "Home", role: "the old clause" }] });
+  assert.equal(both.pages[0].name, "Home");
+});
+
+test("a page name is a label and a legacy role is a clause, so they cap differently", () => {
+  // 40 against 200. A fresh `name` is a nav item; a stored `role` is a whole
+  // clause that an existing site's directive already reads, and truncating it at
+  // 40 would cut somebody's line mid-word for a rename they had no part in.
+  const long = "x".repeat(300);
+  const named = normalizePlan({ ...GOOD, pages: [{ path: "/", name: long }] });
+  assert.equal(named.pages[0].name.length, 40);
+  const legacy = normalizePlan({ ...GOOD, pages: [{ path: "/", role: long }] });
+  assert.equal(legacy.pages[0].name.length, 200);
 });
 
 test("a plan STORED BEFORE `structure` went still normalises, and the skeleton never reaches the directive", () => {
