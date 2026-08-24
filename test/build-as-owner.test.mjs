@@ -16,7 +16,15 @@ const SRC = fs.readFileSync(new URL("../scripts/build-as-owner.mjs", import.meta
 // an absence check on the raw text matches the explanation and passes against
 // broken code. Blanked length-preservingly, the trick this repo has now recorded
 // ten-plus times — a lint, a router guard, an absence check, a scope scan.
-const CODE = SRC.replace(/\/\/[^\n]*/g, (m) => " ".repeat(m.length));
+// BLOCK COMMENTS TOO, since 2026-08-24: `postLong`'s own docstring argues the
+// ceiling at length and therefore spells `POST_CEILING_MS` and `destroy`, so a
+// line-only blanker leaves the guard below matching prose. Length-preserving and
+// asserted so, because a blanker that ate too much would report a clean file.
+const blank = (s) => s
+  .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+  .replace(/\/\/[^\n]*/g, (m) => " ".repeat(m.length));
+const CODE = blank(SRC);
+assert.equal(CODE.length, SRC.length, "the blanker moved a byte");
 
 test("the build POST does not go through fetch — undici gives up at 300s", () => {
   // fetch's headers timeout is 300s and is NOT raisable from the fetch options,
@@ -98,4 +106,69 @@ test("a reset with no slug recovers the name instead of giving up", () => {
   assert.doesNotMatch(watch, /traceLine\(SLUG\)/);
   assert.doesNotMatch(watch, /slug: SLUG/,
     "the synthesised response must carry the discovered slug");
+});
+
+test("NEITHER HARNESS WAITS FOR EVER — a silently dead socket has a ceiling", () => {
+  // MEASURED, NOT FEARED (2026-08-24). `build as owner` run 32723813218: the
+  // build FINISHED at 12:02:02Z — `site_builds` says `done: true, ok: true,
+  // total_ms: 528542`, and the site answered 200 — and the step was still
+  // running SEVENTY-FIVE MINUTES later. `req.on("error")` fires only on a real
+  // socket error, so a connection that dies silently (no FIN, no RST, which is
+  // what a middlebox dropping state on a long-idle connection produces) hangs
+  // until the 350-minute job cap.
+  //
+  // IT SURVIVED BECAUSE ITS JUSTIFICATION WENT STALE A DAY BEFORE IT BIT. While
+  // hanging up really did kill the build, having no ceiling was correct and
+  // there was nothing to weigh. The queue reversed that on 2026-08-23 and
+  // nobody re-asked the question — a rule true because of something one layer
+  // down expires when that layer moves, and nothing announces it.
+  //
+  // ASSERTED FOR BOTH, because `build smoke` has the identical hole and runs on
+  // every push rather than once a day. Comments are blanked first in each: the
+  // docstrings argue the ceiling at length and therefore spell it.
+  const smokeSrc = fs.readFileSync(new URL("./integration/build-smoke.mjs", import.meta.url), "utf8");
+  const smoke = blank(smokeSrc);
+  assert.equal(smoke.length, smokeSrc.length, "the blanker moved a byte");
+
+  for (const [name, code] of [["build-as-owner", CODE], ["build-smoke", smoke]]) {
+    const at = code.indexOf("function postLong(");
+    assert.ok(at > 0, `${name}: postLong is gone — this guard is watching nothing`);
+    const fn = code.slice(at, code.indexOf("\n}\n", at));
+    assert.ok(fn.length > 200, `${name}: could not isolate postLong — this check would be vacuous`);
+
+    // THE PROPERTY: the request is torn down on a timer it did not have to be
+    // asked for. Not "a timeout exists somewhere in the file" — a per-call
+    // ceiling inside the function every build POST goes through.
+    assert.match(fn, /POST_CEILING_MS/,
+      `${name}: postLong has no ceiling — a silently dead socket hangs the run for ever`);
+    assert.match(fn, /setTimeout\(\s*\(\)\s*=>\s*req\.destroy\(/,
+      `${name}: the ceiling must DESTROY the request; a timer that only logs changes nothing`);
+    // AND IT MUST BE CLEARED, or a healthy run holds the process open past its
+    // own exit on a timer with nothing left to bound.
+    assert.match(fn, /clearTimeout\(/, `${name}: the ceiling timer is never cleared`);
+    assert.match(fn, /req\.on\("response"/, `${name}: nothing clears the ceiling on a real answer`);
+  }
+
+  // THE NUMBER IS THE WORKER'S OWN AND NOT A SECOND GUESS AT BUILD LENGTH.
+  // `QUEUE_WAIT_MS` is 16 minutes: past it the Worker stops waiting on the
+  // consumer and answers, so a reply that has not arrived by 18 has no path
+  // left to arrive by. Read out of worker.js rather than restated, since the
+  // whole point is that there is one meaning.
+  const workerSrc = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const qm = workerSrc.match(/const QUEUE_WAIT_MS = (\d+) \* 60 \* 1000;/);
+  assert.ok(qm, "QUEUE_WAIT_MS is no longer a minutes literal — re-anchor this check");
+  const queueMinutes = Number(qm[1]);
+  assert.match(CODE, new RegExp(`QUEUE_WAIT_MINUTES = ${queueMinutes};`),
+    "the harness's copy of the Worker's queue wait has drifted from worker.js");
+  const cm = CODE.match(/POST_CEILING_MS = \(QUEUE_WAIT_MINUTES \+ (\d+)\)/);
+  assert.ok(cm, "the ceiling must be derived from the queue wait, not a bare literal");
+  assert.ok(Number(cm[1]) >= 1,
+    "the ceiling must leave slack for the answer to travel, or it fires on a healthy run");
+
+  // THE FALL-THROUGH IS THE WHOLE REASON THIS IS SAFE. Rejecting lands in the
+  // branch that already exists — `disconnected = true`, then watch the trace and
+  // the site — which is proven (arm C) and can see a build that finished. Until
+  // now the ONLY way to reach it was a reset.
+  assert.match(CODE, /disconnected = true;/,
+    "the timeout must fall through to the watch, not become a new failure path");
 });

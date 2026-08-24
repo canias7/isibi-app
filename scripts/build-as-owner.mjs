@@ -29,16 +29,48 @@ import https from "node:https";
  * timeout fires first). GatherHire returned in 272.2s and the Arabic build ran
  * past 300s, so the ceiling had always been one slow build away.
  *
- * AND THE COST OF HITTING IT IS NOT A LOST LOG LINE. Cloudflare cancels a Worker
- * when the client goes away, so hanging up KILLS THE BUILD MID-FLIGHT: measured
- * on that run, the customer was left with a claimed slug, a live Neon project, a
- * 20-credit schema charge and no site. So this is not harness tidiness — the
- * client staying connected is what lets the build finish at all.
+ * THE SECOND HALF OF THAT PARAGRAPH USED TO SAY the cost of hitting it is the
+ * BUILD, because Cloudflare cancels a Worker when its client goes away. TRUE
+ * UNTIL 2026-08-23 AND FALSE SINCE: the build is a queued job now — the POST
+ * stores it, sends a message, and a consumer runs it — so a dropped connection
+ * costs the ANSWER and not the SITE. Proven live: a socket destroyed at 30.0s
+ * and the site published 11m58s later. The catch below already says so.
  *
  * `node:https` has no such timeout of its own, which is the whole reason it is
  * here rather than fetch. Everything else in this file still uses fetch: those
  * calls answer in milliseconds and none of them can be worth a second mechanism.
+ *
+ * ── AND HAVING NO CEILING AT ALL WAS THE BUG (2026-08-24) ───────────────────
+ *
+ * Measured on run 32723813218: the build FINISHED at 12:02:02Z (`site_builds`
+ * says `done: true, ok: true, total_ms: 528542`, and the site answers 200), and
+ * this step was still running **75 minutes later**. `req.on("error")` fires only
+ * on a real socket error, so a connection that dies SILENTLY — no FIN, no RST,
+ * which is what a middlebox dropping state on a long-idle connection produces —
+ * hangs here for ever, or until the 350-minute job cap.
+ *
+ * WHAT MADE IT SURVIVE IS THAT THE JUSTIFICATION WENT STALE A DAY BEFORE. While
+ * hanging up really did kill the build, having no ceiling was correct and there
+ * was nothing to weigh; the queue reversed that and nobody re-asked the timeout
+ * question. A rule true because of something one layer down expires when that
+ * layer moves, and nothing announces it.
+ *
+ * THE BOUND IS THE WORKER'S OWN, PLUS DELIVERY. `QUEUE_WAIT_MS` is 16 minutes:
+ * past it the Worker stops waiting on the consumer and answers, so a reply that
+ * has not arrived by 18 has no path left to arrive by. One number, one meaning
+ * — not a second guess at how long a build takes.
+ *
+ * IT REJECTS RATHER THAN RESOLVING, so it lands in the branch that already
+ * exists: `disconnected = true`, then watch the trace and the site. That path is
+ * proven (arm C, 2026-08-23) and is strictly better than waiting — it can see a
+ * build that finished. Until now the ONLY way to reach it was a reset.
+ *
+ * AND IT NAMES ITSELF. The catch prints `e.code || e.message`, so a bare timeout
+ * would read as a network fault on a run where the network was fine.
  */
+const QUEUE_WAIT_MINUTES = 16;                     // worker.js: QUEUE_WAIT_MS
+const POST_CEILING_MS = (QUEUE_WAIT_MINUTES + 2) * 60 * 1000;
+
 function postLong(url, headers, body) {
   return new Promise((resolve, reject) => {
     const u = new URL(url);
@@ -53,6 +85,14 @@ function postLong(url, headers, body) {
       res.on("end", () => resolve({ status: res.statusCode, text }));
     });
     req.on("error", reject);
+    // CLEARED ON RESPONSE AND ON CLOSE, so a healthy run never carries a live
+    // timer — an uncleared one holds the process open past its own exit.
+    const stop = setTimeout(() => req.destroy(new Error(
+      `no answer in ${POST_CEILING_MS / 60000} minutes — past the Worker's own ${QUEUE_WAIT_MINUTES}-minute wait, so none is coming`,
+    )), POST_CEILING_MS);
+    const clear = () => clearTimeout(stop);
+    req.on("response", clear);
+    req.on("close", clear);
     req.write(payload);
     req.end();
   });

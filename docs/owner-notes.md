@@ -57,6 +57,25 @@ hunting for damage. If a page is still broken after the attempt, it names it.
 
 ---
 
+**AND THE TEST RUNNER SAT THERE FOR 75 MINUTES AFTER THE SITE WAS FINISHED
+(2026-08-24).** The build you asked for completed at 12:02 and the site answered
+straight away — and the job watching it was still going at 13:17. Nothing was
+wrong with the build, the site or the bill; the script was waiting on a
+connection that had quietly gone dead.
+
+**It had no time limit at all, and that used to be correct.** Back when hanging
+up would kill a build mid-way, waiting for ever was the safe thing to do. That
+stopped being true yesterday, when builds became jobs that keep running whether
+or not anyone is listening — and nobody went back and asked the question again.
+There is a limit now, set to the same 16 minutes the platform itself waits, plus
+two for the answer to get back. When it fires the script does what it already
+does on a dropped connection: goes and looks at the site.
+
+**The same hole was in the check that runs on every push**, which matters more
+because that one runs many times a day rather than once. Both are fixed.
+
+---
+
 **ARM D: THE THREE CUTS MADE THE BUILD 44% FASTER (2026-08-24).** One Grok
 build on today's changes — the kit listed once, 50 components instead of 24, the
 look as one stylesheet. **The page-writing step came back in 4m35s against

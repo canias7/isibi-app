@@ -177,7 +177,29 @@ async function fundAccount(to, label) {
  *
  * Everything else in this file still uses fetch: those calls answer in
  * milliseconds and none of them is worth a second mechanism.
+ *
+ * ── AND HAVING NO CEILING AT ALL IS ITS OWN BUG (2026-08-24) ────────────────
+ *
+ * `req.on("error")` fires only on a REAL socket error, so a connection that dies
+ * silently — no FIN, no RST, which is what a middlebox dropping state on a
+ * long-idle connection produces — hangs here for ever. Measured on
+ * `build as owner` run 32723813218: the build finished at 12:02:02Z and the step
+ * was still running 75 minutes later. Same shape here, and this harness runs on
+ * every push rather than once a day.
+ *
+ * `POST_CEILING_MS` IS THE WORKER'S OWN WAIT PLUS DELIVERY. Past `QUEUE_WAIT_MS`
+ * (16 minutes) the Worker stops waiting on the consumer and answers, so a reply
+ * that has not arrived by 18 has no path left to arrive by. One number, one
+ * meaning — never a second guess at how long a build takes.
+ *
+ * IT REJECTS, so it lands in the catch each call site already has: the reason is
+ * recorded, the site is watched, and the teardown still runs after the build is
+ * over rather than during it. THE DELIBERATE CUT IS UNAFFECTED — it is far
+ * shorter and destroys the socket first, which clears this timer through
+ * `close`.
  */
+const POST_CEILING_MS = 18 * 60 * 1000;
+
 function postLong(url, headers, body, cutMs = 0) {
   return new Promise((resolve, reject) => {
     const u = new URL(url);
@@ -198,7 +220,12 @@ function postLong(url, headers, body, cutMs = 0) {
     // Cleared on completion so a normal run never carries a live timer.
     let cut = null;
     if (cutMs > 0) cut = setTimeout(() => req.destroy(new Error(`deliberately cut after ${cutMs}ms`)), cutMs);
-    const clear = () => { if (cut) clearTimeout(cut); };
+    // THE BACKSTOP — see POST_CEILING_MS. Named in the error, or a silent
+    // hang-up reads as a network fault on a run where the network was fine.
+    const stop = setTimeout(() => req.destroy(new Error(
+      `no answer in ${POST_CEILING_MS / 60000} minutes — past the Worker's own 16-minute queue wait, so none is coming`,
+    )), POST_CEILING_MS);
+    const clear = () => { if (cut) clearTimeout(cut); clearTimeout(stop); };
     req.on("close", clear);
     req.on("response", clear);
     req.write(payload);
