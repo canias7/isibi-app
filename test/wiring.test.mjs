@@ -528,6 +528,42 @@ test("the build both ASKS for photographs and BUYS them", () => {
     "the dep that buys photographs no longer calls buySitePhotos");
 });
 
+test("THE REPAIR PASS HAS A MODEL CALL BEHIND IT", () => {
+  // WITHOUT THIS LINE THE WHOLE RUNG IS A MODULE WITH TESTS AND NO CALLERS.
+  // `publishPages` gates on `typeof deps.repair === "function"`, so a route that
+  // never supplies one produces a build that is byte-identical to before — every
+  // unit test green, `site-repair.mjs` correct, and not one broken page ever
+  // fixed. That is the shape twelve features in this repo have died in, and it
+  // is the reason this assertion exists at all rather than being covered by the
+  // module's own suite.
+  //
+  // COMMENTS BLANKED FIRST, length-preservingly. `worker.js` explains this dep
+  // at length and the prose necessarily spells `repair:` and `deps.repair` — so
+  // on the raw text a mutant deleting the LINE passes against its own
+  // explanation. Prose containing the thing it asserts, which this repo has now
+  // recorded in a lint, a router guard, an absence check, a scope scan and a
+  // mutation.
+  //
+  // WHOLE-LINE ONLY, never `/* … */` — a stray `/*` inside a string literal
+  // makes a block blanker eat 46% of this file, measured, which hides real code
+  // and reports a clean sweep over nothing.
+  const bare = worker.replace(/^[ \t]*\/\/.*$/gm, (m) => " ".repeat(m.length));
+  assert.equal(bare.split("\n").length, worker.split("\n").length, "the blanker moved a line");
+
+  const at = bare.indexOf("\n  const out = await publishPages({");
+  assert.ok(at > 0, "publishPages is no longer called — this guard is watching nothing");
+  // Bounded by the call's own last dep rather than a byte count, so a documented
+  // change to the deps above it cannot walk this window past the thing it
+  // asserts. `useCredits` is the last key in that object.
+  const end = bare.indexOf("useCredits:", at);
+  assert.ok(end > at, "the deps object no longer ends at useCredits — re-anchor this window");
+  const deps = bare.slice(at, end);
+  assert.match(deps, /\n\s*repair:\s*\(/,
+    "publishPages is called with no `repair` dep — the repair pass is inert on every build");
+  assert.match(deps, /repair:[^\n]*anthropicMessages\(/,
+    "the repair dep no longer reaches a model — it can only ever refuse");
+});
+
 test("THE DESIGNER'S OWN PICTURES REACH THE PAGE WRITER", () => {
   // THE HOP THIS FEATURE IS (owner's call, 2026-08-23), and the layer where this
   // repo has recorded twelve features dying: `IMAGES_FIELD` can be perfectly

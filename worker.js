@@ -8520,6 +8520,24 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
         };
       }
     },
+    // ── THE REPAIR PASS'S MODEL CALL ──────────────────────────────────────
+    //
+    // Supplied here and nowhere else, which is what makes the whole rung
+    // reachable: `publishPages` gates on `typeof deps.repair === "function"`,
+    // so this one line is the difference between the feature running on every
+    // build and being a module with tests and no callers — the shape twelve
+    // features in this repo have died in.
+    //
+    // THE SAME `send` THE TWEAK LANE USES, one call site over. `runTweak` owns
+    // the request shape and every guard behind it; both lanes hand it the same
+    // transport, so a provider change reaches them together rather than leaving
+    // one of them posting to a model the other stopped using.
+    //
+    // The EDIT lanes deliberately do NOT get one: they publish through
+    // `recompileAndPublish`, which never calls `publishPages` at all, and a
+    // repair there would be re-checking pages the customer just changed by hand
+    // against a report about the build before it.
+    repair: (req) => anthropicMessages(env, req),
     publish: async (dist, pages, worker) => {
       // THE SITE'S EXTRA LANGUAGE PREFIXES, for the sitemap and the route
       // manifest — and RECOMPUTED here rather than reached for, because

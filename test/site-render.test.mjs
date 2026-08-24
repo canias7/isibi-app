@@ -326,10 +326,32 @@ test("THE PROBE CLOSES OVER NOTHING — it is serialised into the page", () => {
   // Playwright evaluates this in the document, where nothing from this module
   // exists. A reference to a module constant is a ReferenceError inside the
   // page, which arrives as an unexplained per-page error on every build.
-  const src = probe.toString();
+  // COMMENTS ARE BLANKED FIRST, and this went red on correct code before they
+  // were (2026-08-24): the crash-detection comment inside `probe()` EXPLAINS
+  // that the error card's text is over BLANK_TEXT_CHARS, and naming a constant
+  // in prose is not referencing it. Prose containing the thing it asserts — the
+  // trap this repo has now recorded in a lint, a router guard, an absence check,
+  // a scope scan, a mutation and here.
+  //
+  // BLANKED, NOT REMOVED, and length-preserving, which is this repo's standing
+  // rule for exactly this: a scan that deletes bytes moves every offset after
+  // them. It cannot weaken the check either — a comment can never be a
+  // reference, so nothing real is hidden by this.
+  const raw = probe.toString();
+  const src = raw
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => " ".repeat(m.length))
+    .replace(/^([ \t]*)\/\/.*$/gm, (m, i) => i + " ".repeat(m.length - i.length));
+  assert.equal(src.length, raw.length, "the blanker moved offsets — it must preserve length");
+  assert.ok(/document\.querySelector/.test(src), "the blanker ate the code it was meant to leave alone");
   for (const name of ["VIEWPORTS", "BLANK_TEXT_CHARS", "MIN_CONTRAST", "OVERFLOW_SLACK", "MAX_FINDINGS", "clip", "WORD"]) {
     assert.doesNotMatch(src, new RegExp("\\b" + name + "\\b"), "probe() references " + name + ", which does not exist inside the page");
   }
+  // AND IT STILL CATCHES THE REAL THING. A negative assertion has to prove its
+  // observer is alive first — this one is seven `doesNotMatch`es, which a
+  // scanner that had stopped seeing anything would satisfy perfectly.
+  const planted = "function probe() { /* BLANK_TEXT_CHARS in prose */ return BLANK_TEXT_CHARS; }"
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => " ".repeat(m.length));
+  assert.match(planted, /\bBLANK_TEXT_CHARS\b/, "a real reference must still be found once comments are blanked");
 });
 
 test("the probe reads colour through a canvas rather than parsing it", () => {

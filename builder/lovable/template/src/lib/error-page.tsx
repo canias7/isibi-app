@@ -18,7 +18,21 @@ export function ErrorPage({ error, reset }: ErrorComponentProps) {
   }, [error]);
 
   return (
-    <div className="grid min-h-screen place-items-center bg-background p-6 text-foreground">
+    // `data-slot` SO THE RENDER CHECK CAN SEE A CRASH IT WOULD OTHERWISE MISS
+    // (2026-08-24). This component is the reason the check was blind: React does
+    // not rethrow a boundary-caught error, so `page.on("pageerror")` never
+    // fires and the finding is `logged` rather than `threw`; and the card prints
+    // ~109 characters of real text, comfortably over BLANK_TEXT_CHARS (40), so
+    // it is not `blank` either. Measured on `the-lido-cafe`'s /book: the page
+    // threw `useFormField should be used within <FormItem>` and the render
+    // report would have called the site clean. A working safety net hiding the
+    // fault from the one check that looks for it.
+    //
+    // AN ATTRIBUTE RATHER THAN THE COPY, and that is not tidiness: sites are
+    // bilingual since 2026-08-19, so "This page didn't load" is translated on
+    // every non-English site and a string match would go quietly blind on
+    // exactly the sites nobody here reads. The attribute survives translation.
+    <div data-slot="error-page" className="grid min-h-screen place-items-center bg-background p-6 text-foreground">
       <div className="w-full max-w-md text-center">
         <h1 className="text-xl font-semibold">This page didn't load</h1>
         <p className="mt-2 text-muted-foreground">

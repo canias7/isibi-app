@@ -134,20 +134,33 @@ export const TWEAK_RULES =
  * The instruction goes FIRST and the file second, so the thing being asked for
  * is not buried under ten thousand characters of TSX — the same ordering the
  * addon lane uses for the prior source, and for the same reason.
+ *
+ * `rules` AND `heading` ARE PARAMETERS SO A SECOND INTENT CAN REUSE THIS WHOLE
+ * RUNG (2026-08-24), and they default to today's values so every existing call
+ * is byte-identical — the tweak lane sends nothing it did not send before.
+ *
+ * WHAT MADE THAT NECESSARY: `site-repair.mjs` edits one file exactly the way
+ * this does and wants every guard `readTweak` carries — the prose promise, the
+ * route id, the differential lint, the truncation floor. What it cannot reuse
+ * is `TWEAK_RULES`, which opens "the customer has asked for one visual change"
+ * and lists `cannot` for anything that is not one. Handed a page that THREW,
+ * those rules are an instruction to refuse. So the machinery is shared and only
+ * the sentence at the top differs — the alternative was a second copy of eight
+ * guards, which is how the five copies of one route mapping happened.
  */
-export function tweakRequest({ instruction, path, source }) {
+export function tweakRequest({ instruction, path, source, rules = TWEAK_RULES, heading = "THE CHANGE THEY ASKED FOR" }) {
   const what = String(instruction == null ? "" : instruction).trim();
   const file = String(source == null ? "" : source);
   return {
     model: TWEAK_MODEL,
     max_tokens: TWEAK_MAX_TOKENS,
-    system: TWEAK_RULES,
+    system: String(rules == null ? "" : rules) || TWEAK_RULES,
     tools: [TWEAK_TOOL],
     tool_choice: { type: "tool", name: TWEAK_TOOL.name },
     messages: [{
       role: "user",
       content:
-        "THE CHANGE THEY ASKED FOR\n" + what.slice(0, 2000) +
+        String(heading || "THE CHANGE THEY ASKED FOR") + "\n" + what.slice(0, 2000) +
         "\n\nTHE FILE (" + String(path || "this page") + ")\n" + file,
     }],
   };
@@ -350,12 +363,12 @@ export function tweakable(source) {
  * exception escaping would turn "the cheap rung was unavailable" into "the edit
  * failed", which is strictly worse than not having built it.
  */
-export async function runTweak({ instruction, path, source, send }) {
+export async function runTweak({ instruction, path, source, send, rules, heading }) {
   const can = tweakable(source);
   if (!can.ok) return { ok: false, reason: can.reason, usage: null };
   let reply = null;
   try {
-    reply = await send(tweakRequest({ instruction, path, source }));
+    reply = await send(tweakRequest({ instruction, path, source, rules, heading }));
   } catch (e) {
     // The provider, not the page. Reported as its own reason so a run of these
     // in a log reads as an outage rather than as the model refusing every tweak.

@@ -15,6 +15,7 @@
 // model call, no container and no R2.
 
 import { validatePages, lintPages, repairImports } from "./page-gen.mjs";
+import { repairPages } from "./site-repair.mjs";
 // The seed top-up's OWN model and OWN hard output cap, imported rather than
 // restated. `buildFloor` has to price that call (see `SEED_PROFILE`), and a
 // second copy of either number here is a gate that drifts away from the thing
@@ -649,6 +650,16 @@ export function salvageNote(stubbed) {
 export async function publishPages(deps, { spec, slug, priorUsage, livePages } = {}) {
   const out = { page: "placeholder", files: [], notes: "", problems: [], cost: 0, buildMs: 0 };
 
+  // WHAT THE REPAIR PASS SPENT, collected here so it reaches the ONE
+  // `pageCredits` call that prices this build. It is variadic precisely so
+  // several calls land on one bill with ONE rounding — adding separately-rounded
+  // totals charges twice for the rounding, which is a measured bug this repo has
+  // already shipped once (20 credits summed against 19 priced together).
+  //
+  // DECLARED HERE RATHER THAN AT THE REPAIR, because `settle` prices the build
+  // from an outer scope and a list that does not exist yet reads as no spend.
+  const repairUsage = [];
+
   // Fails CLOSED: if the ledger cannot be read we do not generate. A caller who
   // cannot be billed does not get a paid call, at the cost of falling back to the
   // placeholder when the ledger merely hiccups.
@@ -920,7 +931,7 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages } =
     // Bounded rather than ignored: the images land in `uploads/<slug>/`, which is
     // the owner's own image library and is deliberately NOT wiped by a publish,
     // so they still have every picture they paid for and a revise can use them.
-    const c = pageCredits(gen.usage, priorUsage, out.images ? { images: out.images.made } : null);
+    const c = pageCredits(gen.usage, priorUsage, out.images ? { images: out.images.made } : null, ...repairUsage);
     // WHAT WAS BILLED AND WHAT WAS COLLECTED ARE TWO NUMBERS, and conflating
     // them is what let this path charge nothing for months. `use_credits` is a
     // gate: a bill larger than the balance debits ZERO and answers -1 rather
@@ -1159,11 +1170,77 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages } =
     }
   }
 
-  // THERE IS NO REPAIR PASS. Removed 2026-08-04, owner's call, on the first real
-  // measurement of what a build costs: output is 80% of it, and a repair is a
-  // second whole generation — it does not amend a file, it re-writes every page.
+  /**
+   * ── THE REPAIR PASS ────────────────────────────────────────────────────────
+   *
+   * A page that compiled, bundled and then FAILED IN A BROWSER, handed back to a
+   * cheap edit. Owner's call 2026-08-24, after `the-lido-cafe` published with its
+   * booking form dead: the render check saw it, said so, and nothing acted.
+   *
+   * IT RUNS ONLY ON A BUILD THAT SUCCEEDED, which reads backwards and is the
+   * point. A build that failed to compile is `salvagePlan`'s business and has
+   * no browser report to act on; this one's pages are about to go live.
+   *
+   * AND `built.ok &&` IS BELT-AND-BRACES TODAY — measured, not assumed, because
+   * a guard that reads local and cannot fire is protection that is not there.
+   * The render step runs only after a compile succeeds, so a failed build
+   * carries no `render` at all, and `repairBrief(undefined, …)` and
+   * `repairBrief({ok:false}, …)` both answer with no work — driven, both of
+   * them. So removing this clause changes no behaviour and a mutant doing so
+   * survives on purpose. It is kept because what makes it inert is a property
+   * of ANOTHER function one edit away from changing: the day a failed compile
+   * starts carrying a partial report, this is the line between "we did not
+   * repair it" and "we paid to repair a build nobody is publishing".
+   *
+   * ONE ATTEMPT, then publish whatever we have. An unbounded fix loop is how the
+   * 2026-08-04 pass got expensive, and the second failure of the same page is
+   * far more likely to be the check being wrong than the model being unlucky.
+   *
+   * A FAILED RECOMPILE KEEPS THE ORIGINAL BUILD, and that is the whole safety
+   * argument. `built` at this line already compiled and would have published; if
+   * the repaired source does not, the customer gets exactly the site they were
+   * getting a moment ago — one page rendering an apology — rather than nothing.
+   * Never worse, which is the same rule `salvagePlan` lives under.
+   */
+  if (built.ok && typeof deps.repair === "function") {
+    const rep = await repairPages({ report: built.render, pages, send: deps.repair });
+    // THE USAGE RIDES BACK ON EVERY PATH, refusals included — these are real
+    // model calls and the ledger prices what was used. Pushed into the same list
+    // the generation and image usage go into, so `pageCredits` rounds ONCE
+    // across all of them rather than charging twice for the rounding.
+    for (const u of rep.usage) repairUsage.push(u);
+    if (rep.repaired.length) {
+      const second = await compileWithRetry(rep.pages);
+      if (second.ok) {
+        built = second;
+        // THE REPAIRED SOURCE IS WHAT GETS STORED, or a revise hands the model
+        // back the broken file and invites it to keep the broken line — the
+        // exact reasoning the salvage stub is stored under, one rung along.
+        pages = rep.pages;
+        out.repaired = rep.repaired.map((x) => x.route || x.path);
+      } else {
+        // The repair made it worse. Say so — "the repair was attempted and the
+        // result would not compile" and "no repair was attempted" are different
+        // facts, and only one of them is a bug in this rung.
+        out.repairFailed = String(second.stage || "build");
+      }
+    }
+    if (rep.refused.length) out.repairRefused = rep.refused;
+    if (rep.dropped) out.repairDropped = rep.dropped;
+  }
+
+  // THERE IS NO SECOND GENERATION, and the distinction from the block above is
+  // the whole of it. Removed 2026-08-04, owner's call, on the first real
+  // measurement of what a build costs: output is 80% of it, and that repair was
+  // a second whole generation — it did not amend a file, it re-wrote every page.
   // So a failing build cost ~2x a working one at a moment when a working one is
   // already about break-even against the 22 credits charged for it.
+  //
+  // The pass above amends ONE FILE through the `tweak` rung — Haiku, that page's
+  // own source, a short prompt, ~3 credits against ~10 — so the economics that
+  // killed the old one do not reach it. What stays deleted is the thing that was
+  // deleted: `generateSitePages` is called exactly once a build, and the tests
+  // that assert so are unchanged.
   //
   // The measurement that made it defensible: the eval scored 0/3 and all eleven
   // errors were ONE component call, which is not what a repair is for. A

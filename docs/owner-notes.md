@@ -12,6 +12,68 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ## OPEN — waiting to be picked up
 
+**THE SITE NOW CHECKS ITSELF BEFORE IT LAUNCHES, AND FIXES WHAT IT FINDS
+(2026-08-24, your idea).** *"After the page generation step, can there be a
+revise step that literally checks everything that it generated, checks what's
+wrong and fixes before launching it?"* — then, when I said fixing it meant a
+whole new generation: *"can it just edit it?"* Both halves were right.
+
+**The check already existed and already ran.** Every build has been opening
+every page of the site in a real browser, at desktop and phone widths, and
+writing down what it saw. On `the-lido-cafe` it watched your booking form crash
+and said so. **Nothing acted on it** — it was report-only, pending a
+measurement — so the site published with a dead form and told you it was fine.
+
+**Except that it did NOT see this one, and finding that out is the important
+part of today.** Measured against the real report: today's crashed `/book` would
+have been called **clean**. Two reasons stacked. The kit has a safety net that
+catches a crashing page and prints an apology card instead of a white screen —
+so the browser never reported an error, because the net swallowed it. And the
+apology card is 109 characters of real text, so the "this page is blank" rule
+saw a page with content on it. **A working safety net was hiding the fault from
+the one check that goes looking for it.** The card now carries an invisible mark
+that says "I am the apology, not the page", and the check reads it.
+
+**The fix is an EDIT, not a rebuild, and that is your question answered
+directly.** Rewriting the page from scratch costs about 10 credits and comes
+back with different wording — it is the expensive pass we deleted in August for
+exactly that reason. This hands ONE file to the cheap model with one sentence:
+*a real browser opened this page and it crashed — here is the error — fix that
+and nothing else.* **About 3 credits, and about 1 if it declines.**
+
+**It cannot damage a site that was going to work.** Four guards, all of them
+already built and already measured: the words a visitor reads are compared
+before and after and a page that came back reworded is thrown away (0 false
+alarms over 1,640 real edits); the page's address cannot move; a page that came
+back shorter than it went in is thrown away; and if the repaired page does not
+compile, **the build you already had is what publishes**. At most 3 pages a
+build, and if more were found, the reply says how many it left.
+
+**A repair is silent and a failure is not.** If it fixes the page you hear
+nothing — telling you "we found something and fixed it" only invites you to go
+hunting for damage. If a page is still broken after the attempt, it names it.
+
+**NOT PROVEN LIVE.** No build has run against it yet. The next one is the test.
+
+---
+
+**ARM D: THE THREE CUTS MADE THE BUILD 44% FASTER (2026-08-24).** One Grok
+build on today's changes — the kit listed once, 50 components instead of 24, the
+look as one stylesheet. **The page-writing step came back in 4m35s against
+8m13s** on the last comparable build, and the whole build in **8m49s against
+12m19s**. That matters for more than waiting: a build has a hard 15-minute
+ceiling before the platform gives up on it, and 12m19s was uncomfortably close
+to it. Site: `https://the-lido-cafe.gofarther.app/`.
+
+**Three things it also showed, none of them fixed yet.** The booking form was
+dead (that is what the repair pass above is for). Some sections run edge to edge
+where others are inset, because nothing in the page instructions tells the model
+to keep a consistent page width — the four worked examples that used to
+demonstrate it left the prompt this morning. And the free CSS wrote a rule that
+blanks the primary button (already on the list as #192).
+
+---
+
 **THE KIT IS ONLY LISTED IN THE DESIGNER NOW (2026-08-24).**
 
 You spotted that we were sending the same list of 2,112 component names **twice

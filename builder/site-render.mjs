@@ -212,6 +212,24 @@ export function probe() {
 
   out.text = ((document.body && document.body.innerText) || "").replace(/\s+/g, " ").trim().length;
 
+  // DID THE ROUTE CRASH INTO OUR OWN ERROR CARD (2026-08-24).
+  //
+  // THE CHECK WAS BLIND TO THIS AND IT IS THE COMMONEST REAL FAILURE THERE IS.
+  // `ErrorPage` is the router's `defaultErrorComponent`, so a route that throws
+  // does not go blank — it renders a tidy apology. React does not rethrow a
+  // boundary-caught error to `window.onerror`, so `page.on("pageerror")` never
+  // fires and the finding lands as `logged`, which is deliberately not SERIOUS
+  // (a console error is very often React reporting a missing key). And the card
+  // prints ~109 characters, comfortably over BLANK_TEXT_CHARS, so it is not
+  // `blank` either. Measured on `the-lido-cafe`'s /book, which threw
+  // `useFormField should be used within <FormItem>`: every existing signal said
+  // the page was fine. The safety net hid the fault from the detector.
+  //
+  // AN ATTRIBUTE, NOT THE COPY. Sites are bilingual, so the card's wording is
+  // translated on every non-English site — a string match would go blind on
+  // exactly the sites nobody here reads.
+  out.crashed = !!(document.querySelector && document.querySelector('[data-slot="error-page"]'));
+
   // A broken image is `complete` AND zero-width. An image still loading is
   // `complete === false` and is correctly skipped — which also means a lazy
   // image below the fold is not accused of being broken for not having started.
@@ -374,6 +392,26 @@ export function readPage(obs) {
   // A page that never loaded is the only finding worth making about it —
   // everything below would be measuring an error page.
   if (o.error) return [at("threw", o.error)];
+
+  // THE ROUTE CRASHED INTO OUR OWN ERROR CARD, and this returns for the same
+  // reason `o.error` does: everything below would be measuring the apology
+  // rather than the page. Its contrast is our card's, its text length is our
+  // card's, its overflow is zero — all true, all about the wrong document.
+  //
+  // `threw` RATHER THAN A KIND OF ITS OWN, because that is what a visitor gets:
+  // the page they asked for is not there. A separate kind would need adding to
+  // SERIOUS, to WORD, and to every caller that branches on severity — three
+  // places to keep in step for a distinction nobody downstream acts on.
+  //
+  // THE CONSOLE ERROR IS PREFERRED AS THE DETAIL when there is one, and that is
+  // the whole diagnostic value: React logs the real message
+  // ("useFormField should be used within <FormItem>") through the console even
+  // though it never rethrows it, so without this the finding would read "this
+  // page crashed" and name nothing a repair could act on.
+  if (o.crashed) {
+    const why = (Array.isArray(o.consoleErrors) ? o.consoleErrors : []).find((e) => e && String(e).trim());
+    return [at("threw", why ? String(why) : "the page crashed into the error card")];
+  }
 
   // A THROWN EXCEPTION AND A LOGGED ERROR ARE DIFFERENT THINGS and are kept
   // apart. An uncaught throw took the page down; a console error is very often

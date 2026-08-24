@@ -17,6 +17,7 @@ import { publishPages, pageCredits, pageCost, citedLines, totalCost, RATES, MODE
   ourFault, CHARGED_STAGES, schemaSettlement, salvagePlan, stubPage, routeIdFor, salvageNote, wasKilled,
   buildFloor, SCHEMA_PROFILE, SEED_PROFILE } from "../builder/publish-pages.mjs";
 import { exitReason } from "../builder/exit-reason.mjs";
+import { readPage } from "../builder/site-render.mjs";
 import { BUILD_MODELS } from "../builder/build-models.mjs";
 // The real consumer of `out.images`, so the note a customer reads is what these
 // tests assert rather than the field names it happens to branch on today.
@@ -107,8 +108,98 @@ function harness(over = {}) {
     calls.images = [];
     deps.images = (pages, opts) => { calls.images.push({ pages, opts }); return over.images(pages, opts); };
   }
+  // OPTIONAL, exactly like `images` and for the same reason: with no `repair`
+  // dep the function must behave as it did before the repair pass existed, which
+  // is what every other test in this file relies on.
+  if (over.repair) {
+    calls.repair = [];
+    deps.repair = (req) => { calls.repair.push(req); return over.repair(req); };
+  }
   return { deps, calls };
 }
+
+/* ------------------------------------------------------- the repair pass */
+
+// The render report the container hands back when a route crashed into the
+// kit's own error card. Shaped by `readPage`, not hand-written, so a change to
+// the finding shape breaks this rather than silently passing.
+const crashed = (route = "/book") => ({
+  ok: true,
+  findings: readPage({
+    route, viewport: "desktop", text: 109, images: 0, crashed: true,
+    consoleErrors: ["Error: useFormField should be used within <FormItem>"],
+  }),
+});
+const FIXED = "// repaired\n" + good().source;
+const repairReply = (source) => ({ content: [{ type: "tool_use", input: { source } }], usage: { input_tokens: 10, output_tokens: 20 } });
+
+test("with no repair dep NOTHING extra happens — one compile, no repair", async () => {
+  const { deps, calls } = harness({
+    compile: async () => ({ ok: true, files: { "index.html": { t: "<x>" } }, render: crashed() }),
+  });
+  const out = await publishPages(deps, { spec: SPEC, slug: "s" });
+  assert.equal(typeof deps.repair, "undefined");
+  assert.equal(calls.compile.length, 1, "a build with no repair dep compiles exactly once");
+  assert.equal(out.page, "app");
+  assert.equal(out.repaired, undefined, "and reports nothing about a pass that did not run");
+});
+
+test("A CRASHED ROUTE IS REPAIRED, RECOMPILED, AND THE FIXED SOURCE IS WHAT PUBLISHES", async () => {
+  let n = 0;
+  const { deps, calls } = harness({
+    compile: async () => ({ ok: true, files: { "index.html": { t: "<build-" + n++ + ">" } }, render: n === 1 ? crashed("/") : { ok: true, findings: [] } }),
+    repair: async () => repairReply(FIXED),
+  });
+  const out = await publishPages(deps, { spec: SPEC, slug: "s" });
+  assert.equal(calls.repair.length, 1, "the model was asked to fix the page");
+  assert.equal(calls.compile.length, 2, "…and the result was compiled before it could publish");
+  assert.deepEqual(out.repaired, ["/"]);
+  // THE WIRING, which is the whole point of asserting here rather than in the
+  // module's own file: the fixed source has to reach BOTH the published build
+  // and the STORED source a later revise is handed.
+  assert.equal(calls.publish[0]["index.html"].t, "<build-1>", "the SECOND build is what publishes");
+  assert.equal(calls.stored[0].find((p) => p.path === "index.tsx").source, FIXED, "and the fixed source is stored");
+});
+
+test("A FAILED RECOMPILE KEEPS THE ORIGINAL BUILD — never worse than not trying", async () => {
+  let n = 0;
+  const { deps, calls } = harness({
+    compile: async () => (n++ === 0
+      ? { ok: true, files: { "index.html": { t: "<original>" } }, render: crashed("/") }
+      : { ok: false, stage: "typecheck", error: "the repair broke it" }),
+    repair: async () => repairReply(FIXED),
+  });
+  const out = await publishPages(deps, { spec: SPEC, slug: "s" });
+  assert.equal(out.page, "app", "the site still publishes");
+  assert.equal(calls.publish[0]["index.html"].t, "<original>", "with the build that already worked");
+  assert.equal(out.repaired, undefined);
+  assert.equal(out.repairFailed, "typecheck", "and says the repair was tried and did not hold");
+  assert.notEqual(calls.stored[0].find((p) => p.path === "index.tsx").source, FIXED, "the broken repair is NOT stored");
+});
+
+test("a clean render report buys no model call at all", async () => {
+  const { deps, calls } = harness({
+    compile: async () => ({ ok: true, files: { "index.html": { t: "<x>" } }, render: { ok: true, findings: [] } }),
+    repair: async () => repairReply(FIXED),
+  });
+  await publishPages(deps, { spec: SPEC, slug: "s" });
+  assert.equal(calls.repair.length, 0, "nothing to fix, nothing spent");
+  assert.equal(calls.compile.length, 1);
+});
+
+test("THE REPAIR'S TOKENS REACH THE BILL", async () => {
+  let n = 0;
+  const big = { content: [{ type: "tool_use", input: { source: FIXED } }], usage: { input_tokens: 400000, output_tokens: 400000 } };
+  const mk = (repair) => harness({
+    generate: async () => gen([good()], { usage: { in: 10000, out: 10000, cacheRead: 0, cacheWrite: 0 } }),
+    compile: async () => ({ ok: true, files: { "index.html": { t: "<x>" } }, render: n++ === 0 ? crashed("/") : { ok: true, findings: [] } }),
+    ...(repair ? { repair: async () => big } : {}),
+  });
+  n = 0; const a = await publishPages(mk(false).deps, { spec: SPEC, slug: "s" });
+  n = 0; const b = await publishPages(mk(true).deps, { spec: SPEC, slug: "s" });
+  assert.ok(b.billed > a.billed,
+    `a repair that spent 800k tokens must cost more than none (${a.billed} -> ${b.billed})`);
+});
 
 /* ---------------------------------------------------------- photographs */
 
