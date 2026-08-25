@@ -220,10 +220,16 @@ test("the designer's own prompt offers all three member shapes, not two", () => 
   // NOT ANOTHER PARAGRAPH — a correction. The prompt enumerated two of three
   // options and the missing one is exactly the cell CLAUDE.md calls "the
   // commonest missing": anyone reads, members write their own.
+  // OFF THE NAMED CONSTANT, not out of the request literal. This found
+  // `text: "You design the data model…` — a position inside `designSiteSchema` —
+  // and lifting that string into `SITE_SCHEMA_SYSTEM`, so the frontend variant
+  // could sit beside it, moved the position while changing not one byte of what
+  // is sent. A landmark that is a phrase inside another expression is one the
+  // next edit moves; a `const` has a name.
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const at = w.indexOf('text: "You design the data model behind a small business website.');
+  const at = w.indexOf("const SITE_SCHEMA_SYSTEM =");
   assert.ok(at > 0, "the designer's system prompt is gone — re-point this guard");
-  const sys = w.slice(at, w.indexOf("}]", at));
+  const sys = w.slice(at, w.indexOf('";', at));
 
   // ALL THREE NAMED. `user` and `feed` alone are what shipped the bug.
   for (const [needle, why] of [

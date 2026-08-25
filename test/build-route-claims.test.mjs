@@ -79,11 +79,38 @@ test("ONE reading of which site this is", () => {
   // told to edit only what was asked.
   const seg = buildRoute();
   assert.match(seg, /const cleanSlug = \(v\) =>/, "the shared cleaner is gone");
-  assert.match(seg, /const editSlug = cleanSlug\(/, "the edit-state read has its own cleaning again");
-  assert.match(seg, /const slug = cleanSlug\(/, "the claim has its own cleaning again");
-  // The property, not the spelling: nothing in this route strips slug characters
-  // except that one expression.
-  const strippers = seg.match(/\[\^a-z0-9-\]/g) || [];
+  // THE CLAIMED NAME IS BUILT ONLY FROM CLEANED PARTS. This pinned
+  // `const slug = cleanSlug(` and went red when the first branch became
+  // `namedSlug` — the value the ownership check had ALREADY cleaned from the
+  // same field — which is one cleaning fewer rather than one more. So it asserts
+  // what the claim is allowed to be made of instead: an already-cleaned name, a
+  // fresh cleaning of the designer's answer, or the random fallback.
+  const claim = (seg.match(/const slug = [\s\S]{0,200}?;/) || [""])[0];
+  assert.ok(claim, "the claimed slug is no longer assigned in one expression");
+  for (const part of claim.replace(/^const slug = /, "").replace(/;\s*$/, "").split("||")) {
+    assert.match(part.trim(), /^(namedSlug|cleanSlug\(|\("site-")/,
+      "the claim can be an uncleaned value: " + part.trim().slice(0, 60));
+  }
+  // THE PROPERTY, AND IT USED TO BE PINNED TO A SPELLING. This asserted
+  // `const editSlug = cleanSlug(` — a fact about which line does the cleaning —
+  // and went red when the caller's slug moved UP to the ownership check and
+  // `editSlug` became an alias of it. That change removes a cleaning rather than
+  // adding one, so a guard against duplicate cleanings failed on strictly less
+  // duplication. What matters is that the caller's own slug is cleaned ONCE, so
+  // every reader downstream is looking at the same name.
+  //
+  // COMMENTS BLANKED FIRST, and this guard caught its own author for it. The
+  // note explaining why the second cleaning was removed necessarily SPELLS
+  // `cleanSlug(body.slug)`, so the count came back 2 against correct code —
+  // prose containing the thing it forbids, this repo's most-recorded own-goal.
+  // Whole-line only and length-preserving, so offsets stay valid: blanking from
+  // any `//` would eat a line holding a URL.
+  const code = seg.replace(/^[ \t]*\/\/[^\n]*/gm, (m) => " ".repeat(m.length));
+  assert.equal(code.length, seg.length, "the comment blanker changed the length; offsets are no longer valid");
+  const bodyCleans = code.match(/cleanSlug\(\s*body\.slug\s*\)/g) || [];
+  assert.equal(bodyCleans.length, 1, `body.slug is cleaned ${bodyCleans.length} times; two readings is the bug`);
+  // And nothing in this route strips slug characters except that one expression.
+  const strippers = code.match(/\[\^a-z0-9-\]/g) || [];
   assert.equal(strippers.length, 1, `${strippers.length} slug-cleaning expressions in one route`);
 });
 

@@ -528,6 +528,41 @@ try {
   slug = d && d.slug;
   ok("response carries a slug and url", !!(slug && d.url), JSON.stringify(d).slice(0, 200));
   ok("and it is the slug we asked for", slug === runSlug, `${slug} !== ${runSlug}`);
+  // ── EVERY CHECK BELOW THIS LINE ASSUMES THE SITE HAS A DATABASE ─────────
+  //
+  // It has since this harness was written, and it stopped on 2026-08-24: a
+  // FIRST BUILD is frontend only — the designer is not offered a `backend`
+  // field, nothing is provisioned, and the content is written into the pages.
+  // So a Neon project, `_meta` endpoints, seeded rows, a data read, a form that
+  // submits and the owner's table door are all correctly absent, and ~40
+  // assertions below would go red naming forty different things.
+  //
+  // ONE HONEST FAILURE RATHER THAN FORTY MISLEADING ONES, which is the shape
+  // `edit smoke`'s out-of-credit bail already earns its keep with. This is NOT
+  // a skipped pass: the run stops and stays red, because the data tier of this
+  // harness is real work that has not been done yet, and a harness that quietly
+  // shrank to fit would report a platform that is smaller than it is.
+  //
+  // WHAT THE REPLACEMENT LOOKS LIKE, so the next person does not re-derive it:
+  // each data tier gets an `else` asserting its INVERSE — no project for this
+  // slug, no `/api/db/` call from any page, no owner table door — plus the
+  // positive that the page rendered real content anyway. Both directions, or a
+  // build that silently stopped provisioning when it should have would pass.
+  //
+  // STOPPED BY THROWING THE SAME SENTINEL the disconnect experiment uses, and
+  // `deliberate` is DELIBERATELY absent: this is not a run that finished what it
+  // set out to do, it is a run that cannot check what it exists to check.
+  if (d && d.backend !== true) {
+    ok("the site has a database this harness can check", false,
+      "backend=" + JSON.stringify(d.backend) + " tables=" + JSON.stringify(d.tables));
+    console.log("\n  ⛔ THIS BUILD HAS NO DATABASE, and the ~40 checks below all assume one.");
+    console.log("     The BUILD may be perfectly fine — a first build is frontend only since 2026-08-24.");
+    console.log("     What is missing is this harness's data tier, rewritten for that. Stopping here rather");
+    console.log("     than reporting forty different failures with one cause.\n");
+    throw Object.assign(new Error("build smoke's data tier has not been rewritten for a frontend-only first build"), {
+      detail: "slug=" + String(slug) + " url=" + String(d.url),
+    });
+  }
   ok("response says the site has a backend", d && d.backend === true);
   ok("at least one table was created", Array.isArray(d.tables) && d.tables.length > 0, JSON.stringify(d.tables));
   // Nothing can write to a `display` table after the build, so a table that was

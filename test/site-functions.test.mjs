@@ -138,11 +138,18 @@ test("6. only functions that REALLY got created are advertised", () => {
     "the assignment is conditional again, so the caller may never be told");
   // The route has to read them BEFORE serialising: JSON.stringify drops
   // properties hung off an array, so they would vanish from `tables`.
+  //
+  // AND `made` CAN BE NULL SINCE 2026-08-24, so both reads are guarded. A first
+  // build provisions no database, `applySiteSchema` never runs, and reading
+  // through the result is a TypeError composing the RESPONSE — after the work
+  // and after the ledger, so the site exists and the build answers 500. The
+  // property is unchanged; the null guard is asserted with it, or a well-meant
+  // tidy-up removes it and every frontend build 500s.
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.match(w, /functions: \(made\.functions && made\.functions\.length\)/,
-    "the build response never says which functions were created");
-  assert.match(w, /functionErrors: made\.functionErrors/,
-    "a function that failed to create is invisible to the caller");
+  assert.match(w, /functions: \(made && made\.functions && made\.functions\.length\)/,
+    "the build response never says which functions were created, or reads through a null `made`");
+  assert.match(w, /functionErrors: \(made && made\.functionErrors\)/,
+    "a function that failed to create is invisible to the caller, or reads through a null `made`");
 });
 
 test("7. the RULES point at something that now exists", () => {

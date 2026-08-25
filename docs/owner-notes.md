@@ -67,6 +67,54 @@ is claimed, the database is live, and there is no site at that address.
 
 ---
 
+**A FIRST BUILD IS FRONTEND ONLY NOW (2026-08-25, your call).** *"So at build
+time model only does frontend, the backend comes at later, when editing and when
+addon and whatever comes."* Steps 2, 3 and 4 of the four, all landed together —
+they had to, because each one is broken without the other two.
+
+**What a first build now is.** Somebody describes their business and gets a real
+site: a name, a look, the pages, and the actual words — the services, the prices,
+the opening hours — written straight into the pages. **No database is created at
+all.** When they later ask for a booking form, an editable menu or customer
+accounts, that is the step that builds the database for them.
+
+**Three cuts, measured.** The design step no longer offers the model a backend to
+design — that field was **41% of everything we send it**. The page-writing step
+no longer carries the ~12,000 characters of instructions about reading and
+writing data, which is **28% of the biggest prompt on the platform**. And no Neon
+project is created, which matters beyond speed: we can only have 100 of them
+across the whole platform, and a brochure site was taking one and never reading a
+row from it.
+
+**Why the third cut is the point rather than the saving.** A model handed five
+backend fields will answer them. Every table it invented on a site that did not
+need one was a database nobody would ever write to, an access decision nobody
+asked for, and pages wired to rows that would stay empty for ever.
+
+**The one thing a first build deliberately will not do now: draw a form.** There
+is nowhere for it to go, and a booking form that silently does nothing is worse
+for a business than not having one — a customer fills it in and believes they are
+booked. It puts the real phone number and email on the page as tappable links
+instead, and says in its reply that the form comes with the next step.
+
+**The site still claims its name.** That was the one thing that had to keep
+working: the ownership record is what stops somebody else publishing over your
+site, what makes the next message a change rather than a new build, and what lets
+you delete it. It is written on a first build exactly as before, just with no
+database attached.
+
+**Not proven live.** Nothing has been built against any of it yet — that is the
+next thing, and it is one build.
+
+**And one honest gap.** The automatic check that runs on every deploy (`build
+smoke`) was written for a build that has a database, and roughly forty of its
+checks now correctly find nothing. I have made it stop with ONE clear failure
+naming that, rather than report forty different things going wrong for the same
+reason. Rewriting that half of it is real work I have not done; the other paid
+check (`build as owner`, the one that actually builds a site) is unaffected.
+
+---
+
 **THE SITE'S LOOK MOVED TO WHERE THE SITE LIVES (2026-08-24, your call).**
 *"Question, but that stuff should be stored in the hosting provider right?"* —
 yes, and it was in the wrong place. A site's colours, its stylesheet, its logo,

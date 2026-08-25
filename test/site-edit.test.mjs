@@ -658,8 +658,19 @@ test("the route reads the current state and hands it to the designer", () => {
 });
 
 test("the designer's tool drops its required list on an edit ONLY", () => {
-  assert.match(worker, /if \(current\) req\.tools = \[\{ \.\.\.req\.tools\[0\], input_schema: \{ \.\.\.SITE_SCHEMA_TOOL\.input_schema, required: EDIT_REQUIRED \} \}\]/,
+  const swap = (worker.match(/if \(current\) req\.tools = \[[^\n]+/) || [""])[0];
+  assert.match(swap, /required: EDIT_REQUIRED/,
     "an edit still requires brand/description/seeds/fonts, which is what moves them");
+  // AND IT COMPOSES OFF THE TOOL ALREADY CHOSEN. This pinned the whole
+  // expression, including `...SITE_SCHEMA_TOOL.input_schema` — which was
+  // harmless while there was one tool and became the bug the moment there were
+  // two: rebuilding from the constant discards the frontend split that the line
+  // above it just applied, so an edit would silently get the backend back. The
+  // property is that this line reads the request rather than the constant.
+  assert.match(swap, /\.\.\.req\.tools\[0\]\.input_schema/,
+    "the required swap rebuilds from the constant, which undoes whichever tool was chosen");
+  assert.ok(!/SITE_SCHEMA_TOOL/.test(swap),
+    "the required swap names SITE_SCHEMA_TOOL again — see the free-CSS comment below it");
   // A FIRST BUILD IS UNTOUCHED. The whole change is gated on `current`, so a
   // build sends the request it has always sent — including the cached tool block.
   // THE PROPERTY IS WHAT THE MESSAGE SAYS, not how it is assembled. This pinned

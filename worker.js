@@ -4515,6 +4515,99 @@ const SITE_SCHEMA_TOOL = {
 };
 
 /**
+ * THE SAME TOOL WITH THE BACKEND OFF IT — what a FIRST BUILD is asked for.
+ *
+ * Owner's call 2026-08-24: "at build time model only does frontend, the backend
+ * comes at later, when editing and when addon and whatever comes". A first build
+ * is a site: a name, a stylesheet, a page list and the words on the pages. What
+ * it stores, who may read it, what runs on a timer and what it charges for are
+ * all decisions about a database, and a database is not created until somebody
+ * asks for something that needs one.
+ *
+ * `backend` IS 41.4% OF THE TOOL ON THE WIRE — 29,189 of 70,594 characters of
+ * serialised JSON, ~7,250 tokens off the cached block. **A first draft of this
+ * comment said 69.7% and 51,348**, which is the SOURCE region including its own
+ * ~22,000 characters of explanation — a number that never leaves this file.
+ * Measured through `readSchemaTool`, which builds the real tool, rather than by
+ * slicing worker.js: what a prompt costs is what is sent.
+ *
+ * THE SAVING IS REAL AND IT IS NOT THE POINT. The point is that a designer
+ * handed five backend fields
+ * ANSWERS them, and every table it invents on a brochure site is a Neon project,
+ * an access decision and a page wired to rows nobody will ever write.
+ *
+ * DERIVED, NEVER RESTATED. Both halves come off `SITE_SCHEMA_TOOL` itself —
+ * destructure the property out, filter the name out of `required` — so a field
+ * added to the tool tomorrow lands in BOTH variants automatically, and only
+ * `backend` is ever missing from this one. A hand-written copy is two tools that
+ * drift, and the direction they drift in is a frontend build asked for something
+ * the container cannot build.
+ *
+ * THE PROPERTY IS ASSERTED IN BOTH DIRECTIONS (test/page-frontend.test.mjs),
+ * because a derivation whose source stopped having a `backend` key would produce
+ * two identical tools and pass every check written for the smaller one.
+ */
+const FRONTEND_SCHEMA_TOOL = (() => {
+  const { backend, ...properties } = SITE_SCHEMA_TOOL.input_schema.properties;
+  return {
+    ...SITE_SCHEMA_TOOL,
+    input_schema: {
+      ...SITE_SCHEMA_TOOL.input_schema,
+      properties,
+      required: SITE_SCHEMA_TOOL.input_schema.required.filter((k) => k !== "backend"),
+    },
+  };
+})();
+
+/**
+ * The system text for the full tool — lifted out of the request literal so the
+ * variant below can sit beside it rather than behind a ternary in the middle of
+ * a fourteen-line string. Byte-identical to what it replaced.
+ */
+const SITE_SCHEMA_SYSTEM =
+  "You design the data model behind a small business website. Keep it to the few tables the site actually needs — usually one to four. " +
+  "Use 'display' for content the business publishes and visitors read (services, menu items, posts). " +
+  "Use 'collect' for anything a visitor submits — bookings, orders, enquiries, signups. Those are write-only on purpose: the visitor sends one in, " +
+  "and only the business reads them, so customer names and phone numbers are never served back to the public. " +
+  "Prefer few columns with obvious names. Turn on fts only where someone would genuinely search free text. " +
+  "If the brief mentions accounts, signing in, members, or anything a visitor keeps as 'theirs', give that data a members table — visitor accounts are real and the pages can build a sign-in. " +
+  "THERE ARE THREE OF THOSE AND THE DIFFERENCE IS WHO CAN SEE A ROW. 'user' is private per member — a signed-OUT visitor gets 401 and a signed-in one sees only their own. " +
+  "'feed' widens that to every signed-in member. Neither shows a stranger anything. " +
+  "When the PUBLIC is meant to browse what members post — a marketplace, listings, classifieds, a directory, a job board, reviews — you need the third: set `read: \"public\"` and `write: \"own\"` on that table instead of an `access` name. " +
+  "Ask it of every table: can somebody who has never signed in see this? If the brief says people browse the site, at least one table must answer yes, or there is no page worth opening and the site cannot be built. " +
+  "Do NOT invent a signups/members table to hold accounts: the platform stores those itself, so a table for emails and passwords is both unnecessary and unusable. " +
+  "Then fill every 'display' table with 3-6 realistic starter rows in `seed`. This is not optional and it is not decoration: " +
+  "nothing can write to a display table after the build, so an unseeded table is an empty list forever, and any form field that " +
+  "chooses from it will have nothing to choose. Write content a real business would publish.";
+
+/**
+ * The system text for the frontend call.
+ *
+ * A FRESH STRING RATHER THAN A SUBSET, and that was forced. The full one is
+ * eleven sentences and every one of them is about tables — which access level to
+ * pick, what a `collect` table is for, why a marketplace needs a public read,
+ * how many seed rows to write. There is no subset of it that says anything to a
+ * model designing a site with no database.
+ *
+ * WHAT IT HAS TO SAY IS THE POSITIVE HALF. Deleting the table instructions
+ * leaves a model that still knows every site it has ever seen fetches its menu
+ * from somewhere, and it will invent the somewhere — the `publicView` failure
+ * this repo has paid for twice, where a capability was conditioned on a fact the
+ * model was never given. So this states where the content lives, in as many
+ * words, before it states anything else.
+ */
+const FRONTEND_SCHEMA_SYSTEM =
+  "You design a small business website from one brief. THIS SITE HAS NO DATABASE and does not need one: " +
+  "everything on it — the services, the prices, the opening hours, the words — is written into the page source " +
+  "by the step after you. That is not a limitation to design around, it is what a first build is. If the owner " +
+  "later wants bookings, an editable menu or customer accounts, that is a separate step which builds the " +
+  "database for them, and you do not plan for it here.\n\n" +
+  "So what you are deciding is the SITE: what it is called, what it is for, what it looks like, which pages it " +
+  "has and what goes on each of them. Design as if the content is already written and your job is to arrange it. " +
+  "Do not describe tables, columns, forms that submit somewhere, sign-in, accounts or payments — none of them " +
+  "exists on this site and asking for one produces a control that silently does nothing.";
+
+/**
  * The schema call's budget.
  *
  * Was 2000, chosen when the tool returned a brand, a slug and a few column
@@ -4742,7 +4835,22 @@ async function anthropicMessages(env, body) {
 // return ONLY what this change alters, and the tool's `required` list is emptied
 // for the same reason: a required field is one the model must answer, and
 // answering it is exactly what moves a value nobody asked to move.
-async function designSiteSchema(env, brief, model = modelsFor().design, current = null, files = [], budget = null) {
+// `frontendOnly` DEFAULTS TO FALSE, and that default is the safety.
+//
+// Three call sites reach this — the build route, the look lane and the addon
+// lane — and only the first can ever be a first build. A fourth added tomorrow
+// gets the full tool by saying nothing, which is the direction that costs a
+// bigger prompt rather than a designer that cannot declare the table it was
+// asked for.
+//
+// NOT DERIVED FROM `current`, though `current` is null on every first build and
+// an object on both edit lanes, so it looks like the same fact. It is not:
+// `editState` also stays null when the config read BLIPS, and reading a blip as
+// "this site has no database" would hand a revise of a real site a tool with no
+// backend in it — silently, on the one path where the customer is asking for a
+// change to what the site stores. Cannot-tell must never read as nothing-there;
+// see `loadConfig`, which refuses for the same reason one layer down.
+async function designSiteSchema(env, brief, model = modelsFor().design, current = null, files = [], budget = null, frontendOnly = false) {
   // The request is built FIRST and the usage below is stamped from `req.model`,
   // so what we bill and what we sent cannot disagree — the same by-construction
   // discipline as pricing from one table instead of two.
@@ -4755,22 +4863,14 @@ async function designSiteSchema(env, brief, model = modelsFor().design, current 
       // while the PAGE call, three and a half times bigger, was a cache read.
       // The small call was the expensive one. cache_control on the LAST tool
       // covers the tool block; the system block carries its own.
-      tools: [{ ...SITE_SCHEMA_TOOL, cache_control: { type: "ephemeral" } }],
+      tools: [{ ...(frontendOnly ? FRONTEND_SCHEMA_TOOL : SITE_SCHEMA_TOOL), cache_control: { type: "ephemeral" } }],
       tool_choice: { type: "tool", name: "design_schema" },
-      system: [{ type: "text", cache_control: { type: "ephemeral" }, text: "You design the data model behind a small business website. Keep it to the few tables the site actually needs — usually one to four. " +
-              "Use 'display' for content the business publishes and visitors read (services, menu items, posts). " +
-              "Use 'collect' for anything a visitor submits — bookings, orders, enquiries, signups. Those are write-only on purpose: the visitor sends one in, " +
-              "and only the business reads them, so customer names and phone numbers are never served back to the public. " +
-              "Prefer few columns with obvious names. Turn on fts only where someone would genuinely search free text. " +
-              "If the brief mentions accounts, signing in, members, or anything a visitor keeps as 'theirs', give that data a members table — visitor accounts are real and the pages can build a sign-in. " +
-              "THERE ARE THREE OF THOSE AND THE DIFFERENCE IS WHO CAN SEE A ROW. 'user' is private per member — a signed-OUT visitor gets 401 and a signed-in one sees only their own. " +
-              "'feed' widens that to every signed-in member. Neither shows a stranger anything. " +
-              "When the PUBLIC is meant to browse what members post — a marketplace, listings, classifieds, a directory, a job board, reviews — you need the third: set `read: \"public\"` and `write: \"own\"` on that table instead of an `access` name. " +
-              "Ask it of every table: can somebody who has never signed in see this? If the brief says people browse the site, at least one table must answer yes, or there is no page worth opening and the site cannot be built. " +
-              "Do NOT invent a signups/members table to hold accounts: the platform stores those itself, so a table for emails and passwords is both unnecessary and unusable. " +
-              "Then fill every 'display' table with 3-6 realistic starter rows in `seed`. This is not optional and it is not decoration: " +
-              "nothing can write to a display table after the build, so an unseeded table is an empty list forever, and any form field that " +
-              "chooses from it will have nothing to choose. Write content a real business would publish." }],
+      // TWO CACHED PREFIXES NOW, one per variant, and that is a cost worth
+      // naming: each is cold the first time it is used after a change to either.
+      // It is affordable because the split is by LANE rather than by chance —
+      // every first build reads one and every edit reads the other, so both stay
+      // warm rather than one of them being an occasional miss.
+      system: [{ type: "text", cache_control: { type: "ephemeral" }, text: frontendOnly ? FRONTEND_SCHEMA_SYSTEM : SITE_SCHEMA_SYSTEM }],
       // THE STATE AND THE RULE RIDE IN THE USER MESSAGE, never the cached blocks
       // above: both vary per site, and a per-site byte in the cached prefix
       // misses the ~10,800-token cache on every build. Same reasoning as the
@@ -4802,7 +4902,16 @@ async function designSiteSchema(env, brief, model = modelsFor().design, current 
   };
   // Emptied on an edit, and only on an edit. `required` is a static part of the
   // tool, so this is the one place it can vary per call.
-  if (current) req.tools = [{ ...req.tools[0], input_schema: { ...SITE_SCHEMA_TOOL.input_schema, required: EDIT_REQUIRED } }];
+  //
+  // COMPOSED OFF `req.tools[0]`, NEVER OFF `SITE_SCHEMA_TOOL`. It rebuilt from
+  // the constant, which was harmless while there was only one tool and is the
+  // exact trap the free-CSS comment three lines down already warns about — two
+  // lines each rebuilding from the same source means the second silently undoes
+  // the first. Today the two cannot both fire (`frontendOnly` implies no
+  // `current`), so this is belt-and-braces and says so; what makes it inert is a
+  // property of the CALLER one function away, which is the convention this file
+  // already keeps for `built.ok &&` and the `pressed` axis.
+  if (current) req.tools = [{ ...req.tools[0], input_schema: { ...req.tools[0].input_schema, required: EDIT_REQUIRED } }];
   // THE FREE-CSS ARM — the 29 axes REPLACED by one `css` field. Experimental.
   //
   // REPLACED rather than added beside them, because that is the whole question.
@@ -5299,7 +5408,17 @@ function schemaPlaceholderPage(brand, spec) {
     "section{border:1px solid #e5e5e5;border-radius:10px;padding:1rem 1.25rem;margin:0 0 1rem}" +
     "h2{font-size:1.05rem;margin:0 0 .25rem}section p{color:#666;font-size:.9rem;margin:0 0 .5rem}" +
     "ul{margin:0;padding-left:1.1rem}code{background:#f5f5f5;padding:.1rem .35rem;border-radius:4px;font-size:.85rem}</style>" +
-    "<h1>" + esc(brand) + "</h1><p class=sub>Database is live. These tables were created for this site.</p>" + tables;
+    "<h1>" + esc(brand) + "</h1><p class=sub>" +
+    // THE SUBTITLE IS A CLAIM AND IT WAS HARDCODED. "Database is live. These
+    // tables were created for this site." is false on a FIRST BUILD since
+    // 2026-08-25 — there is no database and no table — and this is the ONE page
+    // an owner is left with when a build fails. That is the exact class this
+    // repo already records: the placeholder telling the owner something about
+    // their site that is not true, on the page they have nothing else to read.
+    (tables
+      ? "Database is live. These tables were created for this site."
+      : "The pages didn't come out right this time, so this stands in for them. Nothing was lost — say what you want and I'll build it again.") +
+    "</p>" + tables;
 }
 
 function svcHeaders(env, extra) {
@@ -5524,6 +5643,62 @@ async function patchSiteConfig(env, slug, db, patch) {
   try { cur = await loadConfig(deps, slug); } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
   if (!cur.ok) return { ok: false, error: cur.why + ": " + cur.error };
   return saveConfig(deps, slug, withConfig(cur.config, patch));
+}
+
+/**
+ * CLAIM A SLUG FOR A SITE THAT HAS NO DATABASE.
+ *
+ * Owner's call 2026-08-24: a first build is frontend only and provisions no Neon
+ * project. But `site_backends` is not a database record — it is the OWNERSHIP
+ * record, and everything keys off it: the 409 that stops a stranger publishing
+ * over somebody's site, `existing` (which decides whether the next message is a
+ * revise), the delete route's authorisation, the Data panel, version history,
+ * the backups sweep. A site with no row is a site that can be overwritten by
+ * name and can never be deleted through the route.
+ *
+ * `neon_db: ""` IS A REPRESENTABLE STATE TODAY AND NEEDED NO MIGRATION, which
+ * was measured against the live schema rather than assumed: the column is
+ * `text NOT NULL` with no default — NOT NULL does not forbid the empty string —
+ * and `siteBackendRowFresh` has ALWAYS answered `{conn: null, uid, brief}` for a
+ * row whose `neon_db` is falsy. So the ownership half works and the connection
+ * half is honestly absent. CLAUDE.md records claim-first as "considered and
+ * rejected: `neon_db` is NOT NULL so it needs DDL" — right about the column,
+ * wrong about what NOT NULL forbids.
+ *
+ * THE SAME ATOMIC CLAIM `ensureSiteBackend` USES, and for the same reason: two
+ * overlapping first builds of one free name must not both succeed.
+ * `ignore-duplicates + return=representation` makes the insert atomic on the
+ * primary key — a row back means it is ours, an empty array means somebody else
+ * got there first, and that is a 409 rather than a silent overwrite.
+ *
+ * NOT AN UPSERT, so a revise cannot reach this and blank a live site's
+ * `neon_db`. The caller gates on `!existing`; this is the belt behind it.
+ */
+async function claimSiteSlug(env, slug, uid, brief) {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/site_backends`, {
+    method: "POST",
+    headers: svcHeaders(env, { "content-type": "application/json", Prefer: "resolution=ignore-duplicates,return=representation" }),
+    // The same columns `saveBackend` writes, with an empty database name. The
+    // brief rides along here for the same reason it does there: a revise reads
+    // it back as the anchor, and it is written exactly once per site.
+    body: JSON.stringify({ slug, uid, neon_db: "", brief: String(brief || "").slice(0, 4000) || null }),
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!r.ok) {
+    throw Object.assign(new Error("could not record the site"), {
+      stage: "claim", detail: (await r.text().catch(() => "")).slice(0, 300),
+    });
+  }
+  const rows = await r.json().catch(() => null);
+  // AN UNREADABLE BODY IS NOT A LOST RACE. `.catch(() => null)` on a body we
+  // asked to have returned means we cannot tell — and treating that as "somebody
+  // else owns this" would 409 a build whose row we had just written. The row is
+  // there either way; the next request resolves the ownership honestly.
+  if (rows === null) return true;
+  if (!(Array.isArray(rows) && rows.length > 0)) {
+    throw Object.assign(new Error("that name is taken"), { stage: "claim", conflict: true });
+  }
+  return true;
 }
 
 // Provision (or reuse) one site's database, returning its connection string.
@@ -9437,15 +9612,42 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth }) {
       // fails CLOSED on an unreadable lookup, and is still what protects a
       // cross-account write. Making this one fail closed would turn a Supabase
       // blip into a refused build for the rightful owner.
-      {
-        const named = cleanSlug(body.slug);
-        if (named) {
-          const early = await siteBackendRowFresh(env, named).catch(() => null);
-          if (early && early.uid && early.uid !== bu.id) {
-            return Response.json({ ok: false, error: "that name is taken", cost: 0, msg: "That site name is taken by another account. Say a different name in your next message — e.g. \"call it sunset-cuts\" — and I’ll build it under that." }, { status: 409 });
-          }
+      // THE ANSWER IS KEPT NOW, rather than thrown away at the closing brace.
+      // Two decisions below need this exact row and each was about to read it
+      // again — whether this is a FIRST BUILD (which decides the designer's
+      // tool) and what the site currently is (`editState`) — so the same
+      // uncached row was fetched up to three times in one request.
+      //
+      // THREE STATES, AND THE THIRD IS THE ONE THAT MATTERS. A row means the
+      // site exists; `null` means the name is free; `undefined` means we could
+      // not tell. Everything below reads the third as "a site is there", because
+      // cannot-tell must never read as nothing-there — the rule `loadConfig`
+      // already lives under, and the direction that costs a bigger prompt rather
+      // than a revise whose designer cannot declare what it was asked for.
+      const namedSlug = cleanSlug(body.slug);
+      let namedRow;
+      if (namedSlug) {
+        namedRow = await siteBackendRowFresh(env, namedSlug).catch(() => undefined);
+        if (namedRow && namedRow.uid && namedRow.uid !== bu.id) {
+          return Response.json({ ok: false, error: "that name is taken", cost: 0, msg: "That site name is taken by another account. Say a different name in your next message — e.g. \"call it sunset-cuts\" — and I’ll build it under that." }, { status: 409 });
         }
       }
+      // ── IS THIS A FIRST BUILD? ──────────────────────────────────────────
+      //
+      // Owner's call 2026-08-24: a first build is FRONTEND ONLY — no tables, no
+      // database, no provisioning. So this one boolean decides the designer's
+      // tool, the page prompt (through the empty spec it produces) and whether a
+      // Neon project is created at all.
+      //
+      // NO SLUG AT ALL IS THE CERTAIN CASE: a revise always names the site it is
+      // revising — the composer posts `{slug, instruction}` and both harnesses
+      // do the same — while a first build lets the designer invent the name. So
+      // an absent slug cannot be an edit.
+      //
+      // A NAMED SLUG WITH NO ROW is a customer choosing their own name, which is
+      // still a first build. A named slug WITH a row is a revise. A named slug we
+      // could not resolve is treated as a revise, per the three states above.
+      const firstBuild = !namedSlug || namedRow === null;
 
       // Revise sends {slug, instruction} for an existing site; build sends
       // {brief}. Re-applying a schema is safe (all its DDL is additive or
@@ -9678,26 +9880,33 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth }) {
         // scratch, and returned a brand and a description invented from a
         // fragment which then became the <title> and the link preview.
         //
-        // ON AN EDIT ONLY, and gated on the caller naming a slug we can resolve.
-        // A first build has nothing to read and adds no round trip.
+        // ON AN EDIT ONLY, and gated on the ownership row resolved above. A first
+        // build has nothing to read and adds no round trip.
         //
         // BEST-EFFORT, AND FAILING MEANS "NOT INSTRUCTED". `editState` staying
         // null is what makes `mergeLook` keep the OLD precedence below — so a
         // Neon blip degrades to exactly the behaviour that shipped before this,
         // rather than to a designer that was never told to omit and whose answer
         // now wins. The interlock is the point; see site-edit.mjs.
-        const editSlug = cleanSlug(body.slug);
-        if (editSlug) {
+        const editSlug = namedSlug;
+        if (namedRow) {
           try {
-            // `siteBackendBySlug`, NOT `siteNeonProject`. This read `sqlQuery(conn,
-            // …)` on the latter's return, which is the raw Supabase ROW — and
-            // `neon()` refuses anything that is not a connection string
-            // ("Connection string: [object Object]", measured). So the query threw
-            // into the catch below on every revise this route has ever handled,
-            // `editState` stayed null, and the designer was never told to change
-            // only what was asked. The catch made it silent; the same misread is
+            // OFF THE ROW ALREADY IN HAND, rather than a second lookup. This read
+            // `siteBackendBySlug(env, editSlug)` — the cached wrapper over the very
+            // row fetched a few hundred lines up — so a revise made the same
+            // Supabase round trip twice and could get two different answers from
+            // it. `siteBackendRowFresh` already resolves the connection (or null,
+            // for a site that has no database yet), which is exactly what the
+            // schema read below needs.
+            //
+            // The predecessor of THAT read was `siteNeonProject`, whose return is
+            // the raw Supabase ROW — and `neon()` refuses anything that is not a
+            // connection string ("Connection string: [object Object]", measured),
+            // so the query threw into the catch below on every revise this route
+            // has ever handled and the designer was never told to change only
+            // what was asked. The catch made it silent; the same misread is
             // recorded twice in `recompileAndPublish`'s own header.
-            const conn = await siteBackendBySlug(env, editSlug);
+            const conn = namedRow.conn;
             {
               // THE LOOK IS IN R2 AND THE SCHEMA IS IN NEON, and they are two
               // reads because they are two different facts: the schema describes
@@ -9742,7 +9951,10 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth }) {
         }
 
         try {
-          const dz = await designSiteSchema(env, briefWithLinks, models.design, editState, attached.blocks, budget);
+          // `firstBuild` IS THE SEVENTH ARGUMENT AND IT IS THE ONLY CALLER THAT
+          // EVER PASSES IT — see `designSiteSchema`, where the default is false
+          // so the two edit lanes keep the whole tool by saying nothing.
+          const dz = await designSiteSchema(env, briefWithLinks, models.design, editState, attached.blocks, budget, firstBuild);
           // LIFTED AT THE DOOR, before anything reads it. The tool asks for the
           // five backend fields nested under `backend`; every reader below —
           // `designed.tables`, `designed.seed`, the addon lane's filter, the
@@ -9995,7 +10207,12 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth }) {
           })
         : null;
 
-      const slug = cleanSlug(body.slug) || cleanSlug(designed && designed.slug)
+      // `namedSlug` RATHER THAN A SECOND `cleanSlug(body.slug)`. Identical value
+      // by construction and now identical by reading: the caller's own name is
+      // cleaned exactly once, at the ownership check, and every reader below
+      // shares that answer. Two cleanings of one field is the bug this route
+      // already carries a guard for.
+      const slug = namedSlug || cleanSlug(designed && designed.slug)
         || ("site-" + Math.random().toString(36).slice(2, 8));
 
       // THE RECORDER GETS ITS KEY HERE — the first moment there is one. Every
@@ -10021,6 +10238,19 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth }) {
       // built before `brief` was recorded is still a revise, and treating it as
       // a first build would re-buy every photograph on it.
       let existing = false;
+      // AND WHETHER IT ALREADY HAS A DATABASE, which is a different question
+      // from whether it exists. Since 2026-08-24 a first build claims its slug
+      // with an empty `neon_db`, so `siteBackendRowFresh` answers a row with
+      // `conn: null` — a real site, no database yet. This is what decides
+      // whether provisioning runs, and it is read off the SAME row as
+      // `existing` so the two cannot disagree.
+      //
+      // OFF THIS READ RATHER THAN THE EARLY ONE, because this one FAILS CLOSED
+      // — it 503s on a throw a few lines down — so by the time anything reads
+      // this the answer is fresh and known. The early check fails OPEN by
+      // design, and a blip there reading as "no database" would send a revise of
+      // a real site down the no-provisioning path.
+      let ownerConn = null;
       try {
         const owner = await siteBackendRowFresh(env, slug);
         if (owner && owner.uid && owner.uid !== bu.id) {
@@ -10034,6 +10264,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth }) {
         }
         // Free — this lookup already happens for the ownership check.
         existing = !!(owner && owner.uid);
+        ownerConn = (owner && owner.conn) || null;
         priorBrief = (owner && owner.brief) || "";
       } catch (e) {
         console.error("ownership check failed:", slug, e && (e.detail || e.message));
@@ -10127,7 +10358,17 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth }) {
       // not the flat fee — once the deposit settles to real usage those are two
       // different numbers, and refunding the fee would quietly keep the
       // settlement on a build that 422s.
-      if (!spec.tables.length && !existing) {
+      //
+      // AND IT CANNOT FIRE ON A FRONTEND BUILD, which is the whole point of one.
+      // Since 2026-08-24 a first build is asked for no backend at all — the tool
+      // has no `backend` property — so "the designer declared nothing to store"
+      // stopped being a signal about the BRIEF and became a fact about the tool
+      // we sent. Left ungated this refused every first build on the platform.
+      //
+      // `body.schema` IS UNAFFECTED, deliberately: a caller supplying its own
+      // schema with no tables in it is still an integrator sending nonsense, and
+      // that path never went near the frontend tool.
+      if (!spec.tables.length && !existing && !(firstBuild && !body.schema)) {
         const back = await refundFields(schemaCost);
         // AND SAY WHICH OF THE FOUR IT WAS. This refusal reads identically for a
         // model that made no tool call, one that called it and declared nothing,
@@ -10146,10 +10387,37 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth }) {
           : Response.json({ ok: false, msg: "That brief didn't describe anything to store — try naming what the site keeps track of.", ...back }, { status: 422 });
       }
 
-      let db;
+      // ── DOES THIS SITE NEED A DATABASE AT ALL? ──────────────────────────
+      //
+      // Owner's call 2026-08-24: "every site doesnt get a neon db on 1stbuild,
+      // it will get it later on". A Neon project is a capped, billed resource
+      // against a platform-wide cap of 100, and a brochure site was getting one,
+      // scaling it to zero, and never reading a row from it.
+      //
+      // A FACT, NEVER THE `firstBuild` FLAG, and that is what makes it
+      // self-correcting: the moment anything declares a table — the addon lane,
+      // a full revise on the build route, a caller-supplied schema — this
+      // answers yes and the project is created then. So "the backend comes
+      // later" needs no second mechanism; it is the same line.
+      //
+      // `ownerConn` IS THE OTHER HALF AND IT IS NOT OPTIONAL. A revise that
+      // declares nothing (a colour change) must still resolve the database the
+      // site already has, or `pageSpec` falls back to this request's empty spec
+      // and the generator rewrites every page believing the site stores nothing.
+      const needsDb = !!spec.tables.length || !!ownerConn;
+      let db = null;
       try {
-        db = await ensureSiteBackend(env, slug, bu.id, brief, (n) => tr.at("prov:" + n));
-        tr.at("provision");
+        // THE SLUG IS CLAIMED EITHER WAY. `ensureSiteBackend` writes the
+        // ownership row as part of provisioning; with no provisioning something
+        // still has to, or a second build of the same name overwrites the first,
+        // every later message reads as a first build, and the owner can never
+        // delete the site — `site_backends` is what all three authorise against.
+        if (needsDb) {
+          db = await ensureSiteBackend(env, slug, bu.id, brief, (n) => tr.at("prov:" + n));
+        } else if (!existing) {
+          await claimSiteSlug(env, slug, bu.id, brief);
+        }
+        tr.at("provision", needsDb ? undefined : { db: 0 });
       } catch (e) {
         if (e && e.conflict) {
           const back = await refundFields(schemaCost);
@@ -10186,9 +10454,15 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth }) {
         }, { status: 502 });
       }
 
-      let made;
+      // GATED ON THE CONNECTION, not on `needsDb`, and the difference is the
+      // failure it prevents: `needsDb` is a decision and `db` is the thing that
+      // exists. Everything from here down asks the SAME question — is there a
+      // database — so a path where the two disagree cannot send `null` into
+      // `neon()`, which answers with a sentence about `[object Object]` and
+      // reads as a schema-engine failure.
+      let made = null;
       try {
-        made = await applySiteSchema(db, spec);
+        if (db) made = await applySiteSchema(db, spec);
         tr.at("schema", { tables: (spec.tables || []).length });
       } catch (e) {
         console.error("schema apply failed:", slug, e && (e.detail || e.message));
@@ -10234,7 +10508,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth }) {
       // write to a display table after this point, not even the owner.
       let seeded = null;
       try {
-        seeded = await seedSiteRows(db, spec, (designed && designed.seed) || body.seed);
+        if (db) seeded = await seedSiteRows(db, spec, (designed && designed.seed) || body.seed);
         tr.at("seed");
         if (seeded && Object.keys(seeded.seeded).length) console.log("seeded:", slug, JSON.stringify(seeded.seeded));
         if (seeded && seeded.skipped.length) console.log("seed skipped:", slug, JSON.stringify(seeded.skipped.slice(0, 6)));
@@ -10262,7 +10536,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth }) {
       // generator was told they had no columns.
       let pageSpec = spec;
       try {
-        const stored = await loadSiteSchema(db);
+        const stored = db ? await loadSiteSchema(db) : null;
         if (stored && Array.isArray(stored.tables) && stored.tables.length) {
           const byName = new Map();
           for (const t of stored.tables) if (t && t.name) byName.set(String(t.name).toLowerCase(), t);
@@ -10756,12 +11030,22 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth }) {
       // lint, the digest, the seeder and the owner routes; this was the last copy.
       const levels = (pageSpec.tables || spec.tables || []).map((t) => ({ name: t.name, access: accessLabel(t) }));
       return Response.json({
-        ok: true, slug, url: "/s/" + slug + "/", backend: true, brand, tables: made, schema: levels,
+        // `backend` IS AN OBSERVATION NOW, not a constant. It was hardcoded
+        // `true` when every build provisioned; since 2026-08-24 a first build
+        // has no database, and `public/chat.js` gates the Data panel and the
+        // delete wording on this field — so a site with nothing stored would
+        // offer a panel over a database that does not exist. `!!db` is the same
+        // question everything else on this path asks.
+        ok: true, slug, url: "/s/" + slug + "/", backend: !!db, brand, tables: made, schema: levels,
         // Read off the array explicitly: JSON.stringify would drop them from
         // `tables`, which is how a site could declare a function, have it fail,
         // and report success.
-        functions: (made.functions && made.functions.length) ? made.functions : undefined,
-        functionErrors: made.functionErrors || undefined,
+        //
+        // `made` IS NULL WITH NO DATABASE and reading through it is the `du.id`
+        // class — a TypeError composing the RESPONSE, after the work and after
+        // the ledger, so the customer's site exists and their build answers 500.
+        functions: (made && made.functions && made.functions.length) ? made.functions : undefined,
+        functionErrors: (made && made.functionErrors) || undefined,
         // Rows per display table. An empty object means the site published with
         // empty lists — which reads as a working build and is not one.
         seeded: (seeded && seeded.seeded) || {},

@@ -208,9 +208,24 @@ test("the DESIGN call is cached, like the page call", () => {
   const i = worker.indexOf("async function designSiteSchema");
   assert.ok(i > 0, "designSiteSchema moved");
   const call = worker.slice(i, i + 3500);
-  assert.match(call, /tools: \[\{ \.\.\.SITE_SCHEMA_TOOL, cache_control: \{ type: "ephemeral" \} \}\]/);
+  // THE PROPERTY, NOT THE SPELLING. This pinned `{ ...SITE_SCHEMA_TOOL, … }`
+  // exactly, and went red the day a SECOND tool arrived — the frontend variant,
+  // chosen by a ternary in the same position — on a change that left the caching
+  // exactly where it was. What has to hold is that whichever tool is sent carries
+  // `cache_control`, and that BOTH tools are reachable from this line: a ternary
+  // collapsed to one branch would silently un-split the prompt.
+  const tools = (call.match(/tools: \[[^\n]+/) || [""])[0];
+  assert.match(tools, /cache_control: \{ type: "ephemeral" \}/,
+    "the tool block is no longer cached — every build pays full price for ~6,800 tokens");
+  assert.match(tools, /SITE_SCHEMA_TOOL/, "the full tool is unreachable from the design call");
+  assert.match(tools, /FRONTEND_SCHEMA_TOOL/, "the frontend tool is unreachable — a first build gets the backend back");
   assert.match(call, /system: \[\{ type: "text", cache_control: \{ type: "ephemeral" \}/,
     "the system block must be a block array, or cache_control has nowhere to live");
+  // And the system text follows the SAME switch, or a first build reads a tool
+  // with no backend under a prompt that spends eleven sentences on tables.
+  const sys = (call.match(/system: \[\{[^\n]+/) || [""])[0];
+  assert.match(sys, /frontendOnly \? FRONTEND_SCHEMA_SYSTEM : SITE_SCHEMA_SYSTEM/,
+    "the tool and the system prompt no longer agree about which lane this is");
 });
 
 test("the PLAN reaches the PAGE prompt as a directive, not as fields", () => {

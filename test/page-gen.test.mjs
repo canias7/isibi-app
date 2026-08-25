@@ -1244,9 +1244,25 @@ test("the system block is cached, and nothing variable is inside it", () => {
   // never hit — so this asserts two very different requests produce a
   // byte-identical cached prefix. Mutation-checked by interpolating the brand
   // into PAGE_RULES, which fails here and passes every other test in the file.
-  const b = api.pagesRequest({ brief: "a barber in Liverpool", spec: { tables: [] }, brand: "Sharp Fade" });
+  //
+  // TWO PREFIXES NOW, AND THE COMPARISON HAD TO SAY WHICH. This used to send
+  // `spec: { tables: [] }` as the "very different build" — and a tableless spec
+  // is exactly what selects the OTHER prompt, so the moment the frontend split
+  // landed a correct change failed a test about caching. The property is
+  // unchanged and one clause longer: within a lane the block must not vary with
+  // the brief, the brand or WHICH tables there are; between lanes it must.
+  const b = api.pagesRequest({ brief: "a barber in Liverpool", spec: { tables: [{ name: "cuts", access: "display", columns: [] }] }, brand: "Sharp Fade" });
   assert.equal(a.system[0].text, b.system[0].text, "the cached block must not vary between builds");
   assert.notEqual(a.messages[0].content, b.messages[0].content, "the variable half belongs in the user turn");
+
+  // The other lane, and BOTH halves are needed: without the first a split that
+  // silently collapsed to one prompt would pass, and without the second a
+  // frontend build could stop caching at all and nothing would say so.
+  const fe = api.pagesRequest({ brief: "a barber in Liverpool", spec: { tables: [] }, brand: "Sharp Fade" });
+  const fe2 = api.pagesRequest({ brief: "a cafe in Leeds", spec: {}, brand: "Cafe" });
+  assert.notEqual(fe.system[0].text, a.system[0].text, "a site with no tables must not be sent the data prompt");
+  assert.equal(fe.system[0].text, fe2.system[0].text, "the frontend block must not vary between builds either");
+  assert.deepEqual(fe.system[0].cache_control, { type: "ephemeral" }, "and it must be cached too");
 
   // The repair pass re-sends the same block within the same build, which is the
   // one guaranteed hit — it is also the call that matters most, since a repair

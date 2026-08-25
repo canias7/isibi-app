@@ -122,10 +122,18 @@ export async function readSchemaTool() {
   }
 
   // The system block, lifted from the same file rather than retyped.
-  const sysAt = src.indexOf('text: "You design the data model');
-  if (sysAt < 0) throw new Error("the system block moved — retarget this harness");
-  const sysEnd = src.indexOf('" }]', sysAt);
-  const system = eval("[" + src.slice(sysAt + 6, sysEnd + 1) + "]").join("");
+  //
+  // OFF THE NAMED CONSTANT rather than out of the request literal. It used to
+  // find `text: "You design the data model` — a position inside `designSiteSchema`
+  // — and lifting that string into `SITE_SCHEMA_SYSTEM`, so its frontend twin
+  // could sit beside it, moved the position while changing not one byte of what
+  // is sent. A landmark that is a phrase inside another expression is one the
+  // next edit moves; a `const` has a name.
+  const sysAt = src.indexOf("const SITE_SCHEMA_SYSTEM =");
+  if (sysAt < 0) throw new Error("SITE_SCHEMA_SYSTEM is gone from worker.js — retarget this harness");
+  const sysEnd = src.indexOf('";', sysAt);
+  if (sysEnd < 0) throw new Error("could not find the end of SITE_SCHEMA_SYSTEM — retarget this harness");
+  const system = eval("[" + src.slice(src.indexOf('"', sysAt), sysEnd + 1) + "]").join("");
 
   // Sanity: the real fields must have landed, or something above silently
   // failed. This read `properties.family.enum.length` against `READY_FAMILIES`
@@ -145,5 +153,36 @@ export async function readSchemaTool() {
     if (!props[k]) throw new Error("`" + k + "` is not on the tool — the plan fields did not reach it");
     if (!required.has(k)) throw new Error("`" + k + "` is on the tool but not required — the designer can skip it");
   }
-  return { tool, system };
+  // ── THE FRONTEND VARIANT, EVALUATED RATHER THAN RESTATED ──────────────────
+  //
+  // A FIRST BUILD IS SENT A DIFFERENT TOOL since 2026-08-25 — the same one with
+  // `backend` off it — and the guard for that split first restated the
+  // derivation instead of running it. A mutation replacing the destructure with
+  // a plain read (`const properties = …`, so the PROPERTY survives while
+  // `required` still drops it) SURVIVED the whole suite, because both the
+  // restatement and the source-read were satisfied by it: the source still names
+  // `SITE_SCHEMA_TOOL.input_schema.properties` and the test's own copy of the
+  // derivation still did the right thing. **A test that reimplements the thing
+  // under test agrees with itself.**
+  //
+  // So the real IIFE is sliced out and evaluated with the real tool bound. What
+  // comes back is the object the API is sent, and "does it have a backend" stops
+  // being a question about how the line is written.
+  let frontendTool = null;
+  const fa = src.indexOf("const FRONTEND_SCHEMA_TOOL");
+  if (fa < 0) throw new Error("FRONTEND_SCHEMA_TOOL is gone from worker.js — retarget this harness");
+  {
+    const fi = src.indexOf("(", src.indexOf("=", fa));
+    let d2 = 0, fj = fi;
+    for (; fj < src.length; fj++) {
+      const c = src[fj];
+      if (c === "(") d2++;
+      else if (c === ")") { d2--; if (!d2) { fj++; break; } }
+    }
+    globalThis.SITE_SCHEMA_TOOL = tool;
+    try { frontendTool = eval("(" + src.slice(fi, fj) + ")()"); }
+    catch (e) { throw new Error("could not resolve the frontend tool: " + e.message); }
+  }
+
+  return { tool, frontendTool, system };
 }

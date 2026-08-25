@@ -2196,6 +2196,225 @@ Everything above this line is what this platform IS — the hooks, the access le
 what the schema permits. How the site reads, what goes on which page and in what order, and
 what it says, are yours.`;
 
+/* ------------------------------------------- the same rules, with no database */
+
+/**
+ * THE ONE READING OF "DOES THIS SITE HAVE A DATABASE".
+ *
+ * A FACT, NEVER A FLAG, and that is what makes the whole split self-correcting.
+ * The alternative — threading a `frontendOnly` boolean from the route — would
+ * have to be right on every lane separately, and would be WRONG the moment the
+ * addon lane adds the site's first table: the flag would still say frontend
+ * while the schema says otherwise. Asking the spec cannot go stale, because the
+ * spec is what the pages are written against.
+ */
+export function siteHasTables(spec) {
+  return !!(spec && Array.isArray(spec.tables) && spec.tables.length);
+}
+
+/**
+ * The rules that exist ONLY because the site has a database, by NUMBER.
+ *
+ * BY NUMBER RATHER THAN BY MATCHING THEIR TEXT, because the text is the thing
+ * that changes. Numbering is stable — a test already asserts these are 1..N with
+ * no gaps, so a renumbering that moved one of these would fail there first.
+ *
+ * KEEP IS THE DEFAULT, which is the direction that matters: a rule added
+ * tomorrow appears in BOTH prompts unless somebody names it here. Being wrong
+ * that way puts a sentence about data in front of a model with no data, which
+ * the derived guard below catches; being wrong the other way would silently drop
+ * a craft rule from every first build.
+ *
+ *  1  no fetch / useRows / useCreateRow  — REPLACED, not dropped: the "no fetch"
+ *     half is the single most important sentence on a site with no API, and rule
+ *     1 below says it in the terms that apply.
+ *  2  respect the access level           — there are no tables to have one
+ *  4  forms are react-hook-form + zod    — nothing to submit to
+ *  5  the zod schema mirrors the columns — no columns
+ *  6  never write a managed column       — no columns
+ *  8  a form may accept a file           — no form
+ *  9  a booking page shows taken slots   — no bookings
+ * 10  give the visitor their submission  — nothing was submitted
+ * 11  call a declared function           — no functions
+ * 13  a route param is a string, row.id a number — no rows
+ * 14  a PAID table is bought             — nothing is payable
+ */
+const DATA_RULES = new Set([1, 2, 4, 5, 6, 8, 9, 10, 11, 13, 14]);
+
+/** Whole sections that are about nothing on a site with no database. */
+const DATA_SECTIONS = ["## Reading rows", "## Visitor accounts", "## What is not possible yet"];
+
+/**
+ * WHAT REPLACES THE PREAMBLE, and it is the half that has to be positive.
+ *
+ * Deleting the data instructions leaves a model that still knows every business
+ * site it has ever read fetches its menu from somewhere — so it invents the
+ * somewhere. That is the `publicView` failure this repo has paid for twice: a
+ * capability conditioned on a fact the model was never given. So this says where
+ * the content lives before it says anything else.
+ */
+const FRONTEND_PREAMBLE = `You write the pages of a small business website, as TypeScript React route files.
+
+THIS SITE HAS NO DATABASE. Nothing is stored, nothing is fetched, and there is no API to call.
+Every word on it — the services, the prices, the opening hours, the dishes, the team — is
+WRITTEN INTO THE PAGE SOURCE as ordinary TypeScript: a \`const\` array at the top of the file,
+or the text in the JSX. That is not a limitation to design around; it is what a first build is,
+and it makes the site fast, cheap and impossible to break.
+
+So write the real content. A menu is a real menu with real dishes at real prices; opening hours
+are real hours. Take them from the brief wherever it says, and write plausible ones for a
+business of this kind wherever it does not — an empty section is worse than a sensible guess
+the owner can correct.`;
+
+/**
+ * The two rules that take rule 1 and rule 2's places.
+ *
+ * WRITTEN FRESH RATHER THAN DERIVED, because there is nothing in the originals
+ * to derive from — one names two hooks that do not exist here and the other
+ * names access levels there are none of. The CommonJS half of rule 1 is
+ * duplicated, deliberately and knowingly, and the guard holds the PROPERTY
+ * (both prompts refuse \`require()\`) rather than the spelling, so the two
+ * cannot silently diverge on the thing that matters.
+ */
+const FRONTEND_RULE_1 = `1. NOTHING IS FETCHED AND NOTHING IS STORED. There is no API, no database, and no
+   "@/lib/rows" — a page that imports it does not compile. No fetch, no axios, no
+   XMLHttpRequest, no useRows, no useCreateRow, no useRpc. The content is a \`const\` in
+   the file, and TypeScript checks it like any other value.
+   AND NO CommonJS: every page is an ES module. \`require()\` and \`module.exports\`
+   typecheck and bundle, then throw "require is not defined" in the browser and take
+   the whole section down with them. Top-level \`import\` only.`;
+
+const FRONTEND_RULE_2 = `2. NO FORM THAT PRETENDS TO SUBMIT. There is nowhere for it to go, so a contact or
+   booking form here is a control that silently does nothing — worse for the business
+   than not having one, because a customer who fills it in believes they are booked.
+   Give them the real ways to get in touch instead: \`<a href="tel:...">\` on the phone
+   number, \`<a href="mailto:...">\` on the address, the address itself, the hours.
+   If the brief asks for bookings, orders, enquiries or accounts, build the whole of the
+   rest of the site and say plainly in \`notes\` that it comes with the next step.`;
+
+/**
+ * TWO SENTENCES INSIDE KEPT REGIONS THAT SAY THE WRONG THING HERE.
+ *
+ * FOUND BY THE DERIVED GUARD ON ITS FIRST RUN, which is the whole reason it is
+ * derived: dropping eleven rules and three sections says nothing about the ones
+ * that stayed, and `## Charts` was telling a model with no database to "hand it
+ * `useRows(...)` data, never a copied array" — the exact opposite instruction,
+ * inside a section that has to stay. A drop list could never have reached it.
+ *
+ * A REPLACEMENT AND NOT AN EDIT TO `PAGE_RULES`, because both sentences are TRUE
+ * on a site with a database: copying rows into a literal there really is wrong.
+ *
+ * EACH IS ASSERTED TO HAVE APPLIED. A replacement whose `from` stops matching is
+ * silent — the rules keep their old wording and the frontend prompt goes back to
+ * contradicting itself with every test green — so `frontendRules` throws rather
+ * than shipping a prompt it could not correct.
+ */
+const FRONTEND_REPLACEMENTS = [
+  [
+    "prop-driven — hand it `useRows(...)` data, never a copied array — and monochrome by rule,",
+    "prop-driven — hand it a `const` array written into the page — and monochrome by rule,",
+  ],
+  // The SafeImage rule's picture-column bullet: five lines about text columns on a
+  // `display` table, which is four things this site does not have. What survives
+  // is the half that still decides something — where a photograph comes from.
+  [
+    [
+      "   - A COLUMN NAMED FOR A PICTURE HOLDS A URL STRING. `photo`, `image_url`, `avatar`,",
+      "     `logo`, `cover`, `hero_image` and the like are ordinary text columns holding a path",
+      "     like \"/u/<slug>/<hash>.jpg\". On a `display` table the OWNER fills these in after the",
+      "     build, so on a new site they are empty — pass one straight through and let the",
+      "     component decide: `<SafeImage src={row.photo} alt={row.name} ratio=\"4/3\" className=\"...\" />`.",
+    ].join("\n"),
+    [
+      "   - A PICTURE IS EITHER A TOKEN OR NOTHING. There are no picture columns here and no",
+      "     paths to write, so every `src` is either a `@@IMG:...@@` token (below) or left off",
+      "     entirely, and `SafeImage` paints this theme's own placeholder wherever a photograph",
+      "     was not bought. Never invent a path under /u/ — that is a 404 on every page.",
+    ].join("\n"),
+  ],
+  [
+    "figures to this site's visitors. Import the primitive and pass it the site's own rows.",
+    "figures to this site's visitors. Import the primitive and pass it your own `const` array.",
+  ],
+  [
+    "Everything above this line is what this platform IS — the hooks, the access levels, the kit,\nwhat the schema permits.",
+    "Everything above this line is what this platform IS — the kit, the routing, the motion, and\nthe fact that every word on this site is written by you into the page.",
+  ],
+];
+
+/** What replaces `## What is not possible yet`, which is entirely about data. */
+const FRONTEND_NOT_POSSIBLE = `## What is not possible yet
+
+This site has no database, so none of these can be built here: a form that stores anything,
+a list that comes from data, customer accounts and signing in, a booking that holds a slot,
+search over rows, anything paid for. If the brief asks for one, build everything else and say
+plainly in \`notes\` what was left out and that it comes next. Never draw UI that cannot work.`;
+
+/**
+ * `PAGE_RULES` with the database taken out of it.
+ *
+ * SURGERY ON ONE SOURCE rather than a second literal. 42,201 characters of rules
+ * are the highest-leverage prompt on this platform and a hand-maintained second
+ * copy would drift on the first edit — so this DROPS from the real one and the
+ * guards assert what survived, which means an edit to a kept rule reaches both
+ * prompts by construction.
+ *
+ * ~30% COMES OFF, measured: eleven hard rules and three sections. The tokens are
+ * not the point. What is, is that a prompt full of worked `useRows` examples
+ * teaches a model to reach for them, and this repo's own finding about worked
+ * examples is that the one thing a model reliably does with one is copy it.
+ */
+export function frontendRules(rules) {
+  const secs = String(rules || "").split(/\n(?=## )/);
+  const out = [];
+  for (const sec of secs) {
+    const head = sec.split("\n")[0];
+    if (DATA_SECTIONS.includes(head)) {
+      // Replaced in place rather than appended, so it keeps its position
+      // relative to `## The gate` — which closes the prompt and must stay last.
+      if (head === "## What is not possible yet") out.push(FRONTEND_NOT_POSSIBLE);
+      continue;
+    }
+    if (head === "## Hard rules") { out.push(hardRulesWithoutData(sec)); continue; }
+    // The first chunk carries no `## ` head, so it is the preamble.
+    if (!head.startsWith("## ")) { out.push(FRONTEND_PREAMBLE); continue; }
+    out.push(sec);
+  }
+  let text = out.join("\n");
+  for (const [from, to] of FRONTEND_REPLACEMENTS) {
+    if (!text.includes(from)) {
+      throw new Error("frontendRules: a replacement no longer matches PAGE_RULES — " + from.slice(0, 60));
+    }
+    text = text.split(from).join(to);
+  }
+  return text;
+}
+
+/**
+ * Drop the data rules from the `## Hard rules` block and renumber what is left.
+ *
+ * RENUMBERING IS SAFE HERE AND WAS CHECKED RATHER THAN ASSUMED: the whole prompt
+ * contains exactly ONE cross-reference of the form "rule N" — "(rule 10)" — and
+ * it lives inside `## Visitor accounts`, which this drops. A guard asserts no
+ * such reference survives, so a new one added to a KEPT rule fails here rather
+ * than shipping a prompt that points at the wrong rule.
+ */
+function hardRulesWithoutData(block) {
+  const marks = [...block.matchAll(/^(\d+)\. /gm)];
+  const kept = [FRONTEND_RULE_1, FRONTEND_RULE_2];
+  for (let i = 0; i < marks.length; i++) {
+    const n = Number(marks[i][1]);
+    if (DATA_RULES.has(n)) continue;
+    const to = i + 1 < marks.length ? marks[i + 1].index : block.length;
+    kept.push(block.slice(marks[i].index, to).replace(/\s+$/, ""));
+  }
+  const head = marks.length ? block.slice(0, marks[0].index) : block + "\n";
+  return head + kept.map((t, i) => t.replace(/^\d+\. /, i + 1 + ". ")).join("\n\n") + "\n";
+}
+
+/** The frontend prompt, derived once at module load the way `PAGE_RULES` is built once. */
+export const FRONTEND_PAGE_RULES = frontendRules(PAGE_RULES);
+
 export const SITE_PAGES_TOOL = {
   name: "write_pages",
   description: "Write the route files for the site.",
@@ -2820,7 +3039,15 @@ export function pagesPrompt(brief, spec, brand, attachCount = 0, priorPages = nu
   const n = Math.max(0, Math.floor(Number(attachCount) || 0));
   return "Build the pages for this site.\n\nBRIEF\n" + String(brief || "").trim() +
     (name ? "\n\nTHE SITE IS CALLED\n" + name + " \u2014 use it as the heading; it is already the page title." : "") +
-    "\n\nTHE SCHEMA THAT EXISTS\n" + schemaDigest(spec) +
+    // A HEADING THAT IS TRUE OF THE SITE IN FRONT OF IT. `schemaDigest({tables: []})`
+    // answers "(the schema declares no tables)", which is honest and reads as an
+    // omission — a schema that HAPPENED to come out empty — under a heading
+    // promising one that exists. On a site with no database that is the fact of
+    // the matter rather than an accident, and the rules above have just spent a
+    // paragraph on it, so this says the same thing rather than a weaker version.
+    (siteHasTables(spec)
+      ? "\n\nTHE SCHEMA THAT EXISTS\n" + schemaDigest(spec)
+      : "\n\nTHIS SITE'S DATA\nThere is none, and that is the design. Write the content into the pages.") +
     // ONE CLAUSE NOW, and dropping the second one was forced rather than chosen.
     // It read "where they and the trade example below disagree, the attachment
     // wins" \u2014 arbitrating between two references, which was the whole reason
@@ -3995,7 +4222,16 @@ export function pagesRequest({ brief, spec, brand, attachments, model, priorPage
     max_tokens: SITE_PAGES_MAX_TOKENS,
     tools: [SITE_PAGES_TOOL],
     tool_choice: { type: "tool", name: "write_pages" },
-    system: [{ type: "text", text: PAGE_RULES, cache_control: { type: "ephemeral" } }],
+    // WHICH RULES, DECIDED BY THE SPEC RATHER THAN BY A FLAG. `siteHasTables` is
+    // the one reading of the question and every lane reaches this through it —
+    // so the addon lane adding a site's first table moves that site onto the
+    // full prompt with nothing to remember, and a site that never gets one never
+    // reads a word about hooks it cannot call.
+    //
+    // TWO CACHED PREFIXES, and the split is by lane rather than by chance: every
+    // first build reads one and every site with a database reads the other, so
+    // both stay warm rather than one being an occasional cold miss.
+    system: [{ type: "text", text: siteHasTables(spec) ? PAGE_RULES : FRONTEND_PAGE_RULES, cache_control: { type: "ephemeral" } }],
     messages: [{ role: "user", content: blocks.length ? [...blocks, { type: "text", text }] : text }],
   };
 }

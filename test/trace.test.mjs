@@ -292,9 +292,20 @@ test("a refused build gives back what was actually taken, not the flat fee", () 
   // byte count. The refund and the wording are now separated by a ternary, and a
   // window sized in bytes stops covering what it was written for the moment a
   // comment lands between them — this session's recurring bug.
-  const at = w.indexOf("if (!spec.tables.length && !existing) {");
+  //
+  // THE CONDITION'S PREFIX, NOT THE WHOLE CONDITION. This pinned
+  // `if (!spec.tables.length && !existing) {` and went red when a third,
+  // honest term joined it — a first build is asked for no backend since
+  // 2026-08-24, so "the designer declared nothing" stopped being a signal
+  // there. The arity own-goal, which this repo has recorded a dozen times.
+  const at = w.indexOf("if (!spec.tables.length && !existing");
   assert.ok(at > 0, "the no-tables refusal was reshaped — rescope this");
-  const block = w.slice(at, w.indexOf("let db;", at));
+  // ENDING ON THE BRANCH'S OWN LAST STATEMENT rather than on whatever declaration
+  // follows it: `let db;` gained an initialiser in the same change, and a window
+  // that ends at a neighbour is a window the next edit moves.
+  const end = w.indexOf("}, { status: 422 });", at);
+  assert.ok(end > at, "the no-tables refusal no longer ends in a 422");
+  const block = w.slice(at, end);
   assert.ok(block.length > 200 && block.length < 2000, "the refusal block scan lost its bounds");
   assert.match(block, /That brief didn't describe anything to store/,
     "the refusal no longer says anything a customer can act on");
