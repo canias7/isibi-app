@@ -1,0 +1,60 @@
+# CAN A CLOUDFLARE CONTAINER REACH A MODEL PROVIDER?
+#
+# The one fact the container-generation change rests on, never observed, and it
+# has already cost TWO real builds that each failed to read it — see
+# scripts/container-reach.mjs for what each outcome means.
+#
+# RUNS ON EVERY PUSH, unlike `container hold probe` and `build as owner`, and the
+# difference is the cost. Those hold a build lane for ten minutes or spend ~130
+# credits, so they are opt-in by marker. This is two credential-free GETs and one
+# container spin-up: seconds, and nothing billed by anyone. A check that answers
+# a load-bearing question for free should not need remembering.
+#
+# AND IT WAITS FOR THIS PUSH'S DEPLOY FIRST. Without that it probes whatever
+# Worker happens to be live, which on a change to the probe itself is the version
+# before the change — the exact mistake edit-smoke recorded on 2026-08-12.
+name: container reach
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  reach:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: wait for this push's deploy
+        run: |
+          # ASK deploy.yml FOR ITS OWN RUNS, never `actions/runs?head_sha=` plus a
+          # find-by-name: a push can fire a dozen workflows and the deploy falls
+          # off page one, which build-as-owner recorded as ten minutes of `none`
+          # followed by a job that measured nothing.
+          for i in $(seq 1 40); do
+            state=$(curl -sf "https://api.github.com/repos/${{ github.repository }}/actions/workflows/deploy.yml/runs?head_sha=${{ github.sha }}&per_page=1" \
+              | node -e 'let s="";process.stdin.on("data",(c)=>s+=c).on("end",()=>{const d=JSON.parse(s);const r=(d.workflow_runs||[])[0];console.log(r?r.status+"/"+r.conclusion:"none");})') || state=err
+            echo "deploy: $state (poll $i)"
+            case "$state" in
+              completed/success) exit 0 ;;
+              completed/*) echo "the deploy failed — probing it proves nothing"; exit 1 ;;
+            esac
+            sleep 15
+          done
+          echo "deploy never finished in 10 minutes"; exit 1
+      - name: ask the container what it can reach
+        env:
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          OWNER_EMAIL: aniascristian@gmail.com
+          OWNER_BASE_URL: https://gofarther.dev
+        run: node scripts/container-reach.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: container-reach-log
+          path: reach-probe.md
+          if-no-files-found: ignore
