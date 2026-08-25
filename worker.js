@@ -5578,6 +5578,17 @@ export async function publishPlaceholder(env, slug, brand, spec, opts) {
  * edited again serves it for ever. That grace period exists for code-split CHUNKS
  * an already-open session may still ask for; nothing ever asks for this key.
  *
+ * THE ONLY OTHER READER IS THE STATIC FALLBACK, AND WHAT IT LOSES IS A LIE. The
+ * serve path dispatches to the site's own script and drops to the static read
+ * only when that THROWS, on the stated reasoning that "the visitor getting the
+ * last published build beats a 503". True of a pre-Start site and empty for a
+ * Start one: `build-server.mjs` says the prerender "does not exist under Start",
+ * so the dist has no top-level document and no per-route `.html` and the static
+ * path could only ever have served the stand-in there. A Start site whose script
+ * later dies therefore goes from "still being put together" — on a site that has
+ * been live for months — to an honest 404. It was never protection either: the
+ * sweep would have taken the same object on the next publish.
+ *
  * GUARDED BY THE MARK, NEVER BY THE KEY. A site published before Start has a REAL
  * `index.html` at that name — the archive still holds them and `rollbackVersion`
  * restores them through the same writer — so deleting by key would take a working
