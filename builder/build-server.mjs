@@ -89,6 +89,27 @@ const MAX_BODY = 4 * 1024 * 1024;
 // attachment caps rise, or the prompt grows past the headroom, this goes red
 // rather than every attachment build silently falling back again.
 const MAX_MODEL_BODY = 16 * 1024 * 1024;
+
+// THE EGRESS PROBE'S TARGETS AND ITS CEILING.
+//
+// `/v1/models` on each provider: a GET, no body, and refused without a
+// credential — so it is the cheapest thing on either API that still exercises
+// the whole path. What is being asked is never "is the API healthy", it is
+// "did any HTTP response come back at all".
+//
+// BOTH PROVIDERS, because the answer may differ and the platform uses both:
+// grok is `DEFAULT_PICKER` and does the building, Anthropic does the routing
+// and the cheap edit lanes. Egress open to one and closed to the other is a
+// real state and one that would be misread as "the container has no network".
+const REACH_TARGETS = [
+  { name: "xai", url: "https://api.x.ai/v1/models" },
+  { name: "anthropic", url: "https://api.anthropic.com/v1/models" },
+];
+// TEN SECONDS, and it is a diagnosis rather than a bound on real work. A
+// reachable host answers in well under a second; anything that has not answered
+// by here is a black hole, and the probe's job is to say so quickly rather than
+// to wait one out.
+const REACH_TIMEOUT_MS = 10000;
 // RAISED TO THIRTY MINUTES (2026-08-22, owner's call), with every other bound
 // on the build path. Each step here is a subprocess — tsc, vite, the prerender
 // — and the kill is what stops one wedging the container for the platform, so
@@ -923,6 +944,57 @@ const TEMPLATE_ID = (() => {
 
 const server = http.createServer((req, res) => {
   if (req.method === "GET" && req.url === "/health") { res.writeHead(200); res.end("ok " + TEMPLATE_ID); return; }
+
+  // CAN THIS CONTAINER REACH A MODEL PROVIDER AT ALL — the one question the
+  // whole move of generation onto this side rests on, and it has cost two real
+  // builds without ever being answered.
+  //
+  // IT IS FREE, WHICH IS THE ENTIRE POINT. The request carries NO CREDENTIAL, so
+  // a provider that receives it answers 401 before it reads a token — nothing is
+  // generated and nothing is billed. And **any HTTP status at all is the proof**:
+  // a 401 means DNS resolved, TCP connected, TLS negotiated and HTTP completed,
+  // which is every layer a real call needs. Blocked egress cannot produce a
+  // status — it produces ENOTFOUND, ECONNREFUSED or a timeout instead.
+  //
+  // SO `reached` IS "did a status come back", never "was it 2xx". Reading it as
+  // ok/not-ok would report a working network as a failure, which is the exact
+  // inversion this probe exists to avoid.
+  //
+  // NOT INSIDE `oneAtATime`, deliberately: it is a question about the network
+  // rather than about the working directory, it touches no files, and queued
+  // behind a running build it would answer ten minutes late — which reads as a
+  // timeout, i.e. as the failure it is meant to distinguish.
+  if (req.method === "GET" && req.url === "/reach") {
+    const probe = async (name, url) => {
+      const at = Date.now();
+      try {
+        const r = await fetch(url, {
+          method: "GET",
+          // NO Authorization header. A key here would make this a real request
+          // against a real account, and the whole value of the probe is that it
+          // cannot spend anything.
+          headers: { "user-agent": "gofarther-reach-probe" },
+          signal: AbortSignal.timeout(REACH_TIMEOUT_MS),
+        });
+        return { name, reached: true, status: r.status, ms: Date.now() - at };
+      } catch (e) {
+        // `cause.code` is where undici puts ENOTFOUND/ECONNREFUSED; `name` is
+        // where an abort puts TimeoutError. Both are reported because they mean
+        // different things: a refused connection is a policy, a timeout is a
+        // black hole, and an operator needs to know which.
+        return {
+          name, reached: false,
+          code: String((e && e.cause && e.cause.code) || (e && e.code) || (e && e.name) || "Error"),
+          message: String((e && e.message) || e).slice(0, 200),
+          ms: Date.now() - at,
+        };
+      }
+    };
+    Promise.all(REACH_TARGETS.map((t) => probe(t.name, t.url)))
+      .then((results) => send(res, 200, { ok: true, results }))
+      .catch((e) => send(res, 200, { ok: false, error: String((e && e.message) || e).slice(0, 200) }));
+    return;
+  }
   // IS THERE WORK IN FLIGHT? Asked by `SiteBuildContainer.onActivityExpired`
   // before it stops this container — see `builder/container-hold.mjs`. It has to
   // be trivially cheap and it has to answer while a build is running, which is

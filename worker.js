@@ -14281,6 +14281,49 @@ async function handleRequest(request, env, ctx) {
 
     // ── Game builder (Phase 3) ────────────────────────────────────────────
     // Health probe for the game build-service container (mirrors site build-health).
+    // GET /api/site/reach — CAN THE BUILD CONTAINER REACH A MODEL PROVIDER.
+    //
+    // The one question the container-generation change rests on, and it has cost
+    // two real builds without being answered: run 38 died mid-generation with no
+    // record of which side held the call, and run 39's own flag died with the
+    // build it was meant to describe. Both were ~13-minute builds bought to read
+    // one boolean.
+    //
+    // THIS COSTS NOTHING AND CAN RUN ON EVERY PUSH. The container sends a
+    // credential-free GET, so a provider that receives it answers 401 before it
+    // reads a token — and **any status at all is the proof**, because DNS, TCP,
+    // TLS and HTTP all had to work to produce one. See `/reach` in
+    // build-server.mjs for why `reached` is not `ok`.
+    //
+    // AUTH-GATED like every other route here, and for a reason beyond
+    // consistency: it spins up a container, so an open version is a way for
+    // anyone to make us start one.
+    if (url.pathname === "/api/site/reach" && request.method === "GET") {
+      const ru = await authUser(request);
+      if (!ru) return UNAUTHED();
+      if (!env.SITE_BUILD_CONTAINER) return Response.json({ ok: false, error: "container binding not configured" }, { status: 501 });
+      const t0 = Date.now();
+      try {
+        // A FIXED LANE, the same argument the game health probe makes: a probe
+        // has no build to be keyed by, any lane answers "can a container reach
+        // the network", and a fixed one wakes the same instance each time rather
+        // than a cold one per call.
+        const c = getContainer(env.SITE_BUILD_CONTAINER, laneName("reach-probe"));
+        const r = await c.fetch(new Request("http://build/reach", { method: "GET" }));
+        // READ AS TEXT FIRST, like every other hop to this container. A 502 from
+        // the runtime, an OOM kill and an empty 200 are three different things
+        // and parsing straight to JSON reports them all as "no answer".
+        const raw = await r.text();
+        let body = null; try { body = JSON.parse(raw); } catch { body = null; }
+        if (!body) return Response.json({ ok: false, status: r.status, body: raw.slice(0, 300), ms: Date.now() - t0 }, { status: 502 });
+        return Response.json({ ...body, containerStatus: r.status, ms: Date.now() - t0 });
+      } catch (e) {
+        // THE CONTAINER ITSELF WAS UNREACHABLE, which is a different answer from
+        // "the container could not reach the provider" and must not wear its
+        // wording — that confusion is the whole reason this probe exists.
+        return Response.json({ ok: false, error: "the container could not be reached: " + String((e && e.message) || e).slice(0, 200), ms: Date.now() - t0 }, { status: 502 });
+      }
+    }
     if (url.pathname === "/api/game/build-health" && request.method === "GET") {
       const ghUser = await authUser(request);
       if (!ghUser) return UNAUTHED();
