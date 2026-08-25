@@ -18254,3 +18254,30 @@ every time anything is documented and eventually fails a change that is entirely
 correct. It hit exactly 45.0%. Replaced with the property — every top-level
 declaration survives byte for byte — which moves with the code rather than the
 prose, and proved to still catch the real runaway it exists for.
+
+## Run 39: the flag meant to read a dead build died with the build (2026-08-25)
+
+Bought to settle one thing — can a Cloudflare container reach api.x.ai — and it
+answered nothing, because of a bug of mine four lines wide.
+
+The route does `let pages = {placeholder literal}` and then
+`pages = await buildAndPublishPages(...)`. That assignment only happens if the
+await RESOLVES. Generation was aborted at the budget, the function threw, and
+`pages` stayed the literal — so the container flag, which I had put on that
+function's return value, went with the stack. The mark came back
+`{buildMs: 0, credits: 0}` and neither field.
+
+Which means the fix for run 38 repeated run 38's own mistake one layer in: the
+measurement moved from the response (killed by the edge reset) to the return
+value (killed by a throw). Both destroyed on exactly the builds it exists for.
+
+Fixed: the object is the route's now and is passed in, so the closure writes
+through it and the route can read it whether the build returned or not.
+
+What run 39 did establish: design was 13s faster, so generation got 607,868ms
+instead of 595,900 — and was cut anyway at 608,372. Five samples of this brief:
+334k, 340k, 596k(cut), 608k(cut), 620k. Two cuts in a row at the ceiling, so
+trimming the design call is not the lever.
+
+Cost 6 credits (211 -> 205) — the design settlement only, since generation
+charges after publish.

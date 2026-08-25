@@ -264,14 +264,31 @@ test("A BUILD KILLED MID-GENERATION STILL SAYS THE HOP WAS MADE", () => {
   const fetched = w.indexOf("http://build/model");
   assert.ok(attempt > 0 && fetched > attempt,
     "the attempt is recorded AFTER the fetch — which is exactly the ordering that loses a hop that never returns");
-  // Carried off the build function…
-  assert.match(w, /if \(genPath\.tried\) out\.genTried = 1;/,
-    "the build's result drops the fact that the hop was attempted");
-  // …and onto the row, as numbers, for the reason above.
-  assert.match(w, /\["genTried", 1\]/,
-    "the pages mark does not carry genTried, so a dead build's row cannot say the container was asked");
-  assert.match(w, /\["genVia", pages\.genVia === "container" \? 1 : 0\]/,
-    "the pages mark does not carry genVia as a finite number — makeTrace would drop it silently");
+  // AND IT IS THE CALLER'S OBJECT, WHICH IS THE HALF RUN 39 PROVED WAS MISSING.
+  // `genPath` was declared inside `buildAndPublishPages` and carried out on its
+  // return value — and that function THROWS when generation is aborted, so
+  // `pages = await buildAndPublishPages(...)` never assigns and the route is
+  // left holding the placeholder literal it declared beside the call. Run 39's
+  // mark came back `{ms: 608372, buildMs: 0, credits: 0}` with neither field, on
+  // the one run bought to read them. The measurement had moved from "the
+  // response" (destroyed by the edge reset) to "the return value" (destroyed by
+  // a throw) — unreadable on exactly the builds it exists for, twice over.
+  assert.match(w, /genPathOut/,
+    "buildAndPublishPages does not take the caller's object, so a build that throws loses which side made the call");
+  assert.match(w, /genPathOut: genPath,/,
+    "the build call site does not hand its own object in — the flag would die with the stack again");
+  // …and onto the row, as numbers, read off THAT object rather than the result.
+  assert.match(w, /\.\.\.\(genPath\.tried \? \[\["genTried", 1\]\] : \[\]\)/,
+    "the pages mark reads genTried off the build's RESULT — the object a thrown build never produces");
+  assert.match(w, /\.\.\.\(genPath\.via \? \[\["genVia", genPath\.via === "container" \? 1 : 0\]\] : \[\]\)/,
+    "the pages mark reads genVia off the build's RESULT, or not as a finite number — makeTrace drops the second silently");
+  // THE ROUTE OWNS IT, and that is the whole fix: declared where the placeholder
+  // literal is, so it is in scope for the mark whether the build returned or not.
+  const litAt = w.indexOf('let pages = { page: "placeholder"');
+  const ownAt = w.indexOf("const genPath = {};", litAt);
+  const callAt = w.indexOf("pages = await buildAndPublishPages", litAt);
+  assert.ok(litAt > 0 && ownAt > litAt && callAt > ownAt,
+    "genPath is not declared by the route between the placeholder literal and the build call — a throw loses it");
 
   // AND THE WATCH READS THE ONE THAT SURVIVES. Anchored on `img` alone it prints
   // nothing for a build that died, which is the state this whole test is about.

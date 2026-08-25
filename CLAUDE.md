@@ -3,6 +3,19 @@
 > **Read `docs/owner-notes.md` at the start of every session** — it's the owner's
 > running bug log + how-they-like-things-done preferences. Keep it updated.
 
+## RUN 39: THE FLAG I ADDED TO READ A DEAD BUILD DIED WITH THE BUILD (2026-08-25)
+
+**`northgroup-5`, bought specifically to settle whether a Cloudflare container can reach api.x.ai, and it answered nothing — because the measurement rode on a return value that a thrown build never produces.** `done: true, ok: false, total_ms: 780,504`, and the `pages` mark came back **`{ms: 608372, buildMs: 0, credits: 0}` with neither `genTried` nor `genVia`** on the one run that existed to read them.
+
+- **THE CAUSE IS FOUR LINES APART IN ONE FUNCTION.** The route declares `let pages = { page: "placeholder", …, cost: 0, buildMs: 0 }` and then `pages = await buildAndPublishPages(...)` — **an assignment that only happens when the await RESOLVES.** Generation was aborted at the budget, that function threw, the catch below set `stage`/`error` on the literal, and every field the build computed went with the stack. `{buildMs: 0, credits: 0}` IS that literal, untouched, which is how the row identifies itself.
+- **SO THE FIX FOR RUN 38 REPEATED RUN 38'S OWN MISTAKE ONE LAYER IN.** The measurement moved from **the response** (destroyed by the ~285s edge reset, eleven times) to **the return value** (destroyed by a throw) — and was unreadable on precisely the builds it was built for, twice over. **A thing that has to answer when the build does not cannot live inside the build**, which is the rule `raceDeadline` already established here in as many words when `rec`/`tr`/`budget` had to be hoisted for exactly this reason. I had that lesson written down in this file and did not apply it.
+- **`genPath` IS THE CALLER'S OBJECT NOW, hoisted beside the placeholder literal and passed in as `genPathOut`.** A mutable object is written through by the closure rather than returned, so the route reads it whether the build returned or threw. The mark reads `genPath` directly and never `pages`.
+- **AND THE GUARD WENT RED ON THE FIX, pinned to `pages.genVia === "container"` — the exact spelling of the bug.** Re-anchored on the property, plus an ORDERING assertion (the route must declare it between the literal and the call), which is the half that cannot be satisfied by moving the declaration back inside.
+- **WHAT RUN 39 DID ESTABLISH, and it is not nothing.** Design **168,437ms** against run 38's 181,636, so `capMs` handed generation **607,868ms** — 12 seconds more rope than run 38's 595,900 — and it was cut at **608,372ms** anyway. **Five samples of this CRM brief: 333,716 · 340,277 · 595,900 (cut) · 608,372 (cut) · 619,822.** Two consecutive cuts at the ceiling now, which moves "unlucky draw" toward "this brief does not fit", and confirms that shortening the design call is not the lever — 13 seconds bought nothing.
+- **COST: 6 credits (211 → 205), the design settlement.** Generation charges after publish, so a build that never publishes charges nothing for it. `buildFloor` and the charge-after-publish rule both behaved exactly as designed.
+- **THE CONTAINER QUESTION IS STILL UNANSWERED AND IS NOW THE ONLY THING BLOCKING STAGE 2.** If egress is blocked, moving the WAIT is building on sand — the container would hold a call it can never make.
+- 4213 tests, **4/4 mutations as expected** from a verified-green isolated baseline with a comment-only control that survived — including the run-39 bug restored exactly (`genPath` back inside the build), and one re-run honestly after my first pattern never applied.
+
 ## RUN 38 DIED AT THE BUDGET, AND ITS ROW COULD NOT SAY WHERE THE CALL WAS MADE (2026-08-25)
 
 **`northgroup-4` never published — `done: true, ok: false, at: "pages", total_ms: 780,495` against a `BUILD_BUDGET_MS` of 780,000.** The whole-build deadline fired, to the half-second, and the site is still serving the 820-byte early stand-in with a 200 at every address it does not have.

@@ -8873,7 +8873,7 @@ async function siteOgImage(env, slug) {
   } catch (e) { console.error("og image lookup failed:", slug, e && e.message); return null; }
 }
 
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, css, plan, lang, langs, langStrings, mode, logo, icon, verify, attachments, priorUsage, model, revise, changeNote, priorPages, mark, budget = null }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, css, plan, lang, langs, langStrings, mode, logo, icon, verify, attachments, priorUsage, model, revise, changeNote, priorPages, mark, budget = null, genPathOut = null }) {
   // THE TRANSLATION CACHE, IN A CLOSURE SHARED BY BOTH COMPILE CALLS. Salvage
   // runs the compile dep TWICE — one page swapped for a stub — and a cache that
   // lived inside the dep would pay a second Haiku call for strings answered
@@ -8997,7 +8997,22 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
   // must report nothing here at all: "the Worker made the call" said about a
   // build where no call happened is a measurement that is not merely useless but
   // wrong, on the one field that answers whether this change works.
-  const genPath = {};
+  //
+  // AND IT IS THE CALLER'S OBJECT, HOISTED, WHICH RUN 39 IS THE PROOF OF. It was
+  // declared here and carried out on `out` — and this function THROWS when the
+  // generation call is aborted, so `out` is never produced and the whole record
+  // died with the stack. Run 39's `pages` mark is `{ms: 608372, buildMs: 0,
+  // credits: 0}`: the route's own placeholder literal, untouched, because
+  // `pages = await buildAndPublishPages(...)` never assigned. So the measurement
+  // moved from "the response" (destroyed by the edge reset) to "the return
+  // value" (destroyed by a throw) and was unreadable on exactly the builds it
+  // was built for, twice over.
+  //
+  // The same hoist `raceDeadline` needed for `rec`/`tr`/`budget`, and for the
+  // same stated reason: a thing that has to answer when the build does not
+  // cannot live inside the build. A mutable object passed IN is written through
+  // by the closure and readable by the caller whether this returns or throws.
+  const genPath = genPathOut || {};
   const out = await publishPages({
     // Throws on failure, and the route logs it. There is no second attempt to
     // swallow one, so nothing needs logging here.
@@ -11250,6 +11265,20 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth }) {
       });
 
       let pages = { page: "placeholder", files: [], notes: "", problems: [], cost: 0, buildMs: 0 };
+      // WHICH SIDE HELD THE TEN-MINUTE CALL, DECLARED OUT HERE ON PURPOSE.
+      //
+      // `pages` above is a LITERAL that the line below only replaces if the await
+      // RESOLVES — so on a build whose generation is aborted, `buildAndPublishPages`
+      // throws, the assignment never happens, and every field it computed is gone.
+      // Run 39 is the measurement: its `pages` mark came back
+      // `{ms: 608372, buildMs: 0, credits: 0}` — this literal, untouched — with no
+      // `genTried` at all, on the one run bought to settle whether the container
+      // can reach the provider.
+      //
+      // A mutable object owned by the CALLER survives that, because the closure
+      // writes through it rather than returning it. Same hoist, same reason, as
+      // `rec`/`tr`/`budget` for `raceDeadline`.
+      const genPath = {};
       // OUT OF TIME BEFORE THE EXPENSIVE HALF, refused in words rather than
       // started and abandoned. Design and provisioning have already spent from
       // the same fifteen minutes, and page generation plus a container run is
@@ -11406,6 +11435,11 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth }) {
             // provisioning have already spent from the same budget — so it gets
             // the remainder, and the two bounds compose instead of stacking.
             budget,
+            // THE CALLER'S OWN OBJECT, written through rather than returned —
+            // see its declaration above. This is the only thing about a build
+            // that dies which survives, because everything else this function
+            // computes leaves on a return value the throw destroys.
+            genPathOut: genPath,
           });
         } catch (e) {
           console.error("page generation failed:", slug, (e && (e.detail || e.message)));
@@ -11490,8 +11524,14 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth }) {
         // AS NUMBERS, because `makeTrace` takes only finite numbers — a
         // deliberate rule, so a connection string can never reach a trace by
         // accident — and drops everything else silently.
-        ...(pages.genTried ? [["genTried", 1]] : []),
-        ...(pages.genVia ? [["genVia", pages.genVia === "container" ? 1 : 0]] : []),
+        // READ OFF `genPath`, NEVER OFF `pages`. `pages` is only the build's
+        // result when the await RESOLVED; on a build whose generation is aborted
+        // it is still the placeholder literal declared beside it, and run 39
+        // proved that by coming back with neither field on the one run bought to
+        // read them. `genPath` is the caller's own object, so the closure's
+        // writes are here whether the build returned or threw.
+        ...(genPath.tried ? [["genTried", 1]] : []),
+        ...(genPath.via ? [["genVia", genPath.via === "container" ? 1 : 0]] : []),
         ...Object.keys(pages)
           .filter((k) => /Ms$/.test(k) && typeof pages[k] === "number")
           .map((k) => [k, pages[k]]),
