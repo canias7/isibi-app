@@ -1,0 +1,62 @@
+# DOES A CONTAINER SURVIVE ITS IDLE TIMEOUT WHEN NOBODY IS CONNECTED?
+#
+# The one question about the hold mechanism that no unit test can reach, because
+# what is under test is Cloudflare's own lifecycle rather than our arithmetic.
+# Everything else about it — the rule, the busy counter, the wiring — is covered
+# by `test/container-hold.test.mjs` and a 14-mutant sweep.
+#
+# COSTS NO CREDITS. No model call, no build, no Neon project, no publish. It
+# occupies one build lane for the length of the hold and nothing else.
+#
+# OPT-IN BY COMMIT MESSAGE, like `build as owner` and for a weaker version of the
+# same reason: it is cheap but not free — it holds a lane, and a probe that fired
+# on every push to its own file would hold one every time somebody fixed a typo
+# in it. `workflow_dispatch` is here too and is the way to run it by hand;
+# a session cannot trigger that (the API answers 403), which is why the marker
+# exists at all.
+name: container hold probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/container-hold-probe.yml'
+      # THE SCRIPT TOO, or a change to the thing this workflow RUNS triggers
+      # nothing and the probe silently stops being re-run against its own edits.
+      # Caught by `ci-browser-order.test.mjs`, which derives this from the `node
+      # scripts/...` line rather than from a list somebody has to remember.
+      - 'scripts/container-hold-probe.mjs'
+
+jobs:
+  probe:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[hold probe]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: wait for this push's deploy
+        run: |
+          # ASK deploy.yml FOR ITS OWN RUNS — see build-as-owner.yml for why a
+          # find-by-name over `actions/runs?head_sha=` silently stops finding it.
+          for i in $(seq 1 40); do
+            state=$(curl -sf "https://api.github.com/repos/${{ github.repository }}/actions/workflows/deploy.yml/runs?head_sha=${{ github.sha }}&per_page=1" \
+              | node -e 'let s="";process.stdin.on("data",(c)=>s+=c).on("end",()=>{const d=JSON.parse(s);const r=(d.workflow_runs||[])[0];console.log(r?r.status+"/"+r.conclusion:"none");})') || state=err
+            echo "deploy: $state (poll $i)"
+            case "$state" in
+              completed/success) exit 0 ;;
+              completed/*) echo "the deploy failed — probing it proves nothing"; exit 1 ;;
+            esac
+            sleep 15
+          done
+          echo "deploy never finished in 10 minutes"; exit 1
+      - name: hold a container, walk away, and come back
+        env:
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          OWNER_EMAIL: aniascristian@gmail.com
+          OWNER_BASE_URL: https://gofarther.dev
+        run: node scripts/container-hold-probe.mjs
