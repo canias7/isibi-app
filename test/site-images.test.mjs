@@ -434,7 +434,7 @@ test("the failure sentence says the site is otherwise fine", () => {
   assert.match(imageNote({ made: 0, planned: 1, budget: 1 }), /the site is otherwise fine/);
 });
 
-test("FOUR causes, four sentences — none of them wears another's", () => {
+test("FIVE causes, five sentences — none of them wears another's", () => {
   // `imageNote` is the ONE field built to separate the causes of an identical
   // placeholder, and two pairs of them were collapsed.
   //
@@ -448,21 +448,45 @@ test("FOUR causes, four sentences — none of them wears another's", () => {
   // deliberate refusal to pay $0.15 to see what an image model does with
   // nothing — and the customer was told "couldn't make the photographs", which
   // blames us for something never attempted and gives them nothing to do.
+  // AND THE CLOCK IS THE FIFTH, added after run 37 wore the fourth one's
+  // sentence. That build's photograph SUCCEEDED — the bytes are in R2 and are
+  // the site's og:image — and the customer would have read "Couldn't make the
+  // photographs": our own deadline reported as an image-model failure, with
+  // nothing to act on.
   const notes = {
     broke: imageNote({ made: 0, planned: 3, budget: 0 }),
     full: imageNote({ made: 0, planned: 3, budget: 0, full: true }),
+    slow: imageNote({ made: 0, planned: 3, budget: 0, slow: true }),
     empty: imageNote({ made: 0, planned: 3, budget: 3, empty: 2 }),
     failed: imageNote({ made: 0, planned: 3, budget: 3, error: "photo 500" }),
   };
   assert.match(notes.broke, /Not enough credits/);
   assert.match(notes.full, /library is full/);
+  assert.match(notes.slow, /ran out of time/);
   assert.match(notes.empty, /weren't described/);
   assert.match(notes.failed, /Couldn't make the photographs/);
-  assert.equal(new Set(Object.values(notes)).size, 4, "two causes still wear one sentence: " + JSON.stringify(notes));
+  assert.equal(new Set(Object.values(notes)).size, 5, "two causes still wear one sentence: " + JSON.stringify(notes));
   // Each names something the customer can do about it, which is the point of
   // telling them apart at all.
   assert.match(notes.full, /delete a few uploads/i);
   assert.match(notes.empty, /tell me what each one should show/i);
+  // The clock's answer is the only one that needs nothing bought, deleted or
+  // described — just asked again — and that promise is kept by `budgetFor`,
+  // which refuses a revise only when the STORED pages carry a real photo URL.
+  assert.match(notes.slow, /ask again/i);
+});
+
+test("a build that ran out of time is not a build that could not afford one", () => {
+  // The two produce the same zero and need opposite instructions — the same
+  // trap `full` was added for. Being told to buy credits when the answer is to
+  // ask again is the wrong instruction twice over: it costs money and it does
+  // not help.
+  assert.notEqual(
+    imageNote({ made: 0, planned: 1, budget: 0, slow: true }),
+    imageNote({ made: 0, planned: 1, budget: 0 }),
+  );
+  // And a build that really did make them says so, whatever the clock did.
+  assert.match(imageNote({ made: 2, planned: 2, budget: 2, slow: true }), /Made 2 photographs/);
 });
 
 test("a REAL failure keeps its own sentence even when a token was also empty", () => {

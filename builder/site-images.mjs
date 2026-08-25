@@ -33,6 +33,31 @@ import { PUBLISH_RESERVE_MS } from "./build-budget.mjs";
 /* ------------------------------------------------------- the clock, not the money */
 
 /**
+ * HOW LONG A PHOTOGRAPH TAKES, so a build can tell in advance whether it has
+ * time to buy one at all.
+ *
+ * CALIBRATED AGAINST THE BUILDS THAT BOUGHT ONE, never chosen: the image step
+ * lands in a band of **24.7s to 32.6s** on builds that got a photograph — run 35
+ * measured 28,089ms squarely inside it — against 110ms and 151ms on two builds
+ * that bought none. So a shot has never been observed to land in under ~24.7s,
+ * and the slowest took ~32.6s. Run 37's 22,422ms is NOT evidence about a shot:
+ * that is the race timer expiring, which is the bug this exists to fix.
+ *
+ * ABOVE THE SLOWEST RATHER THAN THE FASTEST, and the direction is the whole
+ * decision. Being wrong toward NOT buying costs one placeholder on a site whose
+ * owner can ask again — `budgetFor` returns 0 only when the stored pages already
+ * carry a `/u/<slug>/` URL, and a swept placeholder carries none, so a revise
+ * really does buy. Being wrong the other way costs real money for a picture
+ * nobody sees, an orphan in the owner's file allowance, and a wrong `og:image`.
+ * The cheap mistake is the one to make.
+ *
+ * n IS THREE, WHICH IS SMALL, and this number is the first thing to re-measure
+ * once there are more builds to read. A `compile` mark that is neither ~0.1s nor
+ * in the 24-33s band is evidence about this constant.
+ */
+export const PHOTO_FLOOR_MS = 35000;
+
+/**
  * HOW LONG THE PHOTOGRAPHS MAY BE WAITED FOR.
  *
  * Everything else in this file is about not spending MONEY on a picture. This
@@ -61,15 +86,36 @@ import { PUBLISH_RESERVE_MS } from "./build-budget.mjs";
  *   `race` — wait, but only for the time ABOVE the reserve. NOT `remainingMs()`:
  *            a wait that ends with nothing left is a bounded image step and
  *            still no site, which fixes nothing.
- *   `none` — the reserve is already all there is. Not one shot is waited for.
- *            They have been started and that spend is committed either way; any
- *            that lands before the publish reads the map is still used.
+ *   `none` — there is not enough time above the reserve for a shot to land, so
+ *            NOTHING IS BOUGHT. `buy` is false and no shot is fired.
+ *
+ * `buy` IS THE HALF THIS ANSWERED WRONG UNTIL RUN 37, and the arithmetic is
+ * exact. That build reached this step with 262,422ms left, so the race got
+ * 22,422ms — and its `compile` mark is 22,422ms to the millisecond, which is the
+ * timer expiring rather than an image model finishing. The shot was fired
+ * anyway, the wait gave up, `applyImages` swept the unmatched token to the
+ * placeholder, and the photograph landed in R2 a moment later: money spent, an
+ * orphan permanently occupying a slot in the owner's 200-file library, the
+ * site's `og:image` pointing at a picture on none of its pages, and `imageNote`
+ * falling through to *"Couldn't make the photographs"* — the image-model-failed
+ * sentence, said about a shot that succeeded.
+ *
+ * SO THE CLOCK NOW BOUNDS THE SPEND AND NOT ONLY THE WAIT. This used to say of
+ * `none` that the shots "have been started and that spend is committed either
+ * way", which described the behaviour accurately and treated it as a given. It
+ * is not: whether to start is ours to decide, from the same reading of the same
+ * clock, one subtraction before a penny is spent.
+ *
+ * `all` STILL BUYS, and that is not an oversight. No clock means a caller that
+ * set no bound, and refusing to buy there would silently stop photographs on
+ * every such build — the regression `all` exists to prevent, arriving through
+ * the money instead of the wait.
  *
  * A CLOCK THAT THROWS IS NO CLOCK, which is `build-budget.mjs`'s own rule one
  * layer up: a broken clock reads as "plenty of time", because refusing a healthy
  * build is the more expensive mistake and this is not what the customer paid for.
  */
-export function photoWait(clock, reserve = PUBLISH_RESERVE_MS) {
+export function photoWait(clock, reserve = PUBLISH_RESERVE_MS, floor = PHOTO_FLOOR_MS) {
   let left = null;
   try {
     if (clock && typeof clock.remainingMs === "function") {
@@ -77,12 +123,17 @@ export function photoWait(clock, reserve = PUBLISH_RESERVE_MS) {
       if (typeof n === "number" && Number.isFinite(n)) left = n;
     }
   } catch { left = null; }
-  if (left === null) return { wait: "all", ms: null };
+  if (left === null) return { wait: "all", ms: null, buy: true };
   // A NONSENSE RESERVE IS THE REAL ONE, never zero. Read as zero it would mean
   // "wait for everything", which is the bug; read as the default it means the
   // ordinary build. Same direction `makeBudget` takes with a nonsense budget.
   const r = typeof reserve === "number" && Number.isFinite(reserve) && reserve > 0 ? reserve : PUBLISH_RESERVE_MS;
-  return left > r ? { wait: "race", ms: left - r } : { wait: "none", ms: 0 };
+  const f = typeof floor === "number" && Number.isFinite(floor) && floor > 0 ? floor : PHOTO_FLOOR_MS;
+  const spare = left - r;
+  // `>=`, so a build with exactly a shot's worth of headroom buys. The boundary
+  // has to fall somewhere and the floor is already the SLOWEST observed shot, so
+  // landing exactly on it is the case the number was chosen to admit.
+  return spare >= f ? { wait: "race", ms: spare, buy: true } : { wait: "none", ms: 0, buy: false };
 }
 
 /* ------------------------------------------------------------ the budget */
@@ -595,6 +646,19 @@ export function imageNote(images) {
     // sentence, which is the honest answer when we could not look.
     if (i.full) {
       return "Your image library is full, so the new pictures are placeholders — delete a few uploads and ask again.";
+    }
+    // THE THIRD CLAMP, AND THE ONLY ONE WHOSE ANSWER IS "just ask again". The
+    // credits clamp needs money and the library clamp needs a deletion; this one
+    // needs nothing at all, because the next build starts its clock afresh.
+    //
+    // AND THAT PROMISE IS ONE THE CODE KEEPS, checked rather than assumed:
+    // `budgetFor` returns 0 on a revise only when `hasBoughtPhotos` finds a
+    // `/u/<slug>/` URL in the STORED pages, and a build that bought nothing
+    // stored placeholders carrying none — so a revise really does buy. Saying
+    // "ask again" while the revise path refused to spend would be the worst of
+    // the five sentences here.
+    if (i.slow) {
+      return "The build ran out of time before the photographs, so they're placeholders — ask again and I'll add them.";
     }
     // The affordability clamp, said plainly. Not an error — a build the customer
     // could not otherwise have had is the whole reason it degrades instead of

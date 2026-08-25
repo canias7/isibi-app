@@ -15,7 +15,7 @@ import fs from "node:fs";
 import {
   CONSUMER_MS, BUILD_BUDGET_MS, PUBLISH_RESERVE_MS, CONTAINER_CALL_MS, makeBudget,
 } from "../builder/build-budget.mjs";
-import { photoWait } from "../builder/site-images.mjs";
+import { photoWait, imageNote, PHOTO_FLOOR_MS } from "../builder/site-images.mjs";
 
 const WORKER = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 
@@ -161,15 +161,47 @@ test("THE PICTURES GIVE WAY TO THE CLOCK — driven, all three answers", () => {
   assert.equal(spare.wait, "race");
   assert.equal(spare.ms, BUILD_BUDGET_MS - PUBLISH_RESERVE_MS, "the reserve is not being left unspent");
 
-  // Exactly the reserve, and less: not one shot is waited for.
+  // Exactly the reserve, and less: nothing is waited for and nothing is bought.
   assert.equal(photoWait(clock(PUBLISH_RESERVE_MS)).wait, "none");
   assert.equal(photoWait(clock(PUBLISH_RESERVE_MS - 1)).wait, "none");
   assert.equal(photoWait(clock(0)).wait, "none");
 
-  // One millisecond over is a race, not a wait — the boundary is exact rather
-  // than approximately right.
-  assert.equal(photoWait(clock(PUBLISH_RESERVE_MS + 1)).wait, "race");
-  assert.equal(photoWait(clock(PUBLISH_RESERVE_MS + 1)).ms, 1);
+  // THIS BLOCK ASSERTED THE BUG UNTIL RUN 37, and the inversion is the fix.
+  // It read: one millisecond over the reserve is a `race` — "the boundary is
+  // exact rather than approximately right". Exact, and about the wrong
+  // quantity: 1ms of headroom bought a photograph nothing could wait for.
+  // Whether to START is now the question, and a shot has never been observed to
+  // land in under ~24.7s.
+  for (const spare of [1, 1000, PHOTO_FLOOR_MS - 1]) {
+    const w = photoWait(clock(PUBLISH_RESERVE_MS + spare));
+    assert.equal(w.wait, "none", `${spare}ms of headroom still raced`);
+    assert.equal(w.buy, false, `${spare}ms of headroom still bought a photograph`);
+  }
+
+  // RUN 37 ITSELF, to the millisecond. It reached the image step with 262,422ms
+  // left, the race got 22,422ms, and its `compile` mark is 22,422ms — the timer
+  // expiring, not an image model finishing. Money spent, an orphan in the
+  // owner's library, an og:image on no page, and a message blaming the provider.
+  const run37 = photoWait(clock(262422));
+  assert.equal(run37.buy, false, "run 37's own clock would still buy a photograph it cannot wait for");
+
+  // …and the boundary that IS exact now: a shot's worth of headroom buys.
+  assert.equal(photoWait(clock(PUBLISH_RESERVE_MS + PHOTO_FLOOR_MS)).buy, true);
+  assert.equal(photoWait(clock(PUBLISH_RESERVE_MS + PHOTO_FLOOR_MS)).ms, PHOTO_FLOOR_MS);
+  assert.equal(photoWait(clock(PUBLISH_RESERVE_MS + PHOTO_FLOOR_MS - 1)).buy, false);
+});
+
+test("THE FLOOR IS CALIBRATED AGAINST BUILDS THAT REALLY BOUGHT ONE", () => {
+  // A NUMBER MOVED PAST EITHER END GOES RED NAMING WHICH, the discipline
+  // BUILD_BUDGET_MS and PUBLISH_RESERVE_MS already live under. The measured band
+  // for a build that landed a photograph is 24.7s-32.6s; 110ms and 151ms are
+  // builds that bought none.
+  assert.ok(PHOTO_FLOOR_MS >= 32600,
+    "the floor is under the SLOWEST shot ever observed, so a build can still buy one it cannot wait for");
+  // And not so high that an ordinary build stops buying: a whole budget's
+  // headroom must comfortably clear it.
+  assert.ok(PHOTO_FLOOR_MS < BUILD_BUDGET_MS - PUBLISH_RESERVE_MS,
+    "the floor is above the most headroom any build can have, so nothing would ever buy a photograph");
 });
 
 test("NO CLOCK — AND NO USABLE CLOCK — MEANS THE OLD BEHAVIOUR EXACTLY", () => {
@@ -208,6 +240,34 @@ test("AND THE DECISION IS ACTUALLY WIRED — all three answers are acted on", ()
   // not the resolved value of the race — so giving up on the wait discards no
   // photograph already bought.
   assert.match(fn, /return done\(urls,/, "the photographs already bought are being thrown away");
+
+  // ── AND THE CLOCK BOUNDS THE SPEND, NOT ONLY THE WAIT ────────────────────
+  //
+  // The half run 37 was missing. `photoWait` could answer `buy: false`
+  // perfectly and the shots be fired anyway — which is not a hypothetical, it
+  // is precisely what that build did.
+  assert.match(fn, /if \(!clockPlan\.buy\) affordable = 0;/,
+    "the clock no longer clamps the spend, so a build can buy a photograph it cannot wait for");
+  // BEFORE THE SHOTS ARE PLANNED, or the clamp is a value nothing reads.
+  const clamp = fn.indexOf("if (!clockPlan.buy) affordable = 0;");
+  const planned = fn.indexOf("planImages(pages, affordable)");
+  assert.ok(clamp > 0 && planned > clamp,
+    "the spend is clamped after the shots are already planned, which changes nothing");
+
+  // ONE READING OF THE CLOCK, USED TWICE. Asking twice is asking a clock that
+  // moved in between, so the half that decides to buy and the half that decides
+  // to wait could answer differently about one build — which is the exact shape
+  // being fixed, reintroduced through the back door.
+  const readings = fn.match(/photoWait\(/g) || [];
+  assert.equal(readings.length, 1,
+    `the clock is read ${readings.length} times; the buy and the wait can disagree`);
+
+  // AND THE CAUSE REACHES THE CUSTOMER. `slow` is what stops this build wearing
+  // the image-model-failed sentence, and it is set only when the CLOCK is what
+  // took the budget to zero — the discipline `full` already lives under.
+  assert.match(fn, /outOfTime \? \{ slow: true \}/, "the out-of-time cause is computed and dropped");
+  assert.match(fn, /const outOfTime = affordable === 0 && !clockPlan\.buy && beforeClock > 0;/,
+    "`slow` no longer requires the clock to be what zeroed the budget, so it will claim the credit and library cases too");
 });
 
 test("the budget's own arithmetic still holds at the new numbers", () => {

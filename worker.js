@@ -3385,6 +3385,38 @@ async function buySitePhotos(env, { slug, pages, budget, balance, reserve, clock
   // `libraryRoom` null and says nothing, which is the credit sentence's own
   // fallback and the honest answer when we could not look.
   const libraryFull = affordable === 0 && libraryRoom === 0 && afterCredits > 0;
+  // ── AND THE THIRD CLAMP IS THE CLOCK ───────────────────────────────────────
+  //
+  // ONE READING OF THE CLOCK, USED TWICE, so the decision to BUY and the decision
+  // to WAIT can never disagree. `photoWait` used to be asked further down, after
+  // every shot had already been fired — so it bounded the wait and nothing at all
+  // bounded the spend, and its own comment treated that as a given: the shots
+  // "have been started and that spend is committed either way".
+  //
+  // RUN 37 IS WHY, AND THE ARITHMETIC IS EXACT. It reached here with 262,422ms
+  // left, so the race got 22,422ms — and its `compile` mark is 22,422ms to the
+  // millisecond, which is a timer expiring rather than an image model finishing.
+  // A shot has never landed in under ~24.7s. So the photograph was bought, the
+  // wait gave up, `applyImages` swept the unmatched token to the placeholder, and
+  // the bytes landed in R2 a moment later: money spent, an orphan holding a slot
+  // in the owner's 200-file library, an `og:image` pointing at a picture on none
+  // of the site's pages, and `imageNote` falling through to "Couldn't make the
+  // photographs" — the image-model-failed sentence, about a shot that succeeded.
+  //
+  // Whether there is time is one subtraction, available before a penny is spent.
+  //
+  // A THIRD CLAMP RATHER THAN A FOURTH BRANCH, deliberately: the credits and the
+  // library already narrow `affordable` and `planImages` already answers an
+  // allowance of zero with no shots, so this needs no new path through the
+  // function — only the honest number going in.
+  const clockPlan = photoWait(clock);
+  const beforeClock = affordable;
+  if (!clockPlan.buy) affordable = 0;
+  // Only when the CLOCK is what took it to zero, which is `libraryFull`'s own
+  // discipline: the two produce the same zero and need opposite instructions,
+  // and mutual exclusivity falls out of the ordering — a library clamp that
+  // already zeroed it leaves `beforeClock` at 0, so this cannot also claim it.
+  const outOfTime = affordable === 0 && !clockPlan.buy && beforeClock > 0;
   const plan = planImages(pages, affordable);
   // `planned` is what the FAMILY asked for and `budget` is what the balance left
   // — they have to travel separately, or a site that could not afford its
@@ -3412,6 +3444,11 @@ async function buySitePhotos(env, { slug, pages, budget, balance, reserve, clock
     pages: applyImages(pages, urls), planned, budget: affordable, overflow: plan.overflow,
     ...(plan.empty ? { empty: plan.empty } : {}),
     ...(libraryFull ? { full: true } : {}),
+    // The third cause of a zero, and it needs its own sentence for the same
+    // reason `full` does: without it this build falls through to "couldn't make
+    // the photographs", which blames an image model for a deadline of ours and
+    // gives the customer nothing to do — when the answer is simply to ask again.
+    ...(outOfTime ? { slow: true } : {}),
     ...rest,
   });
   if (!plan.shots.length) return done(new Map(), { made: 0 });
@@ -3475,7 +3512,13 @@ async function buySitePhotos(env, { slug, pages, budget, balance, reserve, clock
   // site-images.mjs beside every other rule about what a picture costs, so all
   // three answers can be driven with literals — no clock, time to spare, and no
   // time at all — rather than asserted by reading this file.
-  const plan_ = photoWait(clock);
+  //
+  // THE SAME READING THE SPEND WAS CLAMPED BY, never a second call. Asking twice
+  // is asking a clock that has moved in between, so the half that decided to buy
+  // and the half that decides to wait could answer differently about one build —
+  // and the shape that produces is the one just fixed: a shot fired on one
+  // reading and abandoned on another.
+  const plan_ = clockPlan;
   if (plan_.wait === "all") {
     await shots;
   } else if (plan_.wait === "race") {
