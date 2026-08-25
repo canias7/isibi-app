@@ -327,6 +327,19 @@ jobs:
           # refused up front naming both figures, rather than taking the deposit
           # and dying partway. Topped up to 250 by a direct ledger write (never
           # `add_credits`, which is mint-gated and writes a `purchases` row).
+          # ── RUN 36: A FRESH SLUG, BECAUSE `northgroup` IS CLAIMED ──────────
+          #
+          # Run 35 died in the container at 13m56s and left its `site_backends`
+          # row behind, so the name is owned. Ownership is what decides `revise`
+          # — so re-running the same brief with the designer naming the site
+          # would either collide on 409 or be read as an EDIT of an empty husk,
+          # and neither is the first build this run exists to measure.
+          #
+          # NAMING IT ALSO ARMS THE LIVE TICKER, which is the second reason. The
+          # step-4 progress line reads the trace by slug, and with the designer
+          # naming the site there is nothing to look up until the answer comes
+          # back — which on a build that dies is never.
+          OWNER_SLUG: northgroup-2
           OWNER_PICKER: grok
           OWNER_BRIEF: "A sales CRM for a five-person team that sells industrial coffee machines to cafes across the north of England. Everyone on the team signs in - nothing here is public except a one-page front door. One page is the pipeline: every deal with its company, its value in pounds, which stage it is at and who owns it, sortable and filterable by stage, with the total value of each stage across the top. One page is a single deal: the company details, every call and email logged against it in date order, and a form to log another. One page lists contacts, each one linked to their company. The feel is a working tool rather than a website - dense rows, figures that line up, one accent colour used only where something needs attention, and no photographs anywhere."
         run: node scripts/build-as-owner.mjs
