@@ -442,7 +442,12 @@ test("a container that answers with no JSON says what it DID answer", () => {
   // predict when writing one.
   const bp = src.indexOf("async function buildAndPublishPages");
   assert.ok(bp > 0, "the build function is gone");
-  const i = src.indexOf("getContainer(env.SITE_BUILD_CONTAINER)", bp);
+  // ANCHORED ON THE BINDING, NOT THE ARGUMENT LIST. This read `getContainer(
+  // env.SITE_BUILD_CONTAINER)` with the closing paren, and went red on 2026-08-25
+  // when the call honestly grew a lane name — a test about word order, which this
+  // repo has now recorded a dozen times. The property is that the build path
+  // reaches the site container; how many arguments it takes is not this check's.
+  const i = src.indexOf("getContainer(env.SITE_BUILD_CONTAINER", bp);
   assert.ok(i > bp, "the container call is gone from the build path");
   // Windowed to the END OF THE DEP, not a guessed character count. A 1400-char
   // window stopped 134 characters short of the thing it asserts — the third time

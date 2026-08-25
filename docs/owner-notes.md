@@ -12,6 +12,36 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ## OPEN — waiting to be picked up
 
+**EVERY BUILD ON THE PLATFORM SHARED ONE CONTAINER, AND THAT IS FIXED (2026-08-25).**
+You said builds have to be able to run at the same time. The reason they could
+not is one missing argument: the call that picks a build container takes an
+optional NAME, every one of our five call sites left it out, and the default is a
+single fixed name. One name is one container. So every site, every customer,
+every text edit and every game build queued behind whichever one arrived first —
+and a build that hangs did not stall one person, it stalled everybody.
+
+**The machinery for this was already written and was never switched on.** The
+build server has a queue inside it, added last month after two builds destroyed
+each other's files; its own comment says it only has to make ONE container
+honest, because Cloudflare is meant to be running several. We had been declaring
+five and using one.
+
+**It now spreads builds across those five, keyed by site**, so two customers
+compile at once and two edits of one site still take turns (which is correct —
+they share a working directory). Five rather than "one per site" on purpose:
+Cloudflare does not document what happens past the limit, so this stays inside
+it, and two builds landing in the same lane simply behave the way everything
+behaves today. Raising it to more than five is one number, once we have a reason
+to and can verify it deploys.
+
+**It also turned up a real bug in the game builder**: it had no queue at all, so
+two game builds arriving together could delete each other's files. It was only
+safe by accident — everything was single-file anyway. Fixed with the same
+mechanism the site builder uses.
+
+**Not proven live yet.** Nothing has run against it; the next build is the test.
+
+
 **THE CRM BUILD IS WAITING ON CREDITS, AND THAT IS MY FAULT (2026-08-25).**
 You asked for a CRM built frontend-only. I substituted a joinery brief on my own
 reasoning — a CRM needs a database, so I decided the run "couldn't serve it" —

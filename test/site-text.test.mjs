@@ -219,7 +219,10 @@ test("editing the words asks no model anything", () => {
   // It compiles through the shared spine now, so the container call is asserted
   // where it lives — and that the route actually reaches it.
   assert.match(block, /recompileAndPublish\(env, \{/, "the text route no longer compiles at all");
-  assert.match(spine(), /getContainer\(env\.SITE_BUILD_CONTAINER\)/, "it must still compile");
+  // ON THE BINDING, not on the exact argument list — the call takes a build-lane
+  // name since 2026-08-25 and a paren-pinned pattern reported the spine as no
+  // longer compiling when it compiles perfectly.
+  assert.match(spine(), /getContainer\(env\.SITE_BUILD_CONTAINER\b/, "it must still compile");
   assert.ok(!/anthropic|pagesRequest|generateSitePages|useCredits|collectCredits/i.test(spine()),
     "the spine must not call a model or spend credits either");
   assert.match(block, /cost: 0/, "and it must say what it cost");

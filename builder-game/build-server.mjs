@@ -103,6 +103,36 @@ function collectDist(dir = DIST, base = "") {
   return out;
 }
 
+// ONE BUILD AT A TIME IN THIS INSTANCE.
+//
+// FOUND 2026-08-25, WHILE NAMING THE CONTAINER LANES. `wipeSrc()`/`wipeDist()`/
+// `wipeAssets()`/`wipeModels()` clear four SHARED directories at the top of every
+// build, and nothing here serialised them — so two builds arriving together
+// interleave and one deletes the other's sources mid-compile. That is exactly
+// the failure the SITE build server was given `oneAtATime` for on 2026-07-29,
+// where two real builds a second apart produced a bundle containing neither
+// site's content.
+//
+// IT WAS SURVIVING ON AN ACCIDENT. Every `getContainer` call omitted its name, so
+// the whole platform resolved to one instance and the Worker's own sequencing
+// was all that stood between two game builds. Splitting into lanes makes a
+// collision rarer, never impossible — two builds by one user still share a lane
+// by design — so the protection has to be here rather than inferred from how
+// requests happen to arrive.
+//
+// The primitive is copied from `builder/build-server.mjs` deliberately: these are
+// two images that share no code, and a helper reached across that boundary is a
+// COPY line in a Dockerfile away from a build service that cannot start.
+let _chain = Promise.resolve();
+function oneAtATime(fn) {
+  // Normalised: the result is dropped so a finished build's whole dist is not
+  // retained by the queue, and a rejection is swallowed so it cannot surface as
+  // an unhandled one.
+  const done = _chain.then(fn, fn);
+  _chain = done.then(() => {}, () => {});
+  return done;
+}
+
 const server = http.createServer((req, res) => {
   if (req.method === "GET" && req.url === "/health") { res.writeHead(200); res.end("ok"); return; }
   if (req.method !== "POST" || req.url !== "/build") { res.writeHead(404); res.end("nf"); return; }
@@ -113,6 +143,10 @@ const server = http.createServer((req, res) => {
     let payload; try { payload = JSON.parse(body); } catch { return send(res, 400, { ok: false, error: "invalid json" }); }
     const files = payload && payload.files;
     if (!files || typeof files !== "object") return send(res, 400, { ok: false, error: "no files" });
+    // THE QUEUE STARTS AT THE FIRST WIPE, not at the top of the handler — the
+    // reads above it touch nothing shared, so a malformed body is still refused
+    // immediately rather than behind whatever is compiling.
+    return oneAtATime(async () => {
     try {
       wipeSrc(); wipeDist(); wipeAssets(); wipeModels();
       writeAssets(payload.assets);
@@ -141,6 +175,7 @@ const server = http.createServer((req, res) => {
     } catch (e) {
       return send(res, 200, { ok: false, error: String(e && e.message || e).slice(0, 2000), stage: "build" });
     }
+    });
   });
 });
 const PORT = process.env.PORT || 8080;

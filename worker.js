@@ -108,6 +108,7 @@ import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis
 import { parseGeneratedFiles as parseGameFiles, GAME_RULES, GAME_ASSET_RULES, GAME_REVISE_RULES, gameFixRules, parseSpriteTokens, GAME_3D_RULES, game3DFixRules } from "./builder-game/game-gen.mjs";
 import { currentStateNote, EDIT_RULE, EDIT_REQUIRED, EDIT_FIELDS, hasValue, keepStoredAccess, mergeLook, movedFields } from "./builder/site-edit.mjs";
 import { PLAN_FIELDS, PLAN_KEYS, PLAN_REQUIRED, SHAPE_FIELD, IMAGES_FIELD, ACTION_FIELD, normalizePlan } from "./builder/site-plan.mjs";
+import { laneName } from "./builder/build-lane.mjs";
 
 // Game build-service container (Phase 3). The image (./builder-game/Dockerfile)
 // bakes kaplay + a headless Chromium for the smoke test. Runs to zero after idle.
@@ -2470,8 +2471,8 @@ async function runNeonTeardown(env) {
  * supplies the four real side effects and nothing else.
  *
  * WHY THIS IS ON THE CRON RATHER THAN A ROUTE. A recompile is ~65s of container
- * and the build service is `oneAtATime` for the whole platform, so a
- * platform-wide bump is hours of serialized work. A request cannot hold that,
+ * and the build service is `oneAtATime` within a lane — five of them since
+ * 2026-08-25 — so a platform-wide bump is still hours of serialized work. A request cannot hold that,
  * and a loop inside one would starve every real customer edit behind it.
  *
  * NOTHING ENQUEUES ITSELF. Rows are written by the operator sweep
@@ -8197,7 +8198,11 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
   // failure worth repeating.
   const compile = async () => {
     try {
-      const c = getContainer(env.SITE_BUILD_CONTAINER);
+      // KEYED BY SLUG, so two customers editing two sites compile at the same
+      // time instead of queueing behind each other. Two edits of ONE site share
+      // a lane on purpose — that is one customer, and the build server's
+      // `oneAtATime` is what keeps them from wiping each other's `src/routes`.
+      const c = getContainer(env.SITE_BUILD_CONTAINER, laneName(slug));
       const rr = await c.fetch(new Request("http://build/build", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -8278,9 +8283,10 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null }) 
         }),
         // BOUNDED, for the reason the build path's copy is — and this spine
         // matters at least as much: every cheap edit on the platform publishes
-        // through here, and the container is `oneAtATime` for the WHOLE
-        // platform, so one wedged recompile queues every other customer's build
-        // behind it on a fetch that also could not time out.
+        // through here, and a wedged recompile holds ITS LANE for the whole
+        // ceiling — one fifth of the platform's build capacity since the lanes
+        // landed, where before this it was all of it — on a fetch that also
+        // could not time out.
         //
         // A FLAT CEILING RATHER THAN A BUDGET, because this path has none: it is
         // reached from seven edit lanes and the rebuild drain, none of which
@@ -8626,8 +8632,8 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       // is the point rather than a defect, since a build that sat at `compile` for
       // twenty minutes was in the container however many attempts it made. What it
       // separates is the container from the model call above it and the publish
-      // below, and the build service is `oneAtATime` for the WHOLE PLATFORM, so a
-      // hang here is also every other customer's build queued behind this one.
+      // below. A hang here holds this site's LANE — one of five since 2026-08-25,
+      // and every build on the platform before that.
       try { mark?.("compile"); } catch { /* a trace must never break a build */ }
       const files = {};
       for (const p of pages) files[p.path] = p.source;
@@ -8690,7 +8696,10 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
           if (!w.ok) console.error("lang cache write failed", slug, w.error);
         }
       }
-      const c = getContainer(env.SITE_BUILD_CONTAINER);
+      // KEYED BY SLUG — see the spine's copy. The designer names the site, so by
+      // the time the container is needed the slug exists and is the one stable
+      // thing this build has.
+      const c = getContainer(env.SITE_BUILD_CONTAINER, laneName(slug));
       const r = await c.fetch(new Request("http://build/build", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -13643,7 +13652,11 @@ async function handleRequest(request, env, ctx) {
       if (!env.GAME_BUILD_CONTAINER) return Response.json({ ok: false, error: "container binding not configured" }, { status: 501 });
       const t0 = Date.now();
       try {
-        const c = getContainer(env.GAME_BUILD_CONTAINER);
+        // ONE FIXED LANE, and it has to be a literal because a health probe has
+        // no build to be keyed by. It answers "can I reach a build container at
+        // all", which any lane answers — and a fixed one means the probe wakes
+        // the same instance every time rather than a different one each call.
+        const c = getContainer(env.GAME_BUILD_CONTAINER, laneName("health-probe"));
         const r = await c.fetch(new Request("http://build/health", { method: "GET" }));
         const body = await r.text();
         return Response.json({ ok: r.ok, status: r.status, body: body.slice(0, 100), ms: Date.now() - t0 });
@@ -13712,7 +13725,13 @@ async function handleRequest(request, env, ctx) {
         return { text, usedIn, usedOut };
       };
       const buildGame = async (files, assets, models) => {
-        const c = getContainer(env.GAME_BUILD_CONTAINER);
+        // KEYED BY THE ACCOUNT, because a game names itself only AFTER it
+        // compiles — `slug` is minted from the model's own answer further down,
+        // so there is nothing else stable in scope here. It gives the property
+        // that matters: two customers build at the same time. One customer's two
+        // builds share a lane, and the game build server's `oneAtATime` is what
+        // stops them wiping each other's sources.
+        const c = getContainer(env.GAME_BUILD_CONTAINER, laneName(String((gu && gu.id) || "")));
         const t0 = Date.now();
         const br = await c.fetch(new Request("http://build/build", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ files, assets: assets || undefined, models: models || undefined, smoke: true }) }));
         const bd = await br.json().catch(() => ({ ok: false, error: "build service returned no JSON" }));
@@ -13874,7 +13893,10 @@ async function handleRequest(request, env, ctx) {
         return { text, usedIn, usedOut };
       };
       const buildGame = async (files, assets, models) => {
-        const c = getContainer(env.GAME_BUILD_CONTAINER);
+        // KEYED BY SLUG here, unlike the build path — a revise knows which game
+        // it is, so the narrower key is available and two revises of ONE game are
+        // what must serialise.
+        const c = getContainer(env.GAME_BUILD_CONTAINER, laneName(slug));
         const t0 = Date.now();
         const br = await c.fetch(new Request("http://build/build", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ files, assets: assets || undefined, models: models || undefined, smoke: true }) }));
         const bd = await br.json().catch(() => ({ ok: false, error: "build service returned no JSON" }));
