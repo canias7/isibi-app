@@ -272,17 +272,57 @@ const CUT_MS = Number(process.env.SMOKE_CUT_MS || 0) > 0 ? Number(process.env.SM
  * to: every build ever measured finished inside that, and the consumer's own
  * runtime ceiling is fifteen.
  */
+// THE STAND-IN IS A 200, AND READING THE STATUS ALONE CALLED IT A SITE.
+//
+// MEASURED ON RUN 32881464381 (2026-08-25), and the damage is worse than a
+// wrong verdict. The socket reset at 264.5s, this watch polled once, got a 200
+// — the EARLY PLACEHOLDER, published right after the design step — and returned
+// `live: true` on its FIRST look. The run printed "THE BUILD SURVIVED A DROPPED
+// CONNECTION … published ~10s after the cut", threw its sentinel, and the
+// `finally` deleted the throwaway user FOUR AND A HALF MINUTES INTO A THIRTEEN
+// MINUTE BUILD. That cascades `site_backends` and drops the site's Neon project,
+// so the harness destroyed the build it had just declared a success. The site is
+// still the 876-byte stand-in.
+//
+// THE COMMENT AT THE CALL SITE MAKES EXACTLY THIS ARGUMENT AND WAS RELYING ON
+// THIS FUNCTION TO KEEP IT TRUE: "waiting here means that by the time cleanup
+// runs, the build is over either way." It is only true if the wait ends when the
+// BUILD ends, and a wait that ends on the stand-in ends at four minutes.
+//
+// AND THE FIX ALREADY EXISTED ONE FILE OVER. `scripts/build-as-owner.mjs` hit
+// the identical bug on run 36 and was corrected the same day — CLAUDE.md records
+// it as "the single watcher that needed to read it never did", and then the
+// correction went to that watcher and not to this one. The wiring layer, in the
+// note written about the wiring layer.
+//
+// READ OFF THE BODY, which is what a visitor gets, so it can neither lag nor be
+// unreadable the way a database row can.
+const PLACEHOLDER_MARK = 'name="gofarther-page" content="placeholder"';
+
 async function waitForSite(s, ms) {
   const until = Date.now() + ms;
   const url = `https://${s}.gofarther.app/`;
+  let sawPlaceholder = false;
   for (let n = 1; Date.now() < until; n++) {
     try {
       const r = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(20000) });
-      if (r.status === 200) return { live: true, after: n };
+      if (r.status === 200) {
+        const html = await r.text().catch(() => "");
+        // A STAND-IN IS NOT A SITE. It is reported rather than ignored: "no site
+        // yet" and "the build finished and left its stand-in standing" are
+        // different outcomes and only one of them is a bug in the build.
+        if (!html.includes(PLACEHOLDER_MARK)) return { live: true, after: n, placeholder: false };
+        sawPlaceholder = true;
+      }
     } catch { /* the site is not up yet, or the network blinked */ }
     await new Promise((r) => setTimeout(r, 10000));
   }
-  return { live: false, after: 0 };
+  // KNOWN COST, STATED: a build that really fails now costs the full watch
+  // rather than ending early, because nothing here reads the trace to learn the
+  // build is over. That is the safe direction — the alternative is the teardown
+  // racing a live build again — and reading `site_builds.done` would end it
+  // sooner, which `build-as-owner.mjs` already does and this could adopt.
+  return { live: false, after: 0, placeholder: sawPlaceholder };
 }
 
 try {
@@ -498,7 +538,13 @@ try {
     const WATCH_MS = 16 * 60 * 1000;
     const w = await waitForSite(runSlug, WATCH_MS);
     ok("THE BUILD SURVIVED A DROPPED CONNECTION — the site published with nobody connected",
-      w.live, `no site at ${runSlug}.gofarther.app after ${Math.round(WATCH_MS / 60000)} minutes (connection died at ${dropped})`);
+      w.live, w.placeholder
+        // NAMED, because the two failures want opposite next steps. A stand-in
+        // still standing after the whole watch means the build RAN and did not
+        // finish — go and read its trace. Nothing at all means it never got as
+        // far as publishing one, which is a different question entirely.
+        ? `${runSlug}.gofarther.app is still the stand-in after ${Math.round(WATCH_MS / 60000)} minutes — the build ran and never published (connection died at ${dropped})`
+        : `no site at ${runSlug}.gofarther.app after ${Math.round(WATCH_MS / 60000)} minutes (connection died at ${dropped})`);
     if (w.live) console.log(`   the site is live at https://${runSlug}.gofarther.app/ — published ~${w.after * 10}s after the cut`);
     // A DELIBERATE CUT PROVED WHAT IT CAME TO PROVE, and everything downstream
     // reads the response body this run destroyed on purpose. Reported and

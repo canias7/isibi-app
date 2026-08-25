@@ -617,6 +617,49 @@ test("a dropped connection watches the site instead of abandoning the run", () =
   // saying the same words reaches the log and no scoreboard.
   assert.match(block, /ok\("THE BUILD SURVIVED A DROPPED CONNECTION/,
     "the drop path does not RECORD the survival — a printed line is not a result");
+
+  // ── AND THE STAND-IN IS NOT A SITE ─────────────────────────────────────────
+  //
+  // `waitForSite` read the STATUS and nothing else, and the early placeholder is
+  // a 200 at the site's own address. Measured on run 32881464381: the watch
+  // returned live on its FIRST look, ~10s after the cut, the run declared the
+  // build survived, and the `finally` then deleted the throwaway user four and a
+  // half minutes into a thirteen-minute build — cascading `site_backends` and
+  // dropping the Neon project out from under the build it had just passed.
+  //
+  // THE SAME BUG WAS FIXED ONE FILE OVER THE SAME DAY and this watcher did not
+  // get it. So the guard is on the PROPERTY rather than on either spelling: the
+  // wait must read the body and must refuse the marker.
+  const w = smoke.slice(smoke.indexOf("async function waitForSite("));
+  const body = w.slice(0, w.indexOf("\n}\n") + 1);
+  assert.ok(body.length > 200, "the waitForSite window is empty — this check would be vacuous");
+
+  // ASSERTED AS AN OCCURRENCE COUNT, NOT A PRESENCE, and the first draft of this
+  // guard proved why. It matched `.text()` and `PLACEHOLDER_MARK` anywhere in
+  // the function — and a mutant that restored the status-only return and left
+  // the body-reading branch behind an `if (false)` SURVIVED it, because the
+  // strings were still there in dead code. A presence standing in for a
+  // property, in the guard written for a bug that had already escaped twice.
+  //
+  // What has to hold is that there is exactly ONE way to be called live, and
+  // that it is the one that has looked at the body.
+  const lives = body.match(/live: true/g) || [];
+  assert.equal(lives.length, 1,
+    `waitForSite has ${lives.length} ways to answer "live" — a second one is a path that never read the body`);
+  const liveLine = body.split("\n").find((l) => l.includes("live: true"));
+  assert.match(liveLine, /!\s*html\.includes\(PLACEHOLDER_MARK\)/,
+    `the only "live" answer must be gated on the body NOT carrying the marker, and it reads: ${liveLine.trim()}`);
+  // THE MARKER IS DERIVED FROM `worker.js`, NEVER RESTATED. Rename it there and
+  // a watcher pinning its own copy silently stops recognising a stand-in — no
+  // error, bug restored. The stamp is built from the constant AND from the line
+  // that renders it, so a marker declared and never emitted fails too.
+  const wk = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const mark = wk.match(/const PLACEHOLDER_MARK = "([^"]+)"/);
+  assert.ok(mark, "worker.js no longer declares PLACEHOLDER_MARK");
+  assert.match(wk, new RegExp(`PLACEHOLDER_META = "<meta name=\\\\"" \\+ PLACEHOLDER_MARK`),
+    "the placeholder meta tag is no longer built from PLACEHOLDER_MARK");
+  assert.ok(smoke.includes(`name="${mark[1]}" content="placeholder"`),
+    `build smoke looks for a marker worker.js does not stamp (worker.js says ${mark[1]})`);
 });
 
 test("the publish gap is watched WHILE the site republishes", () => {
