@@ -338,8 +338,23 @@ function traceText(got) {
     // all and the Worker made the call instead — the build still finished, and
     // the reason is in the Worker's log. ABSENT means generation never ran,
     // which is a real third answer and is not invented here.
+    //
+    // READ OFF `pages` FIRST, AND `img` ONLY AS THE FALLBACK, because the `img`
+    // mark needs generation to have RETURNED. Run 38 died mid-generation and
+    // has no `img` mark at all, so a reader anchored there says nothing about
+    // the one question the run existed to settle. `pages` is written on the way
+    // out whether the build succeeded or was killed.
+    //
+    // `holding` IS THE THIRD ANSWER AND IT IS THE INFORMATIVE ONE ON A DEAD
+    // BUILD: the hop was made and never came back, so the container was still
+    // waiting on the provider when the clock ran out — which means it REACHED
+    // one, since a refusal is milliseconds rather than minutes.
+    const pg = steps.find((s) => s && s.s === "pages");
     const img = steps.find((s) => s && s.s === "img");
-    const via = img && Number.isFinite(img.viaContainer) ? `gen=${img.viaContainer ? "container" : "worker"}` : "";
+    const src = pg && (pg.genTried || Number.isFinite(pg.genVia)) ? pg : null;
+    const via = src
+      ? (Number.isFinite(src.genVia) ? `gen=${src.genVia ? "container" : "worker"}` : "gen=container-holding")
+      : (img && Number.isFinite(img.viaContainer) ? `gen=${img.viaContainer ? "container" : "worker"}` : "");
     const shape = [db, tabs, via].filter(Boolean).join(" ");
     return `done=${row.done} ok=${row.ok} page=${row.page || "?"} marks=${steps.length} at=${row.at || "(none)"}` +
       (shape ? `  ${shape}` : "") + (tail ? `  [${tail}]` : "");

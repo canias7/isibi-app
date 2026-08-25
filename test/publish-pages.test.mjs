@@ -2010,7 +2010,13 @@ test("the pages trace can carry every timing the build reports", () => {
   // the derivation itself: the /Ms$/ filter over the build's own keys.
   const at = worker.indexOf('tr.at("pages"');
   assert.ok(at > 0, "the pages trace entry moved — retarget this guard");
-  const entry = worker.slice(at, at + 700);
+  // BOUNDED BY THE ENTRY'S OWN CLOSE, never by a byte count. `+ 700` went red on
+  // a correct change the moment the entry grew a documented field — a test about
+  // how much PROSE sits inside a call, which is this repo's most-repeated
+  // own-goal and the reason the rule is "never size a source window in bytes".
+  const end = worker.indexOf("]));", at);
+  assert.ok(end > at, "the pages trace entry does not close where this guard expects — retarget it");
+  const entry = worker.slice(at, end);
   assert.ok(/Object\.keys\(pages\)/.test(entry) && /Ms\$\//.test(entry),
     "the pages trace stopped deriving timings from the build result — a hand list is how preMs and renderMs went missing");
 });

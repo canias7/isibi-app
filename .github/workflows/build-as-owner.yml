@@ -411,7 +411,48 @@ jobs:
           # edge to edge under a `max-w-6xl` nav with no gutter at all. Every band
           # should now sit in `mx-auto max-w-6xl px-6`, with a full-bleed section
           # keeping its bleed and containing its words in a div inside.
-          OWNER_SLUG: northgroup-4
+          # ── RUN 39: THE FIFTH SLUG, AND THE FIRST BUILD WHOSE GENERATION
+          # CALL IS MADE FROM THE CONTAINER ───────────────────────────────────
+          #
+          # `northgroup-4` is claimed by run 38, which DIED — `done: true,
+          # ok: false, total_ms: 780,495` against a 780,000ms budget, with the
+          # early stand-in still standing at every address. Ownership decides
+          # `revise`, so re-using that name measures an edit of a husk.
+          #
+          # WHAT ONLY THIS RUN CAN ANSWER (5992be4, deployed and green, NOT
+          # PROVEN LIVE): whether a Cloudflare container can reach api.x.ai at
+          # all. Every check of `/model` so far refuses BY NAME before a request
+          # is made, precisely so it can run on every push without spending — so
+          # this is the first evidence, and a build is the one thing that cannot
+          # be spent twice to get it.
+          #
+          # READ `gen=` ON THE WATCH LINE. It comes off the `pages` mark, which
+          # is written whether the build finishes or is killed:
+          #   gen=container          the container held the call and answered.
+          #                          Egress works and the ten-minute call is off
+          #                          the capped side. That is the proof.
+          #   gen=worker             the container reached NO provider, the
+          #                          Worker made the call itself and the build
+          #                          still finished. The reason is in the
+          #                          Worker's log; the fallback did its job.
+          #   gen=container-holding  the hop never came back. Also informative:
+          #                          a refusal is milliseconds, so a container
+          #                          that was still waiting when the clock ran
+          #                          out had REACHED a provider.
+          #   (absent)               generation never started.
+          #
+          # AND THE BRIEF IS A COIN FLIP ON FINISHING, WHICH IS SAID RATHER THAN
+          # GLOSSED. Four samples of this CRM brief: 333,716 / 340,277 / 595,900
+          # (cut) / 619,822. Two fast, two slow, and on a slow draw design 181k +
+          # generation 620k + the ~185k tail is ~986k — past the consumer's
+          # fifteen minutes whatever side the call is made on. Stage 1 moved the
+          # call; it did not raise the ceiling, and stage 2 is what does.
+          #
+          # SO THE THREE `gen=` ANSWERS ARE THE POINT OF THIS RUN and a published
+          # site is the bonus. Rule 16 (every band inside `mx-auto max-w-6xl
+          # px-6`) and the photo clock (`compile` ~0.1s with nothing bought when
+          # the spare time is under 35,000ms) are only readable if it publishes.
+          OWNER_SLUG: northgroup-5
           OWNER_PICKER: grok
           OWNER_BRIEF: "A sales CRM for a five-person team that sells industrial coffee machines to cafes across the north of England. Everyone on the team signs in - nothing here is public except a one-page front door. One page is the pipeline: every deal with its company, its value in pounds, which stage it is at and who owns it, sortable and filterable by stage, with the total value of each stage across the top. One page is a single deal: the company details, every call and email logged against it in date order, and a form to log another. One page lists contacts, each one linked to their company. The feel is a working tool rather than a website - dense rows, figures that line up, one accent colour used only where something needs attention, and no photographs anywhere."
         run: node scripts/build-as-owner.mjs

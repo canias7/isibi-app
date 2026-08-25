@@ -147,7 +147,13 @@ test("the build route actually uses it", () => {
   // numeric `*Ms` key off the build result, so what is asserted is that
   // derivation, and publish-pages.test.mjs holds the passthrough list that
   // feeds it.
-  const pagesEntry = w.slice(w.indexOf('tr.at("pages"'), w.indexOf('tr.at("pages"') + 700);
+  // BOUNDED BY THE ENTRY'S OWN CLOSE. `+ 700` was outrun by a documented field
+  // added to the entry — a guard failing a correct change over how much prose is
+  // inside a call. Never size a source window in bytes.
+  const pagesAt = w.indexOf('tr.at("pages"');
+  const pagesEnd = w.indexOf("]));", pagesAt);
+  assert.ok(pagesAt > 0 && pagesEnd > pagesAt, "the pages trace entry moved — retarget this guard");
+  const pagesEntry = w.slice(pagesAt, pagesEnd);
   assert.ok(/Object\.keys\(pages\)/.test(pagesEntry) && /Ms\$\//.test(pagesEntry),
     "the pages step no longer derives its timings from the build result");
   assert.ok(pagesEntry.includes("credits"), "the pages step stopped reporting its credit cost");

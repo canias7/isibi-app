@@ -18220,3 +18220,37 @@ slip into a bug fix.
 
 **It reaches Liwan on its next publish** — any small edit will do it, no rebuild
 and no credits.
+
+## Run 38 died, and its row could not say where the call was made (2026-08-25)
+
+`northgroup-4` never published. The trace says it exactly: `done: true, ok: false,
+total_ms: 780,495` against a `BUILD_BUDGET_MS` of 780,000 — the whole-build
+deadline fired, to the half-second. The site is still serving the early stand-in.
+
+**No `img` mark at all**, which is the diagnosis: that mark is what closes
+generation, so a row going straight from `gen` to `pages` is a build whose
+generation call never came back. Design ate 181,636ms and generation was handed
+the remaining 595,900ms, and this brief needed more.
+
+Four samples of the same CRM brief now, and they are bimodal — **334k, 340k, 596k
+(cut), 620k**. On a slow draw it cannot fit under Cloudflare's fifteen minutes
+whatever side the call is made on, which is what stage 2 is for.
+
+**And the run could not answer the question it was for.** `genVia` is set when the
+container answers and read on the response — so a build cut off mid-generation
+recorded nothing, and the response dies to the ~285s edge reset anyway (eleventh
+time). Fixed: the ATTEMPT is now recorded before the answer, on the `pages` mark,
+which is written whether a build finishes or is killed. Three readings —
+`container` (it held the call), `worker` (it reached no provider, we fell back),
+`container-holding` (the hop never returned, which itself means it reached one,
+since a refusal is milliseconds).
+
+**Three of my own guards then went red on correct code.** Two were byte-sized
+source windows my own comment outran — the rule "never size a source window in
+bytes" is already written down and this is the tenth-plus instance. The third was
+worse and is the useful finding: a check asserting `kept > 0.45` on the comment
+blanker was really asserting *"worker.js is less than 55% comments"*, so it erodes
+every time anything is documented and eventually fails a change that is entirely
+correct. It hit exactly 45.0%. Replaced with the property — every top-level
+declaration survives byte for byte — which moves with the code rather than the
+prose, and proved to still catch the real runaway it exists for.

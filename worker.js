@@ -5515,6 +5515,23 @@ function containerPagesCall(env, slug, out) {
   return async (keys, req, budget) => {
     const callMs = budget && typeof budget.capMs === "function" ? budget.capMs(BUILDER_CALL_MS) : BUILDER_CALL_MS;
     let fail;
+    // THE ATTEMPT IS RECORDED BEFORE THE ANSWER, AND THAT IS WHAT MAKES A DEAD
+    // BUILD READABLE. `out.via` is set when the container ANSWERS — so a build
+    // cut off mid-generation records nothing at all about which side held the
+    // call, on exactly the builds most worth asking about. Run 38 is the
+    // measured case: no `img` mark, killed at `BUILD_BUDGET_MS` with generation
+    // still running, and its row cannot say whether the container was reachable.
+    //
+    // WITH BOTH FLAGS THE THREE CASES SEPARATE, and the third is the one that
+    // could not be expressed before:
+    //   tried + via=container  the container held it and answered
+    //   tried + via=worker     it refused fast enough to fall back, which is
+    //                          what a blocked egress looks like from here
+    //   tried + NO via         the hop never came back — the container was
+    //                          still holding the call when the clock ran out,
+    //                          which is itself evidence it reached a provider,
+    //                          since a refusal is milliseconds and not minutes.
+    out.tried = 1;
     try {
       const c = getContainer(env.SITE_BUILD_CONTAINER, laneName(slug));
       const r = await c.fetch(new Request("http://build/model", {
@@ -9358,6 +9375,11 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
   //
   // ABSENT WHEN GENERATION NEVER RAN, so its PRESENCE is the signal and a build
   // refused at the credit floor does not claim a call it never made.
+  //
+  // `genTried` IS THE HALF A DEAD BUILD STILL HAS. `genVia` needs an answer;
+  // this needs only the attempt, so a build killed mid-generation still says
+  // the hop was made — see the three cases at `containerPagesCall`.
+  if (genPath.tried) out.genTried = 1;
   if (genPath.via) out.genVia = genPath.via;
   if (workerUpload) {
     out.worker = workerUpload.ok
@@ -11457,6 +11479,19 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth }) {
       // did not, which is this file's most-repeated failure.
       tr.at("pages", Object.fromEntries([
         ["credits", pages.cost || 0],
+        // WHICH SIDE HELD THE TEN-MINUTE CALL, ON THE TRACE AS WELL AS THE
+        // RESPONSE — and the trace is the half that survives. The edge resets a
+        // build's socket at ~285s, eleven recorded times, and every run from 35
+        // to 38 finished with nobody holding the answer. `genVia` on the
+        // response is therefore unreadable in practice on the builds that
+        // matter, and this mark is written whether the build succeeded or died
+        // (run 38 has a `pages` step and no `img`).
+        //
+        // AS NUMBERS, because `makeTrace` takes only finite numbers — a
+        // deliberate rule, so a connection string can never reach a trace by
+        // accident — and drops everything else silently.
+        ...(pages.genTried ? [["genTried", 1]] : []),
+        ...(pages.genVia ? [["genVia", pages.genVia === "container" ? 1 : 0]] : []),
         ...Object.keys(pages)
           .filter((k) => /Ms$/.test(k) && typeof pages[k] === "number")
           .map((k) => [k, pages[k]]),

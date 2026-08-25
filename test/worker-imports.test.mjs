@@ -134,11 +134,53 @@ test("the comment blanker does not eat the file it is meant to read", () => {
   // read. It happened here — 2,592 lines of the serve path were blanked to a
   // single character and the suite stayed green for as long as that lasted.
   //
-  // Asserted on the PROPERTY (how much survives, and how large the largest
-  // single blank is), not on the spelling of the regexes, so a future rewrite of
-  // the blanker is judged by whether it works rather than by how it is written.
-  const kept = code.replace(/\s/g, "").length / worker.replace(/\s/g, "").length;
-  assert.ok(kept > 0.45, `the blanker kept only ${(kept * 100).toFixed(1)}% of worker.js — it is eating real code`);
+  // Asserted on the PROPERTY, not on the spelling of the regexes, so a future
+  // rewrite of the blanker is judged by whether it works rather than by how it
+  // is written.
+  //
+  // AND THE PROPERTY IS PER LINE, NOT A RATIO — because the ratio was measuring
+  // the wrong thing and was one comment away from firing on correct code. It was
+  // `kept > 0.45` over the whole file, and a whole-line comment contributes its
+  // full length to the denominator and nothing to the numerator, so what it
+  // really asserted is "worker.js is less than 55% comments by character". This
+  // repo puts its reasoning in comments as a matter of policy, so that threshold
+  // falls a little further on every documented change and eventually goes red on
+  // one that is entirely correct — the false alarm this file rates strictly
+  // worse than the miss. It hit exactly 45.0% and failed on the 2026-08-25
+  // container work, which added no code to the serve path at all.
+  //
+  // EVERY TOP-LEVEL DECLARATION MUST SURVIVE BYTE FOR BYTE, AT ITS OWN LINE.
+  // That is the failure stated directly — a runaway swallowing 2,592 lines of
+  // the serve path swallows dozens of declarations with it — and the count moves
+  // with the CODE rather than with how much prose sits around it.
+  //
+  // A LINE-CARRIES-NO-MARKER RULE WAS TRIED FIRST AND IS WRONG, which is worth
+  // recording because it looks right: the middle lines of a block comment carry
+  // no `//`, no `/*` and no `*/` either, so it reported 1,058 lines eaten
+  // against a perfectly correct blanker — first hit worker.js:815, the second
+  // line of a JSDoc header.
+  //
+  // AGAINST `declared`, NOT `code`. `code` is `stripImports(declared)` — a
+  // second, deliberate transform that blanks every `import` line. This check is
+  // about the COMMENT blanker, so it is asked of the comment blanker's output.
+  const rawLines = worker.split("\n");
+  const cutLines = declared.split("\n");
+  assert.equal(cutLines.length, rawLines.length,
+    "the blanker changed the line count — it is deleting rather than blanking, so every offset below it is wrong");
+  const DECL = /^(?:export\s+)?(?:async\s+)?(?:function|const|let|var|class)\s+[A-Za-z_$]/;
+  const eaten = [];
+  let decls = 0;
+  for (let i = 0; i < rawLines.length; i++) {
+    if (!DECL.test(rawLines[i])) continue;
+    decls++;
+    if (cutLines[i] !== rawLines[i]) eaten.push(i + 1);
+  }
+  assert.equal(eaten.length, 0,
+    `the blanker ate ${eaten.length} top-level declarations (first: worker.js:${eaten[0]}) — real code is invisible to the scan`);
+  // AND IT MUST HAVE HAD SOMETHING TO LOOK AT. A blanker that returned the file
+  // untouched passes the check above perfectly, and so does one run over an
+  // empty string — the vacuous-clean shape this file records repeatedly.
+  assert.ok(decls > 200, `only ${decls} declarations were compared — the scan is not seeing worker.js`);
 
   // A RUNAWAY IS ONE ENORMOUS MATCH, which is the shape that distinguishes it
   // from a file that is simply well commented. The largest legitimate block

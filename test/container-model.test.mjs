@@ -244,6 +244,44 @@ test("AND IT RIDES ON THE ROW THAT SURVIVES, not only the response", () => {
     "the trace field is not a finite number, so makeTrace drops it and the mark says nothing");
 });
 
+test("A BUILD KILLED MID-GENERATION STILL SAYS THE HOP WAS MADE", () => {
+  // THE `img` MARK NEEDS GENERATION TO HAVE RETURNED, and the builds worth
+  // asking about are exactly the ones where it did not. MEASURED, run 38
+  // (`northgroup-4`): design 181,636ms, generation cut at 595,900ms by
+  // `BUILD_BUDGET_MS`, `done: true ok: false`, and NO `img` step in the row at
+  // all — so the one question the container move exists to settle was
+  // unanswerable on the build that most needed answering.
+  //
+  // THE `pages` MARK IS WRITTEN ON THE WAY OUT EITHER WAY (run 38's row has one,
+  // carrying `ms: 595900, buildMs: 0, credits: 0`), which is what makes it the
+  // right place for a fact about a build that died.
+  const w = blank(WORKER_SRC);
+  // The attempt is recorded BEFORE the answer, or a hop that never comes back
+  // leaves nothing behind.
+  assert.match(w, /out\.tried = 1;/,
+    "the container hop does not record that it was attempted, so a build cut off mid-generation says nothing about it");
+  const attempt = w.indexOf("out.tried = 1;");
+  const fetched = w.indexOf("http://build/model");
+  assert.ok(attempt > 0 && fetched > attempt,
+    "the attempt is recorded AFTER the fetch — which is exactly the ordering that loses a hop that never returns");
+  // Carried off the build function…
+  assert.match(w, /if \(genPath\.tried\) out\.genTried = 1;/,
+    "the build's result drops the fact that the hop was attempted");
+  // …and onto the row, as numbers, for the reason above.
+  assert.match(w, /\["genTried", 1\]/,
+    "the pages mark does not carry genTried, so a dead build's row cannot say the container was asked");
+  assert.match(w, /\["genVia", pages\.genVia === "container" \? 1 : 0\]/,
+    "the pages mark does not carry genVia as a finite number — makeTrace would drop it silently");
+
+  // AND THE WATCH READS THE ONE THAT SURVIVES. Anchored on `img` alone it prints
+  // nothing for a build that died, which is the state this whole test is about.
+  const watch = blank(fs.readFileSync(new URL("../scripts/build-as-owner.mjs", import.meta.url), "utf8"));
+  assert.match(watch, /s === "pages"/,
+    "the owner watch does not read the pages step, so a build killed mid-generation reports no path at all");
+  assert.match(watch, /container-holding/,
+    "the watch has no wording for a hop that never came back — the third case, and the informative one on a dead build");
+});
+
 test("the /model body cap fits the largest request the Worker can send", async () => {
   // FOUND BY MEASURING RATHER THAN BY READING, and the failure it prevents is a
   // silence. `/model` shared `MAX_BODY` with `/build`, which is 4MB — fine for a
