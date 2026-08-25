@@ -109,6 +109,7 @@ import { parseGeneratedFiles as parseGameFiles, GAME_RULES, GAME_ASSET_RULES, GA
 import { currentStateNote, EDIT_RULE, EDIT_REQUIRED, EDIT_FIELDS, hasValue, keepStoredAccess, mergeLook, movedFields } from "./builder/site-edit.mjs";
 import { PLAN_FIELDS, PLAN_KEYS, PLAN_REQUIRED, SHAPE_FIELD, IMAGES_FIELD, ACTION_FIELD, normalizePlan } from "./builder/site-plan.mjs";
 import { laneName } from "./builder/build-lane.mjs";
+import { holdDecision, BUSY_PROBE_MS } from "./builder/container-hold.mjs";
 
 // Game build-service container (Phase 3). The image (./builder-game/Dockerfile)
 // bakes kaplay + a headless Chromium for the smoke test. Runs to zero after idle.
@@ -123,6 +124,66 @@ export class GameBuildContainer extends Container {
 export class SiteBuildContainer extends Container {
   defaultPort = 8080;
   sleepAfter = "5m";
+
+  // DO NOT STOP A CONTAINER THAT IS STILL WORKING.
+  //
+  // INERT TODAY, AND THAT IS SAID FIRST because it decides how to read the rest:
+  // every build currently has a Worker AWAITING it, so the library's
+  // `isActivityExpired()` short-circuits on `inflightRequests > 0` and this hook
+  // is never called at all. Nothing about how builds run today changes.
+  //
+  // It exists for the change it is a prerequisite of — moving page generation
+  // into the container so the Worker can stop waiting — which fails at exactly
+  // five minutes without it, silently, on every build. The moment a Worker
+  // abandons its fetch the library's catch calls `decrementInflight()`, the
+  // inflight counter reaches zero, `renewActivityTimeout()` starts the
+  // `sleepAfter` clock, and the next alarm calls this hook, whose DEFAULT
+  // implementation stops the container. Work that takes seven to twelve minutes
+  // would be killed at five, and the symptom would read as the container
+  // crashing rather than as a timer doing its job. Traced through
+  // `@cloudflare/containers/dist/lib/container.js`, not assumed — see
+  // `builder/container-hold.mjs`, which quotes it.
+  //
+  // THE HOOK RATHER THAN A BIGGER `sleepAfter`: the library documents this as the
+  // override point ("If you want to shutdown the container, you should call
+  // this.stop() here"). Raising `sleepAfter` to twenty minutes also works and is
+  // worse — every IDLE container would then linger twenty minutes and bill for
+  // it, where this stops an idle one immediately and holds only a working one.
+  //
+  // NEVER THROWS. The alarm handler awaits this, so an exception escaping here
+  // is a Durable Object whose alarm died — which takes the container's whole
+  // lifecycle with it. Every failure resolves to a decision instead.
+  async onActivityExpired() {
+    let state = null;
+    try {
+      // BOUNDED, and the bound is what keeps the alarm alive as well as the
+      // container: an unbounded probe against a wedged container hangs the alarm
+      // handler that is awaiting this. A timeout resolving to "cannot tell"
+      // lands on the right side by construction — a container too busy to answer
+      // a trivial GET is one spinning the CPU, which is exactly the one to stop.
+      const r = await this.containerFetch(new Request("http://build/busy", {
+        method: "GET",
+        signal: AbortSignal.timeout(BUSY_PROBE_MS),
+      }));
+      if (r && r.ok) state = await r.json();
+    } catch { state = null; }
+    const d = holdDecision(state);
+    if (!d.hold) {
+      // NAMED, because the five reasons want five different responses from
+      // whoever reads the log: `idle` is the ordinary path and means nothing,
+      // while `no-answer`, `unreadable` and `stuck` are each a distinct fault.
+      console.log("SiteBuildContainer: stopping (" + d.why + ")");
+      return super.onActivityExpired();
+    }
+    console.log("SiteBuildContainer: held, busy " + Math.round(Number(state.sinceMs) / 1000) + "s");
+    // BELT-AND-BRACES TODAY AND SAID SO. The alarm renews the timeout itself
+    // after this returns, and `containerFetch` above renewed it too — so this
+    // line changes nothing at this version of the library. Kept because what
+    // makes it redundant is a property of code we do not own: if the alarm ever
+    // stops renewing after the hook, without this the container we just decided
+    // to keep would be stopped on the very next tick.
+    this.renewActivityTimeout();
+  }
 }
 
 const VIDEO_MODELS = new Set([
@@ -13317,6 +13378,48 @@ async function handleRequest(request, env, ctx) {
     // AUTH-GATED, and that is not ceremony. An open endpoint that pins a Worker
     // for ten minutes is a denial-of-service primitive anybody could aim at us,
     // and `MAX` bounds even an authenticated caller.
+    // DOES A CONTAINER STAY UP WITH NOBODY CONNECTED? The one question about the
+    // hold mechanism that no unit test can reach, because what is under test is
+    // Cloudflare's own lifecycle rather than our arithmetic.
+    //
+    // `?ms=N` occupies the lane and ABANDONS the fetch — which is the whole
+    // point: an awaited call keeps `inflightRequests` above zero, so the alarm
+    // never fires and `onActivityExpired` is never called. Only a walked-away
+    // request reproduces the state the fire-and-forget build will live in.
+    // `?check=1` asks the container whether it is still there.
+    //
+    // ONE LANE, ALWAYS. `laneName` is given a fixed literal rather than anything
+    // caller-supplied, so this probe can occupy at most one of five and can
+    // never starve the platform's builds — the shape the game health probe
+    // already uses. The container caps the hold at fifteen minutes on its own
+    // side too, because a bound that lives only in the caller is one the next
+    // caller forgets.
+    if (url.pathname === "/api/_hold" && request.method === "GET") {
+      if (!(await authUser(request))) return UNAUTHED();
+      if (!env.SITE_BUILD_CONTAINER) return Response.json({ ok: false, error: "no container binding" }, { status: 503 });
+      const c = getContainer(env.SITE_BUILD_CONTAINER, laneName("hold-probe"));
+      if (url.searchParams.get("check")) {
+        const t0 = Date.now();
+        try {
+          const r = await c.fetch(new Request("http://build/busy", { method: "GET", signal: AbortSignal.timeout(10000) }));
+          const body = await r.text();
+          // THE RAW BODY AND THE STATUS, never a parsed verdict. This is a probe:
+          // the reader needs to tell "the container answered idle" from "the
+          // container is gone" from "it answered something we cannot parse", and
+          // a boolean collapses all three.
+          return Response.json({ ok: true, status: r.status, body: body.slice(0, 400), ms: Date.now() - t0 });
+        } catch (e) {
+          return Response.json({ ok: false, err: String((e && e.name) || e), ms: Date.now() - t0 });
+        }
+      }
+      const ms = Math.max(0, Math.min(900000, Number(url.searchParams.get("ms")) || 0));
+      // FIRED AND ABANDONED, deliberately — see above. The rejection is caught
+      // here rather than left to float: an unhandled one in a Worker is an error
+      // in the log for a request that behaved exactly as designed.
+      c.fetch(new Request("http://build/hold?ms=" + ms, { method: "POST" }))
+        .catch((e) => console.log("hold probe: fetch settled", String((e && e.name) || e)));
+      return Response.json({ ok: true, started: ms, lane: laneName("hold-probe") });
+    }
     if (url.pathname === "/api/_slow" && request.method === "GET") {
       if (!(await authUser(request))) return UNAUTHED();
       const MAX = 900000;

@@ -132,12 +132,40 @@ test("NO getContainer CALL MAY OMIT ITS NAME — the bug, restored, is one argum
   }
 });
 
-test("BOTH SITE CONTAINER CALLS ARE KEYED BY THE SLUG", () => {
+test("EVERY SITE BUILD IS KEYED BY THE SLUG, and only a probe may key by a literal", () => {
   // The site is the unit of work: two sites compile at once, two edits of one site
   // share a lane so the build server's queue can serialise them.
-  const site = [...code.matchAll(/getContainer\(env\.SITE_BUILD_CONTAINER,\s*([^)]*\))\s*\)/g)].map((m) => m[1]);
-  assert.equal(site.length, 2, `expected 2 site container calls, found ${site.length}`);
-  for (const a of site) assert.equal(a.trim(), "laneName(slug)");
+  //
+  // ANCHORED ON THE PROPERTY, NOT ON A COUNT. This asserted `length === 2` and
+  // went red the moment an honest third call joined — `/api/_hold`, the probe
+  // that proves a container survives its idle timeout, which is pinned to ONE
+  // fixed lane precisely so it can never compete with a build. A test about how
+  // many call sites there happen to be is this repo's most repeated own-goal;
+  // what has to hold is that a BUILD is keyed by its slug and that nothing keys
+  // a lane by anything else.
+  const site = [...code.matchAll(/getContainer\(env\.SITE_BUILD_CONTAINER,\s*([^)]*\))\s*\)/g)].map((m) => m[1].trim());
+  assert.ok(site.length >= 2, `expected at least 2 site container calls, found ${site.length}`);
+  // EVERY CALL MUST BE ONE THIS SCAN COULD READ, or it goes BLIND rather than
+  // red. `[^)]*\)` cannot cross a nested paren, so a call keyed by something
+  // like `laneName(url.searchParams.get("lane"))` yields ZERO matches — measured
+  // — and a loop over the survivors then reports a clean sweep while the one
+  // dangerous call site is the one that vanished. Found by mutation: this guard
+  // survived exactly that change. The fifth time this repo has written a flat
+  // scan where the shape has nested parens.
+  const total = code.split("getContainer(env.SITE_BUILD_CONTAINER").length - 1;
+  assert.equal(site.length, total,
+    `the scan read ${site.length} of ${total} site container calls — one is a shape it cannot parse, ` +
+    "which makes this check blind rather than failing");
+  const builds = site.filter((a) => a === "laneName(slug)");
+  // A FLOOR ON THE BUILDS, or a change that stopped keying them by slug would
+  // leave this passing over nothing but probes.
+  assert.ok(builds.length >= 2, `expected both build call sites to be laneName(slug), found ${builds.length}: ${site.join(" | ")}`);
+  for (const a of site) {
+    // Anything that is not a build must be a FIXED literal. A probe keyed by
+    // something caller-supplied could pick a lane and starve real builds in it.
+    assert.ok(a === "laneName(slug)" || /^laneName\("[a-z0-9-]+"\)$/.test(a),
+      `getContainer(env.SITE_BUILD_CONTAINER, ${a}) is neither the slug nor a fixed probe lane`);
+  }
 });
 
 test("THE GAME BUILD SERVER STILL SERIALISES — lanes make a collision rarer, not impossible", () => {

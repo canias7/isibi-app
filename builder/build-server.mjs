@@ -56,6 +56,12 @@ const MAX_BODY = 4 * 1024 * 1024;
 // — and the kill is what stops one wedging the container for the platform, so
 // the mechanism stays and only the number moves. Measured worst: vite 37s.
 const STEP_TIMEOUT = 1_800_000;
+// THE CEILING ON `/hold`, which occupies a build lane and does nothing else.
+// Fifteen minutes: comfortably past `SiteBuildContainer`'s five-minute idle
+// timeout — which is the whole thing `/hold` exists to see past — and short
+// enough that a probe somebody forgets about frees its lane within one build's
+// worth of time rather than lingering.
+const MAX_HOLD_MS = 900_000;
 
 const send = (res, code, obj) => { res.writeHead(code, { "content-type": "application/json" }); res.end(JSON.stringify(obj)); };
 
@@ -812,7 +818,32 @@ function writeCss(css) {
 // subtly wrong. Cloudflare scales container INSTANCES; this only has to make one
 // instance honest.
 let _chain = Promise.resolve();
+// WHAT THIS CONTAINER OWES, so a Durable Object that is about to stop it can ask
+// first. See `builder/container-hold.mjs` for the failure this exists to
+// prevent: once a Worker stops AWAITING a build, the library's inflight counter
+// drops to zero, the idle clock starts, and the alarm stops the container
+// mid-build — five minutes into work that takes seven to twelve.
+//
+// COUNTED AT THE DOOR, NOT INSIDE THE CHAIN. A build waiting its turn is work
+// this container owes just as surely as the one compiling, and a container
+// stopped while a job is queued loses it exactly the same way. `_busy > 0`
+// therefore means "running OR queued".
+//
+// `_busySince` is the start of the current CONTINUOUS busy period rather than of
+// the current job, because what the cap upstream needs to know is how long this
+// container has been unable to go idle — a lane working steadily through three
+// queued builds is a different thing from one job that hung, and only the
+// continuous figure tells them apart.
+let _busy = 0;
+let _busySince = 0;
 function oneAtATime(fn) {
+  if (_busy === 0) _busySince = Date.now();
+  _busy++;
+  // BOTH SETTLEMENTS RELEASE. Registered on `done` rather than wrapped around
+  // `fn`, so a job that throws frees the counter exactly as one that returns
+  // does — a rejection leaking a permanent +1 would make this container claim to
+  // be busy for the rest of its life and never be reclaimed.
+  const release = () => { _busy = Math.max(0, _busy - 1); if (_busy === 0) _busySince = 0; };
   // The chain is normalised: the result value is dropped so a finished build's
   // whole dist is not retained by the queue, and a rejection is swallowed so it
   // cannot surface as an unhandled one. Not exercised by the handler below,
@@ -820,7 +851,13 @@ function oneAtATime(fn) {
   // primitive rather than of its current only caller.
   const done = _chain.then(fn, fn);
   _chain = done.then(() => {}, () => {});
+  done.then(release, release);
   return done;
+}
+
+/** What `/busy` answers. Exported shape, so the Worker's hold rule can read it. */
+function busyState() {
+  return { busy: _busy > 0, jobs: _busy, sinceMs: _busy > 0 ? Date.now() - _busySince : 0 };
 }
 
 // WHICH TEMPLATE IS BAKED INTO THIS IMAGE.
@@ -848,6 +885,41 @@ const TEMPLATE_ID = (() => {
 
 const server = http.createServer((req, res) => {
   if (req.method === "GET" && req.url === "/health") { res.writeHead(200); res.end("ok " + TEMPLATE_ID); return; }
+  // IS THERE WORK IN FLIGHT? Asked by `SiteBuildContainer.onActivityExpired`
+  // before it stops this container — see `builder/container-hold.mjs`. It has to
+  // be trivially cheap and it has to answer while a build is running, which is
+  // why it reads two numbers and touches nothing: a build spends nearly all its
+  // time awaiting a subprocess, so the event loop is free and this answers in
+  // milliseconds. A build that CANNOT answer it is one spinning the CPU, and
+  // that is the container the caller should stop.
+  if (req.method === "GET" && req.url === "/busy") { return send(res, 200, busyState()); }
+  // OCCUPY THE QUEUE FOR N MILLISECONDS, AND NOTHING ELSE.
+  //
+  // The instrument for the one thing no unit test can reach: whether Cloudflare
+  // really keeps this container alive past its idle timeout when nobody is
+  // connected. Proving that with a real build costs credits and cannot be run
+  // repeatedly; this costs a lane and a timer.
+  //
+  // IT GOES THROUGH `oneAtATime` DELIBERATELY — the point is to look exactly
+  // like a build to the busy counter, and a hold that bypassed the queue would
+  // prove the counter rather than the mechanism.
+  //
+  // THE RISK, STATED: this occupies one of five lanes, so a caller that could
+  // reach it freely could starve the platform's builds. Containers are not
+  // publicly addressable — the only way in is the Worker route, which is
+  // owner-gated — and the ceiling here is the second guard rather than the
+  // first, because a bound that lives only in the caller is one the next caller
+  // forgets.
+  if (req.method === "POST" && req.url && req.url.startsWith("/hold")) {
+    const want = Number(new URL(req.url, "http://c").searchParams.get("ms"));
+    const ms = Number.isFinite(want) && want > 0 ? Math.min(want, MAX_HOLD_MS) : 1000;
+    oneAtATime(() => new Promise((r) => setTimeout(r, ms)));
+    // ANSWERS AT ONCE rather than when the hold ends. The caller is proving that
+    // an ABANDONED request leaves the container working, so it must be able to
+    // walk away immediately — and a handler that only replied at the end would
+    // make "the hold is running" indistinguishable from "the request is stuck".
+    return send(res, 200, { held: true, ms });
+  }
   if (req.method !== "POST" || req.url !== "/build") { res.writeHead(404); res.end("nf"); return; }
   let body = "", tooBig = false;
   req.on("data", (c) => { body += c; if (body.length > MAX_BODY) { tooBig = true; req.destroy(); } });
