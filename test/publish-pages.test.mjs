@@ -11,6 +11,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildSource } from "./fixtures/build-source.mjs";
+import { buildPathFn } from "./fixtures/build-path.mjs";
 import fs from "node:fs";
 import { publishPages, pageCredits, pageCost, citedLines, totalCost, RATES, MODEL_RATES,
   DEFAULT_RATE_MODEL, ratesFor, SEARCH_USD, MIN_CREDITS,
@@ -1129,7 +1130,10 @@ test("and the WORKER really produces that shape — the fake above is not proof"
   // reporting and says nothing about whether generateSitePages ever builds one.
   // Two mutants survived on exactly that gap: disabling the capture, and blanking
   // the stop reason, both passed the behavioural test.
-  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  // FOLLOWED BY NAME, not by file. `generateSitePages` moved to build-call.mjs
+  // so the container can make the call; this read worker.js and would have gone
+  // vacuously green the moment the capture came with it.
+  const w = buildPathFn("generateSitePages").body;
   assert.match(w, /const shape = use \? null : \{/,
     "generateSitePages no longer captures why there was no tool call");
   assert.match(w, /stopReason: String\(j\.stop_reason \|\| ""\)/,

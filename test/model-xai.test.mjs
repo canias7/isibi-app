@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, XAI_ENDPOINT } from "../builder/model-xai.mjs";
 import { contextSummary, contextSentence } from "../builder/site-context.mjs";
+import { buildPathFn } from "./fixtures/build-path.mjs";
 
 /* --------------------------------------------------------- which provider */
 
@@ -250,39 +251,61 @@ const WORKER_CODE = WORKER
   .replace(/^[ \t]*\*.*$/gm, (m) => " ".repeat(m.length))
   .replace(/^[ \t]*\/\*+.*$/gm, (m) => " ".repeat(m.length));
 const CODE = WORKER.replace(/\/\/[^\n]*/g, (m) => " ".repeat(m.length));
+// The two long model calls left `worker.js` on 2026-08-25 so the CONTAINER can
+// make them. These guards assert properties of the BUILD PATH rather than of a
+// file, so they follow the function by name — see test/fixtures/build-path.mjs.
+// WHOLE-LINE COMMENTS ONLY. Blanking from ANY `//` eats the rest of a line
+// holding a URL — and `callBuilderModel`'s Anthropic branch is exactly that:
+// `fetch("https://api.anthropic.com/v1/messages"` became `fetch("https:` and
+// the ordering assertion below compared against -1, which is silently true.
+// This repo already records the rule; the first draft of this helper broke it.
+const noLineComments = (t) => t.split("\n")
+  .map((l) => (/^\s*\/\//.test(l) ? " ".repeat(l.length) : l))
+  .join("\n");
 
 test("both builder calls go through the one provider decision", () => {
   // The failure this prevents: one call site converted and the other still
   // posting a grok model id to Anthropic, which 400s on a path nobody drove.
   for (const fn of ["designSiteSchema", "generateSitePages"]) {
-    const at = CODE.indexOf(`async function ${fn}(`);
-    assert.ok(at > 0, `could not find ${fn} — this check would be vacuous`);
-    // Bounded by the NEXT function rather than a byte count. `designSiteSchema`
-    // carries the whole tool request inline and outran a 4,000-byte window on
-    // the first run — the sized-window own-goal this repo has recorded a dozen
-    // times, hit again in the test written the same hour as the warning.
-    const next = CODE.indexOf("\nasync function ", at + 10);
-    const body = CODE.slice(at, next > at ? next : CODE.length);
+    // BY NAME, NOT BY FILE. `generateSitePages` moved to build-call.mjs and this
+    // guard reported "could not find" about a function that is right there —
+    // an anchor on WHICH FILE rather than on the property being asserted.
+    // `buildPathFn` throws if it is on neither, so the vacuous case still fails.
+    const body = noLineComments(buildPathFn(fn).body);
     assert.ok(body.length > 500, `${fn}'s body did not slice — this check would be vacuous`);
     // THE ARGUMENT, NOT THE ARGUMENT LIST. Pinned to `(env, req)` exactly, this
     // went red the day the build budget became a third parameter — reporting
     // "must send through callBuilderModel" about a call that does exactly that.
-    // What has to hold is that `req` is what gets sent, however many arguments
-    // ride after it.
-    assert.match(body, /await callBuilderModel\(env, req[,)]/, `${fn} must send through callBuilderModel`);
+    // Pinned to `env` it went red again when the keys became an argument. What
+    // has to hold is that `req` is what gets sent, whatever rides either side.
+    assert.match(body, /await callBuilderModel\([A-Za-z]+, req[,)]/, `${fn} must send through callBuilderModel`);
     assert.doesNotMatch(body, /fetch\("https:\/\/api\.anthropic\.com/, `${fn} must not keep its own provider fetch`);
   }
 });
 
 test("the xAI branch refuses a missing key by name, before spending a request", () => {
-  const at = CODE.indexOf("async function callBuilderModel(");
-  const body = CODE.slice(at, CODE.indexOf("async function anthropicMessages("));
+  const body = noLineComments(buildPathFn("callBuilderModel").body);
   assert.ok(body.length > 200, "could not find callBuilderModel — this check would be vacuous");
   assert.match(body, /XAI_API_KEY/);
   // Named rather than sent as `undefined`: an unset key otherwise comes back a
   // 401 that reads exactly like a wrong key, and those need opposite fixes.
-  assert.ok(body.indexOf("!env.XAI_API_KEY") < body.indexOf("fetch(XAI_ENDPOINT"),
+  //
+  // THE CHECK, NOT ITS SPELLING. It read `!env.XAI_API_KEY` until the keys
+  // became an argument so the container could pass its own; what must hold is
+  // that SOMETHING refuses before the request, not which object it reads.
+  const refuse = body.search(/if \(!\w+\.xai\)|!env\.XAI_API_KEY/);
+  assert.ok(refuse >= 0, "nothing refuses a missing xAI key before the request");
+  assert.ok(refuse < body.indexOf("fetch(XAI_ENDPOINT"),
     "the key check must come before the request");
+  // AND THE ANTHROPIC BRANCH REFUSES TOO, which it did not while both keys came
+  // off `env`: an unset one sent `"x-api-key": undefined`, which reaches the
+  // provider as the literal string and comes back 401 — a real provider status
+  // wearing the costume of a bad key, on the branch whose sibling already
+  // refused by name. The asymmetry was invisible until the keys were arguments.
+  const anthRefuse = body.search(/if \(!\w+\.anthropic\)/);
+  assert.ok(anthRefuse >= 0, "nothing refuses a missing Anthropic key before the request");
+  assert.ok(anthRefuse < body.indexOf('fetch("https://api.anthropic.com'),
+    "the Anthropic key check must come before its request");
   assert.match(body, /isXaiModel\(req\.model\)/);
 });
 
@@ -331,14 +354,18 @@ test("an xAI error body is translated too, or `billing` and `upstreamType` are d
 test("…and the worker translates at the boundary rather than passing the raw body on", () => {
   // BOTH ENDS: the module can be perfectly right and never reached — the layer
   // this repo has lost twelve features in.
-  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.match(w, /import \{[^}]*\bxaiErrorDetail\b[^}]*\} from "\.\/builder\/model-xai\.mjs"/,
+  // THE TRANSLATION LIVES WITH THE CALL, which moved to build-call.mjs; the
+  // DIAGNOSIS that reads its output stayed in worker.js. Two files, two
+  // assertions, deliberately not one concatenation — over a concatenation
+  // either half satisfies the other's check and the guard goes vacuous.
+  const call = buildPathFn("callBuilderModel");
+  assert.match(call.src, /import \{[^}]*\bxaiErrorDetail\b[^}]*\} from "\.\/model-xai\.mjs"/,
     "naming it without importing it is a ReferenceError on the build path");
-  assert.match(w, /e\.detail = xaiErrorDetail\(await r\.text\(\)/,
+  assert.match(call.body, /e\.detail = xaiErrorDetail\(await r\.text\(\)/,
     "the xAI error body is passed through raw again, so upstreamKind reads a shape that never arrives");
   // AND THE CODE IS BELIEVED. Matching a fixed token is what a wording match
   // can never be: stable across a provider rewording its own message.
-  assert.match(w, /type === "insufficient_quota"/,
+  assert.match(WORKER, /type === "insufficient_quota"/,
     "an exhausted account is diagnosed only by its prose again");
 });
 
@@ -353,9 +380,7 @@ test("A BUILDER MODEL CALL IS BOUNDED — every fetch in it, both providers", ()
   // DERIVED OVER THE FUNCTION BODY, not pinned to today's two call sites. The
   // bug WAS one unbounded fetch, so a third provider added later has to be
   // covered without anybody remembering this file.
-  const at = WORKER.indexOf("async function callBuilderModel(");
-  assert.ok(at > 0, "callBuilderModel moved — rescope this");
-  const body = WORKER.slice(at, WORKER.indexOf("\nasync function anthropicMessages(", at));
+  const body = buildPathFn("callBuilderModel").body;
   assert.ok(body.length > 500, "the callBuilderModel window is empty — rescope this");
 
   const calls = [...body.matchAll(/\bfetch\(/g)];
@@ -396,7 +421,13 @@ test("A BUILDER MODEL CALL IS BOUNDED — every fetch in it, both providers", ()
   // slowest MEASURED generation is 156s; too loose does not bound the 1546s
   // hang this exists for. Asserted as a range rather than a number, so tuning
   // inside the safe band does not fail a test about a property.
-  const ms = Number(/const BUILDER_CALL_MS = (\d+)/.exec(WORKER)[1]);
+  // READ WHERE IT IS DECLARED. This exec'd `WORKER` and went red when the
+  // constant moved with the call it bounds — a TypeError on `null[1]` rather
+  // than a named failure, which is the worst way for a guard to report a
+  // rescope. `buildPathFn("callBuilderModel").src` is the file that owns it.
+  const declared = /const BUILDER_CALL_MS = (\d+)/.exec(buildPathFn("callBuilderModel").src);
+  assert.ok(declared, "BUILDER_CALL_MS is not declared beside the call it bounds — rescope this");
+  const ms = Number(declared[1]);
   assert.ok(ms >= 300000, "the builder bound would refuse builds that legitimately take minutes");
   // ── THE UPPER BOUND IS GONE BY DECISION, NOT BY DRIFT ─────────────────────
   //

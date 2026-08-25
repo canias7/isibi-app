@@ -29,6 +29,7 @@ import { generatedPages } from "./fixtures/generated.mjs";
 // the route refuses.
 import { acceptsVisitorUploads } from "../site-uploads.mjs";
 import { pageMeta } from "../site-meta.mjs";
+import { buildPathFn } from "./fixtures/build-path.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const TEMPLATE = path.join(ROOT, "builder", "lovable", "template");
@@ -1162,8 +1163,12 @@ test("the Worker and the eval issue the SAME generation request", () => {
   // The eval exists to tune the generator. If it built its own request body, it
   // would be tuning a different prompt from the one production runs and every
   // conclusion drawn from it would be about nothing.
-  const worker = fs.readFileSync(path.join(ROOT, "worker.js"), "utf8");
-  const gen = worker.slice(worker.indexOf("async function generateSitePages"), worker.indexOf("function schemaPlaceholderPage"));
+  // FOLLOWED BY NAME, not by file. `generateSitePages` moved to
+  // builder/build-call.mjs on 2026-08-25 so the CONTAINER can make the call —
+  // the whole point being that the step which takes ten minutes stops running
+  // on the side with a fifteen-minute cap. Pinned to worker.js this reported
+  // "must use pagesRequest" about a function that does exactly that.
+  const gen = buildPathFn("generateSitePages").body;
   // TWO SHAPES ARE FINE and the variable name is DERIVED, not spelled out here:
   // the body may be posted inline, or held in a const first (which is what the
   // Builder picker needed — the usage has to be stamped with the model that was
@@ -1181,10 +1186,10 @@ test("the Worker and the eval issue the SAME generation request", () => {
     // budget became a third parameter, claiming the request was swapped when
     // nothing had moved.
     const sent = gen.includes("JSON.stringify(" + held[1] + ")") ||
-      new RegExp("callBuilderModel\\(env,\\s*" + held[1] + "[,)]").test(gen);
+      new RegExp("callBuilderModel\\(\\w+,\\s*" + held[1] + "[,)]").test(gen);
     assert.ok(sent, "generateSitePages builds a request with pagesRequest and then sends something else");
   } else {
-    assert.match(gen, /(JSON\.stringify|callBuilderModel\(env,\s*)\(?pagesRequest\(/, "generateSitePages must use pagesRequest");
+    assert.match(gen, /(JSON\.stringify|callBuilderModel\(\w+,\s*)\(?pagesRequest\(/, "generateSitePages must use pagesRequest");
   }
   assert.ok(!/model:\s*"claude-/.test(gen), "the model must come from pagesRequest, not be restated here");
   assert.ok(!/tool_choice/.test(gen), "the tool choice must come from pagesRequest");
@@ -1633,11 +1638,22 @@ test("worker.js and the eval compose the same user turn", () => {
   // COMMENTS BLANKED FIRST, length-preserving: this repo's most recorded trap is
   // that prose explaining a thing contains that thing's spelling, and the note
   // above literally says `briefWithLayout`.
-  for (const f of ["../worker.js", "./integration/page-gen-eval.mjs"]) {
+  // TWO HALVES SINCE 2026-08-25, and each is asserted where it lives. The user
+  // turn is still composed in worker.js — `briefWithLayout` needs the plan and
+  // the image budget, which are the ROUTE's — while `pagesRequest` moved into
+  // build-call.mjs with the call that sends it. Pinned to one file this
+  // reported that worker.js hand-rolls the request, about a build where the
+  // request is built by the one function it has always been built by.
+  const PATHS = [
+    ["../worker.js", /briefWithLayout\(\{/, "composes the user turn itself instead of through briefWithLayout"],
+    ["../builder/build-call.mjs", /pagesRequest\(\{/, "builds the page request itself instead of through pagesRequest"],
+    ["./integration/page-gen-eval.mjs", /briefWithLayout\(\{/, "composes the user turn itself instead of through briefWithLayout"],
+    ["./integration/page-gen-eval.mjs", /pagesRequest\(\{/, "builds the page request itself instead of through pagesRequest"],
+  ];
+  for (const [f, want, why] of PATHS) {
     const src = fs.readFileSync(new URL(f, import.meta.url), "utf8")
       .replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m) => m.replace(/[^\n]/g, " "));
-    assert.match(src, /briefWithLayout\(\{/, `${f} composes the user turn itself instead of through briefWithLayout`);
-    assert.match(src, /pagesRequest\(\{/, `${f} builds the page request itself instead of through pagesRequest`);
+    assert.match(src, want, `${f} ${why}`);
   }
   // AND THE EVAL REALLY HANDS OVER A PLAN. Without one it sends the bare brief
   // — no page list, no shape, no component manifest — which is precisely the
@@ -2716,7 +2732,15 @@ test("the images the caller validated are the ones the model gets", () => {
   const gen = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   assert.match(gen, /const attached = attachments\(body\.images\)/, "the route never sorts body.images");
   assert.match(gen, /attachments: attached\.blocks/, "the validated blocks never reach buildAndPublishPages");
-  assert.match(gen, /pagesRequest\(\{[^}]*\battachments\b[^}]*\}\)/s, "pagesRequest is not given the attachments");
+  // THE LAST HOP IS IN THE MODULE. `pagesRequest` is called by
+  // `generateSitePages`, which moved to build-call.mjs — so this half of the
+  // chain is asserted where the call now is. The two halves are named
+  // separately rather than concatenated: over a concatenation either file
+  // satisfies the other's link and the chain guard goes vacuous.
+  assert.match(gen, /genPages\(keysFrom\(env\), brief, spec, brand, attachments\b/,
+    "the validated blocks never reach the model call");
+  assert.match(buildPathFn("generateSitePages").body, /pagesRequest\(\{[^}]*\battachments\b[^}]*\}\)/s,
+    "pagesRequest is not given the attachments");
   assert.match(gen, /\battachments\b[^\n]*from "\.\/builder\/site-context\.mjs"/, "attachments is not imported");
 });
 
@@ -2850,7 +2874,11 @@ test("the source that produced a build is stored, and read back on a revise", ()
   // never moved with it. What matters is that a revise reads it back.
   assert.match(worker, /priorPages: existing \? await loadSiteSource\(env, slug\) : null/,
     "…and a revise must read it back, gated on OWNERSHIP rather than the stored brief");
-  assert.match(worker, /pagesRequest\(\{[^}]*priorPages[^}]*\}\)/, "…and it must reach the model call");
+  // …and the last hop is in build-call.mjs, where `pagesRequest` is now called.
+  assert.match(worker, /genPages\(keysFrom\(env\),(?:[^;]*?)priorPages\b/,
+    "…and it must be handed to the model call");
+  assert.match(buildPathFn("generateSitePages").body, /pagesRequest\(\{[^}]*priorPages[^}]*\}\)/,
+    "…and it must reach the model call");
   // NOT under `sites/`, which is what `/s/<slug>/` serves — a site's own TSX is
   // not something to hand to its visitors.
   assert.match(worker, /const SOURCE_KEY = \(slug\) => "source\//);

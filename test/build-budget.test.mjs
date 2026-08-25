@@ -3,6 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { makeBudget, budgetNote, budgetStage, raceDeadline, BUILD_BUDGET_MS, CONTAINER_CALL_MS } from "../builder/build-budget.mjs";
+import { buildPathFn } from "./fixtures/build-path.mjs";
 
 /** A clock a test drives, so nothing here waits on real time. */
 function fakeClock(start = 1000) {
@@ -170,8 +171,15 @@ const CODE = WORKER.replace(/^[ \t]*\/\/[^\n]*/gm, (m) => " ".repeat(m.length));
  * written a flat scan where a depth-aware one was needed.
  */
 function paramsOf(src, name) {
-  const at = src.indexOf(`async function ${name}(`);
-  if (at < 0) return null;
+  // TWO SHAPES SINCE 2026-08-25. `generateSitePages` moved to build-call.mjs so
+  // the container can make the call, and `worker.js` keeps a thin arrow-function
+  // wrapper that does the `env`-to-keys hop. Reading only `async function` here
+  // reported "generateSitePages is gone" about a function whose signature is
+  // right there and still takes the budget — an anchor on the DECLARATION FORM
+  // rather than on the property.
+  const at = ["async function " + name + "(", "export async function " + name + "(",
+              "const " + name + " = ("].map((d) => src.indexOf(d)).filter((i) => i >= 0).sort((a, b) => a - b)[0];
+  if (at === undefined) return null;
   let i = src.indexOf("(", at), d = 0;
   const start = i + 1;
   for (; i < src.length; i++) {
@@ -197,7 +205,11 @@ test("THE BUDGET NEVER REACHES THE WIRE — it is an argument, not a field on th
     "the budget is being parked on the request object, which is what gets stringified onto the wire");
   // …and the signature really takes one, so the property above is not satisfied
   // by a budget that reaches the call by no route at all.
-  const sig = paramsOf(CODE, "callBuilderModel");
+  // FOLLOWED BY NAME. `callBuilderModel` moved to build-call.mjs so the
+  // CONTAINER can make it, and this reported "is gone" about a function that is
+  // right there — an anchor on WHICH FILE rather than on the property.
+  const callSrc = buildPathFn("callBuilderModel").src;
+  const sig = paramsOf(callSrc, "callBuilderModel");
   assert.ok(sig, "callBuilderModel is gone");
   assert.match(sig, /\bbudget\b/, "callBuilderModel no longer takes the build's budget");
 });
@@ -211,7 +223,22 @@ test("the build route makes ONE budget, and both model calls are given it", () =
     "the build route no longer starts a budget — the whole build is unbounded again");
 
   // Every call that FORWARDS a budget must forward the same binding.
-  const fwd = [...CODE.matchAll(/callBuilderModel\(env,\s*\w+,\s*(\w+)\)/g)].map((m) => m[1]);
+  // THE THIRD ARGUMENT, NOT THE FIRST. Pinned to `(env, ...)` this went red the
+  // day the keys became an argument so the container could pass its own — a
+  // correct change failing a check about what the FIRST parameter is called,
+  // when the property is that a budget rides third.
+  // ACROSS THE BUILD PATH, not one file. `generateSitePages` moved to
+  // build-call.mjs, so worker.js now holds ONE direct `callBuilderModel(...)`
+  // and reaches the other through a wrapper — this counted 1 and reported that
+  // a budget had stopped being forwarded, about a build where both still do.
+  //
+  // The wrapper is followed by NAME rather than assumed: it must pass a budget
+  // on to the module, or the pages call really is unbounded again.
+  const gen = buildPathFn("generateSitePages");
+  const genFwd = [...gen.body.matchAll(/callBuilderModel\(\w+,\s*\w+,\s*(\w+)\)/g)].map((m) => m[1]);
+  const hop = [...CODE.matchAll(/genPages\((?:[^()]|\([^()]*\))*?,\s*(\w+)\)/g)].map((m) => m[1]);
+  const fwd = [...CODE.matchAll(/callBuilderModel\(\w+,\s*\w+,\s*(\w+)\)/g)].map((m) => m[1])
+    .concat(genFwd, hop);
   assert.ok(fwd.length >= 2, `expected both builder calls to forward a budget; found ${fwd.length}`);
   for (const name of fwd) {
     assert.equal(name, "budget", `a builder call forwards \`${name}\` rather than the build's budget`);
@@ -233,7 +260,10 @@ test("the build route makes ONE budget, and both model calls are given it", () =
   // the budget — the budget threaded through four functions and discarded at
   // the last line, which is the wiring failure this repo has recorded twelve
   // times. That mutant SURVIVED the first sweep too.
-  const cm = CODE.match(/const callMs = ([^;]*);/);
+  // IN THE MODULE, where the call is. `callMs` moved with `callBuilderModel`,
+  // and this reported "no longer computes its bound in one place" about a bound
+  // that is computed in exactly one place — one file over.
+  const cm = buildPathFn("callBuilderModel").body.match(/const callMs = ([^;]*);/);
   assert.ok(cm, "callBuilderModel no longer computes its bound in one place");
   assert.match(cm[1], /budget[\s\S]*capMs/,
     "the per-call bound ignores the build budget, so the two bounds stack instead of composing");
@@ -244,8 +274,7 @@ test("the build route makes ONE budget, and both model calls are given it", () =
   // the composition away, so a pages call starting at minute fourteen of a
   // fifteen-minute budget gets another ten. That mutant survived the first
   // sweep. Derived over the function body, so a third provider is covered.
-  const cbAt = CODE.indexOf("async function callBuilderModel(");
-  const cbBody = CODE.slice(cbAt, CODE.indexOf("\nasync function anthropicMessages(", cbAt));
+  const cbBody = buildPathFn("callBuilderModel").body;
   assert.ok(cbBody.length > 500, "the callBuilderModel window is empty — this check would be vacuous");
   const bounds = [...cbBody.matchAll(/signal:\s*AbortSignal\.timeout\(([^)]*)\)/g)].map((m) => m[1].trim());
   assert.ok(bounds.length >= 2, `expected a bounded fetch per provider; found ${bounds.length}`);
@@ -258,7 +287,10 @@ test("the build route makes ONE budget, and both model calls are given it", () =
   // forwarding `undefined` and every bound silently falls back to the per-call
   // ceiling — the wiring failure wearing the shape of a working feature.
   for (const fn of ["designSiteSchema", "generateSitePages", "buildAndPublishPages"]) {
-    const sig = paramsOf(CODE, fn);
+    // ASKED OF WHEREVER IT LIVES. `generateSitePages`'s wrapper is in worker.js
+    // and its body is in build-call.mjs; both take a budget and both must, or
+    // the forward above is forwarding into a signature that drops it.
+    const sig = paramsOf(CODE, fn) || paramsOf(buildPathFn(fn).src, fn);
     assert.ok(sig, `${fn} is gone`);
     assert.match(sig, /\bbudget\b/, `${fn} does not take the build's budget, so nothing it calls can be bounded`);
   }

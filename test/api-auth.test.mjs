@@ -531,6 +531,7 @@ test("the placeholder page describes each access level correctly", () => {
 // fixed token from a small set, plus a boolean for the one message worth
 // checking. Everything else stays out.
 import { readFileSync as _rf } from "node:fs";
+import { buildPathFn } from "./fixtures/build-path.mjs";
 const WORKER_SRC = _rf(new URL("../worker.js", import.meta.url), "utf8");
 
 /** The real function, lifted out of worker.js, which cannot be imported. */
@@ -1199,7 +1200,14 @@ test("the last of the audit lows: honest statuses, honest sentences, honest fiel
   // status from the model API and nothing else" — so a key we forgot to set was
   // byte-identical on the wire to xAI answering 503 (overloaded). One is a
   // deploy we have to fix; the other is a retry that will work.
-  const xai = w.slice(w.indexOf("if (!env.XAI_API_KEY) {"), w.indexOf("const { body, droppedDocs }"));
+  // FOLLOWED BY NAME. The call moved to build-call.mjs so the CONTAINER can
+  // make it, and the check became `if (!k.xai)` — the keys are an argument now
+  // rather than read off `env`. Pinned to the old spelling this reported "the
+  // XAI key check moved" about a check that is right there.
+  const callSrc = buildPathFn("callBuilderModel").body;
+  const xaiAt = callSrc.search(/if \(!\w+\.xai\)|if \(!env\.XAI_API_KEY\)/);
+  assert.ok(xaiAt >= 0, "nothing refuses a missing xAI key — rescope this");
+  const xai = callSrc.slice(xaiAt, callSrc.indexOf("const { body, droppedDocs }"));
   assert.ok(xai.length > 50, "the XAI key check moved — rescope this");
   assert.ok(!/e\.status = 503/.test(xai), "a missing local key invents a provider status again");
   assert.match(xai, /throw new Error\("XAI_API_KEY is not set/, "the diagnosis is gone as well as the status");

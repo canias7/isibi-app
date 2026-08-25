@@ -16,6 +16,7 @@ import fs from "node:fs";
 import { BUILD_MODELS, DEFAULT_PICKER, modelsFor } from "../builder/build-models.mjs";
 import { MODEL_RATES, buildFloor, MIN_CREDITS, SCHEMA_PROFILE, SEED_PROFILE, pageCredits } from "../builder/publish-pages.mjs";
 import { pagesRequest } from "../builder/page-gen.mjs";
+import { buildPathFn } from "./fixtures/build-path.mjs";
 
 // What `use_credits` grants an account on first touch — the Postgres RPC's
 // number, restated because this file cannot reach the database. If it moves
@@ -208,15 +209,24 @@ test("the model reaches the API, and the same one reaches the meter", () => {
     const m = /\n(?:async )?function [A-Za-z]/.exec(workerCode.slice(from + 1));
     return m ? from + 1 + m.index : workerCode.length;
   };
-  for (const fn of ["async function designSiteSchema", "async function generateSitePages"]) {
-    const i = workerCode.indexOf(fn);
-    assert.ok(i > 0, fn + " is gone; this guard watches nothing");
-    const body = workerCode.slice(i, nextFn(i));
+  // ONE OF THE TWO MOVED. `generateSitePages` is in build-call.mjs so the
+  // container can make it; `buildPathFn` follows it by name and throws if it is
+  // on neither file, so the vacuous case still fails loudly.
+  for (const fn of ["designSiteSchema", "generateSitePages"]) {
+    const found = buildPathFn(fn);
+    const body = found.file === "worker.js"
+      ? workerCode.slice(workerCode.indexOf("async function " + fn), nextFn(workerCode.indexOf("async function " + fn)))
+      : found.body;
     assert.ok(body.length > 500 && body.length < 20000, fn + ": the window is not one function");
     assert.ok(!/model:\s*"claude-/.test(body), fn + " hardcodes a model again");
     assert.match(body, /model:\s*req\.model/, fn + " does not price what it sent");
   }
 });
+
+const nextResearchFn = (from) => {
+  const m = /\n(?:export )?(?:async )?function [A-Za-z]/.exec(workerCode.slice(from + 1));
+  return m ? from + 1 + m.index : workerCode.length;
+};
 
 test("research does NOT follow the picker, and is priced at what it sent", () => {
   // A STATED DECISION, pinned. Research is a factual lookup — run these
@@ -227,7 +237,11 @@ test("research does NOT follow the picker, and is priced at what it sent", () =>
   // risk that no test would mention.
   const i = workerCode.indexOf("async function siteWebResearch");
   assert.ok(i > 0, "the research call is gone; this guard watches nothing");
-  const body = workerCode.slice(i, workerCode.indexOf("async function generateSitePages", i));
+  // BOUNDED BY THE NEXT FUNCTION, whatever it is. This closed at
+  // `generateSitePages`, which left worker.js — so `indexOf` answered -1 and
+  // `slice(i, -1)` silently swept the whole rest of the file into the window,
+  // which is the vacuous shape rather than a failure.
+  const body = workerCode.slice(i, nextResearchFn(i));
   assert.match(body, /const RESEARCH_MODEL = "claude-sonnet-5"/,
     "research changed model — the web_search tool is versioned per model, so this needs proving, not assuming");
   assert.ok(!/models\.(design|pages)/.test(body), "research started following the Builder picker");

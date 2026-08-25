@@ -109,6 +109,11 @@ import { parseGeneratedFiles as parseGameFiles, GAME_RULES, GAME_ASSET_RULES, GA
 import { currentStateNote, EDIT_RULE, EDIT_REQUIRED, EDIT_FIELDS, hasValue, keepStoredAccess, mergeLook, movedFields } from "./builder/site-edit.mjs";
 import { PLAN_FIELDS, PLAN_KEYS, PLAN_REQUIRED, SHAPE_FIELD, IMAGES_FIELD, ACTION_FIELD, normalizePlan } from "./builder/site-plan.mjs";
 import { laneName } from "./builder/build-lane.mjs";
+// THE TWO LONG MODEL CALLS, IN A MODULE THE CONTAINER CAN IMPORT TOO. Aliased
+// on the way in because `worker.js` keeps thin `env`-shaped wrappers of the same
+// names — eleven call sites read them, and renaming those would make a move that
+// changes no behaviour look like a change that does.
+import { callBuilderModel as callModel, generateSitePages as genPages, keysFrom, BUILDER_CALL_MS } from "./builder/build-call.mjs";
 import { holdDecision, BUSY_PROBE_MS } from "./builder/container-hold.mjs";
 
 // Game build-service container (Phase 3). The image (./builder-game/Dockerfile)
@@ -4917,76 +4922,24 @@ const SITE_SCHEMA_MAX_TOKENS = 16000;
 // pages call started at minute eleven gets what is left rather than a fresh ten
 // — which is what makes the difference between a site with placeholder pictures
 // and no site at all.
-const BUILDER_CALL_MS = 600000;
-
-// THE BUDGET IS A THIRD ARGUMENT AND NOT A FIELD ON `req`, and the reason is one
-// line below: the Anthropic branch sends `JSON.stringify(req)`. A budget parked
-// on the request would be serialised as `"budget":{"totalMs":900000}` — an
-// unknown top-level field, which that API answers 400 to. Every Anthropic build
-// on the platform, refused, by the thing added to stop builds being abandoned.
-// The xAI branch happens to be safe (`toXaiRequest` names the fields it sends),
-// which is exactly what would have made this survive a test run and bite live.
+// MOVED TO `builder/build-call.mjs` (2026-08-25) so the CONTAINER can make this
+// call. Re-exported here under the same name because eleven places read it and
+// a second spelling is a second thing that can drift.
 //
-// Null on every path but the build, so the ordinary per-call bound is unchanged.
-async function callBuilderModel(env, req, budget = null) {
-  // The sooner of the call's own ceiling and what is left of the build. See
-  // `builder/build-budget.mjs`: the two bounds have to COMPOSE, or a pages call
-  // starting at minute fourteen of a fifteen-minute budget gets another ten.
-  const callMs = budget && typeof budget.capMs === "function" ? budget.capMs(BUILDER_CALL_MS) : BUILDER_CALL_MS;
-  if (isXaiModel(req.model)) {
-    if (!env.XAI_API_KEY) {
-      // NO `status`, DELIBERATELY. This used to synthesise 503, and the route
-      // returns `upstream: (e && e.status) || null` under a comment saying that
-      // field is "the numeric status from the model API and nothing else" — so
-      // a key we forgot to set was byte-identical on the wire to xAI answering
-      // 503 (overloaded), on the one field built to tell those apart. One is a
-      // deploy we have to fix and the other is a retry that will work.
-      //
-      // The route's own `kind` carries `Error` for this, and the message names
-      // the variable, so the diagnosis is not lost — it just stops pretending
-      // to be a provider's answer.
-      throw new Error("XAI_API_KEY is not set on the Worker");
-    }
-    const { body, droppedDocs } = toXaiRequest(req);
-    const r = await fetch(XAI_ENDPOINT, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${env.XAI_API_KEY}`, "content-type": "application/json" },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(callMs),
-    });
-    if (!r.ok) {
-      const e = new Error("xai " + r.status);
-      e.status = r.status;
-      // TRANSLATED LIKE EVERYTHING ELSE AT THIS BOUNDARY. The raw body went
-      // straight into `e.detail`, and `upstreamKind` downstream parses
-      // Anthropic's envelope — so `upstreamType` was always null and `billing`
-      // always false on a Grok build, and the one actionable message on the
-      // build path could not fire. `toXaiRequest`/`fromXaiResponse` exist
-      // precisely so no line downstream has to know which provider answered;
-      // the error body was the half that never got the same treatment.
-      e.detail = xaiErrorDetail(await r.text().catch(() => ""));
-      throw e;
-    }
-    const out = fromXaiResponse(await r.json());
-    // Reported rather than swallowed: a PDF cannot cross into the chat shape, so
-    // a customer whose attached price list was ignored has a reason for it.
-    if (droppedDocs) console.error("xai: dropped", droppedDocs, "document attachment(s) — no chat-shape equivalent");
-    return out;
-  }
-  const r = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-    body: JSON.stringify(req),
-    signal: AbortSignal.timeout(callMs),
-  });
-  if (!r.ok) {
-    const e = new Error("anthropic " + r.status);
-    e.status = r.status;
-    e.detail = (await r.text().catch(() => "")).slice(0, 300);
-    throw e;
-  }
-  return r.json();
-}
+// Ten minutes, and it composes with the build clock through `capMs` rather than
+// adding to it — a pages call started at minute eleven gets what is LEFT rather
+// than a fresh ten, which is the difference between a site with placeholder
+// pictures and no site at all.
+
+/**
+ * The provider decision, in ONE place, wherever it runs.
+ *
+ * A THIN WRAPPER RATHER THAN A SECOND IMPLEMENTATION. `env` is a Cloudflare
+ * binding object and the container has none, so the module takes the two keys;
+ * this is the one line that turns one into the other. Every caller below is
+ * unchanged, which is what makes the move provable rather than merely plausible.
+ */
+const callBuilderModel = (env, req, budget = null) => callModel(keysFrom(env), req, budget);
 
 /**
  * Did this throw come from the bound above rather than from the provider?
@@ -5471,71 +5424,13 @@ export async function siteWebResearch(env, brief, queries) {
 //
 // ONE call per build. There is no repair pass — see builder/publish-pages.mjs
 // for the measurement it was removed on.
-async function generateSitePages(env, brief, spec, brand, attachments, model, priorPages, mode, target, budget = null) {
-  // One definition, shared with the eval harness — see pagesRequest. Restating
-  // it here would mean the harness tunes against a different request from the
-  // one production runs. Held in a const so the usage below can be stamped with
-  // the model that was actually sent.
-  const req = pagesRequest({ brief, spec, brand, attachments, model, priorPages, mode, target });
-  // Provider decided in ONE place — see callBuilderModel. It answers in
-  // Anthropic's shape whichever one served it, so every line below this is
-  // unchanged and cannot tell the difference. No timeout, for the reason stated
-  // there: this is the call it mattered most for, since three pages against a
-  // 24,000-token ceiling is the one that runs long.
-  //
-  // `budget` is the BUILD's remaining time — see designSiteSchema. Passed as an
-  // argument rather than set on `req`, which is shared with the eval AND is what
-  // gets stringified onto the wire.
-  const j = await callBuilderModel(env, req, budget);
-  const usage = j.usage || {};
-  // CACHED TOKENS ARE REPORTED SEPARATELY AND WERE NOT BEING COUNTED. The
-  // Anthropic API excludes cache hits from `input_tokens` and returns them as
-  // `cache_read_input_tokens` / `cache_creation_input_tokens` — and PAGE_RULES,
-  // the thing cache_control exists for, is ~18,300 tokens. So the meter saw a few
-  // hundred input tokens on a call that really carried nineteen thousand, and on
-  // a COLD cache the creation tokens bill at 1.25x and were invisible.
-  //
-  // Counted at face value rather than reweighted: a credit is 1/8000 of a dollar
-  // of MODEL spend, and pretending a cache read costs a tenth would mean the
-  // ledger tracks a different number from the invoice. Reweighting belongs in the
-  // rate, not in the token count, and today the rate is one number.
-  // THE FOUR KINDS, KEPT APART. Summing them into one `usedIn` is what made
-  // pageCredits price a cache read at the fresh rate — ten times over, on the
-  // largest input component — and overcharge a warm build by 35%. They are
-  // priced 1x / 5x / 0.1x / 1.25x and only the caller can tell them apart.
-  const used = {
-    usage: {
-      in: usage.input_tokens || 0,
-      out: usage.output_tokens || 0,
-      cacheRead: usage.cache_read_input_tokens || 0,
-      cacheWrite: usage.cache_creation_input_tokens || 0,
-      // The rate column, off the request that was sent. Under `auto` this call
-      // is Sonnet while the designer above it is Opus, so a build's two usage
-      // objects are priced from two different rows and must never be merged.
-      model: req.model,
-    },
-  };
-  // A tool_use block cut off at max_tokens carries half-written JSON, which parses
-  // into a page whose last file is truncated. Treat it as a failed generation
-  // rather than shipping a file that ends mid-expression.
-  if (j.stop_reason === "max_tokens") return { input: null, truncated: true, ...used };
-  const use = (Array.isArray(j.content) ? j.content : []).find((b) => b && b.type === "tool_use");
-  // WHY THERE ARE NO PAGES, when there are none. Measured live 2026-08-04: a
-  // build spent 9,810 output tokens and 22 credits, `validatePages` got null, and
-  // the response could say only "the generator didn't produce a usable page" —
-  // which does not distinguish a model that answered in prose from one that
-  // called the tool with an empty argument. Third layer in a row where a failure
-  // could not name itself; the pages are gone the moment this returns, so the
-  // answer has to be captured here or not at all.
-  //
-  // `stop_reason` and the block TYPES only — never the text, which is
-  // model-written prose about a customer's brief.
-  const shape = use ? null : {
-    stopReason: String(j.stop_reason || "").slice(0, 40),
-    blocks: (Array.isArray(j.content) ? j.content : []).map((b) => String(b && b.type)).slice(0, 6),
-  };
-  return { input: (use && use.input) || null, ...(shape ? { shape } : {}), ...used };
-}
+/**
+ * Write this site's pages — THE LONG CALL, seven to twelve minutes on a real
+ * brief. Moved to `builder/build-call.mjs` so the container can make it; this
+ * is the `env`-to-keys hop and nothing else.
+ */
+const generateSitePages = (env, brief, spec, brand, attachments, model, priorPages, mode, target, budget = null) =>
+  genPages(keysFrom(env), brief, spec, brand, attachments, model, priorPages, mode, target, budget);
 
 // Placeholder published page. Deliberately plain: it reports what was actually
 // created so a build is verifiable end to end before page generation exists.

@@ -16,6 +16,7 @@ import {
   CONSUMER_MS, BUILD_BUDGET_MS, PUBLISH_RESERVE_MS, CONTAINER_CALL_MS, makeBudget,
 } from "../builder/build-budget.mjs";
 import { photoWait, imageNote, PHOTO_FLOOR_MS } from "../builder/site-images.mjs";
+import { buildPathFn } from "./fixtures/build-path.mjs";
 
 const WORKER = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 
@@ -60,8 +61,11 @@ test("EVERY CEILING SITS UNDER THE ONE CLOUDFLARE ENFORCES", () => {
   assert.ok(CONTAINER_CALL_MS < CONSUMER_MS, `container ${CONTAINER_CALL_MS} >= consumer ${CONSUMER_MS}`);
   // AND THE MODEL CALLS, which live in worker.js and are resolved rather than
   // matched — a bound asserted by its spelling is one the next edit moves.
-  const m = CODE.match(/const BUILDER_CALL_MS = (\d+);/);
-  assert.ok(m, "BUILDER_CALL_MS is gone from worker.js");
+  // READ WHERE IT IS DECLARED — it moved to build-call.mjs with the call it
+  // bounds. Asserting it is in worker.js is a fact about a filename; what has
+  // to hold is that the per-call ceiling still sits under the consumer's.
+  const m = buildPathFn("callBuilderModel").src.match(/const BUILDER_CALL_MS = (\d+);/);
+  assert.ok(m, "BUILDER_CALL_MS is not declared beside the call it bounds");
   assert.ok(Number(m[1]) < CONSUMER_MS, `builder ${m[1]} >= consumer ${CONSUMER_MS}`);
   // THE WAIT ON THE QUEUE TOO. The Worker stops waiting for the consumer at
   // `QUEUE_WAIT_MS`; past the consumer's own ceiling there is nothing left that
