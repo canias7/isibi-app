@@ -101,9 +101,16 @@ test("a reset with no slug recovers the name instead of giving up", () => {
   // AND THE DISCOVERED NAME HAS TO BE THE ONE EVERYTHING DOWNSTREAM USES. With
   // the trace still keyed on the empty OWNER_SLUG the poll prints "no trace row
   // yet" forever — which is precisely the silence arm C's watch would have had.
-  assert.match(watch, /traceLine\(slug\)/,
+  //
+  // ANCHORED ON THE ARGUMENT, NOT THE READER'S NAME. This said `traceLine(slug)`
+  // and went red on 2026-08-25 when the reader was split into `readTrace` +
+  // `traceText` so the watch could see `done` as well as print it — a correct
+  // change, failing a test about a spelling. This repo's most repeated own-goal.
+  // What has to hold is WHICH SLUG is read, whatever the function is called.
+  assert.match(watch, /(traceLine|readTrace)\(slug\)/,
     "the trace must be read for the discovered slug, not the unset OWNER_SLUG");
-  assert.doesNotMatch(watch, /traceLine\(SLUG\)/);
+  assert.doesNotMatch(watch, /(traceLine|readTrace)\(SLUG\)/,
+    "the watch must never key the trace on OWNER_SLUG — on a discovered slug that is unset");
   assert.doesNotMatch(watch, /slug: SLUG/,
     "the synthesised response must carry the discovered slug");
 });
@@ -171,4 +178,72 @@ test("NEITHER HARNESS WAITS FOR EVER — a silently dead socket has a ceiling", 
   // now the ONLY way to reach it was a reset.
   assert.match(CODE, /disconnected = true;/,
     "the timeout must fall through to the watch, not become a new failure path");
+});
+
+// ── A 200 IS NOT A PUBLISHED SITE ───────────────────────────────────────────
+//
+// Run 36 (2026-08-25) is why these exist. The socket reset at 258s, the watch
+// polled the site, got a 200, and declared "PUBLISHED after 0.0 minutes" — on
+// the EARLY PLACEHOLDER, up since 3m49s, seven minutes before the real site
+// existed. It printed `done=false ok=null at=gen` on the same line.
+//
+// The build happened to succeed, so the run was right BY LUCK. On run 35, which
+// never published at all, the same code would have reported a site that does
+// not exist.
+const WORKER = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+
+test("THE WATCH READS THE BODY ON A 200 — r.ok alone cannot tell the site from the stand-in", () => {
+  // Anchored on the WATCH's own branch rather than on any `r.ok` in the file:
+  // `discoverSlug` has one too and it is about a completely different read.
+  const at = CODE.indexOf("let settledOnPlaceholder");
+  assert.ok(at > 0, "the watch loop's placeholder state is gone");
+  const loop = CODE.slice(at, CODE.indexOf("if (settledOnPlaceholder)", at));
+  assert.ok(loop.length > 200, "the watch loop window is empty");
+  assert.match(loop, /isPlaceholder\(await r\.text\(\)\)/,
+    "the watch does not read the body — this is the run-36 bug, restored");
+  assert.match(loop, /if \(!stand\) published = true/,
+    "a placeholder 200 must not count as published");
+});
+
+test("THE MARKER AGREES WITH WHAT worker.js REALLY EMITS — derived, never restated", () => {
+  // THE ONE WAY THIS FIX DIES SILENTLY. `worker.js` owns the meta name; this
+  // script carries its own copy of the attribute pair. Rename the tag there and
+  // the watch stops recognising a placeholder — with no error anywhere, and the
+  // run-36 bug back exactly as it was.
+  //
+  // So the tag is REBUILT from worker.js's own constant and its own emitting
+  // line, and the script's copy has to be found inside it.
+  const name = WORKER.match(/const PLACEHOLDER_MARK = "([^"]+)"/);
+  assert.ok(name, "worker.js no longer declares PLACEHOLDER_MARK");
+  // The EMITTING line too, so this cannot pass on a constant nothing renders —
+  // a marker declared and never put in the page is exactly as invisible to the
+  // watch as one that was renamed.
+  assert.match(WORKER, /<meta name=\\"" \+ PLACEHOLDER_MARK \+ "\\" content=\\"placeholder\\">/,
+    "worker.js no longer emits the placeholder meta tag");
+  const emitted = `name="${name[1]}" content="placeholder"`;
+  const mine = CODE.match(/const PLACEHOLDER_MARK = '([^']+)'/);
+  assert.ok(mine, "the harness lost its placeholder marker");
+  assert.equal(mine[1], emitted,
+    `the harness looks for ${JSON.stringify(mine[1])} and worker.js emits ${JSON.stringify(emitted)}`);
+});
+
+test("A SETTLED PLACEHOLDER ENDS THE WAIT, and only on a STRICT done === true", () => {
+  // Without this the watch polls a FAILED build's placeholder for the rest of
+  // the job — an hour of "still waiting" about a build that gave up ten minutes
+  // earlier. And it must be strict: an unreadable trace answers `{err}`, and
+  // "Supabase blinked" must not read as "the build gave up".
+  assert.match(CODE, /if \(stand && got\.row && got\.row\.done === true\)/,
+    "a settled placeholder no longer ends the wait, or the check went truthy");
+});
+
+test("ONE TRACE READ SERVES BOTH THE LINE AND THE DECISION", () => {
+  // The fact the watch needed was already in its hand and only the formatter
+  // could see it. Two readers would drift back into exactly that.
+  assert.match(CODE, /async function readTrace\(/, "readTrace is gone");
+  assert.match(CODE, /function traceText\(/, "traceText is gone");
+  assert.match(CODE, /async function traceLine\(slug\) \{ return traceText\(await readTrace\(slug\)\); \}/,
+    "traceLine no longer composes from the shared reader");
+  // A read that FAILS must be `{err}`, never a null row: "no answer" and "no
+  // row" are different, and the second is what a build that never started is.
+  assert.match(CODE, /return \{ err: `trace read \$\{r\.status\}` \}/, "a failed read stopped naming itself");
 });

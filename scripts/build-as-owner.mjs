@@ -269,15 +269,34 @@ if (build) {
 // So a build with no client attached is still narrating itself, and printing
 // the last mark each poll turns "26 minutes of silence" into "it has been in
 // `gen` for 8 minutes", which names a provider and a fix.
-async function traceLine(slug) {
+// ONE READ, TWO CONSUMERS — the log line and the decision below it.
+//
+// Split out on 2026-08-25 because the watch was reading the trace, PRINTING
+// `done=false`, and then declaring the build published on the same line. The
+// fact it needed was already in its hand and only the formatter could see it.
+//
+// A read that FAILS is `{err}` and never `{row: null}`: "Supabase would not
+// answer" and "this build has no row" are different, and the second is what a
+// build that never started looks like.
+async function readTrace(slug) {
   try {
     const r = await fetch(
       `${SUPABASE_URL}/rest/v1/site_builds?slug=eq.${encodeURIComponent(slug)}&select=done,ok,page,total_ms,at,steps`,
       { headers: svc });
-    if (!r.ok) return `trace read ${r.status}`;
+    if (!r.ok) return { err: `trace read ${r.status}` };
     const rows = await r.json();
     const row = rows && rows[0];
-    if (!row) return "no trace row yet";
+    if (!row) return { err: "no trace row yet" };
+    return { row };
+  } catch (e) {
+    return { err: `trace unreadable (${String((e && e.message) || e).slice(0, 60)})` };
+  }
+}
+
+function traceText(got) {
+  {
+    if (got.err) return got.err;
+    const row = got.row;
     // `steps` IS AN ARRAY OF `{s, ms}`, NOT A MAP — and the first draft read it
     // with `Object.keys`, which on an array yields INDICES. So arm B's whole
     // watch printed `last=19`, `last=21`, `last=22`: a number that reads like a
@@ -310,9 +329,34 @@ async function traceLine(slug) {
     const shape = [db, tabs].filter(Boolean).join(" ");
     return `done=${row.done} ok=${row.ok} page=${row.page || "?"} marks=${steps.length} at=${row.at || "(none)"}` +
       (shape ? `  ${shape}` : "") + (tail ? `  [${tail}]` : "");
-  } catch (e) {
-    return `trace unreadable (${String((e && e.message) || e).slice(0, 60)})`;
   }
+}
+
+// The ticker's one-liner, unchanged in what it prints.
+async function traceLine(slug) { return traceText(await readTrace(slug)); }
+
+// ── IS THIS 200 THE SITE, OR THE STAND-IN? ──────────────────────────────────
+//
+// THE BUG THIS EXISTS FOR, MEASURED ON RUN 36 (2026-08-25). The socket reset at
+// 258s, the watch below polled the site, got a 200 — and the 200 was the EARLY
+// PLACEHOLDER, up since 3m49s. It printed `done=false ok=null at=gen` and on the
+// next line said "PUBLISHED after 0.0 minutes of waiting", seven minutes before
+// the real site existed. The build happened to succeed, so the run was right by
+// luck; on run 35, which never published, it would have reported a site that
+// does not exist.
+//
+// THE MARKER WAS BUILT FOR EXACTLY THIS AND WAS WIRED TO NOTHING. `worker.js`
+// stamps `<meta name="gofarther-page" content="placeholder">` on the stand-in
+// and the unit suite asserts exactly one kind of page carries it — and the one
+// watcher that needed to read it never did. The wiring layer, again.
+//
+// READ OFF THE BODY, NOT THE TRACE, and the asymmetry is deliberate. The body
+// is the thing a visitor gets, so it cannot lag or be unreadable the way a
+// database row can; a trace that is behind must never block a genuine success.
+// The trace decides only when to STOP waiting — see below.
+const PLACEHOLDER_MARK = 'name="gofarther-page" content="placeholder"';
+function isPlaceholder(html) {
+  return typeof html === "string" && html.includes(PLACEHOLDER_MARK);
 }
 
 // ── THE SLUG THE DESIGNER CHOSE, RECOVERED FROM THE LEDGER ──────────────────
@@ -390,24 +434,48 @@ if (disconnected) {
   log(`step 4b — watching ${watch} — the build publishes when it publishes, no ceiling here`);
   const waitedFrom = Date.now();
   let published = false;
+  let settledOnPlaceholder = false;
   // Poll for as long as this job is allowed to live. The runner's own cap is
   // the only bound, deliberately: the owner's instruction was to let the model
   // work, and a bound here would be exactly the ceiling we just removed.
   for (let i = 1; i <= 240; i++) {
     const mins = ((Date.now() - waitedFrom) / 60000).toFixed(1);
     let status = 0;
+    let stand = false;
     try {
       const r = await fetch(watch, { redirect: "follow" });
       status = r.status;
-      if (r.ok) { published = true; }
+      // THE BODY IS READ ON EVERY POLL, INCLUDING THE ONE THAT SAYS 200. That
+      // is the whole fix: `r.ok` alone cannot tell the site from the stand-in,
+      // because the stand-in is served at the site's own address and answers
+      // 200 like anything else.
+      if (r.ok) {
+        stand = isPlaceholder(await r.text());
+        if (!stand) published = true;
+      }
     } catch (e) {
       status = `err ${String((e && e.code) || (e && e.message) || e).slice(0, 40)}`;
     }
-    log(`step 4b — +${mins}m  site ${status}  |  ${await traceLine(slug)}`);
+    const got = await readTrace(slug);
+    log(`step 4b — +${mins}m  site ${status}${stand ? " (PLACEHOLDER)" : ""}  |  ${traceText(got)}`);
     if (published) break;
+    // WHEN TO STOP WAITING ON A STAND-IN, and this is the only thing the trace
+    // decides. A build that FAILED leaves the placeholder as its final state —
+    // so without this the watch polls a settled site for the rest of the job,
+    // an hour of "still waiting" about a build that finished ten minutes ago.
+    //
+    // `done === true` STRICTLY, never truthiness: an unreadable trace answers
+    // `{err}` and must keep us waiting rather than declare the run over, since
+    // "Supabase blinked" and "the build gave up" want opposite responses.
+    if (stand && got.row && got.row.done === true) { settledOnPlaceholder = true; break; }
     await new Promise((r) => setTimeout(r, 15000));
   }
-  if (!published) {
+  if (settledOnPlaceholder) {
+    log("step 4b — THE BUILD FINISHED AND LEFT THE PLACEHOLDER STANDING.");
+    log("         That is the ship-anyway path doing its job rather than a hang: the site has a");
+    log("         real page at its real address, and it is the stand-in rather than the site the");
+    log("         customer asked for. The trace line above names the mark it stopped on.");
+  } else if (!published) {
     log("step 4b — the site never came up inside this job. The trace line above names the mark it");
     log("         stopped on; the row survives, so `select steps from site_builds where slug=...`");
     log("         is still the diagnosis after this run ends.");
