@@ -339,7 +339,36 @@ jobs:
           # step-4 progress line reads the trace by slug, and with the designer
           # naming the site there is nothing to look up until the answer comes
           # back — which on a build that dies is never.
-          OWNER_SLUG: northgroup-2
+          # ── RUN 37: A THIRD SLUG, AND THE FIRST PUBLISH THAT CLEARS ITS OWN
+          # STAND-IN ────────────────────────────────────────────────────────
+          #
+          # Owner: "just make a new build, you can try crm again." Same brief
+          # again, and `northgroup-2` published on run 36 so it is claimed —
+          # ownership decides `revise`, so re-using it measures an edit rather
+          # than a first build. Balance 231 before this; run 36 cost 13.
+          #
+          # WHAT ONLY THIS RUN CAN ANSWER (63e8755, deployed and green in CI, and
+          # NOT PROVEN LIVE): a publish now DELETES the early stand-in. Run 36 put
+          # one up at 3m49s and it survived the publish, so `northgroup-2` still
+          # answers 200 with the 856-byte placeholder at every address the site
+          # does not have — measured against `oak-and-ash`, built before the early
+          # write existed, which 404s. `clearPlaceholder` runs from
+          # `putSiteWorker`'s success path, so it fires only once the script has
+          # really landed.
+          #
+          # READ IT AS A PAIR, because either half alone proves nothing:
+          #   * a real route answers 200 and renders the site, AND
+          #   * an address the site does NOT have answers 404 rather than 200
+          #     with `content="placeholder"` in the body.
+          # The stand-in going up EARLY is unchanged and still expected on the
+          # watch line — what is new is that it must be gone by the end.
+          #
+          # AND RUN 36'S OTHER READINGS STILL STAND AS THE COMPARISON: 630,734ms
+          # total, generation 340,277ms against run 35's 619,822 on the identical
+          # brief, and `compile` 151ms because the designer declared no
+          # photographs. A third sample of one brief is what turns two numbers
+          # into a range.
+          OWNER_SLUG: northgroup-3
           OWNER_PICKER: grok
           OWNER_BRIEF: "A sales CRM for a five-person team that sells industrial coffee machines to cafes across the north of England. Everyone on the team signs in - nothing here is public except a one-page front door. One page is the pipeline: every deal with its company, its value in pounds, which stage it is at and who owns it, sortable and filterable by stage, with the total value of each stage across the top. One page is a single deal: the company details, every call and email logged against it in date order, and a form to log another. One page lists contacts, each one linked to their company. The feel is a working tool rather than a website - dense rows, figures that line up, one accent colour used only where something needs attention, and no photographs anywhere."
         run: node scripts/build-as-owner.mjs
