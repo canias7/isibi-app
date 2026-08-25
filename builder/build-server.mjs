@@ -920,6 +920,66 @@ const server = http.createServer((req, res) => {
     // make "the hold is running" indistinguishable from "the request is stuck".
     return send(res, 200, { held: true, ms });
   }
+  // CAN THIS CONTAINER REACH THE MODEL PROVIDERS AT ALL?
+  //
+  // The second thing no unit test can answer, and the one that decides whether
+  // generation can move in here. The image makes ZERO outbound provider calls
+  // today — measured, `fetch(` appears in `builder/*.mjs` exactly once and it is
+  // a loopback — so container egress to `api.anthropic.com` is documented as
+  // open and has never been observed.
+  //
+  // A 401 IS THE PROOF, AND THAT IS WHAT MAKES THIS FREE. Sending no key at all
+  // means the provider answers "authentication required" — which can only happen
+  // if DNS resolved, TLS completed, the request was routed and a real server
+  // replied. Nothing is spent, no key is needed, and no key is present to leak.
+  // A DNS failure, a refused connection or a timeout is the opposite proof, and
+  // each names itself rather than arriving as one word.
+  //
+  // BOTH PROVIDERS, because they are different hosts on different networks and
+  // `DEFAULT_PICKER` is grok — a run that proved only Anthropic would say
+  // nothing about the provider every build actually uses.
+  // AN ASYNC ISLAND, because this handler is not async and must not become one.
+  // Making it async would put every other route — the build, the busy read, the
+  // hold — behind a promise boundary they do not have today, which is a change
+  // to the request path of every build for the sake of a probe.
+  if (req.method === "GET" && req.url === "/egress") {
+    (async () => {
+      const hosts = [
+        ["anthropic", "https://api.anthropic.com/v1/messages"],
+        ["xai", "https://api.x.ai/v1/chat/completions"],
+      ];
+      const out = {};
+      for (const [name, target] of hosts) {
+        const at = Date.now();
+        try {
+          // POST with an empty body: these endpoints answer 401 before they parse
+          // anything, so an unauthenticated probe never reaches a billable path.
+          const r = await fetch(target, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: "{}",
+            signal: AbortSignal.timeout(15000),
+          });
+          // The STATUS is the whole answer. The body is the provider's own error
+          // prose and is not read — it can only add noise to a log.
+          out[name] = { reached: true, status: r.status, ms: Date.now() - at };
+        } catch (e) {
+          // NAMED, never a bare false. `TimeoutError` (blocked, silently),
+          // `ENOTFOUND` (no DNS) and `ECONNREFUSED` (no route) want completely
+          // different answers, and "egress failed" tells the reader none of them.
+          out[name] = { reached: false, kind: String(e && e.name), why: String((e && e.cause && e.cause.code) || (e && e.message) || e).slice(0, 120), ms: Date.now() - at };
+        }
+      }
+      send(res, 200, out);
+    })().catch((e) => {
+      // A PROBE MUST NOT TAKE THE SERVER DOWN. An uncaught throw in a Node
+      // request handler kills the process, mid-build, for every customer queued
+      // behind it — and Cloudflare reports the restart as "the container is not
+      // running", which reads as flaky infrastructure rather than as this.
+      try { send(res, 500, { error: String((e && e.name) || e) }); } catch { /* already answered */ }
+    });
+    return;
+  }
   if (req.method !== "POST" || req.url !== "/build") { res.writeHead(404); res.end("nf"); return; }
   let body = "", tooBig = false;
   req.on("data", (c) => { body += c; if (body.length > MAX_BODY) { tooBig = true; req.destroy(); } });

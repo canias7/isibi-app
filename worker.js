@@ -13420,6 +13420,36 @@ async function handleRequest(request, env, ctx) {
         .catch((e) => console.log("hold probe: fetch settled", String((e && e.name) || e)));
       return Response.json({ ok: true, started: ms, lane: laneName("hold-probe") });
     }
+    // CAN THE CONTAINER REACH THE MODEL PROVIDERS?
+    //
+    // The second unknown that decides whether generation can move into the
+    // container. Documented as open, never observed here — the image makes zero
+    // outbound provider calls today, so nothing in this repo has ever tried.
+    //
+    // COSTS NOTHING AND CARRIES NO KEY. The container sends no credentials, so a
+    // 401 is the whole proof: it can only be produced by DNS resolving, TLS
+    // completing and a real server answering. There is no key in the image to
+    // leak and no billable path to reach.
+    //
+    // PINNED TO THE SAME ONE LANE as the hold probe, for the same reason — a
+    // caller-chosen lane is one that could starve a real build.
+    if (url.pathname === "/api/_egress" && request.method === "GET") {
+      if (!(await authUser(request))) return UNAUTHED();
+      if (!env.SITE_BUILD_CONTAINER) return Response.json({ ok: false, error: "no container binding" }, { status: 503 });
+      const c = getContainer(env.SITE_BUILD_CONTAINER, laneName("hold-probe"));
+      const t0 = Date.now();
+      try {
+        const r = await c.fetch(new Request("http://build/egress", { method: "GET", signal: AbortSignal.timeout(45000) }));
+        const body = await r.text();
+        // THE RAW BODY, like the hold probe's check and for the same reason: the
+        // reader has to tell a reached-but-refused host from an unreachable one
+        // from a container that answered nothing, and a boolean collapses all
+        // three into the one word that helps least.
+        return Response.json({ ok: true, status: r.status, body: body.slice(0, 600), ms: Date.now() - t0 });
+      } catch (e) {
+        return Response.json({ ok: false, err: String((e && e.name) || e), ms: Date.now() - t0 });
+      }
+    }
     if (url.pathname === "/api/_slow" && request.method === "GET") {
       if (!(await authUser(request))) return UNAUTHED();
       const MAX = 900000;

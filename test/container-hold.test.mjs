@@ -208,6 +208,54 @@ test("the hold is capped by the container, not only by its caller", async () => 
   });
 });
 
+test("the egress probe answers a NAMED outcome for BOTH providers, either way", async () => {
+  // SHAPE, NOT REACHABILITY. Whether THIS machine can reach the providers says
+  // nothing about a Cloudflare container — this dev box goes through an outbound
+  // proxy and CI has its own network — so asserting `reached: true` here would
+  // be asserting the wrong network, and it would go red for a reason unrelated
+  // to the thing under test. What must hold is that the endpoint answers, covers
+  // both hosts, and NAMES what happened rather than collapsing four different
+  // causes into one word.
+  await withServer(async (base) => {
+    const r = await fetch(base + "/egress");
+    assert.equal(r.status, 200, "the egress probe did not answer");
+    const out = await r.json();
+    // BOTH, because they are different hosts on different networks and
+    // `DEFAULT_PICKER` is grok — a probe covering only Anthropic would say
+    // nothing about the provider every build actually uses.
+    for (const name of ["anthropic", "xai"]) {
+      const v = out[name];
+      assert.ok(v && typeof v === "object", name + " is missing from the report: " + JSON.stringify(out));
+      assert.equal(typeof v.ms, "number", name + " did not time itself");
+      if (v.reached === true) {
+        assert.equal(typeof v.status, "number", name + " claims it was reached and names no status");
+      } else {
+        assert.equal(v.reached, false, name + " answered neither reached nor not: " + JSON.stringify(v));
+        // The whole point of the failure branch: a timeout, a DNS miss and a
+        // refused connection want different answers, so each has to say which.
+        assert.ok(v.kind && v.why, name + " failed without saying how: " + JSON.stringify(v));
+      }
+    }
+  });
+});
+
+test("THE EGRESS PROBE CARRIES NO CREDENTIAL — a 401 is the proof, so a key would spend", () => {
+  // Sending a key would make this billable and would put a secret in an image
+  // that holds none today. The proof is precisely that an UNAUTHENTICATED
+  // request is answered: only DNS, TLS, routing and a live server can produce a
+  // 401. Asserted as an absence, because adding auth here is the tidy-looking
+  // edit that turns a free probe into a paid one.
+  const i = server.indexOf('req.url === "/egress"');
+  assert.ok(i > 0, "the egress probe is gone — the second unknown becomes unprovable");
+  const blk = server.slice(i, server.indexOf("/build", i));
+  assert.ok(!/authorization|x-api-key|API_KEY/i.test(blk),
+    "the egress probe sends a credential — it must not, or it stops being free and starts leaking");
+  assert.match(blk, /api\.anthropic\.com/, "the probe stopped covering Anthropic");
+  assert.match(blk, /api\.x\.ai/, "the probe stopped covering xAI — the DEFAULT picker");
+  assert.match(blk, /AbortSignal\.timeout\(/,
+    "the egress probe is unbounded — a blocked network would hang the container's own request handler");
+});
+
 // ── THE WIRING ──────────────────────────────────────────────────────────────
 
 test("SiteBuildContainer overrides onActivityExpired and asks before stopping", () => {
