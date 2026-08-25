@@ -887,6 +887,37 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages } =
   // them. `buildMs` already splits out the compile; these split out the rest.
   const tGen = Date.now();
   const gen = await deps.generate();
+
+  // ── FIRED, NOT FINISHED ─────────────────────────────────────────────────────
+  //
+  // `generate` may hand back a promise of an answer rather than the answer: the
+  // container is holding the call and this invocation is going to walk away.
+  // See `builder/build-resume.mjs` for why — a queue consumer is capped at
+  // fifteen minutes and generation alone has been measured at 620 seconds, so
+  // waiting here is what killed runs 38 and 39 at the budget.
+  //
+  // RETURNING HERE IS FREE, AND THAT IS THE WHOLE REASON THE SEAM IS AT THIS
+  // LINE. Everything above it is a credit READ; the only spend in this function
+  // is `settle`, which runs after the publish. So an invocation that stops here
+  // has taken nothing from anybody's ledger, and the resume can charge exactly
+  // once without having to undo a charge that already happened.
+  //
+  // STRICTLY `=== true`, so nothing merely truthy diverts a build into a resume
+  // it has no record for. A generate that returned junk still falls through to
+  // the no-pages handling below, which is what it did before this existed.
+  if (gen && gen.pending === true) {
+    out.stage = "resuming";
+    // SET rather than left undefined, the same rule every other outcome here
+    // follows: a caller reading the field must be able to tell "we did not
+    // charge" from "this build predates the field".
+    out.charged = false;
+    out.resume = gen.resume || null;
+    // NO `genMs`. Generation has not finished, so the only number available is
+    // how long the FIRE took — a handful of milliseconds wearing the name of the
+    // slowest step in the build. The resume reports the real one.
+    return out;
+  }
+
   out.genMs = Date.now() - tGen;
   // THE FOUR TOKEN KINDS, kept rather than collapsed into a credit total.
   // `charge` prices them and threw the breakdown away — so the SCHEMA call
