@@ -1,4 +1,4 @@
-// WHICH BUILD CONTAINER A REQUEST LANDS ON.
+// WHICH BUILD CONTAINER A REQUEST LANDS ON — ONE PER UNIT OF WORK.
 //
 // THE BUG THIS EXISTS TO END. `getContainer(binding)` takes an optional name and
 // every call site on the platform omitted it — and the library's default is the
@@ -14,88 +14,89 @@
 // then serialised the whole platform behind whichever one arrived first. A build
 // that hangs does not stall one customer, it queues everybody.
 //
-// THE DESIGN WAS ALREADY RIGHT AND ITS SECOND HALF WAS NEVER SWITCHED ON.
-// `builder/build-server.mjs`'s own comment says so in as many words:
+// ── WHY THIS IS NO LONGER A BUCKET (2026-08-25, owner's call) ────────────────
 //
-//     "Serialised rather than given a directory each ... Cloudflare scales
-//      container INSTANCES; this only has to make one instance honest."
+// Until today this hashed every key into FIVE fixed lanes. The stated reason was
+// that **what Cloudflare does past `max_instances` is "not documented on either
+// container page, and the client library has no knowledge of the limit at all"**,
+// so the boundary was "enforced somewhere we cannot see, in a way we cannot
+// predict". Bucketing made it unreachable by construction.
 //
-// `oneAtATime` protects an instance from itself — the build server wipes a
-// SHARED `src/routes` and `dist` per build, which is how two builds destroyed
-// each other on 2026-07-29. It was never meant to be the platform's queue. What
-// was missing is the half that hands different work to different instances.
+// THE LITERAL HALF OF THAT WAS TRUE AND THE CONCLUSION WAS NOT. `max_instances`
+// really does appear nowhere in `@cloudflare/containers` — but the library
+// recognises the ceiling BY NAME and gives it a status of its own:
 //
-// `max_instances` HAS THEREFORE NEVER BEEN REACHABLE. Both classes declare 5 and
-// exactly 1 has ever existed.
+//     const NO_CONTAINER_INSTANCE_ERROR = 'there is no container instance that
+//                                          can be provided to this durable object';
+//     const RATE_LIMITED_ERROR          = 'you are requesting too many containers per second';
 //
-// ── WHY A BUCKET RATHER THAN THE KEY ITSELF ──────────────────────────────────
+// handled in three places, as a 503 and a 429. So the boundary is not
+// unpredictable at all: it is two named errors with two distinct statuses.
 //
-// The obvious fix is `getContainer(binding, slug)`: one instance per site, total
-// concurrency. It is rejected for one measured reason — **what Cloudflare does
-// when a Worker asks for more instances than `max_instances` allows is not
-// documented on either container page, and the client library has no knowledge
-// of the limit at all** (grep it: `max_instances` appears nowhere in
-// `@cloudflare/containers`). So the boundary is enforced somewhere we cannot
-// see, in a way we cannot predict, on the platform's primary feature.
+// AND THE CEILING IS 300x HIGHER THAN THE NUMBER WE PICKED. Cloudflare's own
+// figures: an account may run 6 TiB of concurrent memory, 1,500 concurrent vCPU
+// and 30 TB of concurrent disk; `standard-1` is 1/2 vCPU, 4 GiB, 8 GB. Memory
+// binds first at **6 TiB / 4 GiB = 1,536 instances**, which is exactly what their
+// changelog claims — "you can now run over 1,500 instances of the standard-1
+// instance type concurrently". Five was never a platform limit. It was a guess
+// made while the documentation was unclear.
 //
-// Hashing into a FIXED number of lanes makes that boundary unreachable. The
-// instance count is bounded by construction, so there is no limit to be refused
-// at — and the failure mode of a collision is the one thing already proven to
-// work: two builds share a lane, share an instance, and `oneAtATime` serialises
-// them exactly as it serialises the whole platform today. **A collision degrades
-// to today's behaviour rather than to an undocumented error**, which is the
-// whole argument.
+// SO THE UNIT OF WORK GETS ITS OWN CONTAINER, and the wait a customer felt was
+// never the container starting — measured 2026-08-25, a cold start is 2,453ms
+// against 176ms warm. The wait was QUEUEING BEHIND SOMEBODY ELSE'S BUILD: over
+// five lanes two simultaneous builds collided about one time in five, and six
+// collided always, and a collision meant waiting out the whole ten-minute build
+// in front.
 //
 // ── WHY `oneAtATime` STAYS ───────────────────────────────────────────────────
 //
-// Two keys can hash to one lane, and a lane is one instance with one working
-// directory. Removing the chain to "finish the job" reintroduces the 2026-07-29
-// failure — one build deleting another's `src/routes` mid-compile — on a path
-// that now looks concurrent and is not.
+// It is not made redundant by this — it is made PRECISE. Two builds of ONE site
+// still share a name, therefore one instance, therefore one working directory,
+// and the build server wipes a shared `src/routes` and `dist` per build. That is
+// how two builds destroyed each other on 2026-07-29. What changes is only that
+// two builds of DIFFERENT sites no longer queue behind each other.
 //
-// ── THE KEY ──────────────────────────────────────────────────────────────────
+// ── THE KEY, AND WHY EACH CALL SITE CHOOSES ITS OWN ─────────────────────────
 //
-// FNV-1a, NOT a sum of character codes. This repo already records why, on the
-// favicon hue: a sum hashes "ab" and "ba" identically, and two slugs that are
-// anagrams of each other (`fold-lane` / `lane-fold`) are exactly the pair that
-// would collide and never separate.
+// Every caller already passes the right thing and none of them had to change:
+// a site build and a site edit pass the SLUG (two edits of one site share an
+// instance on purpose); a game BUILD passes the ACCOUNT, because a game names
+// itself only after it compiles and there is nothing narrower in scope; the
+// probes pass a literal, because a probe has no build to be keyed by.
 //
 // AND IT NEVER ANSWERS `undefined`. That is the one return value that would be
 // catastrophic and silent: `getContainer(binding, undefined)` takes the default
 // parameter and lands back on `cf-singleton-container` — the exact bug, restored
-// invisibly, with every test green. Anything unusable answers lane 0, which is a
-// real lane.
+// invisibly, with every test green.
 
-// HOW MANY LANES. This MUST equal `max_instances` in wrangler.jsonc, and
-// `test/build-lane.test.mjs` reads both files and asserts it: set it higher and
-// the undocumented boundary is reachable again, which is the one thing the
-// bucketing exists to prevent; set it lower and we pay for instances nothing can
-// ever use.
+// HOW LONG A KEY MAY BE AND STILL BE USED AS ITSELF.
 //
-// FIVE BECAUSE FIVE IS WHAT ALREADY DEPLOYS. Raising the ceiling is one number
-// in two places and is now guarded — but a `wrangler.jsonc` value the platform
-// refuses is not a slower build, it is NO DEPLOY AT ALL (three merges shipped
-// nothing that way on 2026-08-07), and `max_instances: 5` is proven. The change
-// worth making today is going from ONE lane to five; the cap is a separate,
-// verifiable step.
-export const BUILD_LANES = 5;
+// SIXTY, BECAUSE THAT IS `cleanSlug`'S OWN CAP — `.slice(0, 60)` in worker.js —
+// so every real site name reads as itself in a Cloudflare dashboard beside every
+// other Durable Object on the account. A first draft said 48 and its comment
+// claimed "every real site name is under this", which was false for any slug
+// between 49 and 60 characters: those were hashed, and the dashboard showed a
+// base36 number where the customer's site name should be. Caught by mutation —
+// nothing asserted a long slug stays legible, so the number could be anything.
+//
+// It is a legibility bound, not a platform one: a Durable Object name may be up
+// to 2048 bytes, so nothing here is close to refusing. Anything longer or
+// stranger than this is hashed rather than refused.
+const MAX_PLAIN_KEY = 60;
 
 /**
- * WHICH LANE A KEY BELONGS TO — 0 .. lanes-1, always.
+ * FNV-1a over a key. NOT a sum of character codes — this repo already records
+ * why, on the favicon hue: a sum hashes "ab" and "ba" identically, and two slugs
+ * that are anagrams of each other are exactly the pair that would collide and
+ * never separate.
  *
- * Deterministic: the same key is always the same lane, which is what makes
- * `oneAtATime` correct for two builds of one site.
+ * Exported so that property can be asserted directly rather than through the
+ * name, where a collision would be invisible among the plain-key answers.
  */
-export function buildLane(key, lanes = BUILD_LANES) {
-  // A NONSENSE LANE COUNT IS ONE LANE, not a crash and not a modulo by zero.
-  // This is reached on the build path of every site on the platform; refusing
-  // here would turn a bad constant into every build failing, where falling back
-  // costs exactly the behaviour we have today.
-  const n = Number.isInteger(lanes) && lanes > 0 ? lanes : 1;
+export function keyHash(key) {
   // NOT COERCED. `String(["a","b"])` is `"a,b"` — the coercion this repo has
   // shipped as a real bug three times. A non-string is not a key.
   const s = typeof key === "string" ? key : "";
-  if (!s) return 0;
   let h = 0x811c9dc5;
   for (let i = 0; i < s.length; i++) {
     h ^= s.charCodeAt(i);
@@ -103,15 +104,40 @@ export function buildLane(key, lanes = BUILD_LANES) {
     // through a double, losing the low bits that carry the mixing.
     h = Math.imul(h, 0x01000193) >>> 0;
   }
-  return h % n;
+  return h;
 }
 
+// THE NAME AN UNUSABLE KEY GETS, and it is deliberately NOT `build-h-0`.
+//
+// FNV-1a can answer 0, so `keyHash(s).toString(36)` can be the string `"0"` —
+// which means a real site whose slug happened to hash to zero would share one
+// container, and therefore one working directory, with every keyless caller.
+// One chance in 4.29 billion, and free to make structurally impossible: this
+// name carries no `k-`/`h-` marker at all, so neither branch can ever produce
+// it. The danger being avoided is never a wrong container — it is `undefined`,
+// which takes `getContainer`'s default parameter and restores the platform-wide
+// singleton invisibly, with every test green.
+const NO_KEY_NAME = "build-none";
+
 /**
- * THE NAME TO HAND `getContainer`.
+ * THE NAME TO HAND `getContainer` — one per key, and never `undefined`.
  *
- * Prefixed, so a lane is identifiable in a Cloudflare dashboard rather than
- * being a bare digit beside every other Durable Object name on the account.
+ * A key that is already a safe short identifier is used AS ITSELF, so
+ * `build-k-fold-lane-bakery` is legible in a dashboard beside every other
+ * Durable Object on the account; anything else is hashed.
+ *
+ * THE TWO BRANCHES CANNOT COLLIDE, AND THE `k-` MARKER IS WHAT DOES THAT WORK.
+ * A hashed name is base36 of a uint32, whose alphabet is `0-9a-z` — measured,
+ * no hyphen — so `build-h-<hash>` can never contain the `k-` that every plain
+ * name carries immediately after `build-`. The `h-` marker is therefore
+ * BELT-AND-BRACES TODAY and is said so rather than deleted or falsely asserted:
+ * a mutant removing it survives, because what actually separates the branches
+ * is a property of the OTHER one. It becomes load-bearing the moment the plain
+ * branch's marker changes or a third branch is added, which is one edit away.
  */
-export function laneName(key, lanes = BUILD_LANES) {
-  return "build-" + buildLane(key, lanes);
+export function laneName(key) {
+  const s = typeof key === "string" ? key : "";
+  if (!s) return NO_KEY_NAME;
+  if (s.length <= MAX_PLAIN_KEY && /^[a-z0-9][a-z0-9-]*$/.test(s)) return "build-k-" + s;
+  return "build-h-" + keyHash(s).toString(36);
 }

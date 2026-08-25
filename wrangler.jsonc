@@ -162,13 +162,13 @@
     {
       "class_name": "GameBuildContainer",
       "image": "./builder-game/Dockerfile",
-      "max_instances": 5,
+      "max_instances": 300,
       "instance_type": "standard-1"
     },
     {
       "class_name": "SiteBuildContainer",
       "image": "./builder/Dockerfile",
-      "max_instances": 5,
+      "max_instances": 1000,
       "instance_type": "standard-1"
     }
   ],
@@ -243,9 +243,28 @@
         // the other way spends their credits twice on our own initiative, which
         // is the same argument that removed the repair pass on 2026-08-04.
         "max_retries": 0,
-        // Matches the container's own `max_instances`. More consumers than
-        // containers is a queue of Workers waiting on a queue of containers.
-        "max_concurrency": 5
+        // HOW MANY BUILDS CAN RUN AT ONCE, AND IT IS THIS NUMBER RATHER THAN THE
+        // CONTAINER'S. A queued build only starts when a consumer invocation is
+        // free, so raising `max_instances` above and leaving this at 5 would have
+        // been ENTIRELY INERT: containers plentiful, five builds at a time, every
+        // test green. The wiring layer this repo has recorded twelve dead
+        // features in, arriving in the number rather than in a call site.
+        //
+        // 250 IS CLOUDFLARE'S DOCUMENTED MAXIMUM for a push consumer, not a
+        // number picked for headroom — their limits page states it, and a value
+        // above it is not a slower platform, it is a config the deploy REFUSES,
+        // which ships nothing at all (three merges went that way on 2026-08-07).
+        //
+        // The old comment's rule still holds and now holds with room: more
+        // consumers than containers is a queue of Workers waiting on a queue of
+        // containers, and 250 sits well under the site container's 1000. That
+        // gap is used rather than decorative — the cheap-edit spine drives the
+        // same container class from the request path and never touches this
+        // queue. It also means the container pool can never be what refuses a
+        // queued build, which matters because `max_retries` is deliberately 0:
+        // a `NO_CONTAINER_INSTANCE_ERROR` here would end a customer's build
+        // outright rather than wait for a slot.
+        "max_concurrency": 250
       }
     ]
   }
