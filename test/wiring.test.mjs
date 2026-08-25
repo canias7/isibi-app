@@ -539,7 +539,17 @@ test("the build both ASKS for photographs and BUYS them", () => {
   // its body is spelled is not a fact about the wiring.
   const at = worker.indexOf("\n    images: (pages,");
   assert.ok(at > 0, "the `images` dep is no longer supplied to publishPages");
-  assert.match(worker.slice(at, at + 1200), /buySitePhotos\(/,
+  // AND THE WINDOW CLOSES AT THE NEXT DEP, NEVER AT A BYTE COUNT. This was
+  // `at + 1200` and went red the day the dep gained a comment — reporting that
+  // the photographs had stopped being bought, about a call sitting a few lines
+  // further down than it used to. A sized source window is outrun by the next
+  // thing somebody writes above the code it is watching, which is the own-goal
+  // this repo has recorded a dozen times and this guard has now suffered twice
+  // for two different reasons.
+  const next = worker.slice(at + 1).search(/\n {4}[A-Za-z_$][\w$]*:/);
+  const dep = next > 0 ? worker.slice(at, at + 1 + next) : worker.slice(at);
+  assert.ok(dep.length > 100, "the `images` dep window is empty — this check would be vacuous");
+  assert.match(dep, /buySitePhotos\(/,
     "the dep that buys photographs no longer calls buySitePhotos");
 });
 

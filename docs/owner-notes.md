@@ -12,6 +12,46 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ## OPEN — waiting to be picked up
 
+**THE 15-MINUTE CAP — HALF FIXED, AND HERE IS EXACTLY WHERE IT STANDS (2026-08-25).**
+You asked whether the 15-minute Workers cap is a problem for an hour-long build.
+It is, and it is closer than it looks.
+
+- **The margin today is two minutes.** Page generation alone took **9m55s** on
+  the CRM build that died and 10m20s on the one before it. Whole builds run
+  10m31s and 11m10s. The cap is fifteen, and when it hits, the isolate is
+  **stopped** — no fallback page, no reason logged, nobody told.
+- **What I have done: the ten-minute model call now runs in the CONTAINER**,
+  which Cloudflare says has *no fixed maximum runtime*. The Worker still builds
+  the prompt (it has to — the prompt machinery is 1MB across fifteen files, three
+  of them outside the container's build context) and hands the finished request
+  over.
+- **What is NOT done, and I want to be plain about it: this does not yet raise
+  the ceiling.** The call is on the side with no clock; the Worker is still
+  sitting there waiting for it, and the Worker is the side with fifteen minutes.
+  What it buys is that the second half is now a change to *where the wait
+  happens* rather than to who makes the call.
+- **The second half is a re-enqueue** — the Worker starts the job, walks away,
+  and a later short invocation picks the answer up. The mechanism is settled and
+  checked against Cloudflare's docs. **It touches the credit ledger** (the
+  deposit and the schema settlement must each happen exactly once across two
+  invocations), so it gets its own careful pass rather than being bolted on here.
+- **One thing nobody has measured, and the next build is what measures it:**
+  whether a container can reach the model provider at all. Every check so far
+  refuses before making a request, on purpose, so it costs nothing to run. So
+  the build carries a fallback — if the container reached no provider, the
+  Worker makes the call itself and **the build still finishes**. The response and
+  the trace both say which side did it. Nothing is charged twice: anything that
+  may already have cost money is never retried.
+- **A thing I found on the way that would have made this look like it worked
+  when it did not.** The container's request-size cap is 4MB and a build with a
+  photograph or a price list attached sends up to 13.6MB. It would have been
+  refused, fallen back to the Worker, and every attachment build would have
+  quietly gone on running its ten-minute call on the capped side — the exact
+  build most likely to need the time. Fixed, with a check that goes red if the
+  attachment limits ever rise past it again.
+
+---
+
 **THE CRM BUILD DIED IN THE CONTAINER, AND THE DESIGN HALF WORKED (2026-08-25).**
 `northgroup` never published. Its trace says exactly where it stopped:
 

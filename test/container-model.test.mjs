@@ -136,3 +136,177 @@ test("the Dockerfile ships what the /model route imports", () => {
     assert.match(df, new RegExp(`\\b${f.replace(".", "\\.")}\\b`), `${f} is not COPYd into the build image`);
   }
 });
+
+/* --------------------------------------- and the BUILD really goes through it */
+
+test("THE BUILD'S PAGE GENERATION IS MADE IN THE CONTAINER, and the edit lanes are not", () => {
+  // THE WIRE, which is the half a module test cannot see. `/model` shipped
+  // UNREACHABLE on purpose so it could be proven before anything depended on
+  // it — and a route nothing calls is exactly the state twelve features in this
+  // repo have shipped and stayed in.
+  const w = blank(WORKER_SRC);
+
+  // ONE caller into the module carries a container caller, and it is the BUILD's.
+  const calls = [...w.matchAll(/generateSitePages\(env,[\s\S]*?\);/g)].map((m) => m[0]);
+  assert.ok(calls.length >= 3, `expected the build and both edit lanes to generate; found ${calls.length}`);
+  const viaContainer = calls.filter((c) => /containerPagesCall\(/.test(c));
+  assert.equal(viaContainer.length, 1,
+    `${viaContainer.length} generation calls go through the container — the build path must, and the two edit lanes must not`);
+  // …and it is the one inside `buildAndPublishPages`, not one of the lanes. The
+  // brief it sends is the build's own composed directive, which no edit lane
+  // has: an edit sends the customer's instruction.
+  assert.match(viaContainer[0], /briefWithLayout\(\{ brief, plan/,
+    "the container call is not the build's own generation — an edit lane is being routed through it");
+
+  // AND THE LANES STAY ON THE WORKER. Explicit rather than implied by the count
+  // above, because a lane silently gaining the hop buys a new failure mode on
+  // the CHEAP path for a call that takes seconds.
+  for (const c of calls.filter((x) => !/containerPagesCall\(/.test(x))) {
+    assert.ok(!/containerPagesCall/.test(c), "an edit lane now makes its model call in the container");
+  }
+});
+
+test("the container hop preserves a provider's own answer rather than flattening it", () => {
+  // THIS IS THE HALF THAT DECIDES WHAT THE CUSTOMER IS TOLD. `upstreamKind`
+  // parses `detail` for the provider's error type and the one sentence that
+  // names an empty account; the build route reports `upstream` as "the numeric
+  // status from the model API and nothing else"; and `isCallTimeout` reads
+  // `e.name`. A hop that threw a bare Error would turn a real 429 — retry in a
+  // minute — into an undiagnosable container fault, on every build.
+  const hop = blank(WORKER_SRC);
+  const at = hop.indexOf("function containerPagesCall(");
+  assert.ok(at > 0, "containerPagesCall is gone — rescope this guard");
+  const body = hop.slice(at, hop.indexOf("\n}", at));
+  // THE ASSIGNMENT, NOT THE WORD. The first draft asked whether each field
+  // appeared anywhere in the function and every one of them does — `fail.status`
+  // is read to decide the retry, `status: null` is written when the container
+  // itself was unreachable. So a mutant DELETING the line that puts the
+  // provider's status on the error SURVIVED: a presence standing in for a
+  // property, in the guard written for exactly that. A real 429 would have
+  // reached the route as `upstream: null`, which means "no provider answered" —
+  // so "wait a minute and try again" would read as a container fault.
+  // THE TWO SIDES SPELL THE CLASS DIFFERENTLY, and that is the pairing rather
+  // than an inconsistency: `/model` answers a JSON `{status, detail, kind}` —
+  // `name` on a plain object would read as the error's own — and an Error
+  // carries it as `name`, which is what `isCallTimeout` asks for.
+  for (const [onError, fromFail, why] of [
+    ["status", "status", "the route reports `upstream` from it, and null is itself the signal that no provider answered"],
+    ["detail", "detail", "`upstreamKind` parses it for the billing sentence and the one that names an empty account"],
+    ["name", "kind", "`isCallTimeout` reads it, so a timeout would stop being one"],
+  ]) {
+    // Assigned onto the error FROM the failure, whichever way it is spelled — a
+    // direct assignment or `defineProperty`, since `name` is not writable the
+    // ordinary way on every engine.
+    const assigned = new RegExp(`e\\.${onError}\\s*=\\s*[^;]*fail\\.${fromFail}|defineProperty\\(e, "${onError}"[\\s\\S]{0,120}fail\\.${fromFail}`);
+    assert.match(body, assigned, `the re-thrown failure does not carry the container's \`${fromFail}\` — ${why}`);
+  }
+
+  // AND THE DECISION IS THE MODULE'S, not a second copy of it. Two readings of
+  // "was money spent" is how one comes to say yes while the other says no, and
+  // the shape of that disagreement is a customer billed twice.
+  assert.match(body, /if \(!retryHere\(/, "the hop decides for itself whether a retry is safe");
+  assert.match(hop, /import \{[^}]*\bretryHere\b[^}]*\} from "\.\/builder\/build-call\.mjs"/,
+    "retryHere is used without being imported — a ReferenceError on the build path");
+});
+
+test("WHICH SIDE MADE THE CALL RIDES ON THE RESPONSE", () => {
+  // Without this the change is UNMEASURABLE: a build that used the container and
+  // one that fell back to the Worker produce the same pages, the same cost and
+  // the same site. Whether generation got out from under the consumer's
+  // fifteen-minute cap would be a thing nobody could ever check.
+  const w = blank(WORKER_SRC);
+  // Written by the hop…
+  assert.match(w, /out\.via = "container"/, "the container path does not record itself");
+  assert.match(w, /out\.via = "worker"/, "the fallback does not record itself");
+  // …carried off the build function…
+  assert.match(w, /if \(genPath\.via\) out\.genVia = genPath\.via;/,
+    "the build's result drops which side made the call");
+  // …and onto the wire. Both ends, because either alone passes with the wire cut.
+  assert.match(w, /genVia: pages\.genVia \|\| undefined/,
+    "the response literal does not carry genVia — the field would be computed and dropped");
+});
+
+test("AND IT RIDES ON THE ROW THAT SURVIVES, not only the response", () => {
+  // THE RESPONSE IS THE THING THIS PLATFORM KEEPS LOSING. The edge resets a
+  // build's socket at around 285 seconds and that has happened ELEVEN recorded
+  // times — runs 35, 36, 37 and 38 all finished with nobody holding the answer.
+  // So a measurement that lives only on the response is one this platform has a
+  // measured history of never seeing, and `genVia` is the only thing that says
+  // whether the ten-minute call got out from under the consumer's cap.
+  const w = blank(WORKER_SRC);
+  assert.match(w, /mark\?\.\("img", \{ viaContainer:/,
+    "the trace does not record which side made the call — the one row that survives a reset says nothing about it");
+  // A NUMBER, because `makeTrace` takes only finite numbers and drops everything
+  // else SILENTLY. That rule is deliberate — it is what stops a connection
+  // string or a model's prose reaching a trace by accident — so a string here
+  // would be a field written, dropped and never noticed.
+  assert.match(w, /viaContainer: genPath\.via === "container" \? 1 : 0/,
+    "the trace field is not a finite number, so makeTrace drops it and the mark says nothing");
+});
+
+test("the /model body cap fits the largest request the Worker can send", async () => {
+  // FOUND BY MEASURING RATHER THAN BY READING, and the failure it prevents is a
+  // silence. `/model` shared `MAX_BODY` with `/build`, which is 4MB — fine for a
+  // bare page request (34,763 characters, measured) and far under what a build
+  // carrying an ATTACHMENT sends. That would have answered 413, the Worker's hop
+  // would have read it as "no provider was reached", and `retryHere` would have
+  // correctly made the call here instead — so every build with a picture or a
+  // price list attached would quietly keep running its ten-minute call on the
+  // side with a fifteen-minute cap. It would have looked exactly like the
+  // feature working.
+  const ctx = await import("../builder/site-context.mjs");
+  // DERIVED FROM THE CAPS THAT DECIDE IT, never restated. Two numbers written
+  // down twice is how one rises and the other does not — and the symptom of
+  // that is not an error, it is attachment builds silently going back to the
+  // capped side.
+  //
+  // THE PROMPT HALF IS BUILT RATHER THAN GUESSED. A first draft wrote 40,000 for
+  // it and the DATA prompt alone is 42,201 characters — an understatement in the
+  // one direction that matters, since this bound exists to be a ceiling. The
+  // real request is the one thing here that can be asked directly.
+  const { pagesRequest } = await import("../builder/page-gen.mjs");
+  const prompt = JSON.stringify({
+    req: pagesRequest({ brief: "a barber shop in Leeds", spec: { tables: [{ name: "bookings", access: "collect", columns: [{ name: "at", type: "text" }] }] },
+      brand: "Sharp Fade", attachments: [], model: "claude-sonnet-5", priorPages: null }),
+    callMs: BUILDER_CALL_MS,
+  }).length;
+  assert.ok(prompt > 30000, `the page request measured ${prompt} characters — too small to be the real prompt`);
+  const worst = prompt + ctx.BLOCK_TOTAL + ctx.TEXT_TOTAL;
+  const src = blank(SERVER_SRC);
+  const cap = src.match(/const MAX_MODEL_BODY = ([^;]+);/);
+  assert.ok(cap, "/model no longer has its own body cap — it is back on /build's, which an attachment overruns");
+  const bytes = Function(`"use strict"; return (${cap[1]});`)();
+  assert.ok(bytes > worst,
+    `MAX_MODEL_BODY is ${bytes} and the largest request the Worker can send is ${worst} — every build with an attachment would 413 and fall back`);
+
+  // AND THE ROUTE USES IT. A cap declared and not read is the same silence with
+  // a constant to point at.
+  const at = src.indexOf('req.url === "/model"');
+  const body = src.slice(at, src.indexOf('req.url !== "/build"', at));
+  assert.match(body, /mBody\.length > MAX_MODEL_BODY/, "the /model route still measures against /build's cap");
+  // …and `/build` keeps its own, which is a memory decision about the dist and
+  // has nothing to do with a prompt.
+  assert.match(src, /const MAX_BODY = /, "the /build cap is gone — the dist payload is now unbounded");
+});
+
+test("THE OWNER'S OWN WATCH READS IT, or it is carried and read by nobody", () => {
+  // THE LAST HOP, AND IT IS THE ONE THIS REPO KEEPS LOSING. `genVia` on the
+  // response and `viaContainer` on the trace are both correct and both invisible
+  // if nothing prints them — which is the shape twelve dead features here have
+  // taken, every one of them right at both ends with the wire cut.
+  //
+  // `build as owner` is what watches a real build, and it already reads `db=`
+  // and `tables=` straight off the trace for exactly this reason: run 34's
+  // response-based log line "never executed, on the very run that proved it".
+  const src = fs.readFileSync(new URL("../scripts/build-as-owner.mjs", import.meta.url), "utf8")
+    .split("\n").map((l) => (/^\s*(\/\/|\*|\/\*)/.test(l) ? "" : l)).join("\n");
+  assert.match(src, /steps\.find\(\(s\) => s && s\.s === "img"\)/,
+    "the watch does not look at the img mark, so the one thing it carries is unread");
+  assert.match(src, /viaContainer/, "the watch reads the img mark and not the field on it");
+  // AND IT REACHES THE LINE. Computed into a variable the summary does not
+  // include is the same silence one statement later — which is precisely how
+  // `oneClickBlocked` and eleven others came to be computed by nobody's reader.
+  const line = src.match(/const shape = \[([^\]]*)\]/);
+  assert.ok(line, "the trace summary no longer assembles a shape line — rescope this guard");
+  assert.match(line[1], /\bvia\b/, "which side made the call is computed and left out of the line that prints");
+});

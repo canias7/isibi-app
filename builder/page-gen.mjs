@@ -4267,8 +4267,29 @@ export function pagesRequest({ brief, spec, brand, attachments, model, priorPage
  * brief, and the reason this module exists.
  *
  * @param {{anthropic?: string, xai?: string}} keys
+ * @param {(keys: object, req: object, budget: object|null) => Promise<object>} call
+ *
+ * ── WHY THE CALLER IS AN ARGUMENT ────────────────────────────────────────────
+ *
+ * A queue consumer is guaranteed FIFTEEN MINUTES and that is a hard cap; a
+ * container has "no fixed maximum runtime" (Cloudflare's words). So the BUILD
+ * path hands in a caller that makes this call in the container and the two edit
+ * lanes keep making it here, because they run on the HTTP path, are short, and
+ * an extra hop there buys a new failure mode and nothing else.
+ *
+ * IT IS A PARAMETER RATHER THAN A SECOND FUNCTION, and the reason is the parse
+ * below it. `stop_reason`, the tool_use extraction, the four token kinds and the
+ * `model` stamped on the usage are the half that decides what a build is
+ * CHARGED — a second copy of that reachable only from the build path is two
+ * things that drift, on the money path, with the drift invisible until a bill
+ * is wrong. What varies is one line; everything either side of it is shared by
+ * construction.
+ *
+ * The signature is `callBuilderModel`'s exactly, so a caller that ignores `keys`
+ * (the container has its own) is still a drop-in and nothing here has to know
+ * which one it got.
  */
-export async function generateSitePages(keys, brief, spec, brand, attachments, model, priorPages, mode, target, budget = null) {
+export async function generateSitePages(keys, brief, spec, brand, attachments, model, priorPages, mode, target, budget = null, call = callBuilderModel) {
   // One definition, shared with the eval harness — see pagesRequest. Restating
   // it here would mean the harness tunes against a different request from the
   // one production runs. Held in a const so the usage below can be stamped with
@@ -4281,7 +4302,7 @@ export async function generateSitePages(keys, brief, spec, brand, attachments, m
   // `budget` is the BUILD's remaining time — see designSiteSchema. Passed as an
   // argument rather than set on `req`, which is shared with the eval AND is what
   // gets stringified onto the wire.
-  const j = await callBuilderModel(keys, req, budget);
+  const j = await call(keys, req, budget);
   const usage = j.usage || {};
   // CACHED TOKENS ARE REPORTED SEPARATELY AND WERE NOT BEING COUNTED. The
   // Anthropic API excludes cache hits from `input_tokens` and returns them as

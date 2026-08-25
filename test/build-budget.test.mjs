@@ -235,14 +235,55 @@ test("the build route makes ONE budget, and both model calls are given it", () =
   // The wrapper is followed by NAME rather than assumed: it must pass a budget
   // on to the module, or the pages call really is unbounded again.
   const gen = buildPathFn("generateSitePages");
-  const genFwd = [...gen.body.matchAll(/callBuilderModel\(\w+,\s*\w+,\s*(\w+)\)/g)].map((m) => m[1]);
-  const hop = [...CODE.matchAll(/genPages\((?:[^()]|\([^()]*\))*?,\s*(\w+)\)/g)].map((m) => m[1]);
-  const fwd = [...CODE.matchAll(/callBuilderModel\(\w+,\s*\w+,\s*(\w+)\)/g)].map((m) => m[1])
-    .concat(genFwd, hop);
+  const genFwd = [...gen.body.matchAll(/\bcall\(\w+,\s*\w+,\s*(\w+)\)|callBuilderModel\(\w+,\s*\w+,\s*(\w+)\)/g)]
+    .map((m) => m[1] || m[2]);
+  const fwd = [...CODE.matchAll(/callBuilderModel\(\w+,\s*\w+,\s*(\w+)\)/g)].map((m) => m[1]).concat(genFwd);
   assert.ok(fwd.length >= 2, `expected both builder calls to forward a budget; found ${fwd.length}`);
   for (const name of fwd) {
     assert.equal(name, "budget", `a builder call forwards \`${name}\` rather than the build's budget`);
   }
+
+  // AND THE WORKER'S HOP INTO THE MODULE, WHICH IS POSITIONAL AND MOVED.
+  //
+  // This read the LAST argument of `genPages(...)` and required it to be
+  // `budget` — true until the caller became an eleventh parameter, so a correct
+  // change reported "a builder call forwards `call` rather than the build's
+  // budget" about a hop that forwards both. A position is a fact about an
+  // argument LIST; what has to hold is that the budget is IN it.
+  //
+  // DEPTH-AWARE, because `keysFrom(env)` is the first argument and a flat scan
+  // stops at its closing paren — the mistake this repo has now written five
+  // times where a depth-aware scan was needed.
+  const argsOf = (src, call) => {
+    const at = src.indexOf(call);
+    if (at < 0) return null;
+    let d = 0;
+    for (let i = at + call.length - 1; i < src.length; i++) {
+      if (src[i] === "(") d++;
+      else if (src[i] === ")" && !--d) return src.slice(at + call.length, i);
+    }
+    return null;
+  };
+  const hopArgs = argsOf(CODE, "genPages(");
+  assert.ok(hopArgs, "the Worker's generateSitePages no longer reaches genPages — rescope this guard");
+  assert.match(hopArgs, /(^|[\s,])budget([\s,]|$)/,
+    "the Worker's hop into page-gen drops the build budget, so the pages call is bounded only per call");
+
+  // AND THE CONTAINER HOP READS IT AND SENDS IT.
+  //
+  // Generation runs in the container since 2026-08-25, which is a FOURTH place
+  // the budget can be threaded in and discarded — and the container bounds the
+  // call at exactly the number it is sent, so a hop that computes `callMs` from
+  // the budget and then posts a constant restores the stacking these two bounds
+  // exist to compose away. Both halves, because either alone passes with the
+  // other broken.
+  const cpc = buildPathFn("containerPagesCall").body;
+  const hopMs = cpc.match(/const callMs = ([^;]*);/);
+  assert.ok(hopMs, "containerPagesCall no longer computes its bound in one place");
+  assert.match(hopMs[1], /budget[\s\S]*capMs/,
+    "the container hop ignores the build budget, so a generation started at minute eleven gets a fresh ten");
+  assert.match(cpc, /JSON\.stringify\(\{[^}]*\bcallMs\b/,
+    "the container hop computes a bound and does not send it — the container then uses its own ceiling");
 
   // THE ROUTE'S OWN CALL, which is the hop the plumbing above cannot see.
   // `designSiteSchema` takes a budget and forwards it, and both of those can be
@@ -452,7 +493,7 @@ test("EVERY step of the build path maps to a stage — derived from the marks, n
   const bpEnd = CODE.indexOf("\nasync function ", bp + 10);
   const body = CODE.slice(bp, bpEnd > bp ? bpEnd : CODE.length);
   const names = [...CODE.matchAll(/\btr\.at\("([^"]+)"/g)].map((m) => m[1])
-    .concat([...body.matchAll(/\bmark\?\.\("([^"]+)"\)/g)].map((m) => m[1]));
+    .concat([...body.matchAll(/\bmark\?\.\("([^"]+)"[,)]/g)].map((m) => m[1]));
   assert.ok(names.length >= 15, `expected the build's marks to be found; got ${names.length}`);
   const unknown = [...new Set(names)].filter((n) => budgetStage([{ s: n }]) === "design" && n !== "auth"
     && n !== "body" && n !== "links" && n !== "gate");
@@ -471,7 +512,7 @@ test("THE MIDDLE OF A BUILD IS MARKED — the void that made run 13 unanswerable
   // Each of these four names a DIFFERENT provider and a different fix, which is
   // the whole reason they have to be separate.
   for (const m of ["gen", "img", "compile", "container"]) {
-    assert.match(CODE, new RegExp(`mark\\?\\.\\("${m}"\\)`),
+    assert.match(CODE, new RegExp(`mark\\?\\.\\("${m}"[,)]`),
       `the \`${m}\` mark is gone — a build that hangs there is indistinguishable from one that hangs anywhere else after \`fonts\``);
   }
   // AND THEY MUST BE IN THE RIGHT DEPS, or four marks in one place is one mark
@@ -481,9 +522,9 @@ test("THE MIDDLE OF A BUILD IS MARKED — the void that made run 13 unanswerable
     assert.ok(at > 0, `the \`${name}\` dep is gone`);
     return CODE.slice(at, at + 2000);
   };
-  assert.match(dep("generate"), /mark\?\.\("gen"\)/, "the model call is not marked, so a hung provider looks like a hung container");
-  assert.match(dep("images"), /mark\?\.\("img"\)/, "the image models are not marked");
-  assert.match(dep("compile"), /mark\?\.\("compile"\)/, "the container's turn is not marked");
+  assert.match(dep("generate"), /mark\?\.\("gen"[,)]/, "the model call is not marked, so a hung provider looks like a hung container");
+  assert.match(dep("images"), /mark\?\.\("img"[,)]/, "the image models are not marked");
+  assert.match(dep("compile"), /mark\?\.\("compile"[,)]/, "the container's turn is not marked");
 });
 
 test("the route RACES the build, and the deadline is a step rather than a finish", () => {

@@ -113,7 +113,7 @@ import { laneName } from "./builder/build-lane.mjs";
 // on the way in because `worker.js` keeps thin `env`-shaped wrappers of the same
 // names — eleven call sites read them, and renaming those would make a move that
 // changes no behaviour look like a change that does.
-import { callBuilderModel as callModel, keysFrom, keyEnv, BUILDER_CALL_MS } from "./builder/build-call.mjs";
+import { callBuilderModel as callModel, keysFrom, keyEnv, retryHere, BUILDER_CALL_MS } from "./builder/build-call.mjs";
 import { holdDecision, BUSY_PROBE_MS } from "./builder/container-hold.mjs";
 
 // Game build-service container (Phase 3). The image (./builder-game/Dockerfile)
@@ -5456,8 +5456,117 @@ export async function siteWebResearch(env, brief, queries) {
  * brief. Moved to `builder/build-call.mjs` so the container can make it; this
  * is the `env`-to-keys hop and nothing else.
  */
-const generateSitePages = (env, brief, spec, brand, attachments, model, priorPages, mode, target, budget = null) =>
-  genPages(keysFrom(env), brief, spec, brand, attachments, model, priorPages, mode, target, budget);
+const generateSitePages = (env, brief, spec, brand, attachments, model, priorPages, mode, target, budget = null, call = undefined) =>
+  genPages(keysFrom(env), brief, spec, brand, attachments, model, priorPages, mode, target, budget, call);
+
+// HOW MUCH LONGER THE WORKER WAITS THAN THE CONTAINER DOES.
+//
+// The container bounds the model call itself at exactly the `callMs` it is sent,
+// so this hop has to outlast it or the Worker gives up FIRST and the one thing
+// that could say what happened — the container's own `{status, kind}` — never
+// arrives. Thirty seconds is the hop plus the answer coming back: a generation's
+// reply is a few hundred kilobytes of TSX, not a stream.
+//
+// Being wrong high costs half a minute on a call that was already lost; being
+// wrong low turns every provider error into an undiagnosable Worker timeout, and
+// a timeout is the ONE failure `retryHere` refuses to retry.
+const MODEL_HOP_SLACK_MS = 30000;
+
+/**
+ * MAKE THE PAGE-GENERATION CALL IN THE CONTAINER — the side with no clock.
+ *
+ * @param {object} env
+ * @param {string} slug   which container; the same lane the compile uses
+ * @param {{via: string}} out  written through: "container" or "worker"
+ * @returns a `callBuilderModel`-shaped caller
+ *
+ * A queue consumer is guaranteed fifteen minutes and that is a hard cap. Run 38
+ * spent 595,405ms in generation alone; runs 35-37 spent 620k, 340k and 334k. So
+ * the longest step of a build has been running with two to five minutes of
+ * margin against a ceiling that kills the isolate outright — and a stopped
+ * isolate publishes no fallback, logs no reason and answers nobody.
+ *
+ * THE CONTAINER IS BOUNDED BY AN IDLE TIMEOUT, NOT A DURATION, which is what
+ * makes it the right side. `/model` runs the call inside `oneAtATime` so the
+ * busy counter can see it — without that the library's inflight count reaches
+ * zero the moment this fetch is in flight, `sleepAfter` starts, and the
+ * container is stopped mid-generation at five minutes.
+ *
+ * THE LANE IS THE SLUG'S OWN, so generation and the compile that follows it
+ * land in the same instance. Two lanes would be two containers per build for no
+ * reason, and the second would be cold.
+ *
+ * ── THE FALLBACK, AND WHY IT IS NOT A SILENT ONE ────────────────────────────
+ *
+ * Whether a Cloudflare container can reach api.x.ai has never been observed:
+ * every check of `/model` so far refuses BY NAME before a request is made,
+ * precisely so it can run on every push without spending. So the first real
+ * build against this is also the first evidence, and a build is the one thing
+ * this platform cannot afford to spend twice.
+ *
+ * So when the container did not reach a provider AT ALL, the Worker makes the
+ * call itself — exactly as it did before this existed — and the build finishes.
+ * `retryHere` owns that question and refuses anything that may have cost money.
+ * The path taken RIDES ON THE RESPONSE, so this is a measurement rather than a
+ * shrug: a build reporting `genVia: "container"` is the proof, and the day
+ * every build reports it the fallback is a line to delete.
+ */
+function containerPagesCall(env, slug, out) {
+  return async (keys, req, budget) => {
+    const callMs = budget && typeof budget.capMs === "function" ? budget.capMs(BUILDER_CALL_MS) : BUILDER_CALL_MS;
+    let fail;
+    try {
+      const c = getContainer(env.SITE_BUILD_CONTAINER, laneName(slug));
+      const r = await c.fetch(new Request("http://build/model", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ req, callMs }),
+        signal: AbortSignal.timeout(callMs + MODEL_HOP_SLACK_MS),
+      }));
+      // READ AS TEXT FIRST, like the compile hop below it. A 502 from the
+      // runtime, an OOM kill and an empty 200 are three different things and
+      // parsing straight to JSON reports them all as "no answer".
+      const raw = await r.text().catch(() => "");
+      let ans = null;
+      try { ans = JSON.parse(raw); } catch { ans = null; }
+      if (r.ok && ans && ans.ok === true && ans.answer) { out.via = "container"; return ans.answer; }
+      fail = ans && ans.ok === false ? ans : { status: null, kind: "Error", message: "the build service answered " + r.status + " with " + (raw ? raw.slice(0, 200) : "an empty body") };
+    } catch (e) {
+      // THE CONTAINER ITSELF WAS UNREACHABLE — no provider was involved, so this
+      // is always safe to retry here. `e.name` carries the class, which is what
+      // separates a hop that timed out (never retried) from one that never
+      // connected.
+      //
+      // AND THE MESSAGE SAYS WHICH TIMEOUT, because there are now two and they
+      // want opposite readings. `AbortSignal.timeout` says only "the operation
+      // was aborted", so a hop that gave up at 10.5 minutes and a provider that
+      // hung for ten would arrive as one sentence — and this is the ONE failure
+      // `retryHere` refuses to retry, so the build ends on it. The bound is
+      // named with the number, because how long a Worker may hold a fetch to its
+      // own container for is the one thing about this hop nobody has measured:
+      // the compile hop's longest observed run is 103,352ms and generation asks
+      // for up to six times that.
+      fail = { status: null, kind: String((e && e.name) || "Error"),
+        message: String((e && e.message) || e) + " (the hop to the container, bounded at " + (callMs + MODEL_HOP_SLACK_MS) + "ms)" };
+    }
+    if (!retryHere(fail)) {
+      // RE-THROWN IN `callBuilderModel`'S OWN SHAPE, not flattened to a message.
+      // `upstreamKind` parses `detail` for the provider's error type and the one
+      // sentence that names an empty account; the build route reports `upstream`
+      // as "the numeric status from the model API and nothing else"; and
+      // `isCallTimeout` reads `e.name`. A container-side failure that lost any
+      // of the three would be a real provider answer wearing a container fault.
+      const e = new Error(String(fail.message || "the model call failed"));
+      if (fail.status) e.status = fail.status;
+      if (typeof fail.detail === "string" && fail.detail) e.detail = fail.detail;
+      if (fail.kind) { try { Object.defineProperty(e, "name", { value: String(fail.kind), configurable: true }); } catch { /* keep Error */ } }
+      throw e;
+    }
+    console.error("build: the container could not make the model call —", fail.kind, fail.message, "— making it here instead");
+    out.via = "worker";
+    return callModel(keys, req, budget);
+  };
+}
 
 // Placeholder published page. Deliberately plain: it reports what was actually
 // created so a build is verifiable end to end before page generation exists.
@@ -8859,6 +8968,19 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
   const livePages = Array.isArray(priorPages)
     ? priorPages.map((p) => p && p.path).filter((x) => typeof x === "string")
     : (revise ? undefined : []);
+  // WHICH SIDE MADE THE MODEL CALL — written through by `containerPagesCall`.
+  //
+  // A mutable object rather than a return value because the caller it is handed
+  // to has `callBuilderModel`'s signature exactly, which returns the model's
+  // answer and nothing else. That signature is what makes the caller a drop-in
+  // for the two lanes that do NOT go through the container, so it may not grow
+  // a second return field for the one that does.
+  //
+  // It STARTS EMPTY rather than "worker". A build that never reached generation
+  // must report nothing here at all: "the Worker made the call" said about a
+  // build where no call happened is a measurement that is not merely useless but
+  // wrong, on the one field that answers whether this change works.
+  const genPath = {};
   const out = await publishPages({
     // Throws on failure, and the route logs it. There is no second attempt to
     // swallow one, so nothing needs logging here.
@@ -8888,7 +9010,17 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       // and sent the bare brief — ~287 tokens of layout that every real build
       // carries and no sample ever did, so the compile rate described a prompt
       // the platform does not send.
-      return generateSitePages(env, briefWithLayout({ brief, plan, images: imgBrief }), spec, brand, attachments, model, priorPages, undefined, undefined, budget);
+      // MADE IN THE CONTAINER, which has no fifteen-minute cap. This is the
+      // longest step of a build — 595,405ms on run 38, 619,822ms on run 35 —
+      // and the queue consumer running this code is guaranteed fifteen minutes
+      // and no more. See `containerPagesCall` for the fallback and why the path
+      // taken is reported rather than swallowed.
+      //
+      // ONLY HERE. The two edit lanes call `generateSitePages` with no caller
+      // and keep making it in the Worker: they run on the HTTP path, they write
+      // a page or two rather than a site, and an extra hop there is a new
+      // failure mode bought for nothing.
+      return generateSitePages(env, briefWithLayout({ brief, plan, images: imgBrief }), spec, brand, attachments, model, priorPages, undefined, undefined, budget, containerPagesCall(env, slug, genPath));
     },
     // Runs between the lint and the compile, on the pages the model actually
     // wrote. `publishPages` supplies the two numbers only it knows — the balance
@@ -8899,7 +9031,22 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       // bounded fetch and they run together, so a hang here is the image models
       // and not the page model, which is a different provider and a different
       // fix. Nothing else between the two marks can take time.
-      try { mark?.("img"); } catch { /* a trace must never break a build */ }
+      // …AND WHICH SIDE HELD IT, ON THE ROW THAT SURVIVES.
+      //
+      // `genVia` rides on the RESPONSE, and the response is the thing this
+      // platform keeps losing: the edge resets a build's socket at ~285s and
+      // that has now happened eleven recorded times, so runs 35 to 38 all
+      // finished with nobody holding the answer. The trace persists and the
+      // response does not — and this is the one measurement that says whether
+      // the ten-minute call got out from under the consumer's fifteen-minute
+      // cap, so putting it only where it keeps being lost is the same mistake
+      // wearing a new field.
+      //
+      // A NUMBER, because `makeTrace` takes only finite numbers — deliberately,
+      // so a connection string or a model's prose can never reach a trace by
+      // accident. That rule is worth more than a readable word here, and 1/0
+      // says the whole of what has to be known.
+      try { mark?.("img", { viaContainer: genPath.via === "container" ? 1 : 0 }); } catch { /* a trace must never break a build */ }
       return buySitePhotos(env, { slug, pages, budget: imgBudget, balance, reserve, clock: budget });
     },
     compile: async (pages) => {
@@ -9200,6 +9347,18 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
   // caught by `confirm smoke` and `member smoke` going red in CI, not by
   // anything in the suite.
   if (sourceStored === false) out.sourceStored = false;
+  // WHICH SIDE HELD THE TEN-MINUTE CALL, on the response.
+  //
+  // The whole point of moving generation into the container is that a build
+  // stops racing the consumer's fifteen minutes, and from outside a build that
+  // used the container and one that fell back to the Worker are byte-identical:
+  // same pages, same cost, same site. So without this the change is
+  // unmeasurable — and "unmeasurable" is how this repo has shipped twelve dead
+  // features, every one of them correct at both ends with the wire cut.
+  //
+  // ABSENT WHEN GENERATION NEVER RAN, so its PRESENCE is the signal and a build
+  // refused at the credit floor does not claim a call it never made.
+  if (genPath.via) out.genVia = genPath.via;
   if (workerUpload) {
     out.worker = workerUpload.ok
       ? { uploaded: true, ...confirmFields(workerUpload) }
@@ -11475,6 +11634,13 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth }) {
         // own error code, which is the difference between a missing token scope
         // and a product that is not enabled.
         worker: pages.worker || undefined,
+        // WHICH SIDE HELD THE TEN-MINUTE MODEL CALL — "container" or "worker".
+        //
+        // Absent when generation never ran, so its PRESENCE says a call was
+        // made and its VALUE says where. This is the only observable difference
+        // between a build that got under the consumer's fifteen-minute cap and
+        // one that fell back to racing it: same pages, same cost, same site.
+        genVia: pages.genVia || undefined,
         // Per-route prerender skips, same discipline as `render` one line up:
         // absent on a clean build, carried when a page lost its snapshot —
         // which used to be invisible in production (2026-08-13 audit).

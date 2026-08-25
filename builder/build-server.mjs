@@ -63,6 +63,32 @@ const CLIENT_DIST = path.join(DIST, "client");
 const SERVER_BUNDLE = path.join(DIST, "server", "server.js");
 const GEN = path.join(APP, "src", "routeTree.gen.ts");
 const MAX_BODY = 4 * 1024 * 1024;
+// AND A SEPARATE ONE FOR `/model`, BECAUSE THE TWO PAYLOADS ARE DIFFERENT THINGS.
+//
+// MEASURED, not chosen. A bare frontend page-generation request is 34,763
+// characters — comfortably inside `MAX_BODY`, which is why this only shows up on
+// the builds that carry an ATTACHMENT: `site-context.mjs` allows 13,981,096
+// characters of base64 blocks plus 240,000 of text, so a worst case is 13.6MB
+// against a 4MB cap.
+//
+// WHAT THAT WOULD HAVE COST IS A SILENCE RATHER THAN A FAILURE. `/model` would
+// answer 413, the Worker's hop would read "no provider was reached", and
+// `retryHere` would correctly make the call itself — so every build with a
+// picture or a price list attached quietly goes back to running its ten-minute
+// call on the side with a fifteen-minute cap, which is exactly the build most
+// likely to need the time. It would have looked like the feature working.
+//
+// 16MB against a measured worst case of 13.61MB, and it is cheap: this instance
+// type has 4 GiB and the string is freed the moment the call returns.
+//
+// THE GUARD DERIVES BOTH HALVES RATHER THAN RESTATING EITHER —
+// `test/container-model.test.mjs` reads the block and text caps off
+// `site-context.mjs` and BUILDS a real `pagesRequest` for the prompt half. Its
+// first draft wrote 40,000 for that and the data prompt is 47,703, which is an
+// understatement in the one direction that matters for a ceiling. So the day the
+// attachment caps rise, or the prompt grows past the headroom, this goes red
+// rather than every attachment build silently falling back again.
+const MAX_MODEL_BODY = 16 * 1024 * 1024;
 // RAISED TO THIRTY MINUTES (2026-08-22, owner's call), with every other bound
 // on the build path. Each step here is a subprocess — tsc, vite, the prerender
 // — and the kill is what stops one wedging the container for the platform, so
@@ -1027,7 +1053,7 @@ const server = http.createServer((req, res) => {
   // to re-measure if this is ever asked to run an hour.
   if (req.method === "POST" && req.url === "/model") {
     let mBody = "", mTooBig = false;
-    req.on("data", (c) => { mBody += c; if (mBody.length > MAX_BODY) { mTooBig = true; req.destroy(); } });
+    req.on("data", (c) => { mBody += c; if (mBody.length > MAX_MODEL_BODY) { mTooBig = true; req.destroy(); } });
     req.on("end", () => {
       if (mTooBig) return send(res, 413, { ok: false, error: "request too large" });
       let payload; try { payload = JSON.parse(mBody); } catch { return send(res, 400, { ok: false, error: "invalid json" }); }

@@ -326,7 +326,21 @@ function traceText(got) {
     const schema = steps.find((s) => s && s.s === "schema");
     const db = prov && prov.db === 0 ? "db=none" : prov ? "db=made" : "";
     const tabs = schema && Number.isFinite(schema.tables) ? `tables=${schema.tables}` : "";
-    const shape = [db, tabs].filter(Boolean).join(" ");
+    // AND WHICH SIDE HELD THE TEN-MINUTE CALL — the whole measurement of the
+    // 2026-08-25 change, and the reason it is HERE rather than only on the
+    // response. `genVia` rides on the build's answer, and the answer is what the
+    // ~285s edge reset destroys — eleven recorded times, including every run
+    // from 35 to 38. So a measurement that lives only there is one this harness
+    // has a measured history of never seeing. The trace survives.
+    //
+    // `container` says the generation call ran on the side with no clock, which
+    // is the proof. `worker` says the container could not reach a provider at
+    // all and the Worker made the call instead — the build still finished, and
+    // the reason is in the Worker's log. ABSENT means generation never ran,
+    // which is a real third answer and is not invented here.
+    const img = steps.find((s) => s && s.s === "img");
+    const via = img && Number.isFinite(img.viaContainer) ? `gen=${img.viaContainer ? "container" : "worker"}` : "";
+    const shape = [db, tabs, via].filter(Boolean).join(" ");
     return `done=${row.done} ok=${row.ok} page=${row.page || "?"} marks=${steps.length} at=${row.at || "(none)"}` +
       (shape ? `  ${shape}` : "") + (tail ? `  [${tail}]` : "");
   }

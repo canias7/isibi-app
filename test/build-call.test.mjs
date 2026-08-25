@@ -11,7 +11,7 @@
 // Worker around it. Everything here runs in plain Node for exactly that reason.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { callBuilderModel, keysFrom, BUILDER_CALL_MS } from "../builder/build-call.mjs";
+import { callBuilderModel, keysFrom, retryHere, BUILDER_CALL_MS } from "../builder/build-call.mjs";
 // GENERATION LIVES WITH THE PROMPT IT BUILDS, and the call lives alone. Splitting
 // them is what makes `build-call.mjs` shippable into the container: its whole
 // module graph is itself plus `model-xai.mjs`, where `generateSitePages` needs
@@ -191,9 +191,34 @@ test("AND THE WORKER REALLY HANDS OVER ITS KEYS — the hop, not just the module
   // remembering this file.
   const calls = [...src.matchAll(/\b(callModel|genPages)\(([^,]*),/g)];
   assert.ok(calls.length >= 2, `expected both wrappers to call the module; found ${calls.length}`);
+  // THE KEYS THIS FUNCTION RECEIVED — the nearest parameter list above the call.
+  //
+  // A FORWARD IS NOT A FRESH READ, and this guard could not tell them apart
+  // until it had to. `containerPagesCall` makes the pages call in the container
+  // and falls back to `callModel(keys, …)` here when nothing was spent — and
+  // `keys` there is its OWN parameter, filled by the wrapper that read `env`.
+  // Requiring the literal `keysFrom(env)` reported "every model call would
+  // refuse" about a hop that forwards the right keys.
+  //
+  // What still cannot pass is what the guard was written for: a call handed
+  // something it invented — `{}`, `null`, `env` itself — because none of those
+  // is a name this function was given.
+  // FOUND BY THE CONTRACT, NOT BY PROXIMITY. The first draft took the nearest
+  // parameter list above the call and got `catch (e) {` — the flat-scan mistake
+  // this repo has recorded five times. And a union of every parameter list in
+  // scope would admit `env` itself, which is the exact bug the guard exists for.
+  //
+  // A forwarder is a function with `callBuilderModel`'s own signature, which is
+  // what makes it a drop-in at all. There must be exactly one, so "the keys it
+  // was given" is unambiguous without any notion of nearness.
+  const fwd = [...src.matchAll(/\(\s*(\w+)\s*,\s*req\s*,\s*budget\s*\)\s*=>/g)];
+  assert.ok(fwd.length <= 1, `${fwd.length} functions carry the caller contract — this guard can no longer say which keys a forward means`);
+  const forwarded = fwd.length ? fwd[0][1] : null;
   for (const [, fn, firstArg] of calls) {
-    assert.match(firstArg.trim(), /^keysFrom\(env\)$/,
-      `${fn} is handed \`${firstArg.trim()}\` instead of the Worker's keys — every model call would refuse`);
+    const arg = firstArg.trim();
+    if (arg === "keysFrom(env)") continue;
+    assert.equal(arg, forwarded,
+      `${fn} is handed \`${arg}\`, which is neither the Worker's keys nor the keys a forwarder was given — every model call would refuse`);
   }
   // …and the name is imported, or naming it is a ReferenceError on the build
   // path rather than a missing key — the `OWN_ZONES` failure.
@@ -224,4 +249,92 @@ test("THE MODULE NEEDS NO WORKER — it imports no binding and reaches for no en
   for (const m of src.match(/from "([^"]+)"/g) || []) {
     assert.match(m, /from "\.\/[a-z-]+\.mjs"|from "\.\.\/[a-z-]+\.mjs"/, `${m} is not a plain sibling module`);
   }
+});
+
+/* ------------------------------------------- may the Worker make it instead */
+
+test("retryHere refuses anything that may already have cost money", () => {
+  // THE ONE QUESTION IS WHETHER TOKENS WERE SPENT. A model call that reached a
+  // provider is paid for whatever came back, so making it again bills the
+  // customer twice for one set of pages — and produces the same answer from the
+  // same model, so there is nothing bought with the second charge either.
+
+  // A PROVIDER ANSWERED. Every status, not one sampled: 401 is a bad key, 429 is
+  // rate limiting, 400 carries the one sentence that names an empty account, and
+  // repeating any of them replaces a message the customer can act on with an
+  // identical second failure.
+  for (const status of [400, 401, 402, 403, 404, 429, 500, 502, 503, 529]) {
+    assert.equal(retryHere({ status, kind: "Error" }), false, `a ${status} from the provider must never be repeated`);
+  }
+
+  // A TIMEOUT MAY HAVE SPENT EVERYTHING. `AbortSignal.timeout` rejects with no
+  // response, so there is no status to read — but the provider was reached and
+  // may be mid-generation. Retrying is a second ten-minute wait stacked on the
+  // first, which is the exact clock this whole change exists to get under.
+  //
+  // BOTH SPELLINGS, because one abort reaches workerd as `TimeoutError` and Node
+  // as `AbortError` — the cross-engine difference `isCallTimeout` already exists
+  // for, and here it decides whether somebody is billed twice.
+  assert.equal(retryHere({ status: null, kind: "TimeoutError" }), false);
+  assert.equal(retryHere({ status: null, kind: "AbortError" }), false);
+
+  // NOTHING WAS SPENT — these are the cases the fallback exists for.
+  //
+  // A key the container was never given: `callBuilderModel` throws BY NAME
+  // before `fetch`, so no request was made and the Worker, which has the key,
+  // can simply make the call.
+  assert.equal(retryHere({ status: null, kind: "Error", message: "XAI_API_KEY is not set" }), true);
+  // Egress or DNS refusing the provider — a `TypeError` out of `fetch`, and the
+  // one failure mode nobody has yet observed either way: whether a Cloudflare
+  // container can reach api.x.ai has never been measured, which is why there is
+  // a fallback at all.
+  assert.equal(retryHere({ status: null, kind: "TypeError", message: "fetch failed" }), true);
+  // The container answering something that is not a model answer.
+  assert.equal(retryHere({ status: null, kind: "Error", message: "the build service answered 502" }), true);
+  // And nothing at all to read: a shape this guard cannot classify is one where
+  // no evidence of spending exists, so the build finishes rather than failing on
+  // a container hiccup.
+  for (const junk of [undefined, null, {}, { status: 0 }, { status: undefined }]) {
+    assert.equal(retryHere(junk), true, `a failure with nothing to read must not lose the build: ${JSON.stringify(junk)}`);
+  }
+});
+
+test("THE CALLER IS USED, not merely accepted", async () => {
+  // THE SURVIVOR OF THE SWEEP, and it is the shape this repo has recorded twelve
+  // dead features in. `await callBuilderModel(...)` in place of `await call(...)`
+  // leaves the parameter declared, documented and passed — the build path builds
+  // its container caller, hands it over, and every generation runs in the Worker
+  // exactly as before. Every source-read still passes: `providerSend` resolves
+  // the send to `callBuilderModel` and is satisfied, the wiring guard finds
+  // `containerPagesCall(` at the call site and is satisfied, and the whole point
+  // of moving the ten-minute call off the fifteen-minute side is silently gone.
+  //
+  // Only DRIVING it can see that, so it is driven.
+  let got = null;
+  const answer = { usage: { input_tokens: 1, output_tokens: 2 },
+    content: [{ type: "tool_use", input: { pages: [{ path: "index.tsx", source: "x" }] } }],
+    stop_reason: "end_turn" };
+  const { seen } = await captured(async () => {
+    await generateSitePages(KEYS, "a barber shop", { tables: [] }, "Sharp Fade", [], "claude-sonnet-5",
+      null, undefined, undefined, null,
+      async (keys, req, budget) => { got = { keys, req, budget }; return answer; });
+  });
+  assert.ok(got, "the caller was accepted and ignored — every generation still runs in the Worker");
+  // AND NOTHING WENT OUT FROM HERE. The default is a real provider fetch, so a
+  // request appearing at all means the parameter was bypassed rather than used.
+  assert.equal(seen.length, 0, "the default provider call was made as well — the request was sent twice");
+  // It gets `callBuilderModel`'s own arguments, which is what makes it a
+  // drop-in: the request `pagesRequest` built, and the build's budget.
+  assert.equal(got.req.model, "claude-sonnet-5");
+  assert.deepEqual(got.req.tool_choice, { type: "tool", name: "write_pages" });
+  assert.equal(got.keys, KEYS);
+
+  // AND WITH NO CALLER IT IS STILL THE ONE PROVIDER DECISION — the two edit
+  // lanes pass nothing and must keep reaching a real provider, so the default
+  // may not quietly become a stub.
+  const { seen: s2 } = await captured(
+    () => generateSitePages(KEYS, "a barber shop", { tables: [] }, "Sharp Fade", [], "claude-sonnet-5", null),
+    answer);
+  assert.equal(s2.length, 1, "a lane that passes no caller no longer reaches a provider");
+  assert.equal(s2[0].url, "https://api.anthropic.com/v1/messages");
 });

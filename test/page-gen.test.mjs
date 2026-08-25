@@ -29,7 +29,7 @@ import { generatedPages } from "./fixtures/generated.mjs";
 // the route refuses.
 import { acceptsVisitorUploads } from "../site-uploads.mjs";
 import { pageMeta } from "../site-meta.mjs";
-import { buildPathFn } from "./fixtures/build-path.mjs";
+import { buildPathFn, providerSend } from "./fixtures/build-path.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const TEMPLATE = path.join(ROOT, "builder", "lovable", "template");
@@ -1179,6 +1179,17 @@ test("the Worker and the eval issue the SAME generation request", () => {
   // is at least as strong as posting it here — the object cannot be swapped on
   // the way — so the invariant is unchanged and only the spelling of "sent"
   // moved. Both forms are accepted, still followed through by VARIABLE NAME.
+  // A FOURTH SHAPE SINCE 2026-08-25: the caller itself is an ARGUMENT, so the
+  // build path can hand in one that makes the call inside the container — the
+  // side with no fifteen-minute cap — while the two edit lanes keep making it
+  // here. Pinned to the literal `callBuilderModel(` this went red for the third
+  // time, reporting that the request was swapped when nothing had moved.
+  //
+  // The sender is RESOLVED rather than spelled (see `providerSend`), and the
+  // invariant is untouched: whatever `req` goes through must be the object
+  // `pagesRequest` built.
+  const via = providerSend("generateSitePages").via;
+  assert.ok(via, "generateSitePages sends `req` through nothing this guard can see — rescope it");
   const held = gen.match(/const\s+(\w+)\s*=\s*pagesRequest\(/);
   if (held) {
     // The trailing `[,)]` is what makes this about the ARGUMENT rather than the
@@ -1186,10 +1197,10 @@ test("the Worker and the eval issue the SAME generation request", () => {
     // budget became a third parameter, claiming the request was swapped when
     // nothing had moved.
     const sent = gen.includes("JSON.stringify(" + held[1] + ")") ||
-      new RegExp("callBuilderModel\\(\\w+,\\s*" + held[1] + "[,)]").test(gen);
+      new RegExp(via + "\\(\\w+,\\s*" + held[1] + "[,)]").test(gen);
     assert.ok(sent, "generateSitePages builds a request with pagesRequest and then sends something else");
   } else {
-    assert.match(gen, /(JSON\.stringify|callBuilderModel\(\w+,\s*)\(?pagesRequest\(/, "generateSitePages must use pagesRequest");
+    assert.match(gen, new RegExp("(JSON\\.stringify|" + via + "\\(\\w+,\\s*)\\(?pagesRequest\\("), "generateSitePages must use pagesRequest");
   }
   assert.ok(!/model:\s*"claude-/.test(gen), "the model must come from pagesRequest, not be restated here");
   assert.ok(!/tool_choice/.test(gen), "the tool choice must come from pagesRequest");

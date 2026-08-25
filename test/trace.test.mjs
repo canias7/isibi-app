@@ -160,8 +160,8 @@ test("the build route actually uses it", () => {
   // Fonts are DOWNLOADED inside what looks like setup; the mark has to reach the
   // function that does it.
   assert.match(w, /mark: \(n\) => tr\.at\(n\)/, "buildAndPublishPages is given no way to report its own steps");
-  assert.match(w, /mark\?\.\("fonts"\)/, "the font download is untimed again");
-  assert.match(w, /mark\?\.\("og"\)/, "the link-preview lookup is untimed again");
+  assert.match(w, /mark\?\.\("fonts"[,)]/, "the font download is untimed again");
+  assert.match(w, /mark\?\.\("og"[,)]/, "the link-preview lookup is untimed again");
   // AND IT IS RESOLVED WHERE IT IS TIMED. The image must come from inside the
   // publish closure — captured before the build, it predates the photographs
   // `deps.images` writes into the same prefix, and every share of a
@@ -192,7 +192,7 @@ test("the build route actually uses it", () => {
   assert.ok(cAt >= 0, "nothing closes the container's turn, so `og` times the whole build again");
   assert.ok(cAt < ogAt,
     "the container mark is taken AFTER the og lookup, so `og` still swallows generate and compile");
-  assert.match(w, /mark\?\.\("route"\)/, "the KV route write is untimed again");
+  assert.match(w, /mark\?\.\("route"[,)]/, "the KV route write is untimed again");
   assert.match(w, /pagesUsage: pages\.usage \|\| undefined/,
     "the pages call is metered on four token kinds and reports none of them");
   assert.match(w, /trace: traced\.steps/, "the trace is built and then never returned");

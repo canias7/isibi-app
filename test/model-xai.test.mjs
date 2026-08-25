@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, XAI_ENDPOINT } from "../builder/model-xai.mjs";
 import { contextSummary, contextSentence } from "../builder/site-context.mjs";
-import { buildPathFn } from "./fixtures/build-path.mjs";
+import { buildPathFn, providerSend } from "./fixtures/build-path.mjs";
 
 /* --------------------------------------------------------- which provider */
 
@@ -276,9 +276,18 @@ test("both builder calls go through the one provider decision", () => {
     // THE ARGUMENT, NOT THE ARGUMENT LIST. Pinned to `(env, req)` exactly, this
     // went red the day the build budget became a third parameter — reporting
     // "must send through callBuilderModel" about a call that does exactly that.
-    // Pinned to `env` it went red again when the keys became an argument. What
-    // has to hold is that `req` is what gets sent, whatever rides either side.
-    assert.match(body, /await callBuilderModel\([A-Za-z]+, req[,)]/, `${fn} must send through callBuilderModel`);
+    // Pinned to `env` it went red again when the keys became an argument. Pinned
+    // to the NAME `callBuilderModel` it went red a THIRD time, when the caller
+    // itself became an argument so the container could make the call.
+    //
+    // So the send is RESOLVED rather than spelled. What has to hold is that `req`
+    // goes through the one provider decision — directly, or through a parameter
+    // whose default IS that decision, which is what a caller passing nothing
+    // gets. A parameter with no default resolves to null and fails here, because
+    // then there is a way to reach a second provider path.
+    const send = providerSend(fn);
+    assert.equal(send.resolved, "callBuilderModel",
+      `${fn} must send \`req\` through callBuilderModel — it sends through ${send.via || "nothing this guard can see"}`);
     assert.doesNotMatch(body, /fetch\("https:\/\/api\.anthropic\.com/, `${fn} must not keep its own provider fetch`);
   }
 });

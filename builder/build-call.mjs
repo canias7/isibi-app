@@ -160,6 +160,54 @@ export function keysFrom(src) {
 }
 
 /**
+ * A CALL THE CONTAINER COULD NOT MAKE — may the Worker make it instead?
+ *
+ * @param {{status?: number|null, kind?: string}} fail  the container's `/model` refusal
+ * @returns {boolean}
+ *
+ * THE ONE QUESTION IS WHETHER MONEY WAS SPENT. A model call that reached a
+ * provider is paid for whatever came back, so repeating it here bills the
+ * customer twice for one page of pages — and the answer it produces is not
+ * better, it is the same answer from the same model.
+ *
+ * TWO REFUSALS, and each is a fact rather than a guess:
+ *
+ *  · A NUMERIC `status` IS A PROVIDER'S OWN ANSWER. 429, 400, 401, 529 — the
+ *    request was made and the tokens for it are gone. It is also the shape
+ *    `upstreamKind` downstream parses for the one actionable billing sentence,
+ *    so swallowing it and retrying would replace a message the customer can act
+ *    on with a second identical failure.
+ *
+ *  · A TIMEOUT MAY HAVE SPENT EVERYTHING. `AbortSignal.timeout` rejects with no
+ *    response, so `status` is absent — but the provider was reached and may
+ *    well be mid-generation. Retrying is a second ten-minute wait on top of the
+ *    first, which is precisely the clock this whole change exists to get under.
+ *
+ * EVERYTHING ELSE MEANS NO REQUEST WAS EVER MADE: a key the container was not
+ * given (a named throw before `fetch`), DNS or egress refusing the provider (a
+ * `TypeError` out of `fetch`), the container answering something that is not a
+ * model answer at all. Nothing was spent, so the Worker — which has the key and
+ * has always made this call — makes it, and the build succeeds.
+ *
+ * THE ONE CASE THIS GETS WRONG, STATED: a container that reached the provider,
+ * got an answer, and then failed while sending it back reports no status and no
+ * timeout, so it is retried and the account pays for two calls. Bounded at one
+ * extra call, against a build that otherwise fails outright on a container
+ * hiccup — and it is REPORTED (`genVia`), so a platform where that keeps
+ * happening is visible rather than merely expensive.
+ */
+export function retryHere(fail) {
+  const f = fail || {};
+  if (f.status) return false;
+  // BOTH SPELLINGS. One abort reaches workerd as `TimeoutError` and Node as
+  // `AbortError`, which is the same cross-engine difference `isCallTimeout`
+  // already exists for — and this decides whether a customer is billed twice,
+  // so it may not depend on which runtime happened to raise it.
+  if (f.kind === "TimeoutError" || f.kind === "AbortError") return false;
+  return true;
+}
+
+/**
  * The same two keys, in the shape a container's start config wants: the
  * ENVIRONMENT-VARIABLE names, and only the ones that carry a usable value.
  *

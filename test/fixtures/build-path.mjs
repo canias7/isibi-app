@@ -72,3 +72,36 @@ export function buildPathFn(name) {
   }
   throw new Error(`${name} is on neither worker.js nor builder/build-call.mjs — rescope this guard`);
 }
+
+/**
+ * WHAT A BUILD-PATH FUNCTION SENDS ITS REQUEST THROUGH, resolved to a name.
+ *
+ * @param {string} name
+ * @returns {{via: string|null, resolved: string|null, body: string}}
+ *
+ * `generateSitePages` takes its caller as an ARGUMENT since 2026-08-25, so the
+ * build path can hand in one that makes the call inside the container — the
+ * side with no fifteen-minute cap — while the two edit lanes keep making it in
+ * the Worker. Two guards were pinned to the literal `callBuilderModel(` and both
+ * reported "must send through callBuilderModel" about a function whose default
+ * parameter is exactly that. The FOURTH re-anchor of this pair, and the third
+ * caused by an honest argument joining a call.
+ *
+ * So the send is followed rather than spelled: `via` is whatever `req` is handed
+ * to, and `resolved` is what that name means — itself, or the default of the
+ * parameter it is. A parameter with NO default resolves to null, which is a real
+ * failure: a caller that passes nothing would reach a second provider path.
+ */
+export function providerSend(name) {
+  const { body } = buildPathFn(name);
+  const m = body.match(/await (\w+)\([A-Za-z]+, req[,)]/);
+  if (!m) return { via: null, resolved: null, body };
+  const via = m[1];
+  if (via === "callBuilderModel") return { via, resolved: via, body };
+  // A PARAMETER, THEN — and what a caller that passes nothing gets is its
+  // default. Bounded to the SIGNATURE so an assignment inside the body cannot
+  // stand in for one, since only the declaration decides the default.
+  const sig = body.slice(0, body.indexOf(") {") + 1);
+  const dflt = new RegExp(`\\b${via}\\s*=\\s*([A-Za-z_$][\\w$]*)`).exec(sig);
+  return { via, resolved: dflt ? dflt[1] : null, body };
+}
