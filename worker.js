@@ -168,6 +168,28 @@ export class SiteBuildContainer extends Container {
       if (r && r.ok) state = await r.json();
     } catch { state = null; }
     const d = holdDecision(state);
+    // WRITTEN DOWN WHERE IT SURVIVES THE CONTAINER, and the first live run is
+    // why. It reported NOT PROVEN and could not say which of four things had
+    // happened — the hook never ran, it ran and the container really was idle,
+    // `containerFetch` failed so the fail-closed default fired, or it held and
+    // something else stopped it. Every one of those wears the same word from
+    // outside. The container's own memory cannot answer it (a stopped container
+    // loses exactly the evidence), so it goes in Durable Object storage, which
+    // outlives the container by design.
+    //
+    // NEVER FATAL. This hook must not throw — see the header — so a storage
+    // failure costs the diagnostic and not the decision, which is why the write
+    // is inside its own catch rather than sharing the one above.
+    try {
+      await this.ctx.storage.put("lastExpiry", {
+        at: Date.now(),
+        why: d.why,
+        hold: d.hold,
+        busy: state && state.busy === true,
+        jobs: state ? Number(state.jobs) : null,
+        sinceMs: state ? Number(state.sinceMs) : null,
+      });
+    } catch { /* the decision below is what matters */ }
     if (!d.hold) {
       // NAMED, because the five reasons want five different responses from
       // whoever reads the log: `idle` is the ordinary path and means nothing,
@@ -183,6 +205,21 @@ export class SiteBuildContainer extends Container {
     // stops renewing after the hook, without this the container we just decided
     // to keep would be stopped on the very next tick.
     this.renewActivityTimeout();
+  }
+
+  // WHAT THE HOOK DECIDED LAST TIME, read over RPC by the probe route.
+  //
+  // A method rather than a log line, because a Worker log cannot be read from a
+  // CI job and this repo has already lost a session to a failure whose only
+  // trace was `console.error`. Returns null when the hook has never run — which
+  // is itself the answer to "was it called at all", and the one thing the first
+  // live run could not distinguish from every other cause.
+  async lastExpiry() {
+    try {
+      return (await this.ctx.storage.get("lastExpiry")) || null;
+    } catch {
+      return null;
+    }
   }
 }
 
@@ -13412,12 +13449,40 @@ async function handleRequest(request, env, ctx) {
           return Response.json({ ok: false, err: String((e && e.name) || e), ms: Date.now() - t0 });
         }
       }
+      // WHAT THE HOOK DECIDED LAST TIME. A probe that can only answer PROVEN or
+      // NOT PROVEN cannot say WHY, and four different causes wear that one word:
+      // the hook was never called; it was called and the container really was
+      // idle (so the hold never arrived); `containerFetch` failed inside the
+      // alarm so the fail-closed default fired; or it held and something else
+      // stopped the container. Recorded in DO storage, which SURVIVES the
+      // container being stopped — the container's own memory does not, which is
+      // exactly why the first run could say nothing.
+      if (url.searchParams.get("log")) {
+        try {
+          return Response.json({ ok: true, last: await c.lastExpiry() });
+        } catch (e) {
+          return Response.json({ ok: false, err: String((e && e.name) || e) });
+        }
+      }
       const ms = Math.max(0, Math.min(900000, Number(url.searchParams.get("ms")) || 0));
-      // FIRED AND ABANDONED, deliberately — see above. The rejection is caught
-      // here rather than left to float: an unhandled one in a Worker is an error
-      // in the log for a request that behaved exactly as designed.
-      c.fetch(new Request("http://build/hold?ms=" + ms, { method: "POST" }))
+      // HELD ON `ctx.waitUntil`, AND THE FIRST DRAFT ABANDONED IT — which is
+      // very likely why the first live run reported NOT PROVEN. A Worker tears
+      // the request context down once the response is returned, so a promise
+      // nobody holds is CANCELLED mid-flight: this repo already lost most of an
+      // audit log to exactly that. An abandoned hold may never reach the
+      // container at all, and the hook then correctly finds it idle and
+      // correctly stops it — a probe measuring its own plumbing.
+      //
+      // THIS DOES NOT MAKE THE PROBE VACUOUS, which is the thing to check before
+      // reaching for `waitUntil` here. The container answers `/hold` IMMEDIATELY
+      // and keeps working, so `containerFetch` settles in milliseconds and
+      // `inflightRequests` is back to zero long before the idle window matters.
+      // Awaiting a request that only replied at the END would be the vacuous
+      // version, because inflight would never reach zero and nothing would ever
+      // expire.
+      const held = c.fetch(new Request("http://build/hold?ms=" + ms, { method: "POST" }))
         .catch((e) => console.log("hold probe: fetch settled", String((e && e.name) || e)));
+      if (ctx && ctx.waitUntil) ctx.waitUntil(held);
       return Response.json({ ok: true, started: ms, lane: laneName("hold-probe") });
     }
     // CAN THE CONTAINER REACH THE MODEL PROVIDERS?

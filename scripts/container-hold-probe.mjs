@@ -137,13 +137,55 @@ log(`step 5 — going silent for ${WAIT_MS / 1000}s. NO requests to the containe
     "because each one would renew the very timeout under test.");
 await new Promise((r) => setTimeout(r, WAIT_MS));
 
-// ── step 6: one look ─────────────────────────────────────────────────────────
+// ── step 6: one look, and then ASK THE HOOK WHAT IT DID ─────────────────────
 const after = await fetch(`${BASE}/api/_hold?check=1`, { headers: auth }).then((r) => r.json()).catch((e) => ({ err: String(e) }));
 const waited = ((Date.now() - t0) / 1000).toFixed(0);
 log(`step 6 — after ${waited}s total, the lane answered: ${JSON.stringify(after)}`);
 
+// THE HOOK'S OWN RECORD, which is the difference between a verdict and a
+// diagnosis. The first live run reported NOT PROVEN and could not say which of
+// four things had happened; this is read from Durable Object storage, which
+// survives the container being stopped, so it answers even when the container
+// does not.
+//
+// READ AFTER the check, deliberately: the check is the thing that would restart
+// a stopped container, and reading the record first would leave a reader unable
+// to tell a hook that ran before our check from one that ran because of it.
+const hook = await fetch(`${BASE}/api/_hold?log=1`, { headers: auth }).then((r) => r.json()).catch((e) => ({ err: String(e) }));
+log(`step 6 — the hook's own record: ${JSON.stringify(hook)}`);
+
 let busy = null, sinceMs = null;
 try { const b = JSON.parse(after.body); busy = b.busy; sinceMs = b.sinceMs; } catch { /* reported below */ }
+
+// WHAT THE HOOK SAYS, turned into the sentence a reader can act on. Each of
+// these wants a completely different next step, and collapsing them into "NOT
+// PROVEN" is what made the first run cost a source audit instead of a glance.
+const rec = hook && hook.last;
+function whyLine() {
+  if (!rec) {
+    return "        THE HOOK NEVER RAN. No record at all, so `onActivityExpired` was not called in this\n" +
+           "        window — the container was stopped by something other than the idle timeout, or the\n" +
+           "        alarm never fired. Neither is about the override.";
+  }
+  const ago = Math.round((Date.now() - Number(rec.at)) / 1000);
+  const head = `        THE HOOK RAN ${ago}s ago and decided "${rec.why}" (hold=${rec.hold}).\n`;
+  if (rec.why === "idle") {
+    return head +
+      "        It asked, and the container really was IDLE — so the hold never reached it. That is a\n" +
+      "        fault in the PROBE's plumbing, not in the override: an abandoned fetch in a Worker is\n" +
+      "        cancelled when the response returns. Check the hold is held on ctx.waitUntil.";
+  }
+  if (rec.why === "no-answer" || rec.why === "unreadable") {
+    return head +
+      "        It could not read the container, so the fail-closed default fired and stopped a\n" +
+      "        container that may well have been working. That is `containerFetch` failing INSIDE the\n" +
+      "        alarm — the one place it is never exercised in a unit test.";
+  }
+  if (rec.why === "stuck") {
+    return head + "        It judged the container wedged past MAX_BUSY_HOLD_MS and stopped it deliberately.";
+  }
+  return head + "        It HELD the container. So something else stopped it, and the override is not the fault.";
+}
 
 log("");
 if (busy === true) {
@@ -151,15 +193,17 @@ if (busy === true) {
       "well past its five-minute idle timeout, with nothing connected to it for the whole window.");
   log("        onActivityExpired asked, was told the container was busy, and held it.");
   log("        Fire-and-forget is viable: generation can move into the container.");
+  log(whyLine());
   process.exit(0);
 }
 if (busy === false) {
   log("RESULT: NOT PROVEN — the lane answered, and it is IDLE. The hold was still supposed to be");
-  log("        running, so the container was stopped during the silent window and this check");
-  log("        restarted it. The override did not hold. Do NOT build fire-and-forget on this.");
+  log("        running, so the container did not survive the silent window.");
+  log(whyLine());
   process.exit(1);
 }
 log("RESULT: INCONCLUSIVE — the lane did not give a readable answer, so this run says nothing");
 log("        either way. That is a fault in the probe or the route, not a verdict about the");
 log("        container. Raw: " + JSON.stringify(after).slice(0, 300));
+log(whyLine());
 process.exit(1);

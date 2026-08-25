@@ -308,6 +308,68 @@ test("the probe route exists, is gated, and can occupy only one lane", () => {
     "so the alarm never fires and the thing under test never happens");
 });
 
+test("THE HOLD IS HELD ON ctx.waitUntil — an abandoned fetch is CANCELLED", () => {
+  // The first live run reported NOT PROVEN and this is the likeliest reason. A
+  // Worker tears the request context down once the response is returned, so a
+  // promise nobody holds is cancelled mid-flight — this repo already lost most
+  // of an audit log to exactly that, and here it means the hold may never reach
+  // the container at all. The hook then correctly finds it idle and correctly
+  // stops it, and the probe measures its own plumbing.
+  //
+  // IT DOES NOT MAKE THE PROBE VACUOUS, which is the thing that has to stay
+  // true: `/hold` answers IMMEDIATELY, so `containerFetch` settles in
+  // milliseconds and `inflightRequests` is back to zero long before the idle
+  // window matters. Asserted at the container end too, one test up.
+  const i = worker.indexOf('url.pathname === "/api/_hold"');
+  const blk = worker.slice(i, worker.indexOf('url.pathname === "/api/_egress"', i));
+  assert.match(blk, /ctx\.waitUntil\(held\)/,
+    "the hold probe abandons its fetch — a Worker cancels it, so the container may never be told");
+  // ANCHORED ON THE BINDING, not on a mention: `ctx.waitUntil` appears in prose
+  // in this block explaining the bug, and prose containing the thing it asserts
+  // is this repo's most repeated own-goal.
+  assert.match(blk, /const held = c\.fetch\(new Request\("http:\/\/build\/hold/,
+    "the hold fetch is no longer bound, so nothing can hold it");
+});
+
+test("THE HOOK RECORDS ITS DECISION WHERE THE CONTAINER CANNOT ERASE IT", () => {
+  // A probe that can only answer PROVEN or NOT PROVEN cannot say WHY, and four
+  // causes wear that one word. The container's own memory cannot answer it — a
+  // stopped container loses precisely the evidence — so it goes to Durable
+  // Object storage, which outlives the container by design.
+  const i = worker.indexOf("export class SiteBuildContainer");
+  const blk = worker.slice(i, worker.indexOf("\n}", worker.indexOf("async lastExpiry()", i)));
+  assert.match(blk, /this\.ctx\.storage\.put\("lastExpiry"/,
+    "the hook no longer records what it decided — a NOT PROVEN cannot name its cause");
+  assert.match(blk, /async lastExpiry\(\)/, "nothing can read the record back");
+  // WRITTEN BEFORE THE DECISION IS ACTED ON, or the one branch that matters
+  // most — the container being stopped — is the branch that records nothing.
+  const put = blk.indexOf('this.ctx.storage.put("lastExpiry"');
+  const stop = blk.indexOf("return super.onActivityExpired()");
+  assert.ok(put > 0 && stop > put,
+    `the record is written at ${put} and the stop at ${stop} — a stopped container must still say why`);
+  // AND IT MUST NOT BE ABLE TO THROW. The alarm awaits this hook, so an
+  // exception escaping takes the Durable Object's whole lifecycle with it —
+  // which would turn a diagnostic into an outage.
+  const around = blk.slice(Math.max(0, put - 400), put);
+  assert.match(around, /try \{/, "the record write is not fenced — this hook must never throw");
+});
+
+test("THE PROBE REPORTS THE CAUSE, not only the verdict", () => {
+  const probe = readFileSync(new URL("../scripts/container-hold-probe.mjs", import.meta.url), "utf8");
+  assert.match(probe, /_hold\?log=1/, "the probe never asks the hook what it did");
+  // Every branch of the verdict must carry the diagnosis, or the one run that
+  // needs it is the one that does not print it.
+  const calls = (probe.match(/whyLine\(\)/g) || []).length;
+  assert.ok(calls >= 4, `whyLine is used ${calls} times — it must ride on every verdict plus its own definition`);
+  // AND IT MUST DISCRIMINATE. A diagnosis that says the same thing whatever the
+  // hook recorded is a sentence rather than an instrument.
+  for (const why of ["idle", "no-answer", "stuck"]) {
+    assert.ok(probe.includes(`"${why}"`), `the probe cannot report the "${why}" cause`);
+  }
+  assert.match(probe, /THE HOOK NEVER RAN/,
+    "the probe cannot distinguish a hook that never ran — which is a cause in itself");
+});
+
 // ── THE CREDENTIAL, WHICH KILLED THE FIRST LIVE RUN IN 0.0 SECONDS ──────────
 //
 // `secrets.SUPABASE_ANON_KEY` HAS NEVER EXISTED in this repo. Five workflows
