@@ -430,6 +430,82 @@ try {
       busy && busy.busy === false && busy.jobs === 0, JSON.stringify(busy));
   }
 
+  // ── FIRE AND STORE, DRIVEN ──────────────────────────────────────────────────
+  //
+  // The half that lets the Worker stop waiting: `/model/start` answers with an
+  // id and works in the background, `/model/result` says whether it is done. A
+  // unit test can read the source and cannot see whether either route is
+  // ROUTED — which is the layer this repo has recorded twelve dead features in.
+  //
+  // FREE FOR THE SAME REASON THE BLOCK ABOVE IS: with no key the call refuses
+  // by name before a request is made. The refusal is the assertion.
+  //
+  // WHAT THIS CANNOT SHOW, stated: the job fails in about two milliseconds
+  // here, so "the response came back before the work finished" is not
+  // observable — that was measured by hand against a real round trip and is
+  // held in the suite by composition (see container-model-async.test.mjs).
+  {
+    const started = await fetch(`http://127.0.0.1:${PORT}/model/start`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ req: { model: "grok-4.6", messages: [] }, callMs: 5000 }),
+    }).then((r) => r.json()).catch(() => ({}));
+    // THE ANSWER IS AN ID AND NOT THE MODEL'S REPLY. That difference IS the
+    // route: hand back an answer and it is the synchronous path renamed, with
+    // the fifteen-minute consumer cap binding exactly as before.
+    ok("POST /model/start is routed, and answers with a job id rather than the reply",
+      started && started.ok === true && typeof started.id === "string" && started.id.length > 8 && !("answer" in started),
+      JSON.stringify(started).slice(0, 200));
+
+    // Poll it the way the Worker will. Bounded, because a route that never
+    // settles must fail here rather than hang the check.
+    let result = null;
+    for (let i = 0; i < 50; i++) {
+      result = await fetch(`http://127.0.0.1:${PORT}/model/result?id=${encodeURIComponent(started.id || "")}`)
+        .then((r) => r.json()).catch(() => null);
+      if (result && result.state !== "pending") break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    ok("…and the fired job really ran, refusing by name because no key is set",
+      result && result.state === "failed" && /XAI_API_KEY is not set/.test(String(result.message)),
+      JSON.stringify(result).slice(0, 200));
+    // No synthesised status, the same rule the synchronous route already keeps:
+    // `upstream` is documented as the provider's number and nothing else, so a
+    // key we forgot to set must not arrive looking like a provider that
+    // answered — `retryHere` reads exactly this to decide whether tokens are
+    // already spent.
+    ok("…with no provider status, because no provider answered",
+      result && result.status === null, `status field ${JSON.stringify(result && result.status)}`);
+
+    // A QUEUE DELIVERS AT LEAST ONCE. A duplicated resume message must find the
+    // same answer rather than "unknown job" — which reads as the container
+    // having been recycled, and would throw away a generation that finished.
+    const again = await fetch(`http://127.0.0.1:${PORT}/model/result?id=${encodeURIComponent(started.id || "")}`)
+      .then((r) => r.json()).catch(() => null);
+    ok("…and reading it a second time gives the same answer — a finished job is not deleted on read",
+      again && again.state === "failed" && again.message === result.message, JSON.stringify(again).slice(0, 120));
+
+    // UNKNOWN IS ITS OWN ANSWER. A caller told "pending" for work this
+    // container no longer has polls until its own deadline for an answer
+    // nobody is producing.
+    const gone = await fetch(`http://127.0.0.1:${PORT}/model/result?id=not-a-real-job`)
+      .then((r) => r.json()).catch(() => null);
+    ok("an id this container does not have reads as unknown, never as pending",
+      gone && gone.state === "unknown", JSON.stringify(gone));
+
+    const noReq = await fetch(`http://127.0.0.1:${PORT}/model/start`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: "{}",
+    });
+    ok("a /model/start with no request in it is refused rather than queued", noReq.status === 400);
+
+    // The fired job must release its lane exactly as an awaited one does. It is
+    // the same `oneAtATime`, but nothing here awaits it — so a leak would be
+    // invisible until this container claimed to be busy for the rest of its
+    // life and `onActivityExpired` stopped reclaiming it.
+    const busyAfter = await fetch(`http://127.0.0.1:${PORT}/busy`).then((r) => r.json()).catch(() => null);
+    ok("…and a fired-and-forgotten job still released its queue slot when it settled",
+      busyAfter && busyAfter.busy === false && busyAfter.jobs === 0, JSON.stringify(busyAfter));
+  }
+
   console.log("\nbuilding a two-page site…");
   const t0 = Date.now();
   // `lang` rides on the main build rather than costing its own: it is a

@@ -19,7 +19,7 @@
 // schema this site does not have — can never leak into someone's site.
 import http from "node:http";
 import fs from "node:fs";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 // FIRST OF THE BUILDER IMPORTS, DELIBERATELY. It takes the provider keys out of
 // `process.env` at evaluation time, and ESM evaluates imports depth-first in
@@ -110,6 +110,36 @@ const REACH_TARGETS = [
 // by here is a black hole, and the probe's job is to say so quickly rather than
 // to wait one out.
 const REACH_TIMEOUT_MS = 10000;
+
+// ── THE FIRE-AND-STORE GENERATION JOBS ───────────────────────────────────────
+//
+// One entry per `/model/start`, read back by `/model/result`. In memory rather
+// than on disk deliberately: a container that was recycled has LOST the work
+// however it was stored, so persisting it would only make an answer look
+// recoverable when the process that was producing it is gone.
+const MODEL_JOBS = new Map();
+// A lane is one slug, so one live job is the normal state and two means a
+// resume overlapped a start. More than that is something upstream retrying, and
+// refusing is better than holding whole model answers — megabytes each — for a
+// caller that has stopped listening.
+const MAX_MODEL_JOBS = 8;
+// LONGER THAN THE HOLD, ON PURPOSE. `MAX_BUSY_HOLD_MS` is thirty minutes, so a
+// container is stopped before an answer can age out from under a caller that is
+// still entitled to it; anything still here past this belongs to a build that
+// gave up long ago.
+const MODEL_JOB_TTL_MS = 45 * 60 * 1000;
+/**
+ * Drop what nobody is coming back for.
+ *
+ * KEYED ON `touchedAt`, NEVER ON `startedAt` — a generation legitimately runs
+ * for ten minutes and a poll refreshes it, so a start-time TTL would delete a
+ * job while it was still being produced.
+ */
+function sweepModelJobs(now = Date.now()) {
+  for (const [id, job] of MODEL_JOBS) {
+    if (now - (job.touchedAt || job.startedAt || 0) > MODEL_JOB_TTL_MS) MODEL_JOBS.delete(id);
+  }
+}
 // RAISED TO THIRTY MINUTES (2026-08-22, owner's call), with every other bound
 // on the build path. Each step here is a subprocess — tsc, vite, the prerender
 // — and the kill is what stops one wedging the container for the platform, so
@@ -1123,6 +1153,115 @@ const server = http.createServer((req, res) => {
   // running past that is stopped even while it reports busy. That is far above
   // any generation ever measured (the worst is ~10 minutes) and it is the number
   // to re-measure if this is ever asked to run an hour.
+  // ── FIRE AND STORE: the call the Worker does NOT wait for ──────────────────
+  //
+  // `/model` below holds the socket for the whole generation, which is what the
+  // Worker's own fifteen-minute consumer cap cannot afford: measured, design is
+  // ~170s and generation is 334k-620k ms, so on a slow draw the pair alone is
+  // past the ceiling and runs 38 and 39 both died at it having published
+  // nothing. Moving the CALL here was only half — the WAIT was still on the
+  // capped side.
+  //
+  // `/model/start` answers in milliseconds with an id and does the work in the
+  // background; `/model/result` says whether it is finished. So no single
+  // consumer invocation is ever long, and the cap stops binding.
+  //
+  // THE BUSY COUNTER IS WHAT MAKES THIS SAFE, and it is why the work goes
+  // through `oneAtATime` even though nothing awaits it. That helper counts AT
+  // THE DOOR and releases on SETTLEMENT — not on anybody awaiting — so a job
+  // nobody is holding still reports through `/busy`, and `onActivityExpired`
+  // keeps this container alive instead of stopping it five minutes in. Without
+  // it, the first thing that happens after the Worker walks away is the idle
+  // clock starting on work that takes ten minutes.
+  //
+  // THE FN CATCHES EVERYTHING ITSELF, which is not tidiness: `oneAtATime`
+  // returns a promise this route deliberately does not await, so a rejection
+  // escaping would be an unhandled one — and an unhandled rejection in a Node
+  // request handler kills the process, taking every other build on this
+  // container with it.
+  if (req.method === "POST" && req.url === "/model/start") {
+    let sBody = "", sTooBig = false;
+    req.on("data", (c) => { sBody += c; if (sBody.length > MAX_MODEL_BODY) { sTooBig = true; req.destroy(); } });
+    req.on("end", () => {
+      if (sTooBig) return send(res, 413, { ok: false, error: "request too large" });
+      let payload; try { payload = JSON.parse(sBody); } catch { return send(res, 400, { ok: false, error: "invalid json" }); }
+      const mReq = payload && payload.req;
+      if (!mReq || typeof mReq !== "object") return send(res, 400, { ok: false, error: "no req" });
+      // The ceiling is ours, not the caller's — the same rule `/model` states.
+      // A caller may ask for LESS (the composed build budget) and never more.
+      const want = Number(payload.callMs);
+      const callMs = Number.isFinite(want) && want > 0 ? Math.min(want, BUILDER_CALL_MS) : BUILDER_CALL_MS;
+      const budget = { capMs: () => callMs };
+
+      sweepModelJobs();
+      // REFUSED RATHER THAN QUEUED PAST THE CAP. The store is bounded because a
+      // leak here is a container holding whole model answers — megabytes each —
+      // for the rest of its life. One lane is one slug, so more than a couple of
+      // live jobs means something upstream is retrying rather than resuming.
+      if (MODEL_JOBS.size >= MAX_MODEL_JOBS) {
+        return send(res, 429, { ok: false, error: "too many generation jobs on this container" });
+      }
+      const id = randomUUID();
+      MODEL_JOBS.set(id, { state: "pending", startedAt: Date.now(), touchedAt: Date.now() });
+      // NOT AWAITED. The response goes back now; the counter holds until this
+      // settles. `_busy` is incremented synchronously inside `oneAtATime`, so it
+      // is already up by the time `send` runs — there is no window in which this
+      // container looks idle with a generation in flight.
+      oneAtATime(async () => {
+        const at = Date.now();
+        try {
+          const answer = await callBuilderModel(keysFrom(BUILD_KEYS), mReq, budget);
+          MODEL_JOBS.set(id, { state: "done", answer, ms: Date.now() - at, touchedAt: Date.now() });
+        } catch (e) {
+          // THE SHAPE IS PRESERVED, exactly as `/model` preserves it: the Worker
+          // parses `detail` for the provider's error type and reports `upstream`
+          // as the numeric status and nothing else, and `retryHere` reads
+          // `status` to decide whether money was spent. A container-side failure
+          // flattened to a message is a real 429 wearing a container fault.
+          MODEL_JOBS.set(id, {
+            state: "failed",
+            fail: {
+              status: (e && e.status) || null,
+              detail: e && typeof e.detail === "string" ? e.detail : "",
+              message: String((e && e.message) || e).slice(0, 300),
+              kind: String((e && e.name) || "Error"),
+            },
+            ms: Date.now() - at,
+            touchedAt: Date.now(),
+          });
+        }
+      });
+      return send(res, 200, { ok: true, id });
+    });
+    return;
+  }
+
+  // IS IT FINISHED — the other half, and the poll is ALSO the keep-alive.
+  //
+  // Every request through the container proxy renews the library's activity
+  // timeout, so the Worker coming back every so often is what stops a five
+  // minute idle window opening between checkpoints. That is a property of the
+  // proxy rather than of this route, and it is written down because the obvious
+  // "poll less often to be polite" is the change that would break it.
+  //
+  // A DONE JOB IS NOT DELETED ON READ. A queue delivers at least once, so a
+  // duplicated resume message must find the same answer rather than "unknown
+  // job" — which would read as the container having been recycled and lose a
+  // generation that really did finish. The sweep is what bounds the store.
+  if (req.method === "GET" && req.url.startsWith("/model/result")) {
+    sweepModelJobs();
+    const id = new URL(req.url, "http://build").searchParams.get("id") || "";
+    const job = MODEL_JOBS.get(id);
+    // UNKNOWN IS ITS OWN ANSWER AND MUST NOT READ AS PENDING. A container that
+    // was recycled mid-generation has lost the work, and a caller told "pending"
+    // there polls until its own deadline for an answer that is never coming.
+    if (!job) return send(res, 200, { ok: true, state: "unknown" });
+    job.touchedAt = Date.now();
+    if (job.state === "pending") return send(res, 200, { ok: true, state: "pending", waitingMs: Date.now() - job.startedAt });
+    if (job.state === "done") return send(res, 200, { ok: true, state: "done", answer: job.answer, ms: job.ms });
+    return send(res, 200, { ok: true, state: "failed", ...job.fail, ms: job.ms });
+  }
+
   if (req.method === "POST" && req.url === "/model") {
     let mBody = "", mTooBig = false;
     req.on("data", (c) => { mBody += c; if (mBody.length > MAX_MODEL_BODY) { mTooBig = true; req.destroy(); } });
