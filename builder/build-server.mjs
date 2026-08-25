@@ -21,6 +21,17 @@ import http from "node:http";
 import fs from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
+// FIRST OF THE BUILDER IMPORTS, DELIBERATELY. It takes the provider keys out of
+// `process.env` at evaluation time, and ESM evaluates imports depth-first in
+// SOURCE ORDER — so anything listed above it runs its own top-level code, and
+// any `process.env` read in it, while the keys are still there. Nothing does
+// that today; the ordering is one import away from mattering, and
+// `test/build-keys.test.mjs` pins it rather than leaving it to luck.
+//
+// What it is FOR: this container executes model-written code (the render check
+// runs the site's own server bundle in a child), and both spawn paths hand that
+// child the whole environment. See the file for the measurement.
+import "./build-keys.mjs";
 import { resolvePair, resolvePageFonts, resolveFont, fontCss, fontImports } from "./site-fonts.mjs";
 import { themeCss, transitionOn } from "./site-theme.mjs";
 import { normalizeSeeds } from "./site-seeds.mjs";
