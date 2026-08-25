@@ -349,8 +349,23 @@ try {
   fs.copyFileSync(path.join(sandbox, "src/styles.css"), path.join(sandbox, ".styles-base.css"));
   fs.rmSync(path.join(sandbox, "src/routes/index.tsx"), { force: true });
 
+  // NO PROVIDER KEYS, DELIBERATELY, AND THIS HARNESS MUST NEVER HAVE ANY.
+  //
+  // The service can make a real model call now (`POST /model`), and this file
+  // runs on every push. `{ ...process.env }` would hand it whatever the runner
+  // happens to carry, so a checked-in test could start spending real money the
+  // day a key lands in that environment — silently, because a working call
+  // looks exactly like a working test.
+  //
+  // Cleared rather than merely unset, so the emptiness is a PROPERTY of this
+  // spawn rather than of whichever machine it runs on. The /model check below
+  // reads the named refusal that produces, which costs nothing and still drives
+  // every layer between the socket and the provider.
   server = spawn("node", [path.join(ROOT, "builder", "build-server.mjs")], {
-    env: { ...process.env, APP_DIR: sandbox, PORT: String(PORT), NODE_ENV: "production", ...chromiumEnv() },
+    env: {
+      ...process.env, APP_DIR: sandbox, PORT: String(PORT), NODE_ENV: "production", ...chromiumEnv(),
+      ANTHROPIC_API_KEY: "", XAI_API_KEY: "",
+    },
     stdio: ["ignore", "pipe", "pipe"],
   });
   server.stderr.on("data", (d) => process.stderr.write("  [build-service] " + d));
@@ -363,6 +378,57 @@ try {
   }
   ok("the build service answers /health", up);
   if (!up) throw new Error("build service never came up");
+
+  // ── THE CONTAINER CAN MAKE THE MODEL CALL, DRIVEN ──────────────────────────
+  //
+  // Page generation is moving here because a queue consumer is capped at
+  // fifteen minutes and a container has no fixed maximum runtime. Everything
+  // between the socket and the provider is exercised: routing, the body parse,
+  // the queue, the call, and the error SHAPE the Worker reads back.
+  //
+  // FREE, AND THAT IS WHY IT CAN LIVE IN A CHECK THAT RUNS ON EVERY PUSH. With
+  // no key the call refuses BY NAME before a request is made — no DNS, no TLS,
+  // no tokens, nothing billable. The refusal is the assertion.
+  {
+    const r = await fetch(`http://127.0.0.1:${PORT}/model`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ req: { model: "claude-sonnet-5", messages: [] }, callMs: 5000 }),
+    });
+    const m = await r.json().catch(() => ({}));
+    ok("POST /model is routed at all — not the bottom 404", r.status === 200, `status ${r.status}`);
+    ok("…and it reached the model call, refusing by name because no key is set",
+      m && m.ok === false && /ANTHROPIC_API_KEY is not set/.test(String(m.message)), JSON.stringify(m).slice(0, 200));
+    // NO SYNTHESISED STATUS. `upstream` on the build route is documented as
+    // "the numeric status from the model API and nothing else", so a key we
+    // forgot to set must not come back looking like a provider that answered.
+    ok("…with no provider status, because no provider answered", m && m.status === null, `status field ${JSON.stringify(m && m.status)}`);
+
+    // BOTH PROVIDERS, because `DEFAULT_PICKER` is grok — a check that proved
+    // only the Anthropic branch would say nothing about the one every build
+    // actually uses, and the two branches refuse in different places.
+    const x = await fetch(`http://127.0.0.1:${PORT}/model`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ req: { model: "grok-4.6", messages: [] }, callMs: 5000 }),
+    }).then((r) => r.json()).catch(() => ({}));
+    ok("…and the xAI branch is reached too, not only Anthropic's",
+      x && x.ok === false && /XAI_API_KEY is not set/.test(String(x.message)), JSON.stringify(x).slice(0, 200));
+
+    const bad = await fetch(`http://127.0.0.1:${PORT}/model`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: "{}",
+    });
+    ok("a /model call with no request in it is refused rather than sent", bad.status === 400);
+
+    // A FAILED CALL MUST RELEASE ITS QUEUE SLOT. `/model` runs through
+    // `oneAtATime` so the busy counter can see it — and a rejection leaking a
+    // permanent +1 would make this container report busy for the rest of its
+    // life, so `onActivityExpired` would never reclaim it and it would bill
+    // until Cloudflare recycled it. Three failures have just been driven, so a
+    // leak here is worth three.
+    const busy = await fetch(`http://127.0.0.1:${PORT}/busy`).then((r) => r.json()).catch(() => null);
+    ok("…and three failed /model calls left the queue empty, not permanently busy",
+      busy && busy.busy === false && busy.jobs === 0, JSON.stringify(busy));
+  }
 
   console.log("\nbuilding a two-page site…");
   const t0 = Date.now();

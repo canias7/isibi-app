@@ -54,20 +54,27 @@
 // container to see the environment, and an import-time delete happens before it
 // listens on a port, let alone before a build can spawn anything.
 
+import { SECRET_ENV as KEY_ENV_NAMES } from "./build-call.mjs";
+
 /** The names the container is handed and must not pass on.
  *
- * A LIST RATHER THAN A PREFIX CONVENTION, and the reason is the one-reading
- * rule `keysFrom` already lives under: the Worker reads `ANTHROPIC_API_KEY` and
- * `XAI_API_KEY` off its bindings, and if the container read differently-spelled
- * names the two surfaces would have two spellings for one secret — which is
- * exactly the drift that ends with a key set under the name nothing reads.
+ * DERIVED FROM `build-call.mjs`, NOT RESTATED, and the reason is the one-reading
+ * rule that module already lives under: the Worker reads these names off its
+ * bindings AND sets them on the container's start config, and the container
+ * takes them out of `process.env`. A second spelling here would mean the
+ * container scrubbing one name while the Worker set another — a key left in the
+ * environment, with every test green, which is the exact failure this file
+ * exists to prevent.
  *
- * WHAT STOPS THE LIST GOING STALE is not memory. A secret that is not on this
- * list can only be USED by naming it somewhere else under `builder/`, and
+ * A LIST RATHER THAN A PREFIX CONVENTION, so the three surfaces keep ONE
+ * spelling per secret rather than a transport name and a read name.
+ *
+ * WHAT STOPS THE LIST GOING STALE is not memory. A secret that is not on it can
+ * only be USED by naming it somewhere else under `builder/`, and
  * `test/build-keys.test.mjs` fails on any such read. So the list cannot fall
  * behind what the container actually uses: the guard goes red first.
  */
-export const SECRET_ENV = ["ANTHROPIC_API_KEY", "XAI_API_KEY"];
+export const SECRET_ENV = Object.values(KEY_ENV_NAMES);
 
 /**
  * Read the secrets out of an environment and REMOVE them from it.

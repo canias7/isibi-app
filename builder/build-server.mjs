@@ -31,7 +31,8 @@ import path from "node:path";
 // What it is FOR: this container executes model-written code (the render check
 // runs the site's own server bundle in a child), and both spawn paths hand that
 // child the whole environment. See the file for the measurement.
-import "./build-keys.mjs";
+import { BUILD_KEYS } from "./build-keys.mjs";
+import { callBuilderModel, keysFrom, BUILDER_CALL_MS } from "./build-call.mjs";
 import { resolvePair, resolvePageFonts, resolveFont, fontCss, fontImports } from "./site-fonts.mjs";
 import { themeCss, transitionOn } from "./site-theme.mjs";
 import { normalizeSeeds } from "./site-seeds.mjs";
@@ -988,6 +989,86 @@ const server = http.createServer((req, res) => {
       // behind it — and Cloudflare reports the restart as "the container is not
       // running", which reads as flaky infrastructure rather than as this.
       try { send(res, 500, { error: String((e && e.name) || e) }); } catch { /* already answered */ }
+    });
+    return;
+  }
+  // MAKE ONE MODEL CALL, AND HOLD IT OPEN FOR AS LONG AS IT TAKES.
+  //
+  // ── WHY THIS IS HERE AND NOT IN THE WORKER ─────────────────────────────────
+  //
+  // A queue consumer is guaranteed FIFTEEN MINUTES and that is a hard cap. Run
+  // 38 spent 595,405ms in page generation alone and was refused by our own
+  // budget before Cloudflare's. A container has "no fixed maximum runtime"
+  // (Cloudflare's words) — it is bounded by an IDLE timeout, not a duration —
+  // so the step that takes ten minutes belongs on this side of the wall.
+  //
+  // THE WORKER STILL BUILDS THE REQUEST. `pagesRequest` drags in fifteen modules
+  // and ~1MB of prompt machinery, three of them at the repo root and outside
+  // this image's build context, so the prompt tier cannot cross without a second
+  // copy of it — and a second copy of a ~36,000-token prompt is two things that
+  // drift. What crosses is the finished request; what happens here is the WAIT.
+  //
+  // ── IT GOES THROUGH `oneAtATime`, AND THE BUSY COUNTER IS WHY ──────────────
+  //
+  // Not for the serialisation — a model call touches no file, so it has nothing
+  // to conflict over. For `_busy`. The whole point of moving generation here is
+  // that the Worker can walk away, and the moment it does the library's inflight
+  // counter reaches zero, the `sleepAfter` clock starts, and `onActivityExpired`
+  // asks `/busy` whether to stop this container. A generation the counter cannot
+  // see is a container stopped mid-call at five minutes, silently, reading as a
+  // crash rather than as a timer doing its job. `oneAtATime` is what makes it
+  // visible, and the serialisation it also buys is harmless: one container per
+  // build, and a model call and a vite build competing for one CPU is not
+  // something to want anyway.
+  //
+  // KNOWN BOUND, STATED: `MAX_BUSY_HOLD_MS` is thirty minutes, so a call still
+  // running past that is stopped even while it reports busy. That is far above
+  // any generation ever measured (the worst is ~10 minutes) and it is the number
+  // to re-measure if this is ever asked to run an hour.
+  if (req.method === "POST" && req.url === "/model") {
+    let mBody = "", mTooBig = false;
+    req.on("data", (c) => { mBody += c; if (mBody.length > MAX_BODY) { mTooBig = true; req.destroy(); } });
+    req.on("end", () => {
+      if (mTooBig) return send(res, 413, { ok: false, error: "request too large" });
+      let payload; try { payload = JSON.parse(mBody); } catch { return send(res, 400, { ok: false, error: "invalid json" }); }
+      const mReq = payload && payload.req;
+      if (!mReq || typeof mReq !== "object") return send(res, 400, { ok: false, error: "no req" });
+      // THE CEILING IS OURS, NOT THE CALLER'S. A caller may ask for LESS —
+      // that is the composed build budget, and honouring it is what stops a
+      // generation started at minute eleven getting a fresh ten — but it may
+      // not ask for more. A bound that lives only in the caller is one the next
+      // caller forgets, which is the argument `/hold` two routes up already
+      // makes about its own lane.
+      const want = Number(payload.callMs);
+      const callMs = Number.isFinite(want) && want > 0 ? Math.min(want, BUILDER_CALL_MS) : BUILDER_CALL_MS;
+      // `callBuilderModel` reads exactly one thing off a budget, so this is the
+      // whole of that interface. A live budget object cannot cross a wire —
+      // `capMs` is a function over a clock — so the Worker sends the NUMBER it
+      // would have produced and the composition stays on the side that owns it.
+      const budget = { capMs: () => callMs };
+      return oneAtATime(async () => {
+        const at = Date.now();
+        try {
+          const answer = await callBuilderModel(keysFrom(BUILD_KEYS), mReq, budget);
+          send(res, 200, { ok: true, answer, ms: Date.now() - at });
+        } catch (e) {
+          // THE SHAPE IS PRESERVED, not flattened to a message. `upstreamKind`
+          // in the Worker parses `detail` for the provider's error type and the
+          // one actionable billing sentence, and the route reports `upstream`
+          // as "the numeric status from the model API and nothing else" — so a
+          // call that arrived here as a real 429 must not come back looking
+          // like a container fault. `status` absent is itself the signal that
+          // no provider answered (a timeout, or a key we never set).
+          send(res, 200, {
+            ok: false,
+            status: (e && e.status) || null,
+            detail: e && typeof e.detail === "string" ? e.detail : "",
+            message: String((e && e.message) || e).slice(0, 300),
+            kind: String((e && e.name) || "Error"),
+            ms: Date.now() - at,
+          });
+        }
+      });
     });
     return;
   }

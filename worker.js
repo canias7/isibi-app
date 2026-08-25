@@ -113,7 +113,7 @@ import { laneName } from "./builder/build-lane.mjs";
 // on the way in because `worker.js` keeps thin `env`-shaped wrappers of the same
 // names — eleven call sites read them, and renaming those would make a move that
 // changes no behaviour look like a change that does.
-import { callBuilderModel as callModel, keysFrom, BUILDER_CALL_MS } from "./builder/build-call.mjs";
+import { callBuilderModel as callModel, keysFrom, keyEnv, BUILDER_CALL_MS } from "./builder/build-call.mjs";
 import { holdDecision, BUSY_PROBE_MS } from "./builder/container-hold.mjs";
 
 // Game build-service container (Phase 3). The image (./builder-game/Dockerfile)
@@ -129,6 +129,33 @@ export class GameBuildContainer extends Container {
 export class SiteBuildContainer extends Container {
   defaultPort = 8080;
   sleepAfter = "5m";
+
+  // THE PROVIDER KEYS, SO THE CONTAINER CAN MAKE THE LONG MODEL CALL ITSELF.
+  //
+  // A CONSTRUCTOR RATHER THAN A CLASS FIELD, because a field initialiser cannot
+  // see a constructor parameter and `env` is where the bindings are. The library
+  // reads `this.envVars` at START time (`startConfig.env = envVars`), so setting
+  // it after `super()` is in time for every start.
+  //
+  // ONLY THE TWO NAMES, never the whole `env`. That object carries the R2
+  // buckets, the dispatch namespace, the Supabase service key and the site
+  // secrets key — none of which this image has any use for, and all of which
+  // would then be readable by the model-written page code the render check
+  // executes. `keyEnv` is the narrow reading, and it OMITS a name it has no
+  // usable value for rather than sending `undefined`, so an unset key produces
+  // the container's own named refusal instead of a 401 from a provider handed
+  // the literal string "undefined".
+  //
+  // THE OTHER HALF OF THE PAIR IS `builder/build-keys.mjs`, which takes these
+  // straight back out of `process.env` at the container's startup — before
+  // anything can spawn — because both of the container's spawn paths hand a
+  // child the whole environment, and one of those children runs the model's own
+  // page code. Setting them here without that would be handing a customer's
+  // brief the keys.
+  constructor(ctx, env, options) {
+    super(ctx, env, options);
+    this.envVars = keyEnv(env);
+  }
 
   // DO NOT STOP A CONTAINER THAT IS STILL WORKING.
   //

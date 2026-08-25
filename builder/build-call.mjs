@@ -73,7 +73,13 @@ export async function callBuilderModel(keys, req, budget = null) {
       // The route's own `kind` carries `Error` for this, and the message names
       // the variable, so the diagnosis is not lost — it just stops pretending
       // to be a provider's answer.
-      throw new Error("XAI_API_KEY is not set on the Worker");
+      // "…is not set", NOT "…is not set on the Worker", which is what this said
+      // until the container started making this call too. A message naming the
+      // wrong side of the system is one somebody believes: they would go and
+      // check the Worker's secrets, find the key perfectly well set, and be no
+      // closer. The environment is named and where it is missing is left to the
+      // log line that carries it.
+      throw new Error("XAI_API_KEY is not set");
     }
     const { body, droppedDocs } = toXaiRequest(req);
     const r = await fetch(XAI_ENDPOINT, {
@@ -124,6 +130,22 @@ export async function callBuilderModel(keys, req, budget = null) {
   return r.json();
 }
 
+/** WHICH ENVIRONMENT VARIABLE CARRIES WHICH KEY — the one list.
+ *
+ * Three places need to agree about these two names and they are on three
+ * different sides of the system: the Worker READS them off its bindings, the
+ * Worker SETS them on the container's start config, and the container TAKES
+ * them out of its own `process.env`. Three spellings of one secret ends with a
+ * key set under the name nothing reads — a build that fails at the provider
+ * with a 401, on a deploy that reported success.
+ *
+ * It lives here rather than in `build-keys.mjs` because this is the leaf both
+ * sides already import; `build-keys.mjs` is container-only, and the Worker
+ * cannot import it (it deletes from `process.env` at evaluation time, and
+ * workerd has no `process`).
+ */
+export const SECRET_ENV = { anthropic: "ANTHROPIC_API_KEY", xai: "XAI_API_KEY" };
+
 /**
  * The two keys, off whatever object carries them.
  *
@@ -134,5 +156,33 @@ export async function callBuilderModel(keys, req, budget = null) {
  */
 export function keysFrom(src) {
   const s = src || {};
-  return { anthropic: s.ANTHROPIC_API_KEY, xai: s.XAI_API_KEY };
+  return { anthropic: s[SECRET_ENV.anthropic], xai: s[SECRET_ENV.xai] };
+}
+
+/**
+ * The same two keys, in the shape a container's start config wants: the
+ * ENVIRONMENT-VARIABLE names, and only the ones that carry a usable value.
+ *
+ * @param {object} src  the Worker's `env`
+ * @returns {Record<string, string>}
+ *
+ * A MISSING KEY IS OMITTED RATHER THAN SENT AS `undefined`. The start config is
+ * serialised, and a property whose value is undefined is not a variable set to
+ * nothing — it is a variable that may arrive as the literal string
+ * "undefined", which reaches the provider as a bad key and comes back 401. A
+ * name that is simply absent produces the container's own named refusal
+ * instead ("ANTHROPIC_API_KEY is not set"), which says what to fix.
+ *
+ * NON-MUTATING, unlike `takeKeys` in `build-keys.mjs`. That one removes what it
+ * reads because its whole purpose is that nothing downstream can see it; this
+ * one is handed the Worker's live bindings, which the Worker still needs.
+ */
+export function keyEnv(src) {
+  const s = src || {};
+  const out = {};
+  for (const name of Object.values(SECRET_ENV)) {
+    const v = s[name];
+    if (typeof v === "string" && v) out[name] = v;
+  }
+  return out;
 }
