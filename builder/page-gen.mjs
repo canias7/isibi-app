@@ -2072,6 +2072,27 @@ ${componentApiFor(ALWAYS_API_CORE)}
     both directions, because a transform does not mirror — leave that pair exactly as it
     is. Arrows and chevrons need nothing either; the site's own stylesheet mirrors them.
 
+16. THE PAGE BODY HAS A WIDTH AND \`<main>\` DOES NOT SET IT. Every band of page content
+    sits in \`mx-auto max-w-6xl px-6\`.
+
+    \`SiteChrome\` hands you a bare \`<main>\` — no maximum width, no side padding — while
+    the header and the footer inside it are \`max-w-6xl px-6\`. So a page that sets no width
+    does not inherit one: its words run to both edges of the glass on a phone and to
+    whatever the monitor is on a desktop, underneath a nav that stops well short of both.
+    Three widths on one page, and the only two that look deliberate are the two you did
+    not write.
+
+    \`max-w-6xl\` SPECIFICALLY, never a number you choose. It is the width the header and
+    the footer already use, so the page stops disagreeing with its own frame — and it
+    resolves through the site's own \`--container-6xl\`, which is the thing that moves when
+    the owner asks for a wider site. A hand-picked \`max-w-[1100px]\` is frozen the way a
+    hardcoded colour is: every width on the site moves except the one you wrote.
+
+    A SECTION MEANT TO RUN WALL TO WALL STILL CAN, and this is how. Keep the full-bleed
+    thing — a photograph, a band of colour — on the \`<section>\`, and put
+    \`mx-auto max-w-6xl px-6\` on a \`<div>\` INSIDE it. The colour reaches both edges and the
+    words still line up with the nav above them.
+
 ## Reading rows
 
 \`useRows<T>(table, params)\` → a TanStack Query result whose \`.data\` is the rows.

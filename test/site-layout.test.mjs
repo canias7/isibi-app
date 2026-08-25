@@ -354,3 +354,115 @@ test("the Worker carries the arrangement back, and the router knows the lane own
   assert.match(seg, /"look"/,
     "the router does not say colours are a different lane, which is the confusion this axis invites");
 });
+
+/* ── the page body's own width ───────────────────────────────────────────── */
+
+// `<main>` HAS NO WIDTH, SO THE PAGE HAS TO SET ITS OWN — and for a while
+// nothing said so. Measured live on run 37 (`northgroup-3`): the header ran at
+// `max-w-6xl` with a 24px gutter, the hero's inner div at `max-w-4xl`, and
+// every band below it edge to edge with no gutter at all. Three widths on one
+// page, and the two that looked deliberate were the two the model did not
+// write. `PAGE_RULES` carried 0 `max-w`, 0 `mx-auto` and 0 `px-6` — the four
+// reference pages that were the only thing teaching it became DATA rather than
+// prompt on 2026-08-24, and nothing replaced them.
+//
+// DERIVED AT BOTH ENDS, because the rule is only true while the frame is what
+// it is: a container added to `<main>` later would make rule 16 a second,
+// disagreeing opinion about one width, and this says so rather than letting the
+// two drift quietly.
+//
+// NO CONDITIONAL FOR `width: "full"`, and that was checked rather than assumed.
+// `contained` is the default and `full` only ever arrives on request — and a
+// full-bleed bar over a contained column is an ordinary, deliberate look. The
+// bug is the INVERSE, a contained bar over a body that escapes past it, so
+// `max-w-6xl` on the body is right under both arrangements. Do not "fix" this
+// by making the rule conditional; a rule whose condition the model can get
+// wrong reproduces the bug it replaced.
+
+/**
+ * Comments blanked, LENGTH-PRESERVING, so an index into the result is an index
+ * into the file.
+ *
+ * BOTH ASSERTIONS BELOW WERE VACUOUS WITHOUT IT AND A SWEEP IS WHAT SHOWED IT.
+ * `site-chrome.tsx`'s own docstring says "the page's single `<main>`", so
+ * `indexOf("<main")` landed on the PROSE at offset 1088 and sliced `<main>` —
+ * a tag with no className, which passes a "no width here" check whatever the
+ * real one carries. And `site-header.tsx` line 89 argues about `max-w-6xl` in
+ * a comment, so a bare match found the argument rather than the code and the
+ * width could move underneath it. Prose containing the thing it asserts, twice
+ * in one file, in the guard written for exactly that.
+ */
+function noComments(src) {
+  const out = src
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => " ".repeat(m.length))
+    .replace(/^[ \t]*\/\/[^\n]*/gm, (m) => " ".repeat(m.length));
+  assert.equal(out.length, src.length, "the blanker moved the offsets it exists to preserve");
+  return out;
+}
+
+test("the frame is contained and <main> is not — the premise rule 16 rests on", () => {
+  const footer = fs.readFileSync(path.join(UI, "site-footer.tsx"), "utf8");
+  const headerCode = noComments(header);
+  const footerCode = noComments(footer);
+  const chromeCode = noComments(chrome);
+
+  // Proved the blanker did not eat the subject as well as the prose — a scan
+  // over an over-blanked file reports a clean frame and asserts nothing.
+  assert.match(headerCode, /className=/, "the header's code was blanked along with its comments");
+
+  assert.match(headerCode, /max-w-6xl/, "the header no longer runs at the width rule 16 names");
+  assert.match(footerCode, /max-w-6xl/, "the footer no longer runs at the width rule 16 names");
+
+  const i = chromeCode.indexOf("<main");
+  assert.ok(i > 0, "SiteChrome no longer renders a <main> the way this scan expects");
+  const tag = chromeCode.slice(i, chromeCode.indexOf(">", i));
+  assert.match(tag, /className=/, "the <main> found carries no className, so this scan is reading the wrong thing");
+  assert.doesNotMatch(tag, /max-w-|mx-auto/,
+    "<main> now sets a width of its own, so rule 16 is a second opinion about the same thing");
+});
+
+test("the generator is told the body has a width, and how to keep a full bleed", async () => {
+  const { PAGE_RULES } = await import("../builder/page-gen.mjs");
+  const i = PAGE_RULES.indexOf("THE PAGE BODY HAS A WIDTH");
+  assert.ok(i > 0, "no rule tells the model the page body has to set its own width");
+  // Bounded by the NEXT heading rather than a byte count — a window sized in
+  // bytes stops covering what it was written for the moment a sentence lands
+  // above it, this repo's most repeated own-goal.
+  const next = PAGE_RULES.indexOf("\n## ", i);
+  const rule = PAGE_RULES.slice(i, next > 0 ? next : undefined);
+  assert.ok(rule.length > 400, "the rule 16 window collapsed to nothing");
+
+  // THE STATEMENT, NOT ANYWHERE IN THE RULE. The classes appear twice — once as
+  // the instruction and once inside the full-bleed exception — so a check over
+  // the whole rule stays green with the instruction gutted and only the
+  // exception's copy left, which is an example with nothing it exemplifies.
+  const statement = rule.slice(0, rule.indexOf("\n\n"));
+  assert.ok(statement.length > 60, "the rule 16 statement window collapsed to nothing");
+  assert.match(statement, /mx-auto max-w-6xl px-6/,
+    "the rule never states the three classes, so there is nothing to copy");
+  // THE WIDTH IS NAMED, NOT LEFT TO THE MODEL. A number it picks is frozen the
+  // way a hardcoded colour is: `--container-6xl` is what the owner's own width
+  // axis moves, and `max-w-[1100px]` moves with nothing.
+  assert.match(rule, /--container-6xl/,
+    "the rule does not say why THIS width, so a hand-picked one reads as equally good");
+  // …and the escape hatch, or the rule kills every hero band on the platform.
+  assert.match(rule, /WALL TO WALL/,
+    "the full-bleed exception is not stated, so a correct hero reads as a rule violation");
+  assert.match(rule, /<section>/,
+    "the exception never says WHERE the bleed goes, which is the whole technique");
+});
+
+test("and the frontend-only prompt keeps it — that is the one every first build reads", async () => {
+  // ASSERTING THE FULL PROMPT ALONE WOULD BE THE GUARD WATCHING THE LAYER BELOW
+  // THE BREAK. A first build has no database, so it is `frontendRules` output
+  // that reaches the model — run 37, where this was measured, was frontend-only.
+  // `frontendRules` keeps by default and renumbers, so this holds today; what it
+  // catches is somebody naming rule 16 in the drop list, which would leave the
+  // width unstated on exactly the builds that showed the bug.
+  const { PAGE_RULES, frontendRules } = await import("../builder/page-gen.mjs");
+  const fe = frontendRules(PAGE_RULES);
+  assert.ok(fe.indexOf("THE PAGE BODY HAS A WIDTH") > 0,
+    "a frontend-only build is told nothing about the page's width");
+  assert.match(fe, /mx-auto max-w-6xl px-6/,
+    "the frontend prompt names the rule and not the classes it turns on");
+});
