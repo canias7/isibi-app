@@ -569,6 +569,60 @@ try {
     });
   }
 
+  // ── A 202 IS A BUILD THAT FIRED ITS GENERATION AND WALKED AWAY ────────────
+  //
+  // The generation runs in the container, which has no fifteen-minute cap, and
+  // this invocation ends in seconds — so the answer arrives minutes later at
+  // `/api/site/build/<job>` rather than on this response. Everything below needs
+  // the real answer, so this follows it rather than asserting the old status.
+  //
+  // WITHOUT THIS THE FIRST CHECK IS PERMANENTLY RED, on the strongest free
+  // signal in the repo — and a red check everybody knows about is a check nobody
+  // reads, which this file has already paid for once.
+  if (status === 202 && d && d.job) {
+    ok("a fired build answers immediately rather than holding the invocation",
+      (Date.now() - bt) < 120000, `${((Date.now() - bt) / 1000).toFixed(1)}s — the point of firing is that this returns fast`);
+    console.log(`   the generation is running in the container (job ${d.job}) — waiting for the answer…`);
+    // SIXTEEN MINUTES, the same bound the Worker's own wait uses, and for the
+    // same reason: past it no answer is coming. Read from one place rather than
+    // guessed at a second time.
+    const RESUME_WATCH_MS = 16 * 60 * 1000;
+    const rt = Date.now();
+    let got = null;
+    while (Date.now() - rt < RESUME_WATCH_MS) {
+      let rr = null;
+      try {
+        rr = await fetch(`${BASE}/api/site/build/${d.job}`, { headers: { Authorization: `Bearer ${jwt}` } });
+      } catch (e) { rr = null; }
+      // A FAILED LOOK IS NOT A FINISHED BUILD and is not a failure either — the
+      // one thing that must never happen here is reading a blip as an answer.
+      if (rr && rr.status !== 202) {
+        const t = await rr.text().catch(() => "");
+        let body = {};
+        try { body = JSON.parse(t); } catch { body = {}; }
+        got = { status: rr.status, body, text: t };
+        break;
+      }
+      await new Promise((z) => setTimeout(z, 10000));
+    }
+    ok("the fired build's answer arrives", !!got,
+      `no answer at /api/site/build/${d.job} after ${Math.round(RESUME_WATCH_MS / 60000)} minutes — the generation was started and nothing came back`);
+    if (!got) {
+      // THE SITE IS ASKED SEPARATELY, because the two failures want opposite
+      // next steps: published-anyway means the build worked and the ANSWER was
+      // lost, which is our envelope; nothing at all means the generation itself
+      // never finished. `waitForSite` with a short bound — the site either
+      // exists by now or it does not.
+      const w = await waitForSite(runSlug, 20000);
+      throw Object.assign(new Error("the fired generation never produced an answer"), {
+        detail: `job ${d.job} — site ${w.live ? "PUBLISHED anyway (we lost the answer, not the build)" : w.placeholder ? "is still the stand-in" : "never appeared"}`,
+      });
+    }
+    console.log(`   the answer came back after ${((Date.now() - rt) / 1000).toFixed(1)}s`);
+    status = got.status;
+    d = got.body;
+  }
+
   const r = { status };
   ok("build returns 200", r.status === 200, r.status + " " + JSON.stringify(d).slice(0, 300));
   slug = d && d.slug;

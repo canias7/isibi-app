@@ -382,11 +382,22 @@ test("the pages call gets what is LEFT, and the route refuses before spending it
   // minutes with no hang anywhere. The budget only helps if the pages call is
   // handed the REMAINDER and if a route with nothing left says so instead of
   // starting a call that cannot finish.
-  const at = CODE.indexOf("pages = await buildAndPublishPages(env, {");
-  assert.ok(at > 0, "the build route no longer calls buildAndPublishPages");
-  const close = CODE.indexOf("\n          });", at);
-  assert.ok(close > at, "could not find the end of the options object — this check would be vacuous");
-  assert.match(CODE.slice(at, close), /(^|[\s,{])budget\b/m,
+  // ASSERTED AS A COMPOSITION, because the arguments are a VARIABLE now — the
+  // two-phase build stores them so a later invocation can replay the same call,
+  // and one object built once cannot drift from what was run. This read the
+  // inline literal and its closing indentation, so both halves went red on a
+  // change that moved no argument at all.
+  const at = CODE.indexOf("pages = await buildAndPublishPages(env, buildArgs);");
+  assert.ok(at > 0, "the build route no longer calls buildAndPublishPages with its stored arguments");
+  const decl = CODE.indexOf("buildArgs = {");
+  assert.ok(decl > 0 && decl < at, "buildArgs is not built before the call");
+  let d = 0, close = -1;
+  for (let j = CODE.indexOf("{", decl); j < at; j++) {
+    if (CODE[j] === "{" || CODE[j] === "[" || CODE[j] === "(") d++;
+    else if (CODE[j] === "}" || CODE[j] === "]" || CODE[j] === ")") { d--; if (d === 0) { close = j; break; } }
+  }
+  assert.ok(close > decl, "could not find the end of the options object — this check would be vacuous");
+  assert.match(CODE.slice(decl, close), /(^|[\s,{])budget\b/m,
     "the pages call is not given the build's budget, so it gets a fresh ten minutes on a spent build");
 
   // The refusal. Asserted on the CONDITION rather than on the sentence: a check

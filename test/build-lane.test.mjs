@@ -214,7 +214,45 @@ test("NO getContainer CALL MAY OMIT ITS NAME — the bug, restored, is one argum
   assert.ok(calls.length >= 5, `found only ${calls.length} getContainer calls`);
   for (const args of calls) {
     assert.ok(args.includes(","), `getContainer(${args}) has no container name`);
+    // ONE EXCEPTION, AND IT IS THE STRICTER READING RATHER THAN A LOOSENING.
+    // A build's RESUME asks a container that is already holding its generation,
+    // and the answer lives in ONE instance's memory. The lane it uses is the one
+    // the FIRE recorded — carried in the resume record rather than recomputed,
+    // so that if `laneName` ever changes while a build is in flight the resume
+    // still reaches the instance that has the work. Recomputing there would be
+    // a second opinion about which container to ask, and being wrong reads as
+    // `unknown`: the generation reported lost on a build that is fine.
+    if (/\blane\b/.test(args) && !/laneName\(/.test(args)) continue;
     assert.ok(/laneName\(/.test(args), `getContainer(${args}) does not go through laneName`);
+  }
+});
+
+test("THE RESUME'S LANE COMES FROM THE RECORD, never from a fresh laneName", () => {
+  // The exception above is only safe while that is true. A resume that derived
+  // its own lane would ask whichever container the CURRENT algorithm names,
+  // which after a mid-build deploy is not the one holding the answer — and the
+  // failure is silent: `unknown` reads as "the container lost the work", so the
+  // build starts the whole generation again rather than collecting one that
+  // finished.
+  const fn = code.slice(code.indexOf("async function askContainerResult"));
+  const body = fn.slice(0, fn.indexOf("\n}\n"));
+  assert.ok(body.length > 100, "askContainerResult is gone — the resume cannot ask for its answer");
+  assert.ok(!/laneName\(/.test(body),
+    "the resume derives its own lane — after a mid-build deploy it would ask a container that never had the work");
+  assert.match(body, /getContainer\(env\.SITE_BUILD_CONTAINER,\s*lane\)/,
+    "the resume does not use the lane it was handed");
+  // …and every caller must hand it one read off a stored record.
+  //
+  // ANCHORED ON `await`, because a bare name matches the function's OWN
+  // DECLARATION first — `async function askContainerResult(env, lane, genId)`
+  // — and the parameter is called `lane`, so the check passed itself and said
+  // nothing about any call site. This repo's most-repeated own-goal, walked
+  // into inside the guard written for this feature.
+  const callers = [...code.matchAll(/await askContainerResult\(\s*env\s*,\s*([^,]+),/g)].map((m) => m[1].trim());
+  assert.ok(callers.length >= 1, "nothing calls askContainerResult — the resume is unreachable");
+  for (const a of callers) {
+    assert.match(a, /\.lane\b/,
+      `askContainerResult is handed ${a} rather than the lane the fire recorded`);
   }
 });
 
@@ -226,28 +264,58 @@ test("EVERY SITE BUILD IS KEYED BY THE SLUG, and only a probe may key by a liter
   // went red the moment an honest third call joined — the probe that proves a
   // container survives its idle timeout, pinned to ONE fixed name precisely so
   // it can never compete with a build.
-  const site = [...code.matchAll(/getContainer\(env\.SITE_BUILD_CONTAINER,\s*([^)]*\))\s*\)/g)].map((m) => m[1].trim());
+  // READ BY DEPTH, NEVER BY A FLAT PATTERN, and this scan has now gone blind
+  // twice for two different reasons. `[^)]*\)` cannot cross a nested paren, so a
+  // call keyed by `laneName(url.searchParams.get("lane"))` yields ZERO matches —
+  // and a loop over the survivors then reports a clean sweep while the one
+  // dangerous call site is the one that vanished. It also cannot read a BARE
+  // IDENTIFIER, which has no paren at all, so the resume's own call dropped out
+  // the day it was written. Walking to the matching close reads every shape
+  // there is, which is what makes the total check below meaningful rather than
+  // a second thing to keep in step.
+  const MARK = "getContainer(env.SITE_BUILD_CONTAINER";
+  const site = [];
+  for (let i = code.indexOf(MARK); i >= 0; i = code.indexOf(MARK, i + 1)) {
+    const comma = code.indexOf(",", i + MARK.length - 1);
+    let d = 1, end = -1;
+    for (let j = comma + 1; j < code.length; j++) {
+      if (code[j] === "(" || code[j] === "[" || code[j] === "{") d++;
+      else if (code[j] === ")" || code[j] === "]" || code[j] === "}") { d--; if (!d) { end = j; break; } }
+    }
+    assert.ok(end > comma, "a site container call is not closed — the scan cannot read it");
+    site.push({ arg: code.slice(comma + 1, end).trim(), at: i });
+  }
   assert.ok(site.length >= 2, `expected at least 2 site container calls, found ${site.length}`);
-  // EVERY CALL MUST BE ONE THIS SCAN COULD READ, or it goes BLIND rather than
-  // red. `[^)]*\)` cannot cross a nested paren, so a call keyed by something
-  // like `laneName(url.searchParams.get("lane"))` yields ZERO matches — measured
-  // — and a loop over the survivors then reports a clean sweep while the one
-  // dangerous call site is the one that vanished. Found by mutation: this guard
-  // survived exactly that change. The fifth time this repo has written a flat
-  // scan where the shape has nested parens.
-  const total = code.split("getContainer(env.SITE_BUILD_CONTAINER").length - 1;
+  const total = code.split(MARK).length - 1;
   assert.equal(site.length, total,
     `the scan read ${site.length} of ${total} site container calls — one is a shape it cannot parse, ` +
     "which makes this check blind rather than failing");
-  const builds = site.filter((a) => a === "laneName(slug)");
+  const builds = site.filter((a) => a.arg === "laneName(slug)");
   // A FLOOR ON THE BUILDS, or a change that stopped keying them by slug would
   // leave this passing over nothing but probes.
-  assert.ok(builds.length >= 2, `expected both build call sites to be laneName(slug), found ${builds.length}: ${site.join(" | ")}`);
-  for (const a of site) {
-    // Anything that is not a build must be a FIXED literal. A probe keyed by
+  assert.ok(builds.length >= 2, `expected the build call sites to be laneName(slug), found ${builds.length}: ${site.map((s) => s.arg).join(" | ")}`);
+  /** The function a byte offset sits inside, so a permitted shape is permitted in ONE place. */
+  const enclosing = (at) => {
+    const d = code.lastIndexOf("\nasync function ", at);
+    const p = code.lastIndexOf("\nfunction ", at);
+    const start = Math.max(d, p);
+    return start < 0 ? "" : (/^\s*(?:async )?function (\w+)/.exec(code.slice(start + 1)) || [, ""])[1];
+  };
+  for (const { arg, at } of site) {
+    // A STORED LANE IS THE THIRD LEGAL SHAPE and it is admitted by NAME AND BY
+    // PLACE, never as "a bare identifier". The resume asks the container that
+    // holds the answer, which lives in ONE instance's memory — so a recomputed
+    // `laneName(slug)` would ask an instance that never had the work and be told
+    // `unknown`, which reads as a lost generation. Where that value comes FROM
+    // is the sibling guard's job (`THE RESUME'S LANE COMES FROM THE RECORD`);
+    // this one only says which function may spend it, because a bare identifier
+    // permitted anywhere is a door onto exactly the caller-supplied key the rest
+    // of this check refuses.
+    if (arg === "lane" && enclosing(at) === "askContainerResult") continue;
+    // Anything else that is not a build must be a FIXED literal. A probe keyed by
     // something caller-supplied could pick a container and starve a real build.
-    assert.ok(a === "laneName(slug)" || /^laneName\("[a-z0-9-]+"\)$/.test(a),
-      `getContainer(env.SITE_BUILD_CONTAINER, ${a}) is neither the slug nor a fixed probe name`);
+    assert.ok(arg === "laneName(slug)" || /^laneName\("[a-z0-9-]+"\)$/.test(arg),
+      `getContainer(env.SITE_BUILD_CONTAINER, ${arg}) in ${enclosing(at) || "?"} is neither the slug, a fixed probe name, nor the resume's stored lane`);
   }
 });
 

@@ -138,12 +138,19 @@ export function readJob(raw) {
  * means something different; a second one at the transport layer is two things
  * that can disagree about whether a build worked.
  */
-export function packResult({ status, type, body }) {
+export function packResult({ status, type, body, uid }) {
   return {
     v: JOB_VERSION,
     status: Number.isFinite(status) ? Math.trunc(status) : 500,
     type: typeof type === "string" && type ? type : "application/json",
     body: typeof body === "string" ? body : "",
+    // WHOSE ANSWER THIS IS, so it can be asked for LATER by somebody other than
+    // the request that started it. A build that fires its generation answers
+    // 202 in seconds and its real outcome lands here minutes afterwards, with
+    // the original request long gone — and without an owner on the object there
+    // is nothing to authorise a second reader against. Optional, because the
+    // waiting caller is already authorised by having started the build.
+    uid: typeof uid === "string" && uid ? uid : "",
   };
 }
 
@@ -157,7 +164,16 @@ export function readResult(raw) {
   if (raw.v !== JOB_VERSION) return null;
   if (!Number.isFinite(raw.status) || raw.status < 100 || raw.status > 599) return null;
   if (typeof raw.body !== "string") return null;
-  return { status: Math.trunc(raw.status), type: typeof raw.type === "string" && raw.type ? raw.type : "application/json", body: raw.body };
+  return {
+    status: Math.trunc(raw.status),
+    type: typeof raw.type === "string" && raw.type ? raw.type : "application/json",
+    body: raw.body,
+    // ABSENT IS THE EMPTY STRING, NEVER A MATCH. Every result written before
+    // this field existed has no owner, and a reader comparing it against a real
+    // uid must fail rather than pass — so the empty string is what a caller can
+    // never present, and the one place that compares refuses it explicitly.
+    uid: typeof raw.uid === "string" ? raw.uid : "",
+  };
 }
 
 /**

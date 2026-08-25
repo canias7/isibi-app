@@ -35,19 +35,19 @@ function destructured(src, fn) {
   return new Set(src.slice(open + 1, close).split(",").map((s) => s.split("=")[0].trim()).filter(Boolean));
 }
 
-/** The keys an `await fn(env, { ... })` call site passes, at one nesting level. */
-function passed(src, fn) {
-  const call = src.indexOf(`await ${fn}(env, {`);
-  assert.ok(call >= 0, `nothing calls ${fn} the way this scan expects`);
-  const open = src.indexOf("{", call + `await ${fn}(env,`.length);
-  let d = 0, end = -1;
-  for (let j = open; j < src.length; j++) {
+/** The body of the object literal starting at `at`, or null if that is not a `{`. */
+function objectBody(src, at) {
+  if (src[at] !== "{") return null;
+  let d = 0;
+  for (let j = at; j < src.length; j++) {
     if (src[j] === "{" || src[j] === "[" || src[j] === "(") d++;
-    else if (src[j] === "}" || src[j] === "]" || src[j] === ")") { d--; if (d === 0) { end = j; break; } }
+    else if (src[j] === "}" || src[j] === "]" || src[j] === ")") { d--; if (d === 0) return src.slice(at + 1, j); }
   }
-  assert.ok(end > open, `could not find the end of the ${fn} call`);
-  const body = src.slice(open + 1, end);
-  // Top-level keys only: a nested object's own keys are not this call's.
+  return null;
+}
+
+/** An object literal's own keys, at one nesting level. */
+function topKeys(body) {
   const keys = new Set();
   let depth = 0, line = "";
   for (const ch of body) {
@@ -58,6 +58,48 @@ function passed(src, fn) {
   }
   const m = /(?:^|\n)\s*([A-Za-z_$][\w$]*)\s*:/.exec(line);
   if (m) keys.add(m[1]);
+  return keys;
+}
+
+/**
+ * The keys EVERY `await fn(env, …)` call site passes.
+ *
+ * ALL OF THEM, not the first: the two-phase build added a SECOND caller (the
+ * resume, which replays the same function in a later invocation), and reading
+ * only the first meant the scan silently moved to whichever call the file
+ * happened to declare earlier — it found the resume's three keys and reported
+ * the build path's fifteen as gone.
+ *
+ * A NAMED ARGUMENT OBJECT IS FOLLOWED TO ITS ASSIGNMENT. The build path's
+ * arguments are a variable now (they are stored, so the resume can replay them),
+ * and a scan that only reads an inline literal describes a call site that no
+ * longer exists.
+ */
+function passed(src, fn) {
+  const keys = new Set();
+  let sites = 0;
+  for (const m of src.matchAll(new RegExp(`await ${fn}\\(env,\\s*`, "g"))) {
+    const at = m.index + m[0].length;
+    let body = objectBody(src, at);
+    if (body === null) {
+      const name = /^([A-Za-z_$][\w$]*)/.exec(src.slice(at, at + 60));
+      assert.ok(name, `a ${fn} call passes an argument this scan cannot read`);
+      const decl = src.indexOf(`${name[1]} = {`);
+      assert.ok(decl >= 0, `${name[1]} is passed to ${fn} and is assigned no object literal`);
+      body = objectBody(src, src.indexOf("{", decl));
+    }
+    assert.ok(body !== null, `could not read the arguments of a ${fn} call`);
+    sites++;
+    for (const k of topKeys(body)) keys.add(k);
+  }
+  // EVERY CALL IS READ, derived rather than counted. A call written in a shape
+  // this scan cannot see is one whose keys are checked by nothing, and it would
+  // pass quietly on the strength of the other call site's floor.
+  const all = [...src.matchAll(new RegExp(`\\b${fn}\\(env,`, "g"))]
+    .filter((c) => !/async function\s*$/.test(src.slice(Math.max(0, c.index - 20), c.index)));
+  assert.equal(sites, all.length,
+    `${all.length} call sites, ${sites} read — one is written in a shape this scan cannot see`);
+  assert.ok(sites >= 1, `nothing calls ${fn} the way this scan expects`);
   return keys;
 }
 

@@ -126,6 +126,52 @@ export const RESUME_MAX_LOOKS = 40;
  *  nothing would report it. */
 export const CHARGE_STEPS = Object.freeze(["deposit", "schema", "pages"]);
 
+/**
+ * HOW "I FIRED IT, I AM NOT WAITING" GETS OUT OF THE GENERATOR.
+ *
+ * `generateSitePages` takes the model call as a PARAMETER and has no catch
+ * around it, which is what makes both halves of this possible with no change to
+ * that file at all:
+ *
+ *   FIRING   a `call` that starts the job and throws this — the request has been
+ *            built and sent, and there is no answer to return.
+ *   RESUMING a `call` that returns the STORED answer, so the generator parses
+ *            it, extracts the usage and prices the build through the IDENTICAL
+ *            code the synchronous path uses. No second copy of the billing.
+ *
+ * AN ERROR RATHER THAN A RETURN VALUE because a `call` must answer with a model
+ * response or not at all — anything else would have to be understood by
+ * `generateSitePages`, and teaching it a second shape is how the parse and the
+ * usage extraction come to have two paths, one of which nobody drives.
+ *
+ * IT MUST NEVER LOOK LIKE A FAILURE. `retryHere` reads `e.name` to decide
+ * whether money was spent, so this name may not collide with an abort's
+ * (`TimeoutError`/`AbortError`) and the sentinel must be recognised BEFORE any
+ * failure handling — a fire read as a failed call would be retried in the
+ * Worker, which is a second ten-minute generation nobody asked for.
+ */
+export const FIRED_NAME = "PagesFired";
+
+export function firedError(resume) {
+  const e = new Error("generation was fired at the container; there is no answer to return here");
+  e.name = FIRED_NAME;
+  e.resume = resume || null;
+  return e;
+}
+
+/** The one reader. Answers the resume details, or null for any other throw —
+ *  so a caller cannot mistake an ordinary failure for a fire by checking the
+ *  name and forgetting the payload. */
+export function readFired(e) {
+  if (!e || e.name !== FIRED_NAME) return null;
+  const r = e.resume;
+  if (!r || typeof r !== "object" || Array.isArray(r)) return null;
+  if (typeof r.genId !== "string" || !r.genId) return null;
+  if (typeof r.lane !== "string" || !r.lane) return null;
+  if (!Number.isFinite(r.firedAt) || r.firedAt <= 0) return null;
+  return { genId: r.genId, lane: r.lane, firedAt: Math.trunc(r.firedAt) };
+}
+
 /** A resume id is the BUILD's own job id — 32 hex characters, minted by
  *  `build-job.mjs`. One record per build, so re-deriving an id here would be a
  *  second answer to a question that already has one. */

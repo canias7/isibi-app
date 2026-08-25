@@ -209,16 +209,32 @@ test("AND THE WORKER REALLY HANDS OVER ITS KEYS — the hop, not just the module
   // scope would admit `env` itself, which is the exact bug the guard exists for.
   //
   // A forwarder is a function with `callBuilderModel`'s own signature, which is
-  // what makes it a drop-in at all. There must be exactly one, so "the keys it
-  // was given" is unambiguous without any notion of nearness.
-  const fwd = [...src.matchAll(/\(\s*(\w+)\s*,\s*req\s*,\s*budget\s*\)\s*=>/g)];
-  assert.ok(fwd.length <= 1, `${fwd.length} functions carry the caller contract — this guard can no longer say which keys a forward means`);
-  const forwarded = fwd.length ? fwd[0][1] : null;
-  for (const [, fn, firstArg] of calls) {
+  // what makes it a drop-in at all. There is more than one now — the fire-and-
+  // store caller is a second, and it has to be, or `generateSitePages` would
+  // need to know which of two shapes it was handed — so "the keys it was given"
+  // is resolved PER ENCLOSING FUNCTION rather than by there being only one
+  // forwarder in the file. That earlier form was a simplification true of the
+  // day it was written, and it went red on an honest second drop-in.
+  const enclosing = (at) => {
+    const d = src.lastIndexOf("\nasync function ", at);
+    const p = src.lastIndexOf("\nfunction ", at);
+    const start = Math.max(d, p);
+    assert.ok(start >= 0, "a module call sits outside any function — rescope this guard");
+    return { name: (/^\s*(?:async )?function (\w+)/.exec(src.slice(start + 1)) || [, "?"])[1], body: src.slice(start, at) };
+  };
+  for (const m of calls) {
+    const [, fn, firstArg] = m;
     const arg = firstArg.trim();
     if (arg === "keysFrom(env)") continue;
-    assert.equal(arg, forwarded,
-      `${fn} is handed \`${arg}\`, which is neither the Worker's keys nor the keys a forwarder was given — every model call would refuse`);
+    const { name, body } = enclosing(m.index);
+    const fwd = [...body.matchAll(/\(\s*(\w+)\s*,\s*req\s*,\s*budget\s*\)\s*=>/g)];
+    // AMBIGUITY FAILS LOUDLY rather than picking one. Two forwarders inside a
+    // single function means "the keys it was given" has two answers, and a guard
+    // that guesses between them is one that passes on the bug it exists for.
+    assert.equal(fwd.length, 1,
+      `${name} carries ${fwd.length} caller contracts — this guard cannot say which keys \`${arg}\` means`);
+    assert.equal(arg, fwd[0][1],
+      `${fn} in ${name} is handed \`${arg}\`, which is neither the Worker's keys nor the keys its own forwarder was given — every model call would refuse`);
   }
   // …and the name is imported, or naming it is a ReferenceError on the build
   // path rather than a missing key — the `OWN_ZONES` failure.

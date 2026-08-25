@@ -100,8 +100,8 @@ test("a job round-trips, and anything that is not one is refused", () => {
 });
 
 test("a result round-trips, and an unusable one is null rather than guessed at", () => {
-  const r = packResult({ status: 200, type: "application/json", body: '{"ok":true}' });
-  assert.deepEqual(readResult(r), { status: 200, type: "application/json", body: '{"ok":true}' });
+  const r = packResult({ status: 200, type: "application/json", body: '{"ok":true}', uid: "u-1" });
+  assert.deepEqual(readResult(r), { status: 200, type: "application/json", body: '{"ok":true}', uid: "u-1" });
   // EVERY STATUS THE BUILD REALLY ANSWERS WITH SURVIVES. The refusals are the
   // half most likely to be quietly mangled, because the tests that drive a
   // build drive the success.

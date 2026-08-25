@@ -104,7 +104,12 @@ test("THE PLACEHOLDER IS PUBLISHED BEFORE THE EXPENSIVE HALF, not only after it 
   // our code to run at the moment of failure; being stopped by the platform
   // means no code runs. A write that has ALREADY happened needs nothing.
   const early = CODE.indexOf("publishPlaceholder(env, slug, brand, spec, { building: true })");
-  const build = CODE.indexOf("buildAndPublishPages(env, {", early > 0 ? early : 0);
+  // ANCHORED ON THE CALL, NOT ON HOW ITS ARGUMENTS ARE SPELLED. This read
+  // `buildAndPublishPages(env, {` and went red the day the argument object
+  // became a variable — a test about word order, about a build that still runs
+  // exactly where it always did. Searching from `early` also steps past the
+  // declaration and past the resume's own call, both of which come earlier.
+  const build = CODE.indexOf("buildAndPublishPages(env,", early > 0 ? early : 0);
   assert.ok(early > 0, "the early placeholder write is gone");
   assert.ok(build > early, "the placeholder is no longer written before the build");
   // AWAITED. Started and not awaited, the isolate can be stopped between

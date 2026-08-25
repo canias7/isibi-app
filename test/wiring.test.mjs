@@ -1133,8 +1133,18 @@ test("a failed build's own diagnosis reaches the screen", () => {
 
   // 3. IT IS CALLED. A helper that is defined and never invoked is the same bug
   //    wearing a fix — asserted apart from its definition, the Bookmarks lesson.
-  assert.match(client, /siteFinishBuild\(origin, \(built \? '✅ ' : '⚠️ '\)[^;]*, build, note, buildWhy\(d\)\)/,
+  //
+  //    ANCHORED ON THE TWO PROPERTIES, NOT ON THE REPLY'S SPELLING. This pinned
+  //    `siteFinishBuild(origin, (built ? … ) …, buildWhy(d))` character for
+  //    character, so lifting the reply into a `const` — to add the third
+  //    outcome, a build that fired its generation and has not finished — turned
+  //    it red against a correct change. A test about word order, this repo's
+  //    most repeated own-goal. What has to hold is that the diagnosis is passed,
+  //    and that the reply still tells a published site from a placeholder.
+  assert.match(client, /siteFinishBuild\(origin,[^;]*buildWhy\(d\)\)/,
     "buildWhy is defined and never called on the build path");
+  assert.match(client, /built \? '✅ ' : '⚠️ '/,
+    "the build reply no longer distinguishes a published site from the placeholder");
 
   // 4. IT IS STORED, so it survives a reload — the thread is rebuilt from
   //    localStorage, and a diagnosis that vanishes on refresh is half a fix.

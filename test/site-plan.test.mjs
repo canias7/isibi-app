@@ -674,12 +674,19 @@ test("THE BUILD CALL IS HANDED A REAL PLAN, not a null the fallback swallows", (
   // null, so the composer falls through to the stored family on every build and
   // the whole change is dead. The fallback is exactly what hides it.
   //
-  // ANCHORED ON `await`, because `buildAndPublishPages(env, {` matches the
-  // DECLARATION too, whose destructuring braces close a few hundred characters
-  // later: the `confirmSubmitter` failure this repo has recorded three times.
+  // ANCHORED ON THE ARGUMENT OBJECT, which is a variable: the two-phase build
+  // stores it so a later invocation can replay the same call. It read
+  // `await buildAndPublishPages(env, {` — which stopped matching the build path
+  // and started matching the RESUME's own call, whose arguments are the stored
+  // ones spread back in, so it reported that no build is ever handed a plan.
+  // A name also cannot match the DECLARATION, whose destructuring braces close a
+  // few hundred characters later: the `confirmSubmitter` failure, recorded three
+  // times before this.
   const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const at = worker.indexOf("await buildAndPublishPages(env, {");
-  assert.ok(at > 0, "nothing calls buildAndPublishPages");
+  const at = worker.indexOf("buildArgs = {");
+  assert.ok(at > 0, "the build route no longer builds its arguments as an object");
+  assert.ok(worker.includes("await buildAndPublishPages(env, buildArgs)"),
+    "buildArgs is built and something else is passed to the build");
   let depth = 0, i = worker.indexOf("{", at), end = i;
   for (; end < worker.length; end++) {
     if (worker[end] === "{") depth++;

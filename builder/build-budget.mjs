@@ -236,6 +236,11 @@ export function budgetStage(steps) {
     normalize: "provision", provision: "provision",
     schema: "generate", jobs: "generate", seed: "generate", look: "generate",
     merge: "generate", research: "generate", fonts: "generate", gen: "generate",
+    // `fired` is `gen` on the two-phase path: the generation call was handed to
+    // the container and this invocation is about to return. Everything up to it
+    // survives — the database is live, the schema applied, the look merged — and
+    // the pages do not exist yet, which is exactly what "generate" says.
+    fired: "generate",
     // From here the pages exist, so the note stops saying they were not written.
     img: "publish", compile: "publish", container: "publish", og: "publish",
     // The build route's last mark, taken after `buildAndPublishPages` returns.

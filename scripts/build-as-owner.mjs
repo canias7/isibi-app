@@ -262,6 +262,24 @@ if (build) {
   if (!d) fail("the build response was not JSON: " + raw.slice(0, 500));
 }
 
+// ── A 202 IS THE POINT, NOT A FAILURE ───────────────────────────────────────
+//
+// The generation runs in the container, which has no fifteen-minute cap, and
+// this invocation ends in seconds. So the answer this script exists to PRINT —
+// the cost, the models, the images, the notes — arrives minutes later at
+// `/api/site/build/<job>` rather than here.
+//
+// WITHOUT THIS, STEP 5 PRINTS `page=undefined cost=undefined` on a build that
+// worked perfectly: every measurement this run is for, reading as absent when
+// it has simply not happened yet. Same shape as the run-34 line that logged its
+// one claim on a branch that did not execute.
+let firedJob = null;
+if (build && build.status === 202 && d && d.job) {
+  firedJob = d.job;
+  log(`step 4 — FIRED: the generation is running in the container (job ${firedJob}).`);
+  log("step 4 — this invocation is over. That is the whole point — no Worker holds the wait.");
+}
+
 // ── step 4b: the build outlived the socket — watch for it to publish ────────
 // THE TRACE IS THE OTHER HALF, and it is what six failed builds could not
 // produce. `site_builds` is one row per slug, upserted as the build walks its
@@ -516,6 +534,37 @@ if (disconnected) {
   // read off the site and the ledger instead. Synthesise the one field the
   // steps below need rather than pretending we have the rest.
   d = { url: watch, slug };
+}
+
+// ── THE FIRED BUILD'S REAL ANSWER, collected after the watch ────────────────
+//
+// Asked HERE rather than beside the POST, because by now the watch above has
+// either seen the site publish or seen the trace settle — so the answer exists
+// or it never will, and one look is enough. A failure to collect it is reported
+// and not fatal: the site is what the customer has, and this run has already
+// proved whether it came up.
+if (firedJob) {
+  try {
+    const rr = await fetch(`${BASE}/api/site/build/${firedJob}`, { headers: auth });
+    const txt = await rr.text().catch(() => "");
+    if (rr.status === 202) {
+      log(`step 4c — the answer is still not written for job ${firedJob} — the generation has not finished.`);
+    } else if (!rr.ok && rr.status !== 200) {
+      log(`step 4c — could not collect the answer for job ${firedJob}: ${rr.status} ${txt.slice(0, 200)}`);
+    } else {
+      let got = null; try { got = JSON.parse(txt); } catch { got = null; }
+      if (got) {
+        // MERGED RATHER THAN REPLACED. The 202 carried the slug and the url and
+        // step 4b has been watching them; the answer carries everything else.
+        d = { ...d, ...got };
+        log(`step 4c — collected the fired build's answer (${rr.status}).`);
+      } else {
+        log(`step 4c — the answer for job ${firedJob} was not JSON: ${txt.slice(0, 200)}`);
+      }
+    }
+  } catch (e) {
+    log(`step 4c — could not reach the result route: ${String((e && e.message) || e).slice(0, 120)}`);
+  }
 }
 
 // The full response IS the record — cost, usage, seeded rows, image report,

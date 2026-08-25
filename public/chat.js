@@ -11775,6 +11775,54 @@ function buildDownMsg(d) {
   return (transient ? '⏳ ' : '⚠️ ') + msg +
     (transient ? ' Give it a few seconds, then send again.' : '') + ' (You weren’t charged.)';
 }
+// ── FOLLOWING A BUILD THAT FIRED ITS GENERATION AND WENT AWAY ────────────────
+//
+// A build hands page generation to the container and the Worker RETURNS — 202,
+// `stage: "resuming"`, and a job id — so no consumer invocation is ever long
+// enough to be killed at the queue's fifteen minutes. The build then finishes
+// in a DIFFERENT invocation and leaves its answer under that id.
+//
+// WITHOUT THIS THE CUSTOMER IS TOLD A LIE, and that is what makes it part of
+// the change rather than a nicety. A 202 is `r.ok`, carries a `slug` and no
+// `error`, so it takes the success branch below unaltered and renders
+// "✅ Built “X”. Tell me what to change." over a site whose pages are still
+// being written — and then invites a revise against a build still in flight.
+//
+// THE ANSWER IS THE POST'S OWN, BYTE FOR BYTE: the result route replays the
+// stored status, content-type and body, so everything below runs unchanged
+// whichever invocation actually finished. That is the whole reason this is a
+// follow rather than a second reader of a different shape.
+const BUILD_POLL_MS = 6000;
+// Past the Worker's own 16-minute queue wait plus the container's tail. A build
+// still unanswered here has not failed — it is told honestly and left running.
+const BUILD_FOLLOW_MS = 20 * 60 * 1000;
+async function followBuildJob(job, signal) {
+  const until = Date.now() + BUILD_FOLLOW_MS;
+  // A RUN of unreadable answers gives up, a single one does not. The route
+  // answers 503 both for "the bucket blinked" and for "the stored answer will
+  // not parse", and polling for ever against the second is worse than saying
+  // so — but treating one blip as the second abandons a build that is fine.
+  let bad = 0;
+  while (Date.now() < until) {
+    await new Promise((res) => setTimeout(res, BUILD_POLL_MS));
+    let r = null;
+    try { r = await apiFetch('/api/site/build/' + encodeURIComponent(job), { signal }); }
+    catch (e) {
+      // A Stop press aborts these too, and that is right: it lands in the
+      // caller's own catch, which already says the build may still finish.
+      if (e && e.name === 'AbortError') throw e;
+      if (++bad > 5) return null;
+      continue;
+    }
+    // NOT AN ERROR — the ordinary answer while the pages are being written.
+    if (r.status === 202) { bad = 0; continue; }
+    if (r.status === 503) { if (++bad > 5) return null; continue; }
+    const d = await r.json().catch(() => null);
+    if (!d) return null;
+    return { r, d };
+  }
+  return null;
+}
 // The React build/revise send path (cutover engine). Build = first message on a
 // project → /api/site/react-build; revise = any later message on a React site →
 // /api/site/react-revise (same slug/URL). Streams live steps; charge-after.
@@ -11800,7 +11848,28 @@ function reactSend(site, t, origin, mode, imgs, finish, qa) {
   siteAbort = new AbortController();
   apiFetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: siteAbort.signal }).then(async (r) => {
     const ct = r.headers.get('content-type') || '';
-    const d = (r.ok && ct.indexOf('ndjson') >= 0) ? await readReactStream(r, origin) : await r.json().catch(() => ({}));
+    let d = (r.ok && ct.indexOf('ndjson') >= 0) ? await readReactStream(r, origin) : await r.json().catch(() => ({}));
+    // ── FIRED, NOT FINISHED ────────────────────────────────────────────────
+    //
+    // 202 means the generation is running in the container and this route has
+    // already returned. Follow the job; the answer that comes back IS the one
+    // this POST would have given, so `r` and `d` are replaced and every branch
+    // below runs exactly as it always has.
+    //
+    // `r` IS REASSIGNED RATHER THAN THE BLOCK RESTRUCTURED, deliberately: the
+    // alternative is renaming it at six read sites in a 150-line handler for a
+    // change that is three lines of behaviour.
+    let firedJob = '';
+    if (r.status === 202 && d && d.stage === 'resuming' && d.job) {
+      const done = await followBuildJob(d.job, siteAbort ? siteAbort.signal : undefined);
+      if (done) { r = done.r; d = done.d; }
+      // STILL RUNNING WHEN WE STOPPED WATCHING. Not a failure and not a build:
+      // the site has a real page at its real address and the pages are still
+      // being written. The recording below still runs — the slug is CLAIMED, so
+      // a project that forgets it sends the next message as a fresh first build
+      // against a name it already owns and gets a 409 it cannot explain.
+      else firedJob = d.job;
+    }
     // WHAT IT COST GOES TO THE METER, NOT INTO THE SENTENCE (owner's call
     // 2026-08-08). The reply used to end "(✦21 used)" on every build.
     //
@@ -11937,7 +12006,17 @@ function reactSend(site, t, origin, mode, imgs, finish, qa) {
       const built = !d || d.page !== 'placeholder';
       const canned = mode === 'revise' ? 'Updated — the preview’s refreshed.'
         : 'Built ' + (name ? '“' + name + '”' : 'your site') + '. Tell me what to change.';
-      siteFinishBuild(origin, (built ? '✅ ' : '⚠️ ') + (said || canned), build, note, buildWhy(d));
+      // THREE OUTCOMES, NOT TWO. A build that fired its generation and had not
+      // answered by the time we stopped following is neither built nor failed —
+      // it is being written right now. `built` reads TRUE there (`page` is
+      // absent on a 202, so it is not 'placeholder'), which is how the success
+      // sentence came to be said over a site that does not exist yet. The
+      // server composed the honest sentence; this renders it rather than
+      // writing a second version that can disagree with it.
+      const reply = firedJob
+        ? '⏳ ' + ((d && d.msg) || 'Your site is being written now — there’s a page at your address already; refresh it in a few minutes.')
+        : (built ? '✅ ' : '⚠️ ') + (said || canned);
+      siteFinishBuild(origin, reply, build, note, buildWhy(d));
     } else if (r.status === 402 || (d && d.need === 'credits')) {
       // THE SERVER'S OWN SENTENCE WINS, because on the picker-floor refusal it
       // names the FREE way out and this one does not. `buildFloor` answers with

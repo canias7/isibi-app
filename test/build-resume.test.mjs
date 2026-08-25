@@ -14,6 +14,7 @@ import {
   MAX_DELAY_SECONDS,
   isResumeId, resumeKey, packResume, readResume, alreadyCharged, withCharged, resumeDecision,
   packResumeMessage, readResumeMessage, nextLook, queueDelay,
+  FIRED_NAME, firedError, readFired,
 } from "../builder/build-resume.mjs";
 import { JOB_KIND, readMessage } from "../builder/build-job.mjs";
 import { BUILDER_CALL_MS, retryHere } from "../builder/build-call.mjs";
@@ -188,6 +189,34 @@ test("THE DELAY IS A WHOLE NUMBER OF SECONDS INSIDE CLOUDFLARE'S OWN CEILING", (
   // or the schedule and what is actually sent would disagree.
   for (const s of [RESUME_FIRST_SECONDS, RESUME_POLL_SECONDS]) {
     assert.equal(queueDelay(s), s, `the schedule produces ${s}s, which the clamp changes`);
+  }
+});
+
+test("THE FIRE SENTINEL CARRIES WHERE THE ANSWER WILL BE, and cannot look like a failure", () => {
+  // `generateSitePages` takes the model call as a parameter and has no catch
+  // around it, so a `call` that fires can throw this and the generator needs no
+  // change at all. On the resume the same parameter returns the STORED answer,
+  // which means the parse, the usage extraction and the billing all run through
+  // the identical code the synchronous path uses.
+  const e = firedError({ genId: "g-1", lane: "build-k-cafe", firedAt: 1000 });
+  assert.equal(e.name, FIRED_NAME);
+  assert.ok(e instanceof Error, "the sentinel is not an Error — a throw site would not be able to rethrow it");
+  assert.deepEqual(readFired(e), { genId: "g-1", lane: "build-k-cafe", firedAt: 1000 });
+
+  // IT MUST NEVER READ AS A FAILURE THAT COST MONEY. `retryHere` decides that
+  // from `e.name`, and a fire read as a failed call is retried in the Worker —
+  // a second ten-minute generation nobody asked for, beside one already running.
+  assert.notEqual(FIRED_NAME, "TimeoutError");
+  assert.notEqual(FIRED_NAME, "AbortError");
+  assert.equal(retryHere({ kind: FIRED_NAME }), true,
+    "retryHere's own answer for this name changed — the sentinel must be caught BEFORE any failure handling, and this pins why");
+
+  // The reader wants the NAME AND the payload. Half of either is not a fire.
+  assert.equal(readFired(new Error("boom")), null, "an ordinary error read as a fire");
+  assert.equal(readFired(null), null);
+  assert.equal(readFired(firedError(null)), null, "a fire with no destination read as usable");
+  for (const bad of [{}, { genId: "g" }, { lane: "l" }, { genId: "g", lane: "l" }, { genId: "g", lane: "l", firedAt: 0 }, { genId: "", lane: "l", firedAt: 5 }]) {
+    assert.equal(readFired(firedError(bad)), null, `an incomplete fire was accepted: ${JSON.stringify(bad)}`);
   }
 });
 

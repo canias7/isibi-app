@@ -18281,3 +18281,134 @@ trimming the design call is not the lever.
 
 Cost 6 credits (211 -> 205) — the design settlement only, since generation
 charges after publish.
+
+## Stage 2: the Worker stops waiting (2026-08-25, your call)
+
+"But the worker should not just wait remember?" — right, and that was the half
+stage 1 deliberately left. Its own note said so: it moved the ten-minute call to
+the container and left the consumer holding the socket, so the ceiling had not
+moved at all.
+
+Now the shape is what your screenshots described. The build fires the generation
+at the container, stores where the answer will be, and returns **202 in seconds**.
+The container keeps working with no runtime limit. A later, short invocation asks
+whether it has finished and does the second half. No single Worker invocation is
+ever long, so the fifteen-minute cap stops being the thing that decides whether a
+build can exist.
+
+Two things I checked before designing on them rather than after:
+
+- R2's `put(..., { onlyIf: { etagMatches } })` really returns null when another
+  invocation has already moved the record. That is what stops two looks both
+  charging. `delete()` has no such option, which is why the claim is the put.
+- Queues are at-least-once and the delay cap is 24 hours.
+
+Getting either wrong means the protection silently does not work and a customer
+is charged twice for one build, which is why they were verified rather than
+assumed.
+
+**Nothing has been spent.** Balance still 205. No build has run against this yet
+— what a test suite structurally cannot show is a real container holding a real
+generation across two real invocations, so the next build is the proof.
+
+Two process notes worth having, both about the mutation sweeps:
+
+- My own shell timed out at ten minutes against a seventeen-minute sweep, which
+  left a live mutant in the isolated tree. The sidecar file caught it. Never
+  commit while a sweep is running.
+- Later I had **two sweeps running against the same tree at once** without
+  realising. One looked dead (its log was empty) so I started another, and it
+  had actually survived. The tell was the log going *backwards* — a line it had
+  already printed disappeared. A sweep that shared its tree with another proves
+  nothing, so I killed both, rebuilt the tree, checked it was byte-for-byte the
+  same as the real source, re-checked the baseline was green, and ran it once.
+  Killed by process id, not by name — killing by name matches the shell running
+  the command and takes it down too, which this log already records ten times.
+
+### And one thing that made it unfinished rather than just unproven
+
+While wiring it I found the outcome was unreachable. The POST's own wait reads
+the result and DELETES it — fine when one request waits for one answer, wrong
+the moment a build answers twice. So the 202 consumed the key, and the real
+answer landed minutes later where nothing was looking and sat there for ever.
+
+There was no way for anything — the test harness, the app, you — to learn what
+happened to a fired build. Added `GET /api/site/build/<job>` so it can be asked.
+It's signed-in and owner-checked, because the answer carries the site's slug,
+its cost and its notes.
+
+Both live harnesses now follow it. `build smoke` would otherwise have been
+permanently red on its very first assertion (it checks for a 200), which is the
+worst kind of broken check — everybody learns to ignore it. `build-as-owner`
+already watched the site rather than the response so it survived, but its
+summary would have printed `cost=undefined page=undefined` on a perfect build.
+
+### One real bug found by reading, not by a test
+
+`canFire` was `true` unconditionally. There's a fall-through path where the
+build runs inline in the Worker — when the queue binding is missing, or the job
+store write fails — and that path has no job id. So a build there would have
+fired a generation at the container that nothing could ever come back to, and
+answered you with a "resuming" status nothing handles.
+
+Gated on all three things a resume needs: an id to key the record by, a bucket
+to write it to, and a queue to be woken through. All 4,268 tests were green with
+it wrong, which is exactly what "the suite proves less than it looks like" means.
+
+### The app would have told you the site was built when it wasn't
+
+The last consumer of that route is your own browser, and it needed the same
+treatment. A 202 looks like a success from the client's side — it's a 2xx, it
+carries a slug, it has no error — so the chat would have said
+
+> ✅ Built "Northgroup". Tell me what to change.
+
+over a site whose pages were still being written, and then let you send a
+revise against a build that was still running. That's worse than a failure:
+a failure you can see.
+
+Now the app follows the job. You get the finished site without doing anything —
+the steps keep running, and when the answer arrives it's the same answer the
+POST would have given, so nothing downstream changed. If it hasn't finished by
+the time the app stops watching, it says so honestly instead, using the sentence
+the server already wrote, and still records the slug (the name is claimed, so
+forgetting it would make your next message collide with your own site).
+
+### And that change is what exposed a dead route
+
+Wiring the browser made `client-routes.test.mjs` drive the new route for the
+first time, and it failed immediately: `json is not defined`. I'd written
+`json(...)` five times and there's no such helper in `worker.js` — the
+convention there is `Response.json(...)`.
+
+**Every call to that route would have thrown a 500.** Node's syntax check passes
+it, the bundler bundles it, and all 4,252 tests were green, because every guard
+on it was reading the source text and a source-read can't see a name that isn't
+in scope. Same class as the two other bugs of this shape in the log.
+
+It was invisible because nothing called it. The route was unreachable-by-any-test
+until the client used it — which is the same shape as a feature being dead, one
+layer out. That's the argument for wiring the last consumer straight away rather
+than leaving it to later.
+
+Every branch of that route is now driven rather than read — sign-in, a malformed
+job id (which must never reach the store), still-building, a storage blip, the
+real answer, and both refusals. A route with six exits and one tested exit is
+five untested returns.
+
+### And one of my own new tests was passing for the wrong reason
+
+The malformed-job-id case asked for `/api/site/build/../../etc/passwd` — and the
+browser's own URL rules collapse that to `/api/etc/passwd`, which matches no
+route at all. So it got a 404 from the bottom of the router, the check it was
+meant to exercise was never reached, and the assertion sat there green over
+nothing.
+
+I caught it by thinking about the fixture before reading the sweep result rather
+than after, and the sweep then confirmed it: that mutant SURVIVED, exactly as
+predicted. Three cases now — a plainly wrong id, one a character short, and an
+*encoded* traversal that survives the URL rules — each checking first that it
+still reaches the route at all.
+
+A survivor whose cause you already know costs nothing. The same survivor found
+cold costs an hour hunting through code that is fine.
