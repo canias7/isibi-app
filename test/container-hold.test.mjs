@@ -15,6 +15,7 @@ import { readFileSync } from "node:fs";
 import net from "node:net";
 import { spawn } from "node:child_process";
 import { holdDecision, MAX_BUSY_HOLD_MS, BUSY_PROBE_MS } from "../builder/container-hold.mjs";
+import { anonKeyFromFrontend } from "../scripts/anon-key.mjs";
 
 const worker = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 const server = readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8");
@@ -257,4 +258,52 @@ test("the probe route exists, is gated, and can occupy only one lane", () => {
   assert.ok(!/await c\.fetch\(new Request\("http:\/\/build\/hold/.test(blk),
     "the probe AWAITS the hold — an awaited fetch keeps inflightRequests above zero, " +
     "so the alarm never fires and the thing under test never happens");
+});
+
+// ── THE CREDENTIAL, WHICH KILLED THE FIRST LIVE RUN IN 0.0 SECONDS ──────────
+//
+// `secrets.SUPABASE_ANON_KEY` HAS NEVER EXISTED in this repo. Five workflows
+// name it and it comes through EMPTY in all five — `build-as-owner`'s first run
+// died on exactly this and its own comment records it, and I then wrote a new
+// script without inheriting the fallback. The anon key is the PUBLIC client key,
+// so the answer is not a secret to be found: it is to read our own frontend.
+//
+// DRIVEN, NOT RESTATED. The first draft of this test carried its OWN copy of the
+// regex — so mutating the probe's copy left it perfectly green, measured, it
+// SURVIVED. A test that restates what it is checking asserts itself. The
+// extraction is a module now and this calls it.
+test("THE ANON KEY IS READ OUT OF public/auth.js, and every copy of it agrees", () => {
+  const key = anonKeyFromFrontend();
+  assert.ok(key, "the anon key is no longer readable from public/auth.js — the probe dies at its own guard");
+  // A JWT, so a pattern that matches something else fails here rather than in a
+  // live run against Supabase, where it surfaces as an opaque 401.
+  assert.equal(key.split(".").length, 3, "the extracted value is not a JWT");
+  assert.ok(key.length > 100, `the extracted key is ${key.length} chars — too short to be the real one`);
+
+  // The probe must IMPORT that reading. Anchored on the import rather than on a
+  // call: `anonKeyFromFrontend()` appeared in the probe's own function
+  // DECLARATION, so a match on the name was satisfied while the probe stopped
+  // using it — found by mutation, it survived. A presence standing in for a
+  // property, this repo's most repeated own-goal.
+  const probe = readFileSync(new URL("../scripts/container-hold-probe.mjs", import.meta.url), "utf8");
+  assert.match(probe, /import \{ anonKeyFromFrontend \} from "\.\/anon-key\.mjs"/,
+    "the probe stopped importing the shared reading");
+  assert.match(probe, /SUPABASE_ANON_KEY \|\| anonKeyFromFrontend\(\)/,
+    "the probe no longer falls back to the frontend's key — it will die on the unset secret");
+  assert.ok(!probe.includes(key), "the probe carries a hardcoded copy of the anon key — a fourth one");
+
+  // AND THE TWO THAT DO CARRY A LITERAL MUST STILL AGREE WITH IT. They predate
+  // this and are deliberately not rewritten — `build-as-owner` is the harness
+  // that spends ~130 credits a run, and a refactor bug there costs a real build.
+  // What must not happen is a rotation leaving one of them sending a dead key,
+  // which surfaces at `/auth/v1/verify` as something that names nothing.
+  let literals = 0;
+  for (const f of ["../scripts/build-as-owner.mjs", "../scripts/wall-probe.mjs"]) {
+    const src = readFileSync(new URL(f, import.meta.url), "utf8");
+    const lit = src.match(/SUPABASE_ANON_KEY \|\| "([A-Za-z0-9._-]+)"/);
+    assert.ok(lit, `${f} no longer falls back to a literal anon key — it will die on the unset secret`);
+    assert.equal(lit[1], key, `${f} carries an anon key that disagrees with public/auth.js`);
+    literals++;
+  }
+  assert.equal(literals, 2, "the scan found a different number of fallbacks than the two that exist");
 });

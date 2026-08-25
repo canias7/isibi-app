@@ -33,12 +33,28 @@
 // COSTS NO CREDITS. No model call, no build, no Neon project, no publish.
 
 import fs from "node:fs";
+import { anonKeyFromFrontend } from "./anon-key.mjs";
 
 const t0 = Date.now();
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://ujrqdmmtcptvimazlhom.supabase.co";
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || "";
-const ANON_KEY = process.env.SUPABASE_ANON_KEY || "";
 const BASE = process.env.OWNER_BASE_URL || "https://gofarther.dev";
+
+// THE ANON KEY IS READ OUT OF THE FRONTEND, and there is no fourth copy of it.
+//
+// `secrets.SUPABASE_ANON_KEY` HAS NEVER EXISTED in this repo — the first run of
+// this probe died on it in 0.0s, exactly as `build-as-owner`'s first run did,
+// and that script's own comment records it. Five workflows list the name and it
+// comes through EMPTY in all five.
+//
+// It is not a secret to be found: the anon key is the PUBLIC client key and
+// `public/auth.js` sends it on every page load, so reading it from there is
+// reading our own frontend rather than weakening anything. Two scripts already
+// carry it as a hardcoded literal; a third copy is how a rotation leaves one of
+// them sending a dead key with nothing to say so. The extraction lives in
+// `scripts/anon-key.mjs` because a test that RESTATES it asserts its own copy —
+// measured, that mutant survived — where an importable one can be driven.
+const ANON_KEY = process.env.SUPABASE_ANON_KEY || anonKeyFromFrontend();
 const EMAIL = String(process.env.OWNER_EMAIL || "").trim();
 
 // HOW LONG THE CONTAINER IS ASKED TO WORK, and how long we stay away. The wait
