@@ -43,6 +43,49 @@ export const RESUME_PREFIX = "jobs/";
 export const RESUME_KIND = "site-build-resume";
 export const RESUME_VERSION = 1;
 
+// CLOUDFLARE'S OWN CEILING ON A DELAYED MESSAGE — 24 hours, for `send()` and
+// `msg.retry()` alike (verified against their documentation rather than
+// assumed). A value past it is not a slower resume, it is a call the platform
+// REFUSES — the class that shipped nothing on three consecutive merges here.
+export const MAX_DELAY_SECONDS = 86_400;
+
+/**
+ * HOW THE TWO INVOCATIONS AVOID BOTH CHARGING FOR ONE BUILD.
+ *
+ * A queue delivers AT LEAST ONCE. `use_credits` is atomic and is NOT
+ * idempotent, so two invocations that both believe they are the first take the
+ * money twice. Two independent things stop that and BOTH are needed:
+ *
+ *   SEQUENTIAL — a redelivery that arrives after the first finished reads
+ *   `charged` and skips what is named there. That is `alreadyCharged`.
+ *
+ *   CONCURRENT — two invocations in flight together both read `charged: []`,
+ *   so the list cannot help. What separates them is a compare-and-set on the
+ *   record itself: R2's `put(key, value, { onlyIf: { etagMatches } })` returns
+ *   NULL when the condition fails (Cloudflare's own words: "In the event that a
+ *   precondition specified in options fails, put() returns null, and the object
+ *   will not be stored"). So the loser is told, rather than silently winning a
+ *   race it should have lost.
+ *
+ * THE CLAIM IS THE LOOK BUMP, AND IT COMES BEFORE ANY MONEY MOVES:
+ *
+ *   1. read the record, keeping its etag
+ *   2. decide (`resumeDecision`)
+ *   3. write `nextLook(record)` back with `onlyIf: { etagMatches: <etag> }`
+ *      · null  → somebody else holds this build. Do nothing, ack, stop.
+ *      · ok    → the claim is ours; poll, publish, charge, record the charge
+ *
+ * `delete()` HAS NO `onlyIf`, which is why the claim is on the PUT and never on
+ * the removal — a conditional delete would be the obvious shape and does not
+ * exist.
+ *
+ * THE ONE CASE THIS GETS WRONG, STATED: an invocation that claims, publishes,
+ * and then dies before recording the charge leaves a site published and unpaid
+ * for. That is the SAFE direction — the customer has what they asked for and we
+ * are out of pocket — and it is the opposite of the failure the whole mechanism
+ * exists to prevent, which is billing somebody twice for one site.
+ */
+
 // HOW LONG BETWEEN LOOKS, AND THE CEILING IS NOT ARBITRARY.
 //
 // `SiteBuildContainer.sleepAfter` is FIVE MINUTES. The busy counter is the
@@ -201,6 +244,56 @@ export function readResume(raw) {
     looks: Number.isFinite(raw.looks) && raw.looks > 0 ? Math.trunc(raw.looks) : 0,
     design: raw.design,
   };
+}
+
+/**
+ * THE MESSAGE THAT BRINGS A BUILD BACK, and its OWN kind.
+ *
+ * `build-job.mjs`'s `readMessage` answers only `site-build`, and it refuses
+ * anything else rather than guessing — which is right, and means a resume
+ * message added without a matching branch in the consumer is DROPPED with a log
+ * line and no build. So the consumer has to dispatch on kind, and the two kinds
+ * have to be distinguishable: one starts a build from nothing, the other picks
+ * one up mid-flight, and running the wrong one for the other is either a second
+ * charge for a whole design or a resume of a build that was never fired.
+ */
+export function packResumeMessage(id) {
+  if (!isResumeId(id)) throw new Error("build-resume: refusing to enqueue an id we did not mint");
+  return { kind: RESUME_KIND, id };
+}
+
+export function readResumeMessage(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return null;
+  if (body.kind !== RESUME_KIND) return null;
+  if (!isResumeId(body.id)) return null;
+  return { id: body.id };
+}
+
+/**
+ * WHAT THE CLAIM WRITES. One look more, and nothing else touched.
+ *
+ * Written back with `onlyIf: { etagMatches }`, so a `null` return means another
+ * invocation got there first. It is deliberately the SMALLEST possible change:
+ * the claim happens before any money moves, so anything else changed here would
+ * be changed by an invocation that may be about to discover it has lost.
+ */
+export function nextLook(record) {
+  const looks = (record && Number(record.looks)) || 0;
+  return { ...record, looks: (Number.isFinite(looks) && looks > 0 ? Math.trunc(looks) : 0) + 1 };
+}
+
+/**
+ * The delay, in the shape the queue takes, clamped to what the platform accepts.
+ *
+ * A whole number of seconds — `delaySeconds` is documented in seconds and a
+ * fraction is a value nobody has tested — inside [0, 24 hours]. A value past
+ * the ceiling is not a slower resume, it is a `send()` the platform REFUSES,
+ * and the build stops there with no message and nobody coming back.
+ */
+export function queueDelay(seconds) {
+  const n = Number(seconds);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.min(Math.trunc(n), MAX_DELAY_SECONDS);
 }
 
 /** Has this step already been taken from somebody's ledger? The one reader, so

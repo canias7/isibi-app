@@ -11,8 +11,11 @@ import fs from "node:fs";
 import {
   RESUME_PREFIX, RESUME_KIND, RESUME_VERSION, RESUME_POLL_SECONDS, RESUME_FIRST_SECONDS,
   RESUME_DEADLINE_MS, RESUME_SLACK_MS, RESUME_MAX_LOOKS, CHARGE_STEPS,
+  MAX_DELAY_SECONDS,
   isResumeId, resumeKey, packResume, readResume, alreadyCharged, withCharged, resumeDecision,
+  packResumeMessage, readResumeMessage, nextLook, queueDelay,
 } from "../builder/build-resume.mjs";
+import { JOB_KIND, readMessage } from "../builder/build-job.mjs";
 import { BUILDER_CALL_MS, retryHere } from "../builder/build-call.mjs";
 
 const ID = "a".repeat(32);
@@ -131,6 +134,61 @@ test("RECORDING A CHARGE RETURNS A NEW RECORD, and refuses an unknown step LOUDL
   // look charges again — the one bug this record exists to prevent.
   assert.throws(() => withCharged(r, "photos"), /not a charge step/,
     "an unrecognised charge step is dropped silently rather than refused");
+});
+
+test("THE RESUME MESSAGE HAS ITS OWN KIND, and the build's reader refuses it", () => {
+  // `readMessage` in build-job.mjs answers only `site-build`. That refusal is
+  // right — running a from-nothing build for a resume message would charge a
+  // whole second design — and it means the consumer MUST dispatch on kind, or a
+  // resume is logged and dropped with no build.
+  const m = packResumeMessage(ID);
+  assert.equal(m.kind, RESUME_KIND);
+  assert.deepEqual(readResumeMessage(m), { id: ID });
+  assert.notEqual(RESUME_KIND, JOB_KIND, "the two message kinds are the same string — one would be run as the other");
+  assert.equal(readMessage(m), null, "a resume message reads as a from-nothing build — it would re-run and re-charge the design");
+  assert.equal(readResumeMessage({ kind: JOB_KIND, id: ID }), null,
+    "a from-nothing build message reads as a resume — it would resume a build that was never fired");
+  for (const bad of [null, undefined, [], "x", { kind: RESUME_KIND }, { kind: RESUME_KIND, id: "nope" }]) {
+    assert.equal(readResumeMessage(bad), null, `a junk message was accepted: ${JSON.stringify(bad)}`);
+  }
+  assert.throws(() => packResumeMessage("nope"), /did not mint/,
+    "a message was enqueued for an id we did not mint");
+});
+
+test("THE CLAIM WRITES ONE LOOK MORE AND NOTHING ELSE", () => {
+  // It is written back with `onlyIf: { etagMatches }` BEFORE any money moves,
+  // so an invocation that is about to discover it lost the race must not have
+  // changed anything on the way.
+  const r = readResume(packResume({ ...GOOD, looks: 2, charged: ["deposit"] }));
+  const n = nextLook(r);
+  assert.equal(n.looks, 3);
+  assert.equal(r.looks, 2, "nextLook mutated the record it was handed");
+  for (const k of ["id", "auth", "uid", "slug", "lane", "genId", "firedAt", "design"]) {
+    assert.deepEqual(n[k], r[k], `the claim changed \`${k}\` — an invocation that loses the race would have altered it anyway`);
+  }
+  assert.deepEqual(n.charged, r.charged, "the claim touched the charge list");
+  assert.equal(nextLook({}).looks, 1, "a record with no look count does not start at one");
+  assert.equal(nextLook({ looks: -3 }).looks, 1, "a nonsense look count was carried forward rather than reset");
+});
+
+test("THE DELAY IS A WHOLE NUMBER OF SECONDS INSIDE CLOUDFLARE'S OWN CEILING", () => {
+  // Past 24 hours is not a slower resume — it is a `send()` the platform
+  // REFUSES, and the build stops there with nobody coming back. The class that
+  // shipped nothing on three consecutive merges here.
+  assert.equal(queueDelay(60), 60);
+  assert.equal(queueDelay(MAX_DELAY_SECONDS), MAX_DELAY_SECONDS);
+  assert.equal(queueDelay(MAX_DELAY_SECONDS + 1), MAX_DELAY_SECONDS, "a delay past the platform's ceiling was passed through");
+  assert.equal(queueDelay(1e9), MAX_DELAY_SECONDS);
+  assert.equal(queueDelay(12.7), 12, "a fractional delay was passed through — the field is documented in whole seconds");
+  for (const bad of [0, -5, NaN, Infinity, null, undefined, "soon", {}]) {
+    assert.equal(queueDelay(bad), 0, `a nonsense delay was passed through: ${JSON.stringify(bad)}`);
+  }
+  assert.equal(MAX_DELAY_SECONDS, 24 * 60 * 60, "the ceiling is not Cloudflare's documented 24 hours");
+  // And every delay the decision can produce must survive the clamp unchanged,
+  // or the schedule and what is actually sent would disagree.
+  for (const s of [RESUME_FIRST_SECONDS, RESUME_POLL_SECONDS]) {
+    assert.equal(queueDelay(s), s, `the schedule produces ${s}s, which the clamp changes`);
+  }
 });
 
 // ── THE DECISION ────────────────────────────────────────────────────────────
