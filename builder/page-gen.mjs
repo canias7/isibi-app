@@ -30,6 +30,11 @@ export { UI_COMPONENTS };
 import { directiveFromPlan, KIT_PALETTE } from "./site-plan.mjs";
 import { imageDirective } from "./site-images.mjs";
 import { modelsFor } from "./build-models.mjs";
+// THE PROVIDER CALL. A LEAF ON PURPOSE — it imports `model-xai.mjs` and
+// nothing else, so the build CONTAINER can hold that call open without
+// dragging this file (and ~1MB of prompt machinery, three modules of it at
+// the repo root and therefore outside the Docker build context) in with it.
+import { callBuilderModel } from "./build-call.mjs";
 // The ONE reading of a page file's URL, shared with the addon lane, the
 // container's prerender and the published route manifest. This file kept a
 // private copy and it was wrong twice — see the note at `live` below.
@@ -4255,4 +4260,74 @@ export function pagesRequest({ brief, spec, brand, attachments, model, priorPage
     system: [{ type: "text", text: siteHasTables(spec) ? PAGE_RULES : FRONTEND_PAGE_RULES, cache_control: { type: "ephemeral" } }],
     messages: [{ role: "user", content: blocks.length ? [...blocks, { type: "text", text }] : text }],
   };
+}
+
+/**
+ * Write this site's pages. THE LONG CALL — seven to twelve minutes on a real
+ * brief, and the reason this module exists.
+ *
+ * @param {{anthropic?: string, xai?: string}} keys
+ */
+export async function generateSitePages(keys, brief, spec, brand, attachments, model, priorPages, mode, target, budget = null) {
+  // One definition, shared with the eval harness — see pagesRequest. Restating
+  // it here would mean the harness tunes against a different request from the
+  // one production runs. Held in a const so the usage below can be stamped with
+  // the model that was actually sent.
+  const req = pagesRequest({ brief, spec, brand, attachments, model, priorPages, mode, target });
+  // Provider decided in ONE place — see callBuilderModel. It answers in
+  // Anthropic's shape whichever one served it, so every line below this is
+  // unchanged and cannot tell the difference.
+  //
+  // `budget` is the BUILD's remaining time — see designSiteSchema. Passed as an
+  // argument rather than set on `req`, which is shared with the eval AND is what
+  // gets stringified onto the wire.
+  const j = await callBuilderModel(keys, req, budget);
+  const usage = j.usage || {};
+  // CACHED TOKENS ARE REPORTED SEPARATELY AND WERE NOT BEING COUNTED. The
+  // Anthropic API excludes cache hits from `input_tokens` and returns them as
+  // `cache_read_input_tokens` / `cache_creation_input_tokens` — and PAGE_RULES,
+  // the thing cache_control exists for, is ~18,300 tokens. So the meter saw a few
+  // hundred input tokens on a call that really carried nineteen thousand, and on
+  // a COLD cache the creation tokens bill at 1.25x and were invisible.
+  //
+  // Counted at face value rather than reweighted: a credit is 1/8000 of a dollar
+  // of MODEL spend, and pretending a cache read costs a tenth would mean the
+  // ledger tracks a different number from the invoice. Reweighting belongs in the
+  // rate, not in the token count, and today the rate is one number.
+  // THE FOUR KINDS, KEPT APART. Summing them into one `usedIn` is what made
+  // pageCredits price a cache read at the fresh rate — ten times over, on the
+  // largest input component — and overcharge a warm build by 35%. They are
+  // priced 1x / 5x / 0.1x / 1.25x and only the caller can tell them apart.
+  const used = {
+    usage: {
+      in: usage.input_tokens || 0,
+      out: usage.output_tokens || 0,
+      cacheRead: usage.cache_read_input_tokens || 0,
+      cacheWrite: usage.cache_creation_input_tokens || 0,
+      // The rate column, off the request that was sent. Under `auto` this call
+      // is Sonnet while the designer above it is Opus, so a build's two usage
+      // objects are priced from two different rows and must never be merged.
+      model: req.model,
+    },
+  };
+  // A tool_use block cut off at max_tokens carries half-written JSON, which parses
+  // into a page whose last file is truncated. Treat it as a failed generation
+  // rather than shipping a file that ends mid-expression.
+  if (j.stop_reason === "max_tokens") return { input: null, truncated: true, ...used };
+  const use = (Array.isArray(j.content) ? j.content : []).find((b) => b && b.type === "tool_use");
+  // WHY THERE ARE NO PAGES, when there are none. Measured live 2026-08-04: a
+  // build spent 9,810 output tokens and 22 credits, `validatePages` got null, and
+  // the response could say only "the generator didn't produce a usable page" —
+  // which does not distinguish a model that answered in prose from one that
+  // called the tool with an empty argument. Third layer in a row where a failure
+  // could not name itself; the pages are gone the moment this returns, so the
+  // answer has to be captured here or not at all.
+  //
+  // `stop_reason` and the block TYPES only — never the text, which is
+  // model-written prose about a customer's brief.
+  const shape = use ? null : {
+    stopReason: String(j.stop_reason || "").slice(0, 40),
+    blocks: (Array.isArray(j.content) ? j.content : []).map((b) => String(b && b.type)).slice(0, 6),
+  };
+  return { input: (use && use.input) || null, ...(shape ? { shape } : {}), ...used };
 }

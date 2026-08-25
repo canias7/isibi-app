@@ -46,7 +46,7 @@ import { scrubSecrets, neonConfigured, sqlQuery, sqlExec, createUserProject, cre
 import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, liftBackend, sqlIdent, seedSiteRows, droppedFields, refusedFields } from "./site-schema.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
-import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, lintPages, repairImports, SITE_PAGES_MAX_TOKENS } from "./builder/page-gen.mjs";
+import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, lintPages, repairImports, SITE_PAGES_MAX_TOKENS, generateSitePages as genPages } from "./builder/page-gen.mjs";
 // ALIASED, because worker.js already has an `IMAGE_USD` — the per-model price
 // map for the image GENERATOR the customer drives directly. Imported under its
 // own name the two collide, and the collision is invisible to `node --check` and
@@ -113,7 +113,7 @@ import { laneName } from "./builder/build-lane.mjs";
 // on the way in because `worker.js` keeps thin `env`-shaped wrappers of the same
 // names — eleven call sites read them, and renaming those would make a move that
 // changes no behaviour look like a change that does.
-import { callBuilderModel as callModel, generateSitePages as genPages, keysFrom, BUILDER_CALL_MS } from "./builder/build-call.mjs";
+import { callBuilderModel as callModel, keysFrom, BUILDER_CALL_MS } from "./builder/build-call.mjs";
 import { holdDecision, BUSY_PROBE_MS } from "./builder/container-hold.mjs";
 
 // Game build-service container (Phase 3). The image (./builder-game/Dockerfile)

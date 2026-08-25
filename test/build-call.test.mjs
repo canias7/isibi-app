@@ -11,7 +11,13 @@
 // Worker around it. Everything here runs in plain Node for exactly that reason.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { callBuilderModel, generateSitePages, keysFrom, BUILDER_CALL_MS } from "../builder/build-call.mjs";
+import { callBuilderModel, keysFrom, BUILDER_CALL_MS } from "../builder/build-call.mjs";
+// GENERATION LIVES WITH THE PROMPT IT BUILDS, and the call lives alone. Splitting
+// them is what makes `build-call.mjs` shippable into the container: its whole
+// module graph is itself plus `model-xai.mjs`, where `generateSitePages` needs
+// `pagesRequest` and drags in ~1MB across fifteen modules — three of which are at
+// the repo root, outside the Docker build context, where `COPY ../` is not legal.
+import { generateSitePages } from "../builder/page-gen.mjs";
 
 const KEYS = { anthropic: "A-KEY", xai: "X-KEY" };
 
@@ -207,6 +213,13 @@ test("THE MODULE NEEDS NO WORKER — it imports no binding and reaches for no en
     .split("\n").map((l) => (/^\s*(\/\/|\*|\/\*)/.test(l) ? "" : l)).join("\n");
   assert.ok(!/\benv\./.test(src), "the module reads `env`, so it cannot run in the container");
   assert.ok(!/from "\.\.\/worker\.js"/.test(src), "the module imports the Worker entrypoint");
+  // AND IT STAYS A LEAF, which is the property that makes it shippable at all.
+  // `page-gen.mjs` pulls in the 2,112-component kit API, the chart catalogue and
+  // three modules at the repo ROOT — and the container's build context is
+  // `builder/`, so `COPY ../site-access.mjs` is not something Docker permits.
+  // One import back into that graph and this module stops being packageable.
+  assert.deepEqual((src.match(/from "[^"]+"/g) || []).sort(), [`from "./model-xai.mjs"`],
+    "build-call.mjs grew an import — it must stay a leaf the container can package");
   // And its own imports are all plain modules, reachable from Node.
   for (const m of src.match(/from "([^"]+)"/g) || []) {
     assert.match(m, /from "\.\/[a-z-]+\.mjs"|from "\.\.\/[a-z-]+\.mjs"/, `${m} is not a plain sibling module`);

@@ -1639,14 +1639,18 @@ test("worker.js and the eval compose the same user turn", () => {
   // that prose explaining a thing contains that thing's spelling, and the note
   // above literally says `briefWithLayout`.
   // TWO HALVES SINCE 2026-08-25, and each is asserted where it lives. The user
-  // turn is still composed in worker.js — `briefWithLayout` needs the plan and
-  // the image budget, which are the ROUTE's — while `pagesRequest` moved into
-  // build-call.mjs with the call that sends it. Pinned to one file this
+  // turn is composed in worker.js — `briefWithLayout` needs the plan and the
+  // image budget, which are the ROUTE's — while `generateSitePages` sits in
+  // page-gen.mjs beside the `pagesRequest` it calls. Pinned to one file this
   // reported that worker.js hand-rolls the request, about a build where the
   // request is built by the one function it has always been built by.
+  //
+  // The CALL is a third place, and deliberately not on this list: it takes a
+  // finished request and holds it open, which is what lets the container make
+  // it without carrying ~1MB of prompt machinery.
   const PATHS = [
     ["../worker.js", /briefWithLayout\(\{/, "composes the user turn itself instead of through briefWithLayout"],
-    ["../builder/build-call.mjs", /pagesRequest\(\{/, "builds the page request itself instead of through pagesRequest"],
+    ["../builder/page-gen.mjs", /pagesRequest\(\{/, "builds the page request itself instead of through pagesRequest"],
     ["./integration/page-gen-eval.mjs", /briefWithLayout\(\{/, "composes the user turn itself instead of through briefWithLayout"],
     ["./integration/page-gen-eval.mjs", /pagesRequest\(\{/, "builds the page request itself instead of through pagesRequest"],
   ];

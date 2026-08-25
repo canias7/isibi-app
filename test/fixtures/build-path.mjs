@@ -21,10 +21,20 @@ import fs from "node:fs";
 
 export const WORKER_SRC = fs.readFileSync(new URL("../../worker.js", import.meta.url), "utf8");
 export const CALL_SRC = fs.readFileSync(new URL("../../builder/build-call.mjs", import.meta.url), "utf8");
+export const GEN_SRC = fs.readFileSync(new URL("../../builder/page-gen.mjs", import.meta.url), "utf8");
 
-/** Every file the build path's own logic lives in, newest split first. */
+/** Every file the build path's own logic lives in, newest split first.
+ *
+ * THREE, NOT TWO. `callBuilderModel` is a container-safe LEAF — it imports
+ * `model-xai.mjs` and nothing else — while `generateSitePages` needs
+ * `pagesRequest` and therefore the whole prompt machinery, ~1MB across fifteen
+ * modules, three of them at the repo root and so outside the container's Docker
+ * build context. So they live apart on purpose, and this list is what lets a
+ * guard assert a property without caring which side of that line it fell.
+ */
 const SOURCES = [
   ["builder/build-call.mjs", CALL_SRC],
+  ["builder/page-gen.mjs", GEN_SRC],
   ["worker.js", WORKER_SRC],
 ];
 
