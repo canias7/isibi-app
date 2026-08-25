@@ -295,3 +295,38 @@ test("GitHub's suppress-everything marker appears only in commits a workflow wri
   // away and this test would report a clean repo either way.
   assert.ok(writes >= 2, "expected the eval workflows' self-push guards, found " + writes);
 });
+
+// A DEPLOY WAIT ASKS deploy.yml FOR ITS OWN RUNS.
+//
+// `actions/runs?head_sha=` returns the first page of EVERY workflow on a SHA,
+// so finding the deploy by NAME in that list works right up until a push fires
+// more workflows than fit on one page — and then it silently stops finding it.
+// That is run 38: THIRTEEN runs on one SHA, the smoke suites several of them
+// twice, the deploy off page one, the poll printing `none` for ten minutes, and
+// a paid build job dying having built nothing. Two workflows carried the same
+// expression, which is why this is a property rather than two fixes.
+//
+// COMMENTS ARE BLANKED FIRST, because both fixed workflows now EXPLAIN the bug
+// and prose about a thing contains that thing's spelling — the trap this repo
+// has already recorded in a lint, a router guard, an absence check and a scope
+// scan. Whole-line only: blanking from any `#` would eat a URL fragment.
+test("nothing waits for the deploy by scanning every workflow's runs", () => {
+  const dir = new URL("../.github/workflows/", import.meta.url);
+  const files = readdirSync(dir).filter((f) => /\.ya?ml$/.test(f));
+  assert.ok(files.length >= 10, "the workflow scan found " + files.length + " files — a scan that stops matching reports a clean repo");
+  let waits = 0;
+  for (const f of files) {
+    const raw = readFileSync(new URL(f, dir), "utf8");
+    const src = raw.replace(/^[ \t]*#[^\n]*/gm, (m) => " ".repeat(m.length));
+    assert.equal(src.length, raw.length, f + ": the comment blanker moved the offsets it exists to preserve");
+    assert.ok(!/actions\/runs\?/.test(src),
+      f + ": asks `actions/runs?` for a run on this SHA. That endpoint pages across EVERY workflow, so a " +
+      "find-by-name in it silently stops matching once a push fires more than one page of them — the run 38 " +
+      "failure, where a build job polled for ten minutes and never built. Ask `actions/workflows/<file>/runs`.");
+    if (/actions\/workflows\/deploy\.yml\/runs\?head_sha=/.test(src)) waits++;
+  }
+  // Both waits must still be there. Without this the assertion above passes
+  // perfectly over a repo where nothing waits for the deploy at all — which is
+  // worse than the bug, since a build would then race the rollout every time.
+  assert.ok(waits >= 2, "expected the two deploy waits (build-as-owner, wall-probe), found " + waits);
+});
