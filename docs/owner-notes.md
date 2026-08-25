@@ -12,6 +12,35 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ## OPEN — waiting to be picked up
 
+**THE "RING THE WORKSHOP" BUTTON ON THE NEW SITE IS INVISIBLE (2026-08-25).**
+Found by looking at the site the frontend-only build just made. The button in
+the header is there, it is the right size, it works if you click it — and its
+text is the **same brown as its own background**, so you cannot see it. On a
+site whose entire point is that people ring, that is the one control that
+matters.
+
+**It is not a new bug and it is now understood.** It has happened before (it was
+on the backlog as "a bare link colour blanks the main button"), and this run is
+the first time the exact cause has been pinned down rather than guessed at.
+
+**What happens:** the model writes its own stylesheet for each site, and this
+one included a perfectly sensible line meaning *"links are in the brand
+colour."* Our buttons are built as links. So the rule catches the buttons too,
+and paints their text the same colour as the button itself. Ordinary links in
+the page text are fine — it is only the buttons.
+
+**Why our own automatic check did not catch it:** it may well have. The site's
+report came back over a connection that dropped, so the report was lost. Even if
+it had arrived, colour problems are deliberately excluded from the automatic
+repair step, because that step rewrites a page and we do not want it doing that
+over a judgement call.
+
+**I have not fixed it, deliberately.** There are three sensible fixes and they
+are different trades — put the model's stylesheet lower in the pecking order,
+or narrow what its rules are allowed to touch, or re-apply the button's own
+colour after it. That is a decision rather than a patch. Say which and it is
+quick.
+
 **EVERY SCHEDULED JOB ON THE PLATFORM HAS NEVER SENT ANYTHING (2026-08-24).**
 Found while doing something else, and measured against the live records rather
 than guessed: **26 jobs, all switched on, zero sends, ever.**

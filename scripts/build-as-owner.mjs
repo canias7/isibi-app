@@ -247,8 +247,25 @@ async function traceLine(slug) {
     // minutes want different responses.
     const steps = Array.isArray(row.steps) ? row.steps : [];
     const tail = steps.slice(-3).map((s) => `${s && s.s}${Number.isFinite(s && s.ms) ? `(${Math.round(s.ms)}ms)` : ""}`).join(" -> ");
+    // WHETHER THIS BUILD MADE A DATABASE, off the trace rather than the response.
+    //
+    // ADDED AFTER RUN 34 (2026-08-25), which is the run that needed it: step 5
+    // logs `backend`/`tables` off the response, the socket died at ~263s, and
+    // step 5 sits inside `if (!disconnected)` — so the ONE line written to prove
+    // the frontend-only split never executed, on the very run that proved it.
+    // The claim survived only because the trace carries the same fact
+    // independently, and this line is that fact where the log can always reach
+    // it. `provision` writes `{db: 0}` ONLY on the no-database path and `schema`
+    // writes the table count either way, so absent-vs-0 is a real distinction
+    // and neither is invented here: a build that never reached provisioning says
+    // nothing rather than saying no.
+    const prov = steps.find((s) => s && s.s === "provision");
+    const schema = steps.find((s) => s && s.s === "schema");
+    const db = prov && prov.db === 0 ? "db=none" : prov ? "db=made" : "";
+    const tabs = schema && Number.isFinite(schema.tables) ? `tables=${schema.tables}` : "";
+    const shape = [db, tabs].filter(Boolean).join(" ");
     return `done=${row.done} ok=${row.ok} page=${row.page || "?"} marks=${steps.length} at=${row.at || "(none)"}` +
-      (tail ? `  [${tail}]` : "");
+      (shape ? `  ${shape}` : "") + (tail ? `  [${tail}]` : "");
   } catch (e) {
     return `trace unreadable (${String((e && e.message) || e).slice(0, 60)})`;
   }
