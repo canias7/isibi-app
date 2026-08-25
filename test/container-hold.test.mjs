@@ -381,6 +381,34 @@ test("THE PROBE REPORTS THE CAUSE, not only the verdict", () => {
     "the probe cannot distinguish a hook that never ran — which is a cause in itself");
 });
 
+test("THE PROBE ASKS ABOUT EGRESS AND REPORTS IT SEPARATELY", () => {
+  const probe = readFileSync(new URL("../scripts/container-hold-probe.mjs", import.meta.url), "utf8");
+  assert.match(probe, /api\/_egress/, "the probe never asks whether the container can reach the providers");
+  // BEFORE the idle pre-check, or that check reads a lane this probe just
+  // warmed and can no longer establish the lane was quiet before we started.
+  const eg = probe.indexOf("api/_egress");
+  const pre = probe.indexOf("step 3 — lane before");
+  assert.ok(eg > 0 && pre > eg, `egress at ${eg} runs after the idle pre-check at ${pre}, which it warms`);
+  // ITS OWN VERDICT, and NOT this run's exit status. The two questions are
+  // independent — a container can survive its idle timeout whether or not it
+  // can reach a provider — and reporting one as the other makes a green run
+  // about the wrong thing.
+  for (const v of ["EGRESS: PROVEN", "EGRESS: BLOCKED", "EGRESS: PARTIAL", "EGRESS: UNKNOWN"]) {
+    assert.ok(probe.includes(v), `the egress verdict cannot report "${v}"`);
+  }
+  // BOTH PROVIDERS MUST COUNT. `DEFAULT_PICKER` is grok, so a probe satisfied by
+  // Anthropic alone would report PROVEN about the provider builds do not use.
+  assert.match(probe, /reached\.length === 2/, "PROVEN does not require both providers");
+  assert.match(probe, /\["anthropic", "xai"\]\.filter/, "the verdict is not derived from both providers");
+  // AND "unreadable" MUST NOT READ AS "blocked". One is a fault in the probe and
+  // the other is a fact about Cloudflare's network; collapsing them reports a
+  // working thing as broken.
+  const unknown = probe.indexOf("EGRESS: UNKNOWN");
+  const blocked = probe.indexOf("EGRESS: BLOCKED");
+  assert.ok(unknown > 0 && blocked > 0 && unknown !== blocked,
+    "an unreadable egress answer is collapsed into the blocked verdict");
+});
+
 // ── THE CREDENTIAL, WHICH KILLED THE FIRST LIVE RUN IN 0.0 SECONDS ──────────
 //
 // `secrets.SUPABASE_ANON_KEY` HAS NEVER EXISTED in this repo. Five workflows

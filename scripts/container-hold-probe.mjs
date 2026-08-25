@@ -108,6 +108,45 @@ log(`step 2 — verify answered ${vr.status}; access_token ${desc(jwt)}; user=${
 if (!vr.ok || !jwt) fail("could not open a session: " + JSON.stringify(session).slice(0, 300));
 const auth = { Authorization: `Bearer ${jwt}` };
 
+// ── step 2b: CAN THE CONTAINER REACH THE MODEL PROVIDERS? ────────────────────
+//
+// The second thing that decides whether generation can move into the container,
+// and the image makes zero outbound provider calls today — measured, `fetch(`
+// appears in `builder/*.mjs` exactly once and it is a loopback. So this has
+// never been observed on Cloudflare's network, only documented.
+//
+// A 401 IS THE PROOF, AND THAT IS WHAT MAKES IT FREE. The container sends no
+// credentials, so an answer at all can only mean DNS resolved, TLS completed,
+// the request was routed and a live server replied. Nothing spent, no key in
+// the image to leak.
+//
+// FOLDED INTO THIS RUN RATHER THAN GIVEN ITS OWN WORKFLOW. It takes two seconds
+// beside a seven-minute wait, and a standing check is worth more than a one-off:
+// container networking is Cloudflare's to change, and the way that would
+// otherwise surface is a build failing at a model call for no stated reason.
+//
+// BEFORE THE IDLE CHECK, deliberately. This warms the same lane, so doing it
+// after would leave the pre-check reading a container this probe had just
+// touched — and the pre-check's whole job is to establish the lane was quiet
+// before we started.
+const eg = await fetch(`${BASE}/api/_egress`, { headers: auth }).then((r) => r.json()).catch((e) => ({ err: String(e) }));
+log(`step 2b — container egress: ${JSON.stringify(eg)}`);
+let egress = null;
+try { egress = JSON.parse(eg.body); } catch { /* reported in the verdict */ }
+const reached = egress ? ["anthropic", "xai"].filter((k) => egress[k] && egress[k].reached === true) : [];
+if (egress) {
+  for (const k of ["anthropic", "xai"]) {
+    const v = egress[k] || {};
+    log(`step 2b — ${k}: ${v.reached === true ? "REACHED, answered " + v.status : "NOT reached (" + (v.kind || "?") + ": " + (v.why || "?") + ")"} in ${v.ms}ms`);
+  }
+} else {
+  // NOT the same as "cannot reach". The route or the container answered
+  // something unreadable, which is a fault here rather than a verdict about
+  // Cloudflare's network — and collapsing the two is how a working thing gets
+  // reported as broken.
+  log("step 2b — the egress probe gave no readable answer; that is a fault in the probe, not a verdict");
+}
+
 // ── step 3: is the lane idle before we start? ────────────────────────────────
 //
 // A lane that is ALREADY busy would make the whole run meaningless — a real
@@ -202,6 +241,27 @@ function whyLine(heldOk) {
       "        of a real container, and the hold is what kept it. Not luck and not a missed alarm.";
   }
   return head + "        It HELD the container. So something else stopped it, and the override is not the fault.";
+}
+
+// THE EGRESS VERDICT IS ITS OWN, and does not decide this run's exit status.
+// The two questions are independent: the container can survive its idle timeout
+// whether or not it can reach a provider, and reporting one as the other would
+// make a green run about the wrong thing. It is stated loudly either way,
+// because "generation can move into the container" needs BOTH and a reader
+// looking at a PROVEN hold should not have to infer the other half.
+log("");
+if (reached.length === 2) {
+  log("EGRESS: PROVEN — the container reached BOTH providers from Cloudflare's network, with no");
+  log("        credentials sent. The refusal status IS the proof: only DNS, TLS, routing and a live");
+  log("        server can produce one.");
+} else if (egress && reached.length === 1) {
+  log(`EGRESS: PARTIAL — reached ${reached[0]} and not the other. Generation could move for one provider`);
+  log("        and not the one every build uses by default, which is not a state to build on.");
+} else if (egress) {
+  log("EGRESS: BLOCKED — the container reached NEITHER provider. Generation cannot move into the");
+  log("        container until this is solved; the reasons above name which failure it was.");
+} else {
+  log("EGRESS: UNKNOWN — no readable answer, so this run says nothing about it either way.");
 }
 
 log("");
