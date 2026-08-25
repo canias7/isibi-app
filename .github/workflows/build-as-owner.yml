@@ -254,8 +254,72 @@ jobs:
           # any kind and a silently dead socket hangs `node:https` for ever. If
           # this run's socket dies it gives up at 18 minutes and watches the site
           # instead, which is the branch that already worked.
+          # ── RUN 34: THE FIRST FRONTEND-ONLY BUILD ──────────────────────────
+          #
+          # Owner: "in the design step we are gonna divide backend and frontend,
+          # and in the generator step we are gonna do the same, so at build time
+          # model only does frontend, the backend comes later" — and then, on
+          # scope: "every site doesnt get a neon db on 1stbuild, it will get it
+          # later on, lets only focus on the first build rn".
+          #
+          # SO THE BRIEF HAD TO CHANGE, AND THAT IS THE FINDING RATHER THAN
+          # HOUSEKEEPING. Run 33's CRM is sign-in, deals, stages and logged calls
+          # — it IS a database, so a frontend-only pipeline cannot serve it and a
+          # run against it would measure the gap between the brief and the
+          # product rather than the change. This is the first run where the brief
+          # and the pipeline have to agree about what a first build is.
+          #
+          # A JOINERY WORKSHOP IS THE HONEST SHAPE: everything on the site is
+          # content — what they make, what it costs, when they are open — and the
+          # brief carries the actual figures, so there is something to write into
+          # the page rather than a table to read it out of. It also says they
+          # would rather be phoned than emailed, which is the sharpest test of
+          # FRONTEND_RULE_2 there is: the natural thing to build for a joiner is a
+          # "get a quote" form, and on a site with no database that form submits
+          # nowhere and silently does nothing.
+          #
+          # WHAT TO READ OFF THE RESULT, in order of what would invalidate the
+          # change:
+          #
+          #   1. `backend=false tables=null` on step 5. That is the split firing.
+          #      Anything else and the designer declared a table, the build
+          #      provisioned a Neon project, and this run measured the old path.
+          #   2. NO DATA CALL IN ANY PAGE. `useRows`, `usePublicRows`,
+          #      `useCreateRow` — one of those in the served bundle means the
+          #      page prompt still taught a database to a site that has none,
+          #      which is what `FRONTEND_PAGE_RULES` and the four named
+          #      replacements exist to prevent.
+          #   3. NO FORM THAT PRETENDS TO SUBMIT. A phone number and an address
+          #      is the pass; an enquiry form with a Submit button is the failure,
+          #      and it is the one a visitor would find rather than us.
+          #   4. THE CONTENT IS REALLY THERE. The prices and the hours in this
+          #      brief have to be ON the page. A site that arranges empty
+          #      sections is the other way this can fail — the model designing
+          #      around data it was told not to have.
+          #   5. THE COST. The design tool loses 41.4% of what goes on the wire
+          #      (~7,300 tokens) and the page prompt 27.7% (42,201 -> 30,495
+          #      characters). Both blocks are CACHED, so on a warm cache they are
+          #      read at 0.1x and the saving is modest in credits — the honest
+          #      claim is a smaller prompt, not a cheap build. Arm D's 528,542ms
+          #      and run 33's 233,502ms design call are the numbers to read the
+          #      durations against.
+          #
+          # WHAT THIS RUN CANNOT ANSWER, said plainly: whether the backend can be
+          # added afterwards. That is step 5 of the owner's own plan and it is
+          # deliberately not built yet ("Dont worry about 5 rn"), so a site built
+          # here has no path to a database until it is. Nothing is torn down, so
+          # this site is the fixture that step will be proved against.
+          #
+          # NO SLUG — the designer names it, which is what happens for a customer,
+          # and `discoverSlug` recovers the name off `site_backends` if the socket
+          # dies. That recovery still works with no database: `claimSiteSlug`
+          # writes the ownership row with `neon_db: ""`, so the claim is there at
+          # the same point in the build it always was.
+          #
+          # THE PICKER STAYS GROK — the platform default, and what the last five
+          # builds used, so the durations are comparable.
           OWNER_PICKER: grok
-          OWNER_BRIEF: "A sales CRM for a five-person team that sells industrial coffee machines to cafes across the north of England. Everyone on the team signs in - nothing here is public except a one-page front door. One page is the pipeline: every deal with its company, its value in pounds, which stage it is at and who owns it, sortable and filterable by stage, with the total value of each stage across the top. One page is a single deal: the company details, every call and email logged against it in date order, and a form to log another. One page lists contacts, each one linked to their company. The feel is a working tool rather than a website - dense rows, figures that line up, one accent colour used only where something needs attention, and no photographs anywhere."
+          OWNER_BRIEF: "A two-brother joinery workshop in Hebden Bridge, West Yorkshire, with thirty years between them. They make fitted kitchens, staircases and built-in wardrobes in solid oak and ash, and take on about fifteen jobs a year. This site is a shop window and nothing more: someone reads it, likes the work, and rings them. Say what they make and roughly what it costs - a fitted kitchen from GBP 8,000, a staircase from GBP 3,500, wardrobes from GBP 1,800, and measuring and drawings free before any of it. Show a handful of past jobs with a line about each. Say who they are and how the workshop works. The number is 01422 846120, they are in the workshop Tuesday to Saturday 8am to 4pm, and they would much rather be phoned than emailed. Warm and plain - timber, daylight, a lot of white space, and no stock-photo gloss."
         run: node scripts/build-as-owner.mjs
       - uses: actions/upload-artifact@v4
         if: always()

@@ -370,6 +370,15 @@ if (!disconnected) {
 // ── step 5: what the images did (the first funded run ever) ─────────────────
 if (!disconnected) {
 log(`step 5 — page=${d.page} slug=${d.slug} url=${d.url}`);
+// WHICH PATH THE BUILD TOOK, which this log had no line for until 2026-08-25.
+// A first build is frontend only since then — `backend` off the design tool, the
+// data rules off the page prompt, and no Neon project provisioned — so
+// `backend=false tables=null` IS that split's whole claim, and without this line
+// the only way to tell a frontend build from a data build was to go and look at
+// the site. Read off the RESPONSE rather than inferred from the brief: a brief
+// that reads as a brochure can still declare a table, and then the build really
+// did provision one and this run measured something else.
+log(`step 5 — backend=${d.backend} tables=${JSON.stringify(d.tables)}`);
 log(`step 5 — cost=${JSON.stringify(d.cost)} charged=${d.charged}`);
 // WHICH MODELS ACTUALLY RAN, read off the response rather than assumed from
 // what was asked for. `modelsFor` ignores a picker it does not recognise and
