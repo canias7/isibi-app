@@ -368,7 +368,43 @@ jobs:
           # brief, and `compile` 151ms because the designer declared no
           # photographs. A third sample of one brief is what turns two numbers
           # into a range.
-          OWNER_SLUG: northgroup-3
+          # ── RUN 38: THE FOURTH SLUG, AND THE CLOCK NOW BOUNDS THE SPEND ─────
+          #
+          # Owner: "make a new build, try crm again." `northgroup-3` published
+          # on run 37 so it is claimed; ownership decides `revise`, so re-using
+          # it would measure an edit rather than a first build. Balance 217
+          # before this; run 37 cost 14.
+          #
+          # WHAT ONLY THIS RUN CAN ANSWER (4c85c65, NOT PROVEN LIVE): whether a
+          # build that cannot wait for a photograph now refuses to BUY one. Run
+          # 37 reached the image step at 517,578ms with 262,422 left, so the race
+          # got 22,422ms — and its `compile` mark is 22,422ms to the millisecond,
+          # a timer expiring rather than an image model finishing. It fired the
+          # shot anyway: the bytes landed in R2 too late to reach the page, so
+          # the money was spent, an orphan holds a slot in the owner's library,
+          # the `og:image` points at a picture on none of the four pages, and the
+          # customer would have read "Couldn't make the photographs" about a shot
+          # that succeeded.
+          #
+          # READ THE `compile` MARK AGAINST THE SPARE TIME, which is the whole
+          # measurement and needs no new instrumentation:
+          #   * generation slow (spare < 35,000ms) -> `compile` ~0.1s, NOTHING
+          #     bought, and the reply says "ran out of time before the
+          #     photographs". That is the fix firing.
+          #   * generation quick (spare >= 35,000ms) -> `compile` in the
+          #     24.7-32.6s band and a photograph on the page. That is the
+          #     ordinary path, untouched.
+          #   * `compile` ~22s again with no photograph on any page is the fix
+          #     NOT firing, and is the one outcome that means this is still open.
+          # The brief says "no photographs anywhere", so a designer that declares
+          # none makes this run silent on the question rather than negative —
+          # run 36 declared none (151ms) and run 37 declared one. A third sample.
+          #
+          # AND RULE 16 IS THE OTHER UNPROVEN THING (9a863f1). Run 37's body ran
+          # edge to edge under a `max-w-6xl` nav with no gutter at all. Every band
+          # should now sit in `mx-auto max-w-6xl px-6`, with a full-bleed section
+          # keeping its bleed and containing its words in a div inside.
+          OWNER_SLUG: northgroup-4
           OWNER_PICKER: grok
           OWNER_BRIEF: "A sales CRM for a five-person team that sells industrial coffee machines to cafes across the north of England. Everyone on the team signs in - nothing here is public except a one-page front door. One page is the pipeline: every deal with its company, its value in pounds, which stage it is at and who owns it, sortable and filterable by stage, with the total value of each stage across the top. One page is a single deal: the company details, every call and email logged against it in date order, and a form to log another. One page lists contacts, each one linked to their company. The feel is a working tool rather than a website - dense rows, figures that line up, one accent colour used only where something needs attention, and no photographs anywhere."
         run: node scripts/build-as-owner.mjs
