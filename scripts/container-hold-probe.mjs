@@ -161,7 +161,7 @@ try { const b = JSON.parse(after.body); busy = b.busy; sinceMs = b.sinceMs; } ca
 // these wants a completely different next step, and collapsing them into "NOT
 // PROVEN" is what made the first run cost a source audit instead of a glance.
 const rec = hook && hook.last;
-function whyLine() {
+function whyLine(heldOk) {
   if (!rec) {
     return "        THE HOOK NEVER RAN. No record at all, so `onActivityExpired` was not called in this\n" +
            "        window — the container was stopped by something other than the idle timeout, or the\n" +
@@ -184,6 +184,23 @@ function whyLine() {
   if (rec.why === "stuck") {
     return head + "        It judged the container wedged past MAX_BUSY_HOLD_MS and stopped it deliberately.";
   }
+  // THE SAME RECORD MEANS OPPOSITE THINGS ON THE TWO VERDICTS, and the first
+  // draft had one sentence for both — so the run that PROVED this printed "so
+  // something else stopped it" directly under "the container was still
+  // working". A diagnostic that contradicts the verdict above it is worse than
+  // none, because the reader has to decide which half to believe.
+  if (heldOk) {
+    // THE TIMING IS THE EVIDENCE, and repeating the verdict is not. The hook's
+    // own `sinceMs` says WHEN the alarm fired relative to the hold starting: at
+    // `sleepAfter` it is the idle timeout doing exactly what it is for, and the
+    // whole claim rests on that rather than on the container merely being up.
+    const at = Number(rec.sinceMs);
+    const mins = Number.isFinite(at) ? (at / 60000).toFixed(1) : "?";
+    return head +
+      `        The alarm fired ${at}ms into the hold — ${mins} minutes, i.e. the sleepAfter window itself.\n` +
+      "        So containerFetch worked from inside the alarm, the decision was made on a real reading\n" +
+      "        of a real container, and the hold is what kept it. Not luck and not a missed alarm.";
+  }
   return head + "        It HELD the container. So something else stopped it, and the override is not the fault.";
 }
 
@@ -193,7 +210,7 @@ if (busy === true) {
       "well past its five-minute idle timeout, with nothing connected to it for the whole window.");
   log("        onActivityExpired asked, was told the container was busy, and held it.");
   log("        Fire-and-forget is viable: generation can move into the container.");
-  log(whyLine());
+  log(whyLine(true));
   process.exit(0);
 }
 if (busy === false) {

@@ -359,8 +359,19 @@ test("THE PROBE REPORTS THE CAUSE, not only the verdict", () => {
   assert.match(probe, /_hold\?log=1/, "the probe never asks the hook what it did");
   // Every branch of the verdict must carry the diagnosis, or the one run that
   // needs it is the one that does not print it.
-  const calls = (probe.match(/whyLine\(\)/g) || []).length;
+  const calls = (probe.match(/whyLine\(/g) || []).length;
   assert.ok(calls >= 4, `whyLine is used ${calls} times — it must ride on every verdict plus its own definition`);
+  // THE VERDICT IS THREADED IN, and the live PROVEN run is why. One sentence for
+  // both outcomes printed "so something else stopped it" directly beneath "the
+  // container was still working" — a diagnosis contradicting the verdict above
+  // it, which leaves the reader deciding which half to believe.
+  assert.match(probe, /function whyLine\(heldOk\)/, "whyLine cannot tell which verdict it is explaining");
+  assert.match(probe, /log\(whyLine\(true\)\);/, "the PROVEN branch does not tell whyLine it succeeded");
+  // AND THE SUCCESS BRANCH MUST ADD EVIDENCE RATHER THAN REPEAT THE VERDICT. The
+  // hook's own sinceMs is the whole claim: an alarm firing AT the sleepAfter
+  // window is the mechanism working, where a container merely being up is not.
+  assert.match(probe, /The alarm fired \$\{at\}ms into the hold/,
+    "the success diagnosis no longer reports WHEN the alarm fired, which is the evidence");
   // AND IT MUST DISCRIMINATE. A diagnosis that says the same thing whatever the
   // hook recorded is a sentence rather than an instrument.
   for (const why of ["idle", "no-answer", "stuck"]) {
