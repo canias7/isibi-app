@@ -28,6 +28,63 @@
 // answer.
 
 
+import { PUBLISH_RESERVE_MS } from "./build-budget.mjs";
+
+/* ------------------------------------------------------- the clock, not the money */
+
+/**
+ * HOW LONG THE PHOTOGRAPHS MAY BE WAITED FOR.
+ *
+ * Everything else in this file is about not spending MONEY on a picture. This
+ * one is about not spending the build's last minutes on one — a different
+ * currency and the one that has actually cost sites.
+ *
+ * WHY THIS STEP AND NOT ANOTHER. The build runs gen -> img -> compile ->
+ * container -> og -> pages. Running out of time HERE leaves a complete set of
+ * pages that can still be compiled and published, with `SafeImage`'s own
+ * placeholder where a picture would have been — the fallback this whole file is
+ * designed around. Running out of time at any later step leaves nothing.
+ *
+ * MEASURED. `northgroup` (2026-08-25) spent 619,822ms here, 74% of the 836s it
+ * had lived when Cloudflare stopped its consumer at fifteen minutes, mid
+ * container: its pages existed and nothing published them. `oak-and-ash`, the
+ * build that did publish, spent 304,402ms and had room. The whole difference
+ * between a live site and a 404 was this step.
+ *
+ * THREE ANSWERS, and collapsing any two of them is a bug:
+ *
+ *   `all`  — there is no clock. The old behaviour EXACTLY: wait for every shot.
+ *            One caller supplies a budget today, and a second that knows nothing
+ *            about a build must not have its pictures cut short by a bound it
+ *            never set. Being wrong that way is silent and shows up as a site
+ *            missing photographs nobody can account for.
+ *   `race` — wait, but only for the time ABOVE the reserve. NOT `remainingMs()`:
+ *            a wait that ends with nothing left is a bounded image step and
+ *            still no site, which fixes nothing.
+ *   `none` — the reserve is already all there is. Not one shot is waited for.
+ *            They have been started and that spend is committed either way; any
+ *            that lands before the publish reads the map is still used.
+ *
+ * A CLOCK THAT THROWS IS NO CLOCK, which is `build-budget.mjs`'s own rule one
+ * layer up: a broken clock reads as "plenty of time", because refusing a healthy
+ * build is the more expensive mistake and this is not what the customer paid for.
+ */
+export function photoWait(clock, reserve = PUBLISH_RESERVE_MS) {
+  let left = null;
+  try {
+    if (clock && typeof clock.remainingMs === "function") {
+      const n = clock.remainingMs();
+      if (typeof n === "number" && Number.isFinite(n)) left = n;
+    }
+  } catch { left = null; }
+  if (left === null) return { wait: "all", ms: null };
+  // A NONSENSE RESERVE IS THE REAL ONE, never zero. Read as zero it would mean
+  // "wait for everything", which is the bug; read as the default it means the
+  // ordinary build. Same direction `makeBudget` takes with a nonsense budget.
+  const r = typeof reserve === "number" && Number.isFinite(reserve) && reserve > 0 ? reserve : PUBLISH_RESERVE_MS;
+  return left > r ? { wait: "race", ms: left - r } : { wait: "none", ms: 0 };
+}
+
 /* ------------------------------------------------------------ the budget */
 
 /**

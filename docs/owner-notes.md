@@ -34,6 +34,42 @@ container was entered and not that it was stuck behind something.
 ~40-70 credits re-running the CRM is your call; the fix above is deployed first
 either way, so a re-run would also be the first live test of it.
 
+**A BUILD CANNOT LEAVE YOU WITH NOTHING ANY MORE (2026-08-25).**
+You said it: if one step breaks, it has to ship however it is. It wasn't, and
+the reason is one piece of arithmetic.
+
+**Cloudflare stops a build at fifteen minutes. Every limit we had set was one to
+two HOURS.** So none of ours could ever fire — Cloudflare got there first, and
+when it does, everything stops mid-sentence: no site published, no fallback, no
+explanation. That is exactly what happened to both dead builds. All the
+machinery for "publish something anyway" was there and working; none of it got
+to run.
+
+**Two changes.**
+
+**1. Your site's address now exists from the moment it's named.** A stand-in
+page goes up as soon as the design lands, before the ten expensive minutes
+start — so there is no longer any failure, ours or Cloudflare's, that can leave
+you at a dead link. It's replaced by the real site the moment there is one, and
+it's skipped entirely if a site is already live there, so editing an existing
+site is untouched. It says it's a stand-in rather than pretending, and it's
+worded so it stays honest whether the build finishes or dies.
+
+**2. The photographs give way first.** They're the biggest and most expensive
+step, and the only one where running out of time still leaves something worth
+publishing — the pages are already written by then, so the site ships with the
+same placeholder images it would have shown anyway. **Your CRM spent 10 minutes
+20 seconds on pictures, 74% of everything it did before it was killed.** Its
+pages existed. Nothing published them. Under the new rule it would have stopped
+buying pictures with four minutes left and shipped.
+
+Every limit is now under Cloudflare's, and pinned to the two builds we have
+real numbers for: the 13-minute budget is comfortably above the one build that
+did publish (9m54s), and the 4-minute reserve is above the measured time that
+build's last steps took.
+
+**Not proven live.** The next build is the test.
+
 **EVERY BUILD ON THE PLATFORM SHARED ONE CONTAINER, AND THAT IS FIXED (2026-08-25).**
 You said builds have to be able to run at the same time. The reason they could
 not is one missing argument: the call that picks a build container takes an

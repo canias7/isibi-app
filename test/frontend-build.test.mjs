@@ -301,7 +301,12 @@ test("the placeholder does not promise a database to a site that has none", () =
   const at = src.indexOf("function schemaPlaceholderPage");
   assert.ok(at > 0, "schemaPlaceholderPage is gone");
   const fn = src.slice(at, src.indexOf("\n}", at));
-  assert.match(fn, /\(tables\s*\n?\s*\?\s*"Database is live/,
+  // ON THE GATE, NOT ON THE WHOLE EXPRESSION. This read `(tables ? "Database is
+  // live` — pinned to `tables` being the FIRST test in the ternary — and went
+  // red on 2026-08-25 when a third case (the stand-in published before the
+  // pages exist) was added ahead of it. The claim was never about position: it
+  // is that the database sentence is reachable only when there are tables.
+  assert.match(fn, /\btables\s*\n?\s*\?\s*"Database is live/,
     "the placeholder claims a live database whether or not there is one");
   // Both halves exist, or a fix that deleted the true sentence would pass.
   assert.match(fn, /Database is live/, "the database sentence is gone from the tabled case");

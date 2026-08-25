@@ -43,18 +43,55 @@
  * request too, and a budget that expires after its container has already been
  * torn down refuses nothing — it just fails later, which is what happens today.
  */
-// RAISED TO TWO HOURS (2026-08-22, owner's call): "just let the model work,
-// forget about time". Raised rather than deleted so `raceDeadline`, `capMs` and
-// every guard over them stay exactly as they are — what goes is the number's
-// ability to bind, not the mechanism.
-//
-// AND IT HAD ALREADY BEEN MEASURED INERT. The first build ever to run past
-// fifteen minutes (2026-08-22, `css-axes-lido`, 26m48s) did NOT get this
-// answer: no response, and no `deadline` step in its trace, which `onExpire`
-// writes. Both this and `BUILDER_CALL_MS` are setTimeout inside the Worker
-// isolate, and when the isolate stopped they stopped with it. So this is a
-// bound that has never once fired, being raised past where it could.
-export const BUILD_BUDGET_MS = 7200000;
+/**
+ * THE ONLY CEILING THAT IS REAL — Cloudflare's own, on a queue consumer.
+ *
+ * A non-HTTP invocation is guaranteed fifteen minutes. Nothing we write can
+ * extend it and nothing we write runs after it: the isolate stops, and an
+ * isolate that has stopped does not publish a fallback, log a reason or answer
+ * a customer. Every one of OUR bounds has to sit under this or it cannot fire.
+ */
+export const CONSUMER_MS = 900000;
+
+/**
+ * WHAT THE END OF A BUILD NEEDS, and why the image step gives way first.
+ *
+ * The steps run gen -> img -> compile -> container -> og -> pages, so running
+ * out of time during the PHOTOGRAPHS still leaves a complete set of pages that
+ * can be compiled and published — with `SafeImage`'s own placeholder where a
+ * picture would have been. That is the one expensive step whose failure the
+ * product already degrades gracefully from, so it is the one that must yield.
+ *
+ * MEASURED ON THE ONLY FRONTEND BUILD THAT PUBLISHED (`oak-and-ash`, run 34):
+ * compile 27.3s + container 111.7s + og 0.1s + pages 34.0s = 173s. Four minutes
+ * is that plus ~40% of headroom.
+ */
+export const PUBLISH_RESERVE_MS = 240000;
+
+/**
+ * The clock a build is actually measured against — THIRTEEN MINUTES.
+ *
+ * IT WAS TWO HOURS AND THAT IS WHY TWO BUILDS SHIPPED NOTHING AT ALL. Raised
+ * 2026-08-22 on the owner's call ("just let the model work, forget about
+ * time"), which was the right instinct against a ceiling of OURS and does not
+ * survive contact with a ceiling of Cloudflare's: the platform stops the
+ * consumer at fifteen minutes whatever this says, so a two-hour budget does not
+ * buy the model more time — it guarantees that when the real ceiling arrives we
+ * have published nothing. Measured: `helm` was killed mid-generation and
+ * `northgroup` mid-container, both 404, both with every fallback path in this
+ * repo intact and none of them reached.
+ *
+ * THE MODULE'S OWN DOCSTRING SAID SO BEFORE IT HAPPENED: "a budget that expires
+ * after its container has already been torn down refuses nothing — it just
+ * fails later, which is what happens today." That was written about the
+ * 30-minute runner cap and became true of the consumer's fifteen.
+ *
+ * THIRTEEN, NOT FIFTEEN. The deadline has to fire early enough that `onExpire`
+ * runs, the customer is answered and the trace is written while the isolate is
+ * still alive. Two minutes is generous for three writes and cheap: no build
+ * that has ever published came near it — the slowest was 9m54s.
+ */
+export const BUILD_BUDGET_MS = 780000;
 
 /**
  * The ceiling on ONE container run — ten minutes.
@@ -76,12 +113,17 @@ export const BUILD_BUDGET_MS = 7200000;
  * composes with the build budget through `capMs`, so a container starting late
  * in a build gets what is left rather than a fresh ten.
  */
-// RAISED TO AN HOUR with the rest (2026-08-22, owner's call). The reasoning
-// above still stands for why the bound EXISTS — the container is `oneAtATime`
-// for the whole platform, so a wedged run queues every other customer behind it
-// — and that is why this is raised rather than removed. An hour still ends a
-// genuinely stuck container; it just cannot end a slow one.
-export const CONTAINER_CALL_MS = 3600000;
+// BACK UNDER THE CONSUMER'S CEILING (2026-08-25). An hour could not fire: the
+// isolate is stopped at fifteen minutes and takes the timer with it, so what
+// looked like a bound was a build that died with nothing published. Ten minutes
+// is the figure the paragraph above calibrated — ~2.3x the worst container run
+// ever measured — and `capMs` composes it with the build clock, so a container
+// starting late gets what is left rather than a fresh ten.
+//
+// THE SPINE READS THIS FLAT, with no build clock behind it (seven edit lanes and
+// the rebuild drain reach `recompileAndPublish`), so this value is the whole
+// bound there. It has to be a number that can actually fire.
+export const CONTAINER_CALL_MS = 600000;
 
 /**
  * The clock a build is measured against.

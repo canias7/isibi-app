@@ -1188,10 +1188,22 @@ test("the last of the audit lows: honest statuses, honest sentences, honest fiel
   // `index.html`, which Start does not publish — so the head always missed and
   // the one guard between a failed revise and a customer's working site could
   // not fire on any site built since.
-  const ph = w.slice(w.indexOf('if (pages.page !== "app" && env.SITES_BUCKET) {'), w.indexOf("// SPLIT, not one number."));
+  //
+  // RE-ANCHORED ON THE FUNCTION, not on the branch that used to hold it inline.
+  // It read `if (pages.page !== "app" && env.SITES_BUCKET) {` — an EXPRESSION —
+  // and went red on 2026-08-25 when the write was extracted into one writer so
+  // it could also run BEFORE the build. A test about word order, which is this
+  // repo's most repeated own-goal. The property is unchanged and is now
+  // structural: there is one writer, and it asks the marker.
+  const ph = w.slice(w.indexOf("async function publishPlaceholder("), w.indexOf("function svcHeaders("));
   assert.ok(ph.length > 200 && ph.length < 2500, "the placeholder guard scan lost its bounds");
   assert.match(ph, /head\("sites\/" \+ slug \+ "\/" \+ SITE_LIVE_FILE\)/,
     "the placeholder guard heads a document Start never publishes");
+  // AND NOTHING ELSE WRITES IT. One writer is what makes the guard above a fact
+  // about the platform rather than about one call site — a second copy is how
+  // the early write and the late one come to disagree about when it is safe.
+  const writes = [...w.matchAll(/schemaPlaceholderPage\(/g)].length;
+  assert.equal(writes, 2, "schemaPlaceholderPage is built somewhere other than its one writer");
   // AND AN UNREADABLE ANSWER SKIPS THE WRITE. Reading an R2 blip as "nothing is
   // published" overwrites a live site with the placeholder, which is precisely
   // the outcome the guard exists to prevent.

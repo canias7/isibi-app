@@ -53,7 +53,7 @@ import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayou
 // to all 1,632 tests (nothing can import a Worker entrypoint); esbuild refuses
 // it at deploy time and the deploy is the first thing that ever sees it.
 import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, MIN_CREDITS, IMAGE_USD as SITE_PHOTO_USD } from "./builder/publish-pages.mjs";
-import { budgetFor, imageBrief, imagesAffordable, planImages, applyImages, countImageSlots, imagePrompt, imageNote, IMAGE_ASPECT } from "./builder/site-images.mjs";
+import { budgetFor, imageBrief, imagesAffordable, planImages, applyImages, countImageSlots, imagePrompt, imageNote, photoWait, IMAGE_ASPECT } from "./builder/site-images.mjs";
 import { renderNote } from "./builder/site-render.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
 import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker } from "./builder/site-dispatch.mjs";
@@ -3348,7 +3348,7 @@ async function makeSitePhoto(env, slug, prompt) {
   }
 }
 
-async function buySitePhotos(env, { slug, pages, budget, balance, reserve }) {
+async function buySitePhotos(env, { slug, pages, budget, balance, reserve, clock }) {
   let affordable = imagesAffordable(budget, { balance, reserve, usd: SITE_PHOTO_USD });
   // THE OWNER'S OWN IMAGE ALLOWANCE, respected rather than bypassed. Generated
   // photographs land in `uploads/<slug>/`, which is the same 200-file / 100 MB
@@ -3417,7 +3417,7 @@ async function buySitePhotos(env, { slug, pages, budget, balance, reserve }) {
   if (!plan.shots.length) return done(new Map(), { made: 0 });
   const urls = new Map();
   let failed = "";
-  await Promise.all(plan.shots.map(async ({ token, prompt }) => {
+  const shots = Promise.all(plan.shots.map(async ({ token, prompt }) => {
     // THROUGH THE SHARED READER, which is what makes `makeSitePhoto`'s own
     // "EXTRACTED SO THERE IS ONE COPY" comment true. It was written the day that
     // function shipped and was false from the first line: the generate → sniff →
@@ -3447,6 +3447,51 @@ async function buySitePhotos(env, { slug, pages, budget, balance, reserve }) {
   // WHAT WAS STORED, never what was planned. `made` is what the customer is
   // billed for, so it comes from the map that only a successful put writes into
   // — counting the shots would charge for an image model outage.
+  // ── THE PHOTOGRAPHS GIVE WAY TO THE CLOCK ──────────────────────────────────
+  //
+  // THIS IS THE STEP THAT HAS TO YIELD, and which one yields is not arbitrary.
+  // The build runs gen -> img -> compile -> container -> og -> pages, so running
+  // out of time HERE still leaves a complete set of pages that can be compiled
+  // and published, with `SafeImage`'s own placeholder standing in for a picture
+  // that was not bought. Every other expensive step degrades to nothing.
+  //
+  // MEASURED, AND IT IS WHY THE CRM HAS NO SITE. `northgroup` (2026-08-25) spent
+  // 619,822ms here — 74% of the 836s it had lived when Cloudflare stopped the
+  // consumer at fifteen minutes, mid-container. Its pages existed. Nothing
+  // published them, because nothing of ours was left running. The build that DID
+  // publish, `oak-and-ash`, spent 304,402ms here and had room; the whole
+  // difference between a live site and a 404 is this step.
+  //
+  // WHATEVER LANDED IS KEPT. Each shot writes into `urls` as it resolves, so
+  // giving up on the WAIT discards no photograph already bought — the ones still
+  // in flight simply do not arrive, and their tokens are swept to the placeholder
+  // exactly as an unaffordable one already is. Nothing already paid for is lost.
+  //
+  // A MISSING CLOCK WAITS, which is precisely the old behaviour. One caller
+  // supplies a budget today; a second that knows nothing about a build clock must
+  // behave as this did before the reserve existed rather than have its pictures
+  // cut short by a bound it never set.
+  // THE DECISION IS `photoWait`'s and the waiting is this function's. It lives in
+  // site-images.mjs beside every other rule about what a picture costs, so all
+  // three answers can be driven with literals — no clock, time to spare, and no
+  // time at all — rather than asserted by reading this file.
+  const plan_ = photoWait(clock);
+  if (plan_.wait === "all") {
+    await shots;
+  } else if (plan_.wait === "race") {
+    let cutoff = false;
+    await Promise.race([
+      shots,
+      new Promise((r) => setTimeout(() => { cutoff = true; r(); }, plan_.ms)),
+    ]);
+    // THE STILL-RUNNING SHOTS ARE NEITHER AWAITED NOR CANCELLED. Each is already
+    // bounded by its own signal and each writes into `urls` on its own, so
+    // letting them settle costs nothing and one may still land before the publish
+    // reads the map. What must not happen is this function waiting for them.
+    if (cutoff) failed = failed || "ran out of time before every picture was made";
+  } else {
+    failed = failed || "ran out of time before the pictures could be made";
+  }
   return done(urls, {
     made: urls.size,
     ...(failed && urls.size < plan.shots.length ? { error: failed } : {}),
@@ -4722,7 +4767,16 @@ const SITE_SCHEMA_MAX_TOKENS = 16000;
 // route — a connection reset at ~285s, or an isolate that stopped existing. So
 // this removes a bound that was not the problem, which is exactly why it is
 // safe to remove.
-const BUILDER_CALL_MS = 3600000;
+//
+// BACK UNDER THE CONSUMER'S CEILING (2026-08-25). "An isolate that stopped
+// existing" is now understood to BE the problem rather than a separate one: the
+// queue consumer is stopped at fifteen minutes, so an hour-long ceiling is a
+// timer that is destroyed before it can fire, on a build that then publishes
+// nothing. Ten minutes composes with the build clock through `capMs`, so a
+// pages call started at minute eleven gets what is left rather than a fresh ten
+// — which is what makes the difference between a site with placeholder pictures
+// and no site at all.
+const BUILDER_CALL_MS = 600000;
 
 // THE BUDGET IS A THIRD ARGUMENT AND NOT A FIELD ON `req`, and the reason is one
 // line below: the Anthropic branch sends `JSON.stringify(req)`. A budget parked
@@ -5375,7 +5429,17 @@ function pairSays(pair) {
   return reads + ", and " + writes;
 }
 
-function schemaPlaceholderPage(brand, spec) {
+// THE NAME OF THE MARK THAT SAYS "this is not the site".
+//
+// A placeholder is published at the site's REAL address, so from outside it is a
+// 200 like any other. Without something machine-readable, a watcher polling for
+// the site to come up — `build as owner` does exactly that — reads the stand-in
+// as a finished build. One meta tag makes the two distinguishable to anything
+// that looks, and costs a published site nothing because a published site never
+// carries it.
+const PLACEHOLDER_MARK = "gofarther-page";
+
+function schemaPlaceholderPage(brand, spec, opts) {
   const esc = (v) => String(v == null ? "" : v).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const tables = (spec.tables || []).map((t) => {
     const cols = (t.columns || []).map((c) => "<li><code>" + esc(typeof c === "string" ? c : c.name) + "</code></li>").join("");
@@ -5403,6 +5467,7 @@ function schemaPlaceholderPage(brand, spec) {
            "</p><ul>" + cols + "</ul></section>";
   }).join("");
   return "<!doctype html><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\">" +
+    "<meta name=\"" + PLACEHOLDER_MARK + "\" content=\"placeholder\">" +
     "<title>" + esc(brand) + "</title>" +
     "<style>body{font:16px/1.6 system-ui,sans-serif;max-width:46rem;margin:4rem auto;padding:0 1.5rem;color:#111}" +
     "h1{font-size:2rem;margin:0 0 .25rem}p.sub{color:#666;margin:0 0 2.5rem}" +
@@ -5416,10 +5481,67 @@ function schemaPlaceholderPage(brand, spec) {
     // an owner is left with when a build fails. That is the exact class this
     // repo already records: the placeholder telling the owner something about
     // their site that is not true, on the page they have nothing else to read.
-    (tables
+    // THREE VOICES, because this page is now published at three different
+    // moments and only one of them is a failure.
+    //
+    // `building` is the EARLY write, put up before the pages are generated so
+    // the address is never a 404 (see `publishPlaceholder`). At that moment
+    // nothing has gone wrong, so the failure wording would be a lie — and the
+    // wording used instead has to stay true if the build then dies, because
+    // this page is what the owner is left holding. "Still being put together,
+    // send it again if it is still here" is true either way; "refresh in a
+    // minute" is not.
+    (opts && opts.building
+      ? "Your site is still being put together — this page is standing in until it's ready. If it's still here in a few minutes, send your message again and I'll pick it up."
+      : tables
       ? "Database is live. These tables were created for this site."
       : "The pages didn't come out right this time, so this stands in for them. Nothing was lost — say what you want and I'll build it again.") +
     "</p>" + tables;
+}
+
+/**
+ * PUBLISH THE STAND-IN, IF AND ONLY IF NOTHING IS LIVE AT THAT SLUG.
+ *
+ * ONE WRITER, CALLED AT TWO MOMENTS, and the early one is the point.
+ *
+ * Until 2026-08-25 this ran in exactly one place: after `publishPages` returned
+ * and reported it had not published an app. That covers every failure the build
+ * can REPORT — no credits, no usable pages, no home page, a compile that would
+ * not go — and covers none of the failures where our code does not get to run.
+ * Cloudflare stops a queue consumer at fifteen minutes; a stopped isolate does
+ * not publish a fallback, and both `helm` and `northgroup` are 404 today with
+ * every fallback path in this repo intact and none of them reached.
+ *
+ * SO IT IS WRITTEN BEFORE THE EXPENSIVE HALF, not only after it. From the moment
+ * the design lands, the site's own address answers with the site's own name —
+ * and a build that is then killed, hung, drained or refused leaves the owner a
+ * page instead of nothing. Nothing later has to succeed for that to hold, which
+ * is the property no catch block can have.
+ *
+ * THE GUARD IS THE LIVENESS MARKER, NOT `index.html`. `SITE_LIVE_FILE` is
+ * written into the dist on every real publish, so a present marker means a live
+ * site and an absent one means nobody has published here — which is what keeps a
+ * revise of a WORKING site from replacing it with a stand-in. And a read that
+ * THROWS is not "nothing is published": an R2 blip read as an empty slug would
+ * overwrite a live site, precisely the outcome this exists to prevent, so the
+ * catch skips the write rather than falling through to it.
+ *
+ * IT NEVER THROWS. It is a safety net on the path of every build on the
+ * platform; a net that can fail the thing it is catching is not one.
+ */
+async function publishPlaceholder(env, slug, brand, spec, opts) {
+  if (!env.SITES_BUCKET || !slug) return false;
+  try {
+    const live = await env.SITES_BUCKET.head("sites/" + slug + "/" + SITE_LIVE_FILE);
+    if (live) return false;
+    await env.SITES_BUCKET.put("sites/" + slug + "/index.html", schemaPlaceholderPage(brand, spec, opts), {
+      httpMetadata: { contentType: "text/html; charset=utf-8" },
+    });
+    return true;
+  } catch (e) {
+    console.error("placeholder publish skipped, liveness unreadable:", slug, e && e.message);
+    return false;
+  }
 }
 
 function svcHeaders(env, extra) {
@@ -8624,7 +8746,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       // and not the page model, which is a different provider and a different
       // fix. Nothing else between the two marks can take time.
       try { mark?.("img"); } catch { /* a trace must never break a build */ }
-      return buySitePhotos(env, { slug, pages, budget: imgBudget, balance, reserve });
+      return buySitePhotos(env, { slug, pages, budget: imgBudget, balance, reserve, clock: budget });
     },
     compile: async (pages) => {
       // THE CONTAINER'S TURN IS BEGINNING — see the `gen` mark. `compileWithRetry`
@@ -10822,6 +10944,25 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth }) {
           // preview out of the instruction. `priorBrief` stays as the last
           // resort for sites built before the description was ever stored.
           const siteDescription = String(look.description || body.description || priorBrief || brief || "").slice(0, 300);
+          // ── THE ADDRESS EXISTS BEFORE THE EXPENSIVE HALF DOES ───────────
+          //
+          // Everything above this line has succeeded: the brief is read, the
+          // site is named and owned, the look is merged. Everything BELOW it is
+          // the part that takes ten minutes and the part that has twice been
+          // killed mid-flight, leaving a paid-for build at a 404.
+          //
+          // So the stand-in goes up here. It costs one R2 head and one put on a
+          // build that is about to spend minutes, it is overwritten by the real
+          // dist the moment there is one, and it is skipped entirely when a site
+          // is already live — so a revise is untouched. What it buys is that
+          // from this point on there is no failure, ours or Cloudflare's, that
+          // can leave the customer with nothing.
+          //
+          // NOT AWAITED FOR ITS ANSWER, but awaited: the write has to have
+          // LANDED before the long half starts, or the isolate can be stopped
+          // between deciding to publish it and doing so — which is the whole
+          // failure being fixed, moved a few hundred milliseconds.
+          await publishPlaceholder(env, slug, brand, spec, { building: true });
           pages = await buildAndPublishPages(env, {
             // The linked pages and the researched facts ride on the brief, which
             // both model calls already take — so neither had to learn a new
@@ -10979,16 +11120,15 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth }) {
       // otherwise be read as an empty slug and overwrite a live site with the
       // placeholder, which is precisely the outcome this exists to prevent —
       // so the catch skips the write rather than falling through to it.
-      if (pages.page !== "app" && env.SITES_BUCKET) {
-        try {
-          const live = await env.SITES_BUCKET.head("sites/" + slug + "/" + SITE_LIVE_FILE);
-          if (!live) {
-            await env.SITES_BUCKET.put("sites/" + slug + "/index.html", schemaPlaceholderPage(brand, spec), {
-              httpMetadata: { contentType: "text/html; charset=utf-8" },
-            });
-          }
-        } catch (e) { console.error("placeholder publish skipped, liveness unreadable:", slug, e && e.message); }
-      }
+      //
+      // STILL HERE, AND NOT REDUNDANT WITH THE EARLY WRITE. This one runs after
+      // the build has REPORTED a failure, so it can say what went wrong — the
+      // early copy is written before anything has, and says the site is still
+      // being put together. A build that fails and returns overwrites the
+      // hopeful wording with the honest one; a build that never returns leaves
+      // the hopeful wording standing, which is the best that can be said when
+      // nothing of ours got to run.
+      if (pages.page !== "app") await publishPlaceholder(env, slug, brand, spec);
       // SPLIT, not one number. `pages` was the model call, the container compile
       // and ~20 R2 puts together — the majority of a build's wall clock with no
       // way to attribute it.
