@@ -25,6 +25,26 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = fs.readFileSync(path.join(ROOT, "worker.js"), "utf8");
 const LINES = SRC.split("\n");
 
+/**
+ * ONE FUNCTION'S SOURCE, bounded by the next TOP-LEVEL declaration.
+ *
+ * A window sized in bytes is outrun by its own subject's comments, and one
+ * anchored on a NAMED neighbour is widened silently the day something is
+ * declared between them — this repo has recorded both, repeatedly. Where a
+ * function ENDS is a fact about that function, so it is what the bound reads.
+ */
+function topLevel(src, decl) {
+  const from = src.indexOf(decl);
+  assert.ok(from >= 0, decl + " is gone from worker.js");
+  const rest = src.slice(from + decl.length);
+  // A TOP-LEVEL DOC COMMENT BELONGS TO WHAT FOLLOWS IT, so the window closes at
+  // `/**` as well as at the declaration. Without that, `publishPlaceholder`'s
+  // window swallowed the ~2,600 characters of prose arguing for `clearPlaceholder`
+  // and the size bound below failed about a function that had not changed.
+  const next = rest.match(/\n(?:\/\*\*|(?:export )?(?:async )?(?:function|class|const|let) )/);
+  return rest.slice(0, next ? next.index : rest.length);
+}
+
 // Routes that are deliberately reachable without a Supabase session, each with
 // the reason it is safe. Anything not on this list must gate.
 const PUBLIC = {
@@ -1195,7 +1215,14 @@ test("the last of the audit lows: honest statuses, honest sentences, honest fiel
   // it could also run BEFORE the build. A test about word order, which is this
   // repo's most repeated own-goal. The property is unchanged and is now
   // structural: there is one writer, and it asks the marker.
-  const ph = w.slice(w.indexOf("async function publishPlaceholder("), w.indexOf("function svcHeaders("));
+  //
+  // AND THE WINDOW ENDS AT THE FUNCTION, NOT AT A DISTANT LANDMARK. It ran to
+  // `svcHeaders` — five declarations away — so it swept in whatever was declared
+  // between them, and went red on 2026-08-25 the moment `clearPlaceholder` was
+  // added directly below, reporting that the scan "lost its bounds" about code
+  // that had not moved. A landmark that is another declaration's spelling is one
+  // the next insert moves; the end of a function is a fact about the function.
+  const ph = topLevel(w, "async function publishPlaceholder(");
   assert.ok(ph.length > 200 && ph.length < 2500, "the placeholder guard scan lost its bounds");
   assert.match(ph, /head\("sites\/" \+ slug \+ "\/" \+ SITE_LIVE_FILE\)/,
     "the placeholder guard heads a document Start never publishes");

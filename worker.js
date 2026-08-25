@@ -5439,6 +5439,15 @@ function pairSays(pair) {
 // carries it.
 const PLACEHOLDER_MARK = "gofarther-page";
 
+// THE WHOLE TAG, ONE STRING, BECAUSE TWO SIDES READ IT.
+//
+// `schemaPlaceholderPage` writes it and `clearPlaceholder` looks for it, and the
+// second is a DELETE of a document at the site's own address — so the two
+// spellings drifting apart does not mean "the mark stopped being recognised", it
+// means a publish stops taking its own stand-in down and every unknown address on
+// that site answers 200 for ever. One constant, no way to disagree.
+const PLACEHOLDER_META = "<meta name=\"" + PLACEHOLDER_MARK + "\" content=\"placeholder\">";
+
 function schemaPlaceholderPage(brand, spec, opts) {
   const esc = (v) => String(v == null ? "" : v).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const tables = (spec.tables || []).map((t) => {
@@ -5467,7 +5476,7 @@ function schemaPlaceholderPage(brand, spec, opts) {
            "</p><ul>" + cols + "</ul></section>";
   }).join("");
   return "<!doctype html><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\">" +
-    "<meta name=\"" + PLACEHOLDER_MARK + "\" content=\"placeholder\">" +
+    PLACEHOLDER_META +
     "<title>" + esc(brand) + "</title>" +
     "<style>body{font:16px/1.6 system-ui,sans-serif;max-width:46rem;margin:4rem auto;padding:0 1.5rem;color:#111}" +
     "h1{font-size:2rem;margin:0 0 .25rem}p.sub{color:#666;margin:0 0 2.5rem}" +
@@ -5529,7 +5538,7 @@ function schemaPlaceholderPage(brand, spec, opts) {
  * IT NEVER THROWS. It is a safety net on the path of every build on the
  * platform; a net that can fail the thing it is catching is not one.
  */
-async function publishPlaceholder(env, slug, brand, spec, opts) {
+export async function publishPlaceholder(env, slug, brand, spec, opts) {
   if (!env.SITES_BUCKET || !slug) return false;
   try {
     const live = await env.SITES_BUCKET.head("sites/" + slug + "/" + SITE_LIVE_FILE);
@@ -5540,6 +5549,56 @@ async function publishPlaceholder(env, slug, brand, spec, opts) {
     return true;
   } catch (e) {
     console.error("placeholder publish skipped, liveness unreadable:", slug, e && e.message);
+    return false;
+  }
+}
+
+/**
+ * AND A REAL PUBLISH TAKES THE STAND-IN BACK DOWN.
+ *
+ * The pair is the point: `publishPlaceholder` puts a page at the site's address
+ * before the expensive half runs, and this removes it once there is a real site
+ * there. Called from `putSiteWorker`'s success path and nowhere else, so a build
+ * that fails, is killed, or lands its files and not its script never reaches it —
+ * which is exactly the set of cases the stand-in exists for.
+ *
+ * WHY IT NEEDS SAYING AT ALL: under Start a dist contains no top-level document,
+ * so a publish never overwrites `sites/<slug>/index.html` and the stand-in
+ * survives its own success. What that costs is a SOFT 404 — the platform's
+ * extensionless fall-through reads that key for any address the site does not
+ * have, finds the stand-in, and answers 200 with it. Measured on run 36:
+ * `/deals` and `/sign-in` both 200 with the 856-byte stand-in on a site that
+ * published four real routes, against `oak-and-ash` — built before the early
+ * write existed — correctly answering 404. It is the soft-404 the SEO tier
+ * already fixed once, reopened by the stand-in rather than by the fallback.
+ *
+ * THE SWEEP GETS THERE EVENTUALLY AND THAT IS NOT GOOD ENOUGH. `sweepAfterPublish`
+ * defers a stale key by one publish, so the stand-in would go on the publish
+ * AFTER the one that made it obsolete — and a site published once and never
+ * edited again serves it for ever. That grace period exists for code-split CHUNKS
+ * an already-open session may still ask for; nothing ever asks for this key.
+ *
+ * GUARDED BY THE MARK, NEVER BY THE KEY. A site published before Start has a REAL
+ * `index.html` at that name — the archive still holds them and `rollbackVersion`
+ * restores them through the same writer — so deleting by key would take a working
+ * home page down. The object is read and removed only if it carries
+ * `PLACEHOLDER_META`, which is the same string that produced it.
+ *
+ * IT NEVER THROWS, which is `publishPlaceholder`'s rule inverted: this runs after
+ * the site is already published, so a failure costs a stale stand-in and must
+ * never cost a publish that has already succeeded.
+ */
+export async function clearPlaceholder(env, slug) {
+  if (!env.SITES_BUCKET || !slug) return false;
+  try {
+    const obj = await env.SITES_BUCKET.get("sites/" + slug + "/index.html");
+    if (!obj) return false;
+    const html = await obj.text();
+    if (!html.includes(PLACEHOLDER_META)) return false;
+    await env.SITES_BUCKET.delete("sites/" + slug + "/index.html");
+    return true;
+  } catch (e) {
+    console.error("placeholder clear skipped:", slug, e && e.message);
     return false;
   }
 }
@@ -7747,6 +7806,27 @@ async function putSiteWorker(env, slug, worker) {
   const c = await confirmSiteWorker({ stubFor: env.SITE_WORKERS ? (n) => env.SITE_WORKERS.get(n) : null, name, build: worker.build })
     .catch(() => ({ confirmed: false, ms: 0, tried: 0 }));
   if (!c.confirmed && worker.build) console.error("site worker not confirmed serving:", slug, c.ms + "ms", c.tried + " tries");
+  // AND THE STAND-IN COMES DOWN, because there is now a real site at this
+  // address. See `clearPlaceholder` for what leaving it up costs (a soft 404 at
+  // every address the site does not have, for ever on a site nobody edits again).
+  //
+  // HERE, ON THE SUCCESS PATH, FOR THIS FUNCTION'S OWN STATED REASON — three
+  // call sites, and one that forgot would be indistinguishable from one that did
+  // it. It is also the only point that knows the answer: under Start the script
+  // is the ONLY thing that renders a document, so "the pages are in R2" is not
+  // evidence the site serves anything and `writeSiteDistToR2` cannot decide this.
+  //
+  // WHICH IS ALSO WHY IT IS GATED ON THE UPLOAD RATHER THAN RUN UNCONDITIONALLY.
+  // A publish whose script did not land leaves a site with NO page at any
+  // address — and that build still answers `ok:true, page:"app"` — so clearing
+  // there would take the customer's one remaining page away on exactly the
+  // build that needed it. Both refusals above return before this line. Being
+  // wrong that way costs a stale stand-in the next publish sweeps; being wrong
+  // the other way costs a 404 at the customer's own address.
+  //
+  // NOT GATED ON `confirmed`: the wait is explicitly never fatal, so a slow
+  // confirmation must not leave a stand-in over a site that really is serving.
+  await clearPlaceholder(env, slug);
   // `stamped` IS WHAT SEPARATES THE TWO WAYS OF NOT BEING CONFIRMED. Without
   // it, "the wait spent its budget" and "there was nothing to wait for" are the
   // same `confirmed: false` — and they need opposite fixes.

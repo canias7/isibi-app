@@ -31,6 +31,26 @@ function bare(src) {
 const CODE = bare(WORKER);
 assert.equal(CODE.length, WORKER.length, "the blanker must preserve length");
 
+/**
+ * ONE FUNCTION'S SOURCE, bounded by the next TOP-LEVEL declaration.
+ *
+ * Both windows here used to run to `svcHeaders`, five declarations away, and
+ * both went red on 2026-08-25 the moment `clearPlaceholder` was declared between
+ * them — a test about what happens to sit next to the thing it asserts. A
+ * landmark that is another declaration's spelling is one the next insert moves;
+ * where a function ENDS is a fact about that function.
+ */
+function topLevel(src, decl) {
+  const from = src.indexOf(decl);
+  assert.ok(from >= 0, decl + " is gone from worker.js");
+  const rest = src.slice(from + decl.length);
+  // A top-level doc comment belongs to what follows it, so `/**` closes the
+  // window too — `CODE` is blanked here, so that arm rarely fires, and the two
+  // copies of this helper stay the same rule rather than two subtly different ones.
+  const next = rest.match(/\n(?:\/\*\*|(?:export )?(?:async )?(?:function|class|const|let) )/);
+  return rest.slice(0, next ? next.index : rest.length);
+}
+
 test("EVERY CEILING SITS UNDER THE ONE CLOUDFLARE ENFORCES", () => {
   // Derived over every `*_MS` the budget module exports rather than a list of
   // the three that exist today — a hand-kept list is exactly what leaves the
@@ -90,7 +110,7 @@ test("THE PLACEHOLDER IS PUBLISHED BEFORE THE EXPENSIVE HALF, not only after it 
 });
 
 test("ONE WRITER, AND IT REFUSES TO OVERWRITE A LIVE SITE", () => {
-  const fn = CODE.slice(CODE.indexOf("async function publishPlaceholder("), CODE.indexOf("function svcHeaders("));
+  const fn = topLevel(CODE, "async function publishPlaceholder(");
   assert.ok(fn.length > 200, "publishPlaceholder is gone");
   // The liveness marker, not `index.html` — Start publishes no top-level HTML,
   // so a head on that document always missed and the guard could never fire.
@@ -110,8 +130,16 @@ test("A PLACEHOLDER SAYS SO, so nothing mistakes the stand-in for the site", () 
   // Without a machine-readable mark a watcher polling for the site to come up
   // reads the stand-in as a finished build.
   assert.match(CODE, /const PLACEHOLDER_MARK = "gofarther-page";/, "the mark is gone");
-  const fn = CODE.slice(CODE.indexOf("function schemaPlaceholderPage"), CODE.indexOf("async function publishPlaceholder("));
-  assert.match(fn, /PLACEHOLDER_MARK \+ "\\?" content=\\?"placeholder/, "the page no longer carries its mark");
+  // THE TAG IS ONE CONSTANT NOW, and re-anchoring on that is not tidying: the
+  // reader of it is a DELETE of a document at the site's own address, so the two
+  // spellings drifting apart does not mean "the mark stopped being recognised",
+  // it means a publish stops taking its own stand-in down. The old form pinned
+  // the inline concatenation and went red the moment it was named — a test about
+  // word order, this repo's most repeated own-goal.
+  assert.match(CODE, /const PLACEHOLDER_META = "<meta name=\\"" \+ PLACEHOLDER_MARK \+ "\\" content=\\"placeholder\\">";/,
+    "the tag is no longer built from the mark");
+  const fn = topLevel(CODE, "function schemaPlaceholderPage(");
+  assert.match(fn, /\bPLACEHOLDER_META\b/, "the page no longer carries its mark");
   // AND A REAL SITE MUST NOT. The mark is only a signal while exactly one kind
   // of page carries it.
   assert.equal([...CODE.matchAll(/content=\\"placeholder/g)].length, 1,
