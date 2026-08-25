@@ -12,6 +12,28 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ## OPEN — waiting to be picked up
 
+**THE CRM BUILD DIED IN THE CONTAINER, AND THE DESIGN HALF WORKED (2026-08-25).**
+`northgroup` never published. Its trace says exactly where it stopped:
+
+- **The frontend-only split worked on a CRM, which is the thing you asked for.**
+  `provision: db 0` and `schema: tables 0` — the designer read a CRM brief and
+  declared no database, exactly as intended. 3m6s on the design call.
+- **10 minutes 20 seconds went on photographs** (`img: 619822ms`), against 5m4s
+  on the joinery build. Two thirds of the whole run.
+- **Then it entered the container and never came out.** Every successful build
+  writes a `container` mark when the compile returns; this one wrote `compile`
+  at 01:17:27 and nothing after it. The site is still 404.
+
+**I cannot tell you WHY the container did not answer, and I am not going to
+guess.** It is one of the failure modes the lane fix above makes less likely —
+a wedged container used to block everything — but nothing was running alongside
+it, so I have no evidence that is what happened here. The trace can say the
+container was entered and not that it was stuck behind something.
+
+**Balance is 500. Nothing further has been spent.** Whether to spend another
+~40-70 credits re-running the CRM is your call; the fix above is deployed first
+either way, so a re-run would also be the first live test of it.
+
 **EVERY BUILD ON THE PLATFORM SHARED ONE CONTAINER, AND THAT IS FIXED (2026-08-25).**
 You said builds have to be able to run at the same time. The reason they could
 not is one missing argument: the call that picks a build container takes an
