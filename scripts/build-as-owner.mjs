@@ -183,6 +183,45 @@ const bt = Date.now();
 // ran past the wall rather than failing at it.
 let build;
 let disconnected = false;
+// ── A LIVE TICKER WHILE THE SOCKET IS HELD ──────────────────────────────────
+//
+// THE HEALTHY RUN WAS THE SILENT ONE, which is exactly backwards. The POST
+// waits for the whole build — up to eighteen minutes — and printed NOTHING
+// while it did, so from the Actions log a working build and a wedged one are
+// the same thing: `step 4 — POST ...` and then nothing until the answer. Every
+// other long wait in this script narrates itself; this one, the only one that
+// matters, did not. Same "a failure that cannot name itself" shape this repo
+// keeps recording, wearing a success this time.
+//
+// NOTHING NEW IS MEASURED. `site_builds` is already written as the build walks
+// its marks and `traceLine` already reads it — this prints it on the CONNECTED
+// path too rather than only after a reset. One Supabase read every 30s, no
+// model call, no cost.
+//
+// IT NEEDS A SLUG WE ALREADY KNOW, so it only arms when one was named. With
+// the designer naming the site there is nothing to look up yet, and guessing
+// would print some other site's trace — the `discoverSlug` hazard, which is
+// answerable after a reset and not before one.
+let ticker = null;
+if (SLUG) {
+  let busy = false;
+  ticker = setInterval(async () => {
+    // A SLOW READ MUST NOT STACK TICKS. Without the guard a Supabase blip that
+    // outlasts the interval queues a second read behind the first, and the log
+    // then reports marks out of order — which reads as the build going
+    // backwards.
+    if (busy) return;
+    busy = true;
+    try {
+      const mins = ((Date.now() - bt) / 60000).toFixed(1);
+      log(`step 4 — +${mins}m  ${await traceLine(SLUG)}`);
+    } catch { /* a ticker must never break the build it is watching */ }
+    busy = false;
+  }, 30000);
+  // NEVER HOLD THE PROCESS OPEN. An interval keeps the event loop alive, so a
+  // run that finished would sit there ticking until the job cap.
+  ticker.unref?.();
+}
 try {
   build = await postLong(`${BASE}/api/site/react-build`, auth, JSON.stringify({
     brief: BRIEF,
@@ -210,6 +249,11 @@ try {
   log(`step 4 — the connection died after ${secs}s (${(e && e.code) || (e && e.message) || e})`);
   log("step 4 — EXPECTED, not fatal: the build is registered on ctx.waitUntil and keeps running.");
   log("step 4 — watching the site and its build trace instead of the socket.");
+} finally {
+  // CLEARED ON BOTH PATHS, in a `finally` rather than after the try. On the
+  // reset path step 4b starts its own watch on the same slug, and two tickers
+  // reading one trace interleave into a log that reads as two builds.
+  if (ticker) clearInterval(ticker);
 }
 const raw = build ? build.text : "";
 let d = null; try { d = JSON.parse(raw); } catch { /* logged below */ }
