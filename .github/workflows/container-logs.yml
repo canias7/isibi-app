@@ -1,0 +1,40 @@
+# PRINT THE CONTAINER'S RETAINED LOGS — free, read-only, no marker needed.
+#
+# Fires on a push touching its own two files: the way to read the logs is to
+# nudge LOG_HOURS/LOG_NEEDLE below and push. `workflow_dispatch` is here too
+# for anyone with the button; a session cannot press it (403). It spends
+# nothing — the query runs with `dry: true` and starts no container — so the
+# opt-in marker discipline the paid workflows carry does not apply.
+#
+# WHY: runs 41-44 each lost a fired generation and the only witness was the
+# container's stderr, retained since observability went on and readable by
+# nobody — a session holds no Cloudflare token, and the dashboard needs a
+# person. CI's own deploy token can ask; this is the asking.
+name: container logs
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/container-logs.yml'
+      - 'scripts/container-logs.mjs'
+
+jobs:
+  logs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: query workers logs
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # The window and the filter for THIS read. Hours back from now;
+          # needle is a substring of the log message, empty for everything.
+          LOG_HOURS: '5'
+          LOG_NEEDLE: ''
+        run: node scripts/container-logs.mjs
