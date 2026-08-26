@@ -797,7 +797,16 @@ test("AN ORDINARY QUEUED BUILD'S 202 IS UNCHANGED", async () => {
 
 test("BOTH ENDS OF THE RESUME NAME THE BRANCH, not just the one that worked", () => {
   const body = fn("runResumedSiteBuild");
-  const packs = [...body.matchAll(/packResult\(\{[\s\S]{0,600}?\}\)/g)].map((m) => m[0]);
+  // BOUNDED BY THE CALL'S OWN BRACKETS, never by a byte count. This guard read
+  // `[\s\S]{0,600}` and went red the moment a comment inside one of those two
+  // results outran it — a test about how much PROSE is in the call, reporting
+  // that one of the two outcomes is "gone" about code that is right there.
+  // Never size a source-read window in bytes; this file already carries the
+  // rule twice and this is the third instance.
+  const packs = [];
+  for (let i = body.indexOf("packResult({"); i > 0; i = body.indexOf("packResult({", i + 1)) {
+    packs.push(body.slice(i, close(body, i + "packResult".length)));
+  }
   assert.ok(packs.length >= 2, `the resume packs ${packs.length} results — one of the two outcomes is gone`);
   for (const p of packs) {
     assert.match(p, /resumed: decision\.act/,
@@ -808,7 +817,12 @@ test("BOTH ENDS OF THE RESUME NAME THE BRANCH, not just the one that worked", ()
   // "the build failed", which is one they cannot.
   const fail = packs.find((p) => p.includes("the build failed"));
   assert.ok(fail, "the resume's failure result is gone — rescope this guard");
-  for (const field of ["why: decision.why", "upstream:", "upstreamType:"]) {
+  // `was` IS THE ONE THAT SEPARATES TWO OPPOSITE FIXES. `resumeDecision`
+  // computes it precisely so a give-up can say WHICH failure kept happening —
+  // `lost` (the container's instance went away) needs the answer persisted,
+  // `no-request` (the call never left the container) needs the egress looked
+  // at. Run 41 answered `stop`/`refires` and could say neither.
+  for (const field of ["why: decision.why", "was: decision.was", "upstream:", "upstreamType:"]) {
     assert.ok(fail.includes(field), `the failure result drops \`${field}\``);
   }
   // …AND NEVER THE PROVIDER'S DETAIL, which can quote the request, and the
@@ -822,8 +836,24 @@ test("THE BRANCH IS IN THE TRACE BEFORE ANY OF THE WORK", () => {
   // record that survives nobody looking, and writing it FIRST is what makes an
   // isolate that dies mid-build still say which route it was on.
   const body = fn("runResumedSiteBuild");
-  const mark = body.indexOf('tr.at("resume:" + decision.act)');
+  // ANCHORED ON THE PROPERTY — the mark is BUILT from `decision.act` — rather
+  // than on one spelling of the expression. Pinned character for character
+  // this went red the moment the mark honestly grew its reason, reporting
+  // that the branch "is not recorded in the trace at all" about a line that
+  // records it and more. This repo's most repeated own-goal.
+  const mark = body.indexOf('tr.at("resume:" + decision.act');
   assert.ok(mark > 0, "the resumed branch is not recorded in the trace at all");
+  // AND THE NAME IS THE MODULE'S, NEVER FREE TEXT. `makeTrace` takes only
+  // finite numbers as extras, deliberately, so a connection string can never
+  // reach a trace by accident — and the same rule has to hold for the mark
+  // itself. `act`, `was` and `why` all come from `resumeDecision`'s own closed
+  // set; anything a provider or a customer wrote must not be spliced in here.
+  const at = body.slice(mark, close(body, mark + "tr.at".length));
+  for (const named of ["decision.act", "decision.was", "decision.why"]) {
+    assert.ok(at.includes(named), `the trace mark drops \`${named}\` — a give-up that cannot name its reason is the state run 41 was in`);
+  }
+  assert.ok(!/\b(e|err|error|detail|brief|slug)\b/.test(at.replace(/decision\.\w+/g, "")),
+    "the trace mark splices in something that is not resumeDecision's own — a trace step is a NAME, and free text there can carry a customer's brief");
   const build = body.indexOf("buildAndPublishPages(env, {");
   assert.ok(build > 0, "the resume no longer builds — rescope this guard");
   assert.ok(mark < build,

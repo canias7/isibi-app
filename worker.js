@@ -10398,7 +10398,20 @@ async function runResumedSiteBuild(env, ctx, id) {
   // `prov:database` already use the same prefixed form, and `budgetStage` walks
   // backwards to the last mark it recognises, so an unfamiliar one costs
   // nothing.
-  try { tr.at("resume:" + decision.act); } catch { /* a trace must never break a build */ }
+  // …AND THE REASON RIDES WITH IT, for the same argument that put the act here:
+  // the result is DELETE-ON-READ and may never be collected, so the trace is the
+  // record that survives nobody looking. Run 41's said `resume:stop` and could
+  // not say what kept happening — the one fact that decides the next fix.
+  //
+  // THE MOST SPECIFIC REASON THERE IS. On a give-up `why` is `refires`, which
+  // names the bound rather than the failure; `was` is what the bound was
+  // protecting against. Both come from a CLOSED set in `resumeDecision`
+  // (`lost` · `no-request` · `upstream` · `timeout` · `deadline` · `looks` ·
+  // `refires`), so nothing a provider or a customer wrote can reach a mark —
+  // which is the same guarantee `makeTrace` gets from taking only numbers as
+  // extras. `budgetStage` reads a `resume:` PREFIX, so a longer name still maps
+  // to the stage it always did.
+  try { tr.at("resume:" + decision.act + (decision.was || decision.why ? ":" + (decision.was || decision.why) : "")); } catch { /* a trace must never break a build */ }
   const budget = makeBudget();
   const genPath = {};
   // ── WHAT THE GENERATOR IS HANDED, and the three cases are not interchangeable.
@@ -10502,6 +10515,17 @@ async function runResumedSiteBuild(env, ctx, id) {
         kind: String((e && e.name) || "Error"),
         resumed: decision.act,
         why: decision.why || null,
+        // WHAT KEPT HAPPENING, not just that we ran out of tries. Run 41 ended
+        // `resumed:"stop" why:"refires"` and could not say WHETHER the two
+        // generations were LOST (`lost` — the instance recycled, which Fix 2's
+        // persisted copy is meant to survive) or NEVER LEFT the container
+        // (`no-request` — a failure carrying no provider status). Those two need
+        // opposite fixes, and `resumeDecision` computes the answer precisely so
+        // a give-up can name it — it was dropped here, which is the wiring shape
+        // this repo has recorded twelve times, arriving in the field added to
+        // prevent it. Omitted when there is nothing to carry, so an ordinary
+        // failure's body is unchanged.
+        ...(decision.was ? { was: decision.was } : {}),
         upstream: (e && e.status) || null,
         upstreamType: rk.type,
         ...(rk.billing ? { billing: true } : {}),
