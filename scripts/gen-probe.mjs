@@ -128,23 +128,40 @@ for (let i = 0; i < 10; i++) {
 
 log("");
 const f = first.body;
-if (f.state === "failed" && Number.isFinite(f.status) && f.status === 404) {
-  log("PHASE 1 VERDICT: THE WHOLE MECHANISM WORKS.");
-  log("  404 means the container's key was ACCEPTED and only the model name was");
-  log("  refused — so the fire landed, the background call went out over the");
-  log("  network, the answer was stored, and a later call collected it.");
-} else if (f.state === "failed" && Number.isFinite(f.status) && (f.status === 401 || f.status === 403)) {
+// THE STATUS IS THE ANSWER, NOT ONE PARTICULAR NUMBER. The first draft branched
+// on 404, and xAI answers an unknown model with 400 — so the run that PROVED the
+// mechanism fell through every branch and printed "STILL FAILED AFTER 20
+// SECONDS" about a job that settled in two. A verdict with no branch for the
+// answer it got is the works-but-cannot-say-so disease inside the instrument
+// built to cure it.
+//
+// What discriminates is not the number, it is WHOSE refusal it is: any status at
+// all means the provider answered, which means the key was accepted and the
+// request left the container. Only 401/403 say the credential itself was
+// refused.
+const spoke = f.state === "failed" && Number.isFinite(f.status) && f.status > 0;
+if (spoke && (f.status === 401 || f.status === 403)) {
   log(`PHASE 1 VERDICT: THE CONTAINER'S KEY IS NOT USABLE — ${f.status}.`);
   log("  The request left the container and the provider refused the credential.");
   log("  Every real generation then fails the same way, `retryHere` reads it as");
   log("  money-not-spent, and the resume re-runs the WHOLE generation in the");
-  log("  Worker under a ten-minute cap — which is exactly how run 40 ended.");
-} else if (f.state === "failed" && !Number.isFinite(f.status)) {
+  log("  Worker under a ten-minute cap.");
+} else if (spoke) {
+  log(`PHASE 1 VERDICT: THE WHOLE MECHANISM WORKS — the provider answered ${f.status}.`);
+  log("  A status is the PROVIDER's own answer, so the container's key was");
+  log("  accepted and only the model name was refused. The fire landed, the");
+  log("  background call went out over the network, the answer was stored, and a");
+  log("  separate later call collected it.");
+  log("  So `here / no-request` is not reachable on a healthy container: a");
+  log("  failure that reaches the provider carries a status, and `retryHere`");
+  log("  refuses to retry one.");
+} else if (f.state === "failed") {
   log("PHASE 1 VERDICT: NO REQUEST LEFT THE CONTAINER AT ALL.");
   log(`  kind=${f.kind || "-"} message=${String(f.message || "").slice(0, 200)}`);
   log("  No provider answered, so this is the container's own side: a missing");
-  log("  key, a refused egress, or a throw before the fetch. Same downstream");
-  log("  consequence as the 401 case — every build falls back to the Worker.");
+  log("  key, a refused egress, or a throw before the fetch. That is exactly");
+  log("  `retryHere` -> `here / no-request` — every build falls back to a");
+  log("  ten-minute generation in the Worker.");
 } else if (f.state === "unknown") {
   log("PHASE 1 VERDICT: THE CONTAINER LOST THE JOB WITHIN SECONDS.");
   log("  Not idling — nothing had time to go idle. The store or the instance is");
@@ -153,10 +170,15 @@ if (f.state === "failed" && Number.isFinite(f.status) && f.status === 404) {
   log("PHASE 1 VERDICT: THE PROBE'S MODEL ID IS NO LONGER REFUSED.");
   log("  Something answered where nothing should have. Pick a new id before");
   log("  reading anything else here — this run may have spent money.");
-} else {
-  log(`PHASE 1 VERDICT: STILL ${String(f.state).toUpperCase()} AFTER 20 SECONDS.`);
+} else if (f.state === "pending") {
+  log("PHASE 1 VERDICT: STILL PENDING AFTER 20 SECONDS.");
   log("  A refused request should settle in milliseconds, so the background call");
   log("  is not running or not settling. That is the fire's own half.");
+} else {
+  // THE HONEST CATCH-ALL, and it can never lie: it names the answer rather than
+  // describing one. Every branch above claims something; this one only reports.
+  log(`PHASE 1 VERDICT: AN ANSWER THIS PROBE HAS NO BRANCH FOR — state=${String(f.state)}.`);
+  log(`  ${JSON.stringify(f).slice(0, 400)}`);
 }
 
 // ── phase 2: does the instance survive an idle window ───────────────────────

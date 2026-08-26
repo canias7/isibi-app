@@ -13,9 +13,21 @@
 # left the container.
 #
 # RUNS ON EVERY PUSH, like `container reach`, because a free check that answers a
-# load-bearing question should not need remembering. It takes ~8 minutes, almost
-# all of it the deliberate idle wait in phase 2 — set PROBE_IDLE_MS to 0 to skip
-# that half.
+# load-bearing question should not need remembering.
+#
+# PHASE 2 IS OFF BY DEFAULT AND THAT IS A RESULT, NOT A SAVING. Its question —
+# does an instance survive an idle window longer than `sleepAfter` — was answered
+# on 2026-08-26: the same job id came back with the same answer after seven
+# minutes of nothing touching the container, so `here / lost` is not what a real
+# build hits. Re-arm it by setting PROBE_IDLE_MS to a number of milliseconds past
+# `sleepAfter`; it costs seven minutes of runner time per push, which is why it
+# is not paid on every commit for an answer already in hand.
+#
+# PHASE 1 STAYS ON EVERY PUSH because it is ~30 seconds and it is the standing
+# check that the container's KEY still works and its EGRESS is still open. Both
+# of those can regress under us — a rotated secret, a changed network policy —
+# and either one silently sends every fired build back to a ten-minute
+# generation in the Worker.
 name: gen probe
 
 on:
@@ -54,6 +66,9 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           OWNER_EMAIL: aniascristian@gmail.com
           OWNER_BASE_URL: https://gofarther.dev
+          # Phase 2 answered on 2026-08-26 — see the header. Set this to a value
+          # past `sleepAfter` (e.g. 420000) to ask it again.
+          PROBE_IDLE_MS: "0"
         run: node scripts/gen-probe.mjs
       - uses: actions/upload-artifact@v4
         if: always()

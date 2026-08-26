@@ -82,6 +82,44 @@ test("BOTH PHASES PASS THE CONTAINER'S OWN ANSWER THROUGH", () => {
   assert.ok(!/await r\.json\(\)/.test(block), "the probe parses straight to JSON, so a runtime 502 reads as no answer");
 });
 
+test("THE VERDICT CANNOT FALL THROUGH — every answer lands somewhere honest", () => {
+  // THE BUG THIS HOLDS. The first draft branched on `status === 404`, and xAI
+  // answers an unknown model with 400 — so the run that PROVED the mechanism
+  // fell past every branch into the `pending` arm and printed "STILL FAILED
+  // AFTER 20 SECONDS" about a job that had settled in two. A verdict with no
+  // branch for the answer it got is the works-but-cannot-say-so disease, in the
+  // instrument built to cure it.
+  //
+  // THE PROPERTY IS NOT "MENTION 400 TOO". It is that a status NUMBER is never
+  // what discriminates: any status at all means the provider answered, which
+  // means the key was accepted and the request left the container. Only 401 and
+  // 403 say something else — that the credential itself was refused — so those
+  // two are the ONLY numbers this chain may name.
+  const src = fs.readFileSync(new URL("../scripts/gen-probe.mjs", import.meta.url), "utf8");
+  const bare = src.split("\n").map((l) => (/^\s*(\/\/|\*|\/\*)/.test(l) ? "" : l)).join("\n");
+  // ANCHORED WHERE THE VERDICT IS DECIDED, NOT WHERE IT IS PRINTED. The first
+  // draft opened at "PHASE 1 VERDICT" — inside the first `log(...)` — so the
+  // condition that CHOOSES the branch sat above the window, and the mutation
+  // restoring `status === 404` survived the guard written for it.
+  const from = bare.indexOf("const f = first.body;");
+  const to = bare.indexOf("PHASE 2 VERDICT");
+  assert.ok(from > 0 && to > from, "the verdict chain is gone — rescope this guard");
+  const chain = bare.slice(from, to);
+  assert.ok(chain.includes("PHASE 1 VERDICT"), "the window opens after the verdicts it is meant to cover");
+
+  for (const m of chain.matchAll(/f\.status\s*===\s*(\d+)/g)) {
+    assert.ok(m[1] === "401" || m[1] === "403",
+      `the chain branches on status ${m[1]} — a number is never the discriminator, only whose refusal it is`);
+  }
+  // …and the pending arm must SAY it is about pending, or it becomes the
+  // catch-all again the next time an unanticipated state arrives.
+  assert.match(chain, /f\.state\s*===\s*"pending"/, "the pending verdict is not guarded on the pending state");
+  // The real catch-all reports rather than claims: it must print the answer.
+  const tail = chain.slice(chain.lastIndexOf("} else {"));
+  assert.ok(tail.length > 0, "there is no final else — an unanticipated state is described by whichever branch it lands in");
+  assert.match(tail, /JSON\.stringify\(f\)/, "the catch-all describes an answer instead of naming it");
+});
+
 test("the probe refuses an unauthenticated caller rather than throwing", async () => {
   // It spins up a container, so an open version is a way for anyone to make us
   // start one — the same argument `/api/site/reach` already makes.
