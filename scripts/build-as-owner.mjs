@@ -465,15 +465,34 @@ async function discoverSlug() {
   return null;
 }
 
-if (disconnected) {
-  let slug = SLUG;
+// ── WHY THIS RUNS ON THE FIRED PATH TOO, AND IT IS THE WHOLE OF STAGE 2 ─────
+//
+// This block was written for the RESET — the socket dying at ~285s while the
+// build carried on — and gated on `disconnected` because that was the only way
+// an answer could arrive late. STAGE 2 MADE THAT THE ORDINARY CASE AND LEFT THE
+// GATE BEHIND: the POST returns 202 in seconds now and the socket does NOT die,
+// so `disconnected` is false and this watch would be skipped entirely. Step 4c
+// would then ask for the answer two seconds after the generation started, get
+// its `pending` 202, and step 5 would print `page=undefined cost=undefined` on
+// a perfect build — every measurement this run exists for reading as absent.
+// The comment above step 4c predicted exactly that failure; this gate is what
+// would have caused it.
+if (disconnected || firedJob) {
+  // THE SLUG IS ALREADY IN HAND ON THE FIRED PATH. The 202 carries it — the
+  // designer names the site before the generation fires — so `discoverSlug` is
+  // a Supabase round trip for something we were just told. It stays as the
+  // fallback for the reset, where the answer is the thing that was lost.
+  let slug = SLUG || (d && d.slug) || "";
   if (!slug) {
-    log("step 4b — the connection died before the slug came back; reading it off site_backends");
+    log("step 4b — no slug in hand; reading it off site_backends");
     slug = await discoverSlug();
   }
   if (!slug) {
-    fail("the connection died and this build never claimed a slug, so there is no address to " +
-      "watch — it did not get as far as provisioning. Check site_builds for how far it got.");
+    fail(disconnected
+      ? "the connection died and this build never claimed a slug, so there is no address to " +
+        "watch — it did not get as far as provisioning. Check site_builds for how far it got."
+      : "the build fired but named no site, so there is no address to watch. That should not be " +
+        "reachable — the slug is claimed before the generation fires. Check site_builds.");
   }
   // The public address. `/s/<slug>/` on the platform 301s to it, so either
   // reaches the site; the subdomain is the one a customer is given.
@@ -481,7 +500,7 @@ if (disconnected) {
   log(`step 4b — watching ${watch} — the build publishes when it publishes, no ceiling here`);
   const waitedFrom = Date.now();
   let published = false;
-  let settledOnPlaceholder = false;
+  let settled = "";
   // Poll for as long as this job is allowed to live. The runner's own cap is
   // the only bound, deliberately: the owner's instruction was to let the model
   // work, and a bound here would be exactly the ceiling we just removed.
@@ -514,10 +533,24 @@ if (disconnected) {
     // `done === true` STRICTLY, never truthiness: an unreadable trace answers
     // `{err}` and must keep us waiting rather than declare the run over, since
     // "Supabase blinked" and "the build gave up" want opposite responses.
-    if (stand && got.row && got.row.done === true) { settledOnPlaceholder = true; break; }
+    if (stand && got.row && got.row.done === true) { settled = "placeholder"; break; }
+    // A BUILD THAT IS OVER AND PUBLISHED NOTHING AT ALL IS ALSO OVER. The stop
+    // above needs a stand-in still being served; a build that died before it
+    // could publish even that answers 404, and without this the watch polls a
+    // dead address for the rest of the job. `ok === false` STRICTLY — the build
+    // recorded its own failure — because `done` alone beside a site that is not
+    // up yet can still be propagation, and giving up there would report a
+    // working build as a dead one.
+    if (!published && got.row && got.row.done === true && got.row.ok === false) {
+      settled = "failed"; break;
+    }
     await new Promise((r) => setTimeout(r, 15000));
   }
-  if (settledOnPlaceholder) {
+  if (settled === "failed") {
+    log("step 4b — THE BUILD RECORDED ITS OWN FAILURE AND PUBLISHED NOTHING.");
+    log("         `done=true ok=false` with no page at the address, so this is not a hang and");
+    log("         waiting longer buys nothing. The trace line above names the mark it died on.");
+  } else if (settled === "placeholder") {
     log("step 4b — THE BUILD FINISHED AND LEFT THE PLACEHOLDER STANDING.");
     log("         That is the ship-anyway path doing its job rather than a hang: the site has a");
     log("         real page at its real address, and it is the stand-in rather than the site the");
@@ -529,11 +562,14 @@ if (disconnected) {
   } else {
     log(`step 4b — PUBLISHED after ${((Date.now() - waitedFrom) / 60000).toFixed(1)} minutes of waiting`);
   }
-  // The response is gone with the socket, so everything it carried — cost,
-  // notes, the image report, whether the model wrote its own CSS — has to be
-  // read off the site and the ledger instead. Synthesise the one field the
-  // steps below need rather than pretending we have the rest.
-  d = { url: watch, slug };
+  // MERGED, NEVER REPLACED, and the fired path is why. On a reset `d` is null —
+  // the response died with the socket — so this synthesises the one field the
+  // steps below need rather than pretending we have the rest. On the fired path
+  // `d` is the 202, which carries the job id, the stage and the server's own
+  // sentence; replacing it would throw away the job that step 4c is about to
+  // collect against. The watched address wins over the 202's own `url`, because
+  // it is the one this run actually proved answers.
+  d = { ...(d || {}), url: watch, slug };
 }
 
 // ── THE FIRED BUILD'S REAL ANSWER, collected after the watch ────────────────
@@ -543,6 +579,15 @@ if (disconnected) {
 // or it never will, and one look is enough. A failure to collect it is reported
 // and not fatal: the site is what the customer has, and this run has already
 // proved whether it came up.
+//
+// WHETHER `d` CARRIES THE BUILD'S OWN ANSWER — the cost, the models, the image
+// report, the builder's reply. True when the POST returned it synchronously
+// (the degraded path, where the container had no `/model/start` to fire at),
+// and true again once this step has collected it. It is FALSE for two different
+// reasons — a reset lost the response, or a fired generation had not finished
+// by the time the watch stopped — and step 5 says which rather than printing
+// one sentence for both.
+let haveAnswer = !!build && !disconnected && !firedJob;
 if (firedJob) {
   try {
     const rr = await fetch(`${BASE}/api/site/build/${firedJob}`, { headers: auth });
@@ -557,6 +602,7 @@ if (firedJob) {
         // MERGED RATHER THAN REPLACED. The 202 carried the slug and the url and
         // step 4b has been watching them; the answer carries everything else.
         d = { ...d, ...got };
+        haveAnswer = true;
         log(`step 4c — collected the fired build's answer (${rr.status}).`);
       } else {
         log(`step 4c — the answer for job ${firedJob} was not JSON: ${txt.slice(0, 200)}`);
@@ -569,13 +615,13 @@ if (firedJob) {
 
 // The full response IS the record — cost, usage, seeded rows, image report,
 // notes, problems. Nothing in it is a credential.
-if (!disconnected) {
+if (haveAnswer) {
   log("step 4 — full response:");
   log(JSON.stringify(d, null, 2));
 }
 
 // ── step 5: what the images did (the first funded run ever) ─────────────────
-if (!disconnected) {
+if (haveAnswer) {
 log(`step 5 — page=${d.page} slug=${d.slug} url=${d.url}`);
 // WHICH PATH THE BUILD TOOK, which this log had no line for until 2026-08-25.
 // A first build is frontend only since then — `backend` off the design tool, the
@@ -596,9 +642,14 @@ if (d.images) log(`step 5 — images: ${JSON.stringify(d.images)}`);
 if (d.imageNote || d.imagesNote) log(`step 5 — image note: ${d.imageNote || d.imagesNote}`);
 if (d.notes) log(`step 5 — the builder's own reply: ${d.notes}`);
 if (d.problems && d.problems.length) log(`step 5 — problems: ${JSON.stringify(d.problems)}`);
-} else {
+} else if (disconnected) {
   log("step 5 — skipped: the response died with the socket, so the cost breakdown, the builder's");
   log("         own reply and the image report are all gone. The ledger below is what is left.");
+} else {
+  log("step 5 — skipped: the generation had not finished by the time this run stopped watching, so");
+  log("         the cost breakdown, the builder's own reply and the image report are not written");
+  log("         yet. They are NOT lost — the result is stored under the job id above and the");
+  log("         ledger below still measures what was spent. This is a slow build, not a dead one.");
 }
 
 // ── step 6: balance after ───────────────────────────────────────────────────

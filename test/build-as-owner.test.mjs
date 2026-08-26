@@ -65,9 +65,22 @@ test("a reset with no slug recovers the name instead of giving up", () => {
   // went with the socket. Arms A and B survived the identical reset purely
   // because they had been handed explicit names, so "the designer names the
   // site" and "a reset is survivable" were mutually exclusive.
-  const disc = CODE.slice(CODE.indexOf("async function discoverSlug"),
-    CODE.indexOf("if (disconnected) {"));
+  // BOUNDED ON THE WATCH'S FIRST STATEMENT, NOT ON ITS GATE. This read
+  // `indexOf("if (disconnected) {")` until 2026-08-26, when the gate correctly
+  // became `if (disconnected || firedJob)` — stage 2 made the fired build the
+  // ordinary path, so a watch that only ran on a reset would have been skipped
+  // on every build. `indexOf` then answered -1 and `slice(start, -1)` widened
+  // this window to the whole rest of the file, which every assertion below
+  // still passes: the SILENT direction of the spelling-pin own-goal rather than
+  // the red one. `let slug = SLUG` is a property — the watch resolves a name
+  // before it can watch anything — and it survives the condition changing.
+  const WATCH_AT = CODE.indexOf("let slug = SLUG");
+  assert.ok(WATCH_AT > 0, "could not find the start of the watch — every window here would be wrong");
+  const disc = CODE.slice(CODE.indexOf("async function discoverSlug"), WATCH_AT);
   assert.ok(disc.length > 200, "could not find discoverSlug — this check would be vacuous");
+  assert.ok(disc.length < 4000,
+    "the discoverSlug window ran past its end — an over-wide window passes every check below " +
+    "against text from somewhere else, which is how this guard went quietly vacuous once already");
   assert.match(disc, /site_backends\?/, "the recovery must read site_backends, where the claim is recorded");
 
   // THE TWO FILTERS ARE THE WHOLE CORRECTNESS ARGUMENT, and dropping either one
@@ -84,7 +97,7 @@ test("a reset with no slug recovers the name instead of giving up", () => {
 
   // Finding nothing is an honest answer, not a reason to guess. A build that
   // never claimed a slug has no address and never will.
-  const watch = CODE.slice(CODE.indexOf("if (disconnected) {"));
+  const watch = CODE.slice(WATCH_AT);
   // ANCHORED AFTER THE DISCOVERY, because there are TWO `if (!slug)` in a row —
   // the one that triggers the lookup and the one that gives up — and a window
   // opened at the first reaches the second's `fail(` inside 200 characters. So
@@ -195,10 +208,22 @@ const WORKER = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8")
 test("THE WATCH READS THE BODY ON A 200 — r.ok alone cannot tell the site from the stand-in", () => {
   // Anchored on the WATCH's own branch rather than on any `r.ok` in the file:
   // `discoverSlug` has one too and it is about a completely different read.
-  const at = CODE.indexOf("let settledOnPlaceholder");
-  assert.ok(at > 0, "the watch loop's placeholder state is gone");
-  const loop = CODE.slice(at, CODE.indexOf("if (settledOnPlaceholder)", at));
+  //
+  // BOUNDED ON THE LOOP'S OWN STATE AND ITS LAST STATEMENT. This named a
+  // variable that was renamed on 2026-08-26 when the watch grew a second way to
+  // settle, so both anchors answered -1 and `slice(-1, -1)` gave the empty
+  // string — which the length check below caught, LOUDLY, which is the whole
+  // reason it is there. `let published = false` and the poll's own sleep are
+  // properties of the loop rather than names somebody chose.
+  const at = CODE.indexOf("let published = false");
+  assert.ok(at > 0, "the watch loop's published state is gone");
+  const end = CODE.indexOf("setTimeout(r, 15000)", at);
+  assert.ok(end > at, "could not find the poll's own sleep — the loop window would be wrong");
+  const loop = CODE.slice(at, end);
   assert.ok(loop.length > 200, "the watch loop window is empty");
+  assert.ok(loop.length < 4000,
+    "the watch loop window ran past the loop — an over-wide window passes these checks against " +
+    "text from somewhere else");
   assert.match(loop, /isPlaceholder\(await r\.text\(\)\)/,
     "the watch does not read the body — this is the run-36 bug, restored");
   assert.match(loop, /if \(!stand\) published = true/,
@@ -234,6 +259,76 @@ test("A SETTLED PLACEHOLDER ENDS THE WAIT, and only on a STRICT done === true", 
   // "Supabase blinked" must not read as "the build gave up".
   assert.match(CODE, /if \(stand && got\.row && got\.row\.done === true\)/,
     "a settled placeholder no longer ends the wait, or the check went truthy");
+});
+
+test("THE WATCH RUNS ON A FIRED BUILD, not only on a reset", () => {
+  // THIS IS STAGE 2'S WHOLE MEASUREMENT AND IT NEARLY SHIPPED SKIPPED. The watch
+  // was written for the ~285s reset and gated `if (disconnected)`, because that
+  // was the only way an answer could arrive late. Stage 2 made a late answer the
+  // ORDINARY case — the POST returns 202 in seconds and the socket does not die
+  // — so `disconnected` stays false, the watch would never run, step 4c would
+  // ask two seconds after the generation started and get its pending 202, and
+  // step 5 would print `page=undefined cost=undefined` on a perfect build.
+  //
+  // ~130 credits, measuring nothing. Asserted as a PROPERTY of the gate rather
+  // than a spelling, because "tidy this back to `disconnected`" is a one-word
+  // edit that restores the bug with every other check in this file green.
+  // ANCHORED ON THE STATEMENT THE GATE OPENS, NEVER ON THE COMMENT ABOVE IT.
+  // `CODE` is comment-BLANKED — the file argues both hazards at length and would
+  // otherwise match its own prose — so the first draft of this anchored on
+  // `// THE SLUG IS ALREADY IN HAND` and matched nothing at all, failing against
+  // perfectly correct code. `\s*` crosses the blanked comment.
+  const gate = CODE.match(/\nif \(([^)]*)\) \{\s*let slug = SLUG/);
+  assert.ok(gate, "could not find the watch's gate — this check would be vacuous");
+  assert.match(gate[1], /\bfiredJob\b/,
+    "the watch must run on a FIRED build. Gated on `disconnected` alone it is skipped on every " +
+    "stage-2 build, which is every build — and the run reports page=undefined cost=undefined");
+  assert.match(gate[1], /\bdisconnected\b/,
+    "…and it must still run on a reset, which is what it was built for");
+
+  // AND THE SLUG COMES OFF THE 202 RATHER THAN OUT OF SUPABASE. The fired answer
+  // carries it, so `discoverSlug` there is a round trip for something we were
+  // just told — and it must stay as the fallback for the reset, where the answer
+  // is the thing that was lost.
+  assert.match(CODE, /let slug = SLUG \|\| \(d && d\.slug\) \|\| ""/,
+    "the fired path must prefer the slug the 202 already carried");
+  assert.match(CODE, /slug = await discoverSlug\(\)/,
+    "…and the ledger lookup must survive as the fallback for a reset");
+});
+
+test("STEP 5 PRINTS WHEN THERE IS AN ANSWER, and says WHICH absence when there is not", () => {
+  // `!disconnected` stopped meaning "we have the answer" the moment a build
+  // could return 202 and answer minutes later: on the fired path it is TRUE
+  // while `d` is the 202, which carries no page, no cost and no image report.
+  // So step 5 would have printed `undefined` four times over rather than saying
+  // the generation had not finished.
+  assert.match(CODE, /let haveAnswer = !!build && !disconnected && !firedJob;/,
+    "the answer flag must start false on a fired build — the 202 is not the answer");
+  assert.match(CODE, /haveAnswer = true;/, "…and step 4c must set it when it collects");
+
+  // THE RESPONSE DUMP GATES ON THE SAME THING, because it makes the same claim.
+  // On `!disconnected` it prints the 202 — a job id and a `resuming` stage —
+  // under the heading "full response", which is a bare fact wearing the label of
+  // the thing this run exists to record. Survived the first sweep.
+  assert.match(CODE, /\nif \(haveAnswer\) \{\s*log\("step 4 — full response/,
+    "the response dump must gate on having the answer too, or it prints the 202 as if it were one");
+  // The gate and the region are located by ONE match, so this cannot pass on a
+  // step 5 that is gated correctly somewhere else in the file. Anchored on code
+  // rather than the `── step 5:` banner, which the blanker turns to spaces.
+  const fiveAt = CODE.search(/\nif \(haveAnswer\) \{\s*log\(`step 5 — page=/);
+  assert.ok(fiveAt > 0,
+    "step 5 must gate on having the answer, not on the socket having survived");
+  const five = CODE.slice(fiveAt);
+  assert.ok(five.length > 400, "could not find step 5 — this check would be vacuous");
+
+  // TWO ABSENCES, TWO SENTENCES. A reset lost the response for good; a fired
+  // generation that had not finished has its answer stored under the job id and
+  // is merely slow. Telling somebody their cost breakdown is "gone" when it is
+  // sitting in R2 sends them looking for a bug that is not there.
+  assert.match(five, /\} else if \(disconnected\) \{/,
+    "the reset's own sentence must stay reachable");
+  assert.match(five, /not written[\s\S]{0,400}NOT lost/,
+    "a fired build that had not finished must be told apart from a lost response");
 });
 
 test("ONE TRACE READ SERVES BOTH THE LINE AND THE DECISION", () => {
